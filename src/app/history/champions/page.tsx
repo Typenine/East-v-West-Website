@@ -250,7 +250,7 @@ export default function ChampionsPage() {
                     </tr>
                     <tr>
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">WR</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">Ja'Marr Chase</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">Ja&apos;Marr Chase</td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">24.2</td>
                     </tr>
                     <tr>
