@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { useSearchParams } from 'next/navigation';
@@ -11,7 +11,8 @@ import ErrorState from '@/components/ui/error-state';
 import EmptyState from '@/components/ui/empty-state';
 import { getTeamLogoPath, getTeamColorStyle } from '@/lib/utils/team-utils';
 
-export default function TradesPage() {
+// Create a client component that uses searchParams
+function TradesContent() {
   const searchParams = useSearchParams();
   
   // Get filter values from URL parameters or use defaults
@@ -308,5 +309,14 @@ export default function TradesPage() {
       )}
       </div>
     </div>
+  );
+}
+
+// Export the page component with Suspense boundary
+export default function TradesPage() {
+  return (
+    <Suspense fallback={<LoadingState message="Loading trades..." />}>
+      <TradesContent />
+    </Suspense>
   );
 }
