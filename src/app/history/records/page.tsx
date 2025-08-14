@@ -2,7 +2,6 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { TEAM_NAMES } from '@/lib/constants/league';
 
 type RecordCategory = 'team' | 'game' | 'season' | 'player';
 

@@ -4,7 +4,8 @@ import { useState, useEffect, Suspense } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { useSearchParams } from 'next/navigation';
-import { TEAM_NAMES } from '@/lib/constants/league';
+import { LEAGUE_IDS } from '@/lib/constants/league';
+import { getTeamsData, TeamData } from '@/lib/utils/sleeper-api';
 import { Trade, fetchTradesByYear } from '@/lib/utils/trades';
 import LoadingState from '@/components/ui/loading-state';
 import ErrorState from '@/components/ui/error-state';
@@ -30,6 +31,13 @@ function TradesContent() {
     (assetTypeParam as 'all' | 'player' | 'pick') || 'all'
   );
   const [sortBy, setSortBy] = useState<string>(sortParam);
+  const [teams, setTeams] = useState<TeamData[]>([]);
+
+  // Helper: map selected year to leagueId
+  const getLeagueIdForYear = (year: string) => {
+    if (year === '2025') return LEAGUE_IDS.CURRENT;
+    return LEAGUE_IDS.PREVIOUS[year as keyof typeof LEAGUE_IDS.PREVIOUS];
+  };
   
   // Update URL with current filter parameters
   useEffect(() => {
@@ -63,8 +71,12 @@ function TradesContent() {
     const fetchTrades = async () => {
       try {
         setLoading(true);
-        const yearTrades = await fetchTradesByYear(selectedYear);
+        const [yearTrades, teamList] = await Promise.all([
+          fetchTradesByYear(selectedYear),
+          getTeamsData(getLeagueIdForYear(selectedYear))
+        ]);
         setTrades(yearTrades);
+        setTeams(teamList);
         setError(null);
       } catch (err) {
         console.error('Error fetching trades:', err);
@@ -164,11 +176,14 @@ function TradesContent() {
               className="block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md"
             >
               <option value="">All Teams</option>
-              {TEAM_NAMES.map((team) => (
-                <option key={team} value={team}>
-                  {team}
-                </option>
-              ))}
+              {teams
+                .map((t) => t.teamName)
+                .sort((a, b) => a.localeCompare(b))
+                .map((name) => (
+                  <option key={name} value={name}>
+                    {name}
+                  </option>
+                ))}
             </select>
           </div>
           

@@ -3,7 +3,7 @@
  * Each team has up to 4 colors that can be used for branding and UI elements
  */
 
-import { TEAM_NAMES } from './league';
+// Index-based TEAM_NAMES usage has been removed. Colors are keyed by canonical team name.
 
 // Type for team colors
 export interface TeamColors {
@@ -95,8 +95,4 @@ export const getTeamColors = (teamName: string): TeamColors => {
   };
 };
 
-// Function to get color by team index (for consistent coloring in lists)
-export const getTeamColorByIndex = (index: number): string => {
-  const teamName = TEAM_NAMES[index % TEAM_NAMES.length];
-  return TEAM_COLORS[teamName]?.primary || LEAGUE_COLORS.primary;
-};
+// Removed getTeamColorByIndex; always resolve by canonical team name instead.

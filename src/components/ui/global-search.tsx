@@ -2,7 +2,8 @@
 
 import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
-import { TEAM_NAMES } from '@/lib/constants/league';
+import { LEAGUE_IDS } from '@/lib/constants/league';
+import { getTeamsData, TeamData } from '@/lib/utils/sleeper-api';
 
 // Define search result types
 type SearchResultItem = {
@@ -32,6 +33,21 @@ export default function GlobalSearch() {
   const [selectedIndex, setSelectedIndex] = useState(0);
   const searchRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const [teams, setTeams] = useState<TeamData[]>([]);
+
+  // Load current season teams for accurate canonical names and roster links
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const data = await getTeamsData(LEAGUE_IDS.CURRENT);
+        if (!cancelled) setTeams(data);
+      } catch {
+        // swallow; search will still work for pages
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   // Handle search query changes
   useEffect(() => {
@@ -44,12 +60,13 @@ export default function GlobalSearch() {
     const searchResults: SearchResultItem[] = [];
     const lowerQuery = query.toLowerCase();
 
-    // Search teams
-    TEAM_NAMES.forEach((team, index) => {
-      if (team.toLowerCase().includes(lowerQuery)) {
+    // Search teams (live, canonical, correct roster IDs)
+    teams.forEach((t) => {
+      const name = t.teamName;
+      if (name.toLowerCase().includes(lowerQuery)) {
         searchResults.push({
-          title: team,
-          path: `/teams/${index + 1}`,
+          title: name,
+          path: `/teams/${t.rosterId}`,
           type: 'team',
           description: 'Team Page'
         });
@@ -71,7 +88,7 @@ export default function GlobalSearch() {
     // Limit results to top 10
     setResults(searchResults.slice(0, 10));
     setSelectedIndex(0);
-  }, [query]);
+  }, [query, teams]);
 
   // Close search when clicking outside
   useEffect(() => {
