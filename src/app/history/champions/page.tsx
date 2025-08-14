@@ -130,10 +130,10 @@ export default function ChampionsPage() {
           {selectedYear === '2024' ? (
             <div>
               <p className="mb-4">
-                In a thrilling championship matchup, Diggs in the Chat secured their first league title with a narrow victory over Burrow My Sorrows. The game came down to Monday Night Football, where Stefon Diggs' late touchdown sealed the win.
+                In a thrilling championship matchup, Diggs in the Chat secured their first league title with a narrow victory over Burrow My Sorrows. The game came down to Monday Night Football, where Stefon Diggs&apos; late touchdown sealed the win.
               </p>
               <p className="mb-4">
-                Diggs in the Chat was led by stellar performances from Stefon Diggs (28.4 pts), Josh Allen (26.2 pts), and a surprise contribution from their defense (18.0 pts). Despite Joe Burrow's heroic effort (32.6 pts) for Burrow My Sorrows, it wasn't enough to overcome the balanced attack from Diggs in the Chat.
+                Diggs in the Chat was led by stellar performances from Stefon Diggs (28.4 pts), Josh Allen (26.2 pts), and a surprise contribution from their defense (18.0 pts). Despite Joe Burrow&apos;s heroic effort (32.6 pts) for Burrow My Sorrows, it wasn&apos;t enough to overcome the balanced attack from Diggs in the Chat.
               </p>
               <p>
                 This championship victory capped off a dominant season for Diggs in the Chat, who led the league in scoring and finished with an impressive 11-3 record.
@@ -142,10 +142,10 @@ export default function ChampionsPage() {
           ) : (
             <div>
               <p className="mb-4">
-                Burrow My Sorrows claimed the inaugural league championship with a decisive victory over Diggs in the Chat. Joe Burrow's 4-touchdown performance in the championship game proved to be the difference-maker.
+                Burrow My Sorrows claimed the inaugural league championship with a decisive victory over Diggs in the Chat. Joe Burrow&apos;s 4-touchdown performance in the championship game proved to be the difference-maker.
               </p>
               <p className="mb-4">
-                The championship team was powered by Joe Burrow (36.8 pts), Ja'Marr Chase (24.2 pts), and Travis Kelce (22.6 pts). Diggs in the Chat fought hard but couldn't overcome an injury to their starting running back in the first quarter.
+                The championship team was powered by Joe Burrow (36.8 pts), Ja&apos;Marr Chase (24.2 pts), and Travis Kelce (22.6 pts). Diggs in the Chat fought hard but couldn&apos;t overcome an injury to their starting running back in the first quarter.
               </p>
               <p>
                 This championship marked the culmination of a strong season for Burrow My Sorrows, who overcame a slow start to win 8 of their final 9 regular-season games before dominating in the playoffs.
