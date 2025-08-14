@@ -25,6 +25,152 @@ export interface SleeperLeague {
   metadata: Record<string, unknown>;
 }
 
+/**
+ * Get a team's all-time aggregate stats across all configured league seasons by owner_id
+ * Uses LEAGUE_IDS.CURRENT and LEAGUE_IDS.PREVIOUS years.
+ */
+export async function getTeamAllTimeStatsByOwner(ownerId: string): Promise<{
+  wins: number;
+  losses: number;
+  ties: number;
+  totalPF: number;
+  totalPA: number;
+  avgPF: number;
+  avgPA: number;
+  highestScore: number;
+  lowestScore: number;
+}> {
+  try {
+    const yearToLeague: Record<string, string> = {
+      '2025': LEAGUE_IDS.CURRENT,
+      ...LEAGUE_IDS.PREVIOUS,
+    };
+
+    let wins = 0;
+    let losses = 0;
+    let ties = 0;
+    let totalPF = 0;
+    let totalPA = 0;
+    let highestScore = -Infinity;
+    let lowestScore = Infinity;
+    let games = 0;
+
+    for (const leagueId of Object.values(yearToLeague)) {
+      if (!leagueId) continue;
+
+      // Build rosterId -> ownerId map for this league
+      const rosters = await getLeagueRosters(leagueId);
+      const rosterOwner = new Map<number, string>();
+      for (const r of rosters) rosterOwner.set(r.roster_id, r.owner_id);
+
+      // Fetch all weeks' matchups in parallel
+      const weekPromises = Array.from({ length: 18 }, (_, i) => i + 1).map((w) => getLeagueMatchups(leagueId, w).catch(() => [] as SleeperMatchup[]));
+      const allWeekMatchups = await Promise.all(weekPromises);
+
+      for (const weekMatchups of allWeekMatchups) {
+        if (!weekMatchups || weekMatchups.length === 0) continue;
+
+        for (const m of weekMatchups) {
+          const mOwner = rosterOwner.get(m.roster_id);
+          if (mOwner !== ownerId) continue;
+
+          const opponent = weekMatchups.find((om) => om.matchup_id === m.matchup_id && om.roster_id !== m.roster_id);
+          if (!opponent) continue;
+
+          // Update aggregates
+          games += 1;
+          totalPF += m.points;
+          totalPA += opponent.points;
+          if (m.points > opponent.points) wins += 1;
+          else if (m.points < opponent.points) losses += 1;
+          else ties += 1;
+
+          if (m.points > highestScore) highestScore = m.points;
+          if (m.points < lowestScore) lowestScore = m.points;
+        }
+      }
+    }
+
+    if (games === 0) {
+      return {
+        wins: 0,
+        losses: 0,
+        ties: 0,
+        totalPF: 0,
+        totalPA: 0,
+        avgPF: 0,
+        avgPA: 0,
+        highestScore: 0,
+        lowestScore: 0,
+      };
+    }
+
+    return {
+      wins,
+      losses,
+      ties,
+      totalPF,
+      totalPA,
+      avgPF: totalPF / games,
+      avgPA: totalPA / games,
+      highestScore: isFinite(highestScore) ? highestScore : 0,
+      lowestScore: isFinite(lowestScore) ? lowestScore : 0,
+    };
+  } catch (error) {
+    console.error('Error computing all-time stats:', error);
+    throw error;
+  }
+}
+
+/**
+ * Get a team's all-time head-to-head records across all configured league seasons by owner_id
+ * Returns a map of opponentOwnerId -> record
+ */
+export async function getTeamH2HRecordsAllTimeByOwner(ownerId: string): Promise<Record<string, { wins: number; losses: number; ties: number }>> {
+  try {
+    const yearToLeague: Record<string, string> = {
+      '2025': LEAGUE_IDS.CURRENT,
+      ...LEAGUE_IDS.PREVIOUS,
+    };
+
+    const h2h: Record<string, { wins: number; losses: number; ties: number }> = {};
+
+    for (const leagueId of Object.values(yearToLeague)) {
+      if (!leagueId) continue;
+
+      const rosters = await getLeagueRosters(leagueId);
+      const rosterOwner = new Map<number, string>();
+      for (const r of rosters) rosterOwner.set(r.roster_id, r.owner_id);
+
+      const weekPromises = Array.from({ length: 18 }, (_, i) => i + 1).map((w) => getLeagueMatchups(leagueId, w).catch(() => [] as SleeperMatchup[]));
+      const allWeekMatchups = await Promise.all(weekPromises);
+
+      for (const weekMatchups of allWeekMatchups) {
+        if (!weekMatchups || weekMatchups.length === 0) continue;
+
+        for (const m of weekMatchups) {
+          const mOwner = rosterOwner.get(m.roster_id);
+          if (mOwner !== ownerId) continue;
+          const opponent = weekMatchups.find((om) => om.matchup_id === m.matchup_id && om.roster_id !== m.roster_id);
+          if (!opponent) continue;
+          const opponentOwnerId = rosterOwner.get(opponent.roster_id);
+          if (!opponentOwnerId) continue;
+
+          if (!h2h[opponentOwnerId]) h2h[opponentOwnerId] = { wins: 0, losses: 0, ties: 0 };
+          if (m.points > opponent.points) h2h[opponentOwnerId].wins += 1;
+          else if (m.points < opponent.points) h2h[opponentOwnerId].losses += 1;
+          else h2h[opponentOwnerId].ties += 1;
+        }
+      }
+    }
+
+    return h2h;
+  } catch (error) {
+    console.error('Error computing all-time H2H records:', error);
+    throw error;
+  }
+}
+
 export interface SleeperUser {
   user_id: string;
   username: string;

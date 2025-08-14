@@ -7,13 +7,14 @@ import { Tab } from '@headlessui/react';
 import { 
   getTeamsData, 
   getTeamWeeklyResults, 
-  getTeamH2HRecords,
   getAllPlayers,
   SleeperPlayer,
-  TeamData
+  TeamData,
+  getTeamAllTimeStatsByOwner,
+  getTeamH2HRecordsAllTimeByOwner,
 } from '@/lib/utils/sleeper-api';
 import { LEAGUE_IDS } from '@/lib/constants/league';
-import { getTeamLogoPath, getTeamColorStyle } from '@/lib/utils/team-utils';
+import { getTeamLogoPath, getTeamColorStyle, resolveCanonicalTeamName } from '@/lib/utils/team-utils';
 import LoadingState from '@/components/ui/loading-state';
 import ErrorState from '@/components/ui/error-state';
 
@@ -36,7 +37,7 @@ export default function TeamPage() {
     result: 'W' | 'L' | 'T';
     opponentRosterId: number;
   }>>([]);
-  const [h2hRecords, setH2HRecords] = useState<Record<number, { wins: number, losses: number, ties: number }>>({});
+  const [h2hRecords, setH2HRecords] = useState<Record<string, { wins: number, losses: number, ties: number }>>({});
   const [players, setPlayers] = useState<Record<string, SleeperPlayer>>({});
   const [allTeams, setAllTeams] = useState<TeamData[]>([]);
   const [loading, setLoading] = useState(true);
@@ -79,13 +80,13 @@ export default function TeamPage() {
         }
         setTeam(currentTeam);
         
-        // Fetch weekly results
+        // Fetch weekly results (season-scoped)
         const results = await getTeamWeeklyResults(leagueId, rosterId);
         setWeeklyResults(results);
-        
-        // Fetch H2H records
-        const h2h = await getTeamH2HRecords(leagueId, rosterId);
-        setH2HRecords(h2h);
+
+        // Fetch all-time H2H records (aggregated by owner across seasons)
+        const h2hAllTime = await getTeamH2HRecordsAllTimeByOwner(currentTeam.ownerId);
+        setH2HRecords(h2hAllTime);
         
         // Fetch players data if team has players
         if (currentTeam.players && currentTeam.players.length > 0) {
@@ -93,20 +94,9 @@ export default function TeamPage() {
           setPlayers(allPlayersData);
         }
         
-        // Calculate all-time stats
-        // In a real implementation, we would fetch data from all years
-        // For now, we'll use the current year as a placeholder
-        setAllTimeStats({
-          wins: currentTeam.wins,
-          losses: currentTeam.losses,
-          ties: currentTeam.ties,
-          totalPF: currentTeam.fpts,
-          totalPA: currentTeam.fptsAgainst,
-          avgPF: currentTeam.fpts / (currentTeam.wins + currentTeam.losses + currentTeam.ties || 1),
-          avgPA: currentTeam.fptsAgainst / (currentTeam.wins + currentTeam.losses + currentTeam.ties || 1),
-          highestScore: Math.max(...results.map(r => r.points)),
-          lowestScore: Math.min(...results.map(r => r.points))
-        });
+        // Fetch all-time aggregate stats by owner across seasons
+        const allTime = await getTeamAllTimeStatsByOwner(currentTeam.ownerId);
+        setAllTimeStats(allTime);
         
         setError(null);
       } catch (err) {
@@ -430,14 +420,13 @@ export default function TeamPage() {
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
-                  {Object.entries(h2hRecords).map(([opponentId, record]) => {
-                    const opponentTeam = allTeams.find(t => t.rosterId === parseInt(opponentId));
-                    const opponentName = opponentTeam ? opponentTeam.teamName : 'Unknown Team';
+                  {Object.entries(h2hRecords).map(([opponentOwnerId, record]) => {
+                    const opponentName = resolveCanonicalTeamName({ ownerId: opponentOwnerId });
                     const totalGames = record.wins + record.losses + record.ties;
                     const winPercentage = totalGames > 0 ? (record.wins + record.ties * 0.5) / totalGames : 0;
-                    
+
                     return (
-                      <tr key={opponentId}>
+                      <tr key={opponentOwnerId}>
                         <td className="px-6 py-4 whitespace-nowrap">
                           <div className="text-sm font-medium text-gray-900">{opponentName}</div>
                         </td>

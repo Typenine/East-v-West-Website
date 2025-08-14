@@ -3,14 +3,15 @@
 import { useState, useEffect } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
-import { getTeamsData } from '@/lib/utils/sleeper-api';
+import { getTeamsData, getTeamAllTimeStatsByOwner, TeamData } from '@/lib/utils/sleeper-api';
 import { LEAGUE_IDS } from '@/lib/constants/league';
 import { getTeamLogoPath, getTeamColorStyle } from '@/lib/utils/team-utils';
 
 export default function TeamsPage() {
-  const [teams, setTeams] = useState<Array<{teamName: string; rosterId: number; wins: number; losses: number; ties: number}>>([]);
+  const [teams, setTeams] = useState<TeamData[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [allTimeByOwner, setAllTimeByOwner] = useState<Record<string, { wins: number; losses: number; ties: number }>>({});
   
   useEffect(() => {
     async function fetchTeams() {
@@ -18,6 +19,18 @@ export default function TeamsPage() {
         setLoading(true);
         const teamsData = await getTeamsData(LEAGUE_IDS.CURRENT);
         setTeams(teamsData);
+
+        // Aggregate all-time records per owner across seasons
+        const uniqueOwners = Array.from(new Set(teamsData.map(t => t.ownerId)));
+        const results = await Promise.all(
+          uniqueOwners.map(async (ownerId) => {
+            const stats = await getTeamAllTimeStatsByOwner(ownerId);
+            return [ownerId, { wins: stats.wins, losses: stats.losses, ties: stats.ties }] as const;
+          })
+        );
+        const map: Record<string, { wins: number; losses: number; ties: number }> = {};
+        for (const [ownerId, rec] of results) map[ownerId] = rec;
+        setAllTimeByOwner(map);
         setError(null);
       } catch (err) {
         console.error('Error fetching teams:', err);
@@ -99,7 +112,10 @@ export default function TeamsPage() {
               <div className="p-4">
                 <h3 className="font-bold text-center text-lg">{team.teamName}</h3>
                 <div className="text-center text-sm text-gray-600 mt-2">
-                  {team.wins}-{team.losses}{team.ties > 0 ? `-${team.ties}` : ''}
+                  {/* All-time aggregated record */}
+                  {(allTimeByOwner[team.ownerId]?.wins ?? 0)}-
+                  {(allTimeByOwner[team.ownerId]?.losses ?? 0)}
+                  {((allTimeByOwner[team.ownerId]?.ties ?? 0) > 0) ? `-${allTimeByOwner[team.ownerId]!.ties}` : ''}
                 </div>
               </div>
             </div>
