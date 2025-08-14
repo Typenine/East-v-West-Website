@@ -1,5 +1,5 @@
-import { TEAM_NAMES, LEAGUE_IDS } from '@/lib/constants/league';
-import { SleeperTransaction, getLeagueTrades, getLeagueRosters, getAllPlayers } from '@/lib/utils/sleeper-api';
+import { LEAGUE_IDS } from '@/lib/constants/league';
+import { SleeperTransaction, getLeagueTrades, getLeagueRosters, getAllPlayers, getRosterIdToTeamNameMap } from '@/lib/utils/sleeper-api';
 
 // Define trade types
 export type TradeAsset = {
@@ -41,17 +41,19 @@ let playersCache: Record<string, any> | null = null;
 
 // Convert Sleeper transaction to our Trade format
 async function convertSleeperTradeToTrade(transaction: SleeperTransaction, leagueId: string): Promise<Trade> {
-  // Fetch rosters for the league if needed
+  // Build rosterId -> canonical team name map for the league
+  const rosterIdToTeam = await getRosterIdToTeamNameMap(leagueId);
   const rosters = await getLeagueRosters(leagueId);
+  const rosterMap = new Map(rosters.map(r => [r.roster_id, r]));
   
-  // Create maps for easier lookup
-  const rosterMap = new Map(rosters.map(roster => [roster.roster_id, roster]));
-  
-  // Get canonical team names for the rosters involved
-  const teamNames = transaction.roster_ids.map(rosterId => {
+  // Resolve canonical names in transaction order
+  const teamNames = transaction.roster_ids.map((rosterId) => {
+    const name = rosterIdToTeam.get(rosterId);
+    if (name) return name;
+    // Fallback to roster metadata team name if available
     const roster = rosterMap.get(rosterId);
-    const ownerIndex = roster ? TEAM_NAMES.findIndex((_, idx) => idx === (rosterId - 1) % TEAM_NAMES.length) : -1;
-    return ownerIndex >= 0 ? TEAM_NAMES[ownerIndex] : 'Unknown Team';
+    const metaName = roster?.metadata?.team_name;
+    return metaName ? metaName : `Roster ${rosterId}`;
   });
   
   // Fetch players data if not already cached

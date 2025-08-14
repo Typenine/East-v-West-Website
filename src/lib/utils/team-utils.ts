@@ -4,6 +4,8 @@
  */
 
 import { TEAM_COLORS, TeamColors } from '../constants/team-colors';
+import { TEAM_NAMES } from '../constants/league';
+import { CANONICAL_TEAM_BY_USER_ID, TEAM_ALIASES, normalizeName } from '../constants/team-mapping';
 
 /**
  * Converts a team name to a URL-friendly format for logo paths
@@ -86,3 +88,51 @@ export const getTeamColorStyle = (
     color: isLight(bgColor) ? '#000000' : '#ffffff',
   };
 };
+
+/**
+ * Canonical name resolution helpers
+ */
+
+// Precompute normalized canonical names for quick matching
+const CANONICAL_BY_NORMALIZED = new Map<string, string>(
+  TEAM_NAMES.map((n) => [normalizeName(n), n])
+);
+
+// Precompute normalized alias map
+const ALIAS_BY_NORMALIZED = new Map<string, string>(
+  Object.entries(TEAM_ALIASES).map(([alias, canon]) => [normalizeName(alias), canon])
+);
+
+/**
+ * Resolve a canonical team name using owner_id first, then aliases, then best-effort matches.
+ */
+export function resolveCanonicalTeamName(params: {
+  ownerId?: string | null;
+  rosterTeamName?: string | null;
+  userDisplayName?: string | null;
+  username?: string | null;
+}): string {
+  const { ownerId, rosterTeamName, userDisplayName, username } = params;
+
+  // 1) Direct mapping by user_id (source of truth across seasons)
+  if (ownerId && CANONICAL_TEAM_BY_USER_ID[ownerId]) {
+    return CANONICAL_TEAM_BY_USER_ID[ownerId];
+  }
+
+  const tryMap = (name?: string | null): string | undefined => {
+    if (!name) return undefined;
+    const key = normalizeName(name);
+    return ALIAS_BY_NORMALIZED.get(key) || CANONICAL_BY_NORMALIZED.get(key);
+  };
+
+  // 2) Roster/team display name on Sleeper
+  const fromRosterName = tryMap(rosterTeamName);
+  if (fromRosterName) return fromRosterName;
+
+  // 3) User display name or username as alias
+  const fromDisplay = tryMap(userDisplayName) || tryMap(username);
+  if (fromDisplay) return fromDisplay;
+
+  // 4) Unknown – caller can log and/or fall back to placeholder in UI
+  return 'Unknown Team';
+}

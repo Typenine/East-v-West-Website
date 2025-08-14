@@ -5,7 +5,8 @@
  * using the provided league IDs.
  */
 
-import { LEAGUE_IDS, TEAM_NAMES } from '../constants/league';
+import { LEAGUE_IDS } from '../constants/league';
+import { resolveCanonicalTeamName } from '../utils/team-utils';
 
 // Base URL for Sleeper API
 const SLEEPER_API_BASE = 'https://api.sleeper.app/v1';
@@ -36,6 +37,7 @@ export interface SleeperRoster {
   owner_id: string;
   league_id: string;
   players: string[];
+  metadata?: Record<string, string> | null;
   settings: {
     wins: number;
     waiver_position: number;
@@ -222,16 +224,23 @@ export async function getTeamsData(leagueId: string): Promise<TeamData[]> {
       getLeagueUsers(leagueId)
     ]);
     
-    // Create a map of user IDs to usernames for easier lookup
-    const users: Record<string, SleeperUser> = {};
-    usersData.forEach(user => {
-      users[user.user_id] = user;
-    });
-    
-    // Map rosters to teams with canon names
-    return rosters.map((roster, index) => {
+    // Map user ids
+    const usersById: Record<string, SleeperUser | undefined> = {};
+    for (const u of usersData) usersById[u.user_id] = u;
+
+    // Build team objects with canonical names resolved via owner_id and aliases
+    const teams: TeamData[] = rosters.map((roster) => {
+      const user = usersById[roster.owner_id];
+      const rosterTeamName = roster.metadata?.team_name ?? null;
+      const teamName = resolveCanonicalTeamName({
+        ownerId: roster.owner_id,
+        rosterTeamName,
+        userDisplayName: user?.display_name ?? null,
+        username: user?.username ?? null,
+      });
+
       return {
-        teamName: TEAM_NAMES[index], // Use canon team name in order
+        teamName,
         rosterId: roster.roster_id,
         ownerId: roster.owner_id,
         wins: roster.settings.wins,
@@ -239,13 +248,23 @@ export async function getTeamsData(leagueId: string): Promise<TeamData[]> {
         ties: roster.settings.ties,
         fpts: roster.settings.fpts + (roster.settings.fpts_decimal || 0) / 100,
         fptsAgainst: roster.settings.fpts_against + (roster.settings.fpts_against_decimal || 0) / 100,
-        players: roster.players || []
+        players: roster.players || [],
       };
     });
+
+    return teams;
   } catch (error) {
     console.error('Error fetching teams data:', error);
     throw error;
   }
+}
+
+/**
+ * Build a quick lookup Map from rosterId to canonical team name for a league.
+ */
+export async function getRosterIdToTeamNameMap(leagueId: string): Promise<Map<number, string>> {
+  const teams = await getTeamsData(leagueId);
+  return new Map(teams.map((t) => [t.rosterId, t.teamName]));
 }
 
 /**
