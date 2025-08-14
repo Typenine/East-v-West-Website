@@ -3,9 +3,19 @@
 // You can get user_id values from the Sleeper API or temporary console logs we emit in getTeamsData when unknown.
 
 export const CANONICAL_TEAM_BY_USER_ID: Record<string, string> = {
-  // 'user_id_here': 'Belltown Raptors',
-  // 'user_id_here': 'Double Trouble',
-  // ...
+  // 2025 league owners (authoritative across seasons)
+  '603801140211027968': 'Belltown Raptors',
+  '600107096758870016': 'Double Trouble',
+  '604014218504630272': 'Elemental Heroes',
+  '869614030313136128': 'Mt. Lebanon Cake Eaters',
+  '866793409938104320': 'Belleview Badgers',
+  '871107865686020096': 'BeerNeverBrokeMyHeart',
+  '603802414381879296': 'Detroit Dawgs',
+  '870841561565544448': 'bop pop',
+  '234898221262958592': "Minshew's Maniacs",
+  '866824942002487296': 'Red Pandas',
+  '867644621516353536': 'The Lone Ginger',
+  '741241996198469632': 'Bimg Bamg Boomg',
 };
 
 // Optional: map Sleeper-visible team/display names to your canonical names.
@@ -23,6 +33,7 @@ export const TEAM_ALIASES: Record<string, string> = {
   'mattminshew15': "Minshew's Maniacs",
   'songofthepanda': 'Red Pandas',
   'ryannmidolflynns': 'The Lone Ginger',
+  'ryanmidolflynns': 'The Lone Ginger',
   'ratpickle': 'Bimg Bamg Boomg',
 
   // Prior or alternate team/display names (past seasons)
@@ -31,6 +42,10 @@ export const TEAM_ALIASES: Record<string, string> = {
   'frank gore = hof': 'Belleview Badgers',
   'k9 minshew ii': "Minshew's Maniacs",
   'ryanmi dolflynns': 'The Lone Ginger',
+  'the lone ginger': 'The Lone Ginger',
+  'the lone gingeer': 'The Lone Ginger',
+  'the lone gingerr': 'The Lone Ginger',
+  'the lone gingerrr': 'The Lone Ginger',
   'maholmes and watson': 'Bimg Bamg Boomg',
 };
 

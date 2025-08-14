@@ -134,5 +134,16 @@ export function resolveCanonicalTeamName(params: {
   if (fromDisplay) return fromDisplay;
 
   // 4) Unknown – caller can log and/or fall back to placeholder in UI
+  try {
+    // Emit a helpful warning so we can populate CANONICAL_TEAM_BY_USER_ID or TEAM_ALIASES
+    // This will show up in the browser console and server logs during development
+    // It is safe to keep in production; it's a one-line warning.
+    console.warn('[team-utils] Unknown team mapping. Please add mapping in team-mapping.ts', {
+      ownerId,
+      rosterTeamName,
+      userDisplayName,
+      username,
+    });
+  } catch {}
   return 'Unknown Team';
 }
