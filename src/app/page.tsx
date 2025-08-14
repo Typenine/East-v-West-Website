@@ -1,49 +1,52 @@
 import Link from 'next/link';
 import CountdownTimer from '@/components/ui/countdown-timer';
 import MatchupCard from '@/components/ui/matchup-card';
-import { IMPORTANT_DATES, TEAM_NAMES } from '@/lib/constants/league';
+import { IMPORTANT_DATES, LEAGUE_IDS } from '@/lib/constants/league';
+import { getLeagueMatchups, getTeamsData } from '@/lib/utils/sleeper-api';
+import EmptyState from '@/components/ui/empty-state';
 
-// Mock data for Week 1 matchups
-const week1Matchups = [
-  {
-    homeTeam: TEAM_NAMES[0],
-    awayTeam: TEAM_NAMES[1],
-    kickoffTime: 'Thu Sep 4, 8:20 PM ET',
-    week: 1
-  },
-  {
-    homeTeam: TEAM_NAMES[2],
-    awayTeam: TEAM_NAMES[3],
-    kickoffTime: 'Sun Sep 7, 1:00 PM ET',
-    week: 1
-  },
-  {
-    homeTeam: TEAM_NAMES[4],
-    awayTeam: TEAM_NAMES[5],
-    kickoffTime: 'Sun Sep 7, 1:00 PM ET',
-    week: 1
-  },
-  {
-    homeTeam: TEAM_NAMES[6],
-    awayTeam: TEAM_NAMES[7],
-    kickoffTime: 'Sun Sep 7, 4:25 PM ET',
-    week: 1
-  },
-  {
-    homeTeam: TEAM_NAMES[8],
-    awayTeam: TEAM_NAMES[9],
-    kickoffTime: 'Sun Sep 7, 4:25 PM ET',
-    week: 1
-  },
-  {
-    homeTeam: TEAM_NAMES[10],
-    awayTeam: TEAM_NAMES[11],
-    kickoffTime: 'Mon Sep 8, 8:15 PM ET',
-    week: 1
-  },
-];
+export const revalidate = 0; // always fetch fresh Sleeper data
 
-export default function Home() {
+export default async function Home() {
+  const leagueId = LEAGUE_IDS.CURRENT;
+  const week1Matchups: Array<{
+    homeTeam: string;
+    awayTeam: string;
+    homeScore?: number;
+    awayScore?: number;
+    week: number;
+    kickoffTime?: string;
+  }> = [];
+  try {
+    const [matchups, teams] = await Promise.all([
+      getLeagueMatchups(leagueId, 1),
+      getTeamsData(leagueId),
+    ]);
+    const rosterIdToName = new Map<number, string>(
+      teams.map((t) => [t.rosterId, t.teamName])
+    );
+    const groups = new Map<number, { roster_id: number; points: number }[]>();
+    for (const m of matchups) {
+      const arr = groups.get(m.matchup_id) || [];
+      arr.push({ roster_id: m.roster_id, points: m.points });
+      groups.set(m.matchup_id, arr);
+    }
+    for (const arr of groups.values()) {
+      if (arr.length >= 2) {
+        const [a, b] = arr; // arbitrary away/home
+        const includeScores = (b.points ?? 0) > 0 || (a.points ?? 0) > 0;
+        week1Matchups.push({
+          homeTeam: rosterIdToName.get(b.roster_id) ?? `Roster ${b.roster_id}`,
+          awayTeam: rosterIdToName.get(a.roster_id) ?? `Roster ${a.roster_id}`,
+          homeScore: includeScores ? b.points : undefined,
+          awayScore: includeScores ? a.points : undefined,
+          week: 1,
+        });
+      }
+    }
+  } catch {
+    // If Sleeper data isn't available yet, render with empty state below
+  }
   return (
     <div className="container mx-auto px-4 py-8">
       <h1 className="text-3xl font-bold text-center mb-8">East v. West Fantasy Football</h1>
@@ -67,18 +70,27 @@ export default function Home() {
       {/* Week 1 Preview */}
       <section className="mb-12">
         <h2 className="text-2xl font-bold mb-6">Week 1 Preview</h2>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {week1Matchups.map((matchup, index) => (
-            <MatchupCard 
-              key={index}
-              homeTeam={matchup.homeTeam}
-              awayTeam={matchup.awayTeam}
-              kickoffTime={matchup.kickoffTime}
-              week={matchup.week}
-              className="bg-white"
-            />
-          ))}
-        </div>
+        {week1Matchups.length > 0 ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {week1Matchups.map((matchup, index) => (
+              <MatchupCard 
+                key={index}
+                homeTeam={matchup.homeTeam}
+                awayTeam={matchup.awayTeam}
+                homeScore={matchup.homeScore}
+                awayScore={matchup.awayScore}
+                kickoffTime={matchup.kickoffTime}
+                week={matchup.week}
+                className="bg-white"
+              />
+            ))}
+          </div>
+        ) : (
+          <EmptyState 
+            title="No Week 1 matchups"
+            message="Matchups for Week 1 are not yet available from Sleeper. Check back closer to kickoff."
+          />
+        )}
       </section>
       
       {/* Quick Links */}

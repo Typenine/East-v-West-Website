@@ -1,75 +1,123 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Tab } from '@headlessui/react';
 import CountdownTimer from '@/components/ui/countdown-timer';
-import { IMPORTANT_DATES, TEAM_NAMES } from '@/lib/constants/league';
+import { IMPORTANT_DATES, LEAGUE_IDS } from '@/lib/constants/league';
+import EmptyState from '@/components/ui/empty-state';
+import LoadingState from '@/components/ui/loading-state';
+import ErrorState from '@/components/ui/error-state';
+import { getLeagueDrafts, getDraftPicks, getTeamsData, getAllPlayers, SleeperPlayer } from '@/lib/utils/sleeper-api';
 
-// Mock data for past rookie drafts
-const pastDrafts = {
-  '2025': {
-    rounds: 5,
-    picks_per_round: 12,
-    team_hauls: TEAM_NAMES.map(team => ({
-      team,
-      picks: [
-        { round: 1, pick: Math.floor(Math.random() * 12) + 1, player: 'Player A' },
-        { round: 2, pick: Math.floor(Math.random() * 12) + 1, player: 'Player B' },
-      ]
-    }))
-  },
-  '2024': {
-    rounds: 5,
-    picks_per_round: 12,
-    team_hauls: TEAM_NAMES.map(team => ({
-      team,
-      picks: [
-        { round: 1, pick: Math.floor(Math.random() * 12) + 1, player: 'Player C' },
-        { round: 3, pick: Math.floor(Math.random() * 12) + 1, player: 'Player D' },
-      ]
-    }))
-  },
-  '2023': {
-    rounds: 5,
-    picks_per_round: 12,
-    team_hauls: TEAM_NAMES.map(team => ({
-      team,
-      picks: [
-        { round: 2, pick: Math.floor(Math.random() * 12) + 1, player: 'Player E' },
-        { round: 4, pick: Math.floor(Math.random() * 12) + 1, player: 'Player F' },
-      ]
-    }))
-  }
+// Draft data types
+type TeamHaul = {
+  team: string;
+  picks: { round: number; pick: number; player: string }[];
 };
 
-// Mock data for 2027 suggestions
-const suggestions = [
-  {
-    title: 'Add IDP Positions',
-    description: 'Consider adding Individual Defensive Players to deepen the league strategy.'
-  },
-  {
-    title: 'Increase Rookie Draft Rounds',
-    description: 'Add an extra round to the rookie draft to give more opportunities for sleeper picks.'
-  },
-  {
-    title: 'Dynasty Contract System',
-    description: 'Implement a contract system where players can be signed for 1-4 years with different cap implications.'
-  },
-  {
-    title: 'Auction Draft Format',
-    description: 'Switch to an auction format for the rookie draft to add another strategic element.'
-  }
-];
+type DraftYearData = {
+  rounds: number;
+  picks_per_round: number;
+  team_hauls: TeamHaul[];
+};
+
+type SleeperDraftSettings = {
+  rounds?: number;
+};
+
+// Suggestions section will use EmptyState (no mock content)
 
 export default function DraftPage() {
   const [selectedYear, setSelectedYear] = useState('2025');
-  const years = Object.keys(pastDrafts).sort((a, b) => parseInt(b) - parseInt(a));
+  const years = useMemo(() => ['2025', ...Object.keys(LEAGUE_IDS.PREVIOUS)].sort((a, b) => parseInt(b) - parseInt(a)), []);
   const submissionsOpen = false; // Toggle for 2027 suggestions submissions
+
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [draftsByYear, setDraftsByYear] = useState<Record<string, DraftYearData | null>>({});
+  const playersRef = useRef<Record<string, SleeperPlayer> | null>(null);
+  const loadedYearsRef = useRef<Set<string>>(new Set());
 
   function classNames(...classes: string[]) {
     return classes.filter(Boolean).join(' ');
   }
+
+  useEffect(() => {
+    const leagueId = selectedYear === '2025' 
+      ? LEAGUE_IDS.CURRENT 
+      : LEAGUE_IDS.PREVIOUS[selectedYear as keyof typeof LEAGUE_IDS.PREVIOUS];
+
+    if (!leagueId) {
+      setDraftsByYear(prev => ({ ...prev, [selectedYear]: null }));
+      return;
+    }
+
+    if (loadedYearsRef.current.has(selectedYear)) return;
+    loadedYearsRef.current.add(selectedYear);
+
+    let cancelled = false;
+    async function load() {
+      try {
+        setLoading(true);
+        setError(null);
+        const [drafts, teams] = await Promise.all([
+          getLeagueDrafts(leagueId),
+          getTeamsData(leagueId),
+        ]);
+
+        if (!playersRef.current) {
+          playersRef.current = await getAllPlayers();
+        }
+
+        const draft = drafts[0];
+        if (!draft) {
+          if (!cancelled) setDraftsByYear(prev => ({ ...prev, [selectedYear]: null }));
+          return;
+        }
+
+        const picks = await getDraftPicks(draft.draft_id);
+        const rounds = picks.reduce((max, p) => Math.max(max, p.round), 0);
+        const picksInRound1 = picks.filter(p => p.round === 1).length || teams.length;
+
+        const byTeam = new Map<number, { round: number; pick: number; player: string }[]>();
+        for (const p of picks) {
+          const arr = byTeam.get(p.roster_id) || [];
+          const player = playersRef.current?.[p.player_id];
+          const name = player ? `${player.first_name} ${player.last_name}` : 'Unknown Player';
+          arr.push({ round: p.round, pick: p.draft_slot, player: name });
+          byTeam.set(p.roster_id, arr);
+        }
+
+        const team_hauls: TeamHaul[] = [];
+        for (const t of teams) {
+          const arr = byTeam.get(t.rosterId) || [];
+          team_hauls.push({
+            team: t.teamName,
+            picks: arr.sort((a, b) => (a.round === b.round ? a.pick - b.pick : a.round - b.round)),
+          });
+        }
+
+        const data: DraftYearData = {
+          rounds: rounds || ((draft.settings as SleeperDraftSettings | null | undefined)?.rounds ?? 0),
+          picks_per_round: picksInRound1,
+          team_hauls,
+        };
+
+        if (!cancelled) setDraftsByYear(prev => ({ ...prev, [selectedYear]: data }));
+      } catch (e) {
+        console.error('Error loading draft data', e);
+        if (!cancelled) {
+          setError('Unable to load draft data at this time.');
+          setDraftsByYear(prev => ({ ...prev, [selectedYear]: null }));
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    load();
+    return () => { cancelled = true; };
+  }, [selectedYear]);
 
   return (
     <div className="container mx-auto px-4 py-8">
@@ -176,27 +224,34 @@ export default function DraftPage() {
                 ))}
               </select>
             </div>
-            
-            {pastDrafts[selectedYear as keyof typeof pastDrafts] && (
+            {loading ? (
+              <LoadingState message="Loading draft data..." />
+            ) : error ? (
+              <ErrorState message={error} />
+            ) : draftsByYear[selectedYear] === undefined ? (
+              <EmptyState title="Select a year" message="Choose a year to view draft results." />
+            ) : draftsByYear[selectedYear] === null ? (
+              <EmptyState title="No draft data" message="No draft data available for the selected year." />
+            ) : (
               <div>
                 <div className="mb-8">
                   <h3 className="text-xl font-bold mb-4">Draft Structure</h3>
                   <div className="grid grid-cols-2 gap-4">
                     <div className="border rounded-lg p-4 bg-slate-50">
                       <div className="text-sm text-gray-500">Rounds</div>
-                      <div className="text-2xl font-bold">{pastDrafts[selectedYear as keyof typeof pastDrafts].rounds}</div>
+                      <div className="text-2xl font-bold">{draftsByYear[selectedYear]?.rounds}</div>
                     </div>
                     <div className="border rounded-lg p-4 bg-slate-50">
                       <div className="text-sm text-gray-500">Picks Per Round</div>
-                      <div className="text-2xl font-bold">{pastDrafts[selectedYear as keyof typeof pastDrafts].picks_per_round}</div>
+                      <div className="text-2xl font-bold">{draftsByYear[selectedYear]?.picks_per_round}</div>
                     </div>
                   </div>
                 </div>
-                
+
                 <div>
                   <h3 className="text-xl font-bold mb-4">Team Hauls</h3>
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {pastDrafts[selectedYear as keyof typeof pastDrafts].team_hauls.map((teamHaul, index) => (
+                    {(draftsByYear[selectedYear]?.team_hauls ?? []).map((teamHaul, index) => (
                       <div key={index} className="border rounded-lg p-4">
                         <h4 className="font-bold mb-2">{teamHaul.team}</h4>
                         <ul className="space-y-1">
@@ -222,15 +277,10 @@ export default function DraftPage() {
                 {submissionsOpen ? 'Submissions Open' : 'Submissions Closed'}
               </div>
             </div>
-            
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {suggestions.map((suggestion, index) => (
-                <div key={index} className="border rounded-lg p-4 bg-slate-50">
-                  <h3 className="font-bold mb-2">{suggestion.title}</h3>
-                  <p className="text-sm text-gray-600">{suggestion.description}</p>
-                </div>
-              ))}
-            </div>
+            <EmptyState 
+              title="No suggestions yet" 
+              message="We'll open community suggestions for 2027 closer to the 2026 season."
+            />
           </Tab.Panel>
         </Tab.Panels>
       </Tab.Group>

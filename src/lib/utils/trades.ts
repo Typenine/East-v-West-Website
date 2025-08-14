@@ -346,8 +346,11 @@ const tradesCache: Record<string, Trade> = {};
  */
 export const fetchTradesByYear = async (year: string): Promise<Trade[]> => {
   try {
-    const leagueId = LEAGUE_IDS[year as keyof typeof LEAGUE_IDS];
-    if (!leagueId || typeof leagueId !== 'string') {
+    // Map the provided year to the correct league ID
+    const leagueId = year === '2025'
+      ? LEAGUE_IDS.CURRENT
+      : LEAGUE_IDS.PREVIOUS[year as keyof typeof LEAGUE_IDS.PREVIOUS];
+    if (!leagueId) {
       console.error(`No league ID found for year ${year}`);
       return [];
     }
@@ -392,17 +395,18 @@ export const fetchTradeById = async (id: string): Promise<Trade | null> => {
     
     // If not in cache, we need to fetch all trades and find it
     // This is inefficient but necessary since we don't know which league the trade belongs to
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    for (const [_year, leagueId] of Object.entries(LEAGUE_IDS)) {
-      if (typeof leagueId === 'string') {
-        const sleeperTrades = await getLeagueTrades(leagueId);
-        const transaction = sleeperTrades.find(t => t.transaction_id === id);
-        
-        if (transaction) {
-          const trade = await convertSleeperTradeToTrade(transaction, leagueId);
-          tradesCache[id] = trade;
-          return trade;
-        }
+    const yearToLeague: Record<string, string> = {
+      '2025': LEAGUE_IDS.CURRENT,
+      ...LEAGUE_IDS.PREVIOUS,
+    } as const;
+
+    for (const leagueId of Object.values(yearToLeague)) {
+      const sleeperTrades = await getLeagueTrades(leagueId);
+      const transaction = sleeperTrades.find(t => t.transaction_id === id);
+      if (transaction) {
+        const trade = await convertSleeperTradeToTrade(transaction, leagueId);
+        tradesCache[id] = trade;
+        return trade;
       }
     }
     

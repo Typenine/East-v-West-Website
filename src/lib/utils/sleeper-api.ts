@@ -111,6 +111,26 @@ export interface SleeperTransaction {
   }[];
 }
 
+// Draft types
+export interface SleeperDraft {
+  draft_id: string;
+  league_id: string;
+  season: string;
+  status: string;
+  type: string;
+  metadata?: Record<string, unknown> | null;
+  settings?: Record<string, unknown> | null;
+}
+
+export interface SleeperDraftPick {
+  pick_no: number; // overall pick number
+  round: number;
+  roster_id: number; // current owner roster id
+  player_id: string;
+  picked_by: string;
+  draft_slot: number;
+}
+
 /**
  * Fetch league information from Sleeper API
  * @param leagueId The Sleeper league ID
@@ -395,12 +415,17 @@ export async function getLeagueTransactions(leagueId: string, week?: number): Pr
  */
 export async function getLeagueTrades(leagueId: string): Promise<SleeperTransaction[]> {
   try {
-    // Fetch all transactions
-    const allTransactions = await getLeagueTransactions(leagueId);
-    
-    // Filter to only include completed trades
-    return allTransactions.filter(transaction => 
-      transaction.type === 'trade' && transaction.status === 'complete'
+    // Fetch transactions for all weeks in parallel (weeks 1-18)
+    const weeks = Array.from({ length: 18 }, (_, i) => i + 1);
+    const weeklyTransactions = await Promise.all(
+      weeks.map(week =>
+        getLeagueTransactions(leagueId, week).catch(() => [] as SleeperTransaction[])
+      )
+    );
+    const allTransactions = weeklyTransactions.flat();
+    // Only include completed trades
+    return allTransactions.filter(
+      (transaction) => transaction.type === 'trade' && transaction.status === 'complete'
     );
   } catch (error) {
     console.error('Error fetching league trades:', error);
@@ -416,12 +441,15 @@ export async function getAllLeagueTrades(): Promise<Record<string, SleeperTransa
   try {
     const tradesByYear: Record<string, SleeperTransaction[]> = {};
     
+    // Build a map of year -> leagueId across current and previous seasons
+    const yearToLeague: Record<string, string> = {
+      '2025': LEAGUE_IDS.CURRENT,
+      ...LEAGUE_IDS.PREVIOUS,
+    };
     // Process each league year
-    for (const [year, leagueId] of Object.entries(LEAGUE_IDS)) {
-      if (leagueId && typeof leagueId === 'string') {
-        const trades = await getLeagueTrades(leagueId);
-        tradesByYear[year] = trades;
-      }
+    for (const [year, leagueId] of Object.entries(yearToLeague)) {
+      const trades = await getLeagueTrades(leagueId);
+      tradesByYear[year] = trades;
     }
     
     return tradesByYear;
@@ -429,4 +457,30 @@ export async function getAllLeagueTrades(): Promise<Record<string, SleeperTransa
     console.error('Error fetching all league trades:', error);
     throw error;
   }
+}
+
+/**
+ * Fetch all drafts for a league
+ * @param leagueId The Sleeper league ID
+ * @returns Promise with array of drafts
+ */
+export async function getLeagueDrafts(leagueId: string): Promise<SleeperDraft[]> {
+  const response = await fetch(`${SLEEPER_API_BASE}/league/${leagueId}/drafts`);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch league drafts: ${response.statusText}`);
+  }
+  return response.json();
+}
+
+/**
+ * Fetch all picks for a draft
+ * @param draftId The Sleeper draft ID
+ * @returns Promise with array of draft picks
+ */
+export async function getDraftPicks(draftId: string): Promise<SleeperDraftPick[]> {
+  const response = await fetch(`${SLEEPER_API_BASE}/draft/${draftId}/picks`);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch draft picks: ${response.statusText}`);
+  }
+  return response.json();
 }
