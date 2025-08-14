@@ -1,103 +1,120 @@
-import Image from "next/image";
+import Link from 'next/link';
+import CountdownTimer from '@/components/ui/countdown-timer';
+import MatchupCard from '@/components/ui/matchup-card';
+import { IMPORTANT_DATES, TEAM_NAMES } from '@/lib/constants/league';
+
+// Mock data for Week 1 matchups
+const week1Matchups = [
+  {
+    homeTeam: TEAM_NAMES[0],
+    awayTeam: TEAM_NAMES[1],
+    kickoffTime: 'Thu Sep 4, 8:20 PM ET',
+    week: 1
+  },
+  {
+    homeTeam: TEAM_NAMES[2],
+    awayTeam: TEAM_NAMES[3],
+    kickoffTime: 'Sun Sep 7, 1:00 PM ET',
+    week: 1
+  },
+  {
+    homeTeam: TEAM_NAMES[4],
+    awayTeam: TEAM_NAMES[5],
+    kickoffTime: 'Sun Sep 7, 1:00 PM ET',
+    week: 1
+  },
+  {
+    homeTeam: TEAM_NAMES[6],
+    awayTeam: TEAM_NAMES[7],
+    kickoffTime: 'Sun Sep 7, 4:25 PM ET',
+    week: 1
+  },
+  {
+    homeTeam: TEAM_NAMES[8],
+    awayTeam: TEAM_NAMES[9],
+    kickoffTime: 'Sun Sep 7, 4:25 PM ET',
+    week: 1
+  },
+  {
+    homeTeam: TEAM_NAMES[10],
+    awayTeam: TEAM_NAMES[11],
+    kickoffTime: 'Mon Sep 8, 8:15 PM ET',
+    week: 1
+  },
+];
 
 export default function Home() {
   return (
-    <div className="font-sans grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20">
-      <main className="flex flex-col gap-[32px] row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="font-mono list-inside list-decimal text-sm/6 text-center sm:text-left">
-          <li className="mb-2 tracking-[-.01em]">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] font-mono font-semibold px-1 py-0.5 rounded">
-              src/app/page.tsx
-            </code>
-            .
-          </li>
-          <li className="tracking-[-.01em]">
-            Save and see your changes instantly.
-          </li>
-        </ol>
-
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:w-auto"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 w-full sm:w-auto md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
+    <div className="container mx-auto px-4 py-8">
+      <h1 className="text-3xl font-bold text-center mb-8">East v. West Fantasy Football</h1>
+      
+      {/* Countdowns Section */}
+      <section className="mb-12">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <CountdownTimer 
+            targetDate={IMPORTANT_DATES.NFL_WEEK_1_START} 
+            title="Regular season starts in" 
+            className="bg-blue-50 border border-blue-200"
+          />
+          <CountdownTimer 
+            targetDate={IMPORTANT_DATES.TRADE_DEADLINE} 
+            title="Trade deadline in" 
+            className="bg-amber-50 border border-amber-200"
+          />
         </div>
-      </main>
-      <footer className="row-start-3 flex gap-[24px] flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
+      </section>
+      
+      {/* Week 1 Preview */}
+      <section className="mb-12">
+        <h2 className="text-2xl font-bold mb-6">Week 1 Preview</h2>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          {week1Matchups.map((matchup, index) => (
+            <MatchupCard 
+              key={index}
+              homeTeam={matchup.homeTeam}
+              awayTeam={matchup.awayTeam}
+              kickoffTime={matchup.kickoffTime}
+              week={matchup.week}
+              className="bg-white"
+            />
+          ))}
+        </div>
+      </section>
+      
+      {/* Quick Links */}
+      <section>
+        <h2 className="text-2xl font-bold mb-6">Quick Links</h2>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+          <Link 
+            href="/teams" 
+            className="bg-slate-700 text-white p-4 rounded-lg text-center font-medium hover:bg-slate-800 transition-colors"
+            aria-label="View all teams"
+          >
+            Teams
+          </Link>
+          <Link 
+            href="/standings" 
+            className="bg-slate-700 text-white p-4 rounded-lg text-center font-medium hover:bg-slate-800 transition-colors"
+            aria-label="View league standings"
+          >
+            Standings
+          </Link>
+          <Link 
+            href="/history" 
+            className="bg-slate-700 text-white p-4 rounded-lg text-center font-medium hover:bg-slate-800 transition-colors"
+            aria-label="View league history"
+          >
+            History
+          </Link>
+          <Link 
+            href="/draft" 
+            className="bg-slate-700 text-white p-4 rounded-lg text-center font-medium hover:bg-slate-800 transition-colors"
+            aria-label="View draft information"
+          >
+            Draft
+          </Link>
+        </div>
+      </section>
     </div>
   );
 }

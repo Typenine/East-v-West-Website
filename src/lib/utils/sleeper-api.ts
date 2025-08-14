@@ -1,0 +1,432 @@
+/**
+ * Sleeper API utility functions
+ * 
+ * This file contains utilities for fetching data from the Sleeper API
+ * using the provided league IDs.
+ */
+
+import { LEAGUE_IDS, TEAM_NAMES } from '../constants/league';
+
+// Base URL for Sleeper API
+const SLEEPER_API_BASE = 'https://api.sleeper.app/v1';
+
+// Types for Sleeper API responses
+export interface SleeperLeague {
+  league_id: string;
+  name: string;
+  season: string;
+  settings: Record<string, unknown>;
+  scoring_settings: Record<string, unknown>;
+  roster_positions: string[];
+  status: string;
+  total_rosters: number;
+  draft_id: string;
+  metadata: Record<string, unknown>;
+}
+
+export interface SleeperUser {
+  user_id: string;
+  username: string;
+  display_name: string;
+  avatar: string;
+}
+
+export interface SleeperRoster {
+  roster_id: number;
+  owner_id: string;
+  league_id: string;
+  players: string[];
+  settings: {
+    wins: number;
+    waiver_position: number;
+    waiver_budget_used: number;
+    total_moves: number;
+    ties: number;
+    losses: number;
+    fpts: number;
+    fpts_decimal: number;
+    fpts_against: number;
+    fpts_against_decimal: number;
+  };
+}
+
+export interface SleeperMatchup {
+  matchup_id: number;
+  roster_id: number;
+  points: number;
+  custom_points?: number;
+  players: string[];
+  starters: string[];
+  matchup_week: number;
+}
+
+export interface SleeperPlayer {
+  player_id: string;
+  first_name: string;
+  last_name: string;
+  position: string;
+  team: string;
+  status: string;
+  injury_status: string;
+  years_exp: number;
+}
+
+export interface TeamData {
+  teamName: string;  // Canon team name
+  rosterId: number;
+  ownerId: string;
+  wins: number;
+  losses: number;
+  ties: number;
+  fpts: number;
+  fptsAgainst: number;
+  players: string[];
+}
+
+export interface SleeperTransaction {
+  type: 'trade' | 'free_agent' | 'waiver';
+  transaction_id: string;
+  status_updated: number;
+  status: 'complete' | 'pending' | 'vetoed';
+  settings: Record<string, unknown> | null;
+  roster_ids: number[];
+  metadata: Record<string, unknown> | null;
+  leg: number;
+  drops: Record<string, number> | null;
+  draft_picks: {
+    season: string;
+    round: number;
+    roster_id: number;
+    previous_owner_id: number;
+    owner_id: number;
+  }[];
+  creator: string;
+  created: number;
+  consenter_ids: number[];
+  adds: Record<string, number> | null;
+  waiver_budget: {
+    sender: number;
+    receiver: number;
+    amount: number;
+  }[];
+}
+
+/**
+ * Fetch league information from Sleeper API
+ * @param leagueId The Sleeper league ID
+ * @returns Promise with league data
+ */
+export async function getLeague(leagueId: string): Promise<SleeperLeague> {
+  const response = await fetch(`${SLEEPER_API_BASE}/league/${leagueId}`);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch league: ${response.statusText}`);
+  }
+  return response.json();
+}
+
+/**
+ * Fetch users in a league from Sleeper API
+ * @param leagueId The Sleeper league ID
+ * @returns Promise with array of users
+ */
+export async function getLeagueUsers(leagueId: string): Promise<SleeperUser[]> {
+  const response = await fetch(`${SLEEPER_API_BASE}/league/${leagueId}/users`);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch league users: ${response.statusText}`);
+  }
+  return response.json();
+}
+
+/**
+ * Fetch rosters in a league from Sleeper API
+ * @param leagueId The Sleeper league ID
+ * @returns Promise with array of rosters
+ */
+export async function getLeagueRosters(leagueId: string): Promise<SleeperRoster[]> {
+  const response = await fetch(`${SLEEPER_API_BASE}/league/${leagueId}/rosters`);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch league rosters: ${response.statusText}`);
+  }
+  return response.json();
+}
+
+/**
+ * Fetch matchups for a specific week from Sleeper API
+ * @param leagueId The Sleeper league ID
+ * @param week The week number
+ * @returns Promise with array of matchups
+ */
+export async function getLeagueMatchups(leagueId: string, week: number): Promise<SleeperMatchup[]> {
+  const response = await fetch(`${SLEEPER_API_BASE}/league/${leagueId}/matchups/${week}`);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch league matchups: ${response.statusText}`);
+  }
+  return response.json();
+}
+
+/**
+ * Fetch player information from Sleeper API
+ * @param playerId The Sleeper player ID
+ * @returns Promise with player data
+ */
+export async function getPlayer(playerId: string): Promise<SleeperPlayer> {
+  const response = await fetch(`${SLEEPER_API_BASE}/players/nfl/${playerId}`);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch player: ${response.statusText}`);
+  }
+  return response.json();
+}
+
+/**
+ * Fetch all players from Sleeper API
+ * This is a large request, so use sparingly
+ * @returns Promise with object of all players
+ */
+export async function getAllPlayers(): Promise<Record<string, SleeperPlayer>> {
+  const response = await fetch(`${SLEEPER_API_BASE}/players/nfl`);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch all players: ${response.statusText}`);
+  }
+  return response.json();
+}
+
+/**
+ * Get teams data with canon team names for a specific league
+ * @param leagueId The Sleeper league ID
+ * @returns Promise with array of team data
+ */
+export async function getTeamsData(leagueId: string): Promise<TeamData[]> {
+  try {
+    const [rosters, usersData] = await Promise.all([
+      getLeagueRosters(leagueId),
+      getLeagueUsers(leagueId)
+    ]);
+    
+    // Create a map of user IDs to usernames for easier lookup
+    const users: Record<string, SleeperUser> = {};
+    usersData.forEach(user => {
+      users[user.user_id] = user;
+    });
+    
+    // Map rosters to teams with canon names
+    return rosters.map((roster, index) => {
+      return {
+        teamName: TEAM_NAMES[index], // Use canon team name in order
+        rosterId: roster.roster_id,
+        ownerId: roster.owner_id,
+        wins: roster.settings.wins,
+        losses: roster.settings.losses,
+        ties: roster.settings.ties,
+        fpts: roster.settings.fpts + (roster.settings.fpts_decimal || 0) / 100,
+        fptsAgainst: roster.settings.fpts_against + (roster.settings.fpts_against_decimal || 0) / 100,
+        players: roster.players || []
+      };
+    });
+  } catch (error) {
+    console.error('Error fetching teams data:', error);
+    throw error;
+  }
+}
+
+/**
+ * Get all teams data across multiple seasons
+ * @returns Promise with object of team data by year
+ */
+export async function getAllTeamsData(): Promise<Record<string, TeamData[]>> {
+  try {
+    const currentYearTeams = getTeamsData(LEAGUE_IDS.CURRENT);
+    const year2024Teams = getTeamsData(LEAGUE_IDS.PREVIOUS['2024']);
+    const year2023Teams = getTeamsData(LEAGUE_IDS.PREVIOUS['2023']);
+    
+    const [current, y2024, y2023] = await Promise.all([
+      currentYearTeams,
+      year2024Teams,
+      year2023Teams
+    ]);
+    
+    return {
+      '2025': current,
+      '2024': y2024,
+      '2023': y2023
+    };
+  } catch (error) {
+    console.error('Error fetching all teams data:', error);
+    throw error;
+  }
+}
+
+/**
+ * Get a team's weekly matchup results for a season
+ * @param leagueId The Sleeper league ID
+ * @param rosterId The team's roster ID
+ * @returns Promise with array of weekly results
+ */
+export async function getTeamWeeklyResults(leagueId: string, rosterId: number): Promise<{
+  week: number;
+  points: number;
+  opponent: number;
+  opponentPoints: number;
+  result: 'W' | 'L' | 'T';
+  opponentRosterId: number;
+}[]> {
+  try {
+    // Assuming 18 weeks in a season
+    const weekPromises = Array.from({ length: 18 }, (_, i) => i + 1).map(week => 
+      getLeagueMatchups(leagueId, week)
+    );
+    
+    const allWeekMatchups = await Promise.all(weekPromises);
+    const teamResults = [];
+    
+    for (let week = 0; week < allWeekMatchups.length; week++) {
+      const weekMatchups = allWeekMatchups[week];
+      const teamMatchup = weekMatchups.find(m => m.roster_id === rosterId);
+      
+      if (teamMatchup) {
+        // Find opponent
+        const matchupId = teamMatchup.matchup_id;
+        const opponent = weekMatchups.find(m => m.matchup_id === matchupId && m.roster_id !== rosterId);
+        
+        if (opponent) {
+          const result: {
+            week: number;
+            points: number;
+            opponent: number;
+            opponentPoints: number;
+            opponentRosterId: number;
+            result: 'W' | 'L' | 'T';
+          } = {
+            week: week + 1,
+            points: teamMatchup.points,
+            opponent: opponent.roster_id,
+            opponentPoints: opponent.points,
+            opponentRosterId: opponent.roster_id,
+            result: teamMatchup.points > opponent.points ? 'W' : 
+                   teamMatchup.points < opponent.points ? 'L' : 'T'
+          };
+          
+          teamResults.push(result);
+        }
+      }
+    }
+    
+    return teamResults;
+  } catch (error) {
+    console.error('Error fetching team weekly results:', error);
+    throw error;
+  }
+}
+
+/**
+ * Get head-to-head records for a team against all other teams
+ * @param leagueId The Sleeper league ID
+ * @param rosterId The team's roster ID
+ * @returns Promise with object of H2H records
+ */
+export async function getTeamH2HRecords(leagueId: string, rosterId: number): Promise<Record<number, { wins: number, losses: number, ties: number }>> {
+  try {
+    // Assuming 18 weeks in a season
+    const weekPromises = Array.from({ length: 18 }, (_, i) => i + 1).map(week => 
+      getLeagueMatchups(leagueId, week)
+    );
+    
+    const allWeekMatchups = await Promise.all(weekPromises);
+    const h2hRecords: Record<number, { wins: number, losses: number, ties: number }> = {};
+    
+    for (const weekMatchups of allWeekMatchups) {
+      const teamMatchup = weekMatchups.find(m => m.roster_id === rosterId);
+      
+      if (teamMatchup) {
+        // Find opponent
+        const matchupId = teamMatchup.matchup_id;
+        const opponent = weekMatchups.find(m => m.matchup_id === matchupId && m.roster_id !== rosterId);
+        
+        if (opponent) {
+          const opponentId = opponent.roster_id;
+          
+          if (!h2hRecords[opponentId]) {
+            h2hRecords[opponentId] = { wins: 0, losses: 0, ties: 0 };
+          }
+          
+          if (teamMatchup.points > opponent.points) {
+            h2hRecords[opponentId].wins++;
+          } else if (teamMatchup.points < opponent.points) {
+            h2hRecords[opponentId].losses++;
+          } else {
+            h2hRecords[opponentId].ties++;
+          }
+        }
+      }
+    }
+    
+    return h2hRecords;
+  } catch (error) {
+    console.error('Error fetching team H2H records:', error);
+    throw error;
+  }
+}
+
+/**
+ * Fetch transactions for a specific league and week
+ * @param leagueId The Sleeper league ID
+ * @param week The week number (optional)
+ * @returns Promise with array of transactions
+ */
+export async function getLeagueTransactions(leagueId: string, week?: number): Promise<SleeperTransaction[]> {
+  try {
+    const weekParam = week !== undefined ? `/${week}` : '';
+    const response = await fetch(`${SLEEPER_API_BASE}/league/${leagueId}/transactions${weekParam}`);
+    
+    if (!response.ok) {
+      throw new Error(`Failed to fetch transactions: ${response.statusText}`);
+    }
+    
+    return response.json();
+  } catch (error) {
+    console.error('Error fetching league transactions:', error);
+    throw error;
+  }
+}
+
+/**
+ * Fetch all trades for a specific league
+ * @param leagueId The Sleeper league ID
+ * @returns Promise with array of trade transactions
+ */
+export async function getLeagueTrades(leagueId: string): Promise<SleeperTransaction[]> {
+  try {
+    // Fetch all transactions
+    const allTransactions = await getLeagueTransactions(leagueId);
+    
+    // Filter to only include completed trades
+    return allTransactions.filter(transaction => 
+      transaction.type === 'trade' && transaction.status === 'complete'
+    );
+  } catch (error) {
+    console.error('Error fetching league trades:', error);
+    throw error;
+  }
+}
+
+/**
+ * Fetch all trades across all league years
+ * @returns Promise with object of trades by year
+ */
+export async function getAllLeagueTrades(): Promise<Record<string, SleeperTransaction[]>> {
+  try {
+    const tradesByYear: Record<string, SleeperTransaction[]> = {};
+    
+    // Process each league year
+    for (const [year, leagueId] of Object.entries(LEAGUE_IDS)) {
+      if (leagueId && typeof leagueId === 'string') {
+        const trades = await getLeagueTrades(leagueId);
+        tradesByYear[year] = trades;
+      }
+    }
+    
+    return tradesByYear;
+  } catch (error) {
+    console.error('Error fetching all league trades:', error);
+    throw error;
+  }
+}
