@@ -45,7 +45,7 @@ export default function HistoryPage() {
         <div>
           <h2 className="text-2xl font-bold mb-6">League Champions</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {Object.entries(CHAMPIONS).map(([year, champion]) => (
+            {Object.entries(CHAMPIONS).map(([year, data]) => (
               <div key={year} className="bg-white shadow-md rounded-lg overflow-hidden">
                 <div className="bg-blue-600 text-white px-4 py-2 text-lg font-bold">
                   {year} Season
@@ -53,9 +53,9 @@ export default function HistoryPage() {
                 <div className="p-6">
                   <div className="text-center">
                     <div className="text-5xl mb-4">🏆</div>
-                    <h3 className="text-xl font-bold mb-2">{champion}</h3>
+                    <h3 className="text-xl font-bold mb-2">{data.champion}</h3>
                     <Link 
-                      href={`/teams/${champion.toLowerCase().replace(/\s+/g, '-')}`}
+                      href={`/teams/${data.champion.toLowerCase().replace(/\s+/g, '-')}`}
                       className="text-blue-600 hover:text-blue-800"
                     >
                       View Team
@@ -121,28 +121,36 @@ export default function HistoryPage() {
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
-                    {/* Calculate championship counts */}
-                    {Object.values(CHAMPIONS).reduce((counts, team) => {
-                      counts[team] = (counts[team] || 0) + 1;
-                      return counts;
-                    }, {} as Record<string, number>)
-                    // Convert to array and sort
-                    .entries()
-                    .sort((a, b) => b[1] - a[1])
-                    .slice(0, 5)
-                    .map((entry, index) => (
-                      <tr key={entry[0]}>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                          {index + 1}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                          {entry[0]}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                          {entry[1]}
-                        </td>
-                      </tr>
-                    ))}
+                    {/* Championship counts */}
+                    {(() => {
+                      // Create a counts object
+                      const counts: Record<string, number> = {};
+                      
+                      // Count championships by team
+                      Object.values(CHAMPIONS).forEach((data) => {
+                        if (data.champion !== 'TBD') {
+                          counts[data.champion] = (counts[data.champion] || 0) + 1;
+                        }
+                      });
+                      
+                      // Convert to array, sort, and take top 5
+                      return Object.entries(counts)
+                        .sort((a, b) => b[1] - a[1])
+                        .slice(0, 5)
+                        .map((entry, index) => (
+                          <tr key={entry[0]}>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                              {index + 1}
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                              {entry[0]}
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                              {entry[1]}
+                            </td>
+                          </tr>
+                        ));
+                    })()}
                   </tbody>
                 </table>
               </div>
@@ -318,9 +326,9 @@ export default function HistoryPage() {
                 <div className="p-6">
                   <h3 className="text-xl font-bold mb-2">{team}</h3>
                   <div className="text-sm text-gray-600">
-                    <p>Championships: {team === CHAMPIONS['2023'] || team === CHAMPIONS['2024'] ? '1' : '0'}</p>
+                    <p>Championships: {team === CHAMPIONS['2023'].champion || team === CHAMPIONS['2024'].champion ? '1' : '0'}</p>
                     <p>Playoff Appearances: {['Burrow My Sorrows', 'Diggs in the Chat', 'Kittle Me This', 'Waddle Waddle'].includes(team) ? '2' : '1'}</p>
-                    <p>Best Finish: {team === CHAMPIONS['2023'] || team === CHAMPIONS['2024'] ? '1st' : '3rd'}</p>
+                    <p>Best Finish: {team === CHAMPIONS['2023'].champion || team === CHAMPIONS['2024'].champion ? '1st' : '3rd'}</p>
                   </div>
                 </div>
               </Link>
