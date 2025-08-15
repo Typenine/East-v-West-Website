@@ -181,8 +181,21 @@ export default function DraftPage() {
               <h3 className="text-xl font-bold mb-4">Airbnb Information</h3>
               <div className="space-y-4">
                 <div>
-                  <h4 className="font-semibold">Address</h4>
-                  <p>123 Lake House Drive, Lake Tahoe, CA 96150</p>
+                  <h4 className="font-semibold">Listing</h4>
+                  <p className="font-medium text-slate-900">Not Your Typical Mountain Cabin - Must See Photos</p>
+                  <a
+                    href="https://www.airbnb.com/rooms/21559127?viralityEntryPoint=1&s=76&source_impression_id=p3_1751382164_P3PAwIqHxrQ87fn9"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-blue-600 hover:underline"
+                    aria-label="View Airbnb listing in a new tab"
+                  >
+                    View on Airbnb
+                  </a>
+                </div>
+                <div>
+                  <h4 className="font-semibold">Location</h4>
+                  <p>Somerset, Pennsylvania, United States</p>
                 </div>
                 <div>
                   <h4 className="font-semibold">Dates</h4>
