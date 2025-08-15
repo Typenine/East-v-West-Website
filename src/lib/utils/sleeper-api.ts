@@ -741,6 +741,14 @@ export interface SleeperBracketGame {
 }
 
 /**
+ * Bracket game with optional score fields attached from weekly matchups
+ */
+export interface SleeperBracketGameWithScore extends SleeperBracketGame {
+  t1_points?: number | null;
+  t2_points?: number | null;
+}
+
+/**
  * Fetch winners bracket for a league. Returns empty array if unavailable.
  */
 export async function getLeagueWinnersBracket(leagueId: string): Promise<SleeperBracketGame[]> {
@@ -772,6 +780,79 @@ export async function getLeaguePlayoffBrackets(leagueId: string): Promise<{ winn
     getLeagueLosersBracket(leagueId).catch(() => [] as SleeperBracketGame[]),
   ]);
   return { winners, losers };
+}
+
+/**
+ * Fetch playoff brackets and attach scores for each game by correlating rounds
+ * to league playoff weeks from league settings. If scores are 0-0 (unplayed),
+ * they will be omitted (left as null).
+ */
+export async function getLeaguePlayoffBracketsWithScores(
+  leagueId: string
+): Promise<{ winners: SleeperBracketGameWithScore[]; losers: SleeperBracketGameWithScore[] }> {
+  const [league, { winners, losers }] = await Promise.all([
+    getLeague(leagueId),
+    getLeaguePlayoffBrackets(leagueId),
+  ]);
+
+  const settings = (league?.settings || {}) as {
+    playoff_week_start?: number;
+    playoff_start_week?: number;
+  };
+  const startWeek = Number(
+    settings.playoff_week_start ?? settings.playoff_start_week ?? 15
+  );
+
+  // Collect unique rounds across both brackets and compute their weeks
+  const rounds = new Set<number>();
+  for (const g of winners) if (typeof g.r === 'number') rounds.add(g.r);
+  for (const g of losers) if (typeof g.r === 'number') rounds.add(g.r);
+  const roundWeeks = new Map<number, number>();
+  for (const r of rounds) roundWeeks.set(r, startWeek + (r - 1));
+
+  // Fetch matchups for relevant weeks in parallel
+  const weeksToFetch = Array.from(new Set(Array.from(roundWeeks.values())));
+  const weekMatchupsMap = new Map<number, SleeperMatchup[]>();
+  await Promise.all(
+    weeksToFetch.map(async (week) => {
+      const mus = await getLeagueMatchups(leagueId, week).catch(() => [] as SleeperMatchup[]);
+      weekMatchupsMap.set(week, mus);
+    })
+  );
+
+  const attachScores = (games: SleeperBracketGame[]): SleeperBracketGameWithScore[] => {
+    return games.map((g) => {
+      const res: SleeperBracketGameWithScore = { ...g, t1_points: null, t2_points: null };
+      const r = g.r ?? 0;
+      const week = roundWeeks.get(r);
+      if (!week || !g.t1 || !g.t2) return res;
+      const matchups = weekMatchupsMap.get(week) || [];
+      // Try to locate the specific head-to-head between t1 and t2
+      for (const m of matchups) {
+        if (m.roster_id !== g.t1 && m.roster_id !== g.t2) continue;
+        const opp = matchups.find((x) => x.matchup_id === m.matchup_id && x.roster_id !== m.roster_id);
+        if (!opp) continue;
+        const myPts = (m.custom_points ?? m.points ?? 0);
+        const oppPts = (opp.custom_points ?? opp.points ?? 0);
+        // Skip scheduled/unplayed
+        if ((myPts ?? 0) === 0 && (oppPts ?? 0) === 0) break;
+        if (m.roster_id === g.t1) {
+          res.t1_points = myPts;
+          res.t2_points = oppPts;
+        } else {
+          res.t2_points = myPts;
+          res.t1_points = oppPts;
+        }
+        break;
+      }
+      return res;
+    });
+  };
+
+  return {
+    winners: attachScores(winners),
+    losers: attachScores(losers),
+  };
 }
 
 /**

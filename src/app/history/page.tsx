@@ -9,11 +9,11 @@ import {
   getFranchisesAllTime,
   getLeagueRecordBook,
   getAllTeamsData,
-  getLeaguePlayoffBrackets,
+  getLeaguePlayoffBracketsWithScores,
   getRosterIdToTeamNameMap,
   type FranchiseSummary,
   type LeagueRecordBook,
-  type SleeperBracketGame,
+  type SleeperBracketGameWithScore,
 } from '@/lib/utils/sleeper-api';
 import { CANONICAL_TEAM_BY_USER_ID } from '@/lib/constants/team-mapping';
 
@@ -42,8 +42,8 @@ export default function HistoryPage() {
   const [bracketYear, setBracketYear] = useState('2025');
   const [bracketLoading, setBracketLoading] = useState(false);
   const [bracketError, setBracketError] = useState<string | null>(null);
-  const [winnersBracket, setWinnersBracket] = useState<SleeperBracketGame[]>([]);
-  const [losersBracket, setLosersBracket] = useState<SleeperBracketGame[]>([]);
+  const [winnersBracket, setWinnersBracket] = useState<SleeperBracketGameWithScore[]>([]);
+  const [losersBracket, setLosersBracket] = useState<SleeperBracketGameWithScore[]>([]);
   const [bracketNameMap, setBracketNameMap] = useState<Map<number, string>>(new Map());
 
   // Load playoff brackets when Brackets tab is active or year changes
@@ -61,12 +61,21 @@ export default function HistoryPage() {
           throw new Error(`No league ID configured for year ${bracketYear}`);
         }
         const [brackets, nameMap] = await Promise.all([
-          getLeaguePlayoffBrackets(leagueId),
+          getLeaguePlayoffBracketsWithScores(leagueId),
           getRosterIdToTeamNameMap(leagueId),
         ]);
         if (cancelled) return;
-        setWinnersBracket(brackets.winners || []);
-        setLosersBracket(brackets.losers || []);
+        // For current season, suppress brackets if there are no scores yet (start of season)
+        const hasAnyScore = [...(brackets.winners || []), ...(brackets.losers || [])].some(
+          (g) => (g.t1_points ?? null) !== null || (g.t2_points ?? null) !== null
+        );
+        if (bracketYear === '2025' && !hasAnyScore) {
+          setWinnersBracket([]);
+          setLosersBracket([]);
+        } else {
+          setWinnersBracket(brackets.winners || []);
+          setLosersBracket(brackets.losers || []);
+        }
         setBracketNameMap(nameMap);
       } catch (e) {
         console.error('Error loading brackets:', e);
@@ -231,7 +240,7 @@ export default function HistoryPage() {
                   <p className="text-gray-500">No winners bracket available for {bracketYear}.</p>
                 ) : (
                   (() => {
-                    const byRound: Record<number, SleeperBracketGame[]> = {};
+                    const byRound: Record<number, SleeperBracketGameWithScore[]> = {};
                     winnersBracket.forEach((g) => {
                       const r = g.r ?? 0;
                       if (!byRound[r]) byRound[r] = [];
@@ -243,11 +252,16 @@ export default function HistoryPage() {
                       if (rid == null) return 'BYE';
                       return bracketNameMap.get(rid) || `Roster ${rid}`;
                     };
-                    const Team = ({ rid, isWinner }: { rid?: number | null; isWinner: boolean }) => (
+                    const Team = ({ rid, isWinner, score }: { rid?: number | null; isWinner: boolean; score?: number | null }) => (
                       rid != null ? (
-                        <Link href={`/teams/${rid}`} className={`hover:underline ${isWinner ? 'font-semibold text-blue-700' : ''}`}>
-                          {nameFor(rid)}{isWinner ? ' (W)' : ''}
-                        </Link>
+                        <div className="flex items-center gap-2">
+                          <Link href={`/teams/${rid}`} className={`hover:underline ${isWinner ? 'font-semibold text-blue-700' : ''}`}>
+                            {nameFor(rid)}{isWinner ? ' (W)' : ''}
+                          </Link>
+                          {score != null && (
+                            <span className="text-xs px-1.5 py-0.5 rounded bg-gray-100 text-gray-700">{score.toFixed(2)}</span>
+                          )}
+                        </div>
                       ) : (
                         <span className="text-gray-500">BYE</span>
                       )
@@ -261,9 +275,9 @@ export default function HistoryPage() {
                               {byRound[r].map((g) => (
                                 <div key={`w-${r}-${g.m}`} className="border rounded p-3 flex items-center justify-between">
                                   <div className="flex flex-col gap-1">
-                                    <Team rid={g.t1 ?? null} isWinner={g.w != null && g.t1 != null && g.w === g.t1} />
+                                    <Team rid={g.t1 ?? null} isWinner={g.w != null && g.t1 != null && g.w === g.t1} score={g.t1_points ?? null} />
                                     <span className="text-xs text-gray-400">vs</span>
-                                    <Team rid={g.t2 ?? null} isWinner={g.w != null && g.t2 != null && g.w === g.t2} />
+                                    <Team rid={g.t2 ?? null} isWinner={g.w != null && g.t2 != null && g.w === g.t2} score={g.t2_points ?? null} />
                                   </div>
                                   <div className="text-xs text-gray-500">Match {g.m ?? ''}</div>
                                 </div>
@@ -284,7 +298,7 @@ export default function HistoryPage() {
                   <p className="text-gray-500">No losers bracket available for {bracketYear}.</p>
                 ) : (
                   (() => {
-                    const byRound: Record<number, SleeperBracketGame[]> = {};
+                    const byRound: Record<number, SleeperBracketGameWithScore[]> = {};
                     losersBracket.forEach((g) => {
                       const r = g.r ?? 0;
                       if (!byRound[r]) byRound[r] = [];
@@ -296,11 +310,16 @@ export default function HistoryPage() {
                       if (rid == null) return 'BYE';
                       return bracketNameMap.get(rid) || `Roster ${rid}`;
                     };
-                    const Team = ({ rid, isWinner }: { rid?: number | null; isWinner: boolean }) => (
+                    const Team = ({ rid, isWinner, score }: { rid?: number | null; isWinner: boolean; score?: number | null }) => (
                       rid != null ? (
-                        <Link href={`/teams/${rid}`} className={`hover:underline ${isWinner ? 'font-semibold text-blue-700' : ''}`}>
-                          {nameFor(rid)}{isWinner ? ' (W)' : ''}
-                        </Link>
+                        <div className="flex items-center gap-2">
+                          <Link href={`/teams/${rid}`} className={`hover:underline ${isWinner ? 'font-semibold text-blue-700' : ''}`}>
+                            {nameFor(rid)}{isWinner ? ' (W)' : ''}
+                          </Link>
+                          {score != null && (
+                            <span className="text-xs px-1.5 py-0.5 rounded bg-gray-100 text-gray-700">{score.toFixed(2)}</span>
+                          )}
+                        </div>
                       ) : (
                         <span className="text-gray-500">BYE</span>
                       )
@@ -314,9 +333,9 @@ export default function HistoryPage() {
                               {byRound[r].map((g) => (
                                 <div key={`l-${r}-${g.m}`} className="border rounded p-3 flex items-center justify-between">
                                   <div className="flex flex-col gap-1">
-                                    <Team rid={g.t1 ?? null} isWinner={g.w != null && g.t1 != null && g.w === g.t1} />
+                                    <Team rid={g.t1 ?? null} isWinner={g.w != null && g.t1 != null && g.w === g.t1} score={g.t1_points ?? null} />
                                     <span className="text-xs text-gray-400">vs</span>
-                                    <Team rid={g.t2 ?? null} isWinner={g.w != null && g.t2 != null && g.w === g.t2} />
+                                    <Team rid={g.t2 ?? null} isWinner={g.w != null && g.t2 != null && g.w === g.t2} score={g.t2_points ?? null} />
                                   </div>
                                   <div className="text-xs text-gray-500">Match {g.m ?? ''}</div>
                                 </div>
