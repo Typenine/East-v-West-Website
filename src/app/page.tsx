@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import Image from 'next/image';
 import CountdownTimer from '@/components/ui/countdown-timer';
 import MatchupCard from '@/components/ui/matchup-card';
 import { IMPORTANT_DATES, LEAGUE_IDS } from '@/lib/constants/league';
@@ -49,7 +50,17 @@ export default async function Home() {
   }
   return (
     <div className="container mx-auto px-4 py-8">
-      <h1 className="text-3xl font-bold text-center mb-8">East v. West Fantasy Football</h1>
+      <div className="flex flex-col items-center gap-4 mb-8">
+        <Image
+          src="/assets/teams/East v West Logos/Official East v. West Logo.png"
+          alt="East v. West League Logo"
+          width={200}
+          height={200}
+          priority
+          className="h-24 w-auto object-contain"
+        />
+        <h1 className="text-3xl font-bold text-center">East v. West Fantasy Football</h1>
+      </div>
       
       {/* Countdowns Section */}
       <section className="mb-12">
