@@ -5,7 +5,7 @@
  * using the provided league IDs.
  */
 
-import { LEAGUE_IDS } from '../constants/league';
+import { LEAGUE_IDS, CHAMPIONS } from '../constants/league';
 import { resolveCanonicalTeamName } from '../utils/team-utils';
 
 // Base URL for Sleeper API
@@ -23,6 +23,298 @@ export interface SleeperLeague {
   total_rosters: number;
   draft_id: string;
   metadata: Record<string, unknown>;
+}
+
+/**
+ * Get all unique owner IDs that have participated across configured seasons
+ */
+export async function getAllOwnerIdsAcrossSeasons(): Promise<string[]> {
+  const yearToLeague: Record<string, string> = {
+    '2025': LEAGUE_IDS.CURRENT,
+    ...LEAGUE_IDS.PREVIOUS,
+  };
+  const ownerSet = new Set<string>();
+  for (const leagueId of Object.values(yearToLeague)) {
+    if (!leagueId) continue;
+    const rosters = await getLeagueRosters(leagueId);
+    for (const r of rosters) ownerSet.add(r.owner_id);
+  }
+  return Array.from(ownerSet);
+}
+
+export interface FranchiseSummary {
+  ownerId: string;
+  teamName: string;
+  wins: number;
+  losses: number;
+  ties: number;
+  totalPF: number;
+  totalPA: number;
+  avgPF: number;
+  avgPA: number;
+  championships: number;
+}
+
+/**
+ * Compute franchise summaries (all-time) for every owner across seasons
+ */
+export async function getFranchisesAllTime(): Promise<FranchiseSummary[]> {
+  const owners = await getAllOwnerIdsAcrossSeasons();
+  const results: FranchiseSummary[] = [];
+  for (const ownerId of owners) {
+    const stats = await getTeamAllTimeStatsByOwner(ownerId);
+    const teamName = resolveCanonicalTeamName({ ownerId });
+    // Count championships by canonical team name
+    let champs = 0;
+    for (const year of Object.keys(CHAMPIONS)) {
+      const champName = CHAMPIONS[year as keyof typeof CHAMPIONS]?.champion;
+      if (champName && champName !== 'TBD' && champName === teamName) champs += 1;
+    }
+    results.push({
+      ownerId,
+      teamName,
+      wins: stats.wins,
+      losses: stats.losses,
+      ties: stats.ties,
+      totalPF: stats.totalPF,
+      totalPA: stats.totalPA,
+      avgPF: stats.avgPF,
+      avgPA: stats.avgPA,
+      championships: champs,
+    });
+  }
+  // Sort alphabetically by team name for stable display
+  results.sort((a, b) => a.teamName.localeCompare(b.teamName));
+  return results;
+}
+
+export interface LeagueRecordBook {
+  highestScoringGame: {
+    points: number;
+    teamName: string;
+    ownerId: string;
+    week: number;
+    year: string;
+  } | null;
+  lowestScoringGame: {
+    points: number;
+    teamName: string;
+    ownerId: string;
+    week: number;
+    year: string;
+  } | null;
+  biggestVictory: {
+    margin: number;
+    winnerTeamName: string;
+    winnerOwnerId: string;
+    loserTeamName: string;
+    loserOwnerId: string;
+    week: number;
+    year: string;
+  } | null;
+  closestVictory: {
+    margin: number;
+    winnerTeamName: string;
+    winnerOwnerId: string;
+    loserTeamName: string;
+    loserOwnerId: string;
+    week: number;
+    year: string;
+  } | null;
+  highestCombined: {
+    combined: number;
+    teamAName: string;
+    teamAOwnerId: string;
+    teamAPoints: number;
+    teamBName: string;
+    teamBOwnerId: string;
+    teamBPoints: number;
+    week: number;
+    year: string;
+  } | null;
+  longestWinStreak: {
+    length: number;
+    ownerId: string;
+    teamName: string;
+    start: { year: string; week: number };
+    end: { year: string; week: number };
+  } | null;
+  longestLosingStreak: {
+    length: number;
+    ownerId: string;
+    teamName: string;
+    start: { year: string; week: number };
+    end: { year: string; week: number };
+  } | null;
+}
+
+/**
+ * Compute league record book across all seasons using weekly matchups
+ */
+export async function getLeagueRecordBook(): Promise<LeagueRecordBook> {
+  const yearToLeague: Record<string, string> = {
+    '2025': LEAGUE_IDS.CURRENT,
+    ...LEAGUE_IDS.PREVIOUS,
+  };
+
+  let highestScoringGame: LeagueRecordBook['highestScoringGame'] = null;
+  let lowestScoringGame: LeagueRecordBook['lowestScoringGame'] = null;
+  let biggestVictory: LeagueRecordBook['biggestVictory'] = null;
+  let closestVictory: LeagueRecordBook['closestVictory'] = null;
+  let highestCombined: LeagueRecordBook['highestCombined'] = null;
+  let longestWinStreak: LeagueRecordBook['longestWinStreak'] = null;
+  let longestLosingStreak: LeagueRecordBook['longestLosingStreak'] = null;
+
+  // Track chronological results per owner across seasons
+  const timelineByOwner = new Map<string, Array<{ year: string; week: number; result: 'W' | 'L' | 'T' }>>();
+
+  // Iterate seasons in chronological order to support streak computation
+  const sortedYears = Object.keys(yearToLeague).sort();
+  for (const year of sortedYears) {
+    const leagueId = yearToLeague[year];
+    if (!leagueId) continue;
+    const rosters = await getLeagueRosters(leagueId);
+    const rosterOwner = new Map<number, string>();
+    for (const r of rosters) rosterOwner.set(r.roster_id, r.owner_id);
+    const rosterIdToName = await getRosterIdToTeamNameMap(leagueId);
+
+    const weekPromises = Array.from({ length: 18 }, (_, i) => i + 1).map((w) => getLeagueMatchups(leagueId, w).catch(() => [] as SleeperMatchup[]));
+    const allWeekMatchups = await Promise.all(weekPromises);
+
+    for (const weekIdx in allWeekMatchups) {
+      const week = Number(weekIdx) + 1;
+      const matchups = allWeekMatchups[weekIdx as unknown as number] || [];
+      if (matchups.length === 0) continue;
+
+      // Group by matchup_id to ensure pairs
+      const byId = new Map<number, SleeperMatchup[]>();
+      for (const m of matchups) {
+        const arr = byId.get(m.matchup_id) || [];
+        arr.push(m);
+        byId.set(m.matchup_id, arr);
+      }
+
+      for (const pair of byId.values()) {
+        if (!pair || pair.length < 2) continue;
+        const [a, b] = pair;
+        const aPts = a.custom_points ?? a.points ?? 0;
+        const bPts = b.custom_points ?? b.points ?? 0;
+        // Skip unplayed 0-0
+        if ((aPts ?? 0) === 0 && (bPts ?? 0) === 0) continue;
+
+        const aOwner = rosterOwner.get(a.roster_id)!;
+        const bOwner = rosterOwner.get(b.roster_id)!;
+        const aName = rosterIdToName.get(a.roster_id) || resolveCanonicalTeamName({ ownerId: aOwner });
+        const bName = rosterIdToName.get(b.roster_id) || resolveCanonicalTeamName({ ownerId: bOwner });
+
+        // Highest and lowest single-team
+        if (!highestScoringGame || aPts > highestScoringGame.points) {
+          highestScoringGame = { points: aPts, teamName: aName, ownerId: aOwner, week, year };
+        }
+        if (!highestScoringGame || bPts > highestScoringGame.points) {
+          highestScoringGame = { points: bPts, teamName: bName, ownerId: bOwner, week, year };
+        }
+        if (!lowestScoringGame || aPts < lowestScoringGame.points) {
+          lowestScoringGame = { points: aPts, teamName: aName, ownerId: aOwner, week, year };
+        }
+        if (!lowestScoringGame || bPts < lowestScoringGame.points) {
+          lowestScoringGame = { points: bPts, teamName: bName, ownerId: bOwner, week, year };
+        }
+
+        // Victory margins (ignore ties)
+        const margin = Math.abs(aPts - bPts);
+        if (margin > 0) {
+          const winnerIsA = aPts > bPts;
+          const winnerName = winnerIsA ? aName : bName;
+          const winnerOwner = winnerIsA ? aOwner : bOwner;
+          const loserName = winnerIsA ? bName : aName;
+          const loserOwner = winnerIsA ? bOwner : aOwner;
+
+          if (!biggestVictory || margin > biggestVictory.margin) {
+            biggestVictory = { margin, winnerTeamName: winnerName, winnerOwnerId: winnerOwner, loserTeamName: loserName, loserOwnerId: loserOwner, week, year };
+          }
+          if (!closestVictory || margin < closestVictory.margin) {
+            closestVictory = { margin, winnerTeamName: winnerName, winnerOwnerId: winnerOwner, loserTeamName: loserName, loserOwnerId: loserOwner, week, year };
+          }
+        }
+
+        // Highest combined score
+        const combined = aPts + bPts;
+        if (!highestCombined || combined > highestCombined.combined) {
+          highestCombined = {
+            combined,
+            teamAName: aName,
+            teamAOwnerId: aOwner,
+            teamAPoints: aPts,
+            teamBName: bName,
+            teamBOwnerId: bOwner,
+            teamBPoints: bPts,
+            week,
+            year,
+          };
+        }
+
+        // Append to chronological timelines for streak computation
+        const resA: 'W' | 'L' | 'T' = aPts > bPts ? 'W' : aPts < bPts ? 'L' : 'T';
+        const resB: 'W' | 'L' | 'T' = bPts > aPts ? 'W' : bPts < aPts ? 'L' : 'T';
+        if (!timelineByOwner.has(aOwner)) timelineByOwner.set(aOwner, []);
+        if (!timelineByOwner.has(bOwner)) timelineByOwner.set(bOwner, []);
+        timelineByOwner.get(aOwner)!.push({ year, week, result: resA });
+        timelineByOwner.get(bOwner)!.push({ year, week, result: resB });
+      }
+    }
+  }
+
+  // Compute win and losing streaks across entire timelines
+  for (const [ownerId, timeline] of timelineByOwner.entries()) {
+    // timeline already in chronological order (years asc, weeks asc)
+    let curW = 0;
+    let curL = 0;
+    let curWStart: { year: string; week: number } | null = null;
+    let curLStart: { year: string; week: number } | null = null;
+
+    for (const node of timeline) {
+      if (node.result === 'W') {
+        // extend win streak, reset loss
+        curW += 1;
+        if (curW === 1) curWStart = { year: node.year, week: node.week };
+        curL = 0;
+        curLStart = null;
+        if (!longestWinStreak || curW > longestWinStreak.length) {
+          longestWinStreak = {
+            length: curW,
+            ownerId,
+            teamName: resolveCanonicalTeamName({ ownerId }),
+            start: curWStart!,
+            end: { year: node.year, week: node.week },
+          };
+        }
+      } else if (node.result === 'L') {
+        // extend losing streak, reset win
+        curL += 1;
+        if (curL === 1) curLStart = { year: node.year, week: node.week };
+        curW = 0;
+        curWStart = null;
+        if (!longestLosingStreak || curL > longestLosingStreak.length) {
+          longestLosingStreak = {
+            length: curL,
+            ownerId,
+            teamName: resolveCanonicalTeamName({ ownerId }),
+            start: curLStart!,
+            end: { year: node.year, week: node.week },
+          };
+        }
+      } else {
+        // Tie resets both streaks
+        curW = 0;
+        curL = 0;
+        curWStart = null;
+        curLStart = null;
+      }
+    }
+  }
+
+  return { highestScoringGame, lowestScoringGame, biggestVictory, closestVictory, highestCombined, longestWinStreak, longestLosingStreak };
 }
 
 /**

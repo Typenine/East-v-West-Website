@@ -1,11 +1,83 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { CHAMPIONS } from '@/lib/constants/league';
+import LoadingState from '@/components/ui/loading-state';
+import ErrorState from '@/components/ui/error-state';
+import {
+  getFranchisesAllTime,
+  getLeagueRecordBook,
+  getAllTeamsData,
+  type FranchiseSummary,
+  type LeagueRecordBook,
+} from '@/lib/utils/sleeper-api';
+import { CANONICAL_TEAM_BY_USER_ID } from '@/lib/constants/team-mapping';
 
 export default function HistoryPage() {
   const [activeTab, setActiveTab] = useState('champions');
+  // Franchises state
+  const [franchises, setFranchises] = useState<FranchiseSummary[]>([]);
+  const [franchisesLoading, setFranchisesLoading] = useState(true);
+  const [franchisesError, setFranchisesError] = useState<string | null>(null);
+  // Records state
+  const [recordBook, setRecordBook] = useState<LeagueRecordBook | null>(null);
+  const [recordsLoading, setRecordsLoading] = useState(true);
+  const [recordsError, setRecordsError] = useState<string | null>(null);
+  // Owner -> rosterId mapping (prefer most recent season)
+  const [ownerToRosterId, setOwnerToRosterId] = useState<Record<string, number>>({});
+  // Inverted map to get ownerId by canonical team name (for CHAMPIONS links)
+  const ownerByTeamName = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const [ownerId, teamName] of Object.entries(CANONICAL_TEAM_BY_USER_ID)) {
+      map[teamName] = ownerId;
+    }
+    return map;
+  }, []);
+  
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      try {
+        setFranchisesLoading(true);
+        setRecordsLoading(true);
+        setFranchisesError(null);
+        setRecordsError(null);
+        const [fr, rb, allTeams] = await Promise.all([
+          getFranchisesAllTime(),
+          getLeagueRecordBook(),
+          getAllTeamsData(),
+        ]);
+        if (cancelled) return;
+        setFranchises(fr);
+        setRecordBook(rb);
+        // Build owner -> rosterId mapping preferring 2025, then 2024, then 2023
+        const map: Record<string, number> = {};
+        for (const year of ['2025', '2024', '2023']) {
+          const teams = allTeams[year] || [];
+          for (const t of teams) {
+            if (map[t.ownerId] === undefined) map[t.ownerId] = t.rosterId;
+          }
+        }
+        setOwnerToRosterId(map);
+      } catch (e) {
+        console.error('Error loading history data:', e);
+        if (!cancelled) {
+          setFranchisesError('Failed to load franchise data. Please try again later.');
+          setRecordsError('Failed to load records. Please try again later.');
+        }
+      } finally {
+        if (!cancelled) {
+          setFranchisesLoading(false);
+          setRecordsLoading(false);
+        }
+      }
+    }
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   
   const tabs = [
     { id: 'champions', label: 'Champions' },
@@ -54,12 +126,23 @@ export default function HistoryPage() {
                   <div className="text-center">
                     <div className="text-5xl mb-4">🏆</div>
                     <h3 className="text-xl font-bold mb-2">{data.champion}</h3>
-                    <Link 
-                      href={`/teams/${data.champion.toLowerCase().replace(/\s+/g, '-')}`}
-                      className="text-blue-600 hover:text-blue-800"
-                    >
-                      View Team
-                    </Link>
+                    {(() => {
+                      const ownerId = ownerByTeamName[data.champion as keyof typeof ownerByTeamName];
+                      const rosterId = ownerId ? ownerToRosterId[ownerId] : undefined;
+                      if (data.champion === 'TBD' || !ownerId || rosterId === undefined) {
+                        return (
+                          <span className="text-gray-400 text-sm">Link unavailable</span>
+                        );
+                      }
+                      return (
+                        <Link 
+                          href={`/teams/${rosterId}`}
+                          className="text-blue-600 hover:text-blue-800"
+                        >
+                          View Team
+                        </Link>
+                      );
+                    })()}
                   </div>
                 </div>
               </div>
@@ -302,38 +385,43 @@ export default function HistoryPage() {
         <div>
           <h2 className="text-2xl font-bold mb-6">Franchise History</h2>
           
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {/* This would be populated with real data from the API */}
-            {[
-              'Burrow My Sorrows',
-              'Diggs in the Chat',
-              'Kittle Me This',
-              'Waddle Waddle',
-              'Chubb Thumpers',
-              'Lamb Chops',
-              'Mixon It Up',
-              'Najee By Nature',
-              'Hurts So Good',
-              'Chase-ing Wins',
-              'Herbert the Pervert',
-              'Pitts and Giggles'
-            ].map((team) => (
-              <Link 
-                key={team}
-                href={`/teams/${team.toLowerCase().replace(/\s+/g, '-')}`}
-                className="bg-white shadow-md rounded-lg overflow-hidden hover:shadow-lg transition-shadow"
-              >
-                <div className="p-6">
-                  <h3 className="text-xl font-bold mb-2">{team}</h3>
-                  <div className="text-sm text-gray-600">
-                    <p>Championships: {team === CHAMPIONS['2023'].champion || team === CHAMPIONS['2024'].champion ? '1' : '0'}</p>
-                    <p>Playoff Appearances: {['Burrow My Sorrows', 'Diggs in the Chat', 'Kittle Me This', 'Waddle Waddle'].includes(team) ? '2' : '1'}</p>
-                    <p>Best Finish: {team === CHAMPIONS['2023'].champion || team === CHAMPIONS['2024'].champion ? '1st' : '3rd'}</p>
+          {franchisesLoading ? (
+            <LoadingState message="Loading franchises..." />
+          ) : franchisesError ? (
+            <ErrorState message={franchisesError} />
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {franchises.map((f) => {
+                const rosterId = ownerToRosterId[f.ownerId];
+                const content = (
+                  <div className="bg-white shadow-md rounded-lg overflow-hidden hover:shadow-lg transition-shadow">
+                    <div className="p-6">
+                      <h3 className="text-xl font-bold mb-2">{f.teamName}</h3>
+                      <div className="text-sm text-gray-600 space-y-1">
+                        <p>
+                          Record: {f.wins}-{f.losses}
+                          {f.ties > 0 ? `-${f.ties}` : ''} ({(() => {
+                            const g = f.wins + f.losses + f.ties;
+                            return g > 0 ? ((f.wins + f.ties * 0.5) / g * 100).toFixed(1) : '0.0';
+                          })()}%)
+                        </p>
+                        <p>Total PF: {f.totalPF.toFixed(2)}</p>
+                        <p>Avg PF: {f.avgPF.toFixed(2)}</p>
+                        <p>Championships: {f.championships}</p>
+                      </div>
+                    </div>
                   </div>
-                </div>
-              </Link>
-            ))}
-          </div>
+                );
+                return rosterId !== undefined ? (
+                  <Link key={f.ownerId} href={`/teams/${rosterId}`} className="block">
+                    {content}
+                  </Link>
+                ) : (
+                  <div key={f.ownerId}>{content}</div>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
       
@@ -342,67 +430,189 @@ export default function HistoryPage() {
         <div>
           <h2 className="text-2xl font-bold mb-6">League Records</h2>
           
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-            {/* Highest Scoring Game */}
-            <div className="bg-white p-6 rounded-lg shadow-md">
-              <h3 className="text-xl font-bold mb-4">Highest Scoring Game</h3>
-              <div className="text-center">
-                <p className="text-4xl font-bold text-blue-600 mb-2">198.6</p>
-                <p className="text-lg font-semibold">Diggs in the Chat</p>
-                <p className="text-gray-600">Week 8, 2024 Season</p>
+          {recordsLoading ? (
+            <LoadingState message="Loading record book..." />
+          ) : recordsError ? (
+            <ErrorState message={recordsError} />
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+              {/* Highest Scoring Game */}
+              <div className="bg-white p-6 rounded-lg shadow-md">
+                <h3 className="text-xl font-bold mb-4">Highest Scoring Game</h3>
+                <div className="text-center">
+                  {recordBook?.highestScoringGame ? (
+                    <>
+                      <p className="text-4xl font-bold text-blue-600 mb-2">{recordBook.highestScoringGame.points.toFixed(2)}</p>
+                      {(() => {
+                        const ownerId = recordBook.highestScoringGame!.ownerId;
+                        const rosterId = ownerToRosterId[ownerId];
+                        const name = recordBook.highestScoringGame!.teamName;
+                        return rosterId !== undefined ? (
+                          <Link href={`/teams/${rosterId}`} className="text-lg font-semibold text-blue-700 hover:underline">{name}</Link>
+                        ) : (
+                          <p className="text-lg font-semibold">{name}</p>
+                        );
+                      })()}
+                      <p className="text-gray-600">Week {recordBook.highestScoringGame.week}, {recordBook.highestScoringGame.year} Season</p>
+                    </>
+                  ) : (
+                    <p className="text-gray-500">No data</p>
+                  )}
+                </div>
+              </div>
+              
+              {/* Lowest Scoring Game */}
+              <div className="bg-white p-6 rounded-lg shadow-md">
+                <h3 className="text-xl font-bold mb-4">Lowest Scoring Game</h3>
+                <div className="text-center">
+                  {recordBook?.lowestScoringGame ? (
+                    <>
+                      <p className="text-4xl font-bold text-red-600 mb-2">{recordBook.lowestScoringGame.points.toFixed(2)}</p>
+                      {(() => {
+                        const ownerId = recordBook.lowestScoringGame!.ownerId;
+                        const rosterId = ownerToRosterId[ownerId];
+                        const name = recordBook.lowestScoringGame!.teamName;
+                        return rosterId !== undefined ? (
+                          <Link href={`/teams/${rosterId}`} className="text-lg font-semibold text-blue-700 hover:underline">{name}</Link>
+                        ) : (
+                          <p className="text-lg font-semibold">{name}</p>
+                        );
+                      })()}
+                      <p className="text-gray-600">Week {recordBook.lowestScoringGame.week}, {recordBook.lowestScoringGame.year} Season</p>
+                    </>
+                  ) : (
+                    <p className="text-gray-500">No data</p>
+                  )}
+                </div>
+              </div>
+              
+              {/* Biggest Victory Margin */}
+              <div className="bg-white p-6 rounded-lg shadow-md">
+                <h3 className="text-xl font-bold mb-4">Biggest Victory Margin</h3>
+                <div className="text-center">
+                  {recordBook?.biggestVictory ? (
+                    <>
+                      <p className="text-4xl font-bold text-green-600 mb-2">{recordBook.biggestVictory.margin.toFixed(2)}</p>
+                      <p className="text-lg font-semibold">
+                        {(() => {
+                          const wRoster = ownerToRosterId[recordBook.biggestVictory!.winnerOwnerId];
+                          const lRoster = ownerToRosterId[recordBook.biggestVictory!.loserOwnerId];
+                          const wName = recordBook.biggestVictory!.winnerTeamName;
+                          const lName = recordBook.biggestVictory!.loserTeamName;
+                          const W = wRoster !== undefined ? <Link href={`/teams/${wRoster}`} className="text-blue-700 hover:underline">{wName}</Link> : <span>{wName}</span>;
+                          const L = lRoster !== undefined ? <Link href={`/teams/${lRoster}`} className="text-blue-700 hover:underline">{lName}</Link> : <span>{lName}</span>;
+                          return <>{W} vs. {L}</>;
+                        })()}
+                      </p>
+                      <p className="text-gray-600">Week {recordBook.biggestVictory.week}, {recordBook.biggestVictory.year} Season</p>
+                    </>
+                  ) : (
+                    <p className="text-gray-500">No data</p>
+                  )}
+                </div>
+              </div>
+              
+              {/* Closest Victory */}
+              <div className="bg-white p-6 rounded-lg shadow-md">
+                <h3 className="text-xl font-bold mb-4">Closest Victory</h3>
+                <div className="text-center">
+                  {recordBook?.closestVictory ? (
+                    <>
+                      <p className="text-4xl font-bold text-purple-600 mb-2">{recordBook.closestVictory.margin.toFixed(2)}</p>
+                      <p className="text-lg font-semibold">
+                        {(() => {
+                          const wRoster = ownerToRosterId[recordBook.closestVictory!.winnerOwnerId];
+                          const lRoster = ownerToRosterId[recordBook.closestVictory!.loserOwnerId];
+                          const wName = recordBook.closestVictory!.winnerTeamName;
+                          const lName = recordBook.closestVictory!.loserTeamName;
+                          const W = wRoster !== undefined ? <Link href={`/teams/${wRoster}`} className="text-blue-700 hover:underline">{wName}</Link> : <span>{wName}</span>;
+                          const L = lRoster !== undefined ? <Link href={`/teams/${lRoster}`} className="text-blue-700 hover:underline">{lName}</Link> : <span>{lName}</span>;
+                          return <>{W} vs. {L}</>;
+                        })()}
+                      </p>
+                      <p className="text-gray-600">Week {recordBook.closestVictory.week}, {recordBook.closestVictory.year} Season</p>
+                    </>
+                  ) : (
+                    <p className="text-gray-500">No data</p>
+                  )}
+                </div>
+              </div>
+              
+              {/* Highest Combined Points */}
+              <div className="bg-white p-6 rounded-lg shadow-md">
+                <h3 className="text-xl font-bold mb-4">Highest Combined Points</h3>
+                <div className="text-center">
+                  {recordBook?.highestCombined ? (
+                    <>
+                      <p className="text-4xl font-bold text-indigo-600 mb-2">{recordBook.highestCombined.combined.toFixed(2)}</p>
+                      <p className="text-lg font-semibold">
+                        {(() => {
+                          const aRoster = ownerToRosterId[recordBook.highestCombined!.teamAOwnerId];
+                          const bRoster = ownerToRosterId[recordBook.highestCombined!.teamBOwnerId];
+                          const aName = recordBook.highestCombined!.teamAName;
+                          const bName = recordBook.highestCombined!.teamBName;
+                          const A = aRoster !== undefined ? <Link href={`/teams/${aRoster}`} className="text-blue-700 hover:underline">{aName}</Link> : <span>{aName}</span>;
+                          const B = bRoster !== undefined ? <Link href={`/teams/${bRoster}`} className="text-blue-700 hover:underline">{bName}</Link> : <span>{bName}</span>;
+                          return <>{A} ({recordBook.highestCombined!.teamAPoints.toFixed(2)}) vs. {B} ({recordBook.highestCombined!.teamBPoints.toFixed(2)})</>;
+                        })()}
+                      </p>
+                      <p className="text-gray-600">Week {recordBook.highestCombined.week}, {recordBook.highestCombined.year} Season</p>
+                    </>
+                  ) : (
+                    <p className="text-gray-500">No data</p>
+                  )}
+                </div>
+              </div>
+              
+              {/* Longest Win Streak */}
+              <div className="bg-white p-6 rounded-lg shadow-md">
+                <h3 className="text-xl font-bold mb-4">Longest Win Streak</h3>
+                <div className="text-center">
+                  {recordBook?.longestWinStreak ? (
+                    <>
+                      <p className="text-4xl font-bold text-amber-600 mb-2">{recordBook.longestWinStreak.length} Games</p>
+                      {(() => {
+                        const rosterId = ownerToRosterId[recordBook.longestWinStreak!.ownerId];
+                        const name = recordBook.longestWinStreak!.teamName;
+                        return rosterId !== undefined ? (
+                          <Link href={`/teams/${rosterId}`} className="text-lg font-semibold text-blue-700 hover:underline">{name}</Link>
+                        ) : (
+                          <p className="text-lg font-semibold">{name}</p>
+                        );
+                      })()}
+                      <p className="text-gray-600">Weeks {recordBook.longestWinStreak.start.week}-{recordBook.longestWinStreak.end.week}, {recordBook.longestWinStreak.start.year === recordBook.longestWinStreak.end.year ? recordBook.longestWinStreak.start.year : `${recordBook.longestWinStreak.start.year}–${recordBook.longestWinStreak.end.year}`} Season</p>
+                    </>
+                  ) : (
+                    <p className="text-gray-500">No data</p>
+                  )}
+                </div>
+              </div>
+              
+              {/* Longest Losing Streak */}
+              <div className="bg-white p-6 rounded-lg shadow-md">
+                <h3 className="text-xl font-bold mb-4">Longest Losing Streak</h3>
+                <div className="text-center">
+                  {recordBook?.longestLosingStreak ? (
+                    <>
+                      <p className="text-4xl font-bold text-gray-600 mb-2">{recordBook.longestLosingStreak.length} Games</p>
+                      {(() => {
+                        const rosterId = ownerToRosterId[recordBook.longestLosingStreak!.ownerId];
+                        const name = recordBook.longestLosingStreak!.teamName;
+                        return rosterId !== undefined ? (
+                          <Link href={`/teams/${rosterId}`} className="text-lg font-semibold text-blue-700 hover:underline">{name}</Link>
+                        ) : (
+                          <p className="text-lg font-semibold">{name}</p>
+                        );
+                      })()}
+                      <p className="text-gray-600">Weeks {recordBook.longestLosingStreak.start.week}-{recordBook.longestLosingStreak.end.week}, {recordBook.longestLosingStreak.start.year === recordBook.longestLosingStreak.end.year ? recordBook.longestLosingStreak.start.year : `${recordBook.longestLosingStreak.start.year}–${recordBook.longestLosingStreak.end.year}`} Season</p>
+                    </>
+                  ) : (
+                    <p className="text-gray-500">No data</p>
+                  )}
+                </div>
               </div>
             </div>
-            
-            {/* Lowest Scoring Game */}
-            <div className="bg-white p-6 rounded-lg shadow-md">
-              <h3 className="text-xl font-bold mb-4">Lowest Scoring Game</h3>
-              <div className="text-center">
-                <p className="text-4xl font-bold text-red-600 mb-2">42.8</p>
-                <p className="text-lg font-semibold">Najee By Nature</p>
-                <p className="text-gray-600">Week 14, 2023 Season</p>
-              </div>
-            </div>
-            
-            {/* Biggest Victory Margin */}
-            <div className="bg-white p-6 rounded-lg shadow-md">
-              <h3 className="text-xl font-bold mb-4">Biggest Victory Margin</h3>
-              <div className="text-center">
-                <p className="text-4xl font-bold text-green-600 mb-2">87.4</p>
-                <p className="text-lg font-semibold">Kittle Me This vs. Najee By Nature</p>
-                <p className="text-gray-600">Week 14, 2023 Season</p>
-              </div>
-            </div>
-            
-            {/* Closest Victory */}
-            <div className="bg-white p-6 rounded-lg shadow-md">
-              <h3 className="text-xl font-bold mb-4">Closest Victory</h3>
-              <div className="text-center">
-                <p className="text-4xl font-bold text-purple-600 mb-2">0.08</p>
-                <p className="text-lg font-semibold">Waddle Waddle vs. Chubb Thumpers</p>
-                <p className="text-gray-600">Week 3, 2024 Season</p>
-              </div>
-            </div>
-            
-            {/* Longest Win Streak */}
-            <div className="bg-white p-6 rounded-lg shadow-md">
-              <h3 className="text-xl font-bold mb-4">Longest Win Streak</h3>
-              <div className="text-center">
-                <p className="text-4xl font-bold text-amber-600 mb-2">9 Games</p>
-                <p className="text-lg font-semibold">Burrow My Sorrows</p>
-                <p className="text-gray-600">Weeks 2-10, 2024 Season</p>
-              </div>
-            </div>
-            
-            {/* Longest Losing Streak */}
-            <div className="bg-white p-6 rounded-lg shadow-md">
-              <h3 className="text-xl font-bold mb-4">Longest Losing Streak</h3>
-              <div className="text-center">
-                <p className="text-4xl font-bold text-gray-600 mb-2">8 Games</p>
-                <p className="text-lg font-semibold">Herbert the Pervert</p>
-                <p className="text-gray-600">Weeks 5-12, 2023 Season</p>
-              </div>
-            </div>
-          </div>
+          )}
         </div>
       )}
     </div>
