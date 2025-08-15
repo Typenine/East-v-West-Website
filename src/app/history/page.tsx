@@ -2,15 +2,18 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { CHAMPIONS } from '@/lib/constants/league';
+import { CHAMPIONS, LEAGUE_IDS } from '@/lib/constants/league';
 import LoadingState from '@/components/ui/loading-state';
 import ErrorState from '@/components/ui/error-state';
 import {
   getFranchisesAllTime,
   getLeagueRecordBook,
   getAllTeamsData,
+  getLeaguePlayoffBrackets,
+  getRosterIdToTeamNameMap,
   type FranchiseSummary,
   type LeagueRecordBook,
+  type SleeperBracketGame,
 } from '@/lib/utils/sleeper-api';
 import { CANONICAL_TEAM_BY_USER_ID } from '@/lib/constants/team-mapping';
 
@@ -34,6 +37,49 @@ export default function HistoryPage() {
     }
     return map;
   }, []);
+  
+  // Brackets state
+  const [bracketYear, setBracketYear] = useState('2025');
+  const [bracketLoading, setBracketLoading] = useState(false);
+  const [bracketError, setBracketError] = useState<string | null>(null);
+  const [winnersBracket, setWinnersBracket] = useState<SleeperBracketGame[]>([]);
+  const [losersBracket, setLosersBracket] = useState<SleeperBracketGame[]>([]);
+  const [bracketNameMap, setBracketNameMap] = useState<Map<number, string>>(new Map());
+
+  // Load playoff brackets when Brackets tab is active or year changes
+  useEffect(() => {
+    if (activeTab !== 'brackets') return;
+    let cancelled = false;
+    async function loadBrackets() {
+      try {
+        setBracketLoading(true);
+        setBracketError(null);
+        const leagueId = bracketYear === '2025'
+          ? LEAGUE_IDS.CURRENT
+          : LEAGUE_IDS.PREVIOUS[bracketYear as keyof typeof LEAGUE_IDS.PREVIOUS];
+        if (!leagueId) {
+          throw new Error(`No league ID configured for year ${bracketYear}`);
+        }
+        const [brackets, nameMap] = await Promise.all([
+          getLeaguePlayoffBrackets(leagueId),
+          getRosterIdToTeamNameMap(leagueId),
+        ]);
+        if (cancelled) return;
+        setWinnersBracket(brackets.winners || []);
+        setLosersBracket(brackets.losers || []);
+        setBracketNameMap(nameMap);
+      } catch (e) {
+        console.error('Error loading brackets:', e);
+        if (!cancelled) setBracketError('Failed to load playoff brackets.');
+      } finally {
+        if (!cancelled) setBracketLoading(false);
+      }
+    }
+    loadBrackets();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTab, bracketYear]);
   
   useEffect(() => {
     let cancelled = false;
@@ -163,6 +209,8 @@ export default function HistoryPage() {
             <select
               id="year-select"
               className="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md"
+              value={bracketYear}
+              onChange={(e) => setBracketYear(e.target.value)}
             >
               <option value="2025">2025 Season</option>
               <option value="2024">2024 Season</option>
@@ -170,12 +218,119 @@ export default function HistoryPage() {
             </select>
           </div>
           
-          <div className="bg-white p-6 rounded-lg shadow-md">
-            <div className="text-center text-gray-500 py-8">
-              <p className="text-lg">Playoff bracket visualization coming soon</p>
-              <p className="text-sm mt-2">Check back after the playoffs begin</p>
+          {bracketLoading ? (
+            <LoadingState message="Loading playoff brackets..." />
+          ) : bracketError ? (
+            <ErrorState message={bracketError} />
+          ) : (
+            <div className="space-y-8">
+              {/* Winners Bracket */}
+              <div className="bg-white p-6 rounded-lg shadow-md">
+                <h3 className="text-xl font-bold mb-4">Winners Bracket</h3>
+                {winnersBracket.length === 0 ? (
+                  <p className="text-gray-500">No winners bracket available for {bracketYear}.</p>
+                ) : (
+                  (() => {
+                    const byRound: Record<number, SleeperBracketGame[]> = {};
+                    winnersBracket.forEach((g) => {
+                      const r = g.r ?? 0;
+                      if (!byRound[r]) byRound[r] = [];
+                      byRound[r].push(g);
+                    });
+                    const roundNums = Object.keys(byRound).map(n => Number(n)).sort((a,b) => a - b);
+                    roundNums.forEach(r => byRound[r].sort((a,b) => (a.m ?? 0) - (b.m ?? 0)));
+                    const nameFor = (rid?: number | null) => {
+                      if (rid == null) return 'BYE';
+                      return bracketNameMap.get(rid) || `Roster ${rid}`;
+                    };
+                    const Team = ({ rid, isWinner }: { rid?: number | null; isWinner: boolean }) => (
+                      rid != null ? (
+                        <Link href={`/teams/${rid}`} className={`hover:underline ${isWinner ? 'font-semibold text-blue-700' : ''}`}>
+                          {nameFor(rid)}{isWinner ? ' (W)' : ''}
+                        </Link>
+                      ) : (
+                        <span className="text-gray-500">BYE</span>
+                      )
+                    );
+                    return (
+                      <div className="space-y-6">
+                        {roundNums.map((r) => (
+                          <div key={`w-round-${r}`}>
+                            <h4 className="font-semibold text-gray-700 mb-2">Round {r}</h4>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                              {byRound[r].map((g) => (
+                                <div key={`w-${r}-${g.m}`} className="border rounded p-3 flex items-center justify-between">
+                                  <div className="flex flex-col gap-1">
+                                    <Team rid={g.t1 ?? null} isWinner={g.w != null && g.t1 != null && g.w === g.t1} />
+                                    <span className="text-xs text-gray-400">vs</span>
+                                    <Team rid={g.t2 ?? null} isWinner={g.w != null && g.t2 != null && g.w === g.t2} />
+                                  </div>
+                                  <div className="text-xs text-gray-500">Match {g.m ?? ''}</div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  })()
+                )}
+              </div>
+
+              {/* Losers Bracket */}
+              <div className="bg-white p-6 rounded-lg shadow-md">
+                <h3 className="text-xl font-bold mb-4">Losers Bracket</h3>
+                {losersBracket.length === 0 ? (
+                  <p className="text-gray-500">No losers bracket available for {bracketYear}.</p>
+                ) : (
+                  (() => {
+                    const byRound: Record<number, SleeperBracketGame[]> = {};
+                    losersBracket.forEach((g) => {
+                      const r = g.r ?? 0;
+                      if (!byRound[r]) byRound[r] = [];
+                      byRound[r].push(g);
+                    });
+                    const roundNums = Object.keys(byRound).map(n => Number(n)).sort((a,b) => a - b);
+                    roundNums.forEach(r => byRound[r].sort((a,b) => (a.m ?? 0) - (b.m ?? 0)));
+                    const nameFor = (rid?: number | null) => {
+                      if (rid == null) return 'BYE';
+                      return bracketNameMap.get(rid) || `Roster ${rid}`;
+                    };
+                    const Team = ({ rid, isWinner }: { rid?: number | null; isWinner: boolean }) => (
+                      rid != null ? (
+                        <Link href={`/teams/${rid}`} className={`hover:underline ${isWinner ? 'font-semibold text-blue-700' : ''}`}>
+                          {nameFor(rid)}{isWinner ? ' (W)' : ''}
+                        </Link>
+                      ) : (
+                        <span className="text-gray-500">BYE</span>
+                      )
+                    );
+                    return (
+                      <div className="space-y-6">
+                        {roundNums.map((r) => (
+                          <div key={`l-round-${r}`}>
+                            <h4 className="font-semibold text-gray-700 mb-2">Round {r}</h4>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                              {byRound[r].map((g) => (
+                                <div key={`l-${r}-${g.m}`} className="border rounded p-3 flex items-center justify-between">
+                                  <div className="flex flex-col gap-1">
+                                    <Team rid={g.t1 ?? null} isWinner={g.w != null && g.t1 != null && g.w === g.t1} />
+                                    <span className="text-xs text-gray-400">vs</span>
+                                    <Team rid={g.t2 ?? null} isWinner={g.w != null && g.t2 != null && g.w === g.t2} />
+                                  </div>
+                                  <div className="text-xs text-gray-500">Match {g.m ?? ''}</div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  })()
+                )}
+              </div>
             </div>
-          </div>
+          )}
         </div>
       )}
       
@@ -258,26 +413,32 @@ export default function HistoryPage() {
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
-                    {/* This would be populated with real data from the API */}
-                    {[
-                      { team: 'Burrow My Sorrows', points: 4582.4 },
-                      { team: 'Diggs in the Chat', points: 4498.2 },
-                      { team: 'Kittle Me This', points: 4476.8 },
-                      { team: 'Chubb Thumpers', points: 4389.5 },
-                      { team: 'Waddle Waddle', points: 4356.1 }
-                    ].map((entry, index) => (
-                      <tr key={entry.team}>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                          {index + 1}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                          {entry.team}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                          {entry.points.toFixed(1)}
-                        </td>
+                    {franchisesLoading ? (
+                      <tr>
+                        <td className="px-6 py-4 text-sm text-gray-500" colSpan={3}>Loading...</td>
                       </tr>
-                    ))}
+                    ) : franchisesError ? (
+                      <tr>
+                        <td className="px-6 py-4 text-sm text-red-600" colSpan={3}>{franchisesError}</td>
+                      </tr>
+                    ) : ([...franchises]
+                      .sort((a, b) => b.totalPF - a.totalPF)
+                      .slice(0, 5)
+                      .map((f, index) => {
+                        const rid = ownerToRosterId[f.ownerId];
+                        const nameCell = rid !== undefined ? (
+                          <Link href={`/teams/${rid}`} className="text-blue-700 hover:underline">{f.teamName}</Link>
+                        ) : (
+                          <span>{f.teamName}</span>
+                        );
+                        return (
+                          <tr key={f.ownerId}>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{index + 1}</td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{nameCell}</td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{f.totalPF.toFixed(2)}</td>
+                          </tr>
+                        );
+                      }))}
                   </tbody>
                 </table>
               </div>

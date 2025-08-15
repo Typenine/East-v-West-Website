@@ -728,6 +728,53 @@ export async function getRosterIdToTeamNameMap(leagueId: string): Promise<Map<nu
 }
 
 /**
+ * Sleeper playoff bracket game shape (minimal fields used)
+ */
+export interface SleeperBracketGame {
+  r: number; // round number (1 = first round)
+  m: number; // match number within the round
+  t1?: number | null; // roster_id for team 1 (may be null for bye)
+  t2?: number | null; // roster_id for team 2 (may be null for bye)
+  w?: number | null;  // winner roster_id (if known)
+  l?: number | null;  // loser roster_id (if known)
+  // Other fields from Sleeper are ignored for this UI
+}
+
+/**
+ * Fetch winners bracket for a league. Returns empty array if unavailable.
+ */
+export async function getLeagueWinnersBracket(leagueId: string): Promise<SleeperBracketGame[]> {
+  const resp = await fetch(`${SLEEPER_API_BASE}/league/${leagueId}/winners_bracket`);
+  if (!resp.ok) {
+    // Some seasons may not have a bracket yet; treat as empty.
+    return [];
+  }
+  return resp.json();
+}
+
+/**
+ * Fetch losers bracket for a league. Returns empty array if unavailable.
+ */
+export async function getLeagueLosersBracket(leagueId: string): Promise<SleeperBracketGame[]> {
+  const resp = await fetch(`${SLEEPER_API_BASE}/league/${leagueId}/losers_bracket`);
+  if (!resp.ok) {
+    return [];
+  }
+  return resp.json();
+}
+
+/**
+ * Convenience wrapper to fetch both winners and losers brackets in parallel.
+ */
+export async function getLeaguePlayoffBrackets(leagueId: string): Promise<{ winners: SleeperBracketGame[]; losers: SleeperBracketGame[] }> {
+  const [winners, losers] = await Promise.all([
+    getLeagueWinnersBracket(leagueId).catch(() => [] as SleeperBracketGame[]),
+    getLeagueLosersBracket(leagueId).catch(() => [] as SleeperBracketGame[]),
+  ]);
+  return { winners, losers };
+}
+
+/**
  * Get all teams data across multiple seasons
  * @returns Promise with object of team data by year
  */
