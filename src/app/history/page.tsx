@@ -314,39 +314,45 @@ export default function HistoryPage() {
                       if (rid == null) return 'BYE';
                       return bracketNameMap.get(rid) || `Roster ${rid}`;
                     };
-                    const Team = ({ rid, isWinner, score }: { rid?: number | null; isWinner: boolean; score?: number | null }) => (
-                      rid != null ? (
-                        <div className="flex items-center gap-2">
-                          <Link href={`/teams/${rid}`} className={`hover:underline ${isWinner ? 'font-semibold text-blue-700' : ''}`}>
-                            {nameFor(rid)}{isWinner ? ' (W)' : ''}
+                    const TeamRow = ({ rid, isWinner, score }: { rid?: number | null; isWinner: boolean; score?: number | null }) => (
+                      <div className={`flex items-center justify-between ${isWinner ? 'font-semibold text-blue-700' : ''}`}>
+                        {rid != null ? (
+                          <Link href={`/teams/${rid}`} className="hover:underline">
+                            {nameFor(rid)}
                           </Link>
-                          {score != null && (
-                            <span className="text-xs px-1.5 py-0.5 rounded bg-gray-100 text-gray-700">{score.toFixed(2)}</span>
-                          )}
-                        </div>
-                      ) : (
-                        <span className="text-gray-500">BYE</span>
-                      )
+                        ) : (
+                          <span className="text-gray-500">BYE</span>
+                        )}
+                        {score != null && (
+                          <span className="ml-2 text-xs px-1.5 py-0.5 rounded bg-gray-100 text-gray-700">{score.toFixed(2)}</span>
+                        )}
+                      </div>
                     );
+                    const MATCH_H = 72; // px
+                    const GAP = 24; // px
                     return (
-                      <div className="space-y-6">
-                        {roundNums.map((r) => (
-                          <div key={`w-round-${r}`}>
-                            <h4 className="font-semibold text-gray-700 mb-2">Round {r}</h4>
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                              {byRound[r].map((g) => (
-                                <div key={`w-${r}-${g.m}`} className="border rounded p-3 flex items-center justify-between">
-                                  <div className="flex flex-col gap-1">
-                                    <Team rid={g.t1 ?? null} isWinner={g.w != null && g.t1 != null && g.w === g.t1} score={g.t1_points ?? null} />
-                                    <span className="text-xs text-gray-400">vs</span>
-                                    <Team rid={g.t2 ?? null} isWinner={g.w != null && g.t2 != null && g.w === g.t2} score={g.t2_points ?? null} />
-                                  </div>
-                                  <div className="text-xs text-gray-500">Match {g.m ?? ''}</div>
+                      <div className="overflow-x-auto">
+                        <div className="flex items-start gap-8">
+                          {roundNums.map((r, rIdx) => {
+                            const mtFirst = rIdx === 0 ? 0 : ((MATCH_H + GAP) * Math.pow(2, rIdx - 1)) / 2;
+                            const mtBetween = rIdx === 0 ? GAP : ((MATCH_H + GAP) * Math.pow(2, rIdx - 1));
+                            return (
+                              <div key={`w-round-${r}`} className="min-w-[260px]">
+                                <h4 className="font-semibold text-gray-700 mb-2">Round {r}</h4>
+                                <div>
+                                  {byRound[r].map((g, idx) => (
+                                    <div key={`w-${r}-${g.m}`} style={{ marginTop: idx === 0 ? mtFirst : mtBetween }}>
+                                      <div className="border rounded p-3 h-[72px] flex flex-col justify-between">
+                                        <TeamRow rid={g.t1 ?? null} isWinner={g.w != null && g.t1 != null && g.w === g.t1} score={g.t1_points ?? null} />
+                                        <TeamRow rid={g.t2 ?? null} isWinner={g.w != null && g.t2 != null && g.w === g.t2} score={g.t2_points ?? null} />
+                                      </div>
+                                    </div>
+                                  ))}
                                 </div>
-                              ))}
-                            </div>
-                          </div>
-                        ))}
+                              </div>
+                            );
+                          })}
+                        </div>
                       </div>
                     );
                   })()
@@ -372,39 +378,45 @@ export default function HistoryPage() {
                       if (rid == null) return 'BYE';
                       return bracketNameMap.get(rid) || `Roster ${rid}`;
                     };
-                    const Team = ({ rid, isWinner, score }: { rid?: number | null; isWinner: boolean; score?: number | null }) => (
-                      rid != null ? (
-                        <div className="flex items-center gap-2">
-                          <Link href={`/teams/${rid}`} className={`hover:underline ${isWinner ? 'font-semibold text-blue-700' : ''}`}>
-                            {nameFor(rid)}{isWinner ? ' (W)' : ''}
+                    const TeamRow = ({ rid, isWinner, score }: { rid?: number | null; isWinner: boolean; score?: number | null }) => (
+                      <div className={`flex items-center justify-between ${isWinner ? 'font-semibold text-blue-700' : ''}`}>
+                        {rid != null ? (
+                          <Link href={`/teams/${rid}`} className="hover:underline">
+                            {nameFor(rid)}
                           </Link>
-                          {score != null && (
-                            <span className="text-xs px-1.5 py-0.5 rounded bg-gray-100 text-gray-700">{score.toFixed(2)}</span>
-                          )}
-                        </div>
-                      ) : (
-                        <span className="text-gray-500">BYE</span>
-                      )
+                        ) : (
+                          <span className="text-gray-500">BYE</span>
+                        )}
+                        {score != null && (
+                          <span className="ml-2 text-xs px-1.5 py-0.5 rounded bg-gray-100 text-gray-700">{score.toFixed(2)}</span>
+                        )}
+                      </div>
                     );
+                    const MATCH_H = 72; // px
+                    const GAP = 24; // px
                     return (
-                      <div className="space-y-6">
-                        {roundNums.map((r) => (
-                          <div key={`l-round-${r}`}>
-                            <h4 className="font-semibold text-gray-700 mb-2">Round {r}</h4>
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                              {byRound[r].map((g) => (
-                                <div key={`l-${r}-${g.m}`} className="border rounded p-3 flex items-center justify-between">
-                                  <div className="flex flex-col gap-1">
-                                    <Team rid={g.t1 ?? null} isWinner={g.w != null && g.t1 != null && g.w === g.t1} score={g.t1_points ?? null} />
-                                    <span className="text-xs text-gray-400">vs</span>
-                                    <Team rid={g.t2 ?? null} isWinner={g.w != null && g.t2 != null && g.w === g.t2} score={g.t2_points ?? null} />
-                                  </div>
-                                  <div className="text-xs text-gray-500">Match {g.m ?? ''}</div>
+                      <div className="overflow-x-auto">
+                        <div className="flex items-start gap-8">
+                          {roundNums.map((r, rIdx) => {
+                            const mtFirst = rIdx === 0 ? 0 : ((MATCH_H + GAP) * Math.pow(2, rIdx - 1)) / 2;
+                            const mtBetween = rIdx === 0 ? GAP : ((MATCH_H + GAP) * Math.pow(2, rIdx - 1));
+                            return (
+                              <div key={`l-round-${r}`} className="min-w-[260px]">
+                                <h4 className="font-semibold text-gray-700 mb-2">Round {r}</h4>
+                                <div>
+                                  {byRound[r].map((g, idx) => (
+                                    <div key={`l-${r}-${g.m}`} style={{ marginTop: idx === 0 ? mtFirst : mtBetween }}>
+                                      <div className="border rounded p-3 h-[72px] flex flex-col justify-between">
+                                        <TeamRow rid={g.t1 ?? null} isWinner={g.w != null && g.t1 != null && g.w === g.t1} score={g.t1_points ?? null} />
+                                        <TeamRow rid={g.t2 ?? null} isWinner={g.w != null && g.t2 != null && g.w === g.t2} score={g.t2_points ?? null} />
+                                      </div>
+                                    </div>
+                                  ))}
                                 </div>
-                              ))}
-                            </div>
-                          </div>
-                        ))}
+                              </div>
+                            );
+                          })}
+                        </div>
                       </div>
                     );
                   })()
