@@ -2,7 +2,6 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { CHAMPIONS } from '@/lib/constants/league';
 
 type ChampionDetails = {
   year: string;

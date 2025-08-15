@@ -30,7 +30,6 @@ type SleeperDraftSettings = {
 export default function DraftPage() {
   const [selectedYear, setSelectedYear] = useState('2025');
   const years = useMemo(() => ['2025', ...Object.keys(LEAGUE_IDS.PREVIOUS)].sort((a, b) => parseInt(b) - parseInt(a)), []);
-  const submissionsOpen = false; // Toggle for 2027 suggestions submissions
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -41,6 +40,59 @@ export default function DraftPage() {
   function classNames(...classes: string[]) {
     return classes.filter(Boolean).join(' ');
   }
+
+  // Download an ICS calendar file for the trip and draft
+  const handleAddToCalendar = () => {
+    try {
+      const formatICSDate = (d: Date) => d.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
+      // Trip window (Thursday 4 PM ET -> Sunday 11 AM ET)
+      const tripStart = new Date('2026-07-16T16:00:00-04:00');
+      const tripEnd = new Date('2026-07-19T11:00:00-04:00');
+      // Draft event (using league constant for start time)
+      const draftStart = IMPORTANT_DATES.NEXT_DRAFT;
+      const draftEnd = new Date(draftStart.getTime() + 2 * 60 * 60 * 1000); // 2 hours
+
+      const now = new Date();
+      const ics = [
+        'BEGIN:VCALENDAR',
+        'VERSION:2.0',
+        'PRODID:-//East v. West//Draft Trip//EN',
+        'CALSCALE:GREGORIAN',
+        'METHOD:PUBLISH',
+        'BEGIN:VEVENT',
+        `UID:evw-trip-2026@eastvwest`,
+        `DTSTAMP:${formatICSDate(now)}`,
+        `DTSTART:${formatICSDate(tripStart)}`,
+        `DTEND:${formatICSDate(tripEnd)}`,
+        'SUMMARY:East v. West Draft Trip',
+        'LOCATION:Somerset, Pennsylvania, United States',
+        'DESCRIPTION:Airbnb: https://www.airbnb.com/rooms/21559127',
+        'END:VEVENT',
+        'BEGIN:VEVENT',
+        `UID:evw-draft-2026@eastvwest`,
+        `DTSTAMP:${formatICSDate(now)}`,
+        `DTSTART:${formatICSDate(draftStart)}`,
+        `DTEND:${formatICSDate(draftEnd)}`,
+        'SUMMARY:East v. West Rookie Draft',
+        'DESCRIPTION:Draft starts at 1:00 PM ET',
+        'END:VEVENT',
+        'END:VCALENDAR',
+      ].join('\r\n');
+
+      const blob = new Blob([ics], { type: 'text/calendar;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'evw-draft-trip-2026.ics';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      console.error('Failed to create calendar file', e);
+      alert('Could not generate calendar file.');
+    }
+  };
 
   useEffect(() => {
     const leagueId = selectedYear === '2025' 
@@ -136,33 +188,7 @@ export default function DraftPage() {
               )
             }
           >
-            Next Draft
-          </Tab>
-          <Tab
-            className={({ selected }) =>
-              classNames(
-                'w-full rounded-lg py-2.5 text-sm font-medium leading-5',
-                'ring-white ring-opacity-60 ring-offset-2 ring-offset-blue-400 focus:outline-none focus:ring-2',
-                selected
-                  ? 'bg-white shadow'
-                  : 'text-slate-700 hover:bg-white/[0.12] hover:text-slate-900'
-              )
-            }
-          >
             Past Rookie Drafts
-          </Tab>
-          <Tab
-            className={({ selected }) =>
-              classNames(
-                'w-full rounded-lg py-2.5 text-sm font-medium leading-5',
-                'ring-white ring-opacity-60 ring-offset-2 ring-offset-blue-400 focus:outline-none focus:ring-2',
-                selected
-                  ? 'bg-white shadow'
-                  : 'text-slate-700 hover:bg-white/[0.12] hover:text-slate-900'
-              )
-            }
-          >
-            2027 Suggestions
           </Tab>
         </Tab.List>
         <Tab.Panels className="mt-6">
@@ -199,12 +225,12 @@ export default function DraftPage() {
                 </div>
                 <div>
                   <h4 className="font-semibold">Dates</h4>
-                  <p>July 17-19, 2026 (Friday-Sunday)</p>
+                  <p>July 16-19, 2026 (Thursday-Sunday)</p>
                 </div>
                 <div>
                   <h4 className="font-semibold">Notes</h4>
                   <ul className="list-disc pl-5">
-                    <li>Check-in: 4:00 PM Friday</li>
+                    <li>Check-in: 4:00 PM Thursday</li>
                     <li>Check-out: 11:00 AM Sunday</li>
                     <li>Bring your own beverages and snacks</li>
                     <li>Draft starts at 1:00 PM ET on Saturday</li>
@@ -213,8 +239,8 @@ export default function DraftPage() {
               </div>
             </div>
             
-            <button className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors">
-              Add to Calendar
+            <button onClick={handleAddToCalendar} className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors">
+              Add to Calendar (.ics)
             </button>
           </Tab.Panel>
           
@@ -280,20 +306,6 @@ export default function DraftPage() {
                 </div>
               </div>
             )}
-          </Tab.Panel>
-          
-          {/* 2027 Suggestions Panel */}
-          <Tab.Panel className="rounded-xl bg-white p-6 shadow-md">
-            <div className="mb-6 flex justify-between items-center">
-              <h2 className="text-2xl font-bold">2027 Draft Suggestions</h2>
-              <div className="text-sm bg-amber-100 text-amber-800 px-3 py-1 rounded-full">
-                {submissionsOpen ? 'Submissions Open' : 'Submissions Closed'}
-              </div>
-            </div>
-            <EmptyState 
-              title="No suggestions yet" 
-              message="We'll open community suggestions for 2027 closer to the 2026 season."
-            />
           </Tab.Panel>
         </Tab.Panels>
       </Tab.Group>

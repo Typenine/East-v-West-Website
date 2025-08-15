@@ -136,6 +136,13 @@ export default async function Home() {
           >
             Draft
           </Link>
+          <Link 
+            href="/suggestions" 
+            className="bg-slate-700 text-white p-4 rounded-lg text-center font-medium hover:bg-slate-800 transition-colors"
+            aria-label="Submit anonymous suggestions"
+          >
+            Suggestions
+          </Link>
         </div>
       </section>
     </div>
