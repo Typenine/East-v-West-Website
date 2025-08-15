@@ -12,6 +12,7 @@ export type Suggestion = {
 };
 
 const DATA_PATH = path.join(process.cwd(), 'data', 'suggestions.json');
+const USE_KV = Boolean(process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN);
 
 async function readSuggestions(): Promise<Suggestion[]> {
   try {
@@ -32,6 +33,21 @@ async function writeSuggestions(items: Suggestion[]) {
 }
 
 export async function GET() {
+  if (USE_KV) {
+    const { kv } = (await import('@vercel/kv')) as {
+      kv: {
+        lrange<T>(key: string, start: number, end: number): Promise<T[]>;
+        lpush(key: string, value: string): Promise<number>;
+      };
+    };
+    const raw = await kv.lrange<string>('suggestions', 0, 1000);
+    const items: Suggestion[] = raw.map((v: string) => {
+      try { return JSON.parse(v) as Suggestion; } catch { return null as unknown as Suggestion; }
+    }).filter(Boolean);
+    items.sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
+    return Response.json(items);
+  }
+
   const items = await readSuggestions();
   items.sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
   return Response.json(items);
@@ -58,13 +74,25 @@ export async function POST(request: Request) {
       createdAt: now,
     };
 
+    if (USE_KV) {
+      const { kv } = (await import('@vercel/kv')) as {
+        kv: { lpush(key: string, value: string): Promise<number> };
+      };
+      await kv.lpush('suggestions', JSON.stringify(item));
+      return Response.json(item, { status: 201 });
+    }
+
     const items = await readSuggestions();
     items.push(item);
     await writeSuggestions(items);
 
     return Response.json(item, { status: 201 });
   } catch (e: unknown) {
-    console.error('POST /api/suggestions failed', e);
-    return Response.json({ error: 'Failed to save suggestion' }, { status: 500 });
+    const err = e as NodeJS.ErrnoException;
+    console.error('POST /api/suggestions failed', err);
+    const msg = err && (err.code === 'EROFS' || err.code === 'EACCES')
+      ? 'Persistent storage not configured on deployment (read-only filesystem). Configure Vercel KV to enable submissions.'
+      : 'Failed to save suggestion';
+    return Response.json({ error: msg }, { status: 500 });
   }
 }
