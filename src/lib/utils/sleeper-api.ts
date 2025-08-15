@@ -63,6 +63,23 @@ export async function getTeamAllTimeStatsByOwner(ownerId: string): Promise<{
       const rosterOwner = new Map<number, string>();
       for (const r of rosters) rosterOwner.set(r.roster_id, r.owner_id);
 
+      // Add season totals directly from roster settings to match Sleeper
+      const myRoster = rosters.find((r) => r.owner_id === ownerId);
+      if (myRoster) {
+        const seasonWins = myRoster.settings.wins || 0;
+        const seasonLosses = myRoster.settings.losses || 0;
+        const seasonTies = myRoster.settings.ties || 0;
+        wins += seasonWins;
+        losses += seasonLosses;
+        ties += seasonTies;
+        games += seasonWins + seasonLosses + seasonTies;
+
+        const seasonPF = (myRoster.settings.fpts || 0) + ((myRoster.settings.fpts_decimal || 0) / 100);
+        const seasonPA = (myRoster.settings.fpts_against || 0) + ((myRoster.settings.fpts_against_decimal || 0) / 100);
+        totalPF += seasonPF;
+        totalPA += seasonPA;
+      }
+
       // Fetch all weeks' matchups in parallel
       const weekPromises = Array.from({ length: 18 }, (_, i) => i + 1).map((w) => getLeagueMatchups(leagueId, w).catch(() => [] as SleeperMatchup[]));
       const allWeekMatchups = await Promise.all(weekPromises);
@@ -84,14 +101,7 @@ export async function getTeamAllTimeStatsByOwner(ownerId: string): Promise<{
           // Skip unplayed scheduled matchups (0-0)
           if ((myPts ?? 0) === 0 && (oppPts ?? 0) === 0) continue;
 
-          // Update aggregates
-          games += 1;
-          totalPF += myPts;
-          totalPA += oppPts;
-          if (myPts > oppPts) wins += 1;
-          else if (myPts < oppPts) losses += 1;
-          else ties += 1;
-
+          // Track weekly extremes only
           if (myPts > highestScore) highestScore = myPts;
           if (myPts < lowestScore) lowestScore = myPts;
         }
