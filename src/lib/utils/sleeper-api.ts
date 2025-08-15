@@ -77,16 +77,23 @@ export async function getTeamAllTimeStatsByOwner(ownerId: string): Promise<{
           const opponent = weekMatchups.find((om) => om.matchup_id === m.matchup_id && om.roster_id !== m.roster_id);
           if (!opponent) continue;
 
+          // Use custom_points when present, else points
+          const myPts = m.custom_points ?? m.points ?? 0;
+          const oppPts = opponent.custom_points ?? opponent.points ?? 0;
+
+          // Skip unplayed scheduled matchups (0-0)
+          if ((myPts ?? 0) === 0 && (oppPts ?? 0) === 0) continue;
+
           // Update aggregates
           games += 1;
-          totalPF += m.points;
-          totalPA += opponent.points;
-          if (m.points > opponent.points) wins += 1;
-          else if (m.points < opponent.points) losses += 1;
+          totalPF += myPts;
+          totalPA += oppPts;
+          if (myPts > oppPts) wins += 1;
+          else if (myPts < oppPts) losses += 1;
           else ties += 1;
 
-          if (m.points > highestScore) highestScore = m.points;
-          if (m.points < lowestScore) lowestScore = m.points;
+          if (myPts > highestScore) highestScore = myPts;
+          if (myPts < lowestScore) lowestScore = myPts;
         }
       }
     }
@@ -156,9 +163,14 @@ export async function getTeamH2HRecordsAllTimeByOwner(ownerId: string): Promise<
           const opponentOwnerId = rosterOwner.get(opponent.roster_id);
           if (!opponentOwnerId) continue;
 
+          const myPts = m.custom_points ?? m.points ?? 0;
+          const oppPts = opponent.custom_points ?? opponent.points ?? 0;
+          // Skip unplayed scheduled matchups (0-0)
+          if ((myPts ?? 0) === 0 && (oppPts ?? 0) === 0) continue;
+
           if (!h2h[opponentOwnerId]) h2h[opponentOwnerId] = { wins: 0, losses: 0, ties: 0 };
-          if (m.points > opponent.points) h2h[opponentOwnerId].wins += 1;
-          else if (m.points < opponent.points) h2h[opponentOwnerId].losses += 1;
+          if (myPts > oppPts) h2h[opponentOwnerId].wins += 1;
+          else if (myPts < oppPts) h2h[opponentOwnerId].losses += 1;
           else h2h[opponentOwnerId].ties += 1;
         }
       }
@@ -473,6 +485,10 @@ export async function getTeamWeeklyResults(leagueId: string, rosterId: number): 
         const opponent = weekMatchups.find(m => m.matchup_id === matchupId && m.roster_id !== rosterId);
         
         if (opponent) {
+          const teamPts = teamMatchup.custom_points ?? teamMatchup.points ?? 0;
+          const oppPts = opponent.custom_points ?? opponent.points ?? 0;
+          // Skip unplayed scheduled matchups (0-0)
+          if ((teamPts ?? 0) === 0 && (oppPts ?? 0) === 0) continue;
           const result: {
             week: number;
             points: number;
@@ -482,12 +498,12 @@ export async function getTeamWeeklyResults(leagueId: string, rosterId: number): 
             result: 'W' | 'L' | 'T';
           } = {
             week: week + 1,
-            points: teamMatchup.points,
+            points: teamPts,
             opponent: opponent.roster_id,
-            opponentPoints: opponent.points,
+            opponentPoints: oppPts,
             opponentRosterId: opponent.roster_id,
-            result: teamMatchup.points > opponent.points ? 'W' : 
-                   teamMatchup.points < opponent.points ? 'L' : 'T'
+            result: teamPts > oppPts ? 'W' : 
+                   teamPts < oppPts ? 'L' : 'T'
           };
           
           teamResults.push(result);
