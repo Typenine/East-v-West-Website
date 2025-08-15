@@ -10,10 +10,12 @@ import {
   getLeagueRecordBook,
   getAllTeamsData,
   getLeaguePlayoffBracketsWithScores,
+  getLeagueWinnersBracket,
   getRosterIdToTeamNameMap,
   type FranchiseSummary,
   type LeagueRecordBook,
   type SleeperBracketGameWithScore,
+  type SleeperBracketGame,
 } from '@/lib/utils/sleeper-api';
 import { CANONICAL_TEAM_BY_USER_ID } from '@/lib/constants/team-mapping';
 
@@ -45,6 +47,12 @@ export default function HistoryPage() {
   const [winnersBracket, setWinnersBracket] = useState<SleeperBracketGameWithScore[]>([]);
   const [losersBracket, setLosersBracket] = useState<SleeperBracketGameWithScore[]>([]);
   const [bracketNameMap, setBracketNameMap] = useState<Map<number, string>>(new Map());
+  // Leaderboards: playoff appearances computed from winners bracket participants per year
+  const [playoffAppearances, setPlayoffAppearances] = useState<{
+    ownerId: string;
+    teamName: string;
+    appearances: number;
+  }[]>([]);
 
   // Load playoff brackets when Brackets tab is active or year changes
   useEffect(() => {
@@ -106,15 +114,69 @@ export default function HistoryPage() {
         if (cancelled) return;
         setFranchises(fr);
         setRecordBook(rb);
-        // Build owner -> rosterId mapping preferring 2025, then 2024, then 2023
-        const map: Record<string, number> = {};
-        for (const year of ['2025', '2024', '2023']) {
+        // Build owner -> rosterId and owner -> teamName mapping preferring 2025, then 2024, then 2023
+        const ownerRosterMap: Record<string, number> = {};
+        const ownerNameMap: Record<string, string> = {};
+        const yearsOrdered: string[] = ['2025', '2024', '2023'];
+        for (const year of yearsOrdered) {
           const teams = allTeams[year] || [];
           for (const t of teams) {
-            if (map[t.ownerId] === undefined) map[t.ownerId] = t.rosterId;
+            if (ownerRosterMap[t.ownerId] === undefined) ownerRosterMap[t.ownerId] = t.rosterId;
+            if (ownerNameMap[t.ownerId] === undefined) ownerNameMap[t.ownerId] = t.teamName;
           }
         }
-        setOwnerToRosterId(map);
+        setOwnerToRosterId(ownerRosterMap);
+
+        // Compute Most Playoff Appearances using winners bracket participants per season (exclude 2025 at season start)
+        const previousYears: string[] = ['2024', '2023'];
+        const leagueIdsByYear: Record<string, string> = {};
+        for (const y of previousYears) leagueIdsByYear[y] = LEAGUE_IDS.PREVIOUS[y as keyof typeof LEAGUE_IDS.PREVIOUS];
+
+        // Build rosterId -> ownerId mapping per year for bracket lookups
+        const rosterToOwnerByYear: Record<string, Map<number, { ownerId: string; teamName: string }>> = {};
+        for (const y of previousYears) {
+          const teams = allTeams[y] || [];
+          rosterToOwnerByYear[y] = new Map(teams.map((t) => [t.rosterId, { ownerId: t.ownerId, teamName: t.teamName }]));
+        }
+
+        const winnersByYear: Record<string, SleeperBracketGame[]> = {};
+        await Promise.all(previousYears.map(async (y) => {
+          const lid = leagueIdsByYear[y];
+          winnersByYear[y] = lid ? await getLeagueWinnersBracket(lid).catch(() => []) : [];
+        }));
+
+        // Count unique participants per season, then aggregate by owner
+        const ownerCounts: Record<string, number> = {};
+        for (const y of previousYears) {
+          const seenOwners = new Set<string>();
+          const games = winnersByYear[y] || [];
+          const mapByRoster = rosterToOwnerByYear[y] || new Map();
+          for (const g of games) {
+            const cands = [g.t1, g.t2];
+            for (const rid of cands) {
+              if (rid == null) continue;
+              const info = mapByRoster.get(rid);
+              if (!info) continue;
+              if (!seenOwners.has(info.ownerId)) {
+                seenOwners.add(info.ownerId);
+              }
+            }
+          }
+          // Increment counts once per owner per season
+          for (const ownerId of seenOwners) {
+            ownerCounts[ownerId] = (ownerCounts[ownerId] || 0) + 1;
+          }
+        }
+
+        const appearanceRows = Object.entries(ownerCounts)
+          .map(([ownerId, count]) => ({
+            ownerId,
+            teamName: ownerNameMap[ownerId] || 'Unknown Team',
+            appearances: count,
+          }))
+          .sort((a, b) => b.appearances - a.appearances)
+          .slice(0, 5);
+        setPlayoffAppearances(appearanceRows);
       } catch (e) {
         console.error('Error loading history data:', e);
         if (!cancelled) {
@@ -485,29 +547,39 @@ export default function HistoryPage() {
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
-                    {/* This would be populated with real data from the API */}
-                    {[
-                      { team: 'Diggs in the Chat', record: '28-10-0', percentage: 0.737 },
-                      { team: 'Burrow My Sorrows', record: '26-12-0', percentage: 0.684 },
-                      { team: 'Waddle Waddle', record: '25-13-0', percentage: 0.658 },
-                      { team: 'Kittle Me This', record: '24-14-0', percentage: 0.632 },
-                      { team: 'Chubb Thumpers', record: '22-16-0', percentage: 0.579 }
-                    ].map((entry, index) => (
-                      <tr key={entry.team}>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                          {index + 1}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                          {entry.team}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                          {entry.record}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                          {(entry.percentage * 100).toFixed(1)}%
-                        </td>
+                    {franchisesLoading ? (
+                      <tr>
+                        <td className="px-6 py-4 text-sm text-gray-500" colSpan={4}>Loading...</td>
                       </tr>
-                    ))}
+                    ) : franchisesError ? (
+                      <tr>
+                        <td className="px-6 py-4 text-sm text-red-600" colSpan={4}>{franchisesError}</td>
+                      </tr>
+                    ) : ([...franchises]
+                      .map((f) => {
+                        const games = f.wins + f.losses + f.ties;
+                        const pct = games > 0 ? (f.wins + f.ties * 0.5) / games : 0;
+                        return { f, pct };
+                      })
+                      .sort((a, b) => b.pct - a.pct)
+                      .slice(0, 5)
+                      .map(({ f, pct }, index) => {
+                        const rid = ownerToRosterId[f.ownerId];
+                        const nameCell = rid !== undefined ? (
+                          <Link href={`/teams/${rid}`} className="text-blue-700 hover:underline">{f.teamName}</Link>
+                        ) : (
+                          <span>{f.teamName}</span>
+                        );
+                        const record = `${f.wins}-${f.losses}${f.ties > 0 ? `-${f.ties}` : ''}`;
+                        return (
+                          <tr key={f.ownerId}>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{index + 1}</td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{nameCell}</td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{record}</td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{(pct * 100).toFixed(1)}%</td>
+                          </tr>
+                        );
+                      }))}
                   </tbody>
                 </table>
               </div>
@@ -532,26 +604,29 @@ export default function HistoryPage() {
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
-                    {/* This would be populated with real data from the API */}
-                    {[
-                      { team: 'Burrow My Sorrows', appearances: 2 },
-                      { team: 'Diggs in the Chat', appearances: 2 },
-                      { team: 'Kittle Me This', appearances: 2 },
-                      { team: 'Waddle Waddle', appearances: 2 },
-                      { team: 'Chubb Thumpers', appearances: 1 }
-                    ].map((entry, index) => (
-                      <tr key={entry.team}>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                          {index + 1}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                          {entry.team}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                          {entry.appearances}
-                        </td>
+                    {franchisesLoading ? (
+                      <tr>
+                        <td className="px-6 py-4 text-sm text-gray-500" colSpan={3}>Loading...</td>
                       </tr>
-                    ))}
+                    ) : playoffAppearances.length === 0 ? (
+                      <tr>
+                        <td className="px-6 py-4 text-sm text-gray-500" colSpan={3}>No data</td>
+                      </tr>
+                    ) : (playoffAppearances.map((row, index) => {
+                      const rid = ownerToRosterId[row.ownerId];
+                      const nameCell = rid !== undefined ? (
+                        <Link href={`/teams/${rid}`} className="text-blue-700 hover:underline">{row.teamName}</Link>
+                      ) : (
+                        <span>{row.teamName}</span>
+                      );
+                      return (
+                        <tr key={row.ownerId}>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{index + 1}</td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{nameCell}</td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{row.appearances}</td>
+                        </tr>
+                      );
+                    }))}
                   </tbody>
                 </table>
               </div>
