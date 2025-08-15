@@ -1,6 +1,5 @@
 import { promises as fs } from 'fs';
 import path from 'path';
-import type { BlobListItem } from '@vercel/blob';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -35,17 +34,19 @@ async function writeSuggestions(items: Suggestion[]) {
 
 export async function GET() {
   if (USE_BLOB) {
-    const { list, get } = await import('@vercel/blob');
+    const { list } = await import('@vercel/blob');
     const { blobs } = await list({ prefix: 'suggestions/' });
+    type MinimalBlob = { url: string; uploadedAt?: string };
+    const items = blobs as unknown as MinimalBlob[];
     // Sort newest first by uploadedAt
-    const sorted = [...blobs].sort(
-      (a: BlobListItem, b: BlobListItem) => new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime()
+    const sorted = [...items].sort(
+      (a, b) => Date.parse(b.uploadedAt ?? '0') - Date.parse(a.uploadedAt ?? '0')
     );
     const results: Suggestion[] = [];
     for (const b of sorted) {
       try {
         // Read JSON content server-side
-        const res = await get(b.url);
+        const res = await fetch(b.url);
         const json = (await res.json()) as Suggestion;
         results.push(json);
       } catch {
@@ -84,7 +85,7 @@ export async function POST(request: Request) {
     if (USE_BLOB) {
       const { put } = await import('@vercel/blob');
       await put(`suggestions/${item.id}.json`, JSON.stringify(item), {
-        access: 'private',
+        access: 'public',
         contentType: 'application/json; charset=utf-8',
       });
       return Response.json(item, { status: 201 });
