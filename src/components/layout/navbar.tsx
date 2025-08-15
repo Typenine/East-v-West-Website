@@ -3,7 +3,6 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useState } from 'react';
-import GlobalSearch from '@/components/ui/global-search';
 
 const navItems = [
   { name: 'Home', path: '/' },
@@ -14,6 +13,7 @@ const navItems = [
   { name: 'Draft', path: '/draft' },
   { name: 'Newsletter', path: '/newsletter' },
   { name: 'Trades', path: '/trades' },
+  { name: 'Suggestions', path: '/suggestions' },
 ];
 
 export default function Navbar() {
@@ -43,14 +43,8 @@ export default function Navbar() {
                     {item.name}
                   </Link>
                 ))}
-                <div className="px-3 py-2">
-                  <GlobalSearch />
-                </div>
               </div>
             </div>
-          </div>
-          <div className="hidden md:flex items-center">
-            <GlobalSearch />
           </div>
           <div className="md:hidden">
             <button
