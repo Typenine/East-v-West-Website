@@ -5,10 +5,10 @@ import { useRouter, useSearchParams } from 'next/navigation';
 
 interface GraphNodeBase { id: string; type: 'player' | 'pick' | 'trade'; label: string }
 interface PlayerNode extends GraphNodeBase { type: 'player'; playerId: string }
-interface PickNode extends GraphNodeBase { type: 'pick'; season: string; round: number; slot: number }
-interface TradeNode extends GraphNodeBase { type: 'trade'; tradeId: string; date: string }
+interface PickNode extends GraphNodeBase { type: 'pick'; season: string; round: number; slot: number; pickInRound?: number; becameName?: string }
+interface TradeNode extends GraphNodeBase { type: 'trade'; tradeId: string; date: string; teams: string[] }
 
-interface GraphEdge { id: string; from: string; to: string; kind: 'traded' | 'became' }
+interface GraphEdge { id: string; from: string; to: string; kind: 'traded' | 'became'; tradeId?: string }
 
 interface TradeGraph { nodes: Array<PlayerNode | PickNode | TradeNode>; edges: GraphEdge[] }
 
@@ -20,6 +20,23 @@ const TYPE_ORDER: Record<PlayerNode['type'] | PickNode['type'] | TradeNode['type
   pick: 1,
   trade: 2,
 };
+
+// Build a consistent color per tradeId using a simple hash -> hue mapping
+function buildTradeColorMap(edges: GraphEdge[]): Map<string, string> {
+  const ids = Array.from(new Set(edges.filter(e => e.kind === 'traded' && e.tradeId).map(e => e.tradeId as string)));
+  const map = new Map<string, string>();
+  const hash = (s: string) => {
+    let h = 0;
+    for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
+    return Math.abs(h);
+  };
+  ids.forEach((id) => {
+    const hue = (hash(id) % 360);
+    const color = `hsl(${hue} 60% 45%)`;
+    map.set(id, color);
+  });
+  return map;
+}
 
 function TradeTrackerContent() {
   const searchParams = useSearchParams();
@@ -136,9 +153,36 @@ function TradeTrackerContent() {
             <div className="mb-3 text-sm text-gray-700">
               Nodes: {graph.nodes.length} • Edges: {graph.edges.length}
             </div>
+            {(() => {
+              // Build legend entries: tradeId -> date + teams + color
+              const colorMap = buildTradeColorMap(graph.edges);
+              const tradeNodes = graph.nodes.filter((n) => n.type === 'trade') as TradeNode[];
+              const byId = new Map(tradeNodes.map((t) => [t.tradeId, t]));
+              const entries = Array.from(colorMap.keys()).map((tid) => {
+                const tn = byId.get(tid);
+                return tn ? { id: tid, date: tn.date, teams: tn.teams || [], color: colorMap.get(tid)! } : null;
+              }).filter(Boolean) as Array<{ id: string; date: string; teams: string[]; color: string }>;
+              entries.sort((a, b) => a.date.localeCompare(b.date));
+              return entries.length ? (
+                <div className="mb-3">
+                  <h3 className="text-sm font-medium mb-1">Trades in view</h3>
+                  <ul className="space-y-1 text-sm">
+                    {entries.map((e) => (
+                      <li key={e.id} className="flex items-center gap-2" title={`Trade ${e.id}`}>
+                        <span className="inline-block w-8 h-0.5" style={{ backgroundColor: e.color }} />
+                        <span className="text-gray-700">{e.date}</span>
+                        <span className="text-gray-400">•</span>
+                        <span className="truncate">{e.teams.join(' ↔ ')}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null;
+            })()}
             <GraphCanvas
               graph={graph}
               rootId={rootType === 'player' ? `player:${playerId}` : `pick:${season}-${round}-${slot}`}
+              tradeColorMap={buildTradeColorMap(graph.edges)}
             />
             <div className="mt-2 text-xs text-gray-500">
               Legend: <span className="inline-block w-3 h-3 bg-blue-100 border border-blue-400 align-middle mr-1"/> Player •
@@ -166,7 +210,7 @@ export default function TradeTrackerPage() {
 }
 
 // Simple SVG-based graph renderer with columnar layout by BFS depth from root
-function GraphCanvas({ graph, rootId }: { graph: TradeGraph; rootId: string }) {
+function GraphCanvas({ graph, rootId, tradeColorMap: tradeColorMapProp }: { graph: TradeGraph; rootId: string; tradeColorMap?: Map<string, string> }) {
   const router = useRouter();
   const [hoverId, setHoverId] = useState<string | null>(null);
 
@@ -251,14 +295,26 @@ function GraphCanvas({ graph, rootId }: { graph: TradeGraph; rootId: string }) {
   const width = margin * 2 + Math.max(1, columns.length) * colW + nodeW - (colW - nodeW);
   const height = margin * 2 + Math.max(1, Math.max(0, ...columns.map((c) => c.length))) * rowH + nodeH - (rowH - nodeH);
 
+  // Color mapping per tradeId (for traded edges)
+  const tradeColorMap = useMemo(() => tradeColorMapProp ?? buildTradeColorMap(graph.edges), [tradeColorMapProp, graph.edges]);
+
+  const tradedMarkerIds = useMemo(() => {
+    // Build a stable key for each trade color
+    const entries: Array<{ id: string; color: string }> = [];
+    for (const [id, color] of tradeColorMap.entries()) entries.push({ id, color });
+    return entries;
+  }, [tradeColorMap]);
+
   return (
     <div className="overflow-auto border rounded" style={{ height: Math.min(height + 20, 640) }}>
       <div className="relative" style={{ width, height }}>
         <svg className="absolute inset-0" width={width} height={height}>
           <defs>
-            <marker id="arrow-traded" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
-              <path d="M0,0 L0,6 L9,3 z" fill="#9CA3AF" />
-            </marker>
+            {tradedMarkerIds.map(({ id, color }) => (
+              <marker key={id} id={`arrow-traded-${id}`} markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+                <path d="M0,0 L0,6 L9,3 z" fill={color} />
+              </marker>
+            ))}
             <marker id="arrow-became" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
               <path d="M0,0 L0,6 L9,3 z" fill="#9CA3AF" />
             </marker>
@@ -271,7 +327,8 @@ function GraphCanvas({ graph, rootId }: { graph: TradeGraph; rootId: string }) {
             const y1 = a.y + nodeH / 2;
             const x2 = b.x + nodeW / 2;
             const y2 = b.y + nodeH / 2;
-            const marker = e.kind === 'became' ? 'url(#arrow-became)' : 'url(#arrow-traded)';
+            const color = e.kind === 'traded' && e.tradeId ? (tradeColorMap.get(e.tradeId) || '#6B7280') : '#9CA3AF';
+            const marker = e.kind === 'became' ? 'url(#arrow-became)' : (e.tradeId ? `url(#arrow-traded-${e.tradeId})` : undefined);
             const dash = e.kind === 'became' ? '6 4' : undefined;
             const isHighlighted = !hoverId || e.from === hoverId || e.to === hoverId;
             return (
@@ -281,7 +338,7 @@ function GraphCanvas({ graph, rootId }: { graph: TradeGraph; rootId: string }) {
                 y1={y1}
                 x2={x2}
                 y2={y2}
-                stroke="#9CA3AF"
+                stroke={color}
                 strokeWidth={2}
                 strokeDasharray={dash}
                 markerEnd={marker}
@@ -332,6 +389,17 @@ function GraphCanvas({ graph, rootId }: { graph: TradeGraph; rootId: string }) {
                 >
                   <div className="text-2xs uppercase tracking-wide text-gray-600" style={{ opacity: isDimmed ? 0.4 : 1 }}>{n.type}</div>
                   <div className="text-sm font-medium truncate" title={n.label} style={{ opacity: isDimmed ? 0.4 : 1 }}>{n.label}</div>
+                  {n.type === 'pick' && (
+                    <div className="text-xs text-gray-700 truncate" style={{ opacity: isDimmed ? 0.4 : 1 }}>
+                      R{(n as PickNode).round} P{(n as PickNode).pickInRound ?? (n as PickNode).slot}
+                      {(n as PickNode).becameName ? ` → ${(n as PickNode).becameName}` : ''}
+                    </div>
+                  )}
+                  {n.type === 'trade' && (
+                    <div className="text-xs text-gray-700 truncate" style={{ opacity: isDimmed ? 0.4 : 1 }}>
+                      {((n as TradeNode).teams || []).join(' ↔ ')}
+                    </div>
+                  )}
                 </div>
               );
             })}

@@ -5,14 +5,15 @@ import { Trade } from '@/lib/utils/trades';
 // Node kinds in the trade graph
 export type GraphNode =
   | { id: string; type: 'player'; label: string; playerId: string }
-  | { id: string; type: 'pick'; label: string; season: string; round: number; slot: number }
-  | { id: string; type: 'trade'; label: string; tradeId: string; date: string };
+  | { id: string; type: 'pick'; label: string; season: string; round: number; slot: number; pickInRound?: number; becameName?: string }
+  | { id: string; type: 'trade'; label: string; tradeId: string; date: string; teams: string[] };
 
 export type GraphEdge = {
   id: string;
   from: string; // source node id
   to: string;   // target node id
   kind: 'traded' | 'became';
+  tradeId?: string; // present for 'traded' edges
 };
 
 export type TradeGraph = {
@@ -37,7 +38,7 @@ export function buildTradeGraph(trades: Trade[]): TradeGraph {
   for (const trade of trades) {
     // Trade node
     const tradeNodeId = `trade:${trade.id}`;
-    ensureNode({ id: tradeNodeId, type: 'trade', label: `Trade ${trade.date}`, tradeId: trade.id, date: trade.date });
+    ensureNode({ id: tradeNodeId, type: 'trade', label: `Trade ${trade.date}`, tradeId: trade.id, date: trade.date, teams: trade.teams.map(t => t.name) });
 
     // Assets received by each team in this trade
     trade.teams.forEach((team, teamIndex) => {
@@ -48,29 +49,42 @@ export function buildTradeGraph(trades: Trade[]): TradeGraph {
           ensureNode({ id: playerNodeId, type: 'player', label: asset.name, playerId: asset.playerId });
           const edgeId = `traded:${trade.id}:${teamIndex}:${assetIndex}`;
           if (!edgeIds.has(edgeId)) {
-            edges.push({ id: edgeId, from: tradeNodeId, to: playerNodeId, kind: 'traded' });
+            edges.push({ id: edgeId, from: tradeNodeId, to: playerNodeId, kind: 'traded', tradeId: trade.id });
             edgeIds.add(edgeId);
           }
         } else if (asset.type === 'pick') {
           const season = asset.year;
           const round = asset.round;
           const slot = asset.draftSlot ?? asset.pickInRound; // prefer stable draftSlot
+          const pickInRound = asset.pickInRound;
+          const becameName = (asset.became as string | undefined) || undefined;
           if (!season || typeof round !== 'number' || !Number.isFinite(slot as number)) return;
           const pickNodeId = `pick:${season}-${round}-${slot as number}`;
           const pickLabel = asset.name || `${season} R${round} S${slot as number}`;
-          ensureNode({ id: pickNodeId, type: 'pick', label: pickLabel, season, round, slot: slot as number });
+          const existing = nodesById.get(pickNodeId);
+          if (!existing) {
+            nodesById.set(pickNodeId, { id: pickNodeId, type: 'pick', label: pickLabel, season, round, slot: slot as number, pickInRound, becameName });
+          } else if (existing && existing.type === 'pick') {
+            // Enrich existing pick node if missing fields
+            nodesById.set(pickNodeId, {
+              ...existing,
+              label: existing.label || pickLabel,
+              pickInRound: existing.pickInRound ?? pickInRound,
+              becameName: existing.becameName ?? becameName,
+            });
+          }
           const edgeId = `traded:${trade.id}:${teamIndex}:${assetIndex}`;
           if (!edgeIds.has(edgeId)) {
-            edges.push({ id: edgeId, from: tradeNodeId, to: pickNodeId, kind: 'traded' });
+            edges.push({ id: edgeId, from: tradeNodeId, to: pickNodeId, kind: 'traded', tradeId: trade.id });
             edgeIds.add(edgeId);
           }
 
           // If the pick became a player, connect with 'became'
           const becamePlayerId = asset.becamePlayerId;
-          const becameName = asset.became as string | undefined;
+          const becameLabel = asset.became as string | undefined;
           if (becamePlayerId) {
             const playerNodeId = `player:${becamePlayerId}`;
-            ensureNode({ id: playerNodeId, type: 'player', label: becameName || becamePlayerId, playerId: becamePlayerId });
+            ensureNode({ id: playerNodeId, type: 'player', label: becameLabel || becamePlayerId, playerId: becamePlayerId });
             const becameEdgeId = `became:${season}-${round}-${slot as number}:${becamePlayerId}`;
             if (!edgeIds.has(becameEdgeId)) {
               edges.push({ id: becameEdgeId, from: pickNodeId, to: playerNodeId, kind: 'became' });
