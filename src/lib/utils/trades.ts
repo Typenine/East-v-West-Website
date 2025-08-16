@@ -83,8 +83,14 @@ let playersCache: Record<string, any> | null = null;
 // Cache draft context per league-season to avoid repeated Sleeper API calls
 type DraftContext = {
   draftId: string;
-  draftOrder: Map<number, number>; // roster_id -> draft slot
+  draftOrderRosterToSlot: Map<number, number>; // roster_id -> draft slot (when keys are roster ids)
+  draftOrderSlotToRoster: Map<number, number>; // draft slot -> roster_id (when keys are slots)
+  // Keep raw order as fallback (may be keyed by user_id in some seasons)
+  orderRaw: Record<string, number>;
   picks: SleeperDraftPick[];
+  // Season context
+  ownerIdByRosterId: Map<number, string>;
+  rosterCount: number;
 };
 const draftContextCache: Map<string, Map<string, DraftContext>> = new Map(); // leagueId -> season -> ctx
 
@@ -105,20 +111,36 @@ async function getDraftContext(leagueId: string, season: string): Promise<DraftC
     const draft = drafts.find((d) => d.season === season);
     if (!draft) return null;
 
-    // Get draft details (order) and picks
-    const [draftDetails, picks] = await Promise.all([
+    // Get draft details (order), picks, and rosters for this season
+    const [draftDetails, picks, rosters] = await Promise.all([
       getDraftById(draft.draft_id),
-      getDraftPicks(draft.draft_id)
+      getDraftPicks(draft.draft_id),
+      getLeagueRosters(leagueId),
     ]);
-    const orderObj = draftDetails.draft_order || {};
-    const order = new Map<number, number>();
+    const orderObj = (draftDetails.draft_order || {}) as Record<string, number>;
+    const orderRosterToSlot = new Map<number, number>();
+    const orderSlotToRoster = new Map<number, number>();
     for (const [key, val] of Object.entries(orderObj)) {
-      const rid = Number(key);
-      const slot = Number(val);
-      if (Number.isFinite(rid) && Number.isFinite(slot)) order.set(rid, slot);
+      const kNum = Number(key);
+      const vNum = Number(val);
+      if (Number.isFinite(kNum) && Number.isFinite(vNum)) {
+        // Populate both interpretations to be robust to API shape
+        orderRosterToSlot.set(kNum, vNum);
+        orderSlotToRoster.set(vNum, kNum);
+      }
     }
+    const ownerIdByRosterId = new Map<number, string>();
+    for (const r of rosters) ownerIdByRosterId.set(r.roster_id, r.owner_id);
 
-    const ctx: DraftContext = { draftId: draft.draft_id, draftOrder: order, picks };
+    const ctx: DraftContext = {
+      draftId: draft.draft_id,
+      draftOrderRosterToSlot: orderRosterToSlot,
+      draftOrderSlotToRoster: orderSlotToRoster,
+      orderRaw: orderObj,
+      picks,
+      ownerIdByRosterId,
+      rosterCount: rosters.length,
+    };
     bySeason.set(season, ctx);
     draftContextCache.set(leagueId, bySeason);
     return ctx;
@@ -135,12 +157,43 @@ async function resolvePickBecame(season: string, round: number, originalRosterId
   if (!seasonLeagueId) return undefined;
   const ctx = await getDraftContext(seasonLeagueId, season);
   if (!ctx) return undefined;
-  const slot = ctx.draftOrder.get(originalRosterId);
+  // Determine the original draft slot for the original roster
+  let slot = ctx.draftOrderRosterToSlot.get(originalRosterId);
+  if (!slot) {
+    // Try inverse mapping (slot -> roster)
+    for (const [s, rid] of ctx.draftOrderSlotToRoster.entries()) {
+      if (rid === originalRosterId) {
+        slot = s;
+        break;
+      }
+    }
+  }
+  if (!slot) {
+    // Try via owner_id if draft_order keyed by owner id
+    const ownerId = ctx.ownerIdByRosterId.get(originalRosterId);
+    if (ownerId) {
+      const ownerSlot = ctx.orderRaw[ownerId as unknown as string];
+      if (Number.isFinite(Number(ownerSlot))) slot = Number(ownerSlot);
+    }
+  }
+  if (!slot) {
+    // Fallback: infer slot from a round 1 pick if available
+    const r1 = ctx.picks.find((p) => Number(p.round) === 1 && (p.roster_id === originalRosterId));
+    if (r1 && Number.isFinite(Number(r1.draft_slot))) slot = Number(r1.draft_slot);
+  }
   if (!slot) return undefined;
-  // The exact pick number traded refers to the original owner's draft slot for that round
-  const pickInRound = slot;
-  const info: BecameInfo = { pickInRound };
+
+  // Find the specific pick in that season/round/slot
   const dp = ctx.picks.find((p) => Number(p.round) === Number(round) && Number(p.draft_slot) === Number(slot));
+  // Compute pick number within the round accurately using overall pick_no
+  let pickInRound: number | undefined = undefined;
+  if (dp && Number.isFinite(Number(dp.pick_no)) && Number.isFinite(Number(ctx.rosterCount)) && ctx.rosterCount > 0) {
+    pickInRound = ((Number(dp.pick_no) - 1) % ctx.rosterCount) + 1;
+  } else {
+    // Fallback to slot when pick_no unavailable
+    pickInRound = slot;
+  }
+  const info: BecameInfo = { pickInRound };
   if (dp && dp.player_id) {
     if (!playersCache) playersCache = await getAllPlayers();
     const pl = playersCache[dp.player_id];
