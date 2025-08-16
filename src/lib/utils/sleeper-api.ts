@@ -1114,3 +1114,64 @@ export async function getDraftPicks(draftId: string): Promise<SleeperDraftPick[]
   }
   return response.json();
 }
+
+/**
+ * NFL season aggregate player stats (subset of fields we use)
+ * Keys are Sleeper player IDs (stringified numbers).
+ * Example endpoint: https://api.sleeper.app/v1/stats/nfl/regular/2024
+ */
+export interface SleeperNFLSeasonPlayerStats {
+  gp?: number;             // games played
+  gms_active?: number;     // games active (fallback)
+  pts_ppr?: number;        // total PPR fantasy points
+  pts_std?: number;        // total standard points (not used here)
+  // ... many other fields exist; we only type what's needed
+}
+
+// Simple in-memory cache for season stats within a single runtime
+const seasonStatsCache: Record<string, { ts: number; data: Record<string, SleeperNFLSeasonPlayerStats> }> = {};
+
+/**
+ * Fetch NFL season stats from Sleeper and cache them briefly to avoid repeated large downloads.
+ * @param season Year as string or number (e.g., '2024')
+ * @param ttlMs Cache TTL in milliseconds (default 15 minutes)
+ */
+export async function getNFLSeasonStats(
+  season: string | number,
+  ttlMs: number = 15 * 60 * 1000
+): Promise<Record<string, SleeperNFLSeasonPlayerStats>> {
+  const key = String(season);
+  const now = Date.now();
+  const cached = seasonStatsCache[key];
+  if (cached && now - cached.ts < ttlMs) return cached.data;
+
+  const url = `${SLEEPER_API_BASE}/stats/nfl/regular/${key}`;
+  const resp = await fetch(url);
+  if (!resp.ok) {
+    throw new Error(`Failed to fetch NFL season stats ${key}: ${resp.status} ${resp.statusText}`);
+  }
+  const json = (await resp.json()) as Record<string, SleeperNFLSeasonPlayerStats>;
+  seasonStatsCache[key] = { ts: now, data: json };
+  return json;
+}
+
+/**
+ * Compute total PPR and PPG for a set of players for a given season.
+ * @param season Season year (e.g., '2024')
+ * @param playerIds Array of Sleeper player IDs
+ */
+export async function getPlayersPPRAndPPG(
+  season: string | number,
+  playerIds: string[]
+): Promise<Record<string, { totalPPR: number; gp: number; ppg: number }>> {
+  const stats = await getNFLSeasonStats(season);
+  const result: Record<string, { totalPPR: number; gp: number; ppg: number }> = {};
+  for (const pid of playerIds) {
+    const s = stats[pid];
+    const gp = (s?.gp ?? s?.gms_active ?? 0) || 0;
+    const total = s?.pts_ppr ?? 0;
+    const ppg = gp > 0 ? total / gp : 0;
+    result[pid] = { totalPPR: total, gp, ppg };
+  }
+  return result;
+}

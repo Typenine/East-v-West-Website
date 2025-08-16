@@ -12,6 +12,7 @@ import {
   TeamData,
   getTeamAllTimeStatsByOwner,
   getTeamH2HRecordsAllTimeByOwner,
+  getPlayersPPRAndPPG,
 } from '@/lib/utils/sleeper-api';
 import { LEAGUE_IDS } from '@/lib/constants/league';
 import { getTeamLogoPath, getTeamColorStyle, resolveCanonicalTeamName } from '@/lib/utils/team-utils';
@@ -39,6 +40,7 @@ export default function TeamPage() {
   }>>([]);
   const [h2hRecords, setH2HRecords] = useState<Record<string, { wins: number, losses: number, ties: number }>>({});
   const [players, setPlayers] = useState<Record<string, SleeperPlayer>>({});
+  const [playerSeasonStats, setPlayerSeasonStats] = useState<Record<string, { totalPPR: number; gp: number; ppg: number }>>({});
   const [allTeams, setAllTeams] = useState<TeamData[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -88,10 +90,24 @@ export default function TeamPage() {
         const h2hAllTime = await getTeamH2HRecordsAllTimeByOwner(currentTeam.ownerId);
         setH2HRecords(h2hAllTime);
         
-        // Fetch players data if team has players
+        // Fetch players data and season stats if team has players
         if (currentTeam.players && currentTeam.players.length > 0) {
-          const allPlayersData = await getAllPlayers();
-          setPlayers(allPlayersData);
+          try {
+            const [allPlayersData, seasonStats] = await Promise.all([
+              getAllPlayers(),
+              getPlayersPPRAndPPG(selectedYear, currentTeam.players),
+            ]);
+            setPlayers(allPlayersData);
+            setPlayerSeasonStats(seasonStats);
+          } catch {
+            // Best-effort: still attempt to load players
+            try {
+              const allPlayersData = await getAllPlayers();
+              setPlayers(allPlayersData);
+            } catch {
+              /* ignore */
+            }
+          }
         }
         
         // Fetch all-time aggregate stats by owner across seasons
@@ -310,12 +326,22 @@ export default function TeamPage() {
                       <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                         Team
                       </th>
+                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        G
+                      </th>
+                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Total PPR
+                      </th>
+                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        PPG
+                      </th>
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
                     {team.players.map((playerId) => {
                       const player = players[playerId];
                       if (!player) return null;
+                      const s = playerSeasonStats[playerId];
                       
                       return (
                         <tr key={playerId}>
@@ -329,6 +355,15 @@ export default function TeamPage() {
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap">
                             <div className="text-sm text-gray-500">{player.team}</div>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <div className="text-sm text-gray-500">{(s?.gp ?? 0)}</div>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <div className="text-sm text-gray-500">{(s?.totalPPR ?? 0).toFixed(1)}</div>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <div className="text-sm text-gray-900">{(s?.ppg ?? 0).toFixed(2)}</div>
                           </td>
                         </tr>
                       );
