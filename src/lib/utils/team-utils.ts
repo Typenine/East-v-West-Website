@@ -8,6 +8,39 @@ import { TEAM_NAMES } from '../constants/league';
 import { CANONICAL_TEAM_BY_USER_ID, TEAM_ALIASES, normalizeName } from '../constants/team-mapping';
 
 /**
+ * Shared position ranking for roster sorting
+ * Order: QB > RB > WR > TE > K > DEF/DST > IDPs (DL/DE/DT/EDGE > LB > DB/CB/S)
+ */
+export const POSITION_RANK: Record<string, number> = {
+  // Offense
+  QB: 0,
+  RB: 1,
+  HB: 1,
+  FB: 1,
+  WR: 2,
+  TE: 3,
+  FLEX: 3,
+  K: 4,
+  PK: 4,
+  // Team defense
+  DEF: 5,
+  DST: 5,
+  // IDP front
+  DL: 6,
+  DE: 6,
+  DT: 6,
+  EDGE: 6,
+  // IDP linebackers
+  LB: 7,
+  // IDP secondary
+  DB: 8,
+  CB: 8,
+  S: 8,
+  FS: 8,
+  SS: 8,
+};
+
+/**
  * Converts a team name to a URL-friendly format for logo paths
  * @param teamName The team name to format
  * @returns Formatted team name for logo path

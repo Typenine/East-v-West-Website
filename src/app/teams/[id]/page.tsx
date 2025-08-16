@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
 import Image from 'next/image';
 import { Tab } from '@headlessui/react';
@@ -18,6 +18,25 @@ import { LEAGUE_IDS } from '@/lib/constants/league';
 import { getTeamLogoPath, getTeamColorStyle, resolveCanonicalTeamName } from '@/lib/utils/team-utils';
 import LoadingState from '@/components/ui/loading-state';
 import ErrorState from '@/components/ui/error-state';
+
+// Position grouping order for roster sections
+const POSITION_GROUP_ORDER = ['QB', 'RB', 'WR', 'TE', 'K', 'DEF/DST', 'DL', 'LB', 'DB', 'Other'] as const;
+type PositionGroup = typeof POSITION_GROUP_ORDER[number];
+
+const toPositionGroup = (pos?: string): string => {
+  const p = (pos || '').toUpperCase();
+  if (p === 'DST' || p === 'DEF') return 'DEF/DST';
+  if (p === 'HB' || p === 'FB') return 'RB';
+  if (p === 'PK') return 'K';
+  if (p === 'DE' || p === 'DT' || p === 'EDGE' || p === 'DL') return 'DL';
+  if (p === 'CB' || p === 'S' || p === 'FS' || p === 'SS' || p === 'DB') return 'DB';
+  return p || 'Other';
+};
+
+const groupOrderIndex = (group: string): number => {
+  const idx = POSITION_GROUP_ORDER.indexOf(group as PositionGroup);
+  return idx === -1 ? 99 : idx;
+};
 
 function classNames(...classes: string[]) {
   return classes.filter(Boolean).join(' ');
@@ -56,6 +75,35 @@ export default function TeamPage() {
     highestScore: 0,
     lowestScore: 999
   });
+  
+  const sortedGroups = useMemo(() => {
+    if (!team?.players) return [] as { group: string; ids: string[] }[];
+    const byGroup: Record<string, string[]> = {};
+    for (const pid of team.players) {
+      const pos = players[pid]?.position;
+      const group = toPositionGroup(pos);
+      if (!byGroup[group]) byGroup[group] = [];
+      byGroup[group].push(pid);
+    }
+    // Sort players within group by PPG desc, then name asc
+    for (const g of Object.keys(byGroup)) {
+      byGroup[g].sort((a, b) => {
+        const sa = playerSeasonStats[a];
+        const sb = playerSeasonStats[b];
+        const ppgA = sa?.ppg ?? -1; // players without stats fall to bottom
+        const ppgB = sb?.ppg ?? -1;
+        if (ppgB !== ppgA) return ppgB - ppgA;
+        const pa = players[a];
+        const pb = players[b];
+        const nameA = pa ? `${pa.first_name} ${pa.last_name}` : '';
+        const nameB = pb ? `${pb.first_name} ${pb.last_name}` : '';
+        return nameA.localeCompare(nameB);
+      });
+    }
+    // Order groups by defined order
+    const groups = Object.keys(byGroup).sort((ga, gb) => groupOrderIndex(ga) - groupOrderIndex(gb));
+    return groups.map((g) => ({ group: g, ids: byGroup[g] }));
+  }, [team?.players, players, playerSeasonStats]);
   
   // Get the league ID for the selected year
   const getLeagueIdForYear = (year: string) => {
@@ -338,36 +386,46 @@ export default function TeamPage() {
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
-                    {team.players.map((playerId) => {
-                      const player = players[playerId];
-                      if (!player) return null;
-                      const s = playerSeasonStats[playerId];
-                      
-                      return (
-                        <tr key={playerId}>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <div className="text-sm font-medium text-gray-900">
-                              {player.first_name} {player.last_name}
-                            </div>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <div className="text-sm text-gray-500">{player.position}</div>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <div className="text-sm text-gray-500">{player.team}</div>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <div className="text-sm text-gray-500">{(s?.gp ?? 0)}</div>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <div className="text-sm text-gray-500">{(s?.totalPPR ?? 0).toFixed(1)}</div>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <div className="text-sm text-gray-900">{(s?.ppg ?? 0).toFixed(2)}</div>
-                          </td>
-                        </tr>
-                      );
-                    })}
+                    {sortedGroups.map(({ group, ids }) => (
+                      [
+                        (
+                          <tr key={`hdr-${group}`} className="bg-gray-100">
+                            <td colSpan={6} className="px-6 py-2 text-xs font-semibold text-gray-600 uppercase">
+                              {group}
+                            </td>
+                          </tr>
+                        ),
+                        ...ids.map((playerId) => {
+                          const player = players[playerId];
+                          if (!player) return null;
+                          const s = playerSeasonStats[playerId];
+                          return (
+                            <tr key={playerId}>
+                              <td className="px-6 py-4 whitespace-nowrap">
+                                <div className="text-sm font-medium text-gray-900">
+                                  {player.first_name} {player.last_name}
+                                </div>
+                              </td>
+                              <td className="px-6 py-4 whitespace-nowrap">
+                                <div className="text-sm text-gray-500">{player.position}</div>
+                              </td>
+                              <td className="px-6 py-4 whitespace-nowrap">
+                                <div className="text-sm text-gray-500">{player.team}</div>
+                              </td>
+                              <td className="px-6 py-4 whitespace-nowrap">
+                                <div className="text-sm text-gray-500">{(s?.gp ?? 0)}</div>
+                              </td>
+                              <td className="px-6 py-4 whitespace-nowrap">
+                                <div className="text-sm text-gray-500">{(s?.totalPPR ?? 0).toFixed(1)}</div>
+                              </td>
+                              <td className="px-6 py-4 whitespace-nowrap">
+                                <div className="text-sm text-gray-900">{(s?.ppg ?? 0).toFixed(2)}</div>
+                              </td>
+                            </tr>
+                          );
+                        })
+                      ]
+                    ))}
                   </tbody>
                 </table>
               </div>
