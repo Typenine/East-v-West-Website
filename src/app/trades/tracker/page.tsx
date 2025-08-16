@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { Suspense, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 
 interface GraphNodeBase { id: string; type: 'player' | 'pick' | 'trade'; label: string }
@@ -12,7 +12,9 @@ interface GraphEdge { id: string; from: string; to: string; kind: 'traded' | 'be
 
 interface TradeGraph { nodes: Array<PlayerNode | PickNode | TradeNode>; edges: GraphEdge[] }
 
-export default function TradeTrackerPage() {
+export const dynamic = 'force-dynamic';
+
+function TradeTrackerContent() {
   const searchParams = useSearchParams();
   const rootType = searchParams.get('rootType') || 'player';
   const playerId = searchParams.get('playerId') || '';
@@ -100,5 +102,13 @@ export default function TradeTrackerPage() {
         )}
       </div>
     </div>
+  );
+}
+
+export default function TradeTrackerPage() {
+  return (
+    <Suspense fallback={<div className="container mx-auto px-4 py-8">Loading tracker…</div>}>
+      <TradeTrackerContent />
+    </Suspense>
   );
 }
