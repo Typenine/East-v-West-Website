@@ -7,14 +7,18 @@ export type TradeAsset = {
   name: string;
   position?: string;
   team?: string;
+  // Stable identifiers (when available)
+  playerId?: string; // Sleeper player_id for player assets
   year?: string;
   round?: number;
+  draftSlot?: number; // Original draft slot (1..N consistent across rounds)
   value?: number; // For trade value analysis
   // Pick lineage (only for type === 'pick')
   originalOwner?: string; // Canonical team name of original owner of the pick
   became?: string; // Player name the pick turned into (if drafted)
   becamePosition?: string; // Position of the player the pick turned into
   becameTeam?: string; // NFL team of the player the pick turned into
+  becamePlayerId?: string; // Sleeper player_id for the drafted player (if available)
   pickInRound?: number; // Exact pick number within the round (1..N), if determinable
 };
 
@@ -150,7 +154,7 @@ async function getDraftContext(leagueId: string, season: string): Promise<DraftC
   }
 }
 
-type BecameInfo = { name?: string; position?: string; team?: string; pickInRound?: number };
+type BecameInfo = { name?: string; position?: string; team?: string; pickInRound?: number; playerId?: string; draftSlot?: number };
 
 async function resolvePickBecame(season: string, round: number, originalRosterId: number): Promise<BecameInfo | undefined> {
   const seasonLeagueId = getLeagueIdForSeason(season);
@@ -193,8 +197,9 @@ async function resolvePickBecame(season: string, round: number, originalRosterId
     // Fallback to slot when pick_no unavailable
     pickInRound = slot;
   }
-  const info: BecameInfo = { pickInRound };
+  const info: BecameInfo = { pickInRound, draftSlot: slot };
   if (dp && dp.player_id) {
+    info.playerId = dp.player_id;
     if (!playersCache) playersCache = await getAllPlayers();
     const pl = playersCache[dp.player_id];
     if (pl) {
@@ -247,7 +252,8 @@ async function convertSleeperTradeToTrade(transaction: SleeperTransaction, leagu
               type: 'player',
               name: `${player.first_name} ${player.last_name}`,
               position: player.position,
-              team: player.team || 'FA'
+              team: player.team || 'FA',
+              playerId: playerId
             });
           }
         }
@@ -264,6 +270,8 @@ async function convertSleeperTradeToTrade(transaction: SleeperTransaction, leagu
         let becamePosition: string | undefined = undefined;
         let becameTeam: string | undefined = undefined;
         let pickInRound: number | undefined = undefined;
+        let becamePlayerId: string | undefined = undefined;
+        let draftSlot: number | undefined = undefined;
         try {
           const info = await resolvePickBecame(pick.season, pick.round, pick.roster_id);
           if (info) {
@@ -271,6 +279,8 @@ async function convertSleeperTradeToTrade(transaction: SleeperTransaction, leagu
             becamePosition = info.position;
             becameTeam = info.team;
             pickInRound = info.pickInRound;
+            becamePlayerId = info.playerId;
+            draftSlot = info.draftSlot;
           }
         } catch {
           // Non-fatal
@@ -280,10 +290,12 @@ async function convertSleeperTradeToTrade(transaction: SleeperTransaction, leagu
           name: `${pick.season} ${getOrdinal(pick.round)} Round Pick`,
           year: pick.season,
           round: pick.round,
+          draftSlot,
           originalOwner: originalOwnerName,
           became,
           becamePosition,
           becameTeam,
+          becamePlayerId,
           pickInRound,
         });
       }

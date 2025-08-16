@@ -156,11 +156,31 @@ export default function TradeDetailPage() {
                             </div>
                           )}
                         </div>
-                        {showValueAnalysis && (
-                          <div className="text-sm font-medium bg-blue-100 text-blue-800 px-2 py-1 rounded">
-                            Value: {asset.value}
-                          </div>
-                        )}
+                        <div className="flex items-center gap-3">
+                          {(asset.type === 'player' && asset.playerId) ? (
+                            <Link
+                              href={`/trades/tracker?rootType=player&playerId=${asset.playerId}`}
+                              className="text-blue-600 hover:underline text-xs"
+                              aria-label={`Track lineage for ${asset.name}`}
+                            >
+                              Track
+                            </Link>
+                          ) : null}
+                          {(asset.type === 'pick' && asset.year && asset.round && (asset.draftSlot ?? asset.pickInRound)) ? (
+                            <Link
+                              href={`/trades/tracker?rootType=pick&season=${asset.year}&round=${asset.round}&slot=${(asset.draftSlot ?? asset.pickInRound) as number}`}
+                              className="text-blue-600 hover:underline text-xs"
+                              aria-label={`Track lineage for ${asset.name}`}
+                            >
+                              Track
+                            </Link>
+                          ) : null}
+                          {showValueAnalysis && (
+                            <div className="text-sm font-medium bg-blue-100 text-blue-800 px-2 py-1 rounded">
+                              Value: {asset.value}
+                            </div>
+                          )}
+                        </div>
                       </li>
                     ))}
                   </ul>

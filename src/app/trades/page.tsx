@@ -3,7 +3,7 @@
 import { useState, useEffect, Suspense } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
-import { useSearchParams } from 'next/navigation';
+import { useSearchParams, useRouter } from 'next/navigation';
 import { LEAGUE_IDS } from '@/lib/constants/league';
 import { getTeamsData, TeamData } from '@/lib/utils/sleeper-api';
 import { Trade, fetchTradesByYear, fetchTradesAllTime } from '@/lib/utils/trades';
@@ -15,6 +15,7 @@ import { getTeamLogoPath, getTeamColorStyle } from '@/lib/utils/team-utils';
 // Create a client component that uses searchParams
 function TradesContent() {
   const searchParams = useSearchParams();
+  const router = useRouter();
   
   // Get filter values from URL parameters or use defaults
   const yearParam = searchParams.get('year');
@@ -283,35 +284,65 @@ function TradesContent() {
                       </div>
                       <ul className="space-y-1">
                         {team.assets.map((asset, assetIndex) => (
-                          <li key={assetIndex} className="text-sm">
-                            {asset.type === 'player' ? (
-                              <span>
-                                {asset.name} ({asset.position}, {asset.team})
-                              </span>
-                            ) : (
-                              <div>
+                          <li key={assetIndex} className="text-sm flex justify-between items-center">
+                            <div>
+                              {asset.type === 'player' ? (
                                 <span>
-                                  {asset.name}
-                                  {typeof asset.pickInRound === 'number' ? (
-                                    <>
-                                      {' '}#{asset.pickInRound}
-                                    </>
-                                  ) : null}
-                                  {asset.became ? (
-                                    <>
-                                      {' '}(
-                                      {asset.becamePosition ? `${asset.becamePosition} - ` : ''}
-                                      {asset.became})
-                                    </>
-                                  ) : null}
+                                  {asset.name} ({asset.position}, {asset.team})
                                 </span>
-                                {asset.originalOwner && (
-                                  <div className="text-xs text-gray-500 mt-0.5">
-                                    originally {asset.originalOwner}
-                                  </div>
-                                )}
-                              </div>
-                            )}
+                              ) : (
+                                <div>
+                                  <span>
+                                    {asset.name}
+                                    {typeof asset.pickInRound === 'number' ? (
+                                      <>
+                                        {' '}#{asset.pickInRound}
+                                      </>
+                                    ) : null}
+                                    {asset.became ? (
+                                      <>
+                                        {' '}(
+                                        {asset.becamePosition ? `${asset.becamePosition} - ` : ''}
+                                        {asset.became})
+                                      </>
+                                    ) : null}
+                                  </span>
+                                  {asset.originalOwner && (
+                                    <div className="text-xs text-gray-500 mt-0.5">
+                                      originally {asset.originalOwner}
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                            <div className="flex gap-2">
+                              {(asset.type === 'player' && asset.playerId) ? (
+                                <button
+                                  type="button"
+                                  className="text-blue-600 hover:underline text-xs"
+                                  aria-label={`Track lineage for ${asset.name}`}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    router.push(`/trades/tracker?rootType=player&playerId=${asset.playerId}`);
+                                  }}
+                                >
+                                  Track
+                                </button>
+                              ) : null}
+                              {(asset.type === 'pick' && asset.year && asset.round && (asset.draftSlot ?? asset.pickInRound)) ? (
+                                <button
+                                  type="button"
+                                  className="text-blue-600 hover:underline text-xs"
+                                  aria-label={`Track lineage for ${asset.name}`}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    router.push(`/trades/tracker?rootType=pick&season=${asset.year}&round=${asset.round}&slot=${(asset.draftSlot ?? asset.pickInRound) as number}`);
+                                  }}
+                                >
+                                  Track
+                                </button>
+                              ) : null}
+                            </div>
                           </li>
                         ))}
                       </ul>
