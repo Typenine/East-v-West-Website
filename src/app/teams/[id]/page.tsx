@@ -76,6 +76,20 @@ export default function TeamPage() {
     lowestScore: 999
   });
   
+  // Sorting state for roster table
+  type SortKey = 'name' | 'position' | 'team' | 'gp' | 'totalPPR' | 'ppg';
+  const [sortBy, setSortBy] = useState<SortKey>('ppg');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+  const onSort = (key: SortKey) => {
+    if (sortBy === key) {
+      setSortDir(sortDir === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortBy(key);
+      setSortDir(key === 'name' || key === 'position' || key === 'team' ? 'asc' : 'desc');
+    }
+  };
+  const sortArrow = (key: SortKey) => sortBy === key ? (sortDir === 'asc' ? '▲' : '▼') : null;
+  
   const sortedGroups = useMemo(() => {
     if (!team?.players) return [] as { group: string; ids: string[] }[];
     const byGroup: Record<string, string[]> = {};
@@ -85,25 +99,48 @@ export default function TeamPage() {
       if (!byGroup[group]) byGroup[group] = [];
       byGroup[group].push(pid);
     }
-    // Sort players within group by PPG desc, then name asc
+    // Sort players within group by selected column, then name asc as tiebreaker
     for (const g of Object.keys(byGroup)) {
       byGroup[g].sort((a, b) => {
-        const sa = playerSeasonStats[a];
-        const sb = playerSeasonStats[b];
-        const ppgA = sa?.ppg ?? -1; // players without stats fall to bottom
-        const ppgB = sb?.ppg ?? -1;
-        if (ppgB !== ppgA) return ppgB - ppgA;
+        type SortVal = string | number | null;
         const pa = players[a];
         const pb = players[b];
-        const nameA = pa ? `${pa.first_name} ${pa.last_name}` : '';
-        const nameB = pb ? `${pb.first_name} ${pb.last_name}` : '';
-        return nameA.localeCompare(nameB);
+        const val = (pid: string): SortVal => {
+          const p = players[pid];
+          const s = playerSeasonStats[pid];
+          switch (sortBy) {
+            case 'name': return p ? `${p.first_name} ${p.last_name}` : '';
+            case 'position': return p?.position || '';
+            case 'team': return p?.team || '';
+            case 'gp': return s?.gp ?? null;
+            case 'totalPPR': return s?.totalPPR ?? null;
+            case 'ppg': return s?.ppg ?? null;
+            default: return null;
+          }
+        };
+        const va = val(a);
+        const vb = val(b);
+        // Missing values always go to the bottom
+        if (va === null && vb !== null) return 1;
+        if (va !== null && vb === null) return -1;
+        let cmp = 0;
+        if (typeof va === 'number' && typeof vb === 'number') {
+          cmp = va - vb;
+        } else {
+          cmp = String(va).localeCompare(String(vb));
+        }
+        if (cmp === 0) {
+          const nameA = pa ? `${pa.first_name} ${pa.last_name}` : '';
+          const nameB = pb ? `${pb.first_name} ${pb.last_name}` : '';
+          cmp = nameA.localeCompare(nameB);
+        }
+        return sortDir === 'asc' ? cmp : -cmp;
       });
     }
     // Order groups by defined order
     const groups = Object.keys(byGroup).sort((ga, gb) => groupOrderIndex(ga) - groupOrderIndex(gb));
     return groups.map((g) => ({ group: g, ids: byGroup[g] }));
-  }, [team?.players, players, playerSeasonStats]);
+  }, [team?.players, players, playerSeasonStats, sortBy, sortDir]);
   
   // Get the league ID for the selected year
   const getLeagueIdForYear = (year: string) => {
@@ -366,22 +403,34 @@ export default function TeamPage() {
                   <thead className="bg-gray-50">
                     <tr>
                       <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Player
+                        <button type="button" onClick={() => onSort('name')} className="flex items-center gap-1 hover:text-gray-700">
+                          Player <span className="opacity-60">{sortArrow('name')}</span>
+                        </button>
                       </th>
                       <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Position
+                        <button type="button" onClick={() => onSort('position')} className="flex items-center gap-1 hover:text-gray-700">
+                          Position <span className="opacity-60">{sortArrow('position')}</span>
+                        </button>
                       </th>
                       <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Team
+                        <button type="button" onClick={() => onSort('team')} className="flex items-center gap-1 hover:text-gray-700">
+                          Team <span className="opacity-60">{sortArrow('team')}</span>
+                        </button>
                       </th>
                       <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        G
+                        <button type="button" onClick={() => onSort('gp')} className="flex items-center gap-1 hover:text-gray-700">
+                          G <span className="opacity-60">{sortArrow('gp')}</span>
+                        </button>
                       </th>
                       <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Total PPR
+                        <button type="button" onClick={() => onSort('totalPPR')} className="flex items-center gap-1 hover:text-gray-700">
+                          Total PPR <span className="opacity-60">{sortArrow('totalPPR')}</span>
+                        </button>
                       </th>
                       <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        PPG
+                        <button type="button" onClick={() => onSort('ppg')} className="flex items-center gap-1 hover:text-gray-700">
+                          PPG <span className="opacity-60">{sortArrow('ppg')}</span>
+                        </button>
                       </th>
                     </tr>
                   </thead>
