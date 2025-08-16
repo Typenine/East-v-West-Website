@@ -13,6 +13,9 @@ export type TradeAsset = {
   // Pick lineage (only for type === 'pick')
   originalOwner?: string; // Canonical team name of original owner of the pick
   became?: string; // Player name the pick turned into (if drafted)
+  becamePosition?: string; // Position of the player the pick turned into
+  becameTeam?: string; // NFL team of the player the pick turned into
+  pickInRound?: number; // Exact pick number within the round (1..N), if determinable
 };
 
 /**
@@ -125,19 +128,29 @@ async function getDraftContext(leagueId: string, season: string): Promise<DraftC
   }
 }
 
-async function resolvePickBecame(season: string, round: number, originalRosterId: number): Promise<string | undefined> {
+type BecameInfo = { name?: string; position?: string; team?: string; pickInRound?: number };
+
+async function resolvePickBecame(season: string, round: number, originalRosterId: number): Promise<BecameInfo | undefined> {
   const seasonLeagueId = getLeagueIdForSeason(season);
   if (!seasonLeagueId) return undefined;
   const ctx = await getDraftContext(seasonLeagueId, season);
   if (!ctx) return undefined;
   const slot = ctx.draftOrder.get(originalRosterId);
   if (!slot) return undefined;
+  // The exact pick number traded refers to the original owner's draft slot for that round
+  const pickInRound = slot;
+  const info: BecameInfo = { pickInRound };
   const dp = ctx.picks.find((p) => Number(p.round) === Number(round) && Number(p.draft_slot) === Number(slot));
-  if (!dp || !dp.player_id) return undefined;
-  if (!playersCache) playersCache = await getAllPlayers();
-  const pl = playersCache[dp.player_id];
-  if (!pl) return undefined;
-  return `${pl.first_name} ${pl.last_name}`.trim();
+  if (dp && dp.player_id) {
+    if (!playersCache) playersCache = await getAllPlayers();
+    const pl = playersCache[dp.player_id];
+    if (pl) {
+      info.name = `${pl.first_name} ${pl.last_name}`.trim();
+      info.position = pl.position;
+      info.team = pl.team;
+    }
+  }
+  return info;
 }
 
 // Convert Sleeper transaction to our Trade format
@@ -195,8 +208,17 @@ async function convertSleeperTradeToTrade(transaction: SleeperTransaction, leagu
       for (const pick of picksReceived) {
         const originalOwnerName = rosterIdToTeam.get(pick.roster_id) || (rosterMap.get(pick.roster_id)?.metadata?.team_name ?? `Roster ${pick.roster_id}`);
         let became: string | undefined = undefined;
+        let becamePosition: string | undefined = undefined;
+        let becameTeam: string | undefined = undefined;
+        let pickInRound: number | undefined = undefined;
         try {
-          became = await resolvePickBecame(pick.season, pick.round, pick.roster_id);
+          const info = await resolvePickBecame(pick.season, pick.round, pick.roster_id);
+          if (info) {
+            became = info.name;
+            becamePosition = info.position;
+            becameTeam = info.team;
+            pickInRound = info.pickInRound;
+          }
         } catch {
           // Non-fatal
         }
@@ -207,6 +229,9 @@ async function convertSleeperTradeToTrade(transaction: SleeperTransaction, leagu
           round: pick.round,
           originalOwner: originalOwnerName,
           became,
+          becamePosition,
+          becameTeam,
+          pickInRound,
         });
       }
     }

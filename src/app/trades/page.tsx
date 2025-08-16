@@ -292,9 +292,16 @@ function TradesContent() {
                               <div>
                                 <span>
                                   {asset.name}
+                                  {typeof asset.pickInRound === 'number' ? (
+                                    <>
+                                      {' '}#{asset.pickInRound}
+                                    </>
+                                  ) : null}
                                   {asset.became ? (
                                     <>
-                                      {' '}({asset.became})
+                                      {' '}(
+                                      {asset.becamePosition ? `${asset.becamePosition} - ` : ''}
+                                      {asset.became})
                                     </>
                                   ) : null}
                                 </span>
