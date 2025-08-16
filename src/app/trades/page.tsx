@@ -6,7 +6,7 @@ import Image from 'next/image';
 import { useSearchParams } from 'next/navigation';
 import { LEAGUE_IDS } from '@/lib/constants/league';
 import { getTeamsData, TeamData } from '@/lib/utils/sleeper-api';
-import { Trade, fetchTradesByYear } from '@/lib/utils/trades';
+import { Trade, fetchTradesByYear, fetchTradesAllTime } from '@/lib/utils/trades';
 import LoadingState from '@/components/ui/loading-state';
 import ErrorState from '@/components/ui/error-state';
 import EmptyState from '@/components/ui/empty-state';
@@ -25,7 +25,7 @@ function TradesContent() {
   const [trades, setTrades] = useState<Trade[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [selectedYear, setSelectedYear] = useState(yearParam || '2025');
+  const [selectedYear, setSelectedYear] = useState(yearParam || 'all');
   const [selectedTeam, setSelectedTeam] = useState<string | null>(teamParam);
   const [selectedAssetType, setSelectedAssetType] = useState<'all' | 'player' | 'pick'>(
     (assetTypeParam as 'all' | 'player' | 'pick') || 'all'
@@ -35,7 +35,7 @@ function TradesContent() {
 
   // Helper: map selected year to leagueId
   const getLeagueIdForYear = (year: string) => {
-    if (year === '2025') return LEAGUE_IDS.CURRENT;
+    if (year === '2025' || year === 'all') return LEAGUE_IDS.CURRENT;
     return LEAGUE_IDS.PREVIOUS[year as keyof typeof LEAGUE_IDS.PREVIOUS];
   };
   
@@ -45,7 +45,7 @@ function TradesContent() {
     const params = new URLSearchParams();
     
     // Add parameters only if they're not default values
-    if (selectedYear !== '2025') {
+    if (selectedYear !== 'all') {
       params.set('year', selectedYear);
     }
     
@@ -71,8 +71,9 @@ function TradesContent() {
     const fetchTrades = async () => {
       try {
         setLoading(true);
+        const tradesPromise = selectedYear === 'all' ? fetchTradesAllTime() : fetchTradesByYear(selectedYear);
         const [yearTrades, teamList] = await Promise.all([
-          fetchTradesByYear(selectedYear),
+          tradesPromise,
           getTeamsData(getLeagueIdForYear(selectedYear))
         ]);
         setTrades(yearTrades);
@@ -158,6 +159,7 @@ function TradesContent() {
               onChange={(e) => setSelectedYear(e.target.value)}
               className="block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md"
             >
+              <option value="all">All Time</option>
               <option value="2025">2025 Season</option>
               <option value="2024">2024 Season</option>
               <option value="2023">2023 Season</option>
@@ -288,16 +290,17 @@ function TradesContent() {
                               </span>
                             ) : (
                               <div>
-                                <span>{asset.name}</span>
-                                {(asset.originalOwner || asset.became) && (
+                                <span>
+                                  {asset.name}
+                                  {asset.became ? (
+                                    <>
+                                      {' '}({asset.became})
+                                    </>
+                                  ) : null}
+                                </span>
+                                {asset.originalOwner && (
                                   <div className="text-xs text-gray-500 mt-0.5">
-                                    {asset.originalOwner && (
-                                      <span>originally {asset.originalOwner}</span>
-                                    )}
-                                    {asset.originalOwner && asset.became && <span> · </span>}
-                                    {asset.became && (
-                                      <span>became {asset.became}</span>
-                                    )}
+                                    originally {asset.originalOwner}
                                   </div>
                                 )}
                               </div>

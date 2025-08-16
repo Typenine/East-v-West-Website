@@ -133,16 +133,17 @@ export default function TradeDetailPage() {
                             </div>
                           ) : (
                             <div>
-                              <span className="font-medium">{asset.name}</span>
-                              {(asset.originalOwner || asset.became) && (
+                              <span className="font-medium">
+                                {asset.name}
+                                {asset.became ? (
+                                  <>
+                                    {' '}({asset.became})
+                                  </>
+                                ) : null}
+                              </span>
+                              {asset.originalOwner && (
                                 <div className="text-xs text-gray-500 mt-0.5">
-                                  {asset.originalOwner && (
-                                    <span>originally {asset.originalOwner}</span>
-                                  )}
-                                  {asset.originalOwner && asset.became && <span> · </span>}
-                                  {asset.became && (
-                                    <span>became {asset.became}</span>
-                                  )}
+                                  originally {asset.originalOwner}
                                 </div>
                               )}
                             </div>

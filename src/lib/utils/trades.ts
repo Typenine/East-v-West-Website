@@ -1,5 +1,5 @@
 import { LEAGUE_IDS } from '@/lib/constants/league';
-import { SleeperTransaction, SleeperDraftPick, getLeagueTrades, getLeagueRosters, getAllPlayers, getRosterIdToTeamNameMap, getLeagueDrafts, getDraftById, getDraftPicks } from '@/lib/utils/sleeper-api';
+import { SleeperTransaction, SleeperDraftPick, getLeagueTrades, getLeagueRosters, getAllPlayers, getRosterIdToTeamNameMap, getLeagueDrafts, getDraftById, getDraftPicks, getAllLeagueTrades } from '@/lib/utils/sleeper-api';
 
 // Define trade types
 export type TradeAsset = {
@@ -13,6 +13,41 @@ export type TradeAsset = {
   // Pick lineage (only for type === 'pick')
   originalOwner?: string; // Canonical team name of original owner of the pick
   became?: string; // Player name the pick turned into (if drafted)
+};
+
+/**
+ * Fetch all trades across all configured seasons
+ */
+export const fetchTradesAllTime = async (): Promise<Trade[]> => {
+  try {
+    const trades: Trade[] = [];
+    const transactionsByYear = await getAllLeagueTrades();
+
+    // Map year -> leagueId like sleeper-api does internally
+    const yearToLeague: Record<string, string> = {
+      '2025': LEAGUE_IDS.CURRENT,
+      ...LEAGUE_IDS.PREVIOUS,
+    } as const;
+
+    for (const [year, txns] of Object.entries(transactionsByYear)) {
+      const leagueId = yearToLeague[year];
+      if (!leagueId) continue;
+      for (const transaction of txns) {
+        if (tradesCache[transaction.transaction_id]) {
+          trades.push(tradesCache[transaction.transaction_id]);
+          continue;
+        }
+        const trade = await convertSleeperTradeToTrade(transaction, leagueId);
+        tradesCache[transaction.transaction_id] = trade;
+        trades.push(trade);
+      }
+    }
+
+    return trades;
+  } catch (error) {
+    console.error('Error fetching all-time trades:', error);
+    return [];
+  }
 };
 
 export type TradeTeam = {
