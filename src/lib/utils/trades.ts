@@ -1,5 +1,5 @@
 import { LEAGUE_IDS } from '@/lib/constants/league';
-import { SleeperTransaction, getLeagueTrades, getLeagueRosters, getAllPlayers, getRosterIdToTeamNameMap } from '@/lib/utils/sleeper-api';
+import { SleeperTransaction, SleeperDraftPick, getLeagueTrades, getLeagueRosters, getAllPlayers, getRosterIdToTeamNameMap, getLeagueDrafts, getDraftById, getDraftPicks } from '@/lib/utils/sleeper-api';
 
 // Define trade types
 export type TradeAsset = {
@@ -10,6 +10,9 @@ export type TradeAsset = {
   year?: string;
   round?: number;
   value?: number; // For trade value analysis
+  // Pick lineage (only for type === 'pick')
+  originalOwner?: string; // Canonical team name of original owner of the pick
+  became?: string; // Player name the pick turned into (if drafted)
 };
 
 export type TradeTeam = {
@@ -38,6 +41,69 @@ export type TradeTreeNode = {
 // Using any here is acceptable since we're caching Sleeper API player data with unknown structure
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let playersCache: Record<string, any> | null = null;
+
+// Cache draft context per league-season to avoid repeated Sleeper API calls
+type DraftContext = {
+  draftId: string;
+  draftOrder: Map<number, number>; // roster_id -> draft slot
+  picks: SleeperDraftPick[];
+};
+const draftContextCache: Map<string, Map<string, DraftContext>> = new Map(); // leagueId -> season -> ctx
+
+function getLeagueIdForSeason(season: string): string | null {
+  if (season === '2025') return LEAGUE_IDS.CURRENT;
+  const prev = LEAGUE_IDS.PREVIOUS[season as keyof typeof LEAGUE_IDS.PREVIOUS];
+  return prev || null;
+}
+
+async function getDraftContext(leagueId: string, season: string): Promise<DraftContext | null> {
+  try {
+    // Check cache
+    const bySeason = draftContextCache.get(leagueId) || new Map<string, DraftContext>();
+    if (bySeason.has(season)) return bySeason.get(season)!;
+
+    // Find draft for the season
+    const drafts = await getLeagueDrafts(leagueId);
+    const draft = drafts.find((d) => d.season === season);
+    if (!draft) return null;
+
+    // Get draft details (order) and picks
+    const [draftDetails, picks] = await Promise.all([
+      getDraftById(draft.draft_id),
+      getDraftPicks(draft.draft_id)
+    ]);
+    const orderObj = draftDetails.draft_order || {};
+    const order = new Map<number, number>();
+    for (const [key, val] of Object.entries(orderObj)) {
+      const rid = Number(key);
+      const slot = Number(val);
+      if (Number.isFinite(rid) && Number.isFinite(slot)) order.set(rid, slot);
+    }
+
+    const ctx: DraftContext = { draftId: draft.draft_id, draftOrder: order, picks };
+    bySeason.set(season, ctx);
+    draftContextCache.set(leagueId, bySeason);
+    return ctx;
+  } catch (e) {
+    console.error('Failed to build draft context:', e);
+    return null;
+  }
+}
+
+async function resolvePickBecame(season: string, round: number, originalRosterId: number): Promise<string | undefined> {
+  const seasonLeagueId = getLeagueIdForSeason(season);
+  if (!seasonLeagueId) return undefined;
+  const ctx = await getDraftContext(seasonLeagueId, season);
+  if (!ctx) return undefined;
+  const slot = ctx.draftOrder.get(originalRosterId);
+  if (!slot) return undefined;
+  const dp = ctx.picks.find((p) => Number(p.round) === Number(round) && Number(p.draft_slot) === Number(slot));
+  if (!dp || !dp.player_id) return undefined;
+  if (!playersCache) playersCache = await getAllPlayers();
+  const pl = playersCache[dp.player_id];
+  if (!pl) return undefined;
+  return `${pl.first_name} ${pl.last_name}`.trim();
+}
 
 // Convert Sleeper transaction to our Trade format
 async function convertSleeperTradeToTrade(transaction: SleeperTransaction, leagueId: string): Promise<Trade> {
@@ -89,16 +155,25 @@ async function convertSleeperTradeToTrade(transaction: SleeperTransaction, leagu
     
     // Process draft picks received by this team
     if (transaction.draft_picks) {
-      transaction.draft_picks
-        .filter(pick => pick.owner_id === rosterId && pick.previous_owner_id !== rosterId)
-        .forEach(pick => {
-          assets.push({
-            type: 'pick',
-            name: `${pick.season} ${getOrdinal(pick.round)} Round Pick`,
-            year: pick.season,
-            round: pick.round
-          });
+      const picksReceived = transaction.draft_picks
+        .filter(pick => pick.owner_id === rosterId && pick.previous_owner_id !== rosterId);
+      for (const pick of picksReceived) {
+        const originalOwnerName = rosterIdToTeam.get(pick.roster_id) || (rosterMap.get(pick.roster_id)?.metadata?.team_name ?? `Roster ${pick.roster_id}`);
+        let became: string | undefined = undefined;
+        try {
+          became = await resolvePickBecame(pick.season, pick.round, pick.roster_id);
+        } catch {
+          // Non-fatal
+        }
+        assets.push({
+          type: 'pick',
+          name: `${pick.season} ${getOrdinal(pick.round)} Round Pick`,
+          year: pick.season,
+          round: pick.round,
+          originalOwner: originalOwnerName,
+          became,
         });
+      }
     }
     
     // Add FAAB if applicable

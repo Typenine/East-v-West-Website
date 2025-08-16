@@ -593,6 +593,13 @@ export interface SleeperDraftPick {
   draft_slot: number;
 }
 
+// Draft details (includes draft_order mapping roster_id -> draft slot)
+export interface SleeperDraftDetails extends SleeperDraft {
+  // Sleeper API returns a mapping of roster_id to draft position slot
+  // Keys may be strings; we'll normalize to numbers when consuming
+  draft_order?: Record<string, number> | null;
+}
+
 /**
  * Fetch league information from Sleeper API
  * @param leagueId The Sleeper league ID
@@ -1079,6 +1086,18 @@ export async function getLeagueDrafts(leagueId: string): Promise<SleeperDraft[]>
   const response = await fetch(`${SLEEPER_API_BASE}/league/${leagueId}/drafts`);
   if (!response.ok) {
     throw new Error(`Failed to fetch league drafts: ${response.statusText}`);
+  }
+  return response.json();
+}
+
+/**
+ * Fetch a single draft by ID (to get draft_order mapping)
+ * @param draftId The Sleeper draft ID
+ */
+export async function getDraftById(draftId: string): Promise<SleeperDraftDetails> {
+  const response = await fetch(`${SLEEPER_API_BASE}/draft/${draftId}`);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch draft by id: ${response.statusText}`);
   }
   return response.json();
 }

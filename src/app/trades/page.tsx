@@ -287,9 +287,20 @@ function TradesContent() {
                                 {asset.name} ({asset.position}, {asset.team})
                               </span>
                             ) : (
-                              <span>
-                                {asset.name}
-                              </span>
+                              <div>
+                                <span>{asset.name}</span>
+                                {(asset.originalOwner || asset.became) && (
+                                  <div className="text-xs text-gray-500 mt-0.5">
+                                    {asset.originalOwner && (
+                                      <span>originally {asset.originalOwner}</span>
+                                    )}
+                                    {asset.originalOwner && asset.became && <span> · </span>}
+                                    {asset.became && (
+                                      <span>became {asset.became}</span>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
                             )}
                           </li>
                         ))}
