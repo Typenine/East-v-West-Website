@@ -1,7 +1,7 @@
 'use client';
 
 import { Suspense, useEffect, useMemo, useState } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 
 interface GraphNodeBase { id: string; type: 'player' | 'pick' | 'trade'; label: string }
 interface PlayerNode extends GraphNodeBase { type: 'player'; playerId: string }
@@ -14,14 +14,45 @@ interface TradeGraph { nodes: Array<PlayerNode | PickNode | TradeNode>; edges: G
 
 export const dynamic = 'force-dynamic';
 
+// Global type order for stable sorting (module scope to avoid Hook deps)
+const TYPE_ORDER: Record<PlayerNode['type'] | PickNode['type'] | TradeNode['type'], number> = {
+  player: 0,
+  pick: 1,
+  trade: 2,
+};
+
 function TradeTrackerContent() {
   const searchParams = useSearchParams();
+  const router = useRouter();
   const rootType = searchParams.get('rootType') || 'player';
   const playerId = searchParams.get('playerId') || '';
   const season = searchParams.get('season') || '';
   const round = searchParams.get('round') || '';
   const slot = searchParams.get('slot') || '';
   const depth = searchParams.get('depth') || '2';
+
+  // Depth slider local state (debounce commits on release)
+  const [depthLocal, setDepthLocal] = useState<number>(() => {
+    const n = Number(depth);
+    return Number.isFinite(n) ? Math.max(1, Math.min(6, n)) : 2;
+  });
+  useEffect(() => {
+    const n = Number(depth);
+    setDepthLocal(Number.isFinite(n) ? Math.max(1, Math.min(6, n)) : 2);
+  }, [depth]);
+  const commitDepth = (v: number) => {
+    const sp = new URLSearchParams();
+    sp.set('rootType', rootType);
+    sp.set('depth', String(v));
+    if (rootType === 'player' && playerId) {
+      sp.set('playerId', playerId);
+    } else if (rootType === 'pick' && season && round && slot) {
+      sp.set('season', season);
+      sp.set('round', round);
+      sp.set('slot', slot);
+    }
+    router.replace(`/trades/tracker?${sp.toString()}`);
+  };
 
   const query = useMemo(() => {
     const sp = new URLSearchParams();
@@ -74,7 +105,25 @@ function TradeTrackerContent() {
           ) : (
             <div>Pick: <code>{season || '—'} R{round || '—'} S{slot || '—'}</code></div>
           )}
-          <div>Depth: <code>{depth}</code></div>
+          <div className="mt-3">
+            <label className="text-sm font-medium text-gray-700 flex items-center gap-2">
+              Depth
+              <span className="inline-block rounded bg-gray-100 px-2 py-0.5 text-xs border text-gray-700">{depthLocal}</span>
+            </label>
+            <input
+              type="range"
+              min={1}
+              max={6}
+              step={1}
+              value={depthLocal}
+              onChange={(e) => setDepthLocal(Number((e.target as HTMLInputElement).value))}
+              onMouseUp={() => commitDepth(depthLocal)}
+              onTouchEnd={() => commitDepth(depthLocal)}
+              onKeyUp={(e) => { if (e.key === 'Enter') commitDepth(depthLocal); }}
+              className="w-full mt-1"
+              aria-label="Depth slider"
+            />
+          </div>
         </div>
       </div>
 
@@ -87,13 +136,16 @@ function TradeTrackerContent() {
             <div className="mb-3 text-sm text-gray-700">
               Nodes: {graph.nodes.length} • Edges: {graph.edges.length}
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              {graph.nodes.map((n) => (
-                <div key={n.id} className="border rounded p-2">
-                  <div className="text-xs uppercase text-gray-500">{n.type}</div>
-                  <div className="font-medium">{n.label}</div>
-                </div>
-              ))}
+            <GraphCanvas
+              graph={graph}
+              rootId={rootType === 'player' ? `player:${playerId}` : `pick:${season}-${round}-${slot}`}
+            />
+            <div className="mt-2 text-xs text-gray-500">
+              Legend: <span className="inline-block w-3 h-3 bg-blue-100 border border-blue-400 align-middle mr-1"/> Player •
+              <span className="inline-block w-3 h-3 bg-green-100 border border-green-400 align-middle mx-1"/> Pick •
+              <span className="inline-block w-3 h-3 bg-gray-100 border border-gray-400 align-middle mx-1"/> Trade •
+              <span className="inline-block border-t-2 border-gray-400 align-middle mx-1 w-6"/> traded •
+              <span className="inline-block border-t-2 border-dashed border-gray-400 align-middle mx-1 w-6"/> became
             </div>
           </div>
         )}
@@ -110,5 +162,182 @@ export default function TradeTrackerPage() {
     <Suspense fallback={<div className="container mx-auto px-4 py-8">Loading tracker…</div>}>
       <TradeTrackerContent />
     </Suspense>
+  );
+}
+
+// Simple SVG-based graph renderer with columnar layout by BFS depth from root
+function GraphCanvas({ graph, rootId }: { graph: TradeGraph; rootId: string }) {
+  const router = useRouter();
+  const [hoverId, setHoverId] = useState<string | null>(null);
+
+  // Build adjacency for BFS
+  const adj = useMemo(() => {
+    const m = new Map<string, Set<string>>();
+    const add = (a: string, b: string) => {
+      if (!m.has(a)) m.set(a, new Set());
+      if (!m.has(b)) m.set(b, new Set());
+      m.get(a)!.add(b);
+      m.get(b)!.add(a);
+    };
+    graph.edges.forEach((e) => add(e.from, e.to));
+    return m;
+  }, [graph.edges]);
+
+  // Distances from root
+  const dist = useMemo(() => {
+    const d = new Map<string, number>();
+    if (!graph.nodes.some((n) => n.id === rootId)) return d;
+    const q: Array<string> = [rootId];
+    d.set(rootId, 0);
+    while (q.length) {
+      const v = q.shift()!;
+      const nv = adj.get(v);
+      if (!nv) continue;
+      const dv = d.get(v)!;
+      for (const nb of nv) {
+        if (!d.has(nb)) {
+          d.set(nb, dv + 1);
+          q.push(nb);
+        }
+      }
+    }
+    return d;
+  }, [adj, graph.nodes, rootId]);
+
+  const columns = useMemo(() => {
+    // Group nodes by distance (depth). Unreached nodes grouped at the end.
+    const byDepth = new Map<number, TradeGraph['nodes']>();
+    const unreached: TradeGraph['nodes'] = [];
+    graph.nodes.forEach((n) => {
+      const dn = dist.get(n.id);
+      if (dn === undefined) {
+        unreached.push(n);
+      } else {
+        const arr = byDepth.get(dn) ?? [];
+        arr.push(n);
+        byDepth.set(dn, arr);
+      }
+    });
+    const maxDepth = Math.max(0, ...Array.from(byDepth.keys()));
+    const cols: TradeGraph['nodes'][] = [];
+    for (let i = 0; i <= maxDepth; i++) {
+      const arr = (byDepth.get(i) ?? []).slice().sort((a, b) => TYPE_ORDER[a.type] - TYPE_ORDER[b.type] || a.label.localeCompare(b.label));
+      cols.push(arr);
+    }
+    if (unreached.length) cols.push(unreached);
+    return cols;
+  }, [graph.nodes, dist]);
+
+  // Layout constants
+  const nodeW = 220;
+  const nodeH = 56;
+  const colW = 260;
+  const rowH = 90;
+  const margin = 20;
+
+  // Compute positions
+  const positions = useMemo(() => {
+    const pos = new Map<string, { x: number; y: number }>();
+    columns.forEach((col, ci) => {
+      col.forEach((n, ri) => {
+        const x = margin + ci * colW;
+        const y = margin + ri * rowH;
+        pos.set(n.id, { x, y });
+      });
+    });
+    return pos;
+  }, [columns]);
+
+  const width = margin * 2 + Math.max(1, columns.length) * colW + nodeW - (colW - nodeW);
+  const height = margin * 2 + Math.max(1, Math.max(0, ...columns.map((c) => c.length))) * rowH + nodeH - (rowH - nodeH);
+
+  return (
+    <div className="overflow-auto border rounded" style={{ height: Math.min(height + 20, 640) }}>
+      <div className="relative" style={{ width, height }}>
+        <svg className="absolute inset-0" width={width} height={height}>
+          <defs>
+            <marker id="arrow-traded" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+              <path d="M0,0 L0,6 L9,3 z" fill="#9CA3AF" />
+            </marker>
+            <marker id="arrow-became" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+              <path d="M0,0 L0,6 L9,3 z" fill="#9CA3AF" />
+            </marker>
+          </defs>
+          {graph.edges.map((e) => {
+            const a = positions.get(e.from);
+            const b = positions.get(e.to);
+            if (!a || !b) return null;
+            const x1 = a.x + nodeW / 2;
+            const y1 = a.y + nodeH / 2;
+            const x2 = b.x + nodeW / 2;
+            const y2 = b.y + nodeH / 2;
+            const marker = e.kind === 'became' ? 'url(#arrow-became)' : 'url(#arrow-traded)';
+            const dash = e.kind === 'became' ? '6 4' : undefined;
+            const isHighlighted = !hoverId || e.from === hoverId || e.to === hoverId;
+            return (
+              <line
+                key={e.id}
+                x1={x1}
+                y1={y1}
+                x2={x2}
+                y2={y2}
+                stroke="#9CA3AF"
+                strokeWidth={2}
+                strokeDasharray={dash}
+                markerEnd={marker}
+                opacity={isHighlighted ? 1 : 0.2}
+              />
+            );
+          })}
+        </svg>
+
+        {columns.map((col, ci) => (
+          <div key={ci} className="absolute" style={{ left: margin + ci * colW, top: 0, width: nodeW }}>
+            {col.map((n, ri) => {
+              const key = `${n.id}-${ri}`;
+              const { x, y } = positions.get(n.id)!;
+              const isRoot = n.id === rootId;
+              const base =
+                n.type === 'player'
+                  ? 'bg-blue-100 border-blue-400'
+                  : n.type === 'pick'
+                  ? 'bg-green-100 border-green-400'
+                  : 'bg-gray-100 border-gray-400';
+              const onClick = () => {
+                if (n.type === 'player') {
+                  const id = (n as PlayerNode).playerId;
+                  router.push(`/trades/tracker?rootType=player&playerId=${encodeURIComponent(id)}`);
+                } else if (n.type === 'pick') {
+                  const p = n as PickNode;
+                  router.push(`/trades/tracker?rootType=pick&season=${encodeURIComponent(p.season)}&round=${p.round}&slot=${p.slot}`);
+                }
+              };
+              const onMouseEnter = () => setHoverId(n.id);
+              const onMouseLeave = () => setHoverId(null);
+              const isDimmed = hoverId && hoverId !== n.id && !(adj.get(hoverId)?.has(n.id));
+              return (
+                <div
+                  key={key}
+                  className={`absolute border rounded px-3 py-2 shadow-sm ${base} ${isRoot ? 'ring-2 ring-indigo-500' : ''} ${n.type !== 'trade' ? 'cursor-pointer hover:shadow-md transition' : ''}`}
+                  style={{ left: x - (margin + ci * colW), top: y, width: nodeW, height: nodeH }}
+                  onClick={onClick}
+                  onMouseEnter={onMouseEnter}
+                  onMouseLeave={onMouseLeave}
+                  aria-label={`Node ${n.label}`}
+                  role={n.type !== 'trade' ? 'button' : undefined}
+                  tabIndex={n.type !== 'trade' ? 0 : -1}
+                  onKeyDown={(e) => {
+                    if (n.type !== 'trade' && (e.key === 'Enter' || e.key === ' ')) onClick();
+                  }}
+                >
+                  <div className="text-2xs uppercase tracking-wide text-gray-600" style={{ opacity: isDimmed ? 0.4 : 1 }}>{n.type}</div>
+                  <div className="text-sm font-medium truncate" title={n.label} style={{ opacity: isDimmed ? 0.4 : 1 }}>{n.label}</div>
+                </div>
+              );
+            })}
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
