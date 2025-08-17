@@ -177,7 +177,6 @@ function TradeTrackerContent() {
             <TradeTreeCanvas
               graph={graph}
               rootId={rootType === 'player' ? `player:${playerId}` : `pick:${season}-${round}-${slot}`}
-              tradeColorMap={buildTradeColorMap(graph.edges)}
               height={640}
               onNodeClick={(n: EVWGraphNode) => {
                 if (n.type === 'player') {
