@@ -24,7 +24,17 @@ function decodeHtml(input: string): string {
 }
 
 function stripHtml(input: string): string {
-  return input.replace(/<[^>]*>/g, '');
+  // Convert common block/line-break tags to newlines before stripping
+  const withBreaks = input
+    .replace(/<\s*br\s*\/?>/gi, '\n')
+    .replace(/<\s*\/p\s*>/gi, '\n\n')
+    .replace(/<\s*p\b[^>]*>/gi, '')
+    .replace(/<\s*li\b[^>]*>/gi, '- ')
+    .replace(/<\s*\/li\s*>/gi, '\n')
+    .replace(/<\s*div\b[^>]*>/gi, '')
+    .replace(/<\s*\/div\s*>/gi, '\n');
+  const noHtml = withBreaks.replace(/<[^>]*>/g, '');
+  return noHtml;
 }
 
 function extractTag(xml: string, tag: string): string | null {
@@ -42,8 +52,16 @@ function parseRss(xml: string, source: RssSource): RssItem[] {
     const title = extractTag(block, 'title') || '';
     const link = extractTag(block, 'link') || '';
     const pub = extractTag(block, 'pubDate') || extractTag(block, 'updated') || extractTag(block, 'dc:date');
-    const descRaw = extractTag(block, 'description') || extractTag(block, 'content:encoded') || '';
-    const description = stripHtml(descRaw).replace(/\s+/g, ' ').trim();
+    const contentEncoded = extractTag(block, 'content:encoded');
+    const descTag = extractTag(block, 'description') || extractTag(block, 'summary');
+    const descRaw = contentEncoded || descTag || '';
+    const descriptionText = stripHtml(descRaw)
+      .replace(/\r/g, '')
+      .replace(/\n{3,}/g, '\n\n')
+      .replace(/\s+\n/g, '\n')
+      .replace(/\n\s+/g, '\n')
+      .trim();
+    const description = descriptionText.length > 1200 ? descriptionText.slice(0, 1200).trimEnd() + '…' : descriptionText;
 
     let publishedAt: string | null = null;
     if (pub) {
