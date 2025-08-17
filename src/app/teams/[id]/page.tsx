@@ -38,6 +38,28 @@ const groupOrderIndex = (group: string): number => {
   return idx === -1 ? 99 : idx;
 };
 
+// Team Feed types (from /api/team-feed)
+type TeamFeedPlayer = {
+  playerId: string;
+  firstName: string;
+  lastName: string;
+  position: string;
+  ppr: number;
+};
+type TeamFeedItem = {
+  team: string; // NFL team code
+  totalPPR: number;
+  playerCount: number;
+  topPlayers: TeamFeedPlayer[];
+};
+type TeamFeedResponse = {
+  season: string;
+  week: number;
+  generatedAt: string;
+  source: string;
+  teams: TeamFeedItem[];
+};
+
 function classNames(...classes: string[]) {
   return classes.filter(Boolean).join(' ');
 }
@@ -75,6 +97,10 @@ export default function TeamPage() {
     highestScore: 0,
     lowestScore: 999
   });
+  // Team Feed state
+  const [teamFeed, setTeamFeed] = useState<TeamFeedResponse | null>(null);
+  const [teamFeedLoading, setTeamFeedLoading] = useState(false);
+  const [teamFeedError, setTeamFeedError] = useState<string | null>(null);
   
   // Sorting state for roster table
   type SortKey = 'name' | 'position' | 'team' | 'gp' | 'totalPPR' | 'ppg';
@@ -210,6 +236,34 @@ export default function TeamPage() {
     
     fetchTeamData();
   }, [rosterId, selectedYear]);
+
+  // Fetch Team Feed from API and filter to NFL teams represented on the roster
+  useEffect(() => {
+    const loadTeamFeed = async () => {
+      if (!team || !team.players || Object.keys(players).length === 0) return;
+      try {
+        setTeamFeedLoading(true);
+        setTeamFeedError(null);
+        const res = await fetch(`/api/team-feed?season=${encodeURIComponent(selectedYear)}` , { cache: 'no-store' });
+        if (!res.ok) throw new Error(`Failed to fetch team feed: ${res.status}`);
+        const data: TeamFeedResponse = await res.json();
+        // NFL teams present on this roster
+        const rosterTeams = new Set(
+          (team.players || [])
+            .map((pid) => (players[pid]?.team || '').toUpperCase())
+            .filter((t) => t)
+        );
+        const filtered = data.teams.filter((t) => rosterTeams.has(t.team));
+        setTeamFeed({ ...data, teams: filtered });
+      } catch (e) {
+        console.error(e);
+        setTeamFeedError('Failed to load team feed');
+      } finally {
+        setTeamFeedLoading(false);
+      }
+    };
+    loadTeamFeed();
+  }, [team, players, selectedYear]);
   
   const handleYearChange = (year: string) => {
     setSelectedYear(year);
@@ -391,6 +445,19 @@ export default function TeamPage() {
             }
           >
             Records
+          </Tab>
+          <Tab
+            className={({ selected }) =>
+              classNames(
+                'w-full rounded-lg py-2.5 text-sm font-medium leading-5',
+                'ring-white ring-opacity-60 ring-offset-2 focus:outline-none focus:ring-2',
+                selected
+                  ? 'bg-white shadow'
+                  : 'text-gray-100 hover:bg-white/[0.12] hover:text-white'
+              )
+            }
+          >
+            Team Feed
           </Tab>
         </Tab.List>
         <Tab.Panels>
@@ -603,6 +670,53 @@ export default function TeamPage() {
                 <div className="text-2xl font-bold">{allTimeStats.lowestScore.toFixed(2)} pts</div>
               </div>
             </div>
+          </Tab.Panel>
+          {/* Team Feed Panel */}
+          <Tab.Panel className="rounded-xl bg-white p-3 shadow-md">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-bold">NFL Team Feed</h2>
+              {teamFeed?.week ? (
+                <span className="text-sm text-gray-600">Week {teamFeed.week}</span>
+              ) : null}
+            </div>
+            {teamFeedLoading && (
+              <div className="py-6"><LoadingState message="Loading team feed..." /></div>
+            )}
+            {teamFeedError && (
+              <div className="py-6"><ErrorState message={teamFeedError} /></div>
+            )}
+            {!teamFeedLoading && !teamFeedError && (
+              <div>
+                {teamFeed && teamFeed.teams.length > 0 ? (
+                  <div className="space-y-4">
+                    {teamFeed.teams.map((t) => (
+                      <div key={t.team} className="border rounded-lg p-4">
+                        <div className="flex items-center justify-between">
+                          <div className="text-lg font-semibold">{t.team}</div>
+                          <div className="text-sm text-gray-600">Total PPR: <span className="font-bold">{t.totalPPR.toFixed(2)}</span></div>
+                        </div>
+                        <div className="text-sm text-gray-500 mb-2">Contributors: {t.playerCount}</div>
+                        {t.topPlayers && t.topPlayers.length > 0 && (
+                          <ul className="divide-y">
+                            {t.topPlayers.map((p) => (
+                              <li key={p.playerId} className="py-2 flex items-center justify-between">
+                                <div>
+                                  <span className="font-medium">{p.firstName} {p.lastName}</span>
+                                  <span className="ml-2 text-gray-500">{p.position}</span>
+                                </div>
+                                <div className="font-semibold">{p.ppr.toFixed(2)} PPR</div>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-gray-500">No matching NFL team activity for this roster.</p>
+                )}
+              </div>
+            )}
           </Tab.Panel>
         </Tab.Panels>
       </Tab.Group>
