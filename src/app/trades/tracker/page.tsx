@@ -2,32 +2,16 @@
 
 import { Suspense, useEffect, useMemo, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import dynamic from 'next/dynamic';
-import type { GraphNode as EVWGraphNode } from '@/lib/utils/trade-graph';
-
-interface GraphNodeBase { id: string; type: 'player' | 'pick' | 'trade'; label: string }
-interface PlayerNode extends GraphNodeBase { type: 'player'; playerId: string }
-interface PickNode extends GraphNodeBase { type: 'pick'; season: string; round: number; slot: number; pickInRound?: number; becameName?: string }
-interface TradeNode extends GraphNodeBase { type: 'trade'; tradeId: string; date: string; teams: string[] }
-
-interface GraphEdge { id: string; from: string; to: string; kind: 'traded' | 'became'; tradeId?: string }
-
-interface TradeGraph { nodes: Array<PlayerNode | PickNode | TradeNode>; edges: GraphEdge[] }
+import NextDynamic from 'next/dynamic';
+import type { GraphNode as EVWGraphNode, GraphEdge as EVWGraphEdge, TradeGraph as EVWTradeGraph } from '@/lib/utils/trade-graph';
 
 export const dynamic = 'force-dynamic';
 
-// Global type order for stable sorting (module scope to avoid Hook deps)
-const TYPE_ORDER: Record<PlayerNode['type'] | PickNode['type'] | TradeNode['type'], number> = {
-  player: 0,
-  pick: 1,
-  trade: 2,
-};
-
 // Dynamically load the React Flow-based canvas on the client only
-const TradeTreeCanvas = dynamic(() => import('@/components/trade-tree/TradeTreeCanvas'), { ssr: false });
+const TradeTreeCanvas = NextDynamic(() => import('@/components/trade-tree/TradeTreeCanvas'), { ssr: false });
 
 // Build a consistent color per tradeId using a simple hash -> hue mapping
-function buildTradeColorMap(edges: GraphEdge[]): Map<string, string> {
+function buildTradeColorMap(edges: EVWGraphEdge[]): Map<string, string> {
   const ids = Array.from(new Set(edges.filter(e => e.kind === 'traded' && e.tradeId).map(e => e.tradeId as string)));
   const map = new Map<string, string>();
   const hash = (s: string) => {
@@ -90,7 +74,7 @@ function TradeTrackerContent() {
     return sp.toString();
   }, [rootType, playerId, season, round, slot, depth]);
 
-  const [graph, setGraph] = useState<TradeGraph | null>(null);
+  const [graph, setGraph] = useState<EVWTradeGraph | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -104,7 +88,7 @@ function TradeTrackerContent() {
         const res = await fetch(`/api/trade-tree?${query}`);
         const data = await res.json();
         if (!res.ok) throw new Error(data?.error || 'Failed to fetch graph');
-        setGraph(data.graph);
+        setGraph(data.graph as EVWTradeGraph);
       } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : 'Failed to fetch graph';
         setError(msg);
@@ -161,7 +145,8 @@ function TradeTrackerContent() {
             {(() => {
               // Build legend entries: tradeId -> date + teams + color
               const colorMap = buildTradeColorMap(graph.edges);
-              const tradeNodes = graph.nodes.filter((n) => n.type === 'trade') as TradeNode[];
+              type TradeNode = Extract<EVWGraphNode, { type: 'trade' }>;
+              const tradeNodes = graph.nodes.filter((n): n is TradeNode => n.type === 'trade');
               const byId = new Map(tradeNodes.map((t) => [t.tradeId, t]));
               const entries = Array.from(colorMap.keys()).map((tid) => {
                 const tn = byId.get(tid);
@@ -185,7 +170,7 @@ function TradeTrackerContent() {
               ) : null;
             })()}
             <TradeTreeCanvas
-              graph={graph as any}
+              graph={graph}
               rootId={rootType === 'player' ? `player:${playerId}` : `pick:${season}-${round}-${slot}`}
               tradeColorMap={buildTradeColorMap(graph.edges)}
               height={640}

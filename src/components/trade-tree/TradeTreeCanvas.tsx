@@ -3,7 +3,8 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { TradeGraph, GraphNode as EVWGraphNode, GraphEdge as EVWGraphEdge } from "@/lib/utils/trade-graph";
-import ReactFlow, {
+import {
+  ReactFlow,
   Background,
   Controls,
   MiniMap,
@@ -56,7 +57,7 @@ export type TradeTreeCanvasProps = {
   onNodeClick?: (node: EVWGraphNode) => void;
 };
 
-export default function TradeTreeCanvas({ graph, rootId: _rootId, tradeColorMap: tradeColorMapProp, height = 640, onNodeClick }: TradeTreeCanvasProps) {
+export default function TradeTreeCanvas({ graph, tradeColorMap: tradeColorMapProp, height = 640, onNodeClick }: TradeTreeCanvasProps) {
   const rfRef = useRef<ReactFlowInstance | null>(null);
   const initialFitDone = useRef(false);
 
@@ -131,7 +132,7 @@ export default function TradeTreeCanvas({ graph, rootId: _rootId, tradeColorMap:
             } catch {}
           }
         });
-      } catch (_err) {
+      } catch {
         // In case ELK fails, fall back to a simple column layout
         const rfNodes: Node[] = graph.nodes.map((n, i) => ({
           id: n.id,

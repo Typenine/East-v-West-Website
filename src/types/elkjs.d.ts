@@ -1,4 +1,6 @@
 declare module 'elkjs' {
-  const ELK: any;
-  export default ELK;
+  export default class ELK {
+    constructor();
+    layout(graph: unknown): Promise<unknown>;
+  }
 }
