@@ -144,18 +144,33 @@ export async function GET(req: NextRequest) {
       // Initial + last (e.g., t hill)
       const initialLastNorm = firstNorm ? `${firstNorm[0]} ${lastNorm}` : '';
 
+      // Team defense indicator
+      const isDst = ((player.position || '').toUpperCase() === 'DST') || ((player.position || '').toUpperCase() === 'DEF');
+      // Simple title token regexes for team defenses
+      const firstTokenRe = firstNorm ? new RegExp(`\\b${escapeRegExp(firstNorm)}\\b`, 'i') : null;
+      const lastTokenRe = lastNorm ? new RegExp(`\\b${escapeRegExp(lastNorm)}\\b`, 'i') : null;
+      const teamCodeRe = player.team ? new RegExp(`\\b${escapeRegExp(player.team)}\\b`, 'i') : null;
+
       return {
         id,
         name: fullName || `${player.first_name || ''} ${player.last_name || ''}`.trim(),
         fullRe,
         aliasNorms,
         initialLastNorm,
+        isDst,
+        firstTokenRe,
+        lastTokenRe,
+        teamCodeRe,
       } as {
         id: string;
         name: string;
         fullRe: RegExp;
         aliasNorms: string[];
         initialLastNorm: string;
+        isDst: boolean;
+        firstTokenRe: RegExp | null;
+        lastTokenRe: RegExp | null;
+        teamCodeRe: RegExp | null;
       };
     });
 
@@ -178,17 +193,25 @@ export async function GET(req: NextRequest) {
     const byKey = new Map<string, ScoredItem>();
     const now = Date.now();
     for (const it of allItems) {
-      const hay = `${it.title} ${it.description}`;
+      const title = it.title || '';
+      const hay = `${title} ${it.description}`;
       const hayNorm = normalizeText(hay);
       const matches: RosterNewsMatch[] = [];
       for (const m of matchers) {
         let matchedType: MatchType | null = null;
-        if (m.fullRe.test(hay)) {
-          matchedType = 'full';
-        } else if (m.aliasNorms.some((al) => containsPhrase(hayNorm, al))) {
-          matchedType = 'alias';
-        } else if (m.initialLastNorm && containsPhrase(hayNorm, m.initialLastNorm)) {
-          matchedType = 'initial';
+        if (m.isDst) {
+          // For team defenses: only match if the TEAM is mentioned in the TITLE to avoid noisy body mentions/lists
+          if (m.fullRe.test(title) || (m.lastTokenRe?.test(title)) || (m.firstTokenRe?.test(title)) || (m.teamCodeRe?.test(title))) {
+            matchedType = 'full';
+          }
+        } else {
+          if (m.fullRe.test(hay)) {
+            matchedType = 'full';
+          } else if (m.aliasNorms.some((al) => containsPhrase(hayNorm, al))) {
+            matchedType = 'alias';
+          } else if (m.initialLastNorm && containsPhrase(hayNorm, m.initialLastNorm)) {
+            matchedType = 'initial';
+          }
         }
         if (matchedType) {
           matches.push({ playerId: m.id, name: m.name, matchType: matchedType });
