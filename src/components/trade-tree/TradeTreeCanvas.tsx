@@ -30,11 +30,29 @@ function buildTradeColorMap(edges: EVWGraphEdge[]): Map<string, string> {
     for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
     return Math.abs(h);
   };
-  ids.forEach((id) => {
-    const hue = hash(id) % 360;
-    map.set(id, `hsl(${hue} 60% 45%)`);
+  const hslToHex = (h: number, s: number, l: number) => {
+    s /= 100; l /= 100;
+    const k = (n: number) => (n + h / 30) % 12;
+    const a = s * Math.min(l, 1 - l);
+    const f = (n: number) => l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
+    const toHex = (x: number) => Math.round(255 * x).toString(16).padStart(2, "0");
+    return `#${toHex(f(0))}${toHex(f(8))}${toHex(f(4))}`;
+  };
+  ids.forEach((id, idx) => {
+    const hue = (hash(id) + idx * 47) % 360; // spread hues deterministically
+    map.set(id, hslToHex(hue, 70, 45));
   });
   return map;
+}
+
+function labelFor(n: EVWGraphNode): string {
+  if (n.type === "trade") {
+    const teams = (n.teams || []).filter(Boolean).join(" ↔ ");
+    if (teams && n.date) return `${teams} (${n.date})`;
+    if (teams) return teams;
+    return n.date ? `Trade (${n.date})` : "Trade";
+  }
+  return n.label;
 }
 
 function nodeStyleFor(kind: EVWGraphNode["type"]): React.CSSProperties {
@@ -103,7 +121,7 @@ export default function TradeTreeCanvas({ graph, tradeColorMap: tradeColorMapPro
         const rfNodes: Node[] = graph.nodes.map((n) => ({
           id: n.id,
           position: pos.get(n.id) ?? { x: Math.random() * 10, y: Math.random() * 10 },
-          data: { label: n.label, node: n },
+          data: { label: labelFor(n), node: n },
           style: nodeStyleFor(n.type),
           draggable: true,
         }));
@@ -115,7 +133,7 @@ export default function TradeTreeCanvas({ graph, tradeColorMap: tradeColorMapPro
             id: e.id,
             source: e.from,
             target: e.to,
-            style: { stroke: color, strokeWidth: 2, strokeDasharray: dashed ? "6 4" : undefined },
+            style: { stroke: color, strokeWidth: 3, strokeDasharray: dashed ? "6 4" : undefined },
             markerEnd: { type: MarkerType.ArrowClosed, color },
           };
         });
@@ -137,7 +155,7 @@ export default function TradeTreeCanvas({ graph, tradeColorMap: tradeColorMapPro
         const rfNodes: Node[] = graph.nodes.map((n, i) => ({
           id: n.id,
           position: { x: (i % 6) * (NODE_W + 40), y: Math.floor(i / 6) * (NODE_H + 40) },
-          data: { label: n.label, node: n },
+          data: { label: labelFor(n), node: n },
           style: nodeStyleFor(n.type),
           draggable: true,
         }));
@@ -145,7 +163,7 @@ export default function TradeTreeCanvas({ graph, tradeColorMap: tradeColorMapPro
           id: e.id,
           source: e.from,
           target: e.to,
-          style: { stroke: "#9CA3AF", strokeWidth: 2 },
+          style: { stroke: "#9CA3AF", strokeWidth: 3 },
           markerEnd: { type: MarkerType.ArrowClosed, color: "#9CA3AF" },
         }));
         if (!cancelled) {

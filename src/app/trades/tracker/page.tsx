@@ -10,7 +10,7 @@ export const dynamic = 'force-dynamic';
 // Dynamically load the React Flow-based canvas on the client only
 const TradeTreeCanvas = NextDynamic(() => import('@/components/trade-tree/TradeTreeCanvas'), { ssr: false });
 
-// Build a consistent color per tradeId using a simple hash -> hue mapping
+// Build a consistent color per tradeId (distinct hex hues)
 function buildTradeColorMap(edges: EVWGraphEdge[]): Map<string, string> {
   const ids = Array.from(new Set(edges.filter(e => e.kind === 'traded' && e.tradeId).map(e => e.tradeId as string)));
   const map = new Map<string, string>();
@@ -19,10 +19,17 @@ function buildTradeColorMap(edges: EVWGraphEdge[]): Map<string, string> {
     for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
     return Math.abs(h);
   };
-  ids.forEach((id) => {
-    const hue = (hash(id) % 360);
-    const color = `hsl(${hue} 60% 45%)`;
-    map.set(id, color);
+  const hslToHex = (h: number, s: number, l: number) => {
+    s /= 100; l /= 100;
+    const k = (n: number) => (n + h / 30) % 12;
+    const a = s * Math.min(l, 1 - l);
+    const f = (n: number) => l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
+    const toHex = (x: number) => Math.round(255 * x).toString(16).padStart(2, '0');
+    return `#${toHex(f(0))}${toHex(f(8))}${toHex(f(4))}`;
+  };
+  ids.forEach((id, idx) => {
+    const hue = (hash(id) + idx * 47) % 360;
+    map.set(id, hslToHex(hue, 70, 45));
   });
   return map;
 }
@@ -158,11 +165,9 @@ function TradeTrackerContent() {
                   <h3 className="text-sm font-medium mb-1">Trades in view</h3>
                   <ul className="space-y-1 text-sm">
                     {entries.map((e) => (
-                      <li key={e.id} className="flex items-center gap-2" title={`Trade ${e.id}`}>
-                        <span className="inline-block w-8 h-0.5" style={{ backgroundColor: e.color }} />
-                        <span className="text-gray-700">{e.date}</span>
-                        <span className="text-gray-400">•</span>
-                        <span className="truncate">{e.teams.join(' ↔ ')}</span>
+                      <li key={e.id} className="flex items-center gap-2" title={`${e.teams.join(' ↔ ')} (${e.date})`}>
+                        <span className="inline-block w-8 align-middle" style={{ backgroundColor: e.color, height: 3 }} />
+                        <span className="truncate">{e.teams.join(' ↔ ')} ({e.date})</span>
                       </li>
                     ))}
                   </ul>
