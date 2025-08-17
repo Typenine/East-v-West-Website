@@ -14,7 +14,8 @@ const sourceCache: Record<string, { ts: number; items: RssItem[] }> = {};
 
 function decodeHtml(input: string): string {
   return input
-    .replace(/<!\[CDATA\[(.*)\]\]>/s, '$1')
+    // Avoid ES2018 dotAll flag; use [\s\S]*? to match newlines
+    .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1')
     .replace(/&amp;/g, '&')
     .replace(/&quot;/g, '"')
     .replace(/&#39;/g, "'")
