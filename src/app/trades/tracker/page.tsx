@@ -2,6 +2,8 @@
 
 import { Suspense, useEffect, useMemo, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
+import dynamic from 'next/dynamic';
+import type { GraphNode as EVWGraphNode } from '@/lib/utils/trade-graph';
 
 interface GraphNodeBase { id: string; type: 'player' | 'pick' | 'trade'; label: string }
 interface PlayerNode extends GraphNodeBase { type: 'player'; playerId: string }
@@ -20,6 +22,9 @@ const TYPE_ORDER: Record<PlayerNode['type'] | PickNode['type'] | TradeNode['type
   pick: 1,
   trade: 2,
 };
+
+// Dynamically load the React Flow-based canvas on the client only
+const TradeTreeCanvas = dynamic(() => import('@/components/trade-tree/TradeTreeCanvas'), { ssr: false });
 
 // Build a consistent color per tradeId using a simple hash -> hue mapping
 function buildTradeColorMap(edges: GraphEdge[]): Map<string, string> {
@@ -179,10 +184,19 @@ function TradeTrackerContent() {
                 </div>
               ) : null;
             })()}
-            <GraphCanvas
-              graph={graph}
+            <TradeTreeCanvas
+              graph={graph as any}
               rootId={rootType === 'player' ? `player:${playerId}` : `pick:${season}-${round}-${slot}`}
               tradeColorMap={buildTradeColorMap(graph.edges)}
+              height={640}
+              onNodeClick={(n: EVWGraphNode) => {
+                if (n.type === 'player') {
+                  const id = n.playerId;
+                  router.push(`/trades/tracker?rootType=player&playerId=${encodeURIComponent(id)}`);
+                } else if (n.type === 'pick') {
+                  router.push(`/trades/tracker?rootType=pick&season=${encodeURIComponent(n.season)}&round=${n.round}&slot=${n.slot}`);
+                }
+              }}
             />
             <div className="mt-2 text-xs text-gray-500">
               Legend: <span className="inline-block w-3 h-3 bg-blue-100 border border-blue-400 align-middle mr-1"/> Player •
@@ -206,206 +220,5 @@ export default function TradeTrackerPage() {
     <Suspense fallback={<div className="container mx-auto px-4 py-8">Loading tracker…</div>}>
       <TradeTrackerContent />
     </Suspense>
-  );
-}
-
-// Simple SVG-based graph renderer with columnar layout by BFS depth from root
-function GraphCanvas({ graph, rootId, tradeColorMap: tradeColorMapProp }: { graph: TradeGraph; rootId: string; tradeColorMap?: Map<string, string> }) {
-  const router = useRouter();
-  const [hoverId, setHoverId] = useState<string | null>(null);
-
-  // Build adjacency for BFS
-  const adj = useMemo(() => {
-    const m = new Map<string, Set<string>>();
-    const add = (a: string, b: string) => {
-      if (!m.has(a)) m.set(a, new Set());
-      if (!m.has(b)) m.set(b, new Set());
-      m.get(a)!.add(b);
-      m.get(b)!.add(a);
-    };
-    graph.edges.forEach((e) => add(e.from, e.to));
-    return m;
-  }, [graph.edges]);
-
-  // Distances from root
-  const dist = useMemo(() => {
-    const d = new Map<string, number>();
-    if (!graph.nodes.some((n) => n.id === rootId)) return d;
-    const q: Array<string> = [rootId];
-    d.set(rootId, 0);
-    while (q.length) {
-      const v = q.shift()!;
-      const nv = adj.get(v);
-      if (!nv) continue;
-      const dv = d.get(v)!;
-      for (const nb of nv) {
-        if (!d.has(nb)) {
-          d.set(nb, dv + 1);
-          q.push(nb);
-        }
-      }
-    }
-    return d;
-  }, [adj, graph.nodes, rootId]);
-
-  const columns = useMemo(() => {
-    // Group nodes by distance (depth). Unreached nodes grouped at the end.
-    const byDepth = new Map<number, TradeGraph['nodes']>();
-    const unreached: TradeGraph['nodes'] = [];
-    graph.nodes.forEach((n) => {
-      const dn = dist.get(n.id);
-      if (dn === undefined) {
-        unreached.push(n);
-      } else {
-        const arr = byDepth.get(dn) ?? [];
-        arr.push(n);
-        byDepth.set(dn, arr);
-      }
-    });
-    const maxDepth = Math.max(0, ...Array.from(byDepth.keys()));
-    const cols: TradeGraph['nodes'][] = [];
-    for (let i = 0; i <= maxDepth; i++) {
-      const arr = (byDepth.get(i) ?? []).slice().sort((a, b) => TYPE_ORDER[a.type] - TYPE_ORDER[b.type] || a.label.localeCompare(b.label));
-      cols.push(arr);
-    }
-    if (unreached.length) cols.push(unreached);
-    return cols;
-  }, [graph.nodes, dist]);
-
-  // Layout constants
-  const nodeW = 220;
-  const nodeH = 56;
-  const colW = 260;
-  const rowH = 90;
-  const margin = 20;
-
-  // Compute positions
-  const positions = useMemo(() => {
-    const pos = new Map<string, { x: number; y: number }>();
-    columns.forEach((col, ci) => {
-      col.forEach((n, ri) => {
-        const x = margin + ci * colW;
-        const y = margin + ri * rowH;
-        pos.set(n.id, { x, y });
-      });
-    });
-    return pos;
-  }, [columns]);
-
-  const width = margin * 2 + Math.max(1, columns.length) * colW + nodeW - (colW - nodeW);
-  const height = margin * 2 + Math.max(1, Math.max(0, ...columns.map((c) => c.length))) * rowH + nodeH - (rowH - nodeH);
-
-  // Color mapping per tradeId (for traded edges)
-  const tradeColorMap = useMemo(() => tradeColorMapProp ?? buildTradeColorMap(graph.edges), [tradeColorMapProp, graph.edges]);
-
-  const tradedMarkerIds = useMemo(() => {
-    // Build a stable key for each trade color
-    const entries: Array<{ id: string; color: string }> = [];
-    for (const [id, color] of tradeColorMap.entries()) entries.push({ id, color });
-    return entries;
-  }, [tradeColorMap]);
-
-  return (
-    <div className="overflow-auto border rounded" style={{ height: Math.min(height + 20, 640) }}>
-      <div className="relative" style={{ width, height }}>
-        <svg className="absolute inset-0" width={width} height={height}>
-          <defs>
-            {tradedMarkerIds.map(({ id, color }) => (
-              <marker key={id} id={`arrow-traded-${id}`} markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
-                <path d="M0,0 L0,6 L9,3 z" fill={color} />
-              </marker>
-            ))}
-            <marker id="arrow-became" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
-              <path d="M0,0 L0,6 L9,3 z" fill="#9CA3AF" />
-            </marker>
-          </defs>
-          {graph.edges.map((e) => {
-            const a = positions.get(e.from);
-            const b = positions.get(e.to);
-            if (!a || !b) return null;
-            const x1 = a.x + nodeW / 2;
-            const y1 = a.y + nodeH / 2;
-            const x2 = b.x + nodeW / 2;
-            const y2 = b.y + nodeH / 2;
-            const color = e.kind === 'traded' && e.tradeId ? (tradeColorMap.get(e.tradeId) || '#6B7280') : '#9CA3AF';
-            const marker = e.kind === 'became' ? 'url(#arrow-became)' : (e.tradeId ? `url(#arrow-traded-${e.tradeId})` : undefined);
-            const dash = e.kind === 'became' ? '6 4' : undefined;
-            const isHighlighted = !hoverId || e.from === hoverId || e.to === hoverId;
-            return (
-              <line
-                key={e.id}
-                x1={x1}
-                y1={y1}
-                x2={x2}
-                y2={y2}
-                stroke={color}
-                strokeWidth={2}
-                strokeDasharray={dash}
-                markerEnd={marker}
-                opacity={isHighlighted ? 1 : 0.2}
-              />
-            );
-          })}
-        </svg>
-
-        {columns.map((col, ci) => (
-          <div key={ci} className="absolute" style={{ left: margin + ci * colW, top: 0, width: nodeW }}>
-            {col.map((n, ri) => {
-              const key = `${n.id}-${ri}`;
-              const { x, y } = positions.get(n.id)!;
-              const isRoot = n.id === rootId;
-              const base =
-                n.type === 'player'
-                  ? 'bg-blue-100 border-blue-400'
-                  : n.type === 'pick'
-                  ? 'bg-green-100 border-green-400'
-                  : 'bg-gray-100 border-gray-400';
-              const onClick = () => {
-                if (n.type === 'player') {
-                  const id = (n as PlayerNode).playerId;
-                  router.push(`/trades/tracker?rootType=player&playerId=${encodeURIComponent(id)}`);
-                } else if (n.type === 'pick') {
-                  const p = n as PickNode;
-                  router.push(`/trades/tracker?rootType=pick&season=${encodeURIComponent(p.season)}&round=${p.round}&slot=${p.slot}`);
-                }
-              };
-              const onMouseEnter = () => setHoverId(n.id);
-              const onMouseLeave = () => setHoverId(null);
-              const isDimmed = hoverId && hoverId !== n.id && !(adj.get(hoverId)?.has(n.id));
-              return (
-                <div
-                  key={key}
-                  className={`absolute border rounded px-3 py-2 shadow-sm ${base} ${isRoot ? 'ring-2 ring-indigo-500' : ''} ${n.type !== 'trade' ? 'cursor-pointer hover:shadow-md transition' : ''}`}
-                  style={{ left: x - (margin + ci * colW), top: y, width: nodeW, height: nodeH }}
-                  onClick={onClick}
-                  onMouseEnter={onMouseEnter}
-                  onMouseLeave={onMouseLeave}
-                  aria-label={`Node ${n.label}`}
-                  role={n.type !== 'trade' ? 'button' : undefined}
-                  tabIndex={n.type !== 'trade' ? 0 : -1}
-                  onKeyDown={(e) => {
-                    if (n.type !== 'trade' && (e.key === 'Enter' || e.key === ' ')) onClick();
-                  }}
-                >
-                  <div className="text-2xs uppercase tracking-wide text-gray-600" style={{ opacity: isDimmed ? 0.4 : 1 }}>{n.type}</div>
-                  <div className="text-sm font-medium truncate" title={n.label} style={{ opacity: isDimmed ? 0.4 : 1 }}>{n.label}</div>
-                  {n.type === 'pick' && (
-                    <div className="text-xs text-gray-700 truncate" style={{ opacity: isDimmed ? 0.4 : 1 }}>
-                      R{(n as PickNode).round} P{(n as PickNode).pickInRound ?? (n as PickNode).slot}
-                      {(n as PickNode).becameName ? ` → ${(n as PickNode).becameName}` : ''}
-                    </div>
-                  )}
-                  {n.type === 'trade' && (
-                    <div className="text-xs text-gray-700 truncate" style={{ opacity: isDimmed ? 0.4 : 1 }}>
-                      {((n as TradeNode).teams || []).join(' ↔ ')}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        ))}
-      </div>
-    </div>
   );
 }
