@@ -5,6 +5,7 @@ import {
   getNFLState,
   SleeperNFLSeasonPlayerStats,
   SleeperPlayer,
+  SleeperNFLState,
 } from '@/lib/utils/sleeper-api';
 
 export const runtime = 'nodejs';
@@ -33,8 +34,13 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
 
     // Defaults from current NFL state (cached)
-    const state = await getNFLState().catch(() => ({} as any));
-    let season = (searchParams.get('season') || state?.season || String(new Date().getFullYear())).trim();
+    let state: SleeperNFLState | null = null;
+    try {
+      state = await getNFLState();
+    } catch {
+      // ignore, fall back to defaults below
+    }
+    const season = (searchParams.get('season') || state?.season || String(new Date().getFullYear())).trim();
 
     const weekParam = searchParams.get('week');
     let week = Number.isFinite(Number(weekParam)) ? Number(weekParam) : (state?.week ?? 1);
