@@ -72,7 +72,8 @@ export default function TradeTreeCanvas({ graph, rootId: _rootId, tradeColorMap:
 
     async function layout() {
       try {
-        const ELKMod = await import("elkjs");
+        // Use the browser-bundled build to avoid 'web-worker' resolution issues in prod builds
+        const ELKMod = await import("elkjs/lib/elk.bundled.js");
         const ELKClass: any = (ELKMod as any).default ?? (ELKMod as any);
         const elk = new ELKClass();
 
