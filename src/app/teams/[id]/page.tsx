@@ -407,6 +407,21 @@ export default function TeamPage() {
       
       <Tab.Group>
         <Tab.List className="flex space-x-1 rounded-xl p-1" style={{backgroundColor: `${getTeamColorStyle(teamName).backgroundColor}20`}}>
+          {/* News first */}
+          <Tab
+            className={({ selected }) =>
+              classNames(
+                'w-full rounded-lg py-2.5 text-sm font-medium leading-5',
+                'ring-white ring-opacity-60 ring-offset-2 focus:outline-none focus:ring-2',
+                selected
+                  ? 'bg-white shadow'
+                  : 'text-gray-100 hover:bg-white/[0.12] hover:text-white'
+              )
+            }
+          >
+            News
+          </Tab>
+          {/* Roster */}
           <Tab
             className={({ selected }) =>
               classNames(
@@ -423,6 +438,7 @@ export default function TeamPage() {
           >
             Roster
           </Tab>
+          {/* Schedule */}
           <Tab
             className={({ selected }) =>
               classNames(
@@ -439,6 +455,21 @@ export default function TeamPage() {
           >
             Schedule
           </Tab>
+          {/* Records */}
+          <Tab
+            className={({ selected }) =>
+              classNames(
+                'w-full rounded-lg py-2.5 text-sm font-medium leading-5',
+                'ring-white ring-opacity-60 ring-offset-2 focus:outline-none focus:ring-2',
+                selected
+                  ? 'bg-white shadow'
+                  : 'text-gray-100 hover:bg-white/[0.12] hover:text-white'
+              )
+            }
+          >
+            Records
+          </Tab>
+          {/* H2H Records */}
           <Tab
             className={({ selected }) =>
               classNames(
@@ -455,34 +486,96 @@ export default function TeamPage() {
           >
             H2H Records
           </Tab>
-          <Tab
-            className={({ selected }) =>
-              classNames(
-                'w-full rounded-lg py-2.5 text-sm font-medium leading-5',
-                'ring-white ring-opacity-60 ring-offset-2 focus:outline-none focus:ring-2',
-                selected
-                  ? 'bg-white shadow'
-                  : 'text-gray-100 hover:bg-white/[0.12] hover:text-white'
-              )
-            }
-          >
-            Records
-          </Tab>
-          <Tab
-            className={({ selected }) =>
-              classNames(
-                'w-full rounded-lg py-2.5 text-sm font-medium leading-5',
-                'ring-white ring-opacity-60 ring-offset-2 focus:outline-none focus:ring-2',
-                selected
-                  ? 'bg-white shadow'
-                  : 'text-gray-100 hover:bg-white/[0.12] hover:text-white'
-              )
-            }
-          >
-            News
-          </Tab>
         </Tab.List>
         <Tab.Panels>
+          {/* News Panel */}
+          <Tab.Panel className="rounded-xl bg-white p-3 shadow-md">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-bold">Roster News</h2>
+              <div className="flex items-center gap-3">
+                {news && news.length > 0 ? (
+                  <span className="text-sm text-gray-600">{news.length} articles</span>
+                ) : null}
+                <button
+                  type="button"
+                  onClick={() => setNewsWindowHours((h) => (h === 336 ? 720 : 336))}
+                  className="text-sm text-blue-600 hover:text-blue-700 hover:underline"
+                >
+                  {newsWindowHours === 336 ? 'Show older (30d)' : 'Show recent (14d)'}
+                </button>
+              </div>
+            </div>
+            {newsLoading && (
+              <div className="py-6"><LoadingState message="Loading news..." /></div>
+            )}
+            {newsError && (
+              <div className="py-6"><ErrorState message={newsError} /></div>
+            )}
+            {!newsLoading && !newsError && (
+              <div>
+                {newsGrouped && newsGrouped.length > 0 ? (
+                  <div className="space-y-8">
+                    {newsGrouped.map((group) => {
+                      const p = players[group.playerId];
+                      const meta = p ? `${p.position || ''}${p.team ? ` • ${p.team}` : ''}` : '';
+                      return (
+                        <section key={group.playerId}>
+                          <div className="flex items-baseline justify-between mb-2">
+                            <h3 className="text-lg font-semibold">
+                              {group.playerName}
+                              {meta ? <span className="ml-2 text-sm text-gray-500">{meta}</span> : null}
+                            </h3>
+                            <span className="text-xs text-gray-500">{group.items.length} article{group.items.length !== 1 ? 's' : ''}</span>
+                          </div>
+                          <div className="space-y-4">
+                            {group.items.map((it, idx) => (
+                              <article
+                                key={`${group.playerId}-${it.link}-${idx}`}
+                                className="border rounded-lg p-4 cursor-pointer hover:bg-gray-50 transition"
+                                role="link"
+                                tabIndex={0}
+                                onClick={(e) => {
+                                  const target = e.target as HTMLElement;
+                                  if (target && target.closest('a')) return; // don't double-open when clicking existing links
+                                  if (it.link) window.open(it.link, '_blank', 'noopener,noreferrer');
+                                }}
+                                onKeyDown={(e) => {
+                                  if ((e.key === 'Enter' || e.key === ' ') && it.link) {
+                                    e.preventDefault();
+                                    window.open(it.link, '_blank', 'noopener,noreferrer');
+                                  }
+                                }}
+                              >
+                                <div className="flex items-center justify-between mb-1">
+                                  <div className="text-sm text-gray-600">{it.sourceName}</div>
+                                  <div className="text-xs text-gray-500">{it.publishedAt ? new Date(it.publishedAt).toLocaleString() : ''}</div>
+                                </div>
+                                <h4 className="font-semibold hover:underline">{it.title}</h4>
+                                <p className="text-sm text-gray-700 mt-1 whitespace-pre-line">{it.description}</p>
+                                <div className="mt-2">
+                                  <a
+                                    href={it.link}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="inline-flex items-center text-sm text-blue-600 hover:underline"
+                                  >
+                                    Read at source ↗
+                                  </a>
+                                </div>
+                              </article>
+                            ))}
+                          </div>
+                        </section>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <p className="text-gray-500">No recent news found for this roster.</p>
+                )}
+              </div>
+            )}
+          </Tab.Panel>
+
           {/* Roster Panel */}
           <Tab.Panel className="rounded-xl bg-white p-3 shadow-md">
             <h2 className="text-xl font-bold mb-4">Current Roster</h2>
@@ -631,7 +724,22 @@ export default function TeamPage() {
               <p className="text-gray-500 text-center py-4">No schedule data available</p>
             )}
           </Tab.Panel>
-          
+
+          {/* Records Panel */}
+          <Tab.Panel className="rounded-xl bg-white p-3 shadow-md">
+            <h2 className="text-xl font-bold mb-4">Team Records</h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="border rounded-lg p-4">
+                <h3 className="font-semibold mb-2">Highest Scoring Week</h3>
+                <div className="text-2xl font-bold">{allTimeStats.highestScore.toFixed(2)} pts</div>
+              </div>
+              <div className="border rounded-lg p-4">
+                <h3 className="font-semibold mb-2">Lowest Scoring Week</h3>
+                <div className="text-2xl font-bold">{allTimeStats.lowestScore.toFixed(2)} pts</div>
+              </div>
+            </div>
+          </Tab.Panel>
+
           {/* H2H Records Panel */}
           <Tab.Panel className="rounded-xl bg-white p-3 shadow-md">
             <h2 className="text-xl font-bold mb-4">Head-to-Head Records</h2>
@@ -677,108 +785,6 @@ export default function TeamPage() {
                 </tbody>
               </table>
             </div>
-          </Tab.Panel>
-          
-          {/* Records Panel */}
-          <Tab.Panel className="rounded-xl bg-white p-3 shadow-md">
-            <h2 className="text-xl font-bold mb-4">Team Records</h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div className="border rounded-lg p-4">
-                <h3 className="font-semibold mb-2">Highest Scoring Week</h3>
-                <div className="text-2xl font-bold">{allTimeStats.highestScore.toFixed(2)} pts</div>
-              </div>
-              <div className="border rounded-lg p-4">
-                <h3 className="font-semibold mb-2">Lowest Scoring Week</h3>
-                <div className="text-2xl font-bold">{allTimeStats.lowestScore.toFixed(2)} pts</div>
-              </div>
-            </div>
-          </Tab.Panel>
-          {/* News Panel */}
-          <Tab.Panel className="rounded-xl bg-white p-3 shadow-md">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-xl font-bold">Roster News</h2>
-              <div className="flex items-center gap-3">
-                {news && news.length > 0 ? (
-                  <span className="text-sm text-gray-600">{news.length} articles</span>
-                ) : null}
-                <button
-                  type="button"
-                  onClick={() => setNewsWindowHours((h) => (h === 336 ? 720 : 336))}
-                  className="text-sm text-blue-600 hover:text-blue-700 hover:underline"
-                >
-                  {newsWindowHours === 336 ? 'Show older (30d)' : 'Show recent (14d)'}
-                </button>
-              </div>
-            </div>
-            {newsLoading && (
-              <div className="py-6"><LoadingState message="Loading news..." /></div>
-            )}
-            {newsError && (
-              <div className="py-6"><ErrorState message={newsError} /></div>
-            )}
-            {!newsLoading && !newsError && (
-              <div>
-                {newsGrouped && newsGrouped.length > 0 ? (
-                  <div className="space-y-8">
-                    {newsGrouped.map((group) => {
-                      const p = players[group.playerId];
-                      const meta = p ? `${p.position || ''}${p.team ? ` • ${p.team}` : ''}` : '';
-                      return (
-                        <section key={group.playerId}>
-                          <div className="flex items-baseline justify-between mb-2">
-                            <h3 className="text-lg font-semibold">
-                              {group.playerName}
-                              {meta ? <span className="ml-2 text-sm text-gray-500">{meta}</span> : null}
-                            </h3>
-                            <span className="text-xs text-gray-500">{group.items.length} article{group.items.length !== 1 ? 's' : ''}</span>
-                          </div>
-                          <div className="space-y-4">
-                            {group.items.map((it, idx) => (
-                              <article
-                                key={`${group.playerId}-${it.link}-${idx}`}
-                                className="border rounded-lg p-4 cursor-pointer hover:bg-gray-50 transition"
-                                role="link"
-                                tabIndex={0}
-                                onClick={(e) => {
-                                  const target = e.target as HTMLElement;
-                                  if (target && target.closest('a')) return; // don't double-open when clicking existing links
-                                  if (it.link) window.open(it.link, '_blank', 'noopener,noreferrer');
-                                }}
-                                onKeyDown={(e) => {
-                                  if ((e.key === 'Enter' || e.key === ' ') && it.link) {
-                                    e.preventDefault();
-                                    window.open(it.link, '_blank', 'noopener,noreferrer');
-                                  }
-                                }}
-                              >
-                                <div className="flex items-center justify-between mb-1">
-                                  <div className="text-sm text-gray-600">{it.sourceName}</div>
-                                  <div className="text-xs text-gray-500">{it.publishedAt ? new Date(it.publishedAt).toLocaleString() : ''}</div>
-                                </div>
-                                <h4 className="font-semibold hover:underline">{it.title}</h4>
-                                <p className="text-sm text-gray-700 mt-1 whitespace-pre-line">{it.description}</p>
-                                <div className="mt-2">
-                                  <a
-                                    href={it.link}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="inline-flex items-center text-sm text-blue-600 hover:underline"
-                                  >
-                                    Read at source ↗
-                                  </a>
-                                </div>
-                              </article>
-                            ))}
-                          </div>
-                        </section>
-                      );
-                    })}
-                  </div>
-                ) : (
-                  <p className="text-gray-500">No recent news found for this roster.</p>
-                )}
-              </div>
-            )}
           </Tab.Panel>
         </Tab.Panels>
       </Tab.Group>
