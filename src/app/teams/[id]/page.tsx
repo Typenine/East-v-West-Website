@@ -254,6 +254,37 @@ export default function TeamPage() {
     load();
   }, [team]);
   
+  // Group news by matched player for better readability
+  const newsGrouped = useMemo(() => {
+    if (!news || news.length === 0) return [] as Array<{ playerId: string; playerName: string; items: RosterNewsItem[] }>;
+    const map: Record<string, { playerId: string; playerName: string; items: RosterNewsItem[] }> = {};
+    for (const it of news) {
+      if (!it.matches) continue;
+      for (const m of it.matches) {
+        // Ensure the match is for a player on this roster
+        if (team?.players && !team.players.includes(m.playerId)) continue;
+        const p = players[m.playerId];
+        const playerName = p ? `${p.first_name} ${p.last_name}` : m.name;
+        if (!map[m.playerId]) {
+          map[m.playerId] = { playerId: m.playerId, playerName, items: [] };
+        }
+        map[m.playerId].items.push(it);
+      }
+    }
+    const groups = Object.values(map);
+    // Sort groups by number of items desc, then name asc
+    groups.sort((a, b) => (b.items.length - a.items.length) || a.playerName.localeCompare(b.playerName));
+    // Sort items in each group by published date desc
+    for (const g of groups) {
+      g.items.sort((a, b) => {
+        const ta = a.publishedAt ? new Date(a.publishedAt).getTime() : 0;
+        const tb = b.publishedAt ? new Date(b.publishedAt).getTime() : 0;
+        return tb - ta;
+      });
+    }
+    return groups;
+  }, [news, players, team?.players]);
+  
   const handleYearChange = (year: string) => {
     setSelectedYear(year);
     // Update URL without refreshing the page
@@ -676,29 +707,37 @@ export default function TeamPage() {
             )}
             {!newsLoading && !newsError && (
               <div>
-                {news && news.length > 0 ? (
-                  <div className="space-y-4">
-                    {news.map((it, idx) => (
-                      <article key={`${it.link}-${idx}`} className="border rounded-lg p-4">
-                        <div className="flex items-center justify-between mb-1">
-                          <div className="text-sm text-gray-600">{it.sourceName}</div>
-                          <div className="text-xs text-gray-500">{it.publishedAt ? new Date(it.publishedAt).toLocaleString() : ''}</div>
-                        </div>
-                        <a href={it.link} target="_blank" rel="noopener noreferrer" className="block">
-                          <h3 className="font-semibold text-lg hover:underline">{it.title}</h3>
-                        </a>
-                        <p className="text-sm text-gray-700 mt-1">{it.description}</p>
-                        {it.matches && it.matches.length > 0 && (
-                          <div className="mt-2 flex flex-wrap gap-2">
-                            {it.matches.map((m) => (
-                              <span key={m.playerId} className="text-xs bg-gray-100 text-gray-700 px-2 py-1 rounded">
-                                {m.name}
-                              </span>
+                {newsGrouped && newsGrouped.length > 0 ? (
+                  <div className="space-y-8">
+                    {newsGrouped.map((group) => {
+                      const p = players[group.playerId];
+                      const meta = p ? `${p.position || ''}${p.team ? ` • ${p.team}` : ''}` : '';
+                      return (
+                        <section key={group.playerId}>
+                          <div className="flex items-baseline justify-between mb-2">
+                            <h3 className="text-lg font-semibold">
+                              {group.playerName}
+                              {meta ? <span className="ml-2 text-sm text-gray-500">{meta}</span> : null}
+                            </h3>
+                            <span className="text-xs text-gray-500">{group.items.length} article{group.items.length !== 1 ? 's' : ''}</span>
+                          </div>
+                          <div className="space-y-4">
+                            {group.items.map((it, idx) => (
+                              <article key={`${group.playerId}-${it.link}-${idx}`} className="border rounded-lg p-4">
+                                <div className="flex items-center justify-between mb-1">
+                                  <div className="text-sm text-gray-600">{it.sourceName}</div>
+                                  <div className="text-xs text-gray-500">{it.publishedAt ? new Date(it.publishedAt).toLocaleString() : ''}</div>
+                                </div>
+                                <a href={it.link} target="_blank" rel="noopener noreferrer" className="block">
+                                  <h4 className="font-semibold hover:underline">{it.title}</h4>
+                                </a>
+                                <p className="text-sm text-gray-700 mt-1">{it.description}</p>
+                              </article>
                             ))}
                           </div>
-                        )}
-                      </article>
-                    ))}
+                        </section>
+                      );
+                    })}
                   </div>
                 ) : (
                   <p className="text-gray-500">No recent news found for this roster.</p>
