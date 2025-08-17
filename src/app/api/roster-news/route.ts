@@ -22,6 +22,27 @@ function normalizeText(s: string): string {
     .replace(/\s+/g, ' ');
 }
 
+// Filter out generic broadcast/TV/stream guides
+function isWatchOrTVGuide(title: string, description: string): boolean {
+  const hay = `${normalizeText(title)} ${normalizeText(description)}`;
+  const phrases = [
+    'how to watch',
+    'what channel',
+    'tv channel',
+    'watch live',
+    'live stream',
+    'streaming info',
+    'stream info',
+    'tv info',
+    'time tv streaming',
+    'broadcast info',
+    'radio broadcast',
+    'start time and tv',
+    'where to watch',
+  ];
+  return phrases.some((p) => hay.includes(p));
+}
+
 function containsPhrase(hayNorm: string, phraseNorm: string): boolean {
   if (!hayNorm || !phraseNorm) return false;
   const re = new RegExp(`(^|\\s)${escapeRegExp(phraseNorm)}(\\s|$)`);
@@ -194,6 +215,10 @@ export async function GET(req: NextRequest) {
     const now = Date.now();
     for (const it of allItems) {
       const title = it.title || '';
+      if (isWatchOrTVGuide(title, it.description)) {
+        // Skip generic how-to-watch/TV/streaming guide posts
+        continue;
+      }
       const hay = `${title} ${it.description}`;
       const hayNorm = normalizeText(hay);
       const matches: RosterNewsMatch[] = [];
@@ -208,9 +233,11 @@ export async function GET(req: NextRequest) {
           if (m.fullRe.test(hay)) {
             matchedType = 'full';
           } else if (m.aliasNorms.some((al) => containsPhrase(hayNorm, al))) {
-            matchedType = 'alias';
+            // For alias matches, also require last name in the TITLE to prevent broad team-only posts
+            if (m.lastTokenRe?.test(title)) matchedType = 'alias';
           } else if (m.initialLastNorm && containsPhrase(hayNorm, m.initialLastNorm)) {
-            matchedType = 'initial';
+            // For initial+last, require last name in the TITLE
+            if (m.lastTokenRe?.test(title)) matchedType = 'initial';
           }
         }
         if (matchedType) {

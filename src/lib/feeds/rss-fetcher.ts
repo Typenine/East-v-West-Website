@@ -13,19 +13,50 @@ export type RssItem = {
 const sourceCache: Record<string, { ts: number; items: RssItem[] }> = {};
 
 function decodeHtml(input: string): string {
-  return input
+  let s = input
     // Avoid ES2018 dotAll flag; use [\s\S]*? to match newlines
     .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1')
+    // common named entities
     .replace(/&amp;/g, '&')
     .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
     .replace(/&#39;/g, "'")
     .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>');
+    .replace(/&gt;/g, '>')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&hellip;/g, '…')
+    .replace(/&ndash;/g, '–')
+    .replace(/&mdash;/g, '—')
+    .replace(/&lsquo;/g, '‘')
+    .replace(/&rsquo;/g, '’')
+    .replace(/&ldquo;/g, '“')
+    .replace(/&rdquo;/g, '”');
+  // numeric entities (decimal and hex)
+  s = s.replace(/&#(x?[0-9a-fA-F]+);/g, (_m, code) => {
+    try {
+      const val = String(code).toLowerCase().startsWith('x')
+        ? parseInt(code.slice(1), 16)
+        : parseInt(code, 10);
+      if (!isFinite(val) || val <= 0) return '';
+      return String.fromCodePoint(val);
+    } catch {
+      return '';
+    }
+  });
+  return s;
 }
 
 function stripHtml(input: string): string {
+  // Remove noisy blocks entirely
+  const withoutBlocks = input
+    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+    .replace(/<noscript[^>]*>[\s\S]*?<\/noscript>/gi, '')
+    .replace(/<iframe[^>]*>[\s\S]*?<\/iframe>/gi, '')
+    .replace(/<figure[^>]*>[\s\S]*?<\/figure>/gi, '');
+
   // Convert common block/line-break tags to newlines before stripping
-  const withBreaks = input
+  const withBreaks = withoutBlocks
     .replace(/<\s*br\s*\/?>/gi, '\n')
     .replace(/<\s*\/p\s*>/gi, '\n\n')
     .replace(/<\s*p\b[^>]*>/gi, '')
@@ -55,11 +86,23 @@ function parseRss(xml: string, source: RssSource): RssItem[] {
     const contentEncoded = extractTag(block, 'content:encoded');
     const descTag = extractTag(block, 'description') || extractTag(block, 'summary');
     const descRaw = contentEncoded || descTag || '';
-    const descriptionText = stripHtml(descRaw)
+    const descriptionTextRaw = stripHtml(descRaw)
       .replace(/\r/g, '')
       .replace(/\n{3,}/g, '\n\n')
       .replace(/\s+\n/g, '\n')
       .replace(/\n\s+/g, '\n')
+      .trim();
+    // Remove noisy disclaimer/json lines
+    const descriptionText = descriptionTextRaw
+      .split('\n')
+      .filter((line) => {
+        const l = line.trim();
+        if (!l) return false;
+        if (/unknownError|georestricted|This content is not yet available|expiredError/i.test(l)) return false;
+        if (/^\{[\s\S]*\}$/.test(l)) return false; // drop pure JSON blocks
+        return true;
+      })
+      .join('\n')
       .trim();
     const description = descriptionText.length > 1200 ? descriptionText.slice(0, 1200).trimEnd() + '…' : descriptionText;
 
