@@ -38,26 +38,21 @@ const groupOrderIndex = (group: string): number => {
   return idx === -1 ? 99 : idx;
 };
 
-// Team Feed types (from /api/team-feed)
-type TeamFeedPlayer = {
-  playerId: string;
-  firstName: string;
-  lastName: string;
-  position: string;
-  ppr: number;
+// Roster News types (from /api/roster-news)
+type RosterNewsMatch = { playerId: string; name: string };
+type RosterNewsItem = {
+  sourceName: string;
+  title: string;
+  link: string;
+  description: string;
+  publishedAt: string | null;
+  matches: RosterNewsMatch[];
 };
-type TeamFeedItem = {
-  team: string; // NFL team code
-  totalPPR: number;
-  playerCount: number;
-  topPlayers: TeamFeedPlayer[];
-};
-type TeamFeedResponse = {
-  season: string;
-  week: number;
+type RosterNewsResponse = {
   generatedAt: string;
-  source: string;
-  teams: TeamFeedItem[];
+  count: number;
+  sinceHours: number;
+  items: RosterNewsItem[];
 };
 
 function classNames(...classes: string[]) {
@@ -97,10 +92,10 @@ export default function TeamPage() {
     highestScore: 0,
     lowestScore: 999
   });
-  // Team Feed state
-  const [teamFeed, setTeamFeed] = useState<TeamFeedResponse | null>(null);
-  const [teamFeedLoading, setTeamFeedLoading] = useState(false);
-  const [teamFeedError, setTeamFeedError] = useState<string | null>(null);
+  // News state
+  const [news, setNews] = useState<RosterNewsItem[]>([]);
+  const [newsLoading, setNewsLoading] = useState(false);
+  const [newsError, setNewsError] = useState<string | null>(null);
   
   // Sorting state for roster table
   type SortKey = 'name' | 'position' | 'team' | 'gp' | 'totalPPR' | 'ppg';
@@ -237,33 +232,27 @@ export default function TeamPage() {
     fetchTeamData();
   }, [rosterId, selectedYear]);
 
-  // Fetch Team Feed from API and filter to NFL teams represented on the roster
+  // Fetch roster-based news via /api/roster-news
   useEffect(() => {
-    const loadTeamFeed = async () => {
-      if (!team || !team.players || Object.keys(players).length === 0) return;
+    const load = async () => {
+      if (!team || !team.players || team.players.length === 0) return;
       try {
-        setTeamFeedLoading(true);
-        setTeamFeedError(null);
-        const res = await fetch(`/api/team-feed?season=${encodeURIComponent(selectedYear)}` , { cache: 'no-store' });
-        if (!res.ok) throw new Error(`Failed to fetch team feed: ${res.status}`);
-        const data: TeamFeedResponse = await res.json();
-        // NFL teams present on this roster
-        const rosterTeams = new Set(
-          (team.players || [])
-            .map((pid) => (players[pid]?.team || '').toUpperCase())
-            .filter((t) => t)
-        );
-        const filtered = data.teams.filter((t) => rosterTeams.has(t.team));
-        setTeamFeed({ ...data, teams: filtered });
+        setNewsLoading(true);
+        setNewsError(null);
+        const playerIds = encodeURIComponent(team.players.join(','));
+        const res = await fetch(`/api/roster-news?playerIds=${playerIds}&limit=50&sinceHours=168`, { cache: 'no-store' });
+        if (!res.ok) throw new Error(`Failed to fetch roster news: ${res.status}`);
+        const data: RosterNewsResponse = await res.json();
+        setNews(data.items || []);
       } catch (e) {
         console.error(e);
-        setTeamFeedError('Failed to load team feed');
+        setNewsError('Failed to load news');
       } finally {
-        setTeamFeedLoading(false);
+        setNewsLoading(false);
       }
     };
-    loadTeamFeed();
-  }, [team, players, selectedYear]);
+    load();
+  }, [team]);
   
   const handleYearChange = (year: string) => {
     setSelectedYear(year);
@@ -457,7 +446,7 @@ export default function TeamPage() {
               )
             }
           >
-            Team Feed
+            News
           </Tab>
         </Tab.List>
         <Tab.Panels>
@@ -671,49 +660,48 @@ export default function TeamPage() {
               </div>
             </div>
           </Tab.Panel>
-          {/* Team Feed Panel */}
+          {/* News Panel */}
           <Tab.Panel className="rounded-xl bg-white p-3 shadow-md">
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-xl font-bold">NFL Team Feed</h2>
-              {teamFeed?.week ? (
-                <span className="text-sm text-gray-600">Week {teamFeed.week}</span>
+              <h2 className="text-xl font-bold">Roster News</h2>
+              {news && news.length > 0 ? (
+                <span className="text-sm text-gray-600">{news.length} articles</span>
               ) : null}
             </div>
-            {teamFeedLoading && (
-              <div className="py-6"><LoadingState message="Loading team feed..." /></div>
+            {newsLoading && (
+              <div className="py-6"><LoadingState message="Loading news..." /></div>
             )}
-            {teamFeedError && (
-              <div className="py-6"><ErrorState message={teamFeedError} /></div>
+            {newsError && (
+              <div className="py-6"><ErrorState message={newsError} /></div>
             )}
-            {!teamFeedLoading && !teamFeedError && (
+            {!newsLoading && !newsError && (
               <div>
-                {teamFeed && teamFeed.teams.length > 0 ? (
+                {news && news.length > 0 ? (
                   <div className="space-y-4">
-                    {teamFeed.teams.map((t) => (
-                      <div key={t.team} className="border rounded-lg p-4">
-                        <div className="flex items-center justify-between">
-                          <div className="text-lg font-semibold">{t.team}</div>
-                          <div className="text-sm text-gray-600">Total PPR: <span className="font-bold">{t.totalPPR.toFixed(2)}</span></div>
+                    {news.map((it, idx) => (
+                      <article key={`${it.link}-${idx}`} className="border rounded-lg p-4">
+                        <div className="flex items-center justify-between mb-1">
+                          <div className="text-sm text-gray-600">{it.sourceName}</div>
+                          <div className="text-xs text-gray-500">{it.publishedAt ? new Date(it.publishedAt).toLocaleString() : ''}</div>
                         </div>
-                        <div className="text-sm text-gray-500 mb-2">Contributors: {t.playerCount}</div>
-                        {t.topPlayers && t.topPlayers.length > 0 && (
-                          <ul className="divide-y">
-                            {t.topPlayers.map((p) => (
-                              <li key={p.playerId} className="py-2 flex items-center justify-between">
-                                <div>
-                                  <span className="font-medium">{p.firstName} {p.lastName}</span>
-                                  <span className="ml-2 text-gray-500">{p.position}</span>
-                                </div>
-                                <div className="font-semibold">{p.ppr.toFixed(2)} PPR</div>
-                              </li>
+                        <a href={it.link} target="_blank" rel="noopener noreferrer" className="block">
+                          <h3 className="font-semibold text-lg hover:underline">{it.title}</h3>
+                        </a>
+                        <p className="text-sm text-gray-700 mt-1">{it.description}</p>
+                        {it.matches && it.matches.length > 0 && (
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            {it.matches.map((m) => (
+                              <span key={m.playerId} className="text-xs bg-gray-100 text-gray-700 px-2 py-1 rounded">
+                                {m.name}
+                              </span>
                             ))}
-                          </ul>
+                          </div>
                         )}
-                      </div>
+                      </article>
                     ))}
                   </div>
                 ) : (
-                  <p className="text-gray-500">No matching NFL team activity for this roster.</p>
+                  <p className="text-gray-500">No recent news found for this roster.</p>
                 )}
               </div>
             )}
