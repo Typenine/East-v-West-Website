@@ -275,7 +275,7 @@ export default function TradeTreeCanvas({ graph, height = 640, onNodeClick }: Tr
             rfNodes.push({
               id: n.id,
               type: 'asset',
-              parentNode: bandId,
+              parentId: bandId,
               extent: 'parent',
               position: { x, y },
               data: { label: labelFor(n), node: n, chip, onHover: (nid: string, on: boolean) => setHoverId(on ? nid : null), style: nodeStyleFor(n.type, owner) },
