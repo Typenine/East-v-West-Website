@@ -26,6 +26,61 @@ export interface SleeperLeague {
 }
 
 /**
+ * Fetch NFL weekly stats from Sleeper and cache them briefly.
+ * Example endpoint (pattern inferred from season stats):
+ *   https://api.sleeper.app/v1/stats/nfl/regular/{season}/{week}
+ */
+export async function getNFLWeekStats(
+  season: string | number,
+  week: number,
+  ttlMs: number = 15 * 60 * 1000
+): Promise<Record<string, SleeperNFLSeasonPlayerStats>> {
+  const key = `${season}-${week}`;
+  const now = Date.now();
+  const cached = weekStatsCache[key];
+  if (cached && now - cached.ts < ttlMs) return cached.data;
+
+  const url = `${SLEEPER_API_BASE}/stats/nfl/regular/${season}/${week}`;
+  const resp = await fetch(url);
+  if (!resp.ok) {
+    throw new Error(`Failed to fetch NFL week stats ${season} wk${week}: ${resp.status} ${resp.statusText}`);
+  }
+  const json = (await resp.json()) as Record<string, SleeperNFLSeasonPlayerStats>;
+  weekStatsCache[key] = { ts: now, data: json };
+  return json;
+}
+
+/**
+ * Sleeper NFL state object (subset used)
+ */
+export interface SleeperNFLState {
+  week?: number;
+  season?: string;
+  season_type?: string;
+  display_week?: number;
+  league_season?: string;
+  previous_season?: string;
+  season_start_date?: string; // ISO date string
+  season_has_scores?: boolean;
+}
+
+let nflStateCache: { ts: number; data: SleeperNFLState } | null = null;
+const NFL_STATE_TTL_DEFAULT = 10 * 60 * 1000; // 10 minutes
+
+/**
+ * Fetch current NFL state from Sleeper (cached).
+ */
+export async function getNFLState(ttlMs: number = NFL_STATE_TTL_DEFAULT): Promise<SleeperNFLState> {
+  const now = Date.now();
+  if (nflStateCache && now - nflStateCache.ts < ttlMs) return nflStateCache.data;
+  const resp = await fetch(`${SLEEPER_API_BASE}/state/nfl`);
+  if (!resp.ok) throw new Error(`Failed to fetch NFL state: ${resp.status} ${resp.statusText}`);
+  const data = (await resp.json()) as SleeperNFLState;
+  nflStateCache = { ts: now, data };
+  return data;
+}
+
+/**
  * Get all unique owner IDs that have participated across configured seasons
  */
 export async function getAllOwnerIdsAcrossSeasons(): Promise<string[]> {
@@ -679,6 +734,23 @@ export async function getAllPlayers(): Promise<Record<string, SleeperPlayer>> {
   return response.json();
 }
 
+// Lightweight in-memory cache for all players to avoid repeated large downloads
+let allPlayersCache: { ts: number; data: Record<string, SleeperPlayer> } | null = null;
+const ALL_PLAYERS_TTL_DEFAULT = 12 * 60 * 60 * 1000; // 12 hours
+
+/**
+ * Cached wrapper for getAllPlayers with a TTL to reduce repeated network calls.
+ */
+export async function getAllPlayersCached(ttlMs: number = ALL_PLAYERS_TTL_DEFAULT): Promise<Record<string, SleeperPlayer>> {
+  const now = Date.now();
+  if (allPlayersCache && now - allPlayersCache.ts < ttlMs) {
+    return allPlayersCache.data;
+  }
+  const data = await getAllPlayers();
+  allPlayersCache = { ts: now, data };
+  return data;
+}
+
 /**
  * Get teams data with canon team names for a specific league
  * @param leagueId The Sleeper league ID
@@ -1130,6 +1202,9 @@ export interface SleeperNFLSeasonPlayerStats {
 
 // Simple in-memory cache for season stats within a single runtime
 const seasonStatsCache: Record<string, { ts: number; data: Record<string, SleeperNFLSeasonPlayerStats> }> = {};
+
+// In-memory cache for weekly stats
+const weekStatsCache: Record<string, { ts: number; data: Record<string, SleeperNFLSeasonPlayerStats> }> = {};
 
 /**
  * Fetch NFL season stats from Sleeper and cache them briefly to avoid repeated large downloads.
