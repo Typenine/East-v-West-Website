@@ -697,8 +697,8 @@ export default function TradeTreeCanvas({ graph, height = 640, onNodeClick }: Tr
                   const el = wrapperRef.current as HTMLElement;
                   if (!el) return;
                   const mod = await import('html-to-image');
-                  const { jsPDF } = (await import('jspdf')) as unknown as { jsPDF: any };
-                  const svg2pdf = (await import('svg2pdf.js')).default as any;
+                  const { jsPDF } = await import('jspdf');
+                  const svg2pdf = (await import('svg2pdf.js')).default;
 
                   // First try vector path: html-to-image -> SVG -> svg2pdf
                   let usedVector = false;
