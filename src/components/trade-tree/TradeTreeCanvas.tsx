@@ -2,7 +2,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import type { TradeGraph, GraphNode as EVWGraphNode, GraphEdge as EVWGraphEdge } from "@/lib/utils/trade-graph";
+import type { TradeGraph, GraphNode as EVWGraphNode } from "@/lib/utils/trade-graph";
 import {
   ReactFlow,
   Background,
@@ -19,39 +19,19 @@ import {
 } from "@xyflow/react";
 import { getTeamColors } from "@/lib/utils/team-utils";
 
-// Layout constants and basic styles
-const NODE_W = 240;
-const LANE_W = 520; // content width per lane
-const LANE_GUTTER = 48; // space between lanes
-const ROW_SPACING = 72; // vertical spacing between rows/sections
+// Layout constants and basic styles (wider lanes for 3-column asset grid)
+const NODE_W = 220;
+const LANE_W = 840; // content width per lane
+const LANE_GUTTER = 64; // space between lanes
+const ROW_SPACING = 96; // vertical spacing between rows/sections
 const ASSET_H = 56; // visual height of asset node content
-const BAND_HEADER_H = 36;
+const BAND_HEADER_H = 40;
 const BAND_PAD_X = 12;
-const BAND_PAD_Y = 10;
-const GUTTER_X = 24; // ensure >= 24px gutters
+const BAND_PAD_Y = 12;
+const GUTTER_X = 28; // >= 24px gutters
+const BRACKET_RED = '#C81E1E';
 
-function buildTradeColorMap(edges: EVWGraphEdge[]): Map<string, string> {
-  const ids = Array.from(new Set(edges.filter(e => e.kind === "traded" && e.tradeId).map(e => e.tradeId as string)));
-  const map = new Map<string, string>();
-  const hash = (s: string) => {
-    let h = 0;
-    for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
-    return Math.abs(h);
-  };
-  const hslToHex = (h: number, s: number, l: number) => {
-    s /= 100; l /= 100;
-    const k = (n: number) => (n + h / 30) % 12;
-    const a = s * Math.min(l, 1 - l);
-    const f = (n: number) => l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
-    const toHex = (x: number) => Math.round(255 * x).toString(16).padStart(2, "0");
-    return `#${toHex(f(0))}${toHex(f(8))}${toHex(f(4))}`;
-  };
-  ids.forEach((id, idx) => {
-    const hue = (hash(id) + idx * 47) % 360; // spread hues deterministically
-    map.set(id, hslToHex(hue, 70, 45));
-  });
-  return map;
-}
+// Note: per-trade color mapping removed in favor of a unified bracket color for clarity
 
 function labelFor(n: EVWGraphNode): string {
   if (n.type === "trade") {
@@ -67,12 +47,12 @@ function nodeStyleFor(kind: EVWGraphNode["type"], teamName?: string): React.CSSP
   const colors = teamName ? getTeamColors(teamName) : undefined;
   switch (kind) {
     case "player":
-      return { background: colors?.primary ?? "#DBEAFE", border: "1px solid rgba(255,255,255,0.2)", borderRadius: 10, boxShadow: "0 1px 2px rgba(0,0,0,0.1)" };
+      return { background: colors?.primary ?? "#DBEAFE", border: "1px solid rgba(255,255,255,0.2)", borderRadius: 10, boxShadow: "0 1px 2px rgba(0,0,0,0.1)", width: NODE_W };
     case "pick":
-      return { background: colors?.secondary ?? "#DCFCE7", border: "1px solid rgba(255,255,255,0.2)", borderRadius: 10, boxShadow: "0 1px 2px rgba(0,0,0,0.1)" };
+      return { background: colors?.secondary ?? "#DCFCE7", border: "1px solid rgba(255,255,255,0.2)", borderRadius: 10, boxShadow: "0 1px 2px rgba(0,0,0,0.1)", width: NODE_W };
     case "trade":
     default:
-      return { background: "#F3F4F6", border: "1px solid #E5E7EB", borderRadius: 10 };
+      return { background: "#F3F4F6", border: "1px solid #E5E7EB", borderRadius: 10, width: NODE_W };
   }
 }
 
@@ -124,11 +104,12 @@ function BandNode({ data, id }: any) {
   const title = data.title as string;
   const collapsed = data.collapsed === true;
   const isDim = data.dim === true;
+  const bus = data.bus as undefined | { rows: Array<{ busY: number; assetTopY: number; xs: number[] }>; color: string };
   return (
-    <div className={`rounded-md border bg-gray-50 ${isDim ? 'opacity-30' : 'opacity-100'}`}>
+    <div className={`rounded-md border bg-white ${isDim ? 'opacity-30' : 'opacity-100'}`} style={{ position: 'relative', width: '100%', height: '100%' }}>
       <div className="flex items-center justify-between px-3" style={{ height: BAND_HEADER_H }}>
         <button
-          className="text-gray-700 hover:text-black text-xs font-medium flex items-center gap-2"
+          className="text-red-700 hover:text-red-800 text-xs font-bold uppercase tracking-wide flex items-center gap-2"
           onClick={() => data.onToggle?.(id)}
           title={collapsed ? 'Expand' : 'Collapse'}
         >
@@ -136,7 +117,25 @@ function BandNode({ data, id }: any) {
           <span className="truncate">{title}</span>
         </button>
       </div>
-      {/* children rendered by React Flow as separate nodes with parentNode=this */}
+      {/* Overlay bus lines to visually group assets like a bracket */}
+      {!collapsed && bus?.rows?.length ? (
+        <svg className="absolute inset-0 pointer-events-none" width="100%" height="100%" viewBox={`0 0 ${LANE_W} ${Math.max(BAND_HEADER_H + 1, ...bus.rows.map(r => r.assetTopY + ASSET_H))}`}>
+          {bus.rows.map((r, idx) => {
+            if (!r.xs?.length) return null;
+            const minX = Math.min(...r.xs);
+            const maxX = Math.max(...r.xs);
+            return (
+              <g key={idx} stroke={BRACKET_RED} strokeWidth={4} strokeLinecap="square">
+                <line x1={minX - 14} y1={r.busY} x2={maxX + 14} y2={r.busY} />
+                {r.xs.map((x, j) => (
+                  <line key={j} x1={x} y1={r.busY} x2={x} y2={r.assetTopY} />
+                ))}
+              </g>
+            );
+          })}
+        </svg>
+      ) : null}
+      {/* children rendered by React Flow as separate nodes with parentId=this */}
     </div>
   );
 }
@@ -232,12 +231,12 @@ export default function TradeTreeCanvas({ graph, height = 640, onNodeClick }: Tr
     const rfEdges: Edge[] = [];
     const centers: Record<string, { x: number; y: number }> = {};
     const labels: Record<string, string> = {};
-    const colorMap = buildTradeColorMap(graph.edges);
+    // const colorMap = buildTradeColorMap(graph.edges); // not used when using a unified bracket color
 
     const laneLeftId = "lane:left";
     const laneRightId = "lane:right";
-    rfNodes.push({ id: laneLeftId, position: { x: 0, y: 0 }, data: { label: `ACQUIRED BY ${rootTeams[0].toUpperCase()}` }, style: { width: LANE_W, height: 48, background: "#111827", color: "#fff", borderRadius: 8, padding: 8, fontWeight: 700, letterSpacing: 0.5 }, draggable: false, selectable: false });
-    rfNodes.push({ id: laneRightId, position: { x: LANE_W + LANE_GUTTER, y: 0 }, data: { label: `ACQUIRED BY ${rootTeams[1].toUpperCase()}` }, style: { width: LANE_W, height: 48, background: "#111827", color: "#fff", borderRadius: 8, padding: 8, fontWeight: 700, letterSpacing: 0.5 }, draggable: false, selectable: false });
+    rfNodes.push({ id: laneLeftId, position: { x: 0, y: 0 }, data: { label: `ACQUIRED BY ${rootTeams[0].toUpperCase()}` }, style: { width: LANE_W, height: 48, background: "transparent", color: BRACKET_RED, borderRadius: 0, padding: 8, fontWeight: 800, letterSpacing: 0.6, fontSize: 22 }, draggable: false, selectable: false });
+    rfNodes.push({ id: laneRightId, position: { x: LANE_W + LANE_GUTTER, y: 0 }, data: { label: `ACQUIRED BY ${rootTeams[1].toUpperCase()}` }, style: { width: LANE_W, height: 48, background: "transparent", color: BRACKET_RED, borderRadius: 0, padding: 8, fontWeight: 800, letterSpacing: 0.6, fontSize: 22 }, draggable: false, selectable: false });
 
     const perRow = Math.max(1, Math.floor((LANE_W - (BAND_PAD_X * 2)) / (NODE_W + GUTTER_X)));
     const isCollapsed = (bandId: string, indexWithinLane: number) => {
@@ -257,18 +256,24 @@ export default function TradeTreeCanvas({ graph, height = 640, onNodeClick }: Tr
         const rows = collapsed ? 0 : Math.max(0, Math.ceil(assetCount / perRow));
         const bandHeight = BAND_HEADER_H + (rows > 0 ? (BAND_PAD_Y + rows * ASSET_H + (rows - 1) * 12 + BAND_PAD_Y) : 0);
         const bandY = side === 'left' ? yLeft : yRight;
+        const bandData: any = {
+          title: `TO ${b.otherTeams.toUpperCase()} FOR: ${b.date}`,
+          collapsed,
+          onToggle: (id: string) => setCollapsedBands((prev) => ({ ...prev, [id]: !prev[id] })),
+        };
         rfNodes.push({
           id: bandId,
           type: 'band',
           position: { x: laneX, y: bandY },
-          data: { title: `TO ${b.otherTeams.toUpperCase()} FOR: ${b.date}`, collapsed, onToggle: (id: string) => setCollapsedBands((prev) => ({ ...prev, [id]: !prev[id] })) },
-          style: { width: LANE_W, height: bandHeight },
+          data: bandData,
+          style: { width: LANE_W, height: bandHeight, borderColor: BRACKET_RED },
           sourcePosition: 'bottom',
           targetPosition: 'top',
           draggable: false,
           selectable: false,
         });
         labels[bandId] = `${b.date} • ${laneTeamBySide[side]} acquired from ${b.otherTeams}`;
+        const bandStrokeColor = BRACKET_RED;
 
         // Add bracket-style connectors: assets traded away by this lane in this trade → band
         // Determine out-assets for this lane in this trade by looking at prior owners in history
@@ -296,7 +301,7 @@ export default function TradeTreeCanvas({ graph, height = 640, onNodeClick }: Tr
           const jy = bandY + Math.max(8, BAND_HEADER_H * 0.4);
           rfNodes.push({ id: junctionId, type: 'junction', position: { x: jx, y: jy }, sourcePosition: 'bottom', targetPosition: 'top', draggable: false, selectable: false });
           // Edges from each outgoing asset to the junction (merge)
-          const joinColor = colorMap.get(b.tradeId) || '#B91C1C';
+          const joinColor = BRACKET_RED;
           outAssets.forEach((n) => {
             rfEdges.push({ id: `join:${n.id}:${junctionId}`, source: n.id, target: junctionId, type: 'step', style: { stroke: joinColor, strokeWidth: 4 } });
           });
@@ -307,6 +312,7 @@ export default function TradeTreeCanvas({ graph, height = 640, onNodeClick }: Tr
         // place assets as children when expanded
         if (!collapsed) {
           const assetIds: string[] = [];
+          const rowsAnchors: Array<{ busY: number; assetTopY: number; xs: number[] }> = [];
           b.assets.forEach((n, ai) => {
             const row = Math.floor(ai / perRow);
             const gridCol = ai % perRow;
@@ -326,6 +332,9 @@ export default function TradeTreeCanvas({ graph, height = 640, onNodeClick }: Tr
               draggable: false,
             });
             assetIds.push(n.id);
+            // collect anchors for bus overlay per row (longer droplines)
+            if (!rowsAnchors[row]) rowsAnchors[row] = { busY: y - 20, assetTopY: y, xs: [] };
+            rowsAnchors[row].xs.push(x + NODE_W / 2);
           });
           // Create inbound junction inside band to split to assets (bracket style)
           if (assetIds.length) {
@@ -333,13 +342,15 @@ export default function TradeTreeCanvas({ graph, height = 640, onNodeClick }: Tr
             const jxIn = LANE_W / 2; // relative to band
             const jyIn = BAND_HEADER_H + Math.max(6, BAND_PAD_Y * 0.5);
             rfNodes.push({ id: inJunctionId, type: 'junction', parentId: bandId, position: { x: jxIn, y: jyIn }, sourcePosition: 'bottom', targetPosition: 'top', draggable: false, selectable: false });
-            const strokeColor = colorMap.get(b.tradeId) || '#374151';
+            const strokeColor = bandStrokeColor;
             // band -> junction inside
-            rfEdges.push({ id: `bandedge:${bandId}:${inJunctionId}`, source: bandId, target: inJunctionId, type: 'step', style: { stroke: strokeColor, strokeWidth: 4 } });
+            rfEdges.push({ id: `bandedge:${bandId}:${inJunctionId}`, source: bandId, target: inJunctionId, type: 'step', style: { stroke: strokeColor, strokeWidth: 0.01, opacity: 0 } });
             // junction -> each asset
             assetIds.forEach((aid) => {
-              rfEdges.push({ id: `bandedge:${inJunctionId}:${aid}`, source: inJunctionId, target: aid, type: 'step', style: { stroke: strokeColor, strokeWidth: 4 } });
+              rfEdges.push({ id: `bandedge:${inJunctionId}:${aid}`, source: inJunctionId, target: aid, type: 'step', style: { stroke: strokeColor, strokeWidth: 0.01, opacity: 0 } });
             });
+            // pass bus overlay data to band node for visual grouping
+            bandData.bus = { rows: rowsAnchors.filter(Boolean), color: strokeColor };
           }
         }
 
@@ -469,12 +480,12 @@ export default function TradeTreeCanvas({ graph, height = 640, onNodeClick }: Tr
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <span className="inline-block w-3 h-3 rounded" style={{ background: '#111827' }} />
+          <span className="inline-block w-3 h-3 rounded" style={{ background: BRACKET_RED }} />
           <span>Lane header</span>
         </div>
         <div className="flex items-center gap-2">
-          <span className="inline-block border-t-2 w-6" style={{ borderColor: '#374151', borderTopStyle: 'solid' }} />
-          <span>Trade (band → asset)</span>
+          <span className="inline-block border-t-4 w-8" style={{ borderColor: BRACKET_RED, borderTopStyle: 'solid' }} />
+          <span>Bracket connectors</span>
         </div>
         <div className="flex items-center gap-2">
           <span className="inline-block border-t-2 w-6" style={{ borderColor: '#6B7280', borderTopStyle: 'dashed' }} />
