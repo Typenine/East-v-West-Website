@@ -82,6 +82,7 @@ function AssetNode({ data, id }: any) {
   const isDim = data.dim === true;
   const accent = (data.accent as string | undefined) ?? '#9CA3AF';
   const tooltip = data.tooltip as string | undefined;
+  const pulse = data.pulse === true;
 
   const [hovered, setHovered] = React.useState(false);
   const longPressTimer = React.useRef<number | null>(null);
@@ -116,6 +117,12 @@ function AssetNode({ data, id }: any) {
       className={`px-3 py-3 rounded-md text-[13px] shadow-sm border relative ${isDim ? 'opacity-30' : 'opacity-100'}`}
       style={{ ...(data.style || {}) }}
     >
+      {pulse && (
+        <>
+          <span className="absolute inset-0 rounded-md border-2 opacity-60 pointer-events-none" style={{ borderColor: BRACKET_RED }} />
+          <span className="absolute inset-0 rounded-md border-2 animate-ping opacity-40 pointer-events-none" style={{ borderColor: BRACKET_RED }} />
+        </>
+      )}
       <div className="flex items-center gap-2">
         <span className="shrink-0">{icon}</span>
         <span className="inline-block w-2 h-2 rounded-full" style={{ background: accent, boxShadow: '0 0 0 1px rgba(255,255,255,0.35)' }} />
@@ -233,6 +240,8 @@ export default function TradeTreeCanvas({ graph, height = 640, onNodeClick }: Tr
   const [hoverId, setHoverId] = useState<string | null>(null);
   const [selected, setSelected] = useState<EVWGraphNode | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [pulseId, setPulseId] = useState<string | null>(null);
+  const pulseTimerRef = useRef<number | null>(null);
   const [collapsedBands, setCollapsedBands] = useState<Record<string, boolean>>({});
   const [bandCenters, setBandCenters] = useState<Record<string, { x: number; y: number }>>({});
   const [baseNodes, setBaseNodes] = useState<Node[]>([]);
@@ -469,7 +478,7 @@ export default function TradeTreeCanvas({ graph, height = 640, onNodeClick }: Tr
                 accent,
                 ariaLabel: aria,
                 onHover: (nid: string, on: boolean) => setHoverId(on ? nid : null),
-                onActivate: () => { setSelected(n); setSelectedId(n.id); onNodeClick?.(n); },
+                onActivate: () => { setCollapsedBands((prev) => ({ ...prev, [bandId]: false })); setSelected(n); setSelectedId(n.id); onNodeClick?.(n); },
                 style: nodeStyleFor(n.type),
                 tooltip: (() => {
                   const currOwner = currentOwner.get(n.id);
@@ -553,7 +562,9 @@ export default function TradeTreeCanvas({ graph, height = 640, onNodeClick }: Tr
 
     const active = hoverId || selectedId;
     if (!active) {
-      setNodes(applyBandPulse(baseNodes));
+      // still pass pulse flag to nodes if any
+      const withPulseFlag = baseNodes.map((n) => ({ ...n, data: { ...(n.data || {}), pulse: n.id === pulseId } }));
+      setNodes(applyBandPulse(withPulseFlag));
       setEdges(baseEdges);
       return;
     }
@@ -569,7 +580,7 @@ export default function TradeTreeCanvas({ graph, height = 640, onNodeClick }: Tr
       if (!nb) continue;
       nb.forEach((x) => { if (!seen.has(x)) { seen.add(x); q.push(x); } });
     }
-    const dimmed = baseNodes.map((n) => ({ ...n, data: { ...(n.data || {}), dim: !seen.has(n.id) } }));
+    const dimmed = baseNodes.map((n) => ({ ...n, data: { ...(n.data || {}), dim: !seen.has(n.id), pulse: n.id === pulseId } }));
     const withPulse = applyBandPulse(dimmed);
     const newEdges = baseEdges.map((e) => {
       const connected = seen.has(e.source) && seen.has(e.target);
@@ -581,7 +592,21 @@ export default function TradeTreeCanvas({ graph, height = 640, onNodeClick }: Tr
     });
     setNodes(withPulse);
     setEdges(newEdges);
-  }, [hoverId, selectedId, baseNodes, baseEdges, highlightBands]);
+  }, [hoverId, selectedId, baseNodes, baseEdges, highlightBands, pulseId]);
+
+  // Trigger a brief pulse on the selected node to help orient the user
+  useEffect(() => {
+    if (!selectedId) return;
+    setPulseId(selectedId);
+    if (pulseTimerRef.current) window.clearTimeout(pulseTimerRef.current);
+    pulseTimerRef.current = window.setTimeout(() => setPulseId(null), 1200);
+    return () => {
+      if (pulseTimerRef.current) {
+        window.clearTimeout(pulseTimerRef.current);
+        pulseTimerRef.current = null;
+      }
+    };
+  }, [selectedId]);
 
   const onNodesChange = useCallback((changes: NodeChange[]) => setNodes((nds) => applyNodeChanges(changes, nds)), []);
   const onEdgesChange = useCallback((changes: EdgeChange[]) => setEdges((eds) => applyEdgeChanges(changes, eds)), []);
@@ -589,6 +614,12 @@ export default function TradeTreeCanvas({ graph, height = 640, onNodeClick }: Tr
   const onNodeClickInternal = useCallback((_: React.MouseEvent, node: Node) => {
     const meta = node?.data?.node as EVWGraphNode | undefined;
     if (!meta) return;
+    // Auto-expand the parent band if this asset lives in a collapsed band
+    if (node.parentId) {
+      setCollapsedBands((prev) => ({ ...prev, [node.parentId!]: false }));
+    } else if (node.type === 'band') {
+      setCollapsedBands((prev) => ({ ...prev, [node.id]: false }));
+    }
     setSelected(meta);
     setSelectedId(node.id);
     onNodeClick?.(meta);
@@ -605,6 +636,11 @@ export default function TradeTreeCanvas({ graph, height = 640, onNodeClick }: Tr
   const onNodeLongPress = useCallback((_: React.MouseEvent, node: Node) => {
     const meta = node?.data?.node as EVWGraphNode | undefined;
     if (!meta) return;
+    if (node.parentId) {
+      setCollapsedBands((prev) => ({ ...prev, [node.parentId!]: false }));
+    } else if (node.type === 'band') {
+      setCollapsedBands((prev) => ({ ...prev, [node.id]: false }));
+    }
     setSelected(meta);
     setSelectedId(node.id);
     onNodeClick?.(meta);
@@ -616,6 +652,35 @@ export default function TradeTreeCanvas({ graph, height = 640, onNodeClick }: Tr
     const bandId = node.id;
     setCollapsedBands((prev) => ({ ...prev, [bandId]: !prev[bandId] }));
   }, []);
+
+  // Center the viewport on the selected node (click, long-press, or keyboard activate)
+  const centerOnSelected = useCallback((id: string) => {
+    const n = nodes.find((nn) => nn.id === id);
+    if (!n) return;
+    let cx = n.position.x;
+    let cy = n.position.y;
+    // Use known dimensions per node type as fallbacks
+    let w = 1;
+    let h = 1;
+    if (n.type === 'asset') { w = NODE_W; h = ASSET_H; }
+    else if (n.type === 'band') { w = LANE_W; h = BAND_HEADER_H; }
+    // If node is a child of a band, offset by parent position
+    if (n.parentId) {
+      const p = nodes.find((pp) => pp.id === n.parentId);
+      if (p) { cx += p.position.x; cy += p.position.y; }
+    }
+    cx += w / 2; cy += h / 2;
+    const curZoom = rfRef.current?.getViewport?.().zoom ?? 1;
+    const targetZoom = Math.min(1.4, Math.max(0.9, curZoom < 1 ? 1.05 : curZoom));
+    rfRef.current?.setCenter?.(cx, cy, { zoom: targetZoom, duration: 450 });
+  }, [nodes]);
+
+  useEffect(() => {
+    if (selectedId) {
+      // Wait a frame so any band expansion/layout updates are reflected before centering
+      requestAnimationFrame(() => centerOnSelected(selectedId));
+    }
+  }, [selectedId, centerOnSelected]);
 
   const leftLaneNode = nodes.find((n) => n.id === 'lane:left');
   const rightLaneNode = nodes.find((n) => n.id === 'lane:right');
@@ -664,6 +729,13 @@ export default function TradeTreeCanvas({ graph, height = 640, onNodeClick }: Tr
               onClick={() => setCompact((v) => !v)}
               title="Toggle compact stacked mode"
             >{compact ? 'Expanded' : 'Compact'}</button>
+            <button
+              className="px-2 py-0.5 rounded border text-[11px] hover:bg-gray-50"
+              onClick={() => {
+                try { rfRef.current?.fitView({ padding: 0.12, duration: 400 }); } catch {}
+              }}
+              title="Reset view to fit all"
+            >Reset</button>
             <button
               className="px-2 py-0.5 rounded border text-[11px] hover:bg-gray-50"
               onClick={async () => {
