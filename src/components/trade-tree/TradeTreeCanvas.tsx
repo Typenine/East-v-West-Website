@@ -141,7 +141,12 @@ function BandNode({ data, id }: any) {
   );
 }
 
-const nodeTypes = { asset: AssetNode, band: BandNode } as const;
+function JunctionNode() {
+  // Invisible 1x1 junction used to merge/split bracket connectors
+  return <div style={{ width: 1, height: 1, pointerEvents: 'none', opacity: 0 }} />;
+}
+
+const nodeTypes = { asset: AssetNode, band: BandNode, junction: JunctionNode } as const;
 
 export default function TradeTreeCanvas({ graph, height = 640, onNodeClick }: TradeTreeCanvasProps) {
   const rfRef = useRef<ReactFlowInstance | null>(null);
@@ -231,8 +236,8 @@ export default function TradeTreeCanvas({ graph, height = 640, onNodeClick }: Tr
 
     const laneLeftId = "lane:left";
     const laneRightId = "lane:right";
-    rfNodes.push({ id: laneLeftId, position: { x: 0, y: 0 }, data: { label: `Acquired by ${rootTeams[0]}` }, style: { width: LANE_W, height: 48, background: "#111827", color: "#fff", borderRadius: 8, padding: 8, fontWeight: 600 }, draggable: false, selectable: false });
-    rfNodes.push({ id: laneRightId, position: { x: LANE_W + LANE_GUTTER, y: 0 }, data: { label: `Acquired by ${rootTeams[1]}` }, style: { width: LANE_W, height: 48, background: "#111827", color: "#fff", borderRadius: 8, padding: 8, fontWeight: 600 }, draggable: false, selectable: false });
+    rfNodes.push({ id: laneLeftId, position: { x: 0, y: 0 }, data: { label: `ACQUIRED BY ${rootTeams[0].toUpperCase()}` }, style: { width: LANE_W, height: 48, background: "#111827", color: "#fff", borderRadius: 8, padding: 8, fontWeight: 700, letterSpacing: 0.5 }, draggable: false, selectable: false });
+    rfNodes.push({ id: laneRightId, position: { x: LANE_W + LANE_GUTTER, y: 0 }, data: { label: `ACQUIRED BY ${rootTeams[1].toUpperCase()}` }, style: { width: LANE_W, height: 48, background: "#111827", color: "#fff", borderRadius: 8, padding: 8, fontWeight: 700, letterSpacing: 0.5 }, draggable: false, selectable: false });
 
     const perRow = Math.max(1, Math.floor((LANE_W - (BAND_PAD_X * 2)) / (NODE_W + GUTTER_X)));
     const isCollapsed = (bandId: string, indexWithinLane: number) => {
@@ -256,15 +261,52 @@ export default function TradeTreeCanvas({ graph, height = 640, onNodeClick }: Tr
           id: bandId,
           type: 'band',
           position: { x: laneX, y: bandY },
-          data: { title: `to ${b.otherTeams} for — ${b.date}`, collapsed, onToggle: (id: string) => setCollapsedBands((prev) => ({ ...prev, [id]: !prev[id] })) },
+          data: { title: `TO ${b.otherTeams.toUpperCase()} FOR: ${b.date}`, collapsed, onToggle: (id: string) => setCollapsedBands((prev) => ({ ...prev, [id]: !prev[id] })) },
           style: { width: LANE_W, height: bandHeight },
+          sourcePosition: 'bottom',
+          targetPosition: 'top',
           draggable: false,
           selectable: false,
         });
         labels[bandId] = `${b.date} • ${laneTeamBySide[side]} acquired from ${b.otherTeams}`;
 
+        // Add bracket-style connectors: assets traded away by this lane in this trade → band
+        // Determine out-assets for this lane in this trade by looking at prior owners in history
+        const outAssets: EVWGraphNode[] = [];
+        for (const n of graph.nodes) {
+          if (!(n.type === 'player' || n.type === 'pick')) continue;
+          const list = history.get(n.id) || [];
+          const idx = list.findIndex(h => h.tradeId === b.tradeId);
+          if (idx <= 0) continue; // either not involved or first sighting (no prior owner info)
+          const prev = list[idx - 1];
+          const prevTrade = tradeById.get(prev.tradeId);
+          const curr = list[idx];
+          const currTrade = tradeById.get(curr.tradeId);
+          if (!prevTrade || !currTrade) continue;
+          const prevOwner = prevTrade.teams?.[prev.teamIndex];
+          const currOwner = currTrade.teams?.[curr.teamIndex];
+          if (prevOwner === laneTeamBySide[side] && currOwner !== laneTeamBySide[side]) {
+            outAssets.push(n);
+          }
+        }
+        if (outAssets.length) {
+          // Create a hidden junction node slightly above the band header center
+          const junctionId = `junction:${bandId}`;
+          const jx = laneX + LANE_W / 2;
+          const jy = bandY + Math.max(8, BAND_HEADER_H * 0.4);
+          rfNodes.push({ id: junctionId, type: 'junction', position: { x: jx, y: jy }, sourcePosition: 'bottom', targetPosition: 'top', draggable: false, selectable: false });
+          // Edges from each outgoing asset to the junction (merge)
+          const joinColor = colorMap.get(b.tradeId) || '#B91C1C';
+          outAssets.forEach((n) => {
+            rfEdges.push({ id: `join:${n.id}:${junctionId}`, source: n.id, target: junctionId, type: 'step', style: { stroke: joinColor, strokeWidth: 4 } });
+          });
+          // Single edge from junction to the band header (label)
+          rfEdges.push({ id: `join:${junctionId}:${bandId}`, source: junctionId, target: bandId, type: 'step', style: { stroke: joinColor, strokeWidth: 4 } });
+        }
+
         // place assets as children when expanded
         if (!collapsed) {
+          const assetIds: string[] = [];
           b.assets.forEach((n, ai) => {
             const row = Math.floor(ai / perRow);
             const gridCol = ai % perRow;
@@ -278,13 +320,27 @@ export default function TradeTreeCanvas({ graph, height = 640, onNodeClick }: Tr
               parentId: bandId,
               extent: 'parent',
               position: { x, y },
+              sourcePosition: 'top',
+              targetPosition: 'top',
               data: { label: labelFor(n), node: n, chip, onHover: (nid: string, on: boolean) => setHoverId(on ? nid : null), style: nodeStyleFor(n.type, owner) },
               draggable: false,
             });
-            // solid trade edge from band to asset (orthogonal/step), color-coded per trade
-            const strokeColor = colorMap.get(b.tradeId) || '#374151';
-            rfEdges.push({ id: `bandedge:${bandId}:${n.id}`, source: bandId, target: n.id, type: 'step', style: { stroke: strokeColor, strokeWidth: 3 }, markerEnd: { type: MarkerType.ArrowClosed, color: strokeColor } });
+            assetIds.push(n.id);
           });
+          // Create inbound junction inside band to split to assets (bracket style)
+          if (assetIds.length) {
+            const inJunctionId = `junctionIn:${bandId}`;
+            const jxIn = LANE_W / 2; // relative to band
+            const jyIn = BAND_HEADER_H + Math.max(6, BAND_PAD_Y * 0.5);
+            rfNodes.push({ id: inJunctionId, type: 'junction', parentId: bandId, position: { x: jxIn, y: jyIn }, sourcePosition: 'bottom', targetPosition: 'top', draggable: false, selectable: false });
+            const strokeColor = colorMap.get(b.tradeId) || '#374151';
+            // band -> junction inside
+            rfEdges.push({ id: `bandedge:${bandId}:${inJunctionId}`, source: bandId, target: inJunctionId, type: 'step', style: { stroke: strokeColor, strokeWidth: 4 } });
+            // junction -> each asset
+            assetIds.forEach((aid) => {
+              rfEdges.push({ id: `bandedge:${inJunctionId}:${aid}`, source: inJunctionId, target: aid, type: 'step', style: { stroke: strokeColor, strokeWidth: 4 } });
+            });
+          }
         }
 
         // record center for legend navigation

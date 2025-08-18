@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 declare module '@xyflow/react' {
   import * as React from 'react';
+  export type Position = 'top' | 'right' | 'bottom' | 'left';
   export type XYAny = any;
   export interface Node<T = any> {
     id: string;
@@ -10,6 +11,8 @@ declare module '@xyflow/react' {
     type?: string;
     draggable?: boolean;
     selectable?: boolean;
+    sourcePosition?: Position;
+    targetPosition?: Position;
     parentNode?: string; // legacy
     parentId?: string;   // current
     extent?: 'parent' | 'default';
