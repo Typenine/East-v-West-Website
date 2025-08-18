@@ -81,21 +81,39 @@ function AssetNode({ data, id }: any) {
   const chip = data.chip as string | undefined;
   const isDim = data.dim === true;
   const accent = (data.accent as string | undefined) ?? '#9CA3AF';
+  const tooltip = data.tooltip as string | undefined;
+
+  const [hovered, setHovered] = React.useState(false);
+  const longPressTimer = React.useRef<number | null>(null);
+
+  const startLongPress = () => {
+    if (longPressTimer.current) window.clearTimeout(longPressTimer.current);
+    longPressTimer.current = window.setTimeout(() => {
+      data.onActivate?.(id);
+    }, 450);
+  };
+  const cancelLongPress = () => {
+    if (longPressTimer.current) window.clearTimeout(longPressTimer.current);
+    longPressTimer.current = null;
+  };
 
   return (
     <div
-      onMouseEnter={() => data.onHover?.(id, true)}
-      onMouseLeave={() => data.onHover?.(id, false)}
+      onMouseEnter={() => { setHovered(true); data.onHover?.(id, true); }}
+      onMouseLeave={() => { setHovered(false); data.onHover?.(id, false); }}
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault();
           data.onActivate?.(id);
         }
       }}
+      onTouchStart={startLongPress}
+      onTouchEnd={cancelLongPress}
+      onTouchCancel={cancelLongPress}
       tabIndex={0}
       role="button"
       aria-label={data.ariaLabel as string | undefined}
-      className={`px-3 py-2 rounded-md text-sm shadow-sm border relative ${isDim ? 'opacity-30' : 'opacity-100'}`}
+      className={`px-3 py-3 rounded-md text-[13px] shadow-sm border relative ${isDim ? 'opacity-30' : 'opacity-100'}`}
       style={{ ...(data.style || {}) }}
     >
       <div className="flex items-center gap-2">
@@ -108,6 +126,11 @@ function AssetNode({ data, id }: any) {
           <span className="inline-block rounded px-1 py-0.5 border" style={{ background: 'rgba(255,255,255,0.06)', borderColor: 'rgba(255,255,255,0.2)' }} title={chip}>{chip}</span>
         </div>
       )}
+      {tooltip && hovered && (
+        <div className="absolute z-10 -top-2 left-1/2 -translate-x-1/2 -translate-y-full bg-black text-white text-[11px] leading-snug px-2 py-1 rounded shadow-lg pointer-events-none w-64">
+          {tooltip}
+        </div>
+      )}
     </div>
   );
 }
@@ -118,8 +141,24 @@ function BandNode({ data, id }: any) {
   const isDim = data.dim === true;
   const bus = data.bus as undefined | { rows: Array<{ busY: number; assetTopY: number; xs: number[] }>; color: string };
   const headerColor = (data.headerColor as string | undefined) ?? '#111827';
+  // Basic swipe-to-toggle (horizontal)
+  const touchStart = React.useRef<{ x: number; y: number } | null>(null);
+  const onTS = (e: React.TouchEvent) => {
+    const t = e.touches[0];
+    touchStart.current = { x: t.clientX, y: t.clientY };
+  };
+  const onTE = (e: React.TouchEvent) => {
+    if (!touchStart.current) return;
+    const t = e.changedTouches[0];
+    const dx = t.clientX - touchStart.current.x;
+    const dy = t.clientY - touchStart.current.y;
+    if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy)) {
+      data.onToggle?.(id);
+    }
+    touchStart.current = null;
+  };
   return (
-    <div className={`rounded-md border bg-white ${isDim ? 'opacity-30' : 'opacity-100'}`} style={{ position: 'relative', width: '100%', height: '100%' }}>
+    <div className={`rounded-md border bg-white ${isDim ? 'opacity-30' : 'opacity-100'}`} style={{ position: 'relative', width: '100%', height: '100%' }} onTouchStart={onTS} onTouchEnd={onTE}>
       <div className="flex flex-col items-center justify-center px-3" style={{ height: BAND_HEADER_H }}>
         <button
           className="text-sm font-extrabold uppercase tracking-wider flex items-center gap-2"
@@ -193,6 +232,7 @@ export default function TradeTreeCanvas({ graph, height = 640, onNodeClick }: Tr
   const [edges, setEdges] = useState<Edge[]>([]);
   const [hoverId, setHoverId] = useState<string | null>(null);
   const [selected, setSelected] = useState<EVWGraphNode | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [collapsedBands, setCollapsedBands] = useState<Record<string, boolean>>({});
   const [bandCenters, setBandCenters] = useState<Record<string, { x: number; y: number }>>({});
   const [baseNodes, setBaseNodes] = useState<Node[]>([]);
@@ -200,6 +240,8 @@ export default function TradeTreeCanvas({ graph, height = 640, onNodeClick }: Tr
   const [bandLabels, setBandLabels] = useState<Record<string, string>>({});
   const [highlightBands, setHighlightBands] = useState<Set<string>>(new Set());
   const highlightTimers = useRef<Record<string, number>>({});
+  const [compact, setCompact] = useState(false);
+  const [stepIndex, setStepIndex] = useState(0);
 
   // Two-lane layout computation (top-to-bottom, orthogonal edges). No data shape changes, only rendering.
   useEffect(() => {
@@ -248,37 +290,52 @@ export default function TradeTreeCanvas({ graph, height = 640, onNodeClick }: Tr
     for (const t of sortedTrades) {
       for (const side of ["left", "right"] as const) {
         const laneTeam = laneTeamBySide[side];
-        const counterTeam = side === 'left' ? laneTeamBySide['right'] : laneTeamBySide['left'];
-        const outAssets: EVWGraphNode[] = [];
-        for (const n of graph.nodes) {
-          if (!(n.type === 'player' || n.type === 'pick')) continue;
-          const list = history.get(n.id) || [];
-          const idx = list.findIndex(h => h.tradeId === t.tradeId);
-          if (idx <= 0) continue; // must have a previous owner to infer sender
-          const prev = list[idx - 1];
-          const curr = list[idx];
-          const prevTrade = tradeById.get(prev.tradeId);
-          const currTrade = tradeById.get(curr.tradeId);
-          if (!prevTrade || !currTrade) continue;
-          const prevOwner = prevTrade.teams?.[prev.teamIndex];
-          const currOwner = currTrade.teams?.[curr.teamIndex];
-          if (prevOwner === laneTeam && currOwner === counterTeam) {
-            outAssets.push(n);
-          }
-        }
-        if (outAssets.length) {
-          bandByLane[side].push({ tradeId: t.tradeId, date: t.date, otherTeams: counterTeam, assets: outAssets });
-          if (trace) {
-            // Debug: verify legs match band title
-            console.table(outAssets.map((n) => {
-              const list = history.get(n.id) || [];
-              const idx = list.findIndex(h => h.tradeId === t.tradeId);
+        const counterparties = t.teams.filter((tm) => tm !== laneTeam);
+        for (const counterTeam of counterparties) {
+          const outAssets: EVWGraphNode[] = [];
+          for (const n of graph.nodes) {
+            if (!(n.type === 'player' || n.type === 'pick')) continue;
+            const list = history.get(n.id) || [];
+            const idx = list.findIndex(h => h.tradeId === t.tradeId);
+            if (idx < 0) continue; // asset not part of this trade
+            const curr = list[idx];
+            const currTrade = tradeById.get(curr.tradeId);
+            if (!currTrade) continue;
+            const currOwner = currTrade.teams?.[curr.teamIndex];
+            let prevOwner: string | undefined;
+            if (idx > 0) {
               const prev = list[idx - 1];
-              const curr = list[idx];
-              const prevOwner = tradeById.get(prev.tradeId)?.teams?.[prev.teamIndex];
-              const currOwner = tradeById.get(curr.tradeId)?.teams?.[curr.teamIndex];
-              return { fromTeamId: prevOwner, toTeamId: currOwner, date: t.date, label: labelFor(n) };
-            }));
+              const prevTrade = tradeById.get(prev.tradeId);
+              prevOwner = prevTrade?.teams?.[prev.teamIndex];
+            } else {
+              // No prior history in dataset. If this is a 2-team trade, infer sender as the other team.
+              if (t.teams.length === 2 && currOwner) {
+                prevOwner = t.teams.find((tm) => tm !== currOwner);
+              }
+            }
+            if (prevOwner === laneTeam && currOwner === counterTeam) {
+              outAssets.push(n);
+            }
+          }
+          if (outAssets.length) {
+            bandByLane[side].push({ tradeId: t.tradeId, date: t.date, otherTeams: counterTeam, assets: outAssets });
+            if (trace) {
+              // Debug: verify legs match band title
+              console.table(outAssets.map((n) => {
+                const list = history.get(n.id) || [];
+                const idx = list.findIndex(h => h.tradeId === t.tradeId);
+                const curr = list[idx];
+                const currOwner = tradeById.get(curr.tradeId)?.teams?.[curr.teamIndex];
+                let prevOwner: string | undefined;
+                if (idx > 0) {
+                  const prev = list[idx - 1];
+                  prevOwner = tradeById.get(prev.tradeId)?.teams?.[prev.teamIndex];
+                } else if (t.teams.length === 2 && currOwner) {
+                  prevOwner = t.teams.find((tm) => tm !== currOwner);
+                }
+                return { fromTeamId: prevOwner, toTeamId: currOwner, date: t.date, label: labelFor(n) };
+              }));
+            }
           }
         }
       }
@@ -295,8 +352,6 @@ export default function TradeTreeCanvas({ graph, height = 640, onNodeClick }: Tr
 
     const laneLeftId = "lane:left";
     const laneRightId = "lane:right";
-    rfNodes.push({ id: laneLeftId, position: { x: 0, y: 0 }, data: { label: `ACQUIRED BY ${rootTeams[0].toUpperCase()}` }, style: { width: LANE_W, height: 48, background: "transparent", color: leftLaneColors.primary, borderRadius: 0, padding: 8, fontWeight: 800, letterSpacing: 0.6, fontSize: 18, display: 'flex', alignItems: 'center', justifyContent: 'center', borderBottom: `2px solid ${leftLaneColors.primary}` }, draggable: false, selectable: false });
-    rfNodes.push({ id: laneRightId, position: { x: LANE_W + LANE_GUTTER, y: 0 }, data: { label: `ACQUIRED BY ${rootTeams[1].toUpperCase()}` }, style: { width: LANE_W, height: 48, background: "transparent", color: rightLaneColors.primary, borderRadius: 0, padding: 8, fontWeight: 800, letterSpacing: 0.6, fontSize: 18, display: 'flex', alignItems: 'center', justifyContent: 'center', borderBottom: `2px solid ${rightLaneColors.primary}` }, draggable: false, selectable: false });
 
     const isCollapsed = (bandId: string, indexWithinLane: number) => {
       // default collapsed if not in state: collapsed after first 2
@@ -305,7 +360,11 @@ export default function TradeTreeCanvas({ graph, height = 640, onNodeClick }: Tr
     };
 
     for (const side of ["left", "right"] as const) {
-      const laneX = side === "left" ? 0 : (LANE_W + LANE_GUTTER);
+      if (side === 'right' && compact) {
+        // stack below left lane
+        yRight = yLeft + 60;
+      }
+      const laneX = side === "left" ? 0 : (compact ? 0 : (LANE_W + LANE_GUTTER));
       const bands = bandByLane[side];
       for (let bi = 0; bi < bands.length; bi++) {
         const b = bands[bi];
@@ -354,8 +413,10 @@ export default function TradeTreeCanvas({ graph, height = 640, onNodeClick }: Tr
           rfEdges.push({ id: `join:${junctionId}:${bandId}`, source: junctionId, target: bandId, type: 'step', style: { stroke: joinColor, strokeWidth: 4 }, markerEnd: { type: MarkerType.ArrowClosed, color: joinColor } });
 
           // Across-gutter connectors: from this band's brace junction to counterpart lane's chips for the same trade
+          const laneTeamName = laneTeamBySide[side];
           const otherSide = side === 'left' ? 'right' as const : 'left' as const;
-          const oppBand = (bandByLane[otherSide] || []).find(bb => bb.tradeId === b.tradeId);
+          // Find the band on the opposite lane in the same trade whose counterparty is this lane team
+          const oppBand = (bandByLane[otherSide] || []).find(bb => bb.tradeId === b.tradeId && bb.otherTeams === laneTeamName);
           if (oppBand && oppBand.assets.length) {
             const laneAccent = side === 'left' ? leftLaneColors.primary : rightLaneColors.primary;
             oppBand.assets.forEach((n) => {
@@ -401,7 +462,29 @@ export default function TradeTreeCanvas({ graph, height = 640, onNodeClick }: Tr
               position: { x, y },
               sourcePosition: 'top',
               targetPosition: 'top',
-              data: { label: labelFor(n), node: n, chip, accent, ariaLabel: aria, onHover: (nid: string, on: boolean) => setHoverId(on ? nid : null), onActivate: () => setSelected(n), style: nodeStyleFor(n.type) },
+              data: {
+                label: labelFor(n),
+                node: n,
+                chip,
+                accent,
+                ariaLabel: aria,
+                onHover: (nid: string, on: boolean) => setHoverId(on ? nid : null),
+                onActivate: () => { setSelected(n); setSelectedId(n.id); onNodeClick?.(n); },
+                style: nodeStyleFor(n.type),
+                tooltip: (() => {
+                  const currOwner = currentOwner.get(n.id);
+                  if (n.type === 'pick') {
+                    const oon = (n as any).originalOwnerName as string | undefined;
+                    const parts = [labelFor(n)];
+                    if (oon) parts.push(`Original owner: ${oon}`);
+                    if (currOwner) parts.push(`Current owner: ${currOwner}`);
+                    if ((n as any).becameName) parts.push(`Became: ${(n as any).becameName}`);
+                    return parts.join('\n');
+                  }
+                  if (currOwner) return `${labelFor(n)}\nCurrent owner: ${currOwner}`;
+                  return labelFor(n);
+                })(),
+              },
               draggable: false,
             });
             assetIds.push(n.id);
@@ -433,6 +516,11 @@ export default function TradeTreeCanvas({ graph, height = 640, onNodeClick }: Tr
       }
     }
 
+    // Lane headers after computing layout so compact stacking can position right header correctly
+    const rightHeaderY = compact ? (yRight - 60) : 0;
+    rfNodes.push({ id: laneLeftId, position: { x: 0, y: 0 }, data: { label: `ACQUIRED BY ${rootTeams[0].toUpperCase()}` }, style: { width: LANE_W, height: 48, background: "transparent", color: leftLaneColors.primary, borderRadius: 0, padding: 8, fontWeight: 800, letterSpacing: 0.6, fontSize: 18, display: 'flex', alignItems: 'center', justifyContent: 'center', borderBottom: `2px solid ${leftLaneColors.primary}` }, draggable: false, selectable: false });
+    rfNodes.push({ id: laneRightId, position: { x: compact ? 0 : (LANE_W + LANE_GUTTER), y: rightHeaderY }, data: { label: `ACQUIRED BY ${rootTeams[1].toUpperCase()}` }, style: { width: LANE_W, height: 48, background: "transparent", color: rightLaneColors.primary, borderRadius: 0, padding: 8, fontWeight: 800, letterSpacing: 0.6, fontSize: 18, display: 'flex', alignItems: 'center', justifyContent: 'center', borderBottom: `2px solid ${rightLaneColors.primary}` }, draggable: false, selectable: false });
+
     // Dashed conversion edges (pick -> player)
     graph.edges.filter(e => e.kind === 'became').forEach((e) => {
       rfEdges.push({ id: e.id, source: e.from, target: e.to, type: 'step', style: { stroke: '#6B7280', strokeWidth: 3, strokeDasharray: '6 4' }, markerEnd: { type: MarkerType.ArrowClosed, color: '#6B7280' } });
@@ -452,7 +540,7 @@ export default function TradeTreeCanvas({ graph, height = 640, onNodeClick }: Tr
         }
       } catch {}
     });
-  }, [graph.nodes, graph.edges, collapsedBands]);
+  }, [graph.nodes, graph.edges, collapsedBands, compact, onNodeClick]);
 
   // Hover/path highlighting + legend pulse: dim non-path items and pulse band borders
   useEffect(() => {
@@ -463,7 +551,8 @@ export default function TradeTreeCanvas({ graph, height = 640, onNodeClick }: Tr
       return n;
     });
 
-    if (!hoverId) {
+    const active = hoverId || selectedId;
+    if (!active) {
       setNodes(applyBandPulse(baseNodes));
       setEdges(baseEdges);
       return;
@@ -472,8 +561,8 @@ export default function TradeTreeCanvas({ graph, height = 640, onNodeClick }: Tr
     const adj = new Map<string, Set<string>>();
     const add = (a: string, b: string) => { if (!adj.has(a)) adj.set(a, new Set()); adj.get(a)!.add(b); };
     baseEdges.forEach((e) => { add(e.source, e.target); add(e.target, e.source); });
-    const seen = new Set<string>([hoverId]);
-    const q = [hoverId];
+    const seen = new Set<string>([active]);
+    const q = [active];
     while (q.length) {
       const id = q.shift()!;
       const nb = adj.get(id);
@@ -484,7 +573,7 @@ export default function TradeTreeCanvas({ graph, height = 640, onNodeClick }: Tr
     const withPulse = applyBandPulse(dimmed);
     const newEdges = baseEdges.map((e) => {
       const connected = seen.has(e.source) && seen.has(e.target);
-      const isNearHover = (e.source === hoverId || e.target === hoverId);
+      const isNearHover = (e.source === active || e.target === active);
       const baseWidth = (e.style as any)?.strokeWidth ?? 2;
       const width = connected ? (isNearHover ? Math.max(5, baseWidth + 2) : baseWidth) : baseWidth;
       const glow = isNearHover ? 'drop-shadow(0 0 2px rgba(200,30,30,0.6))' : undefined;
@@ -492,7 +581,7 @@ export default function TradeTreeCanvas({ graph, height = 640, onNodeClick }: Tr
     });
     setNodes(withPulse);
     setEdges(newEdges);
-  }, [hoverId, baseNodes, baseEdges, highlightBands]);
+  }, [hoverId, selectedId, baseNodes, baseEdges, highlightBands]);
 
   const onNodesChange = useCallback((changes: NodeChange[]) => setNodes((nds) => applyNodeChanges(changes, nds)), []);
   const onEdgesChange = useCallback((changes: EdgeChange[]) => setEdges((eds) => applyEdgeChanges(changes, eds)), []);
@@ -501,10 +590,33 @@ export default function TradeTreeCanvas({ graph, height = 640, onNodeClick }: Tr
     const meta = node?.data?.node as EVWGraphNode | undefined;
     if (!meta) return;
     setSelected(meta);
+    setSelectedId(node.id);
     onNodeClick?.(meta);
   }, [onNodeClick]);
 
-  // Lane colors for legend gradient (read from lane header nodes' style)
+  const onNodeMouseEnter = useCallback((_: React.MouseEvent, node: Node) => {
+    setHoverId(node.id);
+  }, []);
+
+  const onNodeMouseLeave = useCallback(() => {
+    setHoverId(null);
+  }, []);
+
+  const onNodeLongPress = useCallback((_: React.MouseEvent, node: Node) => {
+    const meta = node?.data?.node as EVWGraphNode | undefined;
+    if (!meta) return;
+    setSelected(meta);
+    setSelectedId(node.id);
+    onNodeClick?.(meta);
+  }, [onNodeClick]);
+
+  const onNodeSwipe = useCallback((_: React.MouseEvent, node: Node) => {
+    const meta = node?.data?.node as EVWGraphNode | undefined;
+    if (!meta) return;
+    const bandId = node.id;
+    setCollapsedBands((prev) => ({ ...prev, [bandId]: !prev[bandId] }));
+  }, []);
+
   const leftLaneNode = nodes.find((n) => n.id === 'lane:left');
   const rightLaneNode = nodes.find((n) => n.id === 'lane:right');
   const leftLaneColor = ((leftLaneNode?.style as React.CSSProperties | undefined)?.color as string) || BRACKET_RED;
@@ -518,8 +630,10 @@ export default function TradeTreeCanvas({ graph, height = 640, onNodeClick }: Tr
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onNodeClick={onNodeClickInternal}
-        onNodeMouseEnter={(_: React.MouseEvent, n: Node) => setHoverId(n.id)}
-        onNodeMouseLeave={() => setHoverId(null)}
+        onNodeMouseEnter={onNodeMouseEnter}
+        onNodeMouseLeave={onNodeMouseLeave}
+        onNodeLongPress={onNodeLongPress}
+        onNodeSwipe={onNodeSwipe}
         nodesDraggable={false}
         nodeTypes={nodeTypes as any}
         onInit={(instance: ReactFlowInstance) => {
@@ -547,6 +661,11 @@ export default function TradeTreeCanvas({ graph, height = 640, onNodeClick }: Tr
           <div className="flex items-center gap-2">
             <button
               className="px-2 py-0.5 rounded border text-[11px] hover:bg-gray-50"
+              onClick={() => setCompact((v) => !v)}
+              title="Toggle compact stacked mode"
+            >{compact ? 'Expanded' : 'Compact'}</button>
+            <button
+              className="px-2 py-0.5 rounded border text-[11px] hover:bg-gray-50"
               onClick={async () => {
                 try {
                   const el = wrapperRef.current as HTMLElement;
@@ -571,8 +690,86 @@ export default function TradeTreeCanvas({ graph, height = 640, onNodeClick }: Tr
                   alert('Install html-to-image to enable export: npm i html-to-image');
                 }
               }}>Export SVG</button>
+            <button
+              className="px-2 py-0.5 rounded border text-[11px] hover:bg-gray-50"
+              onClick={async () => {
+                try {
+                  const el = wrapperRef.current as HTMLElement;
+                  if (!el) return;
+                  const mod = await import('html-to-image');
+                  const { jsPDF } = (await import('jspdf')) as unknown as { jsPDF: any };
+                  const svg2pdf = (await import('svg2pdf.js')).default as any;
+
+                  // First try vector path: html-to-image -> SVG -> svg2pdf
+                  let usedVector = false;
+                  try {
+                    const svgDataUrl = await mod.toSvg(el);
+                    const svgText = svgDataUrl.startsWith('data:')
+                      ? decodeURIComponent(svgDataUrl.substring(svgDataUrl.indexOf(',') + 1))
+                      : svgDataUrl;
+                    const parser = new DOMParser();
+                    const svgDoc = parser.parseFromString(svgText, 'image/svg+xml');
+                    const svgEl = svgDoc.documentElement as unknown as SVGSVGElement;
+                    // If the SVG uses foreignObject (typical for html-to-image), svg2pdf can't render it reliably.
+                    const hasFO = svgEl.getElementsByTagName('foreignObject').length > 0;
+                    if (!hasFO) {
+                      const rect = el.getBoundingClientRect();
+                      const pxToPt = (px: number) => (px * 72) / 96;
+                      const pdfW = Math.max(300, pxToPt(rect.width));
+                      const pdfH = Math.max(200, pxToPt(rect.height));
+                      const doc = new jsPDF({ unit: 'pt', format: [pdfW, pdfH] });
+                      svg2pdf(svgEl, doc, { x: 0, y: 0, width: pdfW, height: pdfH });
+                      doc.save('trade-tree.pdf');
+                      usedVector = true;
+                    }
+                  } catch (svgErr) {
+                    // fall back below
+                    console.warn('Vector export failed; falling back to raster PDF', svgErr);
+                  }
+
+                  if (!usedVector) {
+                    // Fallback: rasterize to PNG, then embed into PDF
+                    const rect = el.getBoundingClientRect();
+                    const pxToPt = (px: number) => (px * 72) / 96;
+                    const pdfW = Math.max(300, pxToPt(rect.width));
+                    const pdfH = Math.max(200, pxToPt(rect.height));
+                    const png = await mod.toPng(el, { backgroundColor: 'white', pixelRatio: 2 });
+                    const doc = new jsPDF({ unit: 'pt', format: [pdfW, pdfH] });
+                    doc.addImage(png, 'PNG', 0, 0, pdfW, pdfH);
+                    doc.save('trade-tree.pdf');
+                  }
+                } catch (err) {
+                  console.error(err);
+                  alert('Install html-to-image, jspdf, and svg2pdf.js to enable PDF export');
+                }
+              }}
+            >Export PDF</button>
           </div>
         </div>
+        {/* Step-through controls */}
+        {Object.keys(bandCenters).length > 0 && (
+          <div className="flex items-center justify-between">
+            <div className="text-[11px] text-gray-600">Step through bands</div>
+            <div className="flex items-center gap-1">
+              <button className="px-1.5 py-0.5 rounded border hover:bg-gray-50" onClick={() => {
+                const keys = Object.keys(bandCenters);
+                if (!keys.length) return;
+                const next = (stepIndex - 1 + keys.length) % keys.length;
+                setStepIndex(next);
+                const c = bandCenters[keys[next]];
+                rfRef.current?.setCenter?.(c.x, c.y, { zoom: 1.2, duration: 400 });
+              }}>Prev</button>
+              <button className="px-1.5 py-0.5 rounded border hover:bg-gray-50" onClick={() => {
+                const keys = Object.keys(bandCenters);
+                if (!keys.length) return;
+                const next = (stepIndex + 1) % keys.length;
+                setStepIndex(next);
+                const c = bandCenters[keys[next]];
+                rfRef.current?.setCenter?.(c.x, c.y, { zoom: 1.2, duration: 400 });
+              }}>Next</button>
+            </div>
+          </div>
+        )}
         <div className="flex items-center gap-2">
           <span className="inline-block w-6 h-3 rounded" style={{ background: `linear-gradient(90deg, ${leftLaneColor}, ${rightLaneColor})` }} />
           <span>Lane headers (team colors)</span>
@@ -621,7 +818,7 @@ export default function TradeTreeCanvas({ graph, height = 640, onNodeClick }: Tr
             ))}
           </ul>
         </div>
-        <div className="text-[10px] text-gray-500">Hover to trace path; click a node for details; scroll to zoom, drag to pan.</div>
+        <div className="text-[10px] text-gray-500">Hover or select to trace path; click a node for details; scroll to zoom, drag to pan. Long-press nodes on touch.</div>
       </div>
 
       {/* Simple side panel for node details */}
@@ -629,7 +826,7 @@ export default function TradeTreeCanvas({ graph, height = 640, onNodeClick }: Tr
         <div className="absolute top-0 right-0 h-full w-80 bg-white border-l shadow-lg p-3 overflow-auto">
           <div className="flex items-center justify-between mb-2">
             <div className="font-semibold">Details</div>
-            <button className="text-gray-500 hover:text-gray-900" onClick={() => setSelected(null)}>✕</button>
+            <button className="text-gray-500 hover:text-gray-900" onClick={() => { setSelected(null); setSelectedId(null); }}>✕</button>
           </div>
           <div className="space-y-1 text-sm">
             <div><span className="text-gray-500">Type:</span> {selected.type}</div>
@@ -640,6 +837,15 @@ export default function TradeTreeCanvas({ graph, height = 640, onNodeClick }: Tr
             {selected.type === 'pick' && (
               <div>
                 <div><span className="text-gray-500">Pick:</span> {selected.season} R{selected.round} S{selected.slot}</div>
+                {(selected as any).originalOwnerName && <div><span className="text-gray-500">Original owner:</span> {(selected as any).originalOwnerName}</div>}
+                {(() => {
+                  // try infer current owner by finding the asset node data in baseNodes
+                  const node = baseNodes.find(n => n.id === selected.id);
+                  const currOwner = node?.data?.tooltip?.includes('Current owner:')
+                    ? (node.data.tooltip as string).split('\n').find((l: string) => l.startsWith('Current owner:'))?.split(': ')[1]
+                    : undefined;
+                  return currOwner ? <div><span className="text-gray-500">Current owner:</span> {currOwner}</div> : null;
+                })()}
                 {selected.becameName && <div><span className="text-gray-500">Became:</span> {selected.becameName}</div>}
               </div>
             )}

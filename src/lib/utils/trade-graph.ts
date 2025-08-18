@@ -5,7 +5,7 @@ import { Trade } from '@/lib/utils/trades';
 // Node kinds in the trade graph
 export type GraphNode =
   | { id: string; type: 'player'; label: string; playerId: string }
-  | { id: string; type: 'pick'; label: string; season: string; round: number; slot: number; pickInRound?: number; becameName?: string }
+  | { id: string; type: 'pick'; label: string; season: string; round: number; slot: number; pickInRound?: number; becameName?: string; originalOwnerName?: string }
   | { id: string; type: 'trade'; label: string; tradeId: string; date: string; teams: string[] };
 
 export type GraphEdge = {
@@ -58,12 +58,13 @@ export function buildTradeGraph(trades: Trade[]): TradeGraph {
           const slot = asset.draftSlot ?? asset.pickInRound; // prefer stable draftSlot
           const pickInRound = asset.pickInRound;
           const becameName = (asset.became as string | undefined) || undefined;
+          const originalOwnerName = asset.originalOwner as string | undefined;
           if (!season || typeof round !== 'number' || !Number.isFinite(slot as number)) return;
           const pickNodeId = `pick:${season}-${round}-${slot as number}`;
           const pickLabel = asset.name || `${season} R${round} S${slot as number}`;
           const existing = nodesById.get(pickNodeId);
           if (!existing) {
-            nodesById.set(pickNodeId, { id: pickNodeId, type: 'pick', label: pickLabel, season, round, slot: slot as number, pickInRound, becameName });
+            nodesById.set(pickNodeId, { id: pickNodeId, type: 'pick', label: pickLabel, season, round, slot: slot as number, pickInRound, becameName, originalOwnerName });
           } else if (existing && existing.type === 'pick') {
             // Enrich existing pick node if missing fields
             nodesById.set(pickNodeId, {
@@ -71,6 +72,7 @@ export function buildTradeGraph(trades: Trade[]): TradeGraph {
               label: existing.label || pickLabel,
               pickInRound: existing.pickInRound ?? pickInRound,
               becameName: existing.becameName ?? becameName,
+              originalOwnerName: existing.originalOwnerName ?? originalOwnerName,
             });
           }
           const edgeId = `traded:${trade.id}:${teamIndex}:${assetIndex}`;
