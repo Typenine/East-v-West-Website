@@ -11,6 +11,7 @@ import LoadingState from '@/components/ui/loading-state';
 import ErrorState from '@/components/ui/error-state';
 import EmptyState from '@/components/ui/empty-state';
 import { getTeamLogoPath, getTeamColorStyle } from '@/lib/utils/team-utils';
+import SectionHeader from '@/components/ui/SectionHeader';
 
 // Create a client component that uses searchParams
 function TradesContent() {
@@ -143,7 +144,8 @@ function TradesContent() {
   
   return (
     <div className="container mx-auto px-4 py-8">
-      <h1 className="text-3xl font-bold text-center mb-8" id="trades-heading">Trades</h1>
+      <SectionHeader title="Trades" />
+      <h1 id="trades-heading" className="sr-only">Trades</h1>
       
       {/* Filters */}
       <div className="bg-white p-4 rounded-lg shadow-md mb-8" role="search" aria-labelledby="filter-heading">

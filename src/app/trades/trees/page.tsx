@@ -6,6 +6,7 @@ import { TradeTreeNode, buildTradeTrees } from '@/lib/utils/trades';
 import LoadingState from '@/components/ui/loading-state';
 import ErrorState from '@/components/ui/error-state';
 import EmptyState from '@/components/ui/empty-state';
+import SectionHeader from '@/components/ui/SectionHeader';
 
 export default function TradeTreesPage() {
   const [loading, setLoading] = useState(true);
@@ -83,7 +84,7 @@ export default function TradeTreesPage() {
   if (loading) {
     return (
       <div className="container mx-auto px-4 py-8">
-        <h1 className="text-3xl font-bold text-center mb-8">Trade Trees</h1>
+        <SectionHeader title="Trade Trees" />
         <LoadingState message="Loading trade trees..." />
       </div>
     );
@@ -92,7 +93,7 @@ export default function TradeTreesPage() {
   if (tradeTrees.length === 0) {
     return (
       <div className="container mx-auto px-4 py-8">
-        <h1 className="text-3xl font-bold text-center mb-8">Trade Trees</h1>
+        <SectionHeader title="Trade Trees" />
         <EmptyState
           title="No Trade Trees Found"
           message="There are currently no trade trees in the system."
@@ -104,7 +105,7 @@ export default function TradeTreesPage() {
   if (error) {
     return (
       <div className="container mx-auto px-4 py-8">
-        <h1 className="text-3xl font-bold text-center mb-8">Trade Trees</h1>
+        <SectionHeader title="Trade Trees" />
         <ErrorState
           message={error}
           retry={() => {
@@ -127,7 +128,7 @@ export default function TradeTreesPage() {
         </Link>
       </div>
       
-      <h1 className="text-3xl font-bold text-center mb-8">Trade Trees</h1>
+      <SectionHeader title="Trade Trees" />
       
       {tradeTrees.length > 0 ? (
         <div className="bg-white rounded-lg shadow-md overflow-hidden">

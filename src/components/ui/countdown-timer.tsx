@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { getTimeRemaining } from '@/lib/utils/countdown';
+import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
 
 interface CountdownTimerProps {
   targetDate: Date;
@@ -25,44 +26,57 @@ export default function CountdownTimer({ targetDate, title, className = '' }: Co
   // If we're server-side rendering, don't show the countdown yet
   if (!isClient) {
     return (
-      <div className={`p-6 rounded-lg shadow-md ${className}`}>
-        <h3 className="text-xl font-bold mb-4">{title}</h3>
-        <div className="text-center">Loading...</div>
-      </div>
+      <Card className={className}>
+        <CardHeader>
+          <CardTitle>{title}</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="text-center text-[var(--muted)]">Loading...</div>
+        </CardContent>
+      </Card>
     );
   }
   
   // If the countdown is over
   if (timeRemaining.total <= 0) {
     return (
-      <div className={`p-6 rounded-lg shadow-md ${className}`}>
-        <h3 className="text-xl font-bold mb-4">{title}</h3>
-        <div className="text-center text-2xl font-bold">Started!</div>
-      </div>
+      <Card className={className}>
+        <CardHeader>
+          <CardTitle>{title}</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="text-center text-2xl font-bold">Started!</div>
+        </CardContent>
+      </Card>
     );
   }
   
   return (
-    <div className={`p-6 rounded-lg shadow-md ${className}`}>
-      <h3 className="text-xl font-bold mb-4">{title}</h3>
-      <div className="grid grid-cols-4 gap-2 text-center">
-        <div className="flex flex-col">
-          <span className="text-3xl font-bold">{timeRemaining.days}</span>
-          <span className="text-sm">Days</span>
+    <Card className={className}>
+      <CardHeader>
+        <CardTitle>{title}</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="grid grid-cols-4 gap-3 text-center">
+          <div className="flex flex-col">
+            <span className="text-3xl font-bold tabular-nums">{timeRemaining.days}</span>
+            <span className="text-xs text-[var(--muted)] uppercase tracking-wide">Days</span>
+          </div>
+          <div className="flex flex-col">
+            <span className="text-3xl font-bold tabular-nums">{timeRemaining.hours}</span>
+            <span className="text-xs text-[var(--muted)] uppercase tracking-wide">Hours</span>
+          </div>
+          <div className="flex flex-col">
+            <span className="text-3xl font-bold tabular-nums">{timeRemaining.minutes}</span>
+            <span className="text-xs text-[var(--muted)] uppercase tracking-wide">Minutes</span>
+          </div>
+          <div className="flex flex-col">
+            <span className="text-3xl font-bold tabular-nums">{timeRemaining.seconds}</span>
+            <span className="text-xs text-[var(--muted)] uppercase tracking-wide">Seconds</span>
+          </div>
         </div>
-        <div className="flex flex-col">
-          <span className="text-3xl font-bold">{timeRemaining.hours}</span>
-          <span className="text-sm">Hours</span>
-        </div>
-        <div className="flex flex-col">
-          <span className="text-3xl font-bold">{timeRemaining.minutes}</span>
-          <span className="text-sm">Minutes</span>
-        </div>
-        <div className="flex flex-col">
-          <span className="text-3xl font-bold">{timeRemaining.seconds}</span>
-          <span className="text-sm">Seconds</span>
-        </div>
-      </div>
-    </div>
+      </CardContent>
+    </Card>
   );
 }
+

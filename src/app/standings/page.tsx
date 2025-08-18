@@ -1,10 +1,14 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import Image from 'next/image';
 import { getTeamsData, TeamData } from '@/lib/utils/sleeper-api';
 import { LEAGUE_IDS } from '@/lib/constants/league';
 import { getTeamLogoPath, getTeamColorStyle } from '@/lib/utils/team-utils';
+import LoadingState from '@/components/ui/loading-state';
+import ErrorState from '@/components/ui/error-state';
+import { Card, CardContent } from '@/components/ui/Card';
+import SectionHeader from '@/components/ui/SectionHeader';
 
 type SortKey = 'wins' | 'losses' | 'ties' | 'fpts' | 'fptsAgainst';
 type SortDirection = 'asc' | 'desc';
@@ -19,30 +23,28 @@ export default function StandingsPage() {
     direction: 'desc'
   });
   
-  useEffect(() => {
-    async function fetchStandings() {
-      try {
-        setLoading(true);
-        
-        // Get the league ID for the selected year
-        let leagueId = LEAGUE_IDS.CURRENT;
-        if (selectedYear !== '2025') {
-          leagueId = LEAGUE_IDS.PREVIOUS[selectedYear as keyof typeof LEAGUE_IDS.PREVIOUS];
-        }
-        
-        const teamsData = await getTeamsData(leagueId);
-        setTeams(teamsData);
-        setError(null);
-      } catch (err) {
-        console.error('Error fetching standings:', err);
-        setError('Failed to load standings. Please try again later.');
-      } finally {
-        setLoading(false);
+  const fetchStandings = useCallback(async () => {
+    try {
+      setLoading(true);
+      // Get the league ID for the selected year
+      let leagueId = LEAGUE_IDS.CURRENT;
+      if (selectedYear !== '2025') {
+        leagueId = LEAGUE_IDS.PREVIOUS[selectedYear as keyof typeof LEAGUE_IDS.PREVIOUS];
       }
+      const teamsData = await getTeamsData(leagueId);
+      setTeams(teamsData);
+      setError(null);
+    } catch (err) {
+      console.error('Error fetching standings:', err);
+      setError('Failed to load standings. Please try again later.');
+    } finally {
+      setLoading(false);
     }
-    
-    fetchStandings();
   }, [selectedYear]);
+
+  useEffect(() => {
+    fetchStandings();
+  }, [fetchStandings]);
   
   const handleSort = (key: SortKey) => {
     let direction: SortDirection = 'desc';
@@ -85,11 +87,25 @@ export default function StandingsPage() {
   if (loading) {
     return (
       <div className="container mx-auto px-4 py-8">
-        <h1 className="text-3xl font-bold text-center mb-8">Standings</h1>
-        <div className="animate-pulse">
-          <div className="h-10 bg-slate-200 w-1/4 mb-6 rounded"></div>
-          <div className="h-60 bg-slate-200 rounded"></div>
-        </div>
+        <SectionHeader 
+          title="Standings"
+          actions={(
+            <div className="flex items-center gap-2">
+              <label htmlFor="year-select" className="text-sm text-[var(--muted)]">Season</label>
+              <select
+                id="year-select"
+                value={selectedYear}
+                onChange={(e) => setSelectedYear(e.target.value)}
+                className="block pl-3 pr-8 py-1.5 bg-[var(--surface)] border border-[var(--border)] text-[var(--text)] focus:outline-none focus:ring-2 ring-[var(--focus)] ring-offset-2 ring-offset-[var(--surface)] text-sm rounded-md"
+              >
+                <option value="2025">2025</option>
+                <option value="2024">2024</option>
+                <option value="2023">2023</option>
+              </select>
+            </div>
+          )}
+        />
+        <LoadingState message="Loading standings..." />
       </div>
     );
   }
@@ -97,53 +113,69 @@ export default function StandingsPage() {
   if (error) {
     return (
       <div className="container mx-auto px-4 py-8">
-        <h1 className="text-3xl font-bold text-center mb-8">Standings</h1>
-        <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative" role="alert">
-          <strong className="font-bold">Error:</strong>
-          <span className="block sm:inline"> {error}</span>
-        </div>
+        <SectionHeader 
+          title="Standings"
+          actions={(
+            <div className="flex items-center gap-2">
+              <label htmlFor="year-select" className="text-sm text-[var(--muted)]">Season</label>
+              <select
+                id="year-select"
+                value={selectedYear}
+                onChange={(e) => setSelectedYear(e.target.value)}
+                className="block pl-3 pr-8 py-1.5 bg-[var(--surface)] border border-[var(--border)] text-[var(--text)] focus:outline-none focus:ring-2 ring-[var(--focus)] ring-offset-2 ring-offset-[var(--surface)] text-sm rounded-md"
+              >
+                <option value="2025">2025</option>
+                <option value="2024">2024</option>
+                <option value="2023">2023</option>
+              </select>
+            </div>
+          )}
+        />
+        <ErrorState message={error} retry={fetchStandings} homeLink />
       </div>
     );
   }
   
   return (
     <div className="container mx-auto px-4 py-8">
-      <h1 className="text-3xl font-bold text-center mb-8">Standings</h1>
+      <SectionHeader 
+        title="Standings"
+        actions={(
+          <div className="flex items-center gap-2">
+            <label htmlFor="year-select" className="text-sm text-[var(--muted)]">Season</label>
+            <select
+              id="year-select"
+              value={selectedYear}
+              onChange={(e) => setSelectedYear(e.target.value)}
+              className="block pl-3 pr-8 py-1.5 bg-[var(--surface)] border border-[var(--border)] text-[var(--text)] focus:outline-none focus:ring-2 ring-[var(--focus)] ring-offset-2 ring-offset-[var(--surface)] text-sm rounded-md"
+            >
+              <option value="2025">2025</option>
+              <option value="2024">2024</option>
+              <option value="2023">2023</option>
+            </select>
+          </div>
+        )}
+      />
       
-      <div className="mb-6">
-        <label htmlFor="year-select" className="block text-sm font-medium text-gray-700 mb-2">
-          Season
-        </label>
-        <select
-          id="year-select"
-          value={selectedYear}
-          onChange={(e) => setSelectedYear(e.target.value)}
-          className="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md"
-        >
-          <option value="2025">2025 Season</option>
-          <option value="2024">2024 Season</option>
-          <option value="2023">2023 Season</option>
-        </select>
-      </div>
-      
-      <div className="overflow-x-auto">
-        <table className="min-w-full divide-y divide-gray-200">
-          <thead className="bg-gray-50">
+      <Card className="overflow-x-auto">
+        <CardContent className="p-0">
+          <table className="min-w-full divide-y divide-[var(--border)]">
+            <thead className="bg-[var(--surface)]">
             <tr>
-              <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-[var(--muted)] uppercase tracking-wider">
                 Seed
               </th>
-              <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-[var(--muted)] uppercase tracking-wider">
                 Team
               </th>
               <th 
                 scope="col" 
-                className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer"
+                className="px-6 py-3 text-left text-xs font-medium text-[var(--muted)] uppercase tracking-wider cursor-pointer"
                 onClick={() => handleSort('wins')}
                 aria-sort={sortConfig.key === 'wins' ? (sortConfig.direction === 'desc' ? 'descending' : 'ascending') : 'none'}
               >
                 <button 
-                  className="font-medium text-gray-500 uppercase tracking-wider focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 rounded px-1"
+                  className="font-medium text-[var(--muted)] uppercase tracking-wider focus:outline-none focus:ring-2 ring-[var(--focus)] ring-offset-2 ring-offset-[var(--surface)] rounded px-1"
                   aria-label={`Sort by record ${sortConfig.key === 'wins' && sortConfig.direction === 'desc' ? 'ascending' : 'descending'}`}
                 >
                   Record
@@ -154,7 +186,7 @@ export default function StandingsPage() {
               </th>
               <th 
                 scope="col" 
-                className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer"
+                className="px-6 py-3 text-left text-xs font-medium text-[var(--muted)] uppercase tracking-wider cursor-pointer"
                 onClick={() => handleSort('fpts')}
               >
                 PF
@@ -164,7 +196,7 @@ export default function StandingsPage() {
               </th>
               <th 
                 scope="col" 
-                className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer"
+                className="px-6 py-3 text-left text-xs font-medium text-[var(--muted)] uppercase tracking-wider cursor-pointer"
                 onClick={() => handleSort('fptsAgainst')}
               >
                 PA
@@ -172,21 +204,21 @@ export default function StandingsPage() {
                   <span className="ml-1">{sortConfig.direction === 'desc' ? '▼' : '▲'}</span>
                 )}
               </th>
-              <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-[var(--muted)] uppercase tracking-wider">
                 Streak
               </th>
             </tr>
           </thead>
-          <tbody className="bg-white divide-y divide-gray-200">
+          <tbody className="bg-transparent divide-y divide-[var(--border)]">
             {teamsWithSeeds.map((team) => (
               <tr 
                 key={team.rosterId}
-                className="hover:bg-gray-50 cursor-pointer"
+                className="cursor-pointer"
                 onClick={() => window.location.href = `/teams/${team.rosterId}?year=${selectedYear}`}
                 style={{ borderLeft: `4px solid ${getTeamColorStyle(team.teamName).backgroundColor}` }}
               >
                 <td className="px-6 py-4 whitespace-nowrap">
-                  <div className="text-sm text-gray-900">{team.seed}</div>
+                  <div className="text-sm text-[var(--text)]">{team.seed}</div>
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap">
                   <div className="flex items-center">
@@ -219,18 +251,18 @@ export default function StandingsPage() {
                   </div>
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap">
-                  <div className="text-sm text-gray-900">
+                  <div className="text-sm text-[var(--text)]">
                     {team.wins}-{team.losses}{team.ties > 0 ? `-${team.ties}` : ''}
                   </div>
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap">
-                  <div className="text-sm text-gray-900">{team.fpts.toFixed(2)}</div>
+                  <div className="text-sm text-[var(--text)]">{team.fpts.toFixed(2)}</div>
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap">
-                  <div className="text-sm text-gray-900">{team.fptsAgainst.toFixed(2)}</div>
+                  <div className="text-sm text-[var(--text)]">{team.fptsAgainst.toFixed(2)}</div>
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap">
-                  <div className="text-sm text-gray-900">
+                  <div className="text-sm text-[var(--text)]">
                     {/* We would calculate streak here from weekly results */}
                     {/* For now, just show a placeholder */}
                     {team.wins > team.losses ? `W${Math.min(team.wins, 3)}` : `L${Math.min(team.losses, 3)}`}
@@ -240,7 +272,8 @@ export default function StandingsPage() {
             ))}
           </tbody>
         </table>
-      </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }

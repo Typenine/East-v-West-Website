@@ -1,26 +1,116 @@
 @import "tailwindcss";
 
+/* Design tokens */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* brand */
+  --accent: #0b5f98; /* LEAGUE_COLORS.primary */
+  --danger: #be161e;
+  --gold: #bf9944;
+
+  /* radius */
+  --radius-card: 12px;
+  --radius-pill: 9999px;
+
+  /* spacing scale (px) */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+
+  /* motion */
+  --motion-fast: 150ms;
+  --motion: 200ms;
+  --motion-slow: 250ms;
+
+  /* elevation */
+  --shadow-soft: 0 1px 2px rgba(0,0,0,0.10), 0 2px 8px rgba(0,0,0,0.06);
+
+  /* fonts (from next/font variables) */
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+
+  /* type scale (px / line-height px) */
+  --fs-display: 36px;  --lh-display: 44px;
+  --fs-h1: 32px;       --lh-h1: 40px;
+  --fs-h2: 24px;       --lh-h2: 32px;
+  --fs-h3: 20px;       --lh-h3: 28px;
+  --fs-body: 16px;     --lh-body: 26px;
+  --fs-small: 14px;    --lh-small: 24px;
+}
+
+/* Dark theme (default) */
+:root,
+html[data-theme="dark"] {
+  --bg: #0B1020;
+  --surface: #111727;
+  --border: #1E2637;
+  --text: #E9EDF5;
+  --muted: #9AA5B1;
+  --focus: var(--accent);
+}
+
+/* Light theme */
+html[data-theme="light"] {
+  --bg: #fcfcfc;
+  --surface: #ffffff;
+  --border: #E6E8F0;
+  --text: #0B1020;
+  --muted: #475467;
+  --focus: var(--accent);
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
+  --color-background: var(--bg);
+  --color-foreground: var(--text);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans), system-ui, -apple-system, "Segoe UI", Roboto, Ubuntu, Cantarell, "Helvetica Neue", Arial, "Noto Sans", "Apple Color Emoji", "Segoe UI Emoji";
+  font-size: var(--fs-body);
+  line-height: var(--lh-body);
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+/* Utilities tailored to tokens */
+.evw-surface {
+  background-color: var(--surface);
+  border-color: var(--border);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+}
+
+/* Base typography */
+h1, .h1 { font-size: var(--fs-h1); line-height: var(--lh-h1); font-weight: 700; letter-spacing: -0.01em; }
+h2, .h2 { font-size: var(--fs-h2); line-height: var(--lh-h2); font-weight: 650; letter-spacing: -0.005em; }
+h3, .h3 { font-size: var(--fs-h3); line-height: var(--lh-h3); font-weight: 600; }
+small, .text-small { font-size: var(--fs-small); line-height: var(--lh-small); }
+
+/* Links */
+a {
+  color: var(--accent);
+  text-decoration-color: color-mix(in srgb, var(--accent) 40%, transparent);
+  text-underline-offset: 4px;
+}
+a:hover { text-decoration: underline; }
+
+/* Hairline separators */
+hr { border-color: var(--border); opacity: 0.7; }
+
+.pill {
+  transition: background-color var(--motion) ease-out, color var(--motion) ease-out;
+}
+.pill-active {
+  /* subtle accent wash */
+  background-color: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--text);
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+}
+.pill-hover:hover {
+  background-color: color-mix(in srgb, var(--accent) 10%, transparent);
 }

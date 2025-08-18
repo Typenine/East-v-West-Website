@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
+import SectionHeader from '@/components/ui/SectionHeader';
 
 type ChampionDetails = {
   year: string;
@@ -46,31 +47,31 @@ export default function ChampionsPage() {
   
   return (
     <div className="container mx-auto px-4 py-8">
-      <h1 className="text-3xl font-bold text-center mb-8">League Champions</h1>
-      
-      {/* Year Selector */}
-      <div className="flex justify-center mb-8">
-        <div className="inline-flex rounded-md shadow-sm" role="group">
-          {championDetails.map(champion => (
-            <button
-              key={champion.year}
-              type="button"
-              onClick={() => setSelectedYear(champion.year)}
-              className={`px-4 py-2 text-sm font-medium ${
-                selectedYear === champion.year
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-white text-gray-700 hover:bg-gray-50'
-              } border border-gray-200 ${
-                champion.year === championDetails[0].year ? 'rounded-l-lg' : ''
-              } ${
-                champion.year === championDetails[championDetails.length - 1].year ? 'rounded-r-lg' : ''
-              }`}
-            >
-              {champion.year} Season
-            </button>
-          ))}
-        </div>
-      </div>
+      <SectionHeader 
+        title="League Champions"
+        actions={
+          <div className="inline-flex rounded-md shadow-sm" role="group">
+            {championDetails.map(champion => (
+              <button
+                key={champion.year}
+                type="button"
+                onClick={() => setSelectedYear(champion.year)}
+                className={`px-4 py-2 text-sm font-medium ${
+                  selectedYear === champion.year
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-white text-gray-700 hover:bg-gray-50'
+                } border border-gray-200 ${
+                  champion.year === championDetails[0].year ? 'rounded-l-lg' : ''
+                } ${
+                  champion.year === championDetails[championDetails.length - 1].year ? 'rounded-r-lg' : ''
+                }`}
+              >
+                {champion.year} Season
+              </button>
+            ))}
+          </div>
+        }
+      />
       
       {/* Champion Trophy Card */}
       <div className="max-w-3xl mx-auto bg-white rounded-lg shadow-lg overflow-hidden mb-8">

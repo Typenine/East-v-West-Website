@@ -4,6 +4,7 @@ import { Suspense, useEffect, useMemo, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import NextDynamic from 'next/dynamic';
 import type { GraphNode as EVWGraphNode, GraphEdge as EVWGraphEdge, TradeGraph as EVWTradeGraph } from '@/lib/utils/trade-graph';
+import SectionHeader from '@/components/ui/SectionHeader';
 
 export const dynamic = 'force-dynamic';
 
@@ -108,7 +109,7 @@ function TradeTrackerContent() {
 
   return (
     <div className="container mx-auto px-4 py-8">
-      <h1 className="text-3xl font-bold mb-6">Trade Tracker</h1>
+      <SectionHeader title="Trade Tracker" />
 
       <div className="bg-white rounded-lg shadow p-4 mb-6">
         <h2 className="font-semibold mb-2">Root</h2>

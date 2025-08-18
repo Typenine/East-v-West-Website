@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { Disclosure } from '@headlessui/react';
 import { rulesHtmlSections } from '../../data/rules';
+import SectionHeader from '@/components/ui/SectionHeader';
 
 // Define the rule section type
 type RuleSection = {
@@ -53,7 +54,7 @@ export default function RulesPage() {
   
   return (
     <div className="container mx-auto px-4 py-8">
-      <h1 className="text-3xl font-bold text-center mb-8">League Rules</h1>
+      <SectionHeader title="League Rules" />
       
       {/* Search Bar */}
       <div className="mb-8">

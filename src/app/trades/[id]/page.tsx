@@ -6,6 +6,7 @@ import { useParams } from 'next/navigation';
 import { Trade, fetchTradeById, getRelatedTrades } from '@/lib/utils/trades';
 import LoadingState from '@/components/ui/loading-state';
 import ErrorState from '@/components/ui/error-state';
+import SectionHeader from '@/components/ui/SectionHeader';
 
 export default function TradeDetailPage() {
   const params = useParams();
@@ -82,35 +83,32 @@ export default function TradeDetailPage() {
     );
   }
   
+  const formattedDate = new Date(trade.date).toLocaleDateString('en-US', {
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric'
+  });
+
   return (
     <div className="container mx-auto px-4 py-8">
-      <div className="mb-6">
-        <Link 
-          href="/trades" 
-          className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-blue-700 bg-blue-100 hover:bg-blue-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-          aria-label="Return to trades list"
-        >
-          <span aria-hidden="true">←</span> Back to Trades
-        </Link>
-      </div>
+      <SectionHeader
+        title={`Trade between ${trade.teams.map(t => t.name).join(' and ')}`}
+        subtitle={formattedDate}
+        actions={
+          <Link
+            href="/trades"
+            className="inline-flex items-center px-4 py-2 rounded-full font-medium evw-surface border border-[var(--border)] text-[var(--text)] hover:opacity-90 focus:outline-none focus:ring-2 ring-[var(--focus)] ring-offset-2 ring-offset-[var(--surface)]"
+            aria-label="Return to trades list"
+          >
+            ← Back to Trades
+          </Link>
+        }
+        aria-labelledby="trade-heading"
+      />
+      <h1 id="trade-heading" className="sr-only">Trade between {trade.teams.map(t => t.name).join(' and ')}</h1>
       
       <article className="bg-white rounded-lg shadow-md overflow-hidden mb-8">
-        <header className="bg-blue-600 text-white px-6 py-4">
-          <h1 className="text-2xl font-bold" id="trade-heading">
-            Trade between {trade.teams.map(t => t.name).join(' and ')}
-          </h1>
-          <p className="text-blue-100 mt-1">
-            <time dateTime={trade.date}>
-              {new Date(trade.date).toLocaleDateString('en-US', {
-                weekday: 'long',
-                year: 'numeric',
-                month: 'long',
-                day: 'numeric'
-              })}
-            </time>
-          </p>
-        </header>
-        
         <div className="p-6">
           {/* Trade Details */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8">

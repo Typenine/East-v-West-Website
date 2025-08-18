@@ -80,11 +80,11 @@ export const TEAM_COLORS: Record<string, TeamColors> = {
 
 // League colors for global UI elements
 export const LEAGUE_COLORS = {
-  primary: '#3b5b8b',
-  secondary: '#ba1010',
-  tertiary: '#bf9944',
-  quaternary: '#cfcfc',
-  dark: '#050505'
+  primary: '#0b5f98', // Accent / brand
+  secondary: '#be161e', // Danger
+  tertiary: '#bf9944', // Gold highlight
+  quaternary: '#fcfcfc', // White
+  dark: '#050505', // Near-black
 };
 
 // Function to get team colors by team name

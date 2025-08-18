@@ -27,7 +27,23 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
+      <head>
+        {/* Pre-hydration theme setter to avoid flash */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(() => { try {
+              const saved = localStorage.getItem('theme');
+              const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+              const theme = saved || (prefersDark ? 'dark' : 'light');
+              const el = document.documentElement;
+              el.setAttribute('data-theme', theme);
+              // Drive native form controls
+              el.style.setProperty('color-scheme', theme);
+            } catch (e) {} })();`,
+          }}
+        />
+      </head>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased flex flex-col min-h-screen`}
       >

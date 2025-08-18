@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import SectionHeader from '@/components/ui/SectionHeader';
 
 export default function NewsletterPage() {
   const [selectedWeek, setSelectedWeek] = useState<number | null>(null);
@@ -10,7 +11,7 @@ export default function NewsletterPage() {
   
   return (
     <div className="container mx-auto px-4 py-8">
-      <h1 className="text-3xl font-bold text-center mb-8">Weekly Newsletter</h1>
+      <SectionHeader title="Weekly Newsletter" />
       
       <div className="max-w-3xl mx-auto bg-white rounded-lg shadow-md p-6">
         {selectedWeek ? (

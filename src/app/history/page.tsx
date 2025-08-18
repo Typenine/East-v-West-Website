@@ -18,6 +18,7 @@ import {
   type SleeperBracketGame,
 } from '@/lib/utils/sleeper-api';
 import { CANONICAL_TEAM_BY_USER_ID } from '@/lib/constants/team-mapping';
+import SectionHeader from '@/components/ui/SectionHeader';
 
 export default function HistoryPage() {
   const [activeTab, setActiveTab] = useState('champions');
@@ -206,7 +207,26 @@ export default function HistoryPage() {
   
   return (
     <div className="container mx-auto px-4 py-8">
-      <h1 className="text-3xl font-bold text-center mb-8">League History</h1>
+      <SectionHeader
+        title="League History"
+        actions={
+          activeTab === 'brackets' && (
+            <div className="flex items-center gap-2">
+              <label htmlFor="year-select" className="sr-only">Select Year</label>
+              <select
+                id="year-select"
+                className="mt-1 block w-40 pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md"
+                value={bracketYear}
+                onChange={(e) => setBracketYear(e.target.value)}
+              >
+                <option value="2025">2025 Season</option>
+                <option value="2024">2024 Season</option>
+                <option value="2023">2023 Season</option>
+              </select>
+            </div>
+          )
+        }
+      />
       
       {/* Tabs */}
       <div className="border-b border-gray-200 mb-8">
@@ -271,23 +291,7 @@ export default function HistoryPage() {
       {/* Brackets Tab Content */}
       {activeTab === 'brackets' && (
         <div>
-          <h2 className="text-2xl font-bold mb-6">Playoff Brackets</h2>
-          
-          <div className="mb-6">
-            <label htmlFor="year-select" className="block text-sm font-medium text-gray-700 mb-2">
-              Select Year
-            </label>
-            <select
-              id="year-select"
-              className="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md"
-              value={bracketYear}
-              onChange={(e) => setBracketYear(e.target.value)}
-            >
-              <option value="2025">2025 Season</option>
-              <option value="2024">2024 Season</option>
-              <option value="2023">2023 Season</option>
-            </select>
-          </div>
+          <SectionHeader title="Playoff Brackets" />
           
           {bracketLoading ? (
             <LoadingState message="Loading playoff brackets..." />

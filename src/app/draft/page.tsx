@@ -8,6 +8,7 @@ import EmptyState from '@/components/ui/empty-state';
 import LoadingState from '@/components/ui/loading-state';
 import ErrorState from '@/components/ui/error-state';
 import { getLeagueDrafts, getDraftPicks, getTeamsData, getAllPlayers, SleeperPlayer } from '@/lib/utils/sleeper-api';
+import SectionHeader from '@/components/ui/SectionHeader';
 
 // Draft data types
 type TeamHaul = {
@@ -173,7 +174,7 @@ export default function DraftPage() {
 
   return (
     <div className="container mx-auto px-4 py-8">
-      <h1 className="text-3xl font-bold text-center mb-8">Draft Central</h1>
+      <SectionHeader title="Draft Central" />
       
       <Tab.Group>
         <Tab.List className="flex space-x-1 rounded-xl bg-slate-200 p-1">

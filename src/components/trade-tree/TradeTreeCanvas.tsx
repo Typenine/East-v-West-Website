@@ -29,7 +29,7 @@ const BAND_HEADER_H = 44;
 const BAND_PAD_X = 12;
 const BAND_PAD_Y = 14;
 const GUTTER_X = 32; // generous gutters
-const BRACKET_RED = '#C81E1E';
+const BRACKET_RED = 'var(--danger)';
 
 // Note: per-trade color mapping removed in favor of a unified bracket color for clarity
 
@@ -47,12 +47,12 @@ function nodeStyleFor(kind: EVWGraphNode["type"]): React.CSSProperties {
   // Neutral dark cards with team-colored accent bars for readability
   switch (kind) {
     case "player":
-      return { background: "#111827", color: "#F3F4F6", border: "1px solid #374151", borderRadius: 10, boxShadow: "0 1px 2px rgba(0,0,0,0.25)", width: NODE_W };
+      return { background: "var(--surface)", color: "var(--text)", border: "1px solid var(--border)", borderRadius: 10, boxShadow: "var(--shadow-soft)", width: NODE_W };
     case "pick":
-      return { background: "#0B1220", color: "#E5E7EB", border: "1px solid #334155", borderRadius: 10, boxShadow: "0 1px 2px rgba(0,0,0,0.25)", width: NODE_W };
+      return { background: "var(--surface)", color: "var(--text)", border: "1px solid var(--border)", borderRadius: 10, boxShadow: "var(--shadow-soft)", width: NODE_W };
     case "trade":
     default:
-      return { background: "#F3F4F6", border: "1px solid #E5E7EB", borderRadius: 10, width: NODE_W };
+      return { background: "var(--surface)", color: "var(--text)", border: "1px solid var(--border)", borderRadius: 10, boxShadow: "var(--shadow-soft)", width: NODE_W };
   }
 }
 
@@ -80,7 +80,7 @@ function AssetNode({ data, id }: any) {
   const icon = n.type === 'player' ? '🧍' : n.type === 'pick' ? '🏈' : '🛡️';
   const chip = data.chip as string | undefined;
   const isDim = data.dim === true;
-  const accent = (data.accent as string | undefined) ?? '#9CA3AF';
+  const accent = (data.accent as string | undefined) ?? 'var(--muted)';
   const tooltip = data.tooltip as string | undefined;
   const pulse = data.pulse === true;
 
@@ -125,16 +125,16 @@ function AssetNode({ data, id }: any) {
       )}
       <div className="flex items-center gap-2">
         <span className="shrink-0">{icon}</span>
-        <span className="inline-block w-2 h-2 rounded-full" style={{ background: accent, boxShadow: '0 0 0 1px rgba(255,255,255,0.35)' }} />
+        <span className="inline-block w-2 h-2 rounded-full" style={{ background: accent, boxShadow: '0 0 0 1px color-mix(in srgb, var(--text) 35%, transparent)' }} />
         <span className="font-semibold truncate" title={data.label}>{data.label}</span>
       </div>
       {chip && (
         <div className="mt-1 text-[11px]">
-          <span className="inline-block rounded px-1 py-0.5 border" style={{ background: 'rgba(255,255,255,0.06)', borderColor: 'rgba(255,255,255,0.2)' }} title={chip}>{chip}</span>
+          <span className="inline-block rounded px-1 py-0.5 border" style={{ background: 'color-mix(in srgb, var(--text) 6%, transparent)', borderColor: 'color-mix(in srgb, var(--text) 20%, transparent)' }} title={chip}>{chip}</span>
         </div>
       )}
       {tooltip && hovered && (
-        <div className="absolute z-10 -top-2 left-1/2 -translate-x-1/2 -translate-y-full bg-black text-white text-[11px] leading-snug px-2 py-1 rounded shadow-lg pointer-events-none w-64">
+        <div className="absolute z-10 -top-2 left-1/2 -translate-x-1/2 -translate-y-full bg-[var(--surface)] text-[var(--text)] border border-[var(--border)] text-[11px] leading-snug px-2 py-1 rounded shadow-lg pointer-events-none w-64">
           {tooltip}
         </div>
       )}
@@ -147,7 +147,7 @@ function BandNode({ data, id }: any) {
   const collapsed = data.collapsed === true;
   const isDim = data.dim === true;
   const bus = data.bus as undefined | { rows: Array<{ busY: number; assetTopY: number; xs: number[] }>; color: string };
-  const headerColor = (data.headerColor as string | undefined) ?? '#111827';
+  const headerColor = (data.headerColor as string | undefined) ?? 'var(--text)';
   // Basic swipe-to-toggle (horizontal)
   const touchStart = React.useRef<{ x: number; y: number } | null>(null);
   const onTS = (e: React.TouchEvent) => {
@@ -165,7 +165,7 @@ function BandNode({ data, id }: any) {
     touchStart.current = null;
   };
   return (
-    <div className={`rounded-md border bg-white ${isDim ? 'opacity-30' : 'opacity-100'}`} style={{ position: 'relative', width: '100%', height: '100%' }} onTouchStart={onTS} onTouchEnd={onTE}>
+    <div className={`rounded-md border bg-[var(--surface)] border-[var(--border)] ${isDim ? 'opacity-30' : 'opacity-100'}`} style={{ position: 'relative', width: '100%', height: '100%' }} onTouchStart={onTS} onTouchEnd={onTE}>
       <div className="flex flex-col items-center justify-center px-3" style={{ height: BAND_HEADER_H }}>
         <button
           className="text-sm font-extrabold uppercase tracking-wider flex items-center gap-2"
@@ -398,7 +398,7 @@ export default function TradeTreeCanvas({ graph, height = 640, onNodeClick }: Tr
           type: 'band',
           position: { x: laneX, y: bandY },
           data: bandData,
-          style: { width: LANE_W, height: bandHeight, borderColor: '#E5E7EB', boxShadow: '0 1px 2px rgba(0,0,0,0.06)' },
+          style: { width: LANE_W, height: bandHeight, borderColor: 'var(--border)', boxShadow: 'var(--shadow-soft)' },
           sourcePosition: 'bottom',
           targetPosition: 'top',
           draggable: false,
@@ -437,19 +437,30 @@ export default function TradeTreeCanvas({ graph, height = 640, onNodeClick }: Tr
             const laneAccent = side === 'left' ? leftLaneColors.primary : rightLaneColors.primary;
             const oppBandId = `band:${b.tradeId}:${otherSide}`;
             const oppCollapsed = isCollapsed(oppBandId, oppIdx);
-            oppBand.assets.forEach((n) => {
-              const dashed = n.type === 'pick' ? '6 4' : undefined;
-              const targetCloneId = `asset:${n.id}:${oppBandId}`;
-              const targetId = oppCollapsed ? oppBandId : targetCloneId;
+            if (oppCollapsed) {
+              // collapsed: single connector to the opposite band header (avoid duplicate edge ids)
               rfEdges.push({
-                id: `xg:${junctionId}:${targetId}`,
+                id: `xg:${junctionId}:${oppBandId}`,
                 source: junctionId,
-                target: targetId,
+                target: oppBandId,
                 type: 'bezier',
-                style: { stroke: laneAccent, strokeWidth: 3, ...(dashed ? { strokeDasharray: dashed } : {}) },
+                style: { stroke: laneAccent, strokeWidth: 3 },
                 markerEnd: { type: MarkerType.ArrowClosed, color: laneAccent },
               });
-            });
+            } else {
+              oppBand.assets.forEach((n) => {
+                const dashed = n.type === 'pick' ? '6 4' : undefined;
+                const targetCloneId = `asset:${n.id}:${oppBandId}`;
+                rfEdges.push({
+                  id: `xg:${junctionId}:${targetCloneId}`,
+                  source: junctionId,
+                  target: targetCloneId,
+                  type: 'bezier',
+                  style: { stroke: laneAccent, strokeWidth: 3, ...(dashed ? { strokeDasharray: dashed } : {}) },
+                  markerEnd: { type: MarkerType.ArrowClosed, color: laneAccent },
+                });
+              });
+            }
           }
         }
 
@@ -555,7 +566,7 @@ export default function TradeTreeCanvas({ graph, height = 640, onNodeClick }: Tr
         const bandOf = (cid: string) => cid.split(':').slice(2).join(':'); // asset:<id>:<bandId>
         const pair = fromClones.flatMap(f => toClones.map(t => [f, t] as const)).find(([f, t]) => bandOf(f) === bandOf(t));
         const [src, dst] = pair || [fromClones[0], toClones[0]];
-        rfEdges.push({ id: `became:${src}:${dst}`, source: src, target: dst, type: 'step', style: { stroke: '#6B7280', strokeWidth: 3, strokeDasharray: '6 4' }, markerEnd: { type: MarkerType.ArrowClosed, color: '#6B7280' } });
+        rfEdges.push({ id: `became:${src}:${dst}`, source: src, target: dst, type: 'step', style: { stroke: 'var(--muted)', strokeWidth: 3, strokeDasharray: '6 4' }, markerEnd: { type: MarkerType.ArrowClosed, color: 'var(--muted)' } });
       }
       // If no clones exist yet (both collapsed), skip; edge will appear once bands are expanded and clones exist
     });
@@ -580,7 +591,7 @@ export default function TradeTreeCanvas({ graph, height = 640, onNodeClick }: Tr
   useEffect(() => {
     const applyBandPulse = (arr: Node[]) => arr.map((n) => {
       if (n.type === 'band' && highlightBands.has(n.id)) {
-        return { ...n, style: { ...(n.style || {}), borderColor: BRACKET_RED, boxShadow: '0 0 0 2px rgba(200,30,30,0.5) inset, 0 0 0 2px rgba(200,30,30,0.25)' } } as Node;
+        return { ...n, style: { ...(n.style || {}), borderColor: BRACKET_RED, boxShadow: '0 0 0 2px color-mix(in srgb, var(--danger) 50%, transparent) inset, 0 0 0 2px color-mix(in srgb, var(--danger) 25%, transparent)' } } as Node;
       }
       return n;
     });
@@ -612,7 +623,7 @@ export default function TradeTreeCanvas({ graph, height = 640, onNodeClick }: Tr
       const isNearHover = (e.source === active || e.target === active);
       const baseWidth = (e.style as any)?.strokeWidth ?? 2;
       const width = connected ? (isNearHover ? Math.max(5, baseWidth + 2) : baseWidth) : baseWidth;
-      const glow = isNearHover ? 'drop-shadow(0 0 2px rgba(200,30,30,0.6))' : undefined;
+      const glow = isNearHover ? 'drop-shadow(0 0 2px color-mix(in srgb, var(--danger) 60%, transparent))' : undefined;
       return { ...e, style: { ...(e.style || {}), opacity: connected ? 1 : 0.2, strokeWidth: width, filter: glow } };
     });
     setNodes(withPulse);
@@ -658,26 +669,6 @@ export default function TradeTreeCanvas({ graph, height = 640, onNodeClick }: Tr
     setHoverId(null);
   }, []);
 
-  const onNodeLongPress = useCallback((_: React.MouseEvent, node: Node) => {
-    const meta = node?.data?.node as EVWGraphNode | undefined;
-    if (!meta) return;
-    if (node.parentId) {
-      setCollapsedBands((prev) => ({ ...prev, [node.parentId!]: false }));
-    } else if (node.type === 'band') {
-      setCollapsedBands((prev) => ({ ...prev, [node.id]: false }));
-    }
-    setSelected(meta);
-    setSelectedId(node.id);
-    onNodeClick?.(meta);
-  }, [onNodeClick]);
-
-  const onNodeSwipe = useCallback((_: React.MouseEvent, node: Node) => {
-    const meta = node?.data?.node as EVWGraphNode | undefined;
-    if (!meta) return;
-    const bandId = node.id;
-    setCollapsedBands((prev) => ({ ...prev, [bandId]: !prev[bandId] }));
-  }, []);
-
   // Center the viewport on the selected node (click, long-press, or keyboard activate)
   const centerOnSelected = useCallback((id: string) => {
     const n = nodes.find((nn) => nn.id === id);
@@ -713,7 +704,7 @@ export default function TradeTreeCanvas({ graph, height = 640, onNodeClick }: Tr
   const rightLaneColor = ((rightLaneNode?.style as React.CSSProperties | undefined)?.color as string) || BRACKET_RED;
 
   return (
-    <div ref={wrapperRef} style={{ height }} className="border rounded overflow-hidden relative">
+    <div ref={wrapperRef} style={{ height }} className="border border-[var(--border)] rounded overflow-hidden relative bg-[var(--surface)] text-[var(--text)]">
       <ReactFlow
         nodes={nodes}
         edges={edges}
@@ -722,8 +713,6 @@ export default function TradeTreeCanvas({ graph, height = 640, onNodeClick }: Tr
         onNodeClick={onNodeClickInternal}
         onNodeMouseEnter={onNodeMouseEnter}
         onNodeMouseLeave={onNodeMouseLeave}
-        onNodeLongPress={onNodeLongPress}
-        onNodeSwipe={onNodeSwipe}
         nodesDraggable={false}
         nodeTypes={nodeTypes as any}
         onInit={(instance: ReactFlowInstance) => {
@@ -741,33 +730,35 @@ export default function TradeTreeCanvas({ graph, height = 640, onNodeClick }: Tr
       >
         <MiniMap pannable zoomable className="opacity-40 hover:opacity-100 transition-opacity" />
         <Controls position="bottom-right" />
-        <Background variant="lines" gap={32} color="#EAECF0" />
+        <Background variant="lines" gap={32} color="var(--border)" />
       </ReactFlow>
 
       {/* Floating Legend / Key */}
-      <div className="absolute top-2 right-2 bg-white/90 backdrop-blur border rounded shadow p-2 text-xs space-y-2 w-72 max-h-[60%] overflow-auto">
+      <div className="absolute top-2 right-2 evw-surface border border-[var(--border)] rounded shadow p-2 text-xs space-y-2 w-72 max-h-[60%] overflow-auto">
         <div className="flex items-center justify-between">
           <div className="font-semibold">Legend</div>
           <div className="flex items-center gap-2">
             <button
-              className="px-2 py-0.5 rounded border text-[11px] hover:bg-gray-50"
+              className="px-2 py-0.5 rounded border border-[var(--border)] text-[11px] hover:bg-[color-mix(in_srgb,_var(--text)_8%,_transparent)]"
               onClick={() => setCompact((v) => !v)}
               title="Toggle compact stacked mode"
             >{compact ? 'Expanded' : 'Compact'}</button>
             <button
-              className="px-2 py-0.5 rounded border text-[11px] hover:bg-gray-50"
+              className="px-2 py-0.5 rounded border border-[var(--border)] text-[11px] hover:bg-[color-mix(in_srgb,_var(--text)_8%,_transparent)]"
               onClick={() => {
                 try { rfRef.current?.fitView({ padding: 0.12, duration: 400 }); } catch {}
               }}
               title="Reset view to fit all"
             >Reset</button>
             <button
-              className="px-2 py-0.5 rounded border text-[11px] hover:bg-gray-50"
+              className="px-2 py-0.5 rounded border border-[var(--border)] text-[11px] hover:bg-[color-mix(in_srgb,_var(--text)_8%,_transparent)]"
               onClick={async () => {
                 try {
                   const el = wrapperRef.current as HTMLElement;
                   const mod = await import('html-to-image');
-                  const dataUrl = await mod.toPng(el, { backgroundColor: 'white' });
+                  const cs = getComputedStyle(document.documentElement);
+                  const surface = cs.getPropertyValue('--surface').trim() || '#ffffff';
+                  const dataUrl = await mod.toPng(el, { backgroundColor: surface });
                   const a = document.createElement('a');
                   a.href = dataUrl; a.download = 'trade-tree.png'; a.click();
                 } catch {
@@ -775,7 +766,7 @@ export default function TradeTreeCanvas({ graph, height = 640, onNodeClick }: Tr
                 }
               }}>Export PNG</button>
             <button
-              className="px-2 py-0.5 rounded border text-[11px] hover:bg-gray-50"
+              className="px-2 py-0.5 rounded border border-[var(--border)] text-[11px] hover:bg-[color-mix(in_srgb,_var(--text)_8%,_transparent)]"
               onClick={async () => {
                 try {
                   const el = wrapperRef.current as HTMLElement;
@@ -788,7 +779,7 @@ export default function TradeTreeCanvas({ graph, height = 640, onNodeClick }: Tr
                 }
               }}>Export SVG</button>
             <button
-              className="px-2 py-0.5 rounded border text-[11px] hover:bg-gray-50"
+              className="px-2 py-0.5 rounded border border-[var(--border)] text-[11px] hover:bg-[color-mix(in_srgb,_var(--text)_8%,_transparent)]"
               onClick={async () => {
                 try {
                   const el = wrapperRef.current as HTMLElement;
@@ -830,7 +821,9 @@ export default function TradeTreeCanvas({ graph, height = 640, onNodeClick }: Tr
                     const pxToPt = (px: number) => (px * 72) / 96;
                     const pdfW = Math.max(300, pxToPt(rect.width));
                     const pdfH = Math.max(200, pxToPt(rect.height));
-                    const png = await mod.toPng(el, { backgroundColor: 'white', pixelRatio: 2 });
+                    const cs = getComputedStyle(document.documentElement);
+                    const surface = cs.getPropertyValue('--surface').trim() || '#ffffff';
+                    const png = await mod.toPng(el, { backgroundColor: surface, pixelRatio: 2 });
                     const doc = new jsPDF({ unit: 'pt', format: [pdfW, pdfH] });
                     doc.addImage(png, 'PNG', 0, 0, pdfW, pdfH);
                     doc.save('trade-tree.pdf');
@@ -846,9 +839,9 @@ export default function TradeTreeCanvas({ graph, height = 640, onNodeClick }: Tr
         {/* Step-through controls */}
         {Object.keys(bandCenters).length > 0 && (
           <div className="flex items-center justify-between">
-            <div className="text-[11px] text-gray-600">Step through bands</div>
+            <div className="text-[11px] text-[var(--muted)]">Step through bands</div>
             <div className="flex items-center gap-1">
-              <button className="px-1.5 py-0.5 rounded border hover:bg-gray-50" onClick={() => {
+              <button className="px-1.5 py-0.5 rounded border border-[var(--border)] hover:bg-[color-mix(in_srgb,_var(--text)_8%,_transparent)]" onClick={() => {
                 const keys = Object.keys(bandCenters);
                 if (!keys.length) return;
                 const next = (stepIndex - 1 + keys.length) % keys.length;
@@ -856,7 +849,7 @@ export default function TradeTreeCanvas({ graph, height = 640, onNodeClick }: Tr
                 const c = bandCenters[keys[next]];
                 rfRef.current?.setCenter?.(c.x, c.y, { zoom: 1.2, duration: 400 });
               }}>Prev</button>
-              <button className="px-1.5 py-0.5 rounded border hover:bg-gray-50" onClick={() => {
+              <button className="px-1.5 py-0.5 rounded border border-[var(--border)] hover:bg-[color-mix(in_srgb,_var(--text)_8%,_transparent)]" onClick={() => {
                 const keys = Object.keys(bandCenters);
                 if (!keys.length) return;
                 const next = (stepIndex + 1) % keys.length;
@@ -876,7 +869,7 @@ export default function TradeTreeCanvas({ graph, height = 640, onNodeClick }: Tr
           <span>Bracket connectors</span>
         </div>
         <div className="flex items-center gap-2">
-          <span className="inline-block border-t-2 w-6" style={{ borderColor: '#6B7280', borderTopStyle: 'dashed' }} />
+          <span className="inline-block border-t-2 w-6" style={{ borderColor: 'var(--muted)', borderTopStyle: 'dashed' }} />
           <span>Pick → Player</span>
         </div>
         <div className="mt-2">
@@ -915,35 +908,35 @@ export default function TradeTreeCanvas({ graph, height = 640, onNodeClick }: Tr
             ))}
           </ul>
         </div>
-        <div className="text-[10px] text-gray-500">Hover or select to trace path; click a node for details; scroll to zoom, drag to pan. Long-press nodes on touch.</div>
+        <div className="text-[10px] text-[var(--muted)]">Hover or select to trace path; click a node for details; scroll to zoom, drag to pan. Long-press nodes on touch.</div>
       </div>
 
       {/* Simple side panel for node details */}
       {selected && (
-        <div className="absolute top-0 right-0 h-full w-80 bg-white border-l shadow-lg p-3 overflow-auto">
+        <div className="absolute top-0 right-0 h-full w-80 bg-[var(--surface)] border-l border-[var(--border)] shadow-lg p-3 overflow-auto">
           <div className="flex items-center justify-between mb-2">
             <div className="font-semibold">Details</div>
-            <button className="text-gray-500 hover:text-gray-900" onClick={() => { setSelected(null); setSelectedId(null); }}>✕</button>
+            <button className="text-[var(--muted)] hover:text-[var(--text)]" onClick={() => { setSelected(null); setSelectedId(null); }}>✕</button>
           </div>
           <div className="space-y-1 text-sm">
-            <div><span className="text-gray-500">Type:</span> {selected.type}</div>
-            <div><span className="text-gray-500">Label:</span> {labelFor(selected)}</div>
+            <div><span className="text-[var(--muted)]">Type:</span> {selected.type}</div>
+            <div><span className="text-[var(--muted)]">Label:</span> {labelFor(selected)}</div>
             {selected.type === 'player' && (
-              <div><span className="text-gray-500">Player ID:</span> {selected.playerId}</div>
+              <div><span className="text-[var(--muted)]">Player ID:</span> {selected.playerId}</div>
             )}
             {selected.type === 'pick' && (
               <div>
-                <div><span className="text-gray-500">Pick:</span> {selected.season} R{selected.round} S{selected.slot}</div>
-                {(selected as any).originalOwnerName && <div><span className="text-gray-500">Original owner:</span> {(selected as any).originalOwnerName}</div>}
+                <div><span className="text-[var(--muted)]">Pick:</span> {selected.season} R{selected.round} S{selected.slot}</div>
+                {(selected as any).originalOwnerName && <div><span className="text-[var(--muted)]">Original owner:</span> {(selected as any).originalOwnerName}</div>}
                 {(() => {
                   // Infer current owner by finding any clone node whose underlying asset id matches selected.id
                   const node = baseNodes.find(n => (n as any).data?.node?.id === selected.id);
                   const currOwner = node?.data?.tooltip?.includes('Current owner:')
                     ? (node.data.tooltip as string).split('\n').find((l: string) => l.startsWith('Current owner:'))?.split(': ')[1]
                     : undefined;
-                  return currOwner ? <div><span className="text-gray-500">Current owner:</span> {currOwner}</div> : null;
+                  return currOwner ? <div><span className="text-[var(--muted)]">Current owner:</span> {currOwner}</div> : null;
                 })()}
-                {selected.becameName && <div><span className="text-gray-500">Became:</span> {selected.becameName}</div>}
+                {selected.becameName && <div><span className="text-[var(--muted)]">Became:</span> {selected.becameName}</div>}
               </div>
             )}
           </div>

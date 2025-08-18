@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
+import SectionHeader from '@/components/ui/SectionHeader';
 
 type RecordCategory = 'team' | 'game' | 'season' | 'player';
 
@@ -198,7 +199,7 @@ export default function RecordsPage() {
   
   return (
     <div className="container mx-auto px-4 py-8">
-      <h1 className="text-3xl font-bold text-center mb-8">League Records</h1>
+      <SectionHeader title="League Records" />
       
       {/* Category Tabs */}
       <div className="flex flex-wrap justify-center mb-8 gap-2">

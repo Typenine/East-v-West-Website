@@ -18,6 +18,7 @@ import { LEAGUE_IDS } from '@/lib/constants/league';
 import { getTeamLogoPath, getTeamColorStyle, resolveCanonicalTeamName } from '@/lib/utils/team-utils';
 import LoadingState from '@/components/ui/loading-state';
 import ErrorState from '@/components/ui/error-state';
+import SectionHeader from '@/components/ui/SectionHeader';
 
 // Position grouping order for roster sections
 const POSITION_GROUP_ORDER = ['QB', 'RB', 'WR', 'TE', 'K', 'DEF/DST', 'DL', 'LB', 'DB', 'Other'] as const;
@@ -348,7 +349,7 @@ export default function TeamPage() {
   
   return (
     <div className="container mx-auto px-4 py-8">
-      <div className="flex flex-col items-center mb-8">
+      <div className="flex flex-col items-center mb-4">
         <div 
           className="w-32 h-32 rounded-full flex items-center justify-center mb-4 overflow-hidden" 
           style={getTeamColorStyle(teamName)}
@@ -362,11 +363,29 @@ export default function TeamPage() {
             onError={handleImageError}
           />
         </div>
-        <h1 className="text-3xl font-bold text-center mb-2">{teamName}</h1>
-        <p className="text-center text-gray-600 mb-4">
-          All-time Record: {allTimeStats.wins}-{allTimeStats.losses}-{allTimeStats.ties}
-        </p>
       </div>
+      <SectionHeader
+        title={teamName}
+        subtitle={`All-time Record: ${allTimeStats.wins}-${allTimeStats.losses}-${allTimeStats.ties}`}
+        className="mb-6"
+        actions={
+          <div className="flex items-center gap-2">
+            <label htmlFor="year-select" className="block text-sm font-medium text-gray-700">
+              Select Season
+            </label>
+            <select
+              id="year-select"
+              value={selectedYear}
+              onChange={(e) => handleYearChange(e.target.value)}
+              className="pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md"
+            >
+              <option value="2025">2025 Season</option>
+              <option value="2024">2024 Season</option>
+              <option value="2023">2023 Season</option>
+            </select>
+          </div>
+        }
+      />
       
       {/* All-time summary */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8" style={{borderTop: `4px solid ${getTeamColorStyle(teamName).backgroundColor}`}}>
@@ -388,22 +407,7 @@ export default function TeamPage() {
         </div>
       </div>
       
-      {/* Season selector */}
-      <div className="mb-8">
-        <label htmlFor="year-select" className="block text-sm font-medium text-gray-700 mb-2">
-          Select Season
-        </label>
-        <select
-          id="year-select"
-          value={selectedYear}
-          onChange={(e) => handleYearChange(e.target.value)}
-          className="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md"
-        >
-          <option value="2025">2025 Season</option>
-          <option value="2024">2024 Season</option>
-          <option value="2023">2023 Season</option>
-        </select>
-      </div>
+      
       
       <Tab.Group>
         <Tab.List className="flex space-x-1 rounded-xl p-1" style={{backgroundColor: `${getTeamColorStyle(teamName).backgroundColor}20`}}>

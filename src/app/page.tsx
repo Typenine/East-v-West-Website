@@ -5,6 +5,7 @@ import MatchupCard from '@/components/ui/matchup-card';
 import { IMPORTANT_DATES, LEAGUE_IDS } from '@/lib/constants/league';
 import { getLeagueMatchups, getTeamsData } from '@/lib/utils/sleeper-api';
 import EmptyState from '@/components/ui/empty-state';
+import SectionHeader from '@/components/ui/SectionHeader';
 
 export const revalidate = 0; // always fetch fresh Sleeper data
 
@@ -59,28 +60,27 @@ export default async function Home() {
           priority
           className="h-24 w-auto object-contain"
         />
-        <h1 className="text-3xl font-bold text-center">East v. West Fantasy Football</h1>
+        <SectionHeader title="East v. West Fantasy Football" className="mx-auto max-w-fit" />
       </div>
       
       {/* Countdowns Section */}
       <section className="mb-12">
+        <SectionHeader title="Key dates" />
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <CountdownTimer 
             targetDate={IMPORTANT_DATES.NFL_WEEK_1_START} 
-            title="Regular season starts in" 
-            className="bg-blue-50 border border-blue-200"
+            title="Regular season starts in"
           />
           <CountdownTimer 
             targetDate={IMPORTANT_DATES.TRADE_DEADLINE} 
-            title="Trade deadline in" 
-            className="bg-amber-50 border border-amber-200"
+            title="Trade deadline in"
           />
         </div>
       </section>
       
       {/* Week 1 Preview */}
       <section className="mb-12">
-        <h2 className="text-2xl font-bold mb-6">Week 1 Preview</h2>
+        <SectionHeader title="Week 1 preview" />
         {week1Matchups.length > 0 ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {week1Matchups.map((matchup, index) => (
@@ -92,7 +92,6 @@ export default async function Home() {
                 awayScore={matchup.awayScore}
                 kickoffTime={matchup.kickoffTime}
                 week={matchup.week}
-                className="bg-white"
               />
             ))}
           </div>
@@ -106,39 +105,39 @@ export default async function Home() {
       
       {/* Quick Links */}
       <section>
-        <h2 className="text-2xl font-bold mb-6">Quick Links</h2>
+        <SectionHeader title="Quick links" />
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
           <Link 
             href="/teams" 
-            className="bg-slate-700 text-white p-4 rounded-lg text-center font-medium hover:bg-slate-800 transition-colors"
+            className="inline-flex items-center justify-center rounded-full font-medium px-4 py-2 evw-surface border border-[var(--border)] text-[var(--text)] hover:opacity-90 focus:outline-none focus:ring-2 ring-[var(--focus)] ring-offset-2 ring-offset-[var(--surface)]"
             aria-label="View all teams"
           >
             Teams
           </Link>
           <Link 
             href="/standings" 
-            className="bg-slate-700 text-white p-4 rounded-lg text-center font-medium hover:bg-slate-800 transition-colors"
+            className="inline-flex items-center justify-center rounded-full font-medium px-4 py-2 evw-surface border border-[var(--border)] text-[var(--text)] hover:opacity-90 focus:outline-none focus:ring-2 ring-[var(--focus)] ring-offset-2 ring-offset-[var(--surface)]"
             aria-label="View league standings"
           >
             Standings
           </Link>
           <Link 
             href="/history" 
-            className="bg-slate-700 text-white p-4 rounded-lg text-center font-medium hover:bg-slate-800 transition-colors"
+            className="inline-flex items-center justify-center rounded-full font-medium px-4 py-2 evw-surface border border-[var(--border)] text-[var(--text)] hover:opacity-90 focus:outline-none focus:ring-2 ring-[var(--focus)] ring-offset-2 ring-offset-[var(--surface)]"
             aria-label="View league history"
           >
             History
           </Link>
           <Link 
             href="/draft" 
-            className="bg-slate-700 text-white p-4 rounded-lg text-center font-medium hover:bg-slate-800 transition-colors"
+            className="inline-flex items-center justify-center rounded-full font-medium px-4 py-2 evw-surface border border-[var(--border)] text-[var(--text)] hover:opacity-90 focus:outline-none focus:ring-2 ring-[var(--focus)] ring-offset-2 ring-offset-[var(--surface)]"
             aria-label="View draft information"
           >
             Draft
           </Link>
           <Link 
             href="/suggestions" 
-            className="bg-slate-700 text-white p-4 rounded-lg text-center font-medium hover:bg-slate-800 transition-colors"
+            className="inline-flex items-center justify-center rounded-full font-medium px-4 py-2 evw-surface border border-[var(--border)] text-[var(--text)] hover:opacity-90 focus:outline-none focus:ring-2 ring-[var(--focus)] ring-offset-2 ring-offset-[var(--surface)]"
             aria-label="Submit anonymous suggestions"
           >
             Suggestions
