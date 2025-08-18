@@ -47,12 +47,12 @@ function nodeStyleFor(kind: EVWGraphNode["type"]): React.CSSProperties {
   // Neutral dark cards with team-colored accent bars for readability
   switch (kind) {
     case "player":
-      return { background: "var(--surface)", color: "var(--text)", border: "1px solid var(--border)", borderRadius: 10, boxShadow: "var(--shadow-soft)", width: NODE_W };
+      return { background: "var(--surface)", color: "var(--text)", border: "1px solid var(--border)", borderRadius: "var(--radius-card)", boxShadow: "var(--shadow-soft)", width: NODE_W };
     case "pick":
-      return { background: "var(--surface)", color: "var(--text)", border: "1px solid var(--border)", borderRadius: 10, boxShadow: "var(--shadow-soft)", width: NODE_W };
+      return { background: "var(--surface)", color: "var(--text)", border: "1px solid var(--border)", borderRadius: "var(--radius-card)", boxShadow: "var(--shadow-soft)", width: NODE_W };
     case "trade":
     default:
-      return { background: "var(--surface)", color: "var(--text)", border: "1px solid var(--border)", borderRadius: 10, boxShadow: "var(--shadow-soft)", width: NODE_W };
+      return { background: "var(--surface)", color: "var(--text)", border: "1px solid var(--border)", borderRadius: "var(--radius-card)", boxShadow: "var(--shadow-soft)", width: NODE_W };
   }
 }
 
@@ -114,13 +114,14 @@ function AssetNode({ data, id }: any) {
       tabIndex={0}
       role="button"
       aria-label={data.ariaLabel as string | undefined}
-      className={`px-3 py-3 rounded-md text-[13px] shadow-sm border relative ${isDim ? 'opacity-30' : 'opacity-100'}`}
+      className={`evw-node px-3 py-3 rounded-[var(--radius-card)] text-[13px] border relative hover-lift focus-visible:ring-2 ring-[var(--focus)] ring-offset-1 ring-offset-[var(--surface)] ${isDim ? 'opacity-30' : 'opacity-100'}`}
       style={{ ...(data.style || {}) }}
     >
+      <span className="absolute left-0 right-0 top-0 h-1 accent-gradient rounded-t-[var(--radius-card)] pointer-events-none" />
       {pulse && (
         <>
-          <span className="absolute inset-0 rounded-md border-2 opacity-60 pointer-events-none" style={{ borderColor: BRACKET_RED }} />
-          <span className="absolute inset-0 rounded-md border-2 animate-ping opacity-40 pointer-events-none" style={{ borderColor: BRACKET_RED }} />
+          <span className="absolute inset-0 rounded-[var(--radius-card)] border-2 opacity-60 pointer-events-none" style={{ borderColor: BRACKET_RED }} />
+          <span className="absolute inset-0 rounded-[var(--radius-card)] border-2 animate-ping opacity-40 pointer-events-none" style={{ borderColor: BRACKET_RED }} />
         </>
       )}
       <div className="flex items-center gap-2">
@@ -165,7 +166,8 @@ function BandNode({ data, id }: any) {
     touchStart.current = null;
   };
   return (
-    <div className={`rounded-md border bg-[var(--surface)] border-[var(--border)] ${isDim ? 'opacity-30' : 'opacity-100'}`} style={{ position: 'relative', width: '100%', height: '100%' }} onTouchStart={onTS} onTouchEnd={onTE}>
+    <div className={`evw-node rounded-[var(--radius-card)] border bg-[var(--surface)] border-[var(--border)] ${isDim ? 'opacity-30' : 'opacity-100'}`} style={{ position: 'relative', width: '100%', height: '100%' }} onTouchStart={onTS} onTouchEnd={onTE}>
+      <span className="absolute left-0 right-0 top-0 h-1 accent-gradient rounded-t-[var(--radius-card)] pointer-events-none" />
       <div className="flex flex-col items-center justify-center px-3" style={{ height: BAND_HEADER_H }}>
         <button
           className="text-sm font-extrabold uppercase tracking-wider flex items-center gap-2"
@@ -178,9 +180,9 @@ function BandNode({ data, id }: any) {
         </button>
         <div className="mt-0.5 flex justify-center w-full">
           <svg width="28" height="8" viewBox="0 0 28 8" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <line x1="2" y1="2" x2="26" y2="2" stroke={BRACKET_RED} strokeWidth="3" strokeLinecap="square" />
-            <line x1="2" y1="2" x2="2" y2="6" stroke={BRACKET_RED} strokeWidth="3" strokeLinecap="square" />
-            <line x1="26" y1="2" x2="26" y2="6" stroke={BRACKET_RED} strokeWidth="3" strokeLinecap="square" />
+            <line x1="2" y1="2" x2="26" y2="2" stroke={BRACKET_RED} strokeWidth="3" strokeLinecap="round" />
+            <line x1="2" y1="2" x2="2" y2="6" stroke={BRACKET_RED} strokeWidth="3" strokeLinecap="round" />
+            <line x1="26" y1="2" x2="26" y2="6" stroke={BRACKET_RED} strokeWidth="3" strokeLinecap="round" />
           </svg>
         </div>
       </div>
@@ -195,22 +197,13 @@ function BandNode({ data, id }: any) {
             return (
               <g key={idx}>
                 {/* main bus */}
-                <g stroke={BRACKET_RED} strokeWidth={5} strokeLinecap="square">
+                <g stroke={BRACKET_RED} strokeWidth={5} strokeLinecap="round">
                   <line x1={minX - overhang} y1={r.busY} x2={maxX + overhang} y2={r.busY} />
                 </g>
-                {/* droplines */}
-                <g stroke={BRACKET_RED} strokeWidth={4} strokeLinecap="square">
-                  {r.xs.map((x, j) => (
-                    <line key={`d-${j}`} x1={x} y1={r.busY} x2={x} y2={r.assetTopY - 2} />
-                  ))}
-                </g>
-                {/* T-caps at bus and near assets */}
-                <g stroke={BRACKET_RED} strokeWidth={4} strokeLinecap="square">
-                  {r.xs.map((x, j) => (
-                    <g key={`c-${j}`}>
-                      <line x1={x - 7} y1={r.busY} x2={x + 7} y2={r.busY} />
-                      <line x1={x - 7} y1={r.assetTopY - 2} x2={x + 7} y2={r.assetTopY - 2} />
-                    </g>
+                {/* drop downs to each asset chip row line */}
+                <g stroke={BRACKET_RED} strokeWidth={3} strokeLinecap="round">
+                  {r.xs.map((x, i) => (
+                    <line key={i} x1={x} y1={r.busY} x2={x} y2={r.assetTopY - 2} />
                   ))}
                 </g>
               </g>
@@ -420,11 +413,11 @@ export default function TradeTreeCanvas({ graph, height = 640, onNodeClick }: Tr
           if (!collapsed) {
             outAssets.forEach((n) => {
               const cloneId = `asset:${n.id}:${bandId}`;
-              rfEdges.push({ id: `join:${cloneId}:${junctionId}`, source: cloneId, target: junctionId, type: 'step', style: { stroke: joinColor, strokeWidth: 4 }, markerEnd: { type: MarkerType.ArrowClosed, color: joinColor } });
+              rfEdges.push({ id: `join:${cloneId}:${junctionId}`, source: cloneId, target: junctionId, type: 'step', style: { stroke: joinColor, strokeWidth: 4, strokeLinecap: 'round', strokeLinejoin: 'round' }, markerEnd: { type: MarkerType.ArrowClosed, color: joinColor } });
             });
           }
           // Single edge from junction to the band header (label)
-          rfEdges.push({ id: `join:${junctionId}:${bandId}`, source: junctionId, target: bandId, type: 'step', style: { stroke: joinColor, strokeWidth: 4 }, markerEnd: { type: MarkerType.ArrowClosed, color: joinColor } });
+          rfEdges.push({ id: `join:${junctionId}:${bandId}`, source: junctionId, target: bandId, type: 'step', style: { stroke: joinColor, strokeWidth: 4, strokeLinecap: 'round', strokeLinejoin: 'round' }, markerEnd: { type: MarkerType.ArrowClosed, color: joinColor } });
 
           // Across-gutter connectors: from this band's brace junction to counterpart lane's chips for the same trade
           const laneTeamName = laneTeamBySide[side];
@@ -444,7 +437,7 @@ export default function TradeTreeCanvas({ graph, height = 640, onNodeClick }: Tr
                 source: junctionId,
                 target: oppBandId,
                 type: 'bezier',
-                style: { stroke: laneAccent, strokeWidth: 3 },
+                style: { stroke: laneAccent, strokeWidth: 3, strokeLinecap: 'round', strokeLinejoin: 'round' },
                 markerEnd: { type: MarkerType.ArrowClosed, color: laneAccent },
               });
             } else {
@@ -456,7 +449,7 @@ export default function TradeTreeCanvas({ graph, height = 640, onNodeClick }: Tr
                   source: junctionId,
                   target: targetCloneId,
                   type: 'bezier',
-                  style: { stroke: laneAccent, strokeWidth: 3, ...(dashed ? { strokeDasharray: dashed } : {}) },
+                  style: { stroke: laneAccent, strokeWidth: 3, strokeLinecap: 'round', strokeLinejoin: 'round', ...(dashed ? { strokeDasharray: dashed } : {}) },
                   markerEnd: { type: MarkerType.ArrowClosed, color: laneAccent },
                 });
               });
@@ -566,7 +559,7 @@ export default function TradeTreeCanvas({ graph, height = 640, onNodeClick }: Tr
         const bandOf = (cid: string) => cid.split(':').slice(2).join(':'); // asset:<id>:<bandId>
         const pair = fromClones.flatMap(f => toClones.map(t => [f, t] as const)).find(([f, t]) => bandOf(f) === bandOf(t));
         const [src, dst] = pair || [fromClones[0], toClones[0]];
-        rfEdges.push({ id: `became:${src}:${dst}`, source: src, target: dst, type: 'step', style: { stroke: 'var(--muted)', strokeWidth: 3, strokeDasharray: '6 4' }, markerEnd: { type: MarkerType.ArrowClosed, color: 'var(--muted)' } });
+        rfEdges.push({ id: `became:${src}:${dst}`, source: src, target: dst, type: 'step', style: { stroke: 'var(--muted)', strokeWidth: 3, strokeDasharray: '6 4', strokeLinecap: 'round', strokeLinejoin: 'round' }, markerEnd: { type: MarkerType.ArrowClosed, color: 'var(--muted)' } });
       }
       // If no clones exist yet (both collapsed), skip; edge will appear once bands are expanded and clones exist
     });
@@ -704,7 +697,7 @@ export default function TradeTreeCanvas({ graph, height = 640, onNodeClick }: Tr
   const rightLaneColor = ((rightLaneNode?.style as React.CSSProperties | undefined)?.color as string) || BRACKET_RED;
 
   return (
-    <div ref={wrapperRef} style={{ height }} className="border border-[var(--border)] rounded overflow-hidden relative bg-[var(--surface)] text-[var(--text)]">
+    <div ref={wrapperRef} style={{ height }} className="evw-surface border rounded shadow overflow-hidden relative text-[var(--text)]">
       <ReactFlow
         nodes={nodes}
         edges={edges}
@@ -715,6 +708,10 @@ export default function TradeTreeCanvas({ graph, height = 640, onNodeClick }: Tr
         onNodeMouseLeave={onNodeMouseLeave}
         nodesDraggable={false}
         nodeTypes={nodeTypes as any}
+        defaultEdgeOptions={{
+          markerEnd: { type: MarkerType.ArrowClosed },
+          style: { stroke: 'var(--muted)', strokeWidth: 2, strokeLinecap: 'round', strokeLinejoin: 'round' },
+        }}
         onInit={(instance: ReactFlowInstance) => {
           rfRef.current = instance;
           // try fit once if nodes already set
@@ -728,8 +725,15 @@ export default function TradeTreeCanvas({ graph, height = 640, onNodeClick }: Tr
         fitView
         proOptions={{ hideAttribution: true }}
       >
-        <MiniMap pannable zoomable className="opacity-40 hover:opacity-100 transition-opacity" />
-        <Controls position="bottom-right" />
+        <MiniMap
+          pannable
+          zoomable
+          className="evw-surface border rounded shadow opacity-60 hover:opacity-100 transition-opacity"
+          maskColor="color-mix(in srgb, var(--text) 8%, transparent)"
+          nodeStrokeColor={() => 'var(--border)'}
+          nodeColor={() => 'color-mix(in srgb, var(--text) 12%, transparent)'}
+        />
+        <Controls position="bottom-right" className="evw-surface border rounded shadow" />
         <Background variant="lines" gap={32} color="var(--border)" />
       </ReactFlow>
 

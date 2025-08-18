@@ -62,12 +62,7 @@ html[data-theme="light"] {
   --focus: var(--accent);
 }
 
-@theme inline {
-  --color-background: var(--bg);
-  --color-foreground: var(--text);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
+/* Tailwind theme mapping removed to avoid unknown at-rule lints. If needed, configure via Tailwind config. */
 
 body {
   background: var(--bg);
@@ -75,6 +70,21 @@ body {
   font-family: var(--font-sans), system-ui, -apple-system, "Segoe UI", Roboto, Ubuntu, Cantarell, "Helvetica Neue", Arial, "Noto Sans", "Apple Color Emoji", "Segoe UI Emoji";
   font-size: var(--fs-body);
   line-height: var(--lh-body);
+  position: relative; /* for backdrop pseudo element */
+}
+
+/* Global aurora background overlay */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(900px 600px at 15% 0%, color-mix(in srgb, var(--accent) 18%, transparent) 0%, transparent 60%),
+    radial-gradient(800px 520px at 85% 5%, color-mix(in srgb, var(--gold) 18%, transparent) 0%, transparent 60%),
+    radial-gradient(1200px 900px at 50% 120%, color-mix(in srgb, var(--accent) 10%, transparent) 0%, transparent 70%);
+  filter: saturate(120%);
 }
 
 /* Utilities tailored to tokens */
@@ -84,6 +94,23 @@ body {
   -webkit-backdrop-filter: blur(8px);
   backdrop-filter: blur(8px);
 }
+
+/* Translucent glass surface (use for navbar) */
+.evw-glass {
+  background-color: color-mix(in srgb, var(--surface) 85%, transparent);
+  border-color: color-mix(in srgb, var(--border) 80%, transparent);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+}
+
+/* Accent gradient utility (accent -> gold) */
+.accent-gradient {
+  background-image: linear-gradient(90deg, var(--accent), color-mix(in srgb, var(--accent) 60%, var(--gold) 40%), var(--gold));
+}
+
+/* Hover lift for cards */
+.hover-lift { transition: transform var(--motion) ease, box-shadow var(--motion) ease, border-color var(--motion) ease; }
+.hover-lift:hover { transform: translateY(-2px); box-shadow: var(--shadow-soft); border-color: color-mix(in srgb, var(--accent) 30%, var(--border)); }
 
 /* Base typography */
 h1, .h1 { font-size: var(--fs-h1); line-height: var(--lh-h1); font-weight: 700; letter-spacing: -0.01em; }
@@ -114,3 +141,65 @@ hr { border-color: var(--border); opacity: 0.7; }
 .pill-hover:hover {
   background-color: color-mix(in srgb, var(--accent) 10%, transparent);
 }
+
+/* Buttons */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 500;
+  outline: none;
+  border-radius: var(--radius-pill);
+  transition: background-color var(--motion) ease, color var(--motion) ease, box-shadow var(--motion) ease, filter var(--motion) ease;
+}
+.btn-primary {
+  background-image: linear-gradient(90deg, var(--accent), color-mix(in srgb, var(--accent) 60%, var(--gold) 40%), var(--gold));
+  color: white;
+  padding: 0.5rem 0.9rem;
+  box-shadow: 0 1px 0 rgba(255,255,255,0.05) inset;
+}
+.btn-primary:hover { filter: brightness(1.05); }
+.btn-primary:focus { outline: none; box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 35%, transparent); }
+.btn-secondary {
+  background-color: transparent;
+  color: var(--text);
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border));
+  padding: 0.5rem 0.9rem;
+}
+.btn-secondary:hover { background-color: color-mix(in srgb, var(--accent) 10%, transparent); }
+.btn-secondary:focus { outline: none; box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 30%, transparent); }
+
+/* React Flow theming */
+.react-flow__node .evw-node {
+  transition: box-shadow var(--motion) ease, border-color var(--motion) ease, transform var(--motion) ease;
+}
+.react-flow__node:hover .evw-node {
+  border-color: color-mix(in srgb, var(--accent) 30%, var(--border));
+}
+.react-flow__node.selected .evw-node {
+  box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--focus);
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+}
+
+.react-flow__edge-path {
+  transition: stroke var(--motion) ease, stroke-width var(--motion) ease, opacity var(--motion) ease;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.react-flow__edge:hover .react-flow__edge-path {
+  stroke: color-mix(in srgb, var(--accent) 35%, var(--muted));
+}
+.react-flow__edge.selected .react-flow__edge-path {
+  stroke: var(--accent) !important;
+  stroke-width: 4 !important;
+}
+
+.react-flow__minimap { border-radius: var(--radius-card); }
+.react-flow__controls { border-radius: var(--radius-card); }
+.react-flow__controls button {
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+.react-flow__controls button:hover { background: color-mix(in srgb, var(--text) 8%, transparent); }
+.react-flow__controls button:focus-visible { outline: none; box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 35%, transparent); }
