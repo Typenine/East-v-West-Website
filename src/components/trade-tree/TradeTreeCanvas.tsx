@@ -77,7 +77,7 @@ export type TradeTreeCanvasProps = {
 // --- Custom Node Renderers ---
 function AssetNode({ data, id }: any) {
   const n = data.node as EVWGraphNode;
-  const icon = n.type === 'player' ? '👤' : n.type === 'pick' ? '🎟️' : '🛡️';
+  const icon = n.type === 'player' ? '🧍' : n.type === 'pick' ? '🏈' : '🛡️';
   const chip = data.chip as string | undefined;
   const isDim = data.dim === true;
   const accent = (data.accent as string | undefined) ?? '#9CA3AF';
@@ -86,6 +86,15 @@ function AssetNode({ data, id }: any) {
     <div
       onMouseEnter={() => data.onHover?.(id, true)}
       onMouseLeave={() => data.onHover?.(id, false)}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          data.onActivate?.(id);
+        }
+      }}
+      tabIndex={0}
+      role="button"
+      aria-label={data.ariaLabel as string | undefined}
       className={`px-3 py-2 rounded-md text-sm shadow-sm border relative ${isDim ? 'opacity-30' : 'opacity-100'}`}
       style={{ ...(data.style || {}) }}
     >
@@ -235,23 +244,42 @@ export default function TradeTreeCanvas({ graph, height = 640, onNodeClick }: Tr
     const laneTeamBySide: Record<'left' | 'right', string> = { left: rootTeams[0], right: rootTeams[1] };
     const bandByLane: Record<'left' | 'right', Array<{ tradeId: string; date: string; otherTeams: string; assets: EVWGraphNode[] }>> = { left: [], right: [] };
 
+    const trace = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('trace') === 'true';
     for (const t of sortedTrades) {
       for (const side of ["left", "right"] as const) {
         const laneTeam = laneTeamBySide[side];
-        const teamIdx = t.teams.findIndex((nm) => nm === laneTeam);
-        if (teamIdx < 0) continue;
-        // assets in this trade received by this lane team
-        const assets: EVWGraphNode[] = [];
-        graph.edges.forEach((e) => {
-          if (e.kind !== "traded" || e.tradeId !== t.tradeId) return;
-          const meta = parseTradeEdgeId(e.id);
-          if (!meta || meta.teamIndex !== teamIdx) return;
-          const node = graph.nodes.find((nn) => nn.id === e.to);
-          if (node && (node.type === 'player' || node.type === 'pick')) assets.push(node);
-        });
-        if (assets.length) {
-          const otherTeams = t.teams.filter((nm) => nm !== laneTeam).join(" + ");
-          bandByLane[side].push({ tradeId: t.tradeId, date: t.date, otherTeams, assets });
+        const counterTeam = side === 'left' ? laneTeamBySide['right'] : laneTeamBySide['left'];
+        const outAssets: EVWGraphNode[] = [];
+        for (const n of graph.nodes) {
+          if (!(n.type === 'player' || n.type === 'pick')) continue;
+          const list = history.get(n.id) || [];
+          const idx = list.findIndex(h => h.tradeId === t.tradeId);
+          if (idx <= 0) continue; // must have a previous owner to infer sender
+          const prev = list[idx - 1];
+          const curr = list[idx];
+          const prevTrade = tradeById.get(prev.tradeId);
+          const currTrade = tradeById.get(curr.tradeId);
+          if (!prevTrade || !currTrade) continue;
+          const prevOwner = prevTrade.teams?.[prev.teamIndex];
+          const currOwner = currTrade.teams?.[curr.teamIndex];
+          if (prevOwner === laneTeam && currOwner === counterTeam) {
+            outAssets.push(n);
+          }
+        }
+        if (outAssets.length) {
+          bandByLane[side].push({ tradeId: t.tradeId, date: t.date, otherTeams: counterTeam, assets: outAssets });
+          if (trace) {
+            // Debug: verify legs match band title
+            console.table(outAssets.map((n) => {
+              const list = history.get(n.id) || [];
+              const idx = list.findIndex(h => h.tradeId === t.tradeId);
+              const prev = list[idx - 1];
+              const curr = list[idx];
+              const prevOwner = tradeById.get(prev.tradeId)?.teams?.[prev.teamIndex];
+              const currOwner = tradeById.get(curr.tradeId)?.teams?.[curr.teamIndex];
+              return { fromTeamId: prevOwner, toTeamId: currOwner, date: t.date, label: labelFor(n) };
+            }));
+          }
         }
       }
     }
@@ -306,28 +334,11 @@ export default function TradeTreeCanvas({ graph, height = 640, onNodeClick }: Tr
           draggable: false,
           selectable: false,
         });
-        labels[bandId] = `${b.date} • ${laneTeamBySide[side]} acquired from ${b.otherTeams}`;
+        labels[bandId] = `TO ${b.otherTeams.toUpperCase()} FOR: ${b.date}`;
         const bandStrokeColor = BRACKET_RED;
 
-        // Add bracket-style connectors: assets traded away by this lane in this trade → band
-        // Determine out-assets for this lane in this trade by looking at prior owners in history
-        const outAssets: EVWGraphNode[] = [];
-        for (const n of graph.nodes) {
-          if (!(n.type === 'player' || n.type === 'pick')) continue;
-          const list = history.get(n.id) || [];
-          const idx = list.findIndex(h => h.tradeId === b.tradeId);
-          if (idx <= 0) continue; // either not involved or first sighting (no prior owner info)
-          const prev = list[idx - 1];
-          const prevTrade = tradeById.get(prev.tradeId);
-          const curr = list[idx];
-          const currTrade = tradeById.get(curr.tradeId);
-          if (!prevTrade || !currTrade) continue;
-          const prevOwner = prevTrade.teams?.[prev.teamIndex];
-          const currOwner = currTrade.teams?.[curr.teamIndex];
-          if (prevOwner === laneTeamBySide[side] && currOwner !== laneTeamBySide[side]) {
-            outAssets.push(n);
-          }
-        }
+        // Add bracket-style connectors for outgoing assets in this band
+        const outAssets: EVWGraphNode[] = b.assets;
         if (outAssets.length) {
           // Create a hidden junction node slightly above the band header center
           const junctionId = `junction:${bandId}`;
@@ -341,6 +352,24 @@ export default function TradeTreeCanvas({ graph, height = 640, onNodeClick }: Tr
           });
           // Single edge from junction to the band header (label)
           rfEdges.push({ id: `join:${junctionId}:${bandId}`, source: junctionId, target: bandId, type: 'step', style: { stroke: joinColor, strokeWidth: 4 }, markerEnd: { type: MarkerType.ArrowClosed, color: joinColor } });
+
+          // Across-gutter connectors: from this band's brace junction to counterpart lane's chips for the same trade
+          const otherSide = side === 'left' ? 'right' as const : 'left' as const;
+          const oppBand = (bandByLane[otherSide] || []).find(bb => bb.tradeId === b.tradeId);
+          if (oppBand && oppBand.assets.length) {
+            const laneAccent = side === 'left' ? leftLaneColors.primary : rightLaneColors.primary;
+            oppBand.assets.forEach((n) => {
+              const dashed = n.type === 'pick' ? '6 4' : undefined;
+              rfEdges.push({
+                id: `xg:${junctionId}:${n.id}`,
+                source: junctionId,
+                target: n.id,
+                type: 'bezier',
+                style: { stroke: laneAccent, strokeWidth: 3, ...(dashed ? { strokeDasharray: dashed } : {}) },
+                markerEnd: { type: MarkerType.ArrowClosed, color: laneAccent },
+              });
+            });
+          }
         }
 
         // place assets as children when expanded
@@ -363,6 +392,7 @@ export default function TradeTreeCanvas({ graph, height = 640, onNodeClick }: Tr
             const colors = owner ? getTeamColors(owner) : undefined;
             const accent = colors?.secondary || colors?.primary || '#9CA3AF';
             const chip = n.type === "pick" && (n as any).season ? `${(n as any).pickInRound ? (n as any).pickInRound : `${(n as any).round}.${(n as any).slot?.toString().padStart(2,'0')}`} (${(n as any).season})${(n as any).becameName ? ` → ${(n as any).becameName}` : ""}` : undefined;
+            const aria = `${labelFor(n)}, sent by ${laneTeamBySide[side]} to ${b.otherTeams} on ${b.date}`;
             rfNodes.push({
               id: n.id,
               type: 'asset',
@@ -371,7 +401,7 @@ export default function TradeTreeCanvas({ graph, height = 640, onNodeClick }: Tr
               position: { x, y },
               sourcePosition: 'top',
               targetPosition: 'top',
-              data: { label: labelFor(n), node: n, chip, accent, onHover: (nid: string, on: boolean) => setHoverId(on ? nid : null), style: nodeStyleFor(n.type) },
+              data: { label: labelFor(n), node: n, chip, accent, ariaLabel: aria, onHover: (nid: string, on: boolean) => setHoverId(on ? nid : null), onActivate: () => setSelected(n), style: nodeStyleFor(n.type) },
               draggable: false,
             });
             assetIds.push(n.id);
@@ -452,7 +482,14 @@ export default function TradeTreeCanvas({ graph, height = 640, onNodeClick }: Tr
     }
     const dimmed = baseNodes.map((n) => ({ ...n, data: { ...(n.data || {}), dim: !seen.has(n.id) } }));
     const withPulse = applyBandPulse(dimmed);
-    const newEdges = baseEdges.map((e) => ({ ...e, style: { ...(e.style || {}), opacity: (seen.has(e.source) && seen.has(e.target)) ? 1 : 0.2 } }));
+    const newEdges = baseEdges.map((e) => {
+      const connected = seen.has(e.source) && seen.has(e.target);
+      const isNearHover = (e.source === hoverId || e.target === hoverId);
+      const baseWidth = (e.style as any)?.strokeWidth ?? 2;
+      const width = connected ? (isNearHover ? Math.max(5, baseWidth + 2) : baseWidth) : baseWidth;
+      const glow = isNearHover ? 'drop-shadow(0 0 2px rgba(200,30,30,0.6))' : undefined;
+      return { ...e, style: { ...(e.style || {}), opacity: connected ? 1 : 0.2, strokeWidth: width, filter: glow } };
+    });
     setNodes(withPulse);
     setEdges(newEdges);
   }, [hoverId, baseNodes, baseEdges, highlightBands]);
@@ -498,7 +535,7 @@ export default function TradeTreeCanvas({ graph, height = 640, onNodeClick }: Tr
         fitView
         proOptions={{ hideAttribution: true }}
       >
-        <MiniMap pannable zoomable />
+        <MiniMap pannable zoomable className="opacity-40 hover:opacity-100 transition-opacity" />
         <Controls position="bottom-right" />
         <Background variant="lines" gap={32} color="#EAECF0" />
       </ReactFlow>
@@ -555,6 +592,8 @@ export default function TradeTreeCanvas({ graph, height = 640, onNodeClick }: Tr
               <li key={id}>
                 <button
                   className="text-left hover:underline"
+                  onMouseEnter={() => setHoverId(id)}
+                  onMouseLeave={() => setHoverId(null)}
                   onClick={() => {
                     const c = bandCenters[id];
                     if (!c) return;
