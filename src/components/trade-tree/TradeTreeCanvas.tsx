@@ -23,12 +23,12 @@ import { getTeamColors } from "@/lib/utils/team-utils";
 const NODE_W = 220;
 const LANE_W = 840; // content width per lane
 const LANE_GUTTER = 64; // space between lanes
-const ROW_SPACING = 96; // vertical spacing between rows/sections
-const ASSET_H = 56; // visual height of asset node content
-const BAND_HEADER_H = 40;
+const ROW_SPACING = 104; // vertical spacing between rows/sections
+const ASSET_H = 60; // visual height of asset node content
+const BAND_HEADER_H = 44;
 const BAND_PAD_X = 12;
-const BAND_PAD_Y = 12;
-const GUTTER_X = 28; // >= 24px gutters
+const BAND_PAD_Y = 14;
+const GUTTER_X = 32; // generous gutters
 const BRACKET_RED = '#C81E1E';
 
 // Note: per-trade color mapping removed in favor of a unified bracket color for clarity
@@ -43,13 +43,13 @@ function labelFor(n: EVWGraphNode): string {
   return n.label;
 }
 
-function nodeStyleFor(kind: EVWGraphNode["type"], teamName?: string): React.CSSProperties {
-  const colors = teamName ? getTeamColors(teamName) : undefined;
+function nodeStyleFor(kind: EVWGraphNode["type"]): React.CSSProperties {
+  // Neutral dark cards with team-colored accent bars for readability
   switch (kind) {
     case "player":
-      return { background: colors?.primary ?? "#DBEAFE", border: "1px solid rgba(255,255,255,0.2)", borderRadius: 10, boxShadow: "0 1px 2px rgba(0,0,0,0.1)", width: NODE_W };
+      return { background: "#111827", color: "#F3F4F6", border: "1px solid #374151", borderRadius: 10, boxShadow: "0 1px 2px rgba(0,0,0,0.25)", width: NODE_W };
     case "pick":
-      return { background: colors?.secondary ?? "#DCFCE7", border: "1px solid rgba(255,255,255,0.2)", borderRadius: 10, boxShadow: "0 1px 2px rgba(0,0,0,0.1)", width: NODE_W };
+      return { background: "#0B1220", color: "#E5E7EB", border: "1px solid #334155", borderRadius: 10, boxShadow: "0 1px 2px rgba(0,0,0,0.25)", width: NODE_W };
     case "trade":
     default:
       return { background: "#F3F4F6", border: "1px solid #E5E7EB", borderRadius: 10, width: NODE_W };
@@ -80,20 +80,22 @@ function AssetNode({ data, id }: any) {
   const icon = n.type === 'player' ? '👤' : n.type === 'pick' ? '🎟️' : '🛡️';
   const chip = data.chip as string | undefined;
   const isDim = data.dim === true;
+  const accent = (data.accent as string | undefined) ?? '#9CA3AF';
   return (
     <div
       onMouseEnter={() => data.onHover?.(id, true)}
       onMouseLeave={() => data.onHover?.(id, false)}
-      className={`px-3 py-2 rounded-md text-sm shadow-sm border ${isDim ? 'opacity-30' : 'opacity-100'}`}
+      className={`px-3 py-2 rounded-md text-sm shadow-sm border relative ${isDim ? 'opacity-30' : 'opacity-100'}`}
       style={{ ...(data.style || {}) }}
     >
+      <span className="absolute left-0 top-0 bottom-0" style={{ width: 4, background: accent, borderTopLeftRadius: 10, borderBottomLeftRadius: 10 }} />
       <div className="flex items-center gap-2">
         <span className="shrink-0">{icon}</span>
-        <span className="font-medium truncate" title={data.label}>{data.label}</span>
+        <span className="font-semibold truncate" title={data.label}>{data.label}</span>
       </div>
       {chip && (
         <div className="mt-1 text-[11px]">
-          <span className="inline-block rounded bg-white/20 border border-white/30 px-1 py-0.5" title={chip}>{chip}</span>
+          <span className="inline-block rounded px-1 py-0.5 border" style={{ background: 'rgba(255,255,255,0.06)', borderColor: 'rgba(255,255,255,0.2)' }} title={chip}>{chip}</span>
         </div>
       )}
     </div>
@@ -109,7 +111,7 @@ function BandNode({ data, id }: any) {
     <div className={`rounded-md border bg-white ${isDim ? 'opacity-30' : 'opacity-100'}`} style={{ position: 'relative', width: '100%', height: '100%' }}>
       <div className="flex items-center justify-between px-3" style={{ height: BAND_HEADER_H }}>
         <button
-          className="text-red-700 hover:text-red-800 text-xs font-bold uppercase tracking-wide flex items-center gap-2"
+          className="text-red-700 hover:text-red-800 text-sm font-extrabold uppercase tracking-wider flex items-center gap-2"
           onClick={() => data.onToggle?.(id)}
           title={collapsed ? 'Expand' : 'Collapse'}
         >
@@ -124,12 +126,28 @@ function BandNode({ data, id }: any) {
             if (!r.xs?.length) return null;
             const minX = Math.min(...r.xs);
             const maxX = Math.max(...r.xs);
+            const overhang = 20;
             return (
-              <g key={idx} stroke={BRACKET_RED} strokeWidth={4} strokeLinecap="square">
-                <line x1={minX - 14} y1={r.busY} x2={maxX + 14} y2={r.busY} />
-                {r.xs.map((x, j) => (
-                  <line key={j} x1={x} y1={r.busY} x2={x} y2={r.assetTopY} />
-                ))}
+              <g key={idx}>
+                {/* main bus */}
+                <g stroke={BRACKET_RED} strokeWidth={5} strokeLinecap="square">
+                  <line x1={minX - overhang} y1={r.busY} x2={maxX + overhang} y2={r.busY} />
+                </g>
+                {/* droplines */}
+                <g stroke={BRACKET_RED} strokeWidth={4} strokeLinecap="square">
+                  {r.xs.map((x, j) => (
+                    <line key={`d-${j}`} x1={x} y1={r.busY} x2={x} y2={r.assetTopY - 2} />
+                  ))}
+                </g>
+                {/* T-caps at bus and near assets */}
+                <g stroke={BRACKET_RED} strokeWidth={4} strokeLinecap="square">
+                  {r.xs.map((x, j) => (
+                    <g key={`c-${j}`}>
+                      <line x1={x - 7} y1={r.busY} x2={x + 7} y2={r.busY} />
+                      <line x1={x - 7} y1={r.assetTopY - 2} x2={x + 7} y2={r.assetTopY - 2} />
+                    </g>
+                  ))}
+                </g>
               </g>
             );
           })}
@@ -235,8 +253,8 @@ export default function TradeTreeCanvas({ graph, height = 640, onNodeClick }: Tr
 
     const laneLeftId = "lane:left";
     const laneRightId = "lane:right";
-    rfNodes.push({ id: laneLeftId, position: { x: 0, y: 0 }, data: { label: `ACQUIRED BY ${rootTeams[0].toUpperCase()}` }, style: { width: LANE_W, height: 48, background: "transparent", color: BRACKET_RED, borderRadius: 0, padding: 8, fontWeight: 800, letterSpacing: 0.6, fontSize: 22 }, draggable: false, selectable: false });
-    rfNodes.push({ id: laneRightId, position: { x: LANE_W + LANE_GUTTER, y: 0 }, data: { label: `ACQUIRED BY ${rootTeams[1].toUpperCase()}` }, style: { width: LANE_W, height: 48, background: "transparent", color: BRACKET_RED, borderRadius: 0, padding: 8, fontWeight: 800, letterSpacing: 0.6, fontSize: 22 }, draggable: false, selectable: false });
+    rfNodes.push({ id: laneLeftId, position: { x: 0, y: 0 }, data: { label: `ACQUIRED BY ${rootTeams[0].toUpperCase()}` }, style: { width: LANE_W, height: 48, background: "transparent", color: BRACKET_RED, borderRadius: 0, padding: 8, fontWeight: 800, letterSpacing: 0.8, fontSize: 22, display: 'flex', alignItems: 'center', justifyContent: 'center', borderBottom: `2px solid ${BRACKET_RED}` }, draggable: false, selectable: false });
+    rfNodes.push({ id: laneRightId, position: { x: LANE_W + LANE_GUTTER, y: 0 }, data: { label: `ACQUIRED BY ${rootTeams[1].toUpperCase()}` }, style: { width: LANE_W, height: 48, background: "transparent", color: BRACKET_RED, borderRadius: 0, padding: 8, fontWeight: 800, letterSpacing: 0.8, fontSize: 22, display: 'flex', alignItems: 'center', justifyContent: 'center', borderBottom: `2px solid ${BRACKET_RED}` }, draggable: false, selectable: false });
 
     const perRow = Math.max(1, Math.floor((LANE_W - (BAND_PAD_X * 2)) / (NODE_W + GUTTER_X)));
     const isCollapsed = (bandId: string, indexWithinLane: number) => {
@@ -266,7 +284,7 @@ export default function TradeTreeCanvas({ graph, height = 640, onNodeClick }: Tr
           type: 'band',
           position: { x: laneX, y: bandY },
           data: bandData,
-          style: { width: LANE_W, height: bandHeight, borderColor: BRACKET_RED },
+          style: { width: LANE_W, height: bandHeight, borderColor: BRACKET_RED, boxShadow: '0 1px 2px rgba(0,0,0,0.06)' },
           sourcePosition: 'bottom',
           targetPosition: 'top',
           draggable: false,
@@ -319,6 +337,8 @@ export default function TradeTreeCanvas({ graph, height = 640, onNodeClick }: Tr
             const x = BAND_PAD_X + gridCol * (NODE_W + GUTTER_X);
             const y = BAND_HEADER_H + BAND_PAD_Y + row * (ASSET_H + 12);
             const owner = currentOwner.get(n.id);
+            const colors = owner ? getTeamColors(owner) : undefined;
+            const accent = colors?.secondary || colors?.primary || '#9CA3AF';
             const chip = n.type === "pick" && (n as any).season ? `${(n as any).pickInRound ? (n as any).pickInRound : `${(n as any).round}.${(n as any).slot?.toString().padStart(2,'0')}`} (${(n as any).season})${(n as any).becameName ? ` → ${(n as any).becameName}` : ""}` : undefined;
             rfNodes.push({
               id: n.id,
@@ -328,12 +348,12 @@ export default function TradeTreeCanvas({ graph, height = 640, onNodeClick }: Tr
               position: { x, y },
               sourcePosition: 'top',
               targetPosition: 'top',
-              data: { label: labelFor(n), node: n, chip, onHover: (nid: string, on: boolean) => setHoverId(on ? nid : null), style: nodeStyleFor(n.type, owner) },
+              data: { label: labelFor(n), node: n, chip, accent, onHover: (nid: string, on: boolean) => setHoverId(on ? nid : null), style: nodeStyleFor(n.type) },
               draggable: false,
             });
             assetIds.push(n.id);
             // collect anchors for bus overlay per row (longer droplines)
-            if (!rowsAnchors[row]) rowsAnchors[row] = { busY: y - 20, assetTopY: y, xs: [] };
+            if (!rowsAnchors[row]) rowsAnchors[row] = { busY: y - 28, assetTopY: y, xs: [] };
             rowsAnchors[row].xs.push(x + NODE_W / 2);
           });
           // Create inbound junction inside band to split to assets (bracket style)
@@ -443,7 +463,7 @@ export default function TradeTreeCanvas({ graph, height = 640, onNodeClick }: Tr
       >
         <MiniMap pannable zoomable />
         <Controls position="bottom-right" />
-        <Background gap={16} />
+        <Background variant="lines" gap={32} color="#EAECF0" />
       </ReactFlow>
 
       {/* Floating Legend / Key */}
