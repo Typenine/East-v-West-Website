@@ -25,21 +25,36 @@ export default async function Home() {
   try {
     // Get current NFL state and teams in parallel
     const [nflState, teams] = await Promise.all([
-      getNFLState().catch(() => ({ week: 1, display_week: 1 })),
+      getNFLState().catch(() => ({ week: 1, display_week: 1, season_type: 'regular' })),
       getTeamsData(leagueId),
     ]);
+    const seasonType = (nflState as { season_type?: string }).season_type ?? 'regular';
+    const hasScores = (nflState as { season_has_scores?: boolean }).season_has_scores;
     const rawWeek = (nflState as { week?: number; display_week?: number }).week ?? (nflState as { display_week?: number }).display_week ?? 1;
-    currentWeek = typeof rawWeek === 'number' && rawWeek >= 1 && rawWeek <= 18 ? rawWeek : 1;
+    const week1Ts = new Date(IMPORTANT_DATES.NFL_WEEK_1_START).getTime();
+    const beforeWeek1 = Number.isFinite(week1Ts) && Date.now() < week1Ts;
+    if (seasonType !== 'regular' || beforeWeek1 || hasScores === false) {
+      currentWeek = 1;
+    } else {
+      currentWeek = typeof rawWeek === 'number' && rawWeek >= 1 && rawWeek <= 18 ? rawWeek : 1;
+    }
 
     const matchups = await getLeagueMatchups(leagueId, currentWeek);
+    // If the current week hasn't started (all 0-0), show previous week's matchups instead
+    const hasAnyPoints = matchups.some((m) => ((m as { custom_points?: number; points?: number }).custom_points ?? m.points ?? 0) > 0);
+    let mus = matchups;
+    if (!hasAnyPoints && currentWeek > 1) {
+      currentWeek = currentWeek - 1;
+      mus = await getLeagueMatchups(leagueId, currentWeek);
+    }
     const rosterIdToName = new Map<number, string>(
       teams.map((t) => [t.rosterId, t.teamName])
     );
     const groups = new Map<number, { roster_id: number; points: number }[]>();
-    for (const m of matchups) {
+    for (const m of mus) {
       const arr = groups.get(m.matchup_id) || [];
       // Use points reported by Sleeper
-      const pts = m.points ?? 0;
+      const pts = (m.custom_points ?? m.points ?? 0);
       arr.push({ roster_id: m.roster_id, points: pts });
       groups.set(m.matchup_id, arr);
     }
