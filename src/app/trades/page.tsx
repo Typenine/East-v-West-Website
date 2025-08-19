@@ -374,6 +374,7 @@ function TradesContent() {
       </div>
     </div>
   );
+}
 
 // Export the page component with Suspense boundary
 export default function TradesPage() {
