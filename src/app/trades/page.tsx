@@ -1,13 +1,12 @@
 'use client';
 
-import { useState, useEffect, Suspense } from 'react';
+ import { useState, useEffect, useRef, Suspense } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { LEAGUE_IDS } from '@/lib/constants/league';
 import { getTeamsData, TeamData } from '@/lib/utils/sleeper-api';
 import { Trade, fetchTradesByYear, fetchTradesAllTime } from '@/lib/utils/trades';
-import LoadingState from '@/components/ui/loading-state';
 import ErrorState from '@/components/ui/error-state';
 import EmptyState from '@/components/ui/empty-state';
 import { getTeamLogoPath, getTeamColorStyle } from '@/lib/utils/team-utils';
@@ -16,6 +15,68 @@ import { Card, CardHeader, CardTitle, CardContent, CardFooter } from '@/componen
 import Label from '@/components/ui/Label';
 import { Select } from '@/components/ui/Select';
 import { Button } from '@/components/ui/Button';
+ import Skeleton from '@/components/ui/Skeleton';
+
+ // Page-level cache config
+ const CACHE_KEY = 'trades_page_cache_v1';
+ const CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
+
+ type CacheEntry = { trades: Trade[]; teams: TeamData[]; ts: number };
+
+ function TradeCardSkeleton() {
+   return (
+     <Card className="hover:shadow-[var(--shadow-hover)] transition-shadow">
+       <CardHeader className="bg-[var(--surface)]">
+         <div className="flex items-center justify-between">
+           <Skeleton className="h-5 w-1/2" />
+           <Skeleton className="h-4 w-24" />
+         </div>
+       </CardHeader>
+       <CardContent>
+         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+           <div>
+             <div className="flex items-center mb-2 gap-3">
+               <Skeleton className="w-8 h-8 rounded-full" />
+               <Skeleton className="h-4 w-40" />
+             </div>
+             <div className="space-y-2">
+               <Skeleton className="h-3 w-3/4" />
+               <Skeleton className="h-3 w-2/3" />
+               <Skeleton className="h-3 w-1/2" />
+             </div>
+           </div>
+           <div>
+             <div className="flex items-center mb-2 gap-3">
+               <Skeleton className="w-8 h-8 rounded-full" />
+               <Skeleton className="h-4 w-40" />
+             </div>
+             <div className="space-y-2">
+               <Skeleton className="h-3 w-3/4" />
+               <Skeleton className="h-3 w-2/3" />
+               <Skeleton className="h-3 w-1/2" />
+             </div>
+           </div>
+         </div>
+       </CardContent>
+       <CardFooter>
+         <Skeleton className="h-4 w-28" />
+       </CardFooter>
+     </Card>
+   );
+ }
+
+ function TradesSkeletonPage() {
+   return (
+     <div className="container mx-auto px-4 py-8">
+       <SectionHeader title="Trades" />
+       <div className="space-y-6" role="status" aria-live="polite" aria-busy="true">
+         {Array.from({ length: 3 }).map((_, i) => (
+           <TradeCardSkeleton key={i} />
+         ))}
+       </div>
+     </div>
+   );
+ }
 
 // Create a client component that uses searchParams
 function TradesContent() {
@@ -38,6 +99,9 @@ function TradesContent() {
   );
   const [sortBy, setSortBy] = useState<string>(sortParam);
   const [teams, setTeams] = useState<TeamData[]>([]);
+  const cacheRef = useRef<Record<string, CacheEntry>>({});
+  const hydratedRef = useRef(false);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   // Helper: map selected year to leagueId
   const getLeagueIdForYear = (year: string) => {
@@ -72,10 +136,37 @@ function TradesContent() {
     window.history.replaceState({}, '', newUrl);
   }, [selectedYear, selectedTeam, selectedAssetType, sortBy]);
   
-  // Fetch trades when year changes
+  // Fetch trades when year changes (with cache)
   useEffect(() => {
     const fetchTrades = async () => {
       try {
+        // Hydrate cache from sessionStorage once per mount
+        if (!hydratedRef.current) {
+          hydratedRef.current = true;
+          try {
+            const raw = sessionStorage.getItem(CACHE_KEY);
+            if (raw) {
+              const parsed = JSON.parse(raw) as Record<string, CacheEntry>;
+              if (parsed && typeof parsed === 'object') {
+                cacheRef.current = parsed;
+              }
+            }
+          } catch {
+            // ignore corrupted cache
+          }
+        }
+
+        const cached = cacheRef.current[selectedYear];
+        const isValid = cached && Date.now() - cached.ts < CACHE_TTL_MS;
+        if (isValid && cached) {
+          // Serve from cache, skip network
+          setTrades(cached.trades);
+          setTeams(cached.teams);
+          setError(null);
+          setLoading(false);
+          return;
+        }
+
         setLoading(true);
         const tradesPromise = selectedYear === 'all' ? fetchTradesAllTime() : fetchTradesByYear(selectedYear);
         const [yearTrades, teamList] = await Promise.all([
@@ -85,6 +176,13 @@ function TradesContent() {
         setTrades(yearTrades);
         setTeams(teamList);
         setError(null);
+        // Update cache and persist
+        cacheRef.current[selectedYear] = { trades: yearTrades, teams: teamList, ts: Date.now() };
+        try {
+          sessionStorage.setItem(CACHE_KEY, JSON.stringify(cacheRef.current));
+        } catch {
+          // storage may be full or unavailable; ignore
+        }
       } catch (err) {
         console.error('Error fetching trades:', err);
         setError('Failed to load trades. Please try again later.');
@@ -94,7 +192,7 @@ function TradesContent() {
     };
     
     fetchTrades();
-  }, [selectedYear]);
+  }, [selectedYear, refreshKey]);
   
   // Filter and sort trades based on selected criteria
   const filteredAndSortedTrades = trades
@@ -130,17 +228,13 @@ function TradesContent() {
           return new Date(b.date).getTime() - new Date(a.date).getTime();
       }
     });
-  
-  if (loading) {
-    return <LoadingState message="Loading trades..." fullPage />;
-  }
 
   if (error) {
     return (
       <ErrorState 
         message={`Error loading trades: ${error}`}
         fullPage
-        retry={() => setLoading(true)}
+        retry={() => { setError(null); setRefreshKey((k) => k + 1); }}
         homeLink
       />
     );
@@ -225,7 +319,13 @@ function TradesContent() {
       
       {/* Trade Feed */}
       <div className="space-y-6" aria-labelledby="trades-heading">
-        {filteredAndSortedTrades.length > 0 ? (
+        {loading ? (
+          <div role="status" aria-live="polite" aria-busy="true" className="space-y-6">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <TradeCardSkeleton key={i} />
+            ))}
+          </div>
+        ) : filteredAndSortedTrades.length > 0 ? (
           filteredAndSortedTrades.map((trade) => (
             <Link
               key={trade.id}
@@ -379,7 +479,7 @@ function TradesContent() {
 // Export the page component with Suspense boundary
 export default function TradesPage() {
   return (
-    <Suspense fallback={<LoadingState message="Loading trades..." />}>
+    <Suspense fallback={<TradesSkeletonPage />}>
       <TradesContent />
     </Suspense>
   );
