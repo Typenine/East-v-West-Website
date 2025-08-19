@@ -2,9 +2,12 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
+import Image from 'next/image';
+import { getTeamLogoPath, getTeamColorStyle } from '@/lib/utils/team-utils';
 import { CHAMPIONS, LEAGUE_IDS } from '@/lib/constants/league';
 import LoadingState from '@/components/ui/loading-state';
 import ErrorState from '@/components/ui/error-state';
+import Card, { CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
 import {
   getFranchisesAllTime,
   getLeagueRecordBook,
@@ -12,6 +15,7 @@ import {
   getLeaguePlayoffBracketsWithScores,
   getLeagueWinnersBracket,
   getRosterIdToTeamNameMap,
+  derivePodiumFromWinnersBracketByYear,
   type FranchiseSummary,
   type LeagueRecordBook,
   type SleeperBracketGameWithScore,
@@ -39,6 +43,38 @@ export default function HistoryPage() {
       map[teamName] = ownerId;
     }
     return map;
+  }, []);
+  // Auto-derived podiums from Sleeper brackets (by year)
+  const [podiumsByYear, setPodiumsByYear] = useState<Record<string, { champion: string; runnerUp: string; thirdPlace: string }>>({});
+
+  // Derive podiums for past seasons (do not block the main load)
+  useEffect(() => {
+    let cancelled = false;
+    async function loadPodiums() {
+      try {
+        const years = ['2024', '2023'];
+        const results = await Promise.all(years.map((y) => derivePodiumFromWinnersBracketByYear(y)));
+        if (cancelled) return;
+        const merged: Record<string, { champion: string; runnerUp: string; thirdPlace: string }> = {};
+        years.forEach((y, idx) => {
+          const r = results[idx];
+          if (!r) return;
+          const base = CHAMPIONS[y as keyof typeof CHAMPIONS];
+          merged[y] = {
+            champion: (r.champion ?? base?.champion ?? 'TBD') as string,
+            runnerUp: (r.runnerUp ?? base?.runnerUp ?? 'TBD') as string,
+            thirdPlace: (r.thirdPlace ?? base?.thirdPlace ?? 'TBD') as string,
+          };
+        });
+        setPodiumsByYear(merged);
+      } catch (e) {
+        console.error('Failed to auto-derive podiums:', e);
+      }
+    }
+    loadPodiums();
+    return () => {
+      cancelled = true;
+    };
   }, []);
   
   // Brackets state
@@ -254,36 +290,121 @@ export default function HistoryPage() {
         <div>
           <h2 className="text-2xl font-bold mb-6">League Champions</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {Object.entries(CHAMPIONS).map(([year, data]) => (
-              <div key={year} className="evw-surface border rounded-[var(--radius-card)] overflow-hidden hover-lift">
-                <div className="accent-gradient text-white px-4 py-2 text-lg font-bold">
-                  {year} Season
-                </div>
-                <div className="p-6">
-                  <div className="text-center">
-                    <div className="text-5xl mb-4">🏆</div>
-                    <h3 className="text-xl font-semibold mb-2 text-[var(--text)]">{data.champion}</h3>
-                    {(() => {
-                      const ownerId = ownerByTeamName[data.champion as keyof typeof ownerByTeamName];
-                      const rosterId = ownerId ? ownerToRosterId[ownerId] : undefined;
-                      if (data.champion === 'TBD' || !ownerId || rosterId === undefined) {
-                        return (
-                          <span className="text-[var(--muted)] text-sm">Link unavailable</span>
-                        );
-                      }
-                      return (
-                        <Link 
-                          href={`/teams/${rosterId}`}
-                          className="text-[var(--accent)] hover:underline"
+            {Object.entries(CHAMPIONS).map(([year, data]) => {
+              const merged = podiumsByYear[year]
+                ? podiumsByYear[year]
+                : (data as { champion: string; runnerUp: string; thirdPlace: string });
+              const { champion, runnerUp, thirdPlace } = merged;
+              const renderLink = (teamName: string) => {
+                const ownerId = ownerByTeamName[teamName];
+                const rosterId = ownerId ? ownerToRosterId[ownerId] : undefined;
+                if (teamName === 'TBD' || !ownerId || rosterId === undefined) {
+                  return <span className="text-[var(--muted)] text-xs">Link unavailable</span>;
+                }
+                return (
+                  <Link href={`/teams/${rosterId}`} className="text-[var(--accent)] text-xs hover:underline">
+                    View Team
+                  </Link>
+                );
+              };
+              return (
+                <Card key={year} className="overflow-hidden hover-lift">
+                  <CardHeader className="accent-gradient text-white">
+                    <CardTitle className="text-white text-lg">{year} Season</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    {/* Champion */}
+                    <div className="text-center">
+                      <div className="flex justify-center mb-4">
+                        <div
+                          className="w-14 h-14 rounded-full flex items-center justify-center overflow-hidden"
+                          style={champion !== 'TBD' ? getTeamColorStyle(champion) : undefined}
                         >
-                          View Team
-                        </Link>
-                      );
-                    })()}
-                  </div>
-                </div>
-              </div>
-            ))}
+                          {champion !== 'TBD' ? (
+                            <Image
+                              src={getTeamLogoPath(champion)}
+                              alt={champion}
+                              width={48}
+                              height={48}
+                              className="object-contain"
+                              onError={(e) => {
+                                const t = e.target as HTMLImageElement;
+                                t.style.display = 'none';
+                              }}
+                            />
+                          ) : (
+                            <span className="text-3xl">🏆</span>
+                          )}
+                        </div>
+                      </div>
+                      <h3 className="text-xl font-semibold mb-2 text-[var(--text)]">{champion}</h3>
+                      {renderLink(champion)}
+                    </div>
+
+                    {/* Runner-up and Third Place */}
+                    <div className="mt-6 space-y-4">
+                      {/* Runner-up */}
+                      <div className="flex items-center gap-3">
+                        <div
+                          className="w-10 h-10 rounded-full flex items-center justify-center overflow-hidden"
+                          style={runnerUp !== 'TBD' ? getTeamColorStyle(runnerUp) : undefined}
+                        >
+                          {runnerUp !== 'TBD' ? (
+                            <Image
+                              src={getTeamLogoPath(runnerUp)}
+                              alt={runnerUp}
+                              width={32}
+                              height={32}
+                              className="object-contain"
+                              onError={(e) => {
+                                const t = e.target as HTMLImageElement;
+                                t.style.display = 'none';
+                              }}
+                            />
+                          ) : (
+                            <span className="text-xl">🥈</span>
+                          )}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="text-xs text-[var(--muted)]">Runner-up</div>
+                          <div className="text-sm font-medium text-[var(--text)] truncate">{runnerUp}</div>
+                          {renderLink(runnerUp)}
+                        </div>
+                      </div>
+
+                      {/* Third Place */}
+                      <div className="flex items-center gap-3">
+                        <div
+                          className="w-10 h-10 rounded-full flex items-center justify-center overflow-hidden"
+                          style={thirdPlace !== 'TBD' ? getTeamColorStyle(thirdPlace) : undefined}
+                        >
+                          {thirdPlace !== 'TBD' ? (
+                            <Image
+                              src={getTeamLogoPath(thirdPlace)}
+                              alt={thirdPlace}
+                              width={32}
+                              height={32}
+                              className="object-contain"
+                              onError={(e) => {
+                                const t = e.target as HTMLImageElement;
+                                t.style.display = 'none';
+                              }}
+                            />
+                          ) : (
+                            <span className="text-xl">🥉</span>
+                          )}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="text-xs text-[var(--muted)]">Third Place</div>
+                          <div className="text-sm font-medium text-[var(--text)] truncate">{thirdPlace}</div>
+                          {renderLink(thirdPlace)}
+                        </div>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              );
+            })}
           </div>
         </div>
       )}
