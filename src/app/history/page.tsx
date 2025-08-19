@@ -47,6 +47,9 @@ export default function HistoryPage() {
   // Auto-derived podiums from Sleeper brackets (by year)
   const [podiumsByYear, setPodiumsByYear] = useState<Record<string, { champion: string; runnerUp: string; thirdPlace: string }>>({});
 
+  // Regular season winners count per franchise (by team name)
+  const [regularSeasonWinnerCounts, setRegularSeasonWinnerCounts] = useState<Record<string, number>>({});
+
   // Derive podiums for past seasons (do not block the main load)
   useEffect(() => {
     let cancelled = false;
@@ -164,6 +167,23 @@ export default function HistoryPage() {
         }
         setOwnerToRosterId(ownerRosterMap);
 
+        // Compute Regular Season Winners per franchise (previous completed seasons)
+        const rsCounts: Record<string, number> = {};
+        const rsYears: string[] = ['2024', '2023'];
+        for (const y of rsYears) {
+          const teams = allTeams[y] || [];
+          if (!teams || teams.length === 0) continue;
+          const sorted = [...teams].sort((a, b) => {
+            if (b.wins !== a.wins) return b.wins - a.wins;
+            return (b.fpts ?? 0) - (a.fpts ?? 0);
+          });
+          const top = sorted[0];
+          if (top?.teamName) {
+            rsCounts[top.teamName] = (rsCounts[top.teamName] || 0) + 1;
+          }
+        }
+        setRegularSeasonWinnerCounts(rsCounts);
+
         // Compute Most Playoff Appearances using winners bracket participants per season (exclude 2025 at season start)
         const previousYears: string[] = ['2024', '2023'];
         const leagueIdsByYear: Record<string, string> = {};
@@ -232,6 +252,24 @@ export default function HistoryPage() {
       cancelled = true;
     };
   }, []);
+  
+  // Aggregate runner-up and third-place counts by team name, prefer auto-derived podiums where available
+  const { runnerUpCounts, thirdPlaceCounts } = useMemo(() => {
+    const ru: Record<string, number> = {};
+    const tp: Record<string, number> = {};
+    Object.entries(CHAMPIONS).forEach(([year, base]) => {
+      const merged = podiumsByYear[year]
+        ? podiumsByYear[year]
+        : (base as { champion: string; runnerUp: string; thirdPlace: string });
+      if (merged?.runnerUp && merged.runnerUp !== 'TBD') {
+        ru[merged.runnerUp] = (ru[merged.runnerUp] || 0) + 1;
+      }
+      if (merged?.thirdPlace && merged.thirdPlace !== 'TBD') {
+        tp[merged.thirdPlace] = (tp[merged.thirdPlace] || 0) + 1;
+      }
+    });
+    return { runnerUpCounts: ru, thirdPlaceCounts: tp };
+  }, [podiumsByYear]);
   
   const tabs = [
     { id: 'champions', label: 'Champions' },
@@ -785,25 +823,48 @@ export default function HistoryPage() {
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {franchises.map((f) => {
                 const rosterId = ownerToRosterId[f.ownerId];
+                const ruCount = runnerUpCounts[f.teamName] || 0;
+                const tpCount = thirdPlaceCounts[f.teamName] || 0;
+                const rsCount = regularSeasonWinnerCounts[f.teamName] || 0;
+                const headerStyle = getTeamColorStyle(f.teamName);
                 const content = (
-                  <div className="evw-surface border rounded-[var(--radius-card)] overflow-hidden hover-lift shadow-[var(--shadow-soft)]">
-                    <div className="h-1 w-full accent-gradient" />
-                    <div className="p-6">
-                      <h3 className="text-xl font-semibold mb-2 text-[var(--text)]">{f.teamName}</h3>
+                  <Card className="overflow-hidden hover-lift">
+                    <CardHeader style={headerStyle}>
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center overflow-hidden">
+                          <Image
+                            src={getTeamLogoPath(f.teamName)}
+                            alt={f.teamName}
+                            width={28}
+                            height={28}
+                            className="object-contain"
+                            onError={(e) => {
+                              const t = e.target as HTMLImageElement;
+                              t.style.display = 'none';
+                            }}
+                          />
+                        </div>
+                        <CardTitle className="text-current text-lg">{f.teamName}</CardTitle>
+                      </div>
+                    </CardHeader>
+                    <CardContent>
                       <div className="text-sm text-[var(--muted)] space-y-1">
                         <p>
                           Record: {f.wins}-{f.losses}
                           {f.ties > 0 ? `-${f.ties}` : ''} ({(() => {
                             const g = f.wins + f.losses + f.ties;
-                            return g > 0 ? ((f.wins + f.ties * 0.5) / g * 100).toFixed(1) : '0.0';
+                            return g > 0 ? (((f.wins + f.ties * 0.5) / g) * 100).toFixed(1) : '0.0';
                           })()}%)
                         </p>
                         <p>Total PF: {f.totalPF.toFixed(2)}</p>
                         <p>Avg PF: {f.avgPF.toFixed(2)}</p>
                         <p>Championships: {f.championships}</p>
+                        <p>2nd Place: {ruCount}</p>
+                        <p>3rd Place: {tpCount}</p>
+                        <p>Regular Season Winner: {rsCount}</p>
                       </div>
-                    </div>
-                  </div>
+                    </CardContent>
+                  </Card>
                 );
                 return rosterId !== undefined ? (
                   <Link key={f.ownerId} href={`/teams/${rosterId}`} className="block">
