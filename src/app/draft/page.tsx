@@ -17,13 +17,15 @@ import Button from '@/components/ui/Button';
 // Draft data types
 type TeamHaul = {
   team: string;
-  picks: { round: number; pick: number; player: string }[];
+  picks: { round: number; pick: number; player: string; price?: number }[];
 };
 
 type DraftYearData = {
   rounds: number;
   picks_per_round: number;
   team_hauls: TeamHaul[];
+  // Auction metadata: if true, picks may include price
+  isAuction?: boolean;
 };
 
 type SleeperDraftSettings = {
@@ -134,12 +136,16 @@ export default function DraftPage() {
         const rounds = picks.reduce((max, p) => Math.max(max, p.round), 0);
         const picksInRound1 = picks.filter(p => p.round === 1).length || teams.length;
 
-        const byTeam = new Map<number, { round: number; pick: number; player: string }[]>();
+        const byTeam = new Map<number, { round: number; pick: number; player: string; price?: number }[]>();
         for (const p of picks) {
           const arr = byTeam.get(p.roster_id) || [];
           const player = playersRef.current?.[p.player_id];
           const name = player ? `${player.first_name} ${player.last_name}` : 'Unknown Player';
-          arr.push({ round: p.round, pick: p.draft_slot, player: name });
+          // Attach price for auction drafts when present on pick
+          // Sleeper may return either `amount` or `price` for auction drafts
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const price = ((p as any).amount ?? (p as any).price) as number | undefined;
+          arr.push({ round: p.round, pick: p.draft_slot, player: name, price });
           byTeam.set(p.roster_id, arr);
         }
 
@@ -156,6 +162,10 @@ export default function DraftPage() {
           rounds: rounds || ((draft.settings as SleeperDraftSettings | null | undefined)?.rounds ?? 0),
           picks_per_round: picksInRound1,
           team_hauls,
+          isAuction: (draft.type || '').toLowerCase() === 'auction' || picks.some((pp) => {
+            const anyp = pp as unknown as { amount?: number; price?: number };
+            return anyp.amount != null || anyp.price != null;
+          }),
         };
 
         if (!cancelled) setDraftsByYear(prev => ({ ...prev, [selectedYear]: data }));
@@ -246,7 +256,7 @@ export default function DraftPage() {
             },
             {
               id: 'past',
-              label: 'Past Rookie Drafts',
+              label: 'Previous Drafts',
               content: (
                 <Card>
                   <CardContent>
@@ -259,7 +269,7 @@ export default function DraftPage() {
                       >
                         {years.map((year) => (
                           <option key={year} value={year}>
-                            {year} Draft
+                            {year === '2023' ? 'Inaugural Draft' : `${year} Draft`}
                           </option>
                         ))}
                       </Select>
@@ -301,7 +311,7 @@ export default function DraftPage() {
                                   <ul className="space-y-1">
                                     {teamHaul.picks.map((pick, pickIndex) => (
                                       <li key={pickIndex} className="text-sm">
-                                        Round {pick.round}, Pick {pick.pick}: {pick.player}
+                                        {`Round ${pick.round}, Pick ${pick.pick}: ${pick.player}${selectedYear === '2023' && draftsByYear[selectedYear]?.isAuction && pick.price != null ? ` — $${pick.price}` : ''}`}
                                       </li>
                                     ))}
                                   </ul>

@@ -646,6 +646,8 @@ export interface SleeperDraftPick {
   player_id: string;
   picked_by: string;
   draft_slot: number;
+  // Auction winning bid amount (only present for auction-type drafts)
+  amount?: number;
 }
 
 // Draft details (includes draft_order mapping roster_id -> draft slot)
