@@ -1,6 +1,6 @@
 import { forwardRef, SelectHTMLAttributes } from "react";
 
-export type SelectProps = SelectHTMLAttributes<HTMLSelectElement> & {
+export type SelectProps = Omit<SelectHTMLAttributes<HTMLSelectElement>, "size"> & {
   size?: "sm" | "md" | "lg";
   invalid?: boolean;
   fullWidth?: boolean;
