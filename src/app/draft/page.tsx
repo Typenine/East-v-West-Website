@@ -14,6 +14,8 @@ import Label from '@/components/ui/Label';
 import Select from '@/components/ui/Select';
 import Button from '@/components/ui/Button';
 import { getTeamColors, getTeamColorStyle } from '@/lib/utils/team-utils';
+import Image from 'next/image';
+import { HomeIcon, TvIcon, FireIcon, MoonIcon, BookOpenIcon } from '@heroicons/react/24/outline';
 
 // Draft data types
 type TeamHaul = {
@@ -204,7 +206,17 @@ export default function DraftPage() {
                 <div className="space-y-6">
                   <Card>
                     <CardHeader>
-                      <CardTitle>Next Draft: July 18, 2026</CardTitle>
+                      <div className="flex items-center gap-3">
+                        <Image
+                          src="/assets/teams/East v West Logos/Pittsburgh 26 Draft Logo.png"
+                          alt="Pittsburgh 26 Draft Logo"
+                          width={48}
+                          height={48}
+                          className="h-10 w-10 rounded-sm object-contain"
+                          priority
+                        />
+                        <CardTitle className="!m-0">Next Draft: July 18, 2026</CardTitle>
+                      </div>
                     </CardHeader>
                     <CardContent>
                       <CountdownTimer
@@ -246,14 +258,15 @@ export default function DraftPage() {
                                   <li>Check-in: 3:00 PM Thursday</li>
                                   <li>Check-out: 11:00 AM Sunday</li>
                                   <li>Draft starts at 1:00 PM ET on Saturday</li>
+                                  <li>Linens provided for all beds — please bring your own shower towels.</li>
                                 </ul>
                               </div>
 
-                              <div>
+                              <div className="mt-2 pt-4 border-t border-[var(--border)]">
                                 <h4 className="font-semibold text-[var(--text)] mb-2">Amenities</h4>
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                   <div className="rounded-lg border border-[var(--border)] p-4">
-                                    <h5 className="font-semibold mb-2">Kitchen</h5>
+                                    <h5 className="font-semibold mb-2 flex items-center gap-2"><HomeIcon className="h-4 w-4 text-[var(--muted)]" aria-hidden="true" />Kitchen</h5>
                                     <ul className="list-disc pl-5 space-y-1 text-sm">
                                       <li>Space where guests can cook their own meals</li>
                                       <li>Refrigerator</li>
@@ -264,7 +277,7 @@ export default function DraftPage() {
                                       <li>Freezer</li>
                                       <li>Dishwasher</li>
                                       <li>Stove & Oven</li>
-                                      <li>Coffee maker</li>
+                                      <li>Coffee makers (regular + Keurig)</li>
                                       <li>Wine glasses</li>
                                       <li>Toaster</li>
                                       <li>Baking sheet</li>
@@ -274,7 +287,7 @@ export default function DraftPage() {
                                     </ul>
                                   </div>
                                   <div className="rounded-lg border border-[var(--border)] p-4">
-                                    <h5 className="font-semibold mb-2">Entertainment</h5>
+                                    <h5 className="font-semibold mb-2 flex items-center gap-2"><TvIcon className="h-4 w-4 text-[var(--muted)]" aria-hidden="true" />Entertainment</h5>
                                     <ul className="list-disc pl-5 space-y-1 text-sm">
                                       <li>98&quot; Hi‑Def TV</li>
                                       <li>Full bar area with mini fridge</li>
@@ -284,16 +297,17 @@ export default function DraftPage() {
                                     </ul>
                                   </div>
                                   <div className="rounded-lg border border-[var(--border)] p-4">
-                                    <h5 className="font-semibold mb-2">Outdoor</h5>
+                                    <h5 className="font-semibold mb-2 flex items-center gap-2"><FireIcon className="h-4 w-4 text-[var(--muted)]" aria-hidden="true" />Outdoor</h5>
                                     <ul className="list-disc pl-5 space-y-1 text-sm">
                                       <li>Fire pit</li>
                                       <li>Outdoor furniture</li>
                                       <li>Outdoor dining area</li>
                                       <li>BBQ grill</li>
+                                      <li>Plenty of parking</li>
                                     </ul>
                                   </div>
                                   <div className="rounded-lg border border-[var(--border)] p-4">
-                                    <h5 className="font-semibold mb-2">Sleeping Arrangements</h5>
+                                    <h5 className="font-semibold mb-2 flex items-center gap-2"><MoonIcon className="h-4 w-4 text-[var(--muted)]" aria-hidden="true" />Sleeping Arrangements</h5>
                                     <ul className="list-disc pl-5 space-y-1 text-sm">
                                       <li>5 bedrooms total</li>
                                       <li>2 queen beds</li>
@@ -303,8 +317,16 @@ export default function DraftPage() {
                                       <li>2 single beds</li>
                                     </ul>
                                   </div>
+                                  <div className="rounded-lg border border-[var(--border)] p-4">
+                                    <h5 className="font-semibold mb-2 flex items-center gap-2"><HomeIcon className="h-4 w-4 text-[var(--muted)]" aria-hidden="true" />Comfort & Utilities</h5>
+                                    <ul className="list-disc pl-5 space-y-1 text-sm">
+                                      <li>Washer &amp; dryer</li>
+                                      <li>Geothermal A/C</li>
+                                      <li>Wood fireplace &amp; geothermal heating</li>
+                                    </ul>
+                                  </div>
                                   <div className="rounded-lg border border-[var(--border)] p-4 md:col-span-2">
-                                    <h5 className="font-semibold mb-2">Loft</h5>
+                                    <h5 className="font-semibold mb-2 flex items-center gap-2"><BookOpenIcon className="h-4 w-4 text-[var(--muted)]" aria-hidden="true" />Loft</h5>
                                     <p className="text-sm">
                                       The upstairs loft area includes a library with many books and a large shuffleboard game.
                                     </p>
