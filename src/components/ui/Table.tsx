@@ -1,6 +1,6 @@
-import { HTMLAttributes } from "react";
+import { HTMLAttributes, TableHTMLAttributes, ThHTMLAttributes, TdHTMLAttributes } from "react";
 
-export function Table({ className, ...props }: HTMLAttributes<HTMLTableElement>) {
+export function Table({ className, ...props }: TableHTMLAttributes<HTMLTableElement>) {
   return (
     <table
       className={[
@@ -47,13 +47,13 @@ export function Tr({ className, ...props }: HTMLAttributes<HTMLTableRowElement>)
   );
 }
 
-export function Th({ className, ...props }: HTMLAttributes<HTMLTableCellElement>) {
+export function Th({ className, ...props }: ThHTMLAttributes<HTMLTableCellElement>) {
   return (
     <th className={["text-[var(--muted)]", className].filter(Boolean).join(" ")} {...props} />
   );
 }
 
-export function Td({ className, ...props }: HTMLAttributes<HTMLTableCellElement>) {
+export function Td({ className, ...props }: TdHTMLAttributes<HTMLTableCellElement>) {
   return <td className={["text-[var(--text)]", className].filter(Boolean).join(" ")} {...props} />;
 }
 
