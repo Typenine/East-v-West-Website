@@ -2,6 +2,11 @@
 
 import { useEffect, useState } from 'react';
 import SectionHeader from '@/components/ui/SectionHeader';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
+import Label from '@/components/ui/Label';
+import Select from '@/components/ui/Select';
+import Textarea from '@/components/ui/Textarea';
+import Button from '@/components/ui/Button';
 
 type Suggestion = {
   id: string;
@@ -72,83 +77,88 @@ export default function SuggestionsPage() {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         <div className="lg:col-span-1">
-          <form onSubmit={onSubmit} className="bg-white rounded-lg shadow p-6 space-y-4">
-            <div>
-              <label htmlFor="category" className="block text-sm font-medium text-gray-700 mb-1">
-                Category (optional)
-              </label>
-              <select
-                id="category"
-                value={category}
-                onChange={(e) => setCategory(e.target.value)}
-                className="block w-full rounded-md border-gray-300 focus:border-blue-500 focus:ring-blue-500"
-              >
-                <option value="">Select a category</option>
-                {CATEGORIES.map((c) => (
-                  <option key={c} value={c}>
-                    {c}
-                  </option>
-                ))}
-              </select>
-            </div>
+          <Card>
+            <CardContent>
+              <form onSubmit={onSubmit} className="space-y-4">
+                <div>
+                  <Label htmlFor="category" className="mb-1 block">
+                    Category (optional)
+                  </Label>
+                  <Select
+                    id="category"
+                    value={category}
+                    onChange={(e) => setCategory(e.target.value)}
+                  >
+                    <option value="">Select a category</option>
+                    {CATEGORIES.map((c) => (
+                      <option key={c} value={c}>
+                        {c}
+                      </option>
+                    ))}
+                  </Select>
+                </div>
 
-            <div>
-              <label htmlFor="content" className="block text-sm font-medium text-gray-700 mb-1">
-                Your suggestion (anonymous)
-              </label>
-              <textarea
-                id="content"
-                value={content}
-                onChange={(e) => setContent(e.target.value)}
-                rows={6}
-                required
-                minLength={3}
-                maxLength={5000}
-                placeholder="Propose changes to rules, website, Discord, etc."
-                className="block w-full rounded-md border-gray-300 focus:border-blue-500 focus:ring-blue-500"
-              />
-            </div>
+                <div>
+                  <Label htmlFor="content" className="mb-1 block">
+                    Your suggestion (anonymous)
+                  </Label>
+                  <Textarea
+                    id="content"
+                    value={content}
+                    onChange={(e) => setContent(e.target.value)}
+                    rows={6}
+                    required
+                    minLength={3}
+                    maxLength={5000}
+                    placeholder="Propose changes to rules, website, Discord, etc."
+                  />
+                </div>
 
-            {error && <p className="text-sm text-red-600">{error}</p>}
+                {error && <p className="text-sm text-[var(--danger)]">{error}</p>}
 
-            <button
-              type="submit"
-              disabled={submitting || content.trim().length < 3}
-              className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 disabled:opacity-50"
-            >
-              {submitting ? 'Submitting…' : 'Submit Suggestion'}
-            </button>
-          </form>
+                <Button
+                  type="submit"
+                  disabled={submitting || content.trim().length < 3}
+                >
+                  {submitting ? 'Submitting…' : 'Submit Suggestion'}
+                </Button>
+              </form>
+            </CardContent>
+          </Card>
         </div>
 
         <div className="lg:col-span-2">
-          <div className="bg-white rounded-lg shadow p-6">
-            <h2 className="text-xl font-bold mb-4">Recent Suggestions</h2>
-            {loading ? (
-              <p className="text-gray-500">Loading…</p>
-            ) : items.length === 0 ? (
-              <p className="text-gray-500">No suggestions yet. Be the first to submit one!</p>
-            ) : (
-              <ul className="space-y-4">
-                {items.map((s) => (
-                  <li key={s.id} className="border rounded-md p-4">
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-sm text-gray-500">
-                        {new Date(s.createdAt).toLocaleString(undefined, {
-                          year: 'numeric', month: 'short', day: 'numeric',
-                          hour: 'numeric', minute: '2-digit'
-                        })}
-                      </span>
-                      {s.category && (
-                        <span className="text-xs bg-slate-200 text-slate-800 px-2 py-0.5 rounded-full">{s.category}</span>
-                      )}
-                    </div>
-                    <p className="whitespace-pre-wrap text-slate-900">{s.content}</p>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
+          <Card>
+            <CardHeader>
+              <CardTitle>Recent Suggestions</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {loading ? (
+                <p className="text-[var(--muted)]">Loading…</p>
+              ) : items.length === 0 ? (
+                <p className="text-[var(--muted)]">No suggestions yet. Be the first to submit one!</p>
+              ) : (
+                <ul className="space-y-4">
+                  {items.map((s) => (
+                    <li key={s.id} className="evw-surface border border-[var(--border)] rounded-[var(--radius-card)] p-4">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-sm text-[var(--muted)]">
+                          {new Date(s.createdAt).toLocaleString(undefined, {
+                            year: 'numeric', month: 'short', day: 'numeric',
+                            hour: 'numeric', minute: '2-digit'
+                          })}
+                        </span>
+                        {s.category && (
+                          <span className="text-xs px-2 py-0.5 rounded-full border border-[var(--border)] evw-surface text-[var(--text)]">{s.category}</span>
+                        )}
+                      </div>
+                      <p className="whitespace-pre-wrap text-[var(--text)]">{s.content}</p>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </CardContent>
+          </Card>
         </div>
       </div>
     </div>

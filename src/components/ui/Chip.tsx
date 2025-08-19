@@ -1,4 +1,3 @@
-import classNames from "classnames";
 import { ButtonHTMLAttributes, forwardRef } from "react";
 
 export type ChipProps = ButtonHTMLAttributes<HTMLButtonElement> & {
@@ -14,16 +13,22 @@ export const Chip = forwardRef<HTMLButtonElement, ChipProps>(
       md: "text-sm px-3 py-1.5",
     } as const;
 
-    const style = classNames(
+    const classes = [
       "inline-flex items-center gap-1 rounded-full border transition-colors pill",
       size === "sm" ? sizes.sm : sizes.md,
-      variant === "accent" && (selected ? "pill-active" : "pill-hover text-[var(--muted)]"),
-      variant === "neutral" && (selected ? "evw-surface border-[var(--border)]" : "pill-hover text-[var(--muted)] border-transparent"),
-      variant === "outline" && "border-[var(--border)] text-[var(--text)]",
-      className
-    );
+      variant === "accent" ? (selected ? "pill-active" : "pill-hover text-[var(--muted)]") : undefined,
+      variant === "neutral"
+        ? selected
+          ? "evw-surface border-[var(--border)]"
+          : "pill-hover text-[var(--muted)] border-transparent"
+        : undefined,
+      variant === "outline" ? "border-[var(--border)] text-[var(--text)]" : undefined,
+      className,
+    ]
+      .filter(Boolean)
+      .join(" ");
 
-    return <button ref={ref} className={style} {...props} />;
+    return <button ref={ref} className={classes} {...props} />;
   }
 );
 

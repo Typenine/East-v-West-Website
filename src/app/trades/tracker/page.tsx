@@ -1,10 +1,14 @@
 'use client';
 
-import { Suspense, useEffect, useMemo, useState } from 'react';
+import { Suspense, useEffect, useMemo, useState, useCallback } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import NextDynamic from 'next/dynamic';
 import type { GraphNode as EVWGraphNode, GraphEdge as EVWGraphEdge, TradeGraph as EVWTradeGraph } from '@/lib/utils/trade-graph';
 import SectionHeader from '@/components/ui/SectionHeader';
+import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
+import LoadingState from '@/components/ui/loading-state';
+import ErrorState from '@/components/ui/error-state';
+import Label from '@/components/ui/Label';
 
 export const dynamic = 'force-dynamic';
 
@@ -86,128 +90,138 @@ function TradeTrackerContent() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    const fetchGraph = async () => {
-      setError(null);
-      setGraph(null);
-      if (!query) return;
-      setLoading(true);
-      try {
-        const res = await fetch(`/api/trade-tree?${query}`);
-        const data = await res.json();
-        if (!res.ok) throw new Error(data?.error || 'Failed to fetch graph');
-        setGraph(data.graph as EVWTradeGraph);
-      } catch (e: unknown) {
-        const msg = e instanceof Error ? e.message : 'Failed to fetch graph';
-        setError(msg);
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchGraph();
+  const fetchGraph = useCallback(async () => {
+    setError(null);
+    setGraph(null);
+    if (!query) return;
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/trade-tree?${query}`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || 'Failed to fetch graph');
+      setGraph(data.graph as EVWTradeGraph);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Failed to fetch graph';
+      setError(msg);
+    } finally {
+      setLoading(false);
+    }
   }, [query]);
+
+  useEffect(() => {
+    fetchGraph();
+  }, [fetchGraph]);
 
   return (
     <div className="container mx-auto px-4 py-8">
       <SectionHeader title="Trade Tracker" />
 
-      <div className="bg-white rounded-lg shadow p-4 mb-6">
-        <h2 className="font-semibold mb-2">Root</h2>
-        <div className="text-sm text-gray-600">
-          {rootType === 'player' ? (
-            <div>Player ID: <code>{playerId || '—'}</code></div>
-          ) : (
-            <div>Pick: <code>{season || '—'} R{round || '—'} S{slot || '—'}</code></div>
-          )}
-          <div className="mt-3">
-            <label className="text-sm font-medium text-gray-700 flex items-center gap-2">
-              Depth
-              <span className="inline-block rounded bg-gray-100 px-2 py-0.5 text-xs border text-gray-700">{depthLocal}</span>
-            </label>
-            <input
-              type="range"
-              min={1}
-              max={6}
-              step={1}
-              value={depthLocal}
-              onChange={(e) => setDepthLocal(Number((e.target as HTMLInputElement).value))}
-              onMouseUp={() => commitDepth(depthLocal)}
-              onTouchEnd={() => commitDepth(depthLocal)}
-              onKeyUp={(e) => { if (e.key === 'Enter') commitDepth(depthLocal); }}
-              className="w-full mt-1"
-              aria-label="Depth slider"
-            />
+      <Card className="mb-6">
+        <CardHeader>
+          <CardTitle>Root</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="text-sm text-[var(--muted)]">
+            {rootType === 'player' ? (
+              <div>Player ID: <code>{playerId || '—'}</code></div>
+            ) : (
+              <div>Pick: <code>{season || '—'} R{round || '—'} S{slot || '—'}</code></div>
+            )}
+            <div className="mt-3">
+              <Label htmlFor="depth-slider" className="font-medium flex items-center gap-2">
+                Depth
+                <span className="inline-block rounded-full evw-surface border border-[var(--border)] px-2 py-0.5 text-xs text-[var(--text)]">{depthLocal}</span>
+              </Label>
+              <input
+                type="range"
+                min={1}
+                max={6}
+                step={1}
+                value={depthLocal}
+                onChange={(e) => setDepthLocal(Number((e.target as HTMLInputElement).value))}
+                onMouseUp={() => commitDepth(depthLocal)}
+                onTouchEnd={() => commitDepth(depthLocal)}
+                onKeyUp={(e) => { if (e.key === 'Enter') commitDepth(depthLocal); }}
+                className="w-full mt-1"
+                aria-label="Depth slider"
+                id="depth-slider"
+              />
+            </div>
           </div>
-        </div>
-      </div>
+        </CardContent>
+      </Card>
 
-      <div className="bg-white rounded-lg shadow p-4">
-        <h2 className="font-semibold mb-3">Graph</h2>
-        {loading && <div className="text-gray-500">Loading graph…</div>}
-        {error && <div className="text-red-600">{error}</div>}
-        {!loading && !error && graph && (
-          <div>
-            <div className="mb-3 text-sm text-gray-700">
-              Nodes: {graph.nodes.length} • Edges: {graph.edges.length}
+      <Card>
+        <CardHeader>
+          <CardTitle>Graph</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {loading && <LoadingState message="Loading graph..." />}
+          {error && <ErrorState message={error} retry={fetchGraph} />}
+          {!loading && !error && graph && (
+            <div>
+              <div className="mb-3 text-sm text-[var(--muted)]">
+                Nodes: {graph.nodes.length} • Edges: {graph.edges.length}
+              </div>
+              {(() => {
+                // Build legend entries: tradeId -> date + teams + color
+                const colorMap = buildTradeColorMap(graph.edges);
+                type TradeNode = Extract<EVWGraphNode, { type: 'trade' }>;
+                const tradeNodes = graph.nodes.filter((n): n is TradeNode => n.type === 'trade');
+                const byId = new Map(tradeNodes.map((t) => [t.tradeId, t]));
+                const entries = Array.from(colorMap.keys()).map((tid) => {
+                  const tn = byId.get(tid);
+                  return tn ? { id: tid, date: tn.date, teams: tn.teams || [], color: colorMap.get(tid)! } : null;
+                }).filter(Boolean) as Array<{ id: string; date: string; teams: string[]; color: string }>;
+                entries.sort((a, b) => a.date.localeCompare(b.date));
+                return entries.length ? (
+                  <div className="mb-3">
+                    <h3 className="text-sm font-medium mb-1">Trades in view</h3>
+                    <ul className="space-y-1 text-sm">
+                      {entries.map((e) => (
+                        <li key={e.id} className="flex items-center gap-2" title={`${e.teams.join(' ↔ ')} (${e.date})`}>
+                          <span className="inline-block w-8 align-middle" style={{ backgroundColor: e.color, height: 3 }} />
+                          <span className="truncate">{e.teams.join(' ↔ ')} ({e.date})</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null;
+              })()}
+              <TradeTreeCanvas
+                graph={graph}
+                rootId={rootType === 'player' ? `player:${playerId}` : `pick:${season}-${round}-${slot}`}
+                height={640}
+                onNodeClick={(n: EVWGraphNode) => {
+                  if (n.type === 'player') {
+                    const id = n.playerId;
+                    router.push(`/trades/tracker?rootType=player&playerId=${encodeURIComponent(id)}`);
+                  } else if (n.type === 'pick') {
+                    router.push(`/trades/tracker?rootType=pick&season=${encodeURIComponent(n.season)}&round=${n.round}&slot=${n.slot}`);
+                  }
+                }}
+              />
+              <div className="mt-2 text-xs text-[var(--muted)]">
+                Legend: <span className="inline-block w-3 h-3 bg-blue-100 border border-blue-400 align-middle mr-1"/> Player •
+                <span className="inline-block w-3 h-3 bg-green-100 border border-green-400 align-middle mx-1"/> Pick •
+                <span className="inline-block w-3 h-3 bg-gray-100 border border-gray-400 align-middle mx-1"/> Trade •
+                <span className="inline-block border-t-2 border-gray-400 align-middle mx-1 w-6"/> traded •
+                <span className="inline-block border-t-2 border-dashed border-gray-400 align-middle mx-1 w-6"/> became
+              </div>
             </div>
-            {(() => {
-              // Build legend entries: tradeId -> date + teams + color
-              const colorMap = buildTradeColorMap(graph.edges);
-              type TradeNode = Extract<EVWGraphNode, { type: 'trade' }>;
-              const tradeNodes = graph.nodes.filter((n): n is TradeNode => n.type === 'trade');
-              const byId = new Map(tradeNodes.map((t) => [t.tradeId, t]));
-              const entries = Array.from(colorMap.keys()).map((tid) => {
-                const tn = byId.get(tid);
-                return tn ? { id: tid, date: tn.date, teams: tn.teams || [], color: colorMap.get(tid)! } : null;
-              }).filter(Boolean) as Array<{ id: string; date: string; teams: string[]; color: string }>;
-              entries.sort((a, b) => a.date.localeCompare(b.date));
-              return entries.length ? (
-                <div className="mb-3">
-                  <h3 className="text-sm font-medium mb-1">Trades in view</h3>
-                  <ul className="space-y-1 text-sm">
-                    {entries.map((e) => (
-                      <li key={e.id} className="flex items-center gap-2" title={`${e.teams.join(' ↔ ')} (${e.date})`}>
-                        <span className="inline-block w-8 align-middle" style={{ backgroundColor: e.color, height: 3 }} />
-                        <span className="truncate">{e.teams.join(' ↔ ')} ({e.date})</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              ) : null;
-            })()}
-            <TradeTreeCanvas
-              graph={graph}
-              rootId={rootType === 'player' ? `player:${playerId}` : `pick:${season}-${round}-${slot}`}
-              height={640}
-              onNodeClick={(n: EVWGraphNode) => {
-                if (n.type === 'player') {
-                  const id = n.playerId;
-                  router.push(`/trades/tracker?rootType=player&playerId=${encodeURIComponent(id)}`);
-                } else if (n.type === 'pick') {
-                  router.push(`/trades/tracker?rootType=pick&season=${encodeURIComponent(n.season)}&round=${n.round}&slot=${n.slot}`);
-                }
-              }}
-            />
-            <div className="mt-2 text-xs text-gray-500">
-              Legend: <span className="inline-block w-3 h-3 bg-blue-100 border border-blue-400 align-middle mr-1"/> Player •
-              <span className="inline-block w-3 h-3 bg-green-100 border border-green-400 align-middle mx-1"/> Pick •
-              <span className="inline-block w-3 h-3 bg-gray-100 border border-gray-400 align-middle mx-1"/> Trade •
-              <span className="inline-block border-t-2 border-gray-400 align-middle mx-1 w-6"/> traded •
-              <span className="inline-block border-t-2 border-dashed border-gray-400 align-middle mx-1 w-6"/> became
-            </div>
-          </div>
-        )}
-        {!loading && !error && !graph && (
-          <div className="text-gray-500">Provide a root query to view a trade graph.</div>
-        )}
-      </div>
+          )}
+          {!loading && !error && !graph && (
+            <div className="text-[var(--muted)]">Provide a root query to view a trade graph.</div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }
 
 export default function TradeTrackerPage() {
   return (
-    <Suspense fallback={<div className="container mx-auto px-4 py-8">Loading tracker…</div>}>
+    <Suspense fallback={<div className="container mx-auto px-4 py-8"><LoadingState message="Loading tracker..." /></div>}>
       <TradeTrackerContent />
     </Suspense>
   );

@@ -9,6 +9,9 @@ import LoadingState from '@/components/ui/loading-state';
 import ErrorState from '@/components/ui/error-state';
 import { Card, CardContent } from '@/components/ui/Card';
 import SectionHeader from '@/components/ui/SectionHeader';
+import Label from '@/components/ui/Label';
+import { Select } from '@/components/ui/Select';
+import { Button } from '@/components/ui/Button';
 
 type SortKey = 'wins' | 'losses' | 'ties' | 'fpts' | 'fptsAgainst';
 type SortDirection = 'asc' | 'desc';
@@ -91,17 +94,18 @@ export default function StandingsPage() {
           title="Standings"
           actions={(
             <div className="flex items-center gap-2">
-              <label htmlFor="year-select" className="text-sm text-[var(--muted)]">Season</label>
-              <select
+              <Label htmlFor="year-select">Season</Label>
+              <Select
                 id="year-select"
+                size="sm"
                 value={selectedYear}
                 onChange={(e) => setSelectedYear(e.target.value)}
-                className="block pl-3 pr-8 py-1.5 bg-[var(--surface)] border border-[var(--border)] text-[var(--text)] focus:outline-none focus:ring-2 ring-[var(--focus)] ring-offset-2 ring-offset-[var(--surface)] text-sm rounded-md"
+                fullWidth={false}
               >
                 <option value="2025">2025</option>
                 <option value="2024">2024</option>
                 <option value="2023">2023</option>
-              </select>
+              </Select>
             </div>
           )}
         />
@@ -117,17 +121,18 @@ export default function StandingsPage() {
           title="Standings"
           actions={(
             <div className="flex items-center gap-2">
-              <label htmlFor="year-select" className="text-sm text-[var(--muted)]">Season</label>
-              <select
+              <Label htmlFor="year-select">Season</Label>
+              <Select
                 id="year-select"
+                size="sm"
                 value={selectedYear}
                 onChange={(e) => setSelectedYear(e.target.value)}
-                className="block pl-3 pr-8 py-1.5 bg-[var(--surface)] border border-[var(--border)] text-[var(--text)] focus:outline-none focus:ring-2 ring-[var(--focus)] ring-offset-2 ring-offset-[var(--surface)] text-sm rounded-md"
+                fullWidth={false}
               >
                 <option value="2025">2025</option>
                 <option value="2024">2024</option>
                 <option value="2023">2023</option>
-              </select>
+              </Select>
             </div>
           )}
         />
@@ -142,17 +147,18 @@ export default function StandingsPage() {
         title="Standings"
         actions={(
           <div className="flex items-center gap-2">
-            <label htmlFor="year-select" className="text-sm text-[var(--muted)]">Season</label>
-            <select
+            <Label htmlFor="year-select">Season</Label>
+            <Select
               id="year-select"
+              size="sm"
               value={selectedYear}
               onChange={(e) => setSelectedYear(e.target.value)}
-              className="block pl-3 pr-8 py-1.5 bg-[var(--surface)] border border-[var(--border)] text-[var(--text)] focus:outline-none focus:ring-2 ring-[var(--focus)] ring-offset-2 ring-offset-[var(--surface)] text-sm rounded-md"
+              fullWidth={false}
             >
               <option value="2025">2025</option>
               <option value="2024">2024</option>
               <option value="2023">2023</option>
-            </select>
+            </Select>
           </div>
         )}
       />
@@ -170,39 +176,55 @@ export default function StandingsPage() {
               </th>
               <th 
                 scope="col" 
-                className="px-6 py-3 text-left text-xs font-medium text-[var(--muted)] uppercase tracking-wider cursor-pointer"
-                onClick={() => handleSort('wins')}
+                className="px-6 py-3 text-left text-xs font-medium text-[var(--muted)] uppercase tracking-wider"
                 aria-sort={sortConfig.key === 'wins' ? (sortConfig.direction === 'desc' ? 'descending' : 'ascending') : 'none'}
               >
-                <button 
-                  className="font-medium text-[var(--muted)] uppercase tracking-wider focus:outline-none focus:ring-2 ring-[var(--focus)] ring-offset-2 ring-offset-[var(--surface)] rounded px-1"
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="px-1"
+                  onClick={() => handleSort('wins')}
                   aria-label={`Sort by record ${sortConfig.key === 'wins' && sortConfig.direction === 'desc' ? 'ascending' : 'descending'}`}
                 >
                   Record
                   {sortConfig.key === 'wins' && (
                     <span className="ml-1" aria-hidden="true">{sortConfig.direction === 'desc' ? '▼' : '▲'}</span>
                   )}
-                </button>
+                </Button>
               </th>
               <th 
                 scope="col" 
-                className="px-6 py-3 text-left text-xs font-medium text-[var(--muted)] uppercase tracking-wider cursor-pointer"
-                onClick={() => handleSort('fpts')}
+                className="px-6 py-3 text-left text-xs font-medium text-[var(--muted)] uppercase tracking-wider"
+                aria-sort={sortConfig.key === 'fpts' ? (sortConfig.direction === 'desc' ? 'descending' : 'ascending') : 'none'}
               >
-                PF
-                {sortConfig.key === 'fpts' && (
-                  <span className="ml-1">{sortConfig.direction === 'desc' ? '▼' : '▲'}</span>
-                )}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="px-1"
+                  onClick={() => handleSort('fpts')}
+                >
+                  PF
+                  {sortConfig.key === 'fpts' && (
+                    <span className="ml-1" aria-hidden="true">{sortConfig.direction === 'desc' ? '▼' : '▲'}</span>
+                  )}
+                </Button>
               </th>
               <th 
                 scope="col" 
-                className="px-6 py-3 text-left text-xs font-medium text-[var(--muted)] uppercase tracking-wider cursor-pointer"
-                onClick={() => handleSort('fptsAgainst')}
+                className="px-6 py-3 text-left text-xs font-medium text-[var(--muted)] uppercase tracking-wider"
+                aria-sort={sortConfig.key === 'fptsAgainst' ? (sortConfig.direction === 'desc' ? 'descending' : 'ascending') : 'none'}
               >
-                PA
-                {sortConfig.key === 'fptsAgainst' && (
-                  <span className="ml-1">{sortConfig.direction === 'desc' ? '▼' : '▲'}</span>
-                )}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="px-1"
+                  onClick={() => handleSort('fptsAgainst')}
+                >
+                  PA
+                  {sortConfig.key === 'fptsAgainst' && (
+                    <span className="ml-1" aria-hidden="true">{sortConfig.direction === 'desc' ? '▼' : '▲'}</span>
+                  )}
+                </Button>
               </th>
               <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-[var(--muted)] uppercase tracking-wider">
                 Streak
@@ -214,7 +236,15 @@ export default function StandingsPage() {
               <tr 
                 key={team.rosterId}
                 className="cursor-pointer"
-                onClick={() => window.location.href = `/teams/${team.rosterId}?year=${selectedYear}`}
+                role="link"
+                tabIndex={0}
+                onClick={() => (window.location.href = `/teams/${team.rosterId}?year=${selectedYear}`)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    window.location.href = `/teams/${team.rosterId}?year=${selectedYear}`;
+                  }
+                }}
                 style={{ borderLeft: `4px solid ${getTeamColorStyle(team.teamName).backgroundColor}` }}
               >
                 <td className="px-6 py-4 whitespace-nowrap">

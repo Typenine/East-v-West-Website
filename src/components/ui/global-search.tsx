@@ -4,6 +4,9 @@ import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { LEAGUE_IDS } from '@/lib/constants/league';
 import { getTeamsData, TeamData } from '@/lib/utils/sleeper-api';
+import Button from '@/components/ui/Button';
+import Input from '@/components/ui/Input';
+import Modal from '@/components/ui/Modal';
 
 // Define search result types
 type SearchResultItem = {
@@ -31,7 +34,6 @@ export default function GlobalSearch() {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<SearchResultItem[]>([]);
   const [selectedIndex, setSelectedIndex] = useState(0);
-  const searchRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const [teams, setTeams] = useState<TeamData[]>([]);
 
@@ -90,19 +92,7 @@ export default function GlobalSearch() {
     setSelectedIndex(0);
   }, [query, teams]);
 
-  // Close search when clicking outside
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (searchRef.current && !searchRef.current.contains(event.target as Node)) {
-        setIsOpen(false);
-      }
-    };
-
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-    };
-  }, []);
+  // (Overlay click is handled by Modal)
 
   // Handle keyboard shortcuts and navigation
   useEffect(() => {
@@ -153,134 +143,106 @@ export default function GlobalSearch() {
   }, [isOpen]);
 
   return (
-    <div className="relative" ref={searchRef}>
-      {/* Search button */}
-      <button
-        onClick={() => setIsOpen(true)}
-        className="p-2 text-gray-300 hover:bg-slate-700 hover:text-white rounded-md flex items-center"
+    <div className="relative">
+      {/* Search trigger */}
+      <Button
+        variant="ghost"
+        size="sm"
         aria-label="Open search"
+        onClick={() => setIsOpen(true)}
       >
         <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
         </svg>
         <span className="ml-2 hidden md:inline">Search</span>
-        <span className="ml-2 hidden md:inline text-xs text-gray-400">(Ctrl+K)</span>
-      </button>
+        <span className="ml-2 hidden md:inline text-xs text-[var(--muted)]">(Ctrl+K)</span>
+      </Button>
 
       {/* Search modal */}
-      {isOpen && (
-        <div 
-          className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-start justify-center pt-16 px-4"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="search-heading"
-        >
-          <div 
-            className="bg-white rounded-lg shadow-xl w-full max-w-2xl overflow-hidden"
-            role="combobox"
-            aria-expanded="true"
-            aria-controls="search-results"
-            aria-haspopup="listbox"
-          >
-            <div className="p-4 border-b">
-              <h2 id="search-heading" className="sr-only">Search East v West</h2>
-              <div className="flex items-center">
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                </svg>
-                <input
-                  ref={inputRef}
-                  type="text"
-                  placeholder="Search teams, pages, and more..."
-                  className="ml-2 flex-1 focus:outline-none"
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  aria-autocomplete="list"
-                  aria-controls="search-results"
-                />
-                <button
-                  onClick={() => setIsOpen(false)}
-                  className="text-gray-400 hover:text-gray-600"
-                  aria-label="Close search"
-                >
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
+      <Modal open={isOpen} onClose={() => setIsOpen(false)} title="Search East v West">
+        <div role="combobox" aria-expanded={true} aria-controls="search-results" aria-haspopup="listbox">
+          <div className="flex items-center gap-2">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-[var(--muted)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
+            <Input
+              ref={inputRef}
+              type="text"
+              placeholder="Search teams, pages, and more..."
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              aria-autocomplete="list"
+              aria-controls="search-results"
+            />
+            <Button variant="ghost" aria-label="Close search" onClick={() => setIsOpen(false)}>
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </Button>
+          </div>
+
+          <div id="search-results" className="max-h-96 overflow-y-auto p-2 mt-3" role="listbox" aria-labelledby="search-heading">
+            {results.length > 0 ? (
+              <div className="space-y-1">
+                {results.map((result, index) => (
+                  <Link
+                    key={`${result.type}-${result.path}`}
+                    href={result.path}
+                    onClick={() => setIsOpen(false)}
+                    className={`flex items-center gap-3 p-3 rounded-md transition-colors ${
+                      index === selectedIndex
+                        ? 'bg-[color-mix(in_srgb,var(--accent)_10%,transparent)] border border-[var(--border)]'
+                        : 'hover:bg-[color-mix(in_srgb,var(--accent)_6%,transparent)]'
+                    }`}
+                    role="option"
+                    aria-selected={index === selectedIndex}
+                    tabIndex={0}
+                  >
+                    {result.type === 'team' && (
+                      <span className="bg-[color-mix(in_srgb,var(--accent)_14%,transparent)] text-[var(--text)] p-1 rounded">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                        </svg>
+                      </span>
+                    )}
+                    {result.type === 'page' && (
+                      <span className="bg-[color-mix(in_srgb,var(--accent)_14%,transparent)] text-[var(--text)] p-1 rounded">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                        </svg>
+                      </span>
+                    )}
+                    <div>
+                      <div className="font-medium">{result.title}</div>
+                      <div className="text-sm text-[var(--muted)]">{result.description}</div>
+                    </div>
+                  </Link>
+                ))}
               </div>
+            ) : query.length >= 2 ? (
+              <div className="px-4 py-8 text-center text-[var(--muted)]" role="status">
+                No results found for &quot;{query}&quot;
+              </div>
+            ) : (
+              <div className="px-4 py-8 text-center text-[var(--muted)]">
+                Type at least 2 characters to search
+              </div>
+            )}
+          </div>
+
+          <div className="evw-muted px-4 py-3 text-xs text-[var(--muted)] flex justify-between mt-2 rounded-[var(--radius-card)]">
+            <div>
+              <span className="bg-[color-mix(in_srgb,var(--accent)_14%,transparent)] px-2 py-1 rounded">↑↓</span> to navigate
             </div>
-
-            {/* Results */}
-            <div 
-              id="search-results" 
-              className="max-h-96 overflow-y-auto p-2"
-              role="listbox"
-              aria-labelledby="search-heading"
-            >
-              {results.length > 0 ? (
-                <div className="space-y-1">
-                  {results.map((result, index) => (
-                    <Link
-                      key={`${result.type}-${result.path}`}
-                      href={result.path}
-                      onClick={() => setIsOpen(false)}
-                      className={`flex items-center p-3 rounded-md transition-colors ${
-                        index === selectedIndex ? 'bg-blue-50 border border-blue-200' : 'hover:bg-gray-100'
-                      }`}
-                      role="option"
-                      aria-selected={index === selectedIndex}
-                      tabIndex={0}
-                    >
-                      {/* Icon based on result type */}
-                      {result.type === 'team' && (
-                        <span className="bg-blue-100 text-blue-800 p-1 rounded mr-3">
-                          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
-                          </svg>
-                        </span>
-                      )}
-                      {result.type === 'page' && (
-                        <span className="bg-green-100 text-green-800 p-1 rounded mr-3">
-                          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                          </svg>
-                        </span>
-                      )}
-                      <div>
-                        <div className="font-medium">{result.title}</div>
-                        <div className="text-sm text-gray-500">{result.description}</div>
-                      </div>
-                    </Link>
-                  ))}
-                </div>
-              ) : query.length >= 2 ? (
-                <div className="px-4 py-8 text-center text-gray-500" role="status">
-                  No results found for &quot;{query}&quot;
-                </div>
-              ) : null}
-
-              {query.length < 2 && (
-                <div className="px-4 py-8 text-center text-gray-500">
-                  Type at least 2 characters to search
-                </div>
-              )}
+            <div>
+              <span className="bg-[color-mix(in_srgb,var(--accent)_14%,transparent)] px-2 py-1 rounded">Enter</span> to select
             </div>
-
-            {/* Keyboard shortcuts */}
-            <div className="bg-gray-50 px-4 py-3 text-xs text-gray-500 flex justify-between">
-              <div>
-                <span className="bg-gray-200 px-2 py-1 rounded">↑↓</span> to navigate
-              </div>
-              <div>
-                <span className="bg-gray-200 px-2 py-1 rounded">Enter</span> to select
-              </div>
-              <div>
-                <span className="bg-gray-200 px-2 py-1 rounded">Esc</span> to close
-              </div>
+            <div>
+              <span className="bg-[color-mix(in_srgb,var(--accent)_14%,transparent)] px-2 py-1 rounded">Esc</span> to close
             </div>
           </div>
         </div>
-      )}
+      </Modal>
     </div>
   );
 }

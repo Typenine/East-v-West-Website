@@ -1,5 +1,4 @@
 import Card, { CardContent, CardHeader, CardTitle } from "./Card";
-import classNames from "classnames";
 
 export function StatCard({
   label,
@@ -26,12 +25,14 @@ export function StatCard({
         <div className="text-2xl font-semibold text-[var(--text)]">{value}</div>
         {delta && (
           <div
-            className={classNames(
+            className={[
               "mt-1 text-sm",
-              positive === true && "text-emerald-400",
-              positive === false && "text-red-400",
-              positive === undefined && "text-[var(--muted)]"
-            )}
+              positive === true ? "text-emerald-400" : undefined,
+              positive === false ? "text-red-400" : undefined,
+              positive === undefined ? "text-[var(--muted)]" : undefined,
+            ]
+              .filter(Boolean)
+              .join(" ")}
           >
             {delta}
           </div>

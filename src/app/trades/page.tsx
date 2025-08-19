@@ -12,6 +12,10 @@ import ErrorState from '@/components/ui/error-state';
 import EmptyState from '@/components/ui/empty-state';
 import { getTeamLogoPath, getTeamColorStyle } from '@/lib/utils/team-utils';
 import SectionHeader from '@/components/ui/SectionHeader';
+import { Card, CardHeader, CardTitle, CardContent, CardFooter } from '@/components/ui/Card';
+import Label from '@/components/ui/Label';
+import { Select } from '@/components/ui/Select';
+import { Button } from '@/components/ui/Button';
 
 // Create a client component that uses searchParams
 function TradesContent() {
@@ -148,86 +152,76 @@ function TradesContent() {
       <h1 id="trades-heading" className="sr-only">Trades</h1>
       
       {/* Filters */}
-      <div className="bg-white p-4 rounded-lg shadow-md mb-8" role="search" aria-labelledby="filter-heading">
-        <h2 id="filter-heading" className="sr-only">Trade filters</h2>
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          {/* Year Filter */}
-          <div>
-            <label htmlFor="year-filter" className="block text-sm font-medium text-gray-700 mb-1">
-              Season
-            </label>
-            <select
-              id="year-filter"
-              value={selectedYear}
-              onChange={(e) => setSelectedYear(e.target.value)}
-              className="block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md"
-            >
-              <option value="all">All Time</option>
-              <option value="2025">2025 Season</option>
-              <option value="2024">2024 Season</option>
-              <option value="2023">2023 Season</option>
-            </select>
+      <Card role="search" aria-labelledby="filter-heading" className="mb-8">
+        <CardContent>
+          <h2 id="filter-heading" className="sr-only">Trade filters</h2>
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            {/* Year Filter */}
+            <div>
+              <Label htmlFor="year-filter">Season</Label>
+              <Select
+                id="year-filter"
+                value={selectedYear}
+                onChange={(e) => setSelectedYear(e.target.value)}
+              >
+                <option value="all">All Time</option>
+                <option value="2025">2025 Season</option>
+                <option value="2024">2024 Season</option>
+                <option value="2023">2023 Season</option>
+              </Select>
+            </div>
+            
+            {/* Team Filter */}
+            <div>
+              <Label htmlFor="team-filter">Team</Label>
+              <Select
+                id="team-filter"
+                value={selectedTeam || ''}
+                onChange={(e) => setSelectedTeam(e.target.value || null)}
+              >
+                <option value="">All Teams</option>
+                {teams
+                  .map((t) => t.teamName)
+                  .sort((a, b) => a.localeCompare(b))
+                  .map((name) => (
+                    <option key={name} value={name}>
+                      {name}
+                    </option>
+                  ))}
+              </Select>
+            </div>
+            
+            {/* Asset Type Filter */}
+            <div>
+              <Label htmlFor="asset-filter">Asset Type</Label>
+              <Select
+                id="asset-filter"
+                value={selectedAssetType}
+                onChange={(e) => setSelectedAssetType(e.target.value as 'all' | 'player' | 'pick')}
+              >
+                <option value="all">All Assets</option>
+                <option value="player">Players Only</option>
+                <option value="pick">Draft Picks Only</option>
+              </Select>
+            </div>
+            
+            {/* Sort Filter */}
+            <div>
+              <Label htmlFor="sort-filter">Sort By</Label>
+              <Select
+                id="sort-filter"
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value)}
+              >
+                <option value="date-desc">Newest First</option>
+                <option value="date-asc">Oldest First</option>
+                <option value="teams-asc">Teams (A-Z)</option>
+                <option value="teams-desc">Teams (Z-A)</option>
+              </Select>
+            </div>
           </div>
-          
-          {/* Team Filter */}
-          <div>
-            <label htmlFor="team-filter" className="block text-sm font-medium text-gray-700 mb-1">
-              Team
-            </label>
-            <select
-              id="team-filter"
-              value={selectedTeam || ''}
-              onChange={(e) => setSelectedTeam(e.target.value || null)}
-              className="block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md"
-            >
-              <option value="">All Teams</option>
-              {teams
-                .map((t) => t.teamName)
-                .sort((a, b) => a.localeCompare(b))
-                .map((name) => (
-                  <option key={name} value={name}>
-                    {name}
-                  </option>
-                ))}
-            </select>
-          </div>
-          
-          {/* Asset Type Filter */}
-          <div>
-            <label htmlFor="asset-filter" className="block text-sm font-medium text-gray-700 mb-1">
-              Asset Type
-            </label>
-            <select
-              id="asset-filter"
-              value={selectedAssetType}
-              onChange={(e) => setSelectedAssetType(e.target.value as 'all' | 'player' | 'pick')}
-              className="block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md"
-            >
-              <option value="all">All Assets</option>
-              <option value="player">Players Only</option>
-              <option value="pick">Draft Picks Only</option>
-            </select>
-          </div>
-          
-          {/* Sort Filter */}
-          <div>
-            <label htmlFor="sort-filter" className="block text-sm font-medium text-gray-700 mb-1">
-              Sort By
-            </label>
-            <select
-              id="sort-filter"
-              value={sortBy}
-              onChange={(e) => setSortBy(e.target.value)}
-              className="block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md"
-            >
-              <option value="date-desc">Newest First</option>
-              <option value="date-asc">Oldest First</option>
-              <option value="teams-asc">Teams (A-Z)</option>
-              <option value="teams-desc">Teams (Z-A)</option>
-            </select>
-          </div>
-        </div>
-      </div>
+        </CardContent>
+      </Card>
       
       {/* Trade Feed */}
       <div className="space-y-6" aria-labelledby="trades-heading">
@@ -236,150 +230,150 @@ function TradesContent() {
             <Link
               key={trade.id}
               href={`/trades/${trade.id}`}
-              className="block bg-white rounded-lg shadow-md overflow-hidden hover:shadow-lg transition-shadow"
+              className="block"
               aria-label={`View details of trade between ${trade.teams.map(t => t.name).join(' and ')} from ${new Date(trade.date).toLocaleDateString()}`}
             >
-              <div className="border-b border-gray-200 bg-gray-50 px-4 py-3 sm:px-6">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-lg font-medium text-gray-900">
-                    Trade between {trade.teams.map(t => t.name).join(' and ')}
-                  </h3>
-                  <span className="text-sm text-gray-500">
-                    {new Date(trade.date).toLocaleDateString('en-US', {
-                      year: 'numeric',
-                      month: 'short',
-                      day: 'numeric'
-                    })}
-                  </span>
-                </div>
-              </div>
-              
-              <div className="px-4 py-5 sm:p-6">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  {trade.teams.map((team, index) => (
-                    <div key={index} className="border-l-4 pl-4" style={{ borderLeftColor: getTeamColorStyle(team.name).backgroundColor }}>
-                      <div className="flex items-center mb-2">
-                        <div 
-                          className="w-8 h-8 rounded-full flex items-center justify-center mr-3 overflow-hidden" 
-                          style={getTeamColorStyle(team.name)}
-                        >
-                          <Image
-                            src={getTeamLogoPath(team.name)}
-                            alt={team.name}
-                            width={24}
-                            height={24}
-                            className="object-contain"
-                            onError={(e) => {
-                              const target = e.target as HTMLImageElement;
-                              target.style.display = 'none';
-                              const parent = target.parentElement;
-                              if (parent) {
-                                const fallback = document.createElement('div');
-                                fallback.className = 'flex items-center justify-center h-full w-full';
-                                fallback.innerHTML = `<span class="text-xs font-bold">${team.name.charAt(0)}</span>`;
-                                parent.appendChild(fallback);
-                              }
-                            }}
-                          />
+              <Card className="hover:shadow-[var(--shadow-hover)] transition-shadow">
+                <CardHeader className="bg-[var(--surface)]">
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-[var(--text)]">
+                      Trade between {trade.teams.map(t => t.name).join(' and ')}
+                    </CardTitle>
+                    <span className="text-sm text-[var(--muted)]">
+                      {new Date(trade.date).toLocaleDateString('en-US', {
+                        year: 'numeric',
+                        month: 'short',
+                        day: 'numeric'
+                      })}
+                    </span>
+                  </div>
+                </CardHeader>
+
+                <CardContent>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    {trade.teams.map((team, index) => (
+                      <div key={index} className="border-l-4 pl-4" style={{ borderLeftColor: getTeamColorStyle(team.name).backgroundColor }}>
+                        <div className="flex items-center mb-2">
+                          <div 
+                            className="w-8 h-8 rounded-full flex items-center justify-center mr-3 overflow-hidden" 
+                            style={getTeamColorStyle(team.name)}
+                          >
+                            <Image
+                              src={getTeamLogoPath(team.name)}
+                              alt={team.name}
+                              width={24}
+                              height={24}
+                              className="object-contain"
+                              onError={(e) => {
+                                const target = e.target as HTMLImageElement;
+                                target.style.display = 'none';
+                                const parent = target.parentElement;
+                                if (parent) {
+                                  const fallback = document.createElement('div');
+                                  fallback.className = 'flex items-center justify-center h-full w-full';
+                                  fallback.innerHTML = `<span class=\"text-xs font-bold\">${team.name.charAt(0)}</span>`;
+                                  parent.appendChild(fallback);
+                                }
+                              }}
+                            />
+                          </div>
+                          <h4 className="font-bold" style={{ color: getTeamColorStyle(team.name).backgroundColor }}>{team.name} received:</h4>
                         </div>
-                        <h4 className="font-bold" style={{ color: getTeamColorStyle(team.name).backgroundColor }}>{team.name} received:</h4>
-                      </div>
-                      <ul className="space-y-1">
-                        {team.assets.map((asset, assetIndex) => (
-                          <li key={assetIndex} className="text-sm flex justify-between items-center">
-                            <div>
-                              {asset.type === 'player' ? (
-                                <span>
-                                  {asset.name} ({asset.position}, {asset.team})
-                                </span>
-                              ) : (
-                                <div>
+                        <ul className="space-y-1">
+                          {team.assets.map((asset, assetIndex) => (
+                            <li key={assetIndex} className="text-sm flex justify-between items-center">
+                              <div>
+                                {asset.type === 'player' ? (
                                   <span>
-                                    {asset.name}
-                                    {typeof asset.pickInRound === 'number' ? (
-                                      <>
-                                        {' '}#{asset.pickInRound}
-                                      </>
-                                    ) : null}
-                                    {asset.became ? (
-                                      <>
-                                        {' '}(
-                                        {asset.becamePosition ? `${asset.becamePosition} - ` : ''}
-                                        {asset.became})
-                                      </>
-                                    ) : null}
+                                    {asset.name} ({asset.position}, {asset.team})
                                   </span>
-                                  {asset.originalOwner && (
-                                    <div className="text-xs text-gray-500 mt-0.5">
-                                      originally {asset.originalOwner}
-                                    </div>
-                                  )}
-                                </div>
-                              )}
-                            </div>
-                            <div className="flex gap-2">
-                              {(asset.type === 'player' && asset.playerId) ? (
-                                <button
-                                  type="button"
-                                  className="text-blue-600 hover:underline text-xs"
-                                  aria-label={`Track lineage for ${asset.name}`}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    router.push(`/trades/tracker?rootType=player&playerId=${asset.playerId}`);
-                                  }}
-                                >
-                                  Track
-                                </button>
-                              ) : null}
-                              {(asset.type === 'pick' && asset.year && asset.round && (asset.draftSlot ?? asset.pickInRound)) ? (
-                                <button
-                                  type="button"
-                                  className="text-blue-600 hover:underline text-xs"
-                                  aria-label={`Track lineage for ${asset.name}`}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    router.push(`/trades/tracker?rootType=pick&season=${asset.year}&round=${asset.round}&slot=${(asset.draftSlot ?? asset.pickInRound) as number}`);
-                                  }}
-                                >
-                                  Track
-                                </button>
-                              ) : null}
-                            </div>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  ))}
-              </div>
-            </div>
-            
-            <div className="bg-gray-50 px-4 py-3 sm:px-6">
-              <div className="text-sm">
-                <div className="text-blue-600 hover:text-blue-900" aria-hidden="true">
-                  View trade details →
-                </div>
-              </div>
-            </div>
-          </Link>
-        ))
-      ) : (
-        <EmptyState
-          title="No Trades Found"
-          message="There are no trades matching your current filters."
-          action={{
-            label: "Clear all trade filters",
-            onClick: () => {
-              setSelectedTeam(null);
-              setSelectedAssetType('all');
-              setSortBy('date-desc');
-            }
-          }}
-        />
-      )}
+                                ) : (
+                                  <div>
+                                    <span>
+                                      {asset.name}
+                                      {typeof asset.pickInRound === 'number' ? (
+                                        <>
+                                          {' '}#{asset.pickInRound}
+                                        </>
+                                      ) : null}
+                                      {asset.became ? (
+                                        <>
+                                          {' '}(
+                                          {asset.becamePosition ? `${asset.becamePosition} - ` : ''}
+                                          {asset.became})
+                                        </>
+                                      ) : null}
+                                    </span>
+                                    {asset.originalOwner && (
+                                      <div className="text-xs text-[var(--muted)] mt-0.5">
+                                        originally {asset.originalOwner}
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                              <div className="flex gap-2">
+                                {(asset.type === 'player' && asset.playerId) ? (
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      router.push(`/trades/tracker?rootType=player&playerId=${asset.playerId}`);
+                                    }}
+                                    aria-label={`Track lineage for ${asset.name}`}
+                                  >
+                                    Track
+                                  </Button>
+                                ) : null}
+                                {(asset.type === 'pick' && asset.year && asset.round && (asset.draftSlot ?? asset.pickInRound)) ? (
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      router.push(`/trades/tracker?rootType=pick&season=${asset.year}&round=${asset.round}&slot=${(asset.draftSlot ?? asset.pickInRound) as number}`);
+                                    }}
+                                    aria-label={`Track lineage for ${asset.name}`}
+                                  >
+                                    Track
+                                  </Button>
+                                ) : null}
+                              </div>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+                <CardFooter>
+                  <div className="text-sm text-[var(--muted)]" aria-hidden="true">
+                    View trade details →
+                  </div>
+                </CardFooter>
+              </Card>
+            </Link>
+          ))
+        ) : (
+          <EmptyState
+            title="No Trades Found"
+            message="There are no trades matching your current filters."
+            action={{
+              label: "Clear all trade filters",
+              onClick: () => {
+                setSelectedTeam(null);
+                setSelectedAssetType('all');
+                setSortBy('date-desc');
+              }
+            }}
+          />
+        )}
       </div>
     </div>
   );
-}
 
 // Export the page component with Suspense boundary
 export default function TradesPage() {

@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
 import Image from 'next/image';
-import { Tab } from '@headlessui/react';
+import Tabs from '@/components/ui/Tabs';
 import { 
   getTeamsData, 
   getTeamWeeklyResults, 
@@ -19,6 +19,13 @@ import { getTeamLogoPath, getTeamColorStyle, resolveCanonicalTeamName } from '@/
 import LoadingState from '@/components/ui/loading-state';
 import ErrorState from '@/components/ui/error-state';
 import SectionHeader from '@/components/ui/SectionHeader';
+import Card, { CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
+import { Table, THead, TBody, Th, Td, Tr } from '@/components/ui/Table';
+import { Select } from '@/components/ui/Select';
+import Label from '@/components/ui/Label';
+import Button from '@/components/ui/Button';
+import Chip from '@/components/ui/Chip';
+import StatCard from '@/components/ui/StatCard';
 
 // Position grouping order for roster sections
 const POSITION_GROUP_ORDER = ['QB', 'RB', 'WR', 'TE', 'K', 'DEF/DST', 'DL', 'LB', 'DB', 'Other'] as const;
@@ -55,10 +62,6 @@ type RosterNewsResponse = {
   sinceHours: number;
   items: RosterNewsItem[];
 };
-
-function classNames(...classes: string[]) {
-  return classes.filter(Boolean).join(' ');
-}
 
 export default function TeamPage() {
   const params = useParams();
@@ -370,428 +373,354 @@ export default function TeamPage() {
         className="mb-6"
         actions={
           <div className="flex items-center gap-2">
-            <label htmlFor="year-select" className="block text-sm font-medium text-gray-700">
-              Select Season
-            </label>
-            <select
+            <Label htmlFor="year-select" className="sr-only md:not-sr-only text-[var(--muted)]">Season</Label>
+            <Select
               id="year-select"
+              size="sm"
+              fullWidth={false}
               value={selectedYear}
               onChange={(e) => handleYearChange(e.target.value)}
-              className="pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md"
+              className="w-[12rem]"
             >
               <option value="2025">2025 Season</option>
               <option value="2024">2024 Season</option>
               <option value="2023">2023 Season</option>
-            </select>
+            </Select>
           </div>
         }
       />
       
       {/* All-time summary */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8" style={{borderTop: `4px solid ${getTeamColorStyle(teamName).backgroundColor}`}}>
-        <div className="bg-white p-4 rounded-lg shadow">
-          <div className="text-sm text-gray-500">Total PF</div>
-          <div className="text-2xl font-bold">{allTimeStats.totalPF.toFixed(2)}</div>
-        </div>
-        <div className="bg-white p-4 rounded-lg shadow">
-          <div className="text-sm text-gray-500">Total PA</div>
-          <div className="text-2xl font-bold">{allTimeStats.totalPA.toFixed(2)}</div>
-        </div>
-        <div className="bg-white p-4 rounded-lg shadow">
-          <div className="text-sm text-gray-500">Avg PF/Week</div>
-          <div className="text-2xl font-bold">{allTimeStats.avgPF.toFixed(2)}</div>
-        </div>
-        <div className="bg-white p-4 rounded-lg shadow">
-          <div className="text-sm text-gray-500">Avg PA/Week</div>
-          <div className="text-2xl font-bold">{allTimeStats.avgPA.toFixed(2)}</div>
-        </div>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8" style={{ borderTop: `4px solid ${getTeamColorStyle(teamName).backgroundColor}` }}>
+        <StatCard label="Total PF" value={allTimeStats.totalPF.toFixed(2)} />
+        <StatCard label="Total PA" value={allTimeStats.totalPA.toFixed(2)} />
+        <StatCard label="Avg PF/Week" value={allTimeStats.avgPF.toFixed(2)} />
+        <StatCard label="Avg PA/Week" value={allTimeStats.avgPA.toFixed(2)} />
       </div>
       
       
       
-      <Tab.Group>
-        <Tab.List className="flex space-x-1 rounded-xl p-1" style={{backgroundColor: `${getTeamColorStyle(teamName).backgroundColor}20`}}>
-          {/* News first */}
-          <Tab
-            className={({ selected }) =>
-              classNames(
-                'w-full rounded-lg py-2.5 text-sm font-medium leading-5',
-                'ring-white ring-opacity-60 ring-offset-2 focus:outline-none focus:ring-2',
-                selected
-                  ? 'bg-white shadow'
-                  : 'text-gray-100 hover:bg-white/[0.12] hover:text-white'
-              )
-            }
-          >
-            News
-          </Tab>
-          {/* Roster */}
-          <Tab
-            className={({ selected }) =>
-              classNames(
-                'w-full rounded-lg py-2.5 text-sm font-medium leading-5',
-                'ring-white ring-opacity-60 ring-offset-2 focus:outline-none focus:ring-2',
-                selected
-                  ? 'bg-white shadow'
-                  : 'text-gray-100 hover:bg-white/[0.12] hover:text-white'
-              )
-            }
-            style={{
-              color: getTeamColorStyle(teamName).backgroundColor
-            }}
-          >
-            Roster
-          </Tab>
-          {/* Schedule */}
-          <Tab
-            className={({ selected }) =>
-              classNames(
-                'w-full rounded-lg py-2.5 text-sm font-medium leading-5',
-                'ring-white ring-opacity-60 ring-offset-2 focus:outline-none focus:ring-2',
-                selected
-                  ? 'bg-white shadow'
-                  : 'text-gray-100 hover:bg-white/[0.12] hover:text-white'
-              )
-            }
-            style={{
-              color: getTeamColorStyle(teamName).backgroundColor
-            }}
-          >
-            Schedule
-          </Tab>
-          {/* Records */}
-          <Tab
-            className={({ selected }) =>
-              classNames(
-                'w-full rounded-lg py-2.5 text-sm font-medium leading-5',
-                'ring-white ring-opacity-60 ring-offset-2 focus:outline-none focus:ring-2',
-                selected
-                  ? 'bg-white shadow'
-                  : 'text-gray-100 hover:bg-white/[0.12] hover:text-white'
-              )
-            }
-          >
-            Records
-          </Tab>
-          {/* H2H Records */}
-          <Tab
-            className={({ selected }) =>
-              classNames(
-                'w-full rounded-lg py-2.5 text-sm font-medium leading-5',
-                'ring-white ring-opacity-60 ring-offset-2 focus:outline-none focus:ring-2',
-                selected
-                  ? 'bg-white shadow'
-                  : 'text-gray-100 hover:bg-white/[0.12] hover:text-white'
-              )
-            }
-            style={{
-              color: getTeamColorStyle(teamName).backgroundColor
-            }}
-          >
-            H2H Records
-          </Tab>
-        </Tab.List>
-        <Tab.Panels>
-          {/* News Panel */}
-          <Tab.Panel className="rounded-xl bg-white p-3 shadow-md">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-xl font-bold">Roster News</h2>
-              <div className="flex items-center gap-3">
-                {news && news.length > 0 ? (
-                  <span className="text-sm text-gray-600">{news.length} articles</span>
-                ) : null}
-                <button
-                  type="button"
-                  onClick={() => setNewsWindowHours((h) => (h === 336 ? 720 : 336))}
-                  className="text-sm text-blue-600 hover:text-blue-700 hover:underline"
-                >
-                  {newsWindowHours === 336 ? 'Show older (30d)' : 'Show recent (14d)'}
-                </button>
-              </div>
-            </div>
-            {newsLoading && (
-              <div className="py-6"><LoadingState message="Loading news..." /></div>
-            )}
-            {newsError && (
-              <div className="py-6"><ErrorState message={newsError} /></div>
-            )}
-            {!newsLoading && !newsError && (
-              <div>
-                {newsGrouped && newsGrouped.length > 0 ? (
-                  <div className="space-y-8">
-                    {newsGrouped.map((group) => {
-                      const p = players[group.playerId];
-                      const meta = p ? `${p.position || ''}${p.team ? ` • ${p.team}` : ''}` : '';
-                      return (
-                        <section key={group.playerId}>
-                          <div className="flex items-baseline justify-between mb-2">
-                            <h3 className="text-lg font-semibold">
-                              {group.playerName}
-                              {meta ? <span className="ml-2 text-sm text-gray-500">{meta}</span> : null}
-                            </h3>
-                            <span className="text-xs text-gray-500">{group.items.length} article{group.items.length !== 1 ? 's' : ''}</span>
-                          </div>
-                          <div className="space-y-4">
-                            {group.items.map((it, idx) => (
-                              <article
-                                key={`${group.playerId}-${it.link}-${idx}`}
-                                className="border rounded-lg p-4 cursor-pointer hover:bg-gray-50 transition"
-                                role="link"
-                                tabIndex={0}
-                                onClick={(e) => {
-                                  const target = e.target as HTMLElement;
-                                  if (target && target.closest('a')) return; // don't double-open when clicking existing links
-                                  if (it.link) window.open(it.link, '_blank', 'noopener,noreferrer');
-                                }}
-                                onKeyDown={(e) => {
-                                  if ((e.key === 'Enter' || e.key === ' ') && it.link) {
-                                    e.preventDefault();
-                                    window.open(it.link, '_blank', 'noopener,noreferrer');
-                                  }
-                                }}
-                              >
-                                <div className="flex items-center justify-between mb-1">
-                                  <div className="text-sm text-gray-600">{it.sourceName}</div>
-                                  <div className="text-xs text-gray-500">{it.publishedAt ? new Date(it.publishedAt).toLocaleString() : ''}</div>
-                                </div>
-                                <h4 className="font-semibold hover:underline">{it.title}</h4>
-                                <p className="text-sm text-gray-700 mt-1 whitespace-pre-line">{it.description}</p>
-                                <div className="mt-2">
-                                  <a
-                                    href={it.link}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="inline-flex items-center text-sm text-blue-600 hover:underline"
-                                  >
-                                    Read at source ↗
-                                  </a>
-                                </div>
-                              </article>
-                            ))}
-                          </div>
-                        </section>
-                      );
-                    })}
+      <Tabs
+        tabs={[
+          {
+            id: 'news',
+            label: 'News',
+            content: (
+              <Card>
+                <CardHeader className="flex items-center justify-between">
+                  <CardTitle>Roster News</CardTitle>
+                  <div className="flex items-center gap-3">
+                    {news && news.length > 0 ? (
+                      <span className="text-sm text-[var(--muted)]">{news.length} articles</span>
+                    ) : null}
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setNewsWindowHours((h) => (h === 336 ? 720 : 336))}
+                    >
+                      {newsWindowHours === 336 ? 'Show older (30d)' : 'Show recent (14d)'}
+                    </Button>
                   </div>
-                ) : (
-                  <p className="text-gray-500">No recent news found for this roster.</p>
-                )}
-              </div>
-            )}
-          </Tab.Panel>
-
-          {/* Roster Panel */}
-          <Tab.Panel className="rounded-xl bg-white p-3 shadow-md">
-            <h2 className="text-xl font-bold mb-4">Current Roster</h2>
-            {team.players && team.players.length > 0 ? (
-              <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-gray-200">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        <button type="button" onClick={() => onSort('name')} className="flex items-center gap-1 hover:text-gray-700">
-                          Player <span className="opacity-60">{sortArrow('name')}</span>
-                        </button>
-                      </th>
-                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        <button type="button" onClick={() => onSort('position')} className="flex items-center gap-1 hover:text-gray-700">
-                          Position <span className="opacity-60">{sortArrow('position')}</span>
-                        </button>
-                      </th>
-                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        <button type="button" onClick={() => onSort('team')} className="flex items-center gap-1 hover:text-gray-700">
-                          Team <span className="opacity-60">{sortArrow('team')}</span>
-                        </button>
-                      </th>
-                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        <button type="button" onClick={() => onSort('gp')} className="flex items-center gap-1 hover:text-gray-700">
-                          G <span className="opacity-60">{sortArrow('gp')}</span>
-                        </button>
-                      </th>
-                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        <button type="button" onClick={() => onSort('totalPPR')} className="flex items-center gap-1 hover:text-gray-700">
-                          Total PPR <span className="opacity-60">{sortArrow('totalPPR')}</span>
-                        </button>
-                      </th>
-                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        <button type="button" onClick={() => onSort('ppg')} className="flex items-center gap-1 hover:text-gray-700">
-                          PPG <span className="opacity-60">{sortArrow('ppg')}</span>
-                        </button>
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
-                    {sortedGroups.map(({ group, ids }) => (
-                      [
-                        (
-                          <tr key={`hdr-${group}`} className="bg-gray-100">
-                            <td colSpan={6} className="px-6 py-2 text-xs font-semibold text-gray-600 uppercase">
-                              {group}
-                            </td>
-                          </tr>
-                        ),
-                        ...ids.map((playerId) => {
-                          const player = players[playerId];
-                          if (!player) return null;
-                          const s = playerSeasonStats[playerId];
-                          return (
-                            <tr key={playerId}>
-                              <td className="px-6 py-4 whitespace-nowrap">
-                                <div className="text-sm font-medium text-gray-900">
-                                  {player.first_name} {player.last_name}
+                </CardHeader>
+                <CardContent>
+                  {newsLoading && <div className="py-6"><LoadingState message="Loading news..." /></div>}
+                  {newsError && <div className="py-6"><ErrorState message={newsError} /></div>}
+                  {!newsLoading && !newsError && (
+                    <div>
+                      {newsGrouped && newsGrouped.length > 0 ? (
+                        <div className="space-y-8">
+                          {newsGrouped.map((group) => {
+                            const p = players[group.playerId];
+                            const meta = p ? `${p.position || ''}${p.team ? ` • ${p.team}` : ''}` : '';
+                            return (
+                              <section key={group.playerId}>
+                                <div className="flex items-baseline justify-between mb-2">
+                                  <h3 className="text-lg font-semibold">
+                                    {group.playerName}
+                                    {meta ? <span className="ml-2 text-sm text-[var(--muted)]">{meta}</span> : null}
+                                  </h3>
+                                  <span className="text-xs text-[var(--muted)]">{group.items.length} article{group.items.length !== 1 ? 's' : ''}</span>
                                 </div>
-                              </td>
-                              <td className="px-6 py-4 whitespace-nowrap">
-                                <div className="text-sm text-gray-500">{player.position}</div>
-                              </td>
-                              <td className="px-6 py-4 whitespace-nowrap">
-                                <div className="text-sm text-gray-500">{player.team}</div>
-                              </td>
-                              <td className="px-6 py-4 whitespace-nowrap">
-                                <div className="text-sm text-gray-500">{(s?.gp ?? 0)}</div>
-                              </td>
-                              <td className="px-6 py-4 whitespace-nowrap">
-                                <div className="text-sm text-gray-500">{(s?.totalPPR ?? 0).toFixed(1)}</div>
-                              </td>
-                              <td className="px-6 py-4 whitespace-nowrap">
-                                <div className="text-sm text-gray-900">{(s?.ppg ?? 0).toFixed(2)}</div>
-                              </td>
-                            </tr>
+                                <div className="space-y-4">
+                                  {group.items.map((it, idx) => (
+                                    <article
+                                      key={`${group.playerId}-${it.link}-${idx}`}
+                                      className="border border-[var(--border)] rounded-lg p-4 cursor-pointer hover:bg-[color-mix(in_srgb,var(--accent)_6%,transparent)] transition"
+                                      role="link"
+                                      tabIndex={0}
+                                      onClick={(e) => {
+                                        const target = e.target as HTMLElement;
+                                        if (target && target.closest('a')) return;
+                                        if (it.link) window.open(it.link, '_blank', 'noopener,noreferrer');
+                                      }}
+                                      onKeyDown={(e) => {
+                                        if ((e.key === 'Enter' || e.key === ' ') && it.link) {
+                                          e.preventDefault();
+                                          window.open(it.link, '_blank', 'noopener,noreferrer');
+                                        }
+                                      }}
+                                    >
+                                      <div className="flex items-center justify-between mb-1">
+                                        <div className="text-sm text-[var(--muted)]">{it.sourceName}</div>
+                                        <div className="text-xs text-[var(--muted)]">{it.publishedAt ? new Date(it.publishedAt).toLocaleString() : ''}</div>
+                                      </div>
+                                      <h4 className="font-semibold hover:underline">{it.title}</h4>
+                                      <p className="text-sm text-[var(--text)] mt-1 whitespace-pre-line">{it.description}</p>
+                                      <div className="mt-2">
+                                        <a
+                                          href={it.link}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          className="inline-flex items-center text-sm text-[var(--accent)] hover:underline"
+                                        >
+                                          Read at source ↗
+                                        </a>
+                                      </div>
+                                    </article>
+                                  ))}
+                                </div>
+                              </section>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <p className="text-[var(--muted)]">No recent news found for this roster.</p>
+                      )}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            ),
+          },
+          {
+            id: 'roster',
+            label: 'Roster',
+            content: (
+              <Card>
+                <CardHeader>
+                  <CardTitle>Current Roster</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {team.players && team.players.length > 0 ? (
+                    <div className="overflow-x-auto">
+                      <Table>
+                        <THead>
+                          <Tr>
+                            <Th>
+                              <button type="button" onClick={() => onSort('name')} className="flex items-center gap-1 hover:text-[var(--text)]">
+                                Player <span className="opacity-60">{sortArrow('name')}</span>
+                              </button>
+                            </Th>
+                            <Th>
+                              <button type="button" onClick={() => onSort('position')} className="flex items-center gap-1 hover:text-[var(--text)]">
+                                Position <span className="opacity-60">{sortArrow('position')}</span>
+                              </button>
+                            </Th>
+                            <Th>
+                              <button type="button" onClick={() => onSort('team')} className="flex items-center gap-1 hover:text-[var(--text)]">
+                                Team <span className="opacity-60">{sortArrow('team')}</span>
+                              </button>
+                            </Th>
+                            <Th>
+                              <button type="button" onClick={() => onSort('gp')} className="flex items-center gap-1 hover:text-[var(--text)]">
+                                G <span className="opacity-60">{sortArrow('gp')}</span>
+                              </button>
+                            </Th>
+                            <Th>
+                              <button type="button" onClick={() => onSort('totalPPR')} className="flex items-center gap-1 hover:text-[var(--text)]">
+                                Total PPR <span className="opacity-60">{sortArrow('totalPPR')}</span>
+                              </button>
+                            </Th>
+                            <Th>
+                              <button type="button" onClick={() => onSort('ppg')} className="flex items-center gap-1 hover:text-[var(--text)]">
+                                PPG <span className="opacity-60">{sortArrow('ppg')}</span>
+                              </button>
+                            </Th>
+                          </Tr>
+                        </THead>
+                        <TBody>
+                          {sortedGroups.map(({ group, ids }) => (
+                            [
+                              (
+                                <Tr key={`hdr-${group}`} className="bg-[color-mix(in_srgb,var(--accent)_6%,transparent)]">
+                                  <Td colSpan={6} className="text-xs font-semibold text-[var(--muted)] uppercase">
+                                    {group}
+                                  </Td>
+                                </Tr>
+                              ),
+                              ...ids.map((playerId) => {
+                                const player = players[playerId];
+                                if (!player) return null;
+                                const s = playerSeasonStats[playerId];
+                                return (
+                                  <Tr key={playerId}>
+                                    <Td>
+                                      <div className="text-sm font-medium text-[var(--text)]">
+                                        {player.first_name} {player.last_name}
+                                      </div>
+                                    </Td>
+                                    <Td>
+                                      <div className="text-sm text-[var(--muted)]">{player.position}</div>
+                                    </Td>
+                                    <Td>
+                                      <div className="text-sm text-[var(--muted)]">{player.team}</div>
+                                    </Td>
+                                    <Td>
+                                      <div className="text-sm text-[var(--muted)]">{(s?.gp ?? 0)}</div>
+                                    </Td>
+                                    <Td>
+                                      <div className="text-sm text-[var(--muted)]">{(s?.totalPPR ?? 0).toFixed(1)}</div>
+                                    </Td>
+                                    <Td>
+                                      <div className="text-sm text-[var(--text)]">{(s?.ppg ?? 0).toFixed(2)}</div>
+                                    </Td>
+                                  </Tr>
+                                );
+                              })
+                            ]
+                          ))}
+                        </TBody>
+                      </Table>
+                    </div>
+                  ) : (
+                    <p className="text-[var(--muted)] text-center py-4">No roster data available</p>
+                  )}
+                </CardContent>
+              </Card>
+            ),
+          },
+          {
+            id: 'schedule',
+            label: 'Schedule',
+            content: (
+              <Card>
+                <CardHeader>
+                  <CardTitle>Season Schedule</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {weeklyResults && weeklyResults.length > 0 ? (
+                    <div className="overflow-x-auto">
+                      <Table>
+                        <THead>
+                          <Tr>
+                            <Th>Week</Th>
+                            <Th>Opponent</Th>
+                            <Th>Result</Th>
+                            <Th>Score</Th>
+                          </Tr>
+                        </THead>
+                        <TBody>
+                          {weeklyResults.map((result) => {
+                            const opponentTeam = allTeams.find(t => t.rosterId === result.opponent);
+                            const opponentName = opponentTeam ? opponentTeam.teamName : 'Unknown Team';
+                            return (
+                              <Tr key={result.week}>
+                                <Td>
+                                  <div className="text-sm text-[var(--text)]">Week {result.week}</div>
+                                </Td>
+                                <Td>
+                                  <div className="text-sm font-medium text-[var(--text)]">{opponentName}</div>
+                                </Td>
+                                <Td>
+                                  <Chip
+                                    size="sm"
+                                    variant="neutral"
+                                    className={[
+                                      'px-2',
+                                      result.result === 'W'
+                                        ? 'bg-green-100 text-green-800'
+                                        : result.result === 'L'
+                                        ? 'bg-red-100 text-red-800'
+                                        : 'bg-yellow-100 text-yellow-800',
+                                    ].join(' ')}
+                                  >
+                                    {result.result}
+                                  </Chip>
+                                </Td>
+                                <Td>
+                                  <div className="text-sm text-[var(--text)]">
+                                    {result.points.toFixed(2)} - {result.opponentPoints.toFixed(2)}
+                                  </div>
+                                </Td>
+                              </Tr>
+                            );
+                          })}
+                        </TBody>
+                      </Table>
+                    </div>
+                  ) : (
+                    <p className="text-[var(--muted)] text-center py-4">No schedule data available</p>
+                  )}
+                </CardContent>
+              </Card>
+            ),
+          },
+          {
+            id: 'records',
+            label: 'Records',
+            content: (
+              <Card>
+                <CardHeader>
+                  <CardTitle>Team Records</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <StatCard label="Highest Scoring Week" value={`${allTimeStats.highestScore.toFixed(2)} pts`} />
+                    <StatCard label="Lowest Scoring Week" value={`${allTimeStats.lowestScore.toFixed(2)} pts`} />
+                  </div>
+                </CardContent>
+              </Card>
+            ),
+          },
+          {
+            id: 'h2h',
+            label: 'H2H Records',
+            content: (
+              <Card>
+                <CardHeader>
+                  <CardTitle>Head-to-Head Records</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="overflow-x-auto">
+                    <Table>
+                      <THead>
+                        <Tr>
+                          <Th>Team</Th>
+                          <Th>Record</Th>
+                          <Th>Win %</Th>
+                        </Tr>
+                      </THead>
+                      <TBody>
+                        {Object.entries(h2hRecords).map(([opponentOwnerId, record]) => {
+                          const opponentName = resolveCanonicalTeamName({ ownerId: opponentOwnerId });
+                          const totalGames = record.wins + record.losses + record.ties;
+                          const winPercentage = totalGames > 0 ? (record.wins + record.ties * 0.5) / totalGames : 0;
+                          return (
+                            <Tr key={opponentOwnerId}>
+                              <Td>
+                                <div className="text-sm font-medium text-[var(--text)]">{opponentName}</div>
+                              </Td>
+                              <Td>
+                                <div className="text-sm text-[var(--text)]">
+                                  {record.wins}-{record.losses}{record.ties > 0 ? `-${record.ties}` : ''}
+                                </div>
+                              </Td>
+                              <Td>
+                                <div className="text-sm text-[var(--text)]">{(winPercentage * 100).toFixed(1)}%</div>
+                              </Td>
+                            </Tr>
                           );
-                        })
-                      ]
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            ) : (
-              <p className="text-gray-500 text-center py-4">No roster data available</p>
-            )}
-          </Tab.Panel>
-          
-          {/* Schedule Panel */}
-          <Tab.Panel className="rounded-xl bg-white p-3 shadow-md">
-            <h2 className="text-xl font-bold mb-4">Season Schedule</h2>
-            {weeklyResults && weeklyResults.length > 0 ? (
-              <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-gray-200">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Week
-                      </th>
-                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Opponent
-                      </th>
-                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Result
-                      </th>
-                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Score
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
-                    {weeklyResults.map((result) => {
-                      const opponentTeam = allTeams.find(t => t.rosterId === result.opponent);
-                      const opponentName = opponentTeam ? opponentTeam.teamName : 'Unknown Team';
-                      
-                      return (
-                        <tr key={result.week}>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <div className="text-sm text-gray-900">Week {result.week}</div>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <div className="text-sm font-medium text-gray-900">{opponentName}</div>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                              result.result === 'W' ? 'bg-green-100 text-green-800' :
-                              result.result === 'L' ? 'bg-red-100 text-red-800' :
-                              'bg-yellow-100 text-yellow-800'
-                            }`}>
-                              {result.result}
-                            </span>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <div className="text-sm text-gray-900">
-                              {result.points.toFixed(2)} - {result.opponentPoints.toFixed(2)}
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            ) : (
-              <p className="text-gray-500 text-center py-4">No schedule data available</p>
-            )}
-          </Tab.Panel>
-
-          {/* Records Panel */}
-          <Tab.Panel className="rounded-xl bg-white p-3 shadow-md">
-            <h2 className="text-xl font-bold mb-4">Team Records</h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div className="border rounded-lg p-4">
-                <h3 className="font-semibold mb-2">Highest Scoring Week</h3>
-                <div className="text-2xl font-bold">{allTimeStats.highestScore.toFixed(2)} pts</div>
-              </div>
-              <div className="border rounded-lg p-4">
-                <h3 className="font-semibold mb-2">Lowest Scoring Week</h3>
-                <div className="text-2xl font-bold">{allTimeStats.lowestScore.toFixed(2)} pts</div>
-              </div>
-            </div>
-          </Tab.Panel>
-
-          {/* H2H Records Panel */}
-          <Tab.Panel className="rounded-xl bg-white p-3 shadow-md">
-            <h2 className="text-xl font-bold mb-4">Head-to-Head Records</h2>
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Team
-                    </th>
-                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Record
-                    </th>
-                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Win %
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
-                  {Object.entries(h2hRecords).map(([opponentOwnerId, record]) => {
-                    const opponentName = resolveCanonicalTeamName({ ownerId: opponentOwnerId });
-                    const totalGames = record.wins + record.losses + record.ties;
-                    const winPercentage = totalGames > 0 ? (record.wins + record.ties * 0.5) / totalGames : 0;
-
-                    return (
-                      <tr key={opponentOwnerId}>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="text-sm font-medium text-gray-900">{opponentName}</div>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="text-sm text-gray-900">
-                            {record.wins}-{record.losses}{record.ties > 0 ? `-${record.ties}` : ''}
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="text-sm text-gray-900">
-                            {(winPercentage * 100).toFixed(1)}%
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </Tab.Panel>
-        </Tab.Panels>
-      </Tab.Group>
+                        })}
+                      </TBody>
+                    </Table>
+                  </div>
+                </CardContent>
+              </Card>
+            ),
+          },
+        ]}
+      />
     </div>
   );
 }

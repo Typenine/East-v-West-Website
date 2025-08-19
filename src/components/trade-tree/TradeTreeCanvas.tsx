@@ -18,6 +18,8 @@ import {
   type ReactFlowInstance,
 } from "@xyflow/react";
 import { getTeamColors } from "@/lib/utils/team-utils";
+import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/Card";
+import { Button } from "@/components/ui/Button";
 
 // Layout constants and basic styles (two-lane bracket layout)
 const NODE_W = 180;
@@ -169,15 +171,17 @@ function BandNode({ data, id }: any) {
     <div className={`evw-node rounded-[var(--radius-card)] border bg-[var(--surface)] border-[var(--border)] ${isDim ? 'opacity-30' : 'opacity-100'}`} style={{ position: 'relative', width: '100%', height: '100%' }} onTouchStart={onTS} onTouchEnd={onTE}>
       <span className="absolute left-0 right-0 top-0 h-1 accent-gradient rounded-t-[var(--radius-card)] pointer-events-none" />
       <div className="flex flex-col items-center justify-center px-3" style={{ height: BAND_HEADER_H }}>
-        <button
-          className="text-sm font-extrabold uppercase tracking-wider flex items-center gap-2"
+        <Button
+          variant="ghost"
+          size="sm"
+          className="text-sm font-extrabold uppercase tracking-wider flex items-center gap-2 bg-transparent"
           onClick={() => data.onToggle?.(id)}
           title={collapsed ? 'Expand' : 'Collapse'}
           style={{ color: headerColor }}
         >
           <span className={`inline-block transition-transform ${collapsed ? '' : 'rotate-90'}`}>▶</span>
           <span className="truncate">{title}</span>
-        </button>
+        </Button>
         <div className="mt-0.5 flex justify-center w-full">
           <svg width="28" height="8" viewBox="0 0 28 8" fill="none" xmlns="http://www.w3.org/2000/svg">
             <line x1="2" y1="2" x2="26" y2="2" stroke={BRACKET_RED} strokeWidth="3" strokeLinecap="round" />
@@ -738,191 +742,214 @@ export default function TradeTreeCanvas({ graph, height = 640, onNodeClick }: Tr
       </ReactFlow>
 
       {/* Floating Legend / Key */}
-      <div className="absolute top-2 right-2 evw-surface border border-[var(--border)] rounded shadow p-2 text-xs space-y-2 w-72 max-h-[60%] overflow-auto">
-        <div className="flex items-center justify-between">
-          <div className="font-semibold">Legend</div>
-          <div className="flex items-center gap-2">
-            <button
-              className="px-2 py-0.5 rounded border border-[var(--border)] text-[11px] hover:bg-[color-mix(in_srgb,_var(--text)_8%,_transparent)]"
-              onClick={() => setCompact((v) => !v)}
-              title="Toggle compact stacked mode"
-            >{compact ? 'Expanded' : 'Compact'}</button>
-            <button
-              className="px-2 py-0.5 rounded border border-[var(--border)] text-[11px] hover:bg-[color-mix(in_srgb,_var(--text)_8%,_transparent)]"
-              onClick={() => {
-                try { rfRef.current?.fitView({ padding: 0.12, duration: 400 }); } catch {}
-              }}
-              title="Reset view to fit all"
-            >Reset</button>
-            <button
-              className="px-2 py-0.5 rounded border border-[var(--border)] text-[11px] hover:bg-[color-mix(in_srgb,_var(--text)_8%,_transparent)]"
-              onClick={async () => {
-                try {
-                  const el = wrapperRef.current as HTMLElement;
-                  const mod = await import('html-to-image');
-                  const cs = getComputedStyle(document.documentElement);
-                  const surface = cs.getPropertyValue('--surface').trim() || '#ffffff';
-                  const dataUrl = await mod.toPng(el, { backgroundColor: surface });
-                  const a = document.createElement('a');
-                  a.href = dataUrl; a.download = 'trade-tree.png'; a.click();
-                } catch {
-                  alert('Install html-to-image to enable export: npm i html-to-image');
-                }
-              }}>Export PNG</button>
-            <button
-              className="px-2 py-0.5 rounded border border-[var(--border)] text-[11px] hover:bg-[color-mix(in_srgb,_var(--text)_8%,_transparent)]"
-              onClick={async () => {
-                try {
-                  const el = wrapperRef.current as HTMLElement;
-                  const mod = await import('html-to-image');
-                  const dataUrl = await mod.toSvg(el);
-                  const a = document.createElement('a');
-                  a.href = dataUrl; a.download = 'trade-tree.svg'; a.click();
-                } catch {
-                  alert('Install html-to-image to enable export: npm i html-to-image');
-                }
-              }}>Export SVG</button>
-            <button
-              className="px-2 py-0.5 rounded border border-[var(--border)] text-[11px] hover:bg-[color-mix(in_srgb,_var(--text)_8%,_transparent)]"
-              onClick={async () => {
-                try {
-                  const el = wrapperRef.current as HTMLElement;
-                  if (!el) return;
-                  const mod = await import('html-to-image');
-                  const { jsPDF } = await import('jspdf');
-                  const svg2pdf = (await import('svg2pdf.js')).default;
-
-                  // First try vector path: html-to-image -> SVG -> svg2pdf
-                  let usedVector = false;
+      <Card className="absolute top-2 right-2 p-0 text-xs w-72 max-h-[60%] overflow-auto">
+        <CardHeader className="px-2 py-2 border-b border-[var(--border)]">
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-sm">Legend</CardTitle>
+            <div className="flex items-center gap-2">
+              <Button
+                size="sm"
+                variant="secondary"
+                className="text-[11px]"
+                onClick={() => setCompact((v) => !v)}
+                title="Toggle compact stacked mode"
+              >{compact ? 'Expanded' : 'Compact'}</Button>
+              <Button
+                size="sm"
+                variant="secondary"
+                className="text-[11px]"
+                onClick={() => {
+                  try { rfRef.current?.fitView({ padding: 0.12, duration: 400 }); } catch {}
+                }}
+                title="Reset view to fit all"
+              >Reset</Button>
+              <Button
+                size="sm"
+                variant="secondary"
+                className="text-[11px]"
+                onClick={async () => {
                   try {
-                    const svgDataUrl = await mod.toSvg(el);
-                    const svgText = svgDataUrl.startsWith('data:')
-                      ? decodeURIComponent(svgDataUrl.substring(svgDataUrl.indexOf(',') + 1))
-                      : svgDataUrl;
-                    const parser = new DOMParser();
-                    const svgDoc = parser.parseFromString(svgText, 'image/svg+xml');
-                    const svgEl = svgDoc.documentElement as unknown as SVGSVGElement;
-                    // If the SVG uses foreignObject (typical for html-to-image), svg2pdf can't render it reliably.
-                    const hasFO = svgEl.getElementsByTagName('foreignObject').length > 0;
-                    if (!hasFO) {
+                    const el = wrapperRef.current as HTMLElement;
+                    const mod = await import('html-to-image');
+                    const cs = getComputedStyle(document.documentElement);
+                    const surface = cs.getPropertyValue('--surface').trim() || '#ffffff';
+                    const dataUrl = await mod.toPng(el, { backgroundColor: surface });
+                    const a = document.createElement('a');
+                    a.href = dataUrl; a.download = 'trade-tree.png'; a.click();
+                  } catch {
+                    alert('Install html-to-image to enable export: npm i html-to-image');
+                  }
+                }}>Export PNG</Button>
+              <Button
+                size="sm"
+                variant="secondary"
+                className="text-[11px]"
+                onClick={async () => {
+                  try {
+                    const el = wrapperRef.current as HTMLElement;
+                    const mod = await import('html-to-image');
+                    const dataUrl = await mod.toSvg(el);
+                    const a = document.createElement('a');
+                    a.href = dataUrl; a.download = 'trade-tree.svg'; a.click();
+                  } catch {
+                    alert('Install html-to-image to enable export: npm i html-to-image');
+                  }
+                }}>Export SVG</Button>
+              <Button
+                size="sm"
+                variant="secondary"
+                className="text-[11px]"
+                onClick={async () => {
+                  try {
+                    const el = wrapperRef.current as HTMLElement;
+                    if (!el) return;
+                    const mod = await import('html-to-image');
+                    const { jsPDF } = await import('jspdf');
+                    const svg2pdf = (await import('svg2pdf.js')).default;
+
+                    // First try vector path: html-to-image -> SVG -> svg2pdf
+                    let usedVector = false;
+                    try {
+                      const svgDataUrl = await mod.toSvg(el);
+                      const svgText = svgDataUrl.startsWith('data:')
+                        ? decodeURIComponent(svgDataUrl.substring(svgDataUrl.indexOf(',') + 1))
+                        : svgDataUrl;
+                      const parser = new DOMParser();
+                      const svgDoc = parser.parseFromString(svgText, 'image/svg+xml');
+                      const svgEl = svgDoc.documentElement as unknown as SVGSVGElement;
+                      // If the SVG uses foreignObject (typical for html-to-image), svg2pdf can't render it reliably.
+                      const hasFO = svgEl.getElementsByTagName('foreignObject').length > 0;
+                      if (!hasFO) {
+                        const rect = el.getBoundingClientRect();
+                        const pxToPt = (px: number) => (px * 72) / 96;
+                        const pdfW = Math.max(300, pxToPt(rect.width));
+                        const pdfH = Math.max(200, pxToPt(rect.height));
+                        const doc = new jsPDF({ unit: 'pt', format: [pdfW, pdfH] });
+                        svg2pdf(svgEl, doc, { x: 0, y: 0, width: pdfW, height: pdfH });
+                        doc.save('trade-tree.pdf');
+                        usedVector = true;
+                      }
+                    } catch (svgErr) {
+                      // fall back below
+                      console.warn('Vector export failed; falling back to raster PDF', svgErr);
+                    }
+
+                    if (!usedVector) {
+                      // Fallback: rasterize to PNG, then embed into PDF
                       const rect = el.getBoundingClientRect();
                       const pxToPt = (px: number) => (px * 72) / 96;
                       const pdfW = Math.max(300, pxToPt(rect.width));
                       const pdfH = Math.max(200, pxToPt(rect.height));
+                      const cs = getComputedStyle(document.documentElement);
+                      const surface = cs.getPropertyValue('--surface').trim() || '#ffffff';
+                      const png = await mod.toPng(el, { backgroundColor: surface, pixelRatio: 2 });
                       const doc = new jsPDF({ unit: 'pt', format: [pdfW, pdfH] });
-                      svg2pdf(svgEl, doc, { x: 0, y: 0, width: pdfW, height: pdfH });
+                      doc.addImage(png, 'PNG', 0, 0, pdfW, pdfH);
                       doc.save('trade-tree.pdf');
-                      usedVector = true;
                     }
-                  } catch (svgErr) {
-                    // fall back below
-                    console.warn('Vector export failed; falling back to raster PDF', svgErr);
+                  } catch (err) {
+                    console.error(err);
+                    alert('Install html-to-image, jspdf, and svg2pdf.js to enable PDF export');
                   }
-
-                  if (!usedVector) {
-                    // Fallback: rasterize to PNG, then embed into PDF
-                    const rect = el.getBoundingClientRect();
-                    const pxToPt = (px: number) => (px * 72) / 96;
-                    const pdfW = Math.max(300, pxToPt(rect.width));
-                    const pdfH = Math.max(200, pxToPt(rect.height));
-                    const cs = getComputedStyle(document.documentElement);
-                    const surface = cs.getPropertyValue('--surface').trim() || '#ffffff';
-                    const png = await mod.toPng(el, { backgroundColor: surface, pixelRatio: 2 });
-                    const doc = new jsPDF({ unit: 'pt', format: [pdfW, pdfH] });
-                    doc.addImage(png, 'PNG', 0, 0, pdfW, pdfH);
-                    doc.save('trade-tree.pdf');
-                  }
-                } catch (err) {
-                  console.error(err);
-                  alert('Install html-to-image, jspdf, and svg2pdf.js to enable PDF export');
-                }
-              }}
-            >Export PDF</button>
-          </div>
-        </div>
-        {/* Step-through controls */}
-        {Object.keys(bandCenters).length > 0 && (
-          <div className="flex items-center justify-between">
-            <div className="text-[11px] text-[var(--muted)]">Step through bands</div>
-            <div className="flex items-center gap-1">
-              <button className="px-1.5 py-0.5 rounded border border-[var(--border)] hover:bg-[color-mix(in_srgb,_var(--text)_8%,_transparent)]" onClick={() => {
-                const keys = Object.keys(bandCenters);
-                if (!keys.length) return;
-                const next = (stepIndex - 1 + keys.length) % keys.length;
-                setStepIndex(next);
-                const c = bandCenters[keys[next]];
-                rfRef.current?.setCenter?.(c.x, c.y, { zoom: 1.2, duration: 400 });
-              }}>Prev</button>
-              <button className="px-1.5 py-0.5 rounded border border-[var(--border)] hover:bg-[color-mix(in_srgb,_var(--text)_8%,_transparent)]" onClick={() => {
-                const keys = Object.keys(bandCenters);
-                if (!keys.length) return;
-                const next = (stepIndex + 1) % keys.length;
-                setStepIndex(next);
-                const c = bandCenters[keys[next]];
-                rfRef.current?.setCenter?.(c.x, c.y, { zoom: 1.2, duration: 400 });
-              }}>Next</button>
+                }}
+              >Export PDF</Button>
             </div>
           </div>
-        )}
-        <div className="flex items-center gap-2">
-          <span className="inline-block w-6 h-3 rounded" style={{ background: `linear-gradient(90deg, ${leftLaneColor}, ${rightLaneColor})` }} />
-          <span>Lane headers (team colors)</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <span className="inline-block border-t-4 w-8" style={{ borderColor: BRACKET_RED, borderTopStyle: 'solid' }} />
-          <span>Bracket connectors</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <span className="inline-block border-t-2 w-6" style={{ borderColor: 'var(--muted)', borderTopStyle: 'dashed' }} />
-          <span>Pick → Player</span>
-        </div>
-        <div className="mt-2">
-          <div className="font-semibold mb-1">Transaction bands</div>
-          <ul className="space-y-1">
-            {Object.keys(bandCenters).map((id) => (
-              <li key={id}>
-                <button
-                  className="text-left hover:underline"
-                  onMouseEnter={() => setHoverId(id)}
-                  onMouseLeave={() => setHoverId(null)}
-                  onClick={() => {
-                    const c = bandCenters[id];
-                    if (!c) return;
-                    rfRef.current?.setCenter?.(c.x, c.y, { zoom: 1.2, duration: 400 });
-                    // Pulse highlight on the band border
-                    setHighlightBands((prev) => {
-                      const next = new Set(prev);
-                      next.add(id);
-                      return next;
-                    });
-                    // Clear any previous timer and schedule removal
-                    if (highlightTimers.current[id]) {
-                      clearTimeout(highlightTimers.current[id]);
-                    }
-                    highlightTimers.current[id] = window.setTimeout(() => {
+        </CardHeader>
+        <CardContent className="p-2 space-y-2">
+          {/* Step-through controls */}
+          {Object.keys(bandCenters).length > 0 && (
+            <div className="flex items-center justify-between">
+              <div className="text-[11px] text-[var(--muted)]">Step through bands</div>
+              <div className="flex items-center gap-1">
+                <Button size="sm" variant="secondary" className="text-[11px]" onClick={() => {
+                  const keys = Object.keys(bandCenters);
+                  if (!keys.length) return;
+                  const next = (stepIndex - 1 + keys.length) % keys.length;
+                  setStepIndex(next);
+                  const c = bandCenters[keys[next]];
+                  rfRef.current?.setCenter?.(c.x, c.y, { zoom: 1.2, duration: 400 });
+                }}>Prev</Button>
+                <Button size="sm" variant="secondary" className="text-[11px]" onClick={() => {
+                  const keys = Object.keys(bandCenters);
+                  if (!keys.length) return;
+                  const next = (stepIndex + 1) % keys.length;
+                  setStepIndex(next);
+                  const c = bandCenters[keys[next]];
+                  rfRef.current?.setCenter?.(c.x, c.y, { zoom: 1.2, duration: 400 });
+                }}>Next</Button>
+              </div>
+            </div>
+          )}
+          <div className="flex items-center gap-2">
+            <span className="inline-block w-6 h-3 rounded" style={{ background: `linear-gradient(90deg, ${leftLaneColor}, ${rightLaneColor})` }} />
+            <span>Lane headers (team colors)</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="inline-block border-t-4 w-8" style={{ borderColor: BRACKET_RED, borderTopStyle: 'solid' }} />
+            <span>Bracket connectors</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="inline-block border-t-2 w-6" style={{ borderColor: 'var(--muted)', borderTopStyle: 'dashed' }} />
+            <span>Pick → Player</span>
+          </div>
+          <div className="mt-2">
+            <div className="font-semibold mb-1">Transaction bands</div>
+            <ul className="space-y-1">
+              {Object.keys(bandCenters).map((id) => (
+                <li key={id}>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-left justify-start text-[11px]"
+                    onMouseEnter={() => setHoverId(id)}
+                    onMouseLeave={() => setHoverId(null)}
+                    onClick={() => {
+                      const c = bandCenters[id];
+                      if (!c) return;
+                      rfRef.current?.setCenter?.(c.x, c.y, { zoom: 1.2, duration: 400 });
+                      // Pulse highlight on the band border
                       setHighlightBands((prev) => {
                         const next = new Set(prev);
-                        next.delete(id);
+                        next.add(id);
                         return next;
                       });
-                    }, 1500);
-                  }}
-                >{bandLabels[id] ?? id.replace('band:', '').replace(':left',' (L)').replace(':right',' (R)')}</button>
-              </li>
-            ))}
-          </ul>
-        </div>
-        <div className="text-[10px] text-[var(--muted)]">Hover or select to trace path; click a node for details; scroll to zoom, drag to pan. Long-press nodes on touch.</div>
-      </div>
+                      // Clear any previous timer and schedule removal
+                      if (highlightTimers.current[id]) {
+                        clearTimeout(highlightTimers.current[id]);
+                      }
+                      highlightTimers.current[id] = window.setTimeout(() => {
+                        setHighlightBands((prev) => {
+                          const next = new Set(prev);
+                          next.delete(id);
+                          return next;
+                        });
+                      }, 1500);
+                    }}
+                  >{bandLabels[id] ?? id.replace('band:', '').replace(':left',' (L)').replace(':right',' (R)')}</Button>
+                </li>
+              ))}
+            </ul>
+          </div>
+          <div className="text-[10px] text-[var(--muted)]">Hover or select to trace path; click a node for details; scroll to zoom, drag to pan. Long-press nodes on touch.</div>
+        </CardContent>
+      </Card>
 
       {/* Simple side panel for node details */}
       {selected && (
-        <div className="absolute top-0 right-0 h-full w-80 bg-[var(--surface)] border-l border-[var(--border)] shadow-lg p-3 overflow-auto">
-          <div className="flex items-center justify-between mb-2">
-            <div className="font-semibold">Details</div>
-            <button className="text-[var(--muted)] hover:text-[var(--text)]" onClick={() => { setSelected(null); setSelectedId(null); }}>✕</button>
-          </div>
-          <div className="space-y-1 text-sm">
+        <Card className="absolute top-0 right-0 h-full w-80 overflow-auto rounded-none shadow-lg border-0 border-l border-[var(--border)]">
+          <CardHeader className="px-3 py-3 border-b border-[var(--border)]">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-base">Details</CardTitle>
+              <Button
+                variant="ghost"
+                size="sm"
+                aria-label="Close details"
+                onClick={() => { setSelected(null); setSelectedId(null); }}
+              >✕</Button>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-1 text-sm">
             <div><span className="text-[var(--muted)]">Type:</span> {selected.type}</div>
             <div><span className="text-[var(--muted)]">Label:</span> {labelFor(selected)}</div>
             {selected.type === 'player' && (
@@ -943,8 +970,8 @@ export default function TradeTreeCanvas({ graph, height = 640, onNodeClick }: Tr
                 {selected.becameName && <div><span className="text-[var(--muted)]">Became:</span> {selected.becameName}</div>}
               </div>
             )}
-          </div>
-        </div>
+          </CardContent>
+        </Card>
       )}
     </div>
   );

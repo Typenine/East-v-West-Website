@@ -1,5 +1,4 @@
 import { HTMLAttributes, ReactNode } from "react";
-import classNames from "classnames";
 
 export default function SectionHeader({
   title,
@@ -12,11 +11,15 @@ export default function SectionHeader({
   subtitle?: string;
   actions?: ReactNode;
 } & HTMLAttributes<HTMLDivElement>) {
+  const rootClass = [
+    "flex items-end justify-between gap-3 mb-6",
+    className,
+  ].filter(Boolean).join(" ");
   return (
-    <div className={classNames("flex items-end justify-between gap-3 mb-3", className)} {...props}>
+    <div className={rootClass} {...props}>
       <div>
-        <h2 className="text-xl font-semibold text-[var(--text)] flex items-center gap-2">
-          <span className="inline-block w-1.5 h-5 rounded-full bg-[var(--accent)]" />
+        <h2 className="text-2xl sm:text-3xl font-semibold tracking-tight text-[var(--text)] flex items-center gap-3">
+          <span className="inline-block w-1.5 h-6 rounded-full accent-gradient" />
           {title}
         </h2>
         {subtitle && <p className="text-sm text-[var(--muted)] mt-1">{subtitle}</p>}

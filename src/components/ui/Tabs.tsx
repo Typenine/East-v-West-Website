@@ -1,7 +1,7 @@
 "use client";
 
-import classNames from "classnames";
 import { ReactNode, useState } from "react";
+import { Chip } from "@/components/ui/Chip";
 
 export type Tab = { id: string; label: string; content: ReactNode };
 
@@ -10,26 +10,36 @@ export function Tabs({ tabs, initialId }: { tabs: Tab[]; initialId?: string }) {
 
   return (
     <div className="w-full">
-      <div className="flex gap-2 mb-3">
+      <div
+        role="tablist"
+        aria-orientation="horizontal"
+        className="flex gap-2 mb-3"
+      >
         {tabs.map((t) => (
-          <button
+          <Chip
             key={t.id}
+            role="tab"
+            aria-selected={active === t.id}
+            aria-controls={`panel-${t.id}`}
+            id={`tab-${t.id}`}
+            selected={active === t.id}
+            variant="accent"
+            size="md"
             onClick={() => setActive(t.id)}
-            className={classNames(
-              "px-3 py-1.5 rounded-full text-sm font-medium pill border",
-              active === t.id
-                ? "pill-active border-transparent"
-                : "text-[var(--muted)] hover:text-[var(--text)] pill-hover border-transparent"
-            )}
-            aria-pressed={active === t.id}
           >
             {t.label}
-          </button>
+          </Chip>
         ))}
       </div>
       <div>
         {tabs.map((t) => (
-          <div key={t.id} hidden={active !== t.id}>
+          <div
+            key={t.id}
+            role="tabpanel"
+            id={`panel-${t.id}`}
+            aria-labelledby={`tab-${t.id}`}
+            hidden={active !== t.id}
+          >
             {t.content}
           </div>
         ))}

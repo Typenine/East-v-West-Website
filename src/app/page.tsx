@@ -1,4 +1,3 @@
-import Link from 'next/link';
 import Image from 'next/image';
 import CountdownTimer from '@/components/ui/countdown-timer';
 import MatchupCard from '@/components/ui/matchup-card';
@@ -6,6 +5,7 @@ import { IMPORTANT_DATES, LEAGUE_IDS } from '@/lib/constants/league';
 import { getLeagueMatchups, getTeamsData } from '@/lib/utils/sleeper-api';
 import EmptyState from '@/components/ui/empty-state';
 import SectionHeader from '@/components/ui/SectionHeader';
+import LinkButton from '@/components/ui/LinkButton';
 
 export const revalidate = 0; // always fetch fresh Sleeper data
 
@@ -107,41 +107,11 @@ export default async function Home() {
       <section>
         <SectionHeader title="Quick links" />
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-          <Link 
-            href="/teams" 
-            className="inline-flex items-center justify-center rounded-full font-medium px-4 py-2 evw-surface border border-[var(--border)] text-[var(--text)] hover:opacity-90 focus:outline-none focus:ring-2 ring-[var(--focus)] ring-offset-2 ring-offset-[var(--surface)]"
-            aria-label="View all teams"
-          >
-            Teams
-          </Link>
-          <Link 
-            href="/standings" 
-            className="inline-flex items-center justify-center rounded-full font-medium px-4 py-2 evw-surface border border-[var(--border)] text-[var(--text)] hover:opacity-90 focus:outline-none focus:ring-2 ring-[var(--focus)] ring-offset-2 ring-offset-[var(--surface)]"
-            aria-label="View league standings"
-          >
-            Standings
-          </Link>
-          <Link 
-            href="/history" 
-            className="inline-flex items-center justify-center rounded-full font-medium px-4 py-2 evw-surface border border-[var(--border)] text-[var(--text)] hover:opacity-90 focus:outline-none focus:ring-2 ring-[var(--focus)] ring-offset-2 ring-offset-[var(--surface)]"
-            aria-label="View league history"
-          >
-            History
-          </Link>
-          <Link 
-            href="/draft" 
-            className="inline-flex items-center justify-center rounded-full font-medium px-4 py-2 evw-surface border border-[var(--border)] text-[var(--text)] hover:opacity-90 focus:outline-none focus:ring-2 ring-[var(--focus)] ring-offset-2 ring-offset-[var(--surface)]"
-            aria-label="View draft information"
-          >
-            Draft
-          </Link>
-          <Link 
-            href="/suggestions" 
-            className="inline-flex items-center justify-center rounded-full font-medium px-4 py-2 evw-surface border border-[var(--border)] text-[var(--text)] hover:opacity-90 focus:outline-none focus:ring-2 ring-[var(--focus)] ring-offset-2 ring-offset-[var(--surface)]"
-            aria-label="Submit anonymous suggestions"
-          >
-            Suggestions
-          </Link>
+          <LinkButton href="/teams" aria-label="View all teams">Teams</LinkButton>
+          <LinkButton href="/standings" aria-label="View league standings">Standings</LinkButton>
+          <LinkButton href="/history" aria-label="View league history">History</LinkButton>
+          <LinkButton href="/draft" aria-label="View draft information">Draft</LinkButton>
+          <LinkButton href="/suggestions" aria-label="Submit anonymous suggestions">Suggestions</LinkButton>
         </div>
       </section>
     </div>

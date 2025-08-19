@@ -229,17 +229,17 @@ export default function HistoryPage() {
       />
       
       {/* Tabs */}
-      <div className="border-b border-gray-200 mb-8">
-        <nav className="-mb-px flex space-x-8 overflow-x-auto" aria-label="Tabs">
+      <div className="border-b border-[var(--border)] mb-8">
+        <nav className="-mb-px flex gap-6 overflow-x-auto" aria-label="Tabs">
           {tabs.map((tab) => (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
               className={`
-                whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm
+                relative whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors
                 ${activeTab === tab.id
-                  ? 'border-blue-500 text-blue-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}
+                  ? 'text-[var(--text)] border-[color-mix(in_srgb,var(--accent)_70%,var(--gold)_30%)]'
+                  : 'text-[var(--muted)] border-transparent hover:text-[var(--text)] hover:border-[color-mix(in_srgb,var(--accent)_30%,transparent)]'}
               `}
               aria-current={activeTab === tab.id ? 'page' : undefined}
             >
@@ -255,26 +255,26 @@ export default function HistoryPage() {
           <h2 className="text-2xl font-bold mb-6">League Champions</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {Object.entries(CHAMPIONS).map(([year, data]) => (
-              <div key={year} className="bg-white shadow-md rounded-lg overflow-hidden">
-                <div className="bg-blue-600 text-white px-4 py-2 text-lg font-bold">
+              <div key={year} className="evw-surface border rounded-[var(--radius-card)] overflow-hidden hover-lift">
+                <div className="accent-gradient text-white px-4 py-2 text-lg font-bold">
                   {year} Season
                 </div>
                 <div className="p-6">
                   <div className="text-center">
                     <div className="text-5xl mb-4">🏆</div>
-                    <h3 className="text-xl font-bold mb-2">{data.champion}</h3>
+                    <h3 className="text-xl font-semibold mb-2 text-[var(--text)]">{data.champion}</h3>
                     {(() => {
                       const ownerId = ownerByTeamName[data.champion as keyof typeof ownerByTeamName];
                       const rosterId = ownerId ? ownerToRosterId[ownerId] : undefined;
                       if (data.champion === 'TBD' || !ownerId || rosterId === undefined) {
                         return (
-                          <span className="text-gray-400 text-sm">Link unavailable</span>
+                          <span className="text-[var(--muted)] text-sm">Link unavailable</span>
                         );
                       }
                       return (
                         <Link 
                           href={`/teams/${rosterId}`}
-                          className="text-blue-600 hover:text-blue-800"
+                          className="text-[var(--accent)] hover:underline"
                         >
                           View Team
                         </Link>
@@ -300,10 +300,10 @@ export default function HistoryPage() {
           ) : (
             <div className="space-y-8">
               {/* Winners Bracket */}
-              <div className="bg-white p-6 rounded-lg shadow-md">
+              <div className="evw-surface border p-6 rounded-[var(--radius-card)] hover-lift">
                 <h3 className="text-xl font-bold mb-4">Winners Bracket</h3>
                 {winnersBracket.length === 0 ? (
-                  <p className="text-gray-500">No winners bracket available for {bracketYear}.</p>
+                  <p className="text-[var(--muted)]">No winners bracket available for {bracketYear}.</p>
                 ) : (
                   (() => {
                     const byRound: Record<number, SleeperBracketGameWithScore[]> = {};
@@ -319,16 +319,16 @@ export default function HistoryPage() {
                       return bracketNameMap.get(rid) || `Roster ${rid}`;
                     };
                     const TeamRow = ({ rid, isWinner, score }: { rid?: number | null; isWinner: boolean; score?: number | null }) => (
-                      <div className={`flex items-center justify-between ${isWinner ? 'font-semibold text-blue-700' : ''}`}>
+                      <div className={`flex items-center justify-between ${isWinner ? 'font-semibold text-[var(--accent)]' : ''}`}>
                         {rid != null ? (
                           <Link href={`/teams/${rid}`} className="hover:underline">
                             {nameFor(rid)}
                           </Link>
                         ) : (
-                          <span className="text-gray-500">BYE</span>
+                          <span className="text-[var(--muted)]">BYE</span>
                         )}
                         {score != null && (
-                          <span className="ml-2 text-xs px-1.5 py-0.5 rounded bg-gray-100 text-gray-700">{score.toFixed(2)}</span>
+                          <span className="ml-2 text-xs px-1.5 py-0.5 rounded border border-[var(--border)] text-[var(--muted)]">{score.toFixed(2)}</span>
                         )}
                       </div>
                     );
@@ -342,7 +342,7 @@ export default function HistoryPage() {
                             const mtBetween = rIdx === 0 ? GAP : ((MATCH_H + GAP) * Math.pow(2, rIdx - 1));
                             return (
                               <div key={`w-round-${r}`} className="min-w-[260px]">
-                                <h4 className="font-semibold text-gray-700 mb-2">Round {r}</h4>
+                                <h4 className="font-semibold text-[var(--muted)] mb-2">Round {r}</h4>
                                 <div>
                                   {byRound[r].map((g, idx) => (
                                     <div key={`w-${r}-${g.m}`} style={{ marginTop: idx === 0 ? mtFirst : mtBetween }}>
@@ -364,10 +364,10 @@ export default function HistoryPage() {
               </div>
 
               {/* Losers Bracket */}
-              <div className="bg-white p-6 rounded-lg shadow-md">
+              <div className="evw-surface border p-6 rounded-[var(--radius-card)] hover-lift">
                 <h3 className="text-xl font-bold mb-4">Losers Bracket</h3>
                 {losersBracket.length === 0 ? (
-                  <p className="text-gray-500">No losers bracket available for {bracketYear}.</p>
+                  <p className="text-[var(--muted)]">No losers bracket available for {bracketYear}.</p>
                 ) : (
                   (() => {
                     const byRound: Record<number, SleeperBracketGameWithScore[]> = {};
@@ -406,7 +406,7 @@ export default function HistoryPage() {
                             const mtBetween = rIdx === 0 ? GAP : ((MATCH_H + GAP) * Math.pow(2, rIdx - 1));
                             return (
                               <div key={`l-round-${r}`} className="min-w-[260px]">
-                                <h4 className="font-semibold text-gray-700 mb-2">Round {r}</h4>
+                                <h4 className="font-semibold text-[var(--muted)] mb-2">Round {r}</h4>
                                 <div>
                                   {byRound[r].map((g, idx) => (
                                     <div key={`l-${r}-${g.m}`} style={{ marginTop: idx === 0 ? mtFirst : mtBetween }}>
@@ -438,24 +438,24 @@ export default function HistoryPage() {
           
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
             {/* Most Championships */}
-            <div className="bg-white p-6 rounded-lg shadow-md">
+            <div className="evw-surface border p-6 rounded-[var(--radius-card)] hover-lift">
               <h3 className="text-xl font-bold mb-4">Most Championships</h3>
               <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-gray-200">
-                  <thead className="bg-gray-50">
+                <table className="min-w-full divide-y divide-[var(--border)]">
+                  <thead className="bg-transparent">
                     <tr>
-                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-[var(--muted)] uppercase tracking-wider">
                         Rank
                       </th>
-                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-[var(--muted)] uppercase tracking-wider">
                         Team
                       </th>
-                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-[var(--muted)] uppercase tracking-wider">
                         Championships
                       </th>
                     </tr>
                   </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
+                  <tbody className="divide-y divide-[var(--border)]">
                     {/* Championship counts */}
                     {(() => {
                       // Create a counts object
@@ -474,13 +474,13 @@ export default function HistoryPage() {
                         .slice(0, 5)
                         .map((entry, index) => (
                           <tr key={entry[0]}>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-[var(--muted)]">
                               {index + 1}
                             </td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-[var(--text)]">
                               {entry[0]}
                             </td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-[var(--muted)]">
                               {entry[1]}
                             </td>
                           </tr>
@@ -492,31 +492,31 @@ export default function HistoryPage() {
             </div>
             
             {/* Most Points All-Time */}
-            <div className="bg-white p-6 rounded-lg shadow-md">
+            <div className="evw-surface border p-6 rounded-[var(--radius-card)] hover-lift">
               <h3 className="text-xl font-bold mb-4">Most Points All-Time</h3>
               <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-gray-200">
-                  <thead className="bg-gray-50">
+                <table className="min-w-full divide-y divide-[var(--border)]">
+                  <thead className="bg-transparent">
                     <tr>
-                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-[var(--muted)] uppercase tracking-wider">
                         Rank
                       </th>
-                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-[var(--muted)] uppercase tracking-wider">
                         Team
                       </th>
-                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-[var(--muted)] uppercase tracking-wider">
                         Total Points
                       </th>
                     </tr>
                   </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
+                  <tbody className="divide-y divide-[var(--border)]">
                     {franchisesLoading ? (
                       <tr>
-                        <td className="px-6 py-4 text-sm text-gray-500" colSpan={3}>Loading...</td>
+                        <td className="px-6 py-4 text-sm text-[var(--muted)]" colSpan={3}>Loading...</td>
                       </tr>
                     ) : franchisesError ? (
                       <tr>
-                        <td className="px-6 py-4 text-sm text-red-600" colSpan={3}>{franchisesError}</td>
+                        <td className="px-6 py-4 text-sm text-red-500" colSpan={3}>{franchisesError}</td>
                       </tr>
                     ) : ([...franchises]
                       .sort((a, b) => b.totalPF - a.totalPF)
@@ -524,52 +524,52 @@ export default function HistoryPage() {
                       .map((f, index) => {
                         const rid = ownerToRosterId[f.ownerId];
                         const nameCell = rid !== undefined ? (
-                          <Link href={`/teams/${rid}`} className="text-blue-700 hover:underline">{f.teamName}</Link>
+                          <Link href={`/teams/${rid}`} className="text-[var(--accent)] hover:underline">{f.teamName}</Link>
                         ) : (
                           <span>{f.teamName}</span>
                         );
                         return (
                           <tr key={f.ownerId}>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{index + 1}</td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{nameCell}</td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{f.totalPF.toFixed(2)}</td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-[var(--muted)]">{index + 1}</td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-[var(--text)]">{nameCell}</td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-[var(--muted)]">{f.totalPF.toFixed(2)}</td>
                           </tr>
                         );
-                      }))}
+                      }) )}
                   </tbody>
                 </table>
               </div>
             </div>
             
             {/* Best Win Percentage */}
-            <div className="bg-white p-6 rounded-lg shadow-md">
+            <div className="evw-surface border p-6 rounded-[var(--radius-card)] hover-lift">
               <h3 className="text-xl font-bold mb-4">Best Win Percentage</h3>
               <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-gray-200">
-                  <thead className="bg-gray-50">
+                <table className="min-w-full divide-y divide-[var(--border)]">
+                  <thead className="bg-transparent">
                     <tr>
-                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-[var(--muted)] uppercase tracking-wider">
                         Rank
                       </th>
-                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-[var(--muted)] uppercase tracking-wider">
                         Team
                       </th>
-                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-[var(--muted)] uppercase tracking-wider">
                         Record
                       </th>
-                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-[var(--muted)] uppercase tracking-wider">
                         Win %
                       </th>
                     </tr>
                   </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
+                  <tbody className="divide-y divide-[var(--border)]">
                     {franchisesLoading ? (
                       <tr>
-                        <td className="px-6 py-4 text-sm text-gray-500" colSpan={4}>Loading...</td>
+                        <td className="px-6 py-4 text-sm text-[var(--muted)]" colSpan={4}>Loading...</td>
                       </tr>
                     ) : franchisesError ? (
                       <tr>
-                        <td className="px-6 py-4 text-sm text-red-600" colSpan={4}>{franchisesError}</td>
+                        <td className="px-6 py-4 text-sm text-red-500" colSpan={4}>{franchisesError}</td>
                       </tr>
                     ) : ([...franchises]
                       .map((f) => {
@@ -582,64 +582,64 @@ export default function HistoryPage() {
                       .map(({ f, pct }, index) => {
                         const rid = ownerToRosterId[f.ownerId];
                         const nameCell = rid !== undefined ? (
-                          <Link href={`/teams/${rid}`} className="text-blue-700 hover:underline">{f.teamName}</Link>
+                          <Link href={`/teams/${rid}`} className="text-[var(--accent)] hover:underline">{f.teamName}</Link>
                         ) : (
                           <span>{f.teamName}</span>
                         );
                         const record = `${f.wins}-${f.losses}${f.ties > 0 ? `-${f.ties}` : ''}`;
                         return (
                           <tr key={f.ownerId}>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{index + 1}</td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{nameCell}</td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{record}</td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{(pct * 100).toFixed(1)}%</td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-[var(--muted)]">{index + 1}</td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-[var(--text)]">{nameCell}</td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-[var(--muted)]">{record}</td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-[var(--muted)]">{(pct * 100).toFixed(1)}%</td>
                           </tr>
                         );
-                      }))}
+                      }) )}
                   </tbody>
                 </table>
               </div>
             </div>
             
             {/* Most Playoff Appearances */}
-            <div className="bg-white p-6 rounded-lg shadow-md">
+            <div className="evw-surface border p-6 rounded-[var(--radius-card)] hover-lift">
               <h3 className="text-xl font-bold mb-4">Most Playoff Appearances</h3>
               <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-gray-200">
-                  <thead className="bg-gray-50">
+                <table className="min-w-full divide-y divide-[var(--border)]">
+                  <thead className="bg-transparent">
                     <tr>
-                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-[var(--muted)] uppercase tracking-wider">
                         Rank
                       </th>
-                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-[var(--muted)] uppercase tracking-wider">
                         Team
                       </th>
-                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-[var(--muted)] uppercase tracking-wider">
                         Appearances
                       </th>
                     </tr>
                   </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
+                  <tbody className="divide-y divide-[var(--border)]">
                     {franchisesLoading ? (
                       <tr>
-                        <td className="px-6 py-4 text-sm text-gray-500" colSpan={3}>Loading...</td>
+                        <td className="px-6 py-4 text-sm text-[var(--muted)]" colSpan={3}>Loading...</td>
                       </tr>
                     ) : playoffAppearances.length === 0 ? (
                       <tr>
-                        <td className="px-6 py-4 text-sm text-gray-500" colSpan={3}>No data</td>
+                        <td className="px-6 py-4 text-sm text-[var(--muted)]" colSpan={3}>No data</td>
                       </tr>
                     ) : (playoffAppearances.map((row, index) => {
                       const rid = ownerToRosterId[row.ownerId];
                       const nameCell = rid !== undefined ? (
-                        <Link href={`/teams/${rid}`} className="text-blue-700 hover:underline">{row.teamName}</Link>
+                        <Link href={`/teams/${rid}`} className="text-[var(--accent)] hover:underline">{row.teamName}</Link>
                       ) : (
                         <span>{row.teamName}</span>
                       );
                       return (
                         <tr key={row.ownerId}>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{index + 1}</td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{nameCell}</td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{row.appearances}</td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-[var(--muted)]">{index + 1}</td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-[var(--text)]">{nameCell}</td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-[var(--muted)]">{row.appearances}</td>
                         </tr>
                       );
                     }))}
@@ -665,10 +665,11 @@ export default function HistoryPage() {
               {franchises.map((f) => {
                 const rosterId = ownerToRosterId[f.ownerId];
                 const content = (
-                  <div className="bg-white shadow-md rounded-lg overflow-hidden hover:shadow-lg transition-shadow">
+                  <div className="evw-surface border rounded-[var(--radius-card)] overflow-hidden hover-lift shadow-[var(--shadow-soft)]">
+                    <div className="h-1 w-full accent-gradient" />
                     <div className="p-6">
-                      <h3 className="text-xl font-bold mb-2">{f.teamName}</h3>
-                      <div className="text-sm text-gray-600 space-y-1">
+                      <h3 className="text-xl font-semibold mb-2 text-[var(--text)]">{f.teamName}</h3>
+                      <div className="text-sm text-[var(--muted)] space-y-1">
                         <p>
                           Record: {f.wins}-{f.losses}
                           {f.ties > 0 ? `-${f.ties}` : ''} ({(() => {

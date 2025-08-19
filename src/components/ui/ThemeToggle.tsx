@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Button from "@/components/ui/Button";
 
 /**
  * ThemeToggle switches html[data-theme] between 'dark' and 'light'.
@@ -33,12 +34,14 @@ export default function ThemeToggle() {
   const label = theme === "light" ? "Switch to dark mode" : "Switch to light mode";
 
   return (
-    <button
+    <Button
       type="button"
+      variant="ghost"
+      size="sm"
       onClick={toggle}
       aria-label={label}
+      aria-pressed={theme === "dark"}
       title={label}
-      className="inline-flex items-center gap-2 px-3 py-1 rounded-full pill pill-hover border border-transparent hover:border-[color:var(--border)]"
     >
       {theme === "light" ? (
         // Moon icon
@@ -53,6 +56,6 @@ export default function ThemeToggle() {
         </svg>
       )}
       <span className="text-sm">{theme === "light" ? "Light" : "Dark"}</span>
-    </button>
+    </Button>
   );
 }
