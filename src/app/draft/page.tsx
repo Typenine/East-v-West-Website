@@ -14,7 +14,6 @@ import Label from '@/components/ui/Label';
 import Select from '@/components/ui/Select';
 import Button from '@/components/ui/Button';
 import { getTeamColors, getTeamColorStyle } from '@/lib/utils/team-utils';
-import Image from 'next/image';
 import { HomeIcon, TvIcon, FireIcon, MoonIcon, BookOpenIcon } from '@heroicons/react/24/outline';
 
 // Draft data types
@@ -206,18 +205,7 @@ export default function DraftPage() {
                 <div className="space-y-6">
                   <Card>
                     <CardHeader>
-                      <div className="flex items-center gap-3">
-                        <Image
-                          src={"/assets/teams/East%20v%20West%20Logos/pittsburgh-26-draft-logo.png"}
-                          alt="Pittsburgh 26 Draft Logo"
-                          width={48}
-                          height={48}
-                          className="h-10 w-10 rounded-sm object-contain"
-                          unoptimized
-                          priority
-                        />
-                        <CardTitle className="!m-0">Next Draft: July 18, 2026</CardTitle>
-                      </div>
+                      <CardTitle>Next Draft: July 18, 2026</CardTitle>
                     </CardHeader>
                     <CardContent>
                       <CountdownTimer
