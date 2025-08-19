@@ -935,6 +935,97 @@ export async function getLeaguePlayoffBracketsWithScores(
 }
 
 /**
+ * Derive podium (champion, runner-up, third place) team names from the winners bracket for a given season year.
+ * Falls back to nulls when bracket data is unavailable or incomplete.
+ */
+export async function derivePodiumFromWinnersBracketByYear(
+  year: string
+): Promise<{ champion: string | null; runnerUp: string | null; thirdPlace: string | null } | null> {
+  try {
+    const leagueId = year === '2025' ? LEAGUE_IDS.CURRENT : LEAGUE_IDS.PREVIOUS[year as keyof typeof LEAGUE_IDS.PREVIOUS];
+    if (!leagueId) return null;
+
+    const [games, rosterIdToName] = await Promise.all([
+      getLeagueWinnersBracket(leagueId).catch(() => [] as SleeperBracketGame[]),
+      getRosterIdToTeamNameMap(leagueId).catch(() => new Map<number, string>()),
+    ]);
+    if (!games || games.length === 0) return null;
+
+    // Group by round and find the maximum round number
+    const byRound: Record<number, SleeperBracketGame[]> = {};
+    for (const g of games) {
+      const r = g.r ?? 0;
+      if (!byRound[r]) byRound[r] = [];
+      byRound[r].push(g);
+    }
+    const rounds = Object.keys(byRound).map((n) => Number(n));
+    if (rounds.length === 0) return null;
+    const maxRound = Math.max(...rounds);
+    const lastRoundGames = byRound[maxRound] || [];
+
+    // Helper to reverse lookup rosterId by canonical team name
+    const findRosterIdByTeamName = (teamName: string | undefined): number | null => {
+      if (!teamName) return null;
+      for (const [rid, name] of rosterIdToName.entries()) {
+        if (name === teamName) return rid;
+      }
+      return null;
+    };
+
+    // If champion is known in constants, use it to identify the final game reliably
+    const expectedChampion = CHAMPIONS[year as keyof typeof CHAMPIONS]?.champion;
+    const expectedChampionRid = expectedChampion && expectedChampion !== 'TBD' ? findRosterIdByTeamName(expectedChampion) : null;
+
+    // Final game heuristics: prefer the game whose winner matches expected champion; otherwise, pick the game
+    // in the last round with both participants present and a winner (w) recorded.
+    let finalGame: SleeperBracketGame | undefined = undefined;
+    if (expectedChampionRid != null) {
+      finalGame = lastRoundGames.find((g) => g.w === expectedChampionRid);
+    }
+    if (!finalGame) {
+      finalGame = lastRoundGames.find((g) => (g.t1 != null && g.t2 != null && g.w != null));
+    }
+
+    const championRid = finalGame?.w ?? null;
+    const runnerUpRid = finalGame?.l ?? null;
+
+    // Third place: if there is another game in the last round, treat its winner as 3rd place.
+    // If not, attempt to infer from semifinal losers (round maxRound-1) if available.
+    let thirdPlaceRid: number | null = null;
+    const thirdPlaceGame = lastRoundGames.find((g) => g !== finalGame && g.w != null);
+    if (thirdPlaceGame) {
+      thirdPlaceRid = thirdPlaceGame.w ?? null;
+    } else if (byRound[maxRound - 1]) {
+      // Infer from semifinal losers if no explicit 3rd place game exists.
+      const semiLosers = byRound[maxRound - 1]
+        .map((g) => g.l)
+        .filter((rid): rid is number => rid != null);
+      // If exactly two semifinal losers exist and one appears as a winner in any later game, pick that winner; otherwise pick null.
+      if (semiLosers.length >= 2) {
+        // Try to locate a head-to-head between semifinal losers in any round >= maxRound - 1
+        const laterGames = [
+          ...(byRound[maxRound] || []),
+          ...((byRound[maxRound - 1] || []).filter((g) => g.w != null)),
+        ];
+        const possibleThird = laterGames.find(
+          (g) => g.w != null && ((semiLosers.includes(g.t1 ?? -1) && semiLosers.includes(g.t2 ?? -1)) || semiLosers.includes(g.w))
+        );
+        thirdPlaceRid = possibleThird?.w ?? null;
+      }
+    }
+
+    return {
+      champion: championRid != null ? rosterIdToName.get(championRid) || null : null,
+      runnerUp: runnerUpRid != null ? rosterIdToName.get(runnerUpRid) || null : null,
+      thirdPlace: thirdPlaceRid != null ? rosterIdToName.get(thirdPlaceRid) || null : null,
+    };
+  } catch (e) {
+    console.error('Failed to derive podium from winners bracket for year', year, e);
+    return null;
+  }
+}
+
+/**
  * Get all teams data across multiple seasons
  * @returns Promise with object of team data by year
  */
