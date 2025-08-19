@@ -646,6 +646,8 @@ export interface SleeperDraftPick {
   player_id: string;
   picked_by: string;
   draft_slot: number;
+  // Raw metadata from Sleeper. Auction drafts store bid as string in metadata.amount
+  metadata?: (Record<string, unknown> & { amount?: string }) | null;
   // Auction winning bid amount (only present for auction-type drafts)
   amount?: number;
 }

@@ -142,9 +142,14 @@ export default function DraftPage() {
           const player = playersRef.current?.[p.player_id];
           const name = player ? `${player.first_name} ${player.last_name}` : 'Unknown Player';
           // Attach price for auction drafts when present on pick
-          // Sleeper may return either `amount` or `price` for auction drafts
+          // Sleeper stores auction bid in metadata.amount (string); fallback to root amount/price
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const price = ((p as any).amount ?? (p as any).price) as number | undefined;
+          const anyPick = p as any;
+          const metaAmountRaw = anyPick?.metadata?.amount;
+          const metaAmount = typeof metaAmountRaw === 'string' && metaAmountRaw.trim() !== '' ? Number(metaAmountRaw) : undefined;
+          const rootAmountRaw = anyPick?.amount ?? anyPick?.price;
+          const rootAmount = typeof rootAmountRaw === 'string' ? Number(rootAmountRaw) : (typeof rootAmountRaw === 'number' ? rootAmountRaw : undefined);
+          const price = Number.isFinite(metaAmount) ? (metaAmount as number) : (Number.isFinite(rootAmount) ? (rootAmount as number) : undefined);
           arr.push({ round: p.round, pick: p.draft_slot, player: name, price });
           byTeam.set(p.roster_id, arr);
         }
@@ -163,8 +168,9 @@ export default function DraftPage() {
           picks_per_round: picksInRound1,
           team_hauls,
           isAuction: (draft.type || '').toLowerCase() === 'auction' || picks.some((pp) => {
-            const anyp = pp as unknown as { amount?: number; price?: number };
-            return anyp.amount != null || anyp.price != null;
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const anyp = pp as any;
+            return anyp?.metadata?.amount != null || anyp?.amount != null || anyp?.price != null;
           }),
         };
 
