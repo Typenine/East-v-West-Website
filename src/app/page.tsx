@@ -2,7 +2,7 @@ import Image from 'next/image';
 import CountdownTimer from '@/components/ui/countdown-timer';
 import MatchupCard from '@/components/ui/matchup-card';
 import { IMPORTANT_DATES, LEAGUE_IDS } from '@/lib/constants/league';
-import { getLeagueMatchups, getTeamsData } from '@/lib/utils/sleeper-api';
+import { getLeagueMatchups, getTeamsData, getNFLState } from '@/lib/utils/sleeper-api';
 import EmptyState from '@/components/ui/empty-state';
 import SectionHeader from '@/components/ui/SectionHeader';
 import LinkButton from '@/components/ui/LinkButton';
@@ -11,38 +11,50 @@ export const revalidate = 0; // always fetch fresh Sleeper data
 
 export default async function Home() {
   const leagueId = LEAGUE_IDS.CURRENT;
-  const week1Matchups: Array<{
+  const currentWeekMatchups: Array<{
     homeTeam: string;
     awayTeam: string;
+    homeRosterId: number;
+    awayRosterId: number;
     homeScore?: number;
     awayScore?: number;
     week: number;
     kickoffTime?: string;
   }> = [];
+  let currentWeek = 1;
   try {
-    const [matchups, teams] = await Promise.all([
-      getLeagueMatchups(leagueId, 1),
+    // Get current NFL state and teams in parallel
+    const [nflState, teams] = await Promise.all([
+      getNFLState().catch(() => ({ week: 1, display_week: 1 })),
       getTeamsData(leagueId),
     ]);
+    const rawWeek = (nflState as { week?: number; display_week?: number }).week ?? (nflState as { display_week?: number }).display_week ?? 1;
+    currentWeek = typeof rawWeek === 'number' && rawWeek >= 1 && rawWeek <= 18 ? rawWeek : 1;
+
+    const matchups = await getLeagueMatchups(leagueId, currentWeek);
     const rosterIdToName = new Map<number, string>(
       teams.map((t) => [t.rosterId, t.teamName])
     );
     const groups = new Map<number, { roster_id: number; points: number }[]>();
     for (const m of matchups) {
       const arr = groups.get(m.matchup_id) || [];
-      arr.push({ roster_id: m.roster_id, points: m.points });
+      // Use points reported by Sleeper
+      const pts = m.points ?? 0;
+      arr.push({ roster_id: m.roster_id, points: pts });
       groups.set(m.matchup_id, arr);
     }
     for (const arr of groups.values()) {
       if (arr.length >= 2) {
         const [a, b] = arr; // arbitrary away/home
         const includeScores = (b.points ?? 0) > 0 || (a.points ?? 0) > 0;
-        week1Matchups.push({
+        currentWeekMatchups.push({
           homeTeam: rosterIdToName.get(b.roster_id) ?? `Roster ${b.roster_id}`,
           awayTeam: rosterIdToName.get(a.roster_id) ?? `Roster ${a.roster_id}`,
+          homeRosterId: b.roster_id,
+          awayRosterId: a.roster_id,
           homeScore: includeScores ? b.points : undefined,
           awayScore: includeScores ? a.points : undefined,
-          week: 1,
+          week: currentWeek,
         });
       }
     }
@@ -78,16 +90,18 @@ export default async function Home() {
         </div>
       </section>
       
-      {/* Week 1 Preview */}
+      {/* Current Week Preview */}
       <section className="mb-12">
-        <SectionHeader title="Week 1 preview" />
-        {week1Matchups.length > 0 ? (
+        <SectionHeader title={`Week ${currentWeek} matchups`} />
+        {currentWeekMatchups.length > 0 ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {week1Matchups.map((matchup, index) => (
+            {currentWeekMatchups.map((matchup, index) => (
               <MatchupCard 
                 key={index}
                 homeTeam={matchup.homeTeam}
                 awayTeam={matchup.awayTeam}
+                homeRosterId={matchup.homeRosterId}
+                awayRosterId={matchup.awayRosterId}
                 homeScore={matchup.homeScore}
                 awayScore={matchup.awayScore}
                 kickoffTime={matchup.kickoffTime}
@@ -97,8 +111,8 @@ export default async function Home() {
           </div>
         ) : (
           <EmptyState 
-            title="No Week 1 matchups"
-            message="Matchups for Week 1 are not yet available from Sleeper. Check back closer to kickoff."
+            title={`No Week ${currentWeek} matchups`}
+            message={`Matchups for Week ${currentWeek} are not yet available from Sleeper. Check back closer to kickoff.`}
           />
         )}
       </section>

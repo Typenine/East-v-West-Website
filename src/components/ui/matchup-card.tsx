@@ -1,12 +1,15 @@
 'use client';
 
 import Image from 'next/image';
+import Link from 'next/link';
 import { getTeamLogoPath, getTeamColorStyle } from '@/lib/utils/team-utils';
 import { Card, CardContent } from '@/components/ui/Card';
 
 interface MatchupCardProps {
   homeTeam: string;
   awayTeam: string;
+  homeRosterId: number;
+  awayRosterId: number;
   homeScore?: number;
   awayScore?: number;
   kickoffTime?: string;
@@ -17,6 +20,8 @@ interface MatchupCardProps {
 export default function MatchupCard({
   homeTeam,
   awayTeam,
+  homeRosterId,
+  awayRosterId,
   homeScore,
   awayScore,
   kickoffTime,
@@ -62,10 +67,16 @@ export default function MatchupCard({
                 }}
               />
             </div>
-            <div className="font-medium" style={{ color: awayBg }}>{awayTeam}</div>
+            <Link
+              href={`/teams/${awayRosterId}`}
+              aria-label={`View ${awayTeam} team page`}
+              className="font-medium text-[var(--text)] hover:text-[var(--accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus)] rounded-sm"
+            >
+              {awayTeam}
+            </Link>
           </div>
           {hasScores ? (
-            <div className="font-bold">{awayScore}</div>
+            <div className="font-bold text-[var(--text)]">{awayScore}</div>
           ) : null}
         </div>
         
@@ -94,10 +105,16 @@ export default function MatchupCard({
                 }}
               />
             </div>
-            <div className="font-medium" style={{ color: homeBg }}>{homeTeam}</div>
+            <Link
+              href={`/teams/${homeRosterId}`}
+              aria-label={`View ${homeTeam} team page`}
+              className="font-medium text-[var(--text)] hover:text-[var(--accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus)] rounded-sm"
+            >
+              {homeTeam}
+            </Link>
           </div>
           {hasScores ? (
-            <div className="font-bold">{homeScore}</div>
+            <div className="font-bold text-[var(--text)]">{homeScore}</div>
           ) : null}
         </div>
         
@@ -110,4 +127,5 @@ export default function MatchupCard({
     </Card>
   );
 }
+
 
