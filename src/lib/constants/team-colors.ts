@@ -33,7 +33,7 @@ export const TEAM_COLORS: Record<string, TeamColors> = {
   'Double Trouble': {
     primary: '#120a11',
     secondary: '#351b4b',
-    tertiary: '#4b7755'
+    tertiary: '#ca5517'
   },
   'Mt. Lebanon Cake Eaters': {
     primary: '#093351',
@@ -59,7 +59,7 @@ export const TEAM_COLORS: Record<string, TeamColors> = {
   'BeerNeverBrokeMyHeart': {
     primary: '#0E1A27',
     secondary: '#F4E3C3',
-    tertiary: '#0B5320'
+    tertiary: '#B53329'
   },
   'Elemental Heroes': {
     primary: '#83e1e2',
