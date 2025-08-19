@@ -1067,8 +1067,11 @@ export async function getTeamWeeklyResults(leagueId: string, rosterId: number): 
   points: number;
   opponent: number;
   opponentPoints: number;
-  result: 'W' | 'L' | 'T';
+  // result is null for scheduled/unplayed games
+  result: 'W' | 'L' | 'T' | null;
   opponentRosterId: number;
+  // whether the game has been played (any side scored > 0)
+  played: boolean;
 }[]> {
   try {
     // Assuming 18 weeks in a season
@@ -1091,23 +1094,23 @@ export async function getTeamWeeklyResults(leagueId: string, rosterId: number): 
         if (opponent) {
           const teamPts = teamMatchup.custom_points ?? teamMatchup.points ?? 0;
           const oppPts = opponent.custom_points ?? opponent.points ?? 0;
-          // Skip unplayed scheduled matchups (0-0)
-          if ((teamPts ?? 0) === 0 && (oppPts ?? 0) === 0) continue;
+          const played = ((teamPts ?? 0) > 0) || ((oppPts ?? 0) > 0);
           const result: {
             week: number;
             points: number;
             opponent: number;
             opponentPoints: number;
             opponentRosterId: number;
-            result: 'W' | 'L' | 'T';
+            result: 'W' | 'L' | 'T' | null;
+            played: boolean;
           } = {
             week: week + 1,
             points: teamPts,
             opponent: opponent.roster_id,
             opponentPoints: oppPts,
             opponentRosterId: opponent.roster_id,
-            result: teamPts > oppPts ? 'W' : 
-                   teamPts < oppPts ? 'L' : 'T'
+            result: played ? (teamPts > oppPts ? 'W' : teamPts < oppPts ? 'L' : 'T') : null,
+            played,
           };
           
           teamResults.push(result);

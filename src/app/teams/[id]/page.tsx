@@ -75,8 +75,9 @@ export default function TeamPage() {
     points: number;
     opponent: number;
     opponentPoints: number;
-    result: 'W' | 'L' | 'T';
+    result: 'W' | 'L' | 'T' | null;
     opponentRosterId: number;
+    played: boolean;
   }>>([]);
   const [h2hRecords, setH2HRecords] = useState<Record<string, { wins: number, losses: number, ties: number }>>({});
   const [players, setPlayers] = useState<Record<string, SleeperPlayer>>({});
@@ -630,6 +631,15 @@ export default function TeamPage() {
                           {weeklyResults.map((result) => {
                             const opponentTeam = allTeams.find(t => t.rosterId === result.opponent);
                             const opponentName = opponentTeam ? opponentTeam.teamName : 'Unknown Team';
+                            const isPlayed = !!result.played;
+                            const chipText = isPlayed ? (result.result ?? '') : 'Scheduled';
+                            const chipClass = isPlayed
+                              ? (result.result === 'W'
+                                  ? 'bg-green-100 text-green-800'
+                                  : result.result === 'L'
+                                  ? 'bg-red-100 text-red-800'
+                                  : 'bg-yellow-100 text-yellow-800')
+                              : 'bg-gray-100 text-gray-800';
                             return (
                               <Tr key={result.week}>
                                 <Td>
@@ -644,19 +654,15 @@ export default function TeamPage() {
                                     variant="neutral"
                                     className={[
                                       'px-2',
-                                      result.result === 'W'
-                                        ? 'bg-green-100 text-green-800'
-                                        : result.result === 'L'
-                                        ? 'bg-red-100 text-red-800'
-                                        : 'bg-yellow-100 text-yellow-800',
+                                      chipClass,
                                     ].join(' ')}
                                   >
-                                    {result.result}
+                                    {chipText}
                                   </Chip>
                                 </Td>
                                 <Td>
                                   <div className="text-sm text-[var(--text)]">
-                                    {result.points.toFixed(2)} - {result.opponentPoints.toFixed(2)}
+                                    {isPlayed ? `${result.points.toFixed(2)} - ${result.opponentPoints.toFixed(2)}` : '—'}
                                   </div>
                                 </Td>
                               </Tr>
