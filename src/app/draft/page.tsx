@@ -51,8 +51,8 @@ export default function DraftPage() {
   const handleAddToCalendar = () => {
     try {
       const formatICSDate = (d: Date) => d.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
-      // Trip window (Thursday 4 PM ET -> Sunday 11 AM ET)
-      const tripStart = new Date('2026-07-16T16:00:00-04:00');
+      // Trip window (Thursday 3 PM ET -> Sunday 11 AM ET)
+      const tripStart = new Date('2026-07-16T15:00:00-04:00');
       const tripEnd = new Date('2026-07-19T11:00:00-04:00');
       // Draft event (using league constant for start time)
       const draftStart = IMPORTANT_DATES.NEXT_DRAFT;
@@ -243,11 +243,73 @@ export default function DraftPage() {
                               <div>
                                 <h4 className="font-semibold text-[var(--text)]">Notes</h4>
                                 <ul className="list-disc pl-5">
-                                  <li>Check-in: 4:00 PM Thursday</li>
+                                  <li>Check-in: 3:00 PM Thursday</li>
                                   <li>Check-out: 11:00 AM Sunday</li>
-                                  <li>Bring your own beverages and snacks</li>
                                   <li>Draft starts at 1:00 PM ET on Saturday</li>
                                 </ul>
+                              </div>
+
+                              <div>
+                                <h4 className="font-semibold text-[var(--text)] mb-2">Amenities</h4>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                  <div className="rounded-lg border border-[var(--border)] p-4">
+                                    <h5 className="font-semibold mb-2">Kitchen</h5>
+                                    <ul className="list-disc pl-5 space-y-1 text-sm">
+                                      <li>Space where guests can cook their own meals</li>
+                                      <li>Refrigerator</li>
+                                      <li>Microwave</li>
+                                      <li>Cooking basics (pots and pans, oil, salt and pepper)</li>
+                                      <li>Dishes and silverware (bowls, chopsticks, plates, cups, etc.)</li>
+                                      <li>Mini fridge</li>
+                                      <li>Freezer</li>
+                                      <li>Dishwasher</li>
+                                      <li>Stove & Oven</li>
+                                      <li>Coffee maker</li>
+                                      <li>Wine glasses</li>
+                                      <li>Toaster</li>
+                                      <li>Baking sheet</li>
+                                      <li>Blender</li>
+                                      <li>Barbecue utensils (grill tools, skewers, etc.)</li>
+                                      <li>Dining table</li>
+                                    </ul>
+                                  </div>
+                                  <div className="rounded-lg border border-[var(--border)] p-4">
+                                    <h5 className="font-semibold mb-2">Entertainment</h5>
+                                    <ul className="list-disc pl-5 space-y-1 text-sm">
+                                      <li>98&quot; Hi‑Def TV</li>
+                                      <li>Full bar area with mini fridge</li>
+                                      <li>Full-size arcade games</li>
+                                      <li>Dart board</li>
+                                      <li>Bubble hockey game</li>
+                                    </ul>
+                                  </div>
+                                  <div className="rounded-lg border border-[var(--border)] p-4">
+                                    <h5 className="font-semibold mb-2">Outdoor</h5>
+                                    <ul className="list-disc pl-5 space-y-1 text-sm">
+                                      <li>Fire pit</li>
+                                      <li>Outdoor furniture</li>
+                                      <li>Outdoor dining area</li>
+                                      <li>BBQ grill</li>
+                                    </ul>
+                                  </div>
+                                  <div className="rounded-lg border border-[var(--border)] p-4">
+                                    <h5 className="font-semibold mb-2">Sleeping Arrangements</h5>
+                                    <ul className="list-disc pl-5 space-y-1 text-sm">
+                                      <li>5 bedrooms total</li>
+                                      <li>2 queen beds</li>
+                                      <li>1 king bed</li>
+                                      <li>2 bunk beds</li>
+                                      <li>1 sofa bed</li>
+                                      <li>2 single beds</li>
+                                    </ul>
+                                  </div>
+                                  <div className="rounded-lg border border-[var(--border)] p-4 md:col-span-2">
+                                    <h5 className="font-semibold mb-2">Loft</h5>
+                                    <p className="text-sm">
+                                      The upstairs loft area includes a library with many books and a large shuffleboard game.
+                                    </p>
+                                  </div>
+                                </div>
                               </div>
                             </div>
                           </CardContent>
