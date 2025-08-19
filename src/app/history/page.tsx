@@ -16,10 +16,13 @@ import {
   getLeagueWinnersBracket,
   getRosterIdToTeamNameMap,
   derivePodiumFromWinnersBracketByYear,
+  getSeasonAwardsUsingLeagueScoring,
   type FranchiseSummary,
   type LeagueRecordBook,
   type SleeperBracketGameWithScore,
   type SleeperBracketGame,
+  type SeasonAwards,
+  type AwardWinner,
 } from '@/lib/utils/sleeper-api';
 import { CANONICAL_TEAM_BY_USER_ID } from '@/lib/constants/team-mapping';
 import SectionHeader from '@/components/ui/SectionHeader';
@@ -34,6 +37,10 @@ export default function HistoryPage() {
   const [recordBook, setRecordBook] = useState<LeagueRecordBook | null>(null);
   const [recordsLoading, setRecordsLoading] = useState(true);
   const [recordsError, setRecordsError] = useState<string | null>(null);
+  // Awards state
+  const [awardsByYear, setAwardsByYear] = useState<Record<string, SeasonAwards>>({});
+  const [awardsLoading, setAwardsLoading] = useState(true);
+  const [awardsError, setAwardsError] = useState<string | null>(null);
   // Owner -> rosterId mapping (prefer most recent season)
   const [ownerToRosterId, setOwnerToRosterId] = useState<Record<string, number>>({});
   // Inverted map to get ownerId by canonical team name (for CHAMPIONS links)
@@ -253,6 +260,40 @@ export default function HistoryPage() {
     };
   }, []);
   
+  // Load Awards (MVP & ROY) for 2025 (current), 2024, 2023
+  useEffect(() => {
+    let cancelled = false;
+    async function loadAwards() {
+      try {
+        setAwardsLoading(true);
+        setAwardsError(null);
+        const tasks: Array<Promise<SeasonAwards>> = [];
+        // 2025 (current)
+        if (LEAGUE_IDS.CURRENT) tasks.push(getSeasonAwardsUsingLeagueScoring('2025', LEAGUE_IDS.CURRENT, 14));
+        // 2024 & 2023
+        if (LEAGUE_IDS.PREVIOUS?.['2024']) tasks.push(getSeasonAwardsUsingLeagueScoring('2024', LEAGUE_IDS.PREVIOUS['2024'], 14));
+        if (LEAGUE_IDS.PREVIOUS?.['2023']) tasks.push(getSeasonAwardsUsingLeagueScoring('2023', LEAGUE_IDS.PREVIOUS['2023'], 14));
+        const results = await Promise.all(tasks);
+        if (cancelled) return;
+        const map: Record<string, SeasonAwards> = {};
+        for (const r of results) {
+          if (!r?.season) continue;
+          map[r.season] = r;
+        }
+        setAwardsByYear(map);
+      } catch (e) {
+        console.error('Error loading awards:', e);
+        if (!cancelled) setAwardsError('Failed to load awards.');
+      } finally {
+        if (!cancelled) setAwardsLoading(false);
+      }
+    }
+    loadAwards();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  
   // Aggregate runner-up and third-place counts by team name, prefer auto-derived podiums where available
   const { runnerUpCounts, thirdPlaceCounts } = useMemo(() => {
     const ru: Record<string, number> = {};
@@ -276,32 +317,62 @@ export default function HistoryPage() {
     { id: 'brackets', label: 'Brackets' },
     { id: 'leaderboards', label: 'Leaderboards' },
     { id: 'franchises', label: 'Franchises' },
-    { id: 'records', label: 'Records' }
+    { id: 'records', label: 'Records' },
   ];
-  
-  return (
-    <div className="container mx-auto px-4 py-8">
-      <SectionHeader
-        title="League History"
-        actions={
-          activeTab === 'brackets' && (
-            <div className="flex items-center gap-2">
-              <label htmlFor="year-select" className="sr-only">Select Year</label>
-              <select
-                id="year-select"
-                className="mt-1 block w-40 pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md"
-                value={bracketYear}
-                onChange={(e) => setBracketYear(e.target.value)}
-              >
-                <option value="2025">2025 Season</option>
-                <option value="2024">2024 Season</option>
-                <option value="2023">2023 Season</option>
-              </select>
-            </div>
-          )
-        }
-      />
+
+  // Render a single award winner row
+  const renderWinnerRow = (w: AwardWinner, key: string) => {
+    const teamName = w.teamName || 'Unrostered';
+    const ownerId = teamName && teamName !== 'Unrostered' ? ownerByTeamName[teamName] : undefined;
+    const currentRosterId = ownerId ? ownerToRosterId[ownerId] : undefined;
+
+    return (
+      <div key={key} className="flex items-center justify-between border rounded p-3">
+        <div className="flex items-center gap-3 min-w-0">
+          <div
+            className="w-8 h-8 rounded-full flex items-center justify-center overflow-hidden"
+            style={teamName && teamName !== 'Unrostered' ? getTeamColorStyle(teamName) : undefined}
+            title={teamName}
+          >
+            {teamName && teamName !== 'Unrostered' ? (
+              <Image
+                src={getTeamLogoPath(teamName)}
+                alt={teamName}
+                width={24}
+                height={24}
+                className="object-contain"
+                onError={(e) => {
+                  const t = e.target as HTMLImageElement;
+                  t.style.display = 'none';
+                }}
+              />
+            ) : (
+              <span className="text-xs text-[var(--muted)]">—</span>
+            )}
+          </div>
+          <div className="min-w-0">
+            <div className="text-sm font-medium text-[var(--text)] truncate">{w.name}</div>
+            <div className="text-xs text-[var(--muted)] truncate">{teamName}</div>
+          </div>
+        </div>
+        <div className="flex items-center gap-3">
+          <span className="ml-2 text-xs px-2 py-0.5 rounded border border-[var(--border)] text-[var(--muted)]">
+            {w.points.toFixed(2)} pts
+          </span>
+          {currentRosterId !== undefined ? (
+            <Link href={`/teams/${currentRosterId}`} className="text-[var(--accent)] text-xs hover:underline">
+              View Team
+            </Link>
+          ) : (
+            <span className="text-[var(--muted)] text-xs">Link unavailable</span>
+          )}
+        </div>
+      </div>
+    );
+  };
       
+  return (
+    <div className="space-y-8">
       {/* Tabs */}
       <div className="border-b border-[var(--border)] mb-8">
         <nav className="-mb-px flex gap-6 overflow-x-auto" aria-label="Tabs">
@@ -450,7 +521,24 @@ export default function HistoryPage() {
       {/* Brackets Tab Content */}
       {activeTab === 'brackets' && (
         <div>
-          <SectionHeader title="Playoff Brackets" />
+          <SectionHeader
+            title="Playoff Brackets"
+            actions={
+              <div className="flex items-center gap-2">
+                <label htmlFor="year-select" className="sr-only">Select Year</label>
+                <select
+                  id="year-select"
+                  className="mt-1 block w-40 pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md"
+                  value={bracketYear}
+                  onChange={(e) => setBracketYear(e.target.value)}
+                >
+                  <option value="2025">2025 Season</option>
+                  <option value="2024">2024 Season</option>
+                  <option value="2023">2023 Season</option>
+                </select>
+              </div>
+            }
+          />
           
           {bracketLoading ? (
             <LoadingState message="Loading playoff brackets..." />
@@ -890,6 +978,53 @@ export default function HistoryPage() {
             <ErrorState message={recordsError} />
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+              {/* Awards: MVP & Rookie of the Year (Weeks 1–14) */}
+              <Card className="md:col-span-2">
+                <CardHeader>
+                  <CardTitle>MVP & Rookie of the Year <span className="text-sm text-[var(--muted)] font-normal">(Weeks 1–14)</span></CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {awardsLoading ? (
+                    <div className="text-[var(--muted)]">Loading awards...</div>
+                  ) : awardsError ? (
+                    <div className="text-red-500">{awardsError}</div>
+                  ) : (
+                    <div className="space-y-6">
+                      {['2025','2024','2023'].map((yr) => {
+                        const data = awardsByYear[yr];
+                        if (!data) return null;
+                        return (
+                          <div key={yr}>
+                            <h4 className="text-sm uppercase tracking-wide text-[var(--muted)] mb-3">{yr} Season</h4>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                              <div>
+                                <p className="text-sm font-semibold text-[var(--muted)] mb-2">Most Valuable Player</p>
+                                <div className="space-y-2">
+                                  {data.mvp && data.mvp.length > 0 ? (
+                                    data.mvp.map((w, idx) => renderWinnerRow(w, `${yr}-mvp-${idx}`))
+                                  ) : (
+                                    <p className="text-sm text-[var(--muted)]">No winner</p>
+                                  )}
+                                </div>
+                              </div>
+                              <div>
+                                <p className="text-sm font-semibold text-[var(--muted)] mb-2">Rookie of the Year</p>
+                                <div className="space-y-2">
+                                  {data.roy && data.roy.length > 0 ? (
+                                    data.roy.map((w, idx) => renderWinnerRow(w, `${yr}-roy-${idx}`))
+                                  ) : (
+                                    <p className="text-sm text-[var(--muted)]">No winner</p>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
               {/* Highest Scoring Game */}
               <Card>
                 <CardHeader>
