@@ -13,6 +13,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import Label from '@/components/ui/Label';
 import Select from '@/components/ui/Select';
 import Button from '@/components/ui/Button';
+import { getTeamColors, getTeamColorStyle } from '@/lib/utils/team-utils';
 
 // Draft data types
 type TeamHaul = {
@@ -310,20 +311,26 @@ export default function DraftPage() {
                         <div>
                           <h3 className="text-base font-semibold text-[var(--text)] mb-3">Team Hauls</h3>
                           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                            {(draftsByYear[selectedYear]?.team_hauls ?? []).map((teamHaul, index) => (
-                              <Card key={index}>
-                                <CardContent>
-                                  <h4 className="font-bold mb-2 text-[var(--text)]">{teamHaul.team}</h4>
-                                  <ul className="space-y-1">
-                                    {teamHaul.picks.map((pick, pickIndex) => (
-                                      <li key={pickIndex} className="text-sm">
-                                        {`Round ${pick.round}, Pick ${pick.pick}: ${pick.player}${selectedYear === '2023' && draftsByYear[selectedYear]?.isAuction && pick.price != null ? ` — $${pick.price}` : ''}`}
-                                      </li>
-                                    ))}
-                                  </ul>
-                                </CardContent>
-                              </Card>
-                            ))}
+                            {(draftsByYear[selectedYear]?.team_hauls ?? []).map((teamHaul, index) => {
+                              const colors = getTeamColors(teamHaul.team);
+                              const headerStyle = getTeamColorStyle(teamHaul.team, 'primary');
+                              return (
+                                <Card key={index} className="hover-lift" style={{ borderColor: colors.primary }}>
+                                  <CardHeader className="rounded-t-[var(--radius-card)]" style={headerStyle}>
+                                    <CardTitle style={{ color: headerStyle.color }}>{teamHaul.team}</CardTitle>
+                                  </CardHeader>
+                                  <CardContent>
+                                    <ul className="space-y-1">
+                                      {teamHaul.picks.map((pick, pickIndex) => (
+                                        <li key={pickIndex} className="text-sm">
+                                          {`Round ${pick.round}, Pick ${pick.pick}: ${pick.player}${selectedYear === '2023' && draftsByYear[selectedYear]?.isAuction && pick.price != null ? ` — $${pick.price}` : ''}`}
+                                        </li>
+                                      ))}
+                                    </ul>
+                                  </CardContent>
+                                </Card>
+                              );
+                            })}
                           </div>
                         </div>
                       </div>
