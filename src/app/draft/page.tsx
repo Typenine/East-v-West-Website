@@ -208,11 +208,12 @@ export default function DraftPage() {
                     <CardHeader>
                       <div className="flex items-center gap-3">
                         <Image
-                          src="/assets/teams/East v West Logos/Pittsburgh 26 Draft Logo.png"
+                          src={"/assets/teams/East%20v%20West%20Logos/pittsburgh-26-draft-logo.png"}
                           alt="Pittsburgh 26 Draft Logo"
                           width={48}
                           height={48}
                           className="h-10 w-10 rounded-sm object-contain"
+                          unoptimized
                           priority
                         />
                         <CardTitle className="!m-0">Next Draft: July 18, 2026</CardTitle>
