@@ -101,6 +101,11 @@ export default function TeamPage() {
   const [newsLoading, setNewsLoading] = useState(false);
   const [newsError, setNewsError] = useState<string | null>(null);
   const [newsWindowHours, setNewsWindowHours] = useState<number>(336); // 14 days default
+  // Collapsed state per playerId for News groups
+  const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
+  const toggleGroup = (playerId: string) => {
+    setCollapsedGroups((prev) => ({ ...prev, [playerId]: !prev[playerId] }));
+  };
   
   // Sorting state for roster table
   type SortKey = 'name' | 'position' | 'team' | 'gp' | 'totalPPR' | 'ppg';
@@ -435,51 +440,62 @@ export default function TeamPage() {
                             const meta = p ? `${p.position || ''}${p.team ? ` • ${p.team}` : ''}` : '';
                             return (
                               <section key={group.playerId}>
-                                <div className="flex items-baseline justify-between mb-2">
-                                  <h3 className="text-lg font-semibold">
+                                <button
+                                  type="button"
+                                  onClick={() => toggleGroup(group.playerId)}
+                                  aria-expanded={!collapsedGroups[group.playerId]}
+                                  aria-controls={`news-group-${group.playerId}`}
+                                  className="w-full flex items-baseline justify-between mb-2 text-left group hover:underline-offset-2"
+                                >
+                                  <h3 className="text-lg font-semibold group-hover:underline">
                                     {group.playerName}
                                     {meta ? <span className="ml-2 text-sm text-[var(--muted)]">{meta}</span> : null}
                                   </h3>
-                                  <span className="text-xs text-[var(--muted)]">{group.items.length} article{group.items.length !== 1 ? 's' : ''}</span>
-                                </div>
-                                <div className="space-y-4">
-                                  {group.items.map((it, idx) => (
-                                    <article
-                                      key={`${group.playerId}-${it.link}-${idx}`}
-                                      className="border border-[var(--border)] rounded-lg p-4 cursor-pointer hover:bg-[color-mix(in_srgb,var(--accent)_6%,transparent)] transition"
-                                      role="link"
-                                      tabIndex={0}
-                                      onClick={(e) => {
-                                        const target = e.target as HTMLElement;
-                                        if (target && target.closest('a')) return;
-                                        if (it.link) window.open(it.link, '_blank', 'noopener,noreferrer');
-                                      }}
-                                      onKeyDown={(e) => {
-                                        if ((e.key === 'Enter' || e.key === ' ') && it.link) {
-                                          e.preventDefault();
-                                          window.open(it.link, '_blank', 'noopener,noreferrer');
-                                        }
-                                      }}
-                                    >
-                                      <div className="flex items-center justify-between mb-1">
-                                        <div className="text-sm text-[var(--muted)]">{it.sourceName}</div>
-                                        <div className="text-xs text-[var(--muted)]">{it.publishedAt ? new Date(it.publishedAt).toLocaleString() : ''}</div>
-                                      </div>
-                                      <h4 className="font-semibold hover:underline">{it.title}</h4>
-                                      <p className="text-sm text-[var(--text)] mt-1 whitespace-pre-line">{it.description}</p>
-                                      <div className="mt-2">
-                                        <a
-                                          href={it.link}
-                                          target="_blank"
-                                          rel="noopener noreferrer"
-                                          className="inline-flex items-center text-sm text-[var(--accent)] hover:underline"
-                                        >
-                                          Read at source ↗
-                                        </a>
-                                      </div>
-                                    </article>
-                                  ))}
-                                </div>
+                                  <span className="flex items-center gap-2 text-xs text-[var(--muted)]">
+                                    {group.items.length} article{group.items.length !== 1 ? 's' : ''}
+                                    <span aria-hidden>{collapsedGroups[group.playerId] ? '▸' : '▾'}</span>
+                                  </span>
+                                </button>
+                                {!collapsedGroups[group.playerId] && (
+                                  <div className="space-y-4" id={`news-group-${group.playerId}`}>
+                                    {group.items.map((it, idx) => (
+                                      <article
+                                        key={`${group.playerId}-${it.link}-${idx}`}
+                                        className="border border-[var(--border)] rounded-lg p-4 cursor-pointer hover:bg-[color-mix(in_srgb,var(--accent)_6%,transparent)] transition"
+                                        role="link"
+                                        tabIndex={0}
+                                        onClick={(e) => {
+                                          const target = e.target as HTMLElement;
+                                          if (target && target.closest('a')) return;
+                                          if (it.link) window.open(it.link, '_blank', 'noopener,noreferrer');
+                                        }}
+                                        onKeyDown={(e) => {
+                                          if ((e.key === 'Enter' || e.key === ' ') && it.link) {
+                                            e.preventDefault();
+                                            window.open(it.link, '_blank', 'noopener,noreferrer');
+                                          }
+                                        }}
+                                      >
+                                        <div className="flex items-center justify-between mb-1">
+                                          <div className="text-sm text-[var(--muted)]">{it.sourceName}</div>
+                                          <div className="text-xs text-[var(--muted)]">{it.publishedAt ? new Date(it.publishedAt).toLocaleString() : ''}</div>
+                                        </div>
+                                        <h4 className="font-semibold hover:underline">{it.title}</h4>
+                                        <p className="text-sm text-[var(--text)] mt-1 whitespace-pre-line">{it.description}</p>
+                                        <div className="mt-2">
+                                          <a
+                                            href={it.link}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="inline-flex items-center text-sm text-[var(--accent)] hover:underline"
+                                          >
+                                            Read at source ↗
+                                          </a>
+                                        </div>
+                                      </article>
+                                    ))}
+                                  </div>
+                                )}
                               </section>
                             );
                           })}
