@@ -352,10 +352,14 @@ function TradesContent() {
                 <CardContent>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     {trade.teams.map((team, index) => (
-                      <div key={index} className="border-l-4 pl-4" style={{ borderLeftColor: getTeamColorStyle(team.name).backgroundColor }}>
-                        <div className="flex items-center mb-2">
-                          <div 
-                            className="w-8 h-8 rounded-full flex items-center justify-center mr-3 overflow-hidden" 
+                      <div
+                        key={index}
+                        className="border-l-4 pl-4"
+                        style={{ borderLeftColor: getTeamColorStyle(team.name).backgroundColor }}
+                      >
+                        <div className="flex items-center mb-2 gap-3">
+                          <div
+                            className="w-8 h-8 rounded-full flex items-center justify-center overflow-hidden"
                             style={getTeamColorStyle(team.name)}
                           >
                             <Image
@@ -371,49 +375,47 @@ function TradesContent() {
                                 if (parent) {
                                   const fallback = document.createElement('div');
                                   fallback.className = 'flex items-center justify-center h-full w-full';
-                                  fallback.innerHTML = `<span class=\"text-xs font-bold\">${team.name.charAt(0)}</span>`;
+                                  fallback.innerHTML = `<span class="text-xs font-bold">${team.name.charAt(0)}</span>`;
                                   parent.appendChild(fallback);
                                 }
                               }}
                             />
                           </div>
-                          <h4 className="font-bold" style={{ color: getTeamColorStyle(team.name).backgroundColor }}>{team.name} received:</h4>
+                          <h4
+                            className="font-bold"
+                            style={{
+                              color:
+                                team.name === 'Double Trouble' || team.name === 'BeerNeverBrokeMyHeart'
+                                  ? getTeamColorStyle(team.name, 'tertiary').backgroundColor
+                                  : getTeamColorStyle(team.name).backgroundColor,
+                            }}
+                          >
+                            {team.name} received:
+                          </h4>
                         </div>
                         <ul className="space-y-1">
                           {team.assets.map((asset, assetIndex) => (
-                            <li key={assetIndex} className="text-sm flex justify-between items-center">
+                            <li key={assetIndex} className="flex items-start justify-between">
                               <div>
-                                {asset.type === 'player' ? (
-                                  <span>
-                                    {asset.name} ({asset.position}, {asset.team})
-                                  </span>
-                                ) : (
-                                  <div>
-                                    <span>
-                                      {asset.name}
-                                      {typeof asset.pickInRound === 'number' ? (
-                                        <>
-                                          {' '}#{asset.pickInRound}
-                                        </>
-                                      ) : null}
-                                      {asset.became ? (
-                                        <>
-                                          {' '}(
-                                          {asset.becamePosition ? `${asset.becamePosition} - ` : ''}
-                                          {asset.became})
-                                        </>
-                                      ) : null}
-                                    </span>
-                                    {asset.originalOwner && (
-                                      <div className="text-xs text-[var(--muted)] mt-0.5">
-                                        originally {asset.originalOwner}
-                                      </div>
-                                    )}
+                                <span>
+                                  {asset.name}
+                                  {typeof asset.pickInRound === 'number' ? <> #{asset.pickInRound}</> : null}
+                                  {asset.became ? (
+                                    <>
+                                      {' '}(
+                                      {asset.becamePosition ? `${asset.becamePosition} - ` : ''}
+                                      {asset.became})
+                                    </>
+                                  ) : null}
+                                </span>
+                                {asset.originalOwner && (
+                                  <div className="text-xs text-[var(--muted)] mt-0.5">
+                                    originally {asset.originalOwner}
                                   </div>
                                 )}
                               </div>
                               <div className="flex gap-2">
-                                {(asset.type === 'player' && asset.playerId) ? (
+                                {asset.type === 'player' && asset.playerId ? (
                                   <Button
                                     type="button"
                                     variant="ghost"
@@ -427,7 +429,7 @@ function TradesContent() {
                                     Track
                                   </Button>
                                 ) : null}
-                                {(asset.type === 'pick' && asset.year && asset.round && (asset.draftSlot ?? asset.pickInRound)) ? (
+                                {asset.type === 'pick' && asset.year && asset.round && (asset.draftSlot ?? asset.pickInRound) ? (
                                   <Button
                                     type="button"
                                     variant="ghost"

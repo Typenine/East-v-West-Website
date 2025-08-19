@@ -275,7 +275,7 @@ export default function StandingsPage() {
                         }}
                       />
                     </div>
-                    <div className="text-sm font-medium" style={{ color: getTeamColorStyle(team.teamName).backgroundColor }}>
+                    <div className="text-sm font-medium" style={{ color: (team.teamName === 'Double Trouble' || team.teamName === 'BeerNeverBrokeMyHeart') ? getTeamColorStyle(team.teamName, 'tertiary').backgroundColor : getTeamColorStyle(team.teamName).backgroundColor }}>
                       {team.teamName}
                     </div>
                   </div>
