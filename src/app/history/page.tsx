@@ -891,180 +891,208 @@ export default function HistoryPage() {
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
               {/* Highest Scoring Game */}
-              <div className="bg-white p-6 rounded-lg shadow-md">
-                <h3 className="text-xl font-bold mb-4">Highest Scoring Game</h3>
-                <div className="text-center">
-                  {recordBook?.highestScoringGame ? (
-                    <>
-                      <p className="text-4xl font-bold text-blue-600 mb-2">{recordBook.highestScoringGame.points.toFixed(2)}</p>
-                      {(() => {
-                        const ownerId = recordBook.highestScoringGame!.ownerId;
-                        const rosterId = ownerToRosterId[ownerId];
-                        const name = recordBook.highestScoringGame!.teamName;
-                        return rosterId !== undefined ? (
-                          <Link href={`/teams/${rosterId}`} className="text-lg font-semibold text-blue-700 hover:underline">{name}</Link>
-                        ) : (
-                          <p className="text-lg font-semibold">{name}</p>
-                        );
-                      })()}
-                      <p className="text-gray-600">Week {recordBook.highestScoringGame.week}, {recordBook.highestScoringGame.year} Season</p>
-                    </>
-                  ) : (
-                    <p className="text-gray-500">No data</p>
-                  )}
-                </div>
-              </div>
+              <Card>
+                <CardHeader>
+                  <CardTitle>Highest Scoring Game</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-center">
+                    {recordBook?.highestScoringGame ? (
+                      <>
+                        <p className="text-4xl font-bold text-[var(--accent)] mb-2">{recordBook.highestScoringGame.points.toFixed(2)}</p>
+                        {(() => {
+                          const ownerId = recordBook.highestScoringGame!.ownerId;
+                          const rosterId = ownerToRosterId[ownerId];
+                          const name = recordBook.highestScoringGame!.teamName;
+                          return rosterId !== undefined ? (
+                            <Link href={`/teams/${rosterId}`} className="text-lg font-semibold text-[var(--accent)] hover:underline">{name}</Link>
+                          ) : (
+                            <p className="text-lg font-semibold text-[var(--text)]">{name}</p>
+                          );
+                        })()}
+                        <p className="text-[var(--muted)]">Week {recordBook.highestScoringGame.week}, {recordBook.highestScoringGame.year} Season</p>
+                      </>
+                    ) : (
+                      <p className="text-[var(--muted)]">No data</p>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
               
               {/* Lowest Scoring Game */}
-              <div className="bg-white p-6 rounded-lg shadow-md">
-                <h3 className="text-xl font-bold mb-4">Lowest Scoring Game</h3>
-                <div className="text-center">
-                  {recordBook?.lowestScoringGame ? (
-                    <>
-                      <p className="text-4xl font-bold text-red-600 mb-2">{recordBook.lowestScoringGame.points.toFixed(2)}</p>
-                      {(() => {
-                        const ownerId = recordBook.lowestScoringGame!.ownerId;
-                        const rosterId = ownerToRosterId[ownerId];
-                        const name = recordBook.lowestScoringGame!.teamName;
-                        return rosterId !== undefined ? (
-                          <Link href={`/teams/${rosterId}`} className="text-lg font-semibold text-blue-700 hover:underline">{name}</Link>
-                        ) : (
-                          <p className="text-lg font-semibold">{name}</p>
-                        );
-                      })()}
-                      <p className="text-gray-600">Week {recordBook.lowestScoringGame.week}, {recordBook.lowestScoringGame.year} Season</p>
-                    </>
-                  ) : (
-                    <p className="text-gray-500">No data</p>
-                  )}
-                </div>
-              </div>
+              <Card>
+                <CardHeader>
+                  <CardTitle>Lowest Scoring Game</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-center">
+                    {recordBook?.lowestScoringGame ? (
+                      <>
+                        <p className="text-4xl font-bold text-[var(--accent)] mb-2">{recordBook.lowestScoringGame.points.toFixed(2)}</p>
+                        {(() => {
+                          const ownerId = recordBook.lowestScoringGame!.ownerId;
+                          const rosterId = ownerToRosterId[ownerId];
+                          const name = recordBook.lowestScoringGame!.teamName;
+                          return rosterId !== undefined ? (
+                            <Link href={`/teams/${rosterId}`} className="text-lg font-semibold text-[var(--accent)] hover:underline">{name}</Link>
+                          ) : (
+                            <p className="text-lg font-semibold text-[var(--text)]">{name}</p>
+                          );
+                        })()}
+                        <p className="text-[var(--muted)]">Week {recordBook.lowestScoringGame.week}, {recordBook.lowestScoringGame.year} Season</p>
+                      </>
+                    ) : (
+                      <p className="text-[var(--muted)]">No data</p>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
               
               {/* Biggest Victory Margin */}
-              <div className="bg-white p-6 rounded-lg shadow-md">
-                <h3 className="text-xl font-bold mb-4">Biggest Victory Margin</h3>
-                <div className="text-center">
-                  {recordBook?.biggestVictory ? (
-                    <>
-                      <p className="text-4xl font-bold text-green-600 mb-2">{recordBook.biggestVictory.margin.toFixed(2)}</p>
-                      <p className="text-lg font-semibold">
-                        {(() => {
-                          const wRoster = ownerToRosterId[recordBook.biggestVictory!.winnerOwnerId];
-                          const lRoster = ownerToRosterId[recordBook.biggestVictory!.loserOwnerId];
-                          const wName = recordBook.biggestVictory!.winnerTeamName;
-                          const lName = recordBook.biggestVictory!.loserTeamName;
-                          const W = wRoster !== undefined ? <Link href={`/teams/${wRoster}`} className="text-blue-700 hover:underline">{wName}</Link> : <span>{wName}</span>;
-                          const L = lRoster !== undefined ? <Link href={`/teams/${lRoster}`} className="text-blue-700 hover:underline">{lName}</Link> : <span>{lName}</span>;
-                          return <>{W} vs. {L}</>;
-                        })()}
-                      </p>
-                      <p className="text-gray-600">Week {recordBook.biggestVictory.week}, {recordBook.biggestVictory.year} Season</p>
-                    </>
-                  ) : (
-                    <p className="text-gray-500">No data</p>
-                  )}
-                </div>
-              </div>
+              <Card>
+                <CardHeader>
+                  <CardTitle>Biggest Victory Margin</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-center">
+                    {recordBook?.biggestVictory ? (
+                      <>
+                        <p className="text-4xl font-bold text-[var(--accent)] mb-2">{recordBook.biggestVictory.margin.toFixed(2)}</p>
+                        <p className="text-lg font-semibold text-[var(--text)]">
+                          {(() => {
+                            const wRoster = ownerToRosterId[recordBook.biggestVictory!.winnerOwnerId];
+                            const lRoster = ownerToRosterId[recordBook.biggestVictory!.loserOwnerId];
+                            const wName = recordBook.biggestVictory!.winnerTeamName;
+                            const lName = recordBook.biggestVictory!.loserTeamName;
+                            const W = wRoster !== undefined ? <Link href={`/teams/${wRoster}`} className="text-[var(--accent)] hover:underline">{wName}</Link> : <span>{wName}</span>;
+                            const L = lRoster !== undefined ? <Link href={`/teams/${lRoster}`} className="text-[var(--accent)] hover:underline">{lName}</Link> : <span>{lName}</span>;
+                            return <>{W} vs. {L}</>;
+                          })()}
+                        </p>
+                        <p className="text-[var(--muted)]">Week {recordBook.biggestVictory.week}, {recordBook.biggestVictory.year} Season</p>
+                      </>
+                    ) : (
+                      <p className="text-[var(--muted)]">No data</p>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
               
               {/* Closest Victory */}
-              <div className="bg-white p-6 rounded-lg shadow-md">
-                <h3 className="text-xl font-bold mb-4">Closest Victory</h3>
-                <div className="text-center">
-                  {recordBook?.closestVictory ? (
-                    <>
-                      <p className="text-4xl font-bold text-purple-600 mb-2">{recordBook.closestVictory.margin.toFixed(2)}</p>
-                      <p className="text-lg font-semibold">
-                        {(() => {
-                          const wRoster = ownerToRosterId[recordBook.closestVictory!.winnerOwnerId];
-                          const lRoster = ownerToRosterId[recordBook.closestVictory!.loserOwnerId];
-                          const wName = recordBook.closestVictory!.winnerTeamName;
-                          const lName = recordBook.closestVictory!.loserTeamName;
-                          const W = wRoster !== undefined ? <Link href={`/teams/${wRoster}`} className="text-blue-700 hover:underline">{wName}</Link> : <span>{wName}</span>;
-                          const L = lRoster !== undefined ? <Link href={`/teams/${lRoster}`} className="text-blue-700 hover:underline">{lName}</Link> : <span>{lName}</span>;
-                          return <>{W} vs. {L}</>;
-                        })()}
-                      </p>
-                      <p className="text-gray-600">Week {recordBook.closestVictory.week}, {recordBook.closestVictory.year} Season</p>
-                    </>
-                  ) : (
-                    <p className="text-gray-500">No data</p>
-                  )}
-                </div>
-              </div>
+              <Card>
+                <CardHeader>
+                  <CardTitle>Closest Victory</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-center">
+                    {recordBook?.closestVictory ? (
+                      <>
+                        <p className="text-4xl font-bold text-[var(--accent)] mb-2">{recordBook.closestVictory.margin.toFixed(2)}</p>
+                        <p className="text-lg font-semibold text-[var(--text)]">
+                          {(() => {
+                            const wRoster = ownerToRosterId[recordBook.closestVictory!.winnerOwnerId];
+                            const lRoster = ownerToRosterId[recordBook.closestVictory!.loserOwnerId];
+                            const wName = recordBook.closestVictory!.winnerTeamName;
+                            const lName = recordBook.closestVictory!.loserTeamName;
+                            const W = wRoster !== undefined ? <Link href={`/teams/${wRoster}`} className="text-[var(--accent)] hover:underline">{wName}</Link> : <span>{wName}</span>;
+                            const L = lRoster !== undefined ? <Link href={`/teams/${lRoster}`} className="text-[var(--accent)] hover:underline">{lName}</Link> : <span>{lName}</span>;
+                            return <>{W} vs. {L}</>;
+                          })()}
+                        </p>
+                        <p className="text-[var(--muted)]">Week {recordBook.closestVictory.week}, {recordBook.closestVictory.year} Season</p>
+                      </>
+                    ) : (
+                      <p className="text-[var(--muted)]">No data</p>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
               
               {/* Highest Combined Points */}
-              <div className="bg-white p-6 rounded-lg shadow-md">
-                <h3 className="text-xl font-bold mb-4">Highest Combined Points</h3>
-                <div className="text-center">
-                  {recordBook?.highestCombined ? (
-                    <>
-                      <p className="text-4xl font-bold text-indigo-600 mb-2">{recordBook.highestCombined.combined.toFixed(2)}</p>
-                      <p className="text-lg font-semibold">
-                        {(() => {
-                          const aRoster = ownerToRosterId[recordBook.highestCombined!.teamAOwnerId];
-                          const bRoster = ownerToRosterId[recordBook.highestCombined!.teamBOwnerId];
-                          const aName = recordBook.highestCombined!.teamAName;
-                          const bName = recordBook.highestCombined!.teamBName;
-                          const A = aRoster !== undefined ? <Link href={`/teams/${aRoster}`} className="text-blue-700 hover:underline">{aName}</Link> : <span>{aName}</span>;
-                          const B = bRoster !== undefined ? <Link href={`/teams/${bRoster}`} className="text-blue-700 hover:underline">{bName}</Link> : <span>{bName}</span>;
-                          return <>{A} ({recordBook.highestCombined!.teamAPoints.toFixed(2)}) vs. {B} ({recordBook.highestCombined!.teamBPoints.toFixed(2)})</>;
-                        })()}
-                      </p>
-                      <p className="text-gray-600">Week {recordBook.highestCombined.week}, {recordBook.highestCombined.year} Season</p>
-                    </>
-                  ) : (
-                    <p className="text-gray-500">No data</p>
-                  )}
-                </div>
-              </div>
+              <Card>
+                <CardHeader>
+                  <CardTitle>Highest Combined Points</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-center">
+                    {recordBook?.highestCombined ? (
+                      <>
+                        <p className="text-4xl font-bold text-[var(--accent)] mb-2">{recordBook.highestCombined.combined.toFixed(2)}</p>
+                        <p className="text-lg font-semibold text-[var(--text)]">
+                          {(() => {
+                            const aRoster = ownerToRosterId[recordBook.highestCombined!.teamAOwnerId];
+                            const bRoster = ownerToRosterId[recordBook.highestCombined!.teamBOwnerId];
+                            const aName = recordBook.highestCombined!.teamAName;
+                            const bName = recordBook.highestCombined!.teamBName;
+                            const A = aRoster !== undefined ? <Link href={`/teams/${aRoster}`} className="text-[var(--accent)] hover:underline">{aName}</Link> : <span>{aName}</span>;
+                            const B = bRoster !== undefined ? <Link href={`/teams/${bRoster}`} className="text-[var(--accent)] hover:underline">{bName}</Link> : <span>{bName}</span>;
+                            return <>{A} ({recordBook.highestCombined!.teamAPoints.toFixed(2)}) vs. {B} ({recordBook.highestCombined!.teamBPoints.toFixed(2)})</>;
+                          })()}
+                        </p>
+                        <p className="text-[var(--muted)]">Week {recordBook.highestCombined.week}, {recordBook.highestCombined.year} Season</p>
+                      </>
+                    ) : (
+                      <p className="text-[var(--muted)]">No data</p>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
               
               {/* Longest Win Streak */}
-              <div className="bg-white p-6 rounded-lg shadow-md">
-                <h3 className="text-xl font-bold mb-4">Longest Win Streak</h3>
-                <div className="text-center">
-                  {recordBook?.longestWinStreak ? (
-                    <>
-                      <p className="text-4xl font-bold text-amber-600 mb-2">{recordBook.longestWinStreak.length} Games</p>
-                      {(() => {
-                        const rosterId = ownerToRosterId[recordBook.longestWinStreak!.ownerId];
-                        const name = recordBook.longestWinStreak!.teamName;
-                        return rosterId !== undefined ? (
-                          <Link href={`/teams/${rosterId}`} className="text-lg font-semibold text-blue-700 hover:underline">{name}</Link>
-                        ) : (
-                          <p className="text-lg font-semibold">{name}</p>
-                        );
-                      })()}
-                      <p className="text-gray-600">Weeks {recordBook.longestWinStreak.start.week}-{recordBook.longestWinStreak.end.week}, {recordBook.longestWinStreak.start.year === recordBook.longestWinStreak.end.year ? recordBook.longestWinStreak.start.year : `${recordBook.longestWinStreak.start.year}–${recordBook.longestWinStreak.end.year}`} Season</p>
-                    </>
-                  ) : (
-                    <p className="text-gray-500">No data</p>
-                  )}
-                </div>
-              </div>
+              <Card>
+                <CardHeader>
+                  <CardTitle>Longest Win Streak</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-center">
+                    {recordBook?.longestWinStreak ? (
+                      <>
+                        <p className="text-4xl font-bold text-[var(--accent)] mb-2">{recordBook.longestWinStreak.length} Games</p>
+                        {(() => {
+                          const rosterId = ownerToRosterId[recordBook.longestWinStreak!.ownerId];
+                          const name = recordBook.longestWinStreak!.teamName;
+                          return rosterId !== undefined ? (
+                            <Link href={`/teams/${rosterId}`} className="text-lg font-semibold text-[var(--accent)] hover:underline">{name}</Link>
+                          ) : (
+                            <p className="text-lg font-semibold text-[var(--text)]">{name}</p>
+                          );
+                        })()}
+                        <p className="text-[var(--muted)]">Weeks {recordBook.longestWinStreak.start.week}-{recordBook.longestWinStreak.end.week}, {recordBook.longestWinStreak.start.year === recordBook.longestWinStreak.end.year ? recordBook.longestWinStreak.start.year : `${recordBook.longestWinStreak.start.year}–${recordBook.longestWinStreak.end.year}`} Season</p>
+                      </>
+                    ) : (
+                      <p className="text-[var(--muted)]">No data</p>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
               
               {/* Longest Losing Streak */}
-              <div className="bg-white p-6 rounded-lg shadow-md">
-                <h3 className="text-xl font-bold mb-4">Longest Losing Streak</h3>
-                <div className="text-center">
-                  {recordBook?.longestLosingStreak ? (
-                    <>
-                      <p className="text-4xl font-bold text-gray-600 mb-2">{recordBook.longestLosingStreak.length} Games</p>
-                      {(() => {
-                        const rosterId = ownerToRosterId[recordBook.longestLosingStreak!.ownerId];
-                        const name = recordBook.longestLosingStreak!.teamName;
-                        return rosterId !== undefined ? (
-                          <Link href={`/teams/${rosterId}`} className="text-lg font-semibold text-blue-700 hover:underline">{name}</Link>
-                        ) : (
-                          <p className="text-lg font-semibold">{name}</p>
-                        );
-                      })()}
-                      <p className="text-gray-600">Weeks {recordBook.longestLosingStreak.start.week}-{recordBook.longestLosingStreak.end.week}, {recordBook.longestLosingStreak.start.year === recordBook.longestLosingStreak.end.year ? recordBook.longestLosingStreak.start.year : `${recordBook.longestLosingStreak.start.year}–${recordBook.longestLosingStreak.end.year}`} Season</p>
-                    </>
-                  ) : (
-                    <p className="text-gray-500">No data</p>
-                  )}
-                </div>
-              </div>
+              <Card>
+                <CardHeader>
+                  <CardTitle>Longest Losing Streak</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-center">
+                    {recordBook?.longestLosingStreak ? (
+                      <>
+                        <p className="text-4xl font-bold text-[var(--accent)] mb-2">{recordBook.longestLosingStreak.length} Games</p>
+                        {(() => {
+                          const rosterId = ownerToRosterId[recordBook.longestLosingStreak!.ownerId];
+                          const name = recordBook.longestLosingStreak!.teamName;
+                          return rosterId !== undefined ? (
+                            <Link href={`/teams/${rosterId}`} className="text-lg font-semibold text-[var(--accent)] hover:underline">{name}</Link>
+                          ) : (
+                            <p className="text-lg font-semibold text-[var(--text)]">{name}</p>
+                          );
+                        })()}
+                        <p className="text-[var(--muted)]">Weeks {recordBook.longestLosingStreak.start.week}-{recordBook.longestLosingStreak.end.week}, {recordBook.longestLosingStreak.start.year === recordBook.longestLosingStreak.end.year ? recordBook.longestLosingStreak.start.year : `${recordBook.longestLosingStreak.start.year}–${recordBook.longestLosingStreak.end.year}`} Season</p>
+                      </>
+                    ) : (
+                      <p className="text-[var(--muted)]">No data</p>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
             </div>
           )}
         </div>
