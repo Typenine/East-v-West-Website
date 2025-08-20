@@ -23,6 +23,14 @@ function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+// Type guards for safe error inspection without using 'any'
+function hasName(x: unknown): x is { name?: string } {
+  return typeof x === 'object' && x !== null && 'name' in x;
+}
+function hasCode(x: unknown): x is { code?: string } {
+  return typeof x === 'object' && x !== null && 'code' in x;
+}
+
 /**
  * Internal helper to perform fetch with timeout + retry + cancellation.
  * Retries on network errors, timeouts, and 5xx responses.
@@ -71,13 +79,15 @@ async function sleeperFetchJson<T = unknown>(
       return (await resp.json()) as T;
     } catch (err: unknown) {
       // If explicitly aborted by caller, do not retry
-      const e = err as any;
-      const isAbort = (e && typeof e === 'object' && e.name === 'AbortError') || abortedByCaller;
+      const isAbort = abortedByCaller
+        || (err instanceof DOMException && err.name === 'AbortError')
+        || (hasName(err) && err.name === 'AbortError');
       if (abortedByCaller) {
         throw err;
       }
       // Retry on timeout/network/abort (not by caller)
-      if (attempt < retries && (isAbort || e?.code === 'ECONNRESET' || e?.code === 'ETIMEDOUT')) {
+      const isNetTimeout = hasCode(err) && (err.code === 'ECONNRESET' || err.code === 'ETIMEDOUT');
+      if (attempt < retries && (isAbort || isNetTimeout)) {
         const jitter = Math.random() * 100;
         await sleep(baseDelay * Math.pow(2, attempt) + jitter);
         continue;

@@ -27,6 +27,16 @@ import {
 import { CANONICAL_TEAM_BY_USER_ID } from '@/lib/constants/team-mapping';
 import SectionHeader from '@/components/ui/SectionHeader';
 
+// Type-safe helpers to avoid explicit 'any' casts in error handling
+function hasName(x: unknown): x is { name?: string } {
+  return typeof x === 'object' && x !== null && 'name' in x;
+}
+function isAbortError(e: unknown): boolean {
+  // Covers both browser DOMException and generic error-like objects with a name
+  if (e instanceof DOMException && e.name === 'AbortError') return true;
+  return hasName(e) && e.name === 'AbortError';
+}
+
 export default function HistoryPage() {
   const [activeTab, setActiveTab] = useState('champions');
   // Franchises state
@@ -85,8 +95,7 @@ export default function HistoryPage() {
         });
         setPodiumsByYear(merged);
       } catch (e) {
-        const isAbort = e && typeof e === 'object' && (e as any).name === 'AbortError';
-        if (isAbort) return;
+        if (isAbortError(e)) return;
         console.error('Failed to auto-derive podiums:', e);
       }
     }
@@ -144,8 +153,7 @@ export default function HistoryPage() {
         }
         setBracketNameMap(nameMap);
       } catch (e) {
-        const isAbort = e && typeof e === 'object' && (e as any).name === 'AbortError';
-        if (isAbort) return;
+        if (isAbortError(e)) return;
         console.error('Error loading brackets:', e);
         if (!cancelled) setBracketError('Failed to load playoff brackets.');
       } finally {
@@ -258,8 +266,7 @@ export default function HistoryPage() {
           .slice(0, 5);
         setPlayoffAppearances(appearanceRows);
       } catch (e) {
-        const isAbort = e && typeof e === 'object' && (e as any).name === 'AbortError';
-        if (isAbort) return;
+        if (isAbortError(e)) return;
         console.error('Error loading history data:', e);
         if (!cancelled) {
           setFranchisesError('Failed to load franchise data. Please try again later.');
@@ -313,8 +320,7 @@ export default function HistoryPage() {
         if (Object.keys(map).length === 0) throw new Error('No awards could be loaded');
         setAwardsByYear(map);
       } catch (e) {
-        const isAbort = e && typeof e === 'object' && (e as any).name === 'AbortError';
-        if (isAbort) return;
+        if (isAbortError(e)) return;
         console.error('Error loading awards:', e);
         if (!cancelled) setAwardsError('Failed to load awards.');
       } finally {
