@@ -17,6 +17,7 @@ import {
   getRosterIdToTeamNameMap,
   derivePodiumFromWinnersBracketByYear,
   getSeasonAwardsUsingLeagueScoring,
+  getWeeklyHighScoreTallyAcrossSeasons,
   type FranchiseSummary,
   type LeagueRecordBook,
   type SleeperBracketGameWithScore,
@@ -53,6 +54,8 @@ export default function HistoryPage() {
   const [awardsError, setAwardsError] = useState<string | null>(null);
   // Owner -> rosterId mapping (prefer most recent season)
   const [ownerToRosterId, setOwnerToRosterId] = useState<Record<string, number>>({});
+  // Weekly High Score tally per owner across seasons
+  const [weeklyHighsByOwner, setWeeklyHighsByOwner] = useState<Record<string, number>>({});
   // Inverted map to get ownerId by canonical team name (for CHAMPIONS links)
   const ownerByTeamName = useMemo(() => {
     const map: Record<string, string> = {};
@@ -177,10 +180,11 @@ export default function HistoryPage() {
         setFranchisesError(null);
         setRecordsError(null);
         const opts = { signal: ac.signal, timeoutMs: DEFAULT_TIMEOUT } as const;
-        const [fr, rb, allTeams] = await Promise.all([
+        const [fr, rb, allTeams, weeklyHighs] = await Promise.all([
           getFranchisesAllTime(opts),
           getLeagueRecordBook(opts),
           getAllTeamsData(opts),
+          getWeeklyHighScoreTallyAcrossSeasons(opts),
         ]);
         if (cancelled) return;
         setFranchises(fr);
@@ -197,6 +201,7 @@ export default function HistoryPage() {
           }
         }
         setOwnerToRosterId(ownerRosterMap);
+        setWeeklyHighsByOwner(weeklyHighs || {});
 
         // Compute Regular Season Winners per franchise (previous completed seasons)
         const rsCounts: Record<string, number> = {};
@@ -1027,6 +1032,7 @@ export default function HistoryPage() {
                         <p>2nd Place: {ruCount}</p>
                         <p>3rd Place: {tpCount}</p>
                         <p>Regular Season Winner: {rsCount}</p>
+                        <p>Weekly Highs: {weeklyHighsByOwner[f.ownerId] ?? 0}</p>
                       </div>
                     </CardContent>
                   </Card>
