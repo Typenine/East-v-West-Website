@@ -457,6 +457,61 @@ export async function getLeagueRecordBook(options?: SleeperFetchOptions): Promis
   return { highestScoringGame, lowestScoringGame, biggestVictory, closestVictory, highestCombined, longestWinStreak, longestLosingStreak };
 }
 
+export async function getWeeklyHighScoreTallyAcrossSeasons(options?: SleeperFetchOptions): Promise<Record<string, number>> {
+  const yearToLeague: Record<string, string> = {
+    '2025': LEAGUE_IDS.CURRENT,
+    ...LEAGUE_IDS.PREVIOUS,
+  };
+
+  const tally: Record<string, number> = {};
+
+  // Iterate through seasons; process weeks in parallel per season
+  for (const leagueId of Object.values(yearToLeague)) {
+    if (!leagueId) continue;
+
+    // Map roster_id -> ownerId for this league
+    const rosters = await getLeagueRosters(leagueId, options);
+    const rosterOwner = new Map<number, string>();
+    for (const r of rosters) rosterOwner.set(r.roster_id, r.owner_id);
+
+    // Fetch weeks 1..18 matchups in parallel
+    const weekPromises = Array.from({ length: 18 }, (_, i) => i + 1).map((w) =>
+      getLeagueMatchups(leagueId, w, options).catch(() => [] as SleeperMatchup[])
+    );
+    const allWeekMatchups = await Promise.all(weekPromises);
+
+    for (const weekMatchups of allWeekMatchups) {
+      if (!weekMatchups || weekMatchups.length === 0) continue;
+
+      // Compute per-roster points
+      const ptsByRoster: Array<{ rosterId: number; pts: number }> = [];
+      for (const m of weekMatchups) {
+        const pts = m.custom_points ?? m.points ?? 0;
+        ptsByRoster.push({ rosterId: m.roster_id, pts });
+      }
+
+      if (ptsByRoster.length === 0) continue;
+      let maxPts = -Infinity;
+      for (const p of ptsByRoster) if (p.pts > maxPts) maxPts = p.pts;
+
+      // Skip weeks with no scoring (all zero)
+      if (!(maxPts > 0)) continue;
+
+      // Award all rosters tied for weekly high
+      for (const p of ptsByRoster) {
+        if (p.pts === maxPts) {
+          const ownerId = rosterOwner.get(p.rosterId);
+          if (ownerId) {
+            tally[ownerId] = (tally[ownerId] || 0) + 1;
+          }
+        }
+      }
+    }
+  }
+
+  return tally;
+}
+
 /**
  * Get a team's all-time aggregate stats across all configured league seasons by owner_id
  * Uses LEAGUE_IDS.CURRENT and LEAGUE_IDS.PREVIOUS years.

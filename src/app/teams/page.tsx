@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
-import { getTeamsData, getTeamAllTimeStatsByOwner, TeamData } from '@/lib/utils/sleeper-api';
+import { getTeamsData, getTeamAllTimeStatsByOwner, getWeeklyHighScoreTallyAcrossSeasons, TeamData } from '@/lib/utils/sleeper-api';
 import { LEAGUE_IDS } from '@/lib/constants/league';
 import { getTeamLogoPath, getTeamColorStyle } from '@/lib/utils/team-utils';
 import LoadingState from '@/components/ui/loading-state';
@@ -16,6 +16,7 @@ export default function TeamsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [allTimeByOwner, setAllTimeByOwner] = useState<Record<string, { wins: number; losses: number; ties: number }>>({});
+  const [weeklyHighsByOwner, setWeeklyHighsByOwner] = useState<Record<string, number>>({});
   
   const fetchTeams = useCallback(async () => {
     try {
@@ -23,17 +24,25 @@ export default function TeamsPage() {
       const teamsData = await getTeamsData(LEAGUE_IDS.CURRENT);
       setTeams(teamsData);
 
-      // Aggregate all-time records per owner across seasons
+      // Aggregate all-time records per owner across seasons and weekly high score tallies
       const uniqueOwners = Array.from(new Set(teamsData.map(t => t.ownerId)));
-      const results = await Promise.all(
-        uniqueOwners.map(async (ownerId) => {
-          const stats = await getTeamAllTimeStatsByOwner(ownerId);
-          return [ownerId, { wins: stats.wins, losses: stats.losses, ties: stats.ties }] as const;
-        })
-      );
-      const map: Record<string, { wins: number; losses: number; ties: number }> = {};
-      for (const [ownerId, rec] of results) map[ownerId] = rec;
-      setAllTimeByOwner(map);
+      const [allTimeRecords, weeklyHighs] = await Promise.all([
+        (async () => {
+          const pairs = await Promise.all(
+            uniqueOwners.map(async (ownerId) => {
+              const stats = await getTeamAllTimeStatsByOwner(ownerId);
+              return [ownerId, { wins: stats.wins, losses: stats.losses, ties: stats.ties }] as const;
+            })
+          );
+          const map: Record<string, { wins: number; losses: number; ties: number }> = {};
+          for (const [ownerId, rec] of pairs) map[ownerId] = rec;
+          return map;
+        })(),
+        getWeeklyHighScoreTallyAcrossSeasons(),
+      ]);
+
+      setAllTimeByOwner(allTimeRecords);
+      setWeeklyHighsByOwner(weeklyHighs);
       setError(null);
     } catch (err) {
       console.error('Error fetching teams:', err);
@@ -110,6 +119,9 @@ export default function TeamsPage() {
                   {(allTimeByOwner[team.ownerId]?.wins ?? 0)}-
                   {(allTimeByOwner[team.ownerId]?.losses ?? 0)}
                   {((allTimeByOwner[team.ownerId]?.ties ?? 0) > 0) ? `-${allTimeByOwner[team.ownerId]!.ties}` : ''}
+                </div>
+                <div className="text-center text-xs text-[var(--muted)] mt-1">
+                  Weekly Highs: {weeklyHighsByOwner[team.ownerId] ?? 0}
                 </div>
               </CardContent>
             </Card>
