@@ -1509,15 +1509,25 @@ export async function findPlayerOwnerAtOrBeforeWeek(
   leagueId: string,
   playerId: string,
   endWeek: number,
-  options?: SleeperFetchOptions
+  options?: SleeperFetchOptions,
+  nameMap?: Map<number, string>
 ): Promise<{ rosterId: number | null; teamName: string | null }> {
-  const rosterIdToName = await getRosterIdToTeamNameMap(leagueId, options);
+  // Allow caller to pass a precomputed name map to avoid redundant network calls
+  const rosterIdToName = nameMap ?? (await getRosterIdToTeamNameMap(leagueId, options));
   const weeks = Array.from({ length: Math.max(1, Math.min(14, Math.floor(endWeek))) }, (_, i) => endWeek - i);
-  for (const week of weeks) {
-    let matchups: SleeperMatchup[] = [];
-    try {
-      matchups = await getLeagueMatchups(leagueId, week, options);
-    } catch {}
+
+  // Derive a shorter per-request timeout for these many small calls to prevent long sequential stalls
+  const baseTimeout = Math.max(1, options?.timeoutMs ?? 8000);
+  const perWeekOpts: SleeperFetchOptions = { ...(options || {}), timeoutMs: Math.min(5000, baseTimeout) };
+
+  // Fetch all candidate weeks in parallel, then scan from most recent to oldest
+  const weeklyMatchupsArr: SleeperMatchup[][] = await Promise.all(
+    weeks.map((w) => getLeagueMatchups(leagueId, w, perWeekOpts).catch(() => [] as SleeperMatchup[]))
+  );
+
+  for (let idx = 0; idx < weeks.length; idx++) {
+    if (options?.signal?.aborted) return { rosterId: null, teamName: null };
+    const matchups = weeklyMatchupsArr[idx] || [];
     for (const m of matchups) {
       const has = (m.players || []).includes(playerId) || (m.starters || []).includes(playerId);
       if (has) {
@@ -1526,9 +1536,10 @@ export async function findPlayerOwnerAtOrBeforeWeek(
       }
     }
   }
-  // Fallback: if never found in matchups, check roster membership for the league
+
+  // Fallback: if never found in matchups, check roster membership for the league (fast timeout)
   try {
-    const rosters = await getLeagueRosters(leagueId, options);
+    const rosters = await getLeagueRosters(leagueId, perWeekOpts);
     for (const r of rosters) {
       const has = (r.players || []).includes(playerId);
       if (has) {
@@ -1638,20 +1649,24 @@ export async function getSeasonAwardsUsingLeagueScoring(
   }
 
   async function buildWinners(ids: string[]): Promise<AwardWinner[]> {
-    const res: AwardWinner[] = [];
-    for (const pid of ids) {
-      const { rosterId, teamName } = await findPlayerOwnerAtOrBeforeWeek(leagueId, pid, endWeek, options);
-      const pl = players[pid];
-      const name = [pl?.first_name || '', pl?.last_name || ''].join(' ').trim() || pid;
-      res.push({
-        playerId: pid,
-        name,
-        points: Number((totals[pid] || 0).toFixed(2)),
-        rosterId,
-        teamName,
-      });
-    }
-    return res;
+    if (!ids || ids.length === 0) return [];
+    // Reuse a single rosterId->teamName map to avoid redundant fetches per winner
+    const rosterIdToName = await getRosterIdToTeamNameMap(leagueId, options);
+    const winners = await Promise.all(
+      ids.map(async (pid) => {
+        const { rosterId, teamName } = await findPlayerOwnerAtOrBeforeWeek(leagueId, pid, endWeek, options, rosterIdToName);
+        const pl = players[pid];
+        const name = [pl?.first_name || '', pl?.last_name || ''].join(' ').trim() || pid;
+        return {
+          playerId: pid,
+          name,
+          points: Number((totals[pid] || 0).toFixed(2)),
+          rosterId,
+          teamName,
+        } as AwardWinner;
+      })
+    );
+    return winners;
   }
 
   const [mvp, roy] = await Promise.all([
