@@ -1453,6 +1453,17 @@ export async function findPlayerOwnerAtOrBeforeWeek(
       }
     }
   }
+  // Fallback: if never found in matchups, check roster membership for the league
+  try {
+    const rosters = await getLeagueRosters(leagueId);
+    for (const r of rosters) {
+      const has = (r.players || []).includes(playerId);
+      if (has) {
+        const name = rosterIdToName.get(r.roster_id) || null;
+        return { rosterId: r.roster_id, teamName: name };
+      }
+    }
+  } catch {}
   return { rosterId: null, teamName: null };
 }
 
@@ -1478,16 +1489,39 @@ export async function getSeasonAwardsUsingLeagueScoring(
   const totals = await computeSeasonTotalsCustomScoring(season, leagueId, endWeek);
   const players = await getAllPlayersCached();
 
-  // Find MVP (max total)
-  let maxPts = -Infinity;
-  for (const v of Object.values(totals)) if (v > maxPts) maxPts = v;
-  const eps = 1e-6;
-  const mvpIds = Object.keys(totals).filter((pid) => Math.abs((totals[pid] || 0) - maxPts) < eps);
-
-  // Find ROY (max among rookies for this season)
-  const rookieTotals: Record<string, number> = {};
-  for (const [pid, pts] of Object.entries(totals)) {
+  // Restrict to real players in eligible positions (exclude team/DST pseudo-IDs like TEAM_BAL)
+  const allowedPositions = new Set(['QB', 'RB', 'WR', 'TE', 'K']);
+  const eligibleIds = Object.keys(totals).filter((pid) => {
     const pl = players[pid];
+    if (!pl) return false; // filter out pseudo/team IDs not present in players map
+    const pos = (pl.position || '').toUpperCase();
+    return allowedPositions.has(pos);
+  });
+
+  // If no eligible players, return empty awards cleanly
+  if (eligibleIds.length === 0) {
+    return {
+      season: String(season),
+      throughWeek: Math.max(1, Math.min(14, Math.floor(endWeek))),
+      mvp: [],
+      roy: [],
+    };
+  }
+
+  // Find MVP (max total) among eligible players only
+  let maxPts = -Infinity;
+  for (const pid of eligibleIds) {
+    const v = totals[pid] || 0;
+    if (v > maxPts) maxPts = v;
+  }
+  const eps = 1e-6;
+  const mvpIds = eligibleIds.filter((pid) => Math.abs((totals[pid] || 0) - maxPts) < eps);
+
+  // Find ROY (max among rookies for this season) from eligible players only
+  const rookieTotals: Record<string, number> = {};
+  for (const pid of eligibleIds) {
+    const pl = players[pid];
+    const pts = totals[pid] || 0;
     if (isRookieForSeason(pl, season)) rookieTotals[pid] = pts;
   }
   let royMax = -Infinity;

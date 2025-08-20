@@ -978,10 +978,10 @@ export default function HistoryPage() {
             <ErrorState message={recordsError} />
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-              {/* Awards: MVP & Rookie of the Year (Weeks 1–14) */}
+              {/* Awards: MVP & Rookie of the Year */}
               <Card className="md:col-span-2">
                 <CardHeader>
-                  <CardTitle>MVP & Rookie of the Year <span className="text-sm text-[var(--muted)] font-normal">(Weeks 1–14)</span></CardTitle>
+                  <CardTitle>MVP & Rookie of the Year</CardTitle>
                 </CardHeader>
                 <CardContent>
                   {awardsLoading ? (
