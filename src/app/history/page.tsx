@@ -717,16 +717,18 @@ export default function HistoryPage() {
                       return bracketNameMap.get(rid) || `Roster ${rid}`;
                     };
                     const TeamRow = ({ rid, isWinner, score }: { rid?: number | null; isWinner: boolean; score?: number | null }) => (
-                      <div className={`flex items-center justify-between ${isWinner ? 'font-semibold text-[var(--accent)]' : ''}`}>
-                        {rid != null ? (
-                          <Link href={`/teams/${rid}`} className="hover:underline">
-                            {nameFor(rid)}
-                          </Link>
-                        ) : (
-                          <span className="text-[var(--muted)]">BYE</span>
-                        )}
+                      <div className={`flex items-center justify-between gap-2 ${isWinner ? 'font-semibold text-[var(--accent)]' : ''}`}>
+                        <div className="min-w-0 flex-1">
+                          {rid != null ? (
+                            <Link href={`/teams/${rid}`} className="block truncate hover:underline" title={nameFor(rid)}>
+                              {nameFor(rid)}
+                            </Link>
+                          ) : (
+                            <span className="block truncate text-[var(--muted)]" title="BYE">BYE</span>
+                          )}
+                        </div>
                         {score != null && (
-                          <span className="ml-2 text-xs px-1.5 py-0.5 rounded border border-[var(--border)] text-[var(--muted)]">{score.toFixed(2)}</span>
+                          <span className="shrink-0 ml-2 text-xs px-1.5 py-0.5 rounded border border-[var(--border)] text-[var(--muted)]">{score.toFixed(2)}</span>
                         )}
                       </div>
                     );
@@ -781,16 +783,18 @@ export default function HistoryPage() {
                       return bracketNameMap.get(rid) || `Roster ${rid}`;
                     };
                     const TeamRow = ({ rid, isWinner, score }: { rid?: number | null; isWinner: boolean; score?: number | null }) => (
-                      <div className={`flex items-center justify-between ${isWinner ? 'font-semibold text-[var(--accent)]' : ''}`}>
-                        {rid != null ? (
-                          <Link href={`/teams/${rid}`} className="hover:underline">
-                            {nameFor(rid)}
-                          </Link>
-                        ) : (
-                          <span className="text-[var(--muted)]">BYE</span>
-                        )}
+                      <div className={`flex items-center justify-between gap-2 ${isWinner ? 'font-semibold text-[var(--accent)]' : ''}`}>
+                        <div className="min-w-0 flex-1">
+                          {rid != null ? (
+                            <Link href={`/teams/${rid}`} className="block truncate hover:underline" title={nameFor(rid)}>
+                              {nameFor(rid)}
+                            </Link>
+                          ) : (
+                            <span className="block truncate text-[var(--muted)]" title="BYE">BYE</span>
+                          )}
+                        </div>
                         {score != null && (
-                          <span className="ml-2 text-xs px-1.5 py-0.5 rounded border border-[var(--border)] text-[var(--muted)]">{score.toFixed(2)}</span>
+                          <span className="shrink-0 ml-2 text-xs px-1.5 py-0.5 rounded border border-[var(--border)] text-[var(--muted)]">{score.toFixed(2)}</span>
                         )}
                       </div>
                     );
