@@ -1635,6 +1635,10 @@ export async function getSeasonAwardsUsingLeagueScoring(
   let royMax = -Infinity;
   for (const v of Object.values(rookieTotals)) if (v > royMax) royMax = v;
   let royIds = Object.keys(rookieTotals).filter((pid) => Math.abs((rookieTotals[pid] || 0) - royMax) < eps);
+  if (!(royMax > MIN_POINTS)) {
+    // No meaningful rookie scoring detected in primary path
+    royIds = [];
+  }
 
   // Fallback: derive rookies by first season with stats among a small lookback window
   if (royIds.length === 0) {
@@ -1664,10 +1668,6 @@ export async function getSeasonAwardsUsingLeagueScoring(
         royIds = [];
       }
     }
-  }
-  // If initial rookieTotals had a max but it's effectively zero, clear
-  if (royIds.length > 0 && !(royMax > MIN_POINTS)) {
-    royIds = [];
   }
 
   async function buildWinners(ids: string[]): Promise<AwardWinner[]> {
