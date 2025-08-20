@@ -71,12 +71,13 @@ async function sleeperFetchJson<T = unknown>(
       return (await resp.json()) as T;
     } catch (err: unknown) {
       // If explicitly aborted by caller, do not retry
-      const isAbort = err?.name === 'AbortError' || abortedByCaller;
+      const e = err as any;
+      const isAbort = (e && typeof e === 'object' && e.name === 'AbortError') || abortedByCaller;
       if (abortedByCaller) {
         throw err;
       }
       // Retry on timeout/network/abort (not by caller)
-      if (attempt < retries && (isAbort || err?.code === 'ECONNRESET' || err?.code === 'ETIMEDOUT')) {
+      if (attempt < retries && (isAbort || e?.code === 'ECONNRESET' || e?.code === 'ETIMEDOUT')) {
         const jitter = Math.random() * 100;
         await sleep(baseDelay * Math.pow(2, attempt) + jitter);
         continue;
@@ -502,7 +503,9 @@ export async function getTeamAllTimeStatsByOwner(ownerId: string, options?: Slee
       }
 
       // Fetch all weeks' matchups in parallel
-      const weekPromises = Array.from({ length: 18 }, (_, i) => i + 1).map((w) => getLeagueMatchups(leagueId, w, options).catch(() => [] as SleeperMatchup[]>));
+      const weekPromises = Array.from({ length: 18 }, (_, i) => i + 1).map((w) =>
+        getLeagueMatchups(leagueId, w, options).catch(() => [] as SleeperMatchup[])
+      );
       const allWeekMatchups = await Promise.all(weekPromises);
 
       for (const weekMatchups of allWeekMatchups) {
@@ -580,7 +583,9 @@ export async function getTeamH2HRecordsAllTimeByOwner(ownerId: string, options?:
       const rosterOwner = new Map<number, string>();
       for (const r of rosters) rosterOwner.set(r.roster_id, r.owner_id);
 
-      const weekPromises = Array.from({ length: 18 }, (_, i) => i + 1).map((w) => getLeagueMatchups(leagueId, w, options).catch(() => [] as SleeperMatchup[]>));
+      const weekPromises = Array.from({ length: 18 }, (_, i) => i + 1).map((w) =>
+        getLeagueMatchups(leagueId, w, options).catch(() => [] as SleeperMatchup[])
+      );
       const allWeekMatchups = await Promise.all(weekPromises);
 
       for (const weekMatchups of allWeekMatchups) {
