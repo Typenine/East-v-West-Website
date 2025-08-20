@@ -3,11 +3,94 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import SectionHeader from '@/components/ui/SectionHeader';
+import { getTeamLogoPath, getTeamColors } from '@/lib/utils/team-utils';
+import Image from 'next/image';
 
 type RecordCategory = 'team' | 'game' | 'season' | 'player';
 
 export default function RecordsPage() {
   const [category, setCategory] = useState<RecordCategory>('team');
+  
+  // Extract up to two team names from a holder string (single team, vs., or player team in parentheses)
+  const extractTeamNames = (holder: string): string[] => {
+    if (!holder) return [];
+    if (/league average/i.test(holder)) return [];
+    
+    const parts = holder.split(/\s+vs\.?\s+/i);
+    const teams: string[] = [];
+    
+    for (const part of parts) {
+      // If it looks like "Player (Team)", prefer the team inside parentheses when it's not a score
+      const m = part.match(/(.+?)\s*\(([^)]+)\)/);
+      if (m) {
+        const inside = m[2].trim();
+        if (!/\d/.test(inside)) {
+          teams.push(inside);
+          continue;
+        }
+      }
+      // Otherwise, strip any parenthetical score fragments
+      const cleaned = part.replace(/\([^)]*\)/g, '').trim();
+      if (cleaned && !/league average/i.test(cleaned)) {
+        teams.push(cleaned);
+      }
+    }
+    // Return unique, at most two
+    return Array.from(new Set(teams)).slice(0, 2);
+  };
+
+  // Inline holder and split color strip use extractTeamNames()
+
+  const renderHolderInline = (holder: string) => {
+    const teams = extractTeamNames(holder);
+    if (teams.length === 0) {
+      return <p className="text-lg font-medium">{holder}</p>;
+    }
+    if (teams.length === 1) {
+      const logo = getTeamLogoPath(teams[0]);
+      return (
+        <div className="mt-2 flex items-center justify-center gap-3">
+          <div className="w-12 h-12 rounded-full evw-surface border border-[var(--border)] overflow-hidden flex items-center justify-center shrink-0">
+            <Image src={logo} alt={`${teams[0]} logo`} width={48} height={48} className="w-12 h-12 object-contain" />
+          </div>
+          <p className="text-lg font-medium">{holder}</p>
+        </div>
+      );
+    }
+    const [t1, t2] = teams;
+    const l1 = getTeamLogoPath(t1);
+    const l2 = getTeamLogoPath(t2);
+    return (
+      <div className="mt-2 flex items-center justify-center gap-3 flex-wrap">
+        <div className="w-12 h-12 rounded-full evw-surface border border-[var(--border)] overflow-hidden flex items-center justify-center shrink-0">
+          <Image src={l1} alt={`${t1} logo`} width={48} height={48} className="w-12 h-12 object-contain" />
+        </div>
+        <p className="text-lg font-medium text-center">
+          {holder}
+        </p>
+        <div className="w-12 h-12 rounded-full evw-surface border border-[var(--border)] overflow-hidden flex items-center justify-center shrink-0">
+          <Image src={l2} alt={`${t2} logo`} width={48} height={48} className="w-12 h-12 object-contain" />
+        </div>
+      </div>
+    );
+  };
+
+  const renderTeamSplitStrip = (holder: string) => {
+    const teams = extractTeamNames(holder);
+    if (teams.length === 0) return null;
+    if (teams.length === 1) {
+      const c = getTeamColors(teams[0]).primary;
+      return <div className="mt-3 h-1 w-full rounded" style={{ backgroundColor: c }} />;
+    }
+    const c1 = getTeamColors(teams[0]).primary;
+    const c2 = getTeamColors(teams[1]).primary;
+    return (
+      <div className="mt-3 h-1 w-full rounded overflow-hidden flex">
+        <div className="h-full w-1/2" style={{ backgroundColor: c1 }} />
+        <div className="h-full w-1/2" style={{ backgroundColor: c2 }} />
+      </div>
+    );
+  };
   
   // Team Records
   const teamRecords = [
@@ -255,7 +338,8 @@ export default function RecordsPage() {
             <div className="p-6">
               <div className="text-center">
                 <p className="text-2xl font-bold text-accent mb-2">{record.value}</p>
-                <p className="text-lg font-medium">{record.holder}</p>
+                {renderHolderInline(record.holder)}
+                {renderTeamSplitStrip(record.holder)}
                 <p className="text-sm text-[var(--muted)] mt-1">{record.year}</p>
               </div>
             </div>
