@@ -74,8 +74,8 @@ export default function ChampionsPage() {
       />
       
       {/* Champion Trophy Card */}
-      <div className="max-w-3xl mx-auto bg-white rounded-lg shadow-lg overflow-hidden mb-8">
-        <div className="brand-gradient text-white p-6 text-center">
+      <div className="max-w-3xl mx-auto evw-surface border border-[var(--border)] rounded-lg shadow-lg overflow-hidden mb-8">
+        <div className="brand-gradient text-on-brand p-6 text-center">
           <div className="text-6xl mb-4">🏆</div>
           <h2 className="text-3xl font-bold">{selectedChampion.team}</h2>
           <p className="text-xl mt-2">{selectedChampion.year} Champion</p>
@@ -85,35 +85,35 @@ export default function ChampionsPage() {
           {/* Champion Stats */}
           <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-6">
             <div className="text-center">
-              <p className="text-sm text-gray-500">Record</p>
+              <p className="text-sm text-[var(--muted)]">Record</p>
               <p className="text-xl font-bold">{selectedChampion.record}</p>
             </div>
             <div className="text-center">
-              <p className="text-sm text-gray-500">Points For</p>
+              <p className="text-sm text-[var(--muted)]">Points For</p>
               <p className="text-xl font-bold">{selectedChampion.pointsFor.toFixed(1)}</p>
             </div>
             <div className="text-center">
-              <p className="text-sm text-gray-500">Points Against</p>
+              <p className="text-sm text-[var(--muted)]">Points Against</p>
               <p className="text-xl font-bold">{selectedChampion.pointsAgainst.toFixed(1)}</p>
             </div>
           </div>
           
           {/* Championship Details */}
-          <div className="border-t border-gray-200 pt-6">
+          <div className="border-t border-[var(--border)] pt-6">
             <h3 className="text-xl font-bold mb-4">Championship Journey</h3>
             
             <div className="mb-4">
-              <p className="text-sm text-gray-500">Playoff Path</p>
+              <p className="text-sm text-[var(--muted)]">Playoff Path</p>
               <p className="text-lg">{selectedChampion.playoffPath}</p>
             </div>
             
             <div className="mb-4">
-              <p className="text-sm text-gray-500">Championship Game</p>
+              <p className="text-sm text-[var(--muted)]">Championship Game</p>
               <p className="text-lg font-medium">{selectedChampion.championshipScore}</p>
             </div>
             
             <div>
-              <p className="text-sm text-gray-500">Season MVP</p>
+              <p className="text-sm text-[var(--muted)]">Season MVP</p>
               <p className="text-lg">{selectedChampion.mvpPlayer}</p>
             </div>
           </div>
@@ -121,8 +121,8 @@ export default function ChampionsPage() {
       </div>
       
       {/* Championship Game Recap */}
-      <div className="max-w-3xl mx-auto bg-white rounded-lg shadow-lg overflow-hidden mb-8">
-        <div className="bg-gray-100 px-6 py-4">
+      <div className="max-w-3xl mx-auto evw-surface border border-[var(--border)] rounded-lg shadow-lg overflow-hidden mb-8">
+        <div className="evw-subtle px-6 py-4">
           <h3 className="text-xl font-bold">Championship Game Recap</h3>
         </div>
         
@@ -156,132 +156,132 @@ export default function ChampionsPage() {
       </div>
       
       {/* Championship Roster */}
-      <div className="max-w-3xl mx-auto bg-white rounded-lg shadow-lg overflow-hidden mb-8">
-        <div className="bg-gray-100 px-6 py-4">
+      <div className="max-w-3xl mx-auto evw-surface border border-[var(--border)] rounded-lg shadow-lg overflow-hidden mb-8">
+        <div className="evw-subtle px-6 py-4">
           <h3 className="text-xl font-bold">Championship Roster</h3>
         </div>
         
         <div className="p-6">
           <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
+            <table className="min-w-full divide-y divide-[var(--border)]">
+              <thead className="evw-subtle">
                 <tr>
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-[var(--muted)] uppercase tracking-wider">
                     Position
                   </th>
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-[var(--muted)] uppercase tracking-wider">
                     Player
                   </th>
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-[var(--muted)] uppercase tracking-wider">
                     Championship Game Points
                   </th>
                 </tr>
               </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
+              <tbody className="evw-surface divide-y divide-[var(--border)]">
                 {selectedYear === '2024' ? (
                   <>
                     <tr>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">QB</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">Josh Allen</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">26.2</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-[var(--text)]">QB</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-[var(--muted)]">Josh Allen</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-[var(--muted)]">26.2</td>
                     </tr>
                     <tr>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">RB</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">Saquon Barkley</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">18.6</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-[var(--text)]">RB</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-[var(--muted)]">Saquon Barkley</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-[var(--muted)]">18.6</td>
                     </tr>
                     <tr>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">RB</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">Breece Hall</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">14.8</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-[var(--text)]">RB</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-[var(--muted)]">Breece Hall</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-[var(--muted)]">14.8</td>
                     </tr>
                     <tr>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">WR</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">Stefon Diggs</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">28.4</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-[var(--text)]">WR</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-[var(--muted)]">Stefon Diggs</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-[var(--muted)]">28.4</td>
                     </tr>
                     <tr>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">WR</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">Amon-Ra St. Brown</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">16.2</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-[var(--text)]">WR</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-[var(--muted)]">Amon-Ra St. Brown</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-[var(--muted)]">16.2</td>
                     </tr>
                     <tr>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">TE</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">Mark Andrews</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">12.4</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-[var(--text)]">TE</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-[var(--muted)]">Mark Andrews</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-[var(--muted)]">12.4</td>
                     </tr>
                     <tr>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">FLEX</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">DeVonta Smith</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">8.0</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-[var(--text)]">FLEX</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-[var(--muted)]">DeVonta Smith</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-[var(--muted)]">8.0</td>
                     </tr>
                     <tr>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">FLEX</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">Rachaad White</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">10.0</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-[var(--text)]">FLEX</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-[var(--muted)]">Rachaad White</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-[var(--muted)]">10.0</td>
                     </tr>
                     <tr>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">SF</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">Tua Tagovailoa</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">18.0</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-[var(--text)]">SF</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-[var(--muted)]">Tua Tagovailoa</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-[var(--muted)]">18.0</td>
                     </tr>
                     <tr>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">DEF</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">San Francisco 49ers</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">18.0</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-[var(--text)]">DEF</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-[var(--muted)]">San Francisco 49ers</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-[var(--muted)]">18.0</td>
                     </tr>
                   </>
                 ) : (
                   <>
                     <tr>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">QB</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">Joe Burrow</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">36.8</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-[var(--text)]">QB</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-[var(--muted)]">Joe Burrow</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-[var(--muted)]">36.8</td>
                     </tr>
                     <tr>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">RB</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">Derrick Henry</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">20.4</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-[var(--text)]">RB</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-[var(--muted)]">Derrick Henry</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-[var(--muted)]">20.4</td>
                     </tr>
                     <tr>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">RB</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">Rhamondre Stevenson</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">16.8</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-[var(--text)]">RB</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-[var(--muted)]">Rhamondre Stevenson</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-[var(--muted)]">16.8</td>
                     </tr>
                     <tr>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">WR</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">Ja&apos;Marr Chase</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">24.2</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-[var(--text)]">WR</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-[var(--muted)]">Ja&apos;Marr Chase</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-[var(--muted)]">24.2</td>
                     </tr>
                     <tr>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">WR</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">CeeDee Lamb</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">18.6</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-[var(--text)]">WR</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-[var(--muted)]">CeeDee Lamb</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-[var(--muted)]">18.6</td>
                     </tr>
                     <tr>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">TE</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">Travis Kelce</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">22.6</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-[var(--text)]">TE</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-[var(--muted)]">Travis Kelce</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-[var(--muted)]">22.6</td>
                     </tr>
                     <tr>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">FLEX</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">Deebo Samuel</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">12.8</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-[var(--text)]">FLEX</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-[var(--muted)]">Deebo Samuel</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-[var(--muted)]">12.8</td>
                     </tr>
                     <tr>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">FLEX</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">David Montgomery</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">8.6</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-[var(--text)]">FLEX</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-[var(--muted)]">David Montgomery</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-[var(--muted)]">8.6</td>
                     </tr>
                     <tr>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">SF</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">Jared Goff</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">14.2</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-[var(--text)]">SF</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-[var(--muted)]">Jared Goff</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-[var(--muted)]">14.2</td>
                     </tr>
                     <tr>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">DEF</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">Dallas Cowboys</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">12.0</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-[var(--text)]">DEF</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-[var(--muted)]">Dallas Cowboys</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-[var(--muted)]">12.0</td>
                     </tr>
                   </>
                 )}

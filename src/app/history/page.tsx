@@ -500,8 +500,8 @@ export default function HistoryPage() {
               };
               return (
                 <Card key={year} className="overflow-hidden hover-lift">
-                  <CardHeader className="brand-gradient text-white">
-                    <CardTitle className="text-white text-lg">{year} Season</CardTitle>
+                  <CardHeader className="brand-gradient text-on-brand">
+                    <CardTitle className="text-on-brand text-lg">{year} Season</CardTitle>
                   </CardHeader>
                   <CardContent>
                     {/* Champion */}
@@ -610,7 +610,7 @@ export default function HistoryPage() {
                 <label htmlFor="year-select" className="sr-only">Select Year</label>
                 <select
                   id="year-select"
-                  className="mt-1 block w-40 pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-[var(--accent)] focus:border-[var(--accent)] sm:text-sm rounded-md"
+                  className="mt-1 block w-40 pl-3 pr-10 py-2 text-base border-[var(--border)] focus:outline-none focus:ring-[var(--accent)] focus:border-[var(--accent)] sm:text-sm rounded-md"
                   value={bracketYear}
                   onChange={(e) => setBracketYear(e.target.value)}
                 >
@@ -718,10 +718,10 @@ export default function HistoryPage() {
                             {nameFor(rid)}
                           </Link>
                         ) : (
-                          <span className="text-gray-500">BYE</span>
+                          <span className="text-[var(--muted)]">BYE</span>
                         )}
                         {score != null && (
-                          <span className="ml-2 text-xs px-1.5 py-0.5 rounded bg-gray-100 text-gray-700">{score.toFixed(2)}</span>
+                          <span className="ml-2 text-xs px-1.5 py-0.5 rounded border border-[var(--border)] text-[var(--muted)]">{score.toFixed(2)}</span>
                         )}
                       </div>
                     );
@@ -1001,7 +1001,7 @@ export default function HistoryPage() {
                   <Card className="overflow-hidden hover-lift">
                     <CardHeader style={headerStyle}>
                       <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center overflow-hidden">
+                        <div className="w-10 h-10 rounded-full flex items-center justify-center overflow-hidden" style={{ background: 'color-mix(in srgb, var(--on-brand) 20%, transparent)' }}>
                           <Image
                             src={getTeamLogoPath(f.teamName)}
                             alt={f.teamName}

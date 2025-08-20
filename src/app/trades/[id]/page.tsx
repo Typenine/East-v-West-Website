@@ -108,13 +108,13 @@ export default function TradeDetailPage() {
       />
       <h1 id="trade-heading" className="sr-only">Trade between {trade.teams.map(t => t.name).join(' and ')}</h1>
       
-      <article className="bg-white rounded-lg shadow-md overflow-hidden mb-8">
+      <article className="evw-surface border border-[var(--border)] rounded-lg shadow-md overflow-hidden mb-8">
         <div className="p-6">
           {/* Trade Details */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8">
             {trade.teams.map((team, index) => (
-              <div key={index} className="border rounded-lg overflow-hidden">
-                <div className="bg-gray-100 px-4 py-2 border-b">
+              <div key={index} className="border border-[var(--border)] rounded-lg overflow-hidden">
+                <div className="evw-subtle px-4 py-2 border-b border-[var(--border)]">
                   <h2 className="font-bold text-lg">{team.name} received:</h2>
                 </div>
                 <div className="p-4">
@@ -125,7 +125,7 @@ export default function TradeDetailPage() {
                           {asset.type === 'player' ? (
                             <div>
                               <span className="font-medium">{asset.name}</span>
-                              <span className="text-sm text-gray-500 ml-2">
+                              <span className="text-sm text-[var(--muted)] ml-2">
                                 ({asset.position}, {asset.team})
                               </span>
                             </div>
@@ -147,7 +147,7 @@ export default function TradeDetailPage() {
                                 ) : null}
                               </span>
                               {asset.originalOwner && (
-                                <div className="text-xs text-gray-500 mt-0.5">
+                                <div className="text-xs text-[var(--muted)] mt-0.5">
                                   originally {asset.originalOwner}
                                 </div>
                               )}
@@ -184,7 +184,7 @@ export default function TradeDetailPage() {
                   </ul>
                   
                   {showValueAnalysis && team.totalValue !== undefined && (
-                    <div className="mt-4 pt-4 border-t border-gray-200">
+                    <div className="mt-4 pt-4 border-t border-[var(--border)]">
                       <div className="flex justify-between items-center">
                         <span className="font-bold">Total Value:</span>
                         <span className="font-bold text-lg">{team.totalValue}</span>
@@ -210,8 +210,8 @@ export default function TradeDetailPage() {
               </button>
             </div>
             
-            <div className="bg-gray-50 rounded-lg p-4">
-              {trade.notes && <p className="text-gray-700">{trade.notes}</p>}
+            <div className="evw-subtle rounded-lg p-4 border border-[var(--border)]">
+              {trade.notes && <p className="text-[var(--text)]">{trade.notes}</p>}
               
               {showValueAnalysis && trade.teams.length >= 2 && 
                trade.teams[0].totalValue !== undefined && 
@@ -220,13 +220,13 @@ export default function TradeDetailPage() {
                   <h4 className="font-bold mb-2">Value Breakdown:</h4>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     {trade.teams.map((team, index) => (
-                      <div key={index} className="bg-white p-3 rounded-md shadow-sm">
+                      <div key={index} className="evw-surface border border-[var(--border)] p-3 rounded-md shadow-sm">
                         <div className="flex justify-between items-center">
                           <span className="font-medium">{team.name}</span>
                           <span className={`font-bold ${
                             index === 0 && trade.teams[0].totalValue! > trade.teams[1].totalValue! ? 'text-green-600' : 
                             index === 1 && trade.teams[1].totalValue! > trade.teams[0].totalValue! ? 'text-green-600' : 
-                            'text-gray-800'
+                            'text-[var(--text)]'
                           }`}>
                             {team.totalValue}
                           </span>
@@ -260,7 +260,7 @@ export default function TradeDetailPage() {
                   <Link
                     key={relatedTrade.id}
                     href={`/trades/${relatedTrade.id}`}
-                    className="block bg-white border rounded-lg p-4 hover:bg-gray-50"
+                    className="block evw-surface border border-[var(--border)] rounded-lg p-4 hover-subtle"
                     aria-label={`View related trade between ${relatedTrade.teams.map(t => t.name).join(' and ')} from ${new Date(relatedTrade.date).toLocaleDateString()}`}
                   >
                     <div className="flex justify-between items-center">
@@ -268,7 +268,7 @@ export default function TradeDetailPage() {
                         <h4 className="font-medium">
                           Trade between {relatedTrade.teams.map(t => t.name).join(' and ')}
                         </h4>
-                        <p className="text-sm text-gray-500">
+                        <p className="text-sm text-[var(--muted)]">
                           {new Date(relatedTrade.date).toLocaleDateString('en-US', {
                             year: 'numeric',
                             month: 'short',

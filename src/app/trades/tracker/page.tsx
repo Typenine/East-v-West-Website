@@ -204,9 +204,9 @@ function TradeTrackerContent() {
               <div className="mt-2 text-xs text-[var(--muted)]">
                 Legend: <span className="inline-block w-3 h-3 bg-accent-soft border border-accent align-middle mr-1"/> Player •
                 <span className="inline-block w-3 h-3 bg-green-100 border border-green-400 align-middle mx-1"/> Pick •
-                <span className="inline-block w-3 h-3 bg-gray-100 border border-gray-400 align-middle mx-1"/> Trade •
-                <span className="inline-block border-t-2 border-gray-400 align-middle mx-1 w-6"/> traded •
-                <span className="inline-block border-t-2 border-dashed border-gray-400 align-middle mx-1 w-6"/> became
+                <span className="inline-block w-3 h-3 evw-surface border border-[var(--border)] align-middle mx-1"/> Trade •
+                <span className="inline-block border-t-2 border-[var(--border)] align-middle mx-1 w-6"/> traded •
+                <span className="inline-block border-t-2 border-dashed border-[var(--border)] align-middle mx-1 w-6"/> became
               </div>
             </div>
           )}

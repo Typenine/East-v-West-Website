@@ -50,6 +50,7 @@ html[data-theme="dark"] {
   --text: #E9EDF5;
   --muted: #9AA5B1;
   --focus: var(--accent);
+  --on-brand: #ffffff;
 }
 
 /* Light theme */
@@ -60,6 +61,7 @@ html[data-theme="light"] {
   --text: #0B1020;
   --muted: #475467;
   --focus: var(--accent);
+  --on-brand: #ffffff;
 }
 
 /* Tailwind theme mapping removed to avoid unknown at-rule lints. If needed, configure via Tailwind config. */
@@ -81,9 +83,9 @@ body::before {
   z-index: -1;
   pointer-events: none;
   background:
-    radial-gradient(900px 600px at 15% 0%, color-mix(in srgb, var(--accent) 18%, transparent) 0%, transparent 60%),
+    radial-gradient(900px 600px at 15% 0%, color-mix(in srgb, var(--danger) 18%, transparent) 0%, transparent 60%),
     radial-gradient(800px 520px at 85% 5%, color-mix(in srgb, var(--gold) 18%, transparent) 0%, transparent 60%),
-    radial-gradient(1200px 900px at 50% 120%, color-mix(in srgb, var(--accent) 10%, transparent) 0%, transparent 70%);
+    radial-gradient(1200px 900px at 50% 120%, color-mix(in srgb, var(--danger) 10%, transparent) 0%, transparent 70%);
   filter: saturate(120%);
 }
 
@@ -93,6 +95,16 @@ body::before {
   border-color: var(--border);
   -webkit-backdrop-filter: blur(8px);
   backdrop-filter: blur(8px);
+}
+
+/* Subtle surface tint (for light headers/stripes) */
+.evw-subtle {
+  background-color: color-mix(in srgb, var(--text) 8%, transparent);
+}
+
+/* Hover helper for subtle tint */
+.hover-subtle:hover {
+  background-color: color-mix(in srgb, var(--text) 8%, transparent);
 }
 
 /* Translucent glass surface (use for navbar) */
@@ -105,13 +117,16 @@ body::before {
 
 /* Accent gradient utility (red -> gold) */
 .accent-gradient {
-  background-image: linear-gradient(90deg, var(--danger), var(--gold));
+  background-image: linear-gradient(90deg, var(--danger) 0%, var(--danger) 49.5%, var(--gold) 50.5%, var(--gold) 100%);
 }
 
 /* Brand gradient utility (red -> gold) */
 .brand-gradient {
-  background-image: linear-gradient(90deg, var(--danger), var(--gold));
+  background-image: linear-gradient(90deg, var(--danger) 0%, var(--danger) 49.5%, var(--gold) 50.5%, var(--gold) 100%);
 }
+
+/* Text color for brand gradient overlays */
+.text-on-brand { color: var(--on-brand); }
 
 /* Solid blue accent stripe (for thin markers) */
 .accent-stripe {
@@ -172,7 +187,7 @@ hr { border-color: var(--border); opacity: 0.7; }
   transition: background-color var(--motion) ease, color var(--motion) ease, box-shadow var(--motion) ease, filter var(--motion) ease;
 }
 .btn-primary {
-  background-image: linear-gradient(90deg, var(--danger), var(--gold));
+  background-image: linear-gradient(90deg, var(--danger) 0%, var(--danger) 49.5%, var(--gold) 50.5%, var(--gold) 100%);
   color: white;
   padding: 0.5rem 0.9rem;
   box-shadow: 0 1px 0 rgba(255,255,255,0.05) inset;
