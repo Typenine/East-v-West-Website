@@ -56,14 +56,21 @@ export default function HistoryPage() {
 
   // Regular season winners count per franchise (by team name)
   const [regularSeasonWinnerCounts, setRegularSeasonWinnerCounts] = useState<Record<string, number>>({});
+  const DEFAULT_TIMEOUT = 15000;
+  const AWARDS_TIMEOUT = 30000;
 
   // Derive podiums for past seasons (do not block the main load)
   useEffect(() => {
+    const ac = new AbortController();
     let cancelled = false;
     async function loadPodiums() {
       try {
         const years = ['2024', '2023'];
-        const results = await Promise.all(years.map((y) => derivePodiumFromWinnersBracketByYear(y)));
+        const results = await Promise.all(
+          years.map((y) =>
+            derivePodiumFromWinnersBracketByYear(y, { signal: ac.signal, timeoutMs: DEFAULT_TIMEOUT })
+          )
+        );
         if (cancelled) return;
         const merged: Record<string, { champion: string; runnerUp: string; thirdPlace: string }> = {};
         years.forEach((y, idx) => {
@@ -78,12 +85,15 @@ export default function HistoryPage() {
         });
         setPodiumsByYear(merged);
       } catch (e) {
+        const isAbort = e && typeof e === 'object' && (e as any).name === 'AbortError';
+        if (isAbort) return;
         console.error('Failed to auto-derive podiums:', e);
       }
     }
     loadPodiums();
     return () => {
       cancelled = true;
+      ac.abort();
     };
   }, []);
   
@@ -104,6 +114,7 @@ export default function HistoryPage() {
   // Load playoff brackets when Brackets tab is active or year changes
   useEffect(() => {
     if (activeTab !== 'brackets') return;
+    const ac = new AbortController();
     let cancelled = false;
     async function loadBrackets() {
       try {
@@ -116,8 +127,8 @@ export default function HistoryPage() {
           throw new Error(`No league ID configured for year ${bracketYear}`);
         }
         const [brackets, nameMap] = await Promise.all([
-          getLeaguePlayoffBracketsWithScores(leagueId),
-          getRosterIdToTeamNameMap(leagueId),
+          getLeaguePlayoffBracketsWithScores(leagueId, { signal: ac.signal, timeoutMs: DEFAULT_TIMEOUT }),
+          getRosterIdToTeamNameMap(leagueId, { signal: ac.signal, timeoutMs: DEFAULT_TIMEOUT }),
         ]);
         if (cancelled) return;
         // For current season, suppress brackets if there are no scores yet (start of season)
@@ -133,6 +144,8 @@ export default function HistoryPage() {
         }
         setBracketNameMap(nameMap);
       } catch (e) {
+        const isAbort = e && typeof e === 'object' && (e as any).name === 'AbortError';
+        if (isAbort) return;
         console.error('Error loading brackets:', e);
         if (!cancelled) setBracketError('Failed to load playoff brackets.');
       } finally {
@@ -142,10 +155,12 @@ export default function HistoryPage() {
     loadBrackets();
     return () => {
       cancelled = true;
+      ac.abort();
     };
   }, [activeTab, bracketYear]);
   
   useEffect(() => {
+    const ac = new AbortController();
     let cancelled = false;
     async function load() {
       try {
@@ -153,10 +168,11 @@ export default function HistoryPage() {
         setRecordsLoading(true);
         setFranchisesError(null);
         setRecordsError(null);
+        const opts = { signal: ac.signal, timeoutMs: DEFAULT_TIMEOUT } as const;
         const [fr, rb, allTeams] = await Promise.all([
-          getFranchisesAllTime(),
-          getLeagueRecordBook(),
-          getAllTeamsData(),
+          getFranchisesAllTime(opts),
+          getLeagueRecordBook(opts),
+          getAllTeamsData(opts),
         ]);
         if (cancelled) return;
         setFranchises(fr);
@@ -206,7 +222,7 @@ export default function HistoryPage() {
         const winnersByYear: Record<string, SleeperBracketGame[]> = {};
         await Promise.all(previousYears.map(async (y) => {
           const lid = leagueIdsByYear[y];
-          winnersByYear[y] = lid ? await getLeagueWinnersBracket(lid).catch(() => []) : [];
+          winnersByYear[y] = lid ? await getLeagueWinnersBracket(lid, opts).catch(() => []) : [];
         }));
 
         // Count unique participants per season, then aggregate by owner
@@ -242,6 +258,8 @@ export default function HistoryPage() {
           .slice(0, 5);
         setPlayoffAppearances(appearanceRows);
       } catch (e) {
+        const isAbort = e && typeof e === 'object' && (e as any).name === 'AbortError';
+        if (isAbort) return;
         console.error('Error loading history data:', e);
         if (!cancelled) {
           setFranchisesError('Failed to load franchise data. Please try again later.');
@@ -257,31 +275,46 @@ export default function HistoryPage() {
     load();
     return () => {
       cancelled = true;
+      ac.abort();
     };
   }, []);
   
   // Load Awards (MVP & ROY) for 2025 (current), 2024, 2023
   useEffect(() => {
+    const ac = new AbortController();
     let cancelled = false;
     async function loadAwards() {
       try {
         setAwardsLoading(true);
         setAwardsError(null);
-        const tasks: Array<Promise<SeasonAwards>> = [];
+        const opts = { signal: ac.signal, timeoutMs: AWARDS_TIMEOUT } as const;
+        const candidates: Array<{ season: string; lid: string }> = [];
         // 2025 (current)
-        if (LEAGUE_IDS.CURRENT) tasks.push(getSeasonAwardsUsingLeagueScoring('2025', LEAGUE_IDS.CURRENT, 14));
+        if (LEAGUE_IDS.CURRENT) candidates.push({ season: '2025', lid: LEAGUE_IDS.CURRENT });
         // 2024 & 2023
-        if (LEAGUE_IDS.PREVIOUS?.['2024']) tasks.push(getSeasonAwardsUsingLeagueScoring('2024', LEAGUE_IDS.PREVIOUS['2024'], 14));
-        if (LEAGUE_IDS.PREVIOUS?.['2023']) tasks.push(getSeasonAwardsUsingLeagueScoring('2023', LEAGUE_IDS.PREVIOUS['2023'], 14));
-        const results = await Promise.all(tasks);
+        if (LEAGUE_IDS.PREVIOUS?.['2024']) candidates.push({ season: '2024', lid: LEAGUE_IDS.PREVIOUS['2024'] });
+        if (LEAGUE_IDS.PREVIOUS?.['2023']) candidates.push({ season: '2023', lid: LEAGUE_IDS.PREVIOUS['2023'] });
+
+        const settled = await Promise.allSettled(
+          candidates.map(({ season, lid }) =>
+            getSeasonAwardsUsingLeagueScoring(season, lid, 14, opts)
+          )
+        );
         if (cancelled) return;
         const map: Record<string, SeasonAwards> = {};
-        for (const r of results) {
-          if (!r?.season) continue;
-          map[r.season] = r;
+        for (let i = 0; i < settled.length; i++) {
+          const res = settled[i];
+          if (res.status === 'fulfilled' && res.value?.season) {
+            map[res.value.season] = res.value;
+          } else if (res.status === 'rejected') {
+            console.warn('Awards load failed for', candidates[i]?.season, res.reason);
+          }
         }
+        if (Object.keys(map).length === 0) throw new Error('No awards could be loaded');
         setAwardsByYear(map);
       } catch (e) {
+        const isAbort = e && typeof e === 'object' && (e as any).name === 'AbortError';
+        if (isAbort) return;
         console.error('Error loading awards:', e);
         if (!cancelled) setAwardsError('Failed to load awards.');
       } finally {
@@ -291,6 +324,7 @@ export default function HistoryPage() {
     loadAwards();
     return () => {
       cancelled = true;
+      ac.abort();
     };
   }, []);
   

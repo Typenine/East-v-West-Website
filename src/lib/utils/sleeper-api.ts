@@ -11,6 +11,85 @@ import { resolveCanonicalTeamName } from '../utils/team-utils';
 // Base URL for Sleeper API
 const SLEEPER_API_BASE = 'https://api.sleeper.app/v1';
 
+// Shared fetch options to control timeout, retries, and cancellation
+export interface SleeperFetchOptions {
+  signal?: AbortSignal;
+  timeoutMs?: number;      // default 8000ms
+  retries?: number;        // number of retry attempts on retryable errors (default 2)
+  retryDelayMs?: number;   // base delay before first retry (default 300ms), exponential backoff with jitter
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Internal helper to perform fetch with timeout + retry + cancellation.
+ * Retries on network errors, timeouts, and 5xx responses.
+ */
+async function sleeperFetchJson<T = unknown>(
+  url: string,
+  init?: RequestInit,
+  opts?: SleeperFetchOptions
+): Promise<T> {
+  const retries = Math.max(0, opts?.retries ?? 2);
+  const baseDelay = Math.max(0, opts?.retryDelayMs ?? 300);
+  const timeoutMs = Math.max(1, opts?.timeoutMs ?? 8000);
+
+  // allow retries unless aborted by caller's signal
+  let abortedByCaller = false;
+
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    const controller = new AbortController();
+    const signals: AbortSignal[] = [];
+    if (opts?.signal) {
+      signals.push(opts.signal);
+      if (opts.signal.aborted) {
+        abortedByCaller = true;
+        controller.abort();
+      } else {
+        const onAbort = () => {
+          abortedByCaller = true;
+          controller.abort();
+        };
+        opts.signal.addEventListener('abort', onAbort, { once: true });
+      }
+    }
+
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const resp = await fetch(url, { ...(init || {}), signal: controller.signal });
+      if (!resp.ok) {
+        // Retry on 5xx; otherwise throw
+        if (resp.status >= 500 && attempt < retries && !abortedByCaller) {
+          const jitter = Math.random() * 100;
+          await sleep(baseDelay * Math.pow(2, attempt) + jitter);
+          continue;
+        }
+        throw new Error(`HTTP ${resp.status} ${resp.statusText} for ${url}`);
+      }
+      return (await resp.json()) as T;
+    } catch (err: unknown) {
+      // If explicitly aborted by caller, do not retry
+      const isAbort = err?.name === 'AbortError' || abortedByCaller;
+      if (abortedByCaller) {
+        throw err;
+      }
+      // Retry on timeout/network/abort (not by caller)
+      if (attempt < retries && (isAbort || err?.code === 'ECONNRESET' || err?.code === 'ETIMEDOUT')) {
+        const jitter = Math.random() * 100;
+        await sleep(baseDelay * Math.pow(2, attempt) + jitter);
+        continue;
+      }
+      throw err;
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  }
+  // Should be unreachable
+  throw new Error(`Failed to fetch ${url}`);
+}
+
 // Types for Sleeper API responses
 export interface SleeperLeague {
   league_id: string;
@@ -33,7 +112,8 @@ export interface SleeperLeague {
 export async function getNFLWeekStats(
   season: string | number,
   week: number,
-  ttlMs: number = 15 * 60 * 1000
+  ttlMs: number = 15 * 60 * 1000,
+  options?: SleeperFetchOptions
 ): Promise<Record<string, SleeperNFLSeasonPlayerStats>> {
   const key = `${season}-${week}`;
   const now = Date.now();
@@ -41,11 +121,7 @@ export async function getNFLWeekStats(
   if (cached && now - cached.ts < ttlMs) return cached.data;
 
   const url = `${SLEEPER_API_BASE}/stats/nfl/regular/${season}/${week}`;
-  const resp = await fetch(url);
-  if (!resp.ok) {
-    throw new Error(`Failed to fetch NFL week stats ${season} wk${week}: ${resp.status} ${resp.statusText}`);
-  }
-  const json = (await resp.json()) as Record<string, SleeperNFLSeasonPlayerStats>;
+  const json = await sleeperFetchJson<Record<string, SleeperNFLSeasonPlayerStats>>(url, undefined, options);
   weekStatsCache[key] = { ts: now, data: json };
   return json;
 }
@@ -70,12 +146,10 @@ const NFL_STATE_TTL_DEFAULT = 10 * 60 * 1000; // 10 minutes
 /**
  * Fetch current NFL state from Sleeper (cached).
  */
-export async function getNFLState(ttlMs: number = NFL_STATE_TTL_DEFAULT): Promise<SleeperNFLState> {
+export async function getNFLState(ttlMs: number = NFL_STATE_TTL_DEFAULT, options?: SleeperFetchOptions): Promise<SleeperNFLState> {
   const now = Date.now();
   if (nflStateCache && now - nflStateCache.ts < ttlMs) return nflStateCache.data;
-  const resp = await fetch(`${SLEEPER_API_BASE}/state/nfl`);
-  if (!resp.ok) throw new Error(`Failed to fetch NFL state: ${resp.status} ${resp.statusText}`);
-  const data = (await resp.json()) as SleeperNFLState;
+  const data = await sleeperFetchJson<SleeperNFLState>(`${SLEEPER_API_BASE}/state/nfl`, undefined, options);
   nflStateCache = { ts: now, data };
   return data;
 }
@@ -83,7 +157,7 @@ export async function getNFLState(ttlMs: number = NFL_STATE_TTL_DEFAULT): Promis
 /**
  * Get all unique owner IDs that have participated across configured seasons
  */
-export async function getAllOwnerIdsAcrossSeasons(): Promise<string[]> {
+export async function getAllOwnerIdsAcrossSeasons(options?: SleeperFetchOptions): Promise<string[]> {
   const yearToLeague: Record<string, string> = {
     '2025': LEAGUE_IDS.CURRENT,
     ...LEAGUE_IDS.PREVIOUS,
@@ -91,7 +165,7 @@ export async function getAllOwnerIdsAcrossSeasons(): Promise<string[]> {
   const ownerSet = new Set<string>();
   for (const leagueId of Object.values(yearToLeague)) {
     if (!leagueId) continue;
-    const rosters = await getLeagueRosters(leagueId);
+    const rosters = await getLeagueRosters(leagueId, options);
     for (const r of rosters) ownerSet.add(r.owner_id);
   }
   return Array.from(ownerSet);
@@ -113,11 +187,11 @@ export interface FranchiseSummary {
 /**
  * Compute franchise summaries (all-time) for every owner across seasons
  */
-export async function getFranchisesAllTime(): Promise<FranchiseSummary[]> {
-  const owners = await getAllOwnerIdsAcrossSeasons();
+export async function getFranchisesAllTime(options?: SleeperFetchOptions): Promise<FranchiseSummary[]> {
+  const owners = await getAllOwnerIdsAcrossSeasons(options);
   const results: FranchiseSummary[] = [];
   for (const ownerId of owners) {
-    const stats = await getTeamAllTimeStatsByOwner(ownerId);
+    const stats = await getTeamAllTimeStatsByOwner(ownerId, options);
     const teamName = resolveCanonicalTeamName({ ownerId });
     // Count championships by canonical team name
     let champs = 0;
@@ -206,7 +280,7 @@ export interface LeagueRecordBook {
 /**
  * Compute league record book across all seasons using weekly matchups
  */
-export async function getLeagueRecordBook(): Promise<LeagueRecordBook> {
+export async function getLeagueRecordBook(options?: SleeperFetchOptions): Promise<LeagueRecordBook> {
   const yearToLeague: Record<string, string> = {
     '2025': LEAGUE_IDS.CURRENT,
     ...LEAGUE_IDS.PREVIOUS,
@@ -228,12 +302,12 @@ export async function getLeagueRecordBook(): Promise<LeagueRecordBook> {
   for (const year of sortedYears) {
     const leagueId = yearToLeague[year];
     if (!leagueId) continue;
-    const rosters = await getLeagueRosters(leagueId);
+    const rosters = await getLeagueRosters(leagueId, options);
     const rosterOwner = new Map<number, string>();
     for (const r of rosters) rosterOwner.set(r.roster_id, r.owner_id);
-    const rosterIdToName = await getRosterIdToTeamNameMap(leagueId);
+    const rosterIdToName = await getRosterIdToTeamNameMap(leagueId, options);
 
-    const weekPromises = Array.from({ length: 18 }, (_, i) => i + 1).map((w) => getLeagueMatchups(leagueId, w).catch(() => [] as SleeperMatchup[]));
+    const weekPromises = Array.from({ length: 18 }, (_, i) => i + 1).map((w) => getLeagueMatchups(leagueId, w, options).catch(() => [] as SleeperMatchup[]));
     const allWeekMatchups = await Promise.all(weekPromises);
 
     for (const weekIdx in allWeekMatchups) {
@@ -376,7 +450,7 @@ export async function getLeagueRecordBook(): Promise<LeagueRecordBook> {
  * Get a team's all-time aggregate stats across all configured league seasons by owner_id
  * Uses LEAGUE_IDS.CURRENT and LEAGUE_IDS.PREVIOUS years.
  */
-export async function getTeamAllTimeStatsByOwner(ownerId: string): Promise<{
+export async function getTeamAllTimeStatsByOwner(ownerId: string, options?: SleeperFetchOptions): Promise<{
   wins: number;
   losses: number;
   ties: number;
@@ -406,7 +480,7 @@ export async function getTeamAllTimeStatsByOwner(ownerId: string): Promise<{
       if (!leagueId) continue;
 
       // Build rosterId -> ownerId map for this league
-      const rosters = await getLeagueRosters(leagueId);
+      const rosters = await getLeagueRosters(leagueId, options);
       const rosterOwner = new Map<number, string>();
       for (const r of rosters) rosterOwner.set(r.roster_id, r.owner_id);
 
@@ -428,7 +502,7 @@ export async function getTeamAllTimeStatsByOwner(ownerId: string): Promise<{
       }
 
       // Fetch all weeks' matchups in parallel
-      const weekPromises = Array.from({ length: 18 }, (_, i) => i + 1).map((w) => getLeagueMatchups(leagueId, w).catch(() => [] as SleeperMatchup[]));
+      const weekPromises = Array.from({ length: 18 }, (_, i) => i + 1).map((w) => getLeagueMatchups(leagueId, w, options).catch(() => [] as SleeperMatchup[]>));
       const allWeekMatchups = await Promise.all(weekPromises);
 
       for (const weekMatchups of allWeekMatchups) {
@@ -490,7 +564,7 @@ export async function getTeamAllTimeStatsByOwner(ownerId: string): Promise<{
  * Get a team's all-time head-to-head records across all configured league seasons by owner_id
  * Returns a map of opponentOwnerId -> record
  */
-export async function getTeamH2HRecordsAllTimeByOwner(ownerId: string): Promise<Record<string, { wins: number; losses: number; ties: number }>> {
+export async function getTeamH2HRecordsAllTimeByOwner(ownerId: string, options?: SleeperFetchOptions): Promise<Record<string, { wins: number; losses: number; ties: number }>> {
   try {
     const yearToLeague: Record<string, string> = {
       '2025': LEAGUE_IDS.CURRENT,
@@ -502,11 +576,11 @@ export async function getTeamH2HRecordsAllTimeByOwner(ownerId: string): Promise<
     for (const leagueId of Object.values(yearToLeague)) {
       if (!leagueId) continue;
 
-      const rosters = await getLeagueRosters(leagueId);
+      const rosters = await getLeagueRosters(leagueId, options);
       const rosterOwner = new Map<number, string>();
       for (const r of rosters) rosterOwner.set(r.roster_id, r.owner_id);
 
-      const weekPromises = Array.from({ length: 18 }, (_, i) => i + 1).map((w) => getLeagueMatchups(leagueId, w).catch(() => [] as SleeperMatchup[]));
+      const weekPromises = Array.from({ length: 18 }, (_, i) => i + 1).map((w) => getLeagueMatchups(leagueId, w, options).catch(() => [] as SleeperMatchup[]>));
       const allWeekMatchups = await Promise.all(weekPromises);
 
       for (const weekMatchups of allWeekMatchups) {
@@ -669,12 +743,8 @@ export interface SleeperDraftDetails extends SleeperDraft {
  * @param leagueId The Sleeper league ID
  * @returns Promise with league data
  */
-export async function getLeague(leagueId: string): Promise<SleeperLeague> {
-  const response = await fetch(`${SLEEPER_API_BASE}/league/${leagueId}`);
-  if (!response.ok) {
-    throw new Error(`Failed to fetch league: ${response.statusText}`);
-  }
-  return response.json();
+export async function getLeague(leagueId: string, options?: SleeperFetchOptions): Promise<SleeperLeague> {
+  return sleeperFetchJson<SleeperLeague>(`${SLEEPER_API_BASE}/league/${leagueId}`, undefined, options);
 }
 
 /**
@@ -682,12 +752,8 @@ export async function getLeague(leagueId: string): Promise<SleeperLeague> {
  * @param leagueId The Sleeper league ID
  * @returns Promise with array of users
  */
-export async function getLeagueUsers(leagueId: string): Promise<SleeperUser[]> {
-  const response = await fetch(`${SLEEPER_API_BASE}/league/${leagueId}/users`);
-  if (!response.ok) {
-    throw new Error(`Failed to fetch league users: ${response.statusText}`);
-  }
-  return response.json();
+export async function getLeagueUsers(leagueId: string, options?: SleeperFetchOptions): Promise<SleeperUser[]> {
+  return sleeperFetchJson<SleeperUser[]>(`${SLEEPER_API_BASE}/league/${leagueId}/users`, undefined, options);
 }
 
 /**
@@ -695,12 +761,8 @@ export async function getLeagueUsers(leagueId: string): Promise<SleeperUser[]> {
  * @param leagueId The Sleeper league ID
  * @returns Promise with array of rosters
  */
-export async function getLeagueRosters(leagueId: string): Promise<SleeperRoster[]> {
-  const response = await fetch(`${SLEEPER_API_BASE}/league/${leagueId}/rosters`);
-  if (!response.ok) {
-    throw new Error(`Failed to fetch league rosters: ${response.statusText}`);
-  }
-  return response.json();
+export async function getLeagueRosters(leagueId: string, options?: SleeperFetchOptions): Promise<SleeperRoster[]> {
+  return sleeperFetchJson<SleeperRoster[]>(`${SLEEPER_API_BASE}/league/${leagueId}/rosters`, undefined, options);
 }
 
 /**
@@ -709,12 +771,8 @@ export async function getLeagueRosters(leagueId: string): Promise<SleeperRoster[
  * @param week The week number
  * @returns Promise with array of matchups
  */
-export async function getLeagueMatchups(leagueId: string, week: number): Promise<SleeperMatchup[]> {
-  const response = await fetch(`${SLEEPER_API_BASE}/league/${leagueId}/matchups/${week}`);
-  if (!response.ok) {
-    throw new Error(`Failed to fetch league matchups: ${response.statusText}`);
-  }
-  return response.json();
+export async function getLeagueMatchups(leagueId: string, week: number, options?: SleeperFetchOptions): Promise<SleeperMatchup[]> {
+  return sleeperFetchJson<SleeperMatchup[]>(`${SLEEPER_API_BASE}/league/${leagueId}/matchups/${week}`, undefined, options);
 }
 
 /**
@@ -722,12 +780,8 @@ export async function getLeagueMatchups(leagueId: string, week: number): Promise
  * @param playerId The Sleeper player ID
  * @returns Promise with player data
  */
-export async function getPlayer(playerId: string): Promise<SleeperPlayer> {
-  const response = await fetch(`${SLEEPER_API_BASE}/players/nfl/${playerId}`);
-  if (!response.ok) {
-    throw new Error(`Failed to fetch player: ${response.statusText}`);
-  }
-  return response.json();
+export async function getPlayer(playerId: string, options?: SleeperFetchOptions): Promise<SleeperPlayer> {
+  return sleeperFetchJson<SleeperPlayer>(`${SLEEPER_API_BASE}/players/nfl/${playerId}`, undefined, options);
 }
 
 /**
@@ -735,12 +789,8 @@ export async function getPlayer(playerId: string): Promise<SleeperPlayer> {
  * This is a large request, so use sparingly
  * @returns Promise with object of all players
  */
-export async function getAllPlayers(): Promise<Record<string, SleeperPlayer>> {
-  const response = await fetch(`${SLEEPER_API_BASE}/players/nfl`);
-  if (!response.ok) {
-    throw new Error(`Failed to fetch all players: ${response.statusText}`);
-  }
-  return response.json();
+export async function getAllPlayers(options?: SleeperFetchOptions): Promise<Record<string, SleeperPlayer>> {
+  return sleeperFetchJson<Record<string, SleeperPlayer>>(`${SLEEPER_API_BASE}/players/nfl`, undefined, options);
 }
 
 // Lightweight in-memory cache for all players to avoid repeated large downloads
@@ -750,12 +800,12 @@ const ALL_PLAYERS_TTL_DEFAULT = 12 * 60 * 60 * 1000; // 12 hours
 /**
  * Cached wrapper for getAllPlayers with a TTL to reduce repeated network calls.
  */
-export async function getAllPlayersCached(ttlMs: number = ALL_PLAYERS_TTL_DEFAULT): Promise<Record<string, SleeperPlayer>> {
+export async function getAllPlayersCached(ttlMs: number = ALL_PLAYERS_TTL_DEFAULT, options?: SleeperFetchOptions): Promise<Record<string, SleeperPlayer>> {
   const now = Date.now();
   if (allPlayersCache && now - allPlayersCache.ts < ttlMs) {
     return allPlayersCache.data;
   }
-  const data = await getAllPlayers();
+  const data = await getAllPlayers(options);
   allPlayersCache = { ts: now, data };
   return data;
 }
@@ -765,11 +815,11 @@ export async function getAllPlayersCached(ttlMs: number = ALL_PLAYERS_TTL_DEFAUL
  * @param leagueId The Sleeper league ID
  * @returns Promise with array of team data
  */
-export async function getTeamsData(leagueId: string): Promise<TeamData[]> {
+export async function getTeamsData(leagueId: string, options?: SleeperFetchOptions): Promise<TeamData[]> {
   try {
     const [rosters, usersData] = await Promise.all([
-      getLeagueRosters(leagueId),
-      getLeagueUsers(leagueId)
+      getLeagueRosters(leagueId, options),
+      getLeagueUsers(leagueId, options)
     ]);
     
     // Map user ids
@@ -810,8 +860,8 @@ export async function getTeamsData(leagueId: string): Promise<TeamData[]> {
 /**
  * Build a quick lookup Map from rosterId to canonical team name for a league.
  */
-export async function getRosterIdToTeamNameMap(leagueId: string): Promise<Map<number, string>> {
-  const teams = await getTeamsData(leagueId);
+export async function getRosterIdToTeamNameMap(leagueId: string, options?: SleeperFetchOptions): Promise<Map<number, string>> {
+  const teams = await getTeamsData(leagueId, options);
   return new Map(teams.map((t) => [t.rosterId, t.teamName]));
 }
 
@@ -839,33 +889,32 @@ export interface SleeperBracketGameWithScore extends SleeperBracketGame {
 /**
  * Fetch winners bracket for a league. Returns empty array if unavailable.
  */
-export async function getLeagueWinnersBracket(leagueId: string): Promise<SleeperBracketGame[]> {
-  const resp = await fetch(`${SLEEPER_API_BASE}/league/${leagueId}/winners_bracket`);
-  if (!resp.ok) {
-    // Some seasons may not have a bracket yet; treat as empty.
+export async function getLeagueWinnersBracket(leagueId: string, options?: SleeperFetchOptions): Promise<SleeperBracketGame[]> {
+  try {
+    return await sleeperFetchJson<SleeperBracketGame[]>(`${SLEEPER_API_BASE}/league/${leagueId}/winners_bracket`, undefined, options);
+  } catch {
     return [];
   }
-  return resp.json();
 }
 
 /**
  * Fetch losers bracket for a league. Returns empty array if unavailable.
  */
-export async function getLeagueLosersBracket(leagueId: string): Promise<SleeperBracketGame[]> {
-  const resp = await fetch(`${SLEEPER_API_BASE}/league/${leagueId}/losers_bracket`);
-  if (!resp.ok) {
+export async function getLeagueLosersBracket(leagueId: string, options?: SleeperFetchOptions): Promise<SleeperBracketGame[]> {
+  try {
+    return await sleeperFetchJson<SleeperBracketGame[]>(`${SLEEPER_API_BASE}/league/${leagueId}/losers_bracket`, undefined, options);
+  } catch {
     return [];
   }
-  return resp.json();
 }
 
 /**
  * Convenience wrapper to fetch both winners and losers brackets in parallel.
  */
-export async function getLeaguePlayoffBrackets(leagueId: string): Promise<{ winners: SleeperBracketGame[]; losers: SleeperBracketGame[] }> {
+export async function getLeaguePlayoffBrackets(leagueId: string, options?: SleeperFetchOptions): Promise<{ winners: SleeperBracketGame[]; losers: SleeperBracketGame[] }> {
   const [winners, losers] = await Promise.all([
-    getLeagueWinnersBracket(leagueId).catch(() => [] as SleeperBracketGame[]),
-    getLeagueLosersBracket(leagueId).catch(() => [] as SleeperBracketGame[]),
+    getLeagueWinnersBracket(leagueId, options).catch(() => [] as SleeperBracketGame[]),
+    getLeagueLosersBracket(leagueId, options).catch(() => [] as SleeperBracketGame[]),
   ]);
   return { winners, losers };
 }
@@ -876,11 +925,12 @@ export async function getLeaguePlayoffBrackets(leagueId: string): Promise<{ winn
  * they will be omitted (left as null).
  */
 export async function getLeaguePlayoffBracketsWithScores(
-  leagueId: string
+  leagueId: string,
+  options?: SleeperFetchOptions
 ): Promise<{ winners: SleeperBracketGameWithScore[]; losers: SleeperBracketGameWithScore[] }> {
   const [league, { winners, losers }] = await Promise.all([
-    getLeague(leagueId),
-    getLeaguePlayoffBrackets(leagueId),
+    getLeague(leagueId, options),
+    getLeaguePlayoffBrackets(leagueId, options),
   ]);
 
   const settings = (league?.settings || {}) as {
@@ -903,7 +953,7 @@ export async function getLeaguePlayoffBracketsWithScores(
   const weekMatchupsMap = new Map<number, SleeperMatchup[]>();
   await Promise.all(
     weeksToFetch.map(async (week) => {
-      const mus = await getLeagueMatchups(leagueId, week).catch(() => [] as SleeperMatchup[]);
+      const mus = await getLeagueMatchups(leagueId, week, options).catch(() => [] as SleeperMatchup[]);
       weekMatchupsMap.set(week, mus);
     })
   );
@@ -948,15 +998,16 @@ export async function getLeaguePlayoffBracketsWithScores(
  * Falls back to nulls when bracket data is unavailable or incomplete.
  */
 export async function derivePodiumFromWinnersBracketByYear(
-  year: string
+  year: string,
+  options?: SleeperFetchOptions
 ): Promise<{ champion: string | null; runnerUp: string | null; thirdPlace: string | null } | null> {
   try {
     const leagueId = year === '2025' ? LEAGUE_IDS.CURRENT : LEAGUE_IDS.PREVIOUS[year as keyof typeof LEAGUE_IDS.PREVIOUS];
     if (!leagueId) return null;
 
     const [games, rosterIdToName] = await Promise.all([
-      getLeagueWinnersBracket(leagueId).catch(() => [] as SleeperBracketGame[]),
-      getRosterIdToTeamNameMap(leagueId).catch(() => new Map<number, string>()),
+      getLeagueWinnersBracket(leagueId, options).catch(() => [] as SleeperBracketGame[]),
+      getRosterIdToTeamNameMap(leagueId, options).catch(() => new Map<number, string>()),
     ]);
     if (!games || games.length === 0) return null;
 
@@ -1038,11 +1089,11 @@ export async function derivePodiumFromWinnersBracketByYear(
  * Get all teams data across multiple seasons
  * @returns Promise with object of team data by year
  */
-export async function getAllTeamsData(): Promise<Record<string, TeamData[]>> {
+export async function getAllTeamsData(options?: SleeperFetchOptions): Promise<Record<string, TeamData[]>> {
   try {
-    const currentYearTeams = getTeamsData(LEAGUE_IDS.CURRENT);
-    const year2024Teams = getTeamsData(LEAGUE_IDS.PREVIOUS['2024']);
-    const year2023Teams = getTeamsData(LEAGUE_IDS.PREVIOUS['2023']);
+    const currentYearTeams = getTeamsData(LEAGUE_IDS.CURRENT, options);
+    const year2024Teams = getTeamsData(LEAGUE_IDS.PREVIOUS['2024'], options);
+    const year2023Teams = getTeamsData(LEAGUE_IDS.PREVIOUS['2023'], options);
     
     const [current, y2024, y2023] = await Promise.all([
       currentYearTeams,
@@ -1067,7 +1118,7 @@ export async function getAllTeamsData(): Promise<Record<string, TeamData[]>> {
  * @param rosterId The team's roster ID
  * @returns Promise with array of weekly results
  */
-export async function getTeamWeeklyResults(leagueId: string, rosterId: number): Promise<{
+export async function getTeamWeeklyResults(leagueId: string, rosterId: number, options?: SleeperFetchOptions): Promise<{
   week: number;
   points: number;
   opponent: number;
@@ -1081,7 +1132,7 @@ export async function getTeamWeeklyResults(leagueId: string, rosterId: number): 
   try {
     // Assuming 18 weeks in a season
     const weekPromises = Array.from({ length: 18 }, (_, i) => i + 1).map(week => 
-      getLeagueMatchups(leagueId, week)
+      getLeagueMatchups(leagueId, week, options)
     );
     
     const allWeekMatchups = await Promise.all(weekPromises);
@@ -1136,11 +1187,11 @@ export async function getTeamWeeklyResults(leagueId: string, rosterId: number): 
  * @param rosterId The team's roster ID
  * @returns Promise with object of H2H records
  */
-export async function getTeamH2HRecords(leagueId: string, rosterId: number): Promise<Record<number, { wins: number, losses: number, ties: number }>> {
+export async function getTeamH2HRecords(leagueId: string, rosterId: number, options?: SleeperFetchOptions): Promise<Record<number, { wins: number, losses: number, ties: number }>> {
   try {
     // Assuming 18 weeks in a season
     const weekPromises = Array.from({ length: 18 }, (_, i) => i + 1).map(week => 
-      getLeagueMatchups(leagueId, week)
+      getLeagueMatchups(leagueId, week, options)
     );
     
     const allWeekMatchups = await Promise.all(weekPromises);
@@ -1156,14 +1207,19 @@ export async function getTeamH2HRecords(leagueId: string, rosterId: number): Pro
         
         if (opponent) {
           const opponentId = opponent.roster_id;
-          
+
           if (!h2hRecords[opponentId]) {
             h2hRecords[opponentId] = { wins: 0, losses: 0, ties: 0 };
           }
-          
-          if (teamMatchup.points > opponent.points) {
+
+          const teamPts = teamMatchup.custom_points ?? teamMatchup.points ?? 0;
+          const oppPts = opponent.custom_points ?? opponent.points ?? 0;
+          const played = ((teamPts ?? 0) > 0) || ((oppPts ?? 0) > 0);
+          if (!played) continue;
+
+          if (teamPts > oppPts) {
             h2hRecords[opponentId].wins++;
-          } else if (teamMatchup.points < opponent.points) {
+          } else if (teamPts < oppPts) {
             h2hRecords[opponentId].losses++;
           } else {
             h2hRecords[opponentId].ties++;
@@ -1185,16 +1241,10 @@ export async function getTeamH2HRecords(leagueId: string, rosterId: number): Pro
  * @param week The week number (optional)
  * @returns Promise with array of transactions
  */
-export async function getLeagueTransactions(leagueId: string, week?: number): Promise<SleeperTransaction[]> {
+export async function getLeagueTransactions(leagueId: string, week?: number, options?: SleeperFetchOptions): Promise<SleeperTransaction[]> {
   try {
     const weekParam = week !== undefined ? `/${week}` : '';
-    const response = await fetch(`${SLEEPER_API_BASE}/league/${leagueId}/transactions${weekParam}`);
-    
-    if (!response.ok) {
-      throw new Error(`Failed to fetch transactions: ${response.statusText}`);
-    }
-    
-    return response.json();
+    return await sleeperFetchJson<SleeperTransaction[]>(`${SLEEPER_API_BASE}/league/${leagueId}/transactions${weekParam}`, undefined, options);
   } catch (error) {
     console.error('Error fetching league transactions:', error);
     throw error;
@@ -1206,13 +1256,13 @@ export async function getLeagueTransactions(leagueId: string, week?: number): Pr
  * @param leagueId The Sleeper league ID
  * @returns Promise with array of trade transactions
  */
-export async function getLeagueTrades(leagueId: string): Promise<SleeperTransaction[]> {
+export async function getLeagueTrades(leagueId: string, options?: SleeperFetchOptions): Promise<SleeperTransaction[]> {
   try {
     // Fetch transactions for all weeks in parallel (weeks 1-18)
     const weeks = Array.from({ length: 18 }, (_, i) => i + 1);
     const weeklyTransactions = await Promise.all(
       weeks.map(week =>
-        getLeagueTransactions(leagueId, week).catch(() => [] as SleeperTransaction[])
+        getLeagueTransactions(leagueId, week, options).catch(() => [] as SleeperTransaction[])
       )
     );
     const allTransactions = weeklyTransactions.flat();
@@ -1230,7 +1280,7 @@ export async function getLeagueTrades(leagueId: string): Promise<SleeperTransact
  * Fetch all trades across all league years
  * @returns Promise with object of trades by year
  */
-export async function getAllLeagueTrades(): Promise<Record<string, SleeperTransaction[]>> {
+export async function getAllLeagueTrades(options?: SleeperFetchOptions): Promise<Record<string, SleeperTransaction[]>> {
   try {
     const tradesByYear: Record<string, SleeperTransaction[]> = {};
     
@@ -1241,7 +1291,7 @@ export async function getAllLeagueTrades(): Promise<Record<string, SleeperTransa
     };
     // Process each league year
     for (const [year, leagueId] of Object.entries(yearToLeague)) {
-      const trades = await getLeagueTrades(leagueId);
+      const trades = await getLeagueTrades(leagueId, options);
       tradesByYear[year] = trades;
     }
     
@@ -1257,24 +1307,16 @@ export async function getAllLeagueTrades(): Promise<Record<string, SleeperTransa
  * @param leagueId The Sleeper league ID
  * @returns Promise with array of drafts
  */
-export async function getLeagueDrafts(leagueId: string): Promise<SleeperDraft[]> {
-  const response = await fetch(`${SLEEPER_API_BASE}/league/${leagueId}/drafts`);
-  if (!response.ok) {
-    throw new Error(`Failed to fetch league drafts: ${response.statusText}`);
-  }
-  return response.json();
+export async function getLeagueDrafts(leagueId: string, options?: SleeperFetchOptions): Promise<SleeperDraft[]> {
+  return sleeperFetchJson<SleeperDraft[]>(`${SLEEPER_API_BASE}/league/${leagueId}/drafts`, undefined, options);
 }
 
 /**
  * Fetch a single draft by ID (to get draft_order mapping)
  * @param draftId The Sleeper draft ID
  */
-export async function getDraftById(draftId: string): Promise<SleeperDraftDetails> {
-  const response = await fetch(`${SLEEPER_API_BASE}/draft/${draftId}`);
-  if (!response.ok) {
-    throw new Error(`Failed to fetch draft by id: ${response.statusText}`);
-  }
-  return response.json();
+export async function getDraftById(draftId: string, options?: SleeperFetchOptions): Promise<SleeperDraftDetails> {
+  return sleeperFetchJson<SleeperDraftDetails>(`${SLEEPER_API_BASE}/draft/${draftId}`, undefined, options);
 }
 
 /**
@@ -1282,12 +1324,8 @@ export async function getDraftById(draftId: string): Promise<SleeperDraftDetails
  * @param draftId The Sleeper draft ID
  * @returns Promise with array of draft picks
  */
-export async function getDraftPicks(draftId: string): Promise<SleeperDraftPick[]> {
-  const response = await fetch(`${SLEEPER_API_BASE}/draft/${draftId}/picks`);
-  if (!response.ok) {
-    throw new Error(`Failed to fetch draft picks: ${response.statusText}`);
-  }
-  return response.json();
+export async function getDraftPicks(draftId: string, options?: SleeperFetchOptions): Promise<SleeperDraftPick[]> {
+  return sleeperFetchJson<SleeperDraftPick[]>(`${SLEEPER_API_BASE}/draft/${draftId}/picks`, undefined, options);
 }
 
 /**
@@ -1318,7 +1356,8 @@ const weekStatsCache: Record<string, { ts: number; data: Record<string, SleeperN
  */
 export async function getNFLSeasonStats(
   season: string | number,
-  ttlMs: number = 15 * 60 * 1000
+  ttlMs: number = 15 * 60 * 1000,
+  options?: SleeperFetchOptions
 ): Promise<Record<string, SleeperNFLSeasonPlayerStats>> {
   const key = String(season);
   const now = Date.now();
@@ -1326,11 +1365,7 @@ export async function getNFLSeasonStats(
   if (cached && now - cached.ts < ttlMs) return cached.data;
 
   const url = `${SLEEPER_API_BASE}/stats/nfl/regular/${key}`;
-  const resp = await fetch(url);
-  if (!resp.ok) {
-    throw new Error(`Failed to fetch NFL season stats ${key}: ${resp.status} ${resp.statusText}`);
-  }
-  const json = (await resp.json()) as Record<string, SleeperNFLSeasonPlayerStats>;
+  const json = await sleeperFetchJson<Record<string, SleeperNFLSeasonPlayerStats>>(url, undefined, options);
   seasonStatsCache[key] = { ts: now, data: json };
   return json;
 }
@@ -1342,9 +1377,10 @@ export async function getNFLSeasonStats(
  */
 export async function getPlayersPPRAndPPG(
   season: string | number,
-  playerIds: string[]
+  playerIds: string[],
+  options?: SleeperFetchOptions
 ): Promise<Record<string, { totalPPR: number; gp: number; ppg: number }>> {
-  const stats = await getNFLSeasonStats(season);
+  const stats = await getNFLSeasonStats(season, 15 * 60 * 1000, options);
   const result: Record<string, { totalPPR: number; gp: number; ppg: number }> = {};
   for (const pid of playerIds) {
     const s = stats[pid];
@@ -1413,17 +1449,15 @@ function computeWeekPointsCustom(
  */
 async function computeSeasonTotalsFromLeagueMatchups(
   leagueId: string,
-  endWeek: number = 14
+  endWeek: number = 14,
+  options?: SleeperFetchOptions
 ): Promise<Record<string, number>> {
   const totals: Record<string, number> = {};
   const weeks = Array.from({ length: Math.max(1, Math.min(14, Math.floor(endWeek))) }, (_, i) => i + 1);
-  for (const week of weeks) {
-    let matchups: SleeperMatchup[] = [];
-    try {
-      matchups = await getLeagueMatchups(leagueId, week);
-    } catch {
-      matchups = [];
-    }
+  const weeklyMatchupsArr = await Promise.all(
+    weeks.map((week) => getLeagueMatchups(leagueId, week, options).catch(() => [] as SleeperMatchup[]))
+  );
+  for (const matchups of weeklyMatchupsArr) {
     for (const m of matchups) {
       const pp = m.players_points || {};
       for (const [pid, pts] of Object.entries(pp)) {
@@ -1441,14 +1475,15 @@ async function computeSeasonTotalsFromLeagueMatchups(
 export async function computeSeasonTotalsCustomScoring(
   season: string | number,
   leagueId: string,
-  endWeek: number = 14
+  endWeek: number = 14,
+  options?: SleeperFetchOptions
 ): Promise<Record<string, number>> {
-  const league = await getLeague(leagueId);
+  const league = await getLeague(leagueId, options);
   const scoring = toNumericScoring(league?.scoring_settings as Record<string, unknown>);
 
   const weeks = Array.from({ length: Math.max(1, Math.min(14, Math.floor(endWeek))) }, (_, i) => i + 1);
   const weeklyStatsArr = await Promise.all(
-    weeks.map((w) => getNFLWeekStats(season, w).catch(() => ({} as Record<string, SleeperNFLSeasonPlayerStats>)))
+    weeks.map((w) => getNFLWeekStats(season, w, 15 * 60 * 1000, options).catch(() => ({} as Record<string, SleeperNFLSeasonPlayerStats>)))
   );
 
   const totals: Record<string, number> = {};
@@ -1468,14 +1503,15 @@ export async function computeSeasonTotalsCustomScoring(
 export async function findPlayerOwnerAtOrBeforeWeek(
   leagueId: string,
   playerId: string,
-  endWeek: number
+  endWeek: number,
+  options?: SleeperFetchOptions
 ): Promise<{ rosterId: number | null; teamName: string | null }> {
-  const rosterIdToName = await getRosterIdToTeamNameMap(leagueId);
+  const rosterIdToName = await getRosterIdToTeamNameMap(leagueId, options);
   const weeks = Array.from({ length: Math.max(1, Math.min(14, Math.floor(endWeek))) }, (_, i) => endWeek - i);
   for (const week of weeks) {
     let matchups: SleeperMatchup[] = [];
     try {
-      matchups = await getLeagueMatchups(leagueId, week);
+      matchups = await getLeagueMatchups(leagueId, week, options);
     } catch {}
     for (const m of matchups) {
       const has = (m.players || []).includes(playerId) || (m.starters || []).includes(playerId);
@@ -1487,7 +1523,7 @@ export async function findPlayerOwnerAtOrBeforeWeek(
   }
   // Fallback: if never found in matchups, check roster membership for the league
   try {
-    const rosters = await getLeagueRosters(leagueId);
+    const rosters = await getLeagueRosters(leagueId, options);
     for (const r of rosters) {
       const has = (r.players || []).includes(playerId);
       if (has) {
@@ -1516,18 +1552,19 @@ function isRookieForSeason(player: SleeperPlayer | undefined, season: string | n
 export async function getSeasonAwardsUsingLeagueScoring(
   season: string | number,
   leagueId: string,
-  endWeek: number = 14
+  endWeek: number = 14,
+  options?: SleeperFetchOptions
 ): Promise<SeasonAwards> {
   // Prefer league matchups-derived totals (players_points) to match exact custom scoring.
   // Fallback to deriving from weekly NFL stats if matchups data is unavailable.
   let totals: Record<string, number> = {};
   try {
-    totals = await computeSeasonTotalsFromLeagueMatchups(leagueId, endWeek);
+    totals = await computeSeasonTotalsFromLeagueMatchups(leagueId, endWeek, options);
   } catch {}
   if (!totals || Object.keys(totals).length === 0) {
-    totals = await computeSeasonTotalsCustomScoring(season, leagueId, endWeek);
+    totals = await computeSeasonTotalsCustomScoring(season, leagueId, endWeek, options);
   }
-  const players = await getAllPlayersCached();
+  const players = await getAllPlayersCached(12 * 60 * 60 * 1000, options);
 
   // Restrict to real players in eligible positions (exclude team/DST pseudo-IDs like TEAM_BAL)
   const allowedPositions = new Set(['QB', 'RB', 'WR', 'TE', 'K']);
@@ -1575,7 +1612,7 @@ export async function getSeasonAwardsUsingLeagueScoring(
     const hadPrev = new Set<string>();
     for (const y of prevSeasons) {
       try {
-        const stats = await getNFLSeasonStats(y);
+        const stats = await getNFLSeasonStats(y, 15 * 60 * 1000, options);
         for (const pid of Object.keys(stats)) {
           const s = stats[pid];
           const gp = (s?.gp ?? s?.gms_active ?? 0) || 0;
@@ -1598,7 +1635,7 @@ export async function getSeasonAwardsUsingLeagueScoring(
   async function buildWinners(ids: string[]): Promise<AwardWinner[]> {
     const res: AwardWinner[] = [];
     for (const pid of ids) {
-      const { rosterId, teamName } = await findPlayerOwnerAtOrBeforeWeek(leagueId, pid, endWeek);
+      const { rosterId, teamName } = await findPlayerOwnerAtOrBeforeWeek(leagueId, pid, endWeek, options);
       const pl = players[pid];
       const name = [pl?.first_name || '', pl?.last_name || ''].join(' ').trim() || pid;
       res.push({
