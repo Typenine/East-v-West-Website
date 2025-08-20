@@ -394,8 +394,8 @@ export default function HistoryPage() {
       const link = rosterIds && rosterIds[0] !== undefined ? `/teams/${rosterIds[0]}` : undefined;
       return (
         <div className="mt-2 flex items-center justify-center gap-3">
-          <div className="w-12 h-12 rounded-full evw-surface border border-[var(--border)] overflow-hidden flex items-center justify-center shrink-0">
-            <Image src={logo} alt={`${name} logo`} width={48} height={48} className="w-12 h-12 object-contain" />
+          <div className="w-14 h-14 rounded-full evw-surface border border-[var(--border)] overflow-hidden flex items-center justify-center shrink-0">
+            <Image src={logo} alt={`${name} logo`} width={56} height={56} className="w-14 h-14 object-contain" />
           </div>
           {link ? (
             <Link href={link} className="text-lg font-semibold text-[var(--accent)] hover:underline">{name}</Link>
@@ -412,8 +412,8 @@ export default function HistoryPage() {
     const bLink = rosterIds && rosterIds[1] !== undefined ? `/teams/${rosterIds[1]}` : undefined;
     return (
       <div className="mt-2 flex items-center justify-center gap-3">
-        <div className="w-12 h-12 rounded-full evw-surface border border-[var(--border)] overflow-hidden flex items-center justify-center shrink-0">
-          <Image src={aLogo} alt={`${a} logo`} width={48} height={48} className="w-12 h-12 object-contain" />
+        <div className="w-14 h-14 rounded-full evw-surface border border-[var(--border)] overflow-hidden flex items-center justify-center shrink-0">
+          <Image src={aLogo} alt={`${a} logo`} width={56} height={56} className="w-14 h-14 object-contain" />
         </div>
         <div className="flex items-center gap-1 text-lg font-semibold">
           {aLink ? (
@@ -428,8 +428,8 @@ export default function HistoryPage() {
             <span className="text-[var(--text)]">{b}</span>
           )}
         </div>
-        <div className="w-12 h-12 rounded-full evw-surface border border-[var(--border)] overflow-hidden flex items-center justify-center shrink-0">
-          <Image src={bLogo} alt={`${b} logo`} width={48} height={48} className="w-12 h-12 object-contain" />
+        <div className="w-14 h-14 rounded-full evw-surface border border-[var(--border)] overflow-hidden flex items-center justify-center shrink-0">
+          <Image src={bLogo} alt={`${b} logo`} width={56} height={56} className="w-14 h-14 object-contain" />
         </div>
       </div>
     );
