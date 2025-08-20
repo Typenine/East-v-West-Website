@@ -572,6 +572,9 @@ export interface SleeperMatchup {
   roster_id: number;
   points: number;
   custom_points?: number;
+  // Map of player_id -> fantasy points for this matchup under the league's scoring
+  // This is provided by Sleeper and already includes all bonuses and custom settings.
+  players_points?: Record<string, number>;
   players: string[];
   starters: string[];
   matchup_week: number;
@@ -1404,6 +1407,35 @@ function computeWeekPointsCustom(
 }
 
 /**
+ * Aggregate per-player totals using the league's own computed weekly player points
+ * from matchups (players_points). This matches Sleeper's custom scoring exactly,
+ * including bonuses, TE premiums, kicker distances, etc.
+ */
+async function computeSeasonTotalsFromLeagueMatchups(
+  leagueId: string,
+  endWeek: number = 14
+): Promise<Record<string, number>> {
+  const totals: Record<string, number> = {};
+  const weeks = Array.from({ length: Math.max(1, Math.min(14, Math.floor(endWeek))) }, (_, i) => i + 1);
+  for (const week of weeks) {
+    let matchups: SleeperMatchup[] = [];
+    try {
+      matchups = await getLeagueMatchups(leagueId, week);
+    } catch {
+      matchups = [];
+    }
+    for (const m of matchups) {
+      const pp = m.players_points || {};
+      for (const [pid, pts] of Object.entries(pp)) {
+        if (!Number.isFinite(pts as number)) continue;
+        totals[pid] = Number(((totals[pid] || 0) + (pts as number)).toFixed(4));
+      }
+    }
+  }
+  return totals;
+}
+
+/**
  * Aggregate custom-scored totals across weeks 1..endWeek for a season and league.
  */
 export async function computeSeasonTotalsCustomScoring(
@@ -1486,7 +1518,15 @@ export async function getSeasonAwardsUsingLeagueScoring(
   leagueId: string,
   endWeek: number = 14
 ): Promise<SeasonAwards> {
-  const totals = await computeSeasonTotalsCustomScoring(season, leagueId, endWeek);
+  // Prefer league matchups-derived totals (players_points) to match exact custom scoring.
+  // Fallback to deriving from weekly NFL stats if matchups data is unavailable.
+  let totals: Record<string, number> = {};
+  try {
+    totals = await computeSeasonTotalsFromLeagueMatchups(leagueId, endWeek);
+  } catch {}
+  if (!totals || Object.keys(totals).length === 0) {
+    totals = await computeSeasonTotalsCustomScoring(season, leagueId, endWeek);
+  }
   const players = await getAllPlayersCached();
 
   // Restrict to real players in eligible positions (exclude team/DST pseudo-IDs like TEAM_BAL)
