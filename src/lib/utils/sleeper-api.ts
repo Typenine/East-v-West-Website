@@ -586,6 +586,8 @@ export interface SleeperPlayer {
   status: string;
   injury_status: string;
   years_exp: number;
+  // Sleeper includes rookie_year for many players; used to identify ROY by season
+  rookie_year?: string | number;
 }
 
 export interface TeamData {
@@ -1296,6 +1298,8 @@ export interface SleeperNFLSeasonPlayerStats {
   pts_ppr?: number;        // total PPR fantasy points
   pts_std?: number;        // total standard points (not used here)
   // ... many other fields exist; we only type what's needed
+  // Allow dynamic stat keys so we can apply league scoring_settings directly
+  [stat: string]: number | undefined;
 }
 
 // Simple in-memory cache for season stats within a single runtime
@@ -1348,3 +1352,175 @@ export async function getPlayersPPRAndPPG(
   }
   return result;
 }
+
+// ==========================
+// Awards (MVP / Rookie of the Year) using league custom scoring
+// ==========================
+
+export interface AwardWinner {
+  playerId: string;
+  name: string;
+  points: number;
+  rosterId: number | null;
+  teamName: string | null;
+}
+
+export interface SeasonAwards {
+  season: string;
+  throughWeek: number; // inclusive
+  mvp: AwardWinner[];  // support ties
+  roy: AwardWinner[];  // support ties
+}
+
+function toNumericScoring(obj: Record<string, unknown> | undefined | null): Record<string, number> {
+  const res: Record<string, number> = {};
+  if (!obj) return res;
+  for (const [k, v] of Object.entries(obj)) {
+    const num = typeof v === 'string' ? Number(v) : (typeof v === 'number' ? v : NaN);
+    if (Number.isFinite(num)) res[k] = num as number;
+  }
+  return res;
+}
+
+/**
+ * Compute per-player custom fantasy points for a single week using league scoring_settings.
+ */
+function computeWeekPointsCustom(
+  weeklyStats: Record<string, SleeperNFLSeasonPlayerStats>,
+  scoring: Record<string, number>
+): Record<string, number> {
+  const totals: Record<string, number> = {};
+  const entries = Object.entries(weeklyStats) as Array<[string, SleeperNFLSeasonPlayerStats]>;
+  for (const [playerId, stat] of entries) {
+    let sum = 0;
+    for (const [k, mult] of Object.entries(scoring)) {
+      const raw = stat?.[k];
+      if (!raw) continue;
+      sum += (raw || 0) * (mult || 0);
+    }
+    if (sum !== 0) totals[playerId] = Number(sum.toFixed(4));
+  }
+  return totals;
+}
+
+/**
+ * Aggregate custom-scored totals across weeks 1..endWeek for a season and league.
+ */
+export async function computeSeasonTotalsCustomScoring(
+  season: string | number,
+  leagueId: string,
+  endWeek: number = 14
+): Promise<Record<string, number>> {
+  const league = await getLeague(leagueId);
+  const scoring = toNumericScoring(league?.scoring_settings as Record<string, unknown>);
+
+  const weeks = Array.from({ length: Math.max(1, Math.min(14, Math.floor(endWeek))) }, (_, i) => i + 1);
+  const weeklyStatsArr = await Promise.all(
+    weeks.map((w) => getNFLWeekStats(season, w).catch(() => ({} as Record<string, SleeperNFLSeasonPlayerStats>)))
+  );
+
+  const totals: Record<string, number> = {};
+  for (const weeklyStats of weeklyStatsArr) {
+    const weekPoints = computeWeekPointsCustom(weeklyStats, scoring);
+    for (const [pid, pts] of Object.entries(weekPoints)) {
+      totals[pid] = Number(((totals[pid] || 0) + pts).toFixed(4));
+    }
+  }
+  return totals;
+}
+
+/**
+ * Find the roster (team) that owned a player as of the last played week up to endWeek, scanning backward.
+ * Uses weekly matchups players/starters arrays as a proxy for roster ownership.
+ */
+export async function findPlayerOwnerAtOrBeforeWeek(
+  leagueId: string,
+  playerId: string,
+  endWeek: number
+): Promise<{ rosterId: number | null; teamName: string | null }> {
+  const rosterIdToName = await getRosterIdToTeamNameMap(leagueId);
+  const weeks = Array.from({ length: Math.max(1, Math.min(14, Math.floor(endWeek))) }, (_, i) => endWeek - i);
+  for (const week of weeks) {
+    let matchups: SleeperMatchup[] = [];
+    try {
+      matchups = await getLeagueMatchups(leagueId, week);
+    } catch {}
+    for (const m of matchups) {
+      const has = (m.players || []).includes(playerId) || (m.starters || []).includes(playerId);
+      if (has) {
+        const name = rosterIdToName.get(m.roster_id) || null;
+        return { rosterId: m.roster_id, teamName: name };
+      }
+    }
+  }
+  return { rosterId: null, teamName: null };
+}
+
+/** Determine if a player is a rookie for the given season. */
+function isRookieForSeason(player: SleeperPlayer | undefined, season: string | number): boolean {
+  if (!player) return false;
+  const s = String(season);
+  // Prefer explicit rookie_year from Sleeper
+  if (player.rookie_year !== undefined && String(player.rookie_year) === s) return true;
+  // Fallback: if rookie_year is unavailable, we cannot reliably infer from years_exp across historical seasons.
+  // Return false rather than guess.
+  return false;
+}
+
+/**
+ * Compute MVP and ROY for a season up to endWeek using league custom scoring.
+ */
+export async function getSeasonAwardsUsingLeagueScoring(
+  season: string | number,
+  leagueId: string,
+  endWeek: number = 14
+): Promise<SeasonAwards> {
+  const totals = await computeSeasonTotalsCustomScoring(season, leagueId, endWeek);
+  const players = await getAllPlayersCached();
+
+  // Find MVP (max total)
+  let maxPts = -Infinity;
+  for (const v of Object.values(totals)) if (v > maxPts) maxPts = v;
+  const eps = 1e-6;
+  const mvpIds = Object.keys(totals).filter((pid) => Math.abs((totals[pid] || 0) - maxPts) < eps);
+
+  // Find ROY (max among rookies for this season)
+  const rookieTotals: Record<string, number> = {};
+  for (const [pid, pts] of Object.entries(totals)) {
+    const pl = players[pid];
+    if (isRookieForSeason(pl, season)) rookieTotals[pid] = pts;
+  }
+  let royMax = -Infinity;
+  for (const v of Object.values(rookieTotals)) if (v > royMax) royMax = v;
+  const royIds = Object.keys(rookieTotals).filter((pid) => Math.abs((rookieTotals[pid] || 0) - royMax) < eps);
+
+  async function buildWinners(ids: string[]): Promise<AwardWinner[]> {
+    const res: AwardWinner[] = [];
+    for (const pid of ids) {
+      const { rosterId, teamName } = await findPlayerOwnerAtOrBeforeWeek(leagueId, pid, endWeek);
+      const pl = players[pid];
+      const name = [pl?.first_name || '', pl?.last_name || ''].join(' ').trim() || pid;
+      res.push({
+        playerId: pid,
+        name,
+        points: Number((totals[pid] || 0).toFixed(2)),
+        rosterId,
+        teamName,
+      });
+    }
+    return res;
+  }
+
+  const [mvp, roy] = await Promise.all([
+    buildWinners(mvpIds),
+    buildWinners(royIds),
+  ]);
+
+  return {
+    season: String(season),
+    throughWeek: Math.max(1, Math.min(14, Math.floor(endWeek))),
+    mvp,
+    roy,
+  };
+}
+
