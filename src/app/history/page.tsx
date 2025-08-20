@@ -404,7 +404,6 @@ export default function HistoryPage() {
             <div
               className="w-16 h-16 rounded-full flex items-center justify-center overflow-hidden border-2"
               style={teamName && teamName !== 'Unrostered' ? { ...getTeamColorStyle(teamName), borderColor: '#ffffff99' } : undefined}
-              title={teamName}
             >
               {teamName && teamName !== 'Unrostered' ? (
                 <Image
@@ -425,7 +424,6 @@ export default function HistoryPage() {
           </div>
           <div className="min-w-0">
             <div className="text-lg font-extrabold truncate">{w.name}</div>
-            <div className="text-xs font-semibold opacity-90 truncate">{teamName}</div>
           </div>
         </div>
         <div className="flex items-center gap-3">

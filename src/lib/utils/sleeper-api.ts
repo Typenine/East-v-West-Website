@@ -1612,13 +1612,18 @@ export async function getSeasonAwardsUsingLeagueScoring(
   }
 
   // Find MVP (max total) among eligible players only
+  const MIN_POINTS = 0.01; // avoid listing mass ties when all totals are ~0
   let maxPts = -Infinity;
   for (const pid of eligibleIds) {
     const v = totals[pid] || 0;
     if (v > maxPts) maxPts = v;
   }
   const eps = 1e-6;
-  const mvpIds = eligibleIds.filter((pid) => Math.abs((totals[pid] || 0) - maxPts) < eps);
+  let mvpIds = eligibleIds.filter((pid) => Math.abs((totals[pid] || 0) - maxPts) < eps);
+  if (!(maxPts > MIN_POINTS)) {
+    // No meaningful points yet -> no winner for this season
+    mvpIds = [];
+  }
 
   // Find ROY (max among rookies for this season) from eligible players only
   const rookieTotals: Record<string, number> = {};
@@ -1655,7 +1660,14 @@ export async function getSeasonAwardsUsingLeagueScoring(
         if (v > rMax) rMax = v;
       }
       royIds = rookieEligibleIds.filter((pid) => Math.abs((totals[pid] || 0) - rMax) < eps);
+      if (!(rMax > MIN_POINTS)) {
+        royIds = [];
+      }
     }
+  }
+  // If initial rookieTotals had a max but it's effectively zero, clear
+  if (royIds.length > 0 && !(royMax > MIN_POINTS)) {
+    royIds = [];
   }
 
   async function buildWinners(ids: string[]): Promise<AwardWinner[]> {
