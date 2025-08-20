@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
-import { getTeamLogoPath, getTeamColorStyle } from '@/lib/utils/team-utils';
+import { getTeamLogoPath, getTeamColorStyle, getTeamColors } from '@/lib/utils/team-utils';
 import { CHAMPIONS, LEAGUE_IDS } from '@/lib/constants/league';
 import LoadingState from '@/components/ui/loading-state';
 import ErrorState from '@/components/ui/error-state';
@@ -320,17 +320,31 @@ export default function HistoryPage() {
     { id: 'records', label: 'Records' },
   ];
 
+  // Helper to apply light translucent backgrounds using a team's hex color
+  const hexToRgba = (hex: string, alpha: number) => {
+    const h = hex.replace('#', '');
+    const r = parseInt(h.substring(0, 2), 16);
+    const g = parseInt(h.substring(2, 4), 16);
+    const b = parseInt(h.substring(4, 6), 16);
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+  };
+
   // Render a single award winner row
   const renderWinnerRow = (w: AwardWinner, key: string) => {
     const teamName = w.teamName || 'Unrostered';
     const ownerId = teamName && teamName !== 'Unrostered' ? ownerByTeamName[teamName] : undefined;
     const currentRosterId = ownerId ? ownerToRosterId[ownerId] : undefined;
+    const colors = teamName && teamName !== 'Unrostered' ? getTeamColors(teamName) : undefined;
 
     return (
-      <div key={key} className="flex items-center justify-between border rounded p-3">
-        <div className="flex items-center gap-3 min-w-0">
+      <div
+        key={key}
+        className="flex items-center justify-between border rounded-lg p-3"
+        style={colors ? { borderColor: colors.primary, backgroundColor: hexToRgba(colors.primary, 0.06) } : undefined}
+      >
+        <div className="flex items-center gap-4 min-w-0">
           <div
-            className="w-8 h-8 rounded-full flex items-center justify-center overflow-hidden"
+            className="w-12 h-12 rounded-full flex items-center justify-center overflow-hidden"
             style={teamName && teamName !== 'Unrostered' ? getTeamColorStyle(teamName) : undefined}
             title={teamName}
           >
@@ -338,8 +352,8 @@ export default function HistoryPage() {
               <Image
                 src={getTeamLogoPath(teamName)}
                 alt={teamName}
-                width={24}
-                height={24}
+                width={40}
+                height={40}
                 className="object-contain"
                 onError={(e) => {
                   const t = e.target as HTMLImageElement;
@@ -351,16 +365,23 @@ export default function HistoryPage() {
             )}
           </div>
           <div className="min-w-0">
-            <div className="text-sm font-medium text-[var(--text)] truncate">{w.name}</div>
+            <div className="text-sm font-semibold text-[var(--text)] truncate">{w.name}</div>
             <div className="text-xs text-[var(--muted)] truncate">{teamName}</div>
           </div>
         </div>
         <div className="flex items-center gap-3">
-          <span className="ml-2 text-xs px-2 py-0.5 rounded border border-[var(--border)] text-[var(--muted)]">
+          <span
+            className="ml-2 text-xs px-2 py-1 rounded border font-semibold"
+            style={colors ? { borderColor: colors.primary, backgroundColor: hexToRgba(colors.secondary || colors.primary, 0.12) } : undefined}
+          >
             {w.points.toFixed(2)} pts
           </span>
           {currentRosterId !== undefined ? (
-            <Link href={`/teams/${currentRosterId}`} className="text-[var(--accent)] text-xs hover:underline">
+            <Link
+              href={`/teams/${currentRosterId}`}
+              className="text-xs hover:underline"
+              style={colors ? { color: colors.primary } : undefined}
+            >
               View Team
             </Link>
           ) : (
@@ -978,53 +999,6 @@ export default function HistoryPage() {
             <ErrorState message={recordsError} />
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-              {/* Awards: MVP & Rookie of the Year */}
-              <Card className="md:col-span-2">
-                <CardHeader>
-                  <CardTitle>MVP & Rookie of the Year</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  {awardsLoading ? (
-                    <div className="text-[var(--muted)]">Loading awards...</div>
-                  ) : awardsError ? (
-                    <div className="text-red-500">{awardsError}</div>
-                  ) : (
-                    <div className="space-y-6">
-                      {['2025','2024','2023'].map((yr) => {
-                        const data = awardsByYear[yr];
-                        if (!data) return null;
-                        return (
-                          <div key={yr}>
-                            <h4 className="text-sm uppercase tracking-wide text-[var(--muted)] mb-3">{yr} Season</h4>
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                              <div>
-                                <p className="text-sm font-semibold text-[var(--muted)] mb-2">Most Valuable Player</p>
-                                <div className="space-y-2">
-                                  {data.mvp && data.mvp.length > 0 ? (
-                                    data.mvp.map((w, idx) => renderWinnerRow(w, `${yr}-mvp-${idx}`))
-                                  ) : (
-                                    <p className="text-sm text-[var(--muted)]">No winner</p>
-                                  )}
-                                </div>
-                              </div>
-                              <div>
-                                <p className="text-sm font-semibold text-[var(--muted)] mb-2">Rookie of the Year</p>
-                                <div className="space-y-2">
-                                  {data.roy && data.roy.length > 0 ? (
-                                    data.roy.map((w, idx) => renderWinnerRow(w, `${yr}-roy-${idx}`))
-                                  ) : (
-                                    <p className="text-sm text-[var(--muted)]">No winner</p>
-                                  )}
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
               {/* Highest Scoring Game */}
               <Card>
                 <CardHeader>
@@ -1226,6 +1200,54 @@ export default function HistoryPage() {
                       <p className="text-[var(--muted)]">No data</p>
                     )}
                   </div>
+                </CardContent>
+              </Card>
+
+              {/* Awards: MVP & Rookie of the Year (moved to bottom) */}
+              <Card className="md:col-span-2">
+                <CardHeader>
+                  <CardTitle>MVP & Rookie of the Year</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {awardsLoading ? (
+                    <div className="text-[var(--muted)]">Loading awards...</div>
+                  ) : awardsError ? (
+                    <div className="text-red-500">{awardsError}</div>
+                  ) : (
+                    <div className="space-y-6">
+                      {['2025','2024','2023'].map((yr) => {
+                        const data = awardsByYear[yr];
+                        if (!data) return null;
+                        return (
+                          <div key={yr}>
+                            <h4 className="text-sm uppercase tracking-wide text-[var(--muted)] mb-3">{yr} Season</h4>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                              <div>
+                                <p className="text-sm font-semibold text-[var(--muted)] mb-2">Most Valuable Player</p>
+                                <div className="space-y-2">
+                                  {data.mvp && data.mvp.length > 0 ? (
+                                    data.mvp.map((w, idx) => renderWinnerRow(w, `${yr}-mvp-${idx}`))
+                                  ) : (
+                                    <p className="text-sm text-[var(--muted)]">No winner</p>
+                                  )}
+                                </div>
+                              </div>
+                              <div>
+                                <p className="text-sm font-semibold text-[var(--muted)] mb-2">Rookie of the Year</p>
+                                <div className="space-y-2">
+                                  {data.roy && data.roy.length > 0 ? (
+                                    data.roy.map((w, idx) => renderWinnerRow(w, `${yr}-roy-${idx}`))
+                                  ) : (
+                                    <p className="text-sm text-[var(--muted)]">No winner</p>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             </div>

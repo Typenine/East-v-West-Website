@@ -1526,7 +1526,34 @@ export async function getSeasonAwardsUsingLeagueScoring(
   }
   let royMax = -Infinity;
   for (const v of Object.values(rookieTotals)) if (v > royMax) royMax = v;
-  const royIds = Object.keys(rookieTotals).filter((pid) => Math.abs((rookieTotals[pid] || 0) - royMax) < eps);
+  let royIds = Object.keys(rookieTotals).filter((pid) => Math.abs((rookieTotals[pid] || 0) - royMax) < eps);
+
+  // Fallback: derive rookies by first season with stats among a small lookback window
+  if (royIds.length === 0) {
+    const seasonNum = Number(season);
+    const prevSeasons: number[] = [seasonNum - 1, seasonNum - 2].filter((n) => Number.isFinite(n) && n >= 2000);
+    const hadPrev = new Set<string>();
+    for (const y of prevSeasons) {
+      try {
+        const stats = await getNFLSeasonStats(y);
+        for (const pid of Object.keys(stats)) {
+          const s = stats[pid];
+          const gp = (s?.gp ?? s?.gms_active ?? 0) || 0;
+          const total = s?.pts_ppr ?? 0;
+          if (gp > 0 || (total && total > 0)) hadPrev.add(pid);
+        }
+      } catch {}
+    }
+    const rookieEligibleIds = eligibleIds.filter((pid) => !hadPrev.has(pid));
+    if (rookieEligibleIds.length > 0) {
+      let rMax = -Infinity;
+      for (const pid of rookieEligibleIds) {
+        const v = totals[pid] || 0;
+        if (v > rMax) rMax = v;
+      }
+      royIds = rookieEligibleIds.filter((pid) => Math.abs((totals[pid] || 0) - rMax) < eps);
+    }
+  }
 
   async function buildWinners(ids: string[]): Promise<AwardWinner[]> {
     const res: AwardWinner[] = [];
