@@ -639,7 +639,7 @@ export default function TeamPage() {
                                   : result.result === 'L'
                                   ? 'bg-red-100 text-red-800'
                                   : 'bg-yellow-100 text-yellow-800')
-                              : 'bg-gray-100 text-gray-800';
+                              : 'evw-subtle text-[var(--text)]';
                             return (
                               <Tr key={result.week}>
                                 <Td>

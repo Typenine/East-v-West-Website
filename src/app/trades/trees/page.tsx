@@ -69,7 +69,7 @@ export default function TradeTreesPage() {
         {node.children.length > 0 && (
           <div className="relative">
             <div
-              className="absolute border-l-2 border-gray-300"
+              className="absolute border-l-2 border-[var(--border)]"
               style={{ left: `${depth * 24 + 12}px`, top: '0px', bottom: '0px', width: '2px' }}
             ></div>
             <div className="pt-4">

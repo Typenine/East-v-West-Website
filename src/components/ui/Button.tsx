@@ -18,7 +18,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
       primary: "btn-primary",
       secondary: "btn-secondary",
       ghost: "pill pill-hover text-[var(--text)]",
-      danger: "bg-[var(--danger)] text-white hover:opacity-90",
+      danger: "bg-[var(--danger)] text-on-brand hover:opacity-90",
     };
 
     return (

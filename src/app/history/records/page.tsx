@@ -248,15 +248,15 @@ export default function RecordsPage() {
       {/* Records Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {getRecords().map((record, index) => (
-          <div key={index} className="bg-white rounded-lg shadow-md overflow-hidden">
-            <div className="brand-gradient text-white px-4 py-2">
+          <div key={index} className="evw-surface rounded-lg shadow-md overflow-hidden">
+            <div className="brand-gradient text-on-brand px-4 py-2">
               <h3 className="text-lg font-bold">{record.title}</h3>
             </div>
             <div className="p-6">
               <div className="text-center">
                 <p className="text-2xl font-bold text-accent mb-2">{record.value}</p>
                 <p className="text-lg font-medium">{record.holder}</p>
-                <p className="text-sm text-gray-600 mt-1">{record.year}</p>
+                <p className="text-sm text-[var(--muted)] mt-1">{record.year}</p>
               </div>
             </div>
           </div>

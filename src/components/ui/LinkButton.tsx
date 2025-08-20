@@ -27,7 +27,7 @@ export default function LinkButton({
     primary: 'btn-primary',
     secondary: 'btn-secondary',
     ghost: 'pill pill-hover text-[var(--text)]',
-    danger: 'bg-[var(--danger)] text-white hover:opacity-90',
+    danger: 'bg-[var(--danger)] text-on-brand hover:opacity-90',
   };
   const classes = [base, sizes[size], variants[variant], fullWidth && 'w-full', className]
     .filter(Boolean)
