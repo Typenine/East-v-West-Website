@@ -329,6 +329,16 @@ export default function HistoryPage() {
     return `rgba(${r}, ${g}, ${b}, ${alpha})`;
   };
 
+  // Pick readable text color (black/white) for a given hex background
+  const readableOn = (hex: string) => {
+    const h = hex.replace('#', '');
+    const r = parseInt(h.substring(0, 2), 16);
+    const g = parseInt(h.substring(2, 4), 16);
+    const b = parseInt(h.substring(4, 6), 16);
+    const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+    return luminance > 0.5 ? '#000' : '#fff';
+  };
+
   // Render a single award winner row
   const renderWinnerRow = (w: AwardWinner, key: string) => {
     const teamName = w.teamName || 'Unrostered';
@@ -339,48 +349,56 @@ export default function HistoryPage() {
     return (
       <div
         key={key}
-        className="flex items-center justify-between border rounded-lg p-3"
-        style={colors ? { borderColor: colors.primary, backgroundColor: hexToRgba(colors.primary, 0.06) } : undefined}
+        className="flex items-center justify-between rounded-xl p-4 border-0 shadow-sm"
+        style={teamName && teamName !== 'Unrostered' && colors ? { backgroundColor: colors.primary, color: readableOn(colors.primary) } : undefined}
       >
         <div className="flex items-center gap-4 min-w-0">
-          <div
-            className="w-12 h-12 rounded-full flex items-center justify-center overflow-hidden"
-            style={teamName && teamName !== 'Unrostered' ? getTeamColorStyle(teamName) : undefined}
-            title={teamName}
-          >
-            {teamName && teamName !== 'Unrostered' ? (
-              <Image
-                src={getTeamLogoPath(teamName)}
-                alt={teamName}
-                width={40}
-                height={40}
-                className="object-contain"
-                onError={(e) => {
-                  const t = e.target as HTMLImageElement;
-                  t.style.display = 'none';
-                }}
+          <div className="relative">
+            {/* subtle halo */}
+            {colors && (
+              <div
+                className="absolute -z-10 top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-16 h-16 rounded-full"
+                style={{ backgroundColor: hexToRgba(colors.secondary || colors.primary, 0.35) }}
               />
-            ) : (
-              <span className="text-xs text-[var(--muted)]">—</span>
             )}
+            <div
+              className="w-16 h-16 rounded-full flex items-center justify-center overflow-hidden border-2"
+              style={teamName && teamName !== 'Unrostered' ? { ...getTeamColorStyle(teamName), borderColor: '#ffffff99' } : undefined}
+              title={teamName}
+            >
+              {teamName && teamName !== 'Unrostered' ? (
+                <Image
+                  src={getTeamLogoPath(teamName)}
+                  alt={teamName}
+                  width={60}
+                  height={60}
+                  className="object-contain"
+                  onError={(e) => {
+                    const t = e.target as HTMLImageElement;
+                    t.style.display = 'none';
+                  }}
+                />
+              ) : (
+                <span className="text-xs text-[var(--muted)]">—</span>
+              )}
+            </div>
           </div>
           <div className="min-w-0">
-            <div className="text-sm font-semibold text-[var(--text)] truncate">{w.name}</div>
-            <div className="text-xs text-[var(--muted)] truncate">{teamName}</div>
+            <div className="text-lg font-extrabold truncate">{w.name}</div>
+            <div className="text-xs font-semibold opacity-90 truncate">{teamName}</div>
           </div>
         </div>
         <div className="flex items-center gap-3">
           <span
-            className="ml-2 text-xs px-2 py-1 rounded border font-semibold"
-            style={colors ? { borderColor: colors.primary, backgroundColor: hexToRgba(colors.secondary || colors.primary, 0.12) } : undefined}
+            className="ml-2 text-xs px-3 py-1 rounded-md font-bold shadow-sm"
+            style={colors ? { backgroundColor: '#ffffff', color: colors.primary } : undefined}
           >
             {w.points.toFixed(2)} pts
           </span>
           {currentRosterId !== undefined ? (
             <Link
               href={`/teams/${currentRosterId}`}
-              className="text-xs hover:underline"
-              style={colors ? { color: colors.primary } : undefined}
+              className="text-xs font-semibold underline-offset-2 hover:underline"
             >
               View Team
             </Link>
