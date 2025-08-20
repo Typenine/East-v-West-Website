@@ -384,6 +384,75 @@ export default function HistoryPage() {
     return luminance > 0.5 ? '#000' : '#fff';
   };
 
+  // Render team names inline with circular logos (supports 1 or 2 teams)
+  const renderTeamsInline = (teams: string[], rosterIds?: Array<number | undefined>) => {
+    const t = teams.filter(Boolean);
+    if (t.length === 0) return null;
+    if (t.length === 1) {
+      const name = t[0];
+      const logo = getTeamLogoPath(name);
+      const link = rosterIds && rosterIds[0] !== undefined ? `/teams/${rosterIds[0]}` : undefined;
+      return (
+        <div className="mt-2 flex items-center justify-center gap-3">
+          <div className="w-12 h-12 rounded-full evw-surface border border-[var(--border)] overflow-hidden flex items-center justify-center shrink-0">
+            <Image src={logo} alt={`${name} logo`} width={48} height={48} className="w-12 h-12 object-contain" />
+          </div>
+          {link ? (
+            <Link href={link} className="text-lg font-semibold text-[var(--accent)] hover:underline">{name}</Link>
+          ) : (
+            <p className="text-lg font-semibold text-[var(--text)]">{name}</p>
+          )}
+        </div>
+      );
+    }
+    const [a, b] = t.slice(0, 2);
+    const aLogo = getTeamLogoPath(a);
+    const bLogo = getTeamLogoPath(b);
+    const aLink = rosterIds && rosterIds[0] !== undefined ? `/teams/${rosterIds[0]}` : undefined;
+    const bLink = rosterIds && rosterIds[1] !== undefined ? `/teams/${rosterIds[1]}` : undefined;
+    return (
+      <div className="mt-2 flex items-center justify-center gap-3">
+        <div className="w-12 h-12 rounded-full evw-surface border border-[var(--border)] overflow-hidden flex items-center justify-center shrink-0">
+          <Image src={aLogo} alt={`${a} logo`} width={48} height={48} className="w-12 h-12 object-contain" />
+        </div>
+        <div className="flex items-center gap-1 text-lg font-semibold">
+          {aLink ? (
+            <Link href={aLink} className="text-[var(--accent)] hover:underline">{a}</Link>
+          ) : (
+            <span className="text-[var(--text)]">{a}</span>
+          )}
+          <span className="text-[var(--muted)]">vs.</span>
+          {bLink ? (
+            <Link href={bLink} className="text-[var(--accent)] hover:underline">{b}</Link>
+          ) : (
+            <span className="text-[var(--text)]">{b}</span>
+          )}
+        </div>
+        <div className="w-12 h-12 rounded-full evw-surface border border-[var(--border)] overflow-hidden flex items-center justify-center shrink-0">
+          <Image src={bLogo} alt={`${b} logo`} width={48} height={48} className="w-12 h-12 object-contain" />
+        </div>
+      </div>
+    );
+  };
+
+  // Bottom color strip: full width for one team, split for two
+  const renderTeamSplitStrip = (teams: string[]) => {
+    const t = teams.filter(Boolean);
+    if (t.length === 0) return null;
+    if (t.length === 1) {
+      const c = getTeamColors(t[0])?.primary;
+      return <div className="mt-3 h-1.5 rounded-full" style={{ backgroundColor: c }} />;
+    }
+    const c1 = getTeamColors(t[0])?.primary;
+    const c2 = getTeamColors(t[1])?.primary;
+    return (
+      <div className="mt-3 grid grid-cols-2 h-1.5 rounded-full overflow-hidden">
+        <div style={{ backgroundColor: c1 }} />
+        <div style={{ backgroundColor: c2 }} />
+      </div>
+    );
+  };
+
   // Render a single award winner row
   const renderWinnerRow = (w: AwardWinner, key: string) => {
     const teamName = w.teamName || 'Unrostered';
@@ -1075,10 +1144,11 @@ export default function HistoryPage() {
                           const ownerId = recordBook.highestScoringGame!.ownerId;
                           const rosterId = ownerToRosterId[ownerId];
                           const name = recordBook.highestScoringGame!.teamName;
-                          return rosterId !== undefined ? (
-                            <Link href={`/teams/${rosterId}`} className="text-lg font-semibold text-[var(--accent)] hover:underline">{name}</Link>
-                          ) : (
-                            <p className="text-lg font-semibold text-[var(--text)]">{name}</p>
+                          return (
+                            <>
+                              {renderTeamsInline([name], [rosterId])}
+                              {renderTeamSplitStrip([name])}
+                            </>
                           );
                         })()}
                         <p className="text-[var(--muted)]">Week {recordBook.highestScoringGame.week}, {recordBook.highestScoringGame.year} Season</p>
@@ -1104,10 +1174,11 @@ export default function HistoryPage() {
                           const ownerId = recordBook.lowestScoringGame!.ownerId;
                           const rosterId = ownerToRosterId[ownerId];
                           const name = recordBook.lowestScoringGame!.teamName;
-                          return rosterId !== undefined ? (
-                            <Link href={`/teams/${rosterId}`} className="text-lg font-semibold text-[var(--accent)] hover:underline">{name}</Link>
-                          ) : (
-                            <p className="text-lg font-semibold text-[var(--text)]">{name}</p>
+                          return (
+                            <>
+                              {renderTeamsInline([name], [rosterId])}
+                              {renderTeamSplitStrip([name])}
+                            </>
                           );
                         })()}
                         <p className="text-[var(--muted)]">Week {recordBook.lowestScoringGame.week}, {recordBook.lowestScoringGame.year} Season</p>
@@ -1129,17 +1200,18 @@ export default function HistoryPage() {
                     {recordBook?.biggestVictory ? (
                       <>
                         <p className="text-4xl font-bold text-[var(--accent)] mb-2">{recordBook.biggestVictory.margin.toFixed(2)}</p>
-                        <p className="text-lg font-semibold text-[var(--text)]">
-                          {(() => {
-                            const wRoster = ownerToRosterId[recordBook.biggestVictory!.winnerOwnerId];
-                            const lRoster = ownerToRosterId[recordBook.biggestVictory!.loserOwnerId];
-                            const wName = recordBook.biggestVictory!.winnerTeamName;
-                            const lName = recordBook.biggestVictory!.loserTeamName;
-                            const W = wRoster !== undefined ? <Link href={`/teams/${wRoster}`} className="text-[var(--accent)] hover:underline">{wName}</Link> : <span>{wName}</span>;
-                            const L = lRoster !== undefined ? <Link href={`/teams/${lRoster}`} className="text-[var(--accent)] hover:underline">{lName}</Link> : <span>{lName}</span>;
-                            return <>{W} vs. {L}</>;
-                          })()}
-                        </p>
+                        {(() => {
+                          const wRoster = ownerToRosterId[recordBook.biggestVictory!.winnerOwnerId];
+                          const lRoster = ownerToRosterId[recordBook.biggestVictory!.loserOwnerId];
+                          const wName = recordBook.biggestVictory!.winnerTeamName;
+                          const lName = recordBook.biggestVictory!.loserTeamName;
+                          return (
+                            <>
+                              {renderTeamsInline([wName, lName], [wRoster, lRoster])}
+                              {renderTeamSplitStrip([wName, lName])}
+                            </>
+                          );
+                        })()}
                         <p className="text-[var(--muted)]">Week {recordBook.biggestVictory.week}, {recordBook.biggestVictory.year} Season</p>
                       </>
                     ) : (
@@ -1159,17 +1231,18 @@ export default function HistoryPage() {
                     {recordBook?.closestVictory ? (
                       <>
                         <p className="text-4xl font-bold text-[var(--accent)] mb-2">{recordBook.closestVictory.margin.toFixed(2)}</p>
-                        <p className="text-lg font-semibold text-[var(--text)]">
-                          {(() => {
-                            const wRoster = ownerToRosterId[recordBook.closestVictory!.winnerOwnerId];
-                            const lRoster = ownerToRosterId[recordBook.closestVictory!.loserOwnerId];
-                            const wName = recordBook.closestVictory!.winnerTeamName;
-                            const lName = recordBook.closestVictory!.loserTeamName;
-                            const W = wRoster !== undefined ? <Link href={`/teams/${wRoster}`} className="text-[var(--accent)] hover:underline">{wName}</Link> : <span>{wName}</span>;
-                            const L = lRoster !== undefined ? <Link href={`/teams/${lRoster}`} className="text-[var(--accent)] hover:underline">{lName}</Link> : <span>{lName}</span>;
-                            return <>{W} vs. {L}</>;
-                          })()}
-                        </p>
+                        {(() => {
+                          const wRoster = ownerToRosterId[recordBook.closestVictory!.winnerOwnerId];
+                          const lRoster = ownerToRosterId[recordBook.closestVictory!.loserOwnerId];
+                          const wName = recordBook.closestVictory!.winnerTeamName;
+                          const lName = recordBook.closestVictory!.loserTeamName;
+                          return (
+                            <>
+                              {renderTeamsInline([wName, lName], [wRoster, lRoster])}
+                              {renderTeamSplitStrip([wName, lName])}
+                            </>
+                          );
+                        })()}
                         <p className="text-[var(--muted)]">Week {recordBook.closestVictory.week}, {recordBook.closestVictory.year} Season</p>
                       </>
                     ) : (
@@ -1189,17 +1262,21 @@ export default function HistoryPage() {
                     {recordBook?.highestCombined ? (
                       <>
                         <p className="text-4xl font-bold text-[var(--accent)] mb-2">{recordBook.highestCombined.combined.toFixed(2)}</p>
-                        <p className="text-lg font-semibold text-[var(--text)]">
-                          {(() => {
-                            const aRoster = ownerToRosterId[recordBook.highestCombined!.teamAOwnerId];
-                            const bRoster = ownerToRosterId[recordBook.highestCombined!.teamBOwnerId];
-                            const aName = recordBook.highestCombined!.teamAName;
-                            const bName = recordBook.highestCombined!.teamBName;
-                            const A = aRoster !== undefined ? <Link href={`/teams/${aRoster}`} className="text-[var(--accent)] hover:underline">{aName}</Link> : <span>{aName}</span>;
-                            const B = bRoster !== undefined ? <Link href={`/teams/${bRoster}`} className="text-[var(--accent)] hover:underline">{bName}</Link> : <span>{bName}</span>;
-                            return <>{A} ({recordBook.highestCombined!.teamAPoints.toFixed(2)}) vs. {B} ({recordBook.highestCombined!.teamBPoints.toFixed(2)})</>;
-                          })()}
-                        </p>
+                        {(() => {
+                          const aRoster = ownerToRosterId[recordBook.highestCombined!.teamAOwnerId];
+                          const bRoster = ownerToRosterId[recordBook.highestCombined!.teamBOwnerId];
+                          const aName = recordBook.highestCombined!.teamAName;
+                          const bName = recordBook.highestCombined!.teamBName;
+                          const aPts = recordBook.highestCombined!.teamAPoints.toFixed(2);
+                          const bPts = recordBook.highestCombined!.teamBPoints.toFixed(2);
+                          return (
+                            <>
+                              {renderTeamsInline([aName, bName], [aRoster, bRoster])}
+                              {renderTeamSplitStrip([aName, bName])}
+                              <p className="mt-2 text-sm text-[var(--muted)]">{aName}: {aPts} — {bName}: {bPts}</p>
+                            </>
+                          );
+                        })()}
                         <p className="text-[var(--muted)]">Week {recordBook.highestCombined.week}, {recordBook.highestCombined.year} Season</p>
                       </>
                     ) : (
@@ -1222,10 +1299,11 @@ export default function HistoryPage() {
                         {(() => {
                           const rosterId = ownerToRosterId[recordBook.longestWinStreak!.ownerId];
                           const name = recordBook.longestWinStreak!.teamName;
-                          return rosterId !== undefined ? (
-                            <Link href={`/teams/${rosterId}`} className="text-lg font-semibold text-[var(--accent)] hover:underline">{name}</Link>
-                          ) : (
-                            <p className="text-lg font-semibold text-[var(--text)]">{name}</p>
+                          return (
+                            <>
+                              {renderTeamsInline([name], [rosterId])}
+                              {renderTeamSplitStrip([name])}
+                            </>
                           );
                         })()}
                         <p className="text-[var(--muted)]">Weeks {recordBook.longestWinStreak.start.week}-{recordBook.longestWinStreak.end.week}, {recordBook.longestWinStreak.start.year === recordBook.longestWinStreak.end.year ? recordBook.longestWinStreak.start.year : `${recordBook.longestWinStreak.start.year}–${recordBook.longestWinStreak.end.year}`} Season</p>
@@ -1250,10 +1328,11 @@ export default function HistoryPage() {
                         {(() => {
                           const rosterId = ownerToRosterId[recordBook.longestLosingStreak!.ownerId];
                           const name = recordBook.longestLosingStreak!.teamName;
-                          return rosterId !== undefined ? (
-                            <Link href={`/teams/${rosterId}`} className="text-lg font-semibold text-[var(--accent)] hover:underline">{name}</Link>
-                          ) : (
-                            <p className="text-lg font-semibold text-[var(--text)]">{name}</p>
+                          return (
+                            <>
+                              {renderTeamsInline([name], [rosterId])}
+                              {renderTeamSplitStrip([name])}
+                            </>
                           );
                         })()}
                         <p className="text-[var(--muted)]">Weeks {recordBook.longestLosingStreak.start.week}-{recordBook.longestLosingStreak.end.week}, {recordBook.longestLosingStreak.start.year === recordBook.longestLosingStreak.end.year ? recordBook.longestLosingStreak.start.year : `${recordBook.longestLosingStreak.start.year}–${recordBook.longestLosingStreak.end.year}`} Season</p>
