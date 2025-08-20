@@ -119,7 +119,7 @@ function AssetNode({ data, id }: any) {
       className={`evw-node px-3 py-3 rounded-[var(--radius-card)] text-[13px] border relative hover-lift focus-visible:ring-2 ring-[var(--focus)] ring-offset-1 ring-offset-[var(--surface)] ${isDim ? 'opacity-30' : 'opacity-100'}`}
       style={{ ...(data.style || {}) }}
     >
-      <span className="absolute left-0 right-0 top-0 h-1 accent-gradient rounded-t-[var(--radius-card)] pointer-events-none" />
+      <span className="absolute left-0 right-0 top-0 h-1 accent-stripe rounded-t-[var(--radius-card)] pointer-events-none" />
       {pulse && (
         <>
           <span className="absolute inset-0 rounded-[var(--radius-card)] border-2 opacity-60 pointer-events-none" style={{ borderColor: BRACKET_RED }} />
@@ -169,7 +169,7 @@ function BandNode({ data, id }: any) {
   };
   return (
     <div className={`evw-node rounded-[var(--radius-card)] border bg-[var(--surface)] border-[var(--border)] ${isDim ? 'opacity-30' : 'opacity-100'}`} style={{ position: 'relative', width: '100%', height: '100%' }} onTouchStart={onTS} onTouchEnd={onTE}>
-      <span className="absolute left-0 right-0 top-0 h-1 accent-gradient rounded-t-[var(--radius-card)] pointer-events-none" />
+      <span className="absolute left-0 right-0 top-0 h-1 accent-stripe rounded-t-[var(--radius-card)] pointer-events-none" />
       <div className="flex flex-col items-center justify-center px-3" style={{ height: BAND_HEADER_H }}>
         <Button
           variant="ghost"

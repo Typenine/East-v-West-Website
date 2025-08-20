@@ -205,40 +205,40 @@ export default function RecordsPage() {
       <div className="flex flex-wrap justify-center mb-8 gap-2">
         <button
           onClick={() => setCategory('team')}
-          className={`px-4 py-2 rounded-md ${
+          className={`px-4 py-2 rounded-md pill ${
             category === 'team'
-              ? 'bg-blue-600 text-white'
-              : 'bg-gray-200 text-gray-800 hover:bg-gray-300'
+              ? 'pill-active'
+              : 'evw-surface border border-[var(--border)] text-[var(--text)] pill-hover'
           }`}
         >
           Team Records
         </button>
         <button
           onClick={() => setCategory('game')}
-          className={`px-4 py-2 rounded-md ${
+          className={`px-4 py-2 rounded-md pill ${
             category === 'game'
-              ? 'bg-blue-600 text-white'
-              : 'bg-gray-200 text-gray-800 hover:bg-gray-300'
+              ? 'pill-active'
+              : 'evw-surface border border-[var(--border)] text-[var(--text)] pill-hover'
           }`}
         >
           Game Records
         </button>
         <button
           onClick={() => setCategory('season')}
-          className={`px-4 py-2 rounded-md ${
+          className={`px-4 py-2 rounded-md pill ${
             category === 'season'
-              ? 'bg-blue-600 text-white'
-              : 'bg-gray-200 text-gray-800 hover:bg-gray-300'
+              ? 'pill-active'
+              : 'evw-surface border border-[var(--border)] text-[var(--text)] pill-hover'
           }`}
         >
           Season Records
         </button>
         <button
           onClick={() => setCategory('player')}
-          className={`px-4 py-2 rounded-md ${
+          className={`px-4 py-2 rounded-md pill ${
             category === 'player'
-              ? 'bg-blue-600 text-white'
-              : 'bg-gray-200 text-gray-800 hover:bg-gray-300'
+              ? 'pill-active'
+              : 'evw-surface border border-[var(--border)] text-[var(--text)] pill-hover'
           }`}
         >
           Player Records
@@ -249,12 +249,12 @@ export default function RecordsPage() {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {getRecords().map((record, index) => (
           <div key={index} className="bg-white rounded-lg shadow-md overflow-hidden">
-            <div className="bg-blue-600 text-white px-4 py-2">
+            <div className="brand-gradient text-white px-4 py-2">
               <h3 className="text-lg font-bold">{record.title}</h3>
             </div>
             <div className="p-6">
               <div className="text-center">
-                <p className="text-2xl font-bold text-blue-800 mb-2">{record.value}</p>
+                <p className="text-2xl font-bold text-accent mb-2">{record.value}</p>
                 <p className="text-lg font-medium">{record.holder}</p>
                 <p className="text-sm text-gray-600 mt-1">{record.year}</p>
               </div>
@@ -266,7 +266,7 @@ export default function RecordsPage() {
       <div className="mt-8 text-center">
         <Link 
           href="/history" 
-          className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+          className="btn btn-primary"
         >
           Back to History
         </Link>

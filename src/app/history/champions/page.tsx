@@ -56,11 +56,11 @@ export default function ChampionsPage() {
                 key={champion.year}
                 type="button"
                 onClick={() => setSelectedYear(champion.year)}
-                className={`px-4 py-2 text-sm font-medium ${
+                className={`px-4 py-2 text-sm font-medium pill ${
                   selectedYear === champion.year
-                    ? 'bg-blue-600 text-white'
-                    : 'bg-white text-gray-700 hover:bg-gray-50'
-                } border border-gray-200 ${
+                    ? 'pill-active'
+                    : 'evw-surface pill-hover border border-[var(--border)]'
+                } ${
                   champion.year === championDetails[0].year ? 'rounded-l-lg' : ''
                 } ${
                   champion.year === championDetails[championDetails.length - 1].year ? 'rounded-r-lg' : ''
@@ -75,7 +75,7 @@ export default function ChampionsPage() {
       
       {/* Champion Trophy Card */}
       <div className="max-w-3xl mx-auto bg-white rounded-lg shadow-lg overflow-hidden mb-8">
-        <div className="bg-gradient-to-r from-blue-600 to-blue-800 text-white p-6 text-center">
+        <div className="brand-gradient text-white p-6 text-center">
           <div className="text-6xl mb-4">🏆</div>
           <h2 className="text-3xl font-bold">{selectedChampion.team}</h2>
           <p className="text-xl mt-2">{selectedChampion.year} Champion</p>
@@ -294,7 +294,7 @@ export default function ChampionsPage() {
       <div className="mt-8 text-center">
         <Link 
           href="/history" 
-          className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+          className="btn btn-primary"
         >
           Back to History
         </Link>

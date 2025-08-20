@@ -72,7 +72,7 @@ export default function TradeDetailPage() {
           homeLink
         />
         <div className="mt-8 text-center">
-          <Link href="/trades" className="text-blue-600 hover:underline inline-flex items-center" aria-label="Return to trades list">
+          <Link href="/trades" className="text-accent hover:underline inline-flex items-center" aria-label="Return to trades list">
             <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
               <path fillRule="evenodd" d="M9.707 16.707a1 1 0 01-1.414 0l-6-6a1 1 0 010-1.414l6-6a1 1 0 011.414 1.414L5.414 9H17a1 1 0 110 2H5.414l4.293 4.293a1 1 0 010 1.414z" clipRule="evenodd" />
             </svg>
@@ -158,7 +158,7 @@ export default function TradeDetailPage() {
                           {(asset.type === 'player' && asset.playerId) ? (
                             <Link
                               href={`/trades/tracker?rootType=player&playerId=${asset.playerId}`}
-                              className="text-blue-600 hover:underline text-xs"
+                              className="text-accent hover:underline text-xs"
                               aria-label={`Track lineage for ${asset.name}`}
                             >
                               Track
@@ -167,14 +167,14 @@ export default function TradeDetailPage() {
                           {(asset.type === 'pick' && asset.year && asset.round && (asset.draftSlot ?? asset.pickInRound)) ? (
                             <Link
                               href={`/trades/tracker?rootType=pick&season=${asset.year}&round=${asset.round}&slot=${(asset.draftSlot ?? asset.pickInRound) as number}`}
-                              className="text-blue-600 hover:underline text-xs"
+                              className="text-accent hover:underline text-xs"
                               aria-label={`Track lineage for ${asset.name}`}
                             >
                               Track
                             </Link>
                           ) : null}
                           {showValueAnalysis && (
-                            <div className="text-sm font-medium bg-blue-100 text-blue-800 px-2 py-1 rounded">
+                            <div className="badge badge-accent text-xs px-2 py-1 rounded">
                               Value: {asset.value}
                             </div>
                           )}
@@ -202,7 +202,7 @@ export default function TradeDetailPage() {
               <h3 className="text-xl font-bold">Trade Analysis</h3>
               <button
                 onClick={() => setShowValueAnalysis(!showValueAnalysis)}
-                className="px-4 py-2 bg-blue-100 text-blue-700 rounded-md hover:bg-blue-200"
+                className="btn btn-secondary"
                 aria-pressed={showValueAnalysis}
                 aria-label={showValueAnalysis ? 'Hide trade value analysis' : 'Show trade value analysis'}
               >
@@ -276,7 +276,7 @@ export default function TradeDetailPage() {
                           })}
                         </p>
                       </div>
-                      <span className="text-blue-600" aria-hidden="true">View →</span>
+                      <span className="text-accent" aria-hidden="true">View →</span>
                     </div>
                   </Link>
                 ))}

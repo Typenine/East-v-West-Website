@@ -500,7 +500,7 @@ export default function HistoryPage() {
               };
               return (
                 <Card key={year} className="overflow-hidden hover-lift">
-                  <CardHeader className="accent-gradient text-white">
+                  <CardHeader className="brand-gradient text-white">
                     <CardTitle className="text-white text-lg">{year} Season</CardTitle>
                   </CardHeader>
                   <CardContent>
@@ -610,7 +610,7 @@ export default function HistoryPage() {
                 <label htmlFor="year-select" className="sr-only">Select Year</label>
                 <select
                   id="year-select"
-                  className="mt-1 block w-40 pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md"
+                  className="mt-1 block w-40 pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-[var(--accent)] focus:border-[var(--accent)] sm:text-sm rounded-md"
                   value={bracketYear}
                   onChange={(e) => setBracketYear(e.target.value)}
                 >
@@ -712,7 +712,7 @@ export default function HistoryPage() {
                       return bracketNameMap.get(rid) || `Roster ${rid}`;
                     };
                     const TeamRow = ({ rid, isWinner, score }: { rid?: number | null; isWinner: boolean; score?: number | null }) => (
-                      <div className={`flex items-center justify-between ${isWinner ? 'font-semibold text-blue-700' : ''}`}>
+                      <div className={`flex items-center justify-between ${isWinner ? 'font-semibold text-[var(--accent)]' : ''}`}>
                         {rid != null ? (
                           <Link href={`/teams/${rid}`} className="hover:underline">
                             {nameFor(rid)}
