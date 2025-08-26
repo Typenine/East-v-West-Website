@@ -13,6 +13,8 @@ import {
   getTeamAllTimeStatsByOwner,
   getTeamH2HRecordsAllTimeByOwner,
   getPlayersPPRAndPPG,
+  getNFLSeasonStats,
+  SleeperNFLSeasonPlayerStats,
 } from '@/lib/utils/sleeper-api';
 import { LEAGUE_IDS } from '@/lib/constants/league';
 import { getTeamLogoPath, getTeamColorStyle, resolveCanonicalTeamName } from '@/lib/utils/team-utils';
@@ -26,6 +28,7 @@ import Label from '@/components/ui/Label';
 import Button from '@/components/ui/Button';
 import Chip from '@/components/ui/Chip';
 import StatCard from '@/components/ui/StatCard';
+import Modal from '@/components/ui/Modal';
 
 // Position grouping order for roster sections
 const POSITION_GROUP_ORDER = ['QB', 'RB', 'WR', 'TE', 'K', 'DEF/DST', 'DL', 'LB', 'DB', 'Other'] as const;
@@ -107,6 +110,9 @@ export default function TeamPage() {
   const toggleGroup = (playerId: string) => {
     setCollapsedGroups((prev) => ({ ...prev, [playerId]: !prev[playerId] }));
   };
+  // Player detail modal state and season stats cache
+  const [selectedPlayerId, setSelectedPlayerId] = useState<string | null>(null);
+  const [seasonStats, setSeasonStats] = useState<Record<string, SleeperNFLSeasonPlayerStats>>({});
   
   // Sorting state for roster table
   type SortKey = 'name' | 'position' | 'team' | 'gp' | 'totalPPR' | 'ppg';
@@ -173,6 +179,25 @@ export default function TeamPage() {
     const groups = Object.keys(byGroup).sort((ga, gb) => groupOrderIndex(ga) - groupOrderIndex(gb));
     return groups.map((g) => ({ group: g, ids: byGroup[g] }));
   }, [team?.players, players, playerSeasonStats, sortBy, sortDir]);
+
+  // Lazy-load season real-life stats when opening a player's modal (fetch once per season)
+  useEffect(() => {
+    if (!selectedPlayerId) return;
+    if (seasonStats && seasonStats[selectedPlayerId]) return;
+    (async () => {
+      try {
+        const stats = await getNFLSeasonStats(selectedYear);
+        setSeasonStats(stats);
+      } catch {
+        /* ignore */
+      }
+    })();
+  }, [selectedPlayerId, selectedYear, seasonStats]);
+
+  // Clear cached season stats when the selected season changes
+  useEffect(() => {
+    setSeasonStats({});
+  }, [selectedYear]);
   
   // Get the league ID for the selected year
   const getLeagueIdForYear = (year: string) => {
@@ -573,9 +598,13 @@ export default function TeamPage() {
                                 return (
                                   <Tr key={playerId}>
                                     <Td>
-                                      <div className="text-sm font-medium text-[var(--text)]">
+                                      <button
+                                        type="button"
+                                        className="text-sm font-medium text-[var(--accent)] hover:underline"
+                                        onClick={() => setSelectedPlayerId(playerId)}
+                                      >
                                         {player.first_name} {player.last_name}
-                                      </div>
+                                      </button>
                                     </Td>
                                     <Td>
                                       <div className="text-sm text-[var(--muted)]">{player.position}</div>
@@ -743,6 +772,107 @@ export default function TeamPage() {
           },
         ]}
       />
+      {/* Player Details Modal */}
+      {selectedPlayerId && (
+        <Modal
+          open={!!selectedPlayerId}
+          onClose={() => setSelectedPlayerId(null)}
+          title={(() => {
+            const p = players[selectedPlayerId!];
+            return p ? `${p.first_name} ${p.last_name}` : 'Player Details';
+          })()}
+        >
+          {(() => {
+            const p = players[selectedPlayerId!];
+            const s = playerSeasonStats[selectedPlayerId!] || { totalPPR: 0, gp: 0, ppg: 0 };
+            const nfl = seasonStats[selectedPlayerId!];
+            const group = newsGrouped.find((g) => g.playerId === selectedPlayerId);
+            const meta = p ? `${p.position || ''}${p.team ? ` • ${p.team}` : ''}` : '';
+
+            const labelMap: Record<string, string> = {
+              pass_yd: 'Pass Yds',
+              pass_td: 'Pass TDs',
+              pass_int: 'INT',
+              rush_att: 'Rush Att',
+              rush_yd: 'Rush Yds',
+              rush_td: 'Rush TDs',
+              rec: 'Receptions',
+              rec_yd: 'Rec Yds',
+              rec_td: 'Rec TDs',
+              fumbles_lost: 'Fumbles Lost',
+              sack: 'Sacks',
+              int: 'INT (DEF)',
+              def_td: 'Def TDs',
+              pts_allowed: 'Pts Allowed',
+              xpm: 'XPM',
+              xpa: 'XPA',
+              fgm: 'FGM',
+              fga: 'FGA',
+            };
+            const candidateKeys = [
+              'pass_yd','pass_td','pass_int','rush_att','rush_yd','rush_td','rec','rec_yd','rec_td','fumbles_lost','sack','int','def_td','pts_allowed','xpm','xpa','fgm','fga'
+            ];
+            const realStats: Array<{ key: string; label: string; value: number }> = [];
+            if (nfl) {
+              for (const k of candidateKeys) {
+                const v = (nfl as Record<string, number | undefined>)[k];
+                if (typeof v === 'number' && Number.isFinite(v) && Math.abs(v) > 0) {
+                  realStats.push({ key: k, label: labelMap[k] || k, value: v });
+                }
+              }
+            }
+            // Keep at most 6 most notable stats by value
+            realStats.sort((a, b) => Math.abs(b.value) - Math.abs(a.value));
+            const topReal = realStats.slice(0, 6);
+
+            return (
+              <div className="space-y-4">
+                {meta ? <div className="text-sm text-[var(--muted)]">{meta}</div> : null}
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="evw-subtle rounded-lg p-3 border border-[var(--border)]">
+                    <div className="text-xs font-semibold text-[var(--muted)] mb-1">Fantasy (PPR)</div>
+                    <div className="text-sm">G: <span className="font-medium">{s.gp || 0}</span></div>
+                    <div className="text-sm">Total: <span className="font-medium">{(s.totalPPR || 0).toFixed(1)}</span></div>
+                    <div className="text-sm">PPG: <span className="font-medium">{(s.ppg || 0).toFixed(2)}</span></div>
+                  </div>
+                  <div className="evw-subtle rounded-lg p-3 border border-[var(--border)]">
+                    <div className="text-xs font-semibold text-[var(--muted)] mb-1">Real-life</div>
+                    <div className="text-sm">Games: <span className="font-medium">{(nfl?.gp ?? nfl?.gms_active ?? 0) || 0}</span></div>
+                    {topReal.length > 0 ? (
+                      <ul className="mt-1 space-y-0.5 text-sm">
+                        {topReal.map((rs) => (
+                          <li key={rs.key} className="flex justify-between"><span>{rs.label}</span><span className="font-medium">{rs.value}</span></li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <div className="text-sm text-[var(--muted)]">No stat details available.</div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="evw-subtle rounded-lg p-3 border border-[var(--border)]">
+                  <div className="text-xs font-semibold text-[var(--muted)] mb-2">Latest News</div>
+                  {group && group.items && group.items.length > 0 ? (
+                    <ul className="space-y-2">
+                      {group.items.slice(0, 5).map((it, idx) => (
+                        <li key={`${selectedPlayerId}-news-${idx}`} className="text-sm">
+                          <a href={it.link} target="_blank" rel="noopener noreferrer" className="text-[var(--accent)] hover:underline font-medium">
+                            {it.title}
+                          </a>
+                          <div className="text-xs text-[var(--muted)]">{it.sourceName}{it.publishedAt ? ` • ${new Date(it.publishedAt).toLocaleString()}` : ''}</div>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <div className="text-sm text-[var(--muted)]">No recent articles.</div>
+                  )}
+                </div>
+              </div>
+            );
+          })()}
+        </Modal>
+      )}
     </div>
   );
 }
