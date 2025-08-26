@@ -1548,22 +1548,27 @@ export async function computeSeasonTotalsCustomScoring(
   endWeek: number = 14,
   options?: SleeperFetchOptions
 ): Promise<Record<string, number>> {
-  const league = await getLeague(leagueId, options);
-  const scoring = toNumericScoring(league?.scoring_settings as Record<string, unknown>);
-
-  const weeks = Array.from({ length: Math.max(1, Math.min(14, Math.floor(endWeek))) }, (_, i) => i + 1);
-  const weeklyStatsArr = await Promise.all(
-    weeks.map((w) => getNFLWeekStats(season, w, 15 * 60 * 1000, options).catch(() => ({} as Record<string, SleeperNFLSeasonPlayerStats>)))
-  );
-
-  const totals: Record<string, number> = {};
-  for (const weeklyStats of weeklyStatsArr) {
-    const weekPoints = computeWeekPointsCustom(weeklyStats, scoring);
-    for (const [pid, pts] of Object.entries(weekPoints)) {
-      totals[pid] = Number(((totals[pid] || 0) + pts).toFixed(4));
+  // Preferred: derive per-player totals from league matchups players_points (exact parity with Sleeper)
+  try {
+    const fromMatchups = await computeSeasonTotalsFromLeagueMatchups(leagueId, endWeek, options);
+    return fromMatchups;
+  } catch {
+    // Fallback: compute from weekly NFL stats and league scoring_settings (approximation)
+    const league = await getLeague(leagueId, options);
+    const scoring = toNumericScoring(league?.scoring_settings as Record<string, unknown>);
+    const weeks = Array.from({ length: Math.max(1, Math.min(14, Math.floor(endWeek))) }, (_, i) => i + 1);
+    const weeklyStatsArr = await Promise.all(
+      weeks.map((w) => getNFLWeekStats(season, w, 15 * 60 * 1000, options).catch(() => ({} as Record<string, SleeperNFLSeasonPlayerStats>)))
+    );
+    const totals: Record<string, number> = {};
+    for (const weeklyStats of weeklyStatsArr) {
+      const weekPoints = computeWeekPointsCustom(weeklyStats, scoring);
+      for (const [pid, pts] of Object.entries(weekPoints)) {
+        totals[pid] = Number(((totals[pid] || 0) + pts).toFixed(4));
+      }
     }
+    return totals;
   }
-  return totals;
 }
 
 /**

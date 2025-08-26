@@ -12,7 +12,7 @@ import {
   TeamData,
   getTeamAllTimeStatsByOwner,
   getTeamH2HRecordsAllTimeByOwner,
-  getPlayersPPRAndPPG,
+  computeSeasonTotalsCustomScoring,
   getNFLSeasonStats,
   SleeperNFLSeasonPlayerStats,
 } from '@/lib/utils/sleeper-api';
@@ -211,17 +211,23 @@ export default function TeamPage() {
     setModalRealCache({});
   }, [selectedPlayerId, selectedYear]);
 
-  // Lazy fetch fantasy stats for selected player and modalYear
+  // Lazy fetch fantasy totals for selected player and modalYear using league custom scoring (exact parity)
   useEffect(() => {
     if (!selectedPlayerId) return;
     const season = String(modalYear);
     if (modalFantasyCache[season]) return;
     (async () => {
       try {
-        const res = await getPlayersPPRAndPPG(season, [selectedPlayerId]);
+        const leagueForSeason = getLeagueIdForYear(season);
+        if (!leagueForSeason) {
+          setModalFantasyCache((prev) => ({ ...prev, [season]: { totalPPR: 0, gp: 0, ppg: 0 } }));
+          return;
+        }
+        const totals = await computeSeasonTotalsCustomScoring(season, leagueForSeason, 14);
+        const total = Number(totals[selectedPlayerId] || 0);
         setModalFantasyCache((prev) => ({
           ...prev,
-          [season]: res[selectedPlayerId] || { totalPPR: 0, gp: 0, ppg: 0 },
+          [season]: { totalPPR: total, gp: 0, ppg: 0 },
         }));
       } catch {
         /* ignore */
@@ -283,12 +289,23 @@ export default function TeamPage() {
         // Fetch players data and season stats if team has players
         if (currentTeam.players && currentTeam.players.length > 0) {
           try {
-            const [allPlayersData, seasonStats] = await Promise.all([
+            const [allPlayersData, leagueTotals, seasonAgg] = await Promise.all([
               getAllPlayers(),
-              getPlayersPPRAndPPG(selectedYear, currentTeam.players),
+              // Use league custom scoring up to Week 14 to match Sleeper league view
+              computeSeasonTotalsCustomScoring(selectedYear, leagueId, 14),
+              // For GP we use season aggregate gp/gms_active (real-life)
+              getNFLSeasonStats(selectedYear),
             ]);
             setPlayers(allPlayersData);
-            setPlayerSeasonStats(seasonStats);
+            const stats: Record<string, { totalPPR: number; gp: number; ppg: number }> = {};
+            for (const pid of currentTeam.players) {
+              const total = Number(leagueTotals[pid] || 0);
+              const s = seasonAgg[pid];
+              const gp = (s?.gp ?? s?.gms_active ?? 0) || 0;
+              const ppg = gp > 0 ? total / gp : 0;
+              stats[pid] = { totalPPR: total, gp, ppg };
+            }
+            setPlayerSeasonStats(stats);
           } catch {
             // Best-effort: still attempt to load players
             try {
@@ -899,9 +916,18 @@ export default function TeamPage() {
                 <div className="grid grid-cols-2 gap-4">
                   <div className="evw-subtle rounded-lg p-3 border border-[var(--border)]">
                     <div className="text-xs font-semibold text-[var(--muted)] mb-1">Fantasy (PPR)</div>
-                    <div className="text-sm">G: <span className="font-medium">{s.gp || 0}</span></div>
-                    <div className="text-sm">Total: <span className="font-medium">{(s.totalPPR || 0).toFixed(1)}</span></div>
-                    <div className="text-sm">PPG: <span className="font-medium">{(s.ppg || 0).toFixed(2)}</span></div>
+                    {(() => {
+                      const gp = (nfl?.gp ?? nfl?.gms_active ?? 0) || 0;
+                      const total = Number(s.totalPPR || 0);
+                      const ppg = gp > 0 ? total / gp : 0;
+                      return (
+                        <>
+                          <div className="text-sm">G: <span className="font-medium">{gp}</span></div>
+                          <div className="text-sm">Total: <span className="font-medium">{total.toFixed(2)}</span></div>
+                          <div className="text-sm">PPG: <span className="font-medium">{ppg.toFixed(2)}</span></div>
+                        </>
+                      );
+                    })()}
                   </div>
                   <div className="evw-subtle rounded-lg p-3 border border-[var(--border)]">
                     <div className="text-xs font-semibold text-[var(--muted)] mb-1">Real-life</div>
