@@ -38,6 +38,26 @@ function isAbortError(e: unknown): boolean {
   return hasName(e) && e.name === 'AbortError';
 }
 
+// Local util: convert hex like #rrggbb to rgba(..., alpha)
+function hexToRgba(hex: string, alpha = 1): string {
+  const clean = hex.replace('#', '');
+  const r = parseInt(clean.substring(0, 2), 16);
+  const g = parseInt(clean.substring(2, 4), 16);
+  const b = parseInt(clean.substring(4, 6), 16);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
+// Compute readable text color for a given hex background (#rrggbb)
+function readableOn(hex: string): string {
+  const clean = hex.replace('#', '');
+  const r = parseInt(clean.substring(0, 2), 16);
+  const g = parseInt(clean.substring(2, 4), 16);
+  const b = parseInt(clean.substring(4, 6), 16);
+  // relative luminance
+  const luminance = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+  return luminance > 0.6 ? '#111111' : '#ffffff';
+}
+
 export default function HistoryPage() {
   const [activeTab, setActiveTab] = useState('champions');
   // Franchises state
@@ -567,34 +587,43 @@ export default function HistoryPage() {
                   </Link>
                 );
               };
+
               return (
                 <Card key={year} className="overflow-hidden hover-lift">
-                  <CardHeader className="brand-gradient text-on-brand">
-                    <CardTitle className="text-on-brand text-lg">{year} Season</CardTitle>
+                  <CardHeader style={champion !== 'TBD' ? getTeamColorStyle(champion) : undefined}>
+                    <CardTitle className="text-current text-lg">{year} Season</CardTitle>
                   </CardHeader>
                   <CardContent>
                     {/* Champion */}
                     <div className="text-center">
                       <div className="flex justify-center mb-4">
-                        <div
-                          className="w-14 h-14 rounded-full flex items-center justify-center overflow-hidden"
-                          style={champion !== 'TBD' ? getTeamColorStyle(champion) : undefined}
-                        >
-                          {champion !== 'TBD' ? (
-                            <Image
-                              src={getTeamLogoPath(champion)}
-                              alt={champion}
-                              width={48}
-                              height={48}
-                              className="object-contain"
-                              onError={(e) => {
-                                const t = e.target as HTMLImageElement;
-                                t.style.display = 'none';
-                              }}
+                        <div className="relative">
+                          {champion !== 'TBD' && (
+                            <div
+                              className="absolute -z-10 top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-24 h-24 rounded-full"
+                              style={{ backgroundColor: hexToRgba(getTeamColors(champion).secondary || getTeamColors(champion).primary, 0.25) }}
                             />
-                          ) : (
-                            <span className="text-3xl">🏆</span>
                           )}
+                          <div
+                            className="w-20 h-20 rounded-full flex items-center justify-center overflow-hidden border-2"
+                            style={champion !== 'TBD' ? { ...getTeamColorStyle(champion), borderColor: '#ffffff99' } : undefined}
+                          >
+                            {champion !== 'TBD' ? (
+                              <Image
+                                src={getTeamLogoPath(champion)}
+                                alt={champion}
+                                width={80}
+                                height={80}
+                                className="object-contain"
+                                onError={(e) => {
+                                  const t = e.target as HTMLImageElement;
+                                  t.style.display = 'none';
+                                }}
+                              />
+                            ) : (
+                              <span className="text-5xl">🏆</span>
+                            )}
+                          </div>
                         </div>
                       </div>
                       <h3 className="text-xl font-semibold mb-2 text-[var(--text)]">{champion}</h3>
@@ -605,25 +634,33 @@ export default function HistoryPage() {
                     <div className="mt-6 space-y-4">
                       {/* Runner-up */}
                       <div className="flex items-center gap-3">
-                        <div
-                          className="w-10 h-10 rounded-full flex items-center justify-center overflow-hidden"
-                          style={runnerUp !== 'TBD' ? getTeamColorStyle(runnerUp) : undefined}
-                        >
-                          {runnerUp !== 'TBD' ? (
-                            <Image
-                              src={getTeamLogoPath(runnerUp)}
-                              alt={runnerUp}
-                              width={32}
-                              height={32}
-                              className="object-contain"
-                              onError={(e) => {
-                                const t = e.target as HTMLImageElement;
-                                t.style.display = 'none';
-                              }}
+                        <div className="relative">
+                          {runnerUp !== 'TBD' && (
+                            <div
+                              className="absolute -z-10 top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-16 h-16 rounded-full"
+                              style={{ backgroundColor: hexToRgba(getTeamColors(runnerUp).secondary || getTeamColors(runnerUp).primary, 0.25) }}
                             />
-                          ) : (
-                            <span className="text-xl">🥈</span>
                           )}
+                          <div
+                            className="w-14 h-14 rounded-full flex items-center justify-center overflow-hidden border-2"
+                            style={runnerUp !== 'TBD' ? { ...getTeamColorStyle(runnerUp), borderColor: '#ffffff99' } : undefined}
+                          >
+                            {runnerUp !== 'TBD' ? (
+                              <Image
+                                src={getTeamLogoPath(runnerUp)}
+                                alt={runnerUp}
+                                width={56}
+                                height={56}
+                                className="object-contain"
+                                onError={(e) => {
+                                  const t = e.target as HTMLImageElement;
+                                  t.style.display = 'none';
+                                }}
+                              />
+                            ) : (
+                              <span className="text-xl">🥈</span>
+                            )}
+                          </div>
                         </div>
                         <div className="flex-1 min-w-0">
                           <div className="text-xs text-[var(--muted)]">Runner-up</div>
@@ -634,25 +671,33 @@ export default function HistoryPage() {
 
                       {/* Third Place */}
                       <div className="flex items-center gap-3">
-                        <div
-                          className="w-10 h-10 rounded-full flex items-center justify-center overflow-hidden"
-                          style={thirdPlace !== 'TBD' ? getTeamColorStyle(thirdPlace) : undefined}
-                        >
-                          {thirdPlace !== 'TBD' ? (
-                            <Image
-                              src={getTeamLogoPath(thirdPlace)}
-                              alt={thirdPlace}
-                              width={32}
-                              height={32}
-                              className="object-contain"
-                              onError={(e) => {
-                                const t = e.target as HTMLImageElement;
-                                t.style.display = 'none';
-                              }}
+                        <div className="relative">
+                          {thirdPlace !== 'TBD' && (
+                            <div
+                              className="absolute -z-10 top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-16 h-16 rounded-full"
+                              style={{ backgroundColor: hexToRgba(getTeamColors(thirdPlace).secondary || getTeamColors(thirdPlace).primary, 0.25) }}
                             />
-                          ) : (
-                            <span className="text-xl">🥉</span>
                           )}
+                          <div
+                            className="w-14 h-14 rounded-full flex items-center justify-center overflow-hidden border-2"
+                            style={thirdPlace !== 'TBD' ? { ...getTeamColorStyle(thirdPlace), borderColor: '#ffffff99' } : undefined}
+                          >
+                            {thirdPlace !== 'TBD' ? (
+                              <Image
+                                src={getTeamLogoPath(thirdPlace)}
+                                alt={thirdPlace}
+                                width={56}
+                                height={56}
+                                className="object-contain"
+                                onError={(e) => {
+                                  const t = e.target as HTMLImageElement;
+                                  t.style.display = 'none';
+                                }}
+                              />
+                            ) : (
+                              <span className="text-xl">🥉</span>
+                            )}
+                          </div>
                         </div>
                         <div className="flex-1 min-w-0">
                           <div className="text-xs text-[var(--muted)]">Third Place</div>
@@ -661,6 +706,7 @@ export default function HistoryPage() {
                         </div>
                       </div>
                     </div>
+                    {renderTeamSplitStrip([champion])}
                   </CardContent>
                 </Card>
               );
