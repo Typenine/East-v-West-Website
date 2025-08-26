@@ -7,11 +7,13 @@ export function Modal({
   onClose,
   title,
   children,
+  showClose = true,
 }: {
   open: boolean;
   onClose: () => void;
   title?: ReactNode;
   children: ReactNode;
+  showClose?: boolean;
 }) {
   const panelRef = useRef<HTMLDivElement | null>(null);
   const titleIdRef = useRef<string>(`modal-title-${Math.random().toString(36).slice(2)}`);
@@ -78,11 +80,23 @@ export function Modal({
             className="evw-surface border border-[var(--border)] rounded-[var(--radius-card)] shadow-[var(--shadow-soft)] w-full max-w-lg outline-none"
             onClick={(e) => e.stopPropagation()}
           >
-            {title && (
-              <div className="px-4 py-3 border-b border-[var(--border)]">
-                <h3 id={titleIdRef.current} className="text-base font-semibold text-[var(--text)]">
-                  {title}
-                </h3>
+            {(title || showClose) && (
+              <div className="px-4 py-3 border-b border-[var(--border)] flex items-center justify-between gap-3">
+                {title ? (
+                  <h3 id={titleIdRef.current} className="text-base font-semibold text-[var(--text)]">
+                    {title}
+                  </h3>
+                ) : <span />}
+                {showClose && (
+                  <button
+                    type="button"
+                    aria-label="Close"
+                    onClick={onClose}
+                    className="text-[var(--muted)] hover:text-[var(--text)] px-2 py-1 rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-strong, #0b5f98)]"
+                  >
+                    ×
+                  </button>
+                )}
               </div>
             )}
             <div className="p-4">{children}</div>

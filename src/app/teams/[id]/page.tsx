@@ -113,6 +113,10 @@ export default function TeamPage() {
   // Player detail modal state and season stats cache
   const [selectedPlayerId, setSelectedPlayerId] = useState<string | null>(null);
   const [seasonStats, setSeasonStats] = useState<Record<string, SleeperNFLSeasonPlayerStats>>({});
+  // Player modal per-season state/caches
+  const [modalYear, setModalYear] = useState<string>(selectedYear);
+  const [modalFantasyCache, setModalFantasyCache] = useState<Record<string, { totalPPR: number; gp: number; ppg: number }>>({});
+  const [modalRealCache, setModalRealCache] = useState<Record<string, SleeperNFLSeasonPlayerStats | null>>({});
   
   // Sorting state for roster table
   type SortKey = 'name' | 'position' | 'team' | 'gp' | 'totalPPR' | 'ppg';
@@ -198,6 +202,50 @@ export default function TeamPage() {
   useEffect(() => {
     setSeasonStats({});
   }, [selectedYear]);
+  
+  // Initialize modalYear and reset per-player caches when opening modal or switching page season
+  useEffect(() => {
+    if (!selectedPlayerId) return;
+    setModalYear(String(selectedYear));
+    setModalFantasyCache({});
+    setModalRealCache({});
+  }, [selectedPlayerId, selectedYear]);
+
+  // Lazy fetch fantasy stats for selected player and modalYear
+  useEffect(() => {
+    if (!selectedPlayerId) return;
+    const season = String(modalYear);
+    if (modalFantasyCache[season]) return;
+    (async () => {
+      try {
+        const res = await getPlayersPPRAndPPG(season, [selectedPlayerId]);
+        setModalFantasyCache((prev) => ({
+          ...prev,
+          [season]: res[selectedPlayerId] || { totalPPR: 0, gp: 0, ppg: 0 },
+        }));
+      } catch {
+        /* ignore */
+      }
+    })();
+  }, [selectedPlayerId, modalYear, modalFantasyCache]);
+
+  // Lazy fetch real-life stats for selected player and modalYear
+  useEffect(() => {
+    if (!selectedPlayerId) return;
+    const season = String(modalYear);
+    if (Object.prototype.hasOwnProperty.call(modalRealCache, season)) return;
+    (async () => {
+      try {
+        const stats = await getNFLSeasonStats(season);
+        setModalRealCache((prev) => ({
+          ...prev,
+          [season]: stats[selectedPlayerId] || null,
+        }));
+      } catch {
+        /* ignore */
+      }
+    })();
+  }, [selectedPlayerId, modalYear, modalRealCache]);
   
   // Get the league ID for the selected year
   const getLeagueIdForYear = (year: string) => {
@@ -784,19 +832,22 @@ export default function TeamPage() {
         >
           {(() => {
             const p = players[selectedPlayerId!];
-            const s = playerSeasonStats[selectedPlayerId!] || { totalPPR: 0, gp: 0, ppg: 0 };
-            const nfl = seasonStats[selectedPlayerId!];
+            const s = (modalFantasyCache[modalYear] ?? playerSeasonStats[selectedPlayerId!]) || { totalPPR: 0, gp: 0, ppg: 0 };
+            const nfl = (modalRealCache[modalYear] ?? seasonStats[selectedPlayerId!]);
             const group = newsGrouped.find((g) => g.playerId === selectedPlayerId);
             const meta = p ? `${p.position || ''}${p.team ? ` • ${p.team}` : ''}` : '';
 
             const labelMap: Record<string, string> = {
               pass_yd: 'Pass Yds',
+              pass_att: 'Pass Att',
+              pass_cmp: 'Pass Cmp',
               pass_td: 'Pass TDs',
               pass_int: 'INT',
               rush_att: 'Rush Att',
               rush_yd: 'Rush Yds',
               rush_td: 'Rush TDs',
               rec: 'Receptions',
+              tgt: 'Targets',
               rec_yd: 'Rec Yds',
               rec_td: 'Rec TDs',
               fumbles_lost: 'Fumbles Lost',
@@ -810,7 +861,7 @@ export default function TeamPage() {
               fga: 'FGA',
             };
             const candidateKeys = [
-              'pass_yd','pass_td','pass_int','rush_att','rush_yd','rush_td','rec','rec_yd','rec_td','fumbles_lost','sack','int','def_td','pts_allowed','xpm','xpa','fgm','fga'
+              'pass_yd','pass_att','pass_cmp','pass_td','pass_int','rush_att','rush_yd','rush_td','rec','tgt','rec_yd','rec_td','fumbles_lost','sack','int','def_td','pts_allowed','xpm','xpa','fgm','fga'
             ];
             const realStats: Array<{ key: string; label: string; value: number }> = [];
             if (nfl) {
@@ -821,13 +872,29 @@ export default function TeamPage() {
                 }
               }
             }
-            // Keep at most 6 most notable stats by value
+            // Keep at most 8 most notable stats by value
             realStats.sort((a, b) => Math.abs(b.value) - Math.abs(a.value));
-            const topReal = realStats.slice(0, 6);
+            const topReal = realStats.slice(0, 8);
 
             return (
               <div className="space-y-4">
-                {meta ? <div className="text-sm text-[var(--muted)]">{meta}</div> : null}
+                <div className="flex items-center justify-between">
+                  {meta ? <div className="text-sm text-[var(--muted)]">{meta}</div> : <span />}
+                  <div className="flex items-center gap-2">
+                    <Label htmlFor="player-season" className="text-xs text-[var(--muted)]">Season</Label>
+                    <Select
+                      id="player-season"
+                      size="sm"
+                      value={modalYear}
+                      onChange={(e) => setModalYear(e.target.value)}
+                      className="w-[8.5rem]"
+                    >
+                      <option value="2025">2025</option>
+                      <option value="2024">2024</option>
+                      <option value="2023">2023</option>
+                    </Select>
+                  </div>
+                </div>
 
                 <div className="grid grid-cols-2 gap-4">
                   <div className="evw-subtle rounded-lg p-3 border border-[var(--border)]">
