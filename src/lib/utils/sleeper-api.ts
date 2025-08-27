@@ -1523,7 +1523,8 @@ async function computeSeasonTotalsFromLeagueMatchups(
   options?: SleeperFetchOptions
 ): Promise<Record<string, number>> {
   const totals: Record<string, number> = {};
-  const weeks = Array.from({ length: Math.max(1, Math.min(14, Math.floor(endWeek))) }, (_, i) => i + 1);
+  const maxWeek = Math.max(1, Math.min(18, Math.floor(endWeek)));
+  const weeks = Array.from({ length: maxWeek }, (_, i) => i + 1);
   const weeklyMatchupsArr = await Promise.all(
     weeks.map((week) => getLeagueMatchups(leagueId, week, options).catch(() => [] as SleeperMatchup[]))
   );
@@ -1556,7 +1557,7 @@ export async function computeSeasonTotalsCustomScoring(
     // Fallback: compute from weekly NFL stats and league scoring_settings (approximation)
     const league = await getLeague(leagueId, options);
     const scoring = toNumericScoring(league?.scoring_settings as Record<string, unknown>);
-    const weeks = Array.from({ length: Math.max(1, Math.min(14, Math.floor(endWeek))) }, (_, i) => i + 1);
+    const weeks = Array.from({ length: Math.max(1, Math.min(18, Math.floor(endWeek))) }, (_, i) => i + 1);
     const weeklyStatsArr = await Promise.all(
       weeks.map((w) => getNFLWeekStats(season, w, 15 * 60 * 1000, options).catch(() => ({} as Record<string, SleeperNFLSeasonPlayerStats>)))
     );
@@ -1569,6 +1570,33 @@ export async function computeSeasonTotalsCustomScoring(
     }
     return totals;
   }
+}
+
+/**
+ * Compute per-player totals for a season using the league's scoring_settings
+ * applied to NFL weekly stats (Weeks 1..endWeek). This includes players even if
+ * they were not rostered in your league for certain weeks.
+ */
+export async function computeSeasonTotalsCustomScoringFromStats(
+  season: string | number,
+  leagueId: string,
+  endWeek: number = 18,
+  options?: SleeperFetchOptions
+): Promise<Record<string, number>> {
+  const league = await getLeague(leagueId, options);
+  const scoring = toNumericScoring(league?.scoring_settings as Record<string, unknown>);
+  const weeks = Array.from({ length: Math.max(1, Math.min(18, Math.floor(endWeek))) }, (_, i) => i + 1);
+  const weeklyStatsArr = await Promise.all(
+    weeks.map((w) => getNFLWeekStats(season, w, 15 * 60 * 1000, options).catch(() => ({} as Record<string, SleeperNFLSeasonPlayerStats>)))
+  );
+  const totals: Record<string, number> = {};
+  for (const weeklyStats of weeklyStatsArr) {
+    const weekPoints = computeWeekPointsCustom(weeklyStats, scoring);
+    for (const [pid, pts] of Object.entries(weekPoints)) {
+      totals[pid] = Number(((totals[pid] || 0) + pts).toFixed(4));
+    }
+  }
+  return totals;
 }
 
 /**

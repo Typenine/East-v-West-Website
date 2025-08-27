@@ -12,7 +12,7 @@ import {
   TeamData,
   getTeamAllTimeStatsByOwner,
   getTeamH2HRecordsAllTimeByOwner,
-  computeSeasonTotalsCustomScoring,
+  computeSeasonTotalsCustomScoringFromStats,
   getNFLSeasonStats,
   SleeperNFLSeasonPlayerStats,
 } from '@/lib/utils/sleeper-api';
@@ -223,7 +223,7 @@ export default function TeamPage() {
           setModalFantasyCache((prev) => ({ ...prev, [season]: { totalPPR: 0, gp: 0, ppg: 0 } }));
           return;
         }
-        const totals = await computeSeasonTotalsCustomScoring(season, leagueForSeason, 14);
+        const totals = await computeSeasonTotalsCustomScoringFromStats(season, leagueForSeason, 18);
         const total = Number(totals[selectedPlayerId] || 0);
         setModalFantasyCache((prev) => ({
           ...prev,
@@ -291,8 +291,8 @@ export default function TeamPage() {
           try {
             const [allPlayersData, leagueTotals, seasonAgg] = await Promise.all([
               getAllPlayers(),
-              // Use league custom scoring up to Week 14 to match Sleeper league view
-              computeSeasonTotalsCustomScoring(selectedYear, leagueId, 14),
+              // Use league custom scoring for the full NFL regular season (Weeks 1–18)
+              computeSeasonTotalsCustomScoringFromStats(selectedYear, leagueId, 18),
               // For GP we use season aggregate gp/gms_active (real-life)
               getNFLSeasonStats(selectedYear),
             ]);
