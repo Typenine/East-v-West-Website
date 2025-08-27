@@ -438,10 +438,14 @@ export default function TeamPage() {
   type TeamCSSVars = React.CSSProperties & {
     '--danger'?: string;
     '--gold'?: string;
+    '--tertiary'?: string;
+    '--quaternary'?: string;
   };
   const themeVars: TeamCSSVars = {
     '--danger': colors.primary,
     '--gold': colors.secondary,
+    '--tertiary': colors.tertiary ?? colors.secondary ?? colors.primary,
+    '--quaternary': colors.quaternary ?? colors.secondary ?? colors.primary,
   };
   // Local override to color Tabs with team primary while keeping global blue accents elsewhere
   type TabsAccentVars = React.CSSProperties & { '--accent'?: string };
@@ -961,16 +965,19 @@ export default function TeamPage() {
                   </div>
                 </div>
 
-                <div className="evw-subtle rounded-lg p-3 border border-[var(--border)]" style={{ borderTop: '3px solid var(--danger)' }}>
+                <div className="evw-subtle rounded-lg p-3 border border-[var(--border)]" style={{ borderTop: '3px solid var(--danger)', borderLeft: '3px solid var(--tertiary)' }}>
                   <div className="text-xs font-semibold text-[var(--muted)] mb-2">Latest News</div>
                   {group && group.items && group.items.length > 0 ? (
-                    <ul className="space-y-2">
+                    <ul className="space-y-1.5">
                       {group.items.slice(0, 5).map((it, idx) => (
-                        <li key={`${selectedPlayerId}-news-${idx}`} className="text-sm">
-                          <a href={it.link} target="_blank" rel="noopener noreferrer" className="text-[var(--accent)] hover:underline font-medium">
-                            {it.title}
-                          </a>
-                          <div className="text-xs text-[var(--muted)]">{it.sourceName}{it.publishedAt ? ` • ${new Date(it.publishedAt).toLocaleString()}` : ''}</div>
+                        <li key={`${selectedPlayerId}-news-${idx}`} className="text-sm flex items-start gap-2 rounded px-2 py-1 hover:bg-[color-mix(in_srgb,var(--accent)_6%,transparent)]">
+                          <span aria-hidden={true} className="mt-1 inline-block w-1.5 h-1.5 rounded-full" style={{ backgroundColor: 'var(--quaternary)' }} />
+                          <div>
+                            <a href={it.link} target="_blank" rel="noopener noreferrer" className="text-[var(--accent)] hover:underline underline-offset-2 font-medium">
+                              {it.title}
+                            </a>
+                            <div className="text-xs text-[var(--muted)]">{it.sourceName}{it.publishedAt ? ` • ${new Date(it.publishedAt).toLocaleString()}` : ''}</div>
+                          </div>
                         </li>
                       ))}
                     </ul>
