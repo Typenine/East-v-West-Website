@@ -911,7 +911,7 @@ export default function TeamPage() {
             const topReal = realStats.slice(0, 8);
 
             return (
-              <div className="space-y-4">
+              <div className="space-y-4" style={tabsAccentVars}>
                 <div className="flex items-center justify-between">
                   {meta ? <div className="text-sm text-[var(--muted)]">{meta}</div> : <span />}
                   <div className="flex items-center gap-2">
@@ -961,7 +961,7 @@ export default function TeamPage() {
                   </div>
                 </div>
 
-                <div className="evw-subtle rounded-lg p-3 border border-[var(--border)]">
+                <div className="evw-subtle rounded-lg p-3 border border-[var(--border)]" style={{ borderTop: '3px solid var(--danger)' }}>
                   <div className="text-xs font-semibold text-[var(--muted)] mb-2">Latest News</div>
                   {group && group.items && group.items.length > 0 ? (
                     <ul className="space-y-2">
