@@ -17,7 +17,7 @@ import {
   SleeperNFLSeasonPlayerStats,
 } from '@/lib/utils/sleeper-api';
 import { LEAGUE_IDS } from '@/lib/constants/league';
-import { getTeamLogoPath, getTeamColorStyle, resolveCanonicalTeamName } from '@/lib/utils/team-utils';
+import { getTeamLogoPath, getTeamColorStyle, getTeamColors, resolveCanonicalTeamName } from '@/lib/utils/team-utils';
 import LoadingState from '@/components/ui/loading-state';
 import ErrorState from '@/components/ui/error-state';
 import SectionHeader from '@/components/ui/SectionHeader';
@@ -433,6 +433,20 @@ export default function TeamPage() {
   // Find the team's canonical name
   const teamName = team.teamName;
   
+  // Scoped team theme variables for this page
+  const colors = getTeamColors(teamName);
+  type TeamCSSVars = React.CSSProperties & {
+    '--danger'?: string;
+    '--gold'?: string;
+  };
+  const themeVars: TeamCSSVars = {
+    '--danger': colors.primary,
+    '--gold': colors.secondary,
+  };
+  // Local override to color Tabs with team primary while keeping global blue accents elsewhere
+  type TabsAccentVars = React.CSSProperties & { '--accent'?: string };
+  const tabsAccentVars: TabsAccentVars = { '--accent': colors.primary };
+  
   // Function to handle missing logo images
   const handleImageError = (e: React.SyntheticEvent<HTMLImageElement, Event>) => {
     const target = e.target as HTMLImageElement;
@@ -447,7 +461,8 @@ export default function TeamPage() {
   };
   
   return (
-    <div className="container mx-auto px-4 py-8">
+    <div className="container mx-auto px-4 py-8" style={themeVars}>
+      <div className="w-full h-1.5 rounded-full mb-6 brand-gradient" />
       <div className="flex flex-col items-center mb-4">
         <div 
           className="w-32 h-32 rounded-full flex items-center justify-center mb-4 overflow-hidden" 
@@ -496,6 +511,7 @@ export default function TeamPage() {
       
       
       
+      <div style={tabsAccentVars}>
       <Tabs
         tabs={[
           {
@@ -650,7 +666,7 @@ export default function TeamPage() {
                           {sortedGroups.map(({ group, ids }) => (
                             [
                               (
-                                <Tr key={`hdr-${group}`} className="bg-[color-mix(in_srgb,var(--accent)_6%,transparent)]">
+                                <Tr key={`hdr-${group}`} className="bg-[color-mix(in_srgb,var(--danger)_12%,transparent)]">
                                   <Td colSpan={6} className="text-xs font-semibold text-[var(--muted)] uppercase">
                                     {group}
                                   </Td>
@@ -837,6 +853,7 @@ export default function TeamPage() {
           },
         ]}
       />
+      </div>
       {/* Player Details Modal */}
       {selectedPlayerId && (
         <Modal
