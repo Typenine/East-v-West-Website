@@ -12,6 +12,10 @@ export type RssItem = {
 // Simple per-source in-memory cache
 const sourceCache: Record<string, { ts: number; items: RssItem[] }> = {};
 
+// Global keyword exclusions across all sources (conservative)
+// Keep this list short to avoid over-filtering. We will tune over time.
+const GLOBAL_EXCLUDE = ['betting'];
+
 function decodeHtml(input: string): string {
   let s = input
     // Avoid ES2018 dotAll flag; use [\s\S]*? to match newlines
@@ -136,6 +140,15 @@ export async function fetchRssFromSource(source: RssSource, ttlMs = 10 * 60 * 10
     if (!resp.ok) throw new Error(`RSS ${source.id} ${resp.status}`);
     const xml = await resp.text();
     let items = parseRss(xml, source);
+
+    // Global excludes (e.g., betting content)
+    if (GLOBAL_EXCLUDE.length) {
+      const exc = GLOBAL_EXCLUDE.map((k) => k.toLowerCase());
+      items = items.filter((it) => {
+        const hay = `${it.title} ${it.description}`.toLowerCase();
+        return !exc.some((kw) => hay.includes(kw));
+      });
+    }
 
     // Optional keyword filtering
     if (source.includeKeywords && source.includeKeywords.length) {

@@ -22,6 +22,21 @@ function normalizeText(s: string): string {
     .replace(/\s+/g, ' ');
 }
 
+// Canonicalize URLs for better de-duplication: lower-case host, drop query params & fragments, trim trailing slash
+function canonicalizeUrl(url: string | null | undefined): string | null {
+  try {
+    if (!url) return null;
+    const u = new URL(url);
+    const host = u.host.toLowerCase();
+    const path = u.pathname.replace(/\/+$/, '');
+    return `${u.protocol}//${host}${path}`;
+  } catch {
+    const s = String(url || '').trim();
+    if (!s) return null;
+    return s.toLowerCase();
+  }
+}
+
 // Filter out generic broadcast/TV/stream guides
 function isWatchOrTVGuide(title: string, description: string): boolean {
   const hay = `${normalizeText(title)} ${normalizeText(description)}`;
@@ -39,6 +54,27 @@ function isWatchOrTVGuide(title: string, description: string): boolean {
     'radio broadcast',
     'start time and tv',
     'where to watch',
+  ];
+  return phrases.some((p) => hay.includes(p));
+}
+
+// Additional global exclusions (e.g., betting content)
+function isBettingContent(title: string, description: string): boolean {
+  const hay = `${normalizeText(title)} ${normalizeText(description)}`;
+  const phrases = [
+    'betting',
+    'odds',
+    'parlay',
+    'parlays',
+    'spread',
+    'point spread',
+    'prop bet',
+    'prop bets',
+    'props',
+    'lines',
+    'moneyline',
+    'over under',
+    'gambling',
   ];
   return phrases.some((p) => hay.includes(p));
 }
@@ -208,6 +244,12 @@ export async function GET(req: NextRequest) {
       'pfrumors': 1.1,
       'yahoo-nfl': 1.1,
       'nfltraderumors': 1.0,
+      // Newly added feeds
+      'nfl-com': 1.3,
+      'si-nfl': 1.1,
+      'usatoday-touchdownwire': 1.05,
+      'the33rdteam': 1.05,
+      'sbnation-nfl': 1.0,
     };
 
     type ScoredItem = RssItem & { matches: RosterNewsMatch[]; score: number };
@@ -215,7 +257,7 @@ export async function GET(req: NextRequest) {
     const now = Date.now();
     for (const it of allItems) {
       const title = it.title || '';
-      if (isWatchOrTVGuide(title, it.description)) {
+      if (isWatchOrTVGuide(title, it.description) || isBettingContent(title, it.description)) {
         // Skip generic how-to-watch/TV/streaming guide posts
         continue;
       }
@@ -263,10 +305,10 @@ export async function GET(req: NextRequest) {
       const multiBoost = matches.length >= 2 ? 0.2 : 0;
       const score = sourceWeight + recency + bestQuality + multiBoost;
 
-      // Dedup key by link or normalized title
-      const key = (it.link && it.link.trim().length > 0)
-        ? it.link.trim().toLowerCase()
-        : `t:${normalizeText(it.title || '')}`;
+      // Dedup key prefers canonicalized link; fallback to normalized title
+      const linkKey = canonicalizeUrl(it.link);
+      const titleKey = `t:${normalizeText(it.title || '')}`;
+      const key = linkKey || titleKey;
 
       const prev = byKey.get(key);
       if (!prev) {
@@ -293,7 +335,40 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    const deduped = Array.from(byKey.values());
+    // Secondary de-duplication by normalized title across different sources
+    const firstPass = Array.from(byKey.values());
+    const byTitle = new Map<string, ScoredItem>();
+    for (const item of firstPass) {
+      const tkey = normalizeText(item.title || '');
+      if (!tkey) {
+        // No title; keep as-is
+        const k = `__notitle__:${Math.random().toString(36).slice(2)}`;
+        byTitle.set(k, item);
+        continue;
+      }
+      const existing = byTitle.get(tkey);
+      if (!existing) {
+        byTitle.set(tkey, item);
+      } else {
+        // Merge: keep higher score, unify matches, keep newer publishedAt
+        const mergedMatchMap = new Map<string, RosterNewsMatch>();
+        for (const m of existing.matches) mergedMatchMap.set(m.playerId, m);
+        for (const m of item.matches) if (!mergedMatchMap.has(m.playerId)) mergedMatchMap.set(m.playerId, m);
+        const mergedMatches = Array.from(mergedMatchMap.values());
+
+        const newerTs = (() => {
+          const a = existing.publishedAt ? new Date(existing.publishedAt).getTime() : 0;
+          const b = item.publishedAt ? new Date(item.publishedAt).getTime() : 0;
+          return b > a ? item.publishedAt : existing.publishedAt;
+        })();
+
+        const winner = (item.score >= existing.score) ? { ...item } : { ...existing };
+        winner.matches = mergedMatches;
+        winner.publishedAt = newerTs;
+        byTitle.set(tkey, winner);
+      }
+    }
+    const deduped = Array.from(byTitle.values());
     deduped.sort((a, b) => {
       if (b.score !== a.score) return b.score - a.score;
       const ta = a.publishedAt ? new Date(a.publishedAt).getTime() : 0;

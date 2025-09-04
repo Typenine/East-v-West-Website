@@ -61,4 +61,34 @@ export const RSS_SOURCES: RssSource[] = [
     name: 'NFLTradeRumors',
     url: 'https://nfltraderumors.co/feed/',
   },
+  // NFL.com News (official league site)
+  {
+    id: 'nfl-com',
+    name: 'NFL.com News',
+    url: 'https://www.nfl.com/news/rss.xml',
+  },
+  // Sports Illustrated NFL
+  {
+    id: 'si-nfl',
+    name: 'Sports Illustrated NFL',
+    url: 'https://www.si.com/nfl/.rss/full',
+  },
+  // USA Today Touchdown Wire
+  {
+    id: 'usatoday-touchdownwire',
+    name: 'USA Today Touchdown Wire',
+    url: 'https://touchdownwire.usatoday.com/feed/',
+  },
+  // The 33rd Team
+  {
+    id: 'the33rdteam',
+    name: 'The 33rd Team',
+    url: 'https://www.the33rdteam.com/feed/',
+  },
+  // SB Nation NFL
+  {
+    id: 'sbnation-nfl',
+    name: 'SB Nation NFL',
+    url: 'https://www.sbnation.com/rss/nfl/index.xml',
+  },
 ];
