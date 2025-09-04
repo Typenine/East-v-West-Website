@@ -14,6 +14,7 @@ const navItems = [
   { name: 'Rules', path: '/rules' },
   { name: 'History', path: '/history' },
   { name: 'Draft', path: '/draft' },
+  { name: 'Podcast', path: '/podcast' },
   { name: 'Newsletter', path: '/newsletter' },
   { name: 'Trades', path: '/trades' },
   { name: 'Suggestions', path: '/suggestions' },
