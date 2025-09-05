@@ -68,10 +68,18 @@ async function sleeperFetchJson<T = unknown>(
     try {
       const resp = await fetch(url, { ...(init || {}), signal: controller.signal });
       if (!resp.ok) {
-        // Retry on 5xx; otherwise throw
-        if (resp.status >= 500 && attempt < retries && !abortedByCaller) {
+        // Retry on 5xx, 429 (rate limit), and 408 (request timeout)
+        const retryable = resp.status >= 500 || resp.status === 429 || resp.status === 408;
+        if (retryable && attempt < retries && !abortedByCaller) {
+          // Respect Retry-After for 429 when present (seconds)
+          let delay = baseDelay * Math.pow(2, attempt);
+          if (resp.status === 429) {
+            const ra = resp.headers.get('retry-after');
+            const raSec = ra ? Number(ra) : NaN;
+            if (Number.isFinite(raSec) && raSec > 0) delay = Math.max(delay, raSec * 1000);
+          }
           const jitter = Math.random() * 100;
-          await sleep(baseDelay * Math.pow(2, attempt) + jitter);
+          await sleep(delay + jitter);
           continue;
         }
         throw new Error(`HTTP ${resp.status} ${resp.statusText} for ${url}`);
@@ -808,6 +816,18 @@ export interface SleeperDraftDetails extends SleeperDraft {
   draft_order?: Record<string, number> | null;
 }
 
+// ---------------------------------
+// Lightweight in-memory caches (per runtime)
+// ---------------------------------
+const USERS_TTL_MS = 30 * 60 * 1000; // 30 minutes
+const ROSTERS_TTL_MS = 5 * 60 * 1000; // 5 minutes
+const MATCHUPS_TTL_MS = 20 * 1000;    // 20 seconds (scoreboard updates frequently)
+const MATCHUPS_STALE_WHEN_EMPTY_MS = 2 * 60 * 1000; // within 2 minutes, prefer last non-empty over sudden empty
+
+const leagueUsersCache: Record<string, { ts: number; data: SleeperUser[] }> = {};
+const leagueRostersCache: Record<string, { ts: number; data: SleeperRoster[] }> = {};
+const leagueMatchupsCache: Record<string, { ts: number; data: SleeperMatchup[] }> = {};
+
 /**
  * Fetch league information from Sleeper API
  * @param leagueId The Sleeper league ID
@@ -823,7 +843,18 @@ export async function getLeague(leagueId: string, options?: SleeperFetchOptions)
  * @returns Promise with array of users
  */
 export async function getLeagueUsers(leagueId: string, options?: SleeperFetchOptions): Promise<SleeperUser[]> {
-  return sleeperFetchJson<SleeperUser[]>(`${SLEEPER_API_BASE}/league/${leagueId}/users`, undefined, options);
+  const now = Date.now();
+  const key = leagueId;
+  const cached = leagueUsersCache[key];
+  if (cached && now - cached.ts < USERS_TTL_MS) return cached.data;
+  try {
+    const data = await sleeperFetchJson<SleeperUser[]>(`${SLEEPER_API_BASE}/league/${leagueId}/users`, undefined, options);
+    leagueUsersCache[key] = { ts: now, data };
+    return data;
+  } catch (err) {
+    if (cached) return cached.data; // stale-on-error
+    throw err;
+  }
 }
 
 /**
@@ -832,7 +863,18 @@ export async function getLeagueUsers(leagueId: string, options?: SleeperFetchOpt
  * @returns Promise with array of rosters
  */
 export async function getLeagueRosters(leagueId: string, options?: SleeperFetchOptions): Promise<SleeperRoster[]> {
-  return sleeperFetchJson<SleeperRoster[]>(`${SLEEPER_API_BASE}/league/${leagueId}/rosters`, undefined, options);
+  const now = Date.now();
+  const key = leagueId;
+  const cached = leagueRostersCache[key];
+  if (cached && now - cached.ts < ROSTERS_TTL_MS) return cached.data;
+  try {
+    const data = await sleeperFetchJson<SleeperRoster[]>(`${SLEEPER_API_BASE}/league/${leagueId}/rosters`, undefined, options);
+    leagueRostersCache[key] = { ts: now, data };
+    return data;
+  } catch (err) {
+    if (cached) return cached.data; // stale-on-error
+    throw err;
+  }
 }
 
 /**
@@ -842,7 +884,26 @@ export async function getLeagueRosters(leagueId: string, options?: SleeperFetchO
  * @returns Promise with array of matchups
  */
 export async function getLeagueMatchups(leagueId: string, week: number, options?: SleeperFetchOptions): Promise<SleeperMatchup[]> {
-  return sleeperFetchJson<SleeperMatchup[]>(`${SLEEPER_API_BASE}/league/${leagueId}/matchups/${week}`, undefined, options);
+  const now = Date.now();
+  const key = `${leagueId}-${week}`;
+  const cached = leagueMatchupsCache[key];
+  if (cached && now - cached.ts < MATCHUPS_TTL_MS) return cached.data;
+  try {
+    const data = await sleeperFetchJson<SleeperMatchup[]>(`${SLEEPER_API_BASE}/league/${leagueId}/matchups/${week}`, undefined, options);
+    // If Sleeper suddenly returns an empty array but we have a recent non-empty cache,
+    // keep showing the last known good data to avoid flashing empty UIs.
+    if (Array.isArray(data) && data.length === 0 && cached && Array.isArray(cached.data) && cached.data.length > 0) {
+      const age = now - cached.ts;
+      if (age < MATCHUPS_STALE_WHEN_EMPTY_MS) {
+        return cached.data;
+      }
+    }
+    leagueMatchupsCache[key] = { ts: now, data };
+    return data;
+  } catch (err) {
+    if (cached) return cached.data; // stale-on-error
+    throw err;
+  }
 }
 
 /**
@@ -887,10 +948,13 @@ export async function getAllPlayersCached(ttlMs: number = ALL_PLAYERS_TTL_DEFAUL
  */
 export async function getTeamsData(leagueId: string, options?: SleeperFetchOptions): Promise<TeamData[]> {
   try {
-    const [rosters, usersData] = await Promise.all([
+    const [rostersRes, usersRes] = await Promise.allSettled([
       getLeagueRosters(leagueId, options),
       getLeagueUsers(leagueId, options)
     ]);
+    if (rostersRes.status !== 'fulfilled') throw rostersRes.reason;
+    const rosters = rostersRes.value;
+    const usersData = usersRes.status === 'fulfilled' ? usersRes.value : [] as SleeperUser[];
     
     // Map user ids
     const usersById: Record<string, SleeperUser | undefined> = {};

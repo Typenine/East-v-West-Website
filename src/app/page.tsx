@@ -7,7 +7,7 @@ import EmptyState from '@/components/ui/empty-state';
 import SectionHeader from '@/components/ui/SectionHeader';
 import LinkButton from '@/components/ui/LinkButton';
 
-export const revalidate = 0; // always fetch fresh Sleeper data
+export const revalidate = 20; // ISR: refresh at most every 20s to reduce API churn and flakiness
 
 export default async function Home() {
   const leagueId = LEAGUE_IDS.CURRENT;
@@ -40,12 +40,17 @@ export default async function Home() {
     }
 
     const matchups = await getLeagueMatchups(leagueId, currentWeek);
-    // If the current week hasn't started (all 0-0), show previous week's matchups instead
+    // If the current week hasn't started (all 0-0) OR Sleeper returns empty, show previous week's matchups instead
     const hasAnyPoints = matchups.some((m) => ((m as { custom_points?: number; points?: number }).custom_points ?? m.points ?? 0) > 0);
     let mus = matchups;
-    if (!hasAnyPoints && currentWeek > 1) {
-      currentWeek = currentWeek - 1;
-      mus = await getLeagueMatchups(leagueId, currentWeek);
+    if ((matchups.length === 0 || !hasAnyPoints) && currentWeek > 1) {
+      const prevWeek = currentWeek - 1;
+      const prev = await getLeagueMatchups(leagueId, prevWeek);
+      // Use previous only if it has any entries
+      if (prev.length > 0) {
+        currentWeek = prevWeek;
+        mus = prev;
+      }
     }
     const rosterIdToName = new Map<number, string>(
       teams.map((t) => [t.rosterId, t.teamName])
