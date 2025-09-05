@@ -26,7 +26,7 @@ export default async function Home() {
     // Get current NFL state and teams in parallel
     const [nflState, teams] = await Promise.all([
       getNFLState().catch(() => ({ week: 1, display_week: 1, season_type: 'regular' })),
-      getTeamsData(leagueId),
+      getTeamsData(leagueId).catch(() => [] as Array<{ rosterId: number; teamName: string }>),
     ]);
     const seasonType = (nflState as { season_type?: string }).season_type ?? 'regular';
     const hasScores = (nflState as { season_has_scores?: boolean }).season_has_scores;
