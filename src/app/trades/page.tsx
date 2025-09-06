@@ -82,20 +82,26 @@ import { Button } from '@/components/ui/Button';
 function TradesContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
-  
+
+  // Position / Draft Round filter options
+  type AssetFilter = 'all' | 'QB' | 'RB' | 'WR' | 'TE' | 'DEF' | 'K' | 'r1' | 'r2' | 'r3' | 'r4';
+
   // Get filter values from URL parameters or use defaults
   const yearParam = searchParams.get('year');
   const teamParam = searchParams.get('team');
   const assetTypeParam = searchParams.get('assetType');
   const sortParam = searchParams.get('sort') || 'date-desc';
-  
+
   const [trades, setTrades] = useState<Trade[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedYear, setSelectedYear] = useState(yearParam || 'all');
   const [selectedTeam, setSelectedTeam] = useState<string | null>(teamParam);
-  const [selectedAssetType, setSelectedAssetType] = useState<'all' | 'player' | 'pick'>(
-    (assetTypeParam as 'all' | 'player' | 'pick') || 'all'
+  const validAssetFilters: AssetFilter[] = ['all', 'QB', 'RB', 'WR', 'TE', 'DEF', 'K', 'r1', 'r2', 'r3', 'r4'];
+  const [selectedAssetType, setSelectedAssetType] = useState<AssetFilter>(
+    assetTypeParam && (validAssetFilters as unknown as string[]).includes(assetTypeParam)
+      ? (assetTypeParam as AssetFilter)
+      : 'all'
   );
   const [sortBy, setSortBy] = useState<string>(sortParam);
   const [teams, setTeams] = useState<TeamData[]>([]);
@@ -108,34 +114,34 @@ function TradesContent() {
     if (year === '2025' || year === 'all') return LEAGUE_IDS.CURRENT;
     return LEAGUE_IDS.PREVIOUS[year as keyof typeof LEAGUE_IDS.PREVIOUS];
   };
-  
+
   // Update URL with current filter parameters
   useEffect(() => {
     // Create a new URLSearchParams object
     const params = new URLSearchParams();
-    
+
     // Add parameters only if they're not default values
     if (selectedYear !== 'all') {
       params.set('year', selectedYear);
     }
-    
+
     if (selectedTeam) {
       params.set('team', selectedTeam);
     }
-    
+
     if (selectedAssetType !== 'all') {
       params.set('assetType', selectedAssetType);
     }
-    
+
     if (sortBy !== 'date-desc') {
       params.set('sort', sortBy);
     }
-    
+
     // Update the URL without refreshing the page
     const newUrl = params.toString() ? `?${params.toString()}` : window.location.pathname;
     window.history.replaceState({}, '', newUrl);
   }, [selectedYear, selectedTeam, selectedAssetType, sortBy]);
-  
+
   // Fetch trades when year changes (with cache)
   useEffect(() => {
     const fetchTrades = async () => {
@@ -190,10 +196,10 @@ function TradesContent() {
         setLoading(false);
       }
     };
-    
+
     fetchTrades();
   }, [selectedYear, refreshKey]);
-  
+
   // Filter and sort trades based on selected criteria
   const filteredAndSortedTrades = trades
     .filter(trade => {
@@ -202,15 +208,25 @@ function TradesContent() {
         const teamInvolved = trade.teams.some(team => team.name === selectedTeam);
         if (!teamInvolved) return false;
       }
-      
-      // Filter by asset type if not 'all'
+
+      // Filter by position or draft round if not 'all'
       if (selectedAssetType !== 'all') {
-        const hasAssetType = trade.teams.some(team => 
-          team.assets.some(asset => asset.type === selectedAssetType)
+        const isRoundFilter = selectedAssetType.startsWith('r');
+        const matches = trade.teams.some(team =>
+          team.assets.some(asset => {
+            if (isRoundFilter) {
+              const roundWanted = Number(selectedAssetType.slice(1));
+              return asset.type === 'pick' && Number(asset.round) === roundWanted;
+            } else {
+              // Position filter: match player position, or picks that became that position
+              const pos = selectedAssetType as Exclude<AssetFilter, 'all' | 'r1' | 'r2' | 'r3' | 'r4'>;
+              return (asset.type === 'player' && asset.position === pos) || (asset.type === 'pick' && asset.becamePosition === pos);
+            }
+          })
         );
-        if (!hasAssetType) return false;
+        if (!matches) return false;
       }
-      
+
       return true;
     })
     .sort((a, b) => {
@@ -231,7 +247,7 @@ function TradesContent() {
 
   if (error) {
     return (
-      <ErrorState 
+      <ErrorState
         message={`Error loading trades: ${error}`}
         fullPage
         retry={() => { setError(null); setRefreshKey((k) => k + 1); }}
@@ -239,12 +255,12 @@ function TradesContent() {
       />
     );
   }
-  
+
   return (
     <div className="container mx-auto px-4 py-8">
       <SectionHeader title="Trades" />
       <h1 id="trades-heading" className="sr-only">Trades</h1>
-      
+
       {/* Filters */}
       <Card role="search" aria-labelledby="filter-heading" className="mb-8">
         <CardContent>
@@ -264,7 +280,7 @@ function TradesContent() {
                 <option value="2023">2023 Season</option>
               </Select>
             </div>
-            
+
             {/* Team Filter */}
             <div>
               <Label htmlFor="team-filter">Team</Label>
@@ -284,21 +300,29 @@ function TradesContent() {
                   ))}
               </Select>
             </div>
-            
+
             {/* Asset Type Filter */}
             <div>
-              <Label htmlFor="asset-filter">Asset Type</Label>
+              <Label htmlFor="asset-filter">Asset Filter</Label>
               <Select
                 id="asset-filter"
                 value={selectedAssetType}
-                onChange={(e) => setSelectedAssetType(e.target.value as 'all' | 'player' | 'pick')}
+                onChange={(e) => setSelectedAssetType(e.target.value as AssetFilter)}
               >
                 <option value="all">All Assets</option>
-                <option value="player">Players Only</option>
-                <option value="pick">Draft Picks Only</option>
+                <option value="QB">QB</option>
+                <option value="RB">RB</option>
+                <option value="WR">WR</option>
+                <option value="TE">TE</option>
+                <option value="DEF">DEF</option>
+                <option value="K">K</option>
+                <option value="r1">1st Round Pick</option>
+                <option value="r2">2nd Round Pick</option>
+                <option value="r3">3rd Round Pick</option>
+                <option value="r4">4th Round Pick</option>
               </Select>
             </div>
-            
+
             {/* Sort Filter */}
             <div>
               <Label htmlFor="sort-filter">Sort By</Label>
@@ -316,7 +340,7 @@ function TradesContent() {
           </div>
         </CardContent>
       </Card>
-      
+
       {/* Trade Feed */}
       <div className="space-y-6" aria-labelledby="trades-heading">
         {loading ? (
@@ -397,17 +421,25 @@ function TradesContent() {
                           {team.assets.map((asset, assetIndex) => (
                             <li key={assetIndex} className="flex items-start justify-between">
                               <div>
-                                <span>
-                                  {asset.name}
-                                  {typeof asset.pickInRound === 'number' ? <> #{asset.pickInRound}</> : null}
-                                  {asset.became ? (
-                                    <>
-                                      {' '}(
-                                      {asset.becamePosition ? `${asset.becamePosition} - ` : ''}
-                                      {asset.became})
-                                    </>
-                                  ) : null}
-                                </span>
+                                {asset.type === 'player' ? (
+                                  <span>
+                                    {asset.position ? `${asset.position} - ` : ''}
+                                    {asset.name}
+                                    {asset.team ? ` (${asset.team})` : ''}
+                                  </span>
+                                ) : (
+                                  <span>
+                                    {asset.name}
+                                    {typeof asset.pickInRound === 'number' ? <> #{asset.pickInRound}</> : null}
+                                    {asset.became ? (
+                                      <>
+                                        {' '}(
+                                        {asset.becamePosition ? `${asset.becamePosition} - ` : ''}
+                                        {asset.became})
+                                      </>
+                                    ) : null}
+                                  </span>
+                                )}
                                 {asset.originalOwner && (
                                   <div className="text-xs text-[var(--muted)] mt-0.5">
                                     originally {asset.originalOwner}
