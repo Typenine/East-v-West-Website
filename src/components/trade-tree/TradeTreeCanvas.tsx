@@ -21,17 +21,81 @@ import { getTeamColors } from "@/lib/utils/team-utils";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 
-// Layout constants and basic styles (two-lane bracket layout)
-const NODE_W = 180;
-const LANE_W = 840; // content width per lane
-const LANE_GUTTER = 56; // fixed gutter between lanes
-const ROW_SPACING = 104; // vertical spacing between rows/sections
-const ASSET_H = 60; // visual height of asset node content
-const BAND_HEADER_H = 44;
-const BAND_PAD_X = 12;
-const BAND_PAD_Y = 14;
-const GUTTER_X = 32; // generous gutters
+// Layout constants (base) and responsive helpers
+const BASE_NODE_W = 180;
+const BASE_LANE_W = 840; // content width per lane (desktop)
+const BASE_LANE_GUTTER = 56; // fixed gutter between lanes
+const BASE_ROW_SPACING = 104; // vertical spacing between rows/sections
+const BASE_ASSET_H = 60; // visual height of asset node content
+const BASE_BAND_HEADER_H = 44;
+const BASE_BAND_PAD_X = 12;
+const BASE_BAND_PAD_Y = 14;
+const BASE_GUTTER_X = 32; // generous gutters
 const BRACKET_RED = 'var(--danger)';
+
+type Dims = {
+  NODE_W: number;
+  LANE_W: number;
+  LANE_GUTTER: number;
+  ROW_SPACING: number;
+  ASSET_H: number;
+  BAND_HEADER_H: number;
+  BAND_PAD_X: number;
+  BAND_PAD_Y: number;
+  GUTTER_X: number;
+  /** true when we should stack lanes vertically for small screens */
+  stack: boolean;
+};
+
+function computeDims(containerWidth: number): Dims {
+  const w = Math.max(320, containerWidth || 1280);
+  const isSmall = w < 768; // tailwind sm breakpoint
+  const isMedium = w >= 768 && w < 1024;
+
+  if (isSmall) {
+    const lane = Math.max(300, w - 24);
+    return {
+      NODE_W: Math.min(220, Math.max(150, Math.floor(lane * 0.88))),
+      LANE_W: lane,
+      LANE_GUTTER: 24,
+      ROW_SPACING: 64,
+      ASSET_H: 56,
+      BAND_HEADER_H: 42,
+      BAND_PAD_X: 10,
+      BAND_PAD_Y: 10,
+      GUTTER_X: 16,
+      stack: true,
+    };
+  }
+  if (isMedium) {
+    const lane = Math.max(520, Math.min(700, Math.floor((w - 64) / 2)));
+    return {
+      NODE_W: 170,
+      LANE_W: lane,
+      LANE_GUTTER: 40,
+      ROW_SPACING: 84,
+      ASSET_H: 58,
+      BAND_HEADER_H: 44,
+      BAND_PAD_X: 12,
+      BAND_PAD_Y: 12,
+      GUTTER_X: 24,
+      stack: true, // medium screens still stack by default for readability
+    };
+  }
+  // desktop wide
+  return {
+    NODE_W: BASE_NODE_W,
+    LANE_W: BASE_LANE_W,
+    LANE_GUTTER: BASE_LANE_GUTTER,
+    ROW_SPACING: BASE_ROW_SPACING,
+    ASSET_H: BASE_ASSET_H,
+    BAND_HEADER_H: BASE_BAND_HEADER_H,
+    BAND_PAD_X: BASE_BAND_PAD_X,
+    BAND_PAD_Y: BASE_BAND_PAD_Y,
+    GUTTER_X: BASE_GUTTER_X,
+    stack: false,
+  };
+}
 
 // Note: per-trade color mapping removed in favor of a unified bracket color for clarity
 
@@ -49,12 +113,12 @@ function nodeStyleFor(kind: EVWGraphNode["type"]): React.CSSProperties {
   // Neutral dark cards with team-colored accent bars for readability
   switch (kind) {
     case "player":
-      return { background: "var(--surface)", color: "var(--text)", border: "1px solid var(--border)", borderRadius: "var(--radius-card)", boxShadow: "var(--shadow-soft)", width: NODE_W };
+      return { background: "var(--surface)", color: "var(--text)", border: "1px solid var(--border)", borderRadius: "var(--radius-card)", boxShadow: "var(--shadow-soft)" };
     case "pick":
-      return { background: "var(--surface)", color: "var(--text)", border: "1px solid var(--border)", borderRadius: "var(--radius-card)", boxShadow: "var(--shadow-soft)", width: NODE_W };
+      return { background: "var(--surface)", color: "var(--text)", border: "1px solid var(--border)", borderRadius: "var(--radius-card)", boxShadow: "var(--shadow-soft)" };
     case "trade":
     default:
-      return { background: "var(--surface)", color: "var(--text)", border: "1px solid var(--border)", borderRadius: "var(--radius-card)", boxShadow: "var(--shadow-soft)", width: NODE_W };
+      return { background: "var(--surface)", color: "var(--text)", border: "1px solid var(--border)", borderRadius: "var(--radius-card)", boxShadow: "var(--shadow-soft)" };
   }
 }
 
@@ -151,6 +215,9 @@ function BandNode({ data, id }: any) {
   const isDim = data.dim === true;
   const bus = data.bus as undefined | { rows: Array<{ busY: number; assetTopY: number; xs: number[] }>; color: string };
   const headerColor = (data.headerColor as string | undefined) ?? 'var(--text)';
+  const bandHeaderH = (data.bandHeaderH as number | undefined) ?? 44;
+  const laneWidth = (data.laneWidth as number | undefined) ?? 840;
+  const assetH = (data.assetH as number | undefined) ?? 60;
   // Basic swipe-to-toggle (horizontal)
   const touchStart = React.useRef<{ x: number; y: number } | null>(null);
   const onTS = (e: React.TouchEvent) => {
@@ -170,7 +237,7 @@ function BandNode({ data, id }: any) {
   return (
     <div className={`evw-node rounded-[var(--radius-card)] border bg-[var(--surface)] border-[var(--border)] ${isDim ? 'opacity-30' : 'opacity-100'}`} style={{ position: 'relative', width: '100%', height: '100%' }} onTouchStart={onTS} onTouchEnd={onTE}>
       <span className="absolute left-0 right-0 top-0 h-1 accent-stripe rounded-t-[var(--radius-card)] pointer-events-none" />
-      <div className="flex flex-col items-center justify-center px-3" style={{ height: BAND_HEADER_H }}>
+      <div className="flex flex-col items-center justify-center px-3" style={{ height: bandHeaderH }}>
         <Button
           variant="ghost"
           size="sm"
@@ -192,7 +259,7 @@ function BandNode({ data, id }: any) {
       </div>
       {/* Overlay bus lines to visually group assets like a bracket */}
       {!collapsed && bus?.rows?.length ? (
-        <svg className="absolute inset-0 pointer-events-none" width="100%" height="100%" viewBox={`0 0 ${LANE_W} ${Math.max(BAND_HEADER_H + 1, ...bus.rows.map(r => r.assetTopY + ASSET_H))}`}>
+        <svg className="absolute inset-0 pointer-events-none" width="100%" height="100%" viewBox={`0 0 ${laneWidth} ${Math.max(bandHeaderH + 1, ...bus.rows.map(r => r.assetTopY + assetH))}`}>
           {bus.rows.map((r, idx) => {
             if (!r.xs?.length) return null;
             const minX = Math.min(...r.xs);
@@ -248,9 +315,37 @@ export default function TradeTreeCanvas({ graph, height = 640, onNodeClick }: Tr
   const highlightTimers = useRef<Record<string, number>>({});
   const [compact, setCompact] = useState(false);
   const [stepIndex, setStepIndex] = useState(0);
+  const [dims, setDims] = useState<Dims>(() => computeDims(typeof window !== 'undefined' ? window.innerWidth : 1280));
+
+  // Observe container width and update responsive dimensions
+  useEffect(() => {
+    const update = () => {
+      const cw = wrapperRef.current?.clientWidth || window.innerWidth;
+      setDims(computeDims(cw));
+    };
+    update();
+    let ro: ResizeObserver | null = null;
+    const el = wrapperRef.current || null;
+    try {
+      // Guard SSR and older browsers
+      ro = new ResizeObserver(() => update());
+      if (el) ro.observe(el);
+    } catch {}
+    window.addEventListener('resize', update);
+    return () => {
+      window.removeEventListener('resize', update);
+      if (ro && el) ro.disconnect();
+    };
+  }, []);
+
+  // Auto-stack lanes on small screens
+  useEffect(() => {
+    setCompact(dims.stack);
+  }, [dims.stack]);
 
   // Two-lane layout computation (top-to-bottom, orthogonal edges). No data shape changes, only rendering.
   useEffect(() => {
+    const { NODE_W, LANE_W, LANE_GUTTER, ROW_SPACING, ASSET_H, BAND_HEADER_H, BAND_PAD_X, BAND_PAD_Y, GUTTER_X } = dims;
     // Build trade meta map
     const tradeNodes = graph.nodes.filter((n): n is Extract<EVWGraphNode, { type: "trade" }> => n.type === "trade");
     const tradeById = new Map(tradeNodes.map(t => [t.tradeId, t]));
@@ -388,6 +483,9 @@ export default function TradeTreeCanvas({ graph, height = 640, onNodeClick }: Tr
           title: `TO ${b.otherTeams.toUpperCase()} FOR: ${b.date}`,
           collapsed,
           headerColor: laneAccent,
+          bandHeaderH: BAND_HEADER_H,
+          laneWidth: LANE_W,
+          assetH: ASSET_H,
           onToggle: (id: string) => setCollapsedBands((prev) => ({ ...prev, [id]: !prev[id] })),
         };
         rfNodes.push({
@@ -499,7 +597,7 @@ export default function TradeTreeCanvas({ graph, height = 640, onNodeClick }: Tr
                 ariaLabel: aria,
                 onHover: (nid: string, on: boolean) => setHoverId(on ? nid : null),
                 onActivate: (nid?: string) => { setCollapsedBands((prev) => ({ ...prev, [bandId]: false })); setSelected(n); setSelectedId(nid ?? cloneId); onNodeClick?.(n); },
-                style: nodeStyleFor(n.type),
+                style: { ...nodeStyleFor(n.type), width: NODE_W },
                 tooltip: (() => {
                   const currOwner = currentOwner.get(n.id);
                   if (n.type === 'pick') {
@@ -582,7 +680,7 @@ export default function TradeTreeCanvas({ graph, height = 640, onNodeClick }: Tr
         }
       } catch {}
     });
-  }, [graph.nodes, graph.edges, collapsedBands, compact, onNodeClick]);
+  }, [graph.nodes, graph.edges, collapsedBands, compact, onNodeClick, dims]);
 
   // Hover/path highlighting + legend pulse: dim non-path items and pulse band borders
   useEffect(() => {
@@ -675,8 +773,8 @@ export default function TradeTreeCanvas({ graph, height = 640, onNodeClick }: Tr
     // Use known dimensions per node type as fallbacks
     let w = 1;
     let h = 1;
-    if (n.type === 'asset') { w = NODE_W; h = ASSET_H; }
-    else if (n.type === 'band') { w = LANE_W; h = BAND_HEADER_H; }
+    if (n.type === 'asset') { w = dims.NODE_W; h = dims.ASSET_H; }
+    else if (n.type === 'band') { w = dims.LANE_W; h = dims.BAND_HEADER_H; }
     // If node is a child of a band, offset by parent position
     if (n.parentId) {
       const p = nodes.find((pp) => pp.id === n.parentId);
@@ -686,7 +784,7 @@ export default function TradeTreeCanvas({ graph, height = 640, onNodeClick }: Tr
     const curZoom = rfRef.current?.getViewport?.().zoom ?? 1;
     const targetZoom = Math.min(1.4, Math.max(0.9, curZoom < 1 ? 1.05 : curZoom));
     rfRef.current?.setCenter?.(cx, cy, { zoom: targetZoom, duration: 450 });
-  }, [nodes]);
+  }, [nodes, dims]);
 
   useEffect(() => {
     if (selectedId) {
@@ -732,17 +830,17 @@ export default function TradeTreeCanvas({ graph, height = 640, onNodeClick }: Tr
         <MiniMap
           pannable
           zoomable
-          className="evw-surface border rounded shadow opacity-60 hover:opacity-100 transition-opacity"
+          className="evw-surface border rounded shadow opacity-60 hover:opacity-100 transition-opacity hidden sm:block"
           maskColor="color-mix(in srgb, var(--text) 8%, transparent)"
           nodeStrokeColor={() => 'var(--border)'}
           nodeColor={() => 'color-mix(in srgb, var(--text) 12%, transparent)'}
         />
-        <Controls position="bottom-right" className="evw-surface border rounded shadow" />
+        <Controls position="bottom-right" className="evw-surface border rounded shadow hidden sm:block" />
         <Background variant="lines" gap={32} color="var(--border)" />
       </ReactFlow>
 
       {/* Floating Legend / Key */}
-      <Card className="absolute top-2 right-2 p-0 text-xs w-72 max-h-[60%] overflow-auto">
+      <Card className="absolute top-2 right-2 p-0 text-xs w-72 max-h-[60%] overflow-auto hidden sm:block">
         <CardHeader className="px-2 py-2 border-b border-[var(--border)]">
           <div className="flex items-center justify-between">
             <CardTitle className="text-sm">Legend</CardTitle>
@@ -935,9 +1033,20 @@ export default function TradeTreeCanvas({ graph, height = 640, onNodeClick }: Tr
         </CardContent>
       </Card>
 
+      {/* Mobile-only quick Reset button since Controls/Legend are hidden */}
+      <div className="sm:hidden absolute right-2 bottom-2 z-10">
+        <Button
+          size="sm"
+          variant="secondary"
+          className="text-[12px] shadow"
+          onClick={() => { try { rfRef.current?.fitView({ padding: 0.12, duration: 400 }); } catch {} }}
+          title="Reset view"
+        >Reset</Button>
+      </div>
+
       {/* Simple side panel for node details */}
       {selected && (
-        <Card className="absolute top-0 right-0 h-full w-80 overflow-auto rounded-none shadow-lg border-0 border-l border-[var(--border)]">
+        <Card className="absolute top-0 right-0 h-full w-80 overflow-auto rounded-none shadow-lg border-0 border-l border-[var(--border)] hidden sm:block">
           <CardHeader className="px-3 py-3 border-b border-[var(--border)]">
             <div className="flex items-center justify-between">
               <CardTitle className="text-base">Details</CardTitle>
@@ -967,6 +1076,37 @@ export default function TradeTreeCanvas({ graph, height = 640, onNodeClick }: Tr
                     : undefined;
                   return currOwner ? <div><span className="text-[var(--muted)]">Current owner:</span> {currOwner}</div> : null;
                 })()}
+                {selected.becameName && <div><span className="text-[var(--muted)]">Became:</span> {selected.becameName}</div>}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Mobile details as bottom sheet */}
+      {selected && (
+        <Card className="absolute left-0 right-0 bottom-0 h-[45%] w-full overflow-auto rounded-t-lg shadow-lg border-t border-[var(--border)] sm:hidden">
+          <CardHeader className="px-3 py-3 border-b border-[var(--border)]">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-base">Details</CardTitle>
+              <Button
+                variant="ghost"
+                size="sm"
+                aria-label="Close details"
+                onClick={() => { setSelected(null); setSelectedId(null); }}
+              >✕</Button>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-1 text-sm">
+            <div><span className="text-[var(--muted)]">Type:</span> {selected.type}</div>
+            <div><span className="text-[var(--muted)]">Label:</span> {labelFor(selected)}</div>
+            {selected.type === 'player' && (
+              <div><span className="text-[var(--muted)]">Player ID:</span> {selected.playerId}</div>
+            )}
+            {selected.type === 'pick' && (
+              <div>
+                <div><span className="text-[var(--muted)]">Pick:</span> {selected.season} R{selected.round} S{selected.slot}</div>
+                {(selected as any).originalOwnerName && <div><span className="text-[var(--muted)]">Original owner:</span> {(selected as any).originalOwnerName}</div>}
                 {selected.becameName && <div><span className="text-[var(--muted)]">Became:</span> {selected.becameName}</div>}
               </div>
             )}
