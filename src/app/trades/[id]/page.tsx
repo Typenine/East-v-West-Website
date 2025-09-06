@@ -2,11 +2,13 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
+import Image from 'next/image';
 import { useParams } from 'next/navigation';
 import { Trade, fetchTradeById, getRelatedTrades } from '@/lib/utils/trades';
 import LoadingState from '@/components/ui/loading-state';
 import ErrorState from '@/components/ui/error-state';
 import SectionHeader from '@/components/ui/SectionHeader';
+import { getTeamLogoPath, getTeamColorStyle } from '@/lib/utils/team-utils';
 
 export default function TradeDetailPage() {
   const params = useParams();
@@ -15,7 +17,6 @@ export default function TradeDetailPage() {
   const [trade, setTrade] = useState<Trade | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [showValueAnalysis, setShowValueAnalysis] = useState(false);
   const [relatedTrades, setRelatedTrades] = useState<Trade[]>([]);
   
   useEffect(() => {
@@ -114,7 +115,23 @@ export default function TradeDetailPage() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8">
             {trade.teams.map((team, index) => (
               <div key={index} className="border border-[var(--border)] rounded-lg overflow-hidden">
-                <div className="evw-subtle px-4 py-2 border-b border-[var(--border)]">
+                <div
+                  className="px-4 py-3 border-b border-[var(--border)] flex items-center gap-3"
+                  style={getTeamColorStyle(team.name)}
+                >
+                  <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center overflow-hidden">
+                    <Image
+                      src={getTeamLogoPath(team.name)}
+                      alt={team.name}
+                      width={28}
+                      height={28}
+                      className="object-contain"
+                      onError={(e) => {
+                        const target = e.target as HTMLImageElement;
+                        target.style.display = 'none';
+                      }}
+                    />
+                  </div>
                   <h2 className="font-bold text-lg">{team.name} received:</h2>
                 </div>
                 <div className="p-4">
@@ -124,9 +141,10 @@ export default function TradeDetailPage() {
                         <div>
                           {asset.type === 'player' ? (
                             <div>
-                              <span className="font-medium">{asset.name}</span>
-                              <span className="text-sm text-[var(--muted)] ml-2">
-                                ({asset.position}, {asset.team})
+                              <span className="font-medium">
+                                {asset.position ? `${asset.position} - ` : ''}
+                                {asset.name}
+                                {asset.team ? ` (${asset.team})` : ''}
                               </span>
                             </div>
                           ) : (
@@ -159,95 +177,27 @@ export default function TradeDetailPage() {
                             <Link
                               href={`/trades/tracker?rootType=player&playerId=${asset.playerId}`}
                               className="text-accent hover:underline text-xs"
-                              aria-label={`Track lineage for ${asset.name}`}
+                              aria-label={`View trade tree for ${asset.name}`}
                             >
-                              Track
+                              Trade Tree
                             </Link>
                           ) : null}
                           {(asset.type === 'pick' && asset.year && asset.round && (asset.draftSlot ?? asset.pickInRound)) ? (
                             <Link
                               href={`/trades/tracker?rootType=pick&season=${asset.year}&round=${asset.round}&slot=${(asset.draftSlot ?? asset.pickInRound) as number}`}
                               className="text-accent hover:underline text-xs"
-                              aria-label={`Track lineage for ${asset.name}`}
+                              aria-label={`View trade tree for ${asset.name}`}
                             >
-                              Track
+                              Trade Tree
                             </Link>
                           ) : null}
-                          {showValueAnalysis && (
-                            <div className="badge badge-accent text-xs px-2 py-1 rounded">
-                              Value: {asset.value}
-                            </div>
-                          )}
                         </div>
                       </li>
                     ))}
                   </ul>
-                  
-                  {showValueAnalysis && team.totalValue !== undefined && (
-                    <div className="mt-4 pt-4 border-t border-[var(--border)]">
-                      <div className="flex justify-between items-center">
-                        <span className="font-bold">Total Value:</span>
-                        <span className="font-bold text-lg">{team.totalValue}</span>
-                      </div>
-                    </div>
-                  )}
                 </div>
               </div>
             ))}
-          </div>
-          
-          {/* Trade Analysis */}
-          <div className="mb-8">
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="text-xl font-bold">Trade Analysis</h3>
-              <button
-                onClick={() => setShowValueAnalysis(!showValueAnalysis)}
-                className="btn btn-secondary"
-                aria-pressed={showValueAnalysis}
-                aria-label={showValueAnalysis ? 'Hide trade value analysis' : 'Show trade value analysis'}
-              >
-                {showValueAnalysis ? 'Hide Values' : 'Show Values'}
-              </button>
-            </div>
-            
-            <div className="evw-subtle rounded-lg p-4 border border-[var(--border)]">
-              {trade.notes && <p className="text-[var(--text)]">{trade.notes}</p>}
-              
-              {showValueAnalysis && trade.teams.length >= 2 && 
-               trade.teams[0].totalValue !== undefined && 
-               trade.teams[1].totalValue !== undefined && (
-                <div className="mt-6">
-                  <h4 className="font-bold mb-2">Value Breakdown:</h4>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {trade.teams.map((team, index) => (
-                      <div key={index} className="evw-surface border border-[var(--border)] p-3 rounded-md shadow-sm">
-                        <div className="flex justify-between items-center">
-                          <span className="font-medium">{team.name}</span>
-                          <span className={`font-bold ${
-                            index === 0 && trade.teams[0].totalValue! > trade.teams[1].totalValue! ? 'text-green-600' : 
-                            index === 1 && trade.teams[1].totalValue! > trade.teams[0].totalValue! ? 'text-green-600' : 
-                            'text-[var(--text)]'
-                          }`}>
-                            {team.totalValue}
-                          </span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                  
-                  <div className="mt-4 text-center">
-                    <span className="font-medium">
-                      {trade.teams[0].totalValue! > trade.teams[1].totalValue! ? 
-                        `${trade.teams[0].name} wins by ${trade.teams[0].totalValue! - trade.teams[1].totalValue!} value points` :
-                        trade.teams[1].totalValue! > trade.teams[0].totalValue! ?
-                        `${trade.teams[1].name} wins by ${trade.teams[1].totalValue! - trade.teams[0].totalValue!} value points` :
-                        'Even trade'
-                      }
-                    </span>
-                  </div>
-                </div>
-              )}
-            </div>
           </div>
           
           {/* Related Trades (Trade Tree) */}
