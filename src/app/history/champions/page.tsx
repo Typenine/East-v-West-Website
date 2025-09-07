@@ -25,7 +25,7 @@ export default function ChampionsPage() {
       pointsFor: 2145.8,
       pointsAgainst: 1876.2,
       playoffPath: 'First-round bye → Defeated Kittle Me This → Defeated Burrow My Sorrows',
-      championshipScore: 'Diggs in the Chat 142.6 - 138.2 Burrow My Sorrows',
+      championshipScore: 'Diggs in the Chat 142.60 - 138.20 Burrow My Sorrows',
       mvpPlayer: 'Stefon Diggs (WR)'
     },
     {
@@ -35,7 +35,7 @@ export default function ChampionsPage() {
       pointsFor: 1984.6,
       pointsAgainst: 1856.4,
       playoffPath: 'First-round bye → Defeated Waddle Waddle → Defeated Diggs in the Chat',
-      championshipScore: 'Burrow My Sorrows 156.4 - 134.8 Diggs in the Chat',
+      championshipScore: 'Burrow My Sorrows 156.40 - 134.80 Diggs in the Chat',
       mvpPlayer: 'Joe Burrow (QB)'
     }
   ];
@@ -90,11 +90,11 @@ export default function ChampionsPage() {
             </div>
             <div className="text-center">
               <p className="text-sm text-[var(--muted)]">Points For</p>
-              <p className="text-xl font-bold">{selectedChampion.pointsFor.toFixed(1)}</p>
+              <p className="text-xl font-bold">{selectedChampion.pointsFor.toFixed(2)}</p>
             </div>
             <div className="text-center">
               <p className="text-sm text-[var(--muted)]">Points Against</p>
-              <p className="text-xl font-bold">{selectedChampion.pointsAgainst.toFixed(1)}</p>
+              <p className="text-xl font-bold">{selectedChampion.pointsAgainst.toFixed(2)}</p>
             </div>
           </div>
           
