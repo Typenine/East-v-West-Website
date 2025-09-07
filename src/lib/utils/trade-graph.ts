@@ -46,7 +46,10 @@ export function buildTradeGraph(trades: Trade[]): TradeGraph {
         if (asset.type === 'player') {
           if (!asset.playerId) return; // skip if missing stable id
           const playerNodeId = `player:${asset.playerId}`;
-          ensureNode({ id: playerNodeId, type: 'player', label: asset.name, playerId: asset.playerId });
+          const pos = asset.position;
+          const team = asset.team;
+          const label = `${pos ? pos + ' - ' : ''}${asset.name}${team ? ` (${team})` : ''}`;
+          ensureNode({ id: playerNodeId, type: 'player', label, playerId: asset.playerId });
           const edgeId = `traded:${trade.id}:${teamIndex}:${assetIndex}`;
           if (!edgeIds.has(edgeId)) {
             edges.push({ id: edgeId, from: tradeNodeId, to: playerNodeId, kind: 'traded', tradeId: trade.id });
@@ -61,7 +64,7 @@ export function buildTradeGraph(trades: Trade[]): TradeGraph {
           const originalOwnerName = asset.originalOwner as string | undefined;
           if (!season || typeof round !== 'number' || !Number.isFinite(slot as number)) return;
           const pickNodeId = `pick:${season}-${round}-${slot as number}`;
-          const pickLabel = asset.name || `${season} R${round} S${slot as number}`;
+          const pickLabel = asset.name || `${season} R${round}${typeof pickInRound === 'number' ? ` #${pickInRound}` : ` S${slot as number}`}`;
           const existing = nodesById.get(pickNodeId);
           if (!existing) {
             nodesById.set(pickNodeId, { id: pickNodeId, type: 'pick', label: pickLabel, season, round, slot: slot as number, pickInRound, becameName, originalOwnerName });

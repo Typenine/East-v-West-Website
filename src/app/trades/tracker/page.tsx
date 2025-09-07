@@ -9,6 +9,7 @@ import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
 import LoadingState from '@/components/ui/loading-state';
 import ErrorState from '@/components/ui/error-state';
 import Label from '@/components/ui/Label';
+import { Button } from '@/components/ui/Button';
 
 export const dynamic = 'force-dynamic';
 
@@ -89,6 +90,7 @@ function TradeTrackerContent() {
   const [graph, setGraph] = useState<EVWTradeGraph | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [view, setView] = useState<'graph' | 'list'>(() => (typeof window !== 'undefined' && window.innerWidth < 768 ? 'list' : 'graph'));
 
   const fetchGraph = useCallback(async () => {
     setError(null);
@@ -111,6 +113,42 @@ function TradeTrackerContent() {
   useEffect(() => {
     fetchGraph();
   }, [fetchGraph]);
+
+  // Helper: parse edge id traded:<tradeId>:<teamIndex>:<assetIndex>
+  const parseTradeEdgeId = (edgeId: string) => {
+    if (!edgeId.startsWith('traded:')) return null as null | { tradeId: string; teamIndex: number };
+    const parts = edgeId.split(':');
+    if (parts.length < 3) return null;
+    const tradeId = parts[1];
+    const teamIndex = Number(parts[2]);
+    if (!Number.isFinite(teamIndex)) return null;
+    return { tradeId, teamIndex };
+  };
+
+  const listView = useMemo(() => {
+    if (!graph) return null;
+    // Map node id -> node for labels
+    const nodeById = new Map(graph.nodes.map((n) => [n.id, n] as const));
+    // Gather trade nodes
+    type TradeSummary = { id: string; date: string; teams: string[]; assetsByTeam: Record<number, string[]> };
+    const tradeNodes = graph.nodes.filter((n): n is Extract<EVWGraphNode, { type: 'trade' }> => n.type === 'trade');
+    const summaries = new Map<string, TradeSummary>();
+    tradeNodes.forEach((t) => {
+      summaries.set(t.tradeId, { id: t.tradeId, date: t.date, teams: t.teams || [], assetsByTeam: {} });
+    });
+    graph.edges.filter((e) => e.kind === 'traded' && e.tradeId).forEach((e) => {
+      const meta = parseTradeEdgeId(e.id);
+      if (!meta) return;
+      const sum = summaries.get(meta.tradeId);
+      if (!sum) return;
+      const node = nodeById.get(e.to);
+      const label = node ? node.label : e.to;
+      if (!sum.assetsByTeam[meta.teamIndex]) sum.assetsByTeam[meta.teamIndex] = [];
+      sum.assetsByTeam[meta.teamIndex].push(label);
+    });
+    const ordered = Array.from(summaries.values()).sort((a, b) => a.date.localeCompare(b.date));
+    return ordered;
+  }, [graph]);
 
   return (
     <div className="container mx-auto px-4 py-8">
@@ -153,41 +191,49 @@ function TradeTrackerContent() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Graph</CardTitle>
+          <div className="flex items-center justify-between">
+            <CardTitle>Trade Tree</CardTitle>
+            <div className="flex items-center gap-2">
+              <Button size="sm" variant={view === 'list' ? 'primary' : 'secondary'} onClick={() => setView('list')}>List</Button>
+              <Button size="sm" variant={view === 'graph' ? 'primary' : 'secondary'} onClick={() => setView('graph')}>Graph</Button>
+            </div>
+          </div>
         </CardHeader>
         <CardContent>
           {loading && <LoadingState message="Loading graph..." />}
           {error && <ErrorState message={error} retry={fetchGraph} />}
-          {!loading && !error && graph && (
+          {!loading && !error && graph && view === 'graph' && (
             <div>
               <div className="mb-3 text-sm text-[var(--muted)]">
                 Nodes: {graph.nodes.length} • Edges: {graph.edges.length}
               </div>
-              {(() => {
-                // Build legend entries: tradeId -> date + teams + color
-                const colorMap = buildTradeColorMap(graph.edges);
-                type TradeNode = Extract<EVWGraphNode, { type: 'trade' }>;
-                const tradeNodes = graph.nodes.filter((n): n is TradeNode => n.type === 'trade');
-                const byId = new Map(tradeNodes.map((t) => [t.tradeId, t]));
-                const entries = Array.from(colorMap.keys()).map((tid) => {
-                  const tn = byId.get(tid);
-                  return tn ? { id: tid, date: tn.date, teams: tn.teams || [], color: colorMap.get(tid)! } : null;
-                }).filter(Boolean) as Array<{ id: string; date: string; teams: string[]; color: string }>;
-                entries.sort((a, b) => a.date.localeCompare(b.date));
-                return entries.length ? (
-                  <div className="mb-3">
-                    <h3 className="text-sm font-medium mb-1">Trades in view</h3>
-                    <ul className="space-y-1 text-sm">
-                      {entries.map((e) => (
-                        <li key={e.id} className="flex items-center gap-2" title={`${e.teams.join(' ↔ ')} (${e.date})`}>
-                          <span className="inline-block w-8 align-middle" style={{ backgroundColor: e.color, height: 3 }} />
-                          <span className="truncate">{e.teams.join(' ↔ ')} ({e.date})</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                ) : null;
-              })()}
+              {/* Legend hidden on mobile for clarity */}
+              <div className="hidden sm:block">
+                {(() => {
+                  const colorMap = buildTradeColorMap(graph.edges);
+                  type TradeNode = Extract<EVWGraphNode, { type: 'trade' }>;
+                  const tradeNodes = graph.nodes.filter((n): n is TradeNode => n.type === 'trade');
+                  const byId = new Map(tradeNodes.map((t) => [t.tradeId, t]));
+                  const entries = Array.from(colorMap.keys()).map((tid) => {
+                    const tn = byId.get(tid);
+                    return tn ? { id: tid, date: tn.date, teams: tn.teams || [], color: colorMap.get(tid)! } : null;
+                  }).filter(Boolean) as Array<{ id: string; date: string; teams: string[]; color: string }>;
+                  entries.sort((a, b) => a.date.localeCompare(b.date));
+                  return entries.length ? (
+                    <div className="mb-3">
+                      <h3 className="text-sm font-medium mb-1">Trades in view</h3>
+                      <ul className="space-y-1 text-sm">
+                        {entries.map((e) => (
+                          <li key={e.id} className="flex items-center gap-2" title={`${e.teams.join(' ↔ ')} (${e.date})`}>
+                            <span className="inline-block w-8 align-middle" style={{ backgroundColor: e.color, height: 3 }} />
+                            <span className="truncate">{e.teams.join(' ↔ ')} ({e.date})</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null;
+                })()}
+              </div>
               <TradeTreeCanvas
                 graph={graph}
                 rootId={rootType === 'player' ? `player:${playerId}` : `pick:${season}-${round}-${slot}`}
@@ -201,13 +247,41 @@ function TradeTrackerContent() {
                   }
                 }}
               />
-              <div className="mt-2 text-xs text-[var(--muted)]">
+              <div className="mt-2 text-xs text-[var(--muted)] hidden sm:block">
                 Legend: <span className="inline-block w-3 h-3 bg-accent-soft border border-accent align-middle mr-1"/> Player •
                 <span className="inline-block w-3 h-3 bg-green-100 border border-green-400 align-middle mx-1"/> Pick •
                 <span className="inline-block w-3 h-3 evw-surface border border-[var(--border)] align-middle mx-1"/> Trade •
                 <span className="inline-block border-t-2 border-[var(--border)] align-middle mx-1 w-6"/> traded •
                 <span className="inline-block border-t-2 border-dashed border-[var(--border)] align-middle mx-1 w-6"/> became
               </div>
+            </div>
+          )}
+          {!loading && !error && graph && view === 'list' && (
+            <div className="space-y-4">
+              {listView && listView.map((t) => (
+                <Card key={t.id} className="evw-surface border">
+                  <CardHeader>
+                    <CardTitle className="text-base">{t.teams.join(' ↔ ')} <span className="text-[var(--muted)] font-normal">({t.date})</span></CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      {t.teams.map((teamName, idx) => (
+                        <div key={idx}>
+                          <div className="font-semibold mb-2">{teamName} received:</div>
+                          <ul className="list-disc pl-5 text-sm space-y-1">
+                            {(t.assetsByTeam[idx] || []).map((label, i) => (
+                              <li key={i}>{label}</li>
+                            ))}
+                            {!(t.assetsByTeam[idx] || []).length && (
+                              <li className="text-[var(--muted)]">—</li>
+                            )}
+                          </ul>
+                        </div>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
             </div>
           )}
           {!loading && !error && !graph && (

@@ -149,6 +149,8 @@ function AssetNode({ data, id }: any) {
   const accent = (data.accent as string | undefined) ?? 'var(--muted)';
   const tooltip = data.tooltip as string | undefined;
   const pulse = data.pulse === true;
+  const currentOwner = data.currentOwner as string | undefined;
+  const compact = data.compact === true;
 
   const [hovered, setHovered] = React.useState(false);
   const longPressTimer = React.useRef<number | null>(null);
@@ -180,7 +182,7 @@ function AssetNode({ data, id }: any) {
       tabIndex={0}
       role="button"
       aria-label={data.ariaLabel as string | undefined}
-      className={`evw-node px-3 py-3 rounded-[var(--radius-card)] text-[13px] border relative hover-lift focus-visible:ring-2 ring-[var(--focus)] ring-offset-1 ring-offset-[var(--surface)] ${isDim ? 'opacity-30' : 'opacity-100'}`}
+      className={`evw-node px-3 py-3 rounded-[var(--radius-card)] text-[14px] sm:text-[13px] border relative hover-lift focus-visible:ring-2 ring-[var(--focus)] ring-offset-1 ring-offset-[var(--surface)] ${isDim ? 'opacity-30' : 'opacity-100'}`}
       style={{ ...(data.style || {}) }}
     >
       <span className="absolute left-0 right-0 top-0 h-1 accent-stripe rounded-t-[var(--radius-card)] pointer-events-none" />
@@ -200,6 +202,9 @@ function AssetNode({ data, id }: any) {
           <span className="inline-block rounded px-1 py-0.5 border" style={{ background: 'color-mix(in srgb, var(--text) 6%, transparent)', borderColor: 'color-mix(in srgb, var(--text) 20%, transparent)' }} title={chip}>{chip}</span>
         </div>
       )}
+      {compact && currentOwner && (
+        <div className="mt-1 text-[10px] text-[var(--muted)]">Now: {currentOwner}</div>
+      )}
       {tooltip && hovered && (
         <div className="absolute z-10 -top-2 left-1/2 -translate-x-1/2 -translate-y-full bg-[var(--surface)] text-[var(--text)] border border-[var(--border)] text-[11px] leading-snug px-2 py-1 rounded shadow-lg pointer-events-none w-64">
           {tooltip}
@@ -211,13 +216,15 @@ function AssetNode({ data, id }: any) {
 
 function BandNode({ data, id }: any) {
   const title = data.title as string;
+  const subtitle = (data.subtitle as string | undefined) || '';
   const collapsed = data.collapsed === true;
   const isDim = data.dim === true;
-  const bus = data.bus as undefined | { rows: Array<{ busY: number; assetTopY: number; xs: number[] }>; color: string };
+  const bus = data.bus as undefined | { rows: Array<{ busY: number; assetTopY: number; xs: number[] }>; color: string; busW?: number; dropW?: number };
   const headerColor = (data.headerColor as string | undefined) ?? 'var(--text)';
   const bandHeaderH = (data.bandHeaderH as number | undefined) ?? 44;
   const laneWidth = (data.laneWidth as number | undefined) ?? 840;
   const assetH = (data.assetH as number | undefined) ?? 60;
+  const preview: string[] | undefined = (data.preview as string[] | undefined);
   // Basic swipe-to-toggle (horizontal)
   const touchStart = React.useRef<{ x: number; y: number } | null>(null);
   const onTS = (e: React.TouchEvent) => {
@@ -237,26 +244,36 @@ function BandNode({ data, id }: any) {
   return (
     <div className={`evw-node rounded-[var(--radius-card)] border bg-[var(--surface)] border-[var(--border)] ${isDim ? 'opacity-30' : 'opacity-100'}`} style={{ position: 'relative', width: '100%', height: '100%' }} onTouchStart={onTS} onTouchEnd={onTE}>
       <span className="absolute left-0 right-0 top-0 h-1 accent-stripe rounded-t-[var(--radius-card)] pointer-events-none" />
-      <div className="flex flex-col items-center justify-center px-3" style={{ height: bandHeaderH }}>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="text-sm font-extrabold uppercase tracking-wider flex items-center gap-2 bg-transparent"
-          onClick={() => data.onToggle?.(id)}
-          title={collapsed ? 'Expand' : 'Collapse'}
-          style={{ color: headerColor }}
-        >
-          <span className={`inline-block transition-transform ${collapsed ? '' : 'rotate-90'}`}>▶</span>
-          <span className="truncate">{title}</span>
-        </Button>
-        <div className="mt-0.5 flex justify-center w-full">
-          <svg width="28" height="8" viewBox="0 0 28 8" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <line x1="2" y1="2" x2="26" y2="2" stroke={BRACKET_RED} strokeWidth="3" strokeLinecap="round" />
-            <line x1="2" y1="2" x2="2" y2="6" stroke={BRACKET_RED} strokeWidth="3" strokeLinecap="round" />
-            <line x1="26" y1="2" x2="26" y2="6" stroke={BRACKET_RED} strokeWidth="3" strokeLinecap="round" />
-          </svg>
+      <div className="flex items-center justify-between px-3" style={{ height: bandHeaderH }}>
+        <div className="flex items-center gap-2 min-w-0">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="text-sm font-extrabold uppercase tracking-wider flex items-center gap-2 bg-transparent"
+            onClick={() => data.onToggle?.(id)}
+            title={collapsed ? 'Expand' : 'Collapse'}
+            style={{ color: headerColor }}
+          >
+            <span className={`inline-block transition-transform ${collapsed ? '' : 'rotate-90'}`}>▶</span>
+            <span className="truncate">{title}</span>
+          </Button>
         </div>
+        {subtitle ? (
+          <span className="ml-3 text-xs font-medium text-[var(--muted)] shrink-0" title={subtitle}>{subtitle}</span>
+        ) : null}
       </div>
+      {collapsed && preview && preview.length > 0 && (
+        <div className="px-3 pb-1 overflow-x-auto whitespace-nowrap space-x-1">
+          {preview.slice(0, 3).map((p: string, i: number) => (
+            <span key={i} className="inline-block text-[10px] rounded px-1 py-0.5 evw-surface border border-[var(--border)]">
+              {p}
+            </span>
+          ))}
+          {preview.length > 3 && (
+            <span className="inline-block text-[10px] text-[var(--muted)]">+{preview.length - 3} more</span>
+          )}
+        </div>
+      )}
       {/* Overlay bus lines to visually group assets like a bracket */}
       {!collapsed && bus?.rows?.length ? (
         <svg className="absolute inset-0 pointer-events-none" width="100%" height="100%" viewBox={`0 0 ${laneWidth} ${Math.max(bandHeaderH + 1, ...bus.rows.map(r => r.assetTopY + assetH))}`}>
@@ -268,11 +285,11 @@ function BandNode({ data, id }: any) {
             return (
               <g key={idx}>
                 {/* main bus */}
-                <g stroke={BRACKET_RED} strokeWidth={5} strokeLinecap="round">
+                <g stroke={bus.color || BRACKET_RED} strokeWidth={bus.busW ?? 5} strokeLinecap="round">
                   <line x1={minX - overhang} y1={r.busY} x2={maxX + overhang} y2={r.busY} />
                 </g>
                 {/* drop downs to each asset chip row line */}
-                <g stroke={BRACKET_RED} strokeWidth={3} strokeLinecap="round">
+                <g stroke={bus.color || BRACKET_RED} strokeWidth={bus.dropW ?? 3} strokeLinecap="round">
                   {r.xs.map((x, i) => (
                     <line key={i} x1={x} y1={r.busY} x2={x} y2={r.assetTopY - 2} />
                   ))}
@@ -393,7 +410,7 @@ export default function TradeTreeCanvas({ graph, height = 640, onNodeClick }: Tr
         const laneTeam = laneTeamBySide[side];
         const counterparties = t.teams.filter((tm) => tm !== laneTeam);
         for (const counterTeam of counterparties) {
-          const outAssets: EVWGraphNode[] = [];
+          const inAssets: EVWGraphNode[] = [];
           for (const n of graph.nodes) {
             if (!(n.type === 'player' || n.type === 'pick')) continue;
             const list = history.get(n.id) || [];
@@ -409,20 +426,20 @@ export default function TradeTreeCanvas({ graph, height = 640, onNodeClick }: Tr
               const prevTrade = tradeById.get(prev.tradeId);
               prevOwner = prevTrade?.teams?.[prev.teamIndex];
             } else {
-              // No prior history in dataset. If this is a 2-team trade, infer sender as the other team.
+              // No prior history in dataset. If this is a 2-team trade, infer previous owner as the other team.
               if (t.teams.length === 2 && currOwner) {
                 prevOwner = t.teams.find((tm) => tm !== currOwner);
               }
             }
-            if (prevOwner === laneTeam && currOwner === counterTeam) {
-              outAssets.push(n);
+            // Assets this lane acquired from the counterparty in this trade
+            if (prevOwner === counterTeam && currOwner === laneTeam) {
+              inAssets.push(n);
             }
           }
-          if (outAssets.length) {
-            bandByLane[side].push({ tradeId: t.tradeId, date: t.date, otherTeams: counterTeam, assets: outAssets });
+          if (inAssets.length) {
+            bandByLane[side].push({ tradeId: t.tradeId, date: t.date, otherTeams: counterTeam, assets: inAssets });
             if (trace) {
-              // Debug: verify legs match band title
-              console.table(outAssets.map((n) => {
+              console.table(inAssets.map((n) => {
                 const list = history.get(n.id) || [];
                 const idx = list.findIndex(h => h.tradeId === t.tradeId);
                 const curr = list[idx];
@@ -457,9 +474,9 @@ export default function TradeTreeCanvas({ graph, height = 640, onNodeClick }: Tr
     const laneRightId = "lane:right";
 
     const isCollapsed = (bandId: string, indexWithinLane: number) => {
-      // default collapsed if not in state: collapsed after first 2
+      // default collapsed if not in state: be more aggressive on small screens
       if (bandId in collapsedBands) return !!collapsedBands[bandId];
-      return indexWithinLane >= 2;
+      return dims.stack ? indexWithinLane >= 1 : indexWithinLane >= 2;
     };
 
     for (const side of ["left", "right"] as const) {
@@ -480,7 +497,8 @@ export default function TradeTreeCanvas({ graph, height = 640, onNodeClick }: Tr
         const bandY = side === 'left' ? yLeft : yRight;
         const laneAccent = side === 'left' ? leftLaneColors.primary : rightLaneColors.primary;
         const bandData: any = {
-          title: `TO ${b.otherTeams.toUpperCase()} FOR: ${b.date}`,
+          title: `From ${b.otherTeams}`,
+          subtitle: `${b.date}`,
           collapsed,
           headerColor: laneAccent,
           bandHeaderH: BAND_HEADER_H,
@@ -499,12 +517,14 @@ export default function TradeTreeCanvas({ graph, height = 640, onNodeClick }: Tr
           draggable: false,
           selectable: false,
         });
-        labels[bandId] = `TO ${b.otherTeams.toUpperCase()} FOR: ${b.date}`;
+        labels[bandId] = `From ${b.otherTeams} • ${b.date}`;
         const bandStrokeColor = BRACKET_RED;
 
-        // Add bracket-style connectors for outgoing assets in this band
-        const outAssets: EVWGraphNode[] = b.assets;
-        if (outAssets.length) {
+        // Add bracket-style connectors for assets acquired in this band
+        const inAssets: EVWGraphNode[] = b.assets;
+        if (inAssets.length) {
+          // Build preview labels for collapsed state
+          bandData.preview = inAssets.map((n) => labelFor(n));
           // Create a hidden junction node slightly above the band header center
           const junctionId = `junction:${bandId}`;
           const jx = laneX + LANE_W / 2;
@@ -513,7 +533,7 @@ export default function TradeTreeCanvas({ graph, height = 640, onNodeClick }: Tr
           // Edges from each outgoing asset to the junction (merge)
           const joinColor = BRACKET_RED;
           if (!collapsed) {
-            outAssets.forEach((n) => {
+            inAssets.forEach((n) => {
               const cloneId = `asset:${n.id}:${bandId}`;
               rfEdges.push({ id: `join:${cloneId}:${junctionId}`, source: cloneId, target: junctionId, type: 'step', style: { stroke: joinColor, strokeWidth: 4, strokeLinecap: 'round', strokeLinejoin: 'round' }, markerEnd: { type: MarkerType.ArrowClosed, color: joinColor } });
             });
@@ -521,7 +541,7 @@ export default function TradeTreeCanvas({ graph, height = 640, onNodeClick }: Tr
           // Single edge from junction to the band header (label)
           rfEdges.push({ id: `join:${junctionId}:${bandId}`, source: junctionId, target: bandId, type: 'step', style: { stroke: joinColor, strokeWidth: 4, strokeLinecap: 'round', strokeLinejoin: 'round' }, markerEnd: { type: MarkerType.ArrowClosed, color: joinColor } });
 
-          // Across-gutter connectors: from this band's brace junction to counterpart lane's chips for the same trade
+          // Across-gutter connectors: connect band junctions/header between lanes for the same trade
           const laneTeamName = laneTeamBySide[side];
           const otherSide = side === 'left' ? 'right' as const : 'left' as const;
           // Find the band on the opposite lane in the same trade whose counterparty is this lane team
@@ -529,46 +549,49 @@ export default function TradeTreeCanvas({ graph, height = 640, onNodeClick }: Tr
           const oppIdx = oppBands.findIndex(bb => bb.tradeId === b.tradeId && bb.otherTeams === laneTeamName);
           const oppBand = oppIdx >= 0 ? oppBands[oppIdx] : undefined;
           if (oppBand && oppBand.assets.length) {
-            const laneAccent = side === 'left' ? leftLaneColors.primary : rightLaneColors.primary;
+            const laneAccent2 = side === 'left' ? leftLaneColors.primary : rightLaneColors.primary;
             const oppBandId = `band:${b.tradeId}:${otherSide}`;
             const oppCollapsed = isCollapsed(oppBandId, oppIdx);
-            if (oppCollapsed) {
-              // collapsed: single connector to the opposite band header (avoid duplicate edge ids)
+            // Update subtitle to indicate counterpart's acquisitions count
+            bandData.subtitle = `${b.date} • counterparty acquired ${oppBand.assets.length}`;
+
+            if (dims.stack || oppCollapsed) {
+              // On mobile or when the opposite band is collapsed, keep it clean: junction -> opposite header
               rfEdges.push({
                 id: `xg:${junctionId}:${oppBandId}`,
                 source: junctionId,
                 target: oppBandId,
                 type: 'bezier',
-                style: { stroke: laneAccent, strokeWidth: 3, strokeLinecap: 'round', strokeLinejoin: 'round' },
-                markerEnd: { type: MarkerType.ArrowClosed, color: laneAccent },
+                style: { stroke: laneAccent2, strokeWidth: dims.stack ? 2 : 3, strokeLinecap: 'round', strokeLinejoin: 'round' },
+                markerEnd: { type: MarkerType.ArrowClosed, color: laneAccent2 },
               });
             } else {
+              // Desktop and expanded: junction -> each opposite asset clone for clearer "for" mapping
               oppBand.assets.forEach((n) => {
-                const dashed = n.type === 'pick' ? '6 4' : undefined;
                 const targetCloneId = `asset:${n.id}:${oppBandId}`;
+                const dashed = n.type === 'pick' ? '6 4' : undefined;
                 rfEdges.push({
                   id: `xg:${junctionId}:${targetCloneId}`,
                   source: junctionId,
                   target: targetCloneId,
                   type: 'bezier',
-                  style: { stroke: laneAccent, strokeWidth: 3, strokeLinecap: 'round', strokeLinejoin: 'round', ...(dashed ? { strokeDasharray: dashed } : {}) },
-                  markerEnd: { type: MarkerType.ArrowClosed, color: laneAccent },
+                  style: { stroke: laneAccent2, strokeWidth: 3, strokeLinecap: 'round', strokeLinejoin: 'round', ...(dashed ? { strokeDasharray: dashed } : {}) },
+                  markerEnd: { type: MarkerType.ArrowClosed, color: laneAccent2 },
                 });
               });
             }
           }
         }
 
-        // place assets as children when expanded
+        // place assets as children and compute bus when expanded
         if (!collapsed) {
-          const assetIds: string[] = [];
+          const MAX_COLS = 4;
+          const rowsCount = assetCount <= MAX_COLS ? 1 : Math.ceil(assetCount / MAX_COLS);
           const rowsAnchors: Array<{ busY: number; assetTopY: number; xs: number[] }> = [];
-          b.assets.forEach((n, ai) => {
-            const MAX_COLS = 4;
-            const rowsCount = assetCount <= MAX_COLS ? 1 : Math.ceil(assetCount / MAX_COLS);
-            const row = assetCount <= MAX_COLS ? 0 : Math.floor(ai / MAX_COLS);
-            const indexInRow = assetCount <= MAX_COLS ? ai : (ai % MAX_COLS);
-            const itemsInThisRow = assetCount <= MAX_COLS
+          inAssets.forEach((n, ai) => {
+            const row = Math.floor(ai / MAX_COLS);
+            const indexInRow = ai % MAX_COLS;
+            const itemsInThisRow = rowsCount === 1
               ? assetCount
               : (row === rowsCount - 1 ? (assetCount % MAX_COLS || MAX_COLS) : MAX_COLS);
             const totalRowW = itemsInThisRow * NODE_W + (itemsInThisRow - 1) * GUTTER_X;
@@ -578,8 +601,10 @@ export default function TradeTreeCanvas({ graph, height = 640, onNodeClick }: Tr
             const owner = currentOwner.get(n.id);
             const colors = owner ? getTeamColors(owner) : undefined;
             const accent = colors?.secondary || colors?.primary || '#9CA3AF';
-            const chip = n.type === "pick" && (n as any).season ? `${(n as any).pickInRound ? (n as any).pickInRound : `${(n as any).round}.${(n as any).slot?.toString().padStart(2,'0')}`} (${(n as any).season})${(n as any).becameName ? ` → ${(n as any).becameName}` : ""}` : undefined;
-            const aria = `${labelFor(n)}, sent by ${laneTeamBySide[side]} to ${b.otherTeams} on ${b.date}`;
+            const chip = n.type === 'pick' && (n as any).season
+              ? `${(n as any).pickInRound ? (n as any).pickInRound : `${(n as any).round}.${String((n as any).slot ?? '').padStart(2,'0')}`} (${(n as any).season})${(n as any).becameName ? ` → ${(n as any).becameName}` : ''}`
+              : undefined;
+            const aria = `${labelFor(n)}, acquired by ${laneTeamBySide[side]} from ${b.otherTeams} on ${b.date}`;
             const cloneId = `asset:${n.id}:${bandId}`;
             rfNodes.push({
               id: cloneId,
@@ -590,54 +615,29 @@ export default function TradeTreeCanvas({ graph, height = 640, onNodeClick }: Tr
               sourcePosition: 'top',
               targetPosition: 'top',
               data: {
-                label: labelFor(n),
                 node: n,
+                label: labelFor(n),
                 chip,
                 accent,
                 ariaLabel: aria,
-                onHover: (nid: string, on: boolean) => setHoverId(on ? nid : null),
-                onActivate: (nid?: string) => { setCollapsedBands((prev) => ({ ...prev, [bandId]: false })); setSelected(n); setSelectedId(nid ?? cloneId); onNodeClick?.(n); },
-                style: { ...nodeStyleFor(n.type), width: NODE_W },
-                tooltip: (() => {
-                  const currOwner = currentOwner.get(n.id);
-                  if (n.type === 'pick') {
-                    const oon = (n as any).originalOwnerName as string | undefined;
-                    const parts = [labelFor(n)];
-                    if (oon) parts.push(`Original owner: ${oon}`);
-                    if (currOwner) parts.push(`Current owner: ${currOwner}`);
-                    if ((n as any).becameName) parts.push(`Became: ${(n as any).becameName}`);
-                    return parts.join('\n');
-                  }
-                  if (currOwner) return `${labelFor(n)}\nCurrent owner: ${currOwner}`;
-                  return labelFor(n);
-                })(),
+                tooltip: `Trade: ${b.date}\nFrom: ${b.otherTeams}\nCurrent owner: ${owner ?? 'Unknown'}`,
+                style: nodeStyleFor(n.type),
+                compact: compact,
+                currentOwner: owner,
               },
               draggable: false,
+              selectable: true,
             });
-            assetIds.push(cloneId);
-            // record clone mapping for later 'became' connectors
-            const arr = clonesByAsset.get(n.id) || [];
-            arr.push(cloneId);
-            clonesByAsset.set(n.id, arr);
-            // collect anchors for bus overlay per row (longer droplines)
-            if (!rowsAnchors[row]) rowsAnchors[row] = { busY: y - 28, assetTopY: y, xs: [] };
-            rowsAnchors[row].xs.push(x + NODE_W / 2);
+            if (!clonesByAsset.has(n.id)) clonesByAsset.set(n.id, []);
+            clonesByAsset.get(n.id)!.push(cloneId);
+            const busY = y - 8;
+            const assetTopY = y - 4;
+            const rowIndex = row;
+            if (!rowsAnchors[rowIndex]) rowsAnchors[rowIndex] = { busY, assetTopY, xs: [] };
+            rowsAnchors[rowIndex].xs.push(x + NODE_W / 2);
           });
-          // Create inbound junction inside band to split to assets (bracket style)
-          if (assetIds.length) {
-            const inJunctionId = `junctionIn:${bandId}`;
-            const jxIn = LANE_W / 2; // relative to band
-            const jyIn = BAND_HEADER_H + Math.max(6, BAND_PAD_Y * 0.5);
-            rfNodes.push({ id: inJunctionId, type: 'junction', parentId: bandId, position: { x: jxIn, y: jyIn }, sourcePosition: 'bottom', targetPosition: 'top', draggable: false, selectable: false });
-            const strokeColor = bandStrokeColor;
-            // band -> junction inside
-            rfEdges.push({ id: `bandedge:${bandId}:${inJunctionId}`, source: bandId, target: inJunctionId, type: 'step', style: { stroke: strokeColor, strokeWidth: 0.01, opacity: 0 } });
-            // junction -> each asset
-            assetIds.forEach((aid) => {
-              rfEdges.push({ id: `bandedge:${inJunctionId}:${aid}`, source: inJunctionId, target: aid, type: 'step', style: { stroke: strokeColor, strokeWidth: 0.01, opacity: 0 } });
-            });
-            // pass bus overlay data to band node for visual grouping
-            bandData.bus = { rows: rowsAnchors.filter(Boolean), color: strokeColor };
+          if (rowsAnchors.length) {
+            bandData.bus = { rows: rowsAnchors, color: bandStrokeColor, busW: dims.stack ? 4 : 5, dropW: dims.stack ? 2 : 3 };
           }
         }
 
@@ -658,13 +658,35 @@ export default function TradeTreeCanvas({ graph, height = 640, onNodeClick }: Tr
       const toClones = clonesByAsset.get(e.to) || [];
       if (fromClones.length && toClones.length) {
         // Prefer same-band connection if possible
-        const bandOf = (cid: string) => cid.split(':').slice(2).join(':'); // asset:<id>:<bandId>
+        const bandOf = (cid: string) => cid.split(':').slice(2).join(':'); // asset:<id>:band:<tradeId>:<side>
         const pair = fromClones.flatMap(f => toClones.map(t => [f, t] as const)).find(([f, t]) => bandOf(f) === bandOf(t));
         const [src, dst] = pair || [fromClones[0], toClones[0]];
         rfEdges.push({ id: `became:${src}:${dst}`, source: src, target: dst, type: 'step', style: { stroke: 'var(--muted)', strokeWidth: 3, strokeDasharray: '6 4', strokeLinecap: 'round', strokeLinejoin: 'round' }, markerEnd: { type: MarkerType.ArrowClosed, color: 'var(--muted)' } });
       }
-      // If no clones exist yet (both collapsed), skip; edge will appear once bands are expanded and clones exist
     });
+
+    // Continuity edges across trades for the same asset (dotted to next trade)
+    for (const [assetId, cloneIds] of clonesByAsset.entries()) {
+      if (!cloneIds || cloneIds.length < 2) continue;
+      const items = cloneIds.map((cid) => {
+        const parts = cid.split(':'); // asset:<id>:band:<tradeId>:<side>
+        const tradeId = parts[3];
+        const t = tradeById.get(tradeId);
+        return { cid, tradeId, date: t?.date || '9999-99-99' };
+      }).sort((a, b) => a.date.localeCompare(b.date));
+      for (let i = 0; i < items.length - 1; i++) {
+        const a = items[i];
+        const b = items[i + 1];
+        rfEdges.push({
+          id: `flow:${assetId}:${a.cid}:${b.cid}`,
+          source: a.cid,
+          target: b.cid,
+          type: 'bezier',
+          style: { stroke: 'var(--muted)', strokeWidth: 2, strokeDasharray: '4 4', strokeLinecap: 'round', strokeLinejoin: 'round', opacity: 0.9 },
+          markerEnd: { type: MarkerType.ArrowClosed, color: 'var(--muted)' },
+        });
+      }
+    }
 
     setBaseNodes(rfNodes);
     setBaseEdges(rfEdges);
