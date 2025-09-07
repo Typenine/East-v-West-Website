@@ -76,7 +76,7 @@ export default function MatchupCard({
             </Link>
           </div>
           {hasScores ? (
-            <div className="font-bold text-[var(--text)]">{awayScore}</div>
+            <div className="font-bold text-[var(--text)]">{Number(awayScore).toFixed(2)}</div>
           ) : null}
         </div>
         
@@ -114,7 +114,7 @@ export default function MatchupCard({
             </Link>
           </div>
           {hasScores ? (
-            <div className="font-bold text-[var(--text)]">{homeScore}</div>
+            <div className="font-bold text-[var(--text)]">{Number(homeScore).toFixed(2)}</div>
           ) : null}
         </div>
         
