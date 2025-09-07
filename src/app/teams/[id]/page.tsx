@@ -701,7 +701,7 @@ export default function TeamPage() {
                                       <div className="text-sm text-[var(--muted)]">{(s?.gp ?? 0)}</div>
                                     </Td>
                                     <Td>
-                                      <div className="text-sm text-[var(--muted)]">{(s?.totalPPR ?? 0).toFixed(1)}</div>
+                                      <div className="text-sm text-[var(--muted)]">{(s?.totalPPR ?? 0).toFixed(2)}</div>
                                     </Td>
                                     <Td>
                                       <div className="text-sm text-[var(--text)]">{(s?.ppg ?? 0).toFixed(2)}</div>
