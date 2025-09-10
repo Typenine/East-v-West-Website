@@ -1,7 +1,6 @@
-import Image from 'next/image';
 import Link from 'next/link';
 import SectionHeader from '@/components/ui/SectionHeader';
-import Card, { CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
+import Card, { CardContent } from '@/components/ui/Card';
 import { LEAGUE_IDS } from '@/lib/constants/league';
 import { 
   getLeagueMatchups,
@@ -10,7 +9,7 @@ import {
   type SleeperMatchup,
   type SleeperPlayer,
 } from '@/lib/utils/sleeper-api';
-import { getTeamLogoPath, getTeamColorStyle } from '@/lib/utils/team-utils';
+import RosterColumn, { type PlayerRow } from '@/components/matchups/RosterColumn';
 
 export const revalidate = 20;
 
@@ -72,24 +71,39 @@ export default async function MatchupDetailPage({ params }: { params?: Promise<R
     const aPts = (a.custom_points ?? a.points ?? 0);
     const bPts = (b.custom_points ?? b.points ?? 0);
 
-    // Build starters list for each side in the order Sleeper provides
-    function buildStarters(m: SleeperMatchup): Array<{ id: string; pts: number; pos?: string; team?: string; name: string }> {
-      const starters = (m.starters || []) as string[];
+    // Helpers to build rows
+    function buildRowsFromIds(ids: string[], m: SleeperMatchup): PlayerRow[] {
       const pp = (m.players_points || {}) as Record<string, number>;
-      const list: Array<{ id: string; pts: number; pos?: string; team?: string; name: string }> = [];
-      for (const pid of starters) {
+      const out: PlayerRow[] = [];
+      for (const pid of ids) {
         const pl = (players as Record<string, SleeperPlayer>)[pid];
         const name = pl ? `${pl.first_name || ''} ${pl.last_name || ''}`.trim() : pid;
         const pos = pl?.position;
         const team = pl?.team;
         const pts = Number(pp[pid] ?? 0);
-        list.push({ id: pid, pts, pos, team, name });
+        out.push({ id: pid, name, pos, team, pts });
       }
-      return list;
+      return out;
     }
 
-    const aStarters = buildStarters(a);
-    const bStarters = buildStarters(b);
+    function unique<T>(arr: T[]): T[] { return Array.from(new Set(arr)); }
+
+    function buildStarterRows(m: SleeperMatchup): PlayerRow[] {
+      const starters = ((m.starters || []) as string[]).filter(Boolean);
+      return buildRowsFromIds(starters, m);
+    }
+
+    function buildBenchRows(m: SleeperMatchup): PlayerRow[] {
+      const starters = new Set(((m.starters || []) as string[]).filter(Boolean));
+      const fromPlayers = Array.isArray(m.players) ? (m.players as string[]).filter(Boolean) : Object.keys((m.players_points || {}) as Record<string, number>);
+      const benchIds = unique(fromPlayers.filter((id) => !starters.has(id)));
+      return buildRowsFromIds(benchIds, m);
+    }
+
+    const aStarters = buildStarterRows(a);
+    const bStarters = buildStarterRows(b);
+    const aBench = buildBenchRows(a);
+    const bBench = buildBenchRows(b);
 
     return (
       <div className="container mx-auto px-4 py-8">
@@ -100,69 +114,23 @@ export default async function MatchupDetailPage({ params }: { params?: Promise<R
           }
         />
 
-        {/* Scoreboard */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-          {/* Away side */}
-          <Card>
-            <CardHeader style={getTeamColorStyle(bName)}>
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center overflow-hidden">
-                  <Image src={getTeamLogoPath(bName)} alt={bName} width={28} height={28} className="object-contain" />
-                </div>
-                <CardTitle className="text-current">{bName}</CardTitle>
-                <div className="ml-auto text-lg font-extrabold">{bPts.toFixed(2)}</div>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <h3 className="text-sm font-semibold mb-3">Starters</h3>
-              <ul className="space-y-2">
-                {bStarters.length > 0 ? (
-                  bStarters.map((s) => (
-                    <li key={s.id} className="flex items-center justify-between evw-surface border border-[var(--border)] rounded-md px-3 py-2">
-                      <div className="min-w-0">
-                        <div className="font-medium truncate">{s.name}</div>
-                        <div className="text-xs text-[var(--muted)]">{s.pos || '—'}{s.team ? ` • ${s.team}` : ''}</div>
-                      </div>
-                      <div className="font-semibold tabular-nums">{s.pts.toFixed(2)}</div>
-                    </li>
-                  ))
-                ) : (
-                  <li className="text-sm text-[var(--muted)]">No starters listed.</li>
-                )}
-              </ul>
-            </CardContent>
-          </Card>
-
-          {/* Home side */}
-          <Card>
-            <CardHeader style={getTeamColorStyle(aName)}>
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center overflow-hidden">
-                  <Image src={getTeamLogoPath(aName)} alt={aName} width={28} height={28} className="object-contain" />
-                </div>
-                <CardTitle className="text-current">{aName}</CardTitle>
-                <div className="ml-auto text-lg font-extrabold">{aPts.toFixed(2)}</div>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <h3 className="text-sm font-semibold mb-3">Starters</h3>
-              <ul className="space-y-2">
-                {aStarters.length > 0 ? (
-                  aStarters.map((s) => (
-                    <li key={s.id} className="flex items-center justify-between evw-surface border border-[var(--border)] rounded-md px-3 py-2">
-                      <div className="min-w-0">
-                        <div className="font-medium truncate">{s.name}</div>
-                        <div className="text-xs text-[var(--muted)]">{s.pos || '—'}{s.team ? ` • ${s.team}` : ''}</div>
-                      </div>
-                      <div className="font-semibold tabular-nums">{s.pts.toFixed(2)}</div>
-                    </li>
-                  ))
-                ) : (
-                  <li className="text-sm text-[var(--muted)]">No starters listed.</li>
-                )}
-              </ul>
-            </CardContent>
-          </Card>
+          <RosterColumn
+            title={bName}
+            colorTeam={bName}
+            week={week}
+            totalPts={bPts}
+            starters={bStarters}
+            bench={bBench}
+          />
+          <RosterColumn
+            title={aName}
+            colorTeam={aName}
+            week={week}
+            totalPts={aPts}
+            starters={aStarters}
+            bench={aBench}
+          />
         </div>
 
         <div className="text-xs text-[var(--muted)]">Data source: Sleeper weekly matchups • Week {week}</div>
