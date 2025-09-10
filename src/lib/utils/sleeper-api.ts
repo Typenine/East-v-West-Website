@@ -489,9 +489,20 @@ export async function getWeeklyHighScoreTallyAcrossSeasons(
       if (dowET === 'Tue') {
         // On Tuesday, include the just-finished week even if Sleeper hasn't advanced week yet
         currentSeasonCutoffWeek = Math.max(1, rawWeek);
+      } else if (dowET === 'Wed') {
+        // On Wednesday, include last completed week. If Sleeper hasn't advanced rawWeek yet,
+        // rawWeek still corresponds to last week (has points) -> include rawWeek.
+        // If it has advanced, rawWeek is next week (likely 0-0) -> include rawWeek - 1.
+        try {
+          const mus = await getLeagueMatchups(LEAGUE_IDS.CURRENT, rawWeek, options).catch(() => [] as SleeperMatchup[]);
+          const hasAnyPoints = mus.some((m) => ((m.custom_points ?? m.points ?? 0) > 0));
+          currentSeasonCutoffWeek = hasAnyPoints ? Math.max(1, rawWeek) : Math.max(1, rawWeek - 1);
+        } catch {
+          currentSeasonCutoffWeek = Math.max(1, rawWeek - 1);
+        }
       } else {
-        // On Mon and Wed-Sun, include only fully completed weeks (rawWeek - 1)
-        currentSeasonCutoffWeek = Math.max(0, (typeof rawWeek === 'number' ? rawWeek : 1) - 1);
+        // On Mon and Thu-Sun, include only fully completed weeks (rawWeek - 1)
+        currentSeasonCutoffWeek = Math.max(1, (typeof rawWeek === 'number' ? rawWeek : 1) - 1);
       }
     } catch {
       // Fallback: if state fails, default to include up to previous week
