@@ -14,6 +14,7 @@ interface MatchupCardProps {
   awayScore?: number;
   kickoffTime?: string;
   week: number;
+  matchupId?: number;
   className?: string;
 }
 
@@ -26,6 +27,7 @@ export default function MatchupCard({
   awayScore,
   kickoffTime,
   week,
+  matchupId,
   className = ''
 }: MatchupCardProps) {
   const hasScores = homeScore !== undefined && awayScore !== undefined;
@@ -121,6 +123,18 @@ export default function MatchupCard({
         {!hasScores && kickoffTime && (
           <div className="mt-2 text-center text-sm text-[var(--muted)]">
             Kickoff: {kickoffTime}
+          </div>
+        )}
+
+        {typeof matchupId === 'number' && (
+          <div className="mt-3 flex justify-end">
+            <Link
+              href={`/matchups/${week}/${matchupId}`}
+              className="text-[var(--accent)] text-sm font-medium hover:underline"
+              aria-label={`View matchup details for Week ${week}`}
+            >
+              View matchup →
+            </Link>
           </div>
         )}
       </CardContent>

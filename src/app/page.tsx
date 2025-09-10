@@ -20,6 +20,7 @@ export default async function Home({ searchParams }: { searchParams?: Promise<Re
     homeScore?: number;
     awayScore?: number;
     week: number;
+    matchupId: number;
     kickoffTime?: string;
   }> = [];
   const MAX_REGULAR_WEEKS = 14;
@@ -79,12 +80,12 @@ export default async function Home({ searchParams }: { searchParams?: Promise<Re
     const rosterIdToName = new Map<number, string>(
       teams.map((t) => [t.rosterId, t.teamName])
     );
-    const groups = new Map<number, { roster_id: number; points: number }[]>();
+    const groups = new Map<number, { roster_id: number; points: number; matchup_id: number }[]>();
     for (const m of mus) {
       const arr = groups.get(m.matchup_id) || [];
       // Use points reported by Sleeper
       const pts = (m.custom_points ?? m.points ?? 0);
-      arr.push({ roster_id: m.roster_id, points: pts });
+      arr.push({ roster_id: m.roster_id, points: pts, matchup_id: m.matchup_id });
       groups.set(m.matchup_id, arr);
     }
     for (const arr of groups.values()) {
@@ -99,6 +100,7 @@ export default async function Home({ searchParams }: { searchParams?: Promise<Re
           homeScore: includeScores ? b.points : undefined,
           awayScore: includeScores ? a.points : undefined,
           week: selectedWeek,
+          matchupId: a.matchup_id,
         });
       }
     }
@@ -171,6 +173,7 @@ export default async function Home({ searchParams }: { searchParams?: Promise<Re
                 awayScore={matchup.awayScore}
                 kickoffTime={matchup.kickoffTime}
                 week={matchup.week}
+                matchupId={matchup.matchupId}
               />
             ))}
           </div>
