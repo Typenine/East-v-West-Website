@@ -262,7 +262,7 @@ export default function RosterColumn({
                     <span className="text-xs text-[var(--muted)] w-8 inline-block">{s.pos || "—"}</span>
                     <span className="truncate">{s.name}</span>
                     <a
-                      href={`https://sleeper.com/players/nfl/${s.id}`}
+                      href={`https://sleeper.app/players/nfl/${s.id}`}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="text-[var(--accent)] text-xs hover:underline"
@@ -323,7 +323,7 @@ export default function RosterColumn({
                     <span className="text-xs text-[var(--muted)] w-8 inline-block">{s.pos || "—"}</span>
                     <span className="truncate">{s.name}</span>
                     <a
-                      href={`https://sleeper.com/players/nfl/${s.id}`}
+                      href={`https://sleeper.app/players/nfl/${s.id}`}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="text-[var(--accent)] text-xs hover:underline"

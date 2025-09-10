@@ -36,8 +36,9 @@ export async function GET(req: NextRequest) {
       return NextResponse.json(cached.data, { status: 200 });
     }
 
-    const url1 = `https://site.api.espn.com/apis/v2/sports/football/nfl/scoreboard?week=${week}&seasontype=2&year=${encodeURIComponent(season!)}`;
-    const url2 = `https://site.web.api.espn.com/apis/v2/sports/football/nfl/scoreboard?week=${week}&seasontype=2&year=${encodeURIComponent(season!)}`;
+    const common = `week=${week}&seasontype=2&year=${encodeURIComponent(season!)}`;
+    const url1 = `https://site.api.espn.com/apis/v2/sports/football/nfl/scoreboard?${common}`;
+    const url2 = `https://site.web.api.espn.com/apis/v2/sports/football/nfl/scoreboard?${common}`;
     const headers = {
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36',
       'Accept': 'application/json,text/plain,*/*',
