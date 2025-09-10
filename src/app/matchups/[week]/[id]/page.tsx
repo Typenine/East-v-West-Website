@@ -18,9 +18,14 @@ function clamp(n: number, min: number, max: number) {
   return Math.max(min, Math.min(max, n));
 }
 
-export default async function MatchupDetailPage({ params }: { params: { week: string; id: string } }) {
-  const weekParam = Number(params.week);
-  const idParam = Number(params.id);
+export default async function MatchupDetailPage({ params }: { params?: Promise<Record<string, string | string[] | undefined>> }) {
+  const p = (await (params ?? Promise.resolve({}))) as Record<string, string | string[] | undefined>;
+  const weekRaw = p.week;
+  const idRaw = p.id;
+  const weekStr = Array.isArray(weekRaw) ? weekRaw[0] : weekRaw;
+  const idStr = Array.isArray(idRaw) ? idRaw[0] : idRaw;
+  const weekParam = Number(weekStr);
+  const idParam = Number(idStr);
   const week = clamp(Number.isFinite(weekParam) ? weekParam : 1, 1, 18);
   const matchupId = Number.isFinite(idParam) ? idParam : 0;
 
