@@ -172,37 +172,22 @@ export default function RosterColumn({
   // Roster chips
   const chips = useMemo(() => {
     let ytp = 0, ip = 0, fin = 0;
-    const gameIds = new Set<string>();
     const hasStatuses = statuses && Object.keys(statuses).length > 0;
-    if (hasStatuses) {
-      for (const p of allPlayers) {
-        const code = normalizeTeamCode(p.team);
-        if (!code) continue;
-        const s = statuses[code];
-        if (!s) continue;
-        if (s.state !== "post" && s.gameId) gameIds.add(s.gameId);
+    for (const p of allPlayers) {
+      const code = normalizeTeamCode(p.team);
+      const s = code ? statuses[code] : undefined;
+      if (hasStatuses && s) {
         if (s.state === "pre") ytp++;
         else if (s.state === "in") ip++;
         else if (s.state === "post") fin++;
-      }
-    } else {
-      // Scoreboard unavailable: fallback heuristic
-      if (isPastWeek) {
-        fin = allPlayers.length;
+        else ytp++;
       } else {
-        ytp = allPlayers.length;
-        // approximate games remaining by unique NFL teams in roster
-        const teams = new Set<string>();
-        for (const p of allPlayers) {
-          const code = normalizeTeamCode(p.team);
-          if (code) teams.add(code);
-        }
-        for (const t of teams) gameIds.add(t);
+        // No live board entry: assume scheduled for current/future weeks, final for past weeks
+        if (isPastWeek) fin++; else ytp++;
       }
     }
-    let gamesRemaining = gameIds.size;
-    if (!hasStatuses && isPastWeek) gamesRemaining = 0;
-    return { ytp, ip, fin, gamesRemaining };
+    const playersRemaining = ytp + ip;
+    return { ytp, ip, fin, playersRemaining };
   }, [allPlayers, statuses, isPastWeek]);
 
   const posTotals = useMemo(() => sumByPosition(starters), [starters]);
@@ -224,7 +209,7 @@ export default function RosterColumn({
         </div>
         {/* Roster chips */}
         <div className="mt-2 flex flex-wrap gap-2 text-xs">
-          <span className="px-2 py-0.5 rounded-full bg-black/20 text-white">Games remaining: {chips.gamesRemaining}</span>
+          <span className="px-2 py-0.5 rounded-full bg-black/20 text-white">Players remaining: {chips.playersRemaining}</span>
           <span className="px-2 py-0.5 rounded-full bg-black/15 text-white/90">YTP {chips.ytp}</span>
           <span className="px-2 py-0.5 rounded-full bg-black/15 text-white/90">IP {chips.ip}</span>
           <span className="px-2 py-0.5 rounded-full bg-black/15 text-white/90">FIN {chips.fin}</span>
@@ -284,13 +269,7 @@ export default function RosterColumn({
                   <div className="font-medium truncate flex items-center gap-2">
                     <span className="text-xs text-[var(--muted)] w-8 inline-block">{s.pos || "—"}</span>
                     <span className="truncate">{s.name}</span>
-                    <a
-                      href={`https://sleeper.app/players/nfl/${s.id}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-[var(--accent)] text-xs hover:underline"
-                      aria-label={`Open ${s.name} on Sleeper in a new tab`}
-                    >↗</a>
+                    {/* External player link removed per request */}
                   </div>
                   {statBits.length > 0 && (
                     <div className="text-xs text-[var(--muted)]">{statBits.join(' • ')}</div>
