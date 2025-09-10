@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import Image from 'next/image';
 import { getTeamLogoPath } from '@/lib/utils/team-utils';
+import { LEAGUE_IDS } from '@/lib/constants/league';
 import { normalizeTeamCode } from '@/lib/constants/nfl-teams';
 
 export type PlayerBasic = {
@@ -164,7 +165,9 @@ type PlayerInfo = {
 
 export default function PlayerDrawer({ open, onClose, player, season, week, currentWeek, statsLive, pointsMap, statuses }: PlayerDrawerProps) {
   const [info, setInfo] = useState<PlayerInfo | null>(null);
-  const [recent, setRecent] = useState<Array<{ week: number; pts: number }>>([]);
+  const [logSeason, setLogSeason] = useState<string>(season);
+  const [logs, setLogs] = useState<Array<{ week: number; ptsPPR: number }>>([]);
+  const [loadingLogs, setLoadingLogs] = useState(false);
 
   useEffect(() => {
     if (!open || !player) return;
@@ -186,25 +189,21 @@ export default function PlayerDrawer({ open, onClose, player, season, week, curr
     if (!open || !player) return;
     const pid = player.id;
     let cancelled = false;
-    async function loadRecent() {
+    async function loadLogs() {
       try {
-        const weeks: number[] = [];
-        const cw = Number.isFinite(currentWeek) ? currentWeek : week;
-        for (let w = cw - 1; w >= cw - 2 && w >= 1; w--) weeks.push(w);
-        const results: Array<{ week: number; pts: number }> = [];
-        for (const w of weeks) {
-          const r = await fetch(`/api/matchup-points?week=${w}`, { cache: 'no-store' });
-          if (!r.ok) continue;
-          const j = await r.json();
-          const pts = Number(j?.playerPoints?.[pid] ?? 0);
-          results.push({ week: w, pts });
-        }
-        if (!cancelled) setRecent(results);
-      } catch {}
+        setLoadingLogs(true);
+        const r = await fetch(`/api/player-logs?playerId=${pid}&season=${encodeURIComponent(logSeason)}`, { cache: 'no-store' });
+        if (!r.ok) return;
+        const j = await r.json();
+        const arr = (j?.logs || []) as Array<{ week: number; ptsPPR: number }>;
+        if (!cancelled) setLogs(arr);
+      } finally {
+        if (!cancelled) setLoadingLogs(false);
+      }
     }
-    loadRecent();
+    loadLogs();
     return () => { cancelled = true; };
-  }, [open, player, currentWeek, week]);
+  }, [open, player, logSeason]);
 
   const st = player ? (statsLive[player.id] || {}) : {};
   const thisWeekPts = player ? Number(pointsMap[player.id] ?? 0) : 0;
@@ -256,19 +255,32 @@ export default function PlayerDrawer({ open, onClose, player, season, week, curr
           </div>
         )}
 
-        {recent.length > 0 && (
-          <div className="mb-4">
-            <div className="text-xs text-[var(--muted)] mb-1">Recent weeks</div>
-            <ul className="text-sm space-y-1">
-              {recent.map(r => (
+        <div className="mb-4">
+          <div className="flex items-center justify-between mb-1">
+            <div className="text-xs text-[var(--muted)]">Game log</div>
+            <select
+              className="text-xs evw-surface border border-[var(--border)] rounded px-2 py-1"
+              value={logSeason}
+              onChange={(e) => setLogSeason(e.target.value)}
+            >
+              {Array.from(new Set([season, ...Object.keys(LEAGUE_IDS.PREVIOUS || {})])).map((yr) => (
+                <option key={yr} value={yr}>{yr}</option>
+              ))}
+            </select>
+          </div>
+          {loadingLogs ? (
+            <div className="text-xs text-[var(--muted)]">Loading…</div>
+          ) : (
+            <ul className="text-sm grid grid-cols-2 gap-x-4 gap-y-1">
+              {logs.map((r) => (
                 <li key={r.week} className="flex items-center justify-between">
                   <span>Week {r.week}</span>
-                  <span className="font-semibold tabular-nums">{r.pts.toFixed(2)}</span>
+                  <span className="font-semibold tabular-nums">{Number(r.ptsPPR || 0).toFixed(2)}</span>
                 </li>
               ))}
             </ul>
-          </div>
-        )}
+          )}
+        </div>
       </div>
     </div>
   );

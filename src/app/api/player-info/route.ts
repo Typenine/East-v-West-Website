@@ -1,9 +1,22 @@
 import { NextResponse } from 'next/server';
-import { getAllPlayersCached } from '@/lib/utils/sleeper-api';
+import { getAllPlayersCached, type SleeperPlayer } from '@/lib/utils/sleeper-api';
 
 // 5 minutes cache in-memory
 const TTL_MS = 5 * 60 * 1000;
-const cache: Record<string, { ts: number; data: any }> = {};
+type PlayerInfo = {
+  id: string;
+  first_name?: string;
+  last_name?: string;
+  full_name: string;
+  position?: string;
+  team?: string;
+  status?: string;
+  injury_status?: string;
+  years_exp?: number;
+  rookie_year?: string | number;
+};
+
+const cache: Record<string, { ts: number; data: PlayerInfo }> = {};
 
 export async function GET(req: Request) {
   try {
@@ -17,11 +30,11 @@ export async function GET(req: Request) {
       return NextResponse.json(cached.data, { status: 200 });
     }
 
-    const players = await getAllPlayersCached().catch(() => ({} as Record<string, any>));
-    const p = players[id];
+    const players = await getAllPlayersCached().catch(() => ({} as Record<string, SleeperPlayer>));
+    const p = players[id] as SleeperPlayer | undefined;
     if (!p) return NextResponse.json({ error: 'not_found' }, { status: 404 });
 
-    const data = {
+    const data: PlayerInfo = {
       id,
       first_name: p.first_name,
       last_name: p.last_name,
@@ -30,13 +43,8 @@ export async function GET(req: Request) {
       team: p.team,
       status: p.status,
       injury_status: p.injury_status,
-      injury_body_part: p.injury_body_part,
-      injury_start_date: p.injury_start_date,
-      age: p.age,
-      height: p.height,
-      weight: p.weight,
-      college: p.college,
-      number: p.number,
+      years_exp: p.years_exp,
+      rookie_year: p.rookie_year,
     };
 
     cache[id] = { ts: now, data };
