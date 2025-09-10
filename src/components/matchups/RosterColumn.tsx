@@ -97,6 +97,7 @@ export default function RosterColumn({
   colorTeam,
   week,
   season,
+  currentWeek,
   totalPts,
   starters,
   bench,
@@ -106,6 +107,7 @@ export default function RosterColumn({
   colorTeam: string; // team name for color styling
   week: number;
   season: string;
+  currentWeek: number;
   totalPts: number;
   starters: PlayerRow[];
   bench: PlayerRow[];
@@ -165,28 +167,43 @@ export default function RosterColumn({
   }, [season, week, stats]);
 
   const statuses = useMemo(() => board?.teamStatuses ?? {}, [board?.teamStatuses]);
+  const isPastWeek = useMemo(() => Number.isFinite(currentWeek) && week < currentWeek, [week, currentWeek]);
 
   // Roster chips
   const chips = useMemo(() => {
     let ytp = 0, ip = 0, fin = 0;
     const gameIds = new Set<string>();
-    for (const p of allPlayers) {
-      const code = normalizeTeamCode(p.team);
-      if (!code) continue;
-      const s = statuses[code];
-      if (!s) continue;
-      if (s.state !== "post" && s.gameId) gameIds.add(s.gameId);
-      if (s.state === "pre") ytp++;
-      else if (s.state === "in") ip++;
-      else if (s.state === "post") fin++;
+    const hasStatuses = statuses && Object.keys(statuses).length > 0;
+    if (hasStatuses) {
+      for (const p of allPlayers) {
+        const code = normalizeTeamCode(p.team);
+        if (!code) continue;
+        const s = statuses[code];
+        if (!s) continue;
+        if (s.state !== "post" && s.gameId) gameIds.add(s.gameId);
+        if (s.state === "pre") ytp++;
+        else if (s.state === "in") ip++;
+        else if (s.state === "post") fin++;
+      }
+    } else {
+      // Scoreboard unavailable: fallback heuristic
+      if (isPastWeek) {
+        fin = allPlayers.length;
+      } else {
+        ytp = allPlayers.length;
+        // approximate games remaining by unique NFL teams in roster
+        const teams = new Set<string>();
+        for (const p of allPlayers) {
+          const code = normalizeTeamCode(p.team);
+          if (code) teams.add(code);
+        }
+        for (const t of teams) gameIds.add(t);
+      }
     }
     let gamesRemaining = gameIds.size;
-    // Fallback: if roster empty or no mapped teams, show total NFL games remaining this week
-    if ((ytp + ip + fin) === 0 && board?.games) {
-      gamesRemaining = board.games.filter(g => g.state !== 'post').length;
-    }
+    if (!hasStatuses && isPastWeek) gamesRemaining = 0;
     return { ytp, ip, fin, gamesRemaining };
-  }, [allPlayers, statuses, board?.games]);
+  }, [allPlayers, statuses, isPastWeek]);
 
   const posTotals = useMemo(() => sumByPosition(starters), [starters]);
   const benchTotal = useMemo(() => bench.reduce((sum, b) => sum + (b.pts || 0), 0), [bench]);
@@ -224,7 +241,13 @@ export default function RosterColumn({
         <h3 className="text-sm font-semibold mb-2">Starters</h3>
         <ul className="space-y-2">
           {starters.length > 0 ? starters.map((s) => {
-            const { label, bucket, possession } = statusLabelFor(s.team, statuses);
+            const { label, bucket, possession } = (() => {
+              const res = statusLabelFor(s.team, statuses);
+              if (res.bucket === 'NA') {
+                return isPastWeek ? { label: 'Final', bucket: 'FIN' as const, possession: false } : { label: 'Scheduled', bucket: 'YTP' as const, possession: false };
+              }
+              return res;
+            })();
             const dotCls = possession ? "bg-[var(--accent)]" : "bg-[var(--muted)]";
             const bucketColor = bucket === "IP" ? "text-green-600" : bucket === "FIN" ? "text-[var(--muted)]" : "text-amber-600";
             // Build a compact stat line from optional stats map

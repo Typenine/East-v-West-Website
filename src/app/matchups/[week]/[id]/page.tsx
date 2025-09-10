@@ -110,6 +110,7 @@ export default async function MatchupDetailPage({ params }: { params?: Promise<R
 
     // Fetch weekly stats for this season/week for stat lines beneath player names
     const season = (state as { season?: string }).season || String(new Date().getFullYear());
+    const currentWeek = Number((state as { week?: number }).week ?? week);
     let weekStats: Record<string, Partial<Record<string, number>>> = {};
     try {
       const stats = await getNFLWeekStats(season, week);
@@ -133,6 +134,7 @@ export default async function MatchupDetailPage({ params }: { params?: Promise<R
             colorTeam={bName}
             week={week}
             season={season}
+            currentWeek={currentWeek}
             totalPts={bPts}
             starters={bStarters}
             bench={bBench}
@@ -143,6 +145,7 @@ export default async function MatchupDetailPage({ params }: { params?: Promise<R
             colorTeam={aName}
             week={week}
             season={season}
+            currentWeek={currentWeek}
             totalPts={aPts}
             starters={aStarters}
             bench={aBench}
