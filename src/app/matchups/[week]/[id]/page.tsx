@@ -6,6 +6,8 @@ import {
   getLeagueMatchups,
   getRosterIdToTeamNameMap,
   getAllPlayersCached,
+  getNFLWeekStats,
+  getNFLState,
   type SleeperMatchup,
   type SleeperPlayer,
 } from '@/lib/utils/sleeper-api';
@@ -32,10 +34,11 @@ export default async function MatchupDetailPage({ params }: { params?: Promise<R
 
   try {
     // Fetch everything we need
-    const [matchups, nameMap, players] = await Promise.all([
+    const [matchups, nameMap, players, state] = await Promise.all([
       getLeagueMatchups(leagueId, week).catch(() => [] as SleeperMatchup[]),
       getRosterIdToTeamNameMap(leagueId).catch(() => new Map<number, string>()),
       getAllPlayersCached().catch(() => ({} as Record<string, SleeperPlayer>)),
+      getNFLState().catch(() => ({ season: String(new Date().getFullYear()) } as { season: string })),
     ]);
 
     // Group by matchup_id
@@ -105,6 +108,16 @@ export default async function MatchupDetailPage({ params }: { params?: Promise<R
     const aBench = buildBenchRows(a);
     const bBench = buildBenchRows(b);
 
+    // Fetch weekly stats for this season/week for stat lines beneath player names
+    const season = (state as { season?: string }).season || String(new Date().getFullYear());
+    let weekStats: Record<string, Partial<Record<string, number>>> = {};
+    try {
+      const stats = await getNFLWeekStats(season, week);
+      weekStats = stats as unknown as Record<string, Partial<Record<string, number>>>;
+    } catch {
+      weekStats = {};
+    }
+
     return (
       <div className="container mx-auto px-4 py-8">
         <SectionHeader
@@ -122,6 +135,7 @@ export default async function MatchupDetailPage({ params }: { params?: Promise<R
             totalPts={bPts}
             starters={bStarters}
             bench={bBench}
+            stats={weekStats}
           />
           <RosterColumn
             title={aName}
@@ -130,10 +144,46 @@ export default async function MatchupDetailPage({ params }: { params?: Promise<R
             totalPts={aPts}
             starters={aStarters}
             bench={aBench}
+            stats={weekStats}
           />
         </div>
 
-        <div className="text-xs text-[var(--muted)]">Data source: Sleeper weekly matchups • Week {week}</div>
+        {/* Other matchups in this week */}
+        {Array.from(byId.entries()).filter(([mid]) => mid !== matchupId).length > 0 && (
+          <div className="mb-8">
+            <h3 className="text-sm font-semibold mb-2">Other matchups</h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+              {Array.from(byId.entries()).filter(([mid]) => mid !== matchupId).map(([mid, arr]) => {
+                const [m1, m2] = arr;
+                const n1 = nameMap.get(m1.roster_id) ?? `Roster ${m1.roster_id}`;
+                const n2 = nameMap.get(m2.roster_id) ?? `Roster ${m2.roster_id}`;
+                const p1 = (m1.custom_points ?? m1.points ?? 0);
+                const p2 = (m2.custom_points ?? m2.points ?? 0);
+                return (
+                  <Link key={mid} href={`/matchups/${week}/${mid}`} className="evw-surface border border-[var(--border)] rounded-md p-3 hover-subtle">
+                    <div className="text-xs text-[var(--muted)] mb-1">Week {week}</div>
+                    <div className="flex items-center justify-between">
+                      <div className="min-w-0">
+                        <div className="truncate font-medium">{n2}</div>
+                        <div className="truncate text-sm">{n1}</div>
+                      </div>
+                      <div className="text-right ml-3">
+                        <div className="font-bold tabular-nums">{p2.toFixed(2)}</div>
+                        <div className="font-bold tabular-nums">{p1.toFixed(2)}</div>
+                      </div>
+                    </div>
+                  </Link>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        <div className="text-xs text-[var(--muted)]">
+          Data source: Sleeper weekly matchups • Live scoreboard: ESPN • Week {week}
+          <br />
+          Legend: Yet to play (YTP) • In progress (IP) • Finished (FIN)
+        </div>
       </div>
     );
   } catch {

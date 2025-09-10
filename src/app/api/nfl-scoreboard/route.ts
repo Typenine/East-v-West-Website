@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { getNFLState } from '@/lib/utils/sleeper-api';
 import { normalizeTeamCode } from '@/lib/constants/nfl-teams';
 
 export const runtime = 'nodejs';
@@ -17,6 +18,16 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const weekParam = Number(searchParams.get('week'));
     const week = clamp(Number.isFinite(weekParam) ? weekParam : 1, 1, 23);
+    const seasonParam = searchParams.get('season');
+    let season: string | undefined = seasonParam || undefined;
+    if (!season) {
+      try {
+        const s = await getNFLState();
+        season = String((s as { season?: string }).season || new Date().getFullYear());
+      } catch {
+        season = String(new Date().getFullYear());
+      }
+    }
     const cacheKey = `week:${week}`;
 
     const now = Date.now();
@@ -25,7 +36,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json(cached.data, { status: 200 });
     }
 
-    const url = `https://site.api.espn.com/apis/v2/sports/football/nfl/scoreboard?week=${week}&seasontype=2`;
+    const url = `https://site.api.espn.com/apis/v2/sports/football/nfl/scoreboard?week=${week}&seasontype=2&year=${encodeURIComponent(season!)}`;
     const resp = await fetch(url, { next: { revalidate: 0 } });
     if (!resp.ok) throw new Error(`ESPN scoreboard fetch failed: ${resp.status}`);
     const json = await resp.json();
@@ -39,8 +50,8 @@ export async function GET(req: NextRequest) {
       state: 'pre' | 'in' | 'post';
       period?: number;
       displayClock?: string;
-      home: { code?: string };
-      away: { code?: string };
+      home: { code?: string; score?: number };
+      away: { code?: string; score?: number };
       possessionTeam?: string; // Sleeper code
     };
 
@@ -54,11 +65,13 @@ export async function GET(req: NextRequest) {
       period?: number;
       displayClock?: string;
       possessionTeam?: string;
+      scoreFor?: number;
+      scoreAgainst?: number;
     }> = {};
 
     // Minimal ESPN types for parsing
     type ESPNTeam = { abbreviation?: string };
-    type ESPNCompetitor = { homeAway?: 'home' | 'away'; team?: ESPNTeam };
+    type ESPNCompetitor = { homeAway?: 'home' | 'away'; team?: ESPNTeam; score?: string };
     type ESPNCompetition = {
       competitors?: ESPNCompetitor[];
       status?: { period?: number; displayClock?: string; type?: { state?: 'pre' | 'in' | 'post' } };
@@ -78,6 +91,8 @@ export async function GET(req: NextRequest) {
       const away = comps.find((c) => c?.homeAway === 'away');
       const homeCodeESPN = home?.team?.abbreviation;
       const awayCodeESPN = away?.team?.abbreviation;
+      const homeScore = home?.score != null ? Number(home.score) : undefined;
+      const awayScore = away?.score != null ? Number(away.score) : undefined;
       const homeCode = normalizeTeamCode(homeCodeESPN);
       const awayCode = normalizeTeamCode(awayCodeESPN);
 
@@ -95,8 +110,8 @@ export async function GET(req: NextRequest) {
         state: statusType,
         period,
         displayClock,
-        home: { code: homeCode },
-        away: { code: awayCode },
+        home: { code: homeCode, score: homeScore },
+        away: { code: awayCode, score: awayScore },
         possessionTeam,
       });
 
@@ -110,6 +125,8 @@ export async function GET(req: NextRequest) {
           period,
           displayClock,
           possessionTeam,
+          scoreFor: homeScore,
+          scoreAgainst: awayScore,
         };
       }
       if (awayCode) {
@@ -122,6 +139,8 @@ export async function GET(req: NextRequest) {
           period,
           displayClock,
           possessionTeam,
+          scoreFor: awayScore,
+          scoreAgainst: homeScore,
         };
       }
     }

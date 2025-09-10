@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
-import Link from "next/link";
 import Card, { CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
 import { getTeamLogoPath, getTeamColorStyle } from "@/lib/utils/team-utils";
 import { normalizeTeamCode } from "@/lib/constants/nfl-teams";
@@ -24,6 +23,8 @@ type TeamStatus = {
   period?: number;
   displayClock?: string;
   possessionTeam?: string;
+  scoreFor?: number;
+  scoreAgainst?: number;
 };
 
 type ScoreboardPayload = {
@@ -36,8 +37,8 @@ type ScoreboardPayload = {
     state: "pre" | "in" | "post";
     period?: number;
     displayClock?: string;
-    home: { code?: string };
-    away: { code?: string };
+    home: { code?: string; score?: number };
+    away: { code?: string; score?: number };
     possessionTeam?: string;
   }>;
 };
@@ -63,17 +64,22 @@ function statusLabelFor(team: string | undefined, statuses: Record<string, TeamS
   const code = normalizeTeamCode(team);
   const s = code ? statuses[code] : undefined;
   if (!s) return { label: "—", bucket: "NA", possession: false };
+  const opp = s.opponent || "";
+  const vsat = s.isHome ? "vs" : "@";
   if (s.state === "pre") {
-    return { label: `Pregame • ${formatKickoff(s.startDate)}`, bucket: "YTP", possession: false };
+    return { label: `${vsat} ${opp} • ${formatKickoff(s.startDate)}`, bucket: "YTP", possession: false };
   }
   if (s.state === "post") {
-    return { label: "Final", bucket: "FIN", possession: false };
+    const score = (Number.isFinite(s.scoreFor as number) && Number.isFinite(s.scoreAgainst as number))
+      ? ` ${String(s.scoreFor)}–${String(s.scoreAgainst)}`
+      : "";
+    return { label: `Final • ${code} ${score} ${vsat} ${opp}`.trim(), bucket: "FIN", possession: false };
   }
   const q = s.period ? `Q${s.period}` : "";
   const clk = s.displayClock ? `${s.displayClock}` : "";
   const parts = [q, clk].filter(Boolean).join(" ");
   const possess = s.possessionTeam && code && s.possessionTeam.toUpperCase() === code.toUpperCase();
-  return { label: `In Progress • ${parts || ""}`.trim(), bucket: "IP", possession: !!possess };
+  return { label: `${vsat} ${opp} • ${parts || "In Progress"}`.trim(), bucket: "IP", possession: !!possess };
 }
 
 function sumByPosition(players: PlayerRow[]) {
@@ -93,6 +99,7 @@ export default function RosterColumn({
   totalPts,
   starters,
   bench,
+  stats,
 }: {
   title: string;
   colorTeam: string; // team name for color styling
@@ -100,6 +107,7 @@ export default function RosterColumn({
   totalPts: number;
   starters: PlayerRow[];
   bench: PlayerRow[];
+  stats?: Record<string, Partial<Record<string, number>>>;
 }) {
   const [board, setBoard] = useState<ScoreboardPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -144,10 +152,16 @@ export default function RosterColumn({
       else if (s.state === "in") ip++;
       else if (s.state === "post") fin++;
     }
-    return { ytp, ip, fin, gamesRemaining: gameIds.size };
-  }, [allPlayers, statuses]);
+    let gamesRemaining = gameIds.size;
+    // Fallback: if roster empty or no mapped teams, show total NFL games remaining this week
+    if ((ytp + ip + fin) === 0 && board?.games) {
+      gamesRemaining = board.games.filter(g => g.state !== 'post').length;
+    }
+    return { ytp, ip, fin, gamesRemaining };
+  }, [allPlayers, statuses, board?.games]);
 
   const posTotals = useMemo(() => sumByPosition(starters), [starters]);
+  const benchTotal = useMemo(() => bench.reduce((sum, b) => sum + (b.pts || 0), 0), [bench]);
 
   const teamStyle = getTeamColorStyle(colorTeam);
 
@@ -173,6 +187,7 @@ export default function RosterColumn({
           {posTotals.map(([pos, val]) => (
             <span key={pos} className="px-2 py-0.5 rounded-full bg-black/10 text-white/90">{pos} {val.toFixed(1)}</span>
           ))}
+          <span className="px-2 py-0.5 rounded-full bg-black/10 text-white/90">Bench {benchTotal.toFixed(1)}</span>
         </div>
         {error ? <div className="mt-1 text-xs">{error}</div> : null}
       </CardHeader>
@@ -184,26 +199,57 @@ export default function RosterColumn({
             const { label, bucket, possession } = statusLabelFor(s.team, statuses);
             const dotCls = possession ? "bg-[var(--accent)]" : "bg-[var(--muted)]";
             const bucketColor = bucket === "IP" ? "text-green-600" : bucket === "FIN" ? "text-[var(--muted)]" : "text-amber-600";
+            // Build a compact stat line from optional stats map
+            const st = stats?.[s.id] || {};
+            const statBits: string[] = [];
+            if (s.pos === 'QB') {
+              const py = st['pass_yd'] || st['pass_yds'];
+              const ptd = st['pass_td'];
+              const pint = st['pass_int'];
+              const ry = st['rush_yd'];
+              const rtd = st['rush_td'];
+              if (py) statBits.push(`${py} PYD`);
+              if (ptd) statBits.push(`${ptd} PTD`);
+              if (pint) statBits.push(`${pint} INT`);
+              if (ry) statBits.push(`${ry} RYD`);
+              if (rtd) statBits.push(`${rtd} RTD`);
+            } else if (s.pos === 'RB' || s.pos === 'WR' || s.pos === 'TE') {
+              const rec = st['rec'] || st['receptions'];
+              const tgt = st['targets'];
+              const ryd = st['rush_yd'];
+              const rtd = st['rush_td'];
+              const ryds = ryd ? `${ryd} RYD` : '';
+              const recyd = st['rec_yd'] ? `${st['rec_yd']} REY` : '';
+              const rctd = st['rec_td'];
+              if (tgt || rec) statBits.push(`${rec ?? 0}/${tgt ?? 0} REC`);
+              if (recyd) statBits.push(recyd);
+              if (ryds) statBits.push(ryds);
+              if (rtd) statBits.push(`${rtd} RTD`);
+              if (rctd) statBits.push(`${rctd} RETD`);
+            }
             return (
               <li key={s.id} className="flex items-center justify-between evw-surface border border-[var(--border)] rounded-md px-3 py-2">
                 <div className="min-w-0">
                   <div className="font-medium truncate flex items-center gap-2">
                     <span className="text-xs text-[var(--muted)] w-8 inline-block">{s.pos || "—"}</span>
                     <span className="truncate">{s.name}</span>
-                    <Link
+                    <a
                       href={`https://sleeper.com/players/nfl/${s.id}`}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="text-[var(--accent)] text-xs hover:underline"
                       aria-label={`Open ${s.name} on Sleeper in a new tab`}
-                    >↗</Link>
+                    >↗</a>
                   </div>
+                  {statBits.length > 0 && (
+                    <div className="text-xs text-[var(--muted)]">{statBits.join(' • ')}</div>
+                  )}
                   <div className={`text-xs ${bucketColor} flex items-center gap-2`}>
                     <span className={`inline-block w-2 h-2 rounded-full ${dotCls}`} aria-hidden />
                     <span>{label}</span>
                   </div>
                 </div>
-                <div className="font-semibold tabular-nums">{s.pts.toFixed(2)}</div>
+                <div className="font-bold tabular-nums text-base">{s.pts.toFixed(2)}</div>
               </li>
             );
           }) : <li className="text-sm text-[var(--muted)]">No starters listed.</li>}
@@ -215,26 +261,56 @@ export default function RosterColumn({
             const { label, bucket, possession } = statusLabelFor(s.team, statuses);
             const dotCls = possession ? "bg-[var(--accent)]" : "bg-[var(--muted)]";
             const bucketColor = bucket === "IP" ? "text-green-600" : bucket === "FIN" ? "text-[var(--muted)]" : "text-amber-600";
+            const st = stats?.[s.id] || {};
+            const statBits: string[] = [];
+            if (s.pos === 'QB') {
+              const py = st['pass_yd'] || st['pass_yds'];
+              const ptd = st['pass_td'];
+              const pint = st['pass_int'];
+              const ry = st['rush_yd'];
+              const rtd = st['rush_td'];
+              if (py) statBits.push(`${py} PYD`);
+              if (ptd) statBits.push(`${ptd} PTD`);
+              if (pint) statBits.push(`${pint} INT`);
+              if (ry) statBits.push(`${ry} RYD`);
+              if (rtd) statBits.push(`${rtd} RTD`);
+            } else if (s.pos === 'RB' || s.pos === 'WR' || s.pos === 'TE') {
+              const rec = st['rec'] || st['receptions'];
+              const tgt = st['targets'];
+              const ryd = st['rush_yd'];
+              const rtd = st['rush_td'];
+              const ryds = ryd ? `${ryd} RYD` : '';
+              const recyd = st['rec_yd'] ? `${st['rec_yd']} REY` : '';
+              const rctd = st['rec_td'];
+              if (tgt || rec) statBits.push(`${rec ?? 0}/${tgt ?? 0} REC`);
+              if (recyd) statBits.push(recyd);
+              if (ryds) statBits.push(ryds);
+              if (rtd) statBits.push(`${rtd} RTD`);
+              if (rctd) statBits.push(`${rctd} RETD`);
+            }
             return (
               <li key={s.id} className="flex items-center justify-between evw-surface border border-[var(--border)] rounded-md px-3 py-2">
                 <div className="min-w-0">
                   <div className="font-medium truncate flex items-center gap-2">
                     <span className="text-xs text-[var(--muted)] w-8 inline-block">{s.pos || "—"}</span>
                     <span className="truncate">{s.name}</span>
-                    <Link
-                      href={`https://sleeper.com/players/nfl/${s.id}`}
+                    <a
+                      href={`https://sleeper.com/nfl/player/${s.id}`}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="text-[var(--accent)] text-xs hover:underline"
                       aria-label={`Open ${s.name} on Sleeper in a new tab`}
-                    >↗</Link>
+                    >↗</a>
                   </div>
+                  {statBits.length > 0 && (
+                    <div className="text-xs text-[var(--muted)]">{statBits.join(' • ')}</div>
+                  )}
                   <div className={`text-xs ${bucketColor} flex items-center gap-2`}>
                     <span className={`inline-block w-2 h-2 rounded-full ${dotCls}`} aria-hidden />
                     <span>{label}</span>
                   </div>
                 </div>
-                <div className="font-semibold tabular-nums">{s.pts.toFixed(2)}</div>
+                <div className="font-bold tabular-nums text-base">{s.pts.toFixed(2)}</div>
               </li>
             );
           }) : <li className="text-sm text-[var(--muted)]">No bench players listed.</li>}
