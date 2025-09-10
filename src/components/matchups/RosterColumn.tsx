@@ -96,6 +96,7 @@ export default function RosterColumn({
   title,
   colorTeam,
   week,
+  season,
   totalPts,
   starters,
   bench,
@@ -104,6 +105,7 @@ export default function RosterColumn({
   title: string;
   colorTeam: string; // team name for color styling
   week: number;
+  season: string;
   totalPts: number;
   starters: PlayerRow[];
   bench: PlayerRow[];
@@ -112,6 +114,8 @@ export default function RosterColumn({
   const [board, setBoard] = useState<ScoreboardPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
   const timer = useRef<number | null>(null);
+  const statsTimer = useRef<number | null>(null);
+  const [statsLive, setStatsLive] = useState<Record<string, Partial<Record<string, number>>>>(stats || {});
 
   const allPlayers = useMemo(() => [...starters, ...bench], [starters, bench]);
 
@@ -120,7 +124,7 @@ export default function RosterColumn({
     async function load() {
       try {
         setError(null);
-        const res = await fetch(`/api/nfl-scoreboard?week=${week}`, { cache: "no-store" });
+        const res = await fetch(`/api/nfl-scoreboard?week=${week}&season=${encodeURIComponent(season)}` , { cache: "no-store" });
         if (!res.ok) throw new Error("scoreboard fetch failed");
         const data = (await res.json()) as ScoreboardPayload;
         if (!cancelled) setBoard(data);
@@ -134,7 +138,31 @@ export default function RosterColumn({
       cancelled = true;
       if (timer.current) window.clearInterval(timer.current);
     };
-  }, [week]);
+  }, [week, season]);
+
+  // Poll week stats so totals update during games
+  useEffect(() => {
+    let cancelled = false;
+    async function loadStats() {
+      try {
+        const res = await fetch(`/api/nfl-week-stats?season=${encodeURIComponent(season)}&week=${week}`, { cache: 'no-store' });
+        if (!res.ok) return;
+        const j = await res.json();
+        const next = (j?.stats ?? {}) as Record<string, Partial<Record<string, number>>>;
+        if (!cancelled) setStatsLive(next);
+      } catch {
+        // ignore
+      }
+    }
+    // seed from initial
+    setStatsLive(stats || {});
+    loadStats();
+    statsTimer.current = window.setInterval(loadStats, 30000);
+    return () => {
+      cancelled = true;
+      if (statsTimer.current) window.clearInterval(statsTimer.current);
+    };
+  }, [season, week, stats]);
 
   const statuses = useMemo(() => board?.teamStatuses ?? {}, [board?.teamStatuses]);
 
@@ -200,7 +228,7 @@ export default function RosterColumn({
             const dotCls = possession ? "bg-[var(--accent)]" : "bg-[var(--muted)]";
             const bucketColor = bucket === "IP" ? "text-green-600" : bucket === "FIN" ? "text-[var(--muted)]" : "text-amber-600";
             // Build a compact stat line from optional stats map
-            const st = stats?.[s.id] || {};
+            const st = statsLive?.[s.id] || {};
             const statBits: string[] = [];
             if (s.pos === 'QB') {
               const py = st['pass_yd'] || st['pass_yds'];
@@ -261,7 +289,7 @@ export default function RosterColumn({
             const { label, bucket, possession } = statusLabelFor(s.team, statuses);
             const dotCls = possession ? "bg-[var(--accent)]" : "bg-[var(--muted)]";
             const bucketColor = bucket === "IP" ? "text-green-600" : bucket === "FIN" ? "text-[var(--muted)]" : "text-amber-600";
-            const st = stats?.[s.id] || {};
+            const st = statsLive?.[s.id] || {};
             const statBits: string[] = [];
             if (s.pos === 'QB') {
               const py = st['pass_yd'] || st['pass_yds'];
@@ -295,7 +323,7 @@ export default function RosterColumn({
                     <span className="text-xs text-[var(--muted)] w-8 inline-block">{s.pos || "—"}</span>
                     <span className="truncate">{s.name}</span>
                     <a
-                      href={`https://sleeper.com/nfl/player/${s.id}`}
+                      href={`https://sleeper.com/players/nfl/${s.id}`}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="text-[var(--accent)] text-xs hover:underline"

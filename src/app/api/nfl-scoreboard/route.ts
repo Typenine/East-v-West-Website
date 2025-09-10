@@ -28,7 +28,7 @@ export async function GET(req: NextRequest) {
         season = String(new Date().getFullYear());
       }
     }
-    const cacheKey = `week:${week}`;
+    const cacheKey = `season:${season}-week:${week}`;
 
     const now = Date.now();
     const cached = cache[cacheKey];
@@ -36,13 +36,33 @@ export async function GET(req: NextRequest) {
       return NextResponse.json(cached.data, { status: 200 });
     }
 
-    const url = `https://site.api.espn.com/apis/v2/sports/football/nfl/scoreboard?week=${week}&seasontype=2&year=${encodeURIComponent(season!)}`;
-    const resp = await fetch(url, { next: { revalidate: 0 } });
-    if (!resp.ok) throw new Error(`ESPN scoreboard fetch failed: ${resp.status}`);
-    const json = await resp.json();
-    const rawEvents: unknown[] = Array.isArray((json as { events?: unknown[] })?.events)
-      ? (json as { events: unknown[] }).events
-      : [];
+    const url1 = `https://site.api.espn.com/apis/v2/sports/football/nfl/scoreboard?week=${week}&seasontype=2&year=${encodeURIComponent(season!)}`;
+    const url2 = `https://site.web.api.espn.com/apis/v2/sports/football/nfl/scoreboard?week=${week}&seasontype=2&year=${encodeURIComponent(season!)}`;
+    const headers = {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36',
+      'Accept': 'application/json,text/plain,*/*',
+      'Referer': 'https://www.espn.com/nfl/scoreboard'
+    } as const;
+
+    async function fetchScoreboard(url: string) {
+      const r = await fetch(url, { next: { revalidate: 0 }, headers });
+      if (!r.ok) throw new Error(`ESPN scoreboard fetch failed: ${r.status}`);
+      const j = await r.json();
+      const evs: unknown[] = Array.isArray((j as { events?: unknown[] })?.events)
+        ? (j as { events: unknown[] }).events
+        : [];
+      return { json: j, events: evs };
+    }
+
+    let rawEvents: unknown[] = [];
+    try {
+      const { events: e1 } = await fetchScoreboard(url1);
+      rawEvents = e1;
+      if (!rawEvents || rawEvents.length === 0) throw new Error('empty events from espn primary');
+    } catch {
+      const { events: e2 } = await fetchScoreboard(url2);
+      rawEvents = e2;
+    }
 
     type Game = {
       id: string;

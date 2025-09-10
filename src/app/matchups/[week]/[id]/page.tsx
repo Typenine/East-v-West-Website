@@ -132,6 +132,7 @@ export default async function MatchupDetailPage({ params }: { params?: Promise<R
             title={bName}
             colorTeam={bName}
             week={week}
+            season={season}
             totalPts={bPts}
             starters={bStarters}
             bench={bBench}
@@ -141,6 +142,7 @@ export default async function MatchupDetailPage({ params }: { params?: Promise<R
             title={aName}
             colorTeam={aName}
             week={week}
+            season={season}
             totalPts={aPts}
             starters={aStarters}
             bench={aBench}
