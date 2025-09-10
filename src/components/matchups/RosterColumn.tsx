@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import Card, { CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
+import PlayerDrawer from "@/components/matchups/PlayerDrawer";
 import { getTeamLogoPath, getTeamColorStyle } from "@/lib/utils/team-utils";
 import { normalizeTeamCode } from "@/lib/constants/nfl-teams";
 
@@ -207,6 +208,8 @@ export default function RosterColumn({
   const [deltaMap, setDeltaMap] = useState<Record<string, number>>({});
   const [pointsMap, setPointsMap] = useState<Record<string, number>>({});
   const pointsTimer = useRef<number | null>(null);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [drawerPlayer, setDrawerPlayer] = useState<PlayerRow | null>(null);
 
   useEffect(() => {
     const ids = [...starters, ...bench].map(p => p.id);
@@ -369,8 +372,13 @@ export default function RosterColumn({
                 <div className="min-w-0">
                   <div className="font-medium truncate flex items-center gap-2">
                     <span className="text-xs text-[var(--muted)] w-8 inline-block">{s.pos || "—"}</span>
-                    <span className="truncate">{s.name}</span>
-                    {/* Player drawer would open here in a follow-up */}
+                    <button
+                      type="button"
+                      className="truncate text-left hover:underline"
+                      onClick={() => { setDrawerPlayer(s); setDrawerOpen(true); }}
+                    >
+                      {s.name}
+                    </button>
                   </div>
                   {formatted && (
                     <div className="text-xs text-[var(--muted)]">{formatted}</div>
@@ -399,15 +407,20 @@ export default function RosterColumn({
             const bucketColor = bucket === "IP" ? "text-green-600" : bucket === "FIN" ? "text-[var(--muted)]" : "text-amber-600";
             const st = statsLive?.[s.id] || {};
             const formatted = formatStatLine(s.pos, st);
-            const curPts = s.pts; // show league matchup points only
+            const curPts = Number(pointsMap[s.id] ?? s.pts);
             const d = deltaMap[s.id] || 0;
             return (
               <li key={s.id} className="flex items-center justify-between evw-surface border border-[var(--border)] rounded-md px-3 py-2">
                 <div className="min-w-0">
                   <div className="font-medium truncate flex items-center gap-2">
                     <span className="text-xs text-[var(--muted)] w-8 inline-block">{s.pos || "—"}</span>
-                    <span className="truncate">{s.name}</span>
-                    {/* External link removed per request */}
+                    <button
+                      type="button"
+                      className="truncate text-left hover:underline"
+                      onClick={() => { setDrawerPlayer(s); setDrawerOpen(true); }}
+                    >
+                      {s.name}
+                    </button>
                   </div>
                   {formatted && (
                     <div className="text-xs text-[var(--muted)]">{formatted}</div>
@@ -428,6 +441,18 @@ export default function RosterColumn({
           }) : <li className="text-sm text-[var(--muted)]">No bench players listed.</li>}
         </ul>
       </CardContent>
+      {/* Player Drawer for details */}
+      <PlayerDrawer
+        open={drawerOpen}
+        onClose={() => setDrawerOpen(false)}
+        player={drawerPlayer}
+        season={season}
+        week={week}
+        currentWeek={currentWeek}
+        statsLive={statsLive as Record<string, Record<string, number | undefined>>}
+        pointsMap={pointsMap}
+        statuses={statuses}
+      />
     </Card>
   );
 }
