@@ -10,7 +10,7 @@ import LinkButton from '@/components/ui/LinkButton';
 
 export const revalidate = 20; // ISR: refresh at most every 20s to reduce API churn and flakiness
 
-export default async function Home({ searchParams }: { searchParams?: { week?: string } }) {
+export default async function Home({ searchParams }: { searchParams?: Promise<Record<string, string | string[] | undefined>> }) {
   const leagueId = LEAGUE_IDS.CURRENT;
   const currentWeekMatchups: Array<{
     homeTeam: string;
@@ -24,7 +24,9 @@ export default async function Home({ searchParams }: { searchParams?: { week?: s
   }> = [];
   const MAX_REGULAR_WEEKS = 14;
   let defaultWeek = 1;
-  const requestedWeekStr = searchParams?.week;
+  const sp = (await (searchParams ?? Promise.resolve({}))) as Record<string, string | string[] | undefined>;
+  const requestedWeekRaw = sp.week;
+  const requestedWeekStr = Array.isArray(requestedWeekRaw) ? requestedWeekRaw[0] : requestedWeekRaw;
   const requestedWeekNum = typeof requestedWeekStr === 'string' ? Number(requestedWeekStr) : NaN;
   const hasUserOverride = Number.isFinite(requestedWeekNum) && requestedWeekNum >= 1 && requestedWeekNum <= MAX_REGULAR_WEEKS;
   let selectedWeek = 1;
