@@ -339,7 +339,7 @@ export default function RosterColumn({
             const bucketColor = bucket === "IP" ? "text-green-600" : bucket === "FIN" ? "text-[var(--muted)]" : "text-amber-600";
             const st = statsLive?.[s.id] || {};
             const formatted = formatStatLine(s.pos, st);
-            const curPts = Number((st['pts_ppr'] as number | undefined) ?? s.pts);
+            const curPts = s.pts; // show league matchup points only
             const d = deltaMap[s.id] || 0;
             return (
               <li key={s.id} className="flex items-center justify-between evw-surface border border-[var(--border)] rounded-md px-3 py-2">
@@ -376,7 +376,7 @@ export default function RosterColumn({
             const bucketColor = bucket === "IP" ? "text-green-600" : bucket === "FIN" ? "text-[var(--muted)]" : "text-amber-600";
             const st = statsLive?.[s.id] || {};
             const formatted = formatStatLine(s.pos, st);
-            const curPts = Number((st['pts_ppr'] as number | undefined) ?? s.pts);
+            const curPts = s.pts; // show league matchup points only
             const d = deltaMap[s.id] || 0;
             return (
               <li key={s.id} className="flex items-center justify-between evw-surface border border-[var(--border)] rounded-md px-3 py-2">
