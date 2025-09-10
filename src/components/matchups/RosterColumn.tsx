@@ -82,14 +82,98 @@ function statusLabelFor(team: string | undefined, statuses: Record<string, TeamS
   return { label: `${vsat} ${opp} • ${parts || "In Progress"}`.trim(), bucket: "IP", possession: !!possess };
 }
 
-function sumByPosition(players: PlayerRow[]) {
-  const map = new Map<string, number>();
+function sumByPositionOrdered(players: PlayerRow[]) {
+  const ORDER = ["QB", "RB", "WR", "TE", "K", "DEF"] as const;
+  const totals: Record<string, number> = { QB: 0, RB: 0, WR: 0, TE: 0, K: 0, DEF: 0 };
   for (const p of players) {
     const key = (p.pos || "").toUpperCase();
-    if (!key) continue;
-    map.set(key, (map.get(key) || 0) + (p.pts || 0));
+    if (!key || totals[key] === undefined) continue;
+    totals[key] += p.pts || 0;
   }
-  return Array.from(map.entries()).sort((a, b) => a[0].localeCompare(b[0]));
+  return (ORDER as readonly string[]).map((pos) => [pos, totals[pos] || 0] as [string, number]);
+}
+
+type StatMap = Record<string, number | undefined>;
+
+function num(st: StatMap, key: string): number | undefined {
+  const v = st?.[key];
+  return typeof v === 'number' && isFinite(v) ? v : undefined;
+}
+
+function formatStatLine(pos?: string, stInput?: Partial<Record<string, number>>): string {
+  if (!stInput) return "";
+  const st = stInput as StatMap;
+  const p = (pos || "").toUpperCase();
+  const parts: string[] = [];
+  if (p === 'QB') {
+    const cmp = num(st, 'pass_cmp') ?? num(st, 'cmp');
+    const att = num(st, 'pass_att') ?? num(st, 'att');
+    const pyd = num(st, 'pass_yd') ?? num(st, 'pass_yds');
+    const ptd = num(st, 'pass_td');
+    const ratt = num(st, 'rush_att');
+    const ryd = num(st, 'rush_yd');
+    const rtd = num(st, 'rush_td');
+    if (cmp !== undefined && att !== undefined) parts.push(`${cmp}/${att} CMP`);
+    if (pyd) parts.push(`${pyd} YD`);
+    if (ptd) parts.push(`${ptd} TD`);
+    if (ratt) parts.push(`${ratt} CAR`);
+    if (ryd) parts.push(`${ryd} YD`);
+    if (rtd) parts.push(`${rtd} TD`);
+  } else if (p === 'RB') {
+    const ratt = num(st, 'rush_att');
+    const ryd = num(st, 'rush_yd');
+    const rtd = num(st, 'rush_td');
+    const rec = num(st, 'rec') ?? num(st, 'receptions');
+    const tgt = num(st, 'targets');
+    const ryds = num(st, 'rec_yd');
+    const fuml = num(st, 'fum_lost') ?? num(st, 'fumbles_lost');
+    if (ratt) parts.push(`${ratt} CAR`);
+    if (ryd) parts.push(`${ryd} YD`);
+    if (rtd) parts.push(`${rtd} TD`);
+    if (rec || tgt) parts.push(`${rec ?? 0}/${tgt ?? 0} REC`);
+    if (ryds) parts.push(`${ryds} YD`);
+    if (fuml) parts.push(`${fuml} FUM LOST`);
+  } else if (p === 'WR') {
+    const rec = num(st, 'rec') ?? num(st, 'receptions');
+    const ryds = num(st, 'rec_yd');
+    const rtd = num(st, 'rec_td');
+    if (rec) parts.push(`${rec} REC`);
+    if (ryds) parts.push(`${ryds} YD`);
+    if (rtd) parts.push(`${rtd} TD`);
+  } else if (p === 'TE') {
+    const rec = num(st, 'rec') ?? num(st, 'receptions');
+    const tgt = num(st, 'targets');
+    const ryds = num(st, 'rec_yd');
+    if (rec || tgt) parts.push(`${rec ?? 0}/${tgt ?? 0} REC`);
+    if (ryds) parts.push(`${ryds} YD`);
+  } else if (p === 'K') {
+    const fgm = num(st, 'fgm');
+    const fga = num(st, 'fga');
+    const xpm = num(st, 'xpm');
+    const xpa = num(st, 'xpa');
+    const m40 = num(st, 'fgm_40_49') ?? num(st, 'fgm_40');
+    const m50 = num(st, 'fgm_50_59');
+    const m50p = num(st, 'fgm_50+') ?? num(st, 'fgm_60+');
+    if (fgm !== undefined && fga !== undefined) parts.push(`${fgm}/${fga} FG`);
+    if (m40) parts.push(`${m40} FG (40-49)`);
+    if (m50) parts.push(`${m50} FG (50-59)`);
+    if (m50p) parts.push(`${m50p} FG (50+)`);
+    if (xpm !== undefined && xpa !== undefined) parts.push(`${xpm}/${xpa} XP`);
+  } else if (p === 'DEF') {
+    const itc = num(st, 'def_int') ?? num(st, 'int');
+    const pa = num(st, 'pts_allow') ?? num(st, 'def_pts_allow');
+    const ya = num(st, 'yds_allow') ?? num(st, 'def_yds_allow');
+    const sk = num(st, 'sack') ?? num(st, 'def_sack');
+    const ff = num(st, 'ff') ?? num(st, 'def_ff');
+    const fr = num(st, 'fr') ?? num(st, 'def_fr');
+    if (itc) parts.push(`${itc} INT`);
+    if (pa !== undefined) parts.push(`${pa} PTS ALLOW`);
+    if (ya !== undefined) parts.push(`${ya} YDS ALLOW`);
+    if (sk) parts.push(`${sk} SACK`);
+    if (ff) parts.push(`${ff} FF`);
+    if (fr) parts.push(`${fr} FUM REC`);
+  }
+  return parts.join(', ');
 }
 
 export default function RosterColumn({
@@ -118,8 +202,22 @@ export default function RosterColumn({
   const timer = useRef<number | null>(null);
   const statsTimer = useRef<number | null>(null);
   const [statsLive, setStatsLive] = useState<Record<string, Partial<Record<string, number>>>>(stats || {});
+  const [showDelta, setShowDelta] = useState(false);
+  const prevPtsRef = useRef<Record<string, number>>({});
+  const [deltaMap, setDeltaMap] = useState<Record<string, number>>({});
 
-  const allPlayers = useMemo(() => [...starters, ...bench], [starters, bench]);
+  useEffect(() => {
+    const ids = [...starters, ...bench].map(p => p.id);
+    const next: Record<string, number> = {};
+    for (const id of ids) {
+      const st = statsLive?.[id] || {};
+      const cur = Number((st['pts_ppr'] as number | undefined) ?? 0);
+      const prev = prevPtsRef.current[id];
+      next[id] = prev === undefined ? 0 : Number((cur - prev).toFixed(2));
+      prevPtsRef.current[id] = cur;
+    }
+    setDeltaMap(next);
+  }, [statsLive, starters, bench]);
 
   useEffect(() => {
     let cancelled = false;
@@ -190,8 +288,9 @@ export default function RosterColumn({
     return { ytp, ip, fin, playersRemaining };
   }, [starters, statuses, isPastWeek]);
 
-  const posTotals = useMemo(() => sumByPosition(starters), [starters]);
+  const posTotals = useMemo(() => sumByPositionOrdered(starters), [starters]);
   const benchTotal = useMemo(() => bench.reduce((sum, b) => sum + (b.pts || 0), 0), [bench]);
+  const teamDelta = useMemo(() => starters.reduce((acc, p) => acc + (deltaMap[p.id] || 0), 0), [deltaMap, starters]);
 
   const teamStyle = getTeamColorStyle(colorTeam);
 
@@ -205,19 +304,22 @@ export default function RosterColumn({
             <Image src={getTeamLogoPath(colorTeam)} alt={colorTeam} width={28} height={28} className="object-contain" />
           </div>
           <CardTitle className="text-current">{title}</CardTitle>
-          <div className="ml-auto text-lg font-extrabold">{totalPts.toFixed(2)}</div>
+          <div className="ml-auto flex items-center gap-3">
+            <div className="text-lg font-extrabold">{totalPts.toFixed(2)}</div>
+            <button type="button" onClick={() => setShowDelta(v => !v)} className="text-xs px-2 py-0.5 rounded-md border border-[var(--border)] hover:bg-black/10">Δ {showDelta ? 'ON' : 'OFF'}</button>
+            {showDelta && (
+              <div className={`text-sm font-semibold ${teamDelta > 0 ? 'text-green-600' : teamDelta < 0 ? 'text-red-600' : 'text-[var(--muted)]'}`}>{teamDelta > 0 ? `+${teamDelta.toFixed(2)}` : teamDelta.toFixed(2)}</div>
+            )}
+          </div>
         </div>
         {/* Roster chips */}
         <div className="mt-2 flex flex-wrap gap-2 text-xs">
-          <span className="px-2 py-0.5 rounded-full bg-black/20 text-white">Players remaining: {chips.playersRemaining}</span>
-          <span className="px-2 py-0.5 rounded-full bg-black/15 text-white/90">YTP {chips.ytp}</span>
-          <span className="px-2 py-0.5 rounded-full bg-black/15 text-white/90">IP {chips.ip}</span>
-          <span className="px-2 py-0.5 rounded-full bg-black/15 text-white/90">FIN {chips.fin}</span>
-          {/* Position totals for starters */}
           {posTotals.map(([pos, val]) => (
             <span key={pos} className="px-2 py-0.5 rounded-full bg-black/10 text-white/90">{pos} {val.toFixed(1)}</span>
           ))}
           <span className="px-2 py-0.5 rounded-full bg-black/10 text-white/90">Bench {benchTotal.toFixed(1)}</span>
+          <span className="px-2 py-0.5 rounded-full bg-black/20 text-white">Players remaining: {chips.playersRemaining}</span>
+          <span className="px-2 py-0.5 rounded-full bg-black/15 text-white/90">FIN {chips.fin}</span>
         </div>
         {error ? <div className="mt-1 text-xs">{error}</div> : null}
       </CardHeader>
@@ -235,51 +337,32 @@ export default function RosterColumn({
             })();
             const dotCls = possession ? "bg-[var(--accent)]" : "bg-[var(--muted)]";
             const bucketColor = bucket === "IP" ? "text-green-600" : bucket === "FIN" ? "text-[var(--muted)]" : "text-amber-600";
-            // Build a compact stat line from optional stats map
             const st = statsLive?.[s.id] || {};
-            const statBits: string[] = [];
-            if (s.pos === 'QB') {
-              const py = st['pass_yd'] || st['pass_yds'];
-              const ptd = st['pass_td'];
-              const pint = st['pass_int'];
-              const ry = st['rush_yd'];
-              const rtd = st['rush_td'];
-              if (py) statBits.push(`${py} PYD`);
-              if (ptd) statBits.push(`${ptd} PTD`);
-              if (pint) statBits.push(`${pint} INT`);
-              if (ry) statBits.push(`${ry} RYD`);
-              if (rtd) statBits.push(`${rtd} RTD`);
-            } else if (s.pos === 'RB' || s.pos === 'WR' || s.pos === 'TE') {
-              const rec = st['rec'] || st['receptions'];
-              const tgt = st['targets'];
-              const ryd = st['rush_yd'];
-              const rtd = st['rush_td'];
-              const ryds = ryd ? `${ryd} RYD` : '';
-              const recyd = st['rec_yd'] ? `${st['rec_yd']} REY` : '';
-              const rctd = st['rec_td'];
-              if (tgt || rec) statBits.push(`${rec ?? 0}/${tgt ?? 0} REC`);
-              if (recyd) statBits.push(recyd);
-              if (ryds) statBits.push(ryds);
-              if (rtd) statBits.push(`${rtd} RTD`);
-              if (rctd) statBits.push(`${rctd} RETD`);
-            }
+            const formatted = formatStatLine(s.pos, st);
+            const curPts = Number((st['pts_ppr'] as number | undefined) ?? s.pts);
+            const d = deltaMap[s.id] || 0;
             return (
               <li key={s.id} className="flex items-center justify-between evw-surface border border-[var(--border)] rounded-md px-3 py-2">
                 <div className="min-w-0">
                   <div className="font-medium truncate flex items-center gap-2">
                     <span className="text-xs text-[var(--muted)] w-8 inline-block">{s.pos || "—"}</span>
                     <span className="truncate">{s.name}</span>
-                    {/* External player link removed per request */}
+                    {/* Player drawer would open here in a follow-up */}
                   </div>
-                  {statBits.length > 0 && (
-                    <div className="text-xs text-[var(--muted)]">{statBits.join(' • ')}</div>
+                  {formatted && (
+                    <div className="text-xs text-[var(--muted)]">{formatted}</div>
                   )}
                   <div className={`text-xs ${bucketColor} flex items-center gap-2`}>
                     <span className={`inline-block w-2 h-2 rounded-full ${dotCls}`} aria-hidden />
                     <span>{label}</span>
                   </div>
                 </div>
-                <div className="font-bold tabular-nums text-base">{s.pts.toFixed(2)}</div>
+                <div className="text-right">
+                  <div className="font-bold tabular-nums text-base">{curPts.toFixed(2)}</div>
+                  {showDelta && (
+                    <div className={`text-xs tabular-nums ${d > 0 ? 'text-green-600' : d < 0 ? 'text-red-600' : 'text-[var(--muted)]'}`}>{d > 0 ? `+${d.toFixed(2)}` : d.toFixed(2)}</div>
+                  )}
+                </div>
               </li>
             );
           }) : <li className="text-sm text-[var(--muted)]">No starters listed.</li>}
@@ -292,55 +375,31 @@ export default function RosterColumn({
             const dotCls = possession ? "bg-[var(--accent)]" : "bg-[var(--muted)]";
             const bucketColor = bucket === "IP" ? "text-green-600" : bucket === "FIN" ? "text-[var(--muted)]" : "text-amber-600";
             const st = statsLive?.[s.id] || {};
-            const statBits: string[] = [];
-            if (s.pos === 'QB') {
-              const py = st['pass_yd'] || st['pass_yds'];
-              const ptd = st['pass_td'];
-              const pint = st['pass_int'];
-              const ry = st['rush_yd'];
-              const rtd = st['rush_td'];
-              if (py) statBits.push(`${py} PYD`);
-              if (ptd) statBits.push(`${ptd} PTD`);
-              if (pint) statBits.push(`${pint} INT`);
-              if (ry) statBits.push(`${ry} RYD`);
-              if (rtd) statBits.push(`${rtd} RTD`);
-            } else if (s.pos === 'RB' || s.pos === 'WR' || s.pos === 'TE') {
-              const rec = st['rec'] || st['receptions'];
-              const tgt = st['targets'];
-              const ryd = st['rush_yd'];
-              const rtd = st['rush_td'];
-              const ryds = ryd ? `${ryd} RYD` : '';
-              const recyd = st['rec_yd'] ? `${st['rec_yd']} REY` : '';
-              const rctd = st['rec_td'];
-              if (tgt || rec) statBits.push(`${rec ?? 0}/${tgt ?? 0} REC`);
-              if (recyd) statBits.push(recyd);
-              if (ryds) statBits.push(ryds);
-              if (rtd) statBits.push(`${rtd} RTD`);
-              if (rctd) statBits.push(`${rctd} RETD`);
-            }
+            const formatted = formatStatLine(s.pos, st);
+            const curPts = Number((st['pts_ppr'] as number | undefined) ?? s.pts);
+            const d = deltaMap[s.id] || 0;
             return (
               <li key={s.id} className="flex items-center justify-between evw-surface border border-[var(--border)] rounded-md px-3 py-2">
                 <div className="min-w-0">
                   <div className="font-medium truncate flex items-center gap-2">
                     <span className="text-xs text-[var(--muted)] w-8 inline-block">{s.pos || "—"}</span>
                     <span className="truncate">{s.name}</span>
-                    <a
-                      href={`https://sleeper.app/players/nfl/${s.id}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-[var(--accent)] text-xs hover:underline"
-                      aria-label={`Open ${s.name} on Sleeper in a new tab`}
-                    >↗</a>
+                    {/* External link removed per request */}
                   </div>
-                  {statBits.length > 0 && (
-                    <div className="text-xs text-[var(--muted)]">{statBits.join(' • ')}</div>
+                  {formatted && (
+                    <div className="text-xs text-[var(--muted)]">{formatted}</div>
                   )}
                   <div className={`text-xs ${bucketColor} flex items-center gap-2`}>
                     <span className={`inline-block w-2 h-2 rounded-full ${dotCls}`} aria-hidden />
                     <span>{label}</span>
                   </div>
                 </div>
-                <div className="font-bold tabular-nums text-base">{s.pts.toFixed(2)}</div>
+                <div className="text-right">
+                  <div className="font-bold tabular-nums text-base">{curPts.toFixed(2)}</div>
+                  {showDelta && (
+                    <div className={`text-xs tabular-nums ${d > 0 ? 'text-green-600' : d < 0 ? 'text-red-600' : 'text-[var(--muted)]'}`}>{d > 0 ? `+${d.toFixed(2)}` : d.toFixed(2)}</div>
+                  )}
+                </div>
               </li>
             );
           }) : <li className="text-sm text-[var(--muted)]">No bench players listed.</li>}

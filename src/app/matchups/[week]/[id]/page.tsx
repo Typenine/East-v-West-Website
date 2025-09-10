@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import SectionHeader from '@/components/ui/SectionHeader';
 import Card, { CardContent } from '@/components/ui/Card';
+import MatchupCard from '@/components/ui/matchup-card';
 import { LEAGUE_IDS } from '@/lib/constants/league';
 import { 
   getLeagueMatchups,
@@ -162,24 +163,22 @@ export default async function MatchupDetailPage({ params }: { params?: Promise<R
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
               {Array.from(byId.entries()).filter(([mid]) => mid !== matchupId).map(([mid, arr]) => {
                 const [m1, m2] = arr;
-                const n1 = nameMap.get(m1.roster_id) ?? `Roster ${m1.roster_id}`;
-                const n2 = nameMap.get(m2.roster_id) ?? `Roster ${m2.roster_id}`;
-                const p1 = (m1.custom_points ?? m1.points ?? 0);
-                const p2 = (m2.custom_points ?? m2.points ?? 0);
+                const awayTeam = nameMap.get(m2.roster_id) ?? `Roster ${m2.roster_id}`;
+                const homeTeam = nameMap.get(m1.roster_id) ?? `Roster ${m1.roster_id}`;
+                const awayScore = (m2.custom_points ?? m2.points ?? 0);
+                const homeScore = (m1.custom_points ?? m1.points ?? 0);
                 return (
-                  <Link key={mid} href={`/matchups/${week}/${mid}`} className="evw-surface border border-[var(--border)] rounded-md p-3 hover-subtle">
-                    <div className="text-xs text-[var(--muted)] mb-1">Week {week}</div>
-                    <div className="flex items-center justify-between">
-                      <div className="min-w-0">
-                        <div className="truncate font-medium">{n2}</div>
-                        <div className="truncate text-sm">{n1}</div>
-                      </div>
-                      <div className="text-right ml-3">
-                        <div className="font-bold tabular-nums">{p2.toFixed(2)}</div>
-                        <div className="font-bold tabular-nums">{p1.toFixed(2)}</div>
-                      </div>
-                    </div>
-                  </Link>
+                  <MatchupCard
+                    key={mid}
+                    awayTeam={awayTeam}
+                    homeTeam={homeTeam}
+                    awayRosterId={m2.roster_id}
+                    homeRosterId={m1.roster_id}
+                    awayScore={awayScore}
+                    homeScore={homeScore}
+                    week={week}
+                    matchupId={mid}
+                  />
                 );
               })}
             </div>
