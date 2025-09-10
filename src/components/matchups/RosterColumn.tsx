@@ -205,19 +205,20 @@ export default function RosterColumn({
   const [showDelta, setShowDelta] = useState(false);
   const prevPtsRef = useRef<Record<string, number>>({});
   const [deltaMap, setDeltaMap] = useState<Record<string, number>>({});
+  const [pointsMap, setPointsMap] = useState<Record<string, number>>({});
+  const pointsTimer = useRef<number | null>(null);
 
   useEffect(() => {
     const ids = [...starters, ...bench].map(p => p.id);
     const next: Record<string, number> = {};
     for (const id of ids) {
-      const st = statsLive?.[id] || {};
-      const cur = Number((st['pts_ppr'] as number | undefined) ?? 0);
+      const cur = Number(pointsMap[id] ?? 0);
       const prev = prevPtsRef.current[id];
       next[id] = prev === undefined ? 0 : Number((cur - prev).toFixed(2));
       prevPtsRef.current[id] = cur;
     }
     setDeltaMap(next);
-  }, [statsLive, starters, bench]);
+  }, [pointsMap, starters, bench]);
 
   useEffect(() => {
     let cancelled = false;
@@ -263,6 +264,28 @@ export default function RosterColumn({
       if (statsTimer.current) window.clearInterval(statsTimer.current);
     };
   }, [season, week, stats]);
+
+  // Poll Sleeper matchup points for live deltas (and optional live points display)
+  useEffect(() => {
+    let cancelled = false;
+    async function loadPoints() {
+      try {
+        const r = await fetch(`/api/matchup-points?week=${week}`, { cache: 'no-store' });
+        if (!r.ok) return;
+        const j = await r.json();
+        const pm = (j?.playerPoints || {}) as Record<string, number>;
+        if (!cancelled) setPointsMap(pm);
+      } catch {
+        // ignore
+      }
+    }
+    loadPoints();
+    pointsTimer.current = window.setInterval(loadPoints, 30000);
+    return () => {
+      cancelled = true;
+      if (pointsTimer.current) window.clearInterval(pointsTimer.current);
+    };
+  }, [week]);
 
   const statuses = useMemo(() => board?.teamStatuses ?? {}, [board?.teamStatuses]);
   const isPastWeek = useMemo(() => Number.isFinite(currentWeek) && week < currentWeek, [week, currentWeek]);
@@ -339,7 +362,7 @@ export default function RosterColumn({
             const bucketColor = bucket === "IP" ? "text-green-600" : bucket === "FIN" ? "text-[var(--muted)]" : "text-amber-600";
             const st = statsLive?.[s.id] || {};
             const formatted = formatStatLine(s.pos, st);
-            const curPts = s.pts; // show league matchup points only
+            const curPts = Number(pointsMap[s.id] ?? s.pts);
             const d = deltaMap[s.id] || 0;
             return (
               <li key={s.id} className="flex items-center justify-between evw-surface border border-[var(--border)] rounded-md px-3 py-2">
