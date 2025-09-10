@@ -100,12 +100,12 @@ export default async function Home() {
         <SectionHeader title="Key dates" />
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <CountdownTimer 
-            targetDate={IMPORTANT_DATES.NFL_WEEK_1_START} 
-            title="Regular season starts in"
-          />
-          <CountdownTimer 
             targetDate={IMPORTANT_DATES.TRADE_DEADLINE} 
             title="Trade deadline in"
+          />
+          <CountdownTimer 
+            targetDate={IMPORTANT_DATES.PLAYOFFS_START} 
+            title="Playoffs start in"
           />
         </div>
       </section>

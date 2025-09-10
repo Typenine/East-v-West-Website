@@ -31,7 +31,11 @@ export const CURRENT_YEAR = new Date().getFullYear();
 // Important dates
 export const IMPORTANT_DATES = {
   NFL_WEEK_1_START: new Date('2025-09-04T20:20:00-04:00'), // NFL Week 1 kickoff
-  TRADE_DEADLINE: new Date('2025-11-15T23:59:59-05:00'),   // League trade deadline
+  // Trade deadline is end of the final game of Week 12 (approx end of MNF)
+  // Week 12 Monday in 2025 is 2025-11-24; using ~11:45 PM ET to avoid overstating remaining time
+  TRADE_DEADLINE: new Date('2025-11-24T23:45:00-05:00'),
+  // Playoffs start at Week 15 kickoff (TNF)
+  PLAYOFFS_START: new Date('2025-12-11T20:20:00-05:00'),
   NEXT_DRAFT: new Date('2026-07-18T13:00:00-04:00')        // Next draft date
 };
 
