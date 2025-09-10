@@ -92,13 +92,15 @@ export default async function MatchupDetailPage({ params }: { params?: Promise<R
     function unique<T>(arr: T[]): T[] { return Array.from(new Set(arr)); }
 
     function buildStarterRows(m: SleeperMatchup): PlayerRow[] {
-      const starters = ((m.starters || []) as string[]).filter(Boolean);
+      const starters = ((m.starters || []) as string[]).filter((id) => id && id !== '0');
       return buildRowsFromIds(starters, m);
     }
 
     function buildBenchRows(m: SleeperMatchup): PlayerRow[] {
-      const starters = new Set(((m.starters || []) as string[]).filter(Boolean));
-      const fromPlayers = Array.isArray(m.players) ? (m.players as string[]).filter(Boolean) : Object.keys((m.players_points || {}) as Record<string, number>);
+      const starters = new Set(((m.starters || []) as string[]).filter((id) => id && id !== '0'));
+      const fromPlayers = Array.isArray(m.players)
+        ? (m.players as string[]).filter((id) => id && id !== '0')
+        : Object.keys((m.players_points || {}) as Record<string, number>).filter((id) => id !== '0');
       const benchIds = unique(fromPlayers.filter((id) => !starters.has(id)));
       return buildRowsFromIds(benchIds, m);
     }

@@ -173,7 +173,7 @@ export default function RosterColumn({
   const chips = useMemo(() => {
     let ytp = 0, ip = 0, fin = 0;
     const hasStatuses = statuses && Object.keys(statuses).length > 0;
-    for (const p of allPlayers) {
+    for (const p of starters) {
       const code = normalizeTeamCode(p.team);
       const s = code ? statuses[code] : undefined;
       if (hasStatuses && s) {
@@ -188,7 +188,7 @@ export default function RosterColumn({
     }
     const playersRemaining = ytp + ip;
     return { ytp, ip, fin, playersRemaining };
-  }, [allPlayers, statuses, isPastWeek]);
+  }, [starters, statuses, isPastWeek]);
 
   const posTotals = useMemo(() => sumByPosition(starters), [starters]);
   const benchTotal = useMemo(() => bench.reduce((sum, b) => sum + (b.pts || 0), 0), [bench]);
