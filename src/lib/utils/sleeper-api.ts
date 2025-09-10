@@ -465,7 +465,10 @@ export async function getLeagueRecordBook(options?: SleeperFetchOptions): Promis
   return { highestScoringGame, lowestScoringGame, biggestVictory, closestVictory, highestCombined, longestWinStreak, longestLosingStreak };
 }
 
-export async function getWeeklyHighScoreTallyAcrossSeasons(options?: SleeperFetchOptions): Promise<Record<string, number>> {
+export async function getWeeklyHighScoreTallyAcrossSeasons(
+  params?: { tuesdayFlip?: boolean },
+  options?: SleeperFetchOptions
+): Promise<Record<string, number>> {
   const yearToLeague: Record<string, string> = {
     '2025': LEAGUE_IDS.CURRENT,
     ...LEAGUE_IDS.PREVIOUS,
@@ -474,6 +477,28 @@ export async function getWeeklyHighScoreTallyAcrossSeasons(options?: SleeperFetc
   const tally: Record<string, number> = {};
 
   // Iterate through seasons; process weeks in parallel per season
+  // Determine cutoff for current season using Tuesday flip policy (ET)
+  const useTuesdayFlip = params?.tuesdayFlip ?? true;
+  let currentSeasonCutoffWeek: number | null = null;
+  if (useTuesdayFlip && LEAGUE_IDS.CURRENT) {
+    try {
+      const state = await getNFLState(undefined, options);
+      const rawWeek = (state.week ?? state.display_week ?? 1) as number;
+      const now = new Date();
+      const dowET = new Intl.DateTimeFormat('en-US', { weekday: 'short', timeZone: 'America/New_York' }).format(now);
+      if (dowET === 'Tue') {
+        // On Tuesday, include the just-finished week even if Sleeper hasn't advanced week yet
+        currentSeasonCutoffWeek = Math.max(1, rawWeek);
+      } else {
+        // On Mon and Wed-Sun, include only fully completed weeks (rawWeek - 1)
+        currentSeasonCutoffWeek = Math.max(0, (typeof rawWeek === 'number' ? rawWeek : 1) - 1);
+      }
+    } catch {
+      // Fallback: if state fails, default to include up to previous week
+      currentSeasonCutoffWeek = null;
+    }
+  }
+
   for (const leagueId of Object.values(yearToLeague)) {
     if (!leagueId) continue;
 
@@ -482,8 +507,13 @@ export async function getWeeklyHighScoreTallyAcrossSeasons(options?: SleeperFetc
     const rosterOwner = new Map<number, string>();
     for (const r of rosters) rosterOwner.set(r.roster_id, r.owner_id);
 
-    // Fetch weeks 1..18 matchups in parallel
-    const weekPromises = Array.from({ length: 18 }, (_, i) => i + 1).map((w) =>
+    // Decide weeks to process: for current season, apply Tuesday flip cutoff; previous seasons process all 1..18
+    const isCurrentSeason = leagueId === LEAGUE_IDS.CURRENT;
+    const upToWeek = isCurrentSeason && currentSeasonCutoffWeek != null ? currentSeasonCutoffWeek : 18;
+    if (upToWeek <= 0) continue;
+
+    // Fetch weeks 1..upToWeek matchups in parallel
+    const weekPromises = Array.from({ length: upToWeek }, (_, i) => i + 1).map((w) =>
       getLeagueMatchups(leagueId, w, options).catch(() => [] as SleeperMatchup[])
     );
     const allWeekMatchups = await Promise.all(weekPromises);

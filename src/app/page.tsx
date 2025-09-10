@@ -36,20 +36,32 @@ export default async function Home() {
     if (seasonType !== 'regular' || beforeWeek1 || hasScores === false) {
       currentWeek = 1;
     } else {
-      currentWeek = typeof rawWeek === 'number' && rawWeek >= 1 && rawWeek <= 18 ? rawWeek : 1;
+      // Determine week display policy based on day-of-week in Eastern Time
+      const now = new Date();
+      const dowET = new Intl.DateTimeFormat('en-US', { weekday: 'short', timeZone: 'America/New_York' }).format(now);
+      const isMonTue = dowET === 'Mon' || dowET === 'Tue';
+      const sleeperWeek = typeof rawWeek === 'number' && rawWeek >= 1 && rawWeek <= 18 ? rawWeek : 1;
+      // Freeze to previous week on Mon/Tue; flip to current sleeper week starting Wed
+      currentWeek = isMonTue ? Math.max(1, sleeperWeek - 1) : sleeperWeek;
     }
 
     const matchups = await getLeagueMatchups(leagueId, currentWeek);
     // If the current week hasn't started (all 0-0) OR Sleeper returns empty, show previous week's matchups instead
     const hasAnyPoints = matchups.some((m) => ((m as { custom_points?: number; points?: number }).custom_points ?? m.points ?? 0) > 0);
     let mus = matchups;
-    if ((matchups.length === 0 || !hasAnyPoints) && currentWeek > 1) {
-      const prevWeek = currentWeek - 1;
-      const prev = await getLeagueMatchups(leagueId, prevWeek);
-      // Use previous only if it has any entries
-      if (prev.length > 0) {
-        currentWeek = prevWeek;
-        mus = prev;
+    // Only allow fallback to previous week on Mon/Tue Eastern to avoid flipping back after Wed
+    {
+      const now = new Date();
+      const dowET = new Intl.DateTimeFormat('en-US', { weekday: 'short', timeZone: 'America/New_York' }).format(now);
+      const allowFallbackToPrev = dowET === 'Mon' || dowET === 'Tue';
+      if (allowFallbackToPrev && (matchups.length === 0 || !hasAnyPoints) && currentWeek > 1) {
+        const prevWeek = currentWeek - 1;
+        const prev = await getLeagueMatchups(leagueId, prevWeek);
+        // Use previous only if it has any entries
+        if (prev.length > 0) {
+          currentWeek = prevWeek;
+          mus = prev;
+        }
       }
     }
     const rosterIdToName = new Map<number, string>(

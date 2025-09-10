@@ -204,7 +204,8 @@ export default function HistoryPage() {
           getFranchisesAllTime(opts),
           getLeagueRecordBook(opts),
           getAllTeamsData(opts),
-          getWeeklyHighScoreTallyAcrossSeasons(opts),
+          // Include the newly completed week on Tuesday (ET), exclude in-progress weeks otherwise
+          getWeeklyHighScoreTallyAcrossSeasons({ tuesdayFlip: true }, opts),
         ]);
         if (cancelled) return;
         setFranchises(fr);
