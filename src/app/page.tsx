@@ -1,4 +1,5 @@
 import Image from 'next/image';
+import Link from 'next/link';
 import CountdownTimer from '@/components/ui/countdown-timer';
 import MatchupCard from '@/components/ui/matchup-card';
 import { IMPORTANT_DATES, LEAGUE_IDS } from '@/lib/constants/league';
@@ -9,7 +10,7 @@ import LinkButton from '@/components/ui/LinkButton';
 
 export const revalidate = 20; // ISR: refresh at most every 20s to reduce API churn and flakiness
 
-export default async function Home() {
+export default async function Home({ searchParams }: { searchParams?: { week?: string } }) {
   const leagueId = LEAGUE_IDS.CURRENT;
   const currentWeekMatchups: Array<{
     homeTeam: string;
@@ -21,7 +22,12 @@ export default async function Home() {
     week: number;
     kickoffTime?: string;
   }> = [];
-  let currentWeek = 1;
+  const MAX_REGULAR_WEEKS = 14;
+  let defaultWeek = 1;
+  const requestedWeekStr = searchParams?.week;
+  const requestedWeekNum = typeof requestedWeekStr === 'string' ? Number(requestedWeekStr) : NaN;
+  const hasUserOverride = Number.isFinite(requestedWeekNum) && requestedWeekNum >= 1 && requestedWeekNum <= MAX_REGULAR_WEEKS;
+  let selectedWeek = 1;
   try {
     // Get current NFL state and teams in parallel
     const [nflState, teams] = await Promise.all([
@@ -34,7 +40,7 @@ export default async function Home() {
     const week1Ts = new Date(IMPORTANT_DATES.NFL_WEEK_1_START).getTime();
     const beforeWeek1 = Number.isFinite(week1Ts) && Date.now() < week1Ts;
     if (seasonType !== 'regular' || beforeWeek1 || hasScores === false) {
-      currentWeek = 1;
+      defaultWeek = 1;
     } else {
       // Determine week display policy based on day-of-week in Eastern Time
       const now = new Date();
@@ -42,24 +48,28 @@ export default async function Home() {
       const isMonTue = dowET === 'Mon' || dowET === 'Tue';
       const sleeperWeek = typeof rawWeek === 'number' && rawWeek >= 1 && rawWeek <= 18 ? rawWeek : 1;
       // Freeze to previous week on Mon/Tue; flip to current sleeper week starting Wed
-      currentWeek = isMonTue ? Math.max(1, sleeperWeek - 1) : sleeperWeek;
+      defaultWeek = isMonTue ? Math.max(1, sleeperWeek - 1) : sleeperWeek;
     }
+    // Clamp default to regular-season bounds
+    defaultWeek = Math.min(Math.max(1, defaultWeek), MAX_REGULAR_WEEKS);
+    // Apply user override if valid
+    selectedWeek = hasUserOverride ? (requestedWeekNum as number) : defaultWeek;
 
-    const matchups = await getLeagueMatchups(leagueId, currentWeek);
+    const matchups = await getLeagueMatchups(leagueId, selectedWeek);
     // If the current week hasn't started (all 0-0) OR Sleeper returns empty, show previous week's matchups instead
     const hasAnyPoints = matchups.some((m) => ((m as { custom_points?: number; points?: number }).custom_points ?? m.points ?? 0) > 0);
     let mus = matchups;
     // Only allow fallback to previous week on Mon/Tue Eastern to avoid flipping back after Wed
-    {
+    if (!hasUserOverride) {
       const now = new Date();
       const dowET = new Intl.DateTimeFormat('en-US', { weekday: 'short', timeZone: 'America/New_York' }).format(now);
       const allowFallbackToPrev = dowET === 'Mon' || dowET === 'Tue';
-      if (allowFallbackToPrev && (matchups.length === 0 || !hasAnyPoints) && currentWeek > 1) {
-        const prevWeek = currentWeek - 1;
+      if (allowFallbackToPrev && (matchups.length === 0 || !hasAnyPoints) && selectedWeek > 1) {
+        const prevWeek = selectedWeek - 1;
         const prev = await getLeagueMatchups(leagueId, prevWeek);
         // Use previous only if it has any entries
         if (prev.length > 0) {
-          currentWeek = prevWeek;
+          selectedWeek = prevWeek;
           mus = prev;
         }
       }
@@ -86,7 +96,7 @@ export default async function Home() {
           awayRosterId: a.roster_id,
           homeScore: includeScores ? b.points : undefined,
           awayScore: includeScores ? a.points : undefined,
-          week: currentWeek,
+          week: selectedWeek,
         });
       }
     }
@@ -124,7 +134,28 @@ export default async function Home() {
       
       {/* Current Week Preview */}
       <section className="mb-12">
-        <SectionHeader title={`Week ${currentWeek} matchups`} />
+        <SectionHeader title={`Week ${selectedWeek} matchups`} />
+        {/* Week selector: 1..14 clickable links */}
+        <div className="mb-6 flex flex-wrap gap-2" aria-label="Select week">
+          {Array.from({ length: MAX_REGULAR_WEEKS }, (_, i) => i + 1).map((w) => {
+            const isActive = w === selectedWeek;
+            return (
+              <Link
+                key={w}
+                href={`/?week=${w}`}
+                prefetch={false}
+                aria-label={`Show Week ${w}`}
+                className={`px-3 py-1 rounded-md text-sm border transition-colors ${
+                  isActive
+                    ? 'bg-[var(--accent)] text-white border-[var(--accent)]'
+                    : 'evw-surface text-[var(--text)] border-[var(--border)] hover:bg-[color-mix(in_srgb,white_5%,transparent)]'
+                }`}
+              >
+                {w}
+              </Link>
+            );
+          })}
+        </div>
         {currentWeekMatchups.length > 0 ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {currentWeekMatchups.map((matchup, index) => (
@@ -143,8 +174,8 @@ export default async function Home() {
           </div>
         ) : (
           <EmptyState 
-            title={`No Week ${currentWeek} matchups`}
-            message={`Matchups for Week ${currentWeek} are not yet available from Sleeper. Check back closer to kickoff.`}
+            title={`No Week ${selectedWeek} matchups`}
+            message={`Matchups for Week ${selectedWeek} are not yet available from Sleeper. Check back closer to kickoff.`}
           />
         )}
       </section>
