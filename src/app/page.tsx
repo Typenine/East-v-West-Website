@@ -39,19 +39,21 @@ export default async function Home({ searchParams }: { searchParams?: Promise<Re
     ]);
     const seasonType = (nflState as { season_type?: string }).season_type ?? 'regular';
     const hasScores = (nflState as { season_has_scores?: boolean }).season_has_scores;
-    const rawWeek = (nflState as { week?: number; display_week?: number }).week ?? (nflState as { display_week?: number }).display_week ?? 1;
     const week1Ts = new Date(IMPORTANT_DATES.NFL_WEEK_1_START).getTime();
     const beforeWeek1 = Number.isFinite(week1Ts) && Date.now() < week1Ts;
     if (seasonType !== 'regular' || beforeWeek1 || hasScores === false) {
       defaultWeek = 1;
     } else {
-      // Determine week display policy based on day-of-week in Eastern Time
+      // Determine week display policy based on day-of-week in Eastern Time, independent of Sleeper flips
       const now = new Date();
       const dowET = new Intl.DateTimeFormat('en-US', { weekday: 'short', timeZone: 'America/New_York' }).format(now);
-      const isMonTue = dowET === 'Mon' || dowET === 'Tue';
-      const sleeperWeek = typeof rawWeek === 'number' && rawWeek >= 1 && rawWeek <= 18 ? rawWeek : 1;
-      // Freeze to previous week on Mon/Tue; flip to current sleeper week starting Wed
-      defaultWeek = isMonTue ? Math.max(1, sleeperWeek - 1) : sleeperWeek;
+      const isWedOrLater = dowET === 'Wed' || dowET === 'Thu' || dowET === 'Fri' || dowET === 'Sat' || dowET === 'Sun';
+      const weekMs = 7 * 24 * 60 * 60 * 1000;
+      const diffMs = Date.now() - week1Ts;
+      const weeksSinceStart = Math.floor(Math.max(0, diffMs) / weekMs);
+      const calendarWeek = weeksSinceStart + 1; // Week 1 spans first Thu..Mon window
+      // Policy: show current calendar week on Mon/Tue; starting Wed show next week
+      defaultWeek = isWedOrLater ? calendarWeek + 1 : calendarWeek;
     }
     // Clamp default to regular-season bounds
     defaultWeek = Math.min(Math.max(1, defaultWeek), MAX_REGULAR_WEEKS);
@@ -62,12 +64,12 @@ export default async function Home({ searchParams }: { searchParams?: Promise<Re
     // If the current week hasn't started (all 0-0) OR Sleeper returns empty, show previous week's matchups instead
     const hasAnyPoints = matchups.some((m) => ((m as { custom_points?: number; points?: number }).custom_points ?? m.points ?? 0) > 0);
     let mus = matchups;
-    // Only allow fallback to previous week on Mon/Tue Eastern to avoid flipping back after Wed
+    // Only allow fallback to previous week on Mon/Tue Eastern, and only if we advanced past defaultWeek
     if (!hasUserOverride) {
       const now = new Date();
       const dowET = new Intl.DateTimeFormat('en-US', { weekday: 'short', timeZone: 'America/New_York' }).format(now);
       const allowFallbackToPrev = dowET === 'Mon' || dowET === 'Tue';
-      if (allowFallbackToPrev && (matchups.length === 0 || !hasAnyPoints) && selectedWeek > 1) {
+      if (allowFallbackToPrev && selectedWeek > defaultWeek && (matchups.length === 0 || !hasAnyPoints) && selectedWeek > 1) {
         const prevWeek = selectedWeek - 1;
         const prev = await getLeagueMatchups(leagueId, prevWeek);
         // Use previous only if it has any entries
