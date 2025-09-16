@@ -489,10 +489,7 @@ export async function getWeeklyHighScoreTallyAcrossSeasons(
       const rawWeek = (state.week ?? state.display_week ?? 1) as number;
       const now = new Date();
       const dowET = new Intl.DateTimeFormat('en-US', { weekday: 'short', timeZone: 'America/New_York' }).format(now);
-      if (dowET === 'Tue') {
-        // On Tuesday, include the just-finished week even if Sleeper hasn't advanced week yet
-        currentSeasonCutoffWeek = Math.max(1, rawWeek);
-      } else if (dowET === 'Wed') {
+      if (dowET === 'Tue' || dowET === 'Wed') {
         // On Wednesday, include last completed week. If Sleeper hasn't advanced rawWeek yet,
         // rawWeek still corresponds to last week (has points) -> include rawWeek.
         // If it has advanced, rawWeek is next week (likely 0-0) -> include rawWeek - 1.
@@ -562,6 +559,153 @@ export async function getWeeklyHighScoreTallyAcrossSeasons(
   }
 
   return tally;
+}
+
+// ==========================
+// All-Time Split Records (Regular, Playoffs, Toilet Bowl)
+// ==========================
+
+export interface SplitRecord {
+  wins: number;
+  losses: number;
+  ties: number;
+}
+
+/**
+ * Compute per-owner all-time split records across seasons:
+ *  - Regular season (weeks < playoff_start_week)
+ *  - Playoffs (winners bracket games at/after playoff start)
+ *  - Toilet Bowl (losers bracket games at/after playoff start)
+ *
+ * Classification rules per league-year:
+ *  - Determine playoff start via league settings: playoff_week_start | playoff_start_week
+ *  - Build winners/losers roster-id sets from brackets.
+ *  - For each weekly head-to-head (skip 0-0 unplayed), if week < start -> Regular.
+ *    Otherwise, if both rosters are in winners set -> Playoffs.
+ *    Else if losers set is available and both rosters in losers -> Toilet.
+ *    Else if losers set is empty, treat any non-winners pairs as Toilet (fallback).
+ */
+export async function getSplitRecordsAllTime(
+  options?: SleeperFetchOptions
+): Promise<Record<string, { teamName: string; regular: SplitRecord; playoffs: SplitRecord; toilet: SplitRecord }>> {
+  const yearToLeague: Record<string, string> = {
+    '2025': LEAGUE_IDS.CURRENT,
+    ...LEAGUE_IDS.PREVIOUS,
+  };
+
+  const agg: Record<string, { teamName: string; regular: SplitRecord; playoffs: SplitRecord; toilet: SplitRecord }> = {};
+
+  // Iterate seasons
+  for (const leagueId of Object.values(yearToLeague)) {
+    if (!leagueId) continue;
+
+    // Build mapping roster_id -> owner_id and a stable team name via canonical resolution
+    const rosters = await getLeagueRosters(leagueId, options);
+    const rosterOwner = new Map<number, string>();
+    for (const r of rosters) rosterOwner.set(r.roster_id, r.owner_id);
+
+    // Name map not required for aggregation; omit to save a call if it fails
+
+    // League settings: playoff start week
+    const league = await getLeague(leagueId, options);
+    const settings = (league?.settings || {}) as {
+      playoff_week_start?: number;
+      playoff_start_week?: number;
+    };
+    const startWeek = Number(settings.playoff_week_start ?? settings.playoff_start_week ?? 15);
+
+    // Brackets -> sets of roster ids
+    const [winnersBracket, losersBracket] = await Promise.all([
+      getLeagueWinnersBracket(leagueId, options).catch(() => [] as SleeperBracketGame[]),
+      getLeagueLosersBracket(leagueId, options).catch(() => [] as SleeperBracketGame[]),
+    ]);
+    const winnersSet = new Set<number>();
+    const losersSet = new Set<number>();
+    for (const g of winnersBracket) {
+      if (typeof g.t1 === 'number') winnersSet.add(g.t1);
+      if (typeof g.t2 === 'number') winnersSet.add(g.t2);
+    }
+    for (const g of losersBracket) {
+      if (typeof g.t1 === 'number') losersSet.add(g.t1);
+      if (typeof g.t2 === 'number') losersSet.add(g.t2);
+    }
+
+    // Fetch weeks 1..18 matchups
+    const weeks = Array.from({ length: 18 }, (_, i) => i + 1);
+    const allWeekMatchups = await Promise.all(
+      weeks.map((w) => getLeagueMatchups(leagueId, w, options).catch(() => [] as SleeperMatchup[]))
+    );
+
+    for (let wIdx = 0; wIdx < allWeekMatchups.length; wIdx++) {
+      const week = wIdx + 1;
+      const matchups = allWeekMatchups[wIdx] || [];
+      if (matchups.length === 0) continue;
+
+      // Group by matchup_id
+      const byId = new Map<number, SleeperMatchup[]>();
+      for (const m of matchups) {
+        const arr = byId.get(m.matchup_id) || [];
+        arr.push(m);
+        byId.set(m.matchup_id, arr);
+      }
+
+      for (const pair of byId.values()) {
+        if (!pair || pair.length < 2) continue;
+        const [a, b] = pair;
+        const aPts = a.custom_points ?? a.points ?? 0;
+        const bPts = b.custom_points ?? b.points ?? 0;
+        if ((aPts ?? 0) === 0 && (bPts ?? 0) === 0) continue; // unplayed
+
+        const aOwner = rosterOwner.get(a.roster_id);
+        const bOwner = rosterOwner.get(b.roster_id);
+        if (!aOwner || !bOwner) continue;
+
+        // Initialize aggregates
+        const initFor = (ownerId: string) => {
+          if (!agg[ownerId]) {
+            const teamName = resolveCanonicalTeamName({ ownerId });
+            agg[ownerId] = {
+              teamName,
+              regular: { wins: 0, losses: 0, ties: 0 },
+              playoffs: { wins: 0, losses: 0, ties: 0 },
+              toilet: { wins: 0, losses: 0, ties: 0 },
+            };
+          }
+        };
+        initFor(aOwner);
+        initFor(bOwner);
+
+        // Determine category
+        let category: 'regular' | 'playoffs' | 'toilet' | null = null;
+        if (week < startWeek) {
+          category = 'regular';
+        } else {
+          const aInW = winnersSet.has(a.roster_id);
+          const bInW = winnersSet.has(b.roster_id);
+          const aInL = losersSet.has(a.roster_id);
+          const bInL = losersSet.has(b.roster_id);
+          if (aInW && bInW) category = 'playoffs';
+          else if (losersSet.size > 0 ? (aInL && bInL) : (!aInW && !bInW)) category = 'toilet';
+          else category = null; // ambiguous (skip)
+        }
+        if (!category) continue;
+
+        // Apply result to both owners
+        if (aPts > bPts) {
+          agg[aOwner][category].wins += 1;
+          agg[bOwner][category].losses += 1;
+        } else if (aPts < bPts) {
+          agg[bOwner][category].wins += 1;
+          agg[aOwner][category].losses += 1;
+        } else {
+          agg[aOwner][category].ties += 1;
+          agg[bOwner][category].ties += 1;
+        }
+      }
+    }
+  }
+
+  return agg;
 }
 
 /**

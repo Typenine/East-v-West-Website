@@ -17,6 +17,7 @@ import {
   derivePodiumFromWinnersBracketByYear,
   getSeasonAwardsUsingLeagueScoring,
   getWeeklyHighScoreTallyAcrossSeasons,
+  getSplitRecordsAllTime,
   type FranchiseSummary,
   type LeagueRecordBook,
   type SleeperBracketGameWithScore,
@@ -24,6 +25,7 @@ import {
   type SeasonAwards,
   type AwardWinner,
   type TeamData,
+  type SplitRecord,
 } from '@/lib/utils/sleeper-api';
 import { CANONICAL_TEAM_BY_USER_ID } from '@/lib/constants/team-mapping';
 import SectionHeader from '@/components/ui/SectionHeader';
@@ -76,6 +78,8 @@ export default function HistoryPage() {
   const [ownerToRosterId, setOwnerToRosterId] = useState<Record<string, number>>({});
   // Weekly High Score tally per owner across seasons
   const [weeklyHighsByOwner, setWeeklyHighsByOwner] = useState<Record<string, number>>({});
+  // Split records (regular/playoffs/toilet) per owner across seasons
+  const [splitRecords, setSplitRecords] = useState<Record<string, { teamName: string; regular: SplitRecord; playoffs: SplitRecord; toilet: SplitRecord }>>({});
   // Inverted map to get ownerId by canonical team name (for CHAMPIONS links)
   const ownerByTeamName = useMemo(() => {
     const map: Record<string, string> = {};
@@ -204,12 +208,15 @@ export default function HistoryPage() {
         const optsFresh = { signal: ac.signal, timeoutMs: DEFAULT_TIMEOUT, forceFresh: true } as const;
         const optsCached = { signal: ac.signal, timeoutMs: DEFAULT_TIMEOUT } as const;
         const needWeeklyHighs = activeTab === 'franchises';
-        const [teams2025, teams2024, teams2023, weeklyHighs] = await Promise.all([
+        const needSplitRecords = activeTab === 'leaderboards';
+        const [teams2025, teams2024, teams2023, weeklyHighs, splits] = await Promise.all([
           getTeamsData(LEAGUE_IDS.CURRENT, optsFresh),
           getTeamsData(LEAGUE_IDS.PREVIOUS['2024'], optsCached),
           getTeamsData(LEAGUE_IDS.PREVIOUS['2023'], optsCached),
           // Weekly highs: only needed for Franchises grid; cached is fine
           needWeeklyHighs ? getWeeklyHighScoreTallyAcrossSeasons({ tuesdayFlip: true }, optsCached) : Promise.resolve({} as Record<string, number>),
+          // Split records: only needed for Leaderboards tab
+          needSplitRecords ? getSplitRecordsAllTime(optsCached) : Promise.resolve({} as Record<string, { teamName: string; regular: SplitRecord; playoffs: SplitRecord; toilet: SplitRecord }>),
         ]);
         if (cancelled) return;
         // Build owner -> rosterId and owner -> teamName mapping preferring 2025, then 2024, then 2023
@@ -230,6 +237,7 @@ export default function HistoryPage() {
         }
         setOwnerToRosterId(ownerRosterMap);
         setWeeklyHighsByOwner(weeklyHighs || {});
+        if (needSplitRecords) setSplitRecords(splits || {});
 
         // Build FranchiseSummary list using roster season totals across years (fast and current)
         const champCounts: Record<string, number> = {};
@@ -1189,6 +1197,62 @@ export default function HistoryPage() {
                         </tr>
                       );
                     }))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* All-Time Records by Split */}
+            <div className="evw-surface border p-6 rounded-[var(--radius-card)] hover-lift md:col-span-2">
+              <h3 className="text-xl font-bold mb-4">All-Time Records by Split</h3>
+              <div className="overflow-x-auto">
+                <table className="min-w-full divide-y divide-[var(--border)]">
+                  <thead className="bg-transparent">
+                    <tr>
+                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-[var(--muted)] uppercase tracking-wider">Team</th>
+                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-[var(--muted)] uppercase tracking-wider">Regular</th>
+                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-[var(--muted)] uppercase tracking-wider">Playoffs</th>
+                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-[var(--muted)] uppercase tracking-wider">Toilet Bowl</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[var(--border)]">
+                    {franchisesLoading ? (
+                      <tr>
+                        <td className="px-6 py-4 text-sm text-[var(--muted)]" colSpan={4}>Loading...</td>
+                      </tr>
+                    ) : franchisesError ? (
+                      <tr>
+                        <td className="px-6 py-4 text-sm text-red-500" colSpan={4}>{franchisesError}</td>
+                      </tr>
+                    ) : (
+                      // Use franchises as the ordering source so links/logos are consistent
+                      [...franchises].map((f) => {
+                        const rid = ownerToRosterId[f.ownerId];
+                        const colors = getTeamColors(f.teamName);
+                        const splits = splitRecords[f.ownerId] || { teamName: f.teamName, regular: { wins: 0, losses: 0, ties: 0 }, playoffs: { wins: 0, losses: 0, ties: 0 }, toilet: { wins: 0, losses: 0, ties: 0 } };
+                        const nameLink = rid !== undefined ? (
+                          <Link href={`/teams/${rid}`} className="text-[var(--text)] hover:underline">{f.teamName}</Link>
+                        ) : (
+                          <span className="text-[var(--text)]">{f.teamName}</span>
+                        );
+                        const fmt = (r: SplitRecord) => `${r.wins}-${r.losses}${r.ties > 0 ? `-${r.ties}` : ''}`;
+                        return (
+                          <tr key={f.ownerId} className="border-l-4" style={{ borderLeftColor: colors.primary, backgroundColor: hexToRgba(colors.primary, 0.06) }}>
+                            <td className="px-6 py-3 whitespace-nowrap text-sm font-medium">
+                              <div className="flex items-center gap-3">
+                                <div className="w-6 h-6 rounded-full evw-surface border border-[var(--border)] overflow-hidden flex items-center justify-center shrink-0">
+                                  <Image src={getTeamLogoPath(f.teamName)} alt={`${f.teamName} logo`} width={24} height={24} className="w-6 h-6 object-contain" />
+                                </div>
+                                {nameLink}
+                              </div>
+                            </td>
+                            <td className="px-6 py-3 whitespace-nowrap text-sm text-[var(--muted)]">{fmt(splits.regular)}</td>
+                            <td className="px-6 py-3 whitespace-nowrap text-sm text-[var(--muted)]">{fmt(splits.playoffs)}</td>
+                            <td className="px-6 py-3 whitespace-nowrap text-sm text-[var(--muted)]">{fmt(splits.toilet)}</td>
+                          </tr>
+                        );
+                      })
+                    )}
                   </tbody>
                 </table>
               </div>
