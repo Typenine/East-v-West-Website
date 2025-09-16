@@ -1080,68 +1080,66 @@ export default function HistoryPage() {
               </div>
             </div>
             
-            {/* Best Win Percentage */}
+            {/* Best All-Time Win Percentage (All Games) */}
             <div className="evw-surface border p-6 rounded-[var(--radius-card)] hover-lift">
-              <h3 className="text-xl font-bold mb-4">Best Win Percentage</h3>
+              <h3 className="text-xl font-bold mb-4">Best All-Time Win Percentage</h3>
               <div className="overflow-x-auto">
                 <table className="min-w-full divide-y divide-[var(--border)]">
                   <thead className="bg-transparent">
                     <tr>
-                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-[var(--muted)] uppercase tracking-wider">
-                        Rank
-                      </th>
-                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-[var(--muted)] uppercase tracking-wider">
-                        Team
-                      </th>
-                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-[var(--muted)] uppercase tracking-wider">
-                        Record
-                      </th>
-                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-[var(--muted)] uppercase tracking-wider">
-                        Win %
-                      </th>
+                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-[var(--muted)] uppercase tracking-wider">Rank</th>
+                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-[var(--muted)] uppercase tracking-wider">Team</th>
+                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-[var(--muted)] uppercase tracking-wider">Record</th>
+                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-[var(--muted)] uppercase tracking-wider">Win %</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-[var(--border)]">
                     {franchisesLoading ? (
-                      <tr>
-                        <td className="px-6 py-4 text-sm text-[var(--muted)]" colSpan={4}>Loading...</td>
-                      </tr>
+                      <tr><td className="px-6 py-4 text-sm text-[var(--muted)]" colSpan={4}>Loading...</td></tr>
                     ) : franchisesError ? (
-                      <tr>
-                        <td className="px-6 py-4 text-sm text-red-500" colSpan={4}>{franchisesError}</td>
-                      </tr>
-                    ) : ([...franchises]
-                      .map((f) => {
-                        const games = f.wins + f.losses + f.ties;
-                        const pct = games > 0 ? (f.wins + f.ties * 0.5) / games : 0;
-                        return { f, pct };
-                      })
-                      .sort((a, b) => b.pct - a.pct)
-                      .map(({ f, pct }, index) => {
-                        const rid = ownerToRosterId[f.ownerId];
-                        const colors = getTeamColors(f.teamName);
-                        const nameLink = rid !== undefined ? (
-                          <Link href={`/teams/${rid}`} className="text-[var(--text)] hover:underline">{f.teamName}</Link>
-                        ) : (
-                          <span className="text-[var(--text)]">{f.teamName}</span>
-                        );
-                        const record = `${f.wins}-${f.losses}${f.ties > 0 ? `-${f.ties}` : ''}`;
-                        return (
-                          <tr key={f.ownerId} className="border-l-4" style={{ borderLeftColor: colors.primary, backgroundColor: hexToRgba(colors.primary, 0.06) }}>
-                            <td className="px-6 py-3 whitespace-nowrap text-sm text-[var(--muted)]">{index + 1}</td>
-                            <td className="px-6 py-3 whitespace-nowrap text-sm font-medium">
-                              <div className="flex items-center gap-3">
-                                <div className="w-6 h-6 rounded-full evw-surface border border-[var(--border)] overflow-hidden flex items-center justify-center shrink-0">
-                                  <Image src={getTeamLogoPath(f.teamName)} alt={`${f.teamName} logo`} width={24} height={24} className="w-6 h-6 object-contain" />
+                      <tr><td className="px-6 py-4 text-sm text-red-500" colSpan={4}>{franchisesError}</td></tr>
+                    ) : (
+                      Object.entries(splitRecords)
+                        .map(([ownerId, s]) => {
+                          const wins = s.regular.wins + s.playoffs.wins + s.toilet.wins;
+                          const losses = s.regular.losses + s.playoffs.losses + s.toilet.losses;
+                          const ties = s.regular.ties + s.playoffs.ties + s.toilet.ties;
+                          const games = wins + losses + ties;
+                          if (games === 0) return null;
+                          const pct = (wins + ties * 0.5) / games;
+                          const f = franchises.find((x) => x.ownerId === ownerId);
+                          const teamName = f?.teamName || s.teamName || 'Unknown Team';
+                          const rid = ownerToRosterId[ownerId];
+                          return { ownerId, teamName, rid, wins, losses, ties, games, pct };
+                        })
+                        .filter(Boolean)
+                        .sort((a, b) => (b!.pct - a!.pct) || (b!.games - a!.games))
+                        .map((row, index) => {
+                          const r = row!;
+                          const colors = getTeamColors(r.teamName);
+                          const record = `${r.wins}-${r.losses}${r.ties > 0 ? `-${r.ties}` : ''}`;
+                          const nameLink = r.rid !== undefined ? (
+                            <Link href={`/teams/${r.rid}`} className="text-[var(--text)] hover:underline">{r.teamName}</Link>
+                          ) : (
+                            <span className="text-[var(--text)]">{r.teamName}</span>
+                          );
+                          return (
+                            <tr key={r.ownerId} className="border-l-4" style={{ borderLeftColor: colors.primary, backgroundColor: hexToRgba(colors.primary, 0.06) }}>
+                              <td className="px-6 py-3 whitespace-nowrap text-sm text-[var(--muted)]">{index + 1}</td>
+                              <td className="px-6 py-3 whitespace-nowrap text-sm font-medium">
+                                <div className="flex items-center gap-3">
+                                  <div className="w-6 h-6 rounded-full evw-surface border border-[var(--border)] overflow-hidden flex items-center justify-center shrink-0">
+                                    <Image src={getTeamLogoPath(r.teamName)} alt={`${r.teamName} logo`} width={24} height={24} className="w-6 h-6 object-contain" />
+                                  </div>
+                                  {nameLink}
                                 </div>
-                                {nameLink}
-                              </div>
-                            </td>
-                            <td className="px-6 py-3 whitespace-nowrap text-sm text-[var(--muted)]">{record}</td>
-                            <td className="px-6 py-3 whitespace-nowrap text-sm text-[var(--muted)]">{(pct * 100).toFixed(1)}%</td>
-                          </tr>
-                        );
-                      }) )}
+                              </td>
+                              <td className="px-6 py-3 whitespace-nowrap text-sm text-[var(--muted)]">{record}</td>
+                              <td className="px-6 py-3 whitespace-nowrap text-sm text-[var(--muted)]">{(r.pct * 100).toFixed(1)}%</td>
+                            </tr>
+                          );
+                        })
+                    )}
                   </tbody>
                 </table>
               </div>
@@ -1202,56 +1200,186 @@ export default function HistoryPage() {
               </div>
             </div>
 
-            {/* All-Time Records by Split */}
-            <div className="evw-surface border p-6 rounded-[var(--radius-card)] hover-lift md:col-span-2">
-              <h3 className="text-xl font-bold mb-4">All-Time Records by Split</h3>
+            {/* Best Regular Season Record */}
+            <div className="evw-surface border p-6 rounded-[var(--radius-card)] hover-lift">
+              <h3 className="text-xl font-bold mb-4">Best Regular Season Win Percentage</h3>
               <div className="overflow-x-auto">
                 <table className="min-w-full divide-y divide-[var(--border)]">
                   <thead className="bg-transparent">
                     <tr>
-                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-[var(--muted)] uppercase tracking-wider">Team</th>
-                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-[var(--muted)] uppercase tracking-wider">Regular</th>
-                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-[var(--muted)] uppercase tracking-wider">Playoffs</th>
-                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-[var(--muted)] uppercase tracking-wider">Toilet Bowl</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-[var(--muted)] uppercase tracking-wider">Rank</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-[var(--muted)] uppercase tracking-wider">Team</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-[var(--muted)] uppercase tracking-wider">Record</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-[var(--muted)] uppercase tracking-wider">Win %</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-[var(--border)]">
                     {franchisesLoading ? (
-                      <tr>
-                        <td className="px-6 py-4 text-sm text-[var(--muted)]" colSpan={4}>Loading...</td>
-                      </tr>
+                      <tr><td className="px-6 py-4 text-sm text-[var(--muted)]" colSpan={4}>Loading...</td></tr>
                     ) : franchisesError ? (
-                      <tr>
-                        <td className="px-6 py-4 text-sm text-red-500" colSpan={4}>{franchisesError}</td>
-                      </tr>
+                      <tr><td className="px-6 py-4 text-sm text-red-500" colSpan={4}>{franchisesError}</td></tr>
                     ) : (
-                      // Use franchises as the ordering source so links/logos are consistent
-                      [...franchises].map((f) => {
-                        const rid = ownerToRosterId[f.ownerId];
-                        const colors = getTeamColors(f.teamName);
-                        const splits = splitRecords[f.ownerId] || { teamName: f.teamName, regular: { wins: 0, losses: 0, ties: 0 }, playoffs: { wins: 0, losses: 0, ties: 0 }, toilet: { wins: 0, losses: 0, ties: 0 } };
-                        const nameLink = rid !== undefined ? (
-                          <Link href={`/teams/${rid}`} className="text-[var(--text)] hover:underline">{f.teamName}</Link>
-                        ) : (
-                          <span className="text-[var(--text)]">{f.teamName}</span>
-                        );
-                        const fmt = (r: SplitRecord) => `${r.wins}-${r.losses}${r.ties > 0 ? `-${r.ties}` : ''}`;
-                        return (
-                          <tr key={f.ownerId} className="border-l-4" style={{ borderLeftColor: colors.primary, backgroundColor: hexToRgba(colors.primary, 0.06) }}>
-                            <td className="px-6 py-3 whitespace-nowrap text-sm font-medium">
-                              <div className="flex items-center gap-3">
-                                <div className="w-6 h-6 rounded-full evw-surface border border-[var(--border)] overflow-hidden flex items-center justify-center shrink-0">
-                                  <Image src={getTeamLogoPath(f.teamName)} alt={`${f.teamName} logo`} width={24} height={24} className="w-6 h-6 object-contain" />
+                      Object.entries(splitRecords)
+                        .map(([ownerId, s]) => {
+                          const wins = s.regular.wins; const losses = s.regular.losses; const ties = s.regular.ties;
+                          const games = wins + losses + ties; if (games === 0) return null;
+                          const pct = (wins + ties * 0.5) / games;
+                          const f = franchises.find((x) => x.ownerId === ownerId);
+                          const teamName = f?.teamName || s.teamName || 'Unknown Team';
+                          const rid = ownerToRosterId[ownerId];
+                          return { ownerId, teamName, rid, wins, losses, ties, games, pct };
+                        })
+                        .filter(Boolean)
+                        .sort((a, b) => (b!.pct - a!.pct) || (b!.games - a!.games))
+                        .map((row, index) => {
+                          const r = row!;
+                          const colors = getTeamColors(r.teamName);
+                          const record = `${r.wins}-${r.losses}${r.ties > 0 ? `-${r.ties}` : ''}`;
+                          const nameLink = r.rid !== undefined ? (
+                            <Link href={`/teams/${r.rid}`} className="text-[var(--text)] hover:underline">{r.teamName}</Link>
+                          ) : (
+                            <span className="text-[var(--text)]">{r.teamName}</span>
+                          );
+                          return (
+                            <tr key={r.ownerId} className="border-l-4" style={{ borderLeftColor: colors.primary, backgroundColor: hexToRgba(colors.primary, 0.06) }}>
+                              <td className="px-6 py-3 whitespace-nowrap text-sm text-[var(--muted)]">{index + 1}</td>
+                              <td className="px-6 py-3 whitespace-nowrap text-sm font-medium">
+                                <div className="flex items-center gap-3">
+                                  <div className="w-6 h-6 rounded-full evw-surface border border-[var(--border)] overflow-hidden flex items-center justify-center shrink-0">
+                                    <Image src={getTeamLogoPath(r.teamName)} alt={`${r.teamName} logo`} width={24} height={24} className="w-6 h-6 object-contain" />
+                                  </div>
+                                  {nameLink}
                                 </div>
-                                {nameLink}
-                              </div>
-                            </td>
-                            <td className="px-6 py-3 whitespace-nowrap text-sm text-[var(--muted)]">{fmt(splits.regular)}</td>
-                            <td className="px-6 py-3 whitespace-nowrap text-sm text-[var(--muted)]">{fmt(splits.playoffs)}</td>
-                            <td className="px-6 py-3 whitespace-nowrap text-sm text-[var(--muted)]">{fmt(splits.toilet)}</td>
-                          </tr>
-                        );
-                      })
+                              </td>
+                              <td className="px-6 py-3 whitespace-nowrap text-sm text-[var(--muted)]">{record}</td>
+                              <td className="px-6 py-3 whitespace-nowrap text-sm text-[var(--muted)]">{(r.pct * 100).toFixed(1)}%</td>
+                            </tr>
+                          );
+                        })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Best Playoffs Record */}
+            <div className="evw-surface border p-6 rounded-[var(--radius-card)] hover-lift">
+              <h3 className="text-xl font-bold mb-4">Best Playoffs Win Percentage</h3>
+              <div className="overflow-x-auto">
+                <table className="min-w-full divide-y divide-[var(--border)]">
+                  <thead className="bg-transparent">
+                    <tr>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-[var(--muted)] uppercase tracking-wider">Rank</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-[var(--muted)] uppercase tracking-wider">Team</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-[var(--muted)] uppercase tracking-wider">Record</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-[var(--muted)] uppercase tracking-wider">Win %</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[var(--border)]">
+                    {franchisesLoading ? (
+                      <tr><td className="px-6 py-4 text-sm text-[var(--muted)]" colSpan={4}>Loading...</td></tr>
+                    ) : franchisesError ? (
+                      <tr><td className="px-6 py-4 text-sm text-red-500" colSpan={4}>{franchisesError}</td></tr>
+                    ) : (
+                      Object.entries(splitRecords)
+                        .map(([ownerId, s]) => {
+                          const wins = s.playoffs.wins; const losses = s.playoffs.losses; const ties = s.playoffs.ties;
+                          const games = wins + losses + ties; if (games === 0) return null;
+                          const pct = (wins + ties * 0.5) / games;
+                          const f = franchises.find((x) => x.ownerId === ownerId);
+                          const teamName = f?.teamName || s.teamName || 'Unknown Team';
+                          const rid = ownerToRosterId[ownerId];
+                          return { ownerId, teamName, rid, wins, losses, ties, games, pct };
+                        })
+                        .filter(Boolean)
+                        .sort((a, b) => (b!.pct - a!.pct) || (b!.games - a!.games))
+                        .map((row, index) => {
+                          const r = row!;
+                          const colors = getTeamColors(r.teamName);
+                          const record = `${r.wins}-${r.losses}${r.ties > 0 ? `-${r.ties}` : ''}`;
+                          const nameLink = r.rid !== undefined ? (
+                            <Link href={`/teams/${r.rid}`} className="text-[var(--text)] hover:underline">{r.teamName}</Link>
+                          ) : (
+                            <span className="text-[var(--text)]">{r.teamName}</span>
+                          );
+                          return (
+                            <tr key={r.ownerId} className="border-l-4" style={{ borderLeftColor: colors.primary, backgroundColor: hexToRgba(colors.primary, 0.06) }}>
+                              <td className="px-6 py-3 whitespace-nowrap text-sm text-[var(--muted)]">{index + 1}</td>
+                              <td className="px-6 py-3 whitespace-nowrap text-sm font-medium">
+                                <div className="flex items-center gap-3">
+                                  <div className="w-6 h-6 rounded-full evw-surface border border-[var(--border)] overflow-hidden flex items-center justify-center shrink-0">
+                                    <Image src={getTeamLogoPath(r.teamName)} alt={`${r.teamName} logo`} width={24} height={24} className="w-6 h-6 object-contain" />
+                                  </div>
+                                  {nameLink}
+                                </div>
+                              </td>
+                              <td className="px-6 py-3 whitespace-nowrap text-sm text-[var(--muted)]">{record}</td>
+                              <td className="px-6 py-3 whitespace-nowrap text-sm text-[var(--muted)]">{(r.pct * 100).toFixed(1)}%</td>
+                            </tr>
+                          );
+                        })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Best Toilet Bowl Record */}
+            <div className="evw-surface border p-6 rounded-[var(--radius-card)] hover-lift">
+              <h3 className="text-xl font-bold mb-4">Best Toilet Bowl Win Percentage</h3>
+              <div className="overflow-x-auto">
+                <table className="min-w-full divide-y divide-[var(--border)]">
+                  <thead className="bg-transparent">
+                    <tr>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-[var(--muted)] uppercase tracking-wider">Rank</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-[var(--muted)] uppercase tracking-wider">Team</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-[var(--muted)] uppercase tracking-wider">Record</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-[var(--muted)] uppercase tracking-wider">Win %</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[var(--border)]">
+                    {franchisesLoading ? (
+                      <tr><td className="px-6 py-4 text-sm text-[var(--muted)]" colSpan={4}>Loading...</td></tr>
+                    ) : franchisesError ? (
+                      <tr><td className="px-6 py-4 text-sm text-red-500" colSpan={4}>{franchisesError}</td></tr>
+                    ) : (
+                      Object.entries(splitRecords)
+                        .map(([ownerId, s]) => {
+                          const wins = s.toilet.wins; const losses = s.toilet.losses; const ties = s.toilet.ties;
+                          const games = wins + losses + ties; if (games === 0) return null;
+                          const pct = (wins + ties * 0.5) / games;
+                          const f = franchises.find((x) => x.ownerId === ownerId);
+                          const teamName = f?.teamName || s.teamName || 'Unknown Team';
+                          const rid = ownerToRosterId[ownerId];
+                          return { ownerId, teamName, rid, wins, losses, ties, games, pct };
+                        })
+                        .filter(Boolean)
+                        .sort((a, b) => (b!.pct - a!.pct) || (b!.games - a!.games))
+                        .map((row, index) => {
+                          const r = row!;
+                          const colors = getTeamColors(r.teamName);
+                          const record = `${r.wins}-${r.losses}${r.ties > 0 ? `-${r.ties}` : ''}`;
+                          const nameLink = r.rid !== undefined ? (
+                            <Link href={`/teams/${r.rid}`} className="text-[var(--text)] hover:underline">{r.teamName}</Link>
+                          ) : (
+                            <span className="text-[var(--text)]">{r.teamName}</span>
+                          );
+                          return (
+                            <tr key={r.ownerId} className="border-l-4" style={{ borderLeftColor: colors.primary, backgroundColor: hexToRgba(colors.primary, 0.06) }}>
+                              <td className="px-6 py-3 whitespace-nowrap text-sm text-[var(--muted)]">{index + 1}</td>
+                              <td className="px-6 py-3 whitespace-nowrap text-sm font-medium">
+                                <div className="flex items-center gap-3">
+                                  <div className="w-6 h-6 rounded-full evw-surface border border-[var(--border)] overflow-hidden flex items-center justify-center shrink-0">
+                                    <Image src={getTeamLogoPath(r.teamName)} alt={`${r.teamName} logo`} width={24} height={24} className="w-6 h-6 object-contain" />
+                                  </div>
+                                  {nameLink}
+                                </div>
+                              </td>
+                              <td className="px-6 py-3 whitespace-nowrap text-sm text-[var(--muted)]">{record}</td>
+                              <td className="px-6 py-3 whitespace-nowrap text-sm text-[var(--muted)]">{(r.pct * 100).toFixed(1)}%</td>
+                            </tr>
+                          );
+                        })
                     )}
                   </tbody>
                 </table>
@@ -1301,7 +1429,7 @@ export default function HistoryPage() {
                     <CardContent>
                       <div className="text-sm text-[var(--muted)] space-y-1">
                         <p>
-                          Record: {f.wins}-{f.losses}
+                          Regular-season record: {f.wins}-{f.losses}
                           {f.ties > 0 ? `-${f.ties}` : ''} ({(() => {
                             const g = f.wins + f.losses + f.ties;
                             return g > 0 ? (((f.wins + f.ties * 0.5) / g) * 100).toFixed(1) : '0.0';
