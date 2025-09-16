@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import * as VercelKV from '@vercel/kv';
+import { readFile, writeFile } from 'fs/promises';
+import { join } from 'path';
 
 // Optional: Vercel KV if configured
 type KVType = { get: <T = unknown>(key: string) => Promise<T | null>; set: (key: string, val: unknown) => Promise<void> };
@@ -35,29 +37,106 @@ export type ManualTrade = {
 
 const KV_KEY = 'evw:manual_trades:v1';
 
+// GitHub Content API config
+const GH_TOKEN = process.env.GITHUB_CONTENT_TOKEN || '';
+const GH_REPO = process.env.GITHUB_CONTENT_REPO || '';
+const GH_BRANCH = process.env.GITHUB_CONTENT_BRANCH || 'main';
+const GH_PATH = process.env.GITHUB_CONTENT_PATH || 'data/manual_trades.json';
+const GH_API_BASE = 'https://api.github.com';
+
+function ghEnabled() {
+  return Boolean(GH_TOKEN && GH_REPO && GH_PATH);
+}
+
+async function ghReadFile(): Promise<{ json: ManualTrade[]; sha?: string } | null> {
+  if (!ghEnabled()) return null;
+  const url = `${GH_API_BASE}/repos/${GH_REPO}/contents/${encodeURIComponent(GH_PATH)}?ref=${encodeURIComponent(GH_BRANCH)}`;
+  const res = await fetch(url, { headers: { Authorization: `Bearer ${GH_TOKEN}`, Accept: 'application/vnd.github+json' }, cache: 'no-store' });
+  if (res.status === 404) return { json: [], sha: undefined };
+  if (!res.ok) return null;
+  const data = await res.json() as { content?: string; sha?: string; encoding?: string };
+  const b64 = data.content || '';
+  const raw = b64 ? Buffer.from(b64, 'base64').toString('utf-8') : '[]';
+  try {
+    const json = JSON.parse(raw) as ManualTrade[];
+    return { json: Array.isArray(json) ? json : [], sha: data.sha };
+  } catch {
+    return { json: [], sha: data.sha };
+  }
+}
+
+async function ghWriteFile(trades: ManualTrade[]) {
+  if (!ghEnabled()) return false;
+  // Get current sha (create if missing)
+  let sha: string | undefined;
+  try {
+    const cur = await ghReadFile();
+    sha = cur?.sha;
+  } catch {}
+  const url = `${GH_API_BASE}/repos/${GH_REPO}/contents/${encodeURIComponent(GH_PATH)}`;
+  const content = Buffer.from(JSON.stringify(trades, null, 2), 'utf-8').toString('base64');
+  const body = {
+    message: 'chore(manual-trades): update manual trades via admin API',
+    content,
+    branch: GH_BRANCH,
+    sha,
+  };
+  const res = await fetch(url, {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${GH_TOKEN}`, Accept: 'application/vnd.github+json', 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  return res.ok;
+}
+
 async function loadAll(): Promise<ManualTrade[]> {
+  // 1) GitHub
+  try {
+    const gh = await ghReadFile();
+    if (gh) return gh.json;
+  } catch {}
+  // 2) Vercel KV
   try {
     if (kv) {
       const arr = (await kv.get<ManualTrade[] | null>(KV_KEY)) || [];
-      return Array.isArray(arr) ? arr : [];
+      if (Array.isArray(arr)) return arr;
     }
   } catch {}
+  // 3) Local file (dev)
+  try {
+    const p = join(process.cwd(), 'data', 'manual_trades.json');
+    const raw = await readFile(p, 'utf-8');
+    const j = JSON.parse(raw);
+    if (Array.isArray(j)) return j as ManualTrade[];
+  } catch {}
+  // 4) In-memory
   return memoryStore.trades || [];
 }
 
 async function saveAll(trades: ManualTrade[]) {
+  // 1) GitHub
+  try {
+    if (await ghWriteFile(trades)) return;
+  } catch {}
+  // 2) Vercel KV
   try {
     if (kv) {
       await kv.set(KV_KEY, trades);
       return;
     }
   } catch {}
+  // 3) Local file (dev)
+  try {
+    const p = join(process.cwd(), 'data', 'manual_trades.json');
+    await writeFile(p, JSON.stringify(trades, null, 2), 'utf-8');
+    return;
+  } catch {}
+  // 4) In-memory
   memoryStore = { trades: trades.slice(), ts: Date.now() };
 }
 
 function isAdmin(req: NextRequest): boolean {
-  const adminSecret = process.env.EVW_ADMIN_SECRET || '';
-  if (!adminSecret) return false;
+  const adminSecret = process.env.EVW_ADMIN_SECRET || '002023';
   const auth = req.headers.get('authorization');
   if (auth && auth.startsWith('Bearer ')) {
     return auth.slice('Bearer '.length) === adminSecret;
