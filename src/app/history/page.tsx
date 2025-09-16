@@ -159,8 +159,8 @@ export default function HistoryPage() {
           throw new Error(`No league ID configured for year ${bracketYear}`);
         }
         const [brackets, nameMap] = await Promise.all([
-          getLeaguePlayoffBracketsWithScores(leagueId, { signal: ac.signal, timeoutMs: DEFAULT_TIMEOUT }),
-          getRosterIdToTeamNameMap(leagueId, { signal: ac.signal, timeoutMs: DEFAULT_TIMEOUT }),
+          getLeaguePlayoffBracketsWithScores(leagueId, { signal: ac.signal, timeoutMs: DEFAULT_TIMEOUT, forceFresh: true }),
+          getRosterIdToTeamNameMap(leagueId, { signal: ac.signal, timeoutMs: DEFAULT_TIMEOUT, forceFresh: true }),
         ]);
         if (cancelled) return;
         // For current season, suppress brackets if there are no scores yet (start of season)
@@ -199,7 +199,7 @@ export default function HistoryPage() {
         setRecordsLoading(true);
         setFranchisesError(null);
         setRecordsError(null);
-        const opts = { signal: ac.signal, timeoutMs: DEFAULT_TIMEOUT } as const;
+        const opts = { signal: ac.signal, timeoutMs: DEFAULT_TIMEOUT, forceFresh: true } as const;
         const [fr, rb, allTeams, weeklyHighs] = await Promise.all([
           getFranchisesAllTime(opts),
           getLeagueRecordBook(opts),
