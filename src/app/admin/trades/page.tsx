@@ -1,6 +1,7 @@
+
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import SectionHeader from '@/components/ui/SectionHeader';
 import { Card, CardHeader, CardTitle, CardContent, CardFooter } from '@/components/ui/Card';
@@ -16,7 +17,7 @@ type ManualTradeAsset =
 interface ManualTradeTeam { name: string; assets: ManualTradeAsset[]; }
 interface ManualTrade { id: string; date: string; status: 'completed'|'pending'|'vetoed'; teams: ManualTradeTeam[]; notes?: string; overrideOf?: string | null; active?: boolean; }
 
-export default function AdminTradesPage() {
+function AdminTradesContent() {
   const searchParams = useSearchParams();
   const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
   const [passkey, setPasskey] = useState('');
@@ -259,5 +260,15 @@ export default function AdminTradesPage() {
         </CardFooter>
       </Card>
     </div>
+  );
+}
+
+export const dynamic = 'force-dynamic';
+
+export default function AdminTradesPage() {
+  return (
+    <Suspense fallback={<div className="container mx-auto px-4 py-8">Loading…</div>}>
+      <AdminTradesContent />
+    </Suspense>
   );
 }
