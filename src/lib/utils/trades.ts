@@ -50,6 +50,17 @@ export const fetchTradesAllTime = async (): Promise<Trade[]> => {
       }
     }
 
+    // Merge manual trades (all years)
+    const manual = await fetchManualTrades({ all: true });
+    if (manual.length) {
+      const map = new Map<string, Trade>();
+      trades.forEach((t) => map.set(t.id, t));
+      for (const m of manual) {
+        const id = (m.overrideOf && typeof m.overrideOf === 'string') ? m.overrideOf : m.id;
+        map.set(id, m);
+      }
+      return Array.from(map.values());
+    }
     return trades;
   } catch (error) {
     console.error('Error fetching all-time trades:', error);
@@ -71,6 +82,32 @@ export type Trade = {
   notes?: string;
   relatedTrades?: string[]; // IDs of related trades for trade trees
 };
+
+// Manual trade payload from our API (superset of Trade with override flags)
+type ManualTradeApi = Trade & {
+  overrideOf?: string | null;
+  active?: boolean;
+  createdBy?: string;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
+async function fetchManualTrades(params?: { year?: string; all?: boolean }): Promise<ManualTradeApi[]> {
+  try {
+    const sp = new URLSearchParams();
+    if (params?.year) sp.set('year', params.year);
+    if (params?.all) sp.set('all', '1');
+    const url = `/api/manual-trades${sp.toString() ? `?${sp.toString()}` : ''}`;
+    const res = await fetch(url, { cache: 'no-store' });
+    if (!res.ok) return [];
+    const j = (await res.json()) as { trades?: ManualTradeApi[] };
+    const arr = Array.isArray(j?.trades) ? j.trades : [];
+    // Ensure shape is consistent
+    return arr.filter((t) => (t as { id?: unknown }).id && (t as { teams?: unknown }).teams) as ManualTradeApi[];
+  } catch {
+    return [];
+  }
+}
 
 export type TradeTreeNode = {
   tradeId: string;
@@ -576,6 +613,17 @@ export const fetchTradesByYear = async (year: string): Promise<Trade[]> => {
       trades.push(trade);
     }
     
+    // Merge manual trades for this year
+    const manual = await fetchManualTrades({ year });
+    if (manual.length) {
+      const map = new Map<string, Trade>();
+      trades.forEach((t) => map.set(t.id, t));
+      for (const m of manual) {
+        const id = (m.overrideOf && typeof m.overrideOf === 'string') ? m.overrideOf : m.id;
+        map.set(id, m);
+      }
+      return Array.from(map.values());
+    }
     return trades;
   } catch (error) {
     console.error('Error fetching trades by year:', error);

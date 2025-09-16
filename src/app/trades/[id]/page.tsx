@@ -18,6 +18,7 @@ export default function TradeDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [relatedTrades, setRelatedTrades] = useState<Trade[]>([]);
+  const [isAdmin, setIsAdmin] = useState<boolean>(false);
   
   useEffect(() => {
     const fetchTradeDetails = async () => {
@@ -51,6 +52,11 @@ export default function TradeDetailPage() {
       fetchTradeDetails();
     }
   }, [id]);
+
+  useEffect(() => {
+    // Check admin status to show Override affordance
+    fetch('/api/admin-login').then(r => r.json()).then(j => setIsAdmin(Boolean(j?.isAdmin))).catch(() => setIsAdmin(false));
+  }, []);
   
   if (loading) {
     return (
@@ -107,6 +113,17 @@ export default function TradeDetailPage() {
         }
         aria-labelledby="trade-heading"
       />
+      {isAdmin && (
+        <div className="mb-4">
+          <Link
+            href={`/admin/trades?override=${encodeURIComponent(id as string)}`}
+            className="inline-flex items-center px-3 py-1.5 rounded-md border border-[var(--border)] text-sm evw-surface hover:opacity-90"
+            aria-label="Override this trade"
+          >
+            Override this trade
+          </Link>
+        </div>
+      )}
       <h1 id="trade-heading" className="sr-only">Trade between {trade.teams.map(t => t.name).join(' and ')}</h1>
       
       <article className="evw-surface border border-[var(--border)] rounded-lg shadow-md overflow-hidden mb-8">
