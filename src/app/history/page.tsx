@@ -9,9 +9,8 @@ import LoadingState from '@/components/ui/loading-state';
 import ErrorState from '@/components/ui/error-state';
 import Card, { CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
 import {
-  getFranchisesAllTime,
   getLeagueRecordBook,
-  getAllTeamsData,
+  getTeamsData,
   getLeaguePlayoffBracketsWithScores,
   getLeagueWinnersBracket,
   getRosterIdToTeamNameMap,
@@ -24,6 +23,7 @@ import {
   type SleeperBracketGame,
   type SeasonAwards,
   type AwardWinner,
+  type TeamData,
 } from '@/lib/utils/sleeper-api';
 import { CANONICAL_TEAM_BY_USER_ID } from '@/lib/constants/team-mapping';
 import SectionHeader from '@/components/ui/SectionHeader';
@@ -190,7 +190,9 @@ export default function HistoryPage() {
     };
   }, [activeTab, bracketYear]);
   
+  // Load data for Leaderboards/Franchises tabs (fast path, includes current season fresh)
   useEffect(() => {
+    if (activeTab !== 'leaderboards' && activeTab !== 'franchises') return;
     const ac = new AbortController();
     let cancelled = false;
     async function load() {
@@ -198,22 +200,27 @@ export default function HistoryPage() {
         setFranchisesLoading(true);
         setRecordsLoading(true);
         setFranchisesError(null);
-        setRecordsError(null);
-        const opts = { signal: ac.signal, timeoutMs: DEFAULT_TIMEOUT, forceFresh: true } as const;
-        const [fr, rb, allTeams, weeklyHighs] = await Promise.all([
-          getFranchisesAllTime(opts),
-          getLeagueRecordBook(opts),
-          getAllTeamsData(opts),
-          // Include the newly completed week on Tuesday (ET), exclude in-progress weeks otherwise
-          getWeeklyHighScoreTallyAcrossSeasons({ tuesdayFlip: true }, opts),
+        // We don't need record book here; keep any existing value and load it lazily in Records tab
+        const optsFresh = { signal: ac.signal, timeoutMs: DEFAULT_TIMEOUT, forceFresh: true } as const;
+        const optsCached = { signal: ac.signal, timeoutMs: DEFAULT_TIMEOUT } as const;
+        const needWeeklyHighs = activeTab === 'franchises';
+        const [teams2025, teams2024, teams2023, weeklyHighs] = await Promise.all([
+          getTeamsData(LEAGUE_IDS.CURRENT, optsFresh),
+          getTeamsData(LEAGUE_IDS.PREVIOUS['2024'], optsCached),
+          getTeamsData(LEAGUE_IDS.PREVIOUS['2023'], optsCached),
+          // Weekly highs: only needed for Franchises grid; cached is fine
+          needWeeklyHighs ? getWeeklyHighScoreTallyAcrossSeasons({ tuesdayFlip: true }, optsCached) : Promise.resolve({} as Record<string, number>),
         ]);
         if (cancelled) return;
-        setFranchises(fr);
-        setRecordBook(rb);
         // Build owner -> rosterId and owner -> teamName mapping preferring 2025, then 2024, then 2023
         const ownerRosterMap: Record<string, number> = {};
         const ownerNameMap: Record<string, string> = {};
         const yearsOrdered: string[] = ['2025', '2024', '2023'];
+        const allTeams: Record<string, TeamData[]> = {
+          '2025': teams2025 || [],
+          '2024': teams2024 || [],
+          '2023': teams2023 || [],
+        };
         for (const year of yearsOrdered) {
           const teams = allTeams[year] || [];
           for (const t of teams) {
@@ -223,6 +230,56 @@ export default function HistoryPage() {
         }
         setOwnerToRosterId(ownerRosterMap);
         setWeeklyHighsByOwner(weeklyHighs || {});
+
+        // Build FranchiseSummary list using roster season totals across years (fast and current)
+        const champCounts: Record<string, number> = {};
+        Object.values(CHAMPIONS).forEach((c) => {
+          if (c.champion && c.champion !== 'TBD') {
+            champCounts[c.champion] = (champCounts[c.champion] || 0) + 1;
+          }
+        });
+
+        const agg: Record<string, { teamName: string; wins: number; losses: number; ties: number; totalPF: number; totalPA: number; games: number; championships: number }>= {};
+        for (const y of ['2025', '2024', '2023']) {
+          const teams = allTeams[y] || [];
+          for (const t of teams) {
+            const a = (agg[t.ownerId] ||= {
+              teamName: t.teamName,
+              wins: 0,
+              losses: 0,
+              ties: 0,
+              totalPF: 0,
+              totalPA: 0,
+              games: 0,
+              championships: 0,
+            });
+            a.teamName = t.teamName || a.teamName;
+            a.wins += t.wins || 0;
+            a.losses += t.losses || 0;
+            a.ties += t.ties || 0;
+            a.totalPF += t.fpts || 0;
+            a.totalPA += t.fptsAgainst || 0;
+            a.games += (t.wins || 0) + (t.losses || 0) + (t.ties || 0);
+          }
+        }
+        for (const ownerId of Object.keys(agg)) {
+          const teamName = agg[ownerId].teamName;
+          agg[ownerId].championships = champCounts[teamName] || 0;
+        }
+
+        const franchisesDerived: FranchiseSummary[] = Object.entries(agg).map(([ownerId, a]) => ({
+          ownerId,
+          teamName: a.teamName,
+          wins: a.wins,
+          losses: a.losses,
+          ties: a.ties,
+          totalPF: a.totalPF,
+          totalPA: a.totalPA,
+          avgPF: a.games > 0 ? a.totalPF / a.games : 0,
+          avgPA: a.games > 0 ? a.totalPA / a.games : 0,
+          championships: a.championships,
+        }));
+        setFranchises(franchisesDerived);
 
         // Compute Regular Season Winners per franchise (previous completed seasons)
         const rsCounts: Record<string, number> = {};
@@ -256,7 +313,7 @@ export default function HistoryPage() {
         const winnersByYear: Record<string, SleeperBracketGame[]> = {};
         await Promise.all(previousYears.map(async (y) => {
           const lid = leagueIdsByYear[y];
-          winnersByYear[y] = lid ? await getLeagueWinnersBracket(lid, opts).catch(() => []) : [];
+          winnersByYear[y] = lid ? await getLeagueWinnersBracket(lid, optsCached).catch(() => []) : [];
         }));
 
         // Count unique participants per season, then aggregate by owner
@@ -295,12 +352,10 @@ export default function HistoryPage() {
         console.error('Error loading history data:', e);
         if (!cancelled) {
           setFranchisesError('Failed to load franchise data. Please try again later.');
-          setRecordsError('Failed to load records. Please try again later.');
         }
       } finally {
         if (!cancelled) {
           setFranchisesLoading(false);
-          setRecordsLoading(false);
         }
       }
     }
@@ -309,7 +364,35 @@ export default function HistoryPage() {
       cancelled = true;
       ac.abort();
     };
-  }, []);
+  }, [activeTab]);
+
+  // Load Record Book only when Records tab is active (heavy)
+  useEffect(() => {
+    if (activeTab !== 'records') return;
+    const ac = new AbortController();
+    let cancelled = false;
+    async function loadRecords() {
+      try {
+        setRecordsLoading(true);
+        setRecordsError(null);
+        const optsCached = { signal: ac.signal, timeoutMs: DEFAULT_TIMEOUT } as const;
+        const rb = await getLeagueRecordBook(optsCached);
+        if (cancelled) return;
+        setRecordBook(rb);
+      } catch (e) {
+        if (isAbortError(e)) return;
+        console.error('Error loading record book:', e);
+        if (!cancelled) setRecordsError('Failed to load records. Please try again later.');
+      } finally {
+        if (!cancelled) setRecordsLoading(false);
+      }
+    }
+    loadRecords();
+    return () => {
+      cancelled = true;
+      ac.abort();
+    };
+  }, [activeTab]);
   
   // Load Awards (MVP & ROY) for 2025 (current), 2024, 2023
   useEffect(() => {
