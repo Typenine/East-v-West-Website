@@ -899,23 +899,33 @@ export default function HistoryPage() {
                         }
                       });
                       
-                      // Convert to array, sort, and take top 5
+                      // Convert to array, sort, and render all teams with logos and color accents
                       return Object.entries(counts)
                         .sort((a, b) => b[1] - a[1])
-                        .slice(0, 5)
-                        .map((entry, index) => (
-                          <tr key={entry[0]}>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-[var(--muted)]">
-                              {index + 1}
-                            </td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-[var(--text)]">
-                              {entry[0]}
-                            </td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-[var(--muted)]">
-                              {entry[1]}
-                            </td>
-                          </tr>
-                        ));
+                        .map(([teamName, count], index) => {
+                          const colors = getTeamColors(teamName);
+                          const ownerId = ownerByTeamName[teamName];
+                          const rid = ownerId ? ownerToRosterId[ownerId] : undefined;
+                          const nameLink = rid !== undefined ? (
+                            <Link href={`/teams/${rid}`} className="text-[var(--text)] hover:underline">{teamName}</Link>
+                          ) : (
+                            <span className="text-[var(--text)]">{teamName}</span>
+                          );
+                          return (
+                            <tr key={teamName} className="border-l-4" style={{ borderLeftColor: colors.primary, backgroundColor: hexToRgba(colors.primary, 0.06) }}>
+                              <td className="px-6 py-3 whitespace-nowrap text-sm text-[var(--muted)]">{index + 1}</td>
+                              <td className="px-6 py-3 whitespace-nowrap text-sm font-medium">
+                                <div className="flex items-center gap-3">
+                                  <div className="w-6 h-6 rounded-full evw-surface border border-[var(--border)] overflow-hidden flex items-center justify-center shrink-0">
+                                    <Image src={getTeamLogoPath(teamName)} alt={`${teamName} logo`} width={24} height={24} className="w-6 h-6 object-contain" />
+                                  </div>
+                                  {nameLink}
+                                </div>
+                              </td>
+                              <td className="px-6 py-3 whitespace-nowrap text-sm text-[var(--muted)]">{count}</td>
+                            </tr>
+                          );
+                        });
                     })()}
                   </tbody>
                 </table>
@@ -953,16 +963,24 @@ export default function HistoryPage() {
                       .sort((a, b) => b.totalPF - a.totalPF)
                       .map((f, index) => {
                         const rid = ownerToRosterId[f.ownerId];
-                        const nameCell = rid !== undefined ? (
-                          <Link href={`/teams/${rid}`} className="text-[var(--accent)] hover:underline">{f.teamName}</Link>
+                        const colors = getTeamColors(f.teamName);
+                        const nameLink = rid !== undefined ? (
+                          <Link href={`/teams/${rid}`} className="text-[var(--text)] hover:underline">{f.teamName}</Link>
                         ) : (
-                          <span>{f.teamName}</span>
+                          <span className="text-[var(--text)]">{f.teamName}</span>
                         );
                         return (
-                          <tr key={f.ownerId}>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-[var(--muted)]">{index + 1}</td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-[var(--text)]">{nameCell}</td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-[var(--muted)]">{f.totalPF.toFixed(2)}</td>
+                          <tr key={f.ownerId} className="border-l-4" style={{ borderLeftColor: colors.primary, backgroundColor: hexToRgba(colors.primary, 0.06) }}>
+                            <td className="px-6 py-3 whitespace-nowrap text-sm text-[var(--muted)]">{index + 1}</td>
+                            <td className="px-6 py-3 whitespace-nowrap text-sm font-medium">
+                              <div className="flex items-center gap-3">
+                                <div className="w-6 h-6 rounded-full evw-surface border border-[var(--border)] overflow-hidden flex items-center justify-center shrink-0">
+                                  <Image src={getTeamLogoPath(f.teamName)} alt={`${f.teamName} logo`} width={24} height={24} className="w-6 h-6 object-contain" />
+                                </div>
+                                {nameLink}
+                              </div>
+                            </td>
+                            <td className="px-6 py-3 whitespace-nowrap text-sm text-[var(--muted)]">{f.totalPF.toFixed(2)}</td>
                           </tr>
                         );
                       }) )}
@@ -1010,18 +1028,26 @@ export default function HistoryPage() {
                       .sort((a, b) => b.pct - a.pct)
                       .map(({ f, pct }, index) => {
                         const rid = ownerToRosterId[f.ownerId];
-                        const nameCell = rid !== undefined ? (
-                          <Link href={`/teams/${rid}`} className="text-[var(--accent)] hover:underline">{f.teamName}</Link>
+                        const colors = getTeamColors(f.teamName);
+                        const nameLink = rid !== undefined ? (
+                          <Link href={`/teams/${rid}`} className="text-[var(--text)] hover:underline">{f.teamName}</Link>
                         ) : (
-                          <span>{f.teamName}</span>
+                          <span className="text-[var(--text)]">{f.teamName}</span>
                         );
                         const record = `${f.wins}-${f.losses}${f.ties > 0 ? `-${f.ties}` : ''}`;
                         return (
-                          <tr key={f.ownerId}>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-[var(--muted)]">{index + 1}</td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-[var(--text)]">{nameCell}</td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-[var(--muted)]">{record}</td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-[var(--muted)]">{(pct * 100).toFixed(1)}%</td>
+                          <tr key={f.ownerId} className="border-l-4" style={{ borderLeftColor: colors.primary, backgroundColor: hexToRgba(colors.primary, 0.06) }}>
+                            <td className="px-6 py-3 whitespace-nowrap text-sm text-[var(--muted)]">{index + 1}</td>
+                            <td className="px-6 py-3 whitespace-nowrap text-sm font-medium">
+                              <div className="flex items-center gap-3">
+                                <div className="w-6 h-6 rounded-full evw-surface border border-[var(--border)] overflow-hidden flex items-center justify-center shrink-0">
+                                  <Image src={getTeamLogoPath(f.teamName)} alt={`${f.teamName} logo`} width={24} height={24} className="w-6 h-6 object-contain" />
+                                </div>
+                                {nameLink}
+                              </div>
+                            </td>
+                            <td className="px-6 py-3 whitespace-nowrap text-sm text-[var(--muted)]">{record}</td>
+                            <td className="px-6 py-3 whitespace-nowrap text-sm text-[var(--muted)]">{(pct * 100).toFixed(1)}%</td>
                           </tr>
                         );
                       }) )}
@@ -1059,16 +1085,24 @@ export default function HistoryPage() {
                       </tr>
                     ) : (playoffAppearances.map((row, index) => {
                       const rid = ownerToRosterId[row.ownerId];
-                      const nameCell = rid !== undefined ? (
-                        <Link href={`/teams/${rid}`} className="text-[var(--accent)] hover:underline">{row.teamName}</Link>
+                      const colors = getTeamColors(row.teamName);
+                      const nameLink = rid !== undefined ? (
+                        <Link href={`/teams/${rid}`} className="text-[var(--text)] hover:underline">{row.teamName}</Link>
                       ) : (
-                        <span>{row.teamName}</span>
+                        <span className="text-[var(--text)]">{row.teamName}</span>
                       );
                       return (
-                        <tr key={row.ownerId}>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-[var(--muted)]">{index + 1}</td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-[var(--text)]">{nameCell}</td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-[var(--muted)]">{row.appearances}</td>
+                        <tr key={row.ownerId} className="border-l-4" style={{ borderLeftColor: colors.primary, backgroundColor: hexToRgba(colors.primary, 0.06) }}>
+                          <td className="px-6 py-3 whitespace-nowrap text-sm text-[var(--muted)]">{index + 1}</td>
+                          <td className="px-6 py-3 whitespace-nowrap text-sm font-medium">
+                            <div className="flex items-center gap-3">
+                              <div className="w-6 h-6 rounded-full evw-surface border border-[var(--border)] overflow-hidden flex items-center justify-center shrink-0">
+                                <Image src={getTeamLogoPath(row.teamName)} alt={`${row.teamName} logo`} width={24} height={24} className="w-6 h-6 object-contain" />
+                              </div>
+                              {nameLink}
+                            </div>
+                          </td>
+                          <td className="px-6 py-3 whitespace-nowrap text-sm text-[var(--muted)]">{row.appearances}</td>
                         </tr>
                       );
                     }))}
