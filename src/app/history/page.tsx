@@ -282,14 +282,13 @@ export default function HistoryPage() {
           }
         }
 
-        const appearanceRows = Object.entries(ownerCounts)
-          .map(([ownerId, count]) => ({
+        const appearanceRows = Object.keys(ownerNameMap)
+          .map((ownerId) => ({
             ownerId,
             teamName: ownerNameMap[ownerId] || 'Unknown Team',
-            appearances: count,
+            appearances: ownerCounts[ownerId] || 0,
           }))
-          .sort((a, b) => b.appearances - a.appearances)
-          .slice(0, 5);
+          .sort((a, b) => b.appearances - a.appearances);
         setPlayoffAppearances(appearanceRows);
       } catch (e) {
         if (isAbortError(e)) return;
@@ -386,24 +385,7 @@ export default function HistoryPage() {
     { id: 'records', label: 'Records' },
   ];
 
-  // Helper to apply light translucent backgrounds using a team's hex color
-  const hexToRgba = (hex: string, alpha: number) => {
-    const h = hex.replace('#', '');
-    const r = parseInt(h.substring(0, 2), 16);
-    const g = parseInt(h.substring(2, 4), 16);
-    const b = parseInt(h.substring(4, 6), 16);
-    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
-  };
-
-  // Pick readable text color (black/white) for a given hex background
-  const readableOn = (hex: string) => {
-    const h = hex.replace('#', '');
-    const r = parseInt(h.substring(0, 2), 16);
-    const g = parseInt(h.substring(2, 4), 16);
-    const b = parseInt(h.substring(4, 6), 16);
-    const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
-    return luminance > 0.5 ? '#000' : '#fff';
-  };
+  // Using top-level hexToRgba and readableOn helpers defined above
 
   // Render team names inline with circular logos (supports 1 or 2 teams)
   const renderTeamsInline = (teams: string[], rosterIds?: Array<number | undefined>) => {
@@ -969,7 +951,6 @@ export default function HistoryPage() {
                       </tr>
                     ) : ([...franchises]
                       .sort((a, b) => b.totalPF - a.totalPF)
-                      .slice(0, 5)
                       .map((f, index) => {
                         const rid = ownerToRosterId[f.ownerId];
                         const nameCell = rid !== undefined ? (
@@ -1027,7 +1008,6 @@ export default function HistoryPage() {
                         return { f, pct };
                       })
                       .sort((a, b) => b.pct - a.pct)
-                      .slice(0, 5)
                       .map(({ f, pct }, index) => {
                         const rid = ownerToRosterId[f.ownerId];
                         const nameCell = rid !== undefined ? (
