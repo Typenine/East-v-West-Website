@@ -64,16 +64,28 @@ function readableOn(hex: string): string {
   return luminance > 0.6 ? '#111111' : '#ffffff';
 }
 
-// Simple trophy icon (inline SVG). Inherits currentColor.
-function TrophyIcon({ className }: { className?: string }) {
+// Trophy icon resembling a cup with handles. Uses a subtle metallic gradient.
+function TrophyIcon({ className = '' }: { className?: string }) {
   return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="currentColor"
-      aria-hidden="true"
-      className={className}
-    >
-      <path d="M19 4h-2V3a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v1H5a1 1 0 0 0-1 1v2a5 5 0 0 0 4 4.9V13a4.002 4.002 0 0 0-3 3.874V18a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-1.126A4.002 4.002 0 0 0 16 13v-1.1A5 5 0 0 0 20 7V5a1 1 0 0 0-1-1ZM6 7V6h1v2a3 3 0 0 1-1-1Zm12 0a3 3 0 0 1-1 1V6h1v1Zm-4 6a2 2 0 0 1 2 2v.999H8V15a2 2 0 0 1 2-2h4Zm-1.999-2H12A3 3 0 0 1 9 8V4h6v4a3 3 0 0 1-3 3Z"/>
+    <svg viewBox="0 0 24 24" aria-hidden="true" className={className} role="img">
+      <defs>
+        <linearGradient id="trophyGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+          <stop offset="0%" stopColor="#f0f0f0" />
+          <stop offset="50%" stopColor="#c9c9c9" />
+          <stop offset="100%" stopColor="#9b9b9b" />
+        </linearGradient>
+      </defs>
+      <g fill="url(#trophyGrad)" stroke="#666" strokeWidth="0.5">
+        {/* Cup */}
+        <path d="M8 3h8v2c0 2.761-2.686 5-6 5s-6-2.239-6-5V5h4V3Z" />
+        {/* Handles */}
+        <path d="M4 5c-1.5 0-2 1.2-2 2.2C2 9.5 3.5 11 6 11v-1c-1.9 0-3-1.2-3-2.6C3 6.6 3.5 6 4.5 6H6V5H4Z" />
+        <path d="M20 5c1.5 0 2 1.2 2 2.2 0 2.3-1.5 3.8-4 3.8v-1c1.9 0 3-1.2 3-2.6 0-1.8-.5-2.4-1.5-2.4H18V5h2Z" />
+        {/* Stem and base */}
+        <rect x="10.5" y="10" width="3" height="3" rx="0.5" />
+        <path d="M8 14h8v2H8z" />
+        <path d="M7 17h10v2H7z" />
+      </g>
     </svg>
   );
 }
@@ -1180,14 +1192,14 @@ export default function HistoryPage() {
                                   {nameLink}
                                 </div>
                               </td>
-                              <td className="px-6 py-3 whitespace-nowrap text-sm text-[var(--muted)]">
-                            <div className="flex items-center gap-1">
-                              {Array.from({ length: count }).map((_, i) => (
-                                <TrophyIcon key={i} className="w-4 h-4 text-[var(--gold)]" />
-                              ))}
-                              <span className="sr-only">{count} {count === 1 ? 'title' : 'titles'}</span>
-                            </div>
-                          </td>
+                              <td className="px-6 py-3 whitespace-nowrap text-sm text-[var(--muted)] text-center">
+                                <div className="flex items-center justify-center gap-2">
+                                  {Array.from({ length: count }).map((_, i) => (
+                                    <TrophyIcon key={i} className="w-6 h-6" />
+                                  ))}
+                                  <span className="sr-only">{count} {count === 1 ? 'title' : 'titles'}</span>
+                                </div>
+                              </td>
                             </tr>
                           );
                         });
