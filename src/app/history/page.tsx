@@ -1575,7 +1575,7 @@ export default function HistoryPage() {
                               </div>
                             </td>
                             <td className="px-6 py-3 whitespace-nowrap text-sm">{oppLink}</td>
-                            <td className="px-6 py-3 whitespace-nowrap text-sm"><span className="text-xl md:text-2xl font-extrabold text-[var(--accent)]">{row.points.toFixed(2)}</span> <span className="text-[var(--muted)] font-semibold">- {row.opponentPoints.toFixed(2)}</span></td>
+                            <td className="px-6 py-3 whitespace-nowrap text-sm"><span className="text-lg md:text-xl font-bold text-[var(--accent)]">{row.points.toFixed(2)}</span> <span className="text-[var(--muted)] font-semibold">- {row.opponentPoints.toFixed(2)}</span></td>
                             <td className="px-6 py-3 whitespace-nowrap text-sm text-[var(--muted)]">{row.year} / Week {row.week}</td>
                           </tr>
                         );
