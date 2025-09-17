@@ -1530,7 +1530,9 @@ export default function HistoryPage() {
                 </table>
                 )}
               </div>
-            {/* Weekly Highs (Full Tables at Bottom) */}
+            </div>
+
+          {/* Weekly Highs (Full Tables at Bottom) */}
             {/* Regular Season Top 10 */}
             <div className="evw-surface border p-6 rounded-[var(--radius-card)] hover-lift mt-8">
               <div className="flex items-center justify-between mb-4">
