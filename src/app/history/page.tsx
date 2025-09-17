@@ -19,6 +19,7 @@ import {
   getWeeklyHighScoreTallyAcrossSeasons,
   getSplitRecordsAllTime,
   getTopScoringWeeksAllTime,
+  getWeeklyHighsBySeason,
   type FranchiseSummary,
   type LeagueRecordBook,
   type SleeperBracketGameWithScore,
@@ -28,6 +29,7 @@ import {
   type TeamData,
   type SplitRecord,
   type TopScoringWeekEntry,
+  type WeeklyHighByWeekEntry,
 } from '@/lib/utils/sleeper-api';
 import { CANONICAL_TEAM_BY_USER_ID } from '@/lib/constants/team-mapping';
 import SectionHeader from '@/components/ui/SectionHeader';
@@ -76,6 +78,17 @@ export default function HistoryPage() {
   const [awardsByYear, setAwardsByYear] = useState<Record<string, SeasonAwards>>({});
   const [awardsLoading, setAwardsLoading] = useState(true);
   const [awardsError, setAwardsError] = useState<string | null>(null);
+  // Weekly Highs tab state
+  const allYears = useMemo(() => {
+    const prev = Object.keys(LEAGUE_IDS.PREVIOUS || {});
+    const ys = ['2025', ...prev];
+    // sort desc (most recent first)
+    return ys.sort((a, b) => b.localeCompare(a));
+  }, []);
+  const [weeklyTabYear, setWeeklyTabYear] = useState<string>('2025');
+  const [weeklyHighs, setWeeklyHighs] = useState<WeeklyHighByWeekEntry[]>([]);
+  const [weeklyTabLoading, setWeeklyTabLoading] = useState(false);
+  const [weeklyTabError, setWeeklyTabError] = useState<string | null>(null);
   // Owner -> rosterId mapping (prefer most recent season)
   const [ownerToRosterId, setOwnerToRosterId] = useState<Record<string, number>>({});
   // Weekly High Score tally per owner across seasons
@@ -97,6 +110,29 @@ export default function HistoryPage() {
     }
     return map;
   }, []);
+
+  // Load Weekly Highs table data when tab is active or year changes
+  useEffect(() => {
+    if (activeTab !== 'weekly-highs') return;
+    const ac = new AbortController();
+    let cancelled = false;
+    (async () => {
+      try {
+        setWeeklyTabLoading(true);
+        setWeeklyTabError(null);
+        const rows = await getWeeklyHighsBySeason(weeklyTabYear, { signal: ac.signal, timeoutMs: DEFAULT_TIMEOUT });
+        if (cancelled) return;
+        setWeeklyHighs(rows || []);
+      } catch (e) {
+        if (isAbortError(e)) return;
+        console.error('Failed to load weekly highs:', e);
+        if (!cancelled) setWeeklyTabError('Failed to load weekly highs.');
+      } finally {
+        if (!cancelled) setWeeklyTabLoading(false);
+      }
+    })();
+    return () => { cancelled = true; ac.abort(); };
+  }, [activeTab, weeklyTabYear]);
   // Auto-derived podiums from Sleeper brackets (by year)
   const [podiumsByYear, setPodiumsByYear] = useState<Record<string, { champion: string; runnerUp: string; thirdPlace: string }>>({});
 
@@ -491,6 +527,7 @@ export default function HistoryPage() {
     { id: 'champions', label: 'Champions' },
     { id: 'brackets', label: 'Brackets' },
     { id: 'leaderboards', label: 'Leaderboards' },
+    { id: 'weekly-highs', label: 'Weekly Highs' },
     { id: 'franchises', label: 'Franchises' },
     { id: 'records', label: 'Records' },
   ];
@@ -972,6 +1009,82 @@ export default function HistoryPage() {
                     );
                   })()
                 )}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+      
+      {/* Weekly Highs Tab Content */}
+      {activeTab === 'weekly-highs' && (
+        <div>
+          <h2 className="text-2xl font-bold mb-6">Weekly Highs</h2>
+
+          <div className="flex items-center gap-3 mb-4">
+            <label htmlFor="weeklyYear" className="text-sm text-[var(--muted)]">Season</label>
+            <select
+              id="weeklyYear"
+              value={weeklyTabYear}
+              onChange={(e) => setWeeklyTabYear(e.target.value)}
+              className="px-3 py-2 rounded-md bg-transparent border border-[var(--border)] text-sm"
+            >
+              {allYears.map((y) => (
+                <option key={y} value={y}>{y}</option>
+              ))}
+            </select>
+          </div>
+
+          {weeklyTabLoading ? (
+            <LoadingState message={`Loading weekly highs for ${weeklyTabYear}...`} />
+          ) : weeklyTabError ? (
+            <ErrorState message={weeklyTabError} />
+          ) : weeklyHighs.length === 0 ? (
+            <div className="evw-surface border p-6 rounded-[var(--radius-card)]">No data</div>
+          ) : (
+            <div className="evw-surface border p-6 rounded-[var(--radius-card)] hover-lift">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-xl font-bold">{weeklyTabYear} Weekly High Scorers</h3>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="min-w-full divide-y divide-[var(--border)]">
+                  <thead className="bg-transparent">
+                    <tr>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-[var(--muted)] uppercase tracking-wider">Week</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-[var(--muted)] uppercase tracking-wider">Team</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-[var(--muted)] uppercase tracking-wider">Opponent</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-[var(--muted)] uppercase tracking-wider">Score</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[var(--border)]">
+                    {weeklyHighs.map((row) => {
+                      const colors = getTeamColors(row.teamName);
+                      const teamLink = (
+                        <Link href={`/teams/${row.rosterId}`} className="text-[var(--text)] hover:underline">{row.teamName}</Link>
+                      );
+                      const oppLink = (
+                        <Link href={`/teams/${row.opponentRosterId}`} className="text-[var(--text)] hover:underline">{row.opponentTeamName}</Link>
+                      );
+                      return (
+                        <tr key={`${weeklyTabYear}-${row.week}-${row.rosterId}`} className="border-l-4" style={{ borderLeftColor: colors.primary, backgroundColor: hexToRgba(colors.primary, 0.06) }}>
+                          <td className="px-6 py-3 whitespace-nowrap text-sm text-[var(--muted)]">Week {row.week}</td>
+                          <td className="px-6 py-3 whitespace-nowrap text-sm font-medium">
+                            <div className="flex items-center gap-3">
+                              <div className="w-6 h-6 rounded-full evw-surface border border-[var(--border)] overflow-hidden flex items-center justify-center shrink-0">
+                                <Image src={getTeamLogoPath(row.teamName)} alt={`${row.teamName} logo`} width={24} height={24} className="object-contain" />
+                              </div>
+                              {teamLink}
+                            </div>
+                          </td>
+                          <td className="px-6 py-3 whitespace-nowrap text-sm">{oppLink}</td>
+                          <td className="px-6 py-3 whitespace-nowrap text-sm">
+                            <span className="text-lg md:text-xl font-bold text-[var(--accent)]">{row.points.toFixed(2)}</span>
+                            <span className="text-[var(--muted)] font-semibold"> — {row.opponentTeamName} {row.opponentPoints.toFixed(2)}</span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
               </div>
             </div>
           )}

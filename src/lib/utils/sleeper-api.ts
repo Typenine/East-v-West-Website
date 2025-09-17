@@ -21,6 +21,108 @@ export interface SleeperFetchOptions {
   forceFresh?: boolean;
 }
 
+// ==========================
+// Weekly Highs by Season (per week top single-team)
+// ==========================
+export interface WeeklyHighByWeekEntry {
+  week: number;
+  teamName: string;
+  ownerId: string;
+  rosterId: number;
+  points: number;
+  opponentTeamName: string;
+  opponentOwnerId: string;
+  opponentRosterId: number;
+  opponentPoints: number;
+}
+
+/**
+ * For a given season string (e.g., '2025','2024','2023'), compute each week's highest
+ * single-team score within that season's configured league. Weeks with no scoring are skipped.
+ */
+export async function getWeeklyHighsBySeason(
+  season: string,
+  options?: SleeperFetchOptions
+): Promise<WeeklyHighByWeekEntry[]> {
+  const yearToLeague: Record<string, string> = {
+    '2025': LEAGUE_IDS.CURRENT,
+    ...LEAGUE_IDS.PREVIOUS,
+  };
+  const leagueId = yearToLeague[season];
+  if (!leagueId) return [];
+
+  const rosters = await getLeagueRosters(leagueId, options);
+  const rosterOwner = new Map<number, string>();
+  for (const r of rosters) rosterOwner.set(r.roster_id, r.owner_id);
+  const rosterIdToName = await getRosterIdToTeamNameMap(leagueId, options).catch(() => new Map<number, string>());
+
+  const results: WeeklyHighByWeekEntry[] = [];
+  const weeks = Array.from({ length: 18 }, (_, i) => i + 1);
+  const allWeekMatchups = await Promise.all(
+    weeks.map((w) => getLeagueMatchups(leagueId, w, options).catch(() => [] as SleeperMatchup[]))
+  );
+
+  for (let idx = 0; idx < allWeekMatchups.length; idx++) {
+    const week = idx + 1;
+    const matchups = allWeekMatchups[idx] || [];
+    if (matchups.length === 0) continue;
+
+    // Group by matchup_id into pairs
+    const byId = new Map<number, SleeperMatchup[]>();
+    for (const m of matchups) {
+      const arr = byId.get(m.matchup_id) || [];
+      arr.push(m);
+      byId.set(m.matchup_id, arr);
+    }
+
+    let best: WeeklyHighByWeekEntry | null = null;
+    for (const pair of byId.values()) {
+      if (!pair || pair.length < 2) continue;
+      const [a, b] = pair;
+      const aPts = a.custom_points ?? a.points ?? 0;
+      const bPts = b.custom_points ?? b.points ?? 0;
+      if ((aPts ?? 0) === 0 && (bPts ?? 0) === 0) continue;
+
+      const aOwner = rosterOwner.get(a.roster_id);
+      const bOwner = rosterOwner.get(b.roster_id);
+      if (!aOwner || !bOwner) continue;
+      const aName = rosterIdToName.get(a.roster_id) || resolveCanonicalTeamName({ ownerId: aOwner });
+      const bName = rosterIdToName.get(b.roster_id) || resolveCanonicalTeamName({ ownerId: bOwner });
+
+      const candA: WeeklyHighByWeekEntry = {
+        week,
+        teamName: aName,
+        ownerId: aOwner,
+        rosterId: a.roster_id,
+        points: aPts,
+        opponentTeamName: bName,
+        opponentOwnerId: bOwner,
+        opponentRosterId: b.roster_id,
+        opponentPoints: bPts,
+      };
+      const candB: WeeklyHighByWeekEntry = {
+        week,
+        teamName: bName,
+        ownerId: bOwner,
+        rosterId: b.roster_id,
+        points: bPts,
+        opponentTeamName: aName,
+        opponentOwnerId: aOwner,
+        opponentRosterId: a.roster_id,
+        opponentPoints: aPts,
+      };
+
+      const better = (x: WeeklyHighByWeekEntry, y: WeeklyHighByWeekEntry) => (x.points >= y.points ? x : y);
+      best = best ? better(best, better(candA, candB)) : better(candA, candB);
+    }
+    if (best) results.push(best);
+  }
+
+  // Only include weeks with scoring; keep ascending by week
+  results.sort((a, b) => a.week - b.week);
+  return results;
+}
+
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
