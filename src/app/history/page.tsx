@@ -87,6 +87,11 @@ export default function HistoryPage() {
   const [topPlayoffWeeks, setTopPlayoffWeeks] = useState<TopScoringWeekEntry[]>([]);
   // Collapsible state per section id
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  // Combined list for All Games top weeks
+  const topAllWeeks = useMemo(() => {
+    const rows = [...(topRegularWeeks || []), ...(topPlayoffWeeks || [])];
+    return rows.sort((a, b) => b.points - a.points).slice(0, 10);
+  }, [topRegularWeeks, topPlayoffWeeks]);
   // Inverted map to get ownerId by canonical team name (for CHAMPIONS links)
   const ownerByTeamName = useMemo(() => {
     const map: Record<string, string> = {};
@@ -1294,7 +1299,7 @@ export default function HistoryPage() {
                             <td className="px-6 py-3 whitespace-nowrap text-sm text-[var(--muted)]">{index + 1}</td>
                             <td className="px-6 py-3 whitespace-nowrap text-sm font-medium">{teamLink}</td>
                             <td className="px-6 py-3 whitespace-nowrap text-sm">{oppLink}</td>
-                            <td className="px-6 py-3 whitespace-nowrap text-sm text-[var(--muted)]">{row.points.toFixed(2)} - {row.opponentPoints.toFixed(2)}</td>
+                            <td className="px-6 py-3 whitespace-nowrap text-sm"><span className="text-xl md:text-2xl font-extrabold text-[var(--accent)]">{row.points.toFixed(2)}</span> <span className="text-[var(--muted)] font-semibold">- {row.opponentPoints.toFixed(2)}</span></td>
                             <td className="px-6 py-3 whitespace-nowrap text-sm text-[var(--muted)]">{row.year} / Week {row.week}</td>
                           </tr>
                         );
