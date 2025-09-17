@@ -1150,7 +1150,7 @@ export default function HistoryPage() {
                       <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-[var(--muted)] uppercase tracking-wider">
                         Team
                       </th>
-                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-[var(--muted)] uppercase tracking-wider">
+                      <th scope="col" className="px-6 py-3 text-center text-xs font-medium text-[var(--muted)] uppercase tracking-wider">
                         Championships
                       </th>
                     </tr>
