@@ -117,6 +117,15 @@ export default function TeamPage() {
   const [modalYear, setModalYear] = useState<string>(selectedYear);
   const [modalFantasyCache, setModalFantasyCache] = useState<Record<string, { totalPPR: number; gp: number; ppg: number }>>({});
   const [modalRealCache, setModalRealCache] = useState<Record<string, SleeperNFLSeasonPlayerStats | null>>({});
+  // Records: career leaders and best single-season leaders by position (Top 5)
+  type LeaderRow = { playerId: string; name: string; position: string; season?: string; total: number; ppg?: number };
+  const POSITIONS = ['QB','RB','WR','TE','K','DEF/DST'] as const;
+  type PosKey = typeof POSITIONS[number];
+  const emptyCareer: Record<PosKey | 'ALL', LeaderRow[]> = { 'QB': [], 'RB': [], 'WR': [], 'TE': [], 'K': [], 'DEF/DST': [], 'ALL': [] };
+  const emptySeason: Record<PosKey, LeaderRow[]> = { 'QB': [], 'RB': [], 'WR': [], 'TE': [], 'K': [], 'DEF/DST': [] };
+  const [careerLeaders, setCareerLeaders] = useState<Record<PosKey | 'ALL', LeaderRow[]>>(emptyCareer);
+  const [seasonLeaders, setSeasonLeaders] = useState<Record<PosKey, LeaderRow[]>>(emptySeason);
+  const [recordsLoading, setRecordsLoading] = useState(false);
   
   // Sorting state for roster table
   type SortKey = 'name' | 'position' | 'team' | 'gp' | 'totalPPR' | 'ppg';
@@ -805,6 +814,89 @@ export default function TeamPage() {
                     <StatCard label="Highest Scoring Week" value={`${allTimeStats.highestScore.toFixed(2)} pts`} />
                     <StatCard label="Lowest Scoring Week" value={`${allTimeStats.lowestScore.toFixed(2)} pts`} />
                   </div>
+
+                  {/* Career Leaders (Top 5) */}
+                  <div className="mt-6">
+                    <SectionHeader title="Career Leaders (with this Franchise)" subtitle="Top 5 by position across 2023–2025" />
+                    {recordsLoading ? (
+                      <div className="py-4"><LoadingState message="Computing career leaders..." /></div>
+                    ) : (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        {(POSITIONS as PosKey[]).map((pos) => (
+                          <Card key={`career-${pos}`}>
+                            <CardHeader>
+                              <CardTitle>{pos}</CardTitle>
+                            </CardHeader>
+                            <CardContent>
+                              <div className="overflow-x-auto">
+                                <Table>
+                                  <THead>
+                                    <Tr>
+                                      <Th>#</Th>
+                                      <Th>Player</Th>
+                                      <Th className="text-right">Total</Th>
+                                    </Tr>
+                                  </THead>
+                                  <TBody>
+                                    {(careerLeaders[pos] || []).map((row, idx) => (
+                                      <Tr key={`${pos}-${row.playerId}`}>
+                                        <Td>{idx + 1}</Td>
+                                        <Td>{row.name}</Td>
+                                        <Td className="text-right">{row.total.toFixed(2)}</Td>
+                                      </Tr>
+                                    ))}
+                                  </TBody>
+                                </Table>
+                              </div>
+                            </CardContent>
+                          </Card>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Best Single-Season Totals (Top 5) */}
+                  <div className="mt-8">
+                    <SectionHeader title="Best Single-Season Totals" subtitle="Top 5 per position (with this Franchise)" />
+                    {recordsLoading ? (
+                      <div className="py-4"><LoadingState message="Computing single-season leaders..." /></div>
+                    ) : (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        {(['QB','RB','WR','TE','K','DEF/DST'] as PosKey[]).map((pos) => (
+                          <Card key={`season-${pos}`}>
+                            <CardHeader>
+                              <CardTitle>{pos}</CardTitle>
+                            </CardHeader>
+                            <CardContent>
+                              <div className="overflow-x-auto">
+                                <Table>
+                                  <THead>
+                                    <Tr>
+                                      <Th>#</Th>
+                                      <Th>Player</Th>
+                                      <Th>Season</Th>
+                                      <Th className="text-right">Total</Th>
+                                    </Tr>
+                                  </THead>
+                                  <TBody>
+                                    {(seasonLeaders[pos] || []).map((row, idx) => (
+                                      <Tr key={`${pos}-${row.playerId}-${row.season}`}>
+                                        <Td>{idx + 1}</Td>
+                                        <Td>{row.name}</Td>
+                                        <Td>{row.season}</Td>
+                                        <Td className="text-right">{row.total.toFixed(2)}</Td>
+                                      </Tr>
+                                    ))}
+                                  </TBody>
+                                </Table>
+                              </div>
+                            </CardContent>
+                          </Card>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  {/* TODO: Highest Scoring Game by Position (Top 5) requires weekly player logs; will wire via player-logs API. */}
                 </CardContent>
               </Card>
             ),
