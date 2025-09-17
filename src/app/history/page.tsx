@@ -1065,22 +1065,31 @@ export default function HistoryPage() {
                         <Link href={`/teams/${row.opponentRosterId}`} className="text-[var(--text)] hover:underline">{row.opponentTeamName}</Link>
                       );
                       return (
-                        <tr key={`${weeklyTabYear}-${row.week}-${row.rosterId}`} className="border-l-4" style={{ borderLeftColor: colors.primary, backgroundColor: hexToRgba(colors.primary, 0.06) }}>
-                          <td className="px-6 py-3 whitespace-nowrap text-sm text-[var(--muted)]">Week {row.week}</td>
-                          <td className="px-6 py-3 whitespace-nowrap text-sm font-medium">
-                            <div className="flex items-center gap-3">
-                              <div className="w-6 h-6 rounded-full evw-surface border border-[var(--border)] overflow-hidden flex items-center justify-center shrink-0">
-                                <Image src={getTeamLogoPath(row.teamName)} alt={`${row.teamName} logo`} width={24} height={24} className="object-contain" />
+                        <>
+                          <tr key={`${weeklyTabYear}-${row.week}-${row.rosterId}`} className="border-l-4" style={{ borderLeftColor: colors.primary, backgroundColor: hexToRgba(colors.primary, 0.06) }}>
+                            <td className="px-6 py-3 whitespace-nowrap text-sm text-[var(--muted)]">Week {row.week}</td>
+                            <td className="px-6 py-3 whitespace-nowrap text-sm font-medium">
+                              <div className="flex items-center gap-3">
+                                <div className="w-6 h-6 rounded-full evw-surface border border-[var(--border)] overflow-hidden flex items-center justify-center shrink-0">
+                                  <Image src={getTeamLogoPath(row.teamName)} alt={`${row.teamName} logo`} width={24} height={24} className="object-contain" />
+                                </div>
+                                {teamLink}
                               </div>
-                              {teamLink}
-                            </div>
-                          </td>
-                          <td className="px-6 py-3 whitespace-nowrap text-sm">{oppLink}</td>
-                          <td className="px-6 py-3 whitespace-nowrap text-sm">
-                            <span className="text-lg md:text-xl font-bold text-[var(--accent)]">{row.points.toFixed(2)}</span>
-                            <span className="text-[var(--muted)] font-semibold"> — {row.opponentTeamName} {row.opponentPoints.toFixed(2)}</span>
-                          </td>
-                        </tr>
+                            </td>
+                            <td className="px-6 py-3 whitespace-nowrap text-sm">{oppLink}</td>
+                            <td className="px-6 py-3 whitespace-nowrap text-sm">
+                              <span className="text-lg md:text-xl font-bold text-[var(--accent)]">{row.points.toFixed(2)}</span>
+                              <span className="text-[var(--muted)] font-semibold"> — {row.opponentTeamName} {row.opponentPoints.toFixed(2)}</span>
+                            </td>
+                          </tr>
+                          {row.week === 14 && (
+                            <tr key={`${weeklyTabYear}-divider-after-14`}>
+                              <td colSpan={4} className="px-6 py-2">
+                                <div className="h-px w-full bg-[var(--border)] opacity-70" />
+                              </td>
+                            </tr>
+                          )}
+                        </>
                       );
                     })}
                   </tbody>
