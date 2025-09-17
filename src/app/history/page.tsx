@@ -64,6 +64,20 @@ function readableOn(hex: string): string {
   return luminance > 0.6 ? '#111111' : '#ffffff';
 }
 
+// Simple trophy icon (inline SVG). Inherits currentColor.
+function TrophyIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      aria-hidden="true"
+      className={className}
+    >
+      <path d="M19 4h-2V3a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v1H5a1 1 0 0 0-1 1v2a5 5 0 0 0 4 4.9V13a4.002 4.002 0 0 0-3 3.874V18a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-1.126A4.002 4.002 0 0 0 16 13v-1.1A5 5 0 0 0 20 7V5a1 1 0 0 0-1-1ZM6 7V6h1v2a3 3 0 0 1-1-1Zm12 0a3 3 0 0 1-1 1V6h1v1Zm-4 6a2 2 0 0 1 2 2v.999H8V15a2 2 0 0 1 2-2h4Zm-1.999-2H12A3 3 0 0 1 9 8V4h6v4a3 3 0 0 1-3 3Z"/>
+    </svg>
+  );
+}
+
 export default function HistoryPage() {
   const [activeTab, setActiveTab] = useState('champions');
   // Franchises state
@@ -1166,7 +1180,14 @@ export default function HistoryPage() {
                                   {nameLink}
                                 </div>
                               </td>
-                              <td className="px-6 py-3 whitespace-nowrap text-sm text-[var(--muted)]">{count}</td>
+                              <td className="px-6 py-3 whitespace-nowrap text-sm text-[var(--muted)]">
+                            <div className="flex items-center gap-1">
+                              {Array.from({ length: count }).map((_, i) => (
+                                <TrophyIcon key={i} className="w-4 h-4 text-[var(--gold)]" />
+                              ))}
+                              <span className="sr-only">{count} {count === 1 ? 'title' : 'titles'}</span>
+                            </div>
+                          </td>
                             </tr>
                           );
                         });
