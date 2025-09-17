@@ -569,6 +569,8 @@ export interface SplitRecord {
   wins: number;
   losses: number;
   ties: number;
+  pf: number; // points for
+  pa: number; // points against
 }
 
 /**
@@ -666,9 +668,9 @@ export async function getSplitRecordsAllTime(
             const teamName = resolveCanonicalTeamName({ ownerId });
             agg[ownerId] = {
               teamName,
-              regular: { wins: 0, losses: 0, ties: 0 },
-              playoffs: { wins: 0, losses: 0, ties: 0 },
-              toilet: { wins: 0, losses: 0, ties: 0 },
+              regular: { wins: 0, losses: 0, ties: 0, pf: 0, pa: 0 },
+              playoffs: { wins: 0, losses: 0, ties: 0, pf: 0, pa: 0 },
+              toilet: { wins: 0, losses: 0, ties: 0, pf: 0, pa: 0 },
             };
           }
         };
@@ -701,11 +703,149 @@ export async function getSplitRecordsAllTime(
           agg[aOwner][category].ties += 1;
           agg[bOwner][category].ties += 1;
         }
+
+        // Accumulate points for/against
+        agg[aOwner][category].pf += aPts; agg[aOwner][category].pa += bPts;
+        agg[bOwner][category].pf += bPts; agg[bOwner][category].pa += aPts;
       }
     }
   }
 
   return agg;
+}
+
+export interface TopScoringWeekEntry {
+  points: number;
+  teamName: string;
+  ownerId: string;
+  rosterId?: number;
+  opponentPoints: number;
+  opponentTeamName: string;
+  opponentOwnerId: string;
+  opponentRosterId?: number;
+  week: number;
+  year: string;
+  category: 'regular' | 'playoffs' | 'toilet';
+}
+
+/**
+ * Return the top N single-team scoring weeks across seasons, filtered by category.
+ * category: 'regular' or 'playoffs'.
+ * - 'regular': weeks < playoff start week
+ * - 'playoffs': winners-bracket matchups at/after playoff start
+ * We exclude Toilet here by default; use 'playoffs' explicitly for playoff-only.
+ */
+export async function getTopScoringWeeksAllTime(
+  params: { category: 'regular' | 'playoffs'; top?: number },
+  options?: SleeperFetchOptions
+): Promise<TopScoringWeekEntry[]> {
+  const { category, top = 10 } = params;
+  const yearToLeague: Record<string, string> = {
+    '2025': LEAGUE_IDS.CURRENT,
+    ...LEAGUE_IDS.PREVIOUS,
+  };
+
+  const rows: TopScoringWeekEntry[] = [];
+
+  // Process each season
+  for (const [year, leagueId] of Object.entries(yearToLeague)) {
+    if (!leagueId) continue;
+
+    const rosters = await getLeagueRosters(leagueId, options);
+    const rosterOwner = new Map<number, string>();
+    for (const r of rosters) rosterOwner.set(r.roster_id, r.owner_id);
+    const rosterIdToName = await getRosterIdToTeamNameMap(leagueId, options).catch(() => new Map<number, string>());
+
+    // Playoff start
+    const league = await getLeague(leagueId, options);
+    const settings = (league?.settings || {}) as { playoff_week_start?: number; playoff_start_week?: number };
+    const startWeek = Number(settings.playoff_week_start ?? settings.playoff_start_week ?? 15);
+
+    // Brackets sets
+    const winnersBracket = await getLeagueWinnersBracket(leagueId, options).catch(() => [] as SleeperBracketGame[]);
+    const winnersSet = new Set<number>();
+    for (const g of winnersBracket) {
+      if (typeof g.t1 === 'number') winnersSet.add(g.t1);
+      if (typeof g.t2 === 'number') winnersSet.add(g.t2);
+    }
+
+    // Weeks 1..18
+    const weeks = Array.from({ length: 18 }, (_, i) => i + 1);
+    const allWeekMatchups = await Promise.all(
+      weeks.map((w) => getLeagueMatchups(leagueId, w, options).catch(() => [] as SleeperMatchup[]))
+    );
+
+    for (let wIdx = 0; wIdx < allWeekMatchups.length; wIdx++) {
+      const week = wIdx + 1;
+      const matchups = allWeekMatchups[wIdx] || [];
+      if (matchups.length === 0) continue;
+
+      // Group by matchup_id for pairs
+      const byId = new Map<number, SleeperMatchup[]>();
+      for (const m of matchups) {
+        const arr = byId.get(m.matchup_id) || [];
+        arr.push(m);
+        byId.set(m.matchup_id, arr);
+      }
+
+      for (const pair of byId.values()) {
+        if (!pair || pair.length < 2) continue;
+        const [a, b] = pair;
+        const aPts = a.custom_points ?? a.points ?? 0;
+        const bPts = b.custom_points ?? b.points ?? 0;
+        if ((aPts ?? 0) === 0 && (bPts ?? 0) === 0) continue;
+
+        // Determine category of this matchup
+        let cat: 'regular' | 'playoffs' | 'toilet' | null = null;
+        if (week < startWeek) {
+          cat = 'regular';
+        } else {
+          const aInW = winnersSet.has(a.roster_id);
+          const bInW = winnersSet.has(b.roster_id);
+          if (aInW && bInW) cat = 'playoffs';
+          else cat = 'toilet';
+        }
+        if (cat !== category) continue; // filter strictly
+
+        const aOwner = rosterOwner.get(a.roster_id);
+        const bOwner = rosterOwner.get(b.roster_id);
+        if (!aOwner || !bOwner) continue;
+        const aName = rosterIdToName.get(a.roster_id) || resolveCanonicalTeamName({ ownerId: aOwner });
+        const bName = rosterIdToName.get(b.roster_id) || resolveCanonicalTeamName({ ownerId: bOwner });
+
+        // Push both perspectives so the top single-team entries emerge
+        rows.push({
+          points: aPts,
+          teamName: aName,
+          ownerId: aOwner,
+          rosterId: a.roster_id,
+          opponentPoints: bPts,
+          opponentTeamName: bName,
+          opponentOwnerId: bOwner,
+          opponentRosterId: b.roster_id,
+          week,
+          year,
+          category: cat,
+        });
+        rows.push({
+          points: bPts,
+          teamName: bName,
+          ownerId: bOwner,
+          rosterId: b.roster_id,
+          opponentPoints: aPts,
+          opponentTeamName: aName,
+          opponentOwnerId: aOwner,
+          opponentRosterId: a.roster_id,
+          week,
+          year,
+          category: cat,
+        });
+      }
+    }
+  }
+
+  rows.sort((a, b) => b.points - a.points);
+  return rows.slice(0, Math.max(1, top));
 }
 
 /**

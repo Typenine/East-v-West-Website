@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useCallback } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { getTeamLogoPath, getTeamColorStyle, getTeamColors } from '@/lib/utils/team-utils';
@@ -18,6 +18,7 @@ import {
   getSeasonAwardsUsingLeagueScoring,
   getWeeklyHighScoreTallyAcrossSeasons,
   getSplitRecordsAllTime,
+  getTopScoringWeeksAllTime,
   type FranchiseSummary,
   type LeagueRecordBook,
   type SleeperBracketGameWithScore,
@@ -26,6 +27,7 @@ import {
   type AwardWinner,
   type TeamData,
   type SplitRecord,
+  type TopScoringWeekEntry,
 } from '@/lib/utils/sleeper-api';
 import { CANONICAL_TEAM_BY_USER_ID } from '@/lib/constants/team-mapping';
 import SectionHeader from '@/components/ui/SectionHeader';
@@ -80,6 +82,11 @@ export default function HistoryPage() {
   const [weeklyHighsByOwner, setWeeklyHighsByOwner] = useState<Record<string, number>>({});
   // Split records (regular/playoffs/toilet) per owner across seasons
   const [splitRecords, setSplitRecords] = useState<Record<string, { teamName: string; regular: SplitRecord; playoffs: SplitRecord; toilet: SplitRecord }>>({});
+  // Top single-team scoring weeks
+  const [topRegularWeeks, setTopRegularWeeks] = useState<TopScoringWeekEntry[]>([]);
+  const [topPlayoffWeeks, setTopPlayoffWeeks] = useState<TopScoringWeekEntry[]>([]);
+  // Collapsible state per section id
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   // Inverted map to get ownerId by canonical team name (for CHAMPIONS links)
   const ownerByTeamName = useMemo(() => {
     const map: Record<string, string> = {};
@@ -209,7 +216,8 @@ export default function HistoryPage() {
         const optsCached = { signal: ac.signal, timeoutMs: DEFAULT_TIMEOUT } as const;
         const needWeeklyHighs = activeTab === 'franchises';
         const needSplitRecords = activeTab === 'leaderboards';
-        const [teams2025, teams2024, teams2023, weeklyHighs, splits] = await Promise.all([
+        const needTopWeeks = activeTab === 'leaderboards';
+        const [teams2025, teams2024, teams2023, weeklyHighs, splits, topReg, topPO] = await Promise.all([
           getTeamsData(LEAGUE_IDS.CURRENT, optsFresh),
           getTeamsData(LEAGUE_IDS.PREVIOUS['2024'], optsCached),
           getTeamsData(LEAGUE_IDS.PREVIOUS['2023'], optsCached),
@@ -217,6 +225,9 @@ export default function HistoryPage() {
           needWeeklyHighs ? getWeeklyHighScoreTallyAcrossSeasons({ tuesdayFlip: true }, optsCached) : Promise.resolve({} as Record<string, number>),
           // Split records: only needed for Leaderboards tab
           needSplitRecords ? getSplitRecordsAllTime(optsCached) : Promise.resolve({} as Record<string, { teamName: string; regular: SplitRecord; playoffs: SplitRecord; toilet: SplitRecord }>),
+          // Top weeks: regular + playoffs
+          needTopWeeks ? getTopScoringWeeksAllTime({ category: 'regular', top: 10 }, optsCached) : Promise.resolve([] as TopScoringWeekEntry[]),
+          needTopWeeks ? getTopScoringWeeksAllTime({ category: 'playoffs', top: 10 }, optsCached) : Promise.resolve([] as TopScoringWeekEntry[]),
         ]);
         if (cancelled) return;
         // Build owner -> rosterId and owner -> teamName mapping preferring 2025, then 2024, then 2023
@@ -238,6 +249,10 @@ export default function HistoryPage() {
         setOwnerToRosterId(ownerRosterMap);
         setWeeklyHighsByOwner(weeklyHighs || {});
         if (needSplitRecords) setSplitRecords(splits || {});
+        if (needTopWeeks) {
+          setTopRegularWeeks(topReg || []);
+          setTopPlayoffWeeks(topPO || []);
+        }
 
         // Build FranchiseSummary list using roster season totals across years (fast and current)
         const champCounts: Record<string, number> = {};
@@ -477,6 +492,12 @@ export default function HistoryPage() {
   ];
 
   // Using top-level hexToRgba and readableOn helpers defined above
+
+  // Collapsible helpers
+  const isCollapsed = useCallback((id: string) => !!collapsed[id], [collapsed]);
+  const toggleCollapsed = useCallback((id: string) => {
+    setCollapsed((prev) => ({ ...prev, [id]: !prev[id] }));
+  }, []);
 
   // Render team names inline with circular logos (supports 1 or 2 teams)
   const renderTeamsInline = (teams: string[], rosterIds?: Array<number | undefined>) => {
@@ -961,8 +982,14 @@ export default function HistoryPage() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
             {/* Most Championships */}
             <div className="evw-surface border p-6 rounded-[var(--radius-card)] hover-lift">
-              <h3 className="text-xl font-bold mb-4">Most Championships</h3>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-xl font-bold">Most Championships</h3>
+                <button onClick={() => toggleCollapsed('mostChamps')} className="text-sm text-[var(--muted)] hover:text-[var(--text)]">
+                  {isCollapsed('mostChamps') ? '▸' : '▾'}
+                </button>
+              </div>
               <div className="overflow-x-auto">
+                {!isCollapsed('mostChamps') && (
                 <table className="min-w-full divide-y divide-[var(--border)]">
                   <thead className="bg-transparent">
                     <tr>
@@ -1020,13 +1047,20 @@ export default function HistoryPage() {
                     })()}
                   </tbody>
                 </table>
+                )}
               </div>
             </div>
             
-            {/* Most Points All-Time */}
+            {/* Most Regular Season Points All-Time */}
             <div className="evw-surface border p-6 rounded-[var(--radius-card)] hover-lift">
-              <h3 className="text-xl font-bold mb-4">Most Points All-Time</h3>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-xl font-bold">Most Regular Season Points All-Time</h3>
+                <button onClick={() => toggleCollapsed('mostPointsRegular')} className="text-sm text-[var(--muted)] hover:text-[var(--text)]">
+                  {isCollapsed('mostPointsRegular') ? '▸' : '▾'}
+                </button>
+              </div>
               <div className="overflow-x-auto">
+                {!isCollapsed('mostPointsRegular') && (
                 <table className="min-w-full divide-y divide-[var(--border)]">
                   <thead className="bg-transparent">
                     <tr>
@@ -1050,40 +1084,117 @@ export default function HistoryPage() {
                       <tr>
                         <td className="px-6 py-4 text-sm text-red-500" colSpan={3}>{franchisesError}</td>
                       </tr>
-                    ) : ([...franchises]
-                      .sort((a, b) => b.totalPF - a.totalPF)
-                      .map((f, index) => {
-                        const rid = ownerToRosterId[f.ownerId];
-                        const colors = getTeamColors(f.teamName);
-                        const nameLink = rid !== undefined ? (
-                          <Link href={`/teams/${rid}`} className="text-[var(--text)] hover:underline">{f.teamName}</Link>
-                        ) : (
-                          <span className="text-[var(--text)]">{f.teamName}</span>
-                        );
-                        return (
-                          <tr key={f.ownerId} className="border-l-4" style={{ borderLeftColor: colors.primary, backgroundColor: hexToRgba(colors.primary, 0.06) }}>
-                            <td className="px-6 py-3 whitespace-nowrap text-sm text-[var(--muted)]">{index + 1}</td>
-                            <td className="px-6 py-3 whitespace-nowrap text-sm font-medium">
-                              <div className="flex items-center gap-3">
-                                <div className="w-6 h-6 rounded-full evw-surface border border-[var(--border)] overflow-hidden flex items-center justify-center shrink-0">
-                                  <Image src={getTeamLogoPath(f.teamName)} alt={`${f.teamName} logo`} width={24} height={24} className="w-6 h-6 object-contain" />
+                    ) : (
+                      Object.entries(splitRecords)
+                        .map(([ownerId, s]) => {
+                          const pf = s.regular.pf;
+                          const f = franchises.find((x) => x.ownerId === ownerId);
+                          const teamName = f?.teamName || s.teamName || 'Unknown Team';
+                          const rid = ownerToRosterId[ownerId];
+                          return { ownerId, teamName, rid, pf };
+                        })
+                        .sort((a, b) => b.pf - a.pf)
+                        .map((row, index) => {
+                          const colors = getTeamColors(row.teamName);
+                          const nameLink = row.rid !== undefined ? (
+                            <Link href={`/teams/${row.rid}`} className="text-[var(--text)] hover:underline">{row.teamName}</Link>
+                          ) : (
+                            <span className="text-[var(--text)]">{row.teamName}</span>
+                          );
+                          return (
+                            <tr key={row.ownerId} className="border-l-4" style={{ borderLeftColor: colors.primary, backgroundColor: hexToRgba(colors.primary, 0.06) }}>
+                              <td className="px-6 py-3 whitespace-nowrap text-sm text-[var(--muted)]">{index + 1}</td>
+                              <td className="px-6 py-3 whitespace-nowrap text-sm font-medium">
+                                <div className="flex items-center gap-3">
+                                  <div className="w-6 h-6 rounded-full evw-surface border border-[var(--border)] overflow-hidden flex items-center justify-center shrink-0">
+                                    <Image src={getTeamLogoPath(row.teamName)} alt={`${row.teamName} logo`} width={24} height={24} className="w-6 h-6 object-contain" />
+                                  </div>
+                                  {nameLink}
                                 </div>
-                                {nameLink}
-                              </div>
-                            </td>
-                            <td className="px-6 py-3 whitespace-nowrap text-sm text-[var(--muted)]">{f.totalPF.toFixed(2)}</td>
-                          </tr>
-                        );
-                      }) )}
+                              </td>
+                              <td className="px-6 py-3 whitespace-nowrap text-sm text-[var(--muted)]">{row.pf.toFixed(2)}</td>
+                            </tr>
+                          );
+                        })
+                    )}
                   </tbody>
                 </table>
+                )}
+              </div>
+            </div>
+
+            {/* Most Points All-Time (All Games) */}
+            <div className="evw-surface border p-6 rounded-[var(--radius-card)] hover-lift">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-xl font-bold">Most Points All-Time (All Games)</h3>
+                <button onClick={() => toggleCollapsed('mostPointsAll')} className="text-sm text-[var(--muted)] hover:text-[var(--text)]">
+                  {isCollapsed('mostPointsAll') ? '▸' : '▾'}
+                </button>
+              </div>
+              <div className="overflow-x-auto">
+                {!isCollapsed('mostPointsAll') && (
+                <table className="min-w-full divide-y divide-[var(--border)]">
+                  <thead className="bg-transparent">
+                    <tr>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-[var(--muted)] uppercase tracking-wider">Rank</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-[var(--muted)] uppercase tracking-wider">Team</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-[var(--muted)] uppercase tracking-wider">Total Points</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[var(--border)]">
+                    {franchisesLoading ? (
+                      <tr><td className="px-6 py-4 text-sm text-[var(--muted)]" colSpan={3}>Loading...</td></tr>
+                    ) : franchisesError ? (
+                      <tr><td className="px-6 py-4 text-sm text-red-500" colSpan={3}>{franchisesError}</td></tr>
+                    ) : (
+                      Object.entries(splitRecords)
+                        .map(([ownerId, s]) => {
+                          const pf = s.regular.pf + s.playoffs.pf + s.toilet.pf;
+                          const f = franchises.find((x) => x.ownerId === ownerId);
+                          const teamName = f?.teamName || s.teamName || 'Unknown Team';
+                          const rid = ownerToRosterId[ownerId];
+                          return { ownerId, teamName, rid, pf };
+                        })
+                        .sort((a, b) => b.pf - a.pf)
+                        .map((row, index) => {
+                          const colors = getTeamColors(row.teamName);
+                          const nameLink = row.rid !== undefined ? (
+                            <Link href={`/teams/${row.rid}`} className="text-[var(--text)] hover:underline">{row.teamName}</Link>
+                          ) : (
+                            <span className="text-[var(--text)]">{row.teamName}</span>
+                          );
+                          return (
+                            <tr key={row.ownerId} className="border-l-4" style={{ borderLeftColor: colors.primary, backgroundColor: hexToRgba(colors.primary, 0.06) }}>
+                              <td className="px-6 py-3 whitespace-nowrap text-sm text-[var(--muted)]">{index + 1}</td>
+                              <td className="px-6 py-3 whitespace-nowrap text-sm font-medium">
+                                <div className="flex items-center gap-3">
+                                  <div className="w-6 h-6 rounded-full evw-surface border border-[var(--border)] overflow-hidden flex items-center justify-center shrink-0">
+                                    <Image src={getTeamLogoPath(row.teamName)} alt={`${row.teamName} logo`} width={24} height={24} className="w-6 h-6 object-contain" />
+                                  </div>
+                                  {nameLink}
+                                </div>
+                              </td>
+                              <td className="px-6 py-3 whitespace-nowrap text-sm text-[var(--muted)]">{row.pf.toFixed(2)}</td>
+                            </tr>
+                          );
+                        })
+                    )}
+                  </tbody>
+                </table>
+                )}
               </div>
             </div>
             
             {/* Best All-Time Win Percentage (All Games) */}
             <div className="evw-surface border p-6 rounded-[var(--radius-card)] hover-lift">
-              <h3 className="text-xl font-bold mb-4">Best All-Time Win Percentage</h3>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-xl font-bold">Best All-Time Win Percentage</h3>
+                <button onClick={() => toggleCollapsed('bestWinAll')} className="text-sm text-[var(--muted)] hover:text-[var(--text)]">
+                  {isCollapsed('bestWinAll') ? '▸' : '▾'}
+                </button>
+              </div>
               <div className="overflow-x-auto">
+                {!isCollapsed('bestWinAll') && (
                 <table className="min-w-full divide-y divide-[var(--border)]">
                   <thead className="bg-transparent">
                     <tr>
@@ -1142,13 +1253,20 @@ export default function HistoryPage() {
                     )}
                   </tbody>
                 </table>
+                )}
               </div>
             </div>
             
             {/* Most Playoff Appearances */}
             <div className="evw-surface border p-6 rounded-[var(--radius-card)] hover-lift">
-              <h3 className="text-xl font-bold mb-4">Most Playoff Appearances</h3>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-xl font-bold">Most Playoff Appearances</h3>
+                <button onClick={() => toggleCollapsed('mostPOApps')} className="text-sm text-[var(--muted)] hover:text-[var(--text)]">
+                  {isCollapsed('mostPOApps') ? '▸' : '▾'}
+                </button>
+              </div>
               <div className="overflow-x-auto">
+                {!isCollapsed('mostPOApps') && (
                 <table className="min-w-full divide-y divide-[var(--border)]">
                   <thead className="bg-transparent">
                     <tr>
@@ -1197,13 +1315,20 @@ export default function HistoryPage() {
                     }))}
                   </tbody>
                 </table>
+                )}
               </div>
             </div>
 
             {/* Best Regular Season Record */}
             <div className="evw-surface border p-6 rounded-[var(--radius-card)] hover-lift">
-              <h3 className="text-xl font-bold mb-4">Best Regular Season Win Percentage</h3>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-xl font-bold">Best Regular Season Win Percentage</h3>
+                <button onClick={() => toggleCollapsed('bestWinRegular')} className="text-sm text-[var(--muted)] hover:text-[var(--text)]">
+                  {isCollapsed('bestWinRegular') ? '▸' : '▾'}
+                </button>
+              </div>
               <div className="overflow-x-auto">
+                {!isCollapsed('bestWinRegular') && (
                 <table className="min-w-full divide-y divide-[var(--border)]">
                   <thead className="bg-transparent">
                     <tr>
@@ -1259,13 +1384,20 @@ export default function HistoryPage() {
                     )}
                   </tbody>
                 </table>
+                )}
               </div>
             </div>
 
             {/* Best Playoffs Record */}
             <div className="evw-surface border p-6 rounded-[var(--radius-card)] hover-lift">
-              <h3 className="text-xl font-bold mb-4">Best Playoffs Win Percentage</h3>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-xl font-bold">Best Playoffs Win Percentage</h3>
+                <button onClick={() => toggleCollapsed('bestWinPlayoffs')} className="text-sm text-[var(--muted)] hover:text-[var(--text)]">
+                  {isCollapsed('bestWinPlayoffs') ? '▸' : '▾'}
+                </button>
+              </div>
               <div className="overflow-x-auto">
+                {!isCollapsed('bestWinPlayoffs') && (
                 <table className="min-w-full divide-y divide-[var(--border)]">
                   <thead className="bg-transparent">
                     <tr>
@@ -1321,13 +1453,20 @@ export default function HistoryPage() {
                     )}
                   </tbody>
                 </table>
+                )}
               </div>
             </div>
 
             {/* Best Toilet Bowl Record */}
             <div className="evw-surface border p-6 rounded-[var(--radius-card)] hover-lift">
-              <h3 className="text-xl font-bold mb-4">Best Toilet Bowl Win Percentage</h3>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-xl font-bold">Best Toilet Bowl Win Percentage</h3>
+                <button onClick={() => toggleCollapsed('bestWinToilet')} className="text-sm text-[var(--muted)] hover:text-[var(--text)]">
+                  {isCollapsed('bestWinToilet') ? '▸' : '▾'}
+                </button>
+              </div>
               <div className="overflow-x-auto">
+                {!isCollapsed('bestWinToilet') && (
                 <table className="min-w-full divide-y divide-[var(--border)]">
                   <thead className="bg-transparent">
                     <tr>
