@@ -128,6 +128,8 @@ export default function TeamPage() {
   const [careerLeaders, setCareerLeaders] = useState<Record<PosKey | 'ALL', LeaderRow[]>>(emptyCareer);
   const [seasonLeaders, setSeasonLeaders] = useState<Record<PosKey, LeaderRow[]>>(emptySeason);
   const [recordsLoading, setRecordsLoading] = useState(false);
+  // Attribution policy for records (league is Half-PPR custom scoring)
+  const ATTR = { includePlayoffs: true, includeWeek18: false, includeCurrentSeasonPartial: true } as const;
 
   // Populate Records: multi-season aggregation with roster reconstruction
   useEffect(() => {
@@ -263,10 +265,6 @@ export default function TeamPage() {
     for (const g of Object.keys(byGroup)) {
       byGroup[g].sort((a, b) => {
         type SortVal = string | number | null;
-        // Build dynamic season list: include selectedYear and all configured previous seasons
-        const prevYears = Object.keys(LEAGUE_IDS.PREVIOUS || {});
-        const seasons = Array.from(new Set([String(selectedYear), ...prevYears]))
-          .sort((a, b) => b.localeCompare(a));
         const pa = players[a];
         const pb = players[b];
         const val = (pid: string): SortVal => {
@@ -930,7 +928,10 @@ export default function TeamPage() {
 
                   {/* Career Leaders (Top 5) */}
                   <div className="mt-6">
-                    <SectionHeader title="Career Leaders (with this Franchise)" subtitle="Top 5 by position across 2023–2025" />
+                    <SectionHeader
+                      title="Career Leaders (with this Franchise)"
+                      subtitle="League Scoring (Half‑PPR) • Weeks 1–17 + playoffs • Includes current season"
+                    />
                     {recordsLoading ? (
                       <div className="py-4"><LoadingState message="Computing career leaders..." /></div>
                     ) : (
@@ -970,7 +971,10 @@ export default function TeamPage() {
 
                   {/* Best Single-Season Totals (Top 5) */}
                   <div className="mt-8">
-                    <SectionHeader title="Best Single-Season Totals" subtitle="Top 5 per position (with this Franchise)" />
+                    <SectionHeader
+                      title="Best Single-Season Totals"
+                      subtitle="League Scoring (Half‑PPR) • Weeks 1–17 + playoffs • Includes current season"
+                    />
                     {recordsLoading ? (
                       <div className="py-4"><LoadingState message="Computing single-season leaders..." /></div>
                     ) : (
