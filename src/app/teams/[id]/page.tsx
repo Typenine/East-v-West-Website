@@ -154,6 +154,10 @@ export default function TeamPage() {
     for (const g of Object.keys(byGroup)) {
       byGroup[g].sort((a, b) => {
         type SortVal = string | number | null;
+        // Build dynamic season list: include selectedYear and all configured previous seasons
+        const prevYears = Object.keys(LEAGUE_IDS.PREVIOUS || {});
+        const seasons = Array.from(new Set([String(selectedYear), ...prevYears]))
+          .sort((a, b) => b.localeCompare(a));
         const pa = players[a];
         const pb = players[b];
         const val = (pid: string): SortVal => {
