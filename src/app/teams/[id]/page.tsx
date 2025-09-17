@@ -16,6 +16,7 @@ import {
   getNFLSeasonStats,
   SleeperNFLSeasonPlayerStats,
   buildSeasonRosterFromMatchups,
+  getLeagueMatchups,
 } from '@/lib/utils/sleeper-api';
 import { LEAGUE_IDS } from '@/lib/constants/league';
 import { getTeamLogoPath, getTeamColorStyle, getTeamColors, resolveCanonicalTeamName } from '@/lib/utils/team-utils';
@@ -169,15 +170,31 @@ export default function TeamPage() {
           }
           if (!seasonRoster || seasonRoster.length === 0) continue;
 
-          // Load league-scored totals for this season
-          const totals = await computeSeasonTotalsCustomScoringFromStats(season, leagueId, 18);
-          for (const pid of seasonRoster) {
-            const total = Number(totals[pid] || 0);
-            if (!Number.isFinite(total) || total <= 0) continue;
+          // Week-level attribution: include playoffs, exclude Week 18, include current season partial
+          const weeks = Array.from({ length: 17 }, (_, i) => i + 1);
+          const weekly = await Promise.all(
+            weeks.map((w) => getLeagueMatchups(leagueId, w).catch(() => [] as unknown[]))
+          );
+          // Aggregate per-player points for this season
+          const seasonTotals: Record<string, number> = {};
+          for (const weekMatches of weekly) {
+            for (const m of weekMatches as Array<{ roster_id?: number; players_points?: Record<string, number> }>) {
+              if (!m || m.roster_id !== seasonTeam.rosterId) continue;
+              const pp = m.players_points || {};
+              for (const pid of Object.keys(pp)) {
+                if (!seasonRoster.includes(pid)) continue;
+                const val = Number(pp[pid] || 0);
+                if (!Number.isFinite(val) || val <= 0) continue;
+                seasonTotals[pid] = (seasonTotals[pid] || 0) + val;
+              }
+            }
+          }
+          // Merge into career + best-season using attributed week-level totals
+          for (const pid of Object.keys(seasonTotals)) {
+            const total = seasonTotals[pid];
             const meta = allPlayersMap[pid];
             const pos = toPositionGroup(meta?.position);
             const name = meta ? `${meta.first_name} ${meta.last_name}` : pid;
-
             const c = (careerTotals[pid] ||= { total: 0, pos, name });
             c.total += total;
             const b = bestSeason[pid];
