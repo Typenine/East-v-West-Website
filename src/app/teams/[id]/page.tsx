@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
 import Image from 'next/image';
 import Tabs from '@/components/ui/Tabs';
@@ -27,10 +27,10 @@ import Card, { CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Table, THead, TBody, Th, Td, Tr } from '@/components/ui/Table';
 import { Select } from '@/components/ui/Select';
 import Label from '@/components/ui/Label';
+import Modal from '@/components/ui/Modal';
 import Button from '@/components/ui/Button';
 import Chip from '@/components/ui/Chip';
 import StatCard from '@/components/ui/StatCard';
-import Modal from '@/components/ui/Modal';
 
 // Position grouping order for roster sections
 const POSITION_GROUP_ORDER = ['QB', 'RB', 'WR', 'TE', 'K', 'DEF/DST', 'DL', 'LB', 'DB', 'Other'] as const;
@@ -128,8 +128,90 @@ export default function TeamPage() {
   const [careerLeaders, setCareerLeaders] = useState<Record<PosKey | 'ALL', LeaderRow[]>>(emptyCareer);
   const [seasonLeaders, setSeasonLeaders] = useState<Record<PosKey, LeaderRow[]>>(emptySeason);
   const [recordsLoading, setRecordsLoading] = useState(false);
-  // Attribution policy for records (league is Half-PPR custom scoring)
-  const ATTR = { includePlayoffs: true, includeWeek18: false, includeCurrentSeasonPartial: true } as const;
+
+  // Player Weekly Points Modal state
+  type WeeklyRow = { week: number; points: number; rostered: boolean; started: boolean };
+  const [playerModalOpen, setPlayerModalOpen] = useState(false);
+  const [playerModal, setPlayerModal] = useState<{ playerId: string; name: string } | null>(null);
+  const [modalSeason, setModalSeason] = useState<string>('');
+  const [modalSeasons, setModalSeasons] = useState<string[]>([]);
+  const [modalWeeks, setModalWeeks] = useState<WeeklyRow[]>([]);
+  const [modalLoading, setModalLoading] = useState(false);
+  const [modalError, setModalError] = useState<string | null>(null);
+
+  const buildModalSeasons = useCallback(() => {
+    const prevYears = Object.keys(LEAGUE_IDS.PREVIOUS || {});
+    const seasons = Array.from(new Set([String(selectedYear), ...prevYears])).sort((a,b) => b.localeCompare(a));
+    return seasons;
+  }, [selectedYear]);
+
+  const openPlayerModal = useCallback((playerId: string, name: string) => {
+    const seasons = buildModalSeasons();
+    setModalSeasons(seasons);
+    setModalSeason(seasons[0] || String(selectedYear));
+    setPlayerModal({ playerId, name });
+    setPlayerModalOpen(true);
+  }, [buildModalSeasons, selectedYear]);
+
+  const closePlayerModal = useCallback(() => {
+    setPlayerModalOpen(false);
+    setPlayerModal(null);
+    setModalWeeks([]);
+    setModalError(null);
+  }, []);
+
+  const loadPlayerWeekly = useCallback(async (season: string, playerId: string) => {
+    try {
+      setModalLoading(true);
+      setModalError(null);
+      const leagueId = (season === '2025') ? LEAGUE_IDS.CURRENT : LEAGUE_IDS.PREVIOUS[season as keyof typeof LEAGUE_IDS.PREVIOUS];
+      if (!leagueId) {
+        setModalWeeks([]);
+        setModalError('No league for this season');
+        return;
+      }
+      // Find this franchise in that season
+      const teams = await getTeamsData(leagueId);
+      const canonicalName = resolveCanonicalTeamName({ ownerId: team?.ownerId });
+      const seasonTeam = teams.find(t => t.teamName === canonicalName) || teams.find(t => t.ownerId === team?.ownerId);
+      if (!seasonTeam) {
+        setModalWeeks([]);
+        setModalError('Team not found for this season');
+        return;
+      }
+      const rosterId = seasonTeam.rosterId;
+      const weeks = Array.from({ length: 17 }, (_, i) => i + 1);
+      const weekly = await Promise.all(weeks.map((w) => getLeagueMatchups(leagueId, w).catch(() => [] as Array<{ roster_id?: number; players_points?: Record<string, number>; players?: string[]; starters?: string[] }>)));
+      const rows: WeeklyRow[] = [];
+      for (let i = 0; i < weeks.length; i++) {
+        const w = weeks[i];
+        const matchups = (weekly[i] || []) as Array<{ roster_id?: number; players_points?: Record<string, number>; players?: string[]; starters?: string[] }>;
+        const m = matchups.find(mm => mm.roster_id === rosterId);
+        if (!m) {
+          rows.push({ week: w, points: 0, rostered: false, started: false });
+          continue;
+        }
+        const playersArr = (m.players || []) as string[];
+        const startersArr = (m.starters || []) as string[];
+        const rostered = playersArr.includes(playerId) || startersArr.includes(playerId);
+        const started = startersArr.includes(playerId);
+        const pts = Number((m.players_points || {})[playerId] || 0);
+        rows.push({ week: w, points: Number(pts.toFixed(2)), rostered, started });
+      }
+      setModalWeeks(rows);
+    } catch (e) {
+      setModalWeeks([]);
+      setModalError('Failed to load weekly points');
+    } finally {
+      setModalLoading(false);
+    }
+  }, [team?.ownerId]);
+
+  // Load weeks whenever modal season or player changes
+  useEffect(() => {
+    if (!playerModalOpen || !playerModal || !modalSeason) return;
+    loadPlayerWeekly(modalSeason, playerModal.playerId);
+  }, [playerModalOpen, playerModal, modalSeason, loadPlayerWeekly]);
 
   // Populate Records: multi-season aggregation with roster reconstruction
   useEffect(() => {
@@ -152,6 +234,17 @@ export default function TeamPage() {
         const careerTotals: Record<string, { total: number; pos: string; name: string }> = {};
         const bestSeason: Record<string, { total: number; season: string; pos: string; name: string }> = {};
         const canonicalName = resolveCanonicalTeamName({ ownerId: team.ownerId });
+        // Debug capture per-season totals for a few players by name
+        const debugNames = new Set(['Josh Allen','David Montgomery','Alvin Kamara']);
+        const debugLeaguePerSeason: Record<string, Record<string, number>> = {}; // pid -> { season -> total } team-attributed, W1–17 + playoffs
+        const debugCardPerSeason: Record<string, Record<string, number>> = {};   // pid -> { season -> total } NFL regular season W1–18 under league scoring
+        const debugTeamPlayoffs: Record<string, Record<string, number>> = {};    // pid -> { season -> PO(15–17) points attributed to this team }
+        const debugCardWeek18: Record<string, Record<string, number>> = {};      // pid -> { season -> Week 18 points }
+        const debugPidByName: Record<string, string> = {};
+        for (const [pid, pl] of Object.entries(allPlayersMap)) {
+          const nm = `${pl?.first_name || ''} ${pl?.last_name || ''}`.trim();
+          if (nm && debugNames.has(nm)) debugPidByName[nm] = pid;
+        }
 
         for (const season of seasons) {
           const leagueId = (season === '2025') ? LEAGUE_IDS.CURRENT : LEAGUE_IDS.PREVIOUS[season as keyof typeof LEAGUE_IDS.PREVIOUS];
@@ -177,10 +270,13 @@ export default function TeamPage() {
           const weekly = await Promise.all(
             weeks.map((w) => getLeagueMatchups(leagueId, w).catch(() => [] as unknown[]))
           );
+
           // Aggregate per-player points for this season
           const seasonTotals: Record<string, number> = {};
-          for (const weekMatches of weekly) {
-            for (const m of weekMatches as Array<{ roster_id?: number; players_points?: Record<string, number> }>) {
+          for (let idx = 0; idx < weekly.length; idx++) {
+            const weekNum = weeks[idx];
+            const weekMatches = weekly[idx] as Array<{ roster_id?: number; players_points?: Record<string, number> }>;
+            for (const m of weekMatches) {
               if (!m || m.roster_id !== seasonTeam.rosterId) continue;
               const pp = m.players_points || {};
               for (const pid of Object.keys(pp)) {
@@ -188,6 +284,11 @@ export default function TeamPage() {
                 const val = Number(pp[pid] || 0);
                 if (!Number.isFinite(val) || val <= 0) continue;
                 seasonTotals[pid] = (seasonTotals[pid] || 0) + val;
+                // capture playoff-only points (Weeks 15–17) for debug players
+                if (weekNum >= 15 && debugNames.has((allPlayersMap[pid] ? `${allPlayersMap[pid].first_name} ${allPlayersMap[pid].last_name}` : '').trim())) {
+                  (debugTeamPlayoffs[pid] ||= {});
+                  debugTeamPlayoffs[pid][season] = (debugTeamPlayoffs[pid][season] || 0) + val;
+                }
               }
             }
           }
@@ -201,6 +302,24 @@ export default function TeamPage() {
             c.total += total;
             const b = bestSeason[pid];
             if (!b || total > b.total) bestSeason[pid] = { total, season, pos, name };
+            if (name && debugNames.has(name)) {
+              (debugLeaguePerSeason[pid] ||= {});
+              debugLeaguePerSeason[pid][season] = (debugLeaguePerSeason[pid][season] || 0) + total;
+            }
+          }
+
+          // For debug: compute NFL regular-season totals (W1–18) using league scoring from weekly stats
+          const [cardTotals18, cardTotals17] = await Promise.all([
+            computeSeasonTotalsCustomScoringFromStats(season, leagueId, 18),
+            computeSeasonTotalsCustomScoringFromStats(season, leagueId, 17),
+          ]);
+          for (const [name, pid] of Object.entries(debugPidByName)) {
+            const tot = Number(cardTotals18[pid] || 0);
+            if (!debugCardPerSeason[pid]) debugCardPerSeason[pid] = {};
+            debugCardPerSeason[pid][season] = tot;
+            const w18 = Number(((cardTotals18[pid] || 0) - (cardTotals17[pid] || 0)).toFixed(2));
+            (debugCardWeek18[pid] ||= {});
+            debugCardWeek18[pid][season] = w18;
           }
         }
 
@@ -227,6 +346,34 @@ export default function TeamPage() {
         });
 
         setCareerLeaders(byPosCareer);
+        // Debug: print reconciliation per player/season
+        try {
+          const nameById: Record<string, string> = {};
+          Object.entries(careerTotals).forEach(([pid, v]) => (nameById[pid] = v.name));
+          const pids = new Set<string>([...Object.keys(debugLeaguePerSeason), ...Object.keys(debugCardPerSeason)]);
+          pids.forEach((pid) => {
+            const nm = nameById[pid] || pid;
+            const seasonsList = Array.from(new Set([...
+              Object.keys(debugLeaguePerSeason[pid] || {}), ...Object.keys(debugCardPerSeason[pid] || {})
+            ])).sort();
+            const rows = seasonsList.map((s) => ({
+              player: nm,
+              season: s,
+              team_attr_W1_17_plus_PO: Number((debugLeaguePerSeason[pid]?.[s] || 0).toFixed(2)),
+              nfl_reg_W1_18: Number((debugCardPerSeason[pid]?.[s] || 0).toFixed(2)),
+              playoffs_W15_17_only: Number((debugTeamPlayoffs[pid]?.[s] || 0).toFixed(2)),
+              week18_only: Number((debugCardWeek18[pid]?.[s] || 0).toFixed(2)),
+              delta_total: Number(((debugLeaguePerSeason[pid]?.[s] || 0) - (debugCardPerSeason[pid]?.[s] || 0)).toFixed(2)),
+              delta_theory_PO_minus_W18: Number((((debugTeamPlayoffs[pid]?.[s] || 0) - (debugCardWeek18[pid]?.[s] || 0))).toFixed(2)),
+            }));
+            if (rows.length > 0) {
+              console.groupCollapsed(`[Team Records Reconcile] ${nm}`);
+              console.table(rows);
+              console.groupEnd();
+            }
+          });
+        } catch {}
+
         setSeasonLeaders(byPosSeason);
       } catch (e) {
         console.error('Failed to compute team records (multi-season)', e);
@@ -237,7 +384,7 @@ export default function TeamPage() {
       }
     })();
   }, [team, players, selectedYear]);
-  
+
   // Sorting state for roster table
   type SortKey = 'name' | 'position' | 'team' | 'gp' | 'totalPPR' | 'ppg';
   const [sortBy, setSortBy] = useState<SortKey>('ppg');
@@ -955,7 +1102,15 @@ export default function TeamPage() {
                                     {(careerLeaders[pos] || []).map((row, idx) => (
                                       <Tr key={`${pos}-${row.playerId}`}>
                                         <Td>{idx + 1}</Td>
-                                        <Td>{row.name}</Td>
+                                        <Td>
+                                          <button
+                                            type="button"
+                                            className="text-[var(--accent-strong,#0b5f98)] hover:underline font-medium"
+                                            onClick={() => openPlayerModal(row.playerId, row.name)}
+                                          >
+                                            {row.name}
+                                          </button>
+                                        </Td>
                                         <Td className="text-right">{row.total.toFixed(2)}</Td>
                                       </Tr>
                                     ))}
@@ -999,7 +1154,15 @@ export default function TeamPage() {
                                     {(seasonLeaders[pos] || []).map((row, idx) => (
                                       <Tr key={`${pos}-${row.playerId}-${row.season}`}>
                                         <Td>{idx + 1}</Td>
-                                        <Td>{row.name}</Td>
+                                        <Td>
+                                          <button
+                                            type="button"
+                                            className="text-[var(--accent-strong,#0b5f98)] hover:underline font-medium"
+                                            onClick={() => openPlayerModal(row.playerId, row.name)}
+                                          >
+                                            {row.name}
+                                          </button>
+                                        </Td>
                                         <Td>{row.season}</Td>
                                         <Td className="text-right">{row.total.toFixed(2)}</Td>
                                       </Tr>
@@ -1014,6 +1177,73 @@ export default function TeamPage() {
                     )}
                   </div>
                   {/* TODO: Highest Scoring Game by Position (Top 5) requires weekly player logs; will wire via player-logs API. */}
+
+                  {/* Player Weekly Points Modal */}
+                  <Modal
+                    open={playerModalOpen}
+                    onClose={closePlayerModal}
+                    title={playerModal ? `${playerModal.name} — Weekly Points` : 'Weekly Points'}
+                  >
+                    <div className="flex flex-col gap-3">
+                      <div className="flex items-end gap-3">
+                        <div>
+                          <Label>Season</Label>
+                          <select
+                            className="evw-input"
+                            value={modalSeason}
+                            onChange={(e) => setModalSeason(e.target.value)}
+                          >
+                            {modalSeasons.map((s) => (
+                              <option key={s} value={s}>{s}</option>
+                            ))}
+                          </select>
+                        </div>
+                        <div className="text-sm text-[var(--muted)]">
+                          League Scoring (Half‑PPR) • Weeks 1–17 + playoffs • Team-attributed (rostered weeks)
+                        </div>
+                      </div>
+
+                      {modalLoading ? (
+                        <div className="py-6"><LoadingState message="Loading weekly points..." /></div>
+                      ) : modalError ? (
+                        <ErrorState message={modalError} />
+                      ) : (
+                        <div className="overflow-x-auto">
+                          <Table>
+                            <THead>
+                              <Tr>
+                                <Th>Week</Th>
+                                <Th>Rostered</Th>
+                                <Th>Started</Th>
+                                <Th className="text-right">Points</Th>
+                              </Tr>
+                            </THead>
+                            <TBody>
+                              {modalWeeks.map((w) => (
+                                <Tr key={w.week}>
+                                  <Td>
+                                    <div className="flex items-center gap-2">
+                                      <span>Week {w.week}</span>
+                                      {w.week >= 15 && <span className="text-xs evw-chip">Playoffs</span>}
+                                    </div>
+                                  </Td>
+                                  <Td>{w.rostered ? 'Yes' : 'No'}</Td>
+                                  <Td>{w.started ? 'Yes' : 'No'}</Td>
+                                  <Td className="text-right">{w.points.toFixed(2)}</Td>
+                                </Tr>
+                              ))}
+                              <Tr>
+                                <Td colSpan={3}><strong>Total</strong></Td>
+                                <Td className="text-right font-semibold">
+                                  {modalWeeks.reduce((sum, r) => sum + r.points, 0).toFixed(2)}
+                                </Td>
+                              </Tr>
+                            </TBody>
+                          </Table>
+                        </div>
+                      )}
+                    </div>
+                  </Modal>
                 </CardContent>
               </Card>
             ),
