@@ -22,6 +22,35 @@ export interface SleeperFetchOptions {
 }
 
 // ==========================
+// Roster reconstruction from matchups
+// ==========================
+/**
+ * Build a set of player IDs who appeared on a given roster (starters or bench)
+ * for a season by scanning weekly matchups (Weeks 1–17).
+ */
+export async function buildSeasonRosterFromMatchups(
+  season: string,
+  leagueId: string,
+  rosterId: number,
+  options?: SleeperFetchOptions
+): Promise<Set<string>> {
+  type Match = { roster_id?: number; starters?: string[]; players?: string[] };
+  const weeks = Array.from({ length: 17 }, (_, i) => i + 1);
+  const roster = new Set<string>();
+  const all = await Promise.all(
+    weeks.map((w) => getLeagueMatchups(leagueId, w, options).catch(() => [] as Match[]))
+  );
+  for (const weekMatches of all) {
+    for (const m of weekMatches as Match[]) {
+      if (!m || m.roster_id !== rosterId) continue;
+      if (Array.isArray(m.starters)) for (const pid of m.starters) if (pid) roster.add(pid);
+      if (Array.isArray(m.players)) for (const pid of m.players) if (pid) roster.add(pid);
+    }
+  }
+  return roster;
+}
+
+// ==========================
 // Weekly Highs by Season (per week top single-team)
 // ==========================
 export interface WeeklyHighByWeekEntry {

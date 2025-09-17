@@ -15,6 +15,7 @@ import {
   computeSeasonTotalsCustomScoringFromStats,
   getNFLSeasonStats,
   SleeperNFLSeasonPlayerStats,
+  buildSeasonRosterFromMatchups,
 } from '@/lib/utils/sleeper-api';
 import { LEAGUE_IDS } from '@/lib/constants/league';
 import { getTeamLogoPath, getTeamColorStyle, getTeamColors, resolveCanonicalTeamName } from '@/lib/utils/team-utils';
@@ -127,64 +128,89 @@ export default function TeamPage() {
   const [seasonLeaders, setSeasonLeaders] = useState<Record<PosKey, LeaderRow[]>>(emptySeason);
   const [recordsLoading, setRecordsLoading] = useState(false);
 
-  // Populate Records tables from the selected season so UI is not blank.
-  // This will be expanded to multi-season aggregation with roster reconstruction.
+  // Populate Records: multi-season aggregation with roster reconstruction
   useEffect(() => {
     (async () => {
       if (!team) return;
       try {
         setRecordsLoading(true);
-        const leagueId = getLeagueIdForYear(selectedYear);
-        if (!leagueId) {
-          setCareerLeaders(emptyCareer);
-          setSeasonLeaders(emptySeason);
-          return;
-        }
-        // Ensure player metadata exists
+        // Build dynamic seasons list (current selection + configured previous)
+        const prevYears = Object.keys(LEAGUE_IDS.PREVIOUS || {});
+        const seasons = Array.from(new Set([String(selectedYear), ...prevYears]))
+          .sort((a, b) => b.localeCompare(a));
+
+        // Ensure players metadata
         let allPlayersMap = players;
         if (!allPlayersMap || Object.keys(allPlayersMap).length === 0) {
           try { allPlayersMap = await getAllPlayers(); } catch { allPlayersMap = {}; }
         }
-        const teamPlayerIds = team.players || [];
-        if (teamPlayerIds.length === 0) {
-          setCareerLeaders(emptyCareer);
-          setSeasonLeaders(emptySeason);
-          return;
-        }
-        const totals = await computeSeasonTotalsCustomScoringFromStats(String(selectedYear), leagueId, 18);
 
-        // Build per-position arrays
-        const byPosCareer: Record<PosKey | 'ALL', LeaderRow[]> = { 'QB': [], 'RB': [], 'WR': [], 'TE': [], 'K': [], 'DEF/DST': [], 'ALL': [] };
-        const byPosSeason: Record<PosKey, LeaderRow[]> = { 'QB': [], 'RB': [], 'WR': [], 'TE': [], 'K': [], 'DEF/DST': [] };
+        // Aggregation buckets
+        const careerTotals: Record<string, { total: number; pos: string; name: string }> = {};
+        const bestSeason: Record<string, { total: number; season: string; pos: string; name: string }> = {};
+        const canonicalName = resolveCanonicalTeamName({ ownerId: team.ownerId });
 
-        for (const pid of teamPlayerIds) {
-          const meta = allPlayersMap[pid];
-          if (!meta) continue;
-          const name = `${meta?.first_name ?? ''} ${meta?.last_name ?? ''}`.trim() || pid;
-          const pos = toPositionGroup(meta?.position) as PosKey | string;
-          const total = Number(totals[pid] || 0);
-          if (!Number.isFinite(total) || total <= 0) continue;
-          const row: LeaderRow = { playerId: pid, name, position: pos as string, season: String(selectedYear), total };
-          if ((POSITIONS as readonly string[]).includes(pos)) {
-            byPosCareer[pos as PosKey].push(row);
-            byPosSeason[pos as PosKey].push(row);
+        for (const season of seasons) {
+          const leagueId = (season === '2025') ? LEAGUE_IDS.CURRENT : LEAGUE_IDS.PREVIOUS[season as keyof typeof LEAGUE_IDS.PREVIOUS];
+          if (!leagueId) continue;
+          const teams = await getTeamsData(leagueId);
+          const seasonTeam = teams.find(t => t.teamName === canonicalName) || teams.find(t => t.ownerId === team.ownerId);
+          if (!seasonTeam) continue;
+
+          // Build season roster: use provided players or reconstruct from matchups
+          let seasonRoster: string[] = Array.isArray(seasonTeam.players) ? seasonTeam.players : [];
+          if (!seasonRoster || seasonRoster.length === 0) {
+            try {
+              const reconstructed = await buildSeasonRosterFromMatchups(season, leagueId, seasonTeam.rosterId);
+              seasonRoster = Array.from(reconstructed);
+            } catch {
+              seasonRoster = [];
+            }
           }
-          byPosCareer['ALL'].push(row);
+          if (!seasonRoster || seasonRoster.length === 0) continue;
+
+          // Load league-scored totals for this season
+          const totals = await computeSeasonTotalsCustomScoringFromStats(season, leagueId, 18);
+          for (const pid of seasonRoster) {
+            const total = Number(totals[pid] || 0);
+            if (!Number.isFinite(total) || total <= 0) continue;
+            const meta = allPlayersMap[pid];
+            const pos = toPositionGroup(meta?.position);
+            const name = meta ? `${meta.first_name} ${meta.last_name}` : pid;
+
+            const c = (careerTotals[pid] ||= { total: 0, pos, name });
+            c.total += total;
+            const b = bestSeason[pid];
+            if (!b || total > b.total) bestSeason[pid] = { total, season, pos, name };
+          }
         }
 
-        for (const k of Object.keys(byPosCareer) as Array<keyof typeof byPosCareer>) {
+        // Build Top 5 tables by position
+        const byPosCareer: Record<PosKey | 'ALL', LeaderRow[]> = { 'QB': [], 'RB': [], 'WR': [], 'TE': [], 'K': [], 'DEF/DST': [], 'ALL': [] };
+        Object.entries(careerTotals).forEach(([pid, v]) => {
+          const row: LeaderRow = { playerId: pid, name: v.name, position: v.pos, total: v.total };
+          if ((POSITIONS as readonly string[]).includes(v.pos)) byPosCareer[v.pos as PosKey].push(row);
+          byPosCareer['ALL'].push(row);
+        });
+        (Object.keys(byPosCareer) as Array<keyof typeof byPosCareer>).forEach((k) => {
           byPosCareer[k].sort((a,b) => b.total - a.total);
           byPosCareer[k] = byPosCareer[k].slice(0,5);
-        }
-        for (const k of Object.keys(byPosSeason) as Array<keyof typeof byPosSeason>) {
+        });
+
+        const byPosSeason: Record<PosKey, LeaderRow[]> = { 'QB': [], 'RB': [], 'WR': [], 'TE': [], 'K': [], 'DEF/DST': [] };
+        Object.entries(bestSeason).forEach(([pid, v]) => {
+          if (!(POSITIONS as readonly string[]).includes(v.pos)) return;
+          byPosSeason[v.pos as PosKey].push({ playerId: pid, name: v.name, position: v.pos, season: v.season, total: v.total });
+        });
+        (Object.keys(byPosSeason) as Array<keyof typeof byPosSeason>).forEach((k) => {
           byPosSeason[k].sort((a,b) => b.total - a.total);
           byPosSeason[k] = byPosSeason[k].slice(0,5);
-        }
+        });
 
         setCareerLeaders(byPosCareer);
         setSeasonLeaders(byPosSeason);
       } catch (e) {
-        console.error('Failed to populate team records (season)', e);
+        console.error('Failed to compute team records (multi-season)', e);
         setCareerLeaders(emptyCareer);
         setSeasonLeaders(emptySeason);
       } finally {
