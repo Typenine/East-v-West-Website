@@ -126,6 +126,72 @@ export default function TeamPage() {
   const [careerLeaders, setCareerLeaders] = useState<Record<PosKey | 'ALL', LeaderRow[]>>(emptyCareer);
   const [seasonLeaders, setSeasonLeaders] = useState<Record<PosKey, LeaderRow[]>>(emptySeason);
   const [recordsLoading, setRecordsLoading] = useState(false);
+
+  // Populate Records tables from the selected season so UI is not blank.
+  // This will be expanded to multi-season aggregation with roster reconstruction.
+  useEffect(() => {
+    (async () => {
+      if (!team) return;
+      try {
+        setRecordsLoading(true);
+        const leagueId = getLeagueIdForYear(selectedYear);
+        if (!leagueId) {
+          setCareerLeaders(emptyCareer);
+          setSeasonLeaders(emptySeason);
+          return;
+        }
+        // Ensure player metadata exists
+        let allPlayersMap = players;
+        if (!allPlayersMap || Object.keys(allPlayersMap).length === 0) {
+          try { allPlayersMap = await getAllPlayers(); } catch { allPlayersMap = {}; }
+        }
+        const teamPlayerIds = team.players || [];
+        if (teamPlayerIds.length === 0) {
+          setCareerLeaders(emptyCareer);
+          setSeasonLeaders(emptySeason);
+          return;
+        }
+        const totals = await computeSeasonTotalsCustomScoringFromStats(String(selectedYear), leagueId, 18);
+
+        // Build per-position arrays
+        const byPosCareer: Record<PosKey | 'ALL', LeaderRow[]> = { 'QB': [], 'RB': [], 'WR': [], 'TE': [], 'K': [], 'DEF/DST': [], 'ALL': [] };
+        const byPosSeason: Record<PosKey, LeaderRow[]> = { 'QB': [], 'RB': [], 'WR': [], 'TE': [], 'K': [], 'DEF/DST': [] };
+
+        for (const pid of teamPlayerIds) {
+          const meta = allPlayersMap[pid];
+          if (!meta) continue;
+          const name = `${meta?.first_name ?? ''} ${meta?.last_name ?? ''}`.trim() || pid;
+          const pos = toPositionGroup(meta?.position) as PosKey | string;
+          const total = Number(totals[pid] || 0);
+          if (!Number.isFinite(total) || total <= 0) continue;
+          const row: LeaderRow = { playerId: pid, name, position: pos as string, season: String(selectedYear), total };
+          if ((POSITIONS as readonly string[]).includes(pos)) {
+            byPosCareer[pos as PosKey].push(row);
+            byPosSeason[pos as PosKey].push(row);
+          }
+          byPosCareer['ALL'].push(row);
+        }
+
+        for (const k of Object.keys(byPosCareer) as Array<keyof typeof byPosCareer>) {
+          byPosCareer[k].sort((a,b) => b.total - a.total);
+          byPosCareer[k] = byPosCareer[k].slice(0,5);
+        }
+        for (const k of Object.keys(byPosSeason) as Array<keyof typeof byPosSeason>) {
+          byPosSeason[k].sort((a,b) => b.total - a.total);
+          byPosSeason[k] = byPosSeason[k].slice(0,5);
+        }
+
+        setCareerLeaders(byPosCareer);
+        setSeasonLeaders(byPosSeason);
+      } catch (e) {
+        console.error('Failed to populate team records (season)', e);
+        setCareerLeaders(emptyCareer);
+        setSeasonLeaders(emptySeason);
+      } finally {
+        setRecordsLoading(false);
+      }
+    })();
+  }, [team, players, selectedYear]);
   
   // Sorting state for roster table
   type SortKey = 'name' | 'position' | 'team' | 'gp' | 'totalPPR' | 'ppg';
