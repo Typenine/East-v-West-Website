@@ -57,7 +57,8 @@ export async function getWeeklyHighsBySeason(
   const rosterIdToName = await getRosterIdToTeamNameMap(leagueId, options).catch(() => new Map<number, string>());
 
   const results: WeeklyHighByWeekEntry[] = [];
-  const weeks = Array.from({ length: 18 }, (_, i) => i + 1);
+  // Cap at 17 to match league finals in Week 17
+  const weeks = Array.from({ length: 17 }, (_, i) => i + 1);
   const allWeekMatchups = await Promise.all(
     weeks.map((w) => getLeagueMatchups(leagueId, w, options).catch(() => [] as SleeperMatchup[]))
   );
