@@ -822,7 +822,7 @@ export default function TeamPage() {
                       <div className="py-4"><LoadingState message="Computing career leaders..." /></div>
                     ) : (
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        {(POSITIONS as PosKey[]).map((pos) => (
+                        {POSITIONS.map((pos) => (
                           <Card key={`career-${pos}`}>
                             <CardHeader>
                               <CardTitle>{pos}</CardTitle>
