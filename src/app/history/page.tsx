@@ -1257,6 +1257,104 @@ export default function HistoryPage() {
               </div>
             </div>
             
+            {/* Highest Regular Scoring Weeks Ever (By a Single Team) */}
+            <div className="evw-surface border p-6 rounded-[var(--radius-card)] hover-lift md:col-span-2">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-xl font-bold">Highest Regular Scoring Weeks Ever (By a Single Team)</h3>
+                <button onClick={() => toggleCollapsed('topRegularWeeks')} className="text-sm text-[var(--muted)] hover:text-[var(--text)]">
+                  {isCollapsed('topRegularWeeks') ? '▸' : '▾'}
+                </button>
+              </div>
+              <div className="overflow-x-auto">
+                {!isCollapsed('topRegularWeeks') && (
+                <table className="min-w-full divide-y divide-[var(--border)]">
+                  <thead className="bg-transparent">
+                    <tr>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-[var(--muted)] uppercase tracking-wider">Rank</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-[var(--muted)] uppercase tracking-wider">Team</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-[var(--muted)] uppercase tracking-wider">Opponent</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-[var(--muted)] uppercase tracking-wider">Score</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-[var(--muted)] uppercase tracking-wider">Season/Week</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[var(--border)]">
+                    {franchisesLoading ? (
+                      <tr><td className="px-6 py-4 text-sm text-[var(--muted)]" colSpan={5}>Loading...</td></tr>
+                    ) : (
+                      (topRegularWeeks || []).map((row, index) => {
+                        const teamColors = getTeamColors(row.teamName);
+                        const teamLink = row.rosterId !== undefined ? (
+                          <Link href={`/teams/${row.rosterId}`} className="text-[var(--text)] hover:underline">{row.teamName}</Link>
+                        ) : <span className="text-[var(--text)]">{row.teamName}</span>;
+                        const oppLink = row.opponentRosterId !== undefined ? (
+                          <Link href={`/teams/${row.opponentRosterId}`} className="text-[var(--text)] hover:underline">{row.opponentTeamName}</Link>
+                        ) : <span className="text-[var(--text)]">{row.opponentTeamName}</span>;
+                        return (
+                          <tr key={`${row.year}-${row.week}-${row.ownerId}`} className="border-l-4" style={{ borderLeftColor: teamColors.primary, backgroundColor: hexToRgba(teamColors.primary, 0.06) }}>
+                            <td className="px-6 py-3 whitespace-nowrap text-sm text-[var(--muted)]">{index + 1}</td>
+                            <td className="px-6 py-3 whitespace-nowrap text-sm font-medium">{teamLink}</td>
+                            <td className="px-6 py-3 whitespace-nowrap text-sm">{oppLink}</td>
+                            <td className="px-6 py-3 whitespace-nowrap text-sm text-[var(--muted)]">{row.points.toFixed(2)} - {row.opponentPoints.toFixed(2)}</td>
+                            <td className="px-6 py-3 whitespace-nowrap text-sm text-[var(--muted)]">{row.year} / Week {row.week}</td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+                )}
+              </div>
+            </div>
+
+            {/* Top 10 Highest Scoring Playoff Weeks */}
+            <div className="evw-surface border p-6 rounded-[var(--radius-card)] hover-lift md:col-span-2">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-xl font-bold">Top 10 Highest Scoring Playoff Weeks</h3>
+                <button onClick={() => toggleCollapsed('topPlayoffWeeks')} className="text-sm text-[var(--muted)] hover:text-[var(--text)]">
+                  {isCollapsed('topPlayoffWeeks') ? '▸' : '▾'}
+                </button>
+              </div>
+              <div className="overflow-x-auto">
+                {!isCollapsed('topPlayoffWeeks') && (
+                <table className="min-w-full divide-y divide-[var(--border)]">
+                  <thead className="bg-transparent">
+                    <tr>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-[var(--muted)] uppercase tracking-wider">Rank</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-[var(--muted)] uppercase tracking-wider">Team</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-[var(--muted)] uppercase tracking-wider">Opponent</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-[var(--muted)] uppercase tracking-wider">Score</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-[var(--muted)] uppercase tracking-wider">Season/Week</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[var(--border)]">
+                    {franchisesLoading ? (
+                      <tr><td className="px-6 py-4 text-sm text-[var(--muted)]" colSpan={5}>Loading...</td></tr>
+                    ) : (
+                      (topPlayoffWeeks || []).map((row, index) => {
+                        const teamColors = getTeamColors(row.teamName);
+                        const teamLink = row.rosterId !== undefined ? (
+                          <Link href={`/teams/${row.rosterId}`} className="text-[var(--text)] hover:underline">{row.teamName}</Link>
+                        ) : <span className="text-[var(--text)]">{row.teamName}</span>;
+                        const oppLink = row.opponentRosterId !== undefined ? (
+                          <Link href={`/teams/${row.opponentRosterId}`} className="text-[var(--text)] hover:underline">{row.opponentTeamName}</Link>
+                        ) : <span className="text-[var(--text)]">{row.opponentTeamName}</span>;
+                        return (
+                          <tr key={`${row.year}-${row.week}-${row.ownerId}`} className="border-l-4" style={{ borderLeftColor: teamColors.primary, backgroundColor: hexToRgba(teamColors.primary, 0.06) }}>
+                            <td className="px-6 py-3 whitespace-nowrap text-sm text-[var(--muted)]">{index + 1}</td>
+                            <td className="px-6 py-3 whitespace-nowrap text-sm font-medium">{teamLink}</td>
+                            <td className="px-6 py-3 whitespace-nowrap text-sm">{oppLink}</td>
+                            <td className="px-6 py-3 whitespace-nowrap text-sm text-[var(--muted)]">{row.points.toFixed(2)} - {row.opponentPoints.toFixed(2)}</td>
+                            <td className="px-6 py-3 whitespace-nowrap text-sm text-[var(--muted)]">{row.year} / Week {row.week}</td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+                )}
+              </div>
+            </div>
+
             {/* Most Playoff Appearances */}
             <div className="evw-surface border p-6 rounded-[var(--radius-card)] hover-lift">
               <div className="flex items-center justify-between mb-4">
