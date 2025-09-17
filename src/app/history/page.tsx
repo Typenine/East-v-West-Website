@@ -85,13 +85,10 @@ export default function HistoryPage() {
   // Top single-team scoring weeks
   const [topRegularWeeks, setTopRegularWeeks] = useState<TopScoringWeekEntry[]>([]);
   const [topPlayoffWeeks, setTopPlayoffWeeks] = useState<TopScoringWeekEntry[]>([]);
+  const [topAllSingleWeeks, setTopAllSingleWeeks] = useState<TopScoringWeekEntry[]>([]);
   // Collapsible state per section id
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
-  // Combined list for All Games top weeks
-  const topAllWeeks = useMemo(() => {
-    const rows = [...(topRegularWeeks || []), ...(topPlayoffWeeks || [])];
-    return rows.sort((a, b) => b.points - a.points).slice(0, 10);
-  }, [topRegularWeeks, topPlayoffWeeks]);
+  // Note: single-record cards use top 1 results fetched for each category
   // Inverted map to get ownerId by canonical team name (for CHAMPIONS links)
   const ownerByTeamName = useMemo(() => {
     const map: Record<string, string> = {};
@@ -222,7 +219,7 @@ export default function HistoryPage() {
         const needWeeklyHighs = activeTab === 'franchises';
         const needSplitRecords = activeTab === 'leaderboards';
         const needTopWeeks = activeTab === 'leaderboards';
-        const [teams2025, teams2024, teams2023, weeklyHighs, splits, topReg, topPO] = await Promise.all([
+        const [teams2025, teams2024, teams2023, weeklyHighs, splits, topReg, topPO, topAll] = await Promise.all([
           getTeamsData(LEAGUE_IDS.CURRENT, optsFresh),
           getTeamsData(LEAGUE_IDS.PREVIOUS['2024'], optsCached),
           getTeamsData(LEAGUE_IDS.PREVIOUS['2023'], optsCached),
@@ -233,6 +230,7 @@ export default function HistoryPage() {
           // Top weeks: regular + playoffs
           needTopWeeks ? getTopScoringWeeksAllTime({ category: 'regular', top: 10 }, optsCached) : Promise.resolve([] as TopScoringWeekEntry[]),
           needTopWeeks ? getTopScoringWeeksAllTime({ category: 'playoffs', top: 10 }, optsCached) : Promise.resolve([] as TopScoringWeekEntry[]),
+          needTopWeeks ? getTopScoringWeeksAllTime({ category: 'all', top: 10 }, optsCached) : Promise.resolve([] as TopScoringWeekEntry[]),
         ]);
         if (cancelled) return;
         // Build owner -> rosterId and owner -> teamName mapping preferring 2025, then 2024, then 2023
@@ -257,6 +255,7 @@ export default function HistoryPage() {
         if (needTopWeeks) {
           setTopRegularWeeks(topReg || []);
           setTopPlayoffWeeks(topPO || []);
+          setTopAllSingleWeeks(topAll || []);
         }
 
         // Build FranchiseSummary list using roster season totals across years (fast and current)
@@ -1262,103 +1261,7 @@ export default function HistoryPage() {
               </div>
             </div>
             
-            {/* Highest Regular Scoring Weeks Ever (By a Single Team) */}
-            <div className="evw-surface border p-6 rounded-[var(--radius-card)] hover-lift md:col-span-2">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-xl font-bold">Highest Regular Scoring Weeks Ever (By a Single Team)</h3>
-                <button onClick={() => toggleCollapsed('topRegularWeeks')} className="text-sm text-[var(--muted)] hover:text-[var(--text)]">
-                  {isCollapsed('topRegularWeeks') ? '▸' : '▾'}
-                </button>
-              </div>
-              <div className="overflow-x-auto">
-                {!isCollapsed('topRegularWeeks') && (
-                <table className="min-w-full divide-y divide-[var(--border)]">
-                  <thead className="bg-transparent">
-                    <tr>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-[var(--muted)] uppercase tracking-wider">Rank</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-[var(--muted)] uppercase tracking-wider">Team</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-[var(--muted)] uppercase tracking-wider">Opponent</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-[var(--muted)] uppercase tracking-wider">Score</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-[var(--muted)] uppercase tracking-wider">Season/Week</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-[var(--border)]">
-                    {franchisesLoading ? (
-                      <tr><td className="px-6 py-4 text-sm text-[var(--muted)]" colSpan={5}>Loading...</td></tr>
-                    ) : (
-                      (topRegularWeeks || []).map((row, index) => {
-                        const teamColors = getTeamColors(row.teamName);
-                        const teamLink = row.rosterId !== undefined ? (
-                          <Link href={`/teams/${row.rosterId}`} className="text-[var(--text)] hover:underline">{row.teamName}</Link>
-                        ) : <span className="text-[var(--text)]">{row.teamName}</span>;
-                        const oppLink = row.opponentRosterId !== undefined ? (
-                          <Link href={`/teams/${row.opponentRosterId}`} className="text-[var(--text)] hover:underline">{row.opponentTeamName}</Link>
-                        ) : <span className="text-[var(--text)]">{row.opponentTeamName}</span>;
-                        return (
-                          <tr key={`${row.year}-${row.week}-${row.ownerId}`} className="border-l-4" style={{ borderLeftColor: teamColors.primary, backgroundColor: hexToRgba(teamColors.primary, 0.06) }}>
-                            <td className="px-6 py-3 whitespace-nowrap text-sm text-[var(--muted)]">{index + 1}</td>
-                            <td className="px-6 py-3 whitespace-nowrap text-sm font-medium">{teamLink}</td>
-                            <td className="px-6 py-3 whitespace-nowrap text-sm">{oppLink}</td>
-                            <td className="px-6 py-3 whitespace-nowrap text-sm"><span className="text-xl md:text-2xl font-extrabold text-[var(--accent)]">{row.points.toFixed(2)}</span> <span className="text-[var(--muted)] font-semibold">- {row.opponentPoints.toFixed(2)}</span></td>
-                            <td className="px-6 py-3 whitespace-nowrap text-sm text-[var(--muted)]">{row.year} / Week {row.week}</td>
-                          </tr>
-                        );
-                      })
-                    )}
-                  </tbody>
-                </table>
-                )}
-              </div>
-            </div>
-
-            {/* Top 10 Highest Scoring Playoff Weeks */}
-            <div className="evw-surface border p-6 rounded-[var(--radius-card)] hover-lift md:col-span-2">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-xl font-bold">Top 10 Highest Scoring Playoff Weeks</h3>
-                <button onClick={() => toggleCollapsed('topPlayoffWeeks')} className="text-sm text-[var(--muted)] hover:text-[var(--text)]">
-                  {isCollapsed('topPlayoffWeeks') ? '▸' : '▾'}
-                </button>
-              </div>
-              <div className="overflow-x-auto">
-                {!isCollapsed('topPlayoffWeeks') && (
-                <table className="min-w-full divide-y divide-[var(--border)]">
-                  <thead className="bg-transparent">
-                    <tr>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-[var(--muted)] uppercase tracking-wider">Rank</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-[var(--muted)] uppercase tracking-wider">Team</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-[var(--muted)] uppercase tracking-wider">Opponent</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-[var(--muted)] uppercase tracking-wider">Score</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-[var(--muted)] uppercase tracking-wider">Season/Week</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-[var(--border)]">
-                    {franchisesLoading ? (
-                      <tr><td className="px-6 py-4 text-sm text-[var(--muted)]" colSpan={5}>Loading...</td></tr>
-                    ) : (
-                      (topPlayoffWeeks || []).map((row, index) => {
-                        const teamColors = getTeamColors(row.teamName);
-                        const teamLink = row.rosterId !== undefined ? (
-                          <Link href={`/teams/${row.rosterId}`} className="text-[var(--text)] hover:underline">{row.teamName}</Link>
-                        ) : <span className="text-[var(--text)]">{row.teamName}</span>;
-                        const oppLink = row.opponentRosterId !== undefined ? (
-                          <Link href={`/teams/${row.opponentRosterId}`} className="text-[var(--text)] hover:underline">{row.opponentTeamName}</Link>
-                        ) : <span className="text-[var(--text)]">{row.opponentTeamName}</span>;
-                        return (
-                          <tr key={`${row.year}-${row.week}-${row.ownerId}`} className="border-l-4" style={{ borderLeftColor: teamColors.primary, backgroundColor: hexToRgba(teamColors.primary, 0.06) }}>
-                            <td className="px-6 py-3 whitespace-nowrap text-sm text-[var(--muted)]">{index + 1}</td>
-                            <td className="px-6 py-3 whitespace-nowrap text-sm font-medium">{teamLink}</td>
-                            <td className="px-6 py-3 whitespace-nowrap text-sm">{oppLink}</td>
-                            <td className="px-6 py-3 whitespace-nowrap text-sm text-[var(--muted)]">{row.points.toFixed(2)} - {row.opponentPoints.toFixed(2)}</td>
-                            <td className="px-6 py-3 whitespace-nowrap text-sm text-[var(--muted)]">{row.year} / Week {row.week}</td>
-                          </tr>
-                        );
-                      })
-                    )}
-                  </tbody>
-                </table>
-                )}
-              </div>
-            </div>
+            {/* moved weekly-highs tables to bottom as single-record cards */}
 
             {/* Most Playoff Appearances */}
             <div className="evw-surface border p-6 rounded-[var(--radius-card)] hover-lift">
@@ -1627,7 +1530,169 @@ export default function HistoryPage() {
                 </table>
                 )}
               </div>
+            {/* Weekly Highs (Full Tables at Bottom) */}
+            {/* Regular Season Top 10 */}
+            <div className="evw-surface border p-6 rounded-[var(--radius-card)] hover-lift mt-8">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-xl font-bold">Top 10 Highest Scoring Weeks — Regular Season</h3>
+                <button onClick={() => toggleCollapsed('tblTopRegularWeeks')} className="text-sm text-[var(--muted)] hover:text-[var(--text)]">{isCollapsed('tblTopRegularWeeks') ? '▸' : '▾'}</button>
+              </div>
+              <div className="overflow-x-auto">
+                {!isCollapsed('tblTopRegularWeeks') && (
+                <table className="min-w-full divide-y divide-[var(--border)]">
+                  <thead className="bg-transparent">
+                    <tr>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-[var(--muted)] uppercase tracking-wider">Rank</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-[var(--muted)] uppercase tracking-wider">Team</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-[var(--muted)] uppercase tracking-wider">Opponent</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-[var(--muted)] uppercase tracking-wider">Score</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-[var(--muted)] uppercase tracking-wider">Season/Week</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[var(--border)]">
+                    {franchisesLoading ? (
+                      <tr><td className="px-6 py-4 text-sm text-[var(--muted)]" colSpan={5}>Loading...</td></tr>
+                    ) : (
+                      (topRegularWeeks || []).map((row, index) => {
+                        const teamColors = getTeamColors(row.teamName);
+                        const teamLink = row.rosterId !== undefined ? (
+                          <Link href={`/teams/${row.rosterId}`} className="text-[var(--text)] hover:underline">{row.teamName}</Link>
+                        ) : <span className="text-[var(--text)]">{row.teamName}</span>;
+                        const oppLink = row.opponentRosterId !== undefined ? (
+                          <Link href={`/teams/${row.opponentRosterId}`} className="text-[var(--text)] hover:underline">{row.opponentTeamName}</Link>
+                        ) : <span className="text-[var(--text)]">{row.opponentTeamName}</span>;
+                        return (
+                          <tr key={`${row.year}-${row.week}-${row.ownerId}`} className="border-l-4" style={{ borderLeftColor: teamColors.primary, backgroundColor: hexToRgba(teamColors.primary, 0.06) }}>
+                            <td className="px-6 py-3 whitespace-nowrap text-sm text-[var(--muted)]">{index + 1}</td>
+                            <td className="px-6 py-3 whitespace-nowrap text-sm font-medium">
+                              <div className="flex items-center gap-3">
+                                <div className="w-6 h-6 rounded-full evw-surface border border-[var(--border)] overflow-hidden flex items-center justify-center shrink-0">
+                                  <Image src={getTeamLogoPath(row.teamName)} alt={`${row.teamName} logo`} width={24} height={24} className="object-contain" />
+                                </div>
+                                {teamLink}
+                              </div>
+                            </td>
+                            <td className="px-6 py-3 whitespace-nowrap text-sm">{oppLink}</td>
+                            <td className="px-6 py-3 whitespace-nowrap text-sm"><span className="text-xl md:text-2xl font-extrabold text-[var(--accent)]">{row.points.toFixed(2)}</span> <span className="text-[var(--muted)] font-semibold">- {row.opponentPoints.toFixed(2)}</span></td>
+                            <td className="px-6 py-3 whitespace-nowrap text-sm text-[var(--muted)]">{row.year} / Week {row.week}</td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+                )}
+              </div>
             </div>
+
+            {/* Playoffs Top 10 */}
+            <div className="evw-surface border p-6 rounded-[var(--radius-card)] hover-lift">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-xl font-bold">Top 10 Highest Scoring Weeks — Playoffs</h3>
+                <button onClick={() => toggleCollapsed('tblTopPlayoffWeeks')} className="text-sm text-[var(--muted)] hover:text-[var(--text)]">{isCollapsed('tblTopPlayoffWeeks') ? '▸' : '▾'}</button>
+              </div>
+              <div className="overflow-x-auto">
+                {!isCollapsed('tblTopPlayoffWeeks') && (
+                <table className="min-w-full divide-y divide-[var(--border)]">
+                  <thead className="bg-transparent">
+                    <tr>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-[var(--muted)] uppercase tracking-wider">Rank</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-[var(--muted)] uppercase tracking-wider">Team</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-[var(--muted)] uppercase tracking-wider">Opponent</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-[var(--muted)] uppercase tracking-wider">Score</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-[var(--muted)] uppercase tracking-wider">Season/Week</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[var(--border)]">
+                    {franchisesLoading ? (
+                      <tr><td className="px-6 py-4 text-sm text-[var(--muted)]" colSpan={5}>Loading...</td></tr>
+                    ) : (
+                      (topPlayoffWeeks || []).map((row, index) => {
+                        const teamColors = getTeamColors(row.teamName);
+                        const teamLink = row.rosterId !== undefined ? (
+                          <Link href={`/teams/${row.rosterId}`} className="text-[var(--text)] hover:underline">{row.teamName}</Link>
+                        ) : <span className="text-[var(--text)]">{row.teamName}</span>;
+                        const oppLink = row.opponentRosterId !== undefined ? (
+                          <Link href={`/teams/${row.opponentRosterId}`} className="text-[var(--text)] hover:underline">{row.opponentTeamName}</Link>
+                        ) : <span className="text-[var(--text)]">{row.opponentTeamName}</span>;
+                        return (
+                          <tr key={`${row.year}-${row.week}-${row.ownerId}`} className="border-l-4" style={{ borderLeftColor: teamColors.primary, backgroundColor: hexToRgba(teamColors.primary, 0.06) }}>
+                            <td className="px-6 py-3 whitespace-nowrap text-sm text-[var(--muted)]">{index + 1}</td>
+                            <td className="px-6 py-3 whitespace-nowrap text-sm font-medium">
+                              <div className="flex items-center gap-3">
+                                <div className="w-6 h-6 rounded-full evw-surface border border-[var(--border)] overflow-hidden flex items-center justify-center shrink-0">
+                                  <Image src={getTeamLogoPath(row.teamName)} alt={`${row.teamName} logo`} width={24} height={24} className="object-contain" />
+                                </div>
+                                {teamLink}
+                              </div>
+                            </td>
+                            <td className="px-6 py-3 whitespace-nowrap text-sm">{oppLink}</td>
+                            <td className="px-6 py-3 whitespace-nowrap text-sm"><span className="text-xl md:text-2xl font-extrabold text-[var(--accent)]">{row.points.toFixed(2)}</span> <span className="text-[var(--muted)] font-semibold">- {row.opponentPoints.toFixed(2)}</span></td>
+                            <td className="px-6 py-3 whitespace-nowrap text-sm text-[var(--muted)]">{row.year} / Week {row.week}</td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+                )}
+              </div>
+            </div>
+
+            {/* All Games (Regular + Playoffs + Toilet) Top 10 */}
+            <div className="evw-surface border p-6 rounded-[var(--radius-card)] hover-lift">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-xl font-bold">Top 10 Highest Scoring Weeks — All Games</h3>
+                <button onClick={() => toggleCollapsed('tblTopAllWeeks')} className="text-sm text-[var(--muted)] hover:text-[var(--text)]">{isCollapsed('tblTopAllWeeks') ? '▸' : '▾'}</button>
+              </div>
+              <div className="overflow-x-auto">
+                {!isCollapsed('tblTopAllWeeks') && (
+                <table className="min-w-full divide-y divide-[var(--border)]">
+                  <thead className="bg-transparent">
+                    <tr>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-[var(--muted)] uppercase tracking-wider">Rank</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-[var(--muted)] uppercase tracking-wider">Team</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-[var(--muted)] uppercase tracking-wider">Opponent</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-[var(--muted)] uppercase tracking-wider">Score</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-[var(--muted)] uppercase tracking-wider">Season/Week</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[var(--border)]">
+                    {franchisesLoading ? (
+                      <tr><td className="px-6 py-4 text-sm text-[var(--muted)]" colSpan={5}>Loading...</td></tr>
+                    ) : (
+                      (topAllSingleWeeks || []).map((row, index) => {
+                        const teamColors = getTeamColors(row.teamName);
+                        const teamLink = row.rosterId !== undefined ? (
+                          <Link href={`/teams/${row.rosterId}`} className="text-[var(--text)] hover:underline">{row.teamName}</Link>
+                        ) : <span className="text-[var(--text)]">{row.teamName}</span>;
+                        const oppLink = row.opponentRosterId !== undefined ? (
+                          <Link href={`/teams/${row.opponentRosterId}`} className="text-[var(--text)] hover:underline">{row.opponentTeamName}</Link>
+                        ) : <span className="text-[var(--text)]">{row.opponentTeamName}</span>;
+                        return (
+                          <tr key={`${row.year}-${row.week}-${row.ownerId}-${index}`} className="border-l-4" style={{ borderLeftColor: teamColors.primary, backgroundColor: hexToRgba(teamColors.primary, 0.06) }}>
+                            <td className="px-6 py-3 whitespace-nowrap text-sm text-[var(--muted)]">{index + 1}</td>
+                            <td className="px-6 py-3 whitespace-nowrap text-sm font-medium">
+                              <div className="flex items-center gap-3">
+                                <div className="w-6 h-6 rounded-full evw-surface border border-[var(--border)] overflow-hidden flex items-center justify-center shrink-0">
+                                  <Image src={getTeamLogoPath(row.teamName)} alt={`${row.teamName} logo`} width={24} height={24} className="object-contain" />
+                                </div>
+                                {teamLink}
+                              </div>
+                            </td>
+                            <td className="px-6 py-3 whitespace-nowrap text-sm">{oppLink}</td>
+                            <td className="px-6 py-3 whitespace-nowrap text-sm"><span className="text-xl md:text-2xl font-extrabold text-[var(--accent)]">{row.points.toFixed(2)}</span> <span className="text-[var(--muted)] font-semibold">- {row.opponentPoints.toFixed(2)}</span></td>
+                            <td className="px-6 py-3 whitespace-nowrap text-sm text-[var(--muted)]">{row.year} / Week {row.week} • {row.category[0].toUpperCase() + row.category.slice(1)}</td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+                )}
+              </div>
+            </div>
+
           </div>
         </div>
       )}

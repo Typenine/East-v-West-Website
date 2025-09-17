@@ -730,13 +730,14 @@ export interface TopScoringWeekEntry {
 
 /**
  * Return the top N single-team scoring weeks across seasons, filtered by category.
- * category: 'regular' or 'playoffs'.
+ * category: 'regular' | 'playoffs' | 'toilet' | 'all'
  * - 'regular': weeks < playoff start week
  * - 'playoffs': winners-bracket matchups at/after playoff start
- * We exclude Toilet here by default; use 'playoffs' explicitly for playoff-only.
+ * - 'toilet': losers-bracket (or non-winners at/after playoff start where losers bracket exists)
+ * - 'all': includes regular + playoffs + toilet
  */
 export async function getTopScoringWeeksAllTime(
-  params: { category: 'regular' | 'playoffs'; top?: number },
+  params: { category: 'regular' | 'playoffs' | 'toilet' | 'all'; top?: number },
   options?: SleeperFetchOptions
 ): Promise<TopScoringWeekEntry[]> {
   const { category, top = 10 } = params;
@@ -805,7 +806,7 @@ export async function getTopScoringWeeksAllTime(
           if (aInW && bInW) cat = 'playoffs';
           else cat = 'toilet';
         }
-        if (cat !== category) continue; // filter strictly
+        if (category !== 'all' && cat !== category) continue; // filter strictly unless 'all'
 
         const aOwner = rosterOwner.get(a.roster_id);
         const bOwner = rosterOwner.get(b.roster_id);
