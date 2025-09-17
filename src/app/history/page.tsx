@@ -64,7 +64,7 @@ function readableOn(hex: string): string {
   return luminance > 0.6 ? '#111111' : '#ffffff';
 }
 
-// Trophy icon resembling a cup with handles. Uses a subtle metallic gradient.
+// Trophy icon resembling a cup without handles, with a tiny base. Uses a subtle metallic gradient.
 function TrophyIcon({ className = '' }: { className?: string }) {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true" className={className} role="img">
@@ -76,15 +76,14 @@ function TrophyIcon({ className = '' }: { className?: string }) {
         </linearGradient>
       </defs>
       <g fill="url(#trophyGrad)" stroke="#666" strokeWidth="0.5">
-        {/* Cup */}
-        <path d="M8 3h8v2c0 2.761-2.686 5-6 5s-6-2.239-6-5V5h4V3Z" />
-        {/* Handles */}
-        <path d="M4 5c-1.5 0-2 1.2-2 2.2C2 9.5 3.5 11 6 11v-1c-1.9 0-3-1.2-3-2.6C3 6.6 3.5 6 4.5 6H6V5H4Z" />
-        <path d="M20 5c1.5 0 2 1.2 2 2.2 0 2.3-1.5 3.8-4 3.8v-1c1.9 0 3-1.2 3-2.6 0-1.8-.5-2.4-1.5-2.4H18V5h2Z" />
+        {/* Cup (no handles) */}
+        <path d="M8 3h8v2c0 2.6-2.4 4.6-6 4.6S4 7.6 4 5V5h4V3Z" />
         {/* Stem and base */}
         <rect x="10.5" y="10" width="3" height="3" rx="0.5" />
         <path d="M8 14h8v2H8z" />
-        <path d="M7 17h10v2H7z" />
+        <path d="M7.5 17h9v1.6h-9z" />
+        {/* Tiny pedestal base */}
+        <path d="M9 19h6l-.8 1.6H9.8L9 19z" />
       </g>
     </svg>
   );
