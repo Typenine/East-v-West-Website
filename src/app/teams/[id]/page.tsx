@@ -264,17 +264,17 @@ export default function TeamPage() {
           const seasonTeam = teams.find(t => t.teamName === canonicalName) || teams.find(t => t.ownerId === team.ownerId);
           if (!seasonTeam) continue;
 
-          // Build season roster: use provided players or reconstruct from matchups
-          let seasonRoster: string[] = Array.isArray(seasonTeam.players) ? seasonTeam.players : [];
-          if (!seasonRoster || seasonRoster.length === 0) {
-            try {
-              const reconstructed = await buildSeasonRosterFromMatchups(season, leagueId, seasonTeam.rosterId);
-              seasonRoster = Array.from(reconstructed);
-            } catch {
-              seasonRoster = [];
-            }
+          // Build season roster as UNION of static roster snapshot and reconstructed from weekly matchups
+          // This avoids missing players (especially DEF/DST) that were rostered earlier/later in the season.
+          const rosterSet = new Set<string>(Array.isArray(seasonTeam.players) ? seasonTeam.players : []);
+          try {
+            const reconstructed = await buildSeasonRosterFromMatchups(season, leagueId, seasonTeam.rosterId);
+            for (const pid of reconstructed) rosterSet.add(pid);
+          } catch {
+            /* ignore reconstruction failure */
           }
-          if (!seasonRoster || seasonRoster.length === 0) continue;
+          const seasonRoster: string[] = Array.from(rosterSet);
+          if (seasonRoster.length === 0) continue;
 
           // Week-level attribution: include playoffs, exclude Week 18, include current season partial
           const weeks = Array.from({ length: 17 }, (_, i) => i + 1);
@@ -293,7 +293,7 @@ export default function TeamPage() {
               for (const pid of Object.keys(pp)) {
                 if (!seasonRoster.includes(pid)) continue;
                 const val = Number(pp[pid] || 0);
-                if (!Number.isFinite(val) || val <= 0) continue;
+                if (!Number.isFinite(val)) continue;
                 seasonTotals[pid] = (seasonTotals[pid] || 0) + val;
                 // capture playoff-only points (Weeks 15–17) for debug players
                 if (weekNum >= 15 && debugNames.has((allPlayersMap[pid] ? `${allPlayersMap[pid].first_name} ${allPlayersMap[pid].last_name}` : '').trim())) {
