@@ -77,6 +77,11 @@ export default function TeamPage() {
   const yearParam = searchParams.get('year') || '2025';
   
   const [team, setTeam] = useState<TeamData | null>(null);
+  // Convenient name and color styles for this team
+  const teamName = team?.teamName || 'Unknown Team';
+  const teamColors = useMemo(() => getTeamColors(teamName), [teamName]);
+  const secondaryStyle = useMemo(() => getTeamColorStyle(teamName, 'secondary'), [teamName]);
+  const tertiaryStyle = useMemo(() => getTeamColorStyle(teamName, 'tertiary'), [teamName]);
   const [weeklyResults, setWeeklyResults] = useState<Array<{
     week: number;
     points: number;
@@ -123,10 +128,10 @@ export default function TeamPage() {
   const [modalRealCache, setModalRealCache] = useState<Record<string, SleeperNFLSeasonPlayerStats | null>>({});
   // Records: career leaders and best single-season leaders by position (Top 5)
   type LeaderRow = { playerId: string; name: string; position: string; season?: string; total: number; ppg?: number };
-  const POSITIONS = ['QB','RB','WR','TE','K','DEF/DST'] as const;
+  const POSITIONS = useMemo(() => ['QB','RB','WR','TE','K','DEF/DST'] as const, []);
   type PosKey = typeof POSITIONS[number];
-  const emptyCareer: Record<PosKey | 'ALL', LeaderRow[]> = { 'QB': [], 'RB': [], 'WR': [], 'TE': [], 'K': [], 'DEF/DST': [], 'ALL': [] };
-  const emptySeason: Record<PosKey, LeaderRow[]> = { 'QB': [], 'RB': [], 'WR': [], 'TE': [], 'K': [], 'DEF/DST': [] };
+  const emptyCareer = useMemo(() => ({ 'QB': [], 'RB': [], 'WR': [], 'TE': [], 'K': [], 'DEF/DST': [], 'ALL': [] } as Record<PosKey | 'ALL', LeaderRow[]>), []);
+  const emptySeason = useMemo(() => ({ 'QB': [], 'RB': [], 'WR': [], 'TE': [], 'K': [], 'DEF/DST': [] } as Record<PosKey, LeaderRow[]>), []);
   const [careerLeaders, setCareerLeaders] = useState<Record<PosKey | 'ALL', LeaderRow[]>>(emptyCareer);
   const [seasonLeaders, setSeasonLeaders] = useState<Record<PosKey, LeaderRow[]>>(emptySeason);
   const [recordsLoading, setRecordsLoading] = useState(false);
@@ -709,11 +714,7 @@ export default function TeamPage() {
     );
   }
   
-  // Find the team's canonical name
-  const teamName = team.teamName;
-  
   // Scoped team theme variables for this page
-  const colors = getTeamColors(teamName);
   type TeamCSSVars = React.CSSProperties & {
     '--danger'?: string;
     '--gold'?: string;
@@ -721,14 +722,14 @@ export default function TeamPage() {
     '--quaternary'?: string;
   };
   const themeVars: TeamCSSVars = {
-    '--danger': colors.primary,
-    '--gold': colors.secondary,
-    '--tertiary': colors.tertiary ?? colors.secondary ?? colors.primary,
-    '--quaternary': colors.quaternary ?? colors.secondary ?? colors.primary,
+    '--danger': teamColors.primary,
+    '--gold': teamColors.secondary,
+    '--tertiary': teamColors.tertiary ?? teamColors.secondary ?? teamColors.primary,
+    '--quaternary': teamColors.quaternary ?? teamColors.secondary ?? teamColors.primary,
   };
   // Local override to color Tabs with team primary while keeping global blue accents elsewhere
   type TabsAccentVars = React.CSSProperties & { '--accent'?: string };
-  const tabsAccentVars: TabsAccentVars = { '--accent': colors.primary };
+  const tabsAccentVars: TabsAccentVars = { '--accent': teamColors.primary };
   
   // Function to handle missing logo images
   const handleImageError = (e: React.SyntheticEvent<HTMLImageElement, Event>) => {
@@ -1075,20 +1076,38 @@ export default function TeamPage() {
             id: 'records',
             label: 'Records',
             content: (
-              <Card>
+              <Card style={{ borderTop: `4px solid ${teamColors.primary}` }}>
                 <CardHeader>
-                  <CardTitle>Team Records</CardTitle>
+                  <div
+                    className="rounded-md"
+                    style={{
+                      backgroundImage: `linear-gradient(90deg, ${teamColors.primary} 0%, ${teamColors.secondary} 100%)`,
+                      color: '#ffffff',
+                      padding: '0.5rem 0.75rem',
+                    }}
+                  >
+                    <CardTitle>Team Records</CardTitle>
+                  </div>
                 </CardHeader>
                 <CardContent>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <Card>
+                    <Card style={{ borderTop: `3px solid ${teamColors.secondary}` }}>
                       <CardHeader>
-                        <CardTitle>Top 5 Highest Scoring Weeks</CardTitle>
+                        <div
+                          className="rounded"
+                          style={{
+                            backgroundImage: `linear-gradient(90deg, ${teamColors.secondary} 0%, ${teamColors.tertiary || teamColors.primary} 100%)`,
+                            color: '#ffffff',
+                            padding: '0.35rem 0.6rem',
+                          }}
+                        >
+                          <CardTitle>Top 5 Highest Scoring Weeks</CardTitle>
+                        </div>
                       </CardHeader>
                       <CardContent>
                         <div className="overflow-x-auto">
                           <Table>
-                            <THead>
+                            <THead style={{ backgroundColor: (tertiaryStyle.backgroundColor as string), color: (tertiaryStyle.color as string) }}>
                               <Tr>
                                 <Th>#</Th>
                                 <Th>Year/Week</Th>
@@ -1098,13 +1117,15 @@ export default function TeamPage() {
                             </THead>
                             <TBody>
                               {(topHighWeeks || []).map((w, idx) => (
-                                <Tr key={`hi-${w.year}-${w.week}-${idx}`}>
+                                <Tr key={`hi-${w.year}-${w.week}-${idx}`} style={{ borderLeft: `3px solid ${teamColors.primary}` }}>
                                   <Td>{idx + 1}</Td>
                                   <Td>
                                     <div className="flex items-center gap-2">
                                       <span className="text-sm text-[var(--text)]">{w.year} · W{w.week}</span>
                                       {w.category !== 'regular' && (
-                                        <span className="text-xs evw-chip">{w.category === 'playoffs' ? 'Playoffs' : 'Toilet'}</span>
+                                        <span className="text-xs evw-chip" style={{ backgroundColor: (secondaryStyle.backgroundColor as string), color: (secondaryStyle.color as string) }}>
+                                          {w.category === 'playoffs' ? 'Playoffs' : 'Toilet'}
+                                        </span>
                                       )}
                                     </div>
                                   </Td>
@@ -1127,14 +1148,23 @@ export default function TeamPage() {
                       </CardContent>
                     </Card>
 
-                    <Card>
+                    <Card style={{ borderTop: `3px solid ${teamColors.secondary}` }}>
                       <CardHeader>
-                        <CardTitle>Top 5 Lowest Scoring Weeks</CardTitle>
+                        <div
+                          className="rounded"
+                          style={{
+                            backgroundImage: `linear-gradient(90deg, ${teamColors.secondary} 0%, ${teamColors.tertiary || teamColors.primary} 100%)`,
+                            color: '#ffffff',
+                            padding: '0.35rem 0.6rem',
+                          }}
+                        >
+                          <CardTitle>Top 5 Lowest Scoring Weeks</CardTitle>
+                        </div>
                       </CardHeader>
                       <CardContent>
                         <div className="overflow-x-auto">
                           <Table>
-                            <THead>
+                            <THead style={{ backgroundColor: (tertiaryStyle.backgroundColor as string), color: (tertiaryStyle.color as string) }}>
                               <Tr>
                                 <Th>#</Th>
                                 <Th>Year/Week</Th>
@@ -1144,13 +1174,15 @@ export default function TeamPage() {
                             </THead>
                             <TBody>
                               {(topLowWeeks || []).map((w, idx) => (
-                                <Tr key={`lo-${w.year}-${w.week}-${idx}`}>
+                                <Tr key={`lo-${w.year}-${w.week}-${idx}`} style={{ borderLeft: `3px solid ${teamColors.primary}` }}>
                                   <Td>{idx + 1}</Td>
                                   <Td>
                                     <div className="flex items-center gap-2">
                                       <span className="text-sm text-[var(--text)]">{w.year} · W{w.week}</span>
                                       {w.category !== 'regular' && (
-                                        <span className="text-xs evw-chip">{w.category === 'playoffs' ? 'Playoffs' : 'Toilet'}</span>
+                                        <span className="text-xs evw-chip" style={{ backgroundColor: (secondaryStyle.backgroundColor as string), color: (secondaryStyle.color as string) }}>
+                                          {w.category === 'playoffs' ? 'Playoffs' : 'Toilet'}
+                                        </span>
                                       )}
                                     </div>
                                   </Td>
@@ -1185,14 +1217,14 @@ export default function TeamPage() {
                     ) : (
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         {POSITIONS.map((pos) => (
-                          <Card key={`career-${pos}`}>
+                          <Card key={`career-${pos}`} style={{ borderTop: `3px solid ${teamColors.secondary}` }}>
                             <CardHeader>
                               <CardTitle>{pos}</CardTitle>
                             </CardHeader>
                             <CardContent>
                               <div className="overflow-x-auto">
                                 <Table>
-                                  <THead>
+                                  <THead style={{ backgroundColor: (tertiaryStyle.backgroundColor as string), color: (tertiaryStyle.color as string) }}>
                                     <Tr>
                                       <Th>#</Th>
                                       <Th>Player</Th>
@@ -1201,12 +1233,13 @@ export default function TeamPage() {
                                   </THead>
                                   <TBody>
                                     {(careerLeaders[pos] || []).map((row, idx) => (
-                                      <Tr key={`${pos}-${row.playerId}`}>
+                                      <Tr key={`${pos}-${row.playerId}`} style={{ borderLeft: `3px solid ${teamColors.primary}` }}>
                                         <Td>{idx + 1}</Td>
                                         <Td>
                                           <button
                                             type="button"
-                                            className="text-[var(--accent-strong,#0b5f98)] hover:underline font-medium"
+                                            className="hover:underline font-medium"
+                                            style={{ color: teamColors.secondary }}
                                             onClick={() => openPlayerModal(row.playerId, row.name)}
                                           >
                                             {row.name}
@@ -1235,15 +1268,15 @@ export default function TeamPage() {
                       <div className="py-4"><LoadingState message="Computing single-season leaders..." /></div>
                     ) : (
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        {(['QB','RB','WR','TE','K','DEF/DST'] as PosKey[]).map((pos) => (
-                          <Card key={`season-${pos}`}>
+                        {POSITIONS.map((pos) => (
+                          <Card key={`season-${pos}`} style={{ borderTop: `3px solid ${teamColors.secondary}` }}>
                             <CardHeader>
                               <CardTitle>{pos}</CardTitle>
                             </CardHeader>
                             <CardContent>
                               <div className="overflow-x-auto">
                                 <Table>
-                                  <THead>
+                                  <THead style={{ backgroundColor: (tertiaryStyle.backgroundColor as string), color: (tertiaryStyle.color as string) }}>
                                     <Tr>
                                       <Th>#</Th>
                                       <Th>Player</Th>
@@ -1253,12 +1286,13 @@ export default function TeamPage() {
                                   </THead>
                                   <TBody>
                                     {(seasonLeaders[pos] || []).map((row, idx) => (
-                                      <Tr key={`${pos}-${row.playerId}-${row.season}`}>
+                                      <Tr key={`${pos}-${row.playerId}`} style={{ borderLeft: `3px solid ${teamColors.primary}` }}>
                                         <Td>{idx + 1}</Td>
                                         <Td>
                                           <button
                                             type="button"
-                                            className="text-[var(--accent-strong,#0b5f98)] hover:underline font-medium"
+                                            className="hover:underline font-medium"
+                                            style={{ color: teamColors.secondary }}
                                             onClick={() => openPlayerModal(row.playerId, row.name)}
                                           >
                                             {row.name}
