@@ -802,9 +802,18 @@ export default function TeamPage() {
             id: 'news',
             label: 'News',
             content: (
-              <Card>
+              <Card style={{ borderTop: `4px solid ${teamColors.primary}` }}>
                 <CardHeader className="flex items-center justify-between">
-                  <CardTitle>Roster News</CardTitle>
+                  <div
+                    className="rounded-md"
+                    style={{
+                      backgroundImage: `linear-gradient(90deg, ${teamColors.primary} 0%, ${teamColors.secondary} 100%)`,
+                      color: '#ffffff',
+                      padding: '0.35rem 0.6rem',
+                    }}
+                  >
+                    <CardTitle>Roster News</CardTitle>
+                  </div>
                   <div className="flex items-center gap-3">
                     {news && news.length > 0 ? (
                       <span className="text-sm text-[var(--muted)]">{news.length} articles</span>
@@ -878,7 +887,8 @@ export default function TeamPage() {
                                             href={it.link}
                                             target="_blank"
                                             rel="noopener noreferrer"
-                                            className="inline-flex items-center text-sm text-[var(--accent)] hover:underline"
+                                            className="inline-flex items-center text-sm hover:underline"
+                                            style={{ color: teamColors.secondary }}
                                           >
                                             Read at source ↗
                                           </a>
@@ -904,15 +914,24 @@ export default function TeamPage() {
             id: 'roster',
             label: 'Roster',
             content: (
-              <Card>
+              <Card style={{ borderTop: `4px solid ${teamColors.primary}` }}>
                 <CardHeader>
-                  <CardTitle>Current Roster</CardTitle>
+                  <div
+                    className="rounded-md"
+                    style={{
+                      backgroundImage: `linear-gradient(90deg, ${teamColors.primary} 0%, ${teamColors.secondary} 100%)`,
+                      color: '#ffffff',
+                      padding: '0.35rem 0.6rem',
+                    }}
+                  >
+                    <CardTitle>Current Roster</CardTitle>
+                  </div>
                 </CardHeader>
                 <CardContent>
                   {team.players && team.players.length > 0 ? (
                     <div className="overflow-x-auto">
                       <Table>
-                        <THead>
+                        <THead style={{ backgroundColor: (tertiaryStyle.backgroundColor as string), color: (tertiaryStyle.color as string) }}>
                           <Tr>
                             <Th>
                               <button type="button" onClick={() => onSort('name')} className="flex items-center gap-1 hover:text-[var(--text)]">
@@ -950,7 +969,7 @@ export default function TeamPage() {
                           {sortedGroups.map(({ group, ids }) => (
                             [
                               (
-                                <Tr key={`hdr-${group}`} className="bg-[color-mix(in_srgb,var(--danger)_12%,transparent)]">
+                                <Tr key={`hdr-${group}`} className="bg-[color-mix(in_srgb,var(--danger)_12%,transparent)]" style={{ borderLeft: `3px solid ${teamColors.primary}` }}>
                                   <Td colSpan={6} className="text-xs font-semibold text-[var(--muted)] uppercase">
                                     {group}
                                   </Td>
@@ -961,11 +980,12 @@ export default function TeamPage() {
                                 if (!player) return null;
                                 const s = playerSeasonStats[playerId];
                                 return (
-                                  <Tr key={playerId}>
+                                  <Tr key={playerId} style={{ borderLeft: `3px solid ${teamColors.primary}` }}>
                                     <Td>
                                       <button
                                         type="button"
-                                        className="text-sm font-medium text-[var(--accent)] hover:underline"
+                                        className="text-sm font-medium hover:underline"
+                                        style={{ color: teamColors.secondary }}
                                         onClick={() => setSelectedPlayerId(playerId)}
                                       >
                                         {player.first_name} {player.last_name}
@@ -1005,15 +1025,24 @@ export default function TeamPage() {
             id: 'schedule',
             label: 'Schedule',
             content: (
-              <Card>
+              <Card style={{ borderTop: `4px solid ${teamColors.primary}` }}>
                 <CardHeader>
-                  <CardTitle>Season Schedule</CardTitle>
+                  <div
+                    className="rounded-md"
+                    style={{
+                      backgroundImage: `linear-gradient(90deg, ${teamColors.primary} 0%, ${teamColors.secondary} 100%)`,
+                      color: '#ffffff',
+                      padding: '0.35rem 0.6rem',
+                    }}
+                  >
+                    <CardTitle>Season Schedule</CardTitle>
+                  </div>
                 </CardHeader>
                 <CardContent>
                   {weeklyResults && weeklyResults.length > 0 ? (
                     <div className="overflow-x-auto">
                       <Table>
-                        <THead>
+                        <THead style={{ backgroundColor: (tertiaryStyle.backgroundColor as string), color: (tertiaryStyle.color as string) }}>
                           <Tr>
                             <Th>Week</Th>
                             <Th>Opponent</Th>
@@ -1035,7 +1064,7 @@ export default function TeamPage() {
                                   : 'bg-yellow-100 text-yellow-800')
                               : 'evw-subtle text-[var(--text)]';
                             return (
-                              <Tr key={result.week}>
+                              <Tr key={result.week} style={{ borderLeft: `3px solid ${teamColors.primary}` }}>
                                 <Td>
                                   <div className="text-sm text-[var(--text)]">Week {result.week}</div>
                                 </Td>
