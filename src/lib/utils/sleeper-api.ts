@@ -981,6 +981,104 @@ export async function getTopScoringWeeksAllTime(
   return rows.slice(0, Math.max(1, top));
 }
 
+// Returns the top N scoring weeks for a specific franchise owner across all configured seasons.
+export interface TeamTopWeek {
+  points: number;
+  opponentPoints: number;
+  opponentTeamName: string;
+  week: number;
+  year: string;
+  category: 'regular' | 'playoffs' | 'toilet';
+}
+
+export async function getTopScoringWeeksByOwner(
+  ownerId: string,
+  params?: { top?: number; category?: 'regular' | 'playoffs' | 'toilet' | 'all'; sort?: 'asc' | 'desc' },
+  options?: SleeperFetchOptions
+): Promise<TeamTopWeek[]> {
+  const { top = 5, category = 'all', sort = 'desc' } = params || {};
+
+  const yearToLeague: Record<string, string> = {
+    '2025': LEAGUE_IDS.CURRENT,
+    ...LEAGUE_IDS.PREVIOUS,
+  };
+
+  const rows: TeamTopWeek[] = [];
+
+  for (const [year, leagueId] of Object.entries(yearToLeague)) {
+    if (!leagueId) continue;
+
+    // Build rosterId -> ownerId and rosterId -> teamName maps
+    const rosters = await getLeagueRosters(leagueId, options);
+    const rosterOwner = new Map<number, string>();
+    for (const r of rosters) rosterOwner.set(r.roster_id, r.owner_id);
+    const rosterIdToName = await getRosterIdToTeamNameMap(leagueId, options).catch(() => new Map<number, string>());
+
+    // Determine playoff start week
+    const league = await getLeague(leagueId, options);
+    const settings = (league?.settings || {}) as { playoff_week_start?: number; playoff_start_week?: number };
+    const startWeek = Number(settings.playoff_week_start ?? settings.playoff_start_week ?? 15);
+
+    // Winners bracket set to distinguish playoffs vs toilet after playoff start
+    const winnersBracket = await getLeagueWinnersBracket(leagueId, options).catch(() => [] as SleeperBracketGame[]);
+    const winnersSet = new Set<number>();
+    for (const g of winnersBracket) {
+      if (typeof g.t1 === 'number') winnersSet.add(g.t1);
+      if (typeof g.t2 === 'number') winnersSet.add(g.t2);
+    }
+
+    // Weeks 1..18
+    const weekNums = Array.from({ length: 18 }, (_, i) => i + 1);
+    const weekMatchups = await Promise.all(
+      weekNums.map((w) => getLeagueMatchups(leagueId, w, options).catch(() => [] as SleeperMatchup[]))
+    );
+
+    for (let idx = 0; idx < weekMatchups.length; idx++) {
+      const week = idx + 1;
+      const matchups = weekMatchups[idx];
+      if (!Array.isArray(matchups) || matchups.length === 0) continue;
+
+      // Find entries for this owner
+      for (const m of matchups) {
+        const mOwner = rosterOwner.get(m.roster_id);
+        if (mOwner !== ownerId) continue;
+
+        const opponent = matchups.find((om) => om.matchup_id === m.matchup_id && om.roster_id !== m.roster_id);
+        if (!opponent) continue;
+
+        const myPts = m.custom_points ?? m.points ?? 0;
+        const oppPts = opponent.custom_points ?? opponent.points ?? 0;
+        if ((myPts ?? 0) === 0 && (oppPts ?? 0) === 0) continue; // skip unplayed scheduled
+
+        // Determine category of this matchup
+        let cat: 'regular' | 'playoffs' | 'toilet';
+        if (week < startWeek) {
+          cat = 'regular';
+        } else {
+          const meInW = winnersSet.has(m.roster_id);
+          const oppInW = winnersSet.has(opponent.roster_id);
+          cat = (meInW && oppInW) ? 'playoffs' : 'toilet';
+        }
+        if (category !== 'all' && cat !== category) continue;
+
+        const opponentTeamName = rosterIdToName.get(opponent.roster_id) || resolveCanonicalTeamName({ ownerId: rosterOwner.get(opponent.roster_id) || '' });
+
+        rows.push({
+          points: myPts,
+          opponentPoints: oppPts,
+          opponentTeamName,
+          week,
+          year,
+          category: cat,
+        });
+      }
+    }
+  }
+
+  rows.sort((a, b) => (sort === 'asc' ? a.points - b.points : b.points - a.points));
+  return rows.slice(0, Math.max(1, top));
+}
+
 /**
  * Get a team's all-time aggregate stats across all configured league seasons by owner_id
  * Uses LEAGUE_IDS.CURRENT and LEAGUE_IDS.PREVIOUS years.

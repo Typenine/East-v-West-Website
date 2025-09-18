@@ -17,6 +17,8 @@ import {
   SleeperNFLSeasonPlayerStats,
   buildSeasonRosterFromMatchups,
   getLeagueMatchups,
+  getTopScoringWeeksByOwner,
+  TeamTopWeek,
 } from '@/lib/utils/sleeper-api';
 import { LEAGUE_IDS } from '@/lib/constants/league';
 import { getTeamLogoPath, getTeamColorStyle, getTeamColors, resolveCanonicalTeamName } from '@/lib/utils/team-utils';
@@ -139,6 +141,10 @@ export default function TeamPage() {
   const [modalLoading, setModalLoading] = useState(false);
   const [modalError, setModalError] = useState<string | null>(null);
 
+  // Top scoring weeks (Top 5 highest/lowest) across all seasons for this franchise
+  const [topHighWeeks, setTopHighWeeks] = useState<TeamTopWeek[]>([]);
+  const [topLowWeeks, setTopLowWeeks] = useState<TeamTopWeek[]>([]);
+
   const buildModalSeasons = useCallback(() => {
     const prevYears = Object.keys(LEAGUE_IDS.PREVIOUS || {});
     const seasons = Array.from(new Set([String(selectedYear), ...prevYears])).sort((a,b) => b.localeCompare(a));
@@ -199,7 +205,7 @@ export default function TeamPage() {
         rows.push({ week: w, points: Number(pts.toFixed(2)), rostered, started });
       }
       setModalWeeks(rows);
-    } catch (e) {
+    } catch {
       setModalWeeks([]);
       setModalError('Failed to load weekly points');
     } finally {
@@ -313,7 +319,7 @@ export default function TeamPage() {
             computeSeasonTotalsCustomScoringFromStats(season, leagueId, 18),
             computeSeasonTotalsCustomScoringFromStats(season, leagueId, 17),
           ]);
-          for (const [name, pid] of Object.entries(debugPidByName)) {
+          for (const pid of Object.values(debugPidByName)) {
             const tot = Number(cardTotals18[pid] || 0);
             if (!debugCardPerSeason[pid]) debugCardPerSeason[pid] = {};
             debugCardPerSeason[pid][season] = tot;
@@ -383,7 +389,7 @@ export default function TeamPage() {
         setRecordsLoading(false);
       }
     })();
-  }, [team, players, selectedYear]);
+  }, [team, players, selectedYear, POSITIONS, emptyCareer, emptySeason]);
 
   // Sorting state for roster table
   type SortKey = 'name' | 'position' | 'team' | 'gp' | 'totalPPR' | 'ppg';
@@ -584,9 +590,15 @@ export default function TeamPage() {
           }
         }
         
-        // Fetch all-time aggregate stats by owner across seasons
-        const allTime = await getTeamAllTimeStatsByOwner(currentTeam.ownerId);
+        // Fetch all-time aggregate stats + top 5 high/low weeks by owner across seasons
+        const [allTime, high5, low5] = await Promise.all([
+          getTeamAllTimeStatsByOwner(currentTeam.ownerId),
+          getTopScoringWeeksByOwner(currentTeam.ownerId, { top: 5, category: 'all', sort: 'desc' }),
+          getTopScoringWeeksByOwner(currentTeam.ownerId, { top: 5, category: 'all', sort: 'asc' }),
+        ]);
         setAllTimeStats(allTime);
+        setTopHighWeeks(high5);
+        setTopLowWeeks(low5);
         
         setError(null);
       } catch (err) {
@@ -1068,9 +1080,98 @@ export default function TeamPage() {
                   <CardTitle>Team Records</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <StatCard label="Highest Scoring Week" value={`${allTimeStats.highestScore.toFixed(2)} pts`} />
-                    <StatCard label="Lowest Scoring Week" value={`${allTimeStats.lowestScore.toFixed(2)} pts`} />
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <Card>
+                      <CardHeader>
+                        <CardTitle>Top 5 Highest Scoring Weeks</CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="overflow-x-auto">
+                          <Table>
+                            <THead>
+                              <Tr>
+                                <Th>#</Th>
+                                <Th>Year/Week</Th>
+                                <Th>Opponent</Th>
+                                <Th className="text-right">Score</Th>
+                              </Tr>
+                            </THead>
+                            <TBody>
+                              {(topHighWeeks || []).map((w, idx) => (
+                                <Tr key={`hi-${w.year}-${w.week}-${idx}`}>
+                                  <Td>{idx + 1}</Td>
+                                  <Td>
+                                    <div className="flex items-center gap-2">
+                                      <span className="text-sm text-[var(--text)]">{w.year} · W{w.week}</span>
+                                      {w.category !== 'regular' && (
+                                        <span className="text-xs evw-chip">{w.category === 'playoffs' ? 'Playoffs' : 'Toilet'}</span>
+                                      )}
+                                    </div>
+                                  </Td>
+                                  <Td>
+                                    <div className="text-sm text-[var(--muted)]">{w.opponentTeamName}</div>
+                                  </Td>
+                                  <Td className="text-right">
+                                    <span className="text-sm text-[var(--text)]">{w.points.toFixed(2)} - {w.opponentPoints.toFixed(2)}</span>
+                                  </Td>
+                                </Tr>
+                              ))}
+                              {(!topHighWeeks || topHighWeeks.length === 0) && (
+                                <Tr>
+                                  <Td colSpan={4}><div className="py-3 text-[var(--muted)]">No data</div></Td>
+                                </Tr>
+                              )}
+                            </TBody>
+                          </Table>
+                        </div>
+                      </CardContent>
+                    </Card>
+
+                    <Card>
+                      <CardHeader>
+                        <CardTitle>Top 5 Lowest Scoring Weeks</CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="overflow-x-auto">
+                          <Table>
+                            <THead>
+                              <Tr>
+                                <Th>#</Th>
+                                <Th>Year/Week</Th>
+                                <Th>Opponent</Th>
+                                <Th className="text-right">Score</Th>
+                              </Tr>
+                            </THead>
+                            <TBody>
+                              {(topLowWeeks || []).map((w, idx) => (
+                                <Tr key={`lo-${w.year}-${w.week}-${idx}`}>
+                                  <Td>{idx + 1}</Td>
+                                  <Td>
+                                    <div className="flex items-center gap-2">
+                                      <span className="text-sm text-[var(--text)]">{w.year} · W{w.week}</span>
+                                      {w.category !== 'regular' && (
+                                        <span className="text-xs evw-chip">{w.category === 'playoffs' ? 'Playoffs' : 'Toilet'}</span>
+                                      )}
+                                    </div>
+                                  </Td>
+                                  <Td>
+                                    <div className="text-sm text-[var(--muted)]">{w.opponentTeamName}</div>
+                                  </Td>
+                                  <Td className="text-right">
+                                    <span className="text-sm text-[var(--text)]">{w.points.toFixed(2)} - {w.opponentPoints.toFixed(2)}</span>
+                                  </Td>
+                                </Tr>
+                              ))}
+                              {(!topLowWeeks || topLowWeeks.length === 0) && (
+                                <Tr>
+                                  <Td colSpan={4}><div className="py-3 text-[var(--muted)]">No data</div></Td>
+                                </Tr>
+                              )}
+                            </TBody>
+                          </Table>
+                        </div>
+                      </CardContent>
+                    </Card>
                   </div>
 
                   {/* Career Leaders (Top 5) */}
