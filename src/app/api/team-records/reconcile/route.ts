@@ -5,6 +5,7 @@ import {
   getLeagueMatchups,
   getTeamsData,
   computeSeasonTotalsCustomScoringFromStats,
+  SleeperMatchup,
 } from '@/lib/utils/sleeper-api';
 import { resolveCanonicalTeamName } from '@/lib/utils/team-utils';
 
@@ -48,13 +49,25 @@ export async function GET(req: NextRequest) {
     const canonical = teamNameParam ? teamNameParam : (ownerIdParam ? resolveCanonicalTeamName({ ownerId: ownerIdParam }) : '');
     let resolvedTeamName: string | null = null;
 
-    const rows: Array<any> = [];
+    type Row = {
+      season: string;
+      team_attr_W1_17_plus_PO?: number;
+      nfl_reg_W1_18?: number;
+      playoffs_W15_17_only?: number;
+      week18_only?: number;
+      delta_total?: number;
+      delta_theory_PO_minus_W18?: number;
+      error?: string;
+    };
+    const rows: Row[] = [];
     for (const season of seasons) {
-      const leagueId = (season === '2025') ? LEAGUE_IDS.CURRENT : (LEAGUE_IDS.PREVIOUS as any)[season];
+      const leagueId = (season === '2025')
+        ? LEAGUE_IDS.CURRENT
+        : (LEAGUE_IDS.PREVIOUS as Record<string, string>)[season];
       if (!leagueId) continue;
 
       const teams = await getTeamsData(leagueId);
-      let seasonTeam = teams.find(t => canonical && t.teamName === canonical) || teams.find(t => ownerIdParam && t.ownerId === ownerIdParam) || null;
+      const seasonTeam = teams.find(t => canonical && t.teamName === canonical) || teams.find(t => ownerIdParam && t.ownerId === ownerIdParam) || null;
       if (!seasonTeam) {
         rows.push({ season, error: 'team not found' });
         continue;
@@ -65,12 +78,12 @@ export async function GET(req: NextRequest) {
 
       // Sum team-attributed points (Weeks 1–17 + playoffs) using league matchups players_points
       const weeks = Array.from({ length: 17 }, (_, i) => i + 1);
-      const weekly = await Promise.all(weeks.map(w => getLeagueMatchups(leagueId, w).catch(() => [] as any[])));
+      const weekly = await Promise.all(weeks.map((w) => getLeagueMatchups(leagueId, w).catch(() => [] as SleeperMatchup[])));
       let teamAttr = 0;
       let playoffsOnly = 0;
       for (let i = 0; i < weekly.length; i++) {
         const weekNum = weeks[i];
-        const matchups = weekly[i] as Array<{ roster_id?: number; players_points?: Record<string, number>; players?: string[]; starters?: string[] }>;
+        const matchups = weekly[i] as SleeperMatchup[];
         for (const m of matchups) {
           if (!m || m.roster_id !== rosterId) continue;
           const pp = m.players_points || {};
@@ -119,7 +132,8 @@ export async function GET(req: NextRequest) {
     };
 
     return NextResponse.json({ playerId, teamName: resolvedTeamName || canonical || null, seasons, rows, summary });
-  } catch (e: any) {
-    return NextResponse.json({ error: e?.message || String(e) }, { status: 500 });
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return NextResponse.json({ error: msg }, { status: 500 });
   }
 }
