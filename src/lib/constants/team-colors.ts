@@ -21,13 +21,13 @@ export const TEAM_COLORS: Record<string, TeamColors> = {
     tertiary: '#F2F7F9'
   },
   'Belltown Raptors': {
-    primary: '#753bd1',
-    secondary: '#ba002f',
+    primary: '#753bbd',
+    secondary: '#ba0c2f',
     tertiary: '#8a8d8f'
   },
   'Minshew\'s Maniacs': {
-    primary: '#A0022D',
-    secondary: '#404040',
+    primary: '#A60F2D',
+    secondary: '#4D4D4D',
     tertiary: '#ca5517'
   },
   'Double Trouble': {
@@ -36,24 +36,24 @@ export const TEAM_COLORS: Record<string, TeamColors> = {
     tertiary: '#ca5517'
   },
   'Mt. Lebanon Cake Eaters': {
-    primary: '#093351',
+    primary: '#023351',
     secondary: '#DCAC24',
     tertiary: '#4b7755'
   },
   'The Lone Ginger': {
     primary: '#d56920',
     secondary: '#13110d',
-    tertiary: '#f88618'
+    tertiary: '#4b775b'
   },
   'bop pop': {
     primary: '#fedb35',
-    secondary: '#98C4D0',
+    secondary: '#f88618',
     tertiary: '#0E9E9E'
   },
   'Red Pandas': {
-    primary: '#c90f0f',
+    primary: '#c90a00',
     secondary: '#000000',
-    tertiary: '#707574',
+    tertiary: '#797574',
     quaternary: '#38c4f6'
   },
   'BeerNeverBrokeMyHeart': {
@@ -63,18 +63,18 @@ export const TEAM_COLORS: Record<string, TeamColors> = {
   },
   'Elemental Heroes': {
     primary: '#83e1e2',
-    secondary: '#d65e5e',
-    tertiary: '#f5bd37'
+    secondary: '#fd6e6e',
+    tertiary: '#7799c9'
   },
   'Detroit Dawgs': {
-    primary: '#5b3d27',
-    secondary: '#e62127',
-    tertiary: '#779c9c'
+    primary: '#5a341f',
+    secondary: '#da2127',
+    tertiary: '#f3bd37'
   },
   'Bimg Bamg Boomg': {
     primary: '#712D7C',
-    secondary: '#BEDB30',
-    tertiary: '#F2F7F9'
+    secondary: '#9BC46D',
+    tertiary: '#9E9E9E'
   }
 };
 
