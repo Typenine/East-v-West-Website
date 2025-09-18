@@ -28,7 +28,7 @@ export default async function MatchupDetailPage({ params }: { params?: Promise<R
   const idStr = Array.isArray(idRaw) ? idRaw[0] : idRaw;
   const weekParam = Number(weekStr);
   const idParam = Number(idStr);
-  const week = clamp(Number.isFinite(weekParam) ? weekParam : 1, 1, 18);
+  const week = clamp(Number.isFinite(weekParam) ? weekParam : 1, 1, 17);
   const matchupId = Number.isFinite(idParam) ? idParam : 0;
 
   const leagueId = LEAGUE_IDS.CURRENT;
@@ -56,7 +56,12 @@ export default async function MatchupDetailPage({ params }: { params?: Promise<R
           <SectionHeader
             title={`Week ${week}: Matchup not found`}
             actions={
-              <Link href={`/?week=${week}`} className="text-[var(--accent)] hover:underline">← Back to Week {week}</Link>
+              week > 14
+                ? (
+                  <Link href={`/?week=14`} className="text-[var(--accent)] hover:underline">← Back to Schedule</Link>
+                ) : (
+                  <Link href={`/?week=${week}`} className="text-[var(--accent)] hover:underline">← Back to Week {week}</Link>
+                )
             }
           />
           <Card className="mt-4">
@@ -127,7 +132,12 @@ export default async function MatchupDetailPage({ params }: { params?: Promise<R
         <SectionHeader
           title={`Week ${week} Matchup`}
           actions={
-            <Link href={`/?week=${week}`} className="inline-flex items-center px-4 py-2 rounded-full font-medium evw-surface border border-[var(--border)] text-[var(--text)] hover:opacity-90 focus:outline-none focus:ring-2 ring-[var(--focus)] ring-offset-2 ring-offset-[var(--surface)]">← Back to Week {week}</Link>
+            week > 14
+              ? (
+                <Link href={`/?week=14`} className="inline-flex items-center px-4 py-2 rounded-full font-medium evw-surface border border-[var(--border)] text-[var(--text)] hover:opacity-90 focus:outline-none focus:ring-2 ring-[var(--focus)] ring-offset-2 ring-offset-[var(--surface)]">← Back to Schedule</Link>
+              ) : (
+                <Link href={`/?week=${week}`} className="inline-flex items-center px-4 py-2 rounded-full font-medium evw-surface border border-[var(--border)] text-[var(--text)] hover:opacity-90 focus:outline-none focus:ring-2 ring-[var(--focus)] ring-offset-2 ring-offset-[var(--surface)]">← Back to Week {week}</Link>
+              )
           }
         />
 
@@ -197,7 +207,9 @@ export default async function MatchupDetailPage({ params }: { params?: Promise<R
       <div className="container mx-auto px-4 py-8">
         <SectionHeader
           title={`Week ${week} Matchup`}
-          actions={<Link href={`/?week=${week}`} className="text-[var(--accent)] hover:underline">← Back to Week {week}</Link>}
+          actions={week > 14
+            ? <Link href={`/?week=14`} className="text-[var(--accent)] hover:underline">← Back to Schedule</Link>
+            : <Link href={`/?week=${week}`} className="text-[var(--accent)] hover:underline">← Back to Week {week}</Link>}
         />
         <Card className="mt-4">
           <CardContent>
