@@ -8,8 +8,8 @@ import Button from '@/components/ui/Button';
 export default function NewsletterPage() {
   const [selectedWeek, setSelectedWeek] = useState<number | null>(null);
   
-  // Generate weeks 1-18 for the archive
-  const weeks = Array.from({ length: 18 }, (_, i) => i + 1);
+  // Generate weeks 1-17 for the archive
+  const weeks = Array.from({ length: 17 }, (_, i) => i + 1);
   
   return (
     <div className="container mx-auto px-4 py-8">

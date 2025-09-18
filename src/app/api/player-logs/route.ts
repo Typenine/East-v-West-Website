@@ -28,8 +28,8 @@ export async function GET(req: Request) {
       return NextResponse.json(cached.data, { status: 200 });
     }
 
-    // Fetch all 18 weeks in parallel; ignore failures and missing weeks
-    const weeks = Array.from({ length: 18 }, (_, i) => i + 1);
+    // Fetch all 17 weeks in parallel; ignore failures and missing weeks
+    const weeks = Array.from({ length: 17 }, (_, i) => i + 1);
     const results = await Promise.all(
       weeks.map(async (w) => {
         try {

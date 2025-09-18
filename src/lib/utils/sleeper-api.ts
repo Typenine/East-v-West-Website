@@ -461,7 +461,7 @@ export async function getLeagueRecordBook(options?: SleeperFetchOptions): Promis
     for (const r of rosters) rosterOwner.set(r.roster_id, r.owner_id);
     const rosterIdToName = await getRosterIdToTeamNameMap(leagueId, options);
 
-    const weekPromises = Array.from({ length: 18 }, (_, i) => i + 1).map((w) => getLeagueMatchups(leagueId, w, options).catch(() => [] as SleeperMatchup[]));
+    const weekPromises = Array.from({ length: 17 }, (_, i) => i + 1).map((w) => getLeagueMatchups(leagueId, w, options).catch(() => [] as SleeperMatchup[]));
     const allWeekMatchups = await Promise.all(weekPromises);
 
     for (const weekIdx in allWeekMatchups) {
@@ -764,8 +764,8 @@ export async function getSplitRecordsAllTime(
       if (typeof g.t2 === 'number') losersSet.add(g.t2);
     }
 
-    // Fetch weeks 1..18 matchups
-    const weeks = Array.from({ length: 18 }, (_, i) => i + 1);
+    // Fetch weeks 1..17 matchups
+    const weeks = Array.from({ length: 17 }, (_, i) => i + 1);
     const allWeekMatchups = await Promise.all(
       weeks.map((w) => getLeagueMatchups(leagueId, w, options).catch(() => [] as SleeperMatchup[]))
     );
@@ -902,8 +902,8 @@ export async function getTopScoringWeeksAllTime(
       if (typeof g.t2 === 'number') winnersSet.add(g.t2);
     }
 
-    // Weeks 1..18
-    const weeks = Array.from({ length: 18 }, (_, i) => i + 1);
+    // Weeks 1..17
+    const weeks = Array.from({ length: 17 }, (_, i) => i + 1);
     const allWeekMatchups = await Promise.all(
       weeks.map((w) => getLeagueMatchups(leagueId, w, options).catch(() => [] as SleeperMatchup[]))
     );
@@ -1027,8 +1027,8 @@ export async function getTopScoringWeeksByOwner(
       if (typeof g.t2 === 'number') winnersSet.add(g.t2);
     }
 
-    // Weeks 1..18
-    const weekNums = Array.from({ length: 18 }, (_, i) => i + 1);
+    // Weeks 1..17 (exclude Week 18 from team Top High/Low)
+    const weekNums = Array.from({ length: 17 }, (_, i) => i + 1);
     const weekMatchups = await Promise.all(
       weekNums.map((w) => getLeagueMatchups(leagueId, w, options).catch(() => [] as SleeperMatchup[]))
     );
@@ -1134,9 +1134,9 @@ export async function getTeamAllTimeStatsByOwner(ownerId: string, options?: Slee
         totalPA += seasonPA;
       }
 
-      // Fetch all weeks' matchups in parallel
-      const weekPromises = Array.from({ length: 18 }, (_, i) => i + 1).map((w) =>
-        getLeagueMatchups(leagueId, w, options).catch(() => [] as SleeperMatchup[])
+      // Fetch all weeks' matchups in parallel (1..17)
+      const weekPromises = Array.from({ length: 17 }, (_, i) => i + 1).map((w) =>
+        getLeagueMatchups(leagueId, Math.min(w, 17), options).catch(() => [] as SleeperMatchup[])
       );
       const allWeekMatchups = await Promise.all(weekPromises);
 
@@ -1215,7 +1215,7 @@ export async function getTeamH2HRecordsAllTimeByOwner(ownerId: string, options?:
       const rosterOwner = new Map<number, string>();
       for (const r of rosters) rosterOwner.set(r.roster_id, r.owner_id);
 
-      const weekPromises = Array.from({ length: 18 }, (_, i) => i + 1).map((w) =>
+      const weekPromises = Array.from({ length: 17 }, (_, i) => i + 1).map((w) =>
         getLeagueMatchups(leagueId, w, options).catch(() => [] as SleeperMatchup[])
       );
       const allWeekMatchups = await Promise.all(weekPromises);
