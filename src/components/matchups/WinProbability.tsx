@@ -38,6 +38,20 @@ type BaselinesPayload = {
   baselines: Record<string, { mean: number; stddev: number; games: number }>;
 };
 
+type WPModel = {
+  trainedAt: string;
+  buckets: { range: [number, number]; a: number; b: number; n: number }[];
+};
+
+function clamp01(x: number) { return Math.max(0.000001, Math.min(0.999999, x)); }
+function sigmoid(z: number) { return 1 / (1 + Math.exp(-z)); }
+function logit(p: number) { const pp = clamp01(p); return Math.log(pp / (1 - pp)); }
+function applyCalibration(rawP: number, fracRemaining: number, model: WPModel): number {
+  const z = logit(clamp01(rawP));
+  const bkt = model.buckets.find((b) => fracRemaining >= b.range[0] && fracRemaining < b.range[1]) || model.buckets[0];
+  return clamp01(sigmoid(bkt.a * z + bkt.b));
+}
+
 function bucketFor(team: string | undefined, statuses: Record<string, TeamStatus | undefined>, isPastWeek: boolean): "YTP" | "IP" | "FIN" | "NA" {
   if (!team) return isPastWeek ? "FIN" : "YTP";
   const code = normalizeTeamCode(team);
@@ -74,6 +88,7 @@ export default function WinProbability({
   const timer = useRef<number | null>(null);
   const [baselines, setBaselines] = useState<Record<string, { mean: number; stddev: number; games: number }>>({});
   const [lastUpdated, setLastUpdated] = useState<string>("");
+  const [wpModel, setWpModel] = useState<WPModel | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -97,6 +112,23 @@ export default function WinProbability({
 
   const statuses = useMemo(() => board?.teamStatuses ?? {}, [board?.teamStatuses]);
   const isPastWeek = useMemo(() => Number.isFinite(currentWeek) && week < currentWeek, [week, currentWeek]);
+
+  // Fetch calibrated WP model (Tier 5)
+  useEffect(() => {
+    let cancelled = false;
+    async function loadModel() {
+      try {
+        const r = await fetch('/api/wp-model', { cache: 'force-cache' });
+        if (!r.ok) return;
+        const j = await r.json();
+        if (!cancelled) setWpModel((j?.model ?? null) as WPModel | null);
+      } catch {
+        // ignore
+      }
+    }
+    loadModel();
+    return () => { cancelled = true; };
+  }, []);
 
   // Fetch player baselines in one batch
   useEffect(() => {
@@ -274,14 +306,42 @@ export default function WinProbability({
     return { left: probLeft, right: 1 - probLeft, leftProj, rightProj, ci, ciWP: [lower, upper] as [number, number], N };
   }, [leftStarters, rightStarters, leftTotal, rightTotal, statuses, isPastWeek, baselines, POS_DEFAULT_MEAN, POS_DEFAULT_SD, contextMultiplier, fractionRemainingForTeam]);
 
-  const leftPct = Math.round(wp.left * 100);
+  // Global fraction remaining across active teams for calibration bucket selection
+  const fracGlobal = useMemo(() => {
+    const teams = new Set<string>();
+    for (const p of [...leftStarters, ...rightStarters]) {
+      const code = normalizeTeamCode(p.team);
+      if (code) teams.add(code);
+    }
+    const arr = Array.from(teams);
+    if (arr.length === 0) return 1;
+    const vals = arr.map((t) => fractionRemainingForTeam(t));
+    const avg = vals.reduce((a, b) => a + b, 0) / vals.length;
+    return Math.max(0, Math.min(1, avg));
+  }, [leftStarters, rightStarters, statuses, fractionRemainingForTeam]);
+
+  // Apply calibration if model available
+  const wpCal = useMemo(() => {
+    const p = wpModel ? applyCalibration(wp.left, fracGlobal, wpModel) : wp.left;
+    const N = wp.N;
+    const z = 1.96;
+    const phat = p;
+    const denom = 1 + (z * z) / N;
+    const center = phat + (z * z) / (2 * N);
+    const margin = z * Math.sqrt((phat * (1 - phat) + (z * z) / (4 * N)) / N);
+    const lower = Math.max(0, (center - margin) / denom);
+    const upper = Math.min(1, (center + margin) / denom);
+    return { p, ci: [lower, upper] as [number, number] };
+  }, [wp.left, wp.N, wpModel, fracGlobal]);
+
+  const leftPct = Math.round(wpCal.p * 100);
   const rightPct = 100 - leftPct;
-  useEffect(() => { setLastUpdated(new Date().toLocaleTimeString()); }, [wp.left]);
+  useEffect(() => { setLastUpdated(new Date().toLocaleTimeString()); }, [wpCal.p]);
 
   return (
     <div className="mb-6 evw-surface border border-[var(--border)] rounded-md p-4">
       <div className="flex items-center justify-between mb-2">
-        <h3 className="text-sm font-semibold">Win Probability (experimental)</h3>
+        <h3 className="text-sm font-semibold">Win Probability (calibrated)</h3>
         <div className="text-xs text-[var(--muted)]">Auto-updates every 30s</div>
       </div>
       <div className="text-xs text-[var(--muted)] mb-3">
@@ -291,7 +351,7 @@ export default function WinProbability({
         <span>{leftTeamName}</span>
         <span>{leftPct}%</span>
       </div>
-      <div className="text-[0.75rem] text-[var(--muted)] mb-1">WP 95% CI: {(wp.ciWP[0] * 100).toFixed(0)}%–{(wp.ciWP[1] * 100).toFixed(0)}%</div>
+      <div className="text-[0.75rem] text-[var(--muted)] mb-1">WP 95% CI: {(wpCal.ci[0] * 100).toFixed(0)}%–{(wpCal.ci[1] * 100).toFixed(0)}%</div>
       <div className="h-3 w-full rounded-full overflow-hidden evw-muted" aria-hidden>
         <div className="h-full bg-[var(--accent)]" style={{ width: `${leftPct}%` }} />
       </div>
