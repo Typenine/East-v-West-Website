@@ -81,7 +81,11 @@ function statusLabelFor(team: string | undefined, statuses: Record<string, TeamS
   const clk = s.displayClock ? `${s.displayClock}` : "";
   const parts = [q, clk].filter(Boolean).join(" ");
   const possess = s.possessionTeam && code && s.possessionTeam.toUpperCase() === code.toUpperCase();
-  return { label: `${vsat} ${opp} • ${parts || "In Progress"}`.trim(), bucket: "IP", possession: !!possess };
+  const score = (Number.isFinite(s.scoreFor as number) && Number.isFinite(s.scoreAgainst as number))
+    ? `${String(s.scoreFor)}–${String(s.scoreAgainst)}`
+    : undefined;
+  const matchup = score ? `${code} ${score} ${vsat} ${opp}` : `${vsat} ${opp}`;
+  return { label: `${matchup} • ${parts || "In Progress"}`.trim(), bucket: "IP", possession: !!possess };
 }
 
 function sumByPositionOrdered(players: PlayerRow[]) {
@@ -442,7 +446,8 @@ export default function RosterColumn({
                   )}
                   <div className={`text-xs ${bucketColor} flex items-center gap-2`}>
                     <span className={`inline-block w-2 h-2 rounded-full ${dotCls}`} aria-hidden />
-                    <span>{label}{possession ? ' · 🏈' : ''}</span>
+                    <span>{label}</span>
+                    {possession && <span className="ml-1 px-1.5 py-0.5 rounded border border-[var(--border)] text-[var(--text)]">POS</span>}
                     {isRZ && <span className="ml-1 px-1.5 py-0.5 rounded bg-red-600 text-white font-bold">RZ</span>}
                   </div>
                 </div>
@@ -488,7 +493,8 @@ export default function RosterColumn({
                   )}
                   <div className={`text-xs ${bucketColor} flex items-center gap-2`}>
                     <span className={`inline-block w-2 h-2 rounded-full ${dotCls}`} aria-hidden />
-                    <span>{label}{possession ? ' · 🏈' : ''}</span>
+                    <span>{label}</span>
+                    {possession && <span className="ml-1 px-1.5 py-0.5 rounded border border-[var(--border)] text-[var(--text)]">POS</span>}
                     {isRZ && <span className="ml-1 px-1.5 py-0.5 rounded bg-red-600 text-white font-bold">RZ</span>}
                   </div>
                 </div>

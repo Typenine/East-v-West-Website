@@ -301,11 +301,11 @@ export default function WinProbability({
       </div>
       <div className="mt-3 grid grid-cols-2 gap-4 text-xs text-[var(--muted)]">
         <div>
-          <div>Proj: {wp.leftProj.toFixed(1)} pts (CI {wp.ci.left[0].toFixed(1)}–{wp.ci.left[1].toFixed(1)})</div>
+          <div><span className="text-[var(--text)] font-medium">{leftTeamName}</span> · Proj: {wp.leftProj.toFixed(1)} pts (CI {wp.ci.left[0].toFixed(1)}–{wp.ci.left[1].toFixed(1)})</div>
           <div>Remaining: IP {counts.left.ip}, YTP {counts.left.ytp}</div>
         </div>
         <div className="text-right">
-          <div>Proj: {wp.rightProj.toFixed(1)} pts (CI {wp.ci.right[0].toFixed(1)}–{wp.ci.right[1].toFixed(1)})</div>
+          <div>Proj: {wp.rightProj.toFixed(1)} pts (CI {wp.ci.right[0].toFixed(1)}–{wp.ci.right[1].toFixed(1)}) · <span className="text-[var(--text)] font-medium">{rightTeamName}</span></div>
           <div>Remaining: IP {counts.right.ip}, YTP {counts.right.ytp}</div>
         </div>
       </div>

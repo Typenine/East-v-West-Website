@@ -141,6 +141,7 @@ export async function GET(req: NextRequest) {
       });
 
       if (homeCode) {
+        const homeInRZ = Boolean(isRedZone && possessionTeam && homeCode && possessionTeam.toUpperCase() === homeCode.toUpperCase());
         teamStatuses[homeCode] = {
           gameId,
           opponent: awayCode,
@@ -152,10 +153,11 @@ export async function GET(req: NextRequest) {
           possessionTeam,
           scoreFor: homeScore,
           scoreAgainst: awayScore,
-          isRedZone,
+          isRedZone: homeInRZ,
         };
       }
       if (awayCode) {
+        const awayInRZ = Boolean(isRedZone && possessionTeam && awayCode && possessionTeam.toUpperCase() === awayCode.toUpperCase());
         teamStatuses[awayCode] = {
           gameId,
           opponent: homeCode,
@@ -167,7 +169,7 @@ export async function GET(req: NextRequest) {
           possessionTeam,
           scoreFor: awayScore,
           scoreAgainst: homeScore,
-          isRedZone,
+          isRedZone: awayInRZ,
         };
       }
     }
