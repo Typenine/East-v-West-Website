@@ -26,6 +26,7 @@ type TeamStatus = {
   possessionTeam?: string;
   scoreFor?: number;
   scoreAgainst?: number;
+  isRedZone?: boolean;
 };
 
 type ScoreboardPayload = {
@@ -210,6 +211,9 @@ export default function RosterColumn({
   const pointsTimer = useRef<number | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [drawerPlayer, setDrawerPlayer] = useState<PlayerRow | null>(null);
+  const [filter, setFilter] = useState<'ALL' | 'IP' | 'YTP' | 'FIN'>('ALL');
+  const [flashOn, setFlashOn] = useState<Record<string, boolean>>({});
+  const flashTimersRef = useRef<Record<string, number>>({});
 
   useEffect(() => {
     const ids = [...starters, ...bench].map(p => p.id);
@@ -222,6 +226,27 @@ export default function RosterColumn({
     }
     setDeltaMap(next);
   }, [pointsMap, starters, bench]);
+
+  // Trigger a brief flash when a player's points change
+  useEffect(() => {
+    const ids = [...starters, ...bench].map(p => p.id);
+    for (const id of ids) {
+      const d = deltaMap[id] || 0;
+      if (d !== 0) {
+        // Clear any existing timer
+        if (flashTimersRef.current[id]) {
+          window.clearTimeout(flashTimersRef.current[id]);
+        }
+        setFlashOn((prev) => ({ ...prev, [id]: true }));
+        flashTimersRef.current[id] = window.setTimeout(() => {
+          setFlashOn((prev) => ({ ...prev, [id]: false }));
+        }, 1200);
+      }
+    }
+    return () => {
+      // nothing to clean here; timers are cleared on re-trigger and unmount
+    };
+  }, [deltaMap, starters, bench]);
 
   useEffect(() => {
     let cancelled = false;
@@ -320,6 +345,28 @@ export default function RosterColumn({
 
   const teamStyle = getTeamColorStyle(colorTeam);
 
+  // Starter status counts for quick filter buttons
+  const starterCounts = useMemo(() => {
+    let ytp = 0, ip = 0, fin = 0;
+    for (const s of starters) {
+      const res = statusLabelFor(s.team, statuses);
+      const bucket = res.bucket === 'NA' ? (isPastWeek ? 'FIN' : 'YTP') : res.bucket;
+      if (bucket === 'YTP') ytp++;
+      else if (bucket === 'IP') ip++;
+      else if (bucket === 'FIN') fin++;
+    }
+    return { all: starters.length, ytp, ip, fin };
+  }, [starters, statuses, isPastWeek]);
+
+  const startersFiltered = useMemo(() => {
+    if (filter === 'ALL') return starters;
+    return starters.filter((s) => {
+      const res = statusLabelFor(s.team, statuses);
+      const bucket = res.bucket === 'NA' ? (isPastWeek ? 'FIN' : 'YTP') : res.bucket;
+      return bucket === filter;
+    });
+  }, [filter, starters, statuses, isPastWeek]);
+
   return (
     <Card>
       <CardHeader className="sticky top-0 z-20 backdrop-blur supports-[backdrop-filter]:bg-[color-mix(in_srgb,var(--surface)_85%,transparent)]"
@@ -352,8 +399,15 @@ export default function RosterColumn({
 
       <CardContent>
         <h3 className="text-sm font-semibold mb-2">Starters</h3>
+        {/* Quick filters */}
+        <div className="mb-3 flex flex-wrap gap-2" role="tablist" aria-label="Filter starters by status">
+          <button type="button" className={`px-2 py-1 rounded-md text-xs border ${filter === 'ALL' ? 'bg-[var(--accent)] text-white border-[var(--accent)]' : 'evw-surface text-[var(--text)] border-[var(--border)]'}`} aria-pressed={filter === 'ALL'} onClick={() => setFilter('ALL')}>All ({starterCounts.all})</button>
+          <button type="button" className={`px-2 py-1 rounded-md text-xs border ${filter === 'IP' ? 'bg-[var(--accent)] text-white border-[var(--accent)]' : 'evw-surface text-[var(--text)] border-[var(--border)]'}`} aria-pressed={filter === 'IP'} onClick={() => setFilter('IP')}>IP ({starterCounts.ip})</button>
+          <button type="button" className={`px-2 py-1 rounded-md text-xs border ${filter === 'YTP' ? 'bg-[var(--accent)] text-white border-[var(--accent)]' : 'evw-surface text-[var(--text)] border-[var(--border)]'}`} aria-pressed={filter === 'YTP'} onClick={() => setFilter('YTP')}>YTP ({starterCounts.ytp})</button>
+          <button type="button" className={`px-2 py-1 rounded-md text-xs border ${filter === 'FIN' ? 'bg-[var(--accent)] text-white border-[var(--accent)]' : 'evw-surface text-[var(--text)] border-[var(--border)]'}`} aria-pressed={filter === 'FIN'} onClick={() => setFilter('FIN')}>FIN ({starterCounts.fin})</button>
+        </div>
         <ul className="space-y-2">
-          {starters.length > 0 ? starters.map((s) => {
+          {(startersFiltered.length > 0 ? startersFiltered : starters).map((s) => {
             const { label, bucket, possession } = (() => {
               const res = statusLabelFor(s.team, statuses);
               if (res.bucket === 'NA') {
@@ -367,8 +421,11 @@ export default function RosterColumn({
             const formatted = formatStatLine(s.pos, st);
             const curPts = Number(pointsMap[s.id] ?? s.pts);
             const d = deltaMap[s.id] || 0;
+            const code = normalizeTeamCode(s.team);
+            const tstat = code ? statuses[code] : undefined;
+            const isRZ = !!tstat?.isRedZone && bucket === 'IP';
             return (
-              <li key={s.id} className="flex items-center justify-between evw-surface border border-[var(--border)] rounded-md px-3 py-2">
+              <li key={s.id} className={`flex items-center justify-between evw-surface border border-[var(--border)] rounded-md px-3 py-2 transition-colors ${flashOn[s.id] ? (d > 0 ? 'bg-green-500/10' : 'bg-red-500/10') : ''}`}>
                 <div className="min-w-0">
                   <div className="font-medium truncate flex items-center gap-2">
                     <span className="text-xs text-[var(--muted)] w-8 inline-block">{s.pos || "—"}</span>
@@ -385,7 +442,8 @@ export default function RosterColumn({
                   )}
                   <div className={`text-xs ${bucketColor} flex items-center gap-2`}>
                     <span className={`inline-block w-2 h-2 rounded-full ${dotCls}`} aria-hidden />
-                    <span>{label}</span>
+                    <span>{label}{possession ? ' · 🏈' : ''}</span>
+                    {isRZ && <span className="ml-1 px-1.5 py-0.5 rounded bg-red-600 text-white font-bold">RZ</span>}
                   </div>
                 </div>
                 <div className="text-right">
@@ -396,7 +454,7 @@ export default function RosterColumn({
                 </div>
               </li>
             );
-          }) : <li className="text-sm text-[var(--muted)]">No starters listed.</li>}
+          })}
         </ul>
 
         <h3 className="text-sm font-semibold mt-6 mb-2">Bench</h3>
@@ -409,8 +467,11 @@ export default function RosterColumn({
             const formatted = formatStatLine(s.pos, st);
             const curPts = Number(pointsMap[s.id] ?? s.pts);
             const d = deltaMap[s.id] || 0;
+            const code = normalizeTeamCode(s.team);
+            const tstat = code ? statuses[code] : undefined;
+            const isRZ = !!tstat?.isRedZone && bucket === 'IP';
             return (
-              <li key={s.id} className="flex items-center justify-between evw-surface border border-[var(--border)] rounded-md px-3 py-2">
+              <li key={s.id} className={`flex items-center justify-between evw-surface border border-[var(--border)] rounded-md px-3 py-2 transition-colors ${flashOn[s.id] ? (d > 0 ? 'bg-green-500/10' : 'bg-red-500/10') : ''}`}>
                 <div className="min-w-0">
                   <div className="font-medium truncate flex items-center gap-2">
                     <span className="text-xs text-[var(--muted)] w-8 inline-block">{s.pos || "—"}</span>
@@ -427,7 +488,8 @@ export default function RosterColumn({
                   )}
                   <div className={`text-xs ${bucketColor} flex items-center gap-2`}>
                     <span className={`inline-block w-2 h-2 rounded-full ${dotCls}`} aria-hidden />
-                    <span>{label}</span>
+                    <span>{label}{possession ? ' · 🏈' : ''}</span>
+                    {isRZ && <span className="ml-1 px-1.5 py-0.5 rounded bg-red-600 text-white font-bold">RZ</span>}
                   </div>
                 </div>
                 <div className="text-right">

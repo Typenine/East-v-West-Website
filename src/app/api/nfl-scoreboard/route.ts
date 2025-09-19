@@ -74,6 +74,7 @@ export async function GET(req: NextRequest) {
       home: { code?: string; score?: number };
       away: { code?: string; score?: number };
       possessionTeam?: string; // Sleeper code
+      isRedZone?: boolean;
     };
 
     const games: Game[] = [];
@@ -88,6 +89,7 @@ export async function GET(req: NextRequest) {
       possessionTeam?: string;
       scoreFor?: number;
       scoreAgainst?: number;
+      isRedZone?: boolean;
     }> = {};
 
     // Minimal ESPN types for parsing
@@ -96,7 +98,7 @@ export async function GET(req: NextRequest) {
     type ESPNCompetition = {
       competitors?: ESPNCompetitor[];
       status?: { period?: number; displayClock?: string; type?: { state?: 'pre' | 'in' | 'post' } };
-      situation?: { possession?: string };
+      situation?: { possession?: string; isRedZone?: boolean };
       id?: string;
       date?: string;
     };
@@ -121,6 +123,7 @@ export async function GET(req: NextRequest) {
       const period = Number(comp?.status?.period || ev?.status?.period || 0) || undefined;
       const displayClock = comp?.status?.displayClock || ev?.status?.displayClock || undefined;
       const possessionAbbrev = comp?.situation?.possession;
+      const isRedZone = Boolean(comp?.situation?.isRedZone);
       const possessionTeam = normalizeTeamCode(possessionAbbrev);
       const gameId = String(ev?.id ?? comp?.id ?? cryptoRandomId());
       const startDate = String(ev?.date ?? comp?.date ?? new Date().toISOString());
@@ -134,6 +137,7 @@ export async function GET(req: NextRequest) {
         home: { code: homeCode, score: homeScore },
         away: { code: awayCode, score: awayScore },
         possessionTeam,
+        isRedZone,
       });
 
       if (homeCode) {
@@ -148,6 +152,7 @@ export async function GET(req: NextRequest) {
           possessionTeam,
           scoreFor: homeScore,
           scoreAgainst: awayScore,
+          isRedZone,
         };
       }
       if (awayCode) {
@@ -162,6 +167,7 @@ export async function GET(req: NextRequest) {
           possessionTeam,
           scoreFor: awayScore,
           scoreAgainst: homeScore,
+          isRedZone,
         };
       }
     }

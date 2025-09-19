@@ -13,6 +13,7 @@ import {
   type SleeperPlayer,
 } from '@/lib/utils/sleeper-api';
 import RosterColumn, { type PlayerRow } from '@/components/matchups/RosterColumn';
+import WinProbability from '@/components/matchups/WinProbability';
 
 export const revalidate = 20;
 
@@ -139,6 +140,19 @@ export default async function MatchupDetailPage({ params }: { params?: Promise<R
                 <Link href={`/?week=${week}`} className="inline-flex items-center px-4 py-2 rounded-full font-medium evw-surface border border-[var(--border)] text-[var(--text)] hover:opacity-90 focus:outline-none focus:ring-2 ring-[var(--focus)] ring-offset-2 ring-offset-[var(--surface)]">← Back to Week {week}</Link>
               )
           }
+        />
+
+        {/* Win Probability (experimental) */}
+        <WinProbability
+          week={week}
+          season={season}
+          leftTeamName={bName}
+          rightTeamName={aName}
+          leftTotal={bPts}
+          rightTotal={aPts}
+          leftStarters={bStarters as PlayerRow[]}
+          rightStarters={aStarters as PlayerRow[]}
+          currentWeek={currentWeek}
         />
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
