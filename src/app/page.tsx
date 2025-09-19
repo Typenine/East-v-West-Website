@@ -47,13 +47,22 @@ export default async function Home({ searchParams }: { searchParams?: Promise<Re
       // Determine week display policy based on day-of-week in Eastern Time, independent of Sleeper flips
       const now = new Date();
       const dowET = new Intl.DateTimeFormat('en-US', { weekday: 'short', timeZone: 'America/New_York' }).format(now);
-      const isWedOrLater = dowET === 'Wed' || dowET === 'Thu' || dowET === 'Fri' || dowET === 'Sat' || dowET === 'Sun';
       const weekMs = 7 * 24 * 60 * 60 * 1000;
       const diffMs = Date.now() - week1Ts;
       const weeksSinceStart = Math.floor(Math.max(0, diffMs) / weekMs);
-      const calendarWeek = weeksSinceStart + 1; // Week 1 spans first Thu..Mon window
-      // Policy: show current calendar week on Mon/Tue; starting Wed show next week
-      defaultWeek = isWedOrLater ? calendarWeek + 1 : calendarWeek;
+      const calendarWeek = weeksSinceStart + 1; // anchored to NFL Week 1 Thursday
+
+      // Policy:
+      // - Mon/Tue (ET): freeze to previous week (calendarWeek - 1)
+      // - Wed (ET): flip to new Sleeper week (calendarWeek + 1 relative to base calc)
+      // - Thu–Sun (ET): show the current week (calendarWeek)
+      if (dowET === 'Mon' || dowET === 'Tue') {
+        defaultWeek = Math.max(1, calendarWeek - 1);
+      } else if (dowET === 'Wed') {
+        defaultWeek = calendarWeek + 1;
+      } else {
+        defaultWeek = calendarWeek; // Thu, Fri, Sat, Sun
+      }
     }
     // Clamp default to regular-season bounds
     defaultWeek = Math.min(Math.max(1, defaultWeek), MAX_REGULAR_WEEKS);
