@@ -45,6 +45,12 @@ type ScoreboardPayload = {
   }>;
 };
 
+type BaselinesPayload = {
+  season: string;
+  players: number;
+  baselines: Record<string, { mean: number; stddev: number; games: number; last3Avg: number }>;
+};
+
 function formatKickoff(dateIso?: string) {
   if (!dateIso) return "";
   try {
@@ -55,7 +61,60 @@ function formatKickoff(dateIso?: string) {
   } catch {
     return "";
   }
+} // Added closing brace here
+
+// Helpers for projections
+function parseClockToMinutes(clock?: string): number {
+  if (!clock) return 0;
+  const m = /^(\d{1,2}):(\d{2})/.exec(clock);
+  if (!m) return 0;
+  const min = Number(m[1]);
+  const sec = Number(m[2]);
+  if (!isFinite(min) || !isFinite(sec)) return 0;
+  return Math.max(0, Math.min(15, min + sec / 60));
 }
+
+function fractionRemainingForTeam(teamCode: string | undefined, statuses: Record<string, TeamStatus | undefined>, isPastWeek: boolean): number {
+  const code = normalizeTeamCode(teamCode);
+  if (!code) return 0.5;
+  const s = statuses[code];
+  if (!s) return isPastWeek ? 0 : 1;
+  if (s.state === 'pre') return 1;
+  if (s.state === 'post') return 0;
+  const period = Number(s.period || 1);
+  const clockMin = parseClockToMinutes(s.displayClock);
+  const quartersRemaining = Math.max(0, 4 - Math.min(4, period));
+  const fractionThisQuarter = Math.max(0, Math.min(1, clockMin / 15));
+  const frac = (quartersRemaining + fractionThisQuarter) / 4;
+  return Math.max(0, Math.min(1, period > 4 ? 0.08 : frac));
+}
+
+function contextMultiplier(pos?: string, teamCode?: string, statuses?: Record<string, TeamStatus | undefined>): number {
+  const code = normalizeTeamCode(teamCode);
+  const s = code && statuses ? statuses[code] : undefined;
+  if (!s) return 1;
+  let meanMul = 1;
+  const p = (pos || '').toUpperCase();
+  if (s.state === 'in' && s.isRedZone && (p === 'QB' || p === 'RB' || p === 'WR' || p === 'TE')) meanMul *= 1.08;
+  if (s.state === 'in' && s.possessionTeam && code && s.possessionTeam.toUpperCase() === code.toUpperCase()) {
+    if (p === 'QB' || p === 'RB' || p === 'WR' || p === 'TE') meanMul *= 1.05;
+  }
+  const diff = (s.scoreFor ?? 0) - (s.scoreAgainst ?? 0);
+  if (s.state !== 'pre') {
+    if (diff <= -8) {
+      if (p === 'WR' || p === 'TE') meanMul *= 1.05;
+      if (p === 'QB') meanMul *= 1.03;
+      if (p === 'RB') meanMul *= 0.97;
+    } else if (diff >= 8) {
+      if (p === 'RB') meanMul *= 1.03;
+      if (p === 'WR' || p === 'TE') meanMul *= 0.98;
+    }
+  }
+  return meanMul;
+}
+
+const POS_DEFAULT_MEAN: Record<string, number> = { QB: 18, RB: 13, WR: 13, TE: 8, K: 8, DEF: 8 };
+
 
 function statusLabelFor(team: string | undefined, statuses: Record<string, TeamStatus | undefined>): {
   label: string;
@@ -218,6 +277,8 @@ export default function RosterColumn({
   const [filter, setFilter] = useState<'ALL' | 'IP' | 'YTP' | 'FIN'>('ALL');
   const [flashOn, setFlashOn] = useState<Record<string, boolean>>({});
   const flashTimersRef = useRef<Record<string, number>>({});
+  const [baselinesMap, setBaselinesMap] = useState<Record<string, { mean: number; stddev: number; games: number; last3Avg: number }>>({});
+  const [defFactors, setDefFactors] = useState<Record<string, number>>({});
 
   useEffect(() => {
     const ids = [...starters, ...bench].map(p => p.id);
@@ -319,6 +380,44 @@ export default function RosterColumn({
     };
   }, [week]);
 
+  // Fetch baselines for starters + bench to support per-player projections
+  useEffect(() => {
+    let cancelled = false;
+    const ids = Array.from(new Set([...starters, ...bench].map((p) => p.id)));
+    if (ids.length === 0) return;
+    async function load() {
+      try {
+        const url = `/api/player-baselines?season=${encodeURIComponent(season)}&players=${ids.join(',')}`;
+        const r = await fetch(url, { cache: 'force-cache' });
+        if (!r.ok) return;
+        const j = (await r.json()) as BaselinesPayload;
+        if (!cancelled) setBaselinesMap(j.baselines || {});
+      } catch {
+        // ignore
+      }
+    }
+    load();
+    return () => { cancelled = true; };
+  }, [season, starters, bench]);
+
+  // Fetch defensive strength factors (opponent adjustment)
+  useEffect(() => {
+    let cancelled = false;
+    async function loadDef() {
+      try {
+        const upto = Math.max(1, Math.min(17, week - 1));
+        const r = await fetch(`/api/defense-strength?season=${encodeURIComponent(season)}&uptoWeek=${upto}`, { cache: 'force-cache' });
+        if (!r.ok) return;
+        const j = await r.json() as { factors?: Record<string, number> };
+        if (!cancelled) setDefFactors(j.factors || {});
+      } catch {
+        // ignore
+      }
+    }
+    loadDef();
+    return () => { cancelled = true; };
+  }, [season, week]);
+
   const statuses = useMemo(() => board?.teamStatuses ?? {}, [board?.teamStatuses]);
   const isPastWeek = useMemo(() => Number.isFinite(currentWeek) && week < currentWeek, [week, currentWeek]);
 
@@ -370,6 +469,57 @@ export default function RosterColumn({
       return bucket === filter;
     });
   }, [filter, starters, statuses, isPastWeek]);
+
+  // Projected totals per player (final = current points + expected remaining)
+  const projTotals = useMemo(() => {
+    const map: Record<string, number> = {};
+    const all = [...starters, ...bench];
+    for (const s of all) {
+      const pos = (s.pos || '').toUpperCase();
+      const basePos = POS_DEFAULT_MEAN[pos] ?? 10;
+      const b = baselinesMap[s.id] as unknown as { mean?: number; games?: number; last3Avg?: number };
+      const games = b?.games ?? 0;
+      const recencyWeight = (b?.last3Avg ?? 0) > 0 ? 0.6 : 0; // prefer recent if available
+      const recencyMean = (recencyWeight * (b?.last3Avg ?? 0)) + ((1 - recencyWeight) * (b?.mean ?? basePos));
+      const alpha = Math.max(0, Math.min(1, games / 6));
+      // Shrink toward positional default
+      const fullMean = (alpha * recencyMean) + ((1 - alpha) * basePos);
+      const frac = fractionRemainingForTeam(s.team, statuses, isPastWeek);
+      const ctx = contextMultiplier(pos, s.team, statuses);
+      // Opponent defensive strength factor via opponent code from statuses
+      const teamCode = normalizeTeamCode(s.team);
+      const oppCode = teamCode ? (statuses[teamCode]?.opponent || '') : '';
+      const defMul = oppCode ? (defFactors[oppCode.toUpperCase()] ?? 1) : 1;
+
+      // In-game usage multiplier (IP only)
+      const st = (statsLive?.[s.id] || {}) as Record<string, number | undefined>;
+      let touches = 0; let expectedTouches = 0;
+      if (statuses[teamCode || '']?.state === 'in') {
+        const fracElapsed = 1 - frac;
+        if (pos === 'QB') {
+          touches = (st['pass_att'] ?? 0) + (st['rush_att'] ?? 0);
+          expectedTouches = 40 * fracElapsed;
+        } else if (pos === 'RB') {
+          touches = (st['rush_att'] ?? 0) + (st['targets'] ?? 0);
+          expectedTouches = 18 * fracElapsed;
+        } else if (pos === 'WR') {
+          touches = (st['targets'] ?? 0);
+          expectedTouches = 8 * fracElapsed;
+        } else if (pos === 'TE') {
+          touches = (st['targets'] ?? 0);
+          expectedTouches = 6 * fracElapsed;
+        }
+      }
+      const usageRatio = expectedTouches > 0 ? (touches / expectedTouches) : 1;
+      const usageMul = Math.max(0.85, Math.min(1.15, usageRatio));
+
+      const expectedRem = fullMean * frac * ctx * defMul * usageMul;
+      const curPts = Number(pointsMap[s.id] ?? s.pts);
+      const total = curPts + expectedRem;
+      map[s.id] = Number.isFinite(total) ? total : curPts;
+    }
+    return map;
+  }, [starters, bench, baselinesMap, statuses, isPastWeek, pointsMap, defFactors, statsLive]);
 
   return (
     <Card>
@@ -456,6 +606,7 @@ export default function RosterColumn({
                   {showDelta && (
                     <div className={`text-xs tabular-nums ${d > 0 ? 'text-green-600' : d < 0 ? 'text-red-600' : 'text-[var(--muted)]'}`}>{d > 0 ? `+${d.toFixed(2)}` : d.toFixed(2)}</div>
                   )}
+                  <div className="text-[0.7rem] text-[var(--muted)]">(Proj {((projTotals[s.id] ?? curPts)).toFixed(1)})</div>
                 </div>
               </li>
             );
@@ -503,6 +654,7 @@ export default function RosterColumn({
                   {showDelta && (
                     <div className={`text-xs tabular-nums ${d > 0 ? 'text-green-600' : d < 0 ? 'text-red-600' : 'text-[var(--muted)]'}`}>{d > 0 ? `+${d.toFixed(2)}` : d.toFixed(2)}</div>
                   )}
+                  <div className="text-[0.7rem] text-[var(--muted)]">(Proj {((projTotals[s.id] ?? curPts)).toFixed(1)})</div>
                 </div>
               </li>
             );

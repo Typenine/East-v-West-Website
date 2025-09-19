@@ -81,13 +81,15 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    const baselines: Record<string, { mean: number; stddev: number; games: number }> = {};
+    const baselines: Record<string, { mean: number; stddev: number; games: number; last3Avg: number }> = {};
     for (const pid of players) {
       const arr = valuesByPlayer[pid] || [];
+      const last3 = arr.slice(-3);
       baselines[pid] = {
         mean: mean(arr),
         stddev: stddev(arr),
         games: arr.length,
+        last3Avg: mean(last3),
       };
     }
 

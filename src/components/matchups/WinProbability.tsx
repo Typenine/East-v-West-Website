@@ -35,7 +35,7 @@ type ScoreboardPayload = {
 type BaselinesPayload = {
   season: string;
   players: number;
-  baselines: Record<string, { mean: number; stddev: number; games: number }>;
+  baselines: Record<string, { mean: number; stddev: number; games: number; last3Avg: number }>;
 };
 
 type WPModel = {
@@ -86,9 +86,11 @@ export default function WinProbability({
 }) {
   const [board, setBoard] = useState<ScoreboardPayload | null>(null);
   const timer = useRef<number | null>(null);
-  const [baselines, setBaselines] = useState<Record<string, { mean: number; stddev: number; games: number }>>({});
+  const [baselines, setBaselines] = useState<Record<string, { mean: number; stddev: number; games: number; last3Avg: number }>>({});
   const [lastUpdated, setLastUpdated] = useState<string>("");
   const [wpModel, setWpModel] = useState<WPModel | null>(null);
+  const [defFactors, setDefFactors] = useState<Record<string, number>>({});
+  const [statsLive, setStatsLive] = useState<Record<string, Record<string, number | undefined>>>({});
 
   useEffect(() => {
     let cancelled = false;
@@ -149,6 +151,43 @@ export default function WinProbability({
     load();
     return () => { cancelled = true; };
   }, [leftStarters, rightStarters, season]);
+
+  // Fetch defensive strength factors for opponent adjustment
+  useEffect(() => {
+    let cancelled = false;
+    async function loadDef() {
+      try {
+        const upto = Math.max(1, Math.min(17, week - 1));
+        const r = await fetch(`/api/defense-strength?season=${encodeURIComponent(season)}&uptoWeek=${upto}`, { cache: 'force-cache' });
+        if (!r.ok) return;
+        const j = await r.json() as { factors?: Record<string, number> };
+        if (!cancelled) setDefFactors(j.factors || {});
+      } catch {
+        // ignore
+      }
+    }
+    loadDef();
+    return () => { cancelled = true; };
+  }, [season, week]);
+
+  // Fetch week stats for usage signals
+  useEffect(() => {
+    let cancelled = false;
+    async function loadStats() {
+      try {
+        const r = await fetch(`/api/nfl-week-stats?season=${encodeURIComponent(season)}&week=${week}`, { cache: 'no-store' });
+        if (!r.ok) return;
+        const j = await r.json();
+        const next = (j?.stats ?? {}) as Record<string, Record<string, number | undefined>>;
+        if (!cancelled) setStatsLive(next);
+      } catch {
+        // ignore
+      }
+    }
+    loadStats();
+    const id = window.setInterval(loadStats, 30000);
+    return () => { cancelled = true; window.clearInterval(id); };
+  }, [season, week]);
 
   // Helpers
   function parseClockToMinutes(clock?: string): number {
@@ -227,6 +266,45 @@ export default function WinProbability({
       right: countFor(rightStarters),
     };
   }, [leftStarters, rightStarters, statuses, isPastWeek]);
+
+  // Sum of per-player projections to align with row projections (recency + defense + usage)
+  const sumProj = useMemo(() => {
+    function projFor(players: PlayerRow[]): number {
+      let total = 0;
+      for (const p of players) {
+        const pos = (p.pos || '').toUpperCase();
+        const basePos = POS_DEFAULT_MEAN[pos] ?? 10;
+        const b = baselines[p.id] || { mean: basePos, last3Avg: 0, games: 0, stddev: 0 };
+        const games = b.games ?? 0;
+        const recencyWeight = (b.last3Avg ?? 0) > 0 ? 0.6 : 0;
+        const recencyMean = (recencyWeight * (b.last3Avg ?? 0)) + ((1 - recencyWeight) * (b.mean ?? basePos));
+        const alpha = Math.max(0, Math.min(1, games / 6));
+        const fullMean = (alpha * recencyMean) + ((1 - alpha) * basePos);
+        const frac = fractionRemainingForTeam(p.team);
+        const ctxM = contextMultiplier(pos, p.team).meanMul;
+        const teamCode = normalizeTeamCode(p.team);
+        const oppCode = teamCode ? (statuses[teamCode]?.opponent || '') : '';
+        const defMul = oppCode ? (defFactors[oppCode.toUpperCase()] ?? 1) : 1;
+        // Usage signal
+        let touches = 0; let expectedTouches = 0;
+        if (teamCode && statuses[teamCode]?.state === 'in') {
+          const fracElapsed = 1 - frac;
+          const st = (statsLive?.[p.id] || {}) as Record<string, number | undefined>;
+          if (pos === 'QB') { touches = (st['pass_att'] ?? 0) + (st['rush_att'] ?? 0); expectedTouches = 40 * fracElapsed; }
+          else if (pos === 'RB') { touches = (st['rush_att'] ?? 0) + (st['targets'] ?? 0); expectedTouches = 18 * fracElapsed; }
+          else if (pos === 'WR') { touches = (st['targets'] ?? 0); expectedTouches = 8 * fracElapsed; }
+          else if (pos === 'TE') { touches = (st['targets'] ?? 0); expectedTouches = 6 * fracElapsed; }
+        }
+        const usageRatio = expectedTouches > 0 ? (touches / expectedTouches) : 1;
+        const usageMul = Math.max(0.85, Math.min(1.15, usageRatio));
+        const expectedRem = fullMean * frac * ctxM * defMul * usageMul;
+        const cur = Number(p.pts ?? 0);
+        total += cur + expectedRem;
+      }
+      return total;
+    }
+    return { left: projFor(leftStarters), right: projFor(rightStarters) };
+  }, [leftStarters, rightStarters, baselines, statuses, defFactors, statsLive, POS_DEFAULT_MEAN, contextMultiplier, fractionRemainingForTeam]);
 
   const wp = useMemo(() => {
     // Build param list for Monte Carlo from baselines and context
@@ -361,11 +439,13 @@ export default function WinProbability({
       </div>
       <div className="mt-3 grid grid-cols-2 gap-4 text-xs text-[var(--muted)]">
         <div>
-          <div><span className="text-[var(--text)] font-medium">{leftTeamName}</span> · Proj: {wp.leftProj.toFixed(1)} pts (CI {wp.ci.left[0].toFixed(1)}–{wp.ci.left[1].toFixed(1)})</div>
+          <div><span className="text-[var(--text)] font-medium">{leftTeamName}</span> · Proj (sum): {sumProj.left.toFixed(1)} pts</div>
+          <div>MC median: {wp.leftProj.toFixed(1)} pts (CI {wp.ci.left[0].toFixed(1)}–{wp.ci.left[1].toFixed(1)})</div>
           <div>Remaining: IP {counts.left.ip}, YTP {counts.left.ytp}</div>
         </div>
         <div className="text-right">
-          <div>Proj: {wp.rightProj.toFixed(1)} pts (CI {wp.ci.right[0].toFixed(1)}–{wp.ci.right[1].toFixed(1)}) · <span className="text-[var(--text)] font-medium">{rightTeamName}</span></div>
+          <div>Proj (sum): {sumProj.right.toFixed(1)} pts · <span className="text-[var(--text)] font-medium">{rightTeamName}</span></div>
+          <div>MC median: {wp.rightProj.toFixed(1)} pts (CI {wp.ci.right[0].toFixed(1)}–{wp.ci.right[1].toFixed(1)})</div>
           <div>Remaining: IP {counts.right.ip}, YTP {counts.right.ytp}</div>
         </div>
       </div>
