@@ -47,7 +47,7 @@ export default function Navbar() {
       const r = await fetch('/api/admin-login', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ key: pin }),
+        body: JSON.stringify({ key: pin.trim() }),
       });
       if (!r.ok) throw new Error('Invalid PIN');
       setAdminOpen(false);
@@ -154,21 +154,20 @@ export default function Navbar() {
     </nav>
     {/* Admin Login Modal */}
     <Modal open={adminOpen} onClose={() => setAdminOpen(false)} title="Admin Login" autoFocusPanel={false}>
-      <form onSubmit={submitAdmin} className="space-y-3">
+      <form onSubmit={submitAdmin} noValidate className="space-y-3">
         <div>
           <Label htmlFor="admin-pin">Enter PIN</Label>
           <input
             id="admin-pin"
             type="password"
             inputMode="numeric"
-            autoComplete="off"
+            autoComplete="one-time-code"
             className="w-full evw-surface border border-[var(--border)] rounded px-3 py-2"
             placeholder="PIN"
             autoFocus
             maxLength={6}
-            pattern="\\d*"
             value={pin}
-            onChange={(e) => setPin(e.target.value)}
+            onChange={(e) => setPin(e.target.value.replace(/[^0-9]/g, '').slice(0, 6))}
           />
         </div>
         {adminError && <div className="text-red-500 text-sm">{adminError}</div>}
