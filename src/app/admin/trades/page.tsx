@@ -8,6 +8,9 @@ import { Card, CardHeader, CardTitle, CardContent, CardFooter } from '@/componen
 import Label from '@/components/ui/Label';
 import { Select } from '@/components/ui/Select';
 import { Button } from '@/components/ui/Button';
+import { getTeamsData } from '@/lib/utils/sleeper-api';
+import { LEAGUE_IDS } from '@/lib/constants/league';
+import { fetchTradeById } from '@/lib/utils/trades';
 
 type ManualTradeAsset =
   | { type: 'player'; name: string; position?: string; team?: string; playerId?: string }
@@ -27,6 +30,7 @@ function AdminTradesContent() {
   const [editing, setEditing] = useState<ManualTrade | null>(null);
   const [form, setForm] = useState<ManualTrade>(() => ({ id: '', date: '', status: 'completed', teams: [{ name: '', assets: [] }, { name: '', assets: [] }], notes: '', overrideOf: null, active: true }));
   const [pendingEditId, setPendingEditId] = useState<string | null>(null);
+  const [teamOptions, setTeamOptions] = useState<string[]>([]);
 
   useEffect(() => {
     fetch('/api/admin-login').then(r => r.json()).then(j => setIsAdmin(Boolean(j?.isAdmin))).catch(() => setIsAdmin(false));
@@ -44,6 +48,19 @@ function AdminTradesContent() {
       setPendingEditId(ed);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Load team options (current league) for dropdowns
+  useEffect(() => {
+    (async () => {
+      try {
+        const teams = await getTeamsData(LEAGUE_IDS.CURRENT);
+        const names = teams.map(t => t.teamName).sort((a,b)=>a.localeCompare(b));
+        setTeamOptions(names);
+      } catch {
+        setTeamOptions([]);
+      }
+    })();
   }, []);
 
   const refresh = async () => {
@@ -69,7 +86,28 @@ function AdminTradesContent() {
       setEditing(t);
       setForm(t);
       setPendingEditId(null);
+      return;
     }
+    // If not found in manual trades, fetch current Sleeper trade and map into form to edit as an override
+    (async () => {
+      try {
+        const base = await fetchTradeById(pendingEditId);
+        if (base) {
+          const mapped: ManualTrade = {
+            id: '',
+            date: base.date,
+            status: base.status,
+            teams: base.teams.map(tm => ({ name: tm.name, assets: tm.assets.map(a => ({ ...a, type: a.type })) })) as ManualTradeTeam[],
+            notes: base.notes || '',
+            overrideOf: base.id,
+            active: true,
+          };
+          setEditing(mapped);
+          setForm(mapped);
+        }
+      } catch {}
+      setPendingEditId(null);
+    })();
   }, [isAdmin, pendingEditId, trades]);
 
   const doLogin = async (e: React.FormEvent) => {
@@ -194,11 +232,24 @@ function AdminTradesContent() {
                 <div className="flex items-center justify-between mb-2">
                   <Label>Team {idx + 1}</Label>
                 </div>
-                <input placeholder="Team name" className="w-full evw-surface border rounded px-3 py-2 mb-2" value={t.name} onChange={(e) => {
-                  const teams = [...form.teams];
-                  teams[idx] = { ...teams[idx], name: e.target.value };
-                  setForm({ ...form, teams });
-                }} />
+                <Select
+                  value={t.name}
+                  onChange={(e) => {
+                    const teams = [...form.teams];
+                    teams[idx] = { ...teams[idx], name: e.target.value };
+                    setForm({ ...form, teams });
+                  }}
+                  className="w-full mb-2"
+                >
+                  <option value="">Select team</option>
+                  {/* Ensure current value stays selectable even if not in current options */}
+                  {t.name && !teamOptions.includes(t.name) ? (
+                    <option value={t.name}>{t.name}</option>
+                  ) : null}
+                  {teamOptions.map((name) => (
+                    <option key={name} value={name}>{name}</option>
+                  ))}
+                </Select>
                 <div className="space-y-2">
                   {t.assets.map((a, ai) => (
                     <div key={ai} className="grid grid-cols-5 gap-2">

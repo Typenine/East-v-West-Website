@@ -17,12 +17,6 @@ import { Select } from '@/components/ui/Select';
 import { Button } from '@/components/ui/Button';
  import Skeleton from '@/components/ui/Skeleton';
 
-// Type guard to detect manual trades (merged from API) based on extra fields
-function isManualTradeLike(t: Trade): boolean {
-  const obj = t as unknown as Record<string, unknown>;
-  return typeof obj.overrideOf === 'string' || typeof obj.createdBy === 'string';
-}
-
  // Page-level cache config
  const CACHE_KEY = 'trades_page_cache_v1';
  const CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
@@ -401,9 +395,7 @@ function TradesContent() {
                           onClick={(e) => {
                             e.preventDefault();
                             e.stopPropagation();
-                            const href = isManualTradeLike(trade)
-                              ? `/admin/trades?edit=${encodeURIComponent(trade.id)}`
-                              : `/admin/trades?override=${encodeURIComponent(trade.id)}`;
+                            const href = `/admin/trades?edit=${encodeURIComponent(trade.id)}`;
                             router.push(href);
                           }}
                           aria-label="Edit this trade"

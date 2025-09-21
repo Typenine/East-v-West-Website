@@ -116,11 +116,11 @@ export default function TradeDetailPage() {
       {isAdmin && (
         <div className="mb-4">
           <Link
-            href={`/admin/trades?override=${encodeURIComponent(id as string)}`}
+            href={`/admin/trades?edit=${encodeURIComponent(id as string)}`}
             className="inline-flex items-center px-3 py-1.5 rounded-md border border-[var(--border)] text-sm evw-surface hover:opacity-90"
-            aria-label="Override this trade"
+            aria-label="Edit this trade"
           >
-            Override this trade
+            Edit trade
           </Link>
         </div>
       )}
