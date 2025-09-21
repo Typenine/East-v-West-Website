@@ -17,6 +17,12 @@ import { Select } from '@/components/ui/Select';
 import { Button } from '@/components/ui/Button';
  import Skeleton from '@/components/ui/Skeleton';
 
+// Type guard to detect manual trades (merged from API) based on extra fields
+function isManualTradeLike(t: Trade): boolean {
+  const obj = t as unknown as Record<string, unknown>;
+  return typeof obj.overrideOf === 'string' || typeof obj.createdBy === 'string';
+}
+
  // Page-level cache config
  const CACHE_KEY = 'trades_page_cache_v1';
  const CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
@@ -108,6 +114,7 @@ function TradesContent() {
   const cacheRef = useRef<Record<string, CacheEntry>>({});
   const hydratedRef = useRef(false);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [isAdmin, setIsAdmin] = useState(false);
 
   // Helper: map selected year to leagueId
   const getLeagueIdForYear = (year: string) => {
@@ -200,6 +207,14 @@ function TradesContent() {
     fetchTrades();
   }, [selectedYear, refreshKey]);
 
+  // Check admin status so we can show Add/Edit controls
+  useEffect(() => {
+    fetch('/api/admin-login')
+      .then(r => r.json())
+      .then(j => setIsAdmin(Boolean(j?.isAdmin)))
+      .catch(() => setIsAdmin(false));
+  }, []);
+
   // Filter and sort trades based on selected criteria
   const filteredAndSortedTrades = trades
     .filter(trade => {
@@ -258,7 +273,14 @@ function TradesContent() {
 
   return (
     <div className="container mx-auto px-4 py-8">
-      <SectionHeader title="Trades" />
+      <SectionHeader
+        title="Trades"
+        actions={isAdmin ? (
+          <Button onClick={() => router.push('/admin/trades')} aria-label="Add a manual trade">
+            Add Trade
+          </Button>
+        ) : undefined}
+      />
       <h1 id="trades-heading" className="sr-only">Trades</h1>
 
       {/* Filters */}
@@ -363,13 +385,34 @@ function TradesContent() {
                     <CardTitle className="text-[var(--text)]">
                       Trade between {trade.teams.map(t => t.name).join(' and ')}
                     </CardTitle>
-                    <span className="text-sm text-[var(--muted)]">
-                      {new Date(trade.date).toLocaleDateString('en-US', {
-                        year: 'numeric',
-                        month: 'short',
-                        day: 'numeric'
-                      })}
-                    </span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm text-[var(--muted)]">
+                        {new Date(trade.date).toLocaleDateString('en-US', {
+                          year: 'numeric',
+                          month: 'short',
+                          day: 'numeric'
+                        })}
+                      </span>
+                      {isAdmin && trade.status === 'completed' && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            const href = isManualTradeLike(trade)
+                              ? `/admin/trades?edit=${encodeURIComponent(trade.id)}`
+                              : `/admin/trades?override=${encodeURIComponent(trade.id)}`;
+                            router.push(href);
+                          }}
+                          aria-label="Edit this trade"
+                          title="Edit this trade"
+                        >
+                          Edit
+                        </Button>
+                      )}
+                    </div>
                   </div>
                 </CardHeader>
 

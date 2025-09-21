@@ -8,12 +8,14 @@ export function Modal({
   title,
   children,
   showClose = true,
+  autoFocusPanel = true,
 }: {
   open: boolean;
   onClose: () => void;
   title?: ReactNode;
   children: ReactNode;
   showClose?: boolean;
+  autoFocusPanel?: boolean;
 }) {
   const panelRef = useRef<HTMLDivElement | null>(null);
   const titleIdRef = useRef<string>(`modal-title-${Math.random().toString(36).slice(2)}`);
@@ -49,16 +51,18 @@ export function Modal({
     };
 
     document.addEventListener("keydown", handleKeyDown);
-    // Focus the panel on mount
-    setTimeout(() => {
-      panelRef.current?.focus();
-    }, 0);
+    // Focus the panel on mount (configurable). If disabled, caller can autofocus inputs.
+    if (autoFocusPanel) {
+      setTimeout(() => {
+        panelRef.current?.focus();
+      }, 0);
+    }
 
     return () => {
       document.removeEventListener("keydown", handleKeyDown);
       previouslyFocused?.focus?.();
     };
-  }, [open, onClose]);
+  }, [open, onClose, autoFocusPanel]);
 
   if (!open) return null;
 

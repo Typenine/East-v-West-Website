@@ -26,6 +26,7 @@ function AdminTradesContent() {
   const [trades, setTrades] = useState<ManualTrade[]>([]);
   const [editing, setEditing] = useState<ManualTrade | null>(null);
   const [form, setForm] = useState<ManualTrade>(() => ({ id: '', date: '', status: 'completed', teams: [{ name: '', assets: [] }, { name: '', assets: [] }], notes: '', overrideOf: null, active: true }));
+  const [pendingEditId, setPendingEditId] = useState<string | null>(null);
 
   useEffect(() => {
     fetch('/api/admin-login').then(r => r.json()).then(j => setIsAdmin(Boolean(j?.isAdmin))).catch(() => setIsAdmin(false));
@@ -37,6 +38,10 @@ function AdminTradesContent() {
     if (ov) {
       setEditing(null);
       setForm({ id: '', date: '', status: 'completed', teams: [{ name: '', assets: [] }, { name: '', assets: [] }], notes: '', overrideOf: ov, active: true });
+    }
+    const ed = searchParams.get('edit');
+    if ( ed ) {
+      setPendingEditId(ed);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -55,6 +60,17 @@ function AdminTradesContent() {
   };
 
   useEffect(() => { if (isAdmin) void refresh(); }, [isAdmin]);
+
+  // Once trades are loaded and we have a pending edit id, open that trade in the editor
+  useEffect(() => {
+    if (!isAdmin || !pendingEditId) return;
+    const t = trades.find(x => x.id === pendingEditId);
+    if (t) {
+      setEditing(t);
+      setForm(t);
+      setPendingEditId(null);
+    }
+  }, [isAdmin, pendingEditId, trades]);
 
   const doLogin = async (e: React.FormEvent) => {
     e.preventDefault();

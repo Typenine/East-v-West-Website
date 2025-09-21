@@ -52,7 +52,7 @@ export default function Navbar() {
       if (!r.ok) throw new Error('Invalid PIN');
       setAdminOpen(false);
       setPin('');
-      router.push('/admin/trades');
+      router.push('/trades');
     } catch (err) {
       setAdminError(err instanceof Error ? err.message : 'Login failed');
     } finally {
@@ -153,7 +153,7 @@ export default function Navbar() {
       </div>
     </nav>
     {/* Admin Login Modal */}
-    <Modal open={adminOpen} onClose={() => setAdminOpen(false)} title="Admin Login">
+    <Modal open={adminOpen} onClose={() => setAdminOpen(false)} title="Admin Login" autoFocusPanel={false}>
       <form onSubmit={submitAdmin} className="space-y-3">
         <div>
           <Label htmlFor="admin-pin">Enter PIN</Label>
@@ -163,7 +163,10 @@ export default function Navbar() {
             inputMode="numeric"
             autoComplete="off"
             className="w-full evw-surface border border-[var(--border)] rounded px-3 py-2"
-            placeholder="002023"
+            placeholder="PIN"
+            autoFocus
+            maxLength={6}
+            pattern="\\d*"
             value={pin}
             onChange={(e) => setPin(e.target.value)}
           />
