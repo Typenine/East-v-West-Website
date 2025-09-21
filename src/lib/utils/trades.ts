@@ -638,6 +638,15 @@ export const fetchTradesByYear = async (year: string): Promise<Trade[]> => {
  */
 export const fetchTradeById = async (id: string): Promise<Trade | null> => {
   try {
+    // Check manual trades (overrides/additions) first
+    try {
+      const manual = await fetchManualTrades({ all: true });
+      const hit = manual.find((t) => t.id === id || t.overrideOf === id);
+      if (hit) return hit;
+    } catch {
+      // ignore and fallback to Sleeper
+    }
+    
     // Check if the trade is already in the cache
     if (tradesCache[id]) {
       return tradesCache[id];

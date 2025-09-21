@@ -47,7 +47,7 @@ function AdminTradesContent() {
       const r = await fetch('/api/manual-trades?all=1', { cache: 'no-store' });
       const j = await r.json();
       setTrades(Array.isArray(j?.trades) ? j.trades : []);
-    } catch (e) {
+    } catch {
       setError('Failed to load manual trades');
     } finally {
       setLoading(false);
