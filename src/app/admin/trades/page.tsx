@@ -31,6 +31,17 @@ function AdminTradesContent() {
   const [form, setForm] = useState<ManualTrade>(() => ({ id: '', date: '', status: 'completed', teams: [{ name: '', assets: [] }, { name: '', assets: [] }], notes: '', overrideOf: null, active: true }));
   const [pendingEditId, setPendingEditId] = useState<string | null>(null);
   const [teamOptions, setTeamOptions] = useState<string[]>([]);
+  const [editorError, setEditorError] = useState<string | null>(null);
+  const [savedFlag, setSavedFlag] = useState(false);
+  type PlayerSuggest = { id: string; name: string; position?: string; team?: string };
+  const [playerSuggests, setPlayerSuggests] = useState<Record<string, PlayerSuggest[]>>({}); // key: `${idx}-${ai}`
+  const [openSuggestKey, setOpenSuggestKey] = useState<string | null>(null);
+
+  const ordinal = (n: number) => {
+    const s = ['th','st','nd','rd'];
+    const v = n % 100;
+    return `${n}${(s[(v - 20) % 10] || s[v] || s[0])}`;
+  };
 
   useEffect(() => {
     fetch('/api/admin-login').then(r => r.json()).then(j => setIsAdmin(Boolean(j?.isAdmin))).catch(() => setIsAdmin(false));
@@ -135,16 +146,26 @@ function AdminTradesContent() {
   const save = async () => {
     setLoading(true);
     setError(null);
+    setEditorError(null);
+    setSavedFlag(false);
     try {
       const method = form.id ? 'PUT' : 'POST';
       const payload = { ...form };
       if (!payload.id) delete (payload as Partial<ManualTrade>).id; // POST: id server-generated or overrideOf
       const r = await fetch('/api/manual-trades', { method, headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload) });
-      if (!r.ok) throw new Error('Save failed');
+      if (!r.ok) {
+        let msg = 'Save failed';
+        try {
+          const j = await r.json();
+          if (j && typeof j.error === 'string') msg = j.error;
+        } catch {}
+        throw new Error(msg);
+      }
       setEditing(null);
       await refresh();
+      setSavedFlag(true);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Save failed');
+      setEditorError(err instanceof Error ? err.message : 'Save failed');
     } finally {
       setLoading(false);
     }
@@ -224,6 +245,12 @@ function AdminTradesContent() {
               <Label htmlFor="notes">Notes / Conditions</Label>
               <textarea id="notes" className="w-full evw-surface border rounded px-3 py-2" rows={3} value={form.notes || ''} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
             </div>
+            {editorError && (
+              <div className="md:col-span-2 text-red-500 text-sm">{editorError}</div>
+            )}
+            {savedFlag && !editorError && (
+              <div className="md:col-span-2 text-green-600 text-sm">Saved.</div>
+            )}
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-4">
@@ -252,33 +279,187 @@ function AdminTradesContent() {
                 </Select>
                 <div className="space-y-2">
                   {t.assets.map((a, ai) => (
-                    <div key={ai} className="grid grid-cols-5 gap-2">
-                      <Select value={a.type} onChange={(e) => {
-                        const teams = [...form.teams];
-                        const assets = teams[idx].assets.slice();
-                        const type = e.target.value as ManualTradeAsset['type'];
-                        assets[ai] = { type, name: a.name } as ManualTradeAsset;
-                        teams[idx].assets = assets;
-                        setForm({ ...form, teams });
-                      }}>
-                        <option value="player">player</option>
-                        <option value="pick">pick</option>
-                        <option value="cash">cash</option>
-                      </Select>
-                      <input className="col-span-3 evw-surface border rounded px-2 py-1" placeholder={a.type === 'player' ? 'Player name' : a.type === 'pick' ? 'Pick label (e.g., 2026 2nd)' : 'Label (e.g., $25 FAAB)'} value={a.name} onChange={(e) => {
-                        const teams = [...form.teams];
-                        const assets = teams[idx].assets.slice();
-                        assets[ai] = { ...assets[ai], name: e.target.value } as ManualTradeAsset;
-                        teams[idx].assets = assets;
-                        setForm({ ...form, teams });
-                      }} />
-                      <Button variant="secondary" onClick={() => {
-                        const teams = [...form.teams];
-                        const assets = teams[idx].assets.slice();
-                        assets.splice(ai, 1);
-                        teams[idx].assets = assets;
-                        setForm({ ...form, teams });
-                      }}>Remove</Button>
+                    <div key={ai} className="space-y-2">
+                      <div className="grid grid-cols-5 gap-2">
+                        <Select value={a.type} onChange={(e) => {
+                          const teams = [...form.teams];
+                          const assets = teams[idx].assets.slice();
+                          const type = e.target.value as ManualTradeAsset['type'];
+                          assets[ai] = { type, name: '' } as ManualTradeAsset;
+                          teams[idx].assets = assets;
+                          setForm({ ...form, teams });
+                          // clear suggestions when switching type
+                          setOpenSuggestKey(null);
+                        }}>
+                          <option value="player">player</option>
+                          <option value="pick">pick</option>
+                          <option value="cash">cash</option>
+                        </Select>
+
+                        {a.type === 'player' ? (
+                          <div className="col-span-3 relative">
+                            <input
+                              className="w-full evw-surface border rounded px-2 py-1"
+                              placeholder="Search player (e.g., Kirk)"
+                              value={a.name}
+                              onChange={async (e) => {
+                                const q = e.target.value;
+                                const teamsArr = [...form.teams];
+                                const assets = teamsArr[idx].assets.slice();
+                                assets[ai] = { ...(assets[ai] as ManualTradeAsset), name: q } as ManualTradeAsset;
+                                teamsArr[idx].assets = assets;
+                                setForm({ ...form, teams: teamsArr });
+                                const key = `${idx}-${ai}`;
+                                setOpenSuggestKey(key);
+                                if (q && q.length >= 2) {
+                                  try {
+                                    const r = await fetch(`/api/search/players?q=${encodeURIComponent(q)}`);
+                                    const j = await r.json();
+                                    setPlayerSuggests((prev) => ({ ...prev, [key]: Array.isArray(j.players) ? j.players : [] }));
+                                  } catch {
+                                    setPlayerSuggests((prev) => ({ ...prev, [key]: [] }));
+                                  }
+                                } else {
+                                  setPlayerSuggests((prev) => ({ ...prev, [key]: [] }));
+                                }
+                              }}
+                              onFocus={() => setOpenSuggestKey(`${idx}-${ai}`)}
+                              onBlur={() => setTimeout(() => setOpenSuggestKey((k) => (k === `${idx}-${ai}` ? null : k)), 150)}
+                            />
+                            {openSuggestKey === `${idx}-${ai}` && (playerSuggests[`${idx}-${ai}`]?.length || 0) > 0 && (
+                              <div className="absolute z-10 mt-1 w-full evw-surface border rounded shadow-sm max-h-56 overflow-auto">
+                                {(playerSuggests[`${idx}-${ai}`] || []).map((p) => (
+                                  <button
+                                    type="button"
+                                    key={p.id}
+                                    className="w-full text-left px-2 py-1 hover-subtle"
+                                    onMouseDown={(e) => e.preventDefault()}
+                                    onClick={() => {
+                                      const teamsArr = [...form.teams];
+                                      const assets = teamsArr[idx].assets.slice();
+                                      assets[ai] = { type: 'player', name: p.name, position: p.position, team: p.team, playerId: p.id } as ManualTradeAsset;
+                                      teamsArr[idx].assets = assets;
+                                      setForm({ ...form, teams: teamsArr });
+                                      setOpenSuggestKey(null);
+                                    }}
+                                  >
+                                    {p.name}{p.position ? ` · ${p.position}` : ''}{p.team ? ` · ${p.team}` : ''}
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        ) : a.type === 'pick' ? (
+                          <div className="col-span-3 grid grid-cols-3 gap-2">
+                            <input
+                              className="evw-surface border rounded px-2 py-1"
+                              placeholder="Year"
+                              inputMode="numeric"
+                              value={(a as any).year || ''}
+                              onChange={(e) => {
+                                const year = e.target.value.replace(/[^0-9]/g, '').slice(0, 4);
+                                const teamsArr = [...form.teams];
+                                const assets = teamsArr[idx].assets.slice();
+                                const next = { ...(assets[ai] as any), type: 'pick', year } as ManualTradeAsset & { year?: string };
+                                const round = (next as any).round as number | undefined;
+                                (next as any).name = year && round ? `${year} ${ordinal(round)} Round Pick` : (next as any).name || '';
+                                assets[ai] = next as ManualTradeAsset;
+                                teamsArr[idx].assets = assets;
+                                setForm({ ...form, teams: teamsArr });
+                              }}
+                            />
+                            <Select
+                              value={String((a as any).round || '')}
+                              onChange={(e) => {
+                                const round = Number(e.target.value);
+                                const teamsArr = [...form.teams];
+                                const assets = teamsArr[idx].assets.slice();
+                                const next = { ...(assets[ai] as any), type: 'pick', round } as ManualTradeAsset & { round?: number };
+                                const year = (next as any).year;
+                                (next as any).name = year && round ? `${year} ${ordinal(round)} Round Pick` : (next as any).name || '';
+                                assets[ai] = next as ManualTradeAsset;
+                                teamsArr[idx].assets = assets;
+                                setForm({ ...form, teams: teamsArr });
+                              }}
+                            >
+                              <option value="">Round</option>
+                              <option value="1">1</option>
+                              <option value="2">2</option>
+                              <option value="3">3</option>
+                              <option value="4">4</option>
+                            </Select>
+                            <Select
+                              value={(a as any).originalOwner || ''}
+                              onChange={(e) => {
+                                const originalOwner = e.target.value;
+                                const teamsArr = [...form.teams];
+                                const assets = teamsArr[idx].assets.slice();
+                                assets[ai] = { ...(assets[ai] as any), originalOwner } as ManualTradeAsset;
+                                teamsArr[idx].assets = assets;
+                                setForm({ ...form, teams: teamsArr });
+                              }}
+                            >
+                              <option value="">Original owner</option>
+                              {teamOptions.map((name) => (
+                                <option key={name} value={name}>{name}</option>
+                              ))}
+                            </Select>
+                          </div>
+                        ) : (
+                          <input className="col-span-3 evw-surface border rounded px-2 py-1" placeholder="Label (e.g., $25 FAAB)" value={a.name} onChange={(e) => {
+                            const teamsArr = [...form.teams];
+                            const assets = teamsArr[idx].assets.slice();
+                            assets[ai] = { ...assets[ai], name: e.target.value } as ManualTradeAsset;
+                            teamsArr[idx].assets = assets;
+                            setForm({ ...form, teams: teamsArr });
+                          }} />
+                        )}
+                        <Button variant="secondary" onClick={() => {
+                          const teamsArr = [...form.teams];
+                          const assets = teamsArr[idx].assets.slice();
+                          assets.splice(ai, 1);
+                          teamsArr[idx].assets = assets;
+                          setForm({ ...form, teams: teamsArr });
+                        }}>Remove</Button>
+                      </div>
+
+                      {a.type === 'pick' && (
+                        <div className="grid grid-cols-3 gap-2">
+                          <Button
+                            variant="secondary"
+                            onClick={async () => {
+                              try {
+                                const year = (a as any).year;
+                                const round = (a as any).round;
+                                const owner = (a as any).originalOwner || '';
+                                if (!year || !round) return;
+                                const qs = new URLSearchParams({ season: String(year), round: String(round) });
+                                if (owner) qs.set('originalOwner', owner);
+                                const r = await fetch(`/api/search/pick-became?${qs.toString()}`);
+                                const j = await r.json();
+                                const teamsArr = [...form.teams];
+                                const assets = teamsArr[idx].assets.slice();
+                                const next: any = { ...(assets[ai] as any) };
+                                if (j && j.became) {
+                                  next.became = j.became.name;
+                                  next.becamePosition = j.became.position;
+                                  next.becameTeam = j.became.team;
+                                  next.becamePlayerId = j.became.id;
+                                }
+                                if (Number.isFinite(j.pickInRound)) next.pickInRound = j.pickInRound;
+                                if (Number.isFinite(j.draftSlot)) next.draftSlot = j.draftSlot;
+                                // Ensure name stays normalized
+                                if (next.year && next.round) next.name = `${next.year} ${ordinal(next.round)} Round Pick`;
+                                assets[ai] = next as ManualTradeAsset;
+                                teamsArr[idx].assets = assets;
+                                setForm({ ...form, teams: teamsArr });
+                              } catch {}
+                            }}
+                          >
+                            Fill details
+                          </Button>
+                        </div>
+                      )}
                     </div>
                   ))}
                   <Button variant="secondary" onClick={() => {
