@@ -36,7 +36,7 @@ type ScoreboardPayload = {
 type BaselinesPayload = {
   season: string;
   players: number;
-  baselines: Record<string, { mean: number; stddev: number; games: number; last3Avg: number }>;
+  baselines: Record<string, { mean: number; stddev: number; games: number; last3Avg: number; decayedMean: number }>;
 };
 
 type WPModel = {
@@ -93,7 +93,7 @@ export default function WinProbability({
 }) {
   const [board, setBoard] = useState<ScoreboardPayload | null>(null);
   const timer = useRef<number | null>(null);
-  const [baselines, setBaselines] = useState<Record<string, { mean: number; stddev: number; games: number; last3Avg: number }>>({});
+  const [baselines, setBaselines] = useState<Record<string, { mean: number; stddev: number; games: number; last3Avg: number; decayedMean: number }>>({});
   const [lastUpdated, setLastUpdated] = useState<string>("");
   const [wpModel, setWpModel] = useState<WPModel | null>(null);
   const [defFactors, setDefFactors] = useState<Record<string, number>>({});
@@ -281,10 +281,11 @@ export default function WinProbability({
       for (const p of players) {
         const pos = (p.pos || '').toUpperCase();
         const basePos = POS_DEFAULT_MEAN[pos] ?? 10;
-        const b = baselines[p.id] || { mean: basePos, last3Avg: 0, games: 0, stddev: 0 };
+        const b = baselines[p.id] || { mean: basePos, last3Avg: 0, games: 0, stddev: 0, decayedMean: 0 };
         const games = b.games ?? 0;
-        const recencyWeight = (b.last3Avg ?? 0) > 0 ? 0.6 : 0;
-        const recencyMean = (recencyWeight * (b.last3Avg ?? 0)) + ((1 - recencyWeight) * (b.mean ?? basePos));
+        const recent = (b.decayedMean ?? 0) > 0 ? b.decayedMean : ((b.last3Avg ?? 0) > 0 ? b.last3Avg : (b.mean ?? basePos));
+        const recencyWeight = (b.decayedMean ?? 0) > 0 ? 0.7 : ((b.last3Avg ?? 0) > 0 ? 0.6 : 0);
+        const recencyMean = (recencyWeight * recent) + ((1 - recencyWeight) * (b.mean ?? basePos));
         const alpha = Math.max(0, Math.min(1, games / 6));
         const fullMean = (alpha * recencyMean) + ((1 - alpha) * basePos);
         const frac = fractionRemainingForTeam(p.team);
@@ -324,9 +325,12 @@ export default function WinProbability({
         const posMean = POS_DEFAULT_MEAN[pos] ?? 10;
         const posSd = POS_DEFAULT_SD[pos] ?? 6;
         const games = b?.games ?? 0;
-        // Shrinkage toward pos default
+        // Shrinkage toward pos default with recency
+        const recent = b ? ((b.decayedMean ?? 0) > 0 ? b.decayedMean : ((b.last3Avg ?? 0) > 0 ? b.last3Avg : (b.mean ?? posMean))) : posMean;
+        const recencyWeight = b ? ((b.decayedMean ?? 0) > 0 ? 0.7 : ((b.last3Avg ?? 0) > 0 ? 0.6 : 0)) : 0;
+        const recencyMean = (recencyWeight * recent) + ((1 - recencyWeight) * (b?.mean ?? posMean));
         const alpha = Math.max(0, Math.min(1, games / 6)); // 0..1 by 6 games
-        const fullMean = (alpha * (b?.mean ?? posMean)) + ((1 - alpha) * posMean);
+        const fullMean = (alpha * recencyMean) + ((1 - alpha) * posMean);
         const fullSd = Math.max(0.1, (alpha * (b?.stddev ?? posSd)) + ((1 - alpha) * posSd));
         const frac = fractionRemainingForTeam(p.team);
         const ctx = contextMultiplier(pos, p.team);

@@ -31,6 +31,24 @@ function stddev(values: number[]): number {
   return Math.sqrt(ss / (n - 1));
 }
 
+// Exponentially decayed mean: more weight on recent games.
+// Half-life in games controls how quickly weight drops off.
+function expDecayedMean(values: number[], halfLifeGames = 3): number {
+  const n = values.length;
+  if (n === 0) return 0;
+  const lambda = Math.log(2) / Math.max(1e-6, halfLifeGames);
+  let wsum = 0;
+  let vsum = 0;
+  for (let i = 0; i < n; i++) {
+    // i=0 oldest, i=n-1 most recent
+    const age = (n - 1) - i; // 0 for most recent
+    const w = Math.exp(-lambda * age);
+    wsum += w;
+    vsum += w * (values[i] ?? 0);
+  }
+  return wsum > 0 ? vsum / wsum : 0;
+}
+
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
@@ -81,7 +99,7 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    const baselines: Record<string, { mean: number; stddev: number; games: number; last3Avg: number }> = {};
+    const baselines: Record<string, { mean: number; stddev: number; games: number; last3Avg: number; decayedMean: number }> = {};
     for (const pid of players) {
       const arr = valuesByPlayer[pid] || [];
       const last3 = arr.slice(-3);
@@ -90,6 +108,7 @@ export async function GET(req: NextRequest) {
         stddev: stddev(arr),
         games: arr.length,
         last3Avg: mean(last3),
+        decayedMean: expDecayedMean(arr, 3),
       };
     }
 

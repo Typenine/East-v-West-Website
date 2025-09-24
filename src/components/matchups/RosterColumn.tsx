@@ -49,7 +49,7 @@ type ScoreboardPayload = {
 type BaselinesPayload = {
   season: string;
   players: number;
-  baselines: Record<string, { mean: number; stddev: number; games: number; last3Avg: number }>;
+  baselines: Record<string, { mean: number; stddev: number; games: number; last3Avg: number; decayedMean: number }>;
 };
 
 function formatKickoff(dateIso?: string) {
@@ -280,7 +280,7 @@ export default function RosterColumn({
   const [filter, setFilter] = useState<'ALL' | 'IP' | 'YTP' | 'FIN'>('ALL');
   const [flashOn, setFlashOn] = useState<Record<string, boolean>>({});
   const flashTimersRef = useRef<Record<string, number>>({});
-  const [baselinesMap, setBaselinesMap] = useState<Record<string, { mean: number; stddev: number; games: number; last3Avg: number }>>({});
+  const [baselinesMap, setBaselinesMap] = useState<Record<string, { mean: number; stddev: number; games: number; last3Avg: number; decayedMean: number }>>({});
   const [defFactors, setDefFactors] = useState<Record<string, number>>({});
 
   useEffect(() => {
@@ -480,10 +480,11 @@ export default function RosterColumn({
     for (const s of all) {
       const pos = (s.pos || '').toUpperCase();
       const basePos = POS_DEFAULT_MEAN[pos] ?? 10;
-      const b = baselinesMap[s.id] as unknown as { mean?: number; games?: number; last3Avg?: number };
+      const b = baselinesMap[s.id];
       const games = b?.games ?? 0;
-      const recencyWeight = (b?.last3Avg ?? 0) > 0 ? 0.6 : 0; // prefer recent if available
-      const recencyMean = (recencyWeight * (b?.last3Avg ?? 0)) + ((1 - recencyWeight) * (b?.mean ?? basePos));
+      const recent = (b?.decayedMean ?? 0) > 0 ? b!.decayedMean : ((b?.last3Avg ?? 0) > 0 ? b!.last3Avg : (b?.mean ?? basePos));
+      const recencyWeight = (b?.decayedMean ?? 0) > 0 ? 0.7 : ((b?.last3Avg ?? 0) > 0 ? 0.6 : 0);
+      const recencyMean = (recencyWeight * recent) + ((1 - recencyWeight) * (b?.mean ?? basePos));
       const alpha = Math.max(0, Math.min(1, games / 6));
       // Shrink toward positional default
       const fullMean = (alpha * recencyMean) + ((1 - alpha) * basePos);
@@ -524,6 +525,17 @@ export default function RosterColumn({
     return map;
   }, [starters, bench, baselinesMap, statuses, isPastWeek, pointsMap, defFactors, statsLive]);
 
+  // Team total projected (final) using starters only (sum of per-player projections)
+  const projTeamTotal = useMemo(() => {
+    let sum = 0;
+    for (const s of starters) {
+      const curPts = Number(pointsMap[s.id] ?? s.pts);
+      const proj = projTotals[s.id] ?? curPts;
+      sum += proj;
+    }
+    return sum;
+  }, [starters, projTotals, pointsMap]);
+
   return (
     <Card>
       <CardHeader className="sticky top-0 z-20 backdrop-blur supports-[backdrop-filter]:bg-[color-mix(in_srgb,var(--surface)_85%,transparent)]"
@@ -534,12 +546,17 @@ export default function RosterColumn({
             <Image src={getTeamLogoPath(colorTeam)} alt={colorTeam} width={28} height={28} className="object-contain" />
           </div>
           <CardTitle className="text-current">{title}</CardTitle>
-          <div className="ml-auto flex items-center gap-3">
-            <div className="text-lg font-extrabold">{totalPts.toFixed(2)}</div>
-            <button type="button" onClick={() => setShowDelta(v => !v)} className="text-xs px-2 py-0.5 rounded-md border border-[var(--border)] hover:bg-black/10">Δ {showDelta ? 'ON' : 'OFF'}</button>
-            {showDelta && (
-              <div className={`text-sm font-semibold ${teamDelta > 0 ? 'text-green-600' : teamDelta < 0 ? 'text-red-600' : 'text-[var(--muted)]'}`}>{teamDelta > 0 ? `+${teamDelta.toFixed(2)}` : teamDelta.toFixed(2)}</div>
-            )}
+          <div className="ml-auto flex items-center gap-4">
+            <div className="text-right leading-tight">
+              <div className="text-lg font-extrabold">{totalPts.toFixed(2)}</div>
+              <div className="text-sm font-semibold">Proj {projTeamTotal.toFixed(1)}</div>
+            </div>
+            <div className="flex items-center gap-2">
+              <button type="button" onClick={() => setShowDelta(v => !v)} className="text-xs px-2 py-0.5 rounded-md border border-[var(--border)] hover:bg-black/10">Δ {showDelta ? 'ON' : 'OFF'}</button>
+              {showDelta && (
+                <div className={`text-sm font-semibold ${teamDelta > 0 ? 'text-green-200' : teamDelta < 0 ? 'text-red-200' : 'text-white/80'}`}>{teamDelta > 0 ? `+${teamDelta.toFixed(2)}` : teamDelta.toFixed(2)}</div>
+              )}
+            </div>
           </div>
         </div>
         {/* Roster chips */}
