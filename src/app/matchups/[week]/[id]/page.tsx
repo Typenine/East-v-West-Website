@@ -142,18 +142,7 @@ export default async function MatchupDetailPage({ params }: { params?: Promise<R
           }
         />
 
-        {/* Win Probability (experimental) */}
-        <WinProbability
-          week={week}
-          season={season}
-          leftTeamName={bName}
-          rightTeamName={aName}
-          leftTotal={bPts}
-          rightTotal={aPts}
-          leftStarters={bStarters as PlayerRow[]}
-          rightStarters={aStarters as PlayerRow[]}
-          currentWeek={currentWeek}
-        />
+        {/* Inline WP bars moved under each team header */}
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
           <RosterColumn
@@ -166,6 +155,22 @@ export default async function MatchupDetailPage({ params }: { params?: Promise<R
             starters={bStarters}
             bench={bBench}
             stats={weekStats}
+            headerExtras={
+              <WinProbability
+                week={week}
+                season={season}
+                leftTeamName={bName}
+                rightTeamName={aName}
+                leftTotal={bPts}
+                rightTotal={aPts}
+                leftStarters={bStarters as PlayerRow[]}
+                rightStarters={aStarters as PlayerRow[]}
+                currentWeek={currentWeek}
+                variant="inline"
+                side="left"
+                bordered={false}
+              />
+            }
           />
           <RosterColumn
             title={aName}
@@ -177,6 +182,22 @@ export default async function MatchupDetailPage({ params }: { params?: Promise<R
             starters={aStarters}
             bench={aBench}
             stats={weekStats}
+            headerExtras={
+              <WinProbability
+                week={week}
+                season={season}
+                leftTeamName={bName}
+                rightTeamName={aName}
+                leftTotal={bPts}
+                rightTotal={aPts}
+                leftStarters={bStarters as PlayerRow[]}
+                rightStarters={aStarters as PlayerRow[]}
+                currentWeek={currentWeek}
+                variant="inline"
+                side="right"
+                bordered={false}
+              />
+            }
           />
         </div>
 

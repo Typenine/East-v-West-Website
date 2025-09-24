@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import Image from "next/image";
 import Card, { CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
 import PlayerDrawer from "@/components/matchups/PlayerDrawer";
@@ -251,6 +252,7 @@ export default function RosterColumn({
   starters,
   bench,
   stats,
+  headerExtras,
 }: {
   title: string;
   colorTeam: string; // team name for color styling
@@ -261,6 +263,7 @@ export default function RosterColumn({
   starters: PlayerRow[];
   bench: PlayerRow[];
   stats?: Record<string, Partial<Record<string, number>>>;
+  headerExtras?: ReactNode;
 }) {
   const [board, setBoard] = useState<ScoreboardPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -548,6 +551,11 @@ export default function RosterColumn({
           <span className="px-2 py-0.5 rounded-full bg-black/20 text-white">Players remaining: {chips.playersRemaining}</span>
           <span className="px-2 py-0.5 rounded-full bg-black/15 text-white/90">FIN {chips.fin}</span>
         </div>
+        {headerExtras ? (
+          <div className="mt-2">
+            {headerExtras}
+          </div>
+        ) : null}
         {error ? <div className="mt-1 text-xs">{error}</div> : null}
       </CardHeader>
 
