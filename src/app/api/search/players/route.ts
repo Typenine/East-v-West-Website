@@ -9,14 +9,23 @@ export async function GET(req: NextRequest) {
     const q = (url.searchParams.get('q') || '').trim().toLowerCase();
     if (!q || q.length < 2) return NextResponse.json({ players: [] }, { status: 200 });
 
-    const players = await getAllPlayers();
+    type SlimPlayer = { first_name?: string; last_name?: string; position?: string; team?: string };
+    const playersUnknown = (await getAllPlayers()) as unknown;
     const out: Array<{ id: string; name: string; position?: string; team?: string }> = [];
 
-    for (const [id, p] of Object.entries(players as Record<string, any>)) {
-      const name = `${p.first_name || ''} ${p.last_name || ''}`.trim();
-      if (!name) continue;
-      if (name.toLowerCase().includes(q)) {
-        out.push({ id, name, position: p.position, team: p.team });
+    if (playersUnknown && typeof playersUnknown === 'object') {
+      const entries = Object.entries(playersUnknown as Record<string, unknown>);
+      for (const [id, u] of entries) {
+        const p = u as Partial<SlimPlayer>;
+        const first = typeof p.first_name === 'string' ? p.first_name : '';
+        const last = typeof p.last_name === 'string' ? p.last_name : '';
+        const name = `${first} ${last}`.trim();
+        if (!name) continue;
+        if (name.toLowerCase().includes(q)) {
+          const position = typeof p.position === 'string' ? p.position : undefined;
+          const team = typeof p.team === 'string' ? p.team : undefined;
+          out.push({ id, name, position, team });
+        }
       }
     }
 
@@ -29,7 +38,7 @@ export async function GET(req: NextRequest) {
     });
 
     return NextResponse.json({ players: out.slice(0, 10) }, { status: 200 });
-  } catch (e) {
+  } catch {
     return NextResponse.json({ players: [] }, { status: 200 });
   }
 }

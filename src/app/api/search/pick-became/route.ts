@@ -57,7 +57,8 @@ export async function GET(req: NextRequest) {
     }
 
     // Find the pick matching round + slot (if known), otherwise best-effort
-    let match = undefined as any;
+    type DraftPick = { round?: number | string; draft_slot?: number | string; pick_no?: number | string; roster_id?: number };
+    let match: DraftPick | undefined = undefined;
     if (Number.isFinite(draftSlot)) {
       match = picks.find(p => Number(p.round) === round && Number(p.draft_slot) === draftSlot);
     }
@@ -78,16 +79,18 @@ export async function GET(req: NextRequest) {
       } else if (Number.isFinite(Number(match.draft_slot))) {
         pickInRound = Number(match.draft_slot);
       }
-      if (match.player_id) {
-        const players = await getAllPlayers();
-        const p = (players as Record<string, any>)[match.player_id];
+      const mp: unknown = (match as unknown as Record<string, unknown>)['player_id'];
+      if (typeof mp === 'string' && mp) {
+        const playersUnknown = (await getAllPlayers()) as unknown;
+        const p = playersUnknown && typeof playersUnknown === 'object'
+          ? (playersUnknown as Record<string, unknown>)[mp] as Record<string, unknown> | undefined
+          : undefined;
         if (p) {
-          became = {
-            id: match.player_id,
-            name: `${p.first_name || ''} ${p.last_name || ''}`.trim(),
-            position: p.position,
-            team: p.team,
-          };
+          const first = typeof p['first_name'] === 'string' ? p['first_name'] as string : '';
+          const last = typeof p['last_name'] === 'string' ? p['last_name'] as string : '';
+          const position = typeof p['position'] === 'string' ? p['position'] as string : undefined;
+          const team = typeof p['team'] === 'string' ? p['team'] as string : undefined;
+          became = { id: mp, name: `${first} ${last}`.trim(), position, team };
         }
       }
     }
@@ -101,7 +104,7 @@ export async function GET(req: NextRequest) {
       overallPick: Number.isFinite(overallPick as number) ? (overallPick as number) : null,
       became: became || null,
     }, { status: 200 });
-  } catch (e) {
+  } catch {
     return NextResponse.json({ error: 'server_error' }, { status: 500 });
   }
 }

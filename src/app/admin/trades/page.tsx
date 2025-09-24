@@ -355,29 +355,33 @@ function AdminTradesContent() {
                               className="evw-surface border rounded px-2 py-1"
                               placeholder="Year"
                               inputMode="numeric"
-                              value={(a as any).year || ''}
+                              value={a.year || ''}
                               onChange={(e) => {
                                 const year = e.target.value.replace(/[^0-9]/g, '').slice(0, 4);
                                 const teamsArr = [...form.teams];
                                 const assets = teamsArr[idx].assets.slice();
-                                const next = { ...(assets[ai] as any), type: 'pick', year } as ManualTradeAsset & { year?: string };
-                                const round = (next as any).round as number | undefined;
-                                (next as any).name = year && round ? `${year} ${ordinal(round)} Round Pick` : (next as any).name || '';
-                                assets[ai] = next as ManualTradeAsset;
+                                if (assets[ai].type !== 'pick') return;
+                                const prev = assets[ai];
+                                const next = { ...prev, year };
+                                const round = next.round;
+                                next.name = year && round ? `${year} ${ordinal(round)} Round Pick` : (next.name || '');
+                                assets[ai] = next;
                                 teamsArr[idx].assets = assets;
                                 setForm({ ...form, teams: teamsArr });
                               }}
                             />
                             <Select
-                              value={String((a as any).round || '')}
+                              value={a.round ? String(a.round) : ''}
                               onChange={(e) => {
                                 const round = Number(e.target.value);
                                 const teamsArr = [...form.teams];
                                 const assets = teamsArr[idx].assets.slice();
-                                const next = { ...(assets[ai] as any), type: 'pick', round } as ManualTradeAsset & { round?: number };
-                                const year = (next as any).year;
-                                (next as any).name = year && round ? `${year} ${ordinal(round)} Round Pick` : (next as any).name || '';
-                                assets[ai] = next as ManualTradeAsset;
+                                if (assets[ai].type !== 'pick') return;
+                                const prev = assets[ai];
+                                const next = { ...prev, round };
+                                const year = next.year;
+                                next.name = year && round ? `${year} ${ordinal(round)} Round Pick` : (next.name || '');
+                                assets[ai] = next;
                                 teamsArr[idx].assets = assets;
                                 setForm({ ...form, teams: teamsArr });
                               }}
@@ -389,12 +393,15 @@ function AdminTradesContent() {
                               <option value="4">4</option>
                             </Select>
                             <Select
-                              value={(a as any).originalOwner || ''}
+                              value={a.originalOwner || ''}
                               onChange={(e) => {
                                 const originalOwner = e.target.value;
                                 const teamsArr = [...form.teams];
                                 const assets = teamsArr[idx].assets.slice();
-                                assets[ai] = { ...(assets[ai] as any), originalOwner } as ManualTradeAsset;
+                                if (assets[ai].type !== 'pick') return;
+                                const prev = assets[ai];
+                                const next = { ...prev, originalOwner };
+                                assets[ai] = next;
                                 teamsArr[idx].assets = assets;
                                 setForm({ ...form, teams: teamsArr });
                               }}
@@ -429,9 +436,9 @@ function AdminTradesContent() {
                             variant="secondary"
                             onClick={async () => {
                               try {
-                                const year = (a as any).year;
-                                const round = (a as any).round;
-                                const owner = (a as any).originalOwner || '';
+                                const year = a.year;
+                                const round = a.round;
+                                const owner = a.originalOwner || '';
                                 if (!year || !round) return;
                                 const qs = new URLSearchParams({ season: String(year), round: String(round) });
                                 if (owner) qs.set('originalOwner', owner);
@@ -439,18 +446,19 @@ function AdminTradesContent() {
                                 const j = await r.json();
                                 const teamsArr = [...form.teams];
                                 const assets = teamsArr[idx].assets.slice();
-                                const next: any = { ...(assets[ai] as any) };
+                                if (assets[ai].type !== 'pick') return;
+                                const prev = assets[ai];
+                                const next = { ...prev };
                                 if (j && j.became) {
-                                  next.became = j.became.name;
-                                  next.becamePosition = j.became.position;
-                                  next.becameTeam = j.became.team;
-                                  next.becamePlayerId = j.became.id;
+                                  next.became = j.became.name || next.became;
+                                  next.becamePosition = j.became.position || next.becamePosition;
+                                  next.becameTeam = j.became.team || next.becameTeam;
+                                  next.becamePlayerId = j.became.id || next.becamePlayerId;
                                 }
-                                if (Number.isFinite(j.pickInRound)) next.pickInRound = j.pickInRound;
-                                if (Number.isFinite(j.draftSlot)) next.draftSlot = j.draftSlot;
-                                // Ensure name stays normalized
+                                if (Number.isFinite(j.pickInRound)) next.pickInRound = j.pickInRound as number;
+                                if (Number.isFinite(j.draftSlot)) next.draftSlot = j.draftSlot as number;
                                 if (next.year && next.round) next.name = `${next.year} ${ordinal(next.round)} Round Pick`;
-                                assets[ai] = next as ManualTradeAsset;
+                                assets[ai] = next;
                                 teamsArr[idx].assets = assets;
                                 setForm({ ...form, teams: teamsArr });
                               } catch {}
