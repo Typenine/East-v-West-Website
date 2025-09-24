@@ -488,7 +488,10 @@ export default function RosterColumn({
       const hasLiveActivity = Object.values(st).some((v) => (v ?? 0) > 0);
       const isStarter = starterSet.has(s.id);
       const hasHistory = games > 0;
-      const shouldProject = isStarter || hasHistory || hasLiveActivity || curPts > 0;
+      let shouldProject = isStarter || hasHistory || hasLiveActivity || curPts > 0;
+      if (!isStarter && pos === 'QB' && !hasLiveActivity && curPts === 0) {
+        shouldProject = false;
+      }
 
       const recent = (b?.decayedMean ?? 0) > 0 ? b!.decayedMean : ((b?.last3Avg ?? 0) > 0 ? b!.last3Avg : (b?.mean ?? basePos));
       const recencyWeight = (b?.decayedMean ?? 0) > 0 ? 0.7 : ((b?.last3Avg ?? 0) > 0 ? 0.6 : 0);
