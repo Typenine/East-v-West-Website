@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { getTeamColors } from "@/lib/utils/team-utils";
 import { normalizeTeamCode } from "@/lib/constants/nfl-teams";
 
 // Minimal PlayerRow type (mirror of RosterColumn)
@@ -422,6 +423,10 @@ export default function WinProbability({
   const rightPct = 100 - leftPct;
   useEffect(() => { setLastUpdated(new Date().toLocaleTimeString()); }, [wpCal.p]);
 
+  // Team-specific bar colors (secondary to pop against header)
+  const leftBarColor = getTeamColors(leftTeamName).secondary || 'var(--accent)';
+  const rightBarColor = getTeamColors(rightTeamName).secondary || 'var(--accent)';
+
   if (variant === 'inline') {
     return (
       <>
@@ -432,7 +437,7 @@ export default function WinProbability({
               <span>{leftPct}%</span>
             </div>
             <div className={`mt-1 h-2 w-full rounded-full overflow-hidden ${bordered ? 'evw-muted' : 'bg-black/20'}`} aria-hidden>
-              <div className="h-full bg-[var(--accent)]" style={{ width: `${leftPct}%` }} />
+              <div className="h-full" style={{ width: `${leftPct}%`, backgroundColor: leftBarColor }} />
             </div>
             <div className="mt-1 text-[0.7rem] text-[var(--muted)]">WP 95% CI: {(wpCal.ci[0] * 100).toFixed(0)}%–{(wpCal.ci[1] * 100).toFixed(0)}%</div>
           </div>
@@ -444,7 +449,7 @@ export default function WinProbability({
               <span>{rightPct}%</span>
             </div>
             <div className={`mt-1 h-2 w-full rounded-full overflow-hidden ${bordered ? 'evw-muted' : 'bg-black/20'}`} aria-hidden>
-              <div className="h-full bg-[var(--accent)]" style={{ width: `${rightPct}%` }} />
+              <div className="h-full" style={{ width: `${rightPct}%`, backgroundColor: rightBarColor }} />
             </div>
             <div className="mt-1 text-[0.7rem] text-[var(--muted)]">WP 95% CI: {(wpCal.ci[0] * 100).toFixed(0)}%–{(wpCal.ci[1] * 100).toFixed(0)}%</div>
           </div>
@@ -468,7 +473,7 @@ export default function WinProbability({
       </div>
       <div className="text-[0.75rem] text-[var(--muted)] mb-1">WP 95% CI: {(wpCal.ci[0] * 100).toFixed(0)}%–{(wpCal.ci[1] * 100).toFixed(0)}%</div>
       <div className="h-3 w-full rounded-full overflow-hidden evw-muted" aria-hidden>
-        <div className="h-full bg-[var(--accent)]" style={{ width: `${leftPct}%` }} />
+        <div className="h-full" style={{ width: `${leftPct}%`, backgroundColor: leftBarColor }} />
       </div>
       <div className="mt-2 flex items-center justify-between text-sm font-medium">
         <span>{rightTeamName}</span>

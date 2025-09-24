@@ -614,7 +614,7 @@ export default function RosterColumn({
                   {showDelta && (
                     <div className={`text-xs tabular-nums ${d > 0 ? 'text-green-600' : d < 0 ? 'text-red-600' : 'text-[var(--muted)]'}`}>{d > 0 ? `+${d.toFixed(2)}` : d.toFixed(2)}</div>
                   )}
-                  <div className="text-[0.7rem] text-[var(--muted)]">(Proj {((projTotals[s.id] ?? curPts)).toFixed(1)})</div>
+                  <div className="text-[0.75rem] text-[var(--text)] font-medium">(Proj {((projTotals[s.id] ?? curPts)).toFixed(1)})</div>
                 </div>
               </li>
             );
@@ -662,7 +662,7 @@ export default function RosterColumn({
                   {showDelta && (
                     <div className={`text-xs tabular-nums ${d > 0 ? 'text-green-600' : d < 0 ? 'text-red-600' : 'text-[var(--muted)]'}`}>{d > 0 ? `+${d.toFixed(2)}` : d.toFixed(2)}</div>
                   )}
-                  <div className="text-[0.7rem] text-[var(--muted)]">(Proj {((projTotals[s.id] ?? curPts)).toFixed(1)})</div>
+                  <div className="text-[0.75rem] text-[var(--text)] font-medium">(Proj {((projTotals[s.id] ?? curPts)).toFixed(1)})</div>
                 </div>
               </li>
             );
