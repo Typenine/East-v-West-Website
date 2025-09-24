@@ -483,24 +483,27 @@ export default function RosterColumn({
       const basePos = POS_DEFAULT_MEAN[pos] ?? 10;
       const b = baselinesMap[s.id];
       const games = b?.games ?? 0;
+      const curPts = Number(pointsMap[s.id] ?? s.pts);
+      const st = (statsLive?.[s.id] || {}) as Record<string, number | undefined>;
+      const hasLiveActivity = Object.values(st).some((v) => (v ?? 0) > 0);
+      const isStarter = starterSet.has(s.id);
+      const hasHistory = games > 0;
+      const shouldProject = isStarter || hasHistory || hasLiveActivity || curPts > 0;
+
       const recent = (b?.decayedMean ?? 0) > 0 ? b!.decayedMean : ((b?.last3Avg ?? 0) > 0 ? b!.last3Avg : (b?.mean ?? basePos));
       const recencyWeight = (b?.decayedMean ?? 0) > 0 ? 0.7 : ((b?.last3Avg ?? 0) > 0 ? 0.6 : 0);
       const recencyMean = (recencyWeight * recent) + ((1 - recencyWeight) * (b?.mean ?? basePos));
       const alpha = Math.max(0, Math.min(1, games / 6));
-      // Shrink toward positional default
       const fullMean = (alpha * recencyMean) + ((1 - alpha) * basePos);
-      const isStarter = starterSet.has(s.id);
-      const frac = isStarter ? fractionRemainingForTeam(s.team, statuses, isPastWeek) : 0;
-      const ctx = contextMultiplier(pos, s.team, statuses);
-      // Opponent defensive strength factor via opponent code from statuses
+
+      const frac = shouldProject ? fractionRemainingForTeam(s.team, statuses, isPastWeek) : 0;
       const teamCode = normalizeTeamCode(s.team);
       const oppCode = teamCode ? (statuses[teamCode]?.opponent || '') : '';
       const defMul = oppCode ? (defFactors[oppCode.toUpperCase()] ?? 1) : 1;
+      const ctx = shouldProject ? contextMultiplier(pos, s.team, statuses) : 1;
 
-      // In-game usage multiplier (IP only)
-      const st = (statsLive?.[s.id] || {}) as Record<string, number | undefined>;
       let touches = 0; let expectedTouches = 0;
-      if (statuses[teamCode || '']?.state === 'in') {
+      if (shouldProject && teamCode && statuses[teamCode]?.state === 'in') {
         const fracElapsed = 1 - frac;
         if (pos === 'QB') {
           touches = (st['pass_att'] ?? 0) + (st['rush_att'] ?? 0);
@@ -519,8 +522,7 @@ export default function RosterColumn({
       const usageRatio = expectedTouches > 0 ? (touches / expectedTouches) : 1;
       const usageMul = Math.max(0.85, Math.min(1.15, usageRatio));
 
-      const expectedRem = isStarter ? (fullMean * frac * ctx * defMul * usageMul) : 0;
-      const curPts = Number(pointsMap[s.id] ?? s.pts);
+      const expectedRem = shouldProject ? (fullMean * frac * ctx * defMul * usageMul) : 0;
       const total = curPts + expectedRem;
       map[s.id] = Number.isFinite(total) ? total : curPts;
     }
