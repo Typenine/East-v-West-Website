@@ -489,7 +489,8 @@ export default function RosterColumn({
       const isStarter = starterSet.has(s.id);
       const hasHistory = games > 0;
       let shouldProject = isStarter || hasHistory || hasLiveActivity || curPts > 0;
-      if (!isStarter && pos === 'QB' && !hasLiveActivity && curPts === 0) {
+      // Depth chart guard: suppress projections for backup QBs with no history/snaps
+      if (!isStarter && pos === 'QB' && !hasLiveActivity && curPts === 0 && !hasHistory) {
         shouldProject = false;
       }
 
