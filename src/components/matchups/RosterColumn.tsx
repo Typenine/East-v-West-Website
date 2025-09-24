@@ -476,6 +476,7 @@ export default function RosterColumn({
   // Projected totals per player (final = current points + expected remaining)
   const projTotals = useMemo(() => {
     const map: Record<string, number> = {};
+    const starterSet = new Set(starters.map((p) => p.id));
     const all = [...starters, ...bench];
     for (const s of all) {
       const pos = (s.pos || '').toUpperCase();
@@ -488,7 +489,8 @@ export default function RosterColumn({
       const alpha = Math.max(0, Math.min(1, games / 6));
       // Shrink toward positional default
       const fullMean = (alpha * recencyMean) + ((1 - alpha) * basePos);
-      const frac = fractionRemainingForTeam(s.team, statuses, isPastWeek);
+      const isStarter = starterSet.has(s.id);
+      const frac = isStarter ? fractionRemainingForTeam(s.team, statuses, isPastWeek) : 0;
       const ctx = contextMultiplier(pos, s.team, statuses);
       // Opponent defensive strength factor via opponent code from statuses
       const teamCode = normalizeTeamCode(s.team);
@@ -517,7 +519,7 @@ export default function RosterColumn({
       const usageRatio = expectedTouches > 0 ? (touches / expectedTouches) : 1;
       const usageMul = Math.max(0.85, Math.min(1.15, usageRatio));
 
-      const expectedRem = fullMean * frac * ctx * defMul * usageMul;
+      const expectedRem = isStarter ? (fullMean * frac * ctx * defMul * usageMul) : 0;
       const curPts = Number(pointsMap[s.id] ?? s.pts);
       const total = curPts + expectedRem;
       map[s.id] = Number.isFinite(total) ? total : curPts;
