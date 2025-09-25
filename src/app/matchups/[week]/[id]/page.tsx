@@ -14,6 +14,7 @@ import {
 } from '@/lib/utils/sleeper-api';
 import RosterColumn, { type PlayerRow } from '@/components/matchups/RosterColumn';
 import WinProbability from '@/components/matchups/WinProbability';
+import { buildPlayerAvailabilitySnapshot } from '@/lib/utils/player-availability';
 
 export const revalidate = 20;
 
@@ -128,6 +129,19 @@ export default async function MatchupDetailPage({ params }: { params?: Promise<R
       weekStats = {};
     }
 
+    const playerIds = Array.from(new Set([
+      ...aStarters.map((p) => p.id),
+      ...bStarters.map((p) => p.id),
+      ...aBench.map((p) => p.id),
+      ...bBench.map((p) => p.id),
+    ]));
+
+    const availability = await buildPlayerAvailabilitySnapshot({
+      leagueId,
+      uptoWeek: week,
+      playerIds,
+    });
+
     return (
       <div className="container mx-auto px-4 py-8">
         <SectionHeader
@@ -155,6 +169,7 @@ export default async function MatchupDetailPage({ params }: { params?: Promise<R
             starters={bStarters}
             bench={bBench}
             stats={weekStats}
+            availability={availability}
             headerExtras={
               <WinProbability
                 week={week}
@@ -169,6 +184,7 @@ export default async function MatchupDetailPage({ params }: { params?: Promise<R
                 variant="inline"
                 side="left"
                 bordered={false}
+                availability={availability}
               />
             }
           />
@@ -182,6 +198,7 @@ export default async function MatchupDetailPage({ params }: { params?: Promise<R
             starters={aStarters}
             bench={aBench}
             stats={weekStats}
+            availability={availability}
             headerExtras={
               <WinProbability
                 week={week}
@@ -196,6 +213,7 @@ export default async function MatchupDetailPage({ params }: { params?: Promise<R
                 variant="inline"
                 side="right"
                 bordered={false}
+                availability={availability}
               />
             }
           />

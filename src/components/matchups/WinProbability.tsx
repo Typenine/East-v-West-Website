@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getTeamColors } from "@/lib/utils/team-utils";
 import { normalizeTeamCode } from "@/lib/constants/nfl-teams";
+import type { PlayerAvailabilityEntry } from "@/lib/utils/player-availability";
 
 // Minimal PlayerRow type (mirror of RosterColumn)
 type PlayerRow = {
@@ -77,6 +78,7 @@ export default function WinProbability({
   variant = 'card',
   side,
   bordered = true,
+  availability,
 }: {
   week: number;
   season: string;
@@ -90,6 +92,7 @@ export default function WinProbability({
   variant?: 'card' | 'inline';
   side?: 'left' | 'right';
   bordered?: boolean;
+  availability?: Record<string, PlayerAvailabilityEntry>;
 }) {
   const [board, setBoard] = useState<ScoreboardPayload | null>(null);
   const timer = useRef<number | null>(null);
@@ -282,6 +285,8 @@ export default function WinProbability({
         const pos = (p.pos || '').toUpperCase();
         const basePos = POS_DEFAULT_MEAN[pos] ?? 10;
         const b = baselines[p.id] || { mean: basePos, last3Avg: 0, games: 0, stddev: 0, decayedMean: 0 };
+        const availabilityWeightRaw = availability?.[p.id]?.weight;
+        const availabilityWeight = Number.isFinite(availabilityWeightRaw) ? Math.max(0, Math.min(1, availabilityWeightRaw as number)) : 1;
         const games = b.games ?? 0;
         const recent = (b.decayedMean ?? 0) > 0 ? b.decayedMean : ((b.last3Avg ?? 0) > 0 ? b.last3Avg : (b.mean ?? basePos));
         const recencyWeight = (b.decayedMean ?? 0) > 0 ? 0.7 : ((b.last3Avg ?? 0) > 0 ? 0.6 : 0);
@@ -305,14 +310,14 @@ export default function WinProbability({
         }
         const usageRatio = expectedTouches > 0 ? (touches / expectedTouches) : 1;
         const usageMul = Math.max(0.85, Math.min(1.15, usageRatio));
-        const expectedRem = fullMean * frac * ctxM * defMul * usageMul;
+        const expectedRem = fullMean * frac * ctxM * defMul * usageMul * availabilityWeight;
         const cur = Number(p.pts ?? 0);
         total += cur + expectedRem;
       }
       return total;
     }
     return { left: projFor(leftStarters), right: projFor(rightStarters) };
-  }, [leftStarters, rightStarters, baselines, statuses, defFactors, statsLive, POS_DEFAULT_MEAN, contextMultiplier, fractionRemainingForTeam]);
+  }, [leftStarters, rightStarters, baselines, statuses, defFactors, statsLive, POS_DEFAULT_MEAN, contextMultiplier, fractionRemainingForTeam, availability]);
 
   const wp = useMemo(() => {
     // Build param list for Monte Carlo from baselines and context
@@ -321,6 +326,8 @@ export default function WinProbability({
       const out: Param[] = [];
       for (const p of players) {
         const b = baselines[p.id];
+        const availabilityWeightRaw = availability?.[p.id]?.weight;
+        const availabilityWeight = Number.isFinite(availabilityWeightRaw) ? Math.max(0, Math.min(1, availabilityWeightRaw as number)) : 1;
         const pos = (p.pos || '').toUpperCase();
         const posMean = POS_DEFAULT_MEAN[pos] ?? 10;
         const posSd = POS_DEFAULT_SD[pos] ?? 6;
@@ -334,8 +341,8 @@ export default function WinProbability({
         const fullSd = Math.max(0.1, (alpha * (b?.stddev ?? posSd)) + ((1 - alpha) * posSd));
         const frac = fractionRemainingForTeam(p.team);
         const ctx = contextMultiplier(pos, p.team);
-        const meanRem = fullMean * frac * ctx.meanMul;
-        const sdRem = Math.max(0.05, fullSd * Math.sqrt(Math.max(0, Math.min(1, frac))) * ctx.sdMul);
+        const meanRem = fullMean * frac * ctx.meanMul * availabilityWeight;
+        const sdRem = Math.max(0.05, fullSd * Math.sqrt(Math.max(0, Math.min(1, frac))) * ctx.sdMul * Math.sqrt(availabilityWeight));
         out.push({ mean: meanRem, sd: sdRem });
       }
       return out;

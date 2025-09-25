@@ -1299,6 +1299,11 @@ export interface SleeperPlayer {
   team: string;
   status: string;
   injury_status: string;
+  injury_body_part?: string | null;
+  practice_participation?: string | null;
+  depth_chart_order?: number | null;
+  depth_chart_position?: string | null;
+  starting_status?: string | null;
   years_exp: number;
   // Sleeper includes rookie_year for many players; used to identify ROY by season
   rookie_year?: string | number;
@@ -1382,10 +1387,78 @@ const USERS_TTL_MS = 30 * 60 * 1000; // 30 minutes
 const ROSTERS_TTL_MS = 5 * 60 * 1000; // 5 minutes
 const MATCHUPS_TTL_MS = 20 * 1000;    // 20 seconds (scoreboard updates frequently)
 const MATCHUPS_STALE_WHEN_EMPTY_MS = 2 * 60 * 1000; // within 2 minutes, prefer last non-empty over sudden empty
+const INJURIES_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
 const leagueUsersCache: Record<string, { ts: number; data: SleeperUser[] }> = {};
 const leagueRostersCache: Record<string, { ts: number; data: SleeperRoster[] }> = {};
 const leagueMatchupsCache: Record<string, { ts: number; data: SleeperMatchup[] }> = {};
+
+let injuriesCache: { ts: number; data: SleeperInjury[] } | null = null;
+
+export interface SleeperInjury {
+  player_id: string;
+  status?: string;
+  practice_participation?: string;
+  notes?: string;
+  update_time?: number;
+}
+
+export async function getSleeperInjuriesCached(ttlMs: number = INJURIES_TTL_MS, options?: SleeperFetchOptions): Promise<SleeperInjury[]> {
+  const now = Date.now();
+  if (!options?.forceFresh && injuriesCache && now - injuriesCache.ts < ttlMs) return injuriesCache.data;
+  try {
+    const bust = options?.forceFresh ? `?t=${now}` : '';
+    const data = await sleeperFetchJson<SleeperInjury[]>(`${SLEEPER_API_BASE}/players/nfl/injuries${bust}`, undefined, options);
+    injuriesCache = { ts: now, data };
+    return data;
+  } catch (err) {
+    console.warn('[sleeper] injuries fetch failed', err);
+    injuriesCache = { ts: now, data: [] };
+    return [];
+  }
+}
+
+export type PlayerAvailabilityTier = 'starter' | 'primary_backup' | 'rotational' | 'inactive' | 'unknown';
+
+export interface PlayerAvailabilityInfo {
+  tier: PlayerAvailabilityTier;
+  reasons: string[];
+}
+
+export function resolveAvailabilityFromSleeper(player: SleeperPlayer | undefined, injury: SleeperInjury | undefined): PlayerAvailabilityInfo {
+  if (!player) return { tier: 'unknown', reasons: ['missing-player'] };
+  const reasons: string[] = [];
+  const depthOrder = typeof player.depth_chart_order === 'number' ? player.depth_chart_order : null;
+  const starting = player.starting_status?.toLowerCase() === 'starter';
+  const injured = injury?.status?.toLowerCase();
+  const inactiveStatuses = new Set(['out', 'injured reserve', 'physically unable to perform']);
+  if (injured && inactiveStatuses.has(injured)) {
+    reasons.push(`injury:${injured}`);
+    return { tier: 'inactive', reasons };
+  }
+  if (starting || depthOrder === 1) {
+    if (starting) reasons.push('sleeper-starting');
+    if (depthOrder === 1) reasons.push('depth-order-1');
+    return { tier: 'starter', reasons };
+  }
+  if (depthOrder === 2) {
+    reasons.push('depth-order-2');
+    return { tier: 'primary_backup', reasons };
+  }
+  if (depthOrder === 3) {
+    reasons.push('depth-order-3');
+    return { tier: 'rotational', reasons };
+  }
+  if (depthOrder && depthOrder > 3) {
+    reasons.push(`depth-order-${depthOrder}`);
+    return { tier: 'rotational', reasons };
+  }
+  if ((player.status?.toLowerCase() || '') === 'inactive') {
+    reasons.push('sleeper-inactive');
+    return { tier: 'inactive', reasons };
+  }
+  return { tier: 'unknown', reasons };
+}
 
 /**
  * Fetch league information from Sleeper API

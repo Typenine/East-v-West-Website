@@ -7,6 +7,7 @@ import Card, { CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
 import PlayerDrawer from "@/components/matchups/PlayerDrawer";
 import { getTeamLogoPath, getTeamColorStyle } from "@/lib/utils/team-utils";
 import { normalizeTeamCode } from "@/lib/constants/nfl-teams";
+import type { PlayerAvailabilityEntry } from "@/lib/utils/player-availability";
 
 export type PlayerRow = {
   id: string;
@@ -253,6 +254,7 @@ export default function RosterColumn({
   bench,
   stats,
   headerExtras,
+  availability,
 }: {
   title: string;
   colorTeam: string; // team name for color styling
@@ -264,6 +266,7 @@ export default function RosterColumn({
   bench: PlayerRow[];
   stats?: Record<string, Partial<Record<string, number>>>;
   headerExtras?: ReactNode;
+  availability?: Record<string, PlayerAvailabilityEntry>;
 }) {
   const [board, setBoard] = useState<ScoreboardPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -494,6 +497,10 @@ export default function RosterColumn({
         shouldProject = false;
       }
 
+      const availabilityWeightRaw = availability?.[s.id]?.weight;
+      const availabilityWeight = Number.isFinite(availabilityWeightRaw) ? Math.max(0, Math.min(1, availabilityWeightRaw as number)) : 1;
+      if (availabilityWeight === 0) shouldProject = false;
+
       const recent = (b?.decayedMean ?? 0) > 0 ? b!.decayedMean : ((b?.last3Avg ?? 0) > 0 ? b!.last3Avg : (b?.mean ?? basePos));
       const recencyWeight = (b?.decayedMean ?? 0) > 0 ? 0.7 : ((b?.last3Avg ?? 0) > 0 ? 0.6 : 0);
       const recencyMean = (recencyWeight * recent) + ((1 - recencyWeight) * (b?.mean ?? basePos));
@@ -526,12 +533,12 @@ export default function RosterColumn({
       const usageRatio = expectedTouches > 0 ? (touches / expectedTouches) : 1;
       const usageMul = Math.max(0.85, Math.min(1.15, usageRatio));
 
-      const expectedRem = shouldProject ? (fullMean * frac * ctx * defMul * usageMul) : 0;
+      const expectedRem = shouldProject ? (fullMean * frac * ctx * defMul * usageMul * availabilityWeight) : 0;
       const total = curPts + expectedRem;
       map[s.id] = Number.isFinite(total) ? total : curPts;
     }
     return map;
-  }, [starters, bench, baselinesMap, statuses, isPastWeek, pointsMap, defFactors, statsLive]);
+  }, [starters, bench, baselinesMap, statuses, isPastWeek, pointsMap, defFactors, statsLive, availability]);
 
   // Team total projected (final) using starters only (sum of per-player projections)
   const projTeamTotal = useMemo(() => {
