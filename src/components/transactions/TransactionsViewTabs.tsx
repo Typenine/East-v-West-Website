@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter, useSearchParams } from "next/navigation";
-import clsx from "clsx";
+import { cn } from "../../lib/utils/cn";
 
 export default function TransactionsViewTabs() {
   const router = useRouter();
@@ -27,7 +27,7 @@ export default function TransactionsViewTabs() {
         <button
           key={t.key}
           type="button"
-          className={clsx(
+          className={cn(
             "px-3 py-2 rounded border text-sm",
             view === t.key ? "border-[var(--accent)] text-[var(--accent)]" : "border-[var(--border)]"
           )}

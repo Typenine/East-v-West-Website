@@ -28,7 +28,13 @@ export type TransactionsSummary = {
   count: number;
 };
 
-export async function buildTransactionLedger(): Promise<LeagueTransaction[]> {
+export function listAllSeasons(): string[] {
+  const seasons = ['2025', ...Object.keys(LEAGUE_IDS.PREVIOUS || {})];
+  // Latest first
+  return seasons.sort((a, b) => b.localeCompare(a));
+}
+
+export async function buildTransactionLedger(arg?: { season?: string }): Promise<LeagueTransaction[]> {
   const players = await getAllPlayersCached().catch(() => ({} as Record<string, SleeperPlayer>));
   const out: LeagueTransaction[] = [];
 
@@ -37,7 +43,9 @@ export async function buildTransactionLedger(): Promise<LeagueTransaction[]> {
     ...LEAGUE_IDS.PREVIOUS,
   };
 
-  for (const [season, leagueId] of Object.entries(yearToLeague)) {
+  const entries = Object.entries(yearToLeague).filter(([season]) => !arg?.season || arg.season === season);
+
+  for (const [season, leagueId] of entries) {
     if (!leagueId) continue;
     const transactions = await getLeagueTransactionsAllWeeks(leagueId).catch(() => [] as SleeperTransaction[]);
     const rosterNameMap = await getRosterIdToTeamNameMap(leagueId).catch(() => new Map<number, string>());

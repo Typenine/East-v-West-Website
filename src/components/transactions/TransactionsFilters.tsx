@@ -2,7 +2,7 @@
 
 import { useMemo } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import clsx from "clsx";
+import { cn } from "@/lib/utils/cn";
 import type { TransactionsSummary } from "@/lib/utils/transactions";
 
 export default function TransactionsFilters({
@@ -77,7 +77,7 @@ export default function TransactionsFilters({
         </select>
         <button
           type="button"
-          className={clsx(
+          className={cn(
             "px-3 py-2 rounded border",
             sort === "created" ? "border-[var(--accent)] text-[var(--accent)]" : "border-[var(--border)]"
           )}
@@ -87,7 +87,7 @@ export default function TransactionsFilters({
         </button>
         <button
           type="button"
-          className={clsx(
+          className={cn(
             "px-3 py-2 rounded border",
             sort === "faab" ? "border-[var(--accent)] text-[var(--accent)]" : "border-[var(--border)]"
           )}
@@ -97,7 +97,7 @@ export default function TransactionsFilters({
         </button>
         <button
           type="button"
-          className={clsx(
+          className={cn(
             "px-3 py-2 rounded border",
             sort === "team" ? "border-[var(--accent)] text-[var(--accent)]" : "border-[var(--border)]"
           )}
@@ -107,7 +107,7 @@ export default function TransactionsFilters({
         </button>
         <button
           type="button"
-          className={clsx(
+          className={cn(
             "px-3 py-2 rounded border",
             sort === "week" ? "border-[var(--accent)] text-[var(--accent)]" : "border-[var(--border)]"
           )}
