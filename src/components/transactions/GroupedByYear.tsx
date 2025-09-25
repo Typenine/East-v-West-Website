@@ -1,4 +1,5 @@
 import type { LeagueTransaction } from "@/lib/utils/transactions";
+import TeamBadge from "@/components/teams/TeamBadge";
 
 function formatDate(timestamp: number) {
   if (!timestamp) return "—";
@@ -55,7 +56,7 @@ export default function GroupedByYear({ data }: { data: LeagueTransaction[] }) {
                     <tr key={`${txn.id}-${txn.rosterId}`} className="border-t border-[var(--border)]">
                       <td className="px-4 py-3 whitespace-nowrap">{formatDate(txn.created)}</td>
                       <td className="px-4 py-3 whitespace-nowrap">{txn.week > 0 ? `W${txn.week}` : "—"}</td>
-                      <td className="px-4 py-3 font-medium">{txn.team}</td>
+                      <td className="px-4 py-3 font-medium"><TeamBadge team={txn.team} /></td>
                       <td className="px-4 py-3">
                         <ul className="space-y-1">
                           {txn.added.map((player) => (

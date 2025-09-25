@@ -6,6 +6,7 @@ import TransactionsViewTabs from "@/components/transactions/TransactionsViewTabs
 import GroupedByYear from "@/components/transactions/GroupedByYear";
 import GroupedByTeam from "@/components/transactions/GroupedByTeam";
 import GroupedToolbar from "@/components/transactions/GroupedToolbar";
+import TransactionsPagination from "@/components/transactions/TransactionsPagination";
 import { buildTransactionLedger, listAllSeasons, type LeagueTransaction, type TransactionsSummary } from "@/lib/utils/transactions";
 
 type SortKey = "created" | "faab" | "team" | "season" | "week";
@@ -51,11 +52,15 @@ export default async function TransactionsPage({
   const teamParamRaw = params.team;
   const sortParamRaw = params.sort;
   const dirParamRaw = params.direction;
+  const pageParamRaw = params.page;
+  const perPageParamRaw = params.perPage;
 
   const season = Array.isArray(seasonParamRaw) ? seasonParamRaw[0] : seasonParamRaw;
   const team = Array.isArray(teamParamRaw) ? teamParamRaw[0] : teamParamRaw;
   const sort = Array.isArray(sortParamRaw) ? sortParamRaw[0] : sortParamRaw;
   const direction = Array.isArray(dirParamRaw) ? dirParamRaw[0] : dirParamRaw;
+  const pageStr = Array.isArray(pageParamRaw) ? pageParamRaw[0] : pageParamRaw;
+  const perPageStr = Array.isArray(perPageParamRaw) ? perPageParamRaw[0] : perPageParamRaw;
 
   // Determine seasons list
   const allSeasons = listAllSeasons();
@@ -87,6 +92,14 @@ export default async function TransactionsPage({
   const summary = buildSummary(transactions);
   const view = (Array.isArray(params.view) ? params.view[0] : params.view) || "all";
 
+  // Pagination (All view only)
+  const perPageDefault = 50;
+  const perPage = Math.max(1, Math.min(1000, Number(perPageStr) || perPageDefault));
+  const page = Math.max(1, Number(pageStr) || 1);
+  const start = (page - 1) * perPage;
+  const end = start + perPage;
+  const paged = transactions.slice(start, end);
+
   return (
     <div className="container mx-auto px-4 py-8">
       <SectionHeader title="Transactions" subtitle="Waiver and free agent history across seasons" />
@@ -96,7 +109,8 @@ export default async function TransactionsPage({
           <TransactionsFilters summary={summary} seasons={seasons} teams={teams} />
         <Card className="mt-4">
           <CardContent className="p-0">
-            <TransactionsTable data={transactions} sortKey={sortKey} direction={sortDirection} />
+            <TransactionsTable data={paged} sortKey={sortKey} direction={sortDirection} />
+            <TransactionsPagination total={transactions.length} page={page} perPage={perPage} />
           </CardContent>
         </Card>
         </>

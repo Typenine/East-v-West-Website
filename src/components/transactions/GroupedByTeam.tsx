@@ -1,4 +1,5 @@
 import type { LeagueTransaction } from "@/lib/utils/transactions";
+import TeamBadge from "@/components/teams/TeamBadge";
 
 function formatDate(timestamp: number) {
   if (!timestamp) return "—";
@@ -36,7 +37,9 @@ export default function GroupedByTeam({ data }: { data: LeagueTransaction[] }) {
         return (
           <section key={team} className="py-3">
             <div className="flex items-center justify-between px-4 py-2 bg-[var(--surface-2)] border-b border-[var(--border)]">
-              <h3 className="text-sm font-semibold">{team}</h3>
+              <div className="flex items-center gap-2">
+                <TeamBadge team={team} />
+              </div>
               <div className="text-xs text-[var(--muted)]">FAAB: ${totalFaab}</div>
             </div>
             <div className="overflow-x-auto">
