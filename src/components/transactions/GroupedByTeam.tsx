@@ -1,5 +1,6 @@
 import type { LeagueTransaction } from "@/lib/utils/transactions";
 import TeamBadge from "@/components/teams/TeamBadge";
+import { getTeamColors } from "@/lib/utils/team-utils";
 
 function formatDate(timestamp: number) {
   if (!timestamp) return "—";
@@ -34,11 +35,18 @@ export default function GroupedByTeam({ data }: { data: LeagueTransaction[] }) {
       {teams.map((team) => {
         const items = (byTeam.get(team) || []).slice().sort((a, b) => b.created - a.created);
         const totalFaab = items.reduce((sum, t) => sum + (t.faab || 0), 0);
+        const colors = getTeamColors(team);
         return (
           <section key={team} className="py-3">
-            <div className="flex items-center justify-between px-4 py-2 bg-[var(--surface-2)] border-b border-[var(--border)]">
+            <div
+              className="flex items-center justify-between px-4 py-2 border-b"
+              style={{
+                backgroundColor: colors.secondary + '11',
+                borderColor: colors.secondary,
+              }}
+            >
               <div className="flex items-center gap-2">
-                <TeamBadge team={team} />
+                <TeamBadge team={team} size="lg" />
               </div>
               <div className="text-xs text-[var(--muted)]">FAAB: ${totalFaab}</div>
             </div>
@@ -56,7 +64,11 @@ export default function GroupedByTeam({ data }: { data: LeagueTransaction[] }) {
                 </thead>
                 <tbody>
                   {items.map((txn) => (
-                    <tr key={`${txn.id}-${txn.rosterId}`} className="border-t border-[var(--border)]">
+                    <tr
+                      key={`${txn.id}-${txn.rosterId}`}
+                      className="border-t border-[var(--border)] border-l-4"
+                      style={{ borderLeftColor: colors.primary }}
+                    >
                       <td className="px-4 py-3 whitespace-nowrap">{formatDate(txn.created)}</td>
                       <td className="px-4 py-3 whitespace-nowrap">{txn.season}</td>
                       <td className="px-4 py-3 whitespace-nowrap">{txn.week > 0 ? `W${txn.week}` : "—"}</td>

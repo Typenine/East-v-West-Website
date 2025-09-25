@@ -1,5 +1,6 @@
 import type { LeagueTransaction } from "@/lib/utils/transactions";
 import TeamBadge from "@/components/teams/TeamBadge";
+import { getTeamColors } from "@/lib/utils/team-utils";
 
 function formatDate(timestamp: number) {
   if (!timestamp) return "—";
@@ -44,12 +45,18 @@ export default function TransactionsTable({
           </tr>
         </thead>
         <tbody>
-          {data.map((txn) => (
-            <tr key={`${txn.id}-${txn.rosterId}`} className="border-t border-[var(--border)]">
+          {data.map((txn) => {
+            const colors = getTeamColors(txn.team);
+            return (
+            <tr
+              key={`${txn.id}-${txn.rosterId}`}
+              className="border-t border-[var(--border)] border-l-4"
+              style={{ borderLeftColor: colors.primary }}
+            >
               <td className="px-4 py-3 whitespace-nowrap">{formatDate(txn.created)}</td>
               <td className="px-4 py-3 whitespace-nowrap">{txn.season}</td>
               <td className="px-4 py-3 whitespace-nowrap">{txn.week > 0 ? `W${txn.week}` : "—"}</td>
-              <td className="px-4 py-3 font-medium"><TeamBadge team={txn.team} /></td>
+              <td className="px-4 py-3 font-medium"><TeamBadge team={txn.team} size="lg" /></td>
               <td className="px-4 py-3">
                 <ul className="space-y-1">
                   {txn.added.map((player) => (
@@ -78,7 +85,7 @@ export default function TransactionsTable({
               </td>
               <td className="px-4 py-3 text-right font-semibold">{txn.faab > 0 ? `$${txn.faab}` : "—"}</td>
             </tr>
-          ))}
+          );})}
         </tbody>
       </table>
     </div>
