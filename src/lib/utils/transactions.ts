@@ -1,7 +1,7 @@
 import { LEAGUE_IDS } from "@/lib/constants/league";
 import {
   getRosterIdToTeamNameMap,
-  getAllLeagueTransactions,
+  getLeagueTransactionsAllWeeks,
   type SleeperTransaction,
   type SleeperPlayer,
   getAllPlayersCached,
@@ -30,13 +30,16 @@ export type TransactionsSummary = {
 
 export async function buildTransactionLedger(): Promise<LeagueTransaction[]> {
   const players = await getAllPlayersCached().catch(() => ({} as Record<string, SleeperPlayer>));
-  const allTransactions = await getAllLeagueTransactions();
   const out: LeagueTransaction[] = [];
 
-  for (const [season, transactions] of Object.entries(allTransactions)) {
-    const leagueId = season === "2025" ? LEAGUE_IDS.CURRENT : LEAGUE_IDS.PREVIOUS[season as keyof typeof LEAGUE_IDS.PREVIOUS];
-    if (!leagueId) continue;
+  const yearToLeague: Record<string, string> = {
+    '2025': LEAGUE_IDS.CURRENT,
+    ...LEAGUE_IDS.PREVIOUS,
+  };
 
+  for (const [season, leagueId] of Object.entries(yearToLeague)) {
+    if (!leagueId) continue;
+    const transactions = await getLeagueTransactionsAllWeeks(leagueId).catch(() => [] as SleeperTransaction[]);
     const rosterNameMap = await getRosterIdToTeamNameMap(leagueId).catch(() => new Map<number, string>());
 
     for (const txn of transactions) {
