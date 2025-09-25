@@ -5,6 +5,7 @@ import TransactionsFilters from "@/components/transactions/TransactionsFilters";
 import TransactionsViewTabs from "@/components/transactions/TransactionsViewTabs";
 import GroupedByYear from "@/components/transactions/GroupedByYear";
 import GroupedByTeam from "@/components/transactions/GroupedByTeam";
+import GroupedToolbar from "@/components/transactions/GroupedToolbar";
 import { buildTransactionLedger, listAllSeasons, type LeagueTransaction, type TransactionsSummary } from "@/lib/utils/transactions";
 
 type SortKey = "created" | "faab" | "team" | "season" | "week";
@@ -89,28 +90,35 @@ export default async function TransactionsPage({
   return (
     <div className="container mx-auto px-4 py-8">
       <SectionHeader title="Transactions" subtitle="Waiver and free agent history across seasons" />
-      <TransactionsFilters summary={summary} seasons={seasons} teams={teams} />
       <TransactionsViewTabs />
       {view === 'all' && (
+        <>
+          <TransactionsFilters summary={summary} seasons={seasons} teams={teams} />
         <Card className="mt-4">
           <CardContent className="p-0">
             <TransactionsTable data={transactions} sortKey={sortKey} direction={sortDirection} />
           </CardContent>
         </Card>
+        </>
       )}
-      {view === 'year' && (
-        <Card className="mt-4">
-          <CardContent className="p-0">
-            <GroupedByYear data={transactions} />
-          </CardContent>
-        </Card>
-      )}
-      {view === 'team' && (
-        <Card className="mt-4">
-          <CardContent className="p-0">
-            <GroupedByTeam data={transactions} />
-          </CardContent>
-        </Card>
+      {view !== 'all' && (
+        <>
+          <GroupedToolbar seasons={seasons} teams={teams} />
+          {view === 'year' && (
+            <Card className="mt-4">
+              <CardContent className="p-0">
+                <GroupedByYear data={transactions} />
+              </CardContent>
+            </Card>
+          )}
+          {view === 'team' && (
+            <Card className="mt-4">
+              <CardContent className="p-0">
+                <GroupedByTeam data={transactions} />
+              </CardContent>
+            </Card>
+          )}
+        </>
       )}
     </div>
   );
