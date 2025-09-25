@@ -21,6 +21,24 @@ export interface SleeperFetchOptions {
   forceFresh?: boolean;
 }
 
+export async function getAllLeagueTransactions(options?: SleeperFetchOptions): Promise<Record<string, SleeperTransaction[]>> {
+  try {
+    const transactionsByYear: Record<string, SleeperTransaction[]> = {};
+    const yearToLeague: Record<string, string> = {
+      '2025': LEAGUE_IDS.CURRENT,
+      ...LEAGUE_IDS.PREVIOUS,
+    };
+    for (const [year, leagueId] of Object.entries(yearToLeague)) {
+      const transactions = await getLeagueTransactionsAllWeeks(leagueId, options);
+      transactionsByYear[year] = transactions;
+    }
+    return transactionsByYear;
+  } catch (error) {
+    console.error('Error fetching all league transactions:', error);
+    throw error;
+  }
+}
+
 // ==========================
 // Roster reconstruction from matchups
 // ==========================
@@ -2025,6 +2043,21 @@ export async function getLeagueTransactions(leagueId: string, week?: number, opt
     return await sleeperFetchJson<SleeperTransaction[]>(`${SLEEPER_API_BASE}/league/${leagueId}/transactions${weekParam}`, undefined, options);
   } catch (error) {
     console.error('Error fetching league transactions:', error);
+    throw error;
+  }
+}
+
+export async function getLeagueTransactionsAllWeeks(leagueId: string, options?: SleeperFetchOptions): Promise<SleeperTransaction[]> {
+  try {
+    const weeks = Array.from({ length: 18 }, (_, i) => i + 1);
+    const weekly = await Promise.all(
+      weeks.map((week) =>
+        getLeagueTransactions(leagueId, week, options).catch(() => [] as SleeperTransaction[])
+      )
+    );
+    return weekly.flat();
+  } catch (error) {
+    console.error('Error fetching all-week league transactions:', error);
     throw error;
   }
 }
