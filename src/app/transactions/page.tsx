@@ -56,14 +56,20 @@ export default async function TransactionsPage({
   const sort = Array.isArray(sortParamRaw) ? sortParamRaw[0] : sortParamRaw;
   const direction = Array.isArray(dirParamRaw) ? dirParamRaw[0] : dirParamRaw;
 
-  // Determine seasons list (static order) and selected season (default: 2025)
+  // Determine seasons list
   const allSeasons = listAllSeasons();
-  const selectedSeason = season && allSeasons.includes(season) ? season : allSeasons[0] || "2025";
 
-  // Build data server-side with minimal IO: fetch only selected season by default
+  // Build data server-side
   let ledger: LeagueTransaction[] = [];
   try {
-    ledger = await buildTransactionLedger({ season: selectedSeason });
+    const seasonIsAll = season === "all";
+    if (!seasonIsAll && season && allSeasons.includes(season)) {
+      // Specific season selected
+      ledger = await buildTransactionLedger({ season });
+    } else {
+      // "All seasons" (no season filter) -> collect all seasons
+      ledger = await buildTransactionLedger();
+    }
   } catch {
     ledger = [];
   }
@@ -73,7 +79,8 @@ export default async function TransactionsPage({
   const sortKey = (sort as SortKey) || "created";
   const sortDirection = direction === "asc" ? "asc" : "desc";
   let filtered = ledger;
-  if (season) filtered = filtered.filter((t) => t.season === season);
+  const seasonFilter = season && season !== "all" ? season : undefined;
+  if (seasonFilter) filtered = filtered.filter((t) => t.season === seasonFilter);
   if (team) filtered = filtered.filter((t) => t.team === team);
   const transactions = sortTransactions(filtered, sortKey, sortDirection);
   const summary = buildSummary(transactions);
