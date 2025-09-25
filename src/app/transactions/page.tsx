@@ -54,6 +54,8 @@ export default async function TransactionsPage({
   const dirParamRaw = params.direction;
   const pageParamRaw = params.page;
   const perPageParamRaw = params.perPage;
+  const weekParamRaw = params.week;
+  const positionParamRaw = params.position;
 
   const season = Array.isArray(seasonParamRaw) ? seasonParamRaw[0] : seasonParamRaw;
   const team = Array.isArray(teamParamRaw) ? teamParamRaw[0] : teamParamRaw;
@@ -61,6 +63,8 @@ export default async function TransactionsPage({
   const direction = Array.isArray(dirParamRaw) ? dirParamRaw[0] : dirParamRaw;
   const pageStr = Array.isArray(pageParamRaw) ? pageParamRaw[0] : pageParamRaw;
   const perPageStr = Array.isArray(perPageParamRaw) ? perPageParamRaw[0] : perPageParamRaw;
+  const weekStr = Array.isArray(weekParamRaw) ? weekParamRaw[0] : weekParamRaw;
+  const position = Array.isArray(positionParamRaw) ? positionParamRaw[0] : positionParamRaw;
 
   // Determine seasons list
   const allSeasons = listAllSeasons();
@@ -81,6 +85,16 @@ export default async function TransactionsPage({
   }
   const seasons = allSeasons;
   const teams = Array.from(new Set(ledger.map((t) => t.team))).sort();
+  const positions = Array.from(
+    new Set(
+      ledger.flatMap((t) => [
+        ...t.added.map((p) => p.position).filter(Boolean),
+        ...t.dropped.map((p) => p.position).filter(Boolean),
+      ]) as string[]
+    )
+  )
+    .filter(Boolean)
+    .sort();
 
   const sortKey = (sort as SortKey) || "created";
   const sortDirection = direction === "asc" ? "asc" : "desc";
@@ -88,6 +102,10 @@ export default async function TransactionsPage({
   const seasonFilter = season && season !== "all" ? season : undefined;
   if (seasonFilter) filtered = filtered.filter((t) => t.season === seasonFilter);
   if (team) filtered = filtered.filter((t) => t.team === team);
+  const week = weekStr && weekStr !== "all" ? Number(weekStr) : undefined;
+  if (week && !Number.isNaN(week)) filtered = filtered.filter((t) => (t.week || 0) === week);
+  const pos = position && position !== "all" ? position : undefined;
+  if (pos) filtered = filtered.filter((t) => t.added.some((p) => p.position === pos));
   const transactions = sortTransactions(filtered, sortKey, sortDirection);
   const summary = buildSummary(transactions);
   const view = (Array.isArray(params.view) ? params.view[0] : params.view) || "all";
@@ -106,7 +124,7 @@ export default async function TransactionsPage({
       <TransactionsViewTabs />
       {view === 'all' && (
         <>
-          <TransactionsFilters summary={summary} seasons={seasons} teams={teams} />
+          <TransactionsFilters summary={summary} seasons={seasons} teams={teams} positions={positions} />
         <Card className="mt-4">
           <CardContent className="p-0">
             <TransactionsTable data={paged} sortKey={sortKey} direction={sortDirection} />
@@ -117,7 +135,7 @@ export default async function TransactionsPage({
       )}
       {view !== 'all' && (
         <>
-          <GroupedToolbar seasons={seasons} teams={teams} />
+          <GroupedToolbar seasons={seasons} teams={teams} positions={positions} />
           {view === 'year' && (
             <Card className="mt-4">
               <CardContent className="p-0">

@@ -9,21 +9,27 @@ export default function TransactionsFilters({
   summary,
   seasons,
   teams,
+  positions,
 }: {
   summary: TransactionsSummary;
   seasons: string[];
   teams: string[];
+  positions?: string[];
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
 
   const activeSeason = searchParams.get("season") ?? "all";
   const activeTeam = searchParams.get("team") ?? "all";
+  const activeWeek = searchParams.get("week") ?? "all";
+  const activePosition = searchParams.get("position") ?? "all";
   const sort = searchParams.get("sort") ?? "created";
   const direction = searchParams.get("direction") ?? "desc";
 
   const seasonOptions = useMemo(() => ["all", ...seasons], [seasons]);
   const teamOptions = useMemo(() => ["all", ...teams], [teams]);
+  const weekOptions = useMemo(() => ["all", ...Array.from({ length: 18 }, (_, i) => String(i + 1))], []);
+  const positionOptions = useMemo(() => ["all", ...((positions ?? []) as string[])], [positions]);
 
   function updateParam(key: string, value: string) {
     const params = new URLSearchParams(searchParams.toString());
@@ -31,6 +37,10 @@ export default function TransactionsFilters({
       params.delete(key);
     } else {
       params.set(key, value);
+    }
+    // Reset pagination when filters change
+    if (["season", "team", "week", "position"].includes(key)) {
+      params.delete("page");
     }
     const qs = params.toString();
     router.push(`/transactions${qs ? `?${qs}` : ""}`);
@@ -75,6 +85,28 @@ export default function TransactionsFilters({
             </option>
           ))}
         </select>
+        <select
+          className="evw-surface border border-[var(--border)] rounded px-3 py-2"
+          value={activeWeek}
+          onChange={(e) => updateParam("week", e.target.value)}
+        >
+          {weekOptions.map((opt) => (
+            <option key={opt} value={opt}>
+              {opt === "all" ? "All weeks" : `Week ${opt}`}
+            </option>
+          ))}
+        </select>
+        <select
+          className="evw-surface border border-[var(--border)] rounded px-3 py-2"
+          value={activePosition}
+          onChange={(e) => updateParam("position", e.target.value)}
+        >
+          {positionOptions.map((opt) => (
+            <option key={opt} value={opt}>
+              {opt === "all" ? "All positions" : opt}
+            </option>
+          ))}
+        </select>
         <button
           type="button"
           className={cn(
@@ -94,26 +126,6 @@ export default function TransactionsFilters({
           onClick={() => handleSort("faab")}
         >
           FAAB {sort === "faab" ? `(${direction === "desc" ? "↓" : "↑"})` : ""}
-        </button>
-        <button
-          type="button"
-          className={cn(
-            "px-3 py-2 rounded border",
-            sort === "team" ? "border-[var(--accent)] text-[var(--accent)]" : "border-[var(--border)]"
-          )}
-          onClick={() => handleSort("team")}
-        >
-          Team {sort === "team" ? `(${direction === "desc" ? "↓" : "↑"})` : ""}
-        </button>
-        <button
-          type="button"
-          className={cn(
-            "px-3 py-2 rounded border",
-            sort === "week" ? "border-[var(--accent)] text-[var(--accent)]" : "border-[var(--border)]"
-          )}
-          onClick={() => handleSort("week")}
-        >
-          Week {sort === "week" ? `(${direction === "desc" ? "↓" : "↑"})` : ""}
         </button>
       </div>
 
