@@ -7,6 +7,11 @@ import { getLeagueMatchups, getTeamsData, getNFLState } from '@/lib/utils/sleepe
 import EmptyState from '@/components/ui/empty-state';
 import SectionHeader from '@/components/ui/SectionHeader';
 import LinkButton from '@/components/ui/LinkButton';
+import Card, { CardContent } from '@/components/ui/Card';
+import { Tabs } from '@/components/ui/Tabs';
+import HeadToHeadGrid from '@/components/headtohead/HeadToHeadGrid';
+import NeverBeatenTracker from '@/components/headtohead/NeverBeatenTracker';
+import { getHeadToHeadAllTime } from '@/lib/utils/headtohead';
 
 export const revalidate = 20; // ISR: refresh at most every 20s to reduce API churn and flakiness
 
@@ -118,6 +123,11 @@ export default async function Home({ searchParams }: { searchParams?: Promise<Re
   } catch {
     // If Sleeper data isn't available yet, render with empty state below
   }
+  // Head-to-head all-time data
+  let h2h: { teams: string[]; matrix: Record<string, Record<string, import("@/lib/utils/headtohead").H2HCell>>; neverBeaten: Array<{ team: string; vs: string; meetings: number; lastMeeting?: { year: string; week: number } }> } = { teams: [], matrix: {}, neverBeaten: [] };
+  try {
+    h2h = await getHeadToHeadAllTime();
+  } catch {}
   return (
     <div className="container mx-auto px-4 py-8">
       <div className="flex flex-col items-center gap-4 mb-8">
@@ -194,6 +204,22 @@ export default async function Home({ searchParams }: { searchParams?: Promise<Re
             message={`Matchups for Week ${selectedWeek} are not yet available from Sleeper. Check back closer to kickoff.`}
           />
         )}
+      </section>
+      
+      {/* Head-to-Head (All-time) */}
+      <section className="mb-12">
+        <SectionHeader title="Head-to-head (All-time)" subtitle="* = no winners-bracket playoff wins yet" />
+        <Card className="mt-4">
+          <CardContent>
+            <Tabs
+              initialId="grid"
+              tabs={[
+                { id: 'grid', label: 'Grid', content: <HeadToHeadGrid teams={h2h.teams} matrix={h2h.matrix} /> },
+                { id: 'tracker', label: 'Tracker', content: <NeverBeatenTracker list={h2h.neverBeaten} /> },
+              ]}
+            />
+          </CardContent>
+        </Card>
       </section>
       
       {/* Quick Links */}
