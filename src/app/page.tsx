@@ -128,6 +128,17 @@ export default async function Home({ searchParams }: { searchParams?: Promise<Re
   try {
     h2h = await getHeadToHeadAllTime();
   } catch {}
+  // Build highlight keys for pairs playing this week where the row team has never beaten the opponent (but have met before)
+  const h2hHighlightKeys: string[] = [];
+  const key = (a: string, b: string) => `${a}||${b}`;
+  for (const mu of currentWeekMatchups) {
+    const a = mu.awayTeam;
+    const b = mu.homeTeam;
+    const c1 = h2h.matrix[a]?.[b];
+    const c2 = h2h.matrix[b]?.[a];
+    if (c1 && c1.meetings > 0 && c1.wins.total === 0) h2hHighlightKeys.push(key(a, b));
+    if (c2 && c2.meetings > 0 && c2.wins.total === 0) h2hHighlightKeys.push(key(b, a));
+  }
   return (
     <div className="container mx-auto px-4 py-8">
       <div className="flex flex-col items-center gap-4 mb-8">
@@ -208,13 +219,13 @@ export default async function Home({ searchParams }: { searchParams?: Promise<Re
       
       {/* Head-to-Head (All-time) */}
       <section className="mb-12">
-        <SectionHeader title="Head-to-head (All-time)" subtitle="* = no winners-bracket playoff wins yet" />
+        <SectionHeader title="Head-to-head (All-time)" subtitle="* = no regular-season wins yet; blue = playing this week" />
         <Card className="mt-4">
           <CardContent>
             <Tabs
               initialId="grid"
               tabs={[
-                { id: 'grid', label: 'Grid', content: <HeadToHeadGrid teams={h2h.teams} matrix={h2h.matrix} /> },
+                { id: 'grid', label: 'Grid', content: <HeadToHeadGrid teams={h2h.teams} matrix={h2h.matrix} highlightKeys={h2hHighlightKeys} /> },
                 { id: 'tracker', label: 'Tracker', content: <NeverBeatenTracker list={h2h.neverBeaten} /> },
               ]}
             />
