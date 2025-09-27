@@ -2,6 +2,34 @@ import TeamBadge from "@/components/teams/TeamBadge";
 import { getTeamColors } from "@/lib/utils/team-utils";
 import type { H2HCell } from "@/lib/utils/headtohead";
 
+function hexToRgb(hex: string): { r: number; g: number; b: number } | null {
+  const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+  if (!m) return null;
+  return { r: parseInt(m[1], 16), g: parseInt(m[2], 16), b: parseInt(m[3], 16) };
+}
+
+function isNeutralOrVeryLight(hex: string): boolean {
+  const rgb = hexToRgb(hex);
+  if (!rgb) return false;
+  const { r, g, b } = rgb;
+  // Neutral grey heuristic: channels are close together
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const diff = max - min;
+  // Very light heuristic: near white
+  const light = max > 230 && min > 200;
+  return diff < 12 || light;
+}
+
+function pickVibrantColor(team: string): string {
+  const colors = getTeamColors(team) as { primary: string; secondary: string; tertiary?: string; quaternary?: string };
+  const candidates = [colors.secondary, colors.primary, colors.tertiary, colors.quaternary].filter(Boolean) as string[];
+  for (const c of candidates) {
+    if (!isNeutralOrVeryLight(c)) return c;
+  }
+  return colors.primary;
+}
+
 export default function HeadToHeadGrid({
   teams,
   matrix,
@@ -17,9 +45,8 @@ export default function HeadToHeadGrid({
             <th className="p-2" />
             {teams.map((t) => (
               <th key={t} className="p-2 text-center">
-                <div className="flex flex-col items-center gap-1">
-                  <TeamBadge team={t} size="sm" showName={false} />
-                  <span className="max-w-[6rem] truncate">{t}</span>
+                <div className="flex items-center justify-center">
+                  <TeamBadge team={t} size="md" showName={false} />
                 </div>
               </th>
             ))}
@@ -30,7 +57,7 @@ export default function HeadToHeadGrid({
             <tr key={rowTeam}>
               <th className="p-2 text-left whitespace-nowrap">
                 <div className="flex items-center gap-2">
-                  <TeamBadge team={rowTeam} size="sm" />
+                  <TeamBadge team={rowTeam} size="md" showName={false} />
                 </div>
               </th>
               {teams.map((colTeam) => {
@@ -43,15 +70,15 @@ export default function HeadToHeadGrid({
                 if (!cell) return (
                   <td key={`${rowTeam}-${colTeam}`} className="p-2 text-center text-[var(--muted)]">—</td>
                 );
-                const colors = getTeamColors(colTeam);
-                const bg = cell.wins.total > 0 ? (colors.secondary + '12') : (colors.primary + '10');
-                const border = colors.secondary;
-                const wins = cell.wins.total;
-                const losses = cell.losses.total;
-                const ties = cell.ties;
-                const record = `${wins}-${losses}${ties > 0 ? `-${ties}` : ''}`;
-                const asterisk = wins > 0 && cell.wins.playoffs === 0 ? '*' : '';
-                const title = `${rowTeam} vs ${colTeam}: ${record}\nWins by split: R ${cell.wins.regular} • P ${cell.wins.playoffs} • T ${cell.wins.toilet}`;
+                const base = pickVibrantColor(colTeam);
+                const hasBeaten = cell.wins.total > 0;
+                const neverBeaten = cell.meetings > 0 && cell.wins.total === 0;
+                const bg = hasBeaten
+                  ? `color-mix(in srgb, ${base} 28%, white 72%)`
+                  : 'transparent';
+                const border = base;
+                const asterisk = hasBeaten && cell.wins.playoffs === 0 ? '*' : '';
+                const title = `${rowTeam} vs ${colTeam}: ${hasBeaten ? 'BEATEN' : (neverBeaten ? 'NOT YET' : '—')}`;
                 return (
                   <td
                     key={`${rowTeam}-${colTeam}`}
@@ -60,9 +87,11 @@ export default function HeadToHeadGrid({
                     title={title}
                   >
                     <div className="flex items-center justify-center gap-1">
-                      <span className={wins === 0 ? "font-semibold text-red-600" : "font-semibold"}>{record}</span>
-                      {asterisk && (
-                        <span className="text-[10px]" title="No playoff wins yet (regular/toilet only)">{asterisk}</span>
+                      {hasBeaten ? (
+                        <span className="text-[12px] leading-none" aria-label="has beaten">✓</span>
+                      ) : null}
+                      {hasBeaten && asterisk && (
+                        <span className="text-[10px]" title="No winners-bracket playoff wins yet">*</span>
                       )}
                     </div>
                   </td>
