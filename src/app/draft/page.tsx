@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import Image from 'next/image';
 import CountdownTimer from '@/components/ui/countdown-timer';
 import { IMPORTANT_DATES, LEAGUE_IDS } from '@/lib/constants/league';
 import EmptyState from '@/components/ui/empty-state';
@@ -13,7 +14,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import Label from '@/components/ui/Label';
 import Select from '@/components/ui/Select';
 import Button from '@/components/ui/Button';
-import { getTeamColors, getTeamColorStyle } from '@/lib/utils/team-utils';
+import { getTeamColors, getTeamColorStyle, getTeamLogoPath } from '@/lib/utils/team-utils';
 import { HomeIcon, TvIcon, FireIcon, MoonIcon, BookOpenIcon } from '@heroicons/react/24/outline';
 
 // Draft data types
@@ -463,12 +464,50 @@ export default function DraftPage() {
                                   return rounds.map((r) => (
                                     <div key={r} className="mb-4">
                                       <div className="text-sm font-semibold text-[var(--muted)] mb-2">{`Round ${r}`}</div>
-                                      <ul className="space-y-1">
-                                        {(byRound.get(r) || []).map((p) => (
-                                          <li key={p.pick_no} className="text-sm">
-                                            {`Pick ${p.pick_no} (Pick ${p.pick}): ${p.team} — ${p.player}${selectedYear === '2023' && draftsByYear[selectedYear]?.isAuction && p.price != null ? ` — $${p.price}` : ''}`}
-                                          </li>
-                                        ))}
+                                      <ul className="space-y-2">
+                                        {(byRound.get(r) || []).map((p) => {
+                                          const colors = getTeamColors(p.team);
+                                          const nameStyle = getTeamColorStyle(p.team);
+                                          return (
+                                            <li key={p.pick_no} className="text-sm" style={{ borderLeft: `4px solid ${colors.primary}` }}>
+                                              <div className="pl-3 py-1 flex items-center">
+                                                <div 
+                                                  className="w-8 h-8 rounded-full flex items-center justify-center mr-3 overflow-hidden"
+                                                  style={nameStyle}
+                                                >
+                                                  <Image
+                                                    src={getTeamLogoPath(p.team)}
+                                                    alt={p.team}
+                                                    width={24}
+                                                    height={24}
+                                                    className="object-contain"
+                                                    onError={(e) => {
+                                                      const target = e.target as HTMLImageElement;
+                                                      target.style.display = 'none';
+                                                      const parent = target.parentElement;
+                                                      if (parent) {
+                                                        const fallback = document.createElement('div');
+                                                        fallback.className = 'flex items-center justify-center h-full w-full';
+                                                        fallback.innerHTML = `<span class="text-xs font-bold">${p.team.charAt(0)}</span>`;
+                                                        parent.appendChild(fallback);
+                                                      }
+                                                    }}
+                                                  />
+                                                </div>
+                                                <div className="min-w-0">
+                                                  <div className="text-xs text-[var(--muted)] truncate">
+                                                    {`Pick ${p.pick_no} • Round ${p.round}, Pick ${p.pick}`}
+                                                  </div>
+                                                  <div className="text-sm text-[var(--text)] truncate">
+                                                    <span className="font-medium" style={{ color: nameStyle.backgroundColor }}>{p.team}</span>
+                                                    {` — ${p.player}`}
+                                                    {selectedYear === '2023' && draftsByYear[selectedYear]?.isAuction && p.price != null ? ` — $${p.price}` : ''}
+                                                  </div>
+                                                </div>
+                                              </div>
+                                            </li>
+                                          );
+                                        })}
                                       </ul>
                                     </div>
                                   ));
