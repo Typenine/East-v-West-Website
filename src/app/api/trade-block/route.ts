@@ -54,7 +54,8 @@ export async function GET() {
   try {
     const pins = await readPins();
     const pv = (pins[team]?.pinVersion ?? 0);
-    const cpv = typeof (claims as any).pv === 'number' ? (claims as any).pv : 0;
+    const v = (claims as { pv?: unknown }).pv;
+    const cpv = typeof v === 'number' ? v : 0;
     if (pv > cpv) return Response.json({ error: 'Session expired. Please log in again.' }, { status: 401 });
   } catch {}
   const pathname = fileForTeam(team);
@@ -74,7 +75,8 @@ export async function POST(req: NextRequest) {
   try {
     const pins = await readPins();
     const pv = (pins[team]?.pinVersion ?? 0);
-    const cpv = typeof (claims as any).pv === 'number' ? (claims as any).pv : 0;
+    const v2 = (claims as { pv?: unknown }).pv;
+    const cpv = typeof v2 === 'number' ? v2 : 0;
     if (pv > cpv) return Response.json({ error: 'Session expired. Please log in again.' }, { status: 401 });
   } catch {}
   const body = await req.json().catch(() => ({}));

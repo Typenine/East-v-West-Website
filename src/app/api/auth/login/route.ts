@@ -69,7 +69,7 @@ export async function POST(req: NextRequest) {
     };
     const token = signSession(payload);
 
-    const jar = cookies();
+    const jar = await cookies();
     jar.set('evw_session', token, {
       httpOnly: true,
       sameSite: 'lax',
