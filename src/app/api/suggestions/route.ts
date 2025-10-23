@@ -1,5 +1,6 @@
 import { promises as fs } from 'fs';
 import path from 'path';
+import { sendEmail } from '@/lib/utils/email';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -13,6 +14,7 @@ export type Suggestion = {
 
 const DATA_PATH = path.join(process.cwd(), 'data', 'suggestions.json');
 const USE_BLOB = Boolean(process.env.BLOB_READ_WRITE_TOKEN || process.env.BLOB_READ_TOKEN);
+const NOTIFY_EMAIL = process.env.SUGGESTIONS_NOTIFY_EMAIL || 'patrickmmcnulty62@gmail.com';
 
 async function readSuggestions(): Promise<Suggestion[]> {
   try {
@@ -88,13 +90,34 @@ export async function POST(request: Request) {
         access: 'public',
         contentType: 'application/json; charset=utf-8',
       });
+      // Fire notification email (best-effort)
+      try {
+        await sendEmail({
+          to: NOTIFY_EMAIL,
+          subject: `New suggestion${item.category ? ` (${item.category})` : ''}`,
+          text: `A new suggestion was submitted at ${item.createdAt}.\n\nCategory: ${item.category || 'N/A'}\n\n${item.content}`,
+          html: `<p>A new suggestion was submitted at <strong>${item.createdAt}</strong>.</p><p><strong>Category:</strong> ${item.category || 'N/A'}</p><pre style="white-space:pre-wrap;word-wrap:break-word;font-family:ui-monospace,Menlo,Monaco,Consolas,monospace">${item.content.replace(/</g,'&lt;')}</pre>`
+        });
+      } catch (e) {
+        console.warn('[suggestions] notify email failed', e);
+      }
       return Response.json(item, { status: 201 });
     }
 
     const items = await readSuggestions();
     items.push(item);
     await writeSuggestions(items);
-
+    // Fire notification email (best-effort)
+    try {
+      await sendEmail({
+        to: NOTIFY_EMAIL,
+        subject: `New suggestion${item.category ? ` (${item.category})` : ''}`,
+        text: `A new suggestion was submitted at ${item.createdAt}.\n\nCategory: ${item.category || 'N/A'}\n\n${item.content}`,
+        html: `<p>A new suggestion was submitted at <strong>${item.createdAt}</strong>.</p><p><strong>Category:</strong> ${item.category || 'N/A'}</p><pre style="white-space:pre-wrap;word-wrap:break-word;font-family:ui-monospace,Menlo,Monaco,Consolas,monospace">${item.content.replace(/</g,'&lt;')}</pre>`
+      });
+    } catch (e) {
+      console.warn('[suggestions] notify email failed', e);
+    }
     return Response.json(item, { status: 201 });
   } catch (e: unknown) {
     const err = e as NodeJS.ErrnoException;
