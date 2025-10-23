@@ -1977,6 +1977,64 @@ export async function getTeamWeeklyResults(leagueId: string, rosterId: number, o
   }
 }
 
+export async function getCurrentStreaksForLeague(
+  leagueId: string,
+  options?: SleeperFetchOptions
+): Promise<Record<number, { type: 'W' | 'L' | 'T' | null; length: number }>> {
+  const weeks = Array.from({ length: 18 }, (_, i) => i + 1);
+  const allWeekMatchups = await Promise.all(
+    weeks.map((w) => getLeagueMatchups(leagueId, w, options).catch(() => [] as SleeperMatchup[]))
+  );
+  const resultsByRoster: Record<number, Array<'W' | 'L' | 'T' | null>> = {};
+  for (const weekMatchups of allWeekMatchups) {
+    if (!weekMatchups || weekMatchups.length === 0) continue;
+    const byId = new Map<number, SleeperMatchup[]>();
+    for (const m of weekMatchups) {
+      const arr = byId.get(m.matchup_id) || [];
+      arr.push(m);
+      byId.set(m.matchup_id, arr);
+    }
+    for (const pair of byId.values()) {
+      if (!pair || pair.length < 2) continue;
+      const [a, b] = pair;
+      const aPts = a.custom_points ?? a.points ?? 0;
+      const bPts = b.custom_points ?? b.points ?? 0;
+      const played = ((aPts ?? 0) > 0) || ((bPts ?? 0) > 0);
+      const resA: 'W' | 'L' | 'T' | null = played ? (aPts > bPts ? 'W' : aPts < bPts ? 'L' : 'T') : null;
+      const resB: 'W' | 'L' | 'T' | null = played ? (bPts > aPts ? 'W' : bPts < aPts ? 'L' : 'T') : null;
+      if (!resultsByRoster[a.roster_id]) resultsByRoster[a.roster_id] = [];
+      if (!resultsByRoster[b.roster_id]) resultsByRoster[b.roster_id] = [];
+      resultsByRoster[a.roster_id].push(resA);
+      resultsByRoster[b.roster_id].push(resB);
+    }
+  }
+  const out: Record<number, { type: 'W' | 'L' | 'T' | null; length: number }> = {};
+  for (const [ridStr, arr] of Object.entries(resultsByRoster)) {
+    const rid = Number(ridStr);
+    if (!Array.isArray(arr) || arr.length === 0) {
+      out[rid] = { type: null, length: 0 };
+      continue;
+    }
+    let i = arr.length - 1;
+    while (i >= 0 && arr[i] == null) i--;
+    if (i < 0) {
+      out[rid] = { type: null, length: 0 };
+      continue;
+    }
+    const last = arr[i];
+    if (last === 'T') {
+      let len = 0;
+      while (i >= 0 && arr[i] === 'T') { len++; i--; }
+      out[rid] = { type: 'T', length: len };
+    } else {
+      let len = 0;
+      while (i >= 0 && arr[i] === last) { len++; i--; }
+      out[rid] = { type: last as 'W' | 'L', length: len };
+    }
+  }
+  return out;
+}
+
 /**
  * Get head-to-head records for a team against all other teams
  * @param leagueId The Sleeper league ID

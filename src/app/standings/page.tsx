@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import Image from 'next/image';
-import { getTeamsData, TeamData } from '@/lib/utils/sleeper-api';
+import { getTeamsData, TeamData, getCurrentStreaksForLeague } from '@/lib/utils/sleeper-api';
 import { LEAGUE_IDS } from '@/lib/constants/league';
 import { getTeamLogoPath, getTeamColorStyle } from '@/lib/utils/team-utils';
 import LoadingState from '@/components/ui/loading-state';
@@ -21,6 +21,7 @@ export default function StandingsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedYear, setSelectedYear] = useState('2025');
+  const [streaks, setStreaks] = useState<Record<number, { type: 'W' | 'L' | 'T' | null; length: number }>>({});
   const [sortConfig, setSortConfig] = useState<{ key: SortKey; direction: SortDirection }>({
     key: 'wins',
     direction: 'desc'
@@ -34,8 +35,12 @@ export default function StandingsPage() {
       if (selectedYear !== '2025') {
         leagueId = LEAGUE_IDS.PREVIOUS[selectedYear as keyof typeof LEAGUE_IDS.PREVIOUS];
       }
-      const teamsData = await getTeamsData(leagueId);
+      const [teamsData, streakMap] = await Promise.all([
+        getTeamsData(leagueId),
+        getCurrentStreaksForLeague(leagueId)
+      ]);
       setTeams(teamsData);
+      setStreaks(streakMap);
       setError(null);
     } catch (err) {
       console.error('Error fetching standings:', err);
@@ -295,7 +300,10 @@ export default function StandingsPage() {
                   <div className="text-sm text-[var(--text)]">
                     {/* We would calculate streak here from weekly results */}
                     {/* For now, just show a placeholder */}
-                    {team.wins > team.losses ? `W${Math.min(team.wins, 3)}` : `L${Math.min(team.losses, 3)}`}
+                    {(() => {
+                      const st = streaks[team.rosterId];
+                      return st && st.type && st.length > 0 ? `${st.type}${st.length}` : '-';
+                    })()}
                   </div>
                 </td>
               </tr>
