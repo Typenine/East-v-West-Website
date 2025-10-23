@@ -22,12 +22,22 @@ type TeamHaul = {
   picks: { round: number; pick: number; player: string; price?: number }[];
 };
 
+type LinearPick = {
+  pick_no: number;
+  round: number;
+  pick: number; // pick within round
+  team: string;
+  player: string;
+  price?: number;
+};
+
 type DraftYearData = {
   rounds: number;
   picks_per_round: number;
   team_hauls: TeamHaul[];
   // Auction metadata: if true, picks may include price
   isAuction?: boolean;
+  linear_picks: LinearPick[];
 };
 
 type SleeperDraftSettings = {
@@ -45,6 +55,7 @@ export default function DraftPage() {
   const [draftsByYear, setDraftsByYear] = useState<Record<string, DraftYearData | null>>({});
   const playersRef = useRef<Record<string, SleeperPlayer> | null>(null);
   const loadedYearsRef = useRef<Set<string>>(new Set());
+  const [draftView, setDraftView] = useState<'teams' | 'linear'>('teams');
 
   // Removed local classNames helper – primitives use tokenized styles
 
@@ -139,6 +150,8 @@ export default function DraftPage() {
         const picksInRound1 = picks.filter(p => p.round === 1).length || teams.length;
 
         const byTeam = new Map<number, { round: number; pick: number; player: string; price?: number }[]>();
+        const rosterIdToTeam = new Map<number, string>(teams.map(t => [t.rosterId, t.teamName]));
+        const linearPicks: LinearPick[] = [];
         for (const p of picks) {
           const arr = byTeam.get(p.roster_id) || [];
           const player = playersRef.current?.[p.player_id];
@@ -154,6 +167,12 @@ export default function DraftPage() {
           const price = Number.isFinite(metaAmount) ? (metaAmount as number) : (Number.isFinite(rootAmount) ? (rootAmount as number) : undefined);
           arr.push({ round: p.round, pick: p.draft_slot, player: name, price });
           byTeam.set(p.roster_id, arr);
+
+          const teamName = rosterIdToTeam.get(p.roster_id) || 'Unknown Team';
+          const overall = (typeof p.pick_no === 'number' && Number.isFinite(p.pick_no))
+            ? (p.pick_no as number)
+            : ((p.round - 1) * picksInRound1 + p.draft_slot);
+          linearPicks.push({ pick_no: overall, round: p.round, pick: p.draft_slot, team: teamName, player: name, price });
         }
 
         const team_hauls: TeamHaul[] = [];
@@ -174,6 +193,7 @@ export default function DraftPage() {
             const anyp = pp as any;
             return anyp?.metadata?.amount != null || anyp?.amount != null || anyp?.price != null;
           }),
+          linear_picks: linearPicks.sort((a, b) => a.pick_no - b.pick_no),
         };
 
         if (!cancelled) setDraftsByYear(prev => ({ ...prev, [selectedYear]: data }));
@@ -382,29 +402,80 @@ export default function DraftPage() {
                           </div>
                         </div>
                         <div>
-                          <h3 className="text-base font-semibold text-[var(--text)] mb-3">Team Hauls</h3>
-                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                            {(draftsByYear[selectedYear]?.team_hauls ?? []).map((teamHaul, index) => {
-                              const colors = getTeamColors(teamHaul.team);
-                              const headerStyle = getTeamColorStyle(teamHaul.team, 'primary');
-                              return (
-                                <Card key={index} className="hover-lift" style={{ borderColor: colors.primary }}>
-                                  <CardHeader className="rounded-t-[var(--radius-card)]" style={headerStyle}>
-                                    <CardTitle style={{ color: headerStyle.color }}>{teamHaul.team}</CardTitle>
-                                  </CardHeader>
-                                  <CardContent>
-                                    <ul className="space-y-1">
-                                      {teamHaul.picks.map((pick, pickIndex) => (
-                                        <li key={pickIndex} className="text-sm">
-                                          {`Round ${pick.round}, Pick ${pick.pick}: ${pick.player}${selectedYear === '2023' && draftsByYear[selectedYear]?.isAuction && pick.price != null ? ` — $${pick.price}` : ''}`}
-                                        </li>
-                                      ))}
-                                    </ul>
-                                  </CardContent>
-                                </Card>
-                              );
-                            })}
+                          <div className="flex items-center justify-between mb-3">
+                            <h3 className="text-base font-semibold text-[var(--text)]">
+                              {draftView === 'teams' ? 'Team Hauls' : 'Linear Picks'}
+                            </h3>
+                            <div className="inline-flex rounded-md border border-[var(--border)] overflow-hidden">
+                              <Button
+                                variant={draftView === 'teams' ? 'primary' : 'ghost'}
+                                size="sm"
+                                className="px-3"
+                                onClick={() => setDraftView('teams')}
+                              >
+                                By Team
+                              </Button>
+                              <Button
+                                variant={draftView === 'linear' ? 'primary' : 'ghost'}
+                                size="sm"
+                                className="px-3"
+                                onClick={() => setDraftView('linear')}
+                              >
+                                Linear
+                              </Button>
+                            </div>
                           </div>
+                          {draftView === 'teams' ? (
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                              {(draftsByYear[selectedYear]?.team_hauls ?? []).map((teamHaul, index) => {
+                                const colors = getTeamColors(teamHaul.team);
+                                const headerStyle = getTeamColorStyle(teamHaul.team, 'primary');
+                                return (
+                                  <Card key={index} className="hover-lift" style={{ borderColor: colors.primary }}>
+                                    <CardHeader className="rounded-t-[var(--radius-card)]" style={headerStyle}>
+                                      <CardTitle style={{ color: headerStyle.color }}>{teamHaul.team}</CardTitle>
+                                    </CardHeader>
+                                    <CardContent>
+                                      <ul className="space-y-1">
+                                        {teamHaul.picks.map((pick, pickIndex) => (
+                                          <li key={pickIndex} className="text-sm">
+                                            {`Round ${pick.round}, Pick ${pick.pick}: ${pick.player}${selectedYear === '2023' && draftsByYear[selectedYear]?.isAuction && pick.price != null ? ` — $${pick.price}` : ''}`}
+                                          </li>
+                                        ))}
+                                      </ul>
+                                    </CardContent>
+                                  </Card>
+                                );
+                              })}
+                            </div>
+                          ) : (
+                            <Card className="overflow-x-auto">
+                              <CardContent>
+                                {(() => {
+                                  const picks = draftsByYear[selectedYear]?.linear_picks ?? [];
+                                  const byRound = new Map<number, LinearPick[]>();
+                                  for (const p of picks) {
+                                    const arr = byRound.get(p.round) || [];
+                                    arr.push(p);
+                                    byRound.set(p.round, arr);
+                                  }
+                                  const rounds = Array.from(byRound.keys()).sort((a, b) => a - b);
+                                  return rounds.map((r) => (
+                                    <div key={r} className="mb-4">
+                                      <div className="text-sm font-semibold text-[var(--muted)] mb-2">{`Round ${r}`}</div>
+                                      <ul className="space-y-1">
+                                        {(byRound.get(r) || []).map((p) => (
+                                          <li key={p.pick_no} className="text-sm">
+                                            {`Pick ${p.pick_no} (Pick ${p.pick}): ${p.team} — ${p.player}${selectedYear === '2023' && draftsByYear[selectedYear]?.isAuction && p.price != null ? ` — $${p.price}` : ''}`}
+                                          </li>
+                                        ))}
+                                      </ul>
+                                    </div>
+                                  ));
+                                })()}
+                              </CardContent>
+                            </Card>
+                          )}
                         </div>
                       </div>
                     )}
