@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import ThemeToggle from '@/components/ui/ThemeToggle';
 import LinkButton from '@/components/ui/LinkButton';
 import Button from '@/components/ui/Button';
@@ -31,6 +31,8 @@ export default function Navbar() {
   const [pin, setPin] = useState('');
   const [adminError, setAdminError] = useState<string | null>(null);
   const [adminLoading, setAdminLoading] = useState(false);
+  const [sessionTeam, setSessionTeam] = useState<string | null>(null);
+  const [authLoading, setAuthLoading] = useState(false);
 
   const handleLogoClick: React.MouseEventHandler<HTMLAnchorElement> = (e) => {
     // On the homepage, clicking the logo opens Admin login instead of reloading
@@ -59,6 +61,36 @@ export default function Navbar() {
     } finally {
       setAdminLoading(false);
     }
+  };
+
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        setAuthLoading(true);
+        const r = await fetch('/api/auth/me', { cache: 'no-store' });
+        if (!mounted) return;
+        if (r.ok) {
+          const j = await r.json();
+          setSessionTeam((j?.claims?.team as string) || null);
+        } else {
+          setSessionTeam(null);
+        }
+      } catch {
+        if (mounted) setSessionTeam(null);
+      } finally {
+        if (mounted) setAuthLoading(false);
+      }
+    })();
+    return () => { mounted = false; };
+  }, [pathname]);
+
+  const handleLogout = async () => {
+    try {
+      await fetch('/api/auth/logout', { method: 'POST' });
+    } catch {}
+    setSessionTeam(null);
+    router.push(pathname === '/login' ? '/' : pathname);
   };
 
   return (
@@ -90,6 +122,16 @@ export default function Navbar() {
           </div>
           <div className="flex items-center gap-2">
             <ThemeToggle />
+            <div className="hidden md:flex items-center gap-2">
+              {sessionTeam ? (
+                <>
+                  <span className="text-xs md:text-sm">Signed in: <strong>{sessionTeam}</strong></span>
+                  <Button size="sm" variant="ghost" onClick={handleLogout} disabled={authLoading}>Logout</Button>
+                </>
+              ) : (
+                <LinkButton href={`/login?next=${encodeURIComponent(pathname)}`} variant="ghost" size="sm">Log In</LinkButton>
+              )}
+            </div>
             <div className="md:hidden">
               <Button
                 id="mobile-menu-button"
@@ -150,6 +192,18 @@ export default function Navbar() {
               {item.name}
             </LinkButton>
           ))}
+          <div className="pt-2 border-t border-[var(--border)] flex items-center justify-between">
+            {sessionTeam ? (
+              <>
+                <span className="text-xs">Signed in: <strong>{sessionTeam}</strong></span>
+                <Button size="sm" variant="ghost" onClick={() => { setMobileMenuOpen(false); handleLogout(); }}>Logout</Button>
+              </>
+            ) : (
+              <LinkButton href={`/login?next=${encodeURIComponent(pathname)}`} variant="ghost" size="sm" className="w-full text-left" onClick={() => setMobileMenuOpen(false)}>
+                Log In
+              </LinkButton>
+            )}
+          </div>
         </div>
       </div>
     </nav>
