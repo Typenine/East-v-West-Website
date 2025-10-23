@@ -19,7 +19,7 @@ export async function readPins(): Promise<PinMap> {
     try {
       const { list } = await import('@vercel/blob');
       const { blobs } = await list({ prefix: 'auth/' });
-      const found = blobs.find((b) => b.pathname === BLOB_KEY || b.key === BLOB_KEY);
+      const found = blobs.find((b) => b.pathname === BLOB_KEY);
       if (!found) return {};
       const res = await fetch(found.url);
       if (!res.ok) return {};
@@ -45,7 +45,7 @@ export async function writePins(pins: PinMap): Promise<void> {
   if (USE_BLOB) {
     const { put } = await import('@vercel/blob');
     await put(BLOB_KEY, JSON.stringify(pins, null, 2), {
-      access: 'private',
+      access: 'public',
       contentType: 'application/json; charset=utf-8',
     });
     return;
