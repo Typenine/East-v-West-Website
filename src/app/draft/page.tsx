@@ -464,7 +464,7 @@ export default function DraftPage() {
                                   const rounds = Array.from(byRound.keys()).sort((a, b) => a - b);
                                   return rounds.map((r) => (
                                     <div key={r} className="mb-6">
-                                      <div className="sticky top-0 z-10 bg-[var(--surface)]/80 backdrop-blur-sm text-sm font-semibold text-[var(--muted)] -mx-2 px-2 py-1 border-b border-[var(--border)]">{`Round ${r}`}</div>
+                                      <div className="sticky top-0 z-10 bg-[var(--surface)]/80 backdrop-blur-sm text-base font-semibold text-[var(--muted)] -mx-2 px-2 py-1.5 border-b border-[var(--border)]">{`Round ${r}`}</div>
                                       <ul className="space-y-2 mt-2">
                                         {(byRound.get(r) || []).map((p) => {
                                           const colors = getTeamColors(p.team);
@@ -483,14 +483,14 @@ export default function DraftPage() {
                                               <div className="pl-3 py-2 flex items-start justify-between gap-3">
                                                 <div className="flex items-start min-w-0">
                                                   <div 
-                                                    className="w-8 h-8 rounded-full flex items-center justify-center mr-3 overflow-hidden flex-shrink-0"
+                                                    className="w-12 h-12 rounded-full flex items-center justify-center mr-3 overflow-hidden flex-shrink-0"
                                                     style={nameStyle}
                                                   >
                                                     <Image
                                                       src={getTeamLogoPath(p.team)}
                                                       alt={p.team}
-                                                      width={24}
-                                                      height={24}
+                                                      width={36}
+                                                      height={36}
                                                       className="object-contain"
                                                       onError={(e) => {
                                                         const target = e.target as HTMLImageElement;
@@ -508,7 +508,7 @@ export default function DraftPage() {
                                                   <div className="min-w-0">
                                                     <div className="flex items-center justify-between gap-3">
                                                       <span className="font-medium truncate">{p.team}</span>
-                                                      <span className="text-xs whitespace-nowrap opacity-80">{`Pick ${p.pick_no} • Rd ${p.round}, Pk ${p.pick}`}</span>
+                                                      <span className="text-sm whitespace-nowrap opacity-90 font-semibold">{`Pick ${p.pick_no} • Rd ${p.round}, Pk ${p.pick}`}</span>
                                                     </div>
                                                     <div className="text-sm truncate">
                                                       <span className="truncate inline-block max-w-full align-middle">{p.player}</span>
