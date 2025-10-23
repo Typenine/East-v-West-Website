@@ -10,12 +10,6 @@ import { logAuthEvent } from '@/lib/server/audit';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-function makeCookie(name: string, value: string, maxAgeSec: number): string {
-  const secure = process.env.NODE_ENV === 'production' ? 'Secure; ' : '';
-  const expires = new Date(Date.now() + maxAgeSec * 1000).toUTCString();
-  return `${name}=${value}; Path=/; ${secure}HttpOnly; SameSite=Lax; Expires=${expires}; Max-Age=${maxAgeSec}`;
-}
-
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}));
@@ -51,13 +45,15 @@ export async function POST(req: NextRequest) {
         const attemptsKey = `auth:attempts:${team}:${ip}`;
         const lockKey = `auth:lock:${team}:${ip}`;
         const count = await kv.incr(attemptsKey);
-        const ttl = await kv.ttl?.(attemptsKey as any);
-        if (ttl === -1 || ttl === -2) {
-          await kv.expire?.(attemptsKey as any, 600);
+        if (kv.ttl) {
+          const ttl = await kv.ttl(attemptsKey);
+          if (ttl <= 0) {
+            if (kv.expire) await kv.expire(attemptsKey, 600);
+          }
         }
         if (count >= 5) {
-          await kv.set(lockKey as any, '1');
-          await kv.expire?.(lockKey as any, 900);
+          await kv.set(lockKey, '1');
+          if (kv.expire) await kv.expire(lockKey, 900);
         }
       }
       await logAuthEvent({ type: 'login_fail', team, ip, ok: false, reason: 'bad_pin' });
@@ -73,7 +69,7 @@ export async function POST(req: NextRequest) {
     };
     const token = signSession(payload);
 
-    const jar = await cookies();
+    const jar = cookies();
     jar.set('evw_session', token, {
       httpOnly: true,
       sameSite: 'lax',
