@@ -471,7 +471,15 @@ export default function DraftPage() {
                                           const nameStyle = getTeamColorStyle(p.team);
                                           const priceEnabled = selectedYear === '2023' && draftsByYear[selectedYear]?.isAuction && p.price != null;
                                           return (
-                                            <li key={p.pick_no} className="text-sm" style={{ borderLeft: `4px solid ${colors.primary}` }}>
+                                            <li
+                                              key={p.pick_no}
+                                              className="text-sm rounded-md"
+                                              style={{
+                                                borderLeft: `4px solid ${colors.secondary}`,
+                                                backgroundColor: nameStyle.backgroundColor as string,
+                                                color: nameStyle.color as string,
+                                              }}
+                                            >
                                               <div className="pl-3 py-2 flex items-start justify-between gap-3">
                                                 <div className="flex items-start min-w-0">
                                                   <div 
@@ -499,13 +507,19 @@ export default function DraftPage() {
                                                   </div>
                                                   <div className="min-w-0">
                                                     <div className="flex items-center justify-between gap-3">
-                                                      <span className="font-medium truncate" style={{ color: nameStyle.backgroundColor }}>{p.team}</span>
-                                                      <span className="text-xs text-[var(--muted)] whitespace-nowrap">{`Pick ${p.pick_no} • Rd ${p.round}, Pk ${p.pick}`}</span>
+                                                      <span className="font-medium truncate">{p.team}</span>
+                                                      <span className="text-xs whitespace-nowrap opacity-80">{`Pick ${p.pick_no} • Rd ${p.round}, Pk ${p.pick}`}</span>
                                                     </div>
-                                                    <div className="text-sm text-[var(--text)] truncate">
+                                                    <div className="text-sm truncate">
                                                       <span className="truncate inline-block max-w-full align-middle">{p.player}</span>
                                                       {p.pos && (
-                                                        <span className="ml-2 align-middle px-1.5 py-0.5 rounded border border-[var(--border)] text-[var(--muted)] text-[10px]">
+                                                        <span
+                                                          className="ml-2 align-middle px-1.5 py-0.5 rounded text-[10px]"
+                                                          style={{
+                                                            backgroundColor: (nameStyle.color as string) === '#000000' ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.12)',
+                                                            color: nameStyle.color as string,
+                                                          }}
+                                                        >
                                                           {p.pos}
                                                         </span>
                                                       )}
@@ -514,7 +528,15 @@ export default function DraftPage() {
                                                 </div>
                                                 {priceEnabled && (
                                                   <div className="flex-shrink-0">
-                                                    <span className="inline-block px-2 py-0.5 rounded-full border border-[var(--border)] text-xs text-[var(--text)]">{`$${p.price}`}</span>
+                                                    <span
+                                                      className="inline-block px-2 py-0.5 rounded-full text-xs"
+                                                      style={{
+                                                        backgroundColor: (nameStyle.color as string) === '#000000' ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.12)',
+                                                        color: nameStyle.color as string,
+                                                      }}
+                                                    >
+                                                      {`$${p.price}`}
+                                                    </span>
                                                   </div>
                                                 )}
                                               </div>
