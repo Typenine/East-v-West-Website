@@ -30,6 +30,7 @@ type LinearPick = {
   team: string;
   player: string;
   price?: number;
+  pos?: string;
 };
 
 type DraftYearData = {
@@ -173,7 +174,7 @@ export default function DraftPage() {
           const overall = (typeof p.pick_no === 'number' && Number.isFinite(p.pick_no))
             ? (p.pick_no as number)
             : ((p.round - 1) * picksInRound1 + p.draft_slot);
-          linearPicks.push({ pick_no: overall, round: p.round, pick: p.draft_slot, team: teamName, player: name, price });
+          linearPicks.push({ pick_no: overall, round: p.round, pick: p.draft_slot, team: teamName, player: name, price, pos: player?.position });
         }
 
         const team_hauls: TeamHaul[] = [];
@@ -462,53 +463,66 @@ export default function DraftPage() {
                                   }
                                   const rounds = Array.from(byRound.keys()).sort((a, b) => a - b);
                                   return rounds.map((r) => (
-                                    <div key={r} className="mb-4">
-                                      <div className="text-sm font-semibold text-[var(--muted)] mb-2">{`Round ${r}`}</div>
-                                      <ul className="space-y-2">
+                                    <div key={r} className="mb-6">
+                                      <div className="sticky top-0 z-10 bg-[var(--surface)]/80 backdrop-blur-sm text-sm font-semibold text-[var(--muted)] -mx-2 px-2 py-1 border-b border-[var(--border)]">{`Round ${r}`}</div>
+                                      <ul className="space-y-2 mt-2">
                                         {(byRound.get(r) || []).map((p) => {
                                           const colors = getTeamColors(p.team);
                                           const nameStyle = getTeamColorStyle(p.team);
+                                          const priceEnabled = selectedYear === '2023' && draftsByYear[selectedYear]?.isAuction && p.price != null;
                                           return (
                                             <li key={p.pick_no} className="text-sm" style={{ borderLeft: `4px solid ${colors.primary}` }}>
-                                              <div className="pl-3 py-1 flex items-center">
-                                                <div 
-                                                  className="w-8 h-8 rounded-full flex items-center justify-center mr-3 overflow-hidden"
-                                                  style={nameStyle}
-                                                >
-                                                  <Image
-                                                    src={getTeamLogoPath(p.team)}
-                                                    alt={p.team}
-                                                    width={24}
-                                                    height={24}
-                                                    className="object-contain"
-                                                    onError={(e) => {
-                                                      const target = e.target as HTMLImageElement;
-                                                      target.style.display = 'none';
-                                                      const parent = target.parentElement;
-                                                      if (parent) {
-                                                        const fallback = document.createElement('div');
-                                                        fallback.className = 'flex items-center justify-center h-full w-full';
-                                                        fallback.innerHTML = `<span class="text-xs font-bold">${p.team.charAt(0)}</span>`;
-                                                        parent.appendChild(fallback);
-                                                      }
-                                                    }}
-                                                  />
-                                                </div>
-                                                <div className="min-w-0">
-                                                  <div className="text-xs text-[var(--muted)] truncate">
-                                                    {`Pick ${p.pick_no} • Round ${p.round}, Pick ${p.pick}`}
+                                              <div className="pl-3 py-2 flex items-start justify-between gap-3">
+                                                <div className="flex items-start min-w-0">
+                                                  <div 
+                                                    className="w-8 h-8 rounded-full flex items-center justify-center mr-3 overflow-hidden flex-shrink-0"
+                                                    style={nameStyle}
+                                                  >
+                                                    <Image
+                                                      src={getTeamLogoPath(p.team)}
+                                                      alt={p.team}
+                                                      width={24}
+                                                      height={24}
+                                                      className="object-contain"
+                                                      onError={(e) => {
+                                                        const target = e.target as HTMLImageElement;
+                                                        target.style.display = 'none';
+                                                        const parent = target.parentElement;
+                                                        if (parent) {
+                                                          const fallback = document.createElement('div');
+                                                          fallback.className = 'flex items-center justify-center h-full w-full';
+                                                          fallback.innerHTML = `<span class=\"text-xs font-bold\">${p.team.charAt(0)}</span>`;
+                                                          parent.appendChild(fallback);
+                                                        }
+                                                      }}
+                                                    />
                                                   </div>
-                                                  <div className="text-sm text-[var(--text)] truncate">
-                                                    <span className="font-medium" style={{ color: nameStyle.backgroundColor }}>{p.team}</span>
-                                                    {` — ${p.player}`}
-                                                    {selectedYear === '2023' && draftsByYear[selectedYear]?.isAuction && p.price != null ? ` — $${p.price}` : ''}
+                                                  <div className="min-w-0">
+                                                    <div className="flex items-center justify-between gap-3">
+                                                      <span className="font-medium truncate" style={{ color: nameStyle.backgroundColor }}>{p.team}</span>
+                                                      <span className="text-xs text-[var(--muted)] whitespace-nowrap">{`Pick ${p.pick_no} • Rd ${p.round}, Pk ${p.pick}`}</span>
+                                                    </div>
+                                                    <div className="text-sm text-[var(--text)] truncate">
+                                                      <span className="truncate inline-block max-w-full align-middle">{p.player}</span>
+                                                      {p.pos && (
+                                                        <span className="ml-2 align-middle px-1.5 py-0.5 rounded border border-[var(--border)] text-[var(--muted)] text-[10px]">
+                                                          {p.pos}
+                                                        </span>
+                                                      )}
+                                                    </div>
                                                   </div>
                                                 </div>
+                                                {priceEnabled && (
+                                                  <div className="flex-shrink-0">
+                                                    <span className="inline-block px-2 py-0.5 rounded-full border border-[var(--border)] text-xs text-[var(--text)]">{`$${p.price}`}</span>
+                                                  </div>
+                                                )}
                                               </div>
                                             </li>
                                           );
                                         })}
                                       </ul>
+                                      <div className="h-px bg-gradient-to-r from-[#be161e] to-[#bf9944] opacity-40 mt-4" />
                                     </div>
                                   ));
                                 })()}
