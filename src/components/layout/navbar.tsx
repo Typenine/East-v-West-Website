@@ -2,12 +2,14 @@
 
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import ThemeToggle from '@/components/ui/ThemeToggle';
 import LinkButton from '@/components/ui/LinkButton';
 import Button from '@/components/ui/Button';
 import Modal from '@/components/ui/Modal';
 import Label from '@/components/ui/Label';
+import Image from 'next/image';
+import { getTeamLogoPath } from '@/lib/utils/team-utils';
 
 const navItems = [
   { name: 'Home', path: '/' },
@@ -33,6 +35,13 @@ export default function Navbar() {
   const [adminLoading, setAdminLoading] = useState(false);
   const [sessionTeam, setSessionTeam] = useState<string | null>(null);
   const [authLoading, setAuthLoading] = useState(false);
+  const [changeOpen, setChangeOpen] = useState(false);
+  const [currentPin, setCurrentPin] = useState('');
+  const [newPin, setNewPin] = useState('');
+  const [changeMsg, setChangeMsg] = useState<string | null>(null);
+  const [changeLoading, setChangeLoading] = useState(false);
+  const [accountMenuOpen, setAccountMenuOpen] = useState(false);
+  const accountMenuRef = useRef<HTMLDivElement | null>(null);
 
   const handleLogoClick: React.MouseEventHandler<HTMLAnchorElement> = (e) => {
     // On the homepage, clicking the logo opens Admin login instead of reloading
@@ -85,6 +94,17 @@ export default function Navbar() {
     return () => { mounted = false; };
   }, [pathname]);
 
+  useEffect(() => {
+    const onDocClick = (e: MouseEvent) => {
+      if (!accountMenuRef.current) return;
+      if (!accountMenuRef.current.contains(e.target as Node)) {
+        setAccountMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onDocClick);
+    return () => document.removeEventListener('mousedown', onDocClick);
+  }, []);
+
   const handleLogout = async () => {
     try {
       await fetch('/api/auth/logout', { method: 'POST' });
@@ -124,10 +144,34 @@ export default function Navbar() {
             <ThemeToggle />
             <div className="hidden md:flex items-center gap-2">
               {sessionTeam ? (
-                <>
-                  <span className="text-xs md:text-sm">Signed in: <strong>{sessionTeam}</strong></span>
-                  <Button size="sm" variant="ghost" onClick={handleLogout} disabled={authLoading}>Logout</Button>
-                </>
+                <div className="relative" ref={accountMenuRef}>
+                  <button
+                    aria-label="Account menu"
+                    className="rounded-full overflow-hidden border border-[var(--border)] w-8 h-8"
+                    onClick={() => setAccountMenuOpen((v) => !v)}
+                    title={sessionTeam}
+                    aria-expanded={accountMenuOpen}
+                  >
+                    <Image src={getTeamLogoPath(sessionTeam)} alt={sessionTeam} width={32} height={32} />
+                  </button>
+                  {accountMenuOpen && (
+                    <div className="absolute right-0 mt-2 w-40 evw-surface border border-[var(--border)] rounded shadow-lg p-1">
+                      <button
+                        className="w-full text-left px-2 py-1.5 rounded hover:bg-[var(--surface-strong)]"
+                        onClick={() => { setAccountMenuOpen(false); setChangeOpen(true); }}
+                      >
+                        Change PIN
+                      </button>
+                      <button
+                        className="w-full text-left px-2 py-1.5 rounded hover:bg-[var(--surface-strong)]"
+                        onClick={() => { setAccountMenuOpen(false); handleLogout(); }}
+                        disabled={authLoading}
+                      >
+                        Logout
+                      </button>
+                    </div>
+                  )}
+                </div>
               ) : (
                 <LinkButton href={`/login?next=${encodeURIComponent(pathname)}`} variant="ghost" size="sm">Log In</LinkButton>
               )}
@@ -195,8 +239,17 @@ export default function Navbar() {
           <div className="pt-2 border-t border-[var(--border)] flex items-center justify-between">
             {sessionTeam ? (
               <>
-                <span className="text-xs">Signed in: <strong>{sessionTeam}</strong></span>
-                <Button size="sm" variant="ghost" onClick={() => { setMobileMenuOpen(false); handleLogout(); }}>Logout</Button>
+                <div className="flex items-center gap-2">
+                  <button
+                    aria-label="Account menu"
+                    className="rounded-full overflow-hidden border border-[var(--border)] w-8 h-8"
+                    onClick={() => { setMobileMenuOpen(false); setChangeOpen(true); }}
+                    title={sessionTeam}
+                  >
+                    <Image src={getTeamLogoPath(sessionTeam)} alt={sessionTeam} width={32} height={32} />
+                  </button>
+                  <Button size="sm" variant="ghost" onClick={() => { setMobileMenuOpen(false); handleLogout(); }}>Logout</Button>
+                </div>
               </>
             ) : (
               <LinkButton href={`/login?next=${encodeURIComponent(pathname)}`} variant="ghost" size="sm" className="w-full text-left" onClick={() => setMobileMenuOpen(false)}>
@@ -229,6 +282,69 @@ export default function Navbar() {
         <div className="flex items-center gap-2 justify-end">
           <Button type="button" variant="secondary" onClick={() => setAdminOpen(false)}>Cancel</Button>
           <Button type="submit" disabled={adminLoading || !pin}>Enter Admin</Button>
+        </div>
+      </form>
+    </Modal>
+
+    {/* Change PIN Modal */}
+    <Modal open={changeOpen} onClose={() => setChangeOpen(false)} title="Change PIN" autoFocusPanel={false}>
+      <form
+        onSubmit={async (e) => {
+          e.preventDefault();
+          setChangeMsg(null);
+          setChangeLoading(true);
+          try {
+            const r = await fetch('/api/auth/change-pin', {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ currentPin, newPin }),
+            });
+            if (!r.ok) {
+              const j = await r.json().catch(() => ({}));
+              throw new Error(j?.error || 'Failed to change PIN');
+            }
+            setChangeMsg('PIN updated. Please sign in again.');
+          } catch (err) {
+            setChangeMsg(err instanceof Error ? err.message : 'Failed to change PIN');
+          } finally {
+            setChangeLoading(false);
+          }
+        }}
+        noValidate
+        className="space-y-3"
+      >
+        <div>
+          <Label htmlFor="cur-pin">Current PIN</Label>
+          <input
+            id="cur-pin"
+            type="password"
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            className="w-full evw-surface border border-[var(--border)] rounded px-3 py-2"
+            placeholder="Current PIN"
+            maxLength={12}
+            value={currentPin}
+            onChange={(e) => setCurrentPin(e.target.value.replace(/[^0-9]/g, '').slice(0, 12))}
+          />
+        </div>
+        <div>
+          <Label htmlFor="new-pin">New PIN</Label>
+          <input
+            id="new-pin"
+            type="password"
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            className="w-full evw-surface border border-[var(--border)] rounded px-3 py-2"
+            placeholder="New PIN (4–12 digits)"
+            maxLength={12}
+            value={newPin}
+            onChange={(e) => setNewPin(e.target.value.replace(/[^0-9]/g, '').slice(0, 12))}
+          />
+        </div>
+        {changeMsg && <div className="text-sm" role="status">{changeMsg}</div>}
+        <div className="flex items-center gap-2 justify-end">
+          <Button type="button" variant="secondary" onClick={() => setChangeOpen(false)}>Close</Button>
+          <Button type="submit" disabled={changeLoading || !currentPin || !newPin}>Update PIN</Button>
         </div>
       </form>
     </Modal>
