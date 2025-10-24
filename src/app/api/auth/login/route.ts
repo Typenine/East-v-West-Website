@@ -47,7 +47,19 @@ export async function POST(req: NextRequest) {
       }
     } catch {}
 
-    if (!stored && overrideStored) {
+    if (stored && overrideStored) {
+      // Prefer the newer by pinVersion; if stored is newer, drop override cookie
+      if ((stored.pinVersion || 0) >= (overrideStored.pinVersion || 0)) {
+        try {
+          const jarDrop = await cookies();
+          jarDrop.set('evw_pin_override', '', { httpOnly: true, sameSite: 'lax', secure: process.env.NODE_ENV === 'production', path: '/', maxAge: 0 });
+        } catch {}
+        overrideStored = null;
+      } else {
+        // Override is newer; adopt it
+        stored = overrideStored;
+      }
+    } else if (!stored && overrideStored) {
       stored = overrideStored;
     }
 

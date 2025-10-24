@@ -27,6 +27,7 @@ function LoginContent() {
       const res = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({ team: selectedTeam, pin }),
       });
       const data = await res.json().catch(() => ({}));
@@ -80,13 +81,15 @@ function LoginContent() {
                 <Label htmlFor="pin" className="mb-2 block">PIN</Label>
                 <input
                   id="pin"
-                  type="password"
+                  name="pin"
+                  type="tel"
                   inputMode="numeric"
-                  autoComplete="one-time-code"
+                  autoComplete="off"
                   pattern="[0-9]*"
+                  maxLength={12}
                   placeholder="Enter your PIN"
                   value={pin}
-                  onChange={(e) => setPin(e.target.value)}
+                  onChange={(e) => setPin(e.target.value.replace(/[^0-9]/g, '').slice(0, 12))}
                   className="w-full rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-[var(--text)] focus:outline-none focus:ring-2 focus:ring-[var(--accent-strong)]"
                 />
               </div>

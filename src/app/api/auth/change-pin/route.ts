@@ -55,21 +55,21 @@ export async function POST(req: NextRequest) {
     };
     try {
       await writePins(pins);
-    } catch {
-      // Fallback: persist override in a signed cookie on this browser so login continues to work
-      const token = signSession({
-        pins: { [team]: { hash, salt, pinVersion: pv, updatedAt: new Date().toISOString() } },
-        exp: Date.now() + 365 * 24 * 60 * 60 * 1000,
-        kind: 'pin_override'
-      });
-      jar.set('evw_pin_override', token, {
-        httpOnly: true,
-        sameSite: 'lax',
-        secure: process.env.NODE_ENV === 'production',
-        path: '/',
-        maxAge: 365 * 24 * 60 * 60,
-      });
-    }
+    } catch {}
+
+    // Always set a per-browser override so new PIN is immediately enforced locally
+    const overrideToken = signSession({
+      pins: { [team]: { hash, salt, pinVersion: pv, updatedAt: new Date().toISOString() } },
+      exp: Date.now() + 365 * 24 * 60 * 60 * 1000,
+      kind: 'pin_override'
+    });
+    jar.set('evw_pin_override', overrideToken, {
+      httpOnly: true,
+      sameSite: 'lax',
+      secure: process.env.NODE_ENV === 'production',
+      path: '/',
+      maxAge: 365 * 24 * 60 * 60,
+    });
 
     await logAuthEvent({ type: 'login_success', team, ip: 'n/a', ok: true, reason: 'pin_changed' });
 
