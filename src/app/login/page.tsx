@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
 import Image from 'next/image';
 import { TEAM_NAMES } from '@/lib/constants/league';
 import { getTeamLogoPath, getTeamColorStyle } from '@/lib/utils/team-utils';
@@ -9,7 +9,9 @@ import Label from '@/components/ui/Label';
 import Button from '@/components/ui/Button';
 import { useRouter, useSearchParams } from 'next/navigation';
 
-export default function LoginPage() {
+export const dynamic = 'force-dynamic';
+
+function LoginContent() {
   const [selectedTeam, setSelectedTeam] = useState<string | null>(null);
   const [pin, setPin] = useState('');
   const [loading, setLoading] = useState(false);
@@ -106,5 +108,13 @@ export default function LoginPage() {
         </Card>
       </div>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={<div className="container mx-auto px-4 py-8"><Card><CardContent>Loading…</CardContent></Card></div>}>
+      <LoginContent />
+    </Suspense>
   );
 }
