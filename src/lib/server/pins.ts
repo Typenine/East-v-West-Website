@@ -1,5 +1,7 @@
 import { promises as fs } from 'fs';
 import path from 'path';
+import { TEAM_NAMES } from '@/lib/constants/league';
+import { hashPin } from '@/lib/server/auth';
 
 export type StoredPin = {
   hash: string;
@@ -14,19 +16,56 @@ const DATA_PATH = path.join(process.cwd(), 'data', 'team-pins.json');
 const USE_BLOB = Boolean(process.env.BLOB_READ_WRITE_TOKEN || process.env.BLOB_READ_TOKEN);
 const BLOB_KEY = 'auth/team-pins.json';
 
+async function initDefaultPins(): Promise<PinMap> {
+  const defaultPins: string[] = [
+    '111111', '222222', '333333', '444444', '555555', '666666',
+    '777777', '888888', '999999', '101010', '121212', '131313'
+  ];
+  const mapping: PinMap = {};
+  let idx = 0;
+  for (const team of TEAM_NAMES) {
+    const pin = defaultPins[idx % defaultPins.length];
+    const { hash, salt } = await hashPin(pin);
+    mapping[team] = {
+      hash,
+      salt,
+      pinVersion: 1,
+      updatedAt: new Date().toISOString(),
+    };
+    idx++;
+  }
+  // Persist to Blob (best-effort)
+  try {
+    const { put } = await import('@vercel/blob');
+    await put(BLOB_KEY, JSON.stringify(mapping, null, 2), {
+      access: 'public',
+      contentType: 'application/json; charset=utf-8',
+    });
+  } catch {}
+  return mapping;
+}
+
 export async function readPins(): Promise<PinMap> {
   if (USE_BLOB) {
     try {
       const { list } = await import('@vercel/blob');
       const { blobs } = await list({ prefix: 'auth/' });
       const found = blobs.find((b) => b.pathname === BLOB_KEY);
-      if (!found) return {};
+      if (!found) {
+        // Auto-initialize with default PINs if not present
+        return await initDefaultPins();
+      }
       const res = await fetch(found.url);
       if (!res.ok) return {};
       const json = await res.json();
       return (json && typeof json === 'object') ? (json as PinMap) : {};
     } catch {
-      return {};
+      // If listing fails for any reason, fall back to auto-init once
+      try {
+        return await initDefaultPins();
+      } catch {
+        return {};
+      }
     }
   }
   try {
