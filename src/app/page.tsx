@@ -49,24 +49,14 @@ export default async function Home({ searchParams }: { searchParams?: Promise<Re
     if (seasonType !== 'regular' || beforeWeek1 || hasScores === false) {
       defaultWeek = 1;
     } else {
-      // Determine week display policy based on day-of-week in Eastern Time, independent of Sleeper flips
       const now = new Date();
       const dowET = new Intl.DateTimeFormat('en-US', { weekday: 'short', timeZone: 'America/New_York' }).format(now);
-      const weekMs = 7 * 24 * 60 * 60 * 1000;
-      const diffMs = Date.now() - week1Ts;
-      const weeksSinceStart = Math.floor(Math.max(0, diffMs) / weekMs);
-      const calendarWeek = weeksSinceStart + 1; // anchored to NFL Week 1 Thursday
-
-      // Policy:
-      // - Mon/Tue (ET): freeze to previous week (calendarWeek - 1)
-      // - Wed (ET): flip to new Sleeper week (calendarWeek + 1 relative to base calc)
-      // - Thu–Sun (ET): show the current week (calendarWeek)
+      const raw = Number(((nflState as { week?: number }).week ?? (nflState as { display_week?: number }).display_week ?? 1));
+      const baseWeek = Number.isFinite(raw) ? raw : 1;
       if (dowET === 'Mon' || dowET === 'Tue') {
-        defaultWeek = Math.max(1, calendarWeek - 1);
-      } else if (dowET === 'Wed') {
-        defaultWeek = calendarWeek + 1;
+        defaultWeek = Math.max(1, baseWeek - 1);
       } else {
-        defaultWeek = calendarWeek; // Thu, Fri, Sat, Sun
+        defaultWeek = baseWeek; // Wed–Sun follow Sleeper's week/display_week
       }
     }
     // Clamp default to regular-season bounds
