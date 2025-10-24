@@ -42,6 +42,8 @@ export default function Navbar() {
   const [changeLoading, setChangeLoading] = useState(false);
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const accountMenuRef = useRef<HTMLDivElement | null>(null);
+  const currentPinRef = useRef<HTMLInputElement | null>(null);
+  const newPinRef = useRef<HTMLInputElement | null>(null);
 
   const handleLogoClick: React.MouseEventHandler<HTMLAnchorElement> = (e) => {
     // On the homepage, clicking the logo opens Admin login instead of reloading
@@ -311,36 +313,77 @@ export default function Navbar() {
           }
         }}
         noValidate
+        autoComplete="off"
         className="space-y-3"
       >
         <div>
           <Label htmlFor="cur-pin">Current PIN</Label>
           <input
             id="cur-pin"
-            type="password"
+            type="tel"
             inputMode="numeric"
-            autoComplete="current-password"
+            autoComplete="off"
             name="current-pin"
+            spellCheck={false}
+            autoCorrect="off"
+            autoCapitalize="off"
+            data-lpignore="true"
+            data-1p-ignore="true"
+            data-bwignore="true"
+            pattern="[0-9]*"
             className="w-full evw-surface border border-[var(--border)] rounded px-3 py-2"
             placeholder="Current PIN"
             maxLength={12}
+            ref={currentPinRef}
             value={currentPin}
-            onChange={(e) => setCurrentPin(e.target.value.replace(/[^0-9]/g, '').slice(0, 12))}
+            onChange={(e) => {
+              const v = e.target.value.replace(/[^0-9]/g, '').slice(0, 12);
+              setCurrentPin(v);
+              // Keep focus in this field in case a manager tries to steal it
+              requestAnimationFrame(() => {
+                const el = currentPinRef.current;
+                if (el) {
+                  const end = el.value.length;
+                  try { el.setSelectionRange(end, end); } catch {}
+                  el.focus();
+                }
+              });
+            }}
           />
         </div>
         <div>
           <Label htmlFor="new-pin">New PIN</Label>
           <input
             id="new-pin"
-            type="password"
+            type="tel"
             inputMode="numeric"
-            autoComplete="new-password"
+            autoComplete="off"
             name="new-pin"
+            spellCheck={false}
+            autoCorrect="off"
+            autoCapitalize="off"
+            data-lpignore="true"
+            data-1p-ignore="true"
+            data-bwignore="true"
+            pattern="[0-9]*"
             className="w-full evw-surface border border-[var(--border)] rounded px-3 py-2"
             placeholder="New PIN (4–12 digits)"
             maxLength={12}
+            ref={newPinRef}
             value={newPin}
-            onChange={(e) => setNewPin(e.target.value.replace(/[^0-9]/g, '').slice(0, 12))}
+            onChange={(e) => {
+              const v = e.target.value.replace(/[^0-9]/g, '').slice(0, 12);
+              setNewPin(v);
+              // Force focus to remain in New PIN field
+              requestAnimationFrame(() => {
+                const el = newPinRef.current;
+                if (el) {
+                  const end = el.value.length;
+                  try { el.setSelectionRange(end, end); } catch {}
+                  el.focus();
+                }
+              });
+            }}
           />
         </div>
         {changeMsg && <div className="text-sm" role="status">{changeMsg}</div>}
