@@ -319,7 +319,8 @@ export default function Navbar() {
             id="cur-pin"
             type="password"
             inputMode="numeric"
-            autoComplete="one-time-code"
+            autoComplete="current-password"
+            name="current-pin"
             className="w-full evw-surface border border-[var(--border)] rounded px-3 py-2"
             placeholder="Current PIN"
             maxLength={12}
@@ -333,7 +334,8 @@ export default function Navbar() {
             id="new-pin"
             type="password"
             inputMode="numeric"
-            autoComplete="one-time-code"
+            autoComplete="new-password"
+            name="new-pin"
             className="w-full evw-surface border border-[var(--border)] rounded px-3 py-2"
             placeholder="New PIN (4–12 digits)"
             maxLength={12}
