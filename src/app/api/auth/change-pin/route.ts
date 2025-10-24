@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server';
 import { cookies } from 'next/headers';
 import { verifySession, verifyPin, hashPin, signSession } from '@/lib/server/auth';
-import { readPins, writePins } from '@/lib/server/pins';
+import { readPins, writePinsWithResult } from '@/lib/server/pins';
 import { logAuthEvent } from '@/lib/server/audit';
 import { TEAM_NAMES } from '@/lib/constants/league';
 
@@ -54,8 +54,25 @@ export async function POST(req: NextRequest) {
       updatedAt: new Date().toISOString(),
     };
     try {
-      await writePins(pins);
-    } catch {}
+      const res = await writePinsWithResult(pins);
+      if (!res.blob && !res.kv) {
+        return Response.json({ error: 'PIN not persisted to storage' }, { status: 500 });
+      }
+    } catch {
+      return Response.json({ error: 'PIN not persisted to storage' }, { status: 500 });
+    }
+
+    // Best-effort: wait briefly for Blob propagation so other devices see it immediately
+    const start = Date.now();
+    for (let i = 0; i < 8; i++) {
+      const confirmed = await readPins();
+      const entry = confirmed[team];
+      if (entry && entry.hash === hash && entry.salt === salt && entry.pinVersion === pv) {
+        break;
+      }
+      if (Date.now() - start > 2000) break;
+      await new Promise((r) => setTimeout(r, 250));
+    }
 
     // Always set a per-browser override so new PIN is immediately enforced locally
     const overrideToken = signSession({

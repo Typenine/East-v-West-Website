@@ -16,34 +16,56 @@ const BLOB_KEY = 'auth/team-pins.json';
 
 
 export async function readPins(): Promise<PinMap> {
-  // 1) Blob store first (your prod setup)
+  let blobMap: PinMap = {};
+  let kvMap: PinMap = {};
+
+  // Blob
   try {
     const { list } = await import('@vercel/blob');
     const { blobs } = await list({ prefix: 'auth/' });
-    const found = blobs.find((b) => b.pathname === BLOB_KEY);
-    if (found) {
-      const res = await fetch(found.url);
-      if (res.ok) {
-        const json = await res.json();
-        const blobResult = (json && typeof json === 'object') ? (json as PinMap) : {};
-        if (Object.keys(blobResult).length > 0) return blobResult;
+    type BlobMeta = { pathname: string; url: string; uploadedAt?: string | Date };
+    const toTime = (v?: string | Date): number => {
+      if (!v) return 0;
+      if (v instanceof Date) return v.getTime();
+      if (typeof v === 'string') return Date.parse(v);
+      return 0;
+    };
+    const matches: BlobMeta[] = (blobs as unknown as BlobMeta[]).filter((b) => b.pathname === BLOB_KEY);
+    if (matches.length > 0) {
+      const newest = matches.reduce((acc, cur) => (!acc ? cur : (toTime(cur.uploadedAt) > toTime(acc.uploadedAt) ? cur : acc)), matches[0]);
+      if (newest?.url) {
+        const res = await fetch(newest.url, { cache: 'no-store' });
+        if (res.ok) {
+          const json = await res.json();
+          if (json && typeof json === 'object') blobMap = json as PinMap;
+        }
       }
     }
   } catch {}
 
-  // 2) KV (fallback)
+  // KV
   try {
     const kv = await getKV();
     if (kv) {
       const raw = (await kv.get('pins:map')) as string | null;
       if (raw && typeof raw === 'string') {
         const parsed = JSON.parse(raw);
-        if (parsed && typeof parsed === 'object') return parsed as PinMap;
+        if (parsed && typeof parsed === 'object') kvMap = parsed as PinMap;
       }
     }
   } catch {}
 
-  // 3) Local fs (dev)
+  // Merge: pick higher pinVersion per team
+  const merged: PinMap = { ...blobMap };
+  for (const [team, entry] of Object.entries(kvMap)) {
+    const cur = merged[team];
+    if (!cur || (entry.pinVersion || 0) > (cur.pinVersion || 0)) {
+      merged[team] = entry as StoredPin;
+    }
+  }
+  if (Object.keys(merged).length > 0) return merged;
+
+  // Local fs (dev)
   try {
     const raw = await fs.readFile(DATA_PATH, 'utf8');
     const parsed = JSON.parse(raw);
