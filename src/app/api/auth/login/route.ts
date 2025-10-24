@@ -2,7 +2,7 @@ import { NextRequest } from 'next/server';
 import { cookies } from 'next/headers';
 import { resolveCanonicalTeamName } from '@/lib/utils/team-utils';
 import { readPins } from '@/lib/server/pins';
-import { verifyPin, signSession, verifySession, hashPin } from '@/lib/server/auth';
+import { verifyPin, signSession, verifySession } from '@/lib/server/auth';
 import { logAuthEvent } from '@/lib/server/audit';
 import { TEAM_NAMES } from '@/lib/constants/league';
 import { writePins } from '@/lib/server/pins';
@@ -52,39 +52,32 @@ export async function POST(req: NextRequest) {
     }
 
     if (!stored) {
-      // Fallback: accept default PINs if storage hasn't been initialized yet
-      const defaults = ['111111','222222','333333','444444','555555','666666','777777','888888','999999','101010','121212','131313'];
-      const index = TEAM_NAMES.indexOf(team);
-      const expected = index >= 0 ? defaults[index % defaults.length] : null;
-      if (expected && pin === expected) {
-        // Persist immediately
-        const { hash, salt } = await hashPin(pin);
-        pins[team] = stored = { hash, salt, pinVersion: 1, updatedAt: new Date().toISOString() };
-        try { await writePins(pins); } catch {}
-      } else {
-        await logAuthEvent({ type: 'login_fail', team, ip, ok: false, reason: 'no_pin' });
-        return Response.json({ error: 'PIN not set for this team. Ask admin to set it.' }, { status: 400 });
-      }
-
-    let ok = await verifyPin(pin, stored.hash, stored.salt);
-    if (!ok && overrideStored) {
-      ok = await verifyPin(pin, overrideStored.hash, overrideStored.salt);
-      if (ok) stored = overrideStored;
+      await logAuthEvent({ type: 'login_fail', team, ip, ok: false, reason: 'no_pin' });
+      return Response.json({ error: 'PIN not set for this team. Ask admin to set it.' }, { status: 400 });
     }
-    if (!ok) {
-      // Rescue path: allow default PIN if it matches expected for this team, then persist
-      const defaults = ['111111','222222','333333','444444','555555','666666','777777','888888','999999','101010','121212','131313'];
-      const index = TEAM_NAMES.indexOf(team);
-      const expected = index >= 0 ? defaults[index % defaults.length] : null;
-      if (expected && pin === expected) {
-        const { hash, salt } = await hashPin(pin);
-        pins[team] = { hash, salt, pinVersion: (stored?.pinVersion ?? 0) + 1, updatedAt: new Date().toISOString() };
-        try { await writePins(pins); } catch {}
-      } else {
+
+    let ok: boolean;
+    if (overrideStored) {
+      // If a per-browser override exists, it is authoritative: old PINs are rejected
+      ok = await verifyPin(pin, overrideStored.hash, overrideStored.salt);
+      if (!ok) {
+        await logAuthEvent({ type: 'login_fail', team, ip, ok: false, reason: 'bad_pin_override' });
+        return Response.json({ error: 'Invalid PIN' }, { status: 401 });
+      }
+      // Adopt override as current stored pin and attempt to persist to store
+      stored = overrideStored;
+      try {
+        if (!pins[team] || pins[team].hash !== overrideStored.hash) {
+          pins[team] = overrideStored;
+          await writePins(pins);
+        }
+      } catch {}
+    } else {
+      ok = await verifyPin(pin, stored.hash, stored.salt);
+      if (!ok) {
         await logAuthEvent({ type: 'login_fail', team, ip, ok: false, reason: 'bad_pin' });
         return Response.json({ error: 'Invalid PIN' }, { status: 401 });
       }
-    }
     }
 
     const ttlDays = 30;

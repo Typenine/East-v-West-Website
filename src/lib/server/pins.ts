@@ -14,7 +14,6 @@ export type StoredPin = {
 export type PinMap = Record<string, StoredPin>; // ownerId -> StoredPin
 
 const DATA_PATH = path.join(process.cwd(), 'data', 'team-pins.json');
-const USE_BLOB = Boolean(process.env.BLOB_READ_WRITE_TOKEN || process.env.BLOB_READ_TOKEN);
 const BLOB_KEY = 'auth/team-pins.json';
 
 async function initDefaultPins(): Promise<PinMap> {
@@ -63,8 +62,7 @@ export async function readPins(): Promise<PinMap> {
     }
   } catch {}
 
-  // 2) Blob store
-  if (USE_BLOB) {
+  // 2) Blob store (try even without tokens; Vercel automatically authorizes in prod)
     try {
       const { list } = await import('@vercel/blob');
       const { blobs } = await list({ prefix: 'auth/' });
@@ -94,7 +92,6 @@ export async function readPins(): Promise<PinMap> {
         return {};
       }
     }
-  }
   try {
     const raw = await fs.readFile(DATA_PATH, 'utf8');
     const parsed = JSON.parse(raw);
@@ -108,24 +105,26 @@ export async function readPins(): Promise<PinMap> {
 }
 
 export async function writePins(pins: PinMap): Promise<void> {
-  // 1) KV preferred
+  // Try KV
   try {
     const kv = await getKV();
     if (kv) {
       await kv.set('pins:map', JSON.stringify(pins));
-      return;
     }
   } catch {}
 
-  // 2) Blob
-  if (USE_BLOB) {
+  // Try Blob
+  try {
     const { put } = await import('@vercel/blob');
     await put(BLOB_KEY, JSON.stringify(pins, null, 2), {
       access: 'public',
       contentType: 'application/json; charset=utf-8',
     });
-    return;
-  }
-  await fs.mkdir(path.dirname(DATA_PATH), { recursive: true });
-  await fs.writeFile(DATA_PATH, JSON.stringify(pins, null, 2), 'utf8');
+  } catch {}
+
+  // Finally, local filesystem (no-op on serverless between requests, but useful locally)
+  try {
+    await fs.mkdir(path.dirname(DATA_PATH), { recursive: true });
+    await fs.writeFile(DATA_PATH, JSON.stringify(pins, null, 2), 'utf8');
+  } catch {}
 }
