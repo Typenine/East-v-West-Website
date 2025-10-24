@@ -2,6 +2,7 @@ import { promises as fs } from 'fs';
 import path from 'path';
 import { TEAM_NAMES } from '@/lib/constants/league';
 import { hashPin } from '@/lib/server/auth';
+import { getKV } from '@/lib/server/kv';
 
 export type StoredPin = {
   hash: string;
@@ -46,6 +47,23 @@ async function initDefaultPins(): Promise<PinMap> {
 }
 
 export async function readPins(): Promise<PinMap> {
+  // 1) Prefer KV (cross-device, no token strings in code)
+  try {
+    const kv = await getKV();
+    if (kv) {
+      const raw = (await kv.get('pins:map')) as string | null;
+      if (raw && typeof raw === 'string') {
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === 'object') return parsed as PinMap;
+      }
+      // Auto-init defaults into KV
+      const defaults = await initDefaultPins();
+      try { await kv.set('pins:map', JSON.stringify(defaults)); } catch {}
+      return defaults;
+    }
+  } catch {}
+
+  // 2) Blob store
   if (USE_BLOB) {
     try {
       const { list } = await import('@vercel/blob');
@@ -53,7 +71,15 @@ export async function readPins(): Promise<PinMap> {
       const found = blobs.find((b) => b.pathname === BLOB_KEY);
       if (!found) {
         // Auto-initialize with default PINs if not present
-        return await initDefaultPins();
+        const mapping = await initDefaultPins();
+        try {
+          const { put } = await import('@vercel/blob');
+          await put(BLOB_KEY, JSON.stringify(mapping, null, 2), {
+            access: 'public',
+            contentType: 'application/json; charset=utf-8',
+          });
+        } catch {}
+        return mapping;
       }
       const res = await fetch(found.url);
       if (!res.ok) return {};
@@ -62,7 +88,8 @@ export async function readPins(): Promise<PinMap> {
     } catch {
       // If listing fails for any reason, fall back to auto-init once
       try {
-        return await initDefaultPins();
+        const mapping = await initDefaultPins();
+        return mapping;
       } catch {
         return {};
       }
@@ -81,6 +108,16 @@ export async function readPins(): Promise<PinMap> {
 }
 
 export async function writePins(pins: PinMap): Promise<void> {
+  // 1) KV preferred
+  try {
+    const kv = await getKV();
+    if (kv) {
+      await kv.set('pins:map', JSON.stringify(pins));
+      return;
+    }
+  } catch {}
+
+  // 2) Blob
   if (USE_BLOB) {
     const { put } = await import('@vercel/blob');
     await put(BLOB_KEY, JSON.stringify(pins, null, 2), {

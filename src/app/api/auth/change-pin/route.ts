@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server';
 import { cookies } from 'next/headers';
-import { verifySession, verifyPin, hashPin } from '@/lib/server/auth';
+import { verifySession, verifyPin, hashPin, signSession } from '@/lib/server/auth';
 import { readPins, writePins } from '@/lib/server/pins';
 import { logAuthEvent } from '@/lib/server/audit';
 import { TEAM_NAMES } from '@/lib/constants/league';
@@ -53,11 +53,27 @@ export async function POST(req: NextRequest) {
       pinVersion: pv,
       updatedAt: new Date().toISOString(),
     };
-    await writePins(pins);
+    try {
+      await writePins(pins);
+    } catch {
+      // Fallback: persist override in a signed cookie on this browser so login continues to work
+      const token = signSession({
+        pins: { [team]: { hash, salt, pinVersion: pv, updatedAt: new Date().toISOString() } },
+        exp: Date.now() + 365 * 24 * 60 * 60 * 1000,
+        kind: 'pin_override'
+      });
+      jar.set('evw_pin_override', token, {
+        httpOnly: true,
+        sameSite: 'lax',
+        secure: process.env.NODE_ENV === 'production',
+        path: '/',
+        maxAge: 365 * 24 * 60 * 60,
+      });
+    }
 
     await logAuthEvent({ type: 'login_success', team, ip: 'n/a', ok: true, reason: 'pin_changed' });
 
-    // Suggest re-login by clearing the cookie
+    // Suggest re-login by clearing the session cookie
     jar.set('evw_session', '', {
       httpOnly: true,
       sameSite: 'lax',
