@@ -113,18 +113,16 @@ export async function writeTeamPin(team: string, value: StoredPin): Promise<bool
     await put(key, JSON.stringify(value, null, 2), {
       access: 'public',
       contentType: 'application/json; charset=utf-8',
-      addRandomSuffix: false,
       token,
     });
     return true;
-  } catch {
+  } catch (e) {
+    try { console.error('[pins] Blob write failed', { team, key, err: e instanceof Error ? e.message : String(e) }); } catch {}
     return false;
   }
 }
 
 async function getBlobToken(): Promise<string | undefined> {
-  const envTok = process.env.BLOB_READ_WRITE_TOKEN;
-  if (envTok && envTok.length > 0) return envTok;
   try {
     const kv = await getKV();
     if (kv) {
@@ -132,6 +130,8 @@ async function getBlobToken(): Promise<string | undefined> {
       if (raw && typeof raw === 'string' && raw.length > 0) return raw;
     }
   } catch {}
+  const envTok = process.env.BLOB_READ_WRITE_TOKEN;
+  if (envTok && envTok.length > 0) return envTok;
   return undefined;
 }
 
