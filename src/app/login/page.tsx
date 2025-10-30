@@ -80,12 +80,20 @@ function LoginContent() {
               <div className="flex items-center justify-center">
                 <button
                   type="button"
-                  className="w-16 h-16 rounded-full accent-gradient text-on-brand font-bold text-sm shadow hover:opacity-95 focus:outline-none focus:ring-2 focus:ring-[var(--accent)]"
+                  className="rounded-full focus:outline-none focus:ring-2 focus:ring-[var(--accent)]"
                   aria-label="Admin sign-in"
                   onClick={() => { setAdminOpen(true); setTimeout(() => adminRef.current?.focus(), 0); }}
                   title="Admin"
                 >
-                  EVW
+                  <span className="block w-16 h-16 rounded-full overflow-hidden evw-surface border border-[var(--border)] flex items-center justify-center">
+                    <Image
+                      src="/assets/teams/East v West Logos/Official East v. West Logo.png"
+                      alt="League admin"
+                      width={56}
+                      height={56}
+                      className="object-contain"
+                    />
+                  </span>
                 </button>
               </div>
               {adminOpen && (
