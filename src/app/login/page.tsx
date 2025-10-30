@@ -60,7 +60,8 @@ function LoginContent() {
       if (!r.ok) throw new Error('Invalid PIN');
       setAdminOpen(false);
       setAdminPin('');
-      // stay on login page; no redirect
+      // Redirect to admin dashboard so it's clear admin mode is enabled
+      router.push('/admin/users');
     } catch (e) {
       setAdminError(e instanceof Error ? e.message : 'Admin login failed');
     } finally {
