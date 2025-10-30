@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import Image from 'next/image';
 import SectionHeader from '@/components/ui/SectionHeader';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import Label from '@/components/ui/Label';
@@ -82,7 +83,7 @@ export default function TradeBlockPage() {
       .then((r) => r.ok ? r.json() : Promise.reject())
       .then((j) => setPlayerNames((j?.players as PlayersLookup) || {}))
       .catch(() => setPlayerNames({}));
-  }, [allPlayerIds.join(',')]);
+  }, [allPlayerIds]);
 
   // If authenticated, load my assets and saved block
   useEffect(() => {
@@ -141,7 +142,7 @@ export default function TradeBlockPage() {
         method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tradeBlock, tradeWants })
       });
       if (!res.ok) {
-        const j = await res.json().catch(() => ({} as any));
+        const j = await res.json().catch(() => ({} as { error?: string }));
         throw new Error(j?.error || 'Failed to save');
       }
       // Refresh public list
@@ -179,7 +180,7 @@ export default function TradeBlockPage() {
                     <li key={row.team} className="border border-[var(--border)] rounded-[var(--radius-card)] p-4">
                       <div className="flex items-center gap-3 mb-2">
                         <div className="w-8 h-8 rounded-full flex items-center justify-center overflow-hidden" style={getTeamColorStyle(row.team)}>
-                          <img src={getTeamLogoPath(row.team)} alt="" width={24} height={24} />
+                          <Image src={getTeamLogoPath(row.team)} alt="" width={24} height={24} />
                         </div>
                         <div className="font-bold" style={{ color: getTeamColorStyle(row.team).backgroundColor }}>{row.team}</div>
                         <div className="ml-auto text-xs text-[var(--muted)]">{row.updatedAt ? new Date(row.updatedAt).toLocaleString() : '—'}</div>

@@ -23,7 +23,7 @@ export async function GET(req: NextRequest) {
       }
     }
     return Response.json({ players });
-  } catch (e) {
+  } catch {
     return Response.json({ error: 'Failed to resolve players' }, { status: 500 });
   }
 }
