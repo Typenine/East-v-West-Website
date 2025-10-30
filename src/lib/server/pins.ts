@@ -2,6 +2,7 @@ import { promises as fs } from 'fs';
 import path from 'path';
 import { getKV } from '@/lib/server/kv';
 import { TEAM_NAMES } from '@/lib/constants/league';
+import { normalizeName } from '@/lib/constants/team-mapping';
 
 export type StoredPin = {
   hash: string;
@@ -20,7 +21,13 @@ function teamSlug(team: string): string {
 }
 
 function teamBlobKey(team: string): string {
-  return `auth/pins/${teamSlug(team)}.json`;
+  return `auth/pins/${teamSlug(canonicalizeTeamName(team))}.json`;
+}
+
+function canonicalizeTeamName(name: string): string {
+  const want = normalizeName(name);
+  const found = TEAM_NAMES.find((t) => normalizeName(t) === want);
+  return found || name;
 }
 
 export async function readTeamPin(team: string): Promise<StoredPin | null> {
@@ -45,6 +52,22 @@ export async function readTeamPin(team: string): Promise<StoredPin | null> {
           if (isStoredPin(json)) return json;
         }
       }
+    }
+  } catch {}
+  // Migration fallback: read legacy global map and backfill (canonicalizing the team name)
+  try {
+    const legacy = await readPins();
+    const canon = canonicalizeTeamName(team);
+    let entry: StoredPin | undefined = legacy[canon];
+    if (!entry) {
+      const targetNorm = normalizeName(team);
+      for (const [k, v] of Object.entries(legacy)) {
+        if (normalizeName(k) === targetNorm) { entry = v as StoredPin; break; }
+      }
+    }
+    if (entry) {
+      try { await writeTeamPin(canon, entry); } catch {}
+      return entry;
     }
   } catch {}
   return null;
@@ -106,6 +129,15 @@ export async function listAllTeamPins(): Promise<PinMap> {
       if (!json || typeof json !== 'object') continue;
       const team = known.get(slug) || slug;
       out[team] = json as StoredPin;
+    }
+  } catch {}
+  // Merge legacy global map for visibility/migration
+  try {
+    const legacy = await readPins();
+    for (const [team, entry] of Object.entries(legacy)) {
+      if (!out[team] || (entry.pinVersion || 0) > (out[team].pinVersion || 0)) {
+        out[team] = entry;
+      }
     }
   } catch {}
   return out;

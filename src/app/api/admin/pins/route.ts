@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server';
 import { listAllTeamPins, writeTeamPin, readTeamPin, StoredPin } from '@/lib/server/pins';
-import { hashPin } from '@/lib/server/auth';
+import { hashPin, verifyPin } from '@/lib/server/auth';
 import { TEAM_NAMES } from '@/lib/constants/league';
 
 export const runtime = 'nodejs';
@@ -16,15 +16,24 @@ function requireAdmin(req: NextRequest): boolean {
 
 export async function GET() {
   const pins = await listAllTeamPins();
-  const teams = TEAM_NAMES.map((team) => {
-    const entry = pins[team] as StoredPin | undefined;
-    return {
-      team,
-      hasPin: !!entry,
-      updatedAt: entry?.updatedAt || null,
-      pinVersion: entry?.pinVersion ?? null,
-    };
-  });
+  const defaults = ['111111','222222','333333','444444','555555','666666','777777','888888','999999','101010','121212','131313'];
+  const teams = await Promise.all(
+    TEAM_NAMES.map(async (team, idx) => {
+      const entry = pins[team] as StoredPin | undefined;
+      let isDefault: boolean | null = null;
+      if (entry) {
+        const expected = defaults[idx % defaults.length];
+        try { isDefault = await verifyPin(expected, entry.hash, entry.salt); } catch { isDefault = null; }
+      }
+      return {
+        team,
+        hasPin: !!entry,
+        updatedAt: entry?.updatedAt || null,
+        pinVersion: entry?.pinVersion ?? null,
+        isDefault,
+      };
+    })
+  );
   return Response.json({ teams });
 }
 
