@@ -109,16 +109,30 @@ export async function writeTeamPin(team: string, value: StoredPin): Promise<bool
   const key = teamBlobKey(team);
   try {
     const { put } = await import('@vercel/blob');
+    const token = await getBlobToken();
     await put(key, JSON.stringify(value, null, 2), {
       access: 'public',
       contentType: 'application/json; charset=utf-8',
       addRandomSuffix: false,
-      token: process.env.BLOB_READ_WRITE_TOKEN,
+      token,
     });
     return true;
   } catch {
     return false;
   }
+}
+
+async function getBlobToken(): Promise<string | undefined> {
+  const envTok = process.env.BLOB_READ_WRITE_TOKEN;
+  if (envTok && envTok.length > 0) return envTok;
+  try {
+    const kv = await getKV();
+    if (kv) {
+      const raw = (await kv.get('blob:token')) as string | null;
+      if (raw && typeof raw === 'string' && raw.length > 0) return raw;
+    }
+  } catch {}
+  return undefined;
 }
 
 export type TeamWriteResult = { blob: boolean; kv: boolean; fs: boolean };
