@@ -34,6 +34,7 @@ export default function TradeBlockPage() {
   const [error, setError] = useState<string | null>(null);
 
   const [auth, setAuth] = useState(false);
+  const [myTeam, setMyTeam] = useState<string | null>(null);
   const [myAssets, setMyAssets] = useState<AssetsResponse | null>(null);
   const [mySaved, setMySaved] = useState<MeTradeBlock | null>(null);
 
@@ -61,6 +62,7 @@ export default function TradeBlockPage() {
         setRows((aggJson?.teams as TeamRow[]) || []);
         const me: AuthMe = await authRes.json().catch(() => ({ authenticated: false }));
         setAuth(Boolean(me?.authenticated));
+        setMyTeam((me?.claims?.team as string) || null);
       } catch (e) {
         setError(e instanceof Error ? e.message : 'Failed to load');
       } finally {
@@ -99,6 +101,18 @@ export default function TradeBlockPage() {
       } catch {}
     })();
   }, [auth]);
+
+  // Load names for myAssets players (so editor shows names not IDs)
+  useEffect(() => {
+    if (!myAssets || !Array.isArray(myAssets.players) || myAssets.players.length === 0) return;
+    const missing = myAssets.players.filter((id) => !playerNames[id]);
+    if (missing.length === 0) return;
+    const qs = encodeURIComponent(missing.join(','));
+    fetch(`/api/players/names?ids=${qs}`, { cache: 'no-store' })
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((j) => setPlayerNames((prev) => ({ ...prev, ...((j?.players as PlayersLookup) || {}) })))
+      .catch(() => {});
+  }, [myAssets]);
 
   // Hydrate edit state from saved
   useEffect(() => {
@@ -280,7 +294,7 @@ export default function TradeBlockPage() {
                               <span>
                                 {p.year} Round {p.round}
                                 {p.originalTeam ? (
-                                  <span className="text-xs text-[var(--muted)]"> {p.originalTeam === (rows.find((r) => r.team)?.team || '') ? '' : `(originally ${p.originalTeam})`}</span>
+                                  <span className="text-xs text-[var(--muted)]">{myTeam && p.originalTeam === myTeam ? '' : ` (originally ${p.originalTeam})`}</span>
                                 ) : null}
                               </span>
                             </label>
