@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server';
 import { TEAM_NAMES } from '@/lib/constants/league';
-import { readPins, writePins } from '@/lib/server/pins';
+import { readTeamPin, writeTeamPin } from '@/lib/server/pins';
 import { hashPin } from '@/lib/server/auth';
 
 export const runtime = 'nodejs';
@@ -30,19 +30,18 @@ export async function POST(req: NextRequest) {
       mapping[team] = defaultPins[idx % defaultPins.length];
     });
 
-    const pins = await readPins();
     for (const team of TEAM_NAMES) {
       const pin = mapping[team];
       const { hash, salt } = await hashPin(pin);
-      const prev = pins[team];
-      pins[team] = {
+      const prev = await readTeamPin(team);
+      const ok = await writeTeamPin(team, {
         hash,
         salt,
         pinVersion: (prev?.pinVersion ?? 0) + 1,
         updatedAt: new Date().toISOString(),
-      };
+      });
+      if (!ok) return Response.json({ error: `Failed to persist PIN for ${team}` }, { status: 500 });
     }
-    await writePins(pins);
 
     // Return plaintext mapping so admin can copy/store it
     return Response.json({ ok: true, plaintextPins: mapping }, { status: 200 });

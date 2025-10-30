@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server';
 import { cookies } from 'next/headers';
 import { verifySession, verifyPin, hashPin, signSession } from '@/lib/server/auth';
-import { readPins, writePinsWithResult } from '@/lib/server/pins';
+import { readTeamPin, writeTeamPin } from '@/lib/server/pins';
 import { logAuthEvent } from '@/lib/server/audit';
 import { TEAM_NAMES } from '@/lib/constants/league';
 
@@ -29,8 +29,7 @@ export async function POST(req: NextRequest) {
       return Response.json({ error: 'Current PIN required' }, { status: 400 });
     }
 
-    const pins = await readPins();
-    const stored = pins[team];
+    const stored = await readTeamPin(team);
 
     // If no stored pin yet, allow change only if currentPin equals default expected for team
     if (!stored) {
@@ -46,27 +45,17 @@ export async function POST(req: NextRequest) {
     }
 
     const { hash, salt } = await hashPin(newPin);
-    const pv = (pins[team]?.pinVersion || 0) + 1;
-    pins[team] = {
-      hash,
-      salt,
-      pinVersion: pv,
-      updatedAt: new Date().toISOString(),
-    };
-    try {
-      const res = await writePinsWithResult(pins);
-      if (!res.blob && !res.kv) {
-        return Response.json({ error: 'PIN not persisted to storage' }, { status: 500 });
-      }
-    } catch {
-      return Response.json({ error: 'PIN not persisted to storage' }, { status: 500 });
+    const pv = (stored?.pinVersion || 0) + 1;
+    const record = { hash, salt, pinVersion: pv, updatedAt: new Date().toISOString() };
+    const okWrite = await writeTeamPin(team, record);
+    if (!okWrite) {
+      return Response.json({ error: 'PIN not persisted to Blob storage' }, { status: 500 });
     }
 
     // Best-effort: wait briefly for Blob propagation so other devices see it immediately
     const start = Date.now();
     for (let i = 0; i < 8; i++) {
-      const confirmed = await readPins();
-      const entry = confirmed[team];
+      const entry = await readTeamPin(team);
       if (entry && entry.hash === hash && entry.salt === salt && entry.pinVersion === pv) {
         break;
       }

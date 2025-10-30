@@ -1,11 +1,11 @@
 import { NextRequest } from 'next/server';
 import { cookies } from 'next/headers';
 import { resolveCanonicalTeamName } from '@/lib/utils/team-utils';
-import { readPins } from '@/lib/server/pins';
+import { readTeamPin, writeTeamPin } from '@/lib/server/pins';
 import { verifyPin, signSession, verifySession } from '@/lib/server/auth';
 import { logAuthEvent } from '@/lib/server/audit';
 import { TEAM_NAMES } from '@/lib/constants/league';
-import { writePins } from '@/lib/server/pins';
+// no global map writes; use per-team helpers
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -24,8 +24,7 @@ export async function POST(req: NextRequest) {
 
     const ip = (req.headers.get('x-forwarded-for') || '').split(',')[0].trim() || 'unknown';
 
-    const pins = await readPins();
-    let stored = pins[team];
+    let stored = await readTeamPin(team);
 
     // Read per-browser override cookie (from change-pin fallback)
     let overrideStored: { hash: string; salt: string; pinVersion: number; updatedAt: string } | null = null;
@@ -79,10 +78,7 @@ export async function POST(req: NextRequest) {
       // Adopt override as current stored pin and attempt to persist to store
       stored = overrideStored;
       try {
-        if (!pins[team] || pins[team].hash !== overrideStored.hash) {
-          pins[team] = overrideStored;
-          await writePins(pins);
-        }
+        await writeTeamPin(team, overrideStored);
       } catch {}
     } else {
       ok = await verifyPin(pin, stored.hash, stored.salt);

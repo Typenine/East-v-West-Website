@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server';
-import { readPins, writePins, StoredPin } from '@/lib/server/pins';
+import { listAllTeamPins, writeTeamPin, readTeamPin, StoredPin } from '@/lib/server/pins';
 import { hashPin } from '@/lib/server/auth';
 import { TEAM_NAMES } from '@/lib/constants/league';
 
@@ -15,13 +15,14 @@ function requireAdmin(req: NextRequest): boolean {
 }
 
 export async function GET() {
-  const pins = await readPins();
+  const pins = await listAllTeamPins();
   const teams = TEAM_NAMES.map((team) => {
     const entry = pins[team] as StoredPin | undefined;
     return {
       team,
       hasPin: !!entry,
       updatedAt: entry?.updatedAt || null,
+      pinVersion: entry?.pinVersion ?? null,
     };
   });
   return Response.json({ teams });
@@ -45,15 +46,15 @@ export async function POST(req: NextRequest) {
     }
 
     const { hash, salt } = await hashPin(newPin);
-    const pins = await readPins();
-    const prev = pins[team];
-    pins[team] = {
+    const prev = await readTeamPin(team);
+    const record: StoredPin = {
       hash,
       salt,
       pinVersion: (prev?.pinVersion ?? 0) + 1,
       updatedAt: new Date().toISOString(),
     };
-    await writePins(pins);
+    const ok = await writeTeamPin(team, record);
+    if (!ok) return Response.json({ error: 'Failed to persist PIN' }, { status: 500 });
 
     return Response.json({ ok: true });
   } catch (e) {
