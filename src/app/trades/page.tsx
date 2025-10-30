@@ -269,11 +269,18 @@ function TradesContent() {
     <div className="container mx-auto px-4 py-8">
       <SectionHeader
         title="Trades"
-        actions={isAdmin ? (
-          <Button onClick={() => router.push('/admin/trades')} aria-label="Add a manual trade">
-            Add Trade
-          </Button>
-        ) : undefined}
+        actions={
+          <div className="flex gap-2">
+            <Button onClick={() => router.push('/trades/block')} aria-label="Open Trade Block">
+              Trade Block
+            </Button>
+            {isAdmin && (
+              <Button onClick={() => router.push('/admin/trades')} aria-label="Add a manual trade">
+                Add Trade
+              </Button>
+            )}
+          </div>
+        }
       />
       <h1 id="trades-heading" className="sr-only">Trades</h1>
 
