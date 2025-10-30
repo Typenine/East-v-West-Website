@@ -9,7 +9,7 @@ import Button from '@/components/ui/Button';
 import Modal from '@/components/ui/Modal';
 import Label from '@/components/ui/Label';
 import Image from 'next/image';
-import { getTeamLogoPath } from '@/lib/utils/team-utils';
+import { getTeamLogoPath, getTeamColors } from '@/lib/utils/team-utils';
 
 const navItems = [
   { name: 'Home', path: '/' },
@@ -44,14 +44,9 @@ export default function Navbar() {
   const accountMenuRef = useRef<HTMLDivElement | null>(null);
   const currentPinRef = useRef<HTMLInputElement | null>(null);
   const newPinRef = useRef<HTMLInputElement | null>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
 
-  const handleLogoClick: React.MouseEventHandler<HTMLAnchorElement> = (e) => {
-    // On the homepage, clicking the logo opens Admin login instead of reloading
-    if (pathname === '/') {
-      e.preventDefault();
-      setAdminOpen(true);
-    }
-  };
+  // Removed special homepage click-to-admin; admin sign-in now lives on /login
 
   const submitAdmin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -66,7 +61,7 @@ export default function Navbar() {
       if (!r.ok) throw new Error('Invalid PIN');
       setAdminOpen(false);
       setPin('');
-      router.push('/trades');
+      // Stay on current page; admin mode enabled via cookie
     } catch (err) {
       setAdminError(err instanceof Error ? err.message : 'Login failed');
     } finally {
@@ -97,6 +92,32 @@ export default function Navbar() {
   }, [pathname]);
 
   useEffect(() => {
+    let mounted = true;
+    fetch('/api/admin-login')
+      .then((r) => r.json())
+      .then((j) => { if (mounted) setIsAdmin(Boolean(j?.isAdmin)); })
+      .catch(() => { if (mounted) setIsAdmin(false); });
+    return () => { mounted = false; };
+  }, [pathname]);
+
+  // Apply team-themed colors (gradient/buttons) when signed in
+  useEffect(() => {
+    try {
+      const root = document.documentElement;
+      if (sessionTeam) {
+        const colors = getTeamColors(sessionTeam);
+        // Map brand tokens to team colors
+        root.style.setProperty('--danger', colors.primary);
+        root.style.setProperty('--gold', colors.secondary || colors.primary);
+      } else {
+        // Revert to league defaults defined in globals.css
+        root.style.removeProperty('--danger');
+        root.style.removeProperty('--gold');
+      }
+    } catch {}
+  }, [sessionTeam]);
+
+  useEffect(() => {
     const onDocClick = (e: MouseEvent) => {
       if (!accountMenuRef.current) return;
       if (!accountMenuRef.current.contains(e.target as Node)) {
@@ -122,7 +143,7 @@ export default function Navbar() {
         <div className="flex items-center justify-between h-16">
           <div className="flex items-center">
             <div className="flex-shrink-0">
-              <Link href="/" className="font-bold text-xl" onClick={handleLogoClick}>
+              <Link href="/" className="font-bold text-xl">
                 East v. West
               </Link>
             </div>
@@ -158,6 +179,29 @@ export default function Navbar() {
                   </button>
                   {accountMenuOpen && (
                     <div className="absolute right-0 mt-2 w-40 evw-surface border border-[var(--border)] rounded shadow-lg p-1">
+                      {isAdmin && (
+                        <>
+                          <button
+                            className="w-full text-left px-2 py-1.5 rounded hover:bg-[var(--surface-strong)]"
+                            onClick={() => { setAccountMenuOpen(false); router.push('/admin/trades'); }}
+                          >
+                            Admin: Trades
+                          </button>
+                          <button
+                            className="w-full text-left px-2 py-1.5 rounded hover:bg-[var(--surface-strong)]"
+                            onClick={() => { setAccountMenuOpen(false); router.push('/admin/suggestions'); }}
+                          >
+                            Admin: Suggestions
+                          </button>
+                          <button
+                            className="w-full text-left px-2 py-1.5 rounded hover:bg-[var(--surface-strong)]"
+                            onClick={() => { setAccountMenuOpen(false); router.push('/admin/users'); }}
+                          >
+                            Admin: Users
+                          </button>
+                          <div className="my-1 border-t border-[var(--border)]" />
+                        </>
+                      )}
                       <button
                         className="w-full text-left px-2 py-1.5 rounded hover:bg-[var(--surface-strong)]"
                         onClick={() => { setAccountMenuOpen(false); setChangeOpen(true); }}

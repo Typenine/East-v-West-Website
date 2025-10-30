@@ -1,6 +1,6 @@
 'use client';
 
-import { Suspense, useState } from 'react';
+import { Suspense, useRef, useState } from 'react';
 import Image from 'next/image';
 import { TEAM_NAMES } from '@/lib/constants/league';
 import { getTeamLogoPath, getTeamColorStyle } from '@/lib/utils/team-utils';
@@ -16,6 +16,11 @@ function LoginContent() {
   const [pin, setPin] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [adminOpen, setAdminOpen] = useState(false);
+  const [adminPin, setAdminPin] = useState('');
+  const [adminLoading, setAdminLoading] = useState(false);
+  const [adminError, setAdminError] = useState<string | null>(null);
+  const adminRef = useRef<HTMLInputElement | null>(null);
   const router = useRouter();
   const search = useSearchParams();
 
@@ -42,6 +47,27 @@ function LoginContent() {
     }
   };
 
+  const handleAdminLogin = async () => {
+    if (!adminPin) return;
+    try {
+      setAdminLoading(true);
+      setAdminError(null);
+      const r = await fetch('/api/admin-login', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ key: adminPin.trim() })
+      });
+      if (!r.ok) throw new Error('Invalid PIN');
+      setAdminOpen(false);
+      setAdminPin('');
+      // stay on login page; no redirect
+    } catch (e) {
+      setAdminError(e instanceof Error ? e.message : 'Admin login failed');
+    } finally {
+      setAdminLoading(false);
+    }
+  };
+
   return (
     <div className="container mx-auto px-4 py-8">
       <div className="max-w-4xl mx-auto">
@@ -51,6 +77,38 @@ function LoginContent() {
           </CardHeader>
           <CardContent>
             <div className="space-y-6">
+              <div className="flex items-center justify-center">
+                <button
+                  type="button"
+                  className="w-16 h-16 rounded-full accent-gradient text-on-brand font-bold text-sm shadow hover:opacity-95 focus:outline-none focus:ring-2 focus:ring-[var(--accent)]"
+                  aria-label="Admin sign-in"
+                  onClick={() => { setAdminOpen(true); setTimeout(() => adminRef.current?.focus(), 0); }}
+                  title="Admin"
+                >
+                  EVW
+                </button>
+              </div>
+              {adminOpen && (
+                <div className="evw-surface border border-[var(--border)] rounded-[var(--radius-card)] p-3">
+                  <Label htmlFor="admin-pin" className="mb-1 block">Admin PIN</Label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      ref={adminRef}
+                      id="admin-pin"
+                      type="password"
+                      inputMode="numeric"
+                      pattern="[0-9]*"
+                      className="flex-1 rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-[var(--text)] focus:outline-none focus:ring-2 focus:ring-[var(--accent-strong)]"
+                      value={adminPin}
+                      onChange={(e) => setAdminPin(e.target.value.replace(/[^0-9]/g, '').slice(0, 12))}
+                      placeholder="Enter admin PIN"
+                    />
+                    <Button onClick={handleAdminLogin} disabled={!adminPin || adminLoading}>{adminLoading ? 'Verifying…' : 'Enter'}</Button>
+                    <Button variant="secondary" onClick={() => { setAdminOpen(false); setAdminPin(''); setAdminError(null); }}>Cancel</Button>
+                  </div>
+                  {adminError && <div className="text-sm text-[var(--danger)] mt-2">{adminError}</div>}
+                </div>
+              )}
               <div>
                 <Label className="mb-2 block">Select Your Team</Label>
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">

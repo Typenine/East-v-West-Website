@@ -10,6 +10,8 @@ import { Trade, fetchTradesByYear, fetchTradesAllTime } from '@/lib/utils/trades
 import ErrorState from '@/components/ui/error-state';
 import EmptyState from '@/components/ui/empty-state';
 import { getTeamLogoPath, getTeamColorStyle } from '@/lib/utils/team-utils';
+import TradeBlockTab from '@/components/trades/TradeBlockTab';
+import { Chip } from '@/components/ui/Chip';
 import SectionHeader from '@/components/ui/SectionHeader';
 import { Card, CardHeader, CardTitle, CardContent, CardFooter } from '@/components/ui/Card';
 import Label from '@/components/ui/Label';
@@ -109,6 +111,7 @@ function TradesContent() {
   const hydratedRef = useRef(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [tab, setTab] = useState<'feed' | 'block'>('feed');
 
   // Helper: map selected year to leagueId
   const getLeagueIdForYear = (year: string) => {
@@ -269,20 +272,39 @@ function TradesContent() {
     <div className="container mx-auto px-4 py-8">
       <SectionHeader
         title="Trades"
-        actions={
-          <div className="flex gap-2">
-            <Button onClick={() => router.push('/trades/block')} aria-label="Open Trade Block">
-              Trade Block
-            </Button>
-            {isAdmin && (
-              <Button onClick={() => router.push('/admin/trades')} aria-label="Add a manual trade">
-                Add Trade
-              </Button>
-            )}
-          </div>
-        }
+        actions={isAdmin ? (
+          <Button onClick={() => router.push('/admin/trades')} aria-label="Add a manual trade">
+            Add Trade
+          </Button>
+        ) : undefined}
       />
       <h1 id="trades-heading" className="sr-only">Trades</h1>
+
+      <div className="mb-4 flex gap-2" role="tablist" aria-orientation="horizontal">
+        <Chip
+          role="tab"
+          aria-selected={tab === 'feed'}
+          id="tab-feed"
+          aria-controls="panel-feed"
+          selected={tab === 'feed'}
+          onClick={() => setTab('feed')}
+        >
+          Feed
+        </Chip>
+        <Chip
+          role="tab"
+          aria-selected={tab === 'block'}
+          id="tab-block"
+          aria-controls="panel-block"
+          selected={tab === 'block'}
+          onClick={() => setTab('block')}
+        >
+          Trade Block
+        </Chip>
+      </div>
+
+      {tab === 'feed' ? (
+        <div role="tabpanel" id="panel-feed" aria-labelledby="tab-feed">
 
       {/* Filters */}
       <Card role="search" aria-labelledby="filter-heading" className="mb-8">
@@ -548,6 +570,12 @@ function TradesContent() {
           />
         )}
       </div>
+      </div>
+      ) : (
+        <div role="tabpanel" id="panel-block" aria-labelledby="tab-block">
+          <TradeBlockTab />
+        </div>
+      )}
     </div>
   );
 }

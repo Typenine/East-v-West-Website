@@ -182,20 +182,20 @@ export default function SuggestionsPage() {
                       <div className="mt-3 flex items-center gap-3">
                         <span className="text-sm text-[var(--muted)]">Up: {tallies[s.id]?.up || 0}</span>
                         <span className="text-sm text-[var(--muted)]">Down: {tallies[s.id]?.down || 0}</span>
-                        <div className="ml-auto flex gap-2">
-                          <Button
-                            type="button"
-                            disabled={!auth}
-                            onClick={() => vote(s.id, 1)}
-                            aria-label="Thumbs up"
-                          >👍</Button>
-                          <Button
-                            type="button"
-                            disabled={!auth}
-                            onClick={() => vote(s.id, -1)}
-                            aria-label="Thumbs down"
-                          >👎</Button>
-                        </div>
+                        {auth && (
+                          <div className="ml-auto flex gap-2">
+                            <Button
+                              type="button"
+                              onClick={() => vote(s.id, 1)}
+                              aria-label="Thumbs up"
+                            >👍</Button>
+                            <Button
+                              type="button"
+                              onClick={() => vote(s.id, -1)}
+                              aria-label="Thumbs down"
+                            >👎</Button>
+                          </div>
+                        )}
                       </div>
                     </li>
                   ))}

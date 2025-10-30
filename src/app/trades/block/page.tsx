@@ -112,7 +112,7 @@ export default function TradeBlockPage() {
       .then((r) => (r.ok ? r.json() : Promise.reject()))
       .then((j) => setPlayerNames((prev) => ({ ...prev, ...((j?.players as PlayersLookup) || {}) })))
       .catch(() => {});
-  }, [myAssets]);
+  }, [myAssets, playerNames]);
 
   // Hydrate edit state from saved
   useEffect(() => {
@@ -159,6 +159,15 @@ export default function TradeBlockPage() {
         const j = await res.json().catch(() => ({} as { error?: string }));
         throw new Error(j?.error || 'Failed to save');
       }
+      // Optimistic update for my team row
+      if (myTeam) {
+        const updated: TeamRow = { team: myTeam, tradeBlock, tradeWants, updatedAt: new Date().toISOString() };
+        setRows((prev) => {
+          const idx = prev.findIndex((r) => r.team === myTeam);
+          if (idx >= 0) { const copy = [...prev]; copy[idx] = updated; return copy; }
+          return [...prev, updated];
+        });
+      }
       // Refresh public list
       const agg = await fetch('/api/teams/trade-blocks', { cache: 'no-store' });
       const j = await agg.json();
@@ -200,16 +209,14 @@ export default function TradeBlockPage() {
                         <div className="ml-auto text-xs text-[var(--muted)]">{row.updatedAt ? new Date(row.updatedAt).toLocaleString() : '—'}</div>
                       </div>
                       {row.tradeWants && (row.tradeWants.text || (row.tradeWants.positions && row.tradeWants.positions.length > 0)) ? (
-                        <div className="mb-2 text-sm">
-                          {row.tradeWants.text && <div className="mb-1">Wants: {row.tradeWants.text}</div>}
-                          {row.tradeWants.positions && row.tradeWants.positions.length > 0 && (
-                            <div className="flex flex-wrap gap-2">
-                              {row.tradeWants.positions.map((p) => (
-                                <span key={p} className="text-xs px-2 py-0.5 rounded-full border border-[var(--border)] evw-surface text-[var(--text)]">{p}</span>
-                              ))}
-                            </div>
-                          )}
-                        </div>
+                        (() => {
+                          const parts: string[] = [];
+                          if (row.tradeWants.text) parts.push(String(row.tradeWants.text));
+                          if (row.tradeWants.positions && row.tradeWants.positions.length > 0) parts.push(row.tradeWants.positions.join(', '));
+                          return parts.length > 0 ? (
+                            <div className="mb-2 text-sm">Looking for: {parts.join('; ')}</div>
+                          ) : null;
+                        })()
                       ) : null}
                       {row.tradeBlock.length === 0 ? (
                         <div className="text-[var(--muted)] text-sm">No assets listed.</div>
