@@ -113,6 +113,7 @@ export async function writeTeamPinWithError(team: string, value: StoredPin): Pro
     await put(key, JSON.stringify(value, null, 2), {
       access: 'public',
       contentType: 'application/json; charset=utf-8',
+      allowOverwrite: true,
       token,
     });
     return { ok: true };
