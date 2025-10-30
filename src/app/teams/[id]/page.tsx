@@ -136,6 +136,60 @@ export default function TeamPage() {
   const [seasonLeaders, setSeasonLeaders] = useState<Record<PosKey, LeaderRow[]>>(emptySeason);
   const [recordsLoading, setRecordsLoading] = useState(false);
 
+  // Taxi analysis state
+  type TaxiItem = { playerId: string; name: string | null; position?: string | null; sinceTs?: string | null; activatedSinceJoin: boolean; activatedAt?: { year: string; week: number } | null; observedSince?: string | null };
+  type TaxiAnalysis = {
+    team: { ownerId: string; teamName: string; selectedSeason: string; rosterId: number };
+    limits: { maxSlots: number; maxQB: number };
+    current: { taxi: TaxiItem[]; counts: { total: number; qbs: number } };
+    violations: { overSlots: boolean; overQB: boolean; ineligibleOnTaxi: string[] };
+  };
+  const [taxi, setTaxi] = useState<TaxiAnalysis | null>(null);
+  const [taxiLoading, setTaxiLoading] = useState(true);
+  const [taxiError, setTaxiError] = useState<string | null>(null);
+
+  // Load taxi analysis whenever season or team changes
+  useEffect(() => {
+    if (!rosterId || !selectedYear) return;
+    let mounted = true;
+    (async () => {
+      try {
+        setTaxiLoading(true);
+        setTaxiError(null);
+        const res = await fetch(`/api/taxi/analysis?season=${encodeURIComponent(String(selectedYear))}&rosterId=${encodeURIComponent(String(rosterId))}`, { cache: 'no-store' });
+        if (!mounted) return;
+        if (!res.ok) throw new Error('Failed to load taxi analysis');
+        const j = (await res.json()) as TaxiAnalysis;
+        setTaxi(j);
+      } catch (e) {
+        if (!mounted) return;
+        setTaxi(null);
+        setTaxiError(e instanceof Error ? e.message : 'Failed to load taxi');
+      } finally {
+        if (mounted) setTaxiLoading(false);
+      }
+    })();
+    return () => { mounted = false; };
+  }, [rosterId, selectedYear]);
+
+  const formatSince = (iso?: string | null) => {
+    if (!iso) return '—';
+    try {
+      const then = new Date(iso).getTime();
+      const now = Date.now();
+      if (!Number.isFinite(then) || then <= 0) return new Date(iso).toLocaleString();
+      const ms = Math.max(0, now - then);
+      const days = Math.floor(ms / (24 * 3600_000));
+      const hours = Math.floor((ms % (24 * 3600_000)) / 3600_000);
+      const mins = Math.floor((ms % 3600_000) / 60_000);
+      if (days > 0) return `${days}d ${hours}h`;
+      if (hours > 0) return `${hours}h ${mins}m`;
+      return `${mins}m`;
+    } catch {
+      return '—';
+    }
+  };
+
   // Player Weekly Points Modal state
   type WeeklyRow = { week: number; points: number; rostered: boolean; started: boolean };
   const [playerModalOpen, setPlayerModalOpen] = useState(false);
@@ -905,6 +959,96 @@ export default function TeamPage() {
                         <p className="text-[var(--muted)]">No recent news found for this roster.</p>
                       )}
                     </div>
+                  )}
+                </CardContent>
+              </Card>
+            ),
+          },
+          {
+            id: 'lineup',
+            label: 'Lineup',
+            content: (
+              <Card style={{ borderTop: `4px solid ${teamColors.primary}` }}>
+                <CardHeader>
+                  <div
+                    className="rounded-md"
+                    style={{
+                      backgroundImage: `linear-gradient(90deg, ${teamColors.primary} 0%, ${teamColors.secondary} 100%)`,
+                      color: '#ffffff',
+                      padding: '0.35rem 0.6rem',
+                    }}
+                  >
+                    <CardTitle>Taxi Tracker</CardTitle>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  {taxiLoading ? (
+                    <div className="py-6"><LoadingState message="Loading taxi analysis..." /></div>
+                  ) : taxiError ? (
+                    <div className="py-6"><ErrorState message={taxiError} /></div>
+                  ) : taxi ? (
+                    <div className="space-y-4">
+                      <div className="flex flex-wrap items-center gap-3">
+                        <Chip size="sm" className="px-2 evw-chip">Slots: {taxi.current.counts.total} / {taxi.limits.maxSlots}</Chip>
+                        <Chip size="sm" className="px-2 evw-chip">QBs: {taxi.current.counts.qbs} / {taxi.limits.maxQB}</Chip>
+                        {taxi.violations.overSlots && (
+                          <Chip size="sm" variant="outline" className="px-2 text-[var(--danger)] border-[var(--danger)]">Over max slots</Chip>
+                        )}
+                        {taxi.violations.overQB && (
+                          <Chip size="sm" variant="outline" className="px-2 text-[var(--danger)] border-[var(--danger)]">Over max QB</Chip>
+                        )}
+                      </div>
+
+                      {taxi.current.taxi.length === 0 ? (
+                        <p className="text-[var(--muted)]">No players on taxi for this team.</p>
+                      ) : (
+                        <div className="overflow-x-auto">
+                          <Table>
+                            <THead style={{ backgroundColor: (tertiaryStyle.backgroundColor as string), color: (tertiaryStyle.color as string) }}>
+                              <Tr>
+                                <Th>Player</Th>
+                                <Th>Pos</Th>
+                                <Th>On Taxi (since)</Th>
+                                <Th>Rejoined</Th>
+                                <Th>Eligible</Th>
+                              </Tr>
+                            </THead>
+                            <TBody>
+                              {taxi.current.taxi.map((p) => (
+                                <Tr key={p.playerId} style={{ borderLeft: `3px solid ${teamColors.primary}` }}>
+                                  <Td>
+                                    <div className="text-sm text-[var(--text)]">{p.name || p.playerId}</div>
+                                  </Td>
+                                  <Td>
+                                    <div className="text-sm text-[var(--muted)]">{p.position || '—'}</div>
+                                  </Td>
+                                  <Td>
+                                    <div className="text-sm text-[var(--muted)]" title={p.observedSince || ''}>{formatSince(p.observedSince)}</div>
+                                  </Td>
+                                  <Td>
+                                    <div className="text-sm text-[var(--muted)]" title={p.sinceTs || ''}>{p.sinceTs ? new Date(p.sinceTs).toLocaleDateString() : '—'}</div>
+                                  </Td>
+                                  <Td>
+                                    {p.activatedSinceJoin ? (
+                                      <Chip size="sm" variant="outline" className="text-[var(--danger)] border-[var(--danger)]">Ineligible</Chip>
+                                    ) : (
+                                      <Chip size="sm" variant="outline" className="text-green-700 border-green-400">Eligible</Chip>
+                                    )}
+                                  </Td>
+                                </Tr>
+                              ))}
+                            </TBody>
+                          </Table>
+                        </div>
+                      )}
+
+                      {(taxi.violations.ineligibleOnTaxi.length > 0) && (
+                        <div className="text-sm text-[var(--danger)]">{taxi.violations.ineligibleOnTaxi.length} potential violation(s): player(s) appeared in a lineup for this franchise after their most recent join.</div>
+                      )}
+                      <p className="text-xs text-[var(--muted)]">Read-only tracker. This does not change your Sleeper roster. &quot;On Taxi (since)&quot; reflects first seen time on this site.</p>
+                    </div>
+                  ) : (
+                    <p className="text-[var(--muted)]">Taxi analysis unavailable.</p>
                   )}
                 </CardContent>
               </Card>

@@ -93,7 +93,7 @@ export default function Navbar() {
 
   useEffect(() => {
     let mounted = true;
-    fetch('/api/admin-login')
+    fetch('/api/admin-login', { credentials: 'include', cache: 'no-store' })
       .then((r) => r.json())
       .then((j) => { if (mounted) setIsAdmin(Boolean(j?.isAdmin)); })
       .catch(() => { if (mounted) setIsAdmin(false); });
@@ -136,6 +136,12 @@ export default function Navbar() {
     router.push(pathname === '/login' ? '/' : pathname);
   };
 
+  const handleAdminLogout = async () => {
+    try { await fetch('/api/admin-login', { method: 'DELETE' }); } catch {}
+    setIsAdmin(false);
+    // keep user on page
+  };
+
   return (
     <>
     <nav className="evw-glass text-[var(--text)] border-b border-[var(--border)] sticky top-0 z-50 shadow-sm" aria-label="Main navigation">
@@ -166,16 +172,20 @@ export default function Navbar() {
           <div className="flex items-center gap-2">
             <ThemeToggle />
             <div className="hidden md:flex items-center gap-2">
-              {sessionTeam ? (
+              {sessionTeam || isAdmin ? (
                 <div className="relative" ref={accountMenuRef}>
                   <button
                     aria-label="Account menu"
                     className="rounded-full overflow-hidden border border-[var(--border)] w-8 h-8"
                     onClick={() => setAccountMenuOpen((v) => !v)}
-                    title={sessionTeam}
+                    title={sessionTeam || (isAdmin ? 'Admin' : '')}
                     aria-expanded={accountMenuOpen}
                   >
-                    <Image src={getTeamLogoPath(sessionTeam)} alt={sessionTeam} width={32} height={32} />
+                    {sessionTeam ? (
+                      <Image src={getTeamLogoPath(sessionTeam)} alt={sessionTeam} width={32} height={32} />
+                    ) : (
+                      <Image src="/assets/teams/East v West Logos/Official East v. West Logo.png" alt="Admin" width={32} height={32} />
+                    )}
                   </button>
                   {accountMenuOpen && (
                     <div className="absolute right-0 mt-2 w-40 evw-surface border border-[var(--border)] rounded shadow-lg p-1">
@@ -199,22 +209,32 @@ export default function Navbar() {
                           >
                             Admin: Users
                           </button>
+                          <button
+                            className="w-full text-left px-2 py-1.5 rounded hover:bg-[var(--surface-strong)]"
+                            onClick={() => { setAccountMenuOpen(false); handleAdminLogout(); }}
+                          >
+                            Admin Logout
+                          </button>
                           <div className="my-1 border-t border-[var(--border)]" />
                         </>
                       )}
-                      <button
-                        className="w-full text-left px-2 py-1.5 rounded hover:bg-[var(--surface-strong)]"
-                        onClick={() => { setAccountMenuOpen(false); setChangeOpen(true); }}
-                      >
-                        Change PIN
-                      </button>
-                      <button
-                        className="w-full text-left px-2 py-1.5 rounded hover:bg-[var(--surface-strong)]"
-                        onClick={() => { setAccountMenuOpen(false); handleLogout(); }}
-                        disabled={authLoading}
-                      >
-                        Logout
-                      </button>
+                      {sessionTeam && (
+                        <>
+                          <button
+                            className="w-full text-left px-2 py-1.5 rounded hover:bg-[var(--surface-strong)]"
+                            onClick={() => { setAccountMenuOpen(false); setChangeOpen(true); }}
+                          >
+                            Change PIN
+                          </button>
+                          <button
+                            className="w-full text-left px-2 py-1.5 rounded hover:bg-[var(--surface-strong)]"
+                            onClick={() => { setAccountMenuOpen(false); handleLogout(); }}
+                            disabled={authLoading}
+                          >
+                            Logout
+                          </button>
+                        </>
+                      )}
                     </div>
                   )}
                 </div>
@@ -283,18 +303,30 @@ export default function Navbar() {
             </LinkButton>
           ))}
           <div className="pt-2 border-t border-[var(--border)] flex items-center justify-between">
-            {sessionTeam ? (
+            {sessionTeam || isAdmin ? (
               <>
                 <div className="flex items-center gap-2">
                   <button
                     aria-label="Account menu"
                     className="rounded-full overflow-hidden border border-[var(--border)] w-8 h-8"
-                    onClick={() => { setMobileMenuOpen(false); setChangeOpen(true); }}
-                    title={sessionTeam}
+                    onClick={() => {
+                      setMobileMenuOpen(false);
+                      if (sessionTeam) setChangeOpen(true);
+                    }}
+                    title={sessionTeam || (isAdmin ? 'Admin' : '')}
                   >
-                    <Image src={getTeamLogoPath(sessionTeam)} alt={sessionTeam} width={32} height={32} />
+                    {sessionTeam ? (
+                      <Image src={getTeamLogoPath(sessionTeam)} alt={sessionTeam} width={32} height={32} />
+                    ) : (
+                      <Image src="/assets/teams/East v West Logos/Official East v. West Logo.png" alt="Admin" width={32} height={32} />
+                    )}
                   </button>
-                  <Button size="sm" variant="ghost" onClick={() => { setMobileMenuOpen(false); handleLogout(); }}>Logout</Button>
+                  {sessionTeam && (
+                    <Button size="sm" variant="ghost" onClick={() => { setMobileMenuOpen(false); handleLogout(); }}>Logout</Button>
+                  )}
+                  {isAdmin && (
+                    <Button size="sm" variant="ghost" onClick={() => { setMobileMenuOpen(false); handleAdminLogout(); }}>Admin Logout</Button>
+                  )}
                 </div>
               </>
             ) : (

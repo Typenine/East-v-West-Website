@@ -113,6 +113,12 @@ export default async function Home({ searchParams }: { searchParams?: Promise<Re
   } catch {
     // If Sleeper data isn't available yet, render with empty state below
   }
+  // Taxi flags (league-wide): actual violations and potential warnings
+  let taxiFlags: { generatedAt: string; actual: Array<{ team: string; type: string; message: string }>; potential: Array<{ team: string; type: string; message: string }> } = { generatedAt: '', actual: [], potential: [] };
+  try {
+    const rf = await fetch('/api/taxi/flags', { cache: 'no-store' });
+    if (rf.ok) taxiFlags = (await rf.json()) as typeof taxiFlags;
+  } catch {}
   // Head-to-head all-time data
   let h2h: { teams: string[]; matrix: Record<string, Record<string, import("@/lib/utils/headtohead").H2HCell>>; neverBeaten: Array<{ team: string; vs: string; meetings: number; lastMeeting?: { year: string; week: number } }> } = { teams: [], matrix: {}, neverBeaten: [] };
   try {
@@ -158,6 +164,38 @@ export default async function Home({ searchParams }: { searchParams?: Promise<Re
         </div>
       </section>
       
+      {/* Taxi Tracker summary */}
+      {(taxiFlags.actual.length > 0 || taxiFlags.potential.length > 0) && (
+        <section className="mb-6" aria-label="Taxi tracker summary">
+          {taxiFlags.actual.length > 0 && (
+            <div className="mb-2 evw-surface border border-[var(--border)] rounded-md p-3" style={{ backgroundColor: 'color-mix(in srgb, var(--danger) 10%, transparent)' }}>
+              <div className="font-semibold mb-1">Taxi violations</div>
+              <ul className="list-disc pl-5 text-sm">
+                {taxiFlags.actual.slice(0, 3).map((f, i) => (
+                  <li key={`act-${i}`}>{f.message}</li>
+                ))}
+                {taxiFlags.actual.length > 3 && (
+                  <li className="opacity-80">+{taxiFlags.actual.length - 3} more…</li>
+                )}
+              </ul>
+            </div>
+          )}
+          {taxiFlags.potential.length > 0 && (
+            <div className="evw-surface border border-[var(--border)] rounded-md p-3" style={{ backgroundColor: 'color-mix(in srgb, var(--gold) 12%, transparent)' }}>
+              <div className="font-semibold mb-1">Potential taxi issues (pending games)</div>
+              <ul className="list-disc pl-5 text-sm">
+                {taxiFlags.potential.slice(0, 3).map((f, i) => (
+                  <li key={`pot-${i}`}>{f.message}</li>
+                ))}
+                {taxiFlags.potential.length > 3 && (
+                  <li className="opacity-80">+{taxiFlags.potential.length - 3} more…</li>
+                )}
+              </ul>
+            </div>
+          )}
+        </section>
+      )}
+
       {/* Current Week Preview */}
       <section className="mb-12">
         <SectionHeader title={`Week ${selectedWeek} matchups`} />

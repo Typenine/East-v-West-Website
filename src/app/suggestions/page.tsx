@@ -28,6 +28,8 @@ export default function SuggestionsPage() {
   const [loading, setLoading] = useState(true);
   const [tallies, setTallies] = useState<Tallies>({});
   const [auth, setAuth] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [adminVotes, setAdminVotes] = useState<Record<string, { up: string[]; down: string[] }>>({});
 
   async function load() {
     try {
@@ -55,7 +57,19 @@ export default function SuggestionsPage() {
       .then((r) => r.json())
       .then((j) => setAuth(Boolean(j?.authenticated)))
       .catch(() => setAuth(false));
+    fetch('/api/admin-login', { cache: 'no-store', credentials: 'include' })
+      .then((r) => r.ok ? r.json() : Promise.reject())
+      .then((j) => setIsAdmin(Boolean(j?.isAdmin)))
+      .catch(() => setIsAdmin(false));
   }, []);
+
+  useEffect(() => {
+    if (!isAdmin) { setAdminVotes({}); return; }
+    fetch('/api/admin/suggestions/votes', { cache: 'no-store', credentials: 'include' })
+      .then((r) => r.ok ? r.json() : Promise.reject())
+      .then((j) => setAdminVotes((j?.votes as Record<string, { up: string[]; down: string[] }>) || {}))
+      .catch(() => setAdminVotes({}));
+  }, [isAdmin]);
 
   async function vote(suggestionId: string, value: 1 | -1 | 0) {
     if (!auth) return;
@@ -182,17 +196,21 @@ export default function SuggestionsPage() {
                       <div className="mt-3 flex items-center gap-3">
                         <span className="text-sm text-[var(--muted)]">Up: {tallies[s.id]?.up || 0}</span>
                         <span className="text-sm text-[var(--muted)]">Down: {tallies[s.id]?.down || 0}</span>
-                        {auth && (
+                        {(auth || isAdmin) && (
                           <div className="ml-auto flex gap-2">
                             <Button
                               type="button"
-                              onClick={() => vote(s.id, 1)}
+                              onClick={() => auth ? vote(s.id, 1) : undefined}
                               aria-label="Thumbs up"
+                              title={isAdmin && adminVotes[s.id]?.up?.length ? `Up votes: ${adminVotes[s.id].up.join(', ')}` : undefined}
+                              disabled={!auth}
                             >👍</Button>
                             <Button
                               type="button"
-                              onClick={() => vote(s.id, -1)}
+                              onClick={() => auth ? vote(s.id, -1) : undefined}
                               aria-label="Thumbs down"
+                              title={isAdmin && adminVotes[s.id]?.down?.length ? `Down votes: ${adminVotes[s.id].down.join(', ')}` : undefined}
+                              disabled={!auth}
                             >👎</Button>
                           </div>
                         )}

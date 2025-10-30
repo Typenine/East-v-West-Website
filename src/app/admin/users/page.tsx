@@ -14,9 +14,11 @@ type Row = {
   lastIp: string | null;
 };
 
+type TimeRow = { team: string; minutesEst: number; lastSeen: string | null };
+
 export default function AdminUsersPage() {
   const [days, setDays] = useState<number>(30);
-  const [rows, setRows] = useState<Row[]>([]);
+  const [rows, setRows] = useState<Array<Row & { minutesEst?: number }>>([]);
   const [since, setSince] = useState<string>('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -25,14 +27,35 @@ export default function AdminUsersPage() {
     try {
       setLoading(true);
       setError(null);
-      const r = await fetch(`/api/admin/audit/logins?days=${encodeURIComponent(String(d))}`, { cache: 'no-store' });
-      if (!r.ok) {
-        if (r.status === 403) throw new Error('Admin access required');
+      const [loginsRes, timeRes] = await Promise.all([
+        fetch(`/api/admin/audit/logins?days=${encodeURIComponent(String(d))}`, { cache: 'no-store' }),
+        fetch(`/api/admin/activity/time?days=${encodeURIComponent(String(d))}`, { cache: 'no-store' }),
+      ]);
+      if (!loginsRes.ok) {
+        if (loginsRes.status === 403) throw new Error('Admin access required');
         throw new Error('Failed to load audit logs');
       }
-      const j = await r.json();
-      setRows((j?.rows as Row[]) || []);
-      setSince(j?.since || '');
+      if (!timeRes.ok) {
+        if (timeRes.status === 403) throw new Error('Admin access required');
+        throw new Error('Failed to load activity');
+      }
+      const j1 = await loginsRes.json();
+      const j2 = await timeRes.json();
+      const base: Row[] = (j1?.rows as Row[]) || [];
+      const timeRows: TimeRow[] = (j2?.rows as TimeRow[]) || [];
+      const byTeam = new Map<string, TimeRow>(timeRows.map((r) => [r.team, r]));
+      const merged: Array<Row & { minutesEst: number }> = base.map((r) => {
+        const t = byTeam.get(r.team);
+        return { ...r, minutesEst: t?.minutesEst || 0 };
+      });
+      // Also include teams that have activity but no logins in window
+      for (const t of timeRows) {
+        if (!merged.find((m) => m.team === t.team)) {
+          merged.push({ team: t.team, loginCount: 0, daysActive: 0, lastSeen: t.lastSeen, lastIp: null, minutesEst: t.minutesEst });
+        }
+      }
+      setRows(merged);
+      setSince(j1?.since || j2?.since || '');
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load');
       setRows([]);
@@ -88,6 +111,7 @@ export default function AdminUsersPage() {
                     <th className="py-2 pr-4">Team</th>
                     <th className="py-2 pr-4">Login Count</th>
                     <th className="py-2 pr-4">Days Active</th>
+                    <th className="py-2 pr-4">Minutes (est)</th>
                     <th className="py-2 pr-4">Last Seen</th>
                     <th className="py-2 pr-4">Last IP</th>
                   </tr>
@@ -98,6 +122,7 @@ export default function AdminUsersPage() {
                       <td className="py-2 pr-4">{r.team}</td>
                       <td className="py-2 pr-4">{r.loginCount}</td>
                       <td className="py-2 pr-4">{r.daysActive}</td>
+                      <td className="py-2 pr-4">{r.minutesEst ?? 0}</td>
                       <td className="py-2 pr-4">{r.lastSeen ? new Date(r.lastSeen).toLocaleString() : '—'}</td>
                       <td className="py-2 pr-4">{r.lastIp || '—'}</td>
                     </tr>
