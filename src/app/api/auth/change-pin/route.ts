@@ -47,8 +47,8 @@ export async function POST(req: NextRequest) {
     const { hash, salt } = await hashPin(newPin);
     const pv = (stored?.pinVersion || 0) + 1;
     const record = { hash, salt, pinVersion: pv, updatedAt: new Date().toISOString() };
-    const okWrite = await writeTeamPin(team, record);
-    if (!okWrite) {
+    const ok = await writeTeamPin(team, record);
+    if (!ok) {
       return Response.json({ error: 'PIN not persisted to Blob storage' }, { status: 500 });
     }
 

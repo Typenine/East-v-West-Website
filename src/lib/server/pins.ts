@@ -15,6 +15,7 @@ export type PinMap = Record<string, StoredPin>; // ownerId -> StoredPin
 
 const DATA_PATH = path.join(process.cwd(), 'data', 'team-pins.json');
 const BLOB_KEY = 'auth/team-pins.json';
+const PINS_DIR = path.join(process.cwd(), 'data', 'pins');
 
 function teamSlug(team: string): string {
   return team.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
@@ -70,6 +71,26 @@ export async function readTeamPin(team: string): Promise<StoredPin | null> {
       return entry;
     }
   } catch {}
+  // KV fallback
+  try {
+    const kv = await getKV();
+    if (kv) {
+      const k = `pins:team:${teamSlug(canonicalizeTeamName(team))}`;
+      const raw = (await kv.get(k)) as string | null;
+      if (raw && typeof raw === 'string') {
+        const parsed = JSON.parse(raw) as unknown;
+        if (isStoredPin(parsed)) return parsed;
+      }
+    }
+  } catch {}
+  // FS fallback (dev)
+  try {
+    const slug = teamSlug(canonicalizeTeamName(team));
+    const file = path.join(PINS_DIR, `${slug}.json`);
+    const raw = await fs.readFile(file, 'utf8');
+    const parsed = JSON.parse(raw) as unknown;
+    if (isStoredPin(parsed)) return parsed;
+  } catch {}
   return null;
 }
 
@@ -92,11 +113,37 @@ export async function writeTeamPin(team: string, value: StoredPin): Promise<bool
       access: 'public',
       contentType: 'application/json; charset=utf-8',
       addRandomSuffix: false,
+      token: process.env.BLOB_READ_WRITE_TOKEN,
     });
     return true;
   } catch {
     return false;
   }
+}
+
+export type TeamWriteResult = { blob: boolean; kv: boolean; fs: boolean };
+
+export async function writeTeamPinWithResult(team: string, value: StoredPin): Promise<TeamWriteResult> {
+  let blobOk = false;
+  let kvOk = false;
+  let fsOk = false;
+  try { blobOk = await writeTeamPin(team, value); } catch { blobOk = false; }
+  try {
+    const kv = await getKV();
+    if (kv) {
+      const k = `pins:team:${teamSlug(canonicalizeTeamName(team))}`;
+      await kv.set(k, JSON.stringify(value));
+      kvOk = true;
+    }
+  } catch { kvOk = false; }
+  // FS write (dev)
+  try {
+    const slug = teamSlug(canonicalizeTeamName(team));
+    await fs.mkdir(PINS_DIR, { recursive: true });
+    await fs.writeFile(path.join(PINS_DIR, `${slug}.json`), JSON.stringify(value, null, 2), 'utf8');
+    fsOk = true;
+  } catch { fsOk = false; }
+  return { blob: !!blobOk, kv: !!kvOk, fs: !!fsOk };
 }
 
 export async function listAllTeamPins(): Promise<PinMap> {
