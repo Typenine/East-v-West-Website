@@ -105,7 +105,7 @@ function isStoredPin(v: unknown): v is StoredPin {
   );
 }
 
-export async function writeTeamPin(team: string, value: StoredPin): Promise<boolean> {
+export async function writeTeamPinWithError(team: string, value: StoredPin): Promise<{ ok: boolean; error?: string }> {
   const key = teamBlobKey(team);
   try {
     const { put } = await import('@vercel/blob');
@@ -115,11 +115,17 @@ export async function writeTeamPin(team: string, value: StoredPin): Promise<bool
       contentType: 'application/json; charset=utf-8',
       token,
     });
-    return true;
+    return { ok: true };
   } catch (e) {
-    try { console.error('[pins] Blob write failed', { team, key, err: e instanceof Error ? e.message : String(e) }); } catch {}
-    return false;
+    const msg = e instanceof Error ? e.message : String(e);
+    try { console.error('[pins] Blob write failed', { team, key, err: msg }); } catch {}
+    return { ok: false, error: msg };
   }
+}
+
+export async function writeTeamPin(team: string, value: StoredPin): Promise<boolean> {
+  const res = await writeTeamPinWithError(team, value);
+  return res.ok;
 }
 
 async function getBlobToken(): Promise<string | undefined> {

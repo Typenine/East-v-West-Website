@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server';
 import { cookies } from 'next/headers';
 import { verifySession, verifyPin, hashPin, signSession } from '@/lib/server/auth';
-import { readTeamPin, writeTeamPin } from '@/lib/server/pins';
+import { readTeamPin, writeTeamPinWithError } from '@/lib/server/pins';
 import { logAuthEvent } from '@/lib/server/audit';
 import { TEAM_NAMES } from '@/lib/constants/league';
 
@@ -47,9 +47,9 @@ export async function POST(req: NextRequest) {
     const { hash, salt } = await hashPin(newPin);
     const pv = (stored?.pinVersion || 0) + 1;
     const record = { hash, salt, pinVersion: pv, updatedAt: new Date().toISOString() };
-    const ok = await writeTeamPin(team, record);
-    if (!ok) {
-      return Response.json({ error: 'PIN not persisted to Blob storage' }, { status: 500 });
+    const resWrite = await writeTeamPinWithError(team, record);
+    if (!resWrite.ok) {
+      return Response.json({ error: `Blob write failed: ${resWrite.error || 'unknown'}` }, { status: 500 });
     }
 
     // Best-effort: wait briefly for Blob propagation so other devices see it immediately
