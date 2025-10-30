@@ -15,6 +15,8 @@ type Suggestion = {
   createdAt: string; // ISO
 };
 
+type Tallies = Record<string, { up: number; down: number }>;
+
 const CATEGORIES = ['Rules', 'Website', 'Discord', 'Other'];
 
 export default function SuggestionsPage() {
@@ -24,6 +26,8 @@ export default function SuggestionsPage() {
   const [error, setError] = useState<string | null>(null);
   const [items, setItems] = useState<Suggestion[]>([]);
   const [loading, setLoading] = useState(true);
+  const [tallies, setTallies] = useState<Tallies>({});
+  const [auth, setAuth] = useState(false);
 
   async function load() {
     try {
@@ -43,7 +47,29 @@ export default function SuggestionsPage() {
 
   useEffect(() => {
     load();
+    fetch('/api/suggestions/tallies', { cache: 'no-store' })
+      .then((r) => r.ok ? r.json() : Promise.reject())
+      .then((j) => setTallies((j?.tallies as Tallies) || {}))
+      .catch(() => setTallies({}));
+    fetch('/api/auth/me', { cache: 'no-store' })
+      .then((r) => r.json())
+      .then((j) => setAuth(Boolean(j?.authenticated)))
+      .catch(() => setAuth(false));
   }, []);
+
+  async function vote(suggestionId: string, value: 1 | -1 | 0) {
+    if (!auth) return;
+    try {
+      const res = await fetch('/api/me/suggestions/vote', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ suggestionId, value })
+      });
+      if (!res.ok) return;
+      const t = await fetch('/api/suggestions/tallies', { cache: 'no-store' }).then((r) => r.json());
+      setTallies((t?.tallies as Tallies) || {});
+    } catch {}
+  }
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -153,6 +179,24 @@ export default function SuggestionsPage() {
                         )}
                       </div>
                       <p className="whitespace-pre-wrap text-[var(--text)]">{s.content}</p>
+                      <div className="mt-3 flex items-center gap-3">
+                        <span className="text-sm text-[var(--muted)]">Up: {tallies[s.id]?.up || 0}</span>
+                        <span className="text-sm text-[var(--muted)]">Down: {tallies[s.id]?.down || 0}</span>
+                        <div className="ml-auto flex gap-2">
+                          <Button
+                            type="button"
+                            disabled={!auth}
+                            onClick={() => vote(s.id, 1)}
+                            aria-label="Thumbs up"
+                          >👍</Button>
+                          <Button
+                            type="button"
+                            disabled={!auth}
+                            onClick={() => vote(s.id, -1)}
+                            aria-label="Thumbs down"
+                          >👎</Button>
+                        </div>
+                      </div>
                     </li>
                   ))}
                 </ul>
