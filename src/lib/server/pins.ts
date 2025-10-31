@@ -46,7 +46,21 @@ export async function readTeamPin(team: string): Promise<StoredPin | null> {
       if (typeof v === 'string') return Date.parse(v);
       return 0;
     };
-    const matches: BlobMeta[] = (blobs as unknown as BlobMeta[]).filter((b) => b.pathname === key || b.pathname.startsWith(key));
+    let matches: BlobMeta[] = (blobs as unknown as BlobMeta[]).filter((b) => b.pathname === key || b.pathname.startsWith(key));
+    // Legacy alt prefixes
+    if (matches.length === 0) {
+      const alts = [
+        key.replace(/^auth\/pins\//, 'auth/team-pins/'),
+        key.replace(/^auth\/pins\//, 'evw/pins/'),
+      ];
+      for (const alt of alts) {
+        try {
+          const { blobs: b2 } = await list({ prefix: alt, token } as { prefix: string; token?: string });
+          const m2 = (b2 as unknown as BlobMeta[]).filter((b) => b.pathname === alt || b.pathname.startsWith(alt));
+          if (m2.length > 0) { matches = m2; break; }
+        } catch {}
+      }
+    }
     if (matches.length > 0) {
       const newest = matches.reduce((acc, cur) => (!acc ? cur : (toTime(cur.uploadedAt) > toTime(acc.uploadedAt) ? cur : acc)), matches[0]);
       if (newest?.url) {
@@ -220,14 +234,11 @@ export async function listAllTeamPins(): Promise<PinMap> {
 export async function readPins(): Promise<PinMap> {
   let blobMap: PinMap = {};
   let kvMap: PinMap = {};
-
+  
   // Blob
   try {
     const { list } = await import('@vercel/blob');
     const token = await getBlobToken();
-    const opts: { prefix: string; token?: string } = { prefix: BLOB_KEY };
-    if (token) opts.token = token;
-    const { blobs } = await list(opts as { prefix: string; token?: string });
     type BlobMeta = { pathname: string; url: string; uploadedAt?: string | Date };
     const toTime = (v?: string | Date): number => {
       if (!v) return 0;
@@ -235,16 +246,22 @@ export async function readPins(): Promise<PinMap> {
       if (typeof v === 'string') return Date.parse(v);
       return 0;
     };
-    const matches: BlobMeta[] = (blobs as unknown as BlobMeta[]).filter((b) => b.pathname === BLOB_KEY || b.pathname.startsWith(BLOB_KEY));
-    if (matches.length > 0) {
-      const newest = matches.reduce((acc, cur) => (!acc ? cur : (toTime(cur.uploadedAt) > toTime(acc.uploadedAt) ? cur : acc)), matches[0]);
-      if (newest?.url) {
-        const res = await fetch(newest.url, { cache: 'no-store' });
-        if (res.ok) {
-          const json = await res.json();
-          if (json && typeof json === 'object') blobMap = json as PinMap;
+    const keys = [BLOB_KEY, 'evw/team-pins.json', 'data/team-pins.json', 'auth/pins.json'];
+    for (const key of keys) {
+      try {
+        const { blobs } = await list({ prefix: key, token } as { prefix: string; token?: string });
+        const matches: BlobMeta[] = (blobs as unknown as BlobMeta[]).filter((b) => b.pathname === key || b.pathname.startsWith(key));
+        if (matches.length > 0) {
+          const newest = matches.reduce((acc, cur) => (!acc ? cur : (toTime(cur.uploadedAt) > toTime(acc.uploadedAt) ? cur : acc)), matches[0]);
+          if (newest?.url) {
+            const res = await fetch(newest.url, { cache: 'no-store' });
+            if (res.ok) {
+              const json = await res.json();
+              if (json && typeof json === 'object') { blobMap = json as PinMap; break; }
+            }
+          }
         }
-      }
+      } catch {}
     }
   } catch {}
 

@@ -1,6 +1,7 @@
 import { promises as fs } from 'fs';
 import path from 'path';
 import { sendEmail } from '@/lib/utils/email';
+import { getKV } from '@/lib/server/kv';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -15,6 +16,17 @@ export type Suggestion = {
 const DATA_PATH = path.join(process.cwd(), 'data', 'suggestions.json');
 const USE_BLOB = Boolean(process.env.BLOB_READ_WRITE_TOKEN || process.env.BLOB_READ_TOKEN);
 const NOTIFY_EMAIL = process.env.SUGGESTIONS_NOTIFY_EMAIL || 'patrickmmcnulty62@gmail.com';
+
+async function getBlobToken(): Promise<string | undefined> {
+  try {
+    const kv = await getKV();
+    if (kv) {
+      const raw = (await kv.get('blob:token')) as string | null;
+      if (raw && typeof raw === 'string' && raw.length > 0) return raw;
+    }
+  } catch {}
+  return process.env.BLOB_READ_WRITE_TOKEN || process.env.BLOB_READ_TOKEN || undefined;
+}
 
 async function readSuggestions(): Promise<Suggestion[]> {
   try {
@@ -38,15 +50,25 @@ export async function GET() {
   // Merge sources: Blob + local file, to preserve legacy entries
   const merged: Record<string, Suggestion> = {};
 
-  if (USE_BLOB) {
-    try {
-      const { list } = await import('@vercel/blob');
-      const token = process.env.BLOB_READ_WRITE_TOKEN || process.env.BLOB_READ_TOKEN;
-      const opts: { prefix: string; token?: string } = { prefix: 'suggestions/' };
-      if (token) opts.token = token;
-      const { blobs } = await list(opts as { prefix: string; token?: string });
+  try {
+    const { list } = await import('@vercel/blob');
+    const token = await getBlobToken();
+    const prefixes = ['suggestions/', 'evw/suggestions/', 'logs/suggestions/', 'content/suggestions/', 'public/suggestions/'];
+    for (const pref of prefixes) {
+      // Try without token then with token
+      let blobs: Array<{ url: string; pathname?: string; uploadedAt?: string }> = [];
+      try {
+        const r1 = await list({ prefix: pref } as { prefix: string });
+        blobs = (r1 as unknown as { blobs?: Array<{ url: string; pathname?: string; uploadedAt?: string }> }).blobs || [];
+      } catch {}
+      if ((!blobs || blobs.length === 0) && token) {
+        try {
+          const r2 = await list({ prefix: pref, token } as { prefix: string; token?: string });
+          blobs = (r2 as unknown as { blobs?: Array<{ url: string; pathname?: string; uploadedAt?: string }> }).blobs || [];
+        } catch {}
+      }
       type MinimalBlob = { url: string; uploadedAt?: string };
-      const items = blobs as unknown as MinimalBlob[];
+      const items = (blobs as unknown as MinimalBlob[]) || [];
       for (const b of items) {
         try {
           const res = await fetch(b.url, { cache: 'no-store' });
@@ -55,8 +77,28 @@ export async function GET() {
           if (json && json.id) merged[json.id] = json;
         } catch {}
       }
-    } catch {}
-  }
+    }
+    // Fallback: support a single JSON file stored in Blob (legacy)
+    if (Object.keys(merged).length === 0) {
+      try {
+        const singleFiles = ['data/suggestions.json', 'evw/suggestions.json', 'logs/suggestions.json'];
+        for (const key of singleFiles) {
+          const r3 = await list({ prefix: key, token } as { prefix: string; token?: string });
+          const arr = (r3 as unknown as { blobs?: Array<{ url: string }> }).blobs || [];
+          if (arr.length > 0) {
+            const res2 = await fetch(arr[0].url, { cache: 'no-store' });
+            if (res2.ok) {
+              const json2 = (await res2.json()) as unknown;
+              if (Array.isArray(json2)) {
+                for (const it of json2 as Suggestion[]) if (it && (it as Suggestion).id) merged[(it as Suggestion).id] = it as Suggestion;
+              }
+            }
+          }
+          if (Object.keys(merged).length > 0) break;
+        }
+      } catch {}
+    }
+  } catch {}
 
   try {
     const local = await readSuggestions();
@@ -92,7 +134,7 @@ export async function POST(request: Request) {
     if (USE_BLOB) {
       try {
         const { put } = await import('@vercel/blob');
-        const token = process.env.BLOB_READ_WRITE_TOKEN || process.env.BLOB_READ_TOKEN;
+        const token = await getBlobToken();
         await put(`suggestions/${item.id}.json`, JSON.stringify(item), {
           access: 'public',
           contentType: 'application/json; charset=utf-8',

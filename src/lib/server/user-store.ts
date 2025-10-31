@@ -49,7 +49,10 @@ export async function readUserDoc(userId: string, team: string): Promise<UserDoc
   const key = userBlobKey(userId);
   try {
     const { list } = await import('@vercel/blob');
-    const { blobs } = await list({ prefix: key });
+    const token = await getBlobToken();
+    const opts: { prefix: string; token?: string } = { prefix: key };
+    if (token) opts.token = token;
+    const { blobs } = await list(opts as { prefix: string; token?: string });
     type BlobMeta = { pathname: string; url: string; uploadedAt?: string | Date };
     const toTime = (v?: string | Date): number => {
       if (!v) return 0;
