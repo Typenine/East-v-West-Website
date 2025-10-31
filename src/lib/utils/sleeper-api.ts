@@ -1281,6 +1281,8 @@ export interface SleeperRoster {
   owner_id: string;
   league_id: string;
   players: string[];
+  taxi?: string[];
+  reserve?: string[];
   metadata?: Record<string, string> | null;
   settings: {
     wins: number;

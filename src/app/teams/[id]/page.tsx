@@ -137,7 +137,7 @@ export default function TeamPage() {
   const [recordsLoading, setRecordsLoading] = useState(false);
 
   // Taxi analysis state
-  type TaxiItem = { playerId: string; name: string | null; position?: string | null; sinceTs?: string | null; activatedSinceJoin: boolean; activatedAt?: { year: string; week: number } | null; observedSince?: string | null };
+  type TaxiItem = { playerId: string; name: string | null; position?: string | null; sinceTs?: string | null; activatedSinceJoin: boolean; activatedAt?: { year: string; week: number } | null; observedSince?: string | null; onTaxiSince?: { year: string; week: number } | null; ineligibleReason?: string | null; potentialActivatedSinceJoin?: boolean; potentialAt?: { year: string; week: number } | null };
   type TaxiAnalysis = {
     team: { ownerId: string; teamName: string; selectedSeason: string; rosterId: number };
     limits: { maxSlots: number; maxQB: number };
@@ -172,23 +172,33 @@ export default function TeamPage() {
     return () => { mounted = false; };
   }, [rosterId, selectedYear]);
 
-  const formatSince = (iso?: string | null) => {
-    if (!iso) return '—';
+  // Lineup snapshot viewer
+  const [snapYear, setSnapYear] = useState<string>(selectedYear);
+  const [snapWeek, setSnapWeek] = useState<number>(1);
+  const [snapLoading, setSnapLoading] = useState(false);
+  const [snapError, setSnapError] = useState<string | null>(null);
+  const [snapshot, setSnapshot] = useState<{
+    year: string;
+    week: number;
+    teams: Array<{ teamName: string; rosterId: number; starters: string[]; bench: string[]; reserve?: string[] }>;
+    playersMeta: Record<string, { name: string; position: string | null }>;
+  } | null>(null);
+  const loadSnapshot = useCallback(async () => {
+    if (!snapYear || !snapWeek) return;
     try {
-      const then = new Date(iso).getTime();
-      const now = Date.now();
-      if (!Number.isFinite(then) || then <= 0) return new Date(iso).toLocaleString();
-      const ms = Math.max(0, now - then);
-      const days = Math.floor(ms / (24 * 3600_000));
-      const hours = Math.floor((ms % (24 * 3600_000)) / 3600_000);
-      const mins = Math.floor((ms % 3600_000) / 60_000);
-      if (days > 0) return `${days}d ${hours}h`;
-      if (hours > 0) return `${hours}h ${mins}m`;
-      return `${mins}m`;
-    } catch {
-      return '—';
+      setSnapLoading(true);
+      setSnapError(null);
+      setSnapshot(null);
+      const r = await fetch(`/api/lineups/snapshot?year=${encodeURIComponent(snapYear)}&week=${encodeURIComponent(String(snapWeek))}`, { cache: 'no-store' });
+      if (!r.ok) throw new Error('No snapshot found');
+      const j = await r.json();
+      setSnapshot(j);
+    } catch (e) {
+      setSnapError(e instanceof Error ? e.message : 'Failed to load snapshot');
+    } finally {
+      setSnapLoading(false);
     }
-  };
+  }, [snapYear, snapWeek]);
 
   // Player Weekly Points Modal state
   type WeeklyRow = { week: number; points: number; rostered: boolean; started: boolean };
@@ -962,12 +972,15 @@ export default function TeamPage() {
                   )}
                 </CardContent>
               </Card>
+
+              
             ),
           },
           {
             id: 'lineup',
             label: 'Lineup',
             content: (
+              <>
               <Card style={{ borderTop: `4px solid ${teamColors.primary}` }}>
                 <CardHeader>
                   <div
@@ -1010,7 +1023,7 @@ export default function TeamPage() {
                                 <Th>Pos</Th>
                                 <Th>On Taxi (since)</Th>
                                 <Th>Rejoined</Th>
-                                <Th>Eligible</Th>
+                                <Th>Status</Th>
                               </Tr>
                             </THead>
                             <TBody>
@@ -1023,14 +1036,22 @@ export default function TeamPage() {
                                     <div className="text-sm text-[var(--muted)]">{p.position || '—'}</div>
                                   </Td>
                                   <Td>
-                                    <div className="text-sm text-[var(--muted)]" title={p.observedSince || ''}>{formatSince(p.observedSince)}</div>
+                                    <div className="text-sm text-[var(--muted)]">{p.onTaxiSince ? `W${p.onTaxiSince.week} ${p.onTaxiSince.year}` : '—'}</div>
                                   </Td>
                                   <Td>
                                     <div className="text-sm text-[var(--muted)]" title={p.sinceTs || ''}>{p.sinceTs ? new Date(p.sinceTs).toLocaleDateString() : '—'}</div>
                                   </Td>
                                   <Td>
                                     {p.activatedSinceJoin ? (
-                                      <Chip size="sm" variant="outline" className="text-[var(--danger)] border-[var(--danger)]">Ineligible</Chip>
+                                      <div className="flex items-center gap-2">
+                                        <Chip size="sm" variant="outline" className="text-[var(--danger)] border-[var(--danger)]">Ineligible</Chip>
+                                        <span className="text-xs text-[var(--muted)]">{p.ineligibleReason || 'Activated'}{p.activatedAt ? ` • W${p.activatedAt.week} ${p.activatedAt.year}` : ''}</span>
+                                      </div>
+                                    ) : p.potentialActivatedSinceJoin ? (
+                                      <div className="flex items-center gap-2">
+                                        <Chip size="sm" variant="outline" className="text-[var(--warning,#bf9944)] border-[var(--warning,#bf9944)]">Potential</Chip>
+                                        <span className="text-xs text-[var(--muted)]">Appears this week{p.potentialAt ? ` • W${p.potentialAt.week} ${p.potentialAt.year}` : ''}</span>
+                                      </div>
                                     ) : (
                                       <Chip size="sm" variant="outline" className="text-green-700 border-green-400">Eligible</Chip>
                                     )}
@@ -1052,6 +1073,84 @@ export default function TeamPage() {
                   )}
                 </CardContent>
               </Card>
+              <Card style={{ borderTop: `4px solid ${teamColors.primary}` }}>
+                <CardHeader>
+                  <div
+                    className="rounded-md"
+                    style={{
+                      backgroundImage: `linear-gradient(90deg, ${teamColors.primary} 0%, ${teamColors.secondary} 100%)`,
+                      color: '#ffffff',
+                      padding: '0.35rem 0.6rem',
+                    }}
+                  >
+                    <CardTitle>Weekly Lineup Snapshot</CardTitle>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <div className="flex flex-wrap items-end gap-3 mb-4">
+                    <div>
+                      <Label htmlFor="snap-year">Season</Label>
+                      <Select id="snap-year" value={snapYear} onChange={(e) => setSnapYear(e.target.value)}>
+                        <option value="2025">2025</option>
+                        <option value="2024">2024</option>
+                        <option value="2023">2023</option>
+                      </Select>
+                    </div>
+                    <div>
+                      <Label htmlFor="snap-week">Week</Label>
+                      <Select id="snap-week" value={String(snapWeek)} onChange={(e) => setSnapWeek(Number(e.target.value))}>
+                        {Array.from({ length: 17 }, (_, i) => i + 1).map((w) => (
+                          <option key={w} value={w}>{w}</option>
+                        ))}
+                      </Select>
+                    </div>
+                    <div className="ml-auto">
+                      <Button type="button" onClick={loadSnapshot} disabled={snapLoading}> {snapLoading ? 'Loading…' : 'Load snapshot'} </Button>
+                    </div>
+                  </div>
+                  {snapError && <ErrorState message={snapError} />}
+                  {!snapError && snapshot && (
+                    (() => {
+                      const row = snapshot.teams.find(t => t.teamName === teamName);
+                      if (!row) return <p className="text-[var(--muted)]">No data for this team in snapshot.</p>;
+                      const nameOf = (id: string) => snapshot.playersMeta?.[id]?.name || id;
+                      const posOf = (id: string) => snapshot.playersMeta?.[id]?.position || '';
+                      return (
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                          <div>
+                            <h4 className="font-semibold mb-2">Starters</h4>
+                            <ul className="text-sm list-disc pl-5">
+                              {row.starters.map((id) => (
+                                <li key={`st-${id}`}>{nameOf(id)} <span className="text-[var(--muted)]">{posOf(id) ? `(${posOf(id)})` : ''}</span></li>
+                              ))}
+                              {row.starters.length === 0 && <li className="text-[var(--muted)]">None</li>}
+                            </ul>
+                          </div>
+                          <div>
+                            <h4 className="font-semibold mb-2">Bench</h4>
+                            <ul className="text-sm list-disc pl-5">
+                              {row.bench.map((id) => (
+                                <li key={`bn-${id}`}>{nameOf(id)} <span className="text-[var(--muted)]">{posOf(id) ? `(${posOf(id)})` : ''}</span></li>
+                              ))}
+                              {row.bench.length === 0 && <li className="text-[var(--muted)]">None</li>}
+                            </ul>
+                          </div>
+                          <div>
+                            <h4 className="font-semibold mb-2">Reserve</h4>
+                            <ul className="text-sm list-disc pl-5">
+                              {(row.reserve || []).map((id) => (
+                                <li key={`rs-${id}`}>{nameOf(id)} <span className="text-[var(--muted)]">{posOf(id) ? `(${posOf(id)})` : ''}</span></li>
+                              ))}
+                              {(!row.reserve || row.reserve.length === 0) && <li className="text-[var(--muted)]">None</li>}
+                            </ul>
+                          </div>
+                        </div>
+                      );
+                    })()
+                  )}
+                </CardContent>
+              </Card>
+              </>
             ),
           },
           {

@@ -11,6 +11,10 @@ export type TaxiPlayer = {
   activatedSinceJoin: boolean; // after join AND week played
   potentialActivatedSinceJoin?: boolean; // after join but week not yet played
   activatedAt?: { year: string; week: number } | null;
+  onTaxiSince?: { year: string; week: number } | null;
+  // Details when ineligible
+  ineligibleReason?: string | null;
+  potentialAt?: { year: string; week: number } | null;
 };
 
 export type TaxiAnalysis = {
@@ -40,6 +44,39 @@ export async function computeTaxiAnalysisForRoster(selectedSeason: string, selec
   const yearToLeague: Record<string, string> = { '2025': LEAGUE_IDS.CURRENT, ...LEAGUE_IDS.PREVIOUS } as const;
   const seasons: string[] = Object.keys(yearToLeague).sort();
   const rosterIdBySeason = new Map<string, number>();
+  // Optional snapshot loader to include reserve (IR) per week if an admin created a snapshot
+  const snapshotCache = new Map<string, Map<number, { starters: string[]; bench: string[]; reserve: string[] }>>();
+  async function loadSnapshot(year: string, week: number): Promise<Map<number, { starters: string[]; bench: string[]; reserve: string[] }> | null> {
+    const key = `${year}-W${week}`;
+    if (snapshotCache.has(key)) return snapshotCache.get(key)!;
+    try {
+      const { list } = await import('@vercel/blob');
+      const path = `logs/lineups/snapshots/${year}-W${week}.json`;
+      const { blobs } = await list({ prefix: 'logs/lineups/snapshots/' });
+      type BlobMeta = { pathname: string; url: string };
+      const arr = (blobs as unknown as BlobMeta[]) || [];
+      const hit = arr.find((b) => b.pathname === path);
+      if (!hit) { snapshotCache.set(key, new Map()); return null; }
+      const r = await fetch(hit.url, { cache: 'no-store' });
+      if (!r.ok) { snapshotCache.set(key, new Map()); return null; }
+      const j = await r.json();
+      const map = new Map<number, { starters: string[]; bench: string[]; reserve: string[] }>();
+      const teams = (j?.teams as Array<{ rosterId: number; starters: string[]; bench: string[]; reserve?: string[] }> | undefined) || [];
+      for (const t of teams) {
+        map.set(t.rosterId, {
+          starters: Array.isArray(t.starters) ? t.starters : [],
+          bench: Array.isArray(t.bench) ? t.bench : [],
+          reserve: Array.isArray(t.reserve) ? t.reserve : [],
+        });
+      }
+      snapshotCache.set(key, map);
+      return map;
+    } catch {
+      snapshotCache.set(key, new Map());
+      return null;
+    }
+  }
+
   for (const year of seasons) {
     const lid = yearToLeague[year];
     if (!lid) continue;
@@ -51,8 +88,8 @@ export async function computeTaxiAnalysisForRoster(selectedSeason: string, selec
   }
 
   // Build per-season appearances: player -> { [yearWeek]: true }
-  const appearedSinceJoin = new Map<string, { activated: boolean; when?: { year: string; week: number } }>();
-  const potentialSinceJoin = new Map<string, { pending: boolean; when?: { year: string; week: number } }>();
+  const appearedSinceJoin = new Map<string, { activated: boolean; when?: { year: string; week: number }; reason?: 'lineup' | 'bench' | 'ir' }>();
+  const potentialSinceJoin = new Map<string, { pending: boolean; when?: { year: string; week: number }; reason?: 'lineup' | 'bench' | 'ir' }>();
   // Build last join (timestamp + season/week) per player across seasons for this franchise
   const lastJoin = new Map<string, { ts: number; year: string; week: number }>();
 
@@ -104,7 +141,15 @@ export async function computeTaxiAnalysisForRoster(selectedSeason: string, selec
         const mus = weekly[wi] as Array<{ matchup_id?: number; roster_id?: number; players?: string[]; starters?: string[]; points?: number; custom_points?: number }>;
         const m = mus.find((mm) => mm.roster_id === rid);
         if (!m) continue;
-        const ids = new Set<string>([...(m.players || []), ...(m.starters || [])].filter(Boolean) as string[]);
+        // Build active set: starters + bench (+ reserve from snapshot when available)
+        const starters = new Set<string>((m.starters || []).filter(Boolean) as string[]);
+        const basePlayers = new Set<string>([...(m.players || []), ...Array.from(starters)].filter(Boolean) as string[]);
+        const snap = await loadSnapshot(year, week).catch(() => null);
+        const extra = snap?.get(rid);
+        const ids = new Set<string>([
+          ...Array.from(basePlayers),
+          ...((extra?.reserve || []) as string[]),
+        ].filter(Boolean));
         if (ids.size === 0) continue;
         // Determine if this matchup was played (either side scored > 0)
         const opp = mus.find((x) => x.matchup_id === m.matchup_id && x.roster_id !== m.roster_id);
@@ -117,16 +162,20 @@ export async function computeTaxiAnalysisForRoster(selectedSeason: string, selec
           // Only consider appearances on/after the join point
           const isAfterJoin = (year > lj.year) || (year === lj.year && week >= (lj.week || 0));
           if (!isAfterJoin) continue;
+          // Classify reason: reserve -> ir; starters -> lineup; else -> bench
+          const reason: 'lineup' | 'bench' | 'ir' = (extra?.reserve || []).includes(pid)
+            ? 'ir'
+            : (starters.has(pid) ? 'lineup' : 'bench');
           if (played) {
             const prev = appearedSinceJoin.get(pid);
             if (!prev || !prev.activated) {
-              appearedSinceJoin.set(pid, { activated: true, when: { year, week } });
+              appearedSinceJoin.set(pid, { activated: true, when: { year, week }, reason });
             }
             // Clear any pending potential flag since it's now actual
             potentialSinceJoin.delete(pid);
           } else {
             const prevP = potentialSinceJoin.get(pid);
-            if (!prevP || !prevP.pending) potentialSinceJoin.set(pid, { pending: true, when: { year, week } });
+            if (!prevP || !prevP.pending) potentialSinceJoin.set(pid, { pending: true, when: { year, week }, reason });
           }
         }
       }
@@ -160,6 +209,9 @@ export async function computeTaxiAnalysisForRoster(selectedSeason: string, selec
       activatedSinceJoin: Boolean(activated?.activated),
       potentialActivatedSinceJoin: potentialSinceJoin.has(pid),
       activatedAt: activated?.when || null,
+      onTaxiSince: lj && lj.week > 0 ? { year: lj.year, week: lj.week } : null,
+      ineligibleReason: activated?.activated ? (activated?.reason === 'ir' ? 'Activated on IR' : activated?.reason === 'lineup' ? 'Activated in lineup' : 'Activated on bench') : null,
+      potentialAt: potentialSinceJoin.get(pid)?.when || null,
     };
   });
 

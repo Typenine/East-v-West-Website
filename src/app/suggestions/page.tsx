@@ -17,7 +17,7 @@ type Suggestion = {
 
 type Tallies = Record<string, { up: number; down: number }>;
 
-const CATEGORIES = ['Rules', 'Website', 'Discord', 'Other'];
+const CATEGORIES = ['Rules', 'Website', 'Discord', 'Location', 'Other'];
 
 export default function SuggestionsPage() {
   const [content, setContent] = useState('');
@@ -30,6 +30,7 @@ export default function SuggestionsPage() {
   const [auth, setAuth] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
   const [adminVotes, setAdminVotes] = useState<Record<string, { up: string[]; down: string[] }>>({});
+  const [myVotes, setMyVotes] = useState<Record<string, 1 | -1>>({});
 
   async function load() {
     try {
@@ -61,6 +62,10 @@ export default function SuggestionsPage() {
       .then((r) => r.ok ? r.json() : Promise.reject())
       .then((j) => setIsAdmin(Boolean(j?.isAdmin)))
       .catch(() => setIsAdmin(false));
+    fetch('/api/me/suggestions/votes', { cache: 'no-store' })
+      .then((r) => r.ok ? r.json() : Promise.resolve({ votes: {} }))
+      .then((j) => setMyVotes(j?.votes || {}))
+      .catch(() => setMyVotes({}));
   }, []);
 
   useEffect(() => {
@@ -73,16 +78,39 @@ export default function SuggestionsPage() {
 
   async function vote(suggestionId: string, value: 1 | -1 | 0) {
     if (!auth) return;
+    // Optimistic update
+    const prevVote = myVotes[suggestionId] || 0;
+    const nextVote = value === 0 ? 0 : (prevVote === value ? 0 : value);
+    const prevTallies = structuredClone(tallies) as Tallies;
+    const cur = prevTallies[suggestionId] || { up: 0, down: 0 };
+    // revert prev
+    if (prevVote === 1) cur.up = Math.max(0, cur.up - 1);
+    if (prevVote === -1) cur.down = Math.max(0, cur.down - 1);
+    // apply next
+    if (nextVote === 1) cur.up += 1;
+    if (nextVote === -1) cur.down += 1;
+    const optimisticTallies = { ...tallies, [suggestionId]: cur } as Tallies;
+    setTallies(optimisticTallies);
+    const prevMy = { ...myVotes };
+    if (nextVote === 0) delete prevMy[suggestionId]; else prevMy[suggestionId] = nextVote as 1 | -1;
+    setMyVotes(prevMy);
     try {
       const res = await fetch('/api/me/suggestions/vote', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ suggestionId, value })
+        body: JSON.stringify({ suggestionId, value: nextVote })
       });
-      if (!res.ok) return;
-      const t = await fetch('/api/suggestions/tallies', { cache: 'no-store' }).then((r) => r.json());
-      setTallies((t?.tallies as Tallies) || {});
-    } catch {}
+      if (!res.ok) throw new Error('vote failed');
+      // Optionally refresh tallies in background for consistency
+      fetch('/api/suggestions/tallies', { cache: 'no-store' })
+        .then((r) => r.ok ? r.json() : Promise.reject())
+        .then((j) => setTallies((j?.tallies as Tallies) || optimisticTallies))
+        .catch(() => {});
+    } catch {
+      // Revert on failure
+      setTallies(prevTallies);
+      setMyVotes((m) => ({ ...m, [suggestionId]: (prevVote || undefined) as 1 | -1 }));
+    }
   }
 
   async function onSubmit(e: React.FormEvent) {
@@ -204,6 +232,7 @@ export default function SuggestionsPage() {
                               aria-label="Thumbs up"
                               title={isAdmin && adminVotes[s.id]?.up?.length ? `Up votes: ${adminVotes[s.id].up.join(', ')}` : undefined}
                               disabled={!auth}
+                              variant={myVotes[s.id] === 1 ? 'primary' : 'ghost'}
                             >👍</Button>
                             <Button
                               type="button"
@@ -211,6 +240,7 @@ export default function SuggestionsPage() {
                               aria-label="Thumbs down"
                               title={isAdmin && adminVotes[s.id]?.down?.length ? `Down votes: ${adminVotes[s.id].down.join(', ')}` : undefined}
                               disabled={!auth}
+                              variant={myVotes[s.id] === -1 ? 'danger' : 'ghost'}
                             >👎</Button>
                           </div>
                         )}
