@@ -182,6 +182,7 @@ export default function TeamPage() {
     week: number;
     teams: Array<{ teamName: string; rosterId: number; starters: string[]; bench: string[]; reserve?: string[]; taxi?: string[] }>;
     playersMeta: Record<string, { name: string; position: string | null }>;
+    meta?: { source?: string; accurateTaxi?: boolean; accurateReserve?: boolean };
   } | null>(null);
   const loadSnapshot = useCallback(async () => {
     if (!snapYear || !snapWeek) return;
@@ -217,6 +218,20 @@ export default function TeamPage() {
       setSnapLoading(false);
     }
   }, [snapYear, snapWeek, loadSnapshot]);
+
+  const backfillSeason = useCallback(async () => {
+    try {
+      setSnapLoading(true);
+      setSnapError(null);
+      const r = await fetch(`/api/lineups/snapshot/backfill?year=${encodeURIComponent(snapYear)}&overwrite=true`, { cache: 'no-store' });
+      if (!r.ok) throw new Error('Failed to backfill season');
+      await loadSnapshot();
+    } catch (e) {
+      setSnapError(e instanceof Error ? e.message : 'Failed to backfill season');
+    } finally {
+      setSnapLoading(false);
+    }
+  }, [snapYear, loadSnapshot]);
 
   // Player Weekly Points Modal state
   type WeeklyRow = { week: number; points: number; rostered: boolean; started: boolean };
@@ -1122,8 +1137,9 @@ export default function TeamPage() {
                         ))}
                       </Select>
                     </div>
-                    <div className="ml-auto">
+                    <div className="ml-auto flex gap-2">
                       <Button type="button" onClick={loadSnapshot} disabled={snapLoading}> {snapLoading ? 'Loading…' : 'Load snapshot'} </Button>
+                      <Button type="button" variant="ghost" onClick={backfillSeason} disabled={snapLoading}> {snapLoading ? 'Backfilling…' : 'Backfill season'} </Button>
                     </div>
                   </div>
                   {snapError && (
@@ -1138,11 +1154,15 @@ export default function TeamPage() {
                   )}
                   {!snapError && snapshot && (
                     (() => {
-                      const row = snapshot.teams.find(t => t.teamName === teamName);
+                      const row = snapshot.teams.find(t => t.rosterId === rosterId) || snapshot.teams.find(t => t.teamName === teamName);
                       if (!row) return <p className="text-[var(--muted)]">No data for this team in snapshot.</p>;
                       const nameOf = (id: string) => snapshot.playersMeta?.[id]?.name || id;
                       const posOf = (id: string) => snapshot.playersMeta?.[id]?.position || '';
                       return (
+                        <>
+                        {(snapshot.meta && (snapshot.meta.accurateTaxi === false || snapshot.meta.accurateReserve === false)) && (
+                          <p className="text-xs text-[var(--muted)] mb-2">Note: Backfilled snapshot. Taxi/Reserve may be incomplete for historical weeks.</p>
+                        )}
                         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                           <div>
                             <h4 className="font-semibold mb-2">Starters</h4>
@@ -1181,6 +1201,7 @@ export default function TeamPage() {
                             </ul>
                           </div>
                         </div>
+                        </>
                       );
                     })()
                   )}
