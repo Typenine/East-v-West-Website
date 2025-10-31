@@ -180,7 +180,7 @@ export default function TeamPage() {
   const [snapshot, setSnapshot] = useState<{
     year: string;
     week: number;
-    teams: Array<{ teamName: string; rosterId: number; starters: string[]; bench: string[]; reserve?: string[] }>;
+    teams: Array<{ teamName: string; rosterId: number; starters: string[]; bench: string[]; reserve?: string[]; taxi?: string[] }>;
     playersMeta: Record<string, { name: string; position: string | null }>;
   } | null>(null);
   const loadSnapshot = useCallback(async () => {
@@ -1143,7 +1143,7 @@ export default function TeamPage() {
                       const nameOf = (id: string) => snapshot.playersMeta?.[id]?.name || id;
                       const posOf = (id: string) => snapshot.playersMeta?.[id]?.position || '';
                       return (
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                           <div>
                             <h4 className="font-semibold mb-2">Starters</h4>
                             <ul className="text-sm list-disc pl-5">
@@ -1169,6 +1169,15 @@ export default function TeamPage() {
                                 <li key={`rs-${id}`}>{nameOf(id)} <span className="text-[var(--muted)]">{posOf(id) ? `(${posOf(id)})` : ''}</span></li>
                               ))}
                               {(!row.reserve || row.reserve.length === 0) && <li className="text-[var(--muted)]">None</li>}
+                            </ul>
+                          </div>
+                          <div>
+                            <h4 className="font-semibold mb-2">Taxi</h4>
+                            <ul className="text-sm list-disc pl-5">
+                              {(row.taxi || []).map((id) => (
+                                <li key={`tx-${id}`}>{nameOf(id)} <span className="text-[var(--muted)]">{posOf(id) ? `(${posOf(id)})` : ''}</span></li>
+                              ))}
+                              {(!row.taxi || row.taxi.length === 0) && <li className="text-[var(--muted)]">None</li>}
                             </ul>
                           </div>
                         </div>
