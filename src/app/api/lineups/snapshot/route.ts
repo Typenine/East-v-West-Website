@@ -69,14 +69,43 @@ export async function POST(req: NextRequest) {
 
     const rows = teams.map((t) => {
       const r = byRoster.get(t.rosterId) || { starters: [], players: [] };
-      const bench = r.players.filter((id) => !new Set(r.starters).has(id));
+      const starters = Array.from(new Set((r.starters || []).filter(Boolean)));
+      const startersSet = new Set(starters);
+
+      // bench = players minus starters, de-duped, preserving order
+      const bench: string[] = [];
+      for (const id of (r.players || [])) {
+        if (!id || startersSet.has(id)) continue;
+        if (bench.includes(id)) continue;
+        bench.push(id);
+      }
+      const used = new Set<string>([...starters, ...bench]);
+
+      // reserve and taxi from current rosters, with exclusivity and de-dupe
+      const reserveSrc = reserveMap.get(t.rosterId) || [];
+      const reserve: string[] = [];
+      for (const id of reserveSrc) {
+        if (!id || used.has(id)) continue;
+        if (reserve.includes(id)) continue;
+        reserve.push(id);
+      }
+      for (const id of reserve) used.add(id);
+
+      const taxiSrc = taxiMap.get(t.rosterId) || [];
+      const taxi: string[] = [];
+      for (const id of taxiSrc) {
+        if (!id || used.has(id)) continue;
+        if (taxi.includes(id)) continue;
+        taxi.push(id);
+      }
+
       return {
         teamName: t.teamName,
         rosterId: t.rosterId,
-        starters: r.starters,
+        starters,
         bench,
-        reserve: reserveMap.get(t.rosterId) || [],
-        taxi: taxiMap.get(t.rosterId) || [],
+        reserve,
+        taxi,
       };
     });
 
