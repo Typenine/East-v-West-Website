@@ -200,6 +200,24 @@ export default function TeamPage() {
     }
   }, [snapYear, snapWeek]);
 
+  const generateSnapshot = useCallback(async () => {
+    try {
+      setSnapLoading(true);
+      setSnapError(null);
+      const r = await fetch('/api/lineups/snapshot', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ year: snapYear, week: snapWeek })
+      });
+      if (!r.ok) throw new Error('Failed to generate snapshot');
+      await loadSnapshot();
+    } catch (e) {
+      setSnapError(e instanceof Error ? e.message : 'Failed to generate snapshot');
+    } finally {
+      setSnapLoading(false);
+    }
+  }, [snapYear, snapWeek, loadSnapshot]);
+
   // Player Weekly Points Modal state
   type WeeklyRow = { week: number; points: number; rostered: boolean; started: boolean };
   const [playerModalOpen, setPlayerModalOpen] = useState(false);
@@ -1108,7 +1126,16 @@ export default function TeamPage() {
                       <Button type="button" onClick={loadSnapshot} disabled={snapLoading}> {snapLoading ? 'Loading…' : 'Load snapshot'} </Button>
                     </div>
                   </div>
-                  {snapError && <ErrorState message={snapError} />}
+                  {snapError && (
+                    <div className="space-y-3">
+                      <ErrorState message={snapError} />
+                      <div className="flex justify-end">
+                        <Button type="button" onClick={generateSnapshot} disabled={snapLoading}>
+                          {snapLoading ? 'Generating…' : 'Generate snapshot'}
+                        </Button>
+                      </div>
+                    </div>
+                  )}
                   {!snapError && snapshot && (
                     (() => {
                       const row = snapshot.teams.find(t => t.teamName === teamName);

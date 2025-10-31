@@ -141,15 +141,22 @@ export async function computeTaxiAnalysisForRoster(selectedSeason: string, selec
         const mus = weekly[wi] as Array<{ matchup_id?: number; roster_id?: number; players?: string[]; starters?: string[]; points?: number; custom_points?: number }>;
         const m = mus.find((mm) => mm.roster_id === rid);
         if (!m) continue;
-        // Build active set: starters + bench (+ reserve from snapshot when available)
+        // Prefer admin-created weekly snapshot if available; else, fallback to Sleeper weekly data
         const starters = new Set<string>((m.starters || []).filter(Boolean) as string[]);
-        const basePlayers = new Set<string>([...(m.players || []), ...Array.from(starters)].filter(Boolean) as string[]);
         const snap = await loadSnapshot(year, week).catch(() => null);
         const extra = snap?.get(rid);
-        const ids = new Set<string>([
-          ...Array.from(basePlayers),
-          ...((extra?.reserve || []) as string[]),
-        ].filter(Boolean));
+        let ids = new Set<string>();
+        let inStarters = (pid: string) => starters.has(pid);
+        // bench determination is implicit when not starters/reserve but present in weeklyPlayers
+        let inReserve: (pid: string) => boolean = () => false;
+        if (extra && (extra.starters.length > 0 || extra.bench.length > 0 || extra.reserve.length > 0)) {
+          ids = new Set<string>([...extra.starters, ...extra.bench, ...extra.reserve].filter(Boolean));
+          inStarters = (pid: string) => extra.starters.includes(pid);
+          inReserve = (pid: string) => extra.reserve.includes(pid);
+        } else {
+          // Fallback: only starters. Without a snapshot, we don't trust bench detection (taxi may leak into weekly players).
+          ids = new Set<string>(Array.from(starters));
+        }
         if (ids.size === 0) continue;
         // Determine if this matchup was played (either side scored > 0)
         const opp = mus.find((x) => x.matchup_id === m.matchup_id && x.roster_id !== m.roster_id);
@@ -163,9 +170,7 @@ export async function computeTaxiAnalysisForRoster(selectedSeason: string, selec
           const isAfterJoin = (year > lj.year) || (year === lj.year && week >= (lj.week || 0));
           if (!isAfterJoin) continue;
           // Classify reason: reserve -> ir; starters -> lineup; else -> bench
-          const reason: 'lineup' | 'bench' | 'ir' = (extra?.reserve || []).includes(pid)
-            ? 'ir'
-            : (starters.has(pid) ? 'lineup' : 'bench');
+          const reason: 'lineup' | 'bench' | 'ir' = inReserve(pid) ? 'ir' : (inStarters(pid) ? 'lineup' : 'bench');
           if (played) {
             const prev = appearedSinceJoin.get(pid);
             if (!prev || !prev.activated) {

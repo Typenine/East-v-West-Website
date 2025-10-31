@@ -61,8 +61,10 @@ export async function POST(req: NextRequest) {
     }
 
     const reserveMap = new Map<number, string[]>();
-    for (const r of rosters as Array<{ roster_id: number; reserve?: string[] }>) {
+    const taxiMap = new Map<number, string[]>();
+    for (const r of rosters as Array<{ roster_id: number; reserve?: string[]; taxi?: string[] }>) {
       reserveMap.set(r.roster_id, Array.isArray(r.reserve) ? r.reserve.filter(Boolean) : []);
+      taxiMap.set(r.roster_id, Array.isArray(r.taxi) ? r.taxi.filter(Boolean) : []);
     }
 
     const rows = teams.map((t) => {
@@ -74,6 +76,7 @@ export async function POST(req: NextRequest) {
         starters: r.starters,
         bench,
         reserve: reserveMap.get(t.rosterId) || [],
+        taxi: taxiMap.get(t.rosterId) || [],
       };
     });
 
