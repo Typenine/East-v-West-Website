@@ -35,31 +35,35 @@ async function writeSuggestions(items: Suggestion[]) {
 }
 
 export async function GET() {
+  // Merge sources: Blob + local file, to preserve legacy entries
+  const merged: Record<string, Suggestion> = {};
+
   if (USE_BLOB) {
-    const { list } = await import('@vercel/blob');
-    const { blobs } = await list({ prefix: 'suggestions/' });
-    type MinimalBlob = { url: string; uploadedAt?: string };
-    const items = blobs as unknown as MinimalBlob[];
-    // Sort newest first by uploadedAt
-    const sorted = [...items].sort(
-      (a, b) => Date.parse(b.uploadedAt ?? '0') - Date.parse(a.uploadedAt ?? '0')
-    );
-    const results: Suggestion[] = [];
-    for (const b of sorted) {
-      try {
-        // Read JSON content server-side
-        const res = await fetch(b.url);
-        const json = (await res.json()) as Suggestion;
-        results.push(json);
-      } catch {
-        // ignore corrupt item
+    try {
+      const { list } = await import('@vercel/blob');
+      const token = process.env.BLOB_READ_WRITE_TOKEN || process.env.BLOB_READ_TOKEN;
+      const opts: { prefix: string; token?: string } = { prefix: 'suggestions/' };
+      if (token) opts.token = token;
+      const { blobs } = await list(opts as { prefix: string; token?: string });
+      type MinimalBlob = { url: string; uploadedAt?: string };
+      const items = blobs as unknown as MinimalBlob[];
+      for (const b of items) {
+        try {
+          const res = await fetch(b.url, { cache: 'no-store' });
+          if (!res.ok) continue;
+          const json = (await res.json()) as Suggestion;
+          if (json && json.id) merged[json.id] = json;
+        } catch {}
       }
-    }
-    return Response.json(results);
+    } catch {}
   }
 
-  const items = await readSuggestions();
-  items.sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
+  try {
+    const local = await readSuggestions();
+    for (const it of local) if (it && it.id) merged[it.id] = it;
+  } catch {}
+
+  const items = Object.values(merged).sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
   return Response.json(items);
 }
 
@@ -84,29 +88,28 @@ export async function POST(request: Request) {
       createdAt: now,
     };
 
+    // Write to both stores best-effort
     if (USE_BLOB) {
-      const { put } = await import('@vercel/blob');
-      await put(`suggestions/${item.id}.json`, JSON.stringify(item), {
-        access: 'public',
-        contentType: 'application/json; charset=utf-8',
-      });
-      // Fire notification email (best-effort)
       try {
-        await sendEmail({
-          to: NOTIFY_EMAIL,
-          subject: `New suggestion${item.category ? ` (${item.category})` : ''}`,
-          text: `A new suggestion was submitted at ${item.createdAt}.\n\nCategory: ${item.category || 'N/A'}\n\n${item.content}`,
-          html: `<p>A new suggestion was submitted at <strong>${item.createdAt}</strong>.</p><p><strong>Category:</strong> ${item.category || 'N/A'}</p><pre style="white-space:pre-wrap;word-wrap:break-word;font-family:ui-monospace,Menlo,Monaco,Consolas,monospace">${item.content.replace(/</g,'&lt;')}</pre>`
+        const { put } = await import('@vercel/blob');
+        const token = process.env.BLOB_READ_WRITE_TOKEN || process.env.BLOB_READ_TOKEN;
+        await put(`suggestions/${item.id}.json`, JSON.stringify(item), {
+          access: 'public',
+          contentType: 'application/json; charset=utf-8',
+          token,
+          addRandomSuffix: false,
+          allowOverwrite: false,
         });
       } catch (e) {
-        console.warn('[suggestions] notify email failed', e);
+        console.warn('[suggestions] blob write failed', e);
       }
-      return Response.json(item, { status: 201 });
     }
 
-    const items = await readSuggestions();
-    items.push(item);
-    await writeSuggestions(items);
+    try {
+      const items = await readSuggestions();
+      items.push(item);
+      await writeSuggestions(items);
+    } catch {}
     // Fire notification email (best-effort)
     try {
       await sendEmail({
