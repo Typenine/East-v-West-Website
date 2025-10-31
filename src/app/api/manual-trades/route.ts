@@ -32,7 +32,7 @@ const BLOB_PATH = 'evw/manual_trades.json';
 async function loadAll(): Promise<ManualTrade[]> {
   // Blob primary
   try {
-    const { blobs } = await list({ prefix: BLOB_PATH });
+    const { blobs } = await list({ prefix: BLOB_PATH, token: process.env.BLOB_READ_WRITE_TOKEN });
     const entry = blobs.find(b => b.pathname === BLOB_PATH) || null;
     if (entry) {
       const res = await fetch(entry.url, { cache: 'no-store' });
@@ -54,8 +54,10 @@ async function saveAll(trades: ManualTrade[]) {
   try {
     await put(BLOB_PATH, JSON.stringify(trades, null, 2), {
       access: 'public',
-      contentType: 'application/json',
+      contentType: 'application/json; charset=utf-8',
       addRandomSuffix: false,
+      allowOverwrite: true,
+      token: process.env.BLOB_READ_WRITE_TOKEN,
     });
     return;
   } catch {}

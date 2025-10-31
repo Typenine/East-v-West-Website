@@ -1,5 +1,5 @@
 import { LEAGUE_IDS } from '@/lib/constants/league';
-import { getTeamsData, getLeagueMatchups, getLeagueTransactionsAllWeeks, getAllPlayersCached, SleeperTransaction, getLeagueRosters } from '@/lib/utils/sleeper-api';
+import { getTeamsData, getLeagueMatchups, getLeagueTransactionsAllWeeks, getAllPlayersCached, SleeperTransaction, getLeagueRosters, getNFLState } from '@/lib/utils/sleeper-api';
 import { resolveCanonicalTeamName } from '@/lib/utils/team-utils';
 
 export type TaxiLimits = { maxSlots: number; maxQB: number };
@@ -134,6 +134,18 @@ export async function computeTaxiAnalysisForRoster(selectedSeason: string, selec
 
     // Weekly matchups -> appearance markers for this roster
     try {
+      // Determine current NFL week and whether the activation window is open (Thu–Mon ET)
+      let currentSeason: string | null = null;
+      let currentWeek: number | null = null;
+      let windowOpen = false;
+      try {
+        const st = await getNFLState();
+        currentSeason = String(st.season || '');
+        currentWeek = typeof st.week === 'number' ? st.week : null;
+        const now = new Date();
+        const dowET = new Intl.DateTimeFormat('en-US', { weekday: 'short', timeZone: 'America/New_York' }).format(now);
+        windowOpen = ['Thu', 'Fri', 'Sat', 'Sun', 'Mon'].includes(dowET);
+      } catch {}
       const weeks = Array.from({ length: 17 }, (_, i) => i + 1);
       const weekly = await Promise.all(weeks.map((w) => getLeagueMatchups(lid, w).catch(() => [] as Array<{ matchup_id?: number; roster_id?: number; players?: string[]; starters?: string[]; points?: number; custom_points?: number }>)));
       for (let wi = 0; wi < weekly.length; wi++) {
@@ -167,7 +179,7 @@ export async function computeTaxiAnalysisForRoster(selectedSeason: string, selec
           const lj = lastJoin.get(pid);
           if (!lj) continue;
           // Only consider appearances on/after the join point
-          const isAfterJoin = (year > lj.year) || (year === lj.year && week >= (lj.week || 0));
+          const isAfterJoin = lj.year === year ? (week >= lj.week) : true;
           if (!isAfterJoin) continue;
           // Classify reason: reserve -> ir; starters -> lineup; else -> bench
           const reason: 'lineup' | 'bench' | 'ir' = inReserve(pid) ? 'ir' : (inStarters(pid) ? 'lineup' : 'bench');
@@ -179,8 +191,12 @@ export async function computeTaxiAnalysisForRoster(selectedSeason: string, selec
             // Clear any pending potential flag since it's now actual
             potentialSinceJoin.delete(pid);
           } else {
-            const prevP = potentialSinceJoin.get(pid);
-            if (!prevP || !prevP.pending) potentialSinceJoin.set(pid, { pending: true, when: { year, week }, reason });
+            // Only surface potential during the current active NFL week and only within Thu–Mon ET window
+            const isCurrentContext = (currentSeason && currentSeason === year) && (currentWeek && currentWeek === week);
+            if (isCurrentContext && windowOpen) {
+              const prevP = potentialSinceJoin.get(pid);
+              if (!prevP || !prevP.pending) potentialSinceJoin.set(pid, { pending: true, when: { year, week }, reason });
+            }
           }
         }
       }

@@ -1182,24 +1182,28 @@ export default function TeamPage() {
                               {row.bench.length === 0 && <li className="text-[var(--muted)]">None</li>}
                             </ul>
                           </div>
-                          <div>
-                            <h4 className="font-semibold mb-2">Reserve</h4>
-                            <ul className="text-sm list-disc pl-5">
-                              {(row.reserve || []).map((id) => (
-                                <li key={`rs-${id}`}>{nameOf(id)} <span className="text-[var(--muted)]">{posOf(id) ? `(${posOf(id)})` : ''}</span></li>
-                              ))}
-                              {(!row.reserve || row.reserve.length === 0) && <li className="text-[var(--muted)]">None</li>}
-                            </ul>
-                          </div>
-                          <div>
-                            <h4 className="font-semibold mb-2">Taxi</h4>
-                            <ul className="text-sm list-disc pl-5">
-                              {(row.taxi || []).map((id) => (
-                                <li key={`tx-${id}`}>{nameOf(id)} <span className="text-[var(--muted)]">{posOf(id) ? `(${posOf(id)})` : ''}</span></li>
-                              ))}
-                              {(!row.taxi || row.taxi.length === 0) && <li className="text-[var(--muted)]">None</li>}
-                            </ul>
-                          </div>
+                          {!(snapshot.meta && snapshot.meta.accurateReserve === false) && (
+                            <div>
+                              <h4 className="font-semibold mb-2">Reserve</h4>
+                              <ul className="text-sm list-disc pl-5">
+                                {(row.reserve || []).map((id) => (
+                                  <li key={`rs-${id}`}>{nameOf(id)} <span className="text-[var(--muted)]">{posOf(id) ? `(${posOf(id)})` : ''}</span></li>
+                                ))}
+                                {(!row.reserve || row.reserve.length === 0) && <li className="text-[var(--muted)]">None</li>}
+                              </ul>
+                            </div>
+                          )}
+                          {!(snapshot.meta && snapshot.meta.accurateTaxi === false) && (
+                            <div>
+                              <h4 className="font-semibold mb-2">Taxi</h4>
+                              <ul className="text-sm list-disc pl-5">
+                                {(row.taxi || []).map((id) => (
+                                  <li key={`tx-${id}`}>{nameOf(id)} <span className="text-[var(--muted)]">{posOf(id) ? `(${posOf(id)})` : ''}</span></li>
+                                ))}
+                                {(!row.taxi || row.taxi.length === 0) && <li className="text-[var(--muted)]">None</li>}
+                              </ul>
+                            </div>
+                          )}
                         </div>
                         </>
                       );
