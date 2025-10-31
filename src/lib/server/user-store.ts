@@ -72,6 +72,17 @@ export async function readUserDoc(userId: string, team: string): Promise<UserDoc
       }
     }
   } catch {}
+  // KV fallback
+  try {
+    const kv = await getKV();
+    if (kv) {
+      const raw = (await kv.get(`users:doc:${userId}`)) as string | null;
+      if (raw && typeof raw === 'string') {
+        const parsed = JSON.parse(raw) as unknown;
+        if (isUserDoc(parsed)) return parsed as UserDoc;
+      }
+    }
+  } catch {}
   return { userId, team: canonicalizeTeamName(team), version: 0, updatedAt: new Date().toISOString() };
 }
 
@@ -86,8 +97,20 @@ export async function writeUserDoc(doc: UserDoc): Promise<boolean> {
       allowOverwrite: true,
       token,
     });
+    try {
+      const kv = await getKV();
+      if (kv) await kv.set(`users:doc:${doc.userId}`, JSON.stringify(doc));
+    } catch {}
     return true;
   } catch {
+    // Try KV only
+    try {
+      const kv = await getKV();
+      if (kv) {
+        await kv.set(`users:doc:${doc.userId}`, JSON.stringify(doc));
+        return true;
+      }
+    } catch {}
     return false;
   }
 }

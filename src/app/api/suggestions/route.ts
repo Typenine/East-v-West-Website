@@ -106,7 +106,69 @@ export async function GET() {
   } catch {}
 
   const items = Object.values(merged).sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
-  return Response.json(items);
+  if (items.length > 0) {
+    return Response.json(items);
+  }
+
+  // Auto-recover from Resend email history if available and nothing found
+  async function recoverFromResend(): Promise<Suggestion[]> {
+    const key = process.env.RESEND_API_KEY;
+    if (!key) return [];
+    try {
+      const r = await fetch('https://api.resend.com/emails?limit=1000', { headers: { Authorization: `Bearer ${key}` } });
+      if (!r.ok) return [];
+      const j = (await r.json()) as { data?: Array<Record<string, unknown>> };
+      const arr = (j?.data || []) as Array<Record<string, unknown>>;
+      const out: Suggestion[] = [];
+      for (const o of arr) {
+        const subj = typeof o['subject'] === 'string' ? (o['subject'] as string) : '';
+        if (!subj.toLowerCase().startsWith('new suggestion')) continue;
+        const createdAt = typeof o['created_at'] === 'string' ? (o['created_at'] as string) : new Date().toISOString();
+        const m = subj.match(/New suggestion\s*\(([^)]+)\)/i);
+        const category = m ? m[1] : undefined;
+        let content = typeof o['text'] === 'string' ? (o['text'] as string) : '';
+        if (!content && typeof o['html'] === 'string') {
+          content = (o['html'] as string).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+        }
+        if (!content) continue;
+        const parts = content.split(/\n\s*\n/);
+        if (parts.length >= 2) content = parts.slice(-1)[0].trim();
+        const id = `${Date.parse(createdAt) || Date.now()}-${Buffer.from(content).toString('base64').slice(0,6)}`;
+        out.push({ id, content, category, createdAt });
+      }
+      // Persist to Blob and local to stabilize future reads
+      if (out.length > 0) {
+        try {
+          const { put } = await import('@vercel/blob');
+          const token = await getBlobToken();
+          for (const it of out) {
+            try {
+              await put(`suggestions/${it.id}.json`, JSON.stringify(it), {
+                access: 'public',
+                contentType: 'application/json; charset=utf-8',
+                token,
+                addRandomSuffix: false,
+                allowOverwrite: false,
+              });
+            } catch {}
+          }
+        } catch {}
+        try {
+          const existing = await readSuggestions().catch(() => [] as Suggestion[]);
+          const map = new Map<string, Suggestion>();
+          for (const s of existing) map.set(s.id, s);
+          for (const s of out) map.set(s.id, s);
+          await writeSuggestions(Array.from(map.values()));
+        } catch {}
+      }
+      return out;
+    } catch {
+      return [];
+    }
+  }
+
+  const recovered = await recoverFromResend();
+  return Response.json(recovered);
 }
 
 export async function POST(request: Request) {
