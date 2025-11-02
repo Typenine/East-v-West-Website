@@ -113,7 +113,7 @@ export async function GET() {
     // Fallback: support a single JSON file stored in Blob (legacy)
     if (Object.keys(merged).length === 0) {
       try {
-        const singleFiles = ['data/suggestions.json', 'evw/suggestions.json', 'logs/suggestions.json'];
+        const singleFiles = ['suggestions.json', 'data/suggestions.json', 'evw/suggestions.json', 'logs/suggestions.json', 'public/suggestions.json'];
         for (const key of singleFiles) {
           const r3 = await list({ prefix: key, token } as { prefix: string; token?: string });
           const arr = (r3 as unknown as { blobs?: Array<{ url: string }> }).blobs || [];

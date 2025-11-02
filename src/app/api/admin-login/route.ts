@@ -11,6 +11,14 @@ function isAdmin(req: NextRequest): boolean {
 }
 
 export async function GET(req: NextRequest) {
+  const secret = getSecret();
+  const url = new URL(req.url);
+  const key = url.searchParams.get('key') || '';
+  if (key && key === secret) {
+    const res = NextResponse.json({ ok: true }, { status: 200 });
+    res.cookies.set('evw_admin', secret, { httpOnly: true, sameSite: 'lax', path: '/', maxAge: 60 * 60 * 24 * 30 });
+    return res;
+  }
   return NextResponse.json({ isAdmin: isAdmin(req) }, { status: 200 });
 }
 

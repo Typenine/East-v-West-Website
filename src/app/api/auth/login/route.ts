@@ -1,8 +1,8 @@
 import { NextRequest } from 'next/server';
 import { cookies } from 'next/headers';
 import { resolveCanonicalTeamName } from '@/lib/utils/team-utils';
-import { readTeamPin, writeTeamPin } from '@/lib/server/pins';
-import { verifyPin, signSession, verifySession } from '@/lib/server/auth';
+import { readTeamPin, writeTeamPinWithResult } from '@/lib/server/pins';
+import { verifyPin, signSession, verifySession, hashPin } from '@/lib/server/auth';
 import { logAuthEvent } from '@/lib/server/audit';
 import { TEAM_NAMES } from '@/lib/constants/league';
 // no global map writes; use per-team helpers
@@ -87,8 +87,19 @@ export async function POST(req: NextRequest) {
     }
 
     if (!stored) {
-      await logAuthEvent({ type: 'login_fail', team, ip, ok: false, reason: 'no_pin' });
-      return Response.json({ error: 'PIN not set for this team. Ask admin to set it.' }, { status: 400 });
+      // Fallback: allow default team-index PINs (legacy bootstrap) to log in and seed storage
+      const defaults = ['111111','222222','333333','444444','555555','666666','777777','888888','999999','101010','121212','131313'];
+      const index = TEAM_NAMES.indexOf(team);
+      const expected = index >= 0 ? defaults[index % defaults.length] : null;
+      if (!expected || pin !== expected) {
+        await logAuthEvent({ type: 'login_fail', team, ip, ok: false, reason: 'no_pin' });
+        return Response.json({ error: 'PIN not set for this team. Ask admin to set it.' }, { status: 400 });
+      }
+      // Seed a real hashed PIN from the default
+      const { hash, salt } = await hashPin(expected);
+      const seeded = { hash, salt, pinVersion: 1, updatedAt: new Date().toISOString() };
+      try { await writeTeamPinWithResult(team, seeded); } catch {}
+      stored = seeded;
     }
 
     let ok: boolean;
@@ -102,7 +113,7 @@ export async function POST(req: NextRequest) {
       // Adopt override as current stored pin and attempt to persist to store
       stored = overrideStored;
       try {
-        await writeTeamPin(team, overrideStored);
+        await writeTeamPinWithResult(team, overrideStored);
       } catch {}
     } else {
       ok = await verifyPin(pin, stored.hash, stored.salt);
