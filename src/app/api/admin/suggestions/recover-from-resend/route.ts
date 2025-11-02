@@ -87,3 +87,36 @@ export async function POST(req: NextRequest) {
     return Response.json({ error: e instanceof Error ? e.message : 'server_error' }, { status: 500 });
   }
 }
+
+export async function GET(req: NextRequest) {
+  try {
+    const url = new URL(req.url);
+    const key = url.searchParams.get('key') || '';
+    const adminSecret = process.env.EVW_ADMIN_SECRET || '002023';
+    if (!key || key !== adminSecret) return Response.json({ error: 'forbidden' }, { status: 403 });
+
+    // Same flow as POST
+    const emails = await fetchResendEmails(1000);
+    const items: Suggestion[] = [];
+    for (const e of emails) {
+      const s = parseSuggestionFromEmail(e);
+      if (s) items.push(s);
+    }
+    if (items.length === 0) return Response.json({ ok: true, recovered: 0 });
+
+    items.sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt));
+    const map = new Map<string, Suggestion>();
+    for (const it of items) map.set(it.id, it);
+    const deduped = Array.from(map.values());
+
+    const r = await fetch(`${new URL(req.url).origin}/api/admin/suggestions/import`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-admin-key': adminSecret },
+      body: JSON.stringify({ items: deduped }),
+    });
+    const j = await r.json().catch(() => ({}));
+    return Response.json({ ok: r.ok, recovered: deduped.length, import: j }, { status: r.ok ? 200 : 500 });
+  } catch (e) {
+    return Response.json({ error: e instanceof Error ? e.message : 'server_error' }, { status: 500 });
+  }
+}
