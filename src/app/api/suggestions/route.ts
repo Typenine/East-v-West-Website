@@ -79,6 +79,49 @@ async function readSuggestionsLocalAll(): Promise<Suggestion[]> {
 }
 
 export async function GET() {
+  async function getPublicHosts(): Promise<string[]> {
+    let conf = '';
+    try {
+      const kv = await getKV();
+      if (kv) {
+        const raw = (await kv.get('blob:public_host')) as string | null;
+        if (raw && typeof raw === 'string') conf = raw;
+      }
+    } catch {}
+    const envHost = (process.env.BLOB_PUBLIC_HOST || '').trim();
+    const one = (conf || envHost).trim();
+    const hosts: string[] = [];
+    if (one) hosts.push(one.replace(/^https?:\/\//, '').replace(/\/$/, ''));
+    hosts.push('east-v-west-website-blob.public.blob.vercel-storage.com');
+    return Array.from(new Set(hosts));
+  }
+  async function tryPublicAggregates(): Promise<Suggestion[]> {
+    const hosts = await getPublicHosts();
+    const keys = [
+      'evw/snapshots/suggestions/latest.json',
+      'suggestions.json',
+      'data/suggestions.json',
+      'evw/suggestions.json',
+      'logs/suggestions.json',
+      'public/suggestions.json',
+    ];
+    const out: Record<string, Suggestion> = {};
+    for (const h of hosts) {
+      for (const k of keys) {
+        try {
+          const url = `https://${h}/${k}`;
+          const r = await fetch(url, { cache: 'no-store' });
+          if (!r.ok) continue;
+          const j = (await r.json()) as unknown;
+          if (Array.isArray(j)) {
+            for (const it of j as Suggestion[]) if (it && (it as Suggestion).id) out[(it as Suggestion).id] = it as Suggestion;
+            if (Object.keys(out).length > 0) return Object.values(out);
+          }
+        } catch {}
+      }
+    }
+    return [] as Suggestion[];
+  }
   try {
     const kv = await getKV();
     if (kv) {
@@ -94,6 +137,11 @@ export async function GET() {
   } catch {}
 
   const merged: Record<string, Suggestion> = {};
+
+  try {
+    const pub = await tryPublicAggregates();
+    for (const it of pub) if (it && it.id) merged[it.id] = it;
+  } catch {}
 
   try {
     const local = await readSuggestionsLocalAll();
