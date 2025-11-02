@@ -15,8 +15,7 @@ export async function POST(req: NextRequest) {
     const body = await req.json().catch(() => ({}));
     const teamRaw = typeof body.team === 'string' ? body.team.trim() : '';
     const pin = typeof body.pin === 'string' ? body.pin.trim() : '';
-    const mode = typeof body.mode === 'string' ? body.mode.trim() : '';
-    if (!teamRaw || (!pin && mode !== 'assume')) {
+    if (!teamRaw || !pin) {
       return Response.json({ error: 'team and pin required' }, { status: 400 });
     }
 
@@ -24,29 +23,6 @@ export async function POST(req: NextRequest) {
     if (team === 'Unknown Team') team = teamRaw;
 
     const ip = (req.headers.get('x-forwarded-for') || '').split(',')[0].trim() || 'unknown';
-
-    const isAdmin = (() => {
-      try {
-        const adminSecret = process.env.EVW_ADMIN_SECRET || '002023';
-        const auth = req.headers.get('authorization');
-        if (auth && auth.startsWith('Bearer ')) return auth.slice('Bearer '.length) === adminSecret;
-        const hdr = req.headers.get('x-admin-key');
-        if (hdr && hdr === adminSecret) return true;
-        const cookie = req.cookies.get('evw_admin')?.value;
-        if (cookie && cookie === adminSecret) return true;
-      } catch {}
-      return false;
-    })();
-
-    if (isAdmin && mode === 'assume') {
-      const ttlDays = 30;
-      const payload = { sub: teamRaw, team: teamRaw, pv: 999999, exp: Date.now() + ttlDays * 24 * 60 * 60 * 1000 };
-      const token = signSession(payload);
-      const jar = await cookies();
-      jar.set('evw_session', token, { httpOnly: true, sameSite: 'lax', secure: process.env.NODE_ENV === 'production', path: '/', maxAge: ttlDays * 24 * 60 * 60 });
-      await logAuthEvent({ type: 'login_success', team: teamRaw, ip: 'admin-assume', ok: true, reason: 'admin_assume' });
-      return Response.json({ team: teamRaw, assumed: true }, { status: 200 });
-    }
 
     let stored = await readTeamPin(team);
 

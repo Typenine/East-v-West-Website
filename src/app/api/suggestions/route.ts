@@ -46,16 +46,65 @@ async function writeSuggestions(items: Suggestion[]) {
   await fs.writeFile(DATA_PATH, JSON.stringify(items, null, 2), 'utf8');
 }
 
+async function readSuggestionsLocalAll(): Promise<Suggestion[]> {
+  const out: Record<string, Suggestion> = {};
+  const files = [
+    path.join(process.cwd(), 'data', 'suggestions.json'),
+    path.join(process.cwd(), 'logs', 'suggestions.json'),
+    path.join(process.cwd(), 'public', 'suggestions.json'),
+  ];
+  try {
+    const dir = path.join(process.cwd(), 'data', 'suggestions');
+    const entries = await fs.readdir(dir).catch(() => [] as string[]);
+    for (const name of entries) {
+      if (!name.endsWith('.json')) continue;
+      try {
+        const raw = await fs.readFile(path.join(dir, name), 'utf8');
+        const j = JSON.parse(raw) as unknown;
+        const it = j as Suggestion;
+        if (it && it.id) out[it.id] = it;
+      } catch {}
+    }
+  } catch {}
+  for (const f of files) {
+    try {
+      const raw = await fs.readFile(f, 'utf8');
+      const j = JSON.parse(raw) as unknown;
+      if (Array.isArray(j)) {
+        for (const it of j as Suggestion[]) if (it && (it as Suggestion).id) out[(it as Suggestion).id] = it as Suggestion;
+      }
+    } catch {}
+  }
+  return Object.values(out);
+}
+
 export async function GET() {
-  // Merge sources: Blob + local file, to preserve legacy entries
+  try {
+    const kv = await getKV();
+    if (kv) {
+      const raw = (await kv.get('suggestions:items')) as string | null;
+      if (raw && typeof raw === 'string') {
+        const arr = JSON.parse(raw) as unknown;
+        if (Array.isArray(arr)) {
+          const items = (arr as Suggestion[]).sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
+          return Response.json(items);
+        }
+      }
+    }
+  } catch {}
+
   const merged: Record<string, Suggestion> = {};
+
+  try {
+    const local = await readSuggestionsLocalAll();
+    for (const it of local) if (it && it.id) merged[it.id] = it;
+  } catch {}
 
   try {
     const { list } = await import('@vercel/blob');
     const token = await getBlobToken();
     const prefixes = ['suggestions/', 'evw/suggestions/', 'logs/suggestions/', 'content/suggestions/', 'public/suggestions/'];
     for (const pref of prefixes) {
-      // Try without token then with token
       let blobs: Array<{ url: string; pathname?: string; uploadedAt?: string }> = [];
       try {
         const r1 = await list({ prefix: pref } as { prefix: string });
@@ -78,7 +127,6 @@ export async function GET() {
         } catch {}
       }
     }
-    // Fallback: support a single JSON file stored in Blob (legacy)
     if (Object.keys(merged).length === 0) {
       try {
         const singleFiles = ['suggestions.json', 'data/suggestions.json', 'evw/suggestions.json', 'logs/suggestions.json', 'public/suggestions.json'];
@@ -100,75 +148,14 @@ export async function GET() {
     }
   } catch {}
 
-  try {
-    const local = await readSuggestions();
-    for (const it of local) if (it && it.id) merged[it.id] = it;
-  } catch {}
-
   const items = Object.values(merged).sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
-  if (items.length > 0) {
-    return Response.json(items);
-  }
-
-  // Auto-recover from Resend email history if available and nothing found
-  async function recoverFromResend(): Promise<Suggestion[]> {
-    const key = process.env.RESEND_API_KEY;
-    if (!key) return [];
-    try {
-      const r = await fetch('https://api.resend.com/emails?limit=1000', { headers: { Authorization: `Bearer ${key}` } });
-      if (!r.ok) return [];
-      const j = (await r.json()) as { data?: Array<Record<string, unknown>> };
-      const arr = (j?.data || []) as Array<Record<string, unknown>>;
-      const out: Suggestion[] = [];
-      for (const o of arr) {
-        const subj = typeof o['subject'] === 'string' ? (o['subject'] as string) : '';
-        if (!subj.toLowerCase().startsWith('new suggestion')) continue;
-        const createdAt = typeof o['created_at'] === 'string' ? (o['created_at'] as string) : new Date().toISOString();
-        const m = subj.match(/New suggestion\s*\(([^)]+)\)/i);
-        const category = m ? m[1] : undefined;
-        let content = typeof o['text'] === 'string' ? (o['text'] as string) : '';
-        if (!content && typeof o['html'] === 'string') {
-          content = (o['html'] as string).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
-        }
-        if (!content) continue;
-        const parts = content.split(/\n\s*\n/);
-        if (parts.length >= 2) content = parts.slice(-1)[0].trim();
-        const id = `${Date.parse(createdAt) || Date.now()}-${Buffer.from(content).toString('base64').slice(0,6)}`;
-        out.push({ id, content, category, createdAt });
-      }
-      // Persist to Blob and local to stabilize future reads
-      if (out.length > 0) {
-        try {
-          const { put } = await import('@vercel/blob');
-          const token = await getBlobToken();
-          for (const it of out) {
-            try {
-              await put(`suggestions/${it.id}.json`, JSON.stringify(it), {
-                access: 'public',
-                contentType: 'application/json; charset=utf-8',
-                token,
-                addRandomSuffix: false,
-                allowOverwrite: false,
-              });
-            } catch {}
-          }
-        } catch {}
-        try {
-          const existing = await readSuggestions().catch(() => [] as Suggestion[]);
-          const map = new Map<string, Suggestion>();
-          for (const s of existing) map.set(s.id, s);
-          for (const s of out) map.set(s.id, s);
-          await writeSuggestions(Array.from(map.values()));
-        } catch {}
-      }
-      return out;
-    } catch {
-      return [];
+  try {
+    if (items.length > 0) {
+      const kv = await getKV();
+      if (kv) await kv.set('suggestions:items', JSON.stringify(items));
     }
-  }
-
-  const recovered = await recoverFromResend();
-  return Response.json(recovered);
+  } catch {}
+  return Response.json(items);
 }
 
 export async function POST(request: Request) {
@@ -192,7 +179,29 @@ export async function POST(request: Request) {
       createdAt: now,
     };
 
-    // Write to both stores best-effort
+    try {
+      const kv = await getKV();
+      if (kv) {
+        const raw = (await kv.get('suggestions:items')) as string | null;
+        const arr = raw && typeof raw === 'string' ? (JSON.parse(raw) as Suggestion[]) : [];
+        arr.push(item);
+        await kv.set('suggestions:items', JSON.stringify(arr));
+        if (USE_BLOB) {
+          try {
+            const { put } = await import('@vercel/blob');
+            const token = await getBlobToken();
+            await put('evw/snapshots/suggestions/latest.json', JSON.stringify(arr), {
+              access: 'public',
+              contentType: 'application/json; charset=utf-8',
+              token,
+              addRandomSuffix: false,
+              allowOverwrite: true,
+            });
+          } catch {}
+        }
+      }
+    } catch {}
+
     if (USE_BLOB) {
       try {
         const { put } = await import('@vercel/blob');
