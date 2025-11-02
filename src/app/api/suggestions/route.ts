@@ -78,7 +78,10 @@ async function readSuggestionsLocalAll(): Promise<Suggestion[]> {
   return Object.values(out);
 }
 
-export async function GET() {
+export async function GET(req: Request) {
+  const urlObj = new URL(req.url);
+  const qpToken = (urlObj.searchParams.get('token') || '').trim();
+  const qpHost = (urlObj.searchParams.get('host') || '').trim();
   async function getPublicHosts(): Promise<string[]> {
     let conf = '';
     try {
@@ -89,7 +92,7 @@ export async function GET() {
       }
     } catch {}
     const envHost = (process.env.BLOB_PUBLIC_HOST || '').trim();
-    const one = (conf || envHost).trim();
+    const one = (qpHost || conf || envHost).trim();
     const hosts: string[] = [];
     if (one) hosts.push(one.replace(/^https?:\/\//, '').replace(/\/$/, ''));
     hosts.push('east-v-west-website-blob.public.blob.vercel-storage.com');
@@ -150,7 +153,7 @@ export async function GET() {
 
   try {
     const { list } = await import('@vercel/blob');
-    const token = await getBlobToken();
+    const token = qpToken || (await getBlobToken());
     const prefixes = ['suggestions/', 'evw/suggestions/', 'logs/suggestions/', 'content/suggestions/', 'public/suggestions/'];
     for (const pref of prefixes) {
       let blobs: Array<{ url: string; pathname?: string; uploadedAt?: string }> = [];
