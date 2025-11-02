@@ -46,38 +46,6 @@ async function writeSuggestions(items: Suggestion[]) {
   await fs.writeFile(DATA_PATH, JSON.stringify(items, null, 2), 'utf8');
 }
 
-async function readSuggestionsLocalAll(): Promise<Suggestion[]> {
-  const out: Record<string, Suggestion> = {};
-  const files = [
-    path.join(process.cwd(), 'data', 'suggestions.json'),
-    path.join(process.cwd(), 'logs', 'suggestions.json'),
-    path.join(process.cwd(), 'public', 'suggestions.json'),
-  ];
-  // Per-item directory (data/suggestions/*.json)
-  try {
-    const dir = path.join(process.cwd(), 'data', 'suggestions');
-    const entries = await fs.readdir(dir).catch(() => [] as string[]);
-    for (const name of entries) {
-      if (!name.endsWith('.json')) continue;
-      try {
-        const raw = await fs.readFile(path.join(dir, name), 'utf8');
-        const j = JSON.parse(raw) as unknown;
-        if (j && typeof j === 'object' && (j as Suggestion).id) out[(j as Suggestion).id] = j as Suggestion;
-      } catch {}
-    }
-  } catch {}
-  for (const f of files) {
-    try {
-      const raw = await fs.readFile(f, 'utf8');
-      const j = JSON.parse(raw) as unknown;
-      if (Array.isArray(j)) {
-        for (const it of j as Suggestion[]) if (it && (it as Suggestion).id) out[(it as Suggestion).id] = it as Suggestion;
-      }
-    } catch {}
-  }
-  return Object.values(out);
-}
-
 export async function GET() {
   // Merge sources: Blob + local file, to preserve legacy entries
   const merged: Record<string, Suggestion> = {};
@@ -133,22 +101,8 @@ export async function GET() {
   } catch {}
 
   try {
-    const local = await readSuggestionsLocalAll();
+    const local = await readSuggestions();
     for (const it of local) if (it && it.id) merged[it.id] = it;
-  } catch {}
-
-  // KV
-  try {
-    const kv = await getKV();
-    if (kv) {
-      const raw = (await kv.get('suggestions:items')) as string | null;
-      if (raw && typeof raw === 'string') {
-        const arr = JSON.parse(raw) as unknown;
-        if (Array.isArray(arr)) {
-          for (const it of arr as Suggestion[]) if (it && (it as Suggestion).id) merged[(it as Suggestion).id] = it as Suggestion;
-        }
-      }
-    }
   } catch {}
 
   const items = Object.values(merged).sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
@@ -182,7 +136,7 @@ export async function GET() {
         const id = `${Date.parse(createdAt) || Date.now()}-${Buffer.from(content).toString('base64').slice(0,6)}`;
         out.push({ id, content, category, createdAt });
       }
-      // Persist to Blob, KV and local to stabilize future reads
+      // Persist to Blob and local to stabilize future reads
       if (out.length > 0) {
         try {
           const { put } = await import('@vercel/blob');
@@ -205,18 +159,6 @@ export async function GET() {
           for (const s of existing) map.set(s.id, s);
           for (const s of out) map.set(s.id, s);
           await writeSuggestions(Array.from(map.values()));
-        } catch {}
-        try {
-          const kv = await getKV();
-          if (kv) {
-            const list = Object.values(out);
-            const raw = (await kv.get('suggestions:items')) as string | null;
-            const prior = raw && typeof raw === 'string' ? (JSON.parse(raw) as Suggestion[]) : [];
-            const m = new Map<string, Suggestion>();
-            for (const s of prior) m.set(s.id, s);
-            for (const s of list) m.set(s.id, s);
-            await kv.set('suggestions:items', JSON.stringify(Array.from(m.values())));
-          }
         } catch {}
       }
       return out;
@@ -250,7 +192,7 @@ export async function POST(request: Request) {
       createdAt: now,
     };
 
-    // Write to all stores best-effort
+    // Write to both stores best-effort
     if (USE_BLOB) {
       try {
         const { put } = await import('@vercel/blob');
@@ -271,15 +213,6 @@ export async function POST(request: Request) {
       const items = await readSuggestions();
       items.push(item);
       await writeSuggestions(items);
-    } catch {}
-    try {
-      const kv = await getKV();
-      if (kv) {
-        const raw = (await kv.get('suggestions:items')) as string | null;
-        const arr = raw && typeof raw === 'string' ? (JSON.parse(raw) as Suggestion[]) : [];
-        arr.push(item);
-        await kv.set('suggestions:items', JSON.stringify(arr));
-      }
     } catch {}
     // Fire notification email (best-effort)
     try {
