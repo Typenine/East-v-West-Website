@@ -85,7 +85,7 @@ export async function GET(req: Request) {
   const qpHost = (urlObj.searchParams.get('host') || '').trim();
   try {
     const rows = await dbListSuggestions();
-    if (Array.isArray(rows) && rows.length >= 0) {
+    if (Array.isArray(rows) && rows.length > 0) {
       type Row = { id: string; text: string; category: string | null; createdAt: string | Date };
       const items = (rows as Row[]).map((r) => ({ id: String(r.id), content: String(r.text), category: r.category || undefined, createdAt: new Date(r.createdAt).toISOString() } as Suggestion));
       return Response.json(items);

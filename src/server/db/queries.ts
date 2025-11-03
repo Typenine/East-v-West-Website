@@ -16,9 +16,9 @@ export async function getUserByEmail(email: string) {
   return row || null;
 }
 
-export async function createSuggestion(params: { userId?: string | null; text: string; category?: string | null }) {
+export async function createSuggestion(params: { userId?: string | null; text: string; category?: string | null; createdAt?: Date }) {
   const db = getDb();
-  const [row] = await db.insert(suggestions).values({ userId: params.userId || null, text: params.text, category: params.category || null }).returning();
+  const [row] = await db.insert(suggestions).values({ userId: params.userId || null, text: params.text, category: params.category || null, createdAt: params.createdAt }).returning();
   return row;
 }
 

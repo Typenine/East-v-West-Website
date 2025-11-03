@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server';
 import { getKV } from '@/lib/server/kv';
+import { createSuggestion as dbCreateSuggestion } from '@/server/db/queries';
 import { Suggestion } from '@/app/api/suggestions/route';
 
 export const runtime = 'nodejs';
@@ -36,6 +37,17 @@ export async function POST(req: NextRequest) {
 
     let blobOk = 0;
     let fileOk = 0;
+    let dbOk = 0;
+
+    // Insert into DB first (preserve createdAt if present)
+    try {
+      for (const it of items) {
+        if (!it || !it.content) continue;
+        const created = it.createdAt ? new Date(it.createdAt) : undefined;
+        const row = await dbCreateSuggestion({ userId: null, text: it.content, category: it.category || null, createdAt: created });
+        if (row && row.id) dbOk++;
+      }
+    } catch {}
 
     // Write to Blob itemized
     try {
@@ -74,7 +86,7 @@ export async function POST(req: NextRequest) {
       fileOk = merged.length;
     } catch {}
 
-    return Response.json({ ok: true, writtenBlob: blobOk, totalFile: fileOk });
+    return Response.json({ ok: true, writtenBlob: blobOk, totalFile: fileOk, writtenDb: dbOk });
   } catch {
     return Response.json({ error: 'server_error' }, { status: 500 });
   }
