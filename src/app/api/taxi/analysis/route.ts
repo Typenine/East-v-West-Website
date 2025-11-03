@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server';
 import { computeTaxiAnalysisForRoster } from '@/lib/utils/taxi';
+import { getTaxiObservation, setTaxiObservation } from '@/server/db/queries';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -8,19 +9,9 @@ type TaxiObsDoc = { team: string; updatedAt?: string; players: Record<string, { 
 
 async function readObservation(teamKey: string): Promise<TaxiObsDoc | null> {
   try {
-    const { list } = await import('@vercel/blob');
-    const prefix = `logs/taxi/observations/${encodeURIComponent(teamKey)}.json`;
-    const { blobs } = await list({ prefix });
-    type BlobMeta = { pathname: string; url: string };
-    const arr = (blobs as unknown as BlobMeta[]) || [];
-    const hit = arr.find((b) => b.pathname === prefix);
-    if (!hit) return null;
-    const r = await fetch(hit.url, { cache: 'no-store' });
-    if (!r.ok) return null;
-    const j = (await r.json()) as unknown;
-    if (!j || typeof j !== 'object') return null;
-    const doc = j as TaxiObsDoc;
-    return doc;
+    const row = await getTaxiObservation(teamKey);
+    if (!row) return null;
+    return { team: teamKey, updatedAt: (row.updatedAt as unknown as Date)?.toISOString?.() || undefined, players: (row.players as any) } as TaxiObsDoc;
   } catch {
     return null;
   }
@@ -28,14 +19,7 @@ async function readObservation(teamKey: string): Promise<TaxiObsDoc | null> {
 
 async function writeObservation(teamKey: string, doc: { team: string; updatedAt: string; players: Record<string, { firstSeen: string; lastSeen: string; seenCount: number }> }) {
   try {
-    const { put } = await import('@vercel/blob');
-    const key = `logs/taxi/observations/${encodeURIComponent(teamKey)}.json`;
-    await put(key, JSON.stringify(doc, null, 2), {
-      access: 'public',
-      contentType: 'application/json; charset=utf-8',
-      token: process.env.BLOB_READ_WRITE_TOKEN,
-      allowOverwrite: true,
-    });
+    await setTaxiObservation(teamKey, { updatedAt: new Date(doc.updatedAt), players: doc.players });
   } catch {
     /* ignore */
   }

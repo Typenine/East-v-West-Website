@@ -1,5 +1,5 @@
 import { getDb } from './client';
-import { users, suggestions, taxiSquadMembers, taxiSquadEvents } from './schema';
+import { users, suggestions, taxiSquadMembers, taxiSquadEvents, teamPins, taxiObservations } from './schema';
 import { eq, and, isNull, desc } from 'drizzle-orm';
 
 export type Role = 'admin' | 'user';
@@ -62,4 +62,36 @@ export async function listTaxiEvents(teamId: string, limit = 100) {
   const db = getDb();
   const rows = await db.select().from(taxiSquadEvents).where(eq(taxiSquadEvents.teamId, teamId)).orderBy(desc(taxiSquadEvents.eventAt));
   return rows.slice(0, limit);
+}
+
+export async function getTeamPinBySlug(teamSlug: string) {
+  const db = getDb();
+  const [row] = await db.select().from(teamPins).where(eq(teamPins.teamSlug, teamSlug)).limit(1);
+  return row || null;
+}
+
+export async function setTeamPin(teamSlug: string, value: { hash: string; salt: string; pinVersion: number; updatedAt?: Date }) {
+  const db = getDb();
+  const [row] = await db
+    .insert(teamPins)
+    .values({ teamSlug, hash: value.hash, salt: value.salt, pinVersion: value.pinVersion, updatedAt: value.updatedAt || new Date() })
+    .onConflictDoUpdate({ target: teamPins.teamSlug, set: { hash: value.hash, salt: value.salt, pinVersion: value.pinVersion, updatedAt: value.updatedAt || new Date() } })
+    .returning();
+  return row;
+}
+
+export async function getTaxiObservation(team: string) {
+  const db = getDb();
+  const [row] = await db.select().from(taxiObservations).where(eq(taxiObservations.team, team)).limit(1);
+  return row || null;
+}
+
+export async function setTaxiObservation(team: string, payload: { updatedAt: Date; players: Record<string, { firstSeen: string; lastSeen: string; seenCount: number }> }) {
+  const db = getDb();
+  const [row] = await db
+    .insert(taxiObservations)
+    .values({ team, updatedAt: payload.updatedAt, players: payload.players })
+    .onConflictDoUpdate({ target: taxiObservations.team, set: { updatedAt: payload.updatedAt, players: payload.players } })
+    .returning();
+  return row;
 }

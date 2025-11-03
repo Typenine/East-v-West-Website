@@ -3,6 +3,7 @@ import path from 'path';
 import { getKV } from '@/lib/server/kv';
 import { TEAM_NAMES } from '@/lib/constants/league';
 import { normalizeName } from '@/lib/constants/team-mapping';
+import { getTeamPinBySlug, setTeamPin } from '@/server/db/queries';
 
 export type StoredPin = {
   hash: string;
@@ -33,6 +34,14 @@ function canonicalizeTeamName(name: string): string {
 
 export async function readTeamPin(team: string): Promise<StoredPin | null> {
   const key = teamBlobKey(team);
+  // DB first
+  try {
+    const slug = teamSlug(canonicalizeTeamName(team));
+    const row = await getTeamPinBySlug(slug);
+    if (row && typeof row.hash === 'string' && typeof row.salt === 'string') {
+      return { hash: row.hash as string, salt: row.salt as string, pinVersion: Number(row.pinVersion || 1), updatedAt: new Date(row.updatedAt as unknown as Date).toISOString() };
+    }
+  } catch {}
   try {
     const { list } = await import('@vercel/blob');
     const token = await getBlobToken();
@@ -125,6 +134,11 @@ function isStoredPin(v: unknown): v is StoredPin {
 export async function writeTeamPinWithError(team: string, value: StoredPin): Promise<{ ok: boolean; error?: string }> {
   const key = teamBlobKey(team);
   try {
+    // Write-through to DB
+    try {
+      const slug = teamSlug(canonicalizeTeamName(team));
+      await setTeamPin(slug, { hash: value.hash, salt: value.salt, pinVersion: value.pinVersion, updatedAt: new Date(value.updatedAt) });
+    } catch {}
     const { put } = await import('@vercel/blob');
     const token = await getBlobToken();
     await put(key, JSON.stringify(value, null, 2), {
@@ -165,6 +179,11 @@ export async function writeTeamPinWithResult(team: string, value: StoredPin): Pr
   let blobOk = false;
   let kvOk = false;
   let fsOk = false;
+  // DB write
+  try {
+    const slug = teamSlug(canonicalizeTeamName(team));
+    await setTeamPin(slug, { hash: value.hash, salt: value.salt, pinVersion: value.pinVersion, updatedAt: new Date(value.updatedAt) });
+  } catch {}
   try { blobOk = await writeTeamPin(team, value); } catch { blobOk = false; }
   try {
     const kv = await getKV();

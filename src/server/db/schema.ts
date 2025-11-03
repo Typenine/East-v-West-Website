@@ -89,3 +89,9 @@ export const teamPins = pgTable('team_pins', {
 }, (t) => ({
   slugIdx: index('team_pins_slug_idx').on(t.teamSlug),
 }));
+
+export const taxiObservations = pgTable('taxi_observations', {
+  team: varchar('team', { length: 255 }).primaryKey(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+  players: jsonb('players').$type<Record<string, { firstSeen: string; lastSeen: string; seenCount: number }>>().notNull(),
+});
