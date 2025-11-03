@@ -5,13 +5,16 @@ import { getTaxiObservation, setTaxiObservation } from '@/server/db/queries';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-type TaxiObsDoc = { team: string; updatedAt?: string; players: Record<string, { firstSeen: string; lastSeen: string; seenCount: number }> };
+type TaxiPlayerStats = { firstSeen: string; lastSeen: string; seenCount: number };
+type TaxiObsDoc = { team: string; updatedAt?: string; players: Record<string, TaxiPlayerStats> };
 
 async function readObservation(teamKey: string): Promise<TaxiObsDoc | null> {
   try {
     const row = await getTaxiObservation(teamKey);
     if (!row) return null;
-    return { team: teamKey, updatedAt: (row.updatedAt as unknown as Date)?.toISOString?.() || undefined, players: (row.players as any) } as TaxiObsDoc;
+    const players = row.players as unknown as Record<string, TaxiPlayerStats>;
+    const updatedAtIso = (row.updatedAt as unknown as Date)?.toISOString?.();
+    return { team: teamKey, updatedAt: updatedAtIso || undefined, players } as TaxiObsDoc;
   } catch {
     return null;
   }

@@ -6,7 +6,7 @@ export type Role = 'admin' | 'user';
 
 export async function createUser(params: { email: string; displayName?: string; role?: Role }) {
   const db = getDb();
-  const [row] = await db.insert(users).values({ email: params.email, displayName: params.displayName, role: (params.role || 'user') as any }).returning();
+  const [row] = await db.insert(users).values({ email: params.email, displayName: params.displayName, role: (params.role || 'user') as 'admin' | 'user' }).returning();
   return row;
 }
 
@@ -54,7 +54,7 @@ export async function listTaxiMembers(teamId: string) {
 
 export async function logTaxiEvent(params: { teamId: string; playerId: string; eventType: 'add' | 'remove' | 'promote' | 'demote'; eventAt?: Date; meta?: Record<string, unknown> | null }) {
   const db = getDb();
-  const [row] = await db.insert(taxiSquadEvents).values({ teamId: params.teamId, playerId: params.playerId, eventType: params.eventType as any, eventAt: params.eventAt || new Date(), meta: params.meta || null }).returning();
+  const [row] = await db.insert(taxiSquadEvents).values({ teamId: params.teamId, playerId: params.playerId, eventType: params.eventType, eventAt: params.eventAt || new Date(), meta: params.meta || null }).returning();
   return row;
 }
 
