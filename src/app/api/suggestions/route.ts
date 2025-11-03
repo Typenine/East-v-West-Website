@@ -2,6 +2,7 @@ import { promises as fs } from 'fs';
 import path from 'path';
 import { sendEmail } from '@/lib/utils/email';
 import { getKV } from '@/lib/server/kv';
+import { listSuggestions as dbListSuggestions, createSuggestion as dbCreateSuggestion } from '@/server/db/queries';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -82,6 +83,14 @@ export async function GET(req: Request) {
   const urlObj = new URL(req.url);
   const qpToken = (urlObj.searchParams.get('token') || '').trim();
   const qpHost = (urlObj.searchParams.get('host') || '').trim();
+  try {
+    const rows = await dbListSuggestions();
+    if (Array.isArray(rows) && rows.length >= 0) {
+      type Row = { id: string; text: string; category: string | null; createdAt: string | Date };
+      const items = (rows as Row[]).map((r) => ({ id: String(r.id), content: String(r.text), category: r.category || undefined, createdAt: new Date(r.createdAt).toISOString() } as Suggestion));
+      return Response.json(items);
+    }
+  } catch {}
   async function getPublicHosts(): Promise<string[]> {
     let conf = '';
     try {
@@ -222,6 +231,18 @@ export async function POST(request: Request) {
       return Response.json({ error: 'Content too long (max 5000 chars).' }, { status: 400 });
     }
 
+    // basic IP rate-limit 10/min
+    try {
+      const ip = (request.headers.get('x-forwarded-for') || '').split(',')[0].trim() || 'unknown';
+      const kv = await getKV();
+      if (kv) {
+        const key = `rl:suggestions:${ip}`;
+        const n = await kv.incr(key);
+        if (kv.expire && n === 1) await kv.expire(key, 60);
+        if (n > 10) return Response.json({ error: 'Too many requests' }, { status: 429 });
+      }
+    } catch {}
+
     const now = new Date().toISOString();
     const item: Suggestion = {
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
@@ -229,27 +250,12 @@ export async function POST(request: Request) {
       category: category && category.length > 0 ? category : undefined,
       createdAt: now,
     };
-
+    // DB first
     try {
-      const kv = await getKV();
-      if (kv) {
-        const raw = (await kv.get('suggestions:items')) as string | null;
-        const arr = raw && typeof raw === 'string' ? (JSON.parse(raw) as Suggestion[]) : [];
-        arr.push(item);
-        await kv.set('suggestions:items', JSON.stringify(arr));
-        if (USE_BLOB) {
-          try {
-            const { put } = await import('@vercel/blob');
-            const token = await getBlobToken();
-            await put('evw/snapshots/suggestions/latest.json', JSON.stringify(arr), {
-              access: 'public',
-              contentType: 'application/json; charset=utf-8',
-              token,
-              addRandomSuffix: false,
-              allowOverwrite: true,
-            });
-          } catch {}
-        }
+      const row = await dbCreateSuggestion({ userId: null, text: item.content, category: item.category || null });
+      if (row && row.id) {
+        item.id = String(row.id);
+        item.createdAt = new Date(row.createdAt).toISOString();
       }
     } catch {}
 

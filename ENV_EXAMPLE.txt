@@ -1,0 +1,8 @@
+# Copy to .env.local and fill in
+DATABASE_URL=
+R2_ACCOUNT_ID=
+R2_ACCESS_KEY_ID=
+R2_SECRET_ACCESS_KEY=
+R2_BUCKET=
+# Optional public base for R2 files if you put Cloudflare Worker or CDN in front
+R2_PUBLIC_BASE=

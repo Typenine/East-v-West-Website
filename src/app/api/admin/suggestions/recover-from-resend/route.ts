@@ -16,8 +16,17 @@ function isAdmin(req: NextRequest): boolean {
   return false;
 }
 
-async function fetchResendEmails(limit = 1000): Promise<Array<{ id: string; created_at?: string; subject?: string; to?: string[]; from?: string; text?: string; html?: string }>> {
-  const key = process.env.RESEND_API_KEY;
+function getResendKey(req: NextRequest): string | undefined {
+  const url = new URL(req.url);
+  const q = url.searchParams.get('rkey');
+  if (q && q.trim()) return q.trim();
+  const h = req.headers.get('x-resend-key');
+  if (h && h.trim()) return h.trim();
+  return process.env.RESEND_API_KEY;
+}
+
+async function fetchResendEmails(req: NextRequest, limit = 1000): Promise<Array<{ id: string; created_at?: string; subject?: string; to?: string[]; from?: string; text?: string; html?: string }>> {
+  const key = getResendKey(req);
   if (!key) throw new Error('RESEND_API_KEY missing');
   const url = `https://api.resend.com/emails?limit=${limit}`;
   const r = await fetch(url, { headers: { Authorization: `Bearer ${key}` } });
@@ -61,7 +70,7 @@ function parseSuggestionFromEmail(e: { created_at?: string; subject?: string; te
 export async function POST(req: NextRequest) {
   if (!isAdmin(req)) return Response.json({ error: 'forbidden' }, { status: 403 });
   try {
-    const emails = await fetchResendEmails(1000);
+    const emails = await fetchResendEmails(req, 1000);
     const items: Suggestion[] = [];
     for (const e of emails) {
       const s = parseSuggestionFromEmail(e);
@@ -96,7 +105,7 @@ export async function GET(req: NextRequest) {
     if (!key || key !== adminSecret) return Response.json({ error: 'forbidden' }, { status: 403 });
 
     // Same flow as POST
-    const emails = await fetchResendEmails(1000);
+    const emails = await fetchResendEmails(req, 1000);
     const items: Suggestion[] = [];
     for (const e of emails) {
       const s = parseSuggestionFromEmail(e);
