@@ -47,7 +47,7 @@ async function ensureClient(): Promise<void> {
     _client = new S3Client({
       region,
       endpoint,
-      forcePathStyle: true,
+      // use virtual-hosted-style by default (recommended by Cloudflare R2)
       credentials: { accessKeyId, secretAccessKey },
     });
   })();
