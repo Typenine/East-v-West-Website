@@ -7,7 +7,7 @@ const want = {
   R2_ACCOUNT_ID: 'fdfd423971a9c0252e3299efe2ebaa33',
   R2_BUCKET: 'east-v-west',
   R2_ACCESS_KEY_ID: '65d28efd570ed73c469bc9ddfaf381d0',
-  R2_SECRET_ACCESS_KEY: '478da723e2c87cc9f9f72041d5ab8789c8ac3581fec06ef38564716eb2cdd633c',
+  R2_SECRET_ACCESS_KEY: '3814f2f8664d086cad719692f1e5e4781b905766978331a8f3cb38713c0ce4d2',
 };
 
 function setEnvLines(p, vars) {

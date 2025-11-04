@@ -14,7 +14,7 @@ export async function GET() {
     };
     try {
       // Try to instantiate the client; will throw if required envs missing
-      getR2Client();
+      await getR2Client();
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       return Response.json({ ok: false, have, error: msg }, { status: 500 });
