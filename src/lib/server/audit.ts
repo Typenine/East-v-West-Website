@@ -8,12 +8,9 @@ type AuthEvent = {
 
 export async function logAuthEvent(e: AuthEvent): Promise<void> {
   try {
-    const { put } = await import('@vercel/blob');
+    const { putObjectText } = await import('@/server/storage/r2');
     const key = `logs/auth/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.json`;
-    await put(key, JSON.stringify({ ts: new Date().toISOString(), ...e }), {
-      access: 'public',
-      contentType: 'application/json; charset=utf-8',
-    });
+    await putObjectText({ key, text: JSON.stringify({ ts: new Date().toISOString(), ...e }) });
   } catch {
     // best-effort only
   }

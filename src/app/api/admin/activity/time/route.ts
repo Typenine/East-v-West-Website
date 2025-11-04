@@ -1,4 +1,5 @@
 import { NextRequest } from 'next/server';
+import { listKeys, getObjectText } from '@/server/storage/r2';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -24,32 +25,36 @@ export async function GET(req: NextRequest) {
     const days = Math.max(1, Math.min(365, Number(daysParam) || 7));
     const sinceTs = Date.now() - days * 24 * 60 * 60 * 1000;
 
-    const { list } = await import('@vercel/blob');
-    const { blobs } = await list({ prefix: 'logs/activity/heartbeats/' });
-    type BlobMeta = { pathname: string; url: string };
-    const metas: BlobMeta[] = (blobs as unknown as BlobMeta[]).filter((b) => b.pathname.startsWith('logs/activity/heartbeats/'));
-
     type Beat = { ts: string; team: string; userId: string };
 
     const counts = new Map<string, { team: string; beats: number; lastSeen: string | null }>();
 
-    await Promise.all(
-      metas.map(async (m) => {
-        try {
-          const r = await fetch(m.url, { cache: 'no-store' });
-          if (!r.ok) return;
-          const beat = (await r.json()) as Beat;
-          if (!beat || !beat.ts || !beat.team) return;
-          const tsNum = Date.parse(beat.ts);
-          if (Number.isNaN(tsNum) || tsNum < sinceTs) return;
-          const team = beat.team;
-          const prev = counts.get(team) || { team, beats: 0, lastSeen: null };
-          prev.beats += 1;
-          if (!prev.lastSeen || tsNum > Date.parse(prev.lastSeen)) prev.lastSeen = new Date(tsNum).toISOString();
-          counts.set(team, prev);
-        } catch {}
-      })
-    );
+    // List per-day prefixes to avoid scanning entire bucket
+    const daysList: string[] = [];
+    for (let i = 0; i < days; i++) {
+      const d = new Date(sinceTs + i * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+      daysList.push(d);
+    }
+    for (const day of daysList) {
+      try {
+        const keys = await listKeys({ prefix: `logs/activity/heartbeats/${day}/`, max: 2000 });
+        for (const k of keys) {
+          try {
+            const txt = await getObjectText({ key: k });
+            if (!txt) continue;
+            const beat = JSON.parse(txt) as Beat;
+            if (!beat || !beat.ts || !beat.team) continue;
+            const tsNum = Date.parse(beat.ts);
+            if (Number.isNaN(tsNum) || tsNum < sinceTs) continue;
+            const team = beat.team;
+            const prev = counts.get(team) || { team, beats: 0, lastSeen: null };
+            prev.beats += 1;
+            if (!prev.lastSeen || tsNum > Date.parse(prev.lastSeen)) prev.lastSeen = new Date(tsNum).toISOString();
+            counts.set(team, prev);
+          } catch {}
+        }
+      } catch {}
+    }
 
     const rows = Array.from(counts.values())
       .map((v) => ({

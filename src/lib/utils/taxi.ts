@@ -1,5 +1,6 @@
 import { LEAGUE_IDS } from '@/lib/constants/league';
 import { getTeamsData, getLeagueMatchups, getLeagueTransactionsAllWeeks, getAllPlayersCached, SleeperTransaction, getLeagueRosters, getNFLState } from '@/lib/utils/sleeper-api';
+import { getObjectText } from '@/server/storage/r2';
 import { resolveCanonicalTeamName } from '@/lib/utils/team-utils';
 
 export type TaxiLimits = { maxSlots: number; maxQB: number };
@@ -50,16 +51,10 @@ export async function computeTaxiAnalysisForRoster(selectedSeason: string, selec
     const key = `${year}-W${week}`;
     if (snapshotCache.has(key)) return snapshotCache.get(key)!;
     try {
-      const { list } = await import('@vercel/blob');
       const path = `logs/lineups/snapshots/${year}-W${week}.json`;
-      const { blobs } = await list({ prefix: 'logs/lineups/snapshots/' });
-      type BlobMeta = { pathname: string; url: string };
-      const arr = (blobs as unknown as BlobMeta[]) || [];
-      const hit = arr.find((b) => b.pathname === path);
-      if (!hit) { snapshotCache.set(key, new Map()); return null; }
-      const r = await fetch(hit.url, { cache: 'no-store' });
-      if (!r.ok) { snapshotCache.set(key, new Map()); return null; }
-      const j = await r.json();
+      const txt = await getObjectText({ key: path });
+      if (!txt) { snapshotCache.set(key, new Map()); return null; }
+      const j = JSON.parse(txt);
       const map = new Map<number, { starters: string[]; bench: string[]; reserve: string[] }>();
       const teams = (j?.teams as Array<{ rosterId: number; starters: string[]; bench: string[]; reserve?: string[] }> | undefined) || [];
       for (const t of teams) {

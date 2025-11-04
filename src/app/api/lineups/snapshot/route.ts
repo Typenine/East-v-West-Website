@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server';
 import { LEAGUE_IDS } from '@/lib/constants/league';
 import { getTeamsData, getLeagueMatchups, getAllPlayersCached } from '@/lib/utils/sleeper-api';
+import { getObjectText, putObjectText } from '@/server/storage/r2';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -18,16 +19,10 @@ export async function GET(req: NextRequest) {
   const week = Number(weekStr);
   if (!year || !Number.isFinite(week) || week <= 0) return Response.json({ error: 'bad_request' }, { status: 400 });
   try {
-    const { list } = await import('@vercel/blob');
     const key = `logs/lineups/snapshots/${year}-W${week}.json`;
-    const { blobs } = await list({ prefix: 'logs/lineups/snapshots/' });
-    type BlobMeta = { pathname: string; url: string };
-    const arr = (blobs as unknown as BlobMeta[]) || [];
-    const hit = arr.find((b) => b.pathname === key);
-    if (!hit) return Response.json({ error: 'not_found' }, { status: 404 });
-    const r = await fetch(hit.url, { cache: 'no-store' });
-    if (!r.ok) return Response.json({ error: 'not_found' }, { status: 404 });
-    const j = await r.json();
+    const txt = await getObjectText({ key });
+    if (!txt) return Response.json({ error: 'not_found' }, { status: 404 });
+    const j = JSON.parse(txt);
     return Response.json(j);
   } catch {
     return Response.json({ error: 'server_error' }, { status: 500 });
@@ -97,14 +92,8 @@ export async function POST(req: NextRequest) {
       meta: { source: 'manual', accurateTaxi: false, accurateReserve: false },
     };
 
-    const { put } = await import('@vercel/blob');
     const key = `logs/lineups/snapshots/${year}-W${week}.json`;
-    await put(key, JSON.stringify(snapshot, null, 2), {
-      access: 'public',
-      contentType: 'application/json; charset=utf-8',
-      token: process.env.BLOB_READ_WRITE_TOKEN,
-      allowOverwrite: true,
-    });
+    await putObjectText({ key, text: JSON.stringify(snapshot, null, 2) });
 
     return Response.json({ ok: true, key });
   } catch {

@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server';
 import { getKV } from '@/lib/server/kv';
+import { listKeys } from '@/server/storage/r2';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -19,30 +20,21 @@ export async function GET(req: NextRequest) {
   try {
     const out: Record<string, unknown> = { ok: true };
 
-    // Suggestions in Blob
+    // R2 diagnostics
     try {
-      const { list } = await import('@vercel/blob');
-      const token = await getBlobToken();
-      const prefixes = ['suggestions/', 'evw/suggestions/', 'logs/suggestions/', 'content/suggestions/', 'public/suggestions/'];
-      const counts: Record<string, number> = {};
-      for (const pref of prefixes) {
-        try {
-          const r1 = await list({ prefix: pref } as { prefix: string });
-          const c1 = (r1 as unknown as { blobs?: unknown[] }).blobs?.length || 0;
-          let c = c1;
-          if (c === 0 && token) {
-            const r2 = await list({ prefix: pref, token } as { prefix: string; token?: string });
-            c = (r2 as unknown as { blobs?: unknown[] }).blobs?.length || 0;
-          }
-          counts[pref] = c;
-        } catch {}
-      }
-      out.blobSuggestions = counts;
+      const snapshots = await listKeys({ prefix: 'logs/lineups/snapshots/', max: 5000 });
+      out.r2Snapshots = snapshots.length;
     } catch (e) {
-      out.blobSuggestions = { error: String(e) };
+      out.r2Snapshots = { error: String(e) };
+    }
+    try {
+      const tradeBlocks = await listKeys({ prefix: 'tradeblock/', max: 5000 });
+      out.r2TradeBlocks = tradeBlocks.length;
+    } catch (e) {
+      out.r2TradeBlocks = { error: String(e) };
     }
 
-    // Suggestions KV
+    // KV diagnostics
     try {
       const kv = await getKV();
       if (kv) {
@@ -53,40 +45,6 @@ export async function GET(req: NextRequest) {
       }
     } catch (e) {
       out.kvSuggestionsCount = { error: String(e) };
-    }
-
-    // Pins Map in Blob (global)
-    try {
-      const { list } = await import('@vercel/blob');
-      const token = await getBlobToken();
-      const keys = ['auth/team-pins.json', 'evw/team-pins.json', 'data/team-pins.json', 'auth/pins.json'];
-      const counts: Record<string, number> = {};
-      for (const key of keys) {
-        try {
-          const r = await list({ prefix: key, token } as { prefix: string; token?: string });
-          counts[key] = (r as unknown as { blobs?: unknown[] }).blobs?.length || 0;
-        } catch {}
-      }
-      out.blobPinsMaps = counts;
-    } catch (e) {
-      out.blobPinsMaps = { error: String(e) };
-    }
-
-    // Per-team pin files in Blob
-    try {
-      const { list } = await import('@vercel/blob');
-      const token = await getBlobToken();
-      const prefixes = ['auth/pins/', 'auth/team-pins/', 'evw/pins/'];
-      const counts: Record<string, number> = {};
-      for (const pref of prefixes) {
-        try {
-          const r = await list({ prefix: pref, token } as { prefix: string; token?: string });
-          counts[pref] = (r as unknown as { blobs?: unknown[] }).blobs?.length || 0;
-        } catch {}
-      }
-      out.blobPinsPerTeam = counts;
-    } catch (e) {
-      out.blobPinsPerTeam = { error: String(e) };
     }
 
     return Response.json(out);

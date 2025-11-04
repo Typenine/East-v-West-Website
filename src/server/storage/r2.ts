@@ -1,4 +1,5 @@
 import { S3Client, PutObjectCommand, GetObjectCommand, ListObjectsV2Command } from '@aws-sdk/client-s3';
+import type { ListObjectsV2CommandOutput } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { getStorageConfig, setStorageConfig } from '@/server/db/r2-queries';
 
@@ -179,6 +180,61 @@ export async function putObjectText(params: { key: string; text: string }) {
   const m: Mode = chosenMode || 'path';
   const client = getClient(m);
   await client.send(new PutObjectCommand({ Bucket: BUCKET(), Key: params.key, Body: params.text, ContentType: 'text/plain' }));
+}
+
+export async function putObjectBytes(params: { key: string; body: Uint8Array | ArrayBuffer; contentType?: string }) {
+  await boot();
+  const m: Mode = chosenMode || 'path';
+  const client = getClient(m);
+  const body = params.body instanceof Uint8Array ? params.body : new Uint8Array(params.body);
+  await client.send(new PutObjectCommand({ Bucket: BUCKET(), Key: params.key, Body: body, ContentType: params.contentType || 'application/octet-stream' }));
+}
+
+export async function getObjectText(params: { key: string }): Promise<string | null> {
+  await boot();
+  const m: Mode = chosenMode || 'path';
+  const client = getClient(m);
+  const res = await client.send(new GetObjectCommand({ Bucket: BUCKET(), Key: params.key }));
+  const body: unknown = (res as unknown as { Body?: unknown }).Body;
+  if (!body) return null;
+  const tts = (body as { transformToString?: unknown }).transformToString;
+  if (typeof tts === 'function') {
+    return await (tts as () => Promise<string>)();
+  }
+  try {
+    const chunks: Uint8Array[] = [];
+    const on = (body as { on?: unknown }).on;
+    if (typeof on !== 'function') return null;
+    await new Promise<void>((resolve, reject) => {
+      (on as (event: string, cb: (c: Uint8Array) => void) => void).call(body, 'data', (c: Uint8Array) => chunks.push(c));
+      (on as (event: string, cb: () => void) => void).call(body, 'end', () => resolve());
+      (on as (event: string, cb: (err: unknown) => void) => void).call(body, 'error', reject);
+    });
+    const buf = Buffer.concat(chunks);
+    return buf.toString('utf8');
+  } catch {
+    return null;
+  }
+}
+
+export async function listKeys(params: { prefix: string; max?: number }): Promise<string[]> {
+  await boot();
+  const m: Mode = chosenMode || 'path';
+  const client = getClient(m);
+  const out: string[] = [];
+  let token: string | undefined = undefined;
+  const limit = Math.max(1, Math.min(5000, params.max ?? 1000));
+  while (out.length < limit) {
+    const res: ListObjectsV2CommandOutput = await client.send(new ListObjectsV2Command({ Bucket: BUCKET(), Prefix: params.prefix, ContinuationToken: token, MaxKeys: Math.min(1000, limit - out.length) }));
+    const contents = res.Contents || [];
+    for (const c of contents) {
+      if (c.Key) out.push(c.Key);
+      if (out.length >= limit) break;
+    }
+    if (!res.IsTruncated || !res.NextContinuationToken) break;
+    token = res.NextContinuationToken;
+  }
+  return out;
 }
 
 // Expose status for health route

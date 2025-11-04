@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { list, put } from '@vercel/blob';
+import { getObjectText, putObjectText } from '@/server/storage/r2';
 
 // In-memory fallback (dev/local only)
 let memoryStore: { trades: ManualTrade[]; ts: number } = { trades: [], ts: 0 };
@@ -30,19 +30,12 @@ export type ManualTrade = {
 const BLOB_PATH = 'evw/manual_trades.json';
 
 async function loadAll(): Promise<ManualTrade[]> {
-  // Blob primary
+  // R2 primary
   try {
-    const { blobs } = await list({ prefix: BLOB_PATH, token: process.env.BLOB_READ_WRITE_TOKEN });
-    const entry = blobs.find(b => b.pathname === BLOB_PATH) || null;
-    if (entry) {
-      const res = await fetch(entry.url, { cache: 'no-store' });
-      if (res.ok) {
-        const text = await res.text();
-        try {
-          const json = JSON.parse(text);
-          if (Array.isArray(json)) return json as ManualTrade[];
-        } catch {}
-      }
+    const txt = await getObjectText({ key: BLOB_PATH });
+    if (txt) {
+      const json = JSON.parse(txt);
+      if (Array.isArray(json)) return json as ManualTrade[];
     }
   } catch {}
   // In-memory fallback (local only)
@@ -50,15 +43,9 @@ async function loadAll(): Promise<ManualTrade[]> {
 }
 
 async function saveAll(trades: ManualTrade[]) {
-  // Blob primary
+  // R2 primary
   try {
-    await put(BLOB_PATH, JSON.stringify(trades, null, 2), {
-      access: 'public',
-      contentType: 'application/json; charset=utf-8',
-      addRandomSuffix: false,
-      allowOverwrite: true,
-      token: process.env.BLOB_READ_WRITE_TOKEN,
-    });
+    await putObjectText({ key: BLOB_PATH, text: JSON.stringify(trades, null, 2) });
     return;
   } catch {}
   // In-memory fallback

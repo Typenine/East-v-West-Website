@@ -1,5 +1,6 @@
 import { cookies } from 'next/headers';
 import { requireTeamUser } from '@/lib/server/session';
+import { putObjectText } from '@/server/storage/r2';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -35,8 +36,7 @@ export async function POST() {
     const payload = { ts, team, userId };
 
     try {
-      const { put } = await import('@vercel/blob');
-      await put(key, JSON.stringify(payload), { access: 'public', contentType: 'application/json; charset=utf-8' });
+      await putObjectText({ key, text: JSON.stringify(payload) });
     } catch {}
 
     return Response.json({ ok: true });

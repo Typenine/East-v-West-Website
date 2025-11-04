@@ -1,5 +1,6 @@
 import { LEAGUE_IDS } from '@/lib/constants/league';
 import { getTeamsData, getLeagueMatchups, getAllPlayersCached } from '@/lib/utils/sleeper-api';
+import { getObjectText, putObjectText } from '@/server/storage/r2';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -31,10 +32,8 @@ export async function GET(req: Request) {
       if (anyPoints) playedWeeks.push(i + 1);
     }
 
-    const { list, put } = await import('@vercel/blob');
-    const { blobs } = await list({ prefix: 'logs/lineups/snapshots/' });
-    type BlobMeta = { pathname: string };
-    const existing = new Set(((blobs as unknown as BlobMeta[]) || []).map((b) => b.pathname));
+    // Gather existing snapshot keys by attempting a get on each target key when needed
+    const existing = new Set<string>();
 
     const [teams, players] = await Promise.all([
       getTeamsData(leagueId).catch(() => [] as Array<{ rosterId: number; teamName: string }>),
@@ -45,7 +44,7 @@ export async function GET(req: Request) {
 
     for (const week of playedWeeks) {
       const key = `logs/lineups/snapshots/${year}-W${week}.json`;
-      if (!overwrite && existing.has(key)) {
+      if (!overwrite && (existing.has(key) || (await getObjectText({ key })) )) {
         results.push({ week, status: 'skipped' });
         continue;
       }
@@ -88,12 +87,7 @@ export async function GET(req: Request) {
         meta: { source: 'backfill', accurateTaxi: false, accurateReserve: false },
       };
 
-      await put(key, JSON.stringify(snapshot, null, 2), {
-        access: 'public',
-        contentType: 'application/json; charset=utf-8',
-        token: process.env.BLOB_READ_WRITE_TOKEN,
-        allowOverwrite: true,
-      });
+      await putObjectText({ key, text: JSON.stringify(snapshot, null, 2) });
       results.push({ week, status: 'generated' });
     }
 

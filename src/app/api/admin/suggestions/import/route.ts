@@ -49,22 +49,7 @@ export async function POST(req: NextRequest) {
       }
     } catch {}
 
-    // Write to Blob itemized
-    try {
-      const { put } = await import('@vercel/blob');
-      const token = await getBlobToken();
-      for (const it of items) {
-        if (!it || !it.id) continue;
-        await put(`suggestions/${it.id}.json`, JSON.stringify(it), {
-          access: 'public',
-          contentType: 'application/json; charset=utf-8',
-          token,
-          addRandomSuffix: false,
-          allowOverwrite: false,
-        });
-        blobOk++;
-      }
-    } catch {}
+    // Blob disabled: rely on DB + file merge only
 
     // Merge into local file
     try {

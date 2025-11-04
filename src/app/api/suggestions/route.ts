@@ -15,19 +15,7 @@ export type Suggestion = {
 };
 
 const DATA_PATH = path.join(process.cwd(), 'data', 'suggestions.json');
-const USE_BLOB = Boolean(process.env.BLOB_READ_WRITE_TOKEN || process.env.BLOB_READ_TOKEN);
 const NOTIFY_EMAIL = process.env.SUGGESTIONS_NOTIFY_EMAIL || 'patrickmmcnulty62@gmail.com';
-
-async function getBlobToken(): Promise<string | undefined> {
-  try {
-    const kv = await getKV();
-    if (kv) {
-      const raw = (await kv.get('blob:token')) as string | null;
-      if (raw && typeof raw === 'string' && raw.length > 0) return raw;
-    }
-  } catch {}
-  return process.env.BLOB_READ_WRITE_TOKEN || process.env.BLOB_READ_TOKEN || undefined;
-}
 
 async function readSuggestions(): Promise<Suggestion[]> {
   try {
@@ -79,10 +67,8 @@ async function readSuggestionsLocalAll(): Promise<Suggestion[]> {
   return Object.values(out);
 }
 
-export async function GET(req: Request) {
-  const urlObj = new URL(req.url);
-  const qpToken = (urlObj.searchParams.get('token') || '').trim();
-  const qpHost = (urlObj.searchParams.get('host') || '').trim();
+export async function GET(_req: Request) {
+  // legacy params ignored
   try {
     const rows = await dbListSuggestions();
     if (Array.isArray(rows) && rows.length > 0) {
@@ -91,49 +77,6 @@ export async function GET(req: Request) {
       return Response.json(items);
     }
   } catch {}
-  async function getPublicHosts(): Promise<string[]> {
-    let conf = '';
-    try {
-      const kv = await getKV();
-      if (kv) {
-        const raw = (await kv.get('blob:public_host')) as string | null;
-        if (raw && typeof raw === 'string') conf = raw;
-      }
-    } catch {}
-    const envHost = (process.env.BLOB_PUBLIC_HOST || '').trim();
-    const one = (qpHost || conf || envHost).trim();
-    const hosts: string[] = [];
-    if (one) hosts.push(one.replace(/^https?:\/\//, '').replace(/\/$/, ''));
-    hosts.push('east-v-west-website-blob.public.blob.vercel-storage.com');
-    return Array.from(new Set(hosts));
-  }
-  async function tryPublicAggregates(): Promise<Suggestion[]> {
-    const hosts = await getPublicHosts();
-    const keys = [
-      'evw/snapshots/suggestions/latest.json',
-      'suggestions.json',
-      'data/suggestions.json',
-      'evw/suggestions.json',
-      'logs/suggestions.json',
-      'public/suggestions.json',
-    ];
-    const out: Record<string, Suggestion> = {};
-    for (const h of hosts) {
-      for (const k of keys) {
-        try {
-          const url = `https://${h}/${k}`;
-          const r = await fetch(url, { cache: 'no-store' });
-          if (!r.ok) continue;
-          const j = (await r.json()) as unknown;
-          if (Array.isArray(j)) {
-            for (const it of j as Suggestion[]) if (it && (it as Suggestion).id) out[(it as Suggestion).id] = it as Suggestion;
-            if (Object.keys(out).length > 0) return Object.values(out);
-          }
-        } catch {}
-      }
-    }
-    return [] as Suggestion[];
-  }
   try {
     const kv = await getKV();
     if (kv) {
@@ -148,74 +91,11 @@ export async function GET(req: Request) {
     }
   } catch {}
 
-  const merged: Record<string, Suggestion> = {};
-
-  try {
-    const pub = await tryPublicAggregates();
-    for (const it of pub) if (it && it.id) merged[it.id] = it;
-  } catch {}
-
   try {
     const local = await readSuggestionsLocalAll();
-    for (const it of local) if (it && it.id) merged[it.id] = it;
+    if (local.length > 0) return Response.json(local.sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt)));
   } catch {}
-
-  try {
-    const { list } = await import('@vercel/blob');
-    const token = qpToken || (await getBlobToken());
-    const prefixes = ['suggestions/', 'evw/suggestions/', 'logs/suggestions/', 'content/suggestions/', 'public/suggestions/'];
-    for (const pref of prefixes) {
-      let blobs: Array<{ url: string; pathname?: string; uploadedAt?: string }> = [];
-      try {
-        const r1 = await list({ prefix: pref } as { prefix: string });
-        blobs = (r1 as unknown as { blobs?: Array<{ url: string; pathname?: string; uploadedAt?: string }> }).blobs || [];
-      } catch {}
-      if ((!blobs || blobs.length === 0) && token) {
-        try {
-          const r2 = await list({ prefix: pref, token } as { prefix: string; token?: string });
-          blobs = (r2 as unknown as { blobs?: Array<{ url: string; pathname?: string; uploadedAt?: string }> }).blobs || [];
-        } catch {}
-      }
-      type MinimalBlob = { url: string; uploadedAt?: string };
-      const items = (blobs as unknown as MinimalBlob[]) || [];
-      for (const b of items) {
-        try {
-          const res = await fetch(b.url, { cache: 'no-store' });
-          if (!res.ok) continue;
-          const json = (await res.json()) as Suggestion;
-          if (json && json.id) merged[json.id] = json;
-        } catch {}
-      }
-    }
-    if (Object.keys(merged).length === 0) {
-      try {
-        const singleFiles = ['suggestions.json', 'data/suggestions.json', 'evw/suggestions.json', 'logs/suggestions.json', 'public/suggestions.json'];
-        for (const key of singleFiles) {
-          const r3 = await list({ prefix: key, token } as { prefix: string; token?: string });
-          const arr = (r3 as unknown as { blobs?: Array<{ url: string }> }).blobs || [];
-          if (arr.length > 0) {
-            const res2 = await fetch(arr[0].url, { cache: 'no-store' });
-            if (res2.ok) {
-              const json2 = (await res2.json()) as unknown;
-              if (Array.isArray(json2)) {
-                for (const it of json2 as Suggestion[]) if (it && (it as Suggestion).id) merged[(it as Suggestion).id] = it as Suggestion;
-              }
-            }
-          }
-          if (Object.keys(merged).length > 0) break;
-        }
-      } catch {}
-    }
-  } catch {}
-
-  const items = Object.values(merged).sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
-  try {
-    if (items.length > 0) {
-      const kv = await getKV();
-      if (kv) await kv.set('suggestions:items', JSON.stringify(items));
-    }
-  } catch {}
-  return Response.json(items);
+  return Response.json([]);
 }
 
 export async function POST(request: Request) {
@@ -259,22 +139,6 @@ export async function POST(request: Request) {
       }
     } catch {}
 
-    if (USE_BLOB) {
-      try {
-        const { put } = await import('@vercel/blob');
-        const token = await getBlobToken();
-        await put(`suggestions/${item.id}.json`, JSON.stringify(item), {
-          access: 'public',
-          contentType: 'application/json; charset=utf-8',
-          token,
-          addRandomSuffix: false,
-          allowOverwrite: false,
-        });
-      } catch (e) {
-        console.warn('[suggestions] blob write failed', e);
-      }
-    }
-
     try {
       const items = await readSuggestions();
       items.push(item);
@@ -296,7 +160,7 @@ export async function POST(request: Request) {
     const err = e as NodeJS.ErrnoException;
     console.error('POST /api/suggestions failed', err);
     const msg = err && (err.code === 'EROFS' || err.code === 'EACCES')
-      ? 'Persistent storage not configured on deployment (read-only filesystem). Configure Vercel Blob to enable submissions.'
+      ? 'Persistent storage not configured for filesystem. Submission saved in database.'
       : 'Failed to save suggestion';
     return Response.json({ error: msg }, { status: 500 });
   }

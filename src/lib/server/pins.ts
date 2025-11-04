@@ -15,7 +15,6 @@ export type StoredPin = {
 export type PinMap = Record<string, StoredPin>; // ownerId -> StoredPin
 
 const DATA_PATH = path.join(process.cwd(), 'data', 'team-pins.json');
-const BLOB_KEY = 'auth/team-pins.json';
 const PINS_DIR = path.join(process.cwd(), 'data', 'pins');
 
 function teamSlug(team: string): string {
@@ -33,52 +32,12 @@ function canonicalizeTeamName(name: string): string {
 }
 
 export async function readTeamPin(team: string): Promise<StoredPin | null> {
-  const key = teamBlobKey(team);
   // DB first
   try {
     const slug = teamSlug(canonicalizeTeamName(team));
     const row = await getTeamPinBySlug(slug);
     if (row && typeof row.hash === 'string' && typeof row.salt === 'string') {
       return { hash: row.hash as string, salt: row.salt as string, pinVersion: Number(row.pinVersion || 1), updatedAt: new Date(row.updatedAt as unknown as Date).toISOString() };
-    }
-  } catch {}
-  try {
-    const { list } = await import('@vercel/blob');
-    const token = await getBlobToken();
-    const opts: { prefix: string; token?: string } = { prefix: key };
-    if (token) opts.token = token;
-    const { blobs } = await list(opts as { prefix: string; token?: string });
-    type BlobMeta = { pathname: string; url: string; uploadedAt?: string | Date };
-    const toTime = (v?: string | Date): number => {
-      if (!v) return 0;
-      if (v instanceof Date) return v.getTime();
-      if (typeof v === 'string') return Date.parse(v);
-      return 0;
-    };
-    let matches: BlobMeta[] = (blobs as unknown as BlobMeta[]).filter((b) => b.pathname === key || b.pathname.startsWith(key));
-    // Legacy alt prefixes
-    if (matches.length === 0) {
-      const alts = [
-        key.replace(/^auth\/pins\//, 'auth/team-pins/'),
-        key.replace(/^auth\/pins\//, 'evw/pins/'),
-      ];
-      for (const alt of alts) {
-        try {
-          const { blobs: b2 } = await list({ prefix: alt, token } as { prefix: string; token?: string });
-          const m2 = (b2 as unknown as BlobMeta[]).filter((b) => b.pathname === alt || b.pathname.startsWith(alt));
-          if (m2.length > 0) { matches = m2; break; }
-        } catch {}
-      }
-    }
-    if (matches.length > 0) {
-      const newest = matches.reduce((acc, cur) => (!acc ? cur : (toTime(cur.uploadedAt) > toTime(acc.uploadedAt) ? cur : acc)), matches[0]);
-      if (newest?.url) {
-        const res = await fetch(newest.url, { cache: 'no-store' });
-        if (res.ok) {
-          const json = (await res.json()) as unknown;
-          if (isStoredPin(json)) return json;
-        }
-      }
     }
   } catch {}
   // Migration fallback: read legacy global map and backfill (canonicalizing the team name)
@@ -139,14 +98,6 @@ export async function writeTeamPinWithError(team: string, value: StoredPin): Pro
       const slug = teamSlug(canonicalizeTeamName(team));
       await setTeamPin(slug, { hash: value.hash, salt: value.salt, pinVersion: value.pinVersion, updatedAt: new Date(value.updatedAt) });
     } catch {}
-    const { put } = await import('@vercel/blob');
-    const token = await getBlobToken();
-    await put(key, JSON.stringify(value, null, 2), {
-      access: 'public',
-      contentType: 'application/json; charset=utf-8',
-      allowOverwrite: true,
-      token,
-    });
     return { ok: true };
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
@@ -160,23 +111,10 @@ export async function writeTeamPin(team: string, value: StoredPin): Promise<bool
   return res.ok;
 }
 
-async function getBlobToken(): Promise<string | undefined> {
-  try {
-    const kv = await getKV();
-    if (kv) {
-      const raw = (await kv.get('blob:token')) as string | null;
-      if (raw && typeof raw === 'string' && raw.length > 0) return raw;
-    }
-  } catch {}
-  const envTok = process.env.BLOB_READ_WRITE_TOKEN;
-  if (envTok && envTok.length > 0) return envTok;
-  return undefined;
-}
-
 export type TeamWriteResult = { blob: boolean; kv: boolean; fs: boolean };
 
 export async function writeTeamPinWithResult(team: string, value: StoredPin): Promise<TeamWriteResult> {
-  let blobOk = false;
+  const blobOk = false;
   let kvOk = false;
   let fsOk = false;
   // DB write
@@ -184,7 +122,7 @@ export async function writeTeamPinWithResult(team: string, value: StoredPin): Pr
     const slug = teamSlug(canonicalizeTeamName(team));
     await setTeamPin(slug, { hash: value.hash, salt: value.salt, pinVersion: value.pinVersion, updatedAt: new Date(value.updatedAt) });
   } catch {}
-  try { blobOk = await writeTeamPin(team, value); } catch { blobOk = false; }
+  try { await writeTeamPin(team, value); } catch {}
   try {
     const kv = await getKV();
     if (kv) {
@@ -205,84 +143,27 @@ export async function writeTeamPinWithResult(team: string, value: StoredPin): Pr
 
 export async function listAllTeamPins(): Promise<PinMap> {
   const out: PinMap = {};
-  try {
-    const { list } = await import('@vercel/blob');
-    const token = await getBlobToken();
-    const opts: { prefix: string; token?: string } = { prefix: 'auth/pins/' };
-    if (token) opts.token = token;
-    const { blobs } = await list(opts as { prefix: string; token?: string });
-    const known = new Map<string, string>();
-    for (const name of TEAM_NAMES) known.set(teamSlug(name), name);
-    type BlobMeta = { pathname: string; url: string; uploadedAt?: string | Date };
-    const toTime = (v?: string | Date): number => {
-      if (!v) return 0;
-      if (v instanceof Date) return v.getTime();
-      if (typeof v === 'string') return Date.parse(v);
-      return 0;
-    };
-    const bySlug: Record<string, BlobMeta[]> = {} as Record<string, BlobMeta[]>;
-    for (const b of (blobs as unknown as BlobMeta[])) {
-      const m = b.pathname.match(/^auth\/pins\/([a-z0-9-]+)\.json/);
-      if (!m) continue;
-      const slug = m[1];
-      bySlug[slug] = bySlug[slug] || [];
-      bySlug[slug].push(b);
-    }
-    for (const [slug, listForSlug] of Object.entries(bySlug)) {
-      const newest = listForSlug.reduce((acc, cur) => (!acc ? cur : (toTime(cur.uploadedAt) > toTime(acc.uploadedAt) ? cur : acc)), listForSlug[0]);
-      const res = await fetch(newest.url, { cache: 'no-store' });
-      if (!res.ok) continue;
-      const json = await res.json().catch(() => null);
-      if (!json || typeof json !== 'object') continue;
-      const team = known.get(slug) || slug;
-      out[team] = json as StoredPin;
-    }
-  } catch {}
-  // Merge legacy global map for visibility/migration
+  for (const name of TEAM_NAMES) {
+    try {
+      const slug = teamSlug(canonicalizeTeamName(name));
+      const row = await getTeamPinBySlug(slug);
+      if (row && typeof row.hash === 'string' && typeof row.salt === 'string') {
+        out[name] = { hash: row.hash as string, salt: row.salt as string, pinVersion: Number(row.pinVersion || 1), updatedAt: new Date(row.updatedAt as unknown as Date).toISOString() };
+      }
+    } catch {}
+  }
   try {
     const legacy = await readPins();
     for (const [team, entry] of Object.entries(legacy)) {
-      if (!out[team] || (entry.pinVersion || 0) > (out[team].pinVersion || 0)) {
-        out[team] = entry;
-      }
+      if (!out[team] || (entry.pinVersion || 0) > (out[team].pinVersion || 0)) out[team] = entry;
     }
   } catch {}
   return out;
 }
 
 export async function readPins(): Promise<PinMap> {
-  let blobMap: PinMap = {};
+  const blobMap: PinMap = {};
   let kvMap: PinMap = {};
-  
-  // Blob
-  try {
-    const { list } = await import('@vercel/blob');
-    const token = await getBlobToken();
-    type BlobMeta = { pathname: string; url: string; uploadedAt?: string | Date };
-    const toTime = (v?: string | Date): number => {
-      if (!v) return 0;
-      if (v instanceof Date) return v.getTime();
-      if (typeof v === 'string') return Date.parse(v);
-      return 0;
-    };
-    const keys = [BLOB_KEY, 'evw/team-pins.json', 'data/team-pins.json', 'auth/pins.json'];
-    for (const key of keys) {
-      try {
-        const { blobs } = await list({ prefix: key, token } as { prefix: string; token?: string });
-        const matches: BlobMeta[] = (blobs as unknown as BlobMeta[]).filter((b) => b.pathname === key || b.pathname.startsWith(key));
-        if (matches.length > 0) {
-          const newest = matches.reduce((acc, cur) => (!acc ? cur : (toTime(cur.uploadedAt) > toTime(acc.uploadedAt) ? cur : acc)), matches[0]);
-          if (newest?.url) {
-            const res = await fetch(newest.url, { cache: 'no-store' });
-            if (res.ok) {
-              const json = await res.json();
-              if (json && typeof json === 'object') { blobMap = json as PinMap; break; }
-            }
-          }
-        }
-      } catch {}
-    }
-  } catch {}
 
   // KV
   try {
@@ -326,19 +207,8 @@ export type WriteResult = { kv: boolean; blob: boolean; fs: boolean };
 
 export async function writePinsWithResult(pins: PinMap): Promise<WriteResult> {
   let kvOk = false;
-  let blobOk = false;
+  const blobOk = false;
   let fsOk = false;
-
-  // Try Blob first
-  try {
-    const { put } = await import('@vercel/blob');
-    await put(BLOB_KEY, JSON.stringify(pins, null, 2), {
-      access: 'public',
-      contentType: 'application/json; charset=utf-8',
-      // Use versioned writes (random suffix) to avoid CDN staleness; readPins picks newest by uploadedAt
-    });
-    blobOk = true;
-  } catch {}
 
   // Then KV
   try {

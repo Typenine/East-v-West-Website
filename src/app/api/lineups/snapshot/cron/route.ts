@@ -1,5 +1,6 @@
 import { getNFLState, getLeagueMatchups, getTeamsData, getAllPlayersCached, getLeagueRosters } from '@/lib/utils/sleeper-api';
 import { LEAGUE_IDS } from '@/lib/constants/league';
+import { getObjectText, putObjectText } from '@/server/storage/r2';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -31,15 +32,12 @@ export async function GET() {
     }
     if (lastPlayed <= 0) return Response.json({ ok: true, skipped: 'no_played_weeks' });
 
-    const { list, put } = await import('@vercel/blob');
     const key = `logs/lineups/snapshots/${season}-W${lastPlayed}.json`;
 
     // Skip if already exists
     try {
-      const { blobs } = await list({ prefix: 'logs/lineups/snapshots/' });
-      type BlobMeta = { pathname: string };
-      const hit = (blobs as unknown as BlobMeta[]).find((b) => b.pathname === key);
-      if (hit) return Response.json({ ok: true, skipped: 'exists', key });
+      const prev = await getObjectText({ key });
+      if (prev) return Response.json({ ok: true, skipped: 'exists', key });
     } catch {}
 
     // Build snapshot from matchups + current rosters for reserve/taxi
@@ -116,12 +114,7 @@ export async function GET() {
       meta: { source: 'cron', accurateTaxi: true, accurateReserve: true },
     };
 
-    await put(key, JSON.stringify(snapshot, null, 2), {
-      access: 'public',
-      contentType: 'application/json; charset=utf-8',
-      token: process.env.BLOB_READ_WRITE_TOKEN,
-      allowOverwrite: false,
-    });
+    await putObjectText({ key, text: JSON.stringify(snapshot, null, 2) });
 
     return Response.json({ ok: true, generated: { year: season, week: lastPlayed, key } });
   } catch {
