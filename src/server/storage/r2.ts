@@ -8,7 +8,7 @@ let _initPromise: Promise<void> | null = null;
 function requireEnv(name: string): string {
   const v = process.env[name];
   if (!v || !v.trim()) throw new Error(`${name} is missing`);
-  return v;
+  return v.trim();
 }
 
 export async function getR2Client(): Promise<S3Client> {
