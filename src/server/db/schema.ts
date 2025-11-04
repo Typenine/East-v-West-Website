@@ -95,3 +95,15 @@ export const taxiObservations = pgTable('taxi_observations', {
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
   players: jsonb('players').$type<Record<string, { firstSeen: string; lastSeen: string; seenCount: number }>>().notNull(),
 });
+
+export const userDocs = pgTable('user_docs', {
+  userId: varchar('user_id', { length: 64 }).primaryKey(),
+  team: varchar('team', { length: 255 }).notNull(),
+  version: integer('version').default(0).notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+  votes: jsonb('votes').$type<Record<string, Record<string, number>> | null>().default(null),
+  tradeBlock: jsonb('trade_block').$type<Array<Record<string, unknown>> | null>().default(null),
+  tradeWants: jsonb('trade_wants').$type<{ text?: string; positions?: string[] } | null>().default(null),
+}, (t) => ({
+  userTeamIdx: index('user_docs_team_idx').on(t.team),
+}));

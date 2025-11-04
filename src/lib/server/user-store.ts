@@ -1,6 +1,7 @@
 import { getKV } from '@/lib/server/kv';
 import { TEAM_NAMES } from '@/lib/constants/league';
 import { normalizeName } from '@/lib/constants/team-mapping';
+import { getUserDoc as dbGetUserDoc, setUserDoc as dbSetUserDoc } from '@/server/db/queries';
 
 export type TradeAsset =
   | { type: 'player'; playerId: string }
@@ -46,6 +47,22 @@ async function getBlobToken(): Promise<string | undefined> {
 }
 
 export async function readUserDoc(userId: string, team: string): Promise<UserDoc> {
+  // DB first
+  try {
+    const row = await dbGetUserDoc(userId);
+    if (row) {
+      return {
+        userId: row.userId as string,
+        team: row.team as string,
+        version: Number(row.version || 0),
+        updatedAt: new Date(row.updatedAt as unknown as Date).toISOString(),
+        tradeBlock: (row.tradeBlock as unknown as UserDoc['tradeBlock']) || undefined,
+        tradeWants: (row.tradeWants as unknown as UserDoc['tradeWants']) || undefined,
+        votes: (row.votes as unknown as UserDoc['votes']) || undefined,
+      };
+    }
+  } catch {}
+  // Blob fallback
   const key = userBlobKey(userId);
   try {
     const { list } = await import('@vercel/blob');
@@ -77,6 +94,20 @@ export async function readUserDoc(userId: string, team: string): Promise<UserDoc
 
 export async function writeUserDoc(doc: UserDoc): Promise<boolean> {
   const key = userBlobKey(doc.userId);
+  let dbOk = false;
+  try {
+    await dbSetUserDoc({
+      userId: doc.userId,
+      team: canonicalizeTeamName(doc.team),
+      version: doc.version ?? 0,
+      updatedAt: new Date(doc.updatedAt),
+      votes: doc.votes ?? null,
+      tradeBlock: (doc.tradeBlock as Array<Record<string, unknown>> | null) ?? null,
+      tradeWants: (doc.tradeWants as { text?: string; positions?: string[] } | null) ?? null,
+    });
+    dbOk = true;
+  } catch {}
+  // Also attempt Blob write for legacy consumers
   try {
     const { put } = await import('@vercel/blob');
     const token = await getBlobToken();
@@ -88,7 +119,7 @@ export async function writeUserDoc(doc: UserDoc): Promise<boolean> {
     });
     return true;
   } catch {
-    return false;
+    return dbOk; // succeed if DB write succeeded
   }
 }
 

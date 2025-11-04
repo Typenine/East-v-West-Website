@@ -1,5 +1,5 @@
 import { getDb } from './client';
-import { users, suggestions, taxiSquadMembers, taxiSquadEvents, teamPins, taxiObservations } from './schema';
+import { users, suggestions, taxiSquadMembers, taxiSquadEvents, teamPins, taxiObservations, userDocs } from './schema';
 import { eq, and, isNull, desc } from 'drizzle-orm';
 
 export type Role = 'admin' | 'user';
@@ -8,6 +8,12 @@ export async function createUser(params: { email: string; displayName?: string; 
   const db = getDb();
   const [row] = await db.insert(users).values({ email: params.email, displayName: params.displayName, role: (params.role || 'user') as 'admin' | 'user' }).returning();
   return row;
+}
+
+export async function listAllUserDocs() {
+  const db = getDb();
+  const rows = await db.select().from(userDocs);
+  return rows;
 }
 
 export async function getUserByEmail(email: string) {
@@ -92,6 +98,40 @@ export async function setTaxiObservation(team: string, payload: { updatedAt: Dat
     .insert(taxiObservations)
     .values({ team, updatedAt: payload.updatedAt, players: payload.players })
     .onConflictDoUpdate({ target: taxiObservations.team, set: { updatedAt: payload.updatedAt, players: payload.players } })
+    .returning();
+  return row;
+}
+
+export async function getUserDoc(userId: string) {
+  const db = getDb();
+  const [row] = await db.select().from(userDocs).where(eq(userDocs.userId, userId)).limit(1);
+  return row || null;
+}
+
+export async function setUserDoc(doc: { userId: string; team: string; version: number; updatedAt: Date; votes?: Record<string, Record<string, number>> | null; tradeBlock?: Array<Record<string, unknown>> | null; tradeWants?: { text?: string; positions?: string[] } | null }) {
+  const db = getDb();
+  const [row] = await db
+    .insert(userDocs)
+    .values({
+      userId: doc.userId,
+      team: doc.team,
+      version: doc.version,
+      updatedAt: doc.updatedAt,
+      votes: doc.votes ?? null,
+      tradeBlock: doc.tradeBlock ?? null,
+      tradeWants: doc.tradeWants ?? null,
+    })
+    .onConflictDoUpdate({
+      target: userDocs.userId,
+      set: {
+        team: doc.team,
+        version: doc.version,
+        updatedAt: doc.updatedAt,
+        votes: doc.votes ?? null,
+        tradeBlock: doc.tradeBlock ?? null,
+        tradeWants: doc.tradeWants ?? null,
+      },
+    })
     .returning();
   return row;
 }
