@@ -13,7 +13,8 @@
     "migrate:blob-to-db": "tsx scripts/migrate-blob-to-db.ts",
     "migrate:blob-media-to-r2": "tsx scripts/migrate-blob-media-to-r2.ts",
     "cleanup:blob": "tsx scripts/cleanup-blob.ts",
-    "setup:all": "npm run db:generate && npm run db:migrate && npm run db:seed && npm run migrate:blob-to-db -- --write && npm run migrate:blob-media-to-r2 -- --write && npm run cleanup:blob -- --confirm"
+    "setup:all": "npm run db:generate && npm run db:migrate && npm run db:seed && npm run migrate:blob-to-db -- --write && npm run migrate:blob-media-to-r2 -- --write && npm run cleanup:blob -- --confirm",
+    "verify:r2": "node scripts/verify-r2.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.651.1",

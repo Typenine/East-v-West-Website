@@ -107,3 +107,14 @@ export const userDocs = pgTable('user_docs', {
 }, (t) => ({
   userTeamIdx: index('user_docs_team_idx').on(t.team),
 }));
+
+// R2 storage config
+export const storageModeEnum = pgEnum('storage_mode', ['path', 'vhost']);
+
+export const storageConfig = pgTable('storage_config', {
+  id: varchar('id', { length: 16 }).primaryKey(),
+  chosenMode: storageModeEnum('chosen_mode'),
+  lastVerifiedAt: timestamp('last_verified_at', { withTimezone: true }),
+  notes: text('notes'),
+});
+

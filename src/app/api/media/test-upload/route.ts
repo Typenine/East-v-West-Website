@@ -1,8 +1,7 @@
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-import { PutObjectCommand } from '@aws-sdk/client-s3';
-import { getR2Client, r2PublicUrlForKey, getPresignedGet } from '@/server/storage/r2';
+import { putObjectText, presignGet, publicUrl } from '@/server/storage/r2';
 
 export async function GET() {
   try {
@@ -17,11 +16,10 @@ export async function GET() {
     const key = `diagnostics/test-${Date.now()}.txt`;
     const body = `hello evw ${new Date().toISOString()}`;
 
-    const client = await getR2Client();
-    await client.send(new PutObjectCommand({ Bucket: bucket, Key: key, Body: body, ContentType: 'text/plain' }));
+    await putObjectText({ key, text: body });
 
-    const direct = r2PublicUrlForKey(key);
-    const url = direct || (await getPresignedGet({ key, expiresSec: 300 }));
+    const direct = publicUrl(key);
+    const url = direct || (await presignGet({ key, expiresSec: 300 }));
 
     return Response.json({ ok: true, key, url });
   } catch (e) {

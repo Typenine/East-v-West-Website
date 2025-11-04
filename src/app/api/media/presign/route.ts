@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server';
-import { getPresignedPut, getPresignedGet, r2PublicUrlForKey } from '@/server/storage/r2';
+import { presignPut, presignGet, publicUrl } from '@/server/storage/r2';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -34,9 +34,9 @@ export async function POST(req: NextRequest) {
     const ext = typeof body.ext === 'string' ? body.ext : undefined;
     const key = keyHint && keyHint.length > 0 ? keyHint : makeKey(undefined, ext);
 
-    const putUrl = await getPresignedPut({ key, contentType, expiresSec: 300 });
-    const publicUrl = r2PublicUrlForKey(key);
-    const getUrl = publicUrl || (await getPresignedGet({ key, expiresSec: 300 }));
+    const putUrl = await presignPut({ key, contentType, expiresSec: 300 });
+    const pub = publicUrl(key);
+    const getUrl = pub || (await presignGet({ key, expiresSec: 300 }));
 
     return Response.json({ key, putUrl, getUrl }, { status: 200 });
   } catch (e) {
