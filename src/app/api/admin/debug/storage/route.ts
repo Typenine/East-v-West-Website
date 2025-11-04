@@ -1,22 +1,10 @@
-import { NextRequest } from 'next/server';
 import { getKV } from '@/lib/server/kv';
 import { listKeys } from '@/server/storage/r2';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-async function getBlobToken(): Promise<string | undefined> {
-  try {
-    const kv = await getKV();
-    if (kv) {
-      const raw = (await kv.get('blob:token')) as string | null;
-      if (raw && typeof raw === 'string' && raw.length > 0) return raw;
-    }
-  } catch {}
-  return process.env.BLOB_READ_WRITE_TOKEN || process.env.BLOB_READ_TOKEN || undefined;
-}
-
-export async function GET(req: NextRequest) {
+export async function GET() {
   try {
     const out: Record<string, unknown> = { ok: true };
 

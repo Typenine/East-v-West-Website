@@ -1,5 +1,4 @@
 import { NextRequest } from 'next/server';
-import { getKV } from '@/lib/server/kv';
 import { createSuggestion as dbCreateSuggestion } from '@/server/db/queries';
 import { Suggestion } from '@/app/api/suggestions/route';
 
@@ -17,17 +16,6 @@ function isAdmin(req: NextRequest): boolean {
   return false;
 }
 
-async function getBlobToken(): Promise<string | undefined> {
-  try {
-    const kv = await getKV();
-    if (kv) {
-      const raw = (await kv.get('blob:token')) as string | null;
-      if (raw && typeof raw === 'string' && raw.length > 0) return raw;
-    }
-  } catch {}
-  return process.env.BLOB_READ_WRITE_TOKEN || process.env.BLOB_READ_TOKEN || undefined;
-}
-
 export async function POST(req: NextRequest) {
   if (!isAdmin(req)) return Response.json({ error: 'forbidden' }, { status: 403 });
   try {
@@ -35,7 +23,7 @@ export async function POST(req: NextRequest) {
     const items = Array.isArray(body.items) ? body.items : [];
     if (items.length === 0) return Response.json({ error: 'no_items' }, { status: 400 });
 
-    let blobOk = 0;
+    const blobOk = 0;
     let fileOk = 0;
     let dbOk = 0;
 

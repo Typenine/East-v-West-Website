@@ -21,10 +21,11 @@ export async function GET(req: NextRequest) {
   if (!isAdmin(req)) return Response.json({ error: 'forbidden' }, { status: 403 });
   try {
     const votesBySuggestion: Record<string, { up: string[]; down: string[] }> = {};
-    const rows = await listAllUserDocs().catch(() => [] as Array<{ team: string; votes: unknown }>);
-    for (const r of rows) {
-      const team = (r as any).team as string;
-      const votes = (r as any).votes as Record<string, Record<string, number>> | null | undefined;
+    type UserDocRow = { team: string; votes: Record<string, Record<string, number>> | null | undefined };
+    const rows = await listAllUserDocs().catch(() => [] as UserDocRow[]);
+    for (const r of rows as UserDocRow[]) {
+      const team = r.team;
+      const votes = r.votes;
       const vs = votes?.['suggestions'] as Record<string, number> | undefined;
       if (!team || !vs) continue;
       for (const [sid, val] of Object.entries(vs)) {

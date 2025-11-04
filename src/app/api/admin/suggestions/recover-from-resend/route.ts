@@ -1,5 +1,4 @@
 import { NextRequest } from 'next/server';
-import { getKV } from '@/lib/server/kv';
 import { Suggestion } from '@/app/api/suggestions/route';
 
 export const runtime = 'nodejs';

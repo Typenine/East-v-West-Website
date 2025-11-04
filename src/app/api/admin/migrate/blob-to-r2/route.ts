@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server'
 import { createSuggestion, setUserDoc, setTeamPin } from '@/server/db/queries'
-import { putObjectText, putObjectBytes, getObjectText } from '@/server/storage/r2'
+import { putObjectText, putObjectBytes } from '@/server/storage/r2'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -22,9 +22,11 @@ async function listAll(prefix: string): Promise<BlobMeta[]> {
   let cursor: string | undefined = undefined
   while (true) {
     const res = await list({ prefix, cursor } as { prefix: string; cursor?: string })
-    const arr = (res?.blobs as BlobMeta[]) || []
+    type BlobListPage = { blobs?: BlobMeta[]; cursor?: string }
+    const page = res as unknown as BlobListPage
+    const arr = Array.isArray(page.blobs) ? page.blobs : []
     out.push(...arr)
-    cursor = (res as any)?.cursor || undefined
+    cursor = typeof page.cursor === 'string' && page.cursor ? page.cursor : undefined
     if (!cursor) break
   }
   return out
@@ -88,17 +90,14 @@ export async function POST(req: NextRequest) {
       const txt = await fetchText(b.url)
       if (!txt) continue
       try {
-        const j = JSON.parse(txt) as { team?: string; version?: number; updatedAt?: string; votes?: any; tradeBlock?: any; tradeWants?: any }
-        const team = typeof j.team === 'string' ? j.team : 'Unknown'
-        await setUserDoc({
-          userId,
-          team,
-          version: typeof j.version === 'number' ? j.version : 0,
-          updatedAt: j.updatedAt ? new Date(j.updatedAt) : new Date(),
-          votes: (j as any).votes ?? null,
-          tradeBlock: (j as any).tradeBlock ?? null,
-          tradeWants: (j as any).tradeWants ?? null,
-        })
+        const obj = JSON.parse(txt) as Record<string, unknown>
+        const team = typeof obj['team'] === 'string' ? (obj['team'] as string) : 'Unknown'
+        const version = typeof obj['version'] === 'number' ? (obj['version'] as number) : 0
+        const updatedAt = typeof obj['updatedAt'] === 'string' ? new Date(obj['updatedAt'] as string) : new Date()
+        const votes = obj['votes'] as Record<string, Record<string, number>> | null | undefined
+        const tradeBlock = obj['tradeBlock'] as Array<Record<string, unknown>> | null | undefined
+        const tradeWants = obj['tradeWants'] as { text?: string; positions?: string[] } | null | undefined
+        await setUserDoc({ userId, team, version, updatedAt, votes: votes ?? null, tradeBlock: tradeBlock ?? null, tradeWants: tradeWants ?? null })
         summary.userDocsImported++
       } catch {}
     }
