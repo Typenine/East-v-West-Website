@@ -201,8 +201,8 @@ export default function TradeBlockTab() {
                   const secondaryBg = getTeamColorStyle(row.team, 'secondary').backgroundColor as string;
                   return (
                     <li key={row.team} className="border border-[var(--border)] rounded-[var(--radius-card)] p-4" style={{ borderLeftColor: secondaryBg, borderLeftWidth: 4, borderLeftStyle: 'solid' }}>
-                      {/* Header bar with primary background and secondary top outline */}
-                      <div className="rounded-t-[var(--radius-card)] -mx-4 -mt-4 px-4 py-2 mb-3" style={{ backgroundColor: primaryBg, color: primaryFg, borderTopColor: secondaryBg, borderTopWidth: 4, borderTopStyle: 'solid' }}>
+                      {/* Header + Wants in one contiguous primary-colored panel */}
+                      <div className="rounded-t-[var(--radius-card)] -mx-4 -mt-4 px-4 pt-2 pb-3 mb-3" style={{ backgroundColor: primaryBg, color: primaryFg, borderTopColor: secondaryBg, borderTopWidth: 4, borderTopStyle: 'solid' }}>
                         <div className="flex items-center gap-3">
                           <div className="w-8 h-8 rounded-full flex items-center justify-center overflow-hidden" style={s1}>
                             <Image src={getTeamLogoPath(row.team)} alt="" width={24} height={24} />
@@ -210,28 +210,26 @@ export default function TradeBlockTab() {
                           <div className="font-bold" style={{ color: primaryFg }}>{row.team}</div>
                           <div className="ml-auto text-xs" style={{ color: primaryFg, opacity: 0.8 }} title={row.updatedAt || undefined}>{row.updatedAt ? new Date(row.updatedAt).toLocaleString() : '—'}</div>
                         </div>
+                        {row.tradeWants && (row.tradeWants.text || (row.tradeWants.positions && row.tradeWants.positions.length > 0)) ? (
+                          <div className="mt-3">
+                            <div className="text-xs uppercase tracking-wide mb-1" style={{ opacity: 0.9 }}>Wants</div>
+                            {row.tradeWants.text && <div className="text-sm mb-1">{row.tradeWants.text}</div>}
+                            {row.tradeWants.positions && row.tradeWants.positions.length > 0 && (
+                              <div className="flex flex-wrap gap-2">
+                                {row.tradeWants.positions.map((p) => (
+                                  <span
+                                    key={p}
+                                    className="text-xs px-2 py-0.5 rounded-full border"
+                                    style={{ borderColor: primaryFg, color: primaryFg }}
+                                  >
+                                    {p}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        ) : null}
                       </div>
-                    {row.tradeWants && (row.tradeWants.text || (row.tradeWants.positions && row.tradeWants.positions.length > 0)) ? (
-                      (() => (
-                        <div className="mb-3 rounded-md p-3" style={{ backgroundColor: primaryBg, color: primaryFg }}>
-                          <div className="text-xs uppercase tracking-wide mb-1" style={{ opacity: 0.9 }}>Wants</div>
-                          {row.tradeWants.text && <div className="text-sm mb-1">{row.tradeWants.text}</div>}
-                          {row.tradeWants.positions && row.tradeWants.positions.length > 0 && (
-                            <div className="flex flex-wrap gap-2">
-                              {row.tradeWants.positions.map((p) => (
-                                <span
-                                  key={p}
-                                  className="text-xs px-2 py-0.5 rounded-full border"
-                                  style={{ borderColor: primaryFg, color: primaryFg }}
-                                >
-                                  {p}
-                                </span>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      ))()
-                    ) : null}
                     <div className="border-t border-[var(--border)] my-2" />
                     {row.tradeBlock.length === 0 ? (
                       <div className="text-[var(--muted)] text-sm">No assets listed.</div>
