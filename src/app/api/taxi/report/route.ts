@@ -1,4 +1,4 @@
-import { getNFLState, getTeamsData } from '@/lib/utils/sleeper-api';
+import { getNFLState, getTeamsData, getAllPlayersCached } from '@/lib/utils/sleeper-api';
 import { LEAGUE_IDS } from '@/lib/constants/league';
 import { validateTaxiForRoster } from '@/lib/server/taxi-validator';
 
@@ -39,6 +39,15 @@ export async function GET() {
     const potential: Flag[] = [];
     const isOfficial = runType === 'sun_pm_official';
 
+    // Load player meta for ID->name mapping
+    const players = await getAllPlayersCached().catch(() => ({} as Record<string, { first_name?: string; last_name?: string } >));
+    const nameOf = (pid: string) => {
+      const p = players[pid];
+      if (!p) return pid;
+      const name = `${p.first_name || ''} ${p.last_name || ''}`.trim();
+      return name || pid;
+    };
+
     for (const t of teams) {
       try {
         const res = await validateTaxiForRoster(String(season), t.rosterId);
@@ -51,7 +60,7 @@ export async function GET() {
           else if (v.code === 'invalid_intake') msgParts.push('Taxi intake must be FA/Trade/Draft');
           else if (v.code === 'roster_inconsistent') msgParts.push('Taxi conflicts with starters/IR');
           else if (v.code === 'boomerang_active_player') {
-            const names = (v.players || []).slice(0, 3).join(', ');
+            const names = (v.players || []).map(nameOf).slice(0, 3).join(', ');
             msgParts.push(`Previously active this tenure on taxi${names ? `: ${names}` : ''}`);
           }
         }

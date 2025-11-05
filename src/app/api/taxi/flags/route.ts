@@ -1,4 +1,5 @@
 import { getLatestTaxiRunMeta, getTaxiSnapshotsForRun } from '@/server/db/queries';
+import { getAllPlayersCached } from '@/lib/utils/sleeper-api';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -20,6 +21,13 @@ export async function GET() {
       return Response.json(empty);
     }
     const rows = await getTaxiSnapshotsForRun({ season: meta.season, week: meta.week, runType: meta.runType as 'wed_warn' | 'thu_warn' | 'sun_am_warn' | 'sun_pm_official' | 'admin_rerun' });
+    const players = await getAllPlayersCached().catch(() => ({} as Record<string, { first_name?: string; last_name?: string }>));
+    const nameOf = (pid: string) => {
+      const p = players[pid];
+      if (!p) return pid;
+      const nm = `${p.first_name || ''} ${p.last_name || ''}`.trim();
+      return nm || pid;
+    };
     const actual: Flag[] = [];
     const potential: Flag[] = [];
     const isOfficial = meta.runType === 'sun_pm_official';
@@ -36,7 +44,7 @@ export async function GET() {
         else if (v.code === 'invalid_intake') msgParts.push('Taxi intake must be FA/Trade/Draft');
         else if (v.code === 'roster_inconsistent') msgParts.push('Taxi conflicts with starters/IR');
         else if (v.code === 'boomerang_active_player') {
-          const names = (v.players || []).slice(0, 3).join(', ');
+          const names = (v.players || []).map(nameOf).slice(0, 3).join(', ');
           msgParts.push(`Previously active this tenure on taxi${names ? `: ${names}` : ''}`);
         }
       }
