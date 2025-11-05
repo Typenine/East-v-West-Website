@@ -53,6 +53,9 @@ export default function AdminTaxiPage() {
   const [teams, setTeams] = useState<Array<{ teamName: string; rosterId: number }>>([]);
   const [analyses, setAnalyses] = useState<Record<number, TaxiAnalysis | null>>({});
   const [flags, setFlags] = useState<FlagsResp | null>(null);
+  const [report, setReport] = useState<({ generatedAt: string; runType?: string; season?: number; week?: number; actual: Flag[]; potential: Flag[] } | null)>(null);
+  const [reportLoading, setReportLoading] = useState(false);
+  const [reportError, setReportError] = useState<string | null>(null);
   const [filter, setFilter] = useState<'all' | 'flagged'>('all');
   const [query, setQuery] = useState('');
 
@@ -187,6 +190,29 @@ export default function AdminTaxiPage() {
                 <div className="self-end">
                   <Button onClick={() => setSeason((s) => s)}>Refresh</Button>
                 </div>
+                <div className="self-end">
+                  <Button
+                    variant="ghost"
+                    disabled={reportLoading}
+                    onClick={async () => {
+                      setReportError(null);
+                      setReportLoading(true);
+                      try {
+                        const r = await fetch('/api/taxi/report', { cache: 'no-store' });
+                        if (!r.ok) throw new Error('Failed to run report');
+                        const j = await r.json();
+                        setReport(j);
+                      } catch (e) {
+                        setReport(null);
+                        setReportError(e instanceof Error ? e.message : 'Failed to run report');
+                      } finally {
+                        setReportLoading(false);
+                      }
+                    }}
+                  >
+                    {reportLoading ? 'Running…' : 'Run report'}
+                  </Button>
+                </div>
               </div>
             </div>
           </CardHeader>
@@ -211,6 +237,33 @@ export default function AdminTaxiPage() {
                     {(flags?.potential || []).map((f, i) => (<li key={`p-${i}`}>{f.message}</li>))}
                   </ul>
                 </div>
+                {report && (
+                  <div className="md:col-span-2 border-t border-[var(--border)] pt-3">
+                    <div className="flex items-center justify-between mb-2">
+                      <h4 className="font-semibold">Admin report (on-demand)</h4>
+                      <div className="text-xs text-[var(--muted)]">{new Date(report.generatedAt).toLocaleString()} {report.runType ? `(run: ${report.runType})` : ''}</div>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      <div>
+                        <h5 className="font-medium mb-1">Actual</h5>
+                        <ul className="space-y-1 text-sm">
+                          {report.actual.length === 0 && <li className="text-[var(--muted)]">None</li>}
+                          {report.actual.map((f, i) => (<li key={`ra-${i}`}>{f.message}</li>))}
+                        </ul>
+                      </div>
+                      <div>
+                        <h5 className="font-medium mb-1">Potential</h5>
+                        <ul className="space-y-1 text-sm">
+                          {report.potential.length === 0 && <li className="text-[var(--muted)]">None</li>}
+                          {report.potential.map((f, i) => (<li key={`rp-${i}`}>{f.message}</li>))}
+                        </ul>
+                      </div>
+                    </div>
+                  </div>
+                )}
+                {reportError && (
+                  <div className="md:col-span-2 text-sm text-red-500">{reportError}</div>
+                )}
               </div>
             )}
           </CardContent>
@@ -228,7 +281,7 @@ export default function AdminTaxiPage() {
             <div className="space-y-4">
               {visibleTeams.map((t) => {
                 const a = analyses[t.rosterId] || null;
-                const over = a ? (a.violations.overQB || a.violations.overSlots) : false;
+                const over = a ? (a.violations.overQB || a.violations.overSlots || (a.violations.ineligibleOnTaxi?.length || 0) > 0) : false;
                 return (
                   <div key={t.rosterId} className="border border-[var(--border)] rounded p-3">
                     <div className="flex items-center justify-between mb-2">
@@ -236,7 +289,7 @@ export default function AdminTaxiPage() {
                       <div className="flex items-center gap-2 text-xs">
                         {a && <span className="px-2 py-0.5 rounded border">Slots {a.current.counts.total}/{a.limits.maxSlots}</span>}
                         {a && <span className="px-2 py-0.5 rounded border">QBs {a.current.counts.qbs}/{a.limits.maxQB}</span>}
-                        {over && <StatusPill kind="danger" text="Over limit" />}
+                        {a && (over ? <StatusPill kind="danger" text="Non-compliant" /> : <StatusPill kind="ok" text="Compliant" />)}
                       </div>
                     </div>
                     {!a ? (

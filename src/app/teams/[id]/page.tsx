@@ -1043,7 +1043,9 @@ export default function TeamPage() {
                           <div className="flex flex-wrap items-center gap-3">
                             <Chip size="sm" className="px-2 evw-chip">Slots: {taxi.current.counts.total} / {LIMIT_SLOTS}</Chip>
                             <Chip size="sm" className="px-2 evw-chip">QBs: {taxi.current.counts.qbs} / {LIMIT_QB}</Chip>
-                            {!taxi.compliant && (
+                            {taxi.compliant ? (
+                              <Chip size="sm" variant="neutral" className="px-2 bg-green-100 text-green-800">Compliant</Chip>
+                            ) : (
                               <Chip size="sm" variant="outline" className="px-2 text-[var(--danger)] border-[var(--danger)]">Non‑compliant</Chip>
                             )}
                             {hasOverSlots && (

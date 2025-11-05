@@ -114,7 +114,7 @@ export default async function Home({ searchParams }: { searchParams?: Promise<Re
     // If Sleeper data isn't available yet, render with empty state below
   }
   // Taxi flags (league-wide): actual violations and potential warnings
-  let taxiFlags: { generatedAt: string; actual: Array<{ team: string; type: string; message: string }>; potential: Array<{ team: string; type: string; message: string }> } = { generatedAt: '', actual: [], potential: [] };
+  let taxiFlags: { generatedAt: string; runType?: string; season?: number; week?: number; actual: Array<{ team: string; type: string; message: string }>; potential: Array<{ team: string; type: string; message: string }> } = { generatedAt: '', actual: [], potential: [] };
   try {
     const rf = await fetch('/api/taxi/flags', { cache: 'no-store' });
     if (rf.ok) taxiFlags = (await rf.json()) as typeof taxiFlags;
@@ -165,7 +165,7 @@ export default async function Home({ searchParams }: { searchParams?: Promise<Re
       </section>
       
       {/* Taxi Tracker summary */}
-      {(taxiFlags.actual.length > 0 || taxiFlags.potential.length > 0) && (
+      {((taxiFlags.runType && taxiFlags.generatedAt) || taxiFlags.actual.length > 0 || taxiFlags.potential.length > 0) && (
         <section className="mb-6" aria-label="Taxi tracker summary">
           {taxiFlags.actual.length > 0 && (
             <div className="mb-2 evw-surface border border-[var(--border)] rounded-md p-3" style={{ backgroundColor: 'color-mix(in srgb, var(--danger) 10%, transparent)' }}>
@@ -191,6 +191,12 @@ export default async function Home({ searchParams }: { searchParams?: Promise<Re
                   <li className="opacity-80">+{taxiFlags.potential.length - 3} more…</li>
                 )}
               </ul>
+            </div>
+          )}
+          {taxiFlags.runType && taxiFlags.actual.length === 0 && taxiFlags.potential.length === 0 && (
+            <div className="evw-surface border border-[var(--border)] rounded-md p-3" style={{ backgroundColor: 'color-mix(in srgb, #10b981 12%, transparent)' }}>
+              <div className="font-semibold mb-1">All teams compliant</div>
+              <div className="text-sm">As of {new Date(taxiFlags.generatedAt).toLocaleString()} (run: {taxiFlags.runType}).</div>
             </div>
           )}
         </section>
