@@ -201,45 +201,90 @@ export default function TradeBlockTab() {
                         <Image src={getTeamLogoPath(row.team)} alt="" width={24} height={24} />
                       </div>
                       <div className="font-bold" style={{ color: getTeamColorStyle(row.team).backgroundColor }}>{row.team}</div>
-                      <div className="ml-auto text-xs text-[var(--muted)]">{row.updatedAt ? new Date(row.updatedAt).toLocaleString() : '—'}</div>
+                      <div className="ml-auto text-xs text-[var(--muted)]" title={row.updatedAt || undefined}>{row.updatedAt ? new Date(row.updatedAt).toLocaleString() : '—'}</div>
                     </div>
                     {row.tradeWants && (row.tradeWants.text || (row.tradeWants.positions && row.tradeWants.positions.length > 0)) ? (
-                      <div className="mb-2 text-sm">
-                        {row.tradeWants.text && <div className="mb-1">Wants: {row.tradeWants.text}</div>}
-                        {row.tradeWants.positions && row.tradeWants.positions.length > 0 && (
-                          <div className="flex flex-wrap gap-2">
-                            {row.tradeWants.positions.map((p) => (
-                              <span key={p} className="text-xs px-2 py-0.5 rounded-full border border-[var(--border)] evw-surface text-[var(--text)]">{p}</span>
-                            ))}
+                      (() => {
+                        const col = getTeamColorStyle(row.team).backgroundColor as string;
+                        return (
+                          <div className="mb-3">
+                            <div className="text-xs uppercase tracking-wide mb-1" style={{ color: col }}>Wants</div>
+                            {row.tradeWants.text && <div className="text-sm mb-1">{row.tradeWants.text}</div>}
+                            {row.tradeWants.positions && row.tradeWants.positions.length > 0 && (
+                              <div className="flex flex-wrap gap-2">
+                                {row.tradeWants.positions.map((p) => (
+                                  <span
+                                    key={p}
+                                    className="text-xs px-2 py-0.5 rounded-full border"
+                                    style={{ borderColor: col, color: col }}
+                                  >
+                                    {p}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
                           </div>
-                        )}
-                      </div>
+                        );
+                      })()
                     ) : null}
+                    <div className="border-t border-[var(--border)] my-2" />
                     {row.tradeBlock.length === 0 ? (
                       <div className="text-[var(--muted)] text-sm">No assets listed.</div>
                     ) : (
-                      <ul className="space-y-1">
-                        {row.tradeBlock.map((a, idx) => (
-                          <li key={idx} className="flex items-center justify-between">
-                            {a.type === 'player' ? (
-                              <span>
-                                {playerNames[a.playerId]?.position ? `${playerNames[a.playerId].position} - ` : ''}
-                                {playerNames[a.playerId]?.name || a.playerId}
-                                {playerNames[a.playerId]?.team ? ` (${playerNames[a.playerId].team})` : ''}
-                              </span>
-                            ) : a.type === 'pick' ? (
-                              <span>
-                                {a.year} Round {a.round}
-                                {a.originalTeam && a.originalTeam !== row.team ? (
-                                  <span className="text-xs text-[var(--muted)]"> (originally {a.originalTeam})</span>
-                                ) : null}
-                              </span>
-                            ) : (
-                              <span>FAAB{typeof a.amount === 'number' ? `: $${a.amount}` : ''}</span>
-                            )}
-                          </li>
-                        ))}
-                      </ul>
+                      <>
+                        <div
+                          className="mt-2 mb-1 text-xs uppercase tracking-wide"
+                          style={{ color: getTeamColorStyle(row.team).backgroundColor }}
+                        >
+                          On the Block
+                        </div>
+                        <ul className="space-y-1">
+                          {row.tradeBlock.map((a, idx) => (
+                            <li key={idx} className="flex items-center justify-between">
+                              {a.type === 'player' ? (
+                                <span>
+                                  {playerNames[a.playerId]?.position ? `${playerNames[a.playerId].position} - ` : ''}
+                                  {playerNames[a.playerId]?.name || a.playerId}
+                                  {playerNames[a.playerId]?.team ? ` (${playerNames[a.playerId].team})` : ''}
+                                </span>
+                              ) : a.type === 'pick' ? (
+                                <span>
+                                  <span
+                                    className="inline-flex items-center text-[10px] px-1.5 py-0.5 rounded-full border mr-1"
+                                    style={{ borderColor: getTeamColorStyle(row.team).backgroundColor, color: getTeamColorStyle(row.team).backgroundColor }}
+                                  >
+                                    {a.year}
+                                  </span>
+                                  <span
+                                    className="inline-flex items-center text-[10px] px-1.5 py-0.5 rounded-full border mr-1"
+                                    style={{ borderColor: getTeamColorStyle(row.team).backgroundColor, color: getTeamColorStyle(row.team).backgroundColor }}
+                                  >
+                                    R{a.round}
+                                  </span>
+                                  {a.originalTeam && a.originalTeam !== row.team ? (
+                                    <span className="text-xs text-[var(--muted)]"> (originally {a.originalTeam})</span>
+                                  ) : null}
+                                </span>
+                              ) : (
+                                (() => {
+                                  const col = getTeamColorStyle(row.team).backgroundColor as string;
+                                  return (
+                                    <span>
+                                      <span
+                                        className="inline-flex items-center text-[10px] px-1.5 py-0.5 rounded-full border mr-1"
+                                        style={{ borderColor: col, color: col }}
+                                      >
+                                        FAAB
+                                      </span>
+                                      {typeof a.amount === 'number' ? `$${a.amount}` : ''}
+                                    </span>
+                                  );
+                                })()
+                              )}
+                            </li>
+                          ))}
+                        </ul>
+                      </>
                     )}
                   </li>
                 ))}
