@@ -110,7 +110,7 @@ export async function POST(req: NextRequest) {
       generatedAt: new Date().toISOString(),
       teams: rows,
       playersMeta: Object.fromEntries(Object.entries(players).map(([id, p]) => [id, { name: `${p.first_name || ''} ${p.last_name || ''}`.trim(), position: p.position || null }])) as Record<string, { name: string; position: string | null }>,
-      meta: { source: 'manual', accurateTaxi: true, accurateReserve: true },
+      meta: { source: 'manual', accurateTaxi: true, accurateReserve: true, schemaVersion: 2 },
     };
 
     const key = `logs/lineups/snapshots/${year}-W${week}.json`;

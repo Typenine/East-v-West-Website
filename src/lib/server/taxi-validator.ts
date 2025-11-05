@@ -149,13 +149,16 @@ export async function validateTaxiForRoster(selectedSeason: string, selectedRost
       const key = `logs/lineups/snapshots/${String(selectedSeason)}-W${matchupWeek}.json`;
       const txt = await getObjectText({ key });
       if (txt) {
-        const j = JSON.parse(txt) as { teams?: Array<{ rosterId: number; starters?: string[]; bench?: string[]; reserve?: string[] }> };
-        const row = (j.teams || []).find((t) => t.rosterId === selectedRosterId);
-        if (row) {
-          const st = Array.isArray(row.starters) ? row.starters.filter(Boolean) : [];
-          const bn = Array.isArray(row.bench) ? row.bench.filter(Boolean) : [];
-          const ir = Array.isArray(row.reserve) ? row.reserve.filter(Boolean) : [];
-          if (st.length + bn.length + ir.length > 0) ids = new Set<string>([...st, ...bn, ...ir]);
+        const j = JSON.parse(txt) as { meta?: { schemaVersion?: number }; teams?: Array<{ rosterId: number; starters?: string[]; bench?: string[]; reserve?: string[] }> };
+        const ver = Number(j?.meta?.schemaVersion || 1);
+        if (Number.isFinite(ver) && ver >= 2) {
+          const row = (j.teams || []).find((t) => t.rosterId === selectedRosterId);
+          if (row) {
+            const st = Array.isArray(row.starters) ? row.starters.filter(Boolean) : [];
+            const bn = Array.isArray(row.bench) ? row.bench.filter(Boolean) : [];
+            const ir = Array.isArray(row.reserve) ? row.reserve.filter(Boolean) : [];
+            if (st.length + bn.length + ir.length > 0) ids = new Set<string>([...st, ...bn, ...ir]);
+          }
         }
       }
     } catch {}

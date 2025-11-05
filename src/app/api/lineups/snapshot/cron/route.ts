@@ -113,7 +113,7 @@ export async function GET() {
       generatedAt: new Date().toISOString(),
       teams: rows,
       playersMeta: Object.fromEntries(Object.entries(players).map(([id, p]) => [id, { name: `${p.first_name || ''} ${p.last_name || ''}`.trim(), position: p.position || null }])) as Record<string, { name: string; position: string | null }>,
-      meta: { source: 'cron', accurateTaxi: true, accurateReserve: true },
+      meta: { source: 'cron', accurateTaxi: true, accurateReserve: true, schemaVersion: 2 },
     };
 
     await putObjectText({ key, text: JSON.stringify(snapshot, null, 2) });

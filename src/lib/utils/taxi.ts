@@ -55,6 +55,11 @@ export async function computeTaxiAnalysisForRoster(selectedSeason: string, selec
       const txt = await getObjectText({ key: path });
       if (!txt) { snapshotCache.set(key, new Map()); return null; }
       const j = JSON.parse(txt);
+      const schemaVersion = Number(j?.meta?.schemaVersion || 1);
+      if (!Number.isFinite(schemaVersion) || schemaVersion < 2) {
+        snapshotCache.set(key, new Map());
+        return null;
+      }
       const map = new Map<number, { starters: string[]; bench: string[]; reserve: string[] }>();
       const teams = (j?.teams as Array<{ rosterId: number; starters: string[]; bench: string[]; reserve?: string[] }> | undefined) || [];
       for (const t of teams) {
@@ -152,16 +157,18 @@ export async function computeTaxiAnalysisForRoster(selectedSeason: string, selec
         const starters = new Set<string>((m.starters || []).filter(Boolean) as string[]);
         const snap = await loadSnapshot(year, week).catch(() => null);
         const extra = snap?.get(rid);
+        const isCurrentSeason = (currentSeason && currentSeason === year);
+        const isRecentWeek = isCurrentSeason && (typeof currentWeek === 'number' && currentWeek !== null) ? (week >= (currentWeek! - 1)) : false;
         let ids = new Set<string>();
         let inStarters = (pid: string) => starters.has(pid);
-        // bench determination is implicit when not starters/reserve but present in weeklyPlayers
         let inReserve: (pid: string) => boolean = () => false;
-        if (extra && (extra.starters.length > 0 || extra.bench.length > 0 || extra.reserve.length > 0)) {
-          ids = new Set<string>([...extra.starters, ...extra.bench, ...extra.reserve].filter(Boolean));
-          inStarters = (pid: string) => extra.starters.includes(pid);
-          inReserve = (pid: string) => extra.reserve.includes(pid);
+        const canTrustExtra = Boolean(extra && (extra.starters.length > 0 || extra.bench.length > 0 || extra.reserve.length > 0) && isRecentWeek);
+        if (canTrustExtra) {
+          ids = new Set<string>([...extra!.starters, ...extra!.bench, ...extra!.reserve].filter(Boolean));
+          inStarters = (pid: string) => extra!.starters.includes(pid);
+          inReserve = (pid: string) => extra!.reserve.includes(pid);
         } else {
-          // Fallback: only starters. Without a snapshot, we don't trust bench detection (taxi may leak into weekly players).
+          // Fallback: only starters for older weeks or when snapshot is missing
           ids = new Set<string>(Array.from(starters));
         }
         if (ids.size === 0) continue;
