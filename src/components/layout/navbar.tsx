@@ -205,6 +205,12 @@ export default function Navbar() {
                           </button>
                           <button
                             className="w-full text-left px-2 py-1.5 rounded hover:bg-[var(--surface-strong)]"
+                            onClick={() => { setAccountMenuOpen(false); router.push('/admin/taxi'); }}
+                          >
+                            Admin: Taxi
+                          </button>
+                          <button
+                            className="w-full text-left px-2 py-1.5 rounded hover:bg-[var(--surface-strong)]"
                             onClick={() => { setAccountMenuOpen(false); router.push('/admin/users'); }}
                           >
                             Admin: Users
