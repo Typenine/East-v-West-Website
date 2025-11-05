@@ -22,7 +22,6 @@
     "@headlessui/react": "^2.2.7",
     "@heroicons/react": "^2.2.0",
     "@neondatabase/serverless": "^0.10.3",
-    "@vercel/blob": "^1.1.1",
     "@vercel/kv": "^1.0.1",
     "@xyflow/react": "12.8.3",
     "classnames": "2.5.1",
