@@ -2109,11 +2109,10 @@ export async function getLeagueTransactions(leagueId: string, week?: number, opt
 
 export async function getLeagueTransactionsAllWeeks(leagueId: string, options?: SleeperFetchOptions): Promise<SleeperTransaction[]> {
   try {
-    const weeks = Array.from({ length: 18 }, (_, i) => i + 1);
+    // Include offseason transactions (week 0) through week 18
+    const weeks = Array.from({ length: 19 }, (_, i) => i); // 0..18
     const weekly = await Promise.all(
-      weeks.map((week) =>
-        getLeagueTransactions(leagueId, week, options).catch(() => [] as SleeperTransaction[])
-      )
+      weeks.map((w) => getLeagueTransactions(leagueId, w, options).catch(() => [] as SleeperTransaction[]))
     );
     return weekly.flat();
   } catch (error) {
@@ -2129,8 +2128,8 @@ export async function getLeagueTransactionsAllWeeks(leagueId: string, options?: 
  */
 export async function getLeagueTrades(leagueId: string, options?: SleeperFetchOptions): Promise<SleeperTransaction[]> {
   try {
-    // Fetch transactions for all weeks in parallel (weeks 1-18)
-    const weeks = Array.from({ length: 18 }, (_, i) => i + 1);
+    // Fetch transactions for all weeks in parallel including offseason week 0
+    const weeks = Array.from({ length: 19 }, (_, i) => i); // 0..18
     const weeklyTransactions = await Promise.all(
       weeks.map(week =>
         getLeagueTransactions(leagueId, week, options).catch(() => [] as SleeperTransaction[])
