@@ -194,15 +194,19 @@ export default function TradeBlockTab() {
               <p className="text-[var(--muted)]">No teams have posted trade blocks yet.</p>
             ) : (
               <ul className="space-y-6">
-                {rows.map((row) => (
-                  <li key={row.team} className="border border-[var(--border)] rounded-[var(--radius-card)] p-4">
-                    <div className="flex items-center gap-3 mb-2">
-                      <div className="w-8 h-8 rounded-full flex items-center justify-center overflow-hidden" style={getTeamColorStyle(row.team)}>
-                        <Image src={getTeamLogoPath(row.team)} alt="" width={24} height={24} />
+                {rows.map((row) => {
+                  const col = getTeamColorStyle(row.team).backgroundColor as string;
+                  return (
+                    <li key={row.team} className="border border-[var(--border)] rounded-[var(--radius-card)] p-4" style={{ borderLeftColor: col, borderLeftWidth: 4, borderLeftStyle: 'solid' }}>
+                      {/* Top colored strip */}
+                      <div className="h-1.5 rounded-t-[var(--radius-card)] -mx-4 -mt-4 mb-3" style={{ backgroundColor: col, opacity: 0.15 }} aria-hidden="true" />
+                      <div className="flex items-center gap-3 mb-2">
+                        <div className="w-8 h-8 rounded-full flex items-center justify-center overflow-hidden" style={getTeamColorStyle(row.team)}>
+                          <Image src={getTeamLogoPath(row.team)} alt="" width={24} height={24} />
+                        </div>
+                        <div className="font-bold" style={{ color: col }}>{row.team}</div>
+                        <div className="ml-auto text-xs text-[var(--muted)]" title={row.updatedAt || undefined}>{row.updatedAt ? new Date(row.updatedAt).toLocaleString() : '—'}</div>
                       </div>
-                      <div className="font-bold" style={{ color: getTeamColorStyle(row.team).backgroundColor }}>{row.team}</div>
-                      <div className="ml-auto text-xs text-[var(--muted)]" title={row.updatedAt || undefined}>{row.updatedAt ? new Date(row.updatedAt).toLocaleString() : '—'}</div>
-                    </div>
                     {row.tradeWants && (row.tradeWants.text || (row.tradeWants.positions && row.tradeWants.positions.length > 0)) ? (
                       (() => {
                         const col = getTeamColorStyle(row.team).backgroundColor as string;
@@ -286,8 +290,9 @@ export default function TradeBlockTab() {
                         </ul>
                       </>
                     )}
-                  </li>
-                ))}
+                    </li>
+                  );
+                })}
               </ul>
             )}
           </CardContent>
