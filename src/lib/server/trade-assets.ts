@@ -35,28 +35,42 @@ export async function getTeamAssets(team: string): Promise<TeamAssets> {
 
   // Build current ownership map for next-season picks keyed by `${origRosterId}-${round}`
   const baseOwners: Map<string, number> = new Map();
-  for (const r of rosters) {
-    for (let rd = 1; rd <= Math.max(1, rounds); rd++) {
-      baseOwners.set(`${r.roster_id}-${rd}`, r.roster_id);
-    }
-  }
-  // Apply trades in chronological order
+  for (const r of rosters) for (let rd = 1; rd <= Math.max(1, rounds); rd++) baseOwners.set(`${r.roster_id}-${rd}`, r.roster_id);
+
+  // Prefer Sleeper traded_picks endpoint, then fallback to replaying trades
+  let usedTraded = false;
   try {
-    const txns = await getLeagueTrades(leagueId);
-    const sorted = [...txns].filter((t) => t && t.status === 'complete').sort((a: SleeperTransaction, b: SleeperTransaction) => {
-      const aTs = Number(a.status_updated || a.created || 0);
-      const bTs = Number(b.status_updated || b.created || 0);
-      return aTs - bTs;
-    });
-    for (const t of sorted) {
-      if (!Array.isArray(t.draft_picks)) continue;
-      for (const p of t.draft_picks) {
-        if (!p || String(p.season) !== nextSeasonStr) continue;
-        const key = `${p.roster_id}-${p.round}`; // original owner roster_id + round
-        if (typeof p.owner_id === 'number') baseOwners.set(key, p.owner_id);
+    const url = `https://api.sleeper.app/v1/league/${leagueId}/traded_picks`;
+    const resp = await fetch(url, { cache: 'no-store' });
+    if (resp.ok) {
+      type TP = { season?: string; round?: number; roster_id?: number; original_roster_id?: number };
+      const arr = (await resp.json()) as TP[];
+      for (const tp of arr) {
+        if (!tp || String(tp.season) !== nextSeasonStr) continue;
+        const key = `${Number(tp.original_roster_id)}-${Number(tp.round)}`;
+        if (typeof tp.roster_id === 'number') baseOwners.set(key, tp.roster_id);
       }
+      usedTraded = true;
     }
   } catch {}
+  if (!usedTraded) {
+    try {
+      const txns = await getLeagueTrades(leagueId);
+      const sorted = [...txns].filter((t) => t && t.status === 'complete').sort((a: SleeperTransaction, b: SleeperTransaction) => {
+        const aTs = Number(a.status_updated || a.created || 0);
+        const bTs = Number(b.status_updated || b.created || 0);
+        return aTs - bTs;
+      });
+      for (const t of sorted) {
+        if (!Array.isArray(t.draft_picks)) continue;
+        for (const p of t.draft_picks) {
+          if (!p || String(p.season) !== nextSeasonStr) continue;
+          const key = `${p.roster_id}-${p.round}`;
+          if (typeof p.owner_id === 'number') baseOwners.set(key, p.owner_id);
+        }
+      }
+    } catch {}
+  }
 
   // Collect picks currently owned by this team (by roster id)
   const picks: Array<{ year: number; round: number; originalTeam: string }> = [];
