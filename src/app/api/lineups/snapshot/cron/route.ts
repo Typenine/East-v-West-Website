@@ -70,24 +70,26 @@ export async function GET() {
       const starters = Array.from(new Set((r.starters || []).filter(Boolean)));
       const startersSet = new Set(starters);
 
+      const reserveSrc = reserveMap.get(t.rosterId) || [];
+      const taxiSrc = taxiMap.get(t.rosterId) || [];
+      const reserveSet = new Set((reserveSrc || []).filter(Boolean));
+      const taxiSet = new Set((taxiSrc || []).filter(Boolean));
+
       const bench: string[] = [];
       for (const id of (r.players || [])) {
-        if (!id || startersSet.has(id)) continue;
+        if (!id || startersSet.has(id) || reserveSet.has(id) || taxiSet.has(id)) continue;
         if (bench.includes(id)) continue;
         bench.push(id);
       }
-      const used = new Set<string>([...starters, ...bench]);
 
-      const reserveSrc = reserveMap.get(t.rosterId) || [];
       const reserve: string[] = [];
       for (const id of reserveSrc) {
-        if (!id || used.has(id)) continue;
+        if (!id || startersSet.has(id) || bench.includes(id)) continue;
         if (reserve.includes(id)) continue;
         reserve.push(id);
       }
-      for (const id of reserve) used.add(id);
 
-      const taxiSrc = taxiMap.get(t.rosterId) || [];
+      const used = new Set<string>([...starters, ...bench, ...reserve]);
       const taxi: string[] = [];
       for (const id of taxiSrc) {
         if (!id || used.has(id)) continue;

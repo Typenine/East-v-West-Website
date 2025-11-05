@@ -8,6 +8,8 @@ import { Select } from '@/components/ui/Select';
 import { Button } from '@/components/ui/Button';
 import { getTeamsData } from '@/lib/utils/sleeper-api';
 import { LEAGUE_IDS } from '@/lib/constants/league';
+import TeamBadge from '@/components/teams/TeamBadge';
+import { getTeamColors } from '@/lib/utils/team-utils';
 
 export const dynamic = 'force-dynamic';
 
@@ -282,41 +284,47 @@ export default function AdminTaxiPage() {
               {visibleTeams.map((t) => {
                 const a = analyses[t.rosterId] || null;
                 const over = a ? (a.violations.overQB || a.violations.overSlots || (a.violations.ineligibleOnTaxi?.length || 0) > 0) : false;
+                const colors = getTeamColors(t.teamName);
                 return (
-                  <div key={t.rosterId} className="border border-[var(--border)] rounded p-3">
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="font-semibold">{t.teamName}</div>
-                      <div className="flex items-center gap-2 text-xs">
-                        {a && <span className="px-2 py-0.5 rounded border">Slots {a.current.counts.total}/{a.limits.maxSlots}</span>}
-                        {a && <span className="px-2 py-0.5 rounded border">QBs {a.current.counts.qbs}/{a.limits.maxQB}</span>}
-                        {a && (over ? <StatusPill kind="danger" text="Non-compliant" /> : <StatusPill kind="ok" text="Compliant" />)}
+                  <div key={t.rosterId} className="rounded border border-[var(--border)] overflow-hidden">
+                    <div className="h-1 w-full" style={{ background: `linear-gradient(90deg, ${colors.primary}, ${colors.secondary})` }} />
+                    <div className="p-3">
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-2">
+                          <TeamBadge team={t.teamName} size="md" />
+                        </div>
+                        <div className="flex items-center gap-2 text-xs">
+                          {a && <span className="px-2 py-0.5 rounded border">Slots {a.current.counts.total}/{a.limits.maxSlots}</span>}
+                          {a && <span className="px-2 py-0.5 rounded border">QBs {a.current.counts.qbs}/{a.limits.maxQB}</span>}
+                          {a && (over ? <StatusPill kind="danger" text="Non-compliant" /> : <StatusPill kind="ok" text="Compliant" />)}
+                        </div>
                       </div>
+                      {!a ? (
+                        <div className="text-[var(--muted)] text-sm">No data</div>
+                      ) : a.current.taxi.length === 0 ? (
+                        <div className="text-[var(--muted)] text-sm">No players on taxi.</div>
+                      ) : (
+                        <ul className="text-sm grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-1">
+                          {a.current.taxi.map((p) => {
+                            let statusEl = <StatusPill kind="ok" text="Eligible" />;
+                            if (p.activatedSinceJoin) {
+                              statusEl = <StatusPill kind="danger" text={`Ineligible${p.ineligibleReason ? ` • ${p.ineligibleReason}` : ''}${p.activatedAt ? ` • W${p.activatedAt.week} ${p.activatedAt.year}` : ''}`} />;
+                            } else if (p.potentialActivatedSinceJoin) {
+                              statusEl = <StatusPill kind="warn" text={`Potential${p.potentialAt ? ` • W${p.potentialAt.week} ${p.potentialAt.year}` : ''}`} />;
+                            }
+                            return (
+                              <li key={p.playerId} className="flex items-center justify-between">
+                                <span>
+                                  {p.name || p.playerId} {p.position ? <span className="text-[var(--muted)]">({p.position})</span> : null}
+                                  {p.onTaxiSince ? <span className="text-[var(--muted)] ml-2">W{p.onTaxiSince.week} {p.onTaxiSince.year}</span> : null}
+                                </span>
+                                {statusEl}
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      )}
                     </div>
-                    {!a ? (
-                      <div className="text-[var(--muted)] text-sm">No data</div>
-                    ) : a.current.taxi.length === 0 ? (
-                      <div className="text-[var(--muted)] text-sm">No players on taxi.</div>
-                    ) : (
-                      <ul className="text-sm grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-1">
-                        {a.current.taxi.map((p) => {
-                          let statusEl = <StatusPill kind="ok" text="Eligible" />;
-                          if (p.activatedSinceJoin) {
-                            statusEl = <StatusPill kind="danger" text={`Ineligible${p.ineligibleReason ? ` • ${p.ineligibleReason}` : ''}${p.activatedAt ? ` • W${p.activatedAt.week} ${p.activatedAt.year}` : ''}`} />;
-                          } else if (p.potentialActivatedSinceJoin) {
-                            statusEl = <StatusPill kind="warn" text={`Potential${p.potentialAt ? ` • W${p.potentialAt.week} ${p.potentialAt.year}` : ''}`} />;
-                          }
-                          return (
-                            <li key={p.playerId} className="flex items-center justify-between">
-                              <span>
-                                {p.name || p.playerId} {p.position ? <span className="text-[var(--muted)]">({p.position})</span> : null}
-                                {p.onTaxiSince ? <span className="text-[var(--muted)] ml-2">W{p.onTaxiSince.week} {p.onTaxiSince.year}</span> : null}
-                              </span>
-                              {statusEl}
-                            </li>
-                          );
-                        })}
-                      </ul>
-                    )}
                   </div>
                 );
               })}

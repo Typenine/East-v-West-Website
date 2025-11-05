@@ -134,28 +134,38 @@ export async function validateTaxiForRoster(selectedSeason: string, selectedRost
   }
   const lastLockedWeek = currentWeek > 1 ? currentWeek - 1 : 0;
   const weeks = lastLockedWeek > 0 ? Array.from({ length: lastLockedWeek }, (_, i) => i + 1) : [];
-  const weekly = await Promise.all(weeks.map((w) => getLeagueMatchups(leagueId, w).catch(() => [] as Array<{ roster_id?: number; starters?: string[]; players?: string[] }>)));
+  const weekly = await Promise.all(weeks.map((w) => getLeagueMatchups(leagueId, w).catch(() => [] as Array<{ matchup_id?: number; roster_id?: number; starters?: string[]; players?: string[]; points?: number; custom_points?: number }>)));
   const appearedSinceJoin = new Set<string>();
   for (let wi = 0; wi < weekly.length; wi++) {
-    const matches = weekly[wi] || [];
+    const matches = weekly[wi] || [] as Array<{ matchup_id?: number; roster_id?: number; starters?: string[]; players?: string[]; points?: number; custom_points?: number }>;
     const matchupWeek = weeks[wi] || 0;
     const m = matches.find((mm) => mm && mm.roster_id === selectedRosterId);
     if (!m) continue;
-    const starters = new Set<string>((m.starters || []).filter(Boolean) as string[]);
-    const weeklyPlayers = new Set<string>((m.players || []).filter(Boolean) as string[]);
-    const bench = new Set(Array.from(weeklyPlayers).filter((pid) => !starters.has(pid)));
-    // Try to include IR from weekly snapshot if available for this week/season
-    let reserveExtra: string[] = [];
+    const startersRaw = Array.isArray(m.starters) ? (m.starters as string[]) : [];
+    const starters = new Set<string>(startersRaw.filter(Boolean));
+    // Prefer snapshot for full breakdown (starters/bench/reserve). If missing, only trust starters.
+    let ids = new Set<string>(Array.from(starters));
     try {
       const key = `logs/lineups/snapshots/${String(selectedSeason)}-W${matchupWeek}.json`;
       const txt = await getObjectText({ key });
       if (txt) {
-        const j = JSON.parse(txt) as { teams?: Array<{ rosterId: number; reserve?: string[] }> };
+        const j = JSON.parse(txt) as { teams?: Array<{ rosterId: number; starters?: string[]; bench?: string[]; reserve?: string[] }> };
         const row = (j.teams || []).find((t) => t.rosterId === selectedRosterId);
-        if (row && Array.isArray(row.reserve)) reserveExtra = row.reserve.filter(Boolean);
+        if (row) {
+          const st = Array.isArray(row.starters) ? row.starters.filter(Boolean) : [];
+          const bn = Array.isArray(row.bench) ? row.bench.filter(Boolean) : [];
+          const ir = Array.isArray(row.reserve) ? row.reserve.filter(Boolean) : [];
+          if (st.length + bn.length + ir.length > 0) ids = new Set<string>([...st, ...bn, ...ir]);
+        }
       }
     } catch {}
-    const nonTaxiSet = new Set<string>([...starters, ...bench, ...reserveExtra]);
+    // Only consider appearances if the matchup was played (points recorded)
+    const opp = matches.find((x) => x.matchup_id === m.matchup_id && x.roster_id !== m.roster_id);
+    const myPts = Number((m.custom_points ?? m.points ?? 0) || 0);
+    const oppPts = Number((opp?.custom_points ?? opp?.points ?? 0) || 0);
+    const played = (myPts > 0) || (oppPts > 0);
+    if (!played) continue;
+    const nonTaxiSet = ids;
     for (const pid of nonTaxiSet) {
       const lj = lastJoin.get(pid);
       if (!lj) continue;
