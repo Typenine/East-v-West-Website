@@ -1084,9 +1084,18 @@ export default function TeamPage() {
 
                       {(!taxi.compliant) && (
                         <div className="text-sm text-[var(--danger)]">
-                          {taxi.violations.map((v, i) => (
-                            <div key={`v-${i}`}>{v.detail || v.code}</div>
-                          ))}
+                          {taxi.violations.map((v, i) => {
+                            const nameOf = (pid: string) => {
+                              const hit = taxi.current.taxi.find((t) => t.playerId === pid);
+                              return hit?.name || pid;
+                            };
+                            const suffix = (v.players && v.players.length > 0)
+                              ? `: ${v.players.map((pid) => nameOf(pid)).join(', ')}`
+                              : '';
+                            return (
+                              <div key={`v-${i}`}>{`${v.detail || v.code}${suffix}`}</div>
+                            );
+                          })}
                         </div>
                       )}
                       <p className="text-xs text-[var(--muted)]">Read-only tracker. This does not change your Sleeper roster. &quot;On Taxi (since)&quot; reflects first seen time on this site.</p>

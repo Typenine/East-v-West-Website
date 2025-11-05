@@ -87,8 +87,14 @@ export async function validateTaxiForRoster(selectedSeason: string, selectedRost
   }
   await bulkInsertTxnCacheWithPrune(rowsForCache).catch(() => 0);
 
-  // Check boomerang: if any taxi player has appeared outside taxi in matchups since their last join
-  const weeks = Array.from({ length: 17 }, (_, i) => i + 1);
+  // Check boomerang using only prior locked weeks (exclude current week)
+  let currentWeek = 0;
+  try {
+    const st = await getNFLState();
+    currentWeek = Number((st as { week?: number }).week || 0) || 0;
+  } catch {}
+  const lastLockedWeek = currentWeek > 1 ? currentWeek - 1 : 0;
+  const weeks = lastLockedWeek > 0 ? Array.from({ length: lastLockedWeek }, (_, i) => i + 1) : [];
   const weekly = await Promise.all(weeks.map((w) => getLeagueMatchups(leagueId, w).catch(() => [] as Array<{ roster_id?: number; starters?: string[]; players?: string[] }>)));
   const appearedSinceJoin = new Set<string>();
   for (let wi = 0; wi < weekly.length; wi++) {
@@ -98,8 +104,8 @@ export async function validateTaxiForRoster(selectedSeason: string, selectedRost
     const starters = new Set<string>((m.starters || []).filter(Boolean) as string[]);
     const weeklyPlayers = new Set<string>((m.players || []).filter(Boolean) as string[]);
     const bench = new Set(Array.from(weeklyPlayers).filter((pid) => !starters.has(pid)));
-    const reserveCur = new Set(reserveArr); // weekly IR unknown; fallback to current reserve
-    const nonTaxiSet = new Set<string>([...starters, ...bench, ...reserveCur]);
+    // Do NOT use current reserve for historical weeks to avoid false positives
+    const nonTaxiSet = new Set<string>([...starters, ...bench]);
     for (const pid of nonTaxiSet) {
       const lj = lastJoin.get(pid);
       if (!lj) continue;
@@ -114,8 +120,9 @@ export async function validateTaxiForRoster(selectedSeason: string, selectedRost
   // Violations
   const violations: Violation[] = [];
   if (taxiArr.length > 3) violations.push({ code: 'too_many_on_taxi', detail: '>3 players on taxi' });
-  const taxiQbs = taxiArr.filter((pid) => (playersMeta[pid]?.position || '').toUpperCase() === 'QB').length;
-  if (taxiQbs > 1) violations.push({ code: 'too_many_qbs', detail: '2+ QBs on taxi (limit 1)' });
+  const taxiQbIds = taxiArr.filter((pid) => (playersMeta[pid]?.position || '').toUpperCase() === 'QB');
+  const taxiQbs = taxiQbIds.length;
+  if (taxiQbs > 1) violations.push({ code: 'too_many_qbs', detail: '2+ QBs on taxi (limit 1)', players: taxiQbIds });
 
   const inconsistent: string[] = [];
   for (const pid of taxiArr) {
@@ -128,8 +135,8 @@ export async function validateTaxiForRoster(selectedSeason: string, selectedRost
   const invalidIntake: string[] = [];
   const boomerang: string[] = [];
   for (const pid of taxiArr) {
-    const via = lastJoin.get(pid)?.via || 'other';
-    if (!['free_agent', 'waiver', 'trade', 'draft'].includes(via)) invalidIntake.push(pid);
+    const lj = lastJoin.get(pid);
+    if (lj && !['free_agent', 'waiver', 'trade', 'draft'].includes(lj.via)) invalidIntake.push(pid);
     if (appearedSinceJoin.has(pid)) boomerang.push(pid);
   }
   if (invalidIntake.length > 0) violations.push({ code: 'invalid_intake', detail: 'Taxi intake must be FA/Trade/Draft', players: invalidIntake });
