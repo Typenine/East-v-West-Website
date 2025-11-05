@@ -195,41 +195,41 @@ export default function TradeBlockTab() {
             ) : (
               <ul className="space-y-6">
                 {rows.map((row) => {
-                  const col = getTeamColorStyle(row.team).backgroundColor as string;
+                  const s1 = getTeamColorStyle(row.team);
+                  const primaryBg = s1.backgroundColor as string;
+                  const primaryFg = s1.color as string;
+                  const secondaryBg = getTeamColorStyle(row.team, 'secondary').backgroundColor as string;
                   return (
-                    <li key={row.team} className="border border-[var(--border)] rounded-[var(--radius-card)] p-4" style={{ borderLeftColor: col, borderLeftWidth: 4, borderLeftStyle: 'solid' }}>
+                    <li key={row.team} className="border border-[var(--border)] rounded-[var(--radius-card)] p-4" style={{ borderLeftColor: secondaryBg, borderLeftWidth: 4, borderLeftStyle: 'solid' }}>
                       {/* Top colored strip */}
-                      <div className="h-1.5 rounded-t-[var(--radius-card)] -mx-4 -mt-4 mb-3" style={{ backgroundColor: col, opacity: 0.15 }} aria-hidden="true" />
+                      <div className="h-1.5 rounded-t-[var(--radius-card)] -mx-4 -mt-4 mb-3" style={{ backgroundColor: primaryBg, opacity: 0.15 }} aria-hidden="true" />
                       <div className="flex items-center gap-3 mb-2">
-                        <div className="w-8 h-8 rounded-full flex items-center justify-center overflow-hidden" style={getTeamColorStyle(row.team)}>
+                        <div className="w-8 h-8 rounded-full flex items-center justify-center overflow-hidden" style={s1}>
                           <Image src={getTeamLogoPath(row.team)} alt="" width={24} height={24} />
                         </div>
-                        <div className="font-bold" style={{ color: col }}>{row.team}</div>
+                        <div className="font-bold" style={{ color: primaryBg }}>{row.team}</div>
                         <div className="ml-auto text-xs text-[var(--muted)]" title={row.updatedAt || undefined}>{row.updatedAt ? new Date(row.updatedAt).toLocaleString() : '—'}</div>
                       </div>
                     {row.tradeWants && (row.tradeWants.text || (row.tradeWants.positions && row.tradeWants.positions.length > 0)) ? (
-                      (() => {
-                        const col = getTeamColorStyle(row.team).backgroundColor as string;
-                        return (
-                          <div className="mb-3">
-                            <div className="text-xs uppercase tracking-wide mb-1" style={{ color: col }}>Wants</div>
-                            {row.tradeWants.text && <div className="text-sm mb-1">{row.tradeWants.text}</div>}
-                            {row.tradeWants.positions && row.tradeWants.positions.length > 0 && (
-                              <div className="flex flex-wrap gap-2">
-                                {row.tradeWants.positions.map((p) => (
-                                  <span
-                                    key={p}
-                                    className="text-xs px-2 py-0.5 rounded-full border"
-                                    style={{ borderColor: col, color: col }}
-                                  >
-                                    {p}
-                                  </span>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })()
+                      (() => (
+                        <div className="mb-3 rounded-md p-3" style={{ backgroundColor: primaryBg, color: primaryFg }}>
+                          <div className="text-xs uppercase tracking-wide mb-1" style={{ opacity: 0.9 }}>Wants</div>
+                          {row.tradeWants.text && <div className="text-sm mb-1">{row.tradeWants.text}</div>}
+                          {row.tradeWants.positions && row.tradeWants.positions.length > 0 && (
+                            <div className="flex flex-wrap gap-2">
+                              {row.tradeWants.positions.map((p) => (
+                                <span
+                                  key={p}
+                                  className="text-xs px-2 py-0.5 rounded-full border"
+                                  style={{ borderColor: primaryFg, color: primaryFg }}
+                                >
+                                  {p}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      ))()
                     ) : null}
                     <div className="border-t border-[var(--border)] my-2" />
                     {row.tradeBlock.length === 0 ? (

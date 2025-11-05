@@ -38,7 +38,6 @@ export async function getTeamAssets(team: string): Promise<TeamAssets> {
   for (const r of rosters) for (let rd = 1; rd <= Math.max(1, rounds); rd++) baseOwners.set(`${r.roster_id}-${rd}`, r.roster_id);
 
   // Prefer Sleeper traded_picks endpoint, then fallback to replaying trades
-  let usedTraded = false;
   try {
     const url = `https://api.sleeper.app/v1/league/${leagueId}/traded_picks`;
     const resp = await fetch(url, { cache: 'no-store' });
@@ -51,7 +50,6 @@ export async function getTeamAssets(team: string): Promise<TeamAssets> {
         const key = `${Number(tp.roster_id)}-${Number(tp.round)}`;
         if (typeof tp.owner_id === 'number') baseOwners.set(key, tp.owner_id);
       }
-      usedTraded = true;
     }
   } catch {}
   // Regardless of traded_picks success, replay chronological trades to guarantee final state

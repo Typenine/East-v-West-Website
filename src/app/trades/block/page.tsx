@@ -199,106 +199,83 @@ export default function TradeBlockPage() {
                 <p className="text-[var(--muted)]">No teams have posted trade blocks yet.</p>
               ) : (
                 <ul className="space-y-6">
-                  {rows.map((row) => (
-                    <li key={row.team} className="border border-[var(--border)] rounded-[var(--radius-card)] p-4">
-                      {/* Top colored strip */}
-                      <div
-                        className="h-1.5 rounded-t-[var(--radius-card)] -mx-4 -mt-4 mb-3"
-                        style={{ backgroundColor: getTeamColorStyle(row.team).backgroundColor, opacity: 0.15 }}
-                        aria-hidden="true"
-                      />
-                      <div className="flex items-center gap-3 mb-2">
-                        <div className="w-8 h-8 rounded-full flex items-center justify-center overflow-hidden" style={getTeamColorStyle(row.team)}>
-                          <Image src={getTeamLogoPath(row.team)} alt="" width={24} height={24} />
-                        </div>
-                        <div className="font-bold" style={{ color: getTeamColorStyle(row.team).backgroundColor }}>{row.team}</div>
-                        <div className="ml-auto text-xs text-[var(--muted)]" title={row.updatedAt || undefined}>{row.updatedAt ? new Date(row.updatedAt).toLocaleString() : '—'}</div>
-                      </div>
-                      {row.tradeWants && (row.tradeWants.text || (row.tradeWants.positions && row.tradeWants.positions.length > 0)) ? (
-                        (() => {
-                          const col = getTeamColorStyle(row.team).backgroundColor as string;
-                          return (
-                            <div className="mb-3">
-                              <div className="text-xs uppercase tracking-wide mb-1" style={{ color: col }}>Wants</div>
-                              {row.tradeWants.text && <div className="text-sm mb-1">{row.tradeWants.text}</div>}
-                              {row.tradeWants.positions && row.tradeWants.positions.length > 0 && (
-                                <div className="flex flex-wrap gap-2">
-                                  {row.tradeWants.positions.map((p) => (
-                                    <span
-                                      key={p}
-                                      className="text-xs px-2 py-0.5 rounded-full border"
-                                      style={{ borderColor: col, color: col }}
-                                    >
-                                      {p}
-                                    </span>
-                                  ))}
-                                </div>
-                              )}
-                            </div>
-                          );
-                        })()
-                      ) : null}
-                      <div className="border-t border-[var(--border)] my-2" />
-                      {row.tradeBlock.length === 0 ? (
-                        <div className="text-[var(--muted)] text-sm">No assets listed.</div>
-                      ) : (
-                        <>
-                          <div
-                            className="mt-2 mb-1 text-xs uppercase tracking-wide"
-                            style={{ color: getTeamColorStyle(row.team).backgroundColor }}
-                          >
-                            On the Block
+                  {rows.map((row) => {
+                    const s1 = getTeamColorStyle(row.team);
+                    const primaryBg = s1.backgroundColor as string;
+                    const primaryFg = s1.color as string;
+                    const secondaryBg = getTeamColorStyle(row.team, 'secondary').backgroundColor as string;
+                    return (
+                      <li key={row.team} className="border border-[var(--border)] rounded-[var(--radius-card)] p-4" style={{ borderLeftColor: secondaryBg, borderLeftWidth: 4, borderLeftStyle: 'solid' }}>
+                        <div className="h-1.5 rounded-t-[var(--radius-card)] -mx-4 -mt-4 mb-3" style={{ backgroundColor: primaryBg, opacity: 0.15 }} aria-hidden="true" />
+                        <div className="flex items-center gap-3 mb-2">
+                          <div className="w-8 h-8 rounded-full flex items-center justify-center overflow-hidden" style={s1}>
+                            <Image src={getTeamLogoPath(row.team)} alt="" width={24} height={24} />
                           </div>
-                          <ul className="space-y-1">
-                            {row.tradeBlock.map((a, idx) => (
-                              <li key={idx} className="flex items-center justify-between">
-                                {a.type === 'player' ? (
-                                  <span>
-                                    {playerNames[a.playerId]?.position ? `${playerNames[a.playerId].position} - ` : ''}
-                                    {playerNames[a.playerId]?.name || a.playerId}
-                                    {playerNames[a.playerId]?.team ? ` (${playerNames[a.playerId].team})` : ''}
+                          <div className="font-bold" style={{ color: primaryBg }}>{row.team}</div>
+                          <div className="ml-auto text-xs text-[var(--muted)]" title={row.updatedAt || undefined}>{row.updatedAt ? new Date(row.updatedAt).toLocaleString() : '—'}</div>
+                        </div>
+
+                        {row.tradeWants && (row.tradeWants.text || (row.tradeWants.positions && row.tradeWants.positions.length > 0)) ? (
+                          <div className="mb-3 rounded-md p-3" style={{ backgroundColor: primaryBg, color: primaryFg }}>
+                            <div className="text-xs uppercase tracking-wide mb-1" style={{ opacity: 0.9 }}>Wants</div>
+                            {row.tradeWants.text && <div className="text-sm mb-1">{row.tradeWants.text}</div>}
+                            {row.tradeWants.positions && row.tradeWants.positions.length > 0 && (
+                              <div className="flex flex-wrap gap-2">
+                                {row.tradeWants.positions.map((p) => (
+                                  <span key={p} className="text-xs px-2 py-0.5 rounded-full border" style={{ borderColor: primaryFg, color: primaryFg }}>
+                                    {p}
                                   </span>
-                                ) : a.type === 'pick' ? (
-                                  <span>
-                                    <span
-                                      className="inline-flex items-center text-[10px] px-1.5 py-0.5 rounded-full border mr-1"
-                                      style={{ borderColor: getTeamColorStyle(row.team).backgroundColor, color: getTeamColorStyle(row.team).backgroundColor }}
-                                    >
-                                      {a.year}
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        ) : null}
+
+                        <div className="border-t border-[var(--border)] my-2" />
+                        {row.tradeBlock.length === 0 ? (
+                          <div className="text-[var(--muted)] text-sm">No assets listed.</div>
+                        ) : (
+                          <>
+                            <div className="mt-2 mb-1 text-xs uppercase tracking-wide" style={{ color: primaryBg }}>
+                              On the Block
+                            </div>
+                            <ul className="space-y-1">
+                              {row.tradeBlock.map((a, idx) => (
+                                <li key={idx} className="flex items-center justify-between">
+                                  {a.type === 'player' ? (
+                                    <span>
+                                      {playerNames[a.playerId]?.position ? `${playerNames[a.playerId].position} - ` : ''}
+                                      {playerNames[a.playerId]?.name || a.playerId}
+                                      {playerNames[a.playerId]?.team ? ` (${playerNames[a.playerId].team})` : ''}
                                     </span>
-                                    <span
-                                      className="inline-flex items-center text-[10px] px-1.5 py-0.5 rounded-full border mr-1"
-                                      style={{ borderColor: getTeamColorStyle(row.team).backgroundColor, color: getTeamColorStyle(row.team).backgroundColor }}
-                                    >
-                                      R{a.round}
-                                    </span>
-                                    {a.originalTeam && a.originalTeam !== row.team ? (
-                                      <span className="text-xs text-[var(--muted)]"> (originally {a.originalTeam})</span>
-                                    ) : null}
-                                  </span>
-                                ) : (
-                                  (() => {
-                                    const col = getTeamColorStyle(row.team).backgroundColor as string;
-                                    return (
-                                      <span>
-                                        <span
-                                          className="inline-flex items-center text-[10px] px-1.5 py-0.5 rounded-full border mr-1"
-                                          style={{ borderColor: col, color: col }}
-                                        >
-                                          FAAB
-                                        </span>
-                                        {typeof a.amount === 'number' ? `$${a.amount}` : ''}
+                                  ) : a.type === 'pick' ? (
+                                    <span>
+                                      <span className="inline-flex items-center text-[10px] px-1.5 py-0.5 rounded-full border mr-1" style={{ borderColor: primaryBg, color: primaryBg }}>
+                                        {a.year}
                                       </span>
-                                    );
-                                  })()
-                                )}
-                              </li>
-                            ))}
-                          </ul>
-                        </>
-                      )}
-                    </li>
-                  ))}
+                                      <span className="inline-flex items-center text-[10px] px-1.5 py-0.5 rounded-full border mr-1" style={{ borderColor: primaryBg, color: primaryBg }}>
+                                        R{a.round}
+                                      </span>
+                                      {a.originalTeam && a.originalTeam !== row.team ? (
+                                        <span className="text-xs text-[var(--muted)]"> (originally {a.originalTeam})</span>
+                                      ) : null}
+                                    </span>
+                                  ) : (
+                                    <span>
+                                      <span className="inline-flex items-center text-[10px] px-1.5 py-0.5 rounded-full border mr-1" style={{ borderColor: primaryBg, color: primaryBg }}>
+                                        FAAB
+                                      </span>
+                                      {typeof a.amount === 'number' ? `$${a.amount}` : ''}
+                                    </span>
+                                  )}
+                                </li>
+                              ))}
+                            </ul>
+                          </>
+                        )}
+                      </li>
+                    );
+                  })}
                 </ul>
               )}
             </CardContent>
@@ -318,7 +295,6 @@ export default function TradeBlockPage() {
                 <p className="text-[var(--muted)]">Loading your assets…</p>
               ) : (
                 <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); saveMine(); }}>
-                  {/* Players */}
                   <div>
                     <Label className="mb-1 block">Players</Label>
                     <div className="max-h-64 overflow-auto space-y-1 border border-[var(--border)] rounded-[var(--radius-card)] p-2">
@@ -339,7 +315,6 @@ export default function TradeBlockPage() {
                     </div>
                   </div>
 
-                  {/* Picks */}
                   <div>
                     <Label className="mb-1 block">Picks ({myAssets.year})</Label>
                     <div className="space-y-1 border border-[var(--border)] rounded-[var(--radius-card)] p-2">
@@ -364,7 +339,6 @@ export default function TradeBlockPage() {
                     </div>
                   </div>
 
-                  {/* FAAB */}
                   <div>
                     <Label className="mb-1 block">FAAB</Label>
                     <div className="flex items-center gap-2">
@@ -383,7 +357,6 @@ export default function TradeBlockPage() {
                     </div>
                   </div>
 
-                  {/* Wants */}
                   <div>
                     <Label className="mb-1 block">What are you looking for?</Label>
                     <Textarea rows={3} value={wantsText} onChange={(e) => setWantsText(e.target.value)} placeholder="e.g., WR depth, 2026 picks" />
