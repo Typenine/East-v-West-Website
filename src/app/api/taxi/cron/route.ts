@@ -20,7 +20,8 @@ function pickRunType(day: string, hour: number, minute: number): 'wed_warn' | 't
   if (day === 'Wed' && hour === 17 && minute === 0) return 'wed_warn';
   if (day === 'Thu' && hour === 15 && minute === 0) return 'thu_warn';
   if (day === 'Sun' && hour === 11 && minute === 0) return 'sun_am_warn';
-  if (day === 'Sun' && hour === 23 && minute === 59) return 'sun_pm_official';
+  // Use SNF kickoff hour (top-of-hour) as the official run time
+  if (day === 'Sun' && hour === 20 && minute === 0) return 'sun_pm_official';
   return null;
 }
 
@@ -45,6 +46,8 @@ export async function GET() {
         const res = await validateTaxiForRoster(String(season), t.rosterId);
         if (!res) continue;
         const taxiIds = res.current.taxi.map((x) => x.playerId);
+        const hasBoomerang = res.violations.some((v) => v.code === 'boomerang_active_player');
+        const compliantOut = runType === 'sun_pm_official' ? (res.compliant && !hasBoomerang) : res.compliant;
         await writeTaxiSnapshot({
           season,
           week,
@@ -52,7 +55,7 @@ export async function GET() {
           runTs: now,
           teamId: t.teamName,
           taxiIds,
-          compliant: res.compliant,
+          compliant: compliantOut,
           violations: res.violations,
           degraded: false,
         });

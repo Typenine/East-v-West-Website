@@ -39,14 +39,15 @@ export async function validateTaxiForRoster(selectedSeason: string, selectedRost
   // Current rosters to read taxi/reserve/players (treat missing as [])
   const rosters = await getLeagueRosters(leagueId).catch(() => [] as Array<{ roster_id: number; players?: string[]; starters?: string[]; reserve?: string[]; taxi?: string[] }>);
   const r = rosters.find((rr) => rr.roster_id === selectedRosterId) || { players: [], reserve: [], taxi: [] } as { players?: string[]; reserve?: string[]; taxi?: string[] };
-  const reserveArr: string[] = Array.isArray(r.reserve) ? (r.reserve as string[]).filter(Boolean) : [];
   const taxiArr: string[] = Array.isArray(r.taxi) ? (r.taxi as string[]).filter(Boolean) : [];
 
   // Determine current week starters from matchups
   let startersArr: string[] = [];
+  let currentWeek = 0;
   try {
     const st = await getNFLState();
     const wk = Number((st as { week?: number }).week || 0) || 0;
+    currentWeek = wk;
     if (wk > 0) {
       const mus = await getLeagueMatchups(leagueId, wk).catch(() => [] as Array<{ roster_id?: number; starters?: string[] }>);
       const me = mus.find((m) => m && m.roster_id === selectedRosterId);
@@ -54,23 +55,24 @@ export async function validateTaxiForRoster(selectedSeason: string, selectedRost
     }
   } catch {}
 
-  const startersSet = new Set(startersArr);
-  const reserveSet = new Set(reserveArr);
+  // starters/reserve used only for same-week inconsistencies which we no longer flag
 
   // Seed txn_cache + tenures from transactions (current season weeks)
-  const txns = await getLeagueTransactionsAllWeeks(leagueId).catch(() => [] as SleeperTransaction[]);
+  const txnsRaw = await getLeagueTransactionsAllWeeks(leagueId).catch(() => [] as SleeperTransaction[]);
+  const txns = [...txnsRaw].sort((a, b) => Number(a?.created || 0) - Number(b?.created || 0));
   const rowsForCache: Array<{ week: number; teamId: string; playerId: string; type: string; direction: string; ts: Date }> = [];
-  const lastJoin = new Map<string, { ts: number; via: 'free_agent' | 'waiver' | 'trade' | 'draft' | 'other' }>();
+  const lastJoin = new Map<string, { ts: number; week: number; via: 'free_agent' | 'waiver' | 'trade' | 'draft' | 'other' }>();
   for (const tx of txns) {
     if (!tx || tx.status !== 'complete') continue;
-    const week = Number(tx.leg || 0);
+    const weekRaw = Number(tx.leg || 0);
+    const week = weekRaw > 0 ? weekRaw : (currentWeek || 0);
     const created = Number(tx.created || 0);
     if (tx.adds) {
       for (const [pid, rid] of Object.entries(tx.adds)) {
         if (rid === selectedRosterId) {
           const via = toVia(tx.type);
           rowsForCache.push({ week, teamId: canonicalName, playerId: pid, type: tx.type, direction: 'in', ts: new Date(created) });
-          lastJoin.set(pid, { ts: created, via });
+          lastJoin.set(pid, { ts: created, week, via });
           try { await upsertTenure({ teamId: canonicalName, playerId: pid, acquiredAt: new Date(created), acquiredVia: via }); } catch {}
         }
       }
@@ -88,28 +90,31 @@ export async function validateTaxiForRoster(selectedSeason: string, selectedRost
   await bulkInsertTxnCacheWithPrune(rowsForCache).catch(() => 0);
 
   // Check boomerang using only prior locked weeks (exclude current week)
-  let currentWeek = 0;
-  try {
-    const st = await getNFLState();
-    currentWeek = Number((st as { week?: number }).week || 0) || 0;
-  } catch {}
+  if (!currentWeek) {
+    try {
+      const st2 = await getNFLState();
+      currentWeek = Number((st2 as { week?: number }).week || 0) || 0;
+    } catch {}
+  }
   const lastLockedWeek = currentWeek > 1 ? currentWeek - 1 : 0;
   const weeks = lastLockedWeek > 0 ? Array.from({ length: lastLockedWeek }, (_, i) => i + 1) : [];
   const weekly = await Promise.all(weeks.map((w) => getLeagueMatchups(leagueId, w).catch(() => [] as Array<{ roster_id?: number; starters?: string[]; players?: string[] }>)));
   const appearedSinceJoin = new Set<string>();
   for (let wi = 0; wi < weekly.length; wi++) {
     const matches = weekly[wi] || [];
+    const matchupWeek = weeks[wi] || 0;
     const m = matches.find((mm) => mm && mm.roster_id === selectedRosterId);
     if (!m) continue;
     const starters = new Set<string>((m.starters || []).filter(Boolean) as string[]);
     const weeklyPlayers = new Set<string>((m.players || []).filter(Boolean) as string[]);
     const bench = new Set(Array.from(weeklyPlayers).filter((pid) => !starters.has(pid)));
-    // Do NOT use current reserve for historical weeks to avoid false positives
     const nonTaxiSet = new Set<string>([...starters, ...bench]);
     for (const pid of nonTaxiSet) {
       const lj = lastJoin.get(pid);
       if (!lj) continue;
-      appearedSinceJoin.add(pid);
+      const recentMs = 7 * 24 * 60 * 60 * 1000;
+      const joinWeekEff = (Date.now() - lj.ts < recentMs && currentWeek) ? currentWeek : lj.week;
+      if (matchupWeek >= joinWeekEff) appearedSinceJoin.add(pid);
       await markTenureActive({ teamId: canonicalName, playerId: pid }).catch(() => null);
     }
   }
@@ -124,13 +129,7 @@ export async function validateTaxiForRoster(selectedSeason: string, selectedRost
   const taxiQbs = taxiQbIds.length;
   if (taxiQbs > 1) violations.push({ code: 'too_many_qbs', detail: '2+ QBs on taxi (limit 1)', players: taxiQbIds });
 
-  const inconsistent: string[] = [];
-  for (const pid of taxiArr) {
-    if (startersSet.has(pid) || reserveSet.has(pid)) inconsistent.push(pid);
-  }
-  if (inconsistent.length > 0) {
-    violations.push({ code: 'roster_inconsistent', detail: 'Taxi conflicts with starters/IR', players: inconsistent });
-  }
+  // Do not compute roster_inconsistent; Sleeper ensures a player is only in one bucket at a time
 
   const invalidIntake: string[] = [];
   const boomerang: string[] = [];
@@ -149,10 +148,12 @@ export async function validateTaxiForRoster(selectedSeason: string, selectedRost
   }));
 
   const teamLabel = thisTeam?.teamName || canonicalName;
+  const hardCodes = new Set<Violation['code']>(['too_many_on_taxi','too_many_qbs','invalid_intake','roster_inconsistent']);
+  const hardViolationCount = violations.filter(v => hardCodes.has(v.code)).length;
   const out: TaxiValidateResult = {
     team: { teamName: teamLabel, rosterId: selectedRosterId, selectedSeason: String(selectedSeason) },
     current: { taxi: items, counts: { total: items.length, qbs: taxiQbs } },
-    compliant: violations.length === 0,
+    compliant: hardViolationCount === 0,
     violations,
   };
   return out;
