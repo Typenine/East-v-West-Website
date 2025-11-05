@@ -201,14 +201,15 @@ export default function TradeBlockTab() {
                   const secondaryBg = getTeamColorStyle(row.team, 'secondary').backgroundColor as string;
                   return (
                     <li key={row.team} className="border border-[var(--border)] rounded-[var(--radius-card)] p-4" style={{ borderLeftColor: secondaryBg, borderLeftWidth: 4, borderLeftStyle: 'solid' }}>
-                      {/* Top colored strip */}
-                      <div className="h-1.5 rounded-t-[var(--radius-card)] -mx-4 -mt-4 mb-3" style={{ backgroundColor: primaryBg, opacity: 0.15 }} aria-hidden="true" />
-                      <div className="flex items-center gap-3 mb-2">
-                        <div className="w-8 h-8 rounded-full flex items-center justify-center overflow-hidden" style={s1}>
-                          <Image src={getTeamLogoPath(row.team)} alt="" width={24} height={24} />
+                      {/* Header bar with primary background and secondary top outline */}
+                      <div className="rounded-t-[var(--radius-card)] -mx-4 -mt-4 px-4 py-2 mb-3" style={{ backgroundColor: primaryBg, color: primaryFg, borderTopColor: secondaryBg, borderTopWidth: 4, borderTopStyle: 'solid' }}>
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 rounded-full flex items-center justify-center overflow-hidden" style={s1}>
+                            <Image src={getTeamLogoPath(row.team)} alt="" width={24} height={24} />
+                          </div>
+                          <div className="font-bold" style={{ color: primaryFg }}>{row.team}</div>
+                          <div className="ml-auto text-xs" style={{ color: primaryFg, opacity: 0.8 }} title={row.updatedAt || undefined}>{row.updatedAt ? new Date(row.updatedAt).toLocaleString() : '—'}</div>
                         </div>
-                        <div className="font-bold" style={{ color: primaryBg }}>{row.team}</div>
-                        <div className="ml-auto text-xs text-[var(--muted)]" title={row.updatedAt || undefined}>{row.updatedAt ? new Date(row.updatedAt).toLocaleString() : '—'}</div>
                       </div>
                     {row.tradeWants && (row.tradeWants.text || (row.tradeWants.positions && row.tradeWants.positions.length > 0)) ? (
                       (() => (
