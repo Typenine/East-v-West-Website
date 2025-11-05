@@ -204,7 +204,7 @@ export default function TradeBlockTab() {
                       {/* Header + Wants in one contiguous primary-colored panel */}
                       <div className="rounded-t-[var(--radius-card)] -mx-4 -mt-4 px-4 pt-2 pb-3 mb-3" style={{ backgroundColor: primaryBg, color: primaryFg, borderTopColor: secondaryBg, borderTopWidth: 4, borderTopStyle: 'solid' }}>
                         <div className="flex items-center gap-3">
-                          <div className="w-8 h-8 rounded-full flex items-center justify-center overflow-hidden" style={s1}>
+                          <div className="w-8 h-8 rounded-full flex items-center justify-center overflow-hidden" style={{ ...s1, borderColor: secondaryBg, borderWidth: 2, borderStyle: 'solid' }}>
                             <Image src={getTeamLogoPath(row.team)} alt="" width={24} height={24} />
                           </div>
                           <div className="font-bold" style={{ color: primaryFg }}>{row.team}</div>
