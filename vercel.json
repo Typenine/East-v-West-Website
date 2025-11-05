@@ -3,6 +3,10 @@
     {
       "path": "/api/lineups/snapshot/cron",
       "schedule": "0 5 * * *"
+    },
+    {
+      "path": "/api/taxi/cron",
+      "schedule": "0 * * * *"
     }
   ]
 }

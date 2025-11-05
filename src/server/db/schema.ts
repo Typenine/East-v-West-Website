@@ -1,4 +1,4 @@
-import { pgTable, uuid, varchar, text, timestamp, jsonb, pgEnum, index, integer } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, varchar, text, timestamp, jsonb, pgEnum, index, integer, primaryKey } from 'drizzle-orm/pg-core';
 
 export const roleEnum = pgEnum('user_role', ['admin', 'user']);
 export const suggestionStatusEnum = pgEnum('suggestion_status', ['draft', 'open', 'accepted', 'rejected']);
@@ -117,4 +117,45 @@ export const storageConfig = pgTable('storage_config', {
   lastVerifiedAt: timestamp('last_verified_at', { withTimezone: true }),
   notes: text('notes'),
 });
+
+// Taxi Auditor DB (validator)
+export const acqViaEnum = pgEnum('acq_via', ['free_agent', 'waiver', 'trade', 'draft', 'other']);
+export const runTypeEnum = pgEnum('taxi_run_type', ['wed_warn', 'thu_warn', 'sun_am_warn', 'sun_pm_official', 'admin_rerun']);
+
+export const tenures = pgTable('tenures', {
+  teamId: varchar('team_id', { length: 255 }).notNull(),
+  playerId: varchar('player_id', { length: 64 }).notNull(),
+  acquiredAt: timestamp('acquired_at', { withTimezone: true }).notNull(),
+  acquiredVia: acqViaEnum('acquired_via').notNull(),
+  activeSeen: integer('active_seen').default(0).notNull(), // 0=false, 1=true (boolean workaround for drizzle/neon subtlety)
+  lastActiveAt: timestamp('last_active_at', { withTimezone: true }),
+}, (t) => ({
+  pk: primaryKey({ columns: [t.teamId, t.playerId] }),
+}));
+
+export const txnCache = pgTable('txn_cache', {
+  week: integer('week').notNull(),
+  teamId: varchar('team_id', { length: 255 }).notNull(),
+  playerId: varchar('player_id', { length: 64 }).notNull(),
+  type: varchar('type', { length: 32 }).notNull(), // add | drop | trade | draft | waiver | free_agent
+  direction: varchar('direction', { length: 8 }).notNull(), // in | out
+  ts: timestamp('ts', { withTimezone: true }).notNull(),
+}, (t) => ({
+  wkTeamIdx: index('txn_cache_week_team_idx').on(t.week, t.teamId),
+}));
+
+export const taxiSnapshots = pgTable('taxi_snapshots', {
+  season: integer('season').notNull(),
+  week: integer('week').notNull(),
+  runType: runTypeEnum('run_type').notNull(),
+  runTs: timestamp('run_ts', { withTimezone: true }).notNull(),
+  teamId: varchar('team_id', { length: 255 }).notNull(),
+  taxiIds: text('taxi_ids').array().notNull(),
+  compliant: integer('compliant').default(1).notNull(), // 1=true, 0=false
+  violations: jsonb('violations').$type<Array<{ code: string; detail?: string; players?: string[] }>>().notNull(),
+  degraded: integer('degraded').default(0).notNull(),
+}, (t) => ({
+  pkSnapshot: primaryKey({ columns: [t.season, t.week, t.runType, t.teamId] }),
+  teamIdx: index('taxi_snapshots_team_idx').on(t.teamId),
+}));
 

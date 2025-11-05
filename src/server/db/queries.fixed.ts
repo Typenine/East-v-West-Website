@@ -1,6 +1,6 @@
 import { getDb } from './client';
-import { users, suggestions, taxiSquadMembers, taxiSquadEvents, teamPins, taxiObservations, userDocs } from './schema';
-import { eq, and, isNull, desc } from 'drizzle-orm';
+import { users, suggestions, taxiSquadMembers, taxiSquadEvents, teamPins, taxiObservations, userDocs, tenures, txnCache, taxiSnapshots } from './schema';
+import { eq, and, isNull, desc, lt } from 'drizzle-orm';
 
 export type Role = 'admin' | 'user';
 
@@ -129,6 +129,113 @@ export async function setTaxiObservation(
     .onConflictDoUpdate({ target: taxiObservations.team, set: { updatedAt: payload.updatedAt, players: payload.players } })
     .returning();
   return row;
+}
+
+// ===== Taxi Auditor: Tenures / Txn Cache / Snapshots =====
+
+export type AcqVia = 'free_agent' | 'waiver' | 'trade' | 'draft' | 'other';
+
+export async function upsertTenure(params: { teamId: string; playerId: string; acquiredAt: Date; acquiredVia: AcqVia }) {
+  const db = getDb();
+  const [row] = await db
+    .insert(tenures)
+    .values({
+      teamId: params.teamId,
+      playerId: params.playerId,
+      acquiredAt: params.acquiredAt,
+      acquiredVia: params.acquiredVia,
+      activeSeen: 0,
+      lastActiveAt: null,
+    })
+    .onConflictDoUpdate({
+      target: [tenures.teamId, tenures.playerId],
+      set: { acquiredAt: params.acquiredAt, acquiredVia: params.acquiredVia, activeSeen: 0, lastActiveAt: null },
+    })
+    .returning();
+  return row;
+}
+
+export async function markTenureActive(params: { teamId: string; playerId: string; at?: Date }) {
+  const db = getDb();
+  const [row] = await db
+    .update(tenures)
+    .set({ activeSeen: 1, lastActiveAt: params.at || new Date() })
+    .where(and(eq(tenures.teamId, params.teamId), eq(tenures.playerId, params.playerId)))
+    .returning();
+  return row || null;
+}
+
+export async function deleteTenure(params: { teamId: string; playerId: string }) {
+  const db = getDb();
+  // Drizzle neon-http lacks delete returning in some versions; use update to null activeSeen as soft-delete if needed.
+  const [row] = await db
+    .update(tenures)
+    .set({ activeSeen: 1, lastActiveAt: new Date() })
+    .where(and(eq(tenures.teamId, params.teamId), eq(tenures.playerId, params.playerId)))
+    .returning();
+  return row || null;
+}
+
+export async function bulkInsertTxnCacheWithPrune(rows: Array<{ week: number; teamId: string; playerId: string; type: string; direction: string; ts: Date }>) {
+  if (!rows || rows.length === 0) return 0;
+  const db = getDb();
+  await db.insert(txnCache).values(rows).catch(() => undefined);
+  // prune older than ~120 days
+  const now = Date.now();
+  const cutoff = new Date(now - 120 * 24 * 60 * 60 * 1000);
+  try {
+    await db.delete(txnCache).where(lt(txnCache.ts, cutoff));
+  } catch {}
+  return rows.length;
+}
+
+export async function writeTaxiSnapshot(params: {
+  season: number; week: number; runType: 'wed_warn' | 'thu_warn' | 'sun_am_warn' | 'sun_pm_official' | 'admin_rerun';
+  runTs: Date; teamId: string; taxiIds: string[]; compliant: boolean; violations: Array<{ code: string; detail?: string; players?: string[] }>; degraded?: boolean;
+}) {
+  const db = getDb();
+  const [row] = await db
+    .insert(taxiSnapshots)
+    .values({
+      season: params.season,
+      week: params.week,
+      runType: params.runType,
+      runTs: params.runTs,
+      teamId: params.teamId,
+      taxiIds: params.taxiIds as unknown as string[],
+      compliant: params.compliant ? 1 : 0,
+      violations: params.violations,
+      degraded: params.degraded ? 1 : 0,
+    })
+    .onConflictDoUpdate({
+      target: [taxiSnapshots.season, taxiSnapshots.week, taxiSnapshots.runType, taxiSnapshots.teamId],
+      set: {
+        runTs: params.runTs,
+        taxiIds: params.taxiIds as unknown as string[],
+        compliant: params.compliant ? 1 : 0,
+        violations: params.violations,
+        degraded: params.degraded ? 1 : 0,
+      },
+    })
+    .returning();
+  return row;
+}
+
+export async function getLatestTaxiRunMeta() {
+  const db = getDb();
+  const rows = await db.select().from(taxiSnapshots).orderBy(desc(taxiSnapshots.runTs)).limit(1);
+  const latest = rows[0];
+  if (!latest) return null as null | { season: number; week: number; runType: string; runTs: Date };
+  return { season: latest.season, week: latest.week, runType: latest.runType, runTs: latest.runTs } as { season: number; week: number; runType: string; runTs: Date };
+}
+
+export async function getTaxiSnapshotsForRun(params: { season: number; week: number; runType: 'wed_warn' | 'thu_warn' | 'sun_am_warn' | 'sun_pm_official' | 'admin_rerun' }) {
+  const db = getDb();
+  const rows = await db
+    .select()
+    .from(taxiSnapshots)
+    .where(and(eq(taxiSnapshots.season, params.season), eq(taxiSnapshots.week, params.week), eq(taxiSnapshots.runType, params.runType)));
+  return rows;
 }
 
 export async function getUserDoc(userId: string) {

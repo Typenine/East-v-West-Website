@@ -1,0 +1,80 @@
+import { getNFLState, getTeamsData } from '@/lib/utils/sleeper-api';
+import { LEAGUE_IDS } from '@/lib/constants/league';
+import { validateTaxiForRoster } from '@/lib/server/taxi-validator';
+import { writeTaxiSnapshot } from '@/server/db/queries.fixed';
+
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+
+function nowInET() {
+  const now = new Date();
+  const fmt = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', hour12: false, weekday: 'short', hour: '2-digit', minute: '2-digit', year: 'numeric' });
+  const parts = fmt.formatToParts(now);
+  const day = parts.find(p => p.type === 'weekday')?.value || '';
+  const hour = Number(parts.find(p => p.type === 'hour')?.value || '0');
+  const minute = Number(parts.find(p => p.type === 'minute')?.value || '0');
+  return { day, hour, minute, now };
+}
+
+function pickRunType(day: string, hour: number, minute: number): 'wed_warn' | 'thu_warn' | 'sun_am_warn' | 'sun_pm_official' | null {
+  if (day === 'Wed' && hour === 17 && minute === 0) return 'wed_warn';
+  if (day === 'Thu' && hour === 15 && minute === 0) return 'thu_warn';
+  if (day === 'Sun' && hour === 11 && minute === 0) return 'sun_am_warn';
+  if (day === 'Sun' && hour === 23 && minute === 59) return 'sun_pm_official';
+  return null;
+}
+
+export async function GET() {
+  try {
+    const { day, hour, minute, now } = nowInET();
+    const runType = pickRunType(day, hour, minute);
+    if (!runType) {
+      return Response.json({ ok: true, skipped: 'not_window', et: { day, hour, minute } });
+    }
+
+    const st = await getNFLState().catch(() => ({ season: new Date().getFullYear(), week: 1 } as { season?: number; week?: number }));
+    const season = Number(st.season || new Date().getFullYear());
+    const week = Number(st.week || 1);
+
+    const leagueId = LEAGUE_IDS.CURRENT;
+    const teams = await getTeamsData(leagueId).catch(() => [] as Array<{ teamName: string; rosterId: number }>);
+
+    let processed = 0;
+    for (const t of teams) {
+      try {
+        const res = await validateTaxiForRoster(String(season), t.rosterId);
+        if (!res) continue;
+        const taxiIds = res.current.taxi.map((x) => x.playerId);
+        await writeTaxiSnapshot({
+          season,
+          week,
+          runType,
+          runTs: now,
+          teamId: t.teamName,
+          taxiIds,
+          compliant: res.compliant,
+          violations: res.violations,
+          degraded: false,
+        });
+        processed++;
+      } catch {
+        // degraded snapshot for this team
+        await writeTaxiSnapshot({
+          season,
+          week,
+          runType,
+          runTs: now,
+          teamId: t.teamName,
+          taxiIds: [],
+          compliant: true,
+          violations: [],
+          degraded: true,
+        }).catch(() => null);
+      }
+    }
+
+    return Response.json({ ok: true, runType, season, week, processed });
+  } catch {
+    return Response.json({ error: 'server_error' }, { status: 500 });
+  }
+}

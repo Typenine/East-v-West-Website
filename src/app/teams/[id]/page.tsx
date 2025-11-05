@@ -136,15 +136,15 @@ export default function TeamPage() {
   const [seasonLeaders, setSeasonLeaders] = useState<Record<PosKey, LeaderRow[]>>(emptySeason);
   const [recordsLoading, setRecordsLoading] = useState(false);
 
-  // Taxi analysis state
-  type TaxiItem = { playerId: string; name: string | null; position?: string | null; sinceTs?: string | null; activatedSinceJoin: boolean; activatedAt?: { year: string; week: number } | null; observedSince?: string | null; onTaxiSince?: { year: string; week: number } | null; ineligibleReason?: string | null; potentialActivatedSinceJoin?: boolean; potentialAt?: { year: string; week: number } | null };
-  type TaxiAnalysis = {
-    team: { ownerId: string; teamName: string; selectedSeason: string; rosterId: number };
-    limits: { maxSlots: number; maxQB: number };
-    current: { taxi: TaxiItem[]; counts: { total: number; qbs: number } };
-    violations: { overSlots: boolean; overQB: boolean; ineligibleOnTaxi: string[] };
+  // Taxi validator state (new)
+  type TaxiViolation = { code: 'too_many_on_taxi' | 'too_many_qbs' | 'invalid_intake' | 'boomerang_active_player' | 'roster_inconsistent'; detail?: string; players?: string[] };
+  type TaxiValidateResult = {
+    team: { teamName: string; rosterId: number; selectedSeason: string };
+    current: { taxi: Array<{ playerId: string; name: string | null; position: string | null }>; counts: { total: number; qbs: number } };
+    compliant: boolean;
+    violations: TaxiViolation[];
   };
-  const [taxi, setTaxi] = useState<TaxiAnalysis | null>(null);
+  const [taxi, setTaxi] = useState<TaxiValidateResult | null>(null);
   const [taxiLoading, setTaxiLoading] = useState(true);
   const [taxiError, setTaxiError] = useState<string | null>(null);
 
@@ -156,10 +156,10 @@ export default function TeamPage() {
       try {
         setTaxiLoading(true);
         setTaxiError(null);
-        const res = await fetch(`/api/taxi/analysis?season=${encodeURIComponent(String(selectedYear))}&rosterId=${encodeURIComponent(String(rosterId))}`, { cache: 'no-store' });
+        const res = await fetch(`/api/taxi/validate?season=${encodeURIComponent(String(selectedYear))}&rosterId=${encodeURIComponent(String(rosterId))}`, { cache: 'no-store' });
         if (!mounted) return;
         if (!res.ok) throw new Error('Failed to load taxi analysis');
-        const j = (await res.json()) as TaxiAnalysis;
+        const j = (await res.json()) as TaxiValidateResult;
         setTaxi(j);
       } catch (e) {
         if (!mounted) return;
@@ -1034,16 +1034,26 @@ export default function TeamPage() {
                     <div className="py-6"><ErrorState message={taxiError} /></div>
                   ) : taxi ? (
                     <div className="space-y-4">
-                      <div className="flex flex-wrap items-center gap-3">
-                        <Chip size="sm" className="px-2 evw-chip">Slots: {taxi.current.counts.total} / {taxi.limits.maxSlots}</Chip>
-                        <Chip size="sm" className="px-2 evw-chip">QBs: {taxi.current.counts.qbs} / {taxi.limits.maxQB}</Chip>
-                        {taxi.violations.overSlots && (
-                          <Chip size="sm" variant="outline" className="px-2 text-[var(--danger)] border-[var(--danger)]">Over max slots</Chip>
-                        )}
-                        {taxi.violations.overQB && (
-                          <Chip size="sm" variant="outline" className="px-2 text-[var(--danger)] border-[var(--danger)]">Over max QB</Chip>
-                        )}
-                      </div>
+                      {(() => {
+                        const LIMIT_SLOTS = 3; const LIMIT_QB = 1;
+                        const hasOverSlots = taxi.violations.some(v => v.code === 'too_many_on_taxi');
+                        const hasOverQb = taxi.violations.some(v => v.code === 'too_many_qbs');
+                        return (
+                          <div className="flex flex-wrap items-center gap-3">
+                            <Chip size="sm" className="px-2 evw-chip">Slots: {taxi.current.counts.total} / {LIMIT_SLOTS}</Chip>
+                            <Chip size="sm" className="px-2 evw-chip">QBs: {taxi.current.counts.qbs} / {LIMIT_QB}</Chip>
+                            {!taxi.compliant && (
+                              <Chip size="sm" variant="outline" className="px-2 text-[var(--danger)] border-[var(--danger)]">Non‑compliant</Chip>
+                            )}
+                            {hasOverSlots && (
+                              <Chip size="sm" variant="outline" className="px-2 text-[var(--danger)] border-[var(--danger)]">Over max slots</Chip>
+                            )}
+                            {hasOverQb && (
+                              <Chip size="sm" variant="outline" className="px-2 text-[var(--danger)] border-[var(--danger)]">Over max QB</Chip>
+                            )}
+                          </div>
+                        );
+                      })()}
 
                       {taxi.current.taxi.length === 0 ? (
                         <p className="text-[var(--muted)]">No players on taxi for this team.</p>
@@ -1054,9 +1064,6 @@ export default function TeamPage() {
                               <Tr>
                                 <Th>Player</Th>
                                 <Th>Pos</Th>
-                                <Th>On Taxi (since)</Th>
-                                <Th>Rejoined</Th>
-                                <Th>Status</Th>
                               </Tr>
                             </THead>
                             <TBody>
@@ -1068,27 +1075,6 @@ export default function TeamPage() {
                                   <Td>
                                     <div className="text-sm text-[var(--muted)]">{p.position || '—'}</div>
                                   </Td>
-                                  <Td>
-                                    <div className="text-sm text-[var(--muted)]">{p.onTaxiSince ? `W${p.onTaxiSince.week} ${p.onTaxiSince.year}` : '—'}</div>
-                                  </Td>
-                                  <Td>
-                                    <div className="text-sm text-[var(--muted)]" title={p.sinceTs || ''}>{p.sinceTs ? new Date(p.sinceTs).toLocaleDateString() : '—'}</div>
-                                  </Td>
-                                  <Td>
-                                    {p.activatedSinceJoin ? (
-                                      <div className="flex items-center gap-2">
-                                        <Chip size="sm" variant="outline" className="text-[var(--danger)] border-[var(--danger)]">Ineligible</Chip>
-                                        <span className="text-xs text-[var(--muted)]">{p.ineligibleReason || 'Activated'}{p.activatedAt ? ` • W${p.activatedAt.week} ${p.activatedAt.year}` : ''}</span>
-                                      </div>
-                                    ) : p.potentialActivatedSinceJoin ? (
-                                      <div className="flex items-center gap-2">
-                                        <Chip size="sm" variant="outline" className="text-[var(--warning,#bf9944)] border-[var(--warning,#bf9944)]">Potential</Chip>
-                                        <span className="text-xs text-[var(--muted)]">Appears this week{p.potentialAt ? ` • W${p.potentialAt.week} ${p.potentialAt.year}` : ''}</span>
-                                      </div>
-                                    ) : (
-                                      <Chip size="sm" variant="outline" className="text-green-700 border-green-400">Eligible</Chip>
-                                    )}
-                                  </Td>
                                 </Tr>
                               ))}
                             </TBody>
@@ -1096,8 +1082,12 @@ export default function TeamPage() {
                         </div>
                       )}
 
-                      {(taxi.violations.ineligibleOnTaxi.length > 0) && (
-                        <div className="text-sm text-[var(--danger)]">{taxi.violations.ineligibleOnTaxi.length} potential violation(s): player(s) appeared in a lineup for this franchise after their most recent join.</div>
+                      {(!taxi.compliant) && (
+                        <div className="text-sm text-[var(--danger)]">
+                          {taxi.violations.map((v, i) => (
+                            <div key={`v-${i}`}>{v.detail || v.code}</div>
+                          ))}
+                        </div>
                       )}
                       <p className="text-xs text-[var(--muted)]">Read-only tracker. This does not change your Sleeper roster. &quot;On Taxi (since)&quot; reflects first seen time on this site.</p>
                     </div>
