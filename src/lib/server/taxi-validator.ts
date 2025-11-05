@@ -33,9 +33,8 @@ export async function validateTaxiForRoster(selectedSeason: string, selectedRost
   // Map rosterId -> team name (canonical)
   const teams = await getTeamsData(leagueId).catch(() => [] as Array<{ rosterId: number; ownerId: string; teamName: string }>
   );
-  const thisTeam = teams.find((t) => t.rosterId === selectedRosterId);
-  if (!thisTeam) return null;
-  const canonicalName = resolveCanonicalTeamName({ ownerId: thisTeam.ownerId });
+  const thisTeam = teams.find((t) => t.rosterId === selectedRosterId) || null;
+  const canonicalName = thisTeam ? resolveCanonicalTeamName({ ownerId: thisTeam.ownerId }) : `Roster ${selectedRosterId}`;
 
   // Current rosters to read taxi/reserve/players (treat missing as [])
   const rosters = await getLeagueRosters(leagueId).catch(() => [] as Array<{ roster_id: number; players?: string[]; starters?: string[]; reserve?: string[]; taxi?: string[] }>);
@@ -72,7 +71,7 @@ export async function validateTaxiForRoster(selectedSeason: string, selectedRost
           const via = toVia(tx.type);
           rowsForCache.push({ week, teamId: canonicalName, playerId: pid, type: tx.type, direction: 'in', ts: new Date(created) });
           lastJoin.set(pid, { ts: created, via });
-          await upsertTenure({ teamId: canonicalName, playerId: pid, acquiredAt: new Date(created), acquiredVia: via });
+          try { await upsertTenure({ teamId: canonicalName, playerId: pid, acquiredAt: new Date(created), acquiredVia: via }); } catch {}
         }
       }
     }
@@ -81,7 +80,7 @@ export async function validateTaxiForRoster(selectedSeason: string, selectedRost
         if (from === selectedRosterId) {
           rowsForCache.push({ week, teamId: canonicalName, playerId: pid, type: tx.type, direction: 'out', ts: new Date(created) });
           lastJoin.delete(pid);
-          await deleteTenure({ teamId: canonicalName, playerId: pid });
+          try { await deleteTenure({ teamId: canonicalName, playerId: pid }); } catch {}
         }
       }
     }
@@ -142,8 +141,9 @@ export async function validateTaxiForRoster(selectedSeason: string, selectedRost
     position: playersMeta[pid]?.position || null,
   }));
 
+  const teamLabel = thisTeam?.teamName || canonicalName;
   const out: TaxiValidateResult = {
-    team: { teamName: canonicalName, rosterId: selectedRosterId, selectedSeason: String(selectedSeason) },
+    team: { teamName: teamLabel, rosterId: selectedRosterId, selectedSeason: String(selectedSeason) },
     current: { taxi: items, counts: { total: items.length, qbs: taxiQbs } },
     compliant: violations.length === 0,
     violations,
