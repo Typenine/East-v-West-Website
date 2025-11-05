@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server';
 import { LEAGUE_IDS } from '@/lib/constants/league';
-import { getTeamsData, getLeagueMatchups, getAllPlayersCached } from '@/lib/utils/sleeper-api';
+import { getTeamsData, getLeagueMatchups, getAllPlayersCached, getLeagueRosters } from '@/lib/utils/sleeper-api';
 import { getObjectText, putObjectText } from '@/server/storage/r2';
 
 export const runtime = 'nodejs';
@@ -39,10 +39,11 @@ export async function POST(req: NextRequest) {
     const leagueId = getLeagueIdByYear(year);
     if (!leagueId || !Number.isFinite(week) || week <= 0) return Response.json({ error: 'bad_request' }, { status: 400 });
 
-    const [teams, matchups, players] = await Promise.all([
+    const [teams, matchups, players, rosters] = await Promise.all([
       getTeamsData(leagueId).catch(() => [] as Array<{ rosterId: number; teamName: string }>),
       getLeagueMatchups(leagueId, week).catch(() => []),
       getAllPlayersCached().catch(() => ({} as Record<string, { first_name?: string; last_name?: string; position?: string }>)),
+      getLeagueRosters(leagueId).catch(() => [] as Array<{ roster_id: number; reserve?: string[]; taxi?: string[] }>),
     ]);
 
     // Group matchups by roster (players = starters + bench for that week)
@@ -54,8 +55,12 @@ export async function POST(req: NextRequest) {
       byRoster.set(m.roster_id, cur);
     }
 
-    // Backfill note: Sleeper does not expose historical taxi/IR per week.
-    // For backfilled snapshots, provide accurate starters/bench from matchups and leave reserve/taxi empty.
+    const reserveMap = new Map<number, string[]>();
+    const taxiMap = new Map<number, string[]>();
+    for (const r of rosters) {
+      reserveMap.set(r.roster_id, Array.isArray(r.reserve) ? r.reserve.filter(Boolean) : []);
+      taxiMap.set(r.roster_id, Array.isArray(r.taxi) ? r.taxi.filter(Boolean) : []);
+    }
 
     const rows = teams.map((t) => {
       const r = byRoster.get(t.rosterId) || { starters: [], players: [] };
@@ -69,9 +74,24 @@ export async function POST(req: NextRequest) {
         if (bench.includes(id)) continue;
         bench.push(id);
       }
+      const used = new Set<string>([...starters, ...bench]);
 
-      const taxi: string[] = [];
+      const reserveSrc = reserveMap.get(t.rosterId) || [];
       const reserve: string[] = [];
+      for (const id of reserveSrc) {
+        if (!id || used.has(id)) continue;
+        if (reserve.includes(id)) continue;
+        reserve.push(id);
+      }
+      for (const id of reserve) used.add(id);
+
+      const taxiSrc = taxiMap.get(t.rosterId) || [];
+      const taxi: string[] = [];
+      for (const id of taxiSrc) {
+        if (!id || used.has(id)) continue;
+        if (taxi.includes(id)) continue;
+        taxi.push(id);
+      }
 
       return {
         teamName: t.teamName,
@@ -89,7 +109,7 @@ export async function POST(req: NextRequest) {
       generatedAt: new Date().toISOString(),
       teams: rows,
       playersMeta: Object.fromEntries(Object.entries(players).map(([id, p]) => [id, { name: `${p.first_name || ''} ${p.last_name || ''}`.trim(), position: p.position || null }])) as Record<string, { name: string; position: string | null }>,
-      meta: { source: 'manual', accurateTaxi: false, accurateReserve: false },
+      meta: { source: 'manual', accurateTaxi: true, accurateReserve: true },
     };
 
     const key = `logs/lineups/snapshots/${year}-W${week}.json`;

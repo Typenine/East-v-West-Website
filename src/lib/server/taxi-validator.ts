@@ -1,7 +1,7 @@
 import { LEAGUE_IDS } from '@/lib/constants/league';
-import { getTeamsData, getLeagueRosters, getAllPlayersCached, getLeagueTransactionsAllWeeks, getLeagueMatchups, SleeperTransaction, getNFLState } from '@/lib/utils/sleeper-api';
+import { getTeamsData, getLeagueRosters, getAllPlayersCached, getLeagueTransactionsAllWeeks, getLeagueMatchups, SleeperTransaction, getNFLState, getLeagueDrafts, getDraftPicks } from '@/lib/utils/sleeper-api';
 import { resolveCanonicalTeamName } from '@/lib/utils/team-utils';
-import { upsertTenure, deleteTenure, markTenureActive, bulkInsertTxnCacheWithPrune, getFirstTaxiSeenForPlayer } from '@/server/db/queries';
+import { upsertTenure, deleteTenure, markTenureActive, bulkInsertTxnCacheWithPrune, getFirstTaxiSeenForPlayer, getTaxiObservation, setTaxiObservation } from '@/server/db/queries';
 import { getObjectText } from '@/server/storage/r2';
 
 export type Violation = { code: 'too_many_on_taxi' | 'too_many_qbs' | 'invalid_intake' | 'boomerang_active_player' | 'roster_inconsistent'; detail?: string; players?: string[] };
@@ -24,7 +24,8 @@ function toVia(tx: SleeperTransaction['type'] | string): 'free_agent' | 'waiver'
   if (tx === 'waiver') return 'waiver';
   if (tx === 'trade') return 'trade';
   if (tx === 'draft') return 'draft';
-  return 'other';
+  // Default to free_agent for any unknown type to avoid 'unknown' intakes in our logic
+  return 'free_agent';
 }
 
 export async function validateTaxiForRoster(selectedSeason: string, selectedRosterId: number): Promise<TaxiValidateResult | null> {
@@ -52,35 +53,75 @@ export async function validateTaxiForRoster(selectedSeason: string, selectedRost
 
   // starters/reserve used only for same-week inconsistencies which we no longer flag
 
-  // Seed txn_cache + tenures from transactions (current season weeks)
-  const txnsRaw = await getLeagueTransactionsAllWeeks(leagueId).catch(() => [] as SleeperTransaction[]);
-  const txns = [...txnsRaw].sort((a, b) => Number(a?.created || 0) - Number(b?.created || 0));
+  // Seed txn_cache + tenures from transactions across seasons for this franchise
+  const yearToLeague: Record<string, string> = { '2025': LEAGUE_IDS.CURRENT, ...(LEAGUE_IDS.PREVIOUS as Record<string, string>) };
+  const seasons = Object.keys(yearToLeague).sort();
+  const rosterIdBySeason = new Map<string, number>();
+  for (const y of seasons) {
+    const lid = yearToLeague[y];
+    try {
+      const ts = await getTeamsData(lid).catch(() => [] as Array<{ rosterId: number; ownerId: string; teamName: string }>);
+      const row = ts.find((t) => t.teamName === canonicalName) || (thisTeam ? ts.find((t) => t.ownerId === thisTeam.ownerId) : undefined);
+      if (row) rosterIdBySeason.set(y, row.rosterId);
+    } catch {}
+  }
+
   const rowsForCache: Array<{ week: number; teamId: string; playerId: string; type: string; direction: string; ts: Date }> = [];
   const lastJoin = new Map<string, { ts: number; week: number; via: 'free_agent' | 'waiver' | 'trade' | 'draft' | 'other' }>();
-  for (const tx of txns) {
-    if (!tx || tx.status !== 'complete') continue;
-    const weekRaw = Number(tx.leg || 0);
-    const week = weekRaw > 0 ? weekRaw : (currentWeek || 0);
-    const created = Number(tx.created || 0);
-    if (tx.adds) {
-      for (const [pid, rid] of Object.entries(tx.adds)) {
-        if (rid === selectedRosterId) {
-          const via = toVia(tx.type);
-          rowsForCache.push({ week, teamId: canonicalName, playerId: pid, type: tx.type, direction: 'in', ts: new Date(created) });
-          lastJoin.set(pid, { ts: created, week, via });
-          try { await upsertTenure({ teamId: canonicalName, playerId: pid, acquiredAt: new Date(created), acquiredVia: via }); } catch {}
+  for (const y of seasons) {
+    const lid = yearToLeague[y];
+    const rid = rosterIdBySeason.get(y);
+    if (!lid || !rid) continue;
+    const txnsRaw = await getLeagueTransactionsAllWeeks(lid).catch(() => [] as SleeperTransaction[]);
+    const txns = [...txnsRaw].sort((a, b) => Number(a?.created || 0) - Number(b?.created || 0));
+    for (const tx of txns) {
+      if (!tx || tx.status !== 'complete') continue;
+      const weekRaw = Number(tx.leg || 0);
+      const week = weekRaw > 0 ? weekRaw : (currentWeek || 0);
+      const created = Number(tx.created || 0);
+      if (tx.adds) {
+        for (const [pid, recv] of Object.entries(tx.adds)) {
+          if (recv === rid) {
+            const via = toVia(tx.type);
+            rowsForCache.push({ week, teamId: canonicalName, playerId: pid, type: tx.type, direction: 'in', ts: new Date(created) });
+            const prev = lastJoin.get(pid);
+            if (!prev || created > prev.ts) lastJoin.set(pid, { ts: created, week, via });
+            try { await upsertTenure({ teamId: canonicalName, playerId: pid, acquiredAt: new Date(created), acquiredVia: via }); } catch {}
+          }
+        }
+      }
+      if (tx.drops) {
+        for (const [pid, from] of Object.entries(tx.drops)) {
+          if (from === rid) {
+            rowsForCache.push({ week, teamId: canonicalName, playerId: pid, type: tx.type, direction: 'out', ts: new Date(created) });
+            // Drop resets tenure until next join
+            const prev = lastJoin.get(pid);
+            if (!prev || created >= prev.ts) lastJoin.delete(pid);
+            try { await deleteTenure({ teamId: canonicalName, playerId: pid }); } catch {}
+          }
         }
       }
     }
-    if (tx.drops) {
-      for (const [pid, from] of Object.entries(tx.drops)) {
-        if (from === selectedRosterId) {
-          rowsForCache.push({ week, teamId: canonicalName, playerId: pid, type: tx.type, direction: 'out', ts: new Date(created) });
-          lastJoin.delete(pid);
-          try { await deleteTenure({ teamId: canonicalName, playerId: pid }); } catch {}
+    // Also consider draft picks as acquisition events to avoid unknown intake
+    try {
+      const drafts = await getLeagueDrafts(lid).catch(() => []);
+      for (const d of drafts) {
+        const picks = await getDraftPicks(d.draft_id).catch(() => []);
+        for (const p of picks) {
+          const pid = p.player_id;
+          if (!pid) continue;
+          if (p.roster_id === rid) {
+            // Approximate draft timestamp early May of season; week as 1
+            const created = Date.parse(`${y}-05-01T00:00:00Z`);
+            const week = 1;
+            rowsForCache.push({ week, teamId: canonicalName, playerId: pid, type: 'draft', direction: 'in', ts: new Date(created) });
+            const prev = lastJoin.get(pid);
+            if (!prev || created > prev.ts) lastJoin.set(pid, { ts: created, week, via: 'draft' });
+            try { await upsertTenure({ teamId: canonicalName, playerId: pid, acquiredAt: new Date(created), acquiredVia: 'draft' }); } catch {}
+          }
         }
       }
-    }
+    } catch {}
   }
   await bulkInsertTxnCacheWithPrune(rowsForCache).catch(() => 0);
 
@@ -148,6 +189,35 @@ export async function validateTaxiForRoster(selectedSeason: string, selectedRost
   if (boomerang.length > 0) violations.push({ code: 'boomerang_active_player', detail: 'Previously active this tenure on taxi', players: boomerang });
 
   const seasonNum = Number(selectedSeason) || new Date().getFullYear();
+  // Update taxi observations for this team (throttled)
+  let obsPlayers: Record<string, { firstSeen: string; lastSeen: string; seenCount: number }> = {};
+  try {
+    const existing = await getTaxiObservation(canonicalName).catch(() => null as (null | { updatedAt?: Date | string; players?: Record<string, { firstSeen: string; lastSeen: string; seenCount: number }> }));
+    obsPlayers = (existing?.players as typeof obsPlayers) || {};
+    const prevUpdated = existing?.updatedAt ? (typeof existing.updatedAt === 'string' ? Date.parse(existing.updatedAt) : (existing.updatedAt as Date).getTime()) : 0;
+    const now = new Date();
+    const nowIso = now.toISOString();
+    const twelveHoursMs = 12 * 60 * 60 * 1000;
+    const stale = !prevUpdated || (now.getTime() - prevUpdated) > twelveHoursMs;
+    const prevSet = new Set(Object.keys(obsPlayers));
+    const curSet = new Set(taxiArr);
+    let changed = false;
+    for (const id of curSet) if (!prevSet.has(id)) { changed = true; break; }
+    if (!changed) {
+      for (const id of prevSet) if (!curSet.has(id)) { changed = true; break; }
+    }
+    if (changed || stale) {
+      for (const pid of taxiArr) {
+        const prev = obsPlayers[pid];
+        if (prev) {
+          obsPlayers[pid] = { firstSeen: prev.firstSeen, lastSeen: nowIso, seenCount: (prev.seenCount || 0) + 1 };
+        } else {
+          obsPlayers[pid] = { firstSeen: nowIso, lastSeen: nowIso, seenCount: 1 };
+        }
+      }
+      await setTaxiObservation(canonicalName, { updatedAt: now, players: obsPlayers }).catch(() => null);
+    }
+  } catch {}
   const items = [] as Array<{ playerId: string; name: string | null; position: string | null; joinedAt?: string | null; joinedWeek?: number | null; firstTaxiAt?: string | null; firstTaxiWeek?: number | null }>;
   for (const pid of taxiArr) {
     const name = playersMeta[pid] ? `${playersMeta[pid].first_name || ''} ${playersMeta[pid].last_name || ''}`.trim() : null;
@@ -162,6 +232,13 @@ export async function validateTaxiForRoster(selectedSeason: string, selectedRost
         firstTaxiWeek = first.week;
       }
     } catch {}
+    if (!firstTaxiAt) {
+      const obs = obsPlayers[pid];
+      if (obs?.firstSeen) firstTaxiAt = obs.firstSeen;
+    }
+    if (!firstTaxiAt) {
+      firstTaxiAt = new Date().toISOString();
+    }
     items.push({
       playerId: pid,
       name,

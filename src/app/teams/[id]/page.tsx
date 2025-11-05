@@ -1012,7 +1012,7 @@ export default function TeamPage() {
           },
           {
             id: 'lineup',
-            label: 'Lineup',
+            label: 'Taxi Squad',
             content: (
               <>
               <Card style={{ borderTop: `4px solid ${teamColors.primary}` }}>
@@ -1180,41 +1180,85 @@ export default function TeamPage() {
                           <p className="text-xs text-[var(--muted)] mb-2">Note: Backfilled snapshot. Taxi/Reserve may be incomplete for historical weeks.</p>
                         )}
                         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                          <div>
-                            <h4 className="font-semibold mb-2">Starters</h4>
-                            <ul className="text-sm list-disc pl-5">
+                          <div style={{ borderTop: `3px solid ${teamColors.primary}` }}>
+                            <div
+                              className="rounded mb-2"
+                              style={{
+                                backgroundImage: `linear-gradient(90deg, ${teamColors.primary} 0%, ${teamColors.secondary} 100%)`,
+                                color: '#ffffff',
+                                padding: '0.25rem 0.5rem',
+                              }}
+                            >
+                              <h4 className="font-semibold">Starters</h4>
+                            </div>
+                            <ul className="text-sm list-none pl-0">
                               {row.starters.map((id) => (
-                                <li key={`st-${id}`}>{nameOf(id)} <span className="text-[var(--muted)]">{posOf(id) ? `(${posOf(id)})` : ''}</span></li>
+                                <li key={`st-${id}`} style={{ borderLeft: `3px solid ${teamColors.primary}`, paddingLeft: '0.5rem', marginBottom: '0.25rem' }}>
+                                  {nameOf(id)} <span className="text-[var(--muted)]">{posOf(id) ? `(${posOf(id)})` : ''}</span>
+                                </li>
                               ))}
                               {row.starters.length === 0 && <li className="text-[var(--muted)]">None</li>}
                             </ul>
                           </div>
-                          <div>
-                            <h4 className="font-semibold mb-2">Bench</h4>
-                            <ul className="text-sm list-disc pl-5">
+                          <div style={{ borderTop: `3px solid ${teamColors.secondary}` }}>
+                            <div
+                              className="rounded mb-2"
+                              style={{
+                                backgroundImage: `linear-gradient(90deg, ${teamColors.secondary} 0%, ${teamColors.tertiary || teamColors.primary} 100%)`,
+                                color: '#ffffff',
+                                padding: '0.25rem 0.5rem',
+                              }}
+                            >
+                              <h4 className="font-semibold">Bench</h4>
+                            </div>
+                            <ul className="text-sm list-none pl-0">
                               {row.bench.map((id) => (
-                                <li key={`bn-${id}`}>{nameOf(id)} <span className="text-[var(--muted)]">{posOf(id) ? `(${posOf(id)})` : ''}</span></li>
+                                <li key={`bn-${id}`} style={{ borderLeft: `3px solid ${teamColors.primary}`, paddingLeft: '0.5rem', marginBottom: '0.25rem' }}>
+                                  {nameOf(id)} <span className="text-[var(--muted)]">{posOf(id) ? `(${posOf(id)})` : ''}</span>
+                                </li>
                               ))}
                               {row.bench.length === 0 && <li className="text-[var(--muted)]">None</li>}
                             </ul>
                           </div>
                           {!(snapshot.meta && snapshot.meta.accurateReserve === false) && (
-                            <div>
-                              <h4 className="font-semibold mb-2">Reserve</h4>
-                              <ul className="text-sm list-disc pl-5">
+                            <div style={{ borderTop: `3px solid ${teamColors.secondary}` }}>
+                              <div
+                                className="rounded mb-2"
+                                style={{
+                                  backgroundImage: `linear-gradient(90deg, ${teamColors.secondary} 0%, ${teamColors.tertiary || teamColors.primary} 100%)`,
+                                  color: '#ffffff',
+                                  padding: '0.25rem 0.5rem',
+                                }}
+                              >
+                                <h4 className="font-semibold">Reserve</h4>
+                              </div>
+                              <ul className="text-sm list-none pl-0">
                                 {(row.reserve || []).map((id) => (
-                                  <li key={`rs-${id}`}>{nameOf(id)} <span className="text-[var(--muted)]">{posOf(id) ? `(${posOf(id)})` : ''}</span></li>
+                                  <li key={`rs-${id}`} style={{ borderLeft: `3px solid ${teamColors.primary}`, paddingLeft: '0.5rem', marginBottom: '0.25rem' }}>
+                                    {nameOf(id)} <span className="text-[var(--muted)]">{posOf(id) ? `(${posOf(id)})` : ''}</span>
+                                  </li>
                                 ))}
                                 {(!row.reserve || row.reserve.length === 0) && <li className="text-[var(--muted)]">None</li>}
                               </ul>
                             </div>
                           )}
                           {!(snapshot.meta && snapshot.meta.accurateTaxi === false) && (
-                            <div>
-                              <h4 className="font-semibold mb-2">Taxi</h4>
-                              <ul className="text-sm list-disc pl-5">
+                            <div style={{ borderTop: `3px solid ${teamColors.secondary}` }}>
+                              <div
+                                className="rounded mb-2"
+                                style={{
+                                  backgroundImage: `linear-gradient(90deg, ${teamColors.secondary} 0%, ${teamColors.tertiary || teamColors.primary} 100%)`,
+                                  color: '#ffffff',
+                                  padding: '0.25rem 0.5rem',
+                                }}
+                              >
+                                <h4 className="font-semibold">Taxi</h4>
+                              </div>
+                              <ul className="text-sm list-none pl-0">
                                 {(row.taxi || []).map((id) => (
-                                  <li key={`tx-${id}`}>{nameOf(id)} <span className="text-[var(--muted)]">{posOf(id) ? `(${posOf(id)})` : ''}</span></li>
+                                  <li key={`tx-${id}`} style={{ borderLeft: `3px solid ${teamColors.primary}`, paddingLeft: '0.5rem', marginBottom: '0.25rem' }}>
+                                    {nameOf(id)} <span className="text-[var(--muted)]">{posOf(id) ? `(${posOf(id)})` : ''}</span>
+                                  </li>
                                 ))}
                                 {(!row.taxi || row.taxi.length === 0) && <li className="text-[var(--muted)]">None</li>}
                               </ul>

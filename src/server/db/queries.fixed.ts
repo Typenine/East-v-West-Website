@@ -1,6 +1,6 @@
 import { getDb } from './client';
 import { users, suggestions, taxiSquadMembers, taxiSquadEvents, teamPins, taxiObservations, userDocs, tenures, txnCache, taxiSnapshots } from './schema';
-import { eq, and, isNull, desc, lt, sql } from 'drizzle-orm';
+import { eq, and, isNull, desc, lt, sql, ne } from 'drizzle-orm';
 
 export type Role = 'admin' | 'user';
 
@@ -11,6 +11,19 @@ export async function createUser(params: { email: string; displayName?: string; 
     .values({ email: params.email, displayName: params.displayName, role: (params.role || 'user') as 'admin' | 'user' })
     .returning();
   return row;
+}
+
+export async function prunePriorSeasonsKeepOfficial(currentSeason: number) {
+  const db = getDb();
+  try {
+    // Delete any snapshot for seasons before currentSeason that is not sun_pm_official
+    await db
+      .delete(taxiSnapshots)
+      .where(and(lt(taxiSnapshots.season, currentSeason), ne(taxiSnapshots.runType, 'sun_pm_official')));
+    return { ok: true } as const;
+  } catch (err) {
+    return { ok: false, error: String(err || 'unknown') } as const;
+  }
 }
 
 export async function listAllUserDocs() {
