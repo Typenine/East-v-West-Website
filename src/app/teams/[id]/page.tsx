@@ -138,9 +138,10 @@ export default function TeamPage() {
 
   // Taxi validator state (new)
   type TaxiViolation = { code: 'too_many_on_taxi' | 'too_many_qbs' | 'invalid_intake' | 'boomerang_active_player' | 'roster_inconsistent'; detail?: string; players?: string[] };
+  type TaxiPlayerRow = { playerId: string; name: string | null; position: string | null; joinedAt?: string | null; joinedWeek?: number | null; firstTaxiAt?: string | null; firstTaxiWeek?: number | null };
   type TaxiValidateResult = {
     team: { teamName: string; rosterId: number; selectedSeason: string };
-    current: { taxi: Array<{ playerId: string; name: string | null; position: string | null }>; counts: { total: number; qbs: number } };
+    current: { taxi: Array<TaxiPlayerRow>; counts: { total: number; qbs: number } };
     compliant: boolean;
     violations: TaxiViolation[];
   };
@@ -1064,6 +1065,10 @@ export default function TeamPage() {
                               <Tr>
                                 <Th>Player</Th>
                                 <Th>Pos</Th>
+                                <Th>Joined</Th>
+                                <Th>Join Wk</Th>
+                                <Th>Taxi Since</Th>
+                                <Th>Taxi Wk</Th>
                               </Tr>
                             </THead>
                             <TBody>
@@ -1074,6 +1079,18 @@ export default function TeamPage() {
                                   </Td>
                                   <Td>
                                     <div className="text-sm text-[var(--muted)]">{p.position || '—'}</div>
+                                  </Td>
+                                  <Td>
+                                    <div className="text-sm text-[var(--muted)]">{p.joinedAt ? new Date(p.joinedAt).toLocaleDateString() : '—'}</div>
+                                  </Td>
+                                  <Td>
+                                    <div className="text-sm text-[var(--muted)]">{typeof p.joinedWeek === 'number' && p.joinedWeek > 0 ? p.joinedWeek : '—'}</div>
+                                  </Td>
+                                  <Td>
+                                    <div className="text-sm text-[var(--muted)]">{p.firstTaxiAt ? new Date(p.firstTaxiAt).toLocaleDateString() : '—'}</div>
+                                  </Td>
+                                  <Td>
+                                    <div className="text-sm text-[var(--muted)]">{typeof p.firstTaxiWeek === 'number' && p.firstTaxiWeek > 0 ? p.firstTaxiWeek : '—'}</div>
                                   </Td>
                                 </Tr>
                               ))}

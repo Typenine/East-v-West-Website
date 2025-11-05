@@ -1,13 +1,14 @@
 import { LEAGUE_IDS } from '@/lib/constants/league';
 import { getTeamsData, getLeagueRosters, getAllPlayersCached, getLeagueTransactionsAllWeeks, getLeagueMatchups, SleeperTransaction, getNFLState } from '@/lib/utils/sleeper-api';
 import { resolveCanonicalTeamName } from '@/lib/utils/team-utils';
-import { upsertTenure, deleteTenure, markTenureActive, bulkInsertTxnCacheWithPrune } from '@/server/db/queries';
+import { upsertTenure, deleteTenure, markTenureActive, bulkInsertTxnCacheWithPrune, getFirstTaxiSeenForPlayer } from '@/server/db/queries';
+import { getObjectText } from '@/server/storage/r2';
 
 export type Violation = { code: 'too_many_on_taxi' | 'too_many_qbs' | 'invalid_intake' | 'boomerang_active_player' | 'roster_inconsistent'; detail?: string; players?: string[] };
 
 export type TaxiValidateResult = {
   team: { teamName: string; rosterId: number; selectedSeason: string };
-  current: { taxi: Array<{ playerId: string; name: string | null; position: string | null }>; counts: { total: number; qbs: number } };
+  current: { taxi: Array<{ playerId: string; name: string | null; position: string | null; joinedAt?: string | null; joinedWeek?: number | null; firstTaxiAt?: string | null; firstTaxiWeek?: number | null }>; counts: { total: number; qbs: number } };
   compliant: boolean;
   violations: Violation[];
 };
@@ -41,18 +42,12 @@ export async function validateTaxiForRoster(selectedSeason: string, selectedRost
   const r = rosters.find((rr) => rr.roster_id === selectedRosterId) || { players: [], reserve: [], taxi: [] } as { players?: string[]; reserve?: string[]; taxi?: string[] };
   const taxiArr: string[] = Array.isArray(r.taxi) ? (r.taxi as string[]).filter(Boolean) : [];
 
-  // Determine current week starters from matchups
-  let startersArr: string[] = [];
+  // Establish current NFL week for transaction fallback
   let currentWeek = 0;
   try {
     const st = await getNFLState();
     const wk = Number((st as { week?: number }).week || 0) || 0;
     currentWeek = wk;
-    if (wk > 0) {
-      const mus = await getLeagueMatchups(leagueId, wk).catch(() => [] as Array<{ roster_id?: number; starters?: string[] }>);
-      const me = mus.find((m) => m && m.roster_id === selectedRosterId);
-      if (me && Array.isArray(me.starters)) startersArr = (me.starters as string[]).filter(Boolean);
-    }
   } catch {}
 
   // starters/reserve used only for same-week inconsistencies which we no longer flag
@@ -89,7 +84,7 @@ export async function validateTaxiForRoster(selectedSeason: string, selectedRost
   }
   await bulkInsertTxnCacheWithPrune(rowsForCache).catch(() => 0);
 
-  // Check boomerang using only prior locked weeks (exclude current week)
+  // Check boomerang using prior locked weeks (exclude current week)
   if (!currentWeek) {
     try {
       const st2 = await getNFLState();
@@ -108,7 +103,18 @@ export async function validateTaxiForRoster(selectedSeason: string, selectedRost
     const starters = new Set<string>((m.starters || []).filter(Boolean) as string[]);
     const weeklyPlayers = new Set<string>((m.players || []).filter(Boolean) as string[]);
     const bench = new Set(Array.from(weeklyPlayers).filter((pid) => !starters.has(pid)));
-    const nonTaxiSet = new Set<string>([...starters, ...bench]);
+    // Try to include IR from weekly snapshot if available for this week/season
+    let reserveExtra: string[] = [];
+    try {
+      const key = `logs/lineups/snapshots/${String(selectedSeason)}-W${matchupWeek}.json`;
+      const txt = await getObjectText({ key });
+      if (txt) {
+        const j = JSON.parse(txt) as { teams?: Array<{ rosterId: number; reserve?: string[] }> };
+        const row = (j.teams || []).find((t) => t.rosterId === selectedRosterId);
+        if (row && Array.isArray(row.reserve)) reserveExtra = row.reserve.filter(Boolean);
+      }
+    } catch {}
+    const nonTaxiSet = new Set<string>([...starters, ...bench, ...reserveExtra]);
     for (const pid of nonTaxiSet) {
       const lj = lastJoin.get(pid);
       if (!lj) continue;
@@ -141,11 +147,31 @@ export async function validateTaxiForRoster(selectedSeason: string, selectedRost
   if (invalidIntake.length > 0) violations.push({ code: 'invalid_intake', detail: 'Taxi intake must be FA/Trade/Draft', players: invalidIntake });
   if (boomerang.length > 0) violations.push({ code: 'boomerang_active_player', detail: 'Previously active this tenure on taxi', players: boomerang });
 
-  const items = taxiArr.map((pid) => ({
-    playerId: pid,
-    name: playersMeta[pid] ? `${playersMeta[pid].first_name || ''} ${playersMeta[pid].last_name || ''}`.trim() : null,
-    position: playersMeta[pid]?.position || null,
-  }));
+  const seasonNum = Number(selectedSeason) || new Date().getFullYear();
+  const items = [] as Array<{ playerId: string; name: string | null; position: string | null; joinedAt?: string | null; joinedWeek?: number | null; firstTaxiAt?: string | null; firstTaxiWeek?: number | null }>;
+  for (const pid of taxiArr) {
+    const name = playersMeta[pid] ? `${playersMeta[pid].first_name || ''} ${playersMeta[pid].last_name || ''}`.trim() : null;
+    const position = playersMeta[pid]?.position || null;
+    const lj = lastJoin.get(pid);
+    let firstTaxiAt: string | null = null;
+    let firstTaxiWeek: number | null = null;
+    try {
+      const first = await getFirstTaxiSeenForPlayer({ season: seasonNum, teamId: canonicalName, playerId: pid });
+      if (first) {
+        firstTaxiAt = new Date(first.runTs).toISOString();
+        firstTaxiWeek = first.week;
+      }
+    } catch {}
+    items.push({
+      playerId: pid,
+      name,
+      position,
+      joinedAt: lj ? new Date(lj.ts).toISOString() : null,
+      joinedWeek: lj?.week ?? null,
+      firstTaxiAt,
+      firstTaxiWeek,
+    });
+  }
 
   const teamLabel = thisTeam?.teamName || canonicalName;
   const hardCodes = new Set<Violation['code']>(['too_many_on_taxi','too_many_qbs','invalid_intake','roster_inconsistent']);

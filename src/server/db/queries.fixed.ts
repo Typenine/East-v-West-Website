@@ -1,6 +1,6 @@
 import { getDb } from './client';
 import { users, suggestions, taxiSquadMembers, taxiSquadEvents, teamPins, taxiObservations, userDocs, tenures, txnCache, taxiSnapshots } from './schema';
-import { eq, and, isNull, desc, lt } from 'drizzle-orm';
+import { eq, and, isNull, desc, lt, sql } from 'drizzle-orm';
 
 export type Role = 'admin' | 'user';
 
@@ -236,6 +236,21 @@ export async function getTaxiSnapshotsForRun(params: { season: number; week: num
     .from(taxiSnapshots)
     .where(and(eq(taxiSnapshots.season, params.season), eq(taxiSnapshots.week, params.week), eq(taxiSnapshots.runType, params.runType)));
   return rows;
+}
+
+export async function getFirstTaxiSeenForPlayer(params: { season: number; teamId: string; playerId: string }) {
+  const db = getDb();
+  const rows = await db
+    .select({ season: taxiSnapshots.season, week: taxiSnapshots.week, runTs: taxiSnapshots.runTs, runType: taxiSnapshots.runType })
+    .from(taxiSnapshots)
+    .where(and(
+      eq(taxiSnapshots.season, params.season),
+      eq(taxiSnapshots.teamId, params.teamId),
+      sql`${params.playerId} = ANY(${taxiSnapshots.taxiIds})`
+    ))
+    .orderBy(taxiSnapshots.runTs)
+    .limit(1);
+  return rows[0] || null as null | { season: number; week: number; runTs: Date; runType: string };
 }
 
 export async function getUserDoc(userId: string) {
