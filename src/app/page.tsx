@@ -3,7 +3,7 @@ import Link from 'next/link';
 import CountdownTimer from '@/components/ui/countdown-timer';
 import MatchupCard from '@/components/ui/matchup-card';
 import { IMPORTANT_DATES, LEAGUE_IDS } from '@/lib/constants/league';
-import { getLeagueMatchups, getTeamsData, getNFLState } from '@/lib/utils/sleeper-api';
+import { getLeagueMatchups, getTeamsData, getNFLState, getAllPlayersCached } from '@/lib/utils/sleeper-api';
 import EmptyState from '@/components/ui/empty-state';
 import SectionHeader from '@/components/ui/SectionHeader';
 import LinkButton from '@/components/ui/LinkButton';
@@ -12,6 +12,7 @@ import { Tabs } from '@/components/ui/Tabs';
 import HeadToHeadGrid from '@/components/headtohead/HeadToHeadGrid';
 import NeverBeatenTracker from '@/components/headtohead/NeverBeatenTracker';
 import { getHeadToHeadAllTime } from '@/lib/utils/headtohead';
+import { validateTaxiForRoster } from '@/lib/server/taxi-validator';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 20; // ISR: refresh at most every 20s to reduce API churn and flakiness
@@ -114,29 +115,29 @@ export default async function Home({ searchParams }: { searchParams?: Promise<Re
   } catch {
     // If Sleeper data isn't available yet, render with empty state below
   }
-  // Taxi flags (league-wide): actual violations and potential warnings
+  // Taxi flags (league-wide): prefer on-demand admin report for immediate freshness; fall back to flags if needed
   let taxiFlags: { generatedAt: string; runType?: string; season?: number; week?: number; actual: Array<{ team: string; type: string; message: string }>; potential: Array<{ team: string; type: string; message: string }> } = { generatedAt: '', actual: [], potential: [] };
   try {
-    const rf = await fetch('/api/taxi/flags', { cache: 'no-store' });
-    if (rf.ok) taxiFlags = (await rf.json()) as typeof taxiFlags;
+    const rr = await fetch('/api/taxi/report', { cache: 'no-store' });
+    if (rr.ok) {
+      const j = await rr.json().catch(() => null) as null | { generatedAt?: string; runType?: string; season?: number; week?: number; actual?: Array<{ team: string; type: string; message: string }>; potential?: Array<{ team: string; type: string; message: string }> };
+      if (j) {
+        taxiFlags = {
+          generatedAt: j.generatedAt || new Date().toISOString(),
+          runType: j.runType,
+          season: j.season,
+          week: j.week,
+          actual: Array.isArray(j.actual) ? j.actual : [],
+          potential: Array.isArray(j.potential) ? j.potential : [],
+        };
+      }
+    }
   } catch {}
-  // Fallback: if flags returned nothing, compute on-demand using the admin report route so the banner updates immediately after admin runs
+  // Secondary fallback to scheduled flags
   try {
     if ((!taxiFlags.runType || typeof taxiFlags.runType !== 'string') && taxiFlags.actual.length === 0 && taxiFlags.potential.length === 0) {
-      const rr = await fetch('/api/taxi/report', { cache: 'no-store' });
-      if (rr.ok) {
-        const j = await rr.json().catch(() => null) as null | { generatedAt?: string; runType?: string; season?: number; week?: number; actual?: Array<{ team: string; type: string; message: string }>; potential?: Array<{ team: string; type: string; message: string }> };
-        if (j) {
-          taxiFlags = {
-            generatedAt: j.generatedAt || new Date().toISOString(),
-            runType: j.runType,
-            season: j.season,
-            week: j.week,
-            actual: Array.isArray(j.actual) ? j.actual : [],
-            potential: Array.isArray(j.potential) ? j.potential : [],
-          };
-        }
-      }
+      const rf = await fetch('/api/taxi/flags', { cache: 'no-store' });
+      if (rf.ok) taxiFlags = (await rf.json()) as typeof taxiFlags;
     }
   } catch {}
   // Head-to-head all-time data
