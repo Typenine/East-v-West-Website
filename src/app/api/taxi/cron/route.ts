@@ -1,5 +1,5 @@
 import { getNFLState, getTeamsData } from '@/lib/utils/sleeper-api';
-import { LEAGUE_IDS } from '@/lib/constants/league';
+import { LEAGUE_IDS, TEAM_NAMES } from '@/lib/constants/league';
 import { validateTaxiForRoster } from '@/lib/server/taxi-validator';
 import { writeTaxiSnapshot } from '@/server/db/queries.fixed';
 
@@ -39,27 +39,48 @@ export async function GET() {
 
     const leagueId = LEAGUE_IDS.CURRENT;
     const teams = await getTeamsData(leagueId).catch(() => [] as Array<{ teamName: string; rosterId: number }>);
+    // Fallback: if teams fail to load, still record a run with degraded rows for canonical team names
+    const teamEntries = (teams && teams.length > 0)
+      ? teams
+      : TEAM_NAMES.map((name) => ({ teamName: name, rosterId: -1 }));
+    const usedFallback = !teams || teams.length === 0;
 
     let processed = 0;
-    for (const t of teams) {
+    for (const t of teamEntries) {
       try {
-        const res = await validateTaxiForRoster(String(season), t.rosterId);
-        if (!res) continue;
-        const taxiIds = res.current.taxi.map((x) => x.playerId);
-        const hasBoomerang = res.violations.some((v) => v.code === 'boomerang_active_player');
-        const compliantOut = runType === 'sun_pm_official' ? (res.compliant && !hasBoomerang) : res.compliant;
-        await writeTaxiSnapshot({
-          season,
-          week,
-          runType,
-          runTs: now,
-          teamId: t.teamName,
-          taxiIds,
-          compliant: compliantOut,
-          violations: res.violations,
-          degraded: false,
-        });
-        processed++;
+        if (usedFallback || t.rosterId < 0) {
+          // Write a degraded placeholder so a run is recorded
+          await writeTaxiSnapshot({
+            season,
+            week,
+            runType,
+            runTs: now,
+            teamId: t.teamName,
+            taxiIds: [],
+            compliant: true,
+            violations: [],
+            degraded: true,
+          });
+          processed++;
+        } else {
+          const res = await validateTaxiForRoster(String(season), t.rosterId);
+          if (!res) continue;
+          const taxiIds = res.current.taxi.map((x) => x.playerId);
+          const hasBoomerang = res.violations.some((v) => v.code === 'boomerang_active_player');
+          const compliantOut = runType === 'sun_pm_official' ? (res.compliant && !hasBoomerang) : res.compliant;
+          await writeTaxiSnapshot({
+            season,
+            week,
+            runType,
+            runTs: now,
+            teamId: t.teamName,
+            taxiIds,
+            compliant: compliantOut,
+            violations: res.violations,
+            degraded: false,
+          });
+          processed++;
+        }
       } catch {
         // degraded snapshot for this team
         await writeTaxiSnapshot({
