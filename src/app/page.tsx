@@ -13,6 +13,7 @@ import HeadToHeadGrid from '@/components/headtohead/HeadToHeadGrid';
 import NeverBeatenTracker from '@/components/headtohead/NeverBeatenTracker';
 import { getHeadToHeadAllTime } from '@/lib/utils/headtohead';
 
+export const dynamic = 'force-dynamic';
 export const revalidate = 20; // ISR: refresh at most every 20s to reduce API churn and flakiness
 
 export default async function Home({ searchParams }: { searchParams?: Promise<Record<string, string | string[] | undefined>> }) {
