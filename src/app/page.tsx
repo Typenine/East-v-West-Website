@@ -115,31 +115,38 @@ export default async function Home({ searchParams }: { searchParams?: Promise<Re
   } catch {
     // If Sleeper data isn't available yet, render with empty state below
   }
-  // Taxi flags (league-wide): prefer on-demand admin report for immediate freshness; fall back to flags if needed
-  let taxiFlags: { generatedAt: string; runType?: string; season?: number; week?: number; actual: Array<{ team: string; type: string; message: string }>; potential: Array<{ team: string; type: string; message: string }> } = { generatedAt: '', actual: [], potential: [] };
+  // Taxi flags (league-wide): fetch both sources and choose best
+  let taxiFlags: { generatedAt: string; lastRunAt?: string; runType?: string; season?: number; week?: number; actual: Array<{ team: string; type: string; message: string }>; potential: Array<{ team: string; type: string; message: string }> } = { generatedAt: '', actual: [], potential: [] };
   // Build base URL from env for server-side fetches
   const base = process.env.NEXT_PUBLIC_SITE_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : '');
   try {
-    const rr = await fetch(`${base}/api/taxi/report`, { cache: 'no-store' });
-    if (rr.ok) {
-      const j = await rr.json().catch(() => null) as null | { generatedAt?: string; runType?: string; season?: number; week?: number; actual?: Array<{ team: string; type: string; message: string }>; potential?: Array<{ team: string; type: string; message: string }> };
-      if (j) {
-        taxiFlags = {
-          generatedAt: j.generatedAt || new Date().toISOString(),
-          runType: j.runType,
-          season: j.season,
-          week: j.week,
-          actual: Array.isArray(j.actual) ? j.actual : [],
-          potential: Array.isArray(j.potential) ? j.potential : [],
-        };
-      }
-    }
-  } catch {}
-  // Secondary fallback to scheduled flags
-  try {
-    if ((!taxiFlags.runType || typeof taxiFlags.runType !== 'string') && taxiFlags.actual.length === 0 && taxiFlags.potential.length === 0) {
-      const rf = await fetch(`${base}/api/taxi/flags`, { cache: 'no-store' });
-      if (rf.ok) taxiFlags = (await rf.json()) as typeof taxiFlags;
+    const [rf, rr] = await Promise.all([
+      fetch(`${base}/api/taxi/flags`, { cache: 'no-store' }).catch(() => null),
+      fetch(`${base}/api/taxi/report`, { cache: 'no-store' }).catch(() => null),
+    ]);
+    let flags: null | { generatedAt?: string; lastRunAt?: string; runType?: string; season?: number; week?: number; actual?: Array<{ team: string; type: string; message: string }>; potential?: Array<{ team: string; type: string; message: string }> } = null;
+    let report: null | { generatedAt?: string; lastRunAt?: string; runType?: string; season?: number; week?: number; actual?: Array<{ team: string; type: string; message: string }>; potential?: Array<{ team: string; type: string; message: string }> } = null;
+    if (rf && rf.ok) flags = await rf.json().catch(() => null);
+    if (rr && rr.ok) report = await rr.json().catch(() => null);
+    const pick = () => {
+      const fGood = flags && (Array.isArray(flags.actual) || Array.isArray(flags.potential)) && (flags.runType || '').length > 0;
+      const rGood = report && (Array.isArray(report.actual) || Array.isArray(report.potential));
+      if (fGood && flags!.runType && flags!.runType !== 'admin_rerun') return flags!; // prefer scheduled/official
+      if (rGood) return report!; // otherwise prefer admin on-demand for immediacy
+      if (fGood) return flags!; // last resort if report missing
+      return null;
+    };
+    const chosen = pick();
+    if (chosen) {
+      taxiFlags = {
+        generatedAt: chosen.generatedAt || new Date().toISOString(),
+        lastRunAt: chosen.lastRunAt,
+        runType: chosen.runType,
+        season: chosen.season,
+        week: chosen.week,
+        actual: Array.isArray(chosen.actual) ? chosen.actual : [],
+        potential: Array.isArray(chosen.potential) ? chosen.potential : [],
+      };
     }
   } catch {}
   // Final fallback: compute on-demand directly so the banner is never blank
@@ -181,7 +188,8 @@ export default async function Home({ searchParams }: { searchParams?: Promise<Re
           }
         } catch {}
       }
-      taxiFlags = { generatedAt: new Date().toISOString(), runType: 'admin_rerun', season, week, actual, potential };
+      const ts = new Date().toISOString();
+      taxiFlags = { generatedAt: ts, lastRunAt: ts, runType: 'admin_rerun', season, week, actual, potential };
     }
   } catch {}
   // Head-to-head all-time data
@@ -234,6 +242,7 @@ export default async function Home({ searchParams }: { searchParams?: Promise<Re
         {taxiFlags.actual.length > 0 && (
           <div className="mb-2 evw-surface border border-[var(--border)] rounded-md p-3" style={{ backgroundColor: 'color-mix(in srgb, var(--danger) 10%, transparent)' }}>
             <div className="font-semibold mb-1">Taxi violations</div>
+            <div className="text-xs opacity-80 mb-1">Run: {taxiFlags.runType || '—'} • Last run at: {new Date(taxiFlags.lastRunAt || taxiFlags.generatedAt).toLocaleString()}</div>
             <ul className="list-disc pl-5 text-sm">
               {taxiFlags.actual.slice(0, 3).map((f, i) => (
                 <li key={`act-${i}`}>{f.message}</li>
@@ -247,6 +256,7 @@ export default async function Home({ searchParams }: { searchParams?: Promise<Re
         {taxiFlags.potential.length > 0 && (
           <div className="evw-surface border border-[var(--border)] rounded-md p-3" style={{ backgroundColor: 'color-mix(in srgb, var(--gold) 12%, transparent)' }}>
             <div className="font-semibold mb-1">Potential taxi issues (pending games)</div>
+            <div className="text-xs opacity-80 mb-1">Run: {taxiFlags.runType || '—'} • Last run at: {new Date(taxiFlags.lastRunAt || taxiFlags.generatedAt).toLocaleString()}</div>
             <ul className="list-disc pl-5 text-sm">
               {taxiFlags.potential.slice(0, 3).map((f, i) => (
                 <li key={`pot-${i}`}>{f.message}</li>
@@ -260,7 +270,7 @@ export default async function Home({ searchParams }: { searchParams?: Promise<Re
         {taxiFlags.actual.length === 0 && taxiFlags.potential.length === 0 && taxiFlags.runType && (
           <div className="evw-surface border border-[var(--border)] rounded-md p-3" style={{ backgroundColor: 'color-mix(in srgb, #10b981 12%, transparent)' }}>
             <div className="font-semibold mb-1">All teams compliant</div>
-            <div className="text-sm">As of {new Date(taxiFlags.generatedAt).toLocaleString()} (run: {taxiFlags.runType}).</div>
+            <div className="text-sm">As of {new Date(taxiFlags.lastRunAt || taxiFlags.generatedAt).toLocaleString()} (run: {taxiFlags.runType}).</div>
           </div>
         )}
         {taxiFlags.actual.length === 0 && taxiFlags.potential.length === 0 && !taxiFlags.runType && (

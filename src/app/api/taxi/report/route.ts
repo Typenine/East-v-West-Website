@@ -93,8 +93,9 @@ export async function GET() {
       } catch {}
     }
 
-    return Response.json({ generatedAt: now.toISOString(), runType, season, week, actual, potential });
+    return Response.json({ generatedAt: now.toISOString(), lastRunAt: now.toISOString(), runType, season, week, actual, potential });
   } catch {
-    return Response.json({ generatedAt: new Date().toISOString(), actual: [], potential: [] });
+    const ts = new Date().toISOString();
+    return Response.json({ generatedAt: ts, lastRunAt: ts, actual: [], potential: [] });
   }
 }

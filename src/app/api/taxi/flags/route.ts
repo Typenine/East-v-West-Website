@@ -11,7 +11,7 @@ type Flag = { team: string; type: 'violation' | 'warning'; message: string };
 export async function GET() {
   const now = Date.now();
   // Try to get latest scheduled/admin snapshot meta; on error, fall back to computing on-demand
-  let meta: { season: number; week: number; runType: string } | null = null;
+  let meta: { season: number; week: number; runType: string; runTs?: Date } | null = null;
   try {
     meta = await getLatestTaxiRunMeta();
   } catch {
@@ -58,7 +58,8 @@ export async function GET() {
           }
         } catch {}
       }
-      const data = { generatedAt: new Date().toISOString(), runType: 'admin_rerun', season, week, actual, potential };
+      const ts = new Date().toISOString();
+      const data = { generatedAt: ts, lastRunAt: ts, runType: 'admin_rerun', season, week, actual, potential };
       return Response.json(data);
     }
     const rows = await getTaxiSnapshotsForRun({ season: meta.season, week: meta.week, runType: meta.runType as 'wed_warn' | 'thu_warn' | 'sun_am_warn' | 'sun_pm_official' | 'admin_rerun' }).catch(() => [] as Array<{ teamId: string; compliant: number | boolean; violations: Array<{ code: string; detail?: string; players?: string[] }> }>);
@@ -93,10 +94,11 @@ export async function GET() {
       if (isOfficial) push(actual, r.teamId as unknown as string, msg); else push(potential, r.teamId as unknown as string, msg);
     }
 
-    const data = { generatedAt: new Date().toISOString(), runType: meta.runType, season: meta.season, week: meta.week, actual, potential };
+    const data = { generatedAt: new Date().toISOString(), lastRunAt: (meta.runTs ? meta.runTs.toISOString() : new Date().toISOString()), runType: meta.runType, season: meta.season, week: meta.week, actual, potential };
     return Response.json(data);
   } catch {
     // As a last resort, return a neutral empty payload with a timestamp
-    return Response.json({ generatedAt: new Date().toISOString(), actual: [], potential: [] });
+    const ts = new Date().toISOString();
+    return Response.json({ generatedAt: ts, lastRunAt: ts, actual: [], potential: [] });
   }
 }
