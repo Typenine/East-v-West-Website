@@ -242,6 +242,19 @@ export async function getLatestTaxiRunMeta() {
   return { season: latest.season, week: latest.week, runType: latest.runType, runTs: latest.runTs } as { season: number; week: number; runType: string; runTs: Date };
 }
 
+export async function getLatestAdminRerunMeta() {
+  const db = getDb();
+  const rows = await db
+    .select()
+    .from(taxiSnapshots)
+    .where(eq(taxiSnapshots.runType, 'admin_rerun'))
+    .orderBy(desc(taxiSnapshots.runTs))
+    .limit(1);
+  const latest = rows[0];
+  if (!latest) return null as null | { season: number; week: number; runType: 'admin_rerun'; runTs: Date };
+  return { season: latest.season, week: latest.week, runType: 'admin_rerun', runTs: latest.runTs } as { season: number; week: number; runType: 'admin_rerun'; runTs: Date };
+}
+
 export async function getTaxiSnapshotsForRun(params: { season: number; week: number; runType: 'wed_warn' | 'thu_warn' | 'sun_am_warn' | 'sun_pm_official' | 'admin_rerun' }) {
   const db = getDb();
   const rows = await db
