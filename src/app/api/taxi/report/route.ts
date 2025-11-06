@@ -1,5 +1,6 @@
 import { getNFLState, getTeamsData, getAllPlayersCached } from '@/lib/utils/sleeper-api';
 import { LEAGUE_IDS } from '@/lib/constants/league';
+import { writeTaxiSnapshot } from '@/server/db/queries.fixed';
 import { validateTaxiForRoster } from '@/lib/server/taxi-validator';
 
 export const runtime = 'nodejs';
@@ -71,6 +72,24 @@ export async function GET() {
           const entry = { team: t.teamName, type: isOfficial ? 'violation' : 'warning', message: `${t.teamName}: ${msg}` } as Flag;
           if (isOfficial || nonCompliant) actual.push(entry); else potential.push(entry);
         }
+
+        // Persist snapshot so homepage flags can reflect this run (especially for admin_rerun)
+        try {
+          const taxiIds = res.current.taxi.map((p) => p.playerId);
+          const hasBoomerang = res.violations.some((v) => v.code === 'boomerang_active_player');
+          const compliantOut = isOfficial ? (res.compliant && !hasBoomerang) : res.compliant;
+          await writeTaxiSnapshot({
+            season,
+            week,
+            runType,
+            runTs: now,
+            teamId: t.teamName,
+            taxiIds,
+            compliant: compliantOut,
+            violations: res.violations as Array<{ code: string; detail?: string; players?: string[] }>,
+            degraded: false,
+          });
+        } catch {}
       } catch {}
     }
 

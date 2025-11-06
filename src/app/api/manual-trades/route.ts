@@ -65,18 +65,28 @@ function isAdmin(req: NextRequest): boolean {
   return false;
 }
 
+function canonicalizeStatus(raw: unknown): ('completed' | 'pending' | 'vetoed') | null {
+  if (typeof raw !== 'string') return null;
+  const s = raw.toLowerCase();
+  if (s === 'completed' || s === 'pending' || s === 'vetoed') return s as 'completed' | 'pending' | 'vetoed';
+  if (s === 'complete') return 'completed';
+  if (s === 'failed' || s === 'failed_veto' || s === 'veto' || s === 'rejected') return 'vetoed';
+  return null;
+}
+
 function validateTradePayload(body: unknown): { ok: true; data: ManualTrade } | { ok: false; error: string } {
   if (typeof body !== 'object' || body === null) return { ok: false, error: 'Invalid payload' };
   const b = body as Partial<ManualTrade>;
   if (!b.date || typeof b.date !== 'string') return { ok: false, error: 'Missing date' };
-  if (!b.status || !['completed', 'pending', 'vetoed'].includes(b.status)) return { ok: false, error: 'Invalid status' };
+  const status = canonicalizeStatus(b.status);
+  if (!status) return { ok: false, error: 'Invalid status' };
   if (!Array.isArray(b.teams) || b.teams.length < 1) return { ok: false, error: 'At least one team required' };
   const id = b.id && typeof b.id === 'string' ? b.id : `manual-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const nowIso = new Date().toISOString();
   const data: ManualTrade = {
     id,
     date: b.date,
-    status: b.status as ManualTrade['status'],
+    status: status,
     teams: (b.teams as ManualTradeTeam[]) || [],
     notes: b.notes || '',
     overrideOf: b.overrideOf || null,
