@@ -17,11 +17,13 @@ function nowInET() {
 }
 
 function pickRunType(day: string, hour: number, minute: number): 'wed_warn' | 'thu_warn' | 'sun_am_warn' | 'sun_pm_official' | null {
-  if (day === 'Wed' && hour === 17 && minute === 0) return 'wed_warn';
-  if (day === 'Thu' && hour === 15 && minute === 0) return 'thu_warn';
-  if (day === 'Sun' && hour === 11 && minute === 0) return 'sun_am_warn';
+  // Allow a 5-minute grace window to tolerate trigger jitter
+  const inGrace = minute >= 0 && minute <= 5;
+  if (day === 'Wed' && hour === 17 && inGrace) return 'wed_warn';
+  if (day === 'Thu' && hour === 15 && inGrace) return 'thu_warn';
+  if (day === 'Sun' && hour === 11 && inGrace) return 'sun_am_warn';
   // Use SNF kickoff hour (top-of-hour) as the official run time
-  if (day === 'Sun' && hour === 20 && minute === 0) return 'sun_pm_official';
+  if (day === 'Sun' && hour === 20 && inGrace) return 'sun_pm_official';
   return null;
 }
 

@@ -177,6 +177,7 @@ export default function Navbar() {
                   <button
                     aria-label="Account menu"
                     className="rounded-full overflow-hidden border border-[var(--border)] w-8 h-8"
+                    style={sessionTeam ? { borderColor: getTeamColors(sessionTeam).secondary, borderWidth: 2 } : undefined}
                     onClick={() => setAccountMenuOpen((v) => !v)}
                     title={sessionTeam || (isAdmin ? 'Admin' : '')}
                     aria-expanded={accountMenuOpen}
@@ -315,6 +316,7 @@ export default function Navbar() {
                   <button
                     aria-label="Account menu"
                     className="rounded-full overflow-hidden border border-[var(--border)] w-8 h-8"
+                    style={sessionTeam ? { borderColor: getTeamColors(sessionTeam).secondary, borderWidth: 2 } : undefined}
                     onClick={() => {
                       setMobileMenuOpen(false);
                       if (sessionTeam) setChangeOpen(true);

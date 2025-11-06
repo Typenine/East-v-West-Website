@@ -3,7 +3,7 @@
 import { Suspense, useRef, useState } from 'react';
 import Image from 'next/image';
 import { TEAM_NAMES } from '@/lib/constants/league';
-import { getTeamLogoPath, getTeamColorStyle } from '@/lib/utils/team-utils';
+import { getTeamLogoPath, getTeamColorStyle, getTeamColors } from '@/lib/utils/team-utils';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import Label from '@/components/ui/Label';
 import Button from '@/components/ui/Button';
@@ -129,8 +129,9 @@ function LoginContent() {
                         key={team}
                         type="button"
                         onClick={() => setSelectedTeam(team)}
-                        className={`rounded-lg border transition hover-lift focus:outline-none focus:ring-2 focus:ring-[var(--accent-strong)] ${active ? 'ring-2 ring-[var(--accent-strong)]' : ''}`}
+                        className={`rounded-lg border transition hover-lift focus:outline-none focus:ring-2 focus:ring-[var(--accent-strong)] ${active ? 'border-2' : ''}`}
                         aria-pressed={active}
+                        style={active ? { borderColor: getTeamColors(team).secondary } : undefined}
                       >
                         <div className="p-3 flex flex-col items-center justify-center gap-2">
                           <div className="w-12 h-12 rounded-full overflow-hidden flex items-center justify-center" style={style}>
