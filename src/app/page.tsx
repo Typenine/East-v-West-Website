@@ -3,7 +3,7 @@ import Link from 'next/link';
 import CountdownTimer from '@/components/ui/countdown-timer';
 import MatchupCard from '@/components/ui/matchup-card';
 import { IMPORTANT_DATES, LEAGUE_IDS } from '@/lib/constants/league';
-import { getLeagueMatchups, getTeamsData, getNFLState, getAllPlayersCached } from '@/lib/utils/sleeper-api';
+import { getLeagueMatchups, getTeamsData, getNFLState } from '@/lib/utils/sleeper-api';
 import EmptyState from '@/components/ui/empty-state';
 import SectionHeader from '@/components/ui/SectionHeader';
 import LinkButton from '@/components/ui/LinkButton';
@@ -12,9 +12,8 @@ import { Tabs } from '@/components/ui/Tabs';
 import HeadToHeadGrid from '@/components/headtohead/HeadToHeadGrid';
 import NeverBeatenTracker from '@/components/headtohead/NeverBeatenTracker';
 import { getHeadToHeadAllTime } from '@/lib/utils/headtohead';
-import { validateTaxiForRoster } from '@/lib/server/taxi-validator';
+import TaxiBanner from '@/components/taxi/TaxiBanner';
 
-export const dynamic = 'force-dynamic';
 export const revalidate = 20; // ISR: refresh at most every 20s to reduce API churn and flakiness
 
 export default async function Home({ searchParams }: { searchParams?: Promise<Record<string, string | string[] | undefined>> }) {
@@ -115,83 +114,26 @@ export default async function Home({ searchParams }: { searchParams?: Promise<Re
   } catch {
     // If Sleeper data isn't available yet, render with empty state below
   }
-  // Taxi flags (league-wide): fetch both sources and choose best
+  // Taxi flags (league-wide): fetch lightweight flags on SSR for speed
   let taxiFlags: { generatedAt: string; lastRunAt?: string; runType?: string; season?: number; week?: number; actual: Array<{ team: string; type: string; message: string }>; potential: Array<{ team: string; type: string; message: string }> } = { generatedAt: '', actual: [], potential: [] };
-  // Build base URL from env for server-side fetches
-  const base = process.env.NEXT_PUBLIC_SITE_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : '');
   try {
-    const [rf, rr] = await Promise.all([
-      fetch(`${base}/api/taxi/flags`, { cache: 'no-store' }).catch(() => null),
-      fetch(`${base}/api/taxi/report`, { cache: 'no-store' }).catch(() => null),
-    ]);
-    let flags: null | { generatedAt?: string; lastRunAt?: string; runType?: string; season?: number; week?: number; actual?: Array<{ team: string; type: string; message: string }>; potential?: Array<{ team: string; type: string; message: string }> } = null;
-    let report: null | { generatedAt?: string; lastRunAt?: string; runType?: string; season?: number; week?: number; actual?: Array<{ team: string; type: string; message: string }>; potential?: Array<{ team: string; type: string; message: string }> } = null;
-    if (rf && rf.ok) flags = await rf.json().catch(() => null);
-    if (rr && rr.ok) report = await rr.json().catch(() => null);
-    const pick = () => {
-      const fGood = flags && (Array.isArray(flags.actual) || Array.isArray(flags.potential)) && (flags.runType || '').length > 0;
-      const rGood = report && (Array.isArray(report.actual) || Array.isArray(report.potential));
-      if (fGood && flags!.runType && flags!.runType !== 'admin_rerun') return flags!; // prefer scheduled/official
-      if (rGood) return report!; // otherwise prefer admin on-demand for immediacy
-      if (fGood) return flags!; // last resort if report missing
-      return null;
-    };
-    const chosen = pick();
-    if (chosen) {
-      taxiFlags = {
-        generatedAt: chosen.generatedAt || new Date().toISOString(),
-        lastRunAt: chosen.lastRunAt,
-        runType: chosen.runType,
-        season: chosen.season,
-        week: chosen.week,
-        actual: Array.isArray(chosen.actual) ? chosen.actual : [],
-        potential: Array.isArray(chosen.potential) ? chosen.potential : [],
-      };
-    }
-  } catch {}
-  // Final fallback: compute on-demand directly so the banner is never blank
-  try {
-    if ((!taxiFlags.runType || typeof taxiFlags.runType !== 'string') && taxiFlags.actual.length === 0 && taxiFlags.potential.length === 0) {
-      const st = await getNFLState().catch(() => ({ season: new Date().getFullYear(), week: 1 } as { season?: number; week?: number }));
-      const season = Number(st.season || new Date().getFullYear());
-      const week = Number(st.week || 1);
-      const teams = await getTeamsData(leagueId).catch(() => [] as Array<{ rosterId: number; teamName: string }>);
-      const players = await getAllPlayersCached().catch(() => ({} as Record<string, { first_name?: string; last_name?: string }>));
-      const nameOf = (pid: string) => {
-        const p = players[pid];
-        if (!p) return pid;
-        const nm = `${p.first_name || ''} ${p.last_name || ''}`.trim();
-        return nm || pid;
-      };
-      const actual: Array<{ team: string; type: string; message: string }> = [];
-      const potential: Array<{ team: string; type: string; message: string }> = [];
-      for (const t of teams) {
-        try {
-          const res = await validateTaxiForRoster(String(season), t.rosterId);
-          if (!res) continue;
-          const nonCompliant = !res.compliant;
-          const msgParts: string[] = [];
-          for (const v of res.violations) {
-            if (v.code === 'too_many_on_taxi') msgParts.push('>3 players on taxi');
-            else if (v.code === 'too_many_qbs') msgParts.push('2+ QBs on taxi (limit 1)');
-            else if (v.code === 'invalid_intake') msgParts.push('Taxi intake must be FA/Trade/Draft');
-            else if (v.code === 'roster_inconsistent') msgParts.push('Taxi conflicts with starters/IR');
-            else if (v.code === 'boomerang_active_player') {
-              const names = (v.players || []).map(nameOf).slice(0, 3).join(', ');
-              msgParts.push(`Previously active this tenure on taxi${names ? `: ${names}` : ''}`);
-            }
-          }
-          const msg = msgParts.join('; ');
-          if (msg) {
-            const entry = { team: t.teamName, type: nonCompliant ? 'violation' : 'warning', message: `${t.teamName}: ${msg}` };
-            if (nonCompliant) actual.push(entry); else potential.push(entry);
-          }
-        } catch {}
+    const rf = await fetch('/api/taxi/flags', { cache: 'no-store' });
+    if (rf.ok) {
+      const j = await rf.json().catch(() => null) as null | { generatedAt?: string; lastRunAt?: string; runType?: string; season?: number; week?: number; actual?: Array<{ team: string; type: string; message: string }>; potential?: Array<{ team: string; type: string; message: string }> };
+      if (j) {
+        taxiFlags = {
+          generatedAt: j.generatedAt || new Date().toISOString(),
+          lastRunAt: j.lastRunAt,
+          runType: j.runType,
+          season: j.season,
+          week: j.week,
+          actual: Array.isArray(j.actual) ? j.actual : [],
+          potential: Array.isArray(j.potential) ? j.potential : [],
+        };
       }
-      const ts = new Date().toISOString();
-      taxiFlags = { generatedAt: ts, lastRunAt: ts, runType: 'admin_rerun', season, week, actual, potential };
     }
   } catch {}
+  // Final fallback removed to keep SSR fast. Client will refresh banner post-hydration if needed.
   // Head-to-head all-time data
   let h2h: { teams: string[]; matrix: Record<string, Record<string, import("@/lib/utils/headtohead").H2HCell>>; neverBeaten: Array<{ team: string; vs: string; meetings: number; lastMeeting?: { year: string; week: number } }> } = { teams: [], matrix: {}, neverBeaten: [] };
   try {
@@ -238,49 +180,7 @@ export default async function Home({ searchParams }: { searchParams?: Promise<Re
       </section>
       
       {/* Taxi Tracker summary */}
-      <section className="mb-6" aria-label="Taxi tracker summary">
-        {taxiFlags.actual.length > 0 && (
-          <div className="mb-2 evw-surface border border-[var(--border)] rounded-md p-3" style={{ backgroundColor: 'color-mix(in srgb, var(--danger) 10%, transparent)' }}>
-            <div className="font-semibold mb-1">Taxi violations</div>
-            <div className="text-xs opacity-80 mb-1">Run: {taxiFlags.runType || '—'} • Last run at: {new Date(taxiFlags.lastRunAt || taxiFlags.generatedAt).toLocaleString()}</div>
-            <ul className="list-disc pl-5 text-sm">
-              {taxiFlags.actual.slice(0, 3).map((f, i) => (
-                <li key={`act-${i}`}>{f.message}</li>
-              ))}
-              {taxiFlags.actual.length > 3 && (
-                <li className="opacity-80">+{taxiFlags.actual.length - 3} more…</li>
-              )}
-            </ul>
-          </div>
-        )}
-        {taxiFlags.potential.length > 0 && (
-          <div className="evw-surface border border-[var(--border)] rounded-md p-3" style={{ backgroundColor: 'color-mix(in srgb, var(--gold) 12%, transparent)' }}>
-            <div className="font-semibold mb-1">Potential taxi issues (pending games)</div>
-            <div className="text-xs opacity-80 mb-1">Run: {taxiFlags.runType || '—'} • Last run at: {new Date(taxiFlags.lastRunAt || taxiFlags.generatedAt).toLocaleString()}</div>
-            <ul className="list-disc pl-5 text-sm">
-              {taxiFlags.potential.slice(0, 3).map((f, i) => (
-                <li key={`pot-${i}`}>{f.message}</li>
-              ))}
-              {taxiFlags.potential.length > 3 && (
-                <li className="opacity-80">+{taxiFlags.potential.length - 3} more…</li>
-              )}
-            </ul>
-          </div>
-        )}
-        {taxiFlags.actual.length === 0 && taxiFlags.potential.length === 0 && taxiFlags.runType && (
-          <div className="evw-surface border border-[var(--border)] rounded-md p-3" style={{ backgroundColor: 'color-mix(in srgb, #10b981 12%, transparent)' }}>
-            <div className="font-semibold mb-1">All teams compliant</div>
-            <div className="text-sm">As of {new Date(taxiFlags.lastRunAt || taxiFlags.generatedAt).toLocaleString()} (run: {taxiFlags.runType}).</div>
-          </div>
-        )}
-        {taxiFlags.actual.length === 0 && taxiFlags.potential.length === 0 && !taxiFlags.runType && (
-          <div className="evw-surface border border-[var(--border)] rounded-md p-3" style={{ backgroundColor: 'color-mix(in srgb, #93c5fd 12%, transparent)' }}>
-            <div className="font-semibold mb-1">Taxi tracker</div>
-            <div className="text-sm">No scheduled report recorded yet.</div>
-            <div className="text-xs opacity-80">Last checked: {taxiFlags.generatedAt ? new Date(taxiFlags.generatedAt).toLocaleString() : '—'}</div>
-          </div>
-        )}
-      </section>
+      <TaxiBanner initial={taxiFlags} />
 
       {/* Current Week Preview */}
       <section className="mb-12">
