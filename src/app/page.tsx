@@ -117,8 +117,10 @@ export default async function Home({ searchParams }: { searchParams?: Promise<Re
   }
   // Taxi flags (league-wide): prefer on-demand admin report for immediate freshness; fall back to flags if needed
   let taxiFlags: { generatedAt: string; runType?: string; season?: number; week?: number; actual: Array<{ team: string; type: string; message: string }>; potential: Array<{ team: string; type: string; message: string }> } = { generatedAt: '', actual: [], potential: [] };
+  // Build base URL from env for server-side fetches
+  const base = process.env.NEXT_PUBLIC_SITE_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : '');
   try {
-    const rr = await fetch('/api/taxi/report', { cache: 'no-store' });
+    const rr = await fetch(`${base}/api/taxi/report`, { cache: 'no-store' });
     if (rr.ok) {
       const j = await rr.json().catch(() => null) as null | { generatedAt?: string; runType?: string; season?: number; week?: number; actual?: Array<{ team: string; type: string; message: string }>; potential?: Array<{ team: string; type: string; message: string }> };
       if (j) {
@@ -136,8 +138,50 @@ export default async function Home({ searchParams }: { searchParams?: Promise<Re
   // Secondary fallback to scheduled flags
   try {
     if ((!taxiFlags.runType || typeof taxiFlags.runType !== 'string') && taxiFlags.actual.length === 0 && taxiFlags.potential.length === 0) {
-      const rf = await fetch('/api/taxi/flags', { cache: 'no-store' });
+      const rf = await fetch(`${base}/api/taxi/flags`, { cache: 'no-store' });
       if (rf.ok) taxiFlags = (await rf.json()) as typeof taxiFlags;
+    }
+  } catch {}
+  // Final fallback: compute on-demand directly so the banner is never blank
+  try {
+    if ((!taxiFlags.runType || typeof taxiFlags.runType !== 'string') && taxiFlags.actual.length === 0 && taxiFlags.potential.length === 0) {
+      const st = await getNFLState().catch(() => ({ season: new Date().getFullYear(), week: 1 } as { season?: number; week?: number }));
+      const season = Number(st.season || new Date().getFullYear());
+      const week = Number(st.week || 1);
+      const teams = await getTeamsData(leagueId).catch(() => [] as Array<{ rosterId: number; teamName: string }>);
+      const players = await getAllPlayersCached().catch(() => ({} as Record<string, { first_name?: string; last_name?: string }>));
+      const nameOf = (pid: string) => {
+        const p = players[pid];
+        if (!p) return pid;
+        const nm = `${p.first_name || ''} ${p.last_name || ''}`.trim();
+        return nm || pid;
+      };
+      const actual: Array<{ team: string; type: string; message: string }> = [];
+      const potential: Array<{ team: string; type: string; message: string }> = [];
+      for (const t of teams) {
+        try {
+          const res = await validateTaxiForRoster(String(season), t.rosterId);
+          if (!res) continue;
+          const nonCompliant = !res.compliant;
+          const msgParts: string[] = [];
+          for (const v of res.violations) {
+            if (v.code === 'too_many_on_taxi') msgParts.push('>3 players on taxi');
+            else if (v.code === 'too_many_qbs') msgParts.push('2+ QBs on taxi (limit 1)');
+            else if (v.code === 'invalid_intake') msgParts.push('Taxi intake must be FA/Trade/Draft');
+            else if (v.code === 'roster_inconsistent') msgParts.push('Taxi conflicts with starters/IR');
+            else if (v.code === 'boomerang_active_player') {
+              const names = (v.players || []).map(nameOf).slice(0, 3).join(', ');
+              msgParts.push(`Previously active this tenure on taxi${names ? `: ${names}` : ''}`);
+            }
+          }
+          const msg = msgParts.join('; ');
+          if (msg) {
+            const entry = { team: t.teamName, type: nonCompliant ? 'violation' : 'warning', message: `${t.teamName}: ${msg}` };
+            if (nonCompliant) actual.push(entry); else potential.push(entry);
+          }
+        } catch {}
+      }
+      taxiFlags = { generatedAt: new Date().toISOString(), runType: 'admin_rerun', season, week, actual, potential };
     }
   } catch {}
   // Head-to-head all-time data
