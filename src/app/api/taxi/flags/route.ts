@@ -30,11 +30,13 @@ export async function GET() {
     const actual: Flag[] = [];
     const potential: Flag[] = [];
     const isOfficial = meta.runType === 'sun_pm_official';
-    const push = (target: Flag[], team: string, msg: string) => target.push({ team, type: isOfficial ? 'violation' : 'warning', message: `${team}: ${msg}` });
+    const makeEntry = (team: string, msg: string, toActual: boolean) => {
+      const type: 'violation' | 'warning' = toActual ? 'violation' : 'warning';
+      (toActual ? actual : potential).push({ team, type, message: `${team}: ${msg}` });
+    };
 
     for (const r of rows) {
       const nonCompliant = (r.compliant as unknown as number) === 0 || (r.compliant as unknown as boolean) === false;
-      if (!nonCompliant) continue;
       const msgParts: string[] = [];
       const list = Array.isArray(r.violations) ? (r.violations as Array<{ code: string; detail?: string; players?: string[] }>) : [];
       for (const v of list) {
@@ -47,8 +49,11 @@ export async function GET() {
           msgParts.push(`Previously active this tenure on taxi${names ? `: ${names}` : ''}`);
         }
       }
-      const msg = msgParts.join('; ') || 'Non-compliant taxi configuration';
-      if (isOfficial) push(actual, r.teamId as unknown as string, msg); else push(potential, r.teamId as unknown as string, msg);
+      const msg = msgParts.join('; ');
+      if (!msg) continue;
+      // Official run: only non-compliant are actual; otherwise potential. Warn runs: everything with a message is potential.
+      const toActual = isOfficial && nonCompliant;
+      makeEntry(r.teamId as unknown as string, msg, toActual);
     }
 
     const data = { generatedAt: new Date().toISOString(), lastRunAt: (meta.runTs ? meta.runTs.toISOString() : new Date().toISOString()), runType: meta.runType, season: meta.season, week: meta.week, actual, potential };

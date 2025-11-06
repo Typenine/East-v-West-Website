@@ -44,7 +44,16 @@ export default function TaxiBanner({ initial }: { initial: TaxiFlags }) {
     refreshFlags();
   }, [refreshFlags]);
 
-  const ts = new Date(flags.lastRunAt || flags.generatedAt || new Date().toISOString()).toLocaleString();
+  const dt = new Date(flags.lastRunAt || flags.generatedAt || new Date().toISOString());
+  const tsET = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York',
+    year: 'numeric',
+    month: 'numeric',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    second: '2-digit',
+  }).format(dt);
 
   return (
     <section className="mb-6" aria-label="Taxi tracker summary">
@@ -54,7 +63,7 @@ export default function TaxiBanner({ initial }: { initial: TaxiFlags }) {
             <div className="font-semibold">Taxi violations</div>
             <button className="text-xs underline opacity-80" onClick={refreshFlags} disabled={loading}>{loading ? "Refreshing…" : "Refresh"}</button>
           </div>
-          <div className="text-xs opacity-80 mb-1">Run: {flags.runType || "—"} • Last run at: {ts}</div>
+          <div className="text-xs opacity-80 mb-1">Run: {flags.runType || "—"} • Last run at: {tsET} ET</div>
           <ul className="list-disc pl-5 text-sm">
             {flags.actual.slice(0, 3).map((f, i) => (
               <li key={`act-${i}`}>{f.message}</li>
@@ -70,7 +79,7 @@ export default function TaxiBanner({ initial }: { initial: TaxiFlags }) {
             <div className="font-semibold">Potential taxi issues (pending games)</div>
             <button className="text-xs underline opacity-80" onClick={refreshFlags} disabled={loading}>{loading ? "Refreshing…" : "Refresh"}</button>
           </div>
-          <div className="text-xs opacity-80 mb-1">Run: {flags.runType || "—"} • Last run at: {ts}</div>
+          <div className="text-xs opacity-80 mb-1">Run: {flags.runType || "—"} • Last run at: {tsET} ET</div>
           <ul className="list-disc pl-5 text-sm">
             {flags.potential.slice(0, 3).map((f, i) => (
               <li key={`pot-${i}`}>{f.message}</li>
@@ -86,7 +95,7 @@ export default function TaxiBanner({ initial }: { initial: TaxiFlags }) {
             <div className="font-semibold">All teams compliant</div>
             <button className="text-xs underline opacity-80" onClick={refreshFlags} disabled={loading}>{loading ? "Refreshing…" : "Refresh"}</button>
           </div>
-          <div className="text-sm">As of {ts} (run: {flags.runType}).</div>
+          <div className="text-sm">As of {tsET} ET (run: {flags.runType}).</div>
         </div>
       )}
 
@@ -97,7 +106,7 @@ export default function TaxiBanner({ initial }: { initial: TaxiFlags }) {
             <button className="text-xs underline opacity-80" onClick={refreshFlags} disabled={loading}>{loading ? "Refreshing…" : "Refresh"}</button>
           </div>
           <div className="text-sm">No scheduled report recorded yet.</div>
-          <div className="text-xs opacity-80">Last checked: {new Date(flags.generatedAt || new Date().toISOString()).toLocaleString()}</div>
+          <div className="text-xs opacity-80">Last checked: {new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit', second: '2-digit' }).format(new Date(flags.generatedAt || new Date().toISOString()))} ET</div>
         </div>
       )}
     </section>

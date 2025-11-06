@@ -117,7 +117,7 @@ export default async function Home({ searchParams }: { searchParams?: Promise<Re
   // Taxi flags (league-wide): fetch lightweight flags on SSR for speed
   let taxiFlags: { generatedAt: string; lastRunAt?: string; runType?: string; season?: number; week?: number; actual: Array<{ team: string; type: string; message: string }>; potential: Array<{ team: string; type: string; message: string }> } = { generatedAt: '', actual: [], potential: [] };
   try {
-    const rf = await fetch('/api/taxi/flags', { cache: 'no-store' });
+    const rf = await fetch('/api/taxi/flags', { next: { revalidate: 20 } });
     if (rf.ok) {
       const j = await rf.json().catch(() => null) as null | { generatedAt?: string; lastRunAt?: string; runType?: string; season?: number; week?: number; actual?: Array<{ team: string; type: string; message: string }>; potential?: Array<{ team: string; type: string; message: string }> };
       if (j) {
