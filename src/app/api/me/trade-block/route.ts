@@ -41,7 +41,11 @@ export async function PUT(req: NextRequest) {
       const yr = it.year;
       const rd = it.round;
       if (Number.isFinite(yr) && yr === nextYear && Number.isFinite(rd) && rd >= 1 && rd <= 10) {
-        const owned = assets.picks.find((p) => p.year === yr && p.round === rd);
+        const reqOrig = typeof (it as { originalTeam?: string }).originalTeam === 'string' ? (it as { originalTeam?: string }).originalTeam : undefined;
+        let owned = reqOrig
+          ? assets.picks.find((p) => p.year === yr && p.round === rd && p.originalTeam === reqOrig)
+          : undefined;
+        if (!owned) owned = assets.picks.find((p) => p.year === yr && p.round === rd);
         if (owned) filtered.push({ type: 'pick', year: yr, round: rd, originalTeam: owned.originalTeam });
       }
     } else if (isFaab(it)) {

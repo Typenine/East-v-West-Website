@@ -29,11 +29,15 @@ export async function GET() {
                 const y = (a as { year?: number }).year;
                 const r = (a as { round?: number }).round;
                 if (!(Number.isFinite(y) && Number.isFinite(r))) continue;
-                // Must own some pick with this year+round
+                // Must own some pick with this year+round (origin may vary)
                 const yrKey = `${y}-${r}`;
                 if (!ownedYearRound.has(yrKey)) continue;
-                // Ensure originalTeam matches owned record
-                const match = assets.picks.find((p) => p.year === y && p.round === r);
+                // Prefer an exact origin match if provided; otherwise fall back to any owned pick of this year+round
+                const reqOrig = (a as { originalTeam?: string }).originalTeam;
+                let match = reqOrig
+                  ? assets.picks.find((p) => p.year === y && p.round === r && p.originalTeam === reqOrig)
+                  : undefined;
+                if (!match) match = assets.picks.find((p) => p.year === y && p.round === r);
                 if (match) {
                   filtered.push({ type: 'pick', year: y as number, round: r as number, originalTeam: match.originalTeam } as TradeAsset);
                 }
