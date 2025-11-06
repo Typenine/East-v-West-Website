@@ -16,6 +16,25 @@ export async function GET() {
   try {
     const meta = await getLatestTaxiRunMeta();
     if (!meta) {
+      // Fallback: infer current ET window so homepage can show an all-clear card even if the DB has no snapshot yet
+      const dt = new Date();
+      const fmt = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', hour12: false, weekday: 'short', hour: '2-digit', minute: '2-digit' });
+      const parts = fmt.formatToParts(dt);
+      const day = parts.find(p => p.type === 'weekday')?.value || '';
+      const hour = Number(parts.find(p => p.type === 'hour')?.value || '0');
+      const minute = Number(parts.find(p => p.type === 'minute')?.value || '0');
+      type RT = 'wed_warn' | 'thu_warn' | 'sun_am_warn' | 'sun_pm_official' | undefined;
+      let guessed: RT;
+      const inFirstHalfHour = minute >= 0 && minute <= 30;
+      if (day === 'Wed' && hour === 17 && inFirstHalfHour) guessed = 'wed_warn';
+      else if (day === 'Thu' && hour === 15 && inFirstHalfHour) guessed = 'thu_warn';
+      else if (day === 'Sun' && hour === 11 && inFirstHalfHour) guessed = 'sun_am_warn';
+      else if (day === 'Sun' && hour === 20 && inFirstHalfHour) guessed = 'sun_pm_official';
+      if (guessed) {
+        const fallback = { generatedAt: dt.toISOString(), runType: guessed, actual: [], potential: [] };
+        cache = { ts: now, data: fallback };
+        return Response.json(fallback);
+      }
       const empty = { generatedAt: new Date().toISOString(), actual: [], potential: [] };
       cache = { ts: now, data: empty };
       return Response.json(empty);
