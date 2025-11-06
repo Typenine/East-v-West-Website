@@ -19,6 +19,7 @@ export interface H2HCell {
   losses: { total: number; regular: number; playoffs: number; toilet: number };
   ties: number;
   lastMeeting?: { year: string; week: number };
+  firstWinAt?: { year: string; week: number };
 }
 
 export interface H2HResult {
@@ -152,9 +153,11 @@ export async function getHeadToHeadAllTime(options?: SleeperFetchOptions): Promi
         cellBA.lastMeeting = { year, week };
 
         if (aPts > bPts) {
+          if (cellAB.wins.total === 0) cellAB.firstWinAt = { year, week };
           cellAB.wins.total += 1; cellAB.wins[category] += 1;
           cellBA.losses.total += 1; cellBA.losses[category] += 1;
         } else if (aPts < bPts) {
+          if (cellBA.wins.total === 0) cellBA.firstWinAt = { year, week };
           cellBA.wins.total += 1; cellBA.wins[category] += 1;
           cellAB.losses.total += 1; cellAB.losses[category] += 1;
         } else {
