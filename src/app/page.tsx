@@ -119,6 +119,25 @@ export default async function Home({ searchParams }: { searchParams?: Promise<Re
     const rf = await fetch('/api/taxi/flags', { cache: 'no-store' });
     if (rf.ok) taxiFlags = (await rf.json()) as typeof taxiFlags;
   } catch {}
+  // Fallback: if flags returned nothing, compute on-demand using the admin report route so the banner updates immediately after admin runs
+  try {
+    if ((!taxiFlags.runType || typeof taxiFlags.runType !== 'string') && taxiFlags.actual.length === 0 && taxiFlags.potential.length === 0) {
+      const rr = await fetch('/api/taxi/report', { cache: 'no-store' });
+      if (rr.ok) {
+        const j = await rr.json().catch(() => null) as null | { generatedAt?: string; runType?: string; season?: number; week?: number; actual?: Array<{ team: string; type: string; message: string }>; potential?: Array<{ team: string; type: string; message: string }> };
+        if (j) {
+          taxiFlags = {
+            generatedAt: j.generatedAt || new Date().toISOString(),
+            runType: j.runType,
+            season: j.season,
+            week: j.week,
+            actual: Array.isArray(j.actual) ? j.actual : [],
+            potential: Array.isArray(j.potential) ? j.potential : [],
+          };
+        }
+      }
+    }
+  } catch {}
   // Head-to-head all-time data
   let h2h: { teams: string[]; matrix: Record<string, Record<string, import("@/lib/utils/headtohead").H2HCell>>; neverBeaten: Array<{ team: string; vs: string; meetings: number; lastMeeting?: { year: string; week: number } }> } = { teams: [], matrix: {}, neverBeaten: [] };
   try {
