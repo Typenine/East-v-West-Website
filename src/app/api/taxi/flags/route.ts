@@ -10,8 +10,14 @@ type Flag = { team: string; type: 'violation' | 'warning'; message: string };
 
 export async function GET() {
   const now = Date.now();
+  // Try to get latest scheduled/admin snapshot meta; on error, fall back to computing on-demand
+  let meta: { season: number; week: number; runType: string } | null = null;
   try {
-    const meta = await getLatestTaxiRunMeta();
+    meta = await getLatestTaxiRunMeta();
+  } catch {
+    meta = null;
+  }
+  try {
     if (!meta) {
       // Compute on-demand admin_rerun so homepage shows something even if DB snapshots are missing
       const st = await getNFLState().catch(() => ({ season: new Date().getFullYear(), week: 1 } as { season?: number; week?: number }));
@@ -55,7 +61,7 @@ export async function GET() {
       const data = { generatedAt: new Date().toISOString(), runType: 'admin_rerun', season, week, actual, potential };
       return Response.json(data);
     }
-    const rows = await getTaxiSnapshotsForRun({ season: meta.season, week: meta.week, runType: meta.runType as 'wed_warn' | 'thu_warn' | 'sun_am_warn' | 'sun_pm_official' | 'admin_rerun' });
+    const rows = await getTaxiSnapshotsForRun({ season: meta.season, week: meta.week, runType: meta.runType as 'wed_warn' | 'thu_warn' | 'sun_am_warn' | 'sun_pm_official' | 'admin_rerun' }).catch(() => [] as Array<{ teamId: string; compliant: number | boolean; violations: Array<{ code: string; detail?: string; players?: string[] }> }>);
     const players = await getAllPlayersCached().catch(() => ({} as Record<string, { first_name?: string; last_name?: string }>));
     const nameOf = (pid: string) => {
       const p = players[pid];
@@ -90,6 +96,7 @@ export async function GET() {
     const data = { generatedAt: new Date().toISOString(), runType: meta.runType, season: meta.season, week: meta.week, actual, potential };
     return Response.json(data);
   } catch {
+    // As a last resort, return a neutral empty payload with a timestamp
     return Response.json({ generatedAt: new Date().toISOString(), actual: [], potential: [] });
   }
 }
