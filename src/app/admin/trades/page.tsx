@@ -163,6 +163,11 @@ function AdminTradesContent() {
       }
       setEditing(null);
       await refresh();
+      try {
+        const ts = String(Date.now());
+        sessionStorage.setItem('EVW_TRADES_CACHE_BUST', ts);
+        localStorage.setItem('EVW_TRADES_CACHE_BUST', ts);
+      } catch {}
       setSavedFlag(true);
     } catch (err) {
       setEditorError(err instanceof Error ? err.message : 'Save failed');

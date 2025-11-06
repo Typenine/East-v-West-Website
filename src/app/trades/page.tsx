@@ -22,6 +22,7 @@ import { Button } from '@/components/ui/Button';
  // Page-level cache config
  const CACHE_KEY = 'trades_page_cache_v1';
  const CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
+ const BUST_KEY = 'EVW_TRADES_CACHE_BUST';
 
  type CacheEntry = { trades: Trade[]; teams: TeamData[]; ts: number };
 
@@ -146,6 +147,18 @@ function TradesContent() {
     window.history.replaceState({}, '', newUrl);
   }, [selectedYear, selectedTeam, selectedAssetType, sortBy]);
 
+  // Listen for cross-tab cache busts (edits from Admin)
+  useEffect(() => {
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === BUST_KEY) {
+        try { sessionStorage.removeItem(CACHE_KEY); } catch {}
+        setRefreshKey((k) => k + 1);
+      }
+    };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, []);
+
   // Fetch trades when year changes (with cache)
   useEffect(() => {
     const fetchTrades = async () => {
@@ -166,8 +179,18 @@ function TradesContent() {
           }
         }
 
+        // Read optional cache-bust ts (set by Admin Trades save)
+        let bustTs = 0;
+        try {
+          bustTs = Number(localStorage.getItem(BUST_KEY) || sessionStorage.getItem(BUST_KEY) || 0);
+        } catch {}
+
         const cached = cacheRef.current[selectedYear];
-        const isValid = cached && Date.now() - cached.ts < CACHE_TTL_MS;
+        const isValid = Boolean(
+          cached &&
+          Date.now() - cached.ts < CACHE_TTL_MS &&
+          (!bustTs || cached.ts >= bustTs)
+        );
         if (isValid && cached) {
           // Serve from cache, skip network
           setTrades(cached.trades);
