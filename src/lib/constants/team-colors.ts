@@ -28,7 +28,6 @@ export const TEAM_COLORS: Record<string, TeamColors> = {
   'Minshew\'s Maniacs': {
     primary: '#A60F2D',
     secondary: '#4D4D4D',
-    tertiary: '#ca5517'
   },
   'Double Trouble': {
     primary: '#120a11',
@@ -38,7 +37,6 @@ export const TEAM_COLORS: Record<string, TeamColors> = {
   'Mt. Lebanon Cake Eaters': {
     primary: '#023351',
     secondary: '#DCAC24',
-    tertiary: '#4b7755'
   },
   'The Lone Ginger': {
     primary: '#d56920',
@@ -48,7 +46,6 @@ export const TEAM_COLORS: Record<string, TeamColors> = {
   'bop pop': {
     primary: '#fedb35',
     secondary: '#f88618',
-    tertiary: '#0E9E9E'
   },
   'Red Pandas': {
     primary: '#c90a00',
