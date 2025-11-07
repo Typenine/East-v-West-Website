@@ -593,7 +593,7 @@ function DraftOrderView() {
     slotOrder: Array<{ slot: number; rosterId: number; team: string; record: { wins: number; losses: number; ties: number; fpts: number; fptsAgainst: number } }>;
     roundsData: Array<{ round: number; picks: Array<{ slot: number; round: number; originalTeam: string; ownerTeam: string; originalRosterId: number; ownerRosterId: number; history: Array<{ tradeId: string; timestamp: number; fromTeam: string; toTeam: string }> }> }>;
     summary: { factoids: string[]; picksPerTeam: Array<{ team: string; overall: number; firstTwo: number }>; leaders: { mostOverall: { team: string; count: number } | null; mostFirstTwo: { team: string; count: number } | null } };
-    transfers: Array<{ round: number; slot: number | null; tradeId: string; timestamp: number; fromTeam: string; toTeam: string; originalTeam: string; ownerTeam: string }>;
+    transfers: Array<{ round: number; slot: number | null; tradeId: string; timestamp: number; fromTeam: string; toTeam: string; originalTeam: string; ownerTeam: string; summary?: string }>;
   } | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -642,7 +642,7 @@ function DraftOrderView() {
                           <Image src={getTeamLogoPath(p.ownerTeam)} alt={p.ownerTeam} width={24} height={24} className="object-contain" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
                         </div>
                         <div className="min-w-0">
-                          <div className="text-sm font-medium truncate" style={{ color: style.backgroundColor as string }}>{p.ownerTeam}</div>
+                          <div className="text-sm font-medium truncate text-[var(--text)]">{p.ownerTeam}</div>
                           {p.originalTeam && p.originalTeam !== p.ownerTeam && (
                             <div className="text-xs text-[var(--muted)] truncate">from {p.originalTeam}</div>
                           )}
@@ -693,8 +693,11 @@ function DraftOrderView() {
                     <span className="mx-1">→</span>
                     <span>{t.toTeam}</span>
                     <span className="text-[var(--muted)]"> (now {t.ownerTeam})</span>
-                    <a href={`/trades/${t.tradeId}`} className="ml-2 text-[var(--accent-strong)] hover:underline" aria-label={`View trade ${t.tradeId}`}>View trade</a>
+                    <a href={`/trades/${t.tradeId}`} className="ml-2 text-[var(--accent-strong)] hover:underline" aria-label={`View trade ${t.tradeId}`}>Details</a>
                   </div>
+                  {t.summary ? (
+                    <div className="mt-1 text-xs text-[var(--muted)]">{t.summary}</div>
+                  ) : null}
                 </li>
               ))}
             </ul>

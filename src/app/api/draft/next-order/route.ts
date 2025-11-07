@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { getNextDraftOwnership } from '@/lib/server/trade-assets';
 import { getTeamsData } from '@/lib/utils/sleeper-api';
 import { LEAGUE_IDS } from '@/lib/constants/league';
+import { fetchTradeById, Trade } from '@/lib/utils/trades';
 
 export async function GET() {
   try {
@@ -63,9 +64,9 @@ export async function GET() {
       return { round, picks };
     });
 
-    const totals = new Map<string, { overall: number; firstTwo: number }>();
+    const totals = new Map<string, { overall: number; firstTwo: number; r3: number; r4: number }>();
     const ensureTotals = (team: string) => {
-      if (!totals.has(team)) totals.set(team, { overall: 0, firstTwo: 0 });
+      if (!totals.has(team)) totals.set(team, { overall: 0, firstTwo: 0, r3: 0, r4: 0 });
       return totals.get(team)!;
     };
 
@@ -78,6 +79,8 @@ export async function GET() {
       const agg = ensureTotals(ownerTeam);
       agg.overall += 1;
       if (round <= 2) agg.firstTwo += 1;
+      if (round === 3) agg.r3 += 1;
+      if (round === 4) agg.r4 += 1;
     }
 
     for (const team of slotOrder.map((s) => s.team)) ensureTotals(team);
@@ -100,6 +103,10 @@ export async function GET() {
     const mostFirstTwo = sortedTopFirstTwo[0]
       ? { team: sortedTopFirstTwo[0][0], count: sortedTopFirstTwo[0][1].firstTwo }
       : null;
+    const sortedTopR3 = [...totals.entries()].sort((a, b) => b[1].r3 - a[1].r3 || b[1].overall - a[1].overall || a[0].localeCompare(b[0]));
+    const sortedTopR4 = [...totals.entries()].sort((a, b) => b[1].r4 - a[1].r4 || b[1].overall - a[1].overall || a[0].localeCompare(b[0]));
+    const mostR3 = sortedTopR3[0] ? { team: sortedTopR3[0][0], count: sortedTopR3[0][1].r3 } : null;
+    const mostR4 = sortedTopR4[0] ? { team: sortedTopR4[0][0], count: sortedTopR4[0][1].r4 } : null;
 
     const factoids: string[] = [];
     if (mostOverall && mostOverall.count > 0) {
@@ -107,6 +114,12 @@ export async function GET() {
     }
     if (mostFirstTwo && mostFirstTwo.count > 0) {
       factoids.push(`${mostFirstTwo.team} control ${mostFirstTwo.count} premium picks in rounds 1-2.`);
+    }
+    if (mostR3 && mostR3.count > 0) {
+      factoids.push(`${mostR3.team} have the most 3rd-round picks (${mostR3.count}).`);
+    }
+    if (mostR4 && mostR4.count > 0) {
+      factoids.push(`${mostR4.team} have the most 4th-round picks (${mostR4.count}).`);
     }
     if (!factoids.length) {
       factoids.push('No trades yet — everyone still holds their original picks.');
@@ -127,6 +140,7 @@ export async function GET() {
       toTeam: string;
       originalTeam: string;
       ownerTeam: string;
+      summary?: string;
     }>;
 
     for (const [key, entry] of Object.entries(ownership.ownership)) {
@@ -155,6 +169,33 @@ export async function GET() {
 
     transfers.sort((a, b) => b.timestamp - a.timestamp);
 
+    // Attach trade summaries for context
+    const uniqueIds = Array.from(new Set(transfers.map((t) => t.tradeId))).filter(Boolean);
+    const tradeMap = new Map<string, Trade | null>();
+    await Promise.all(uniqueIds.map(async (id) => {
+      try {
+        const tr = await fetchTradeById(id);
+        tradeMap.set(id, tr);
+      } catch {
+        tradeMap.set(id, null);
+      }
+    }));
+
+    function summarizeTrade(tr: Trade | null | undefined): string | undefined {
+      if (!tr) return undefined;
+      const parts: string[] = [];
+      for (const team of tr.teams) {
+        const labels = (team.assets || []).map((a) => a.name).slice(0, 4);
+        const more = (team.assets || []).length > 4 ? '…' : '';
+        parts.push(`${team.name} received: ${labels.join(', ')}${more}`);
+      }
+      return parts.join(' | ');
+    }
+    for (const t of transfers) {
+      const tr = tradeMap.get(t.tradeId);
+      t.summary = summarizeTrade(tr);
+    }
+
     return NextResponse.json({
       season: ownership.season,
       rounds: roundsToShow,
@@ -168,6 +209,8 @@ export async function GET() {
         leaders: {
           mostOverall,
           mostFirstTwo,
+          mostR3,
+          mostR4,
         },
       },
       transfers,
