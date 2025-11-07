@@ -55,8 +55,21 @@ export async function listSuggestions() {
 
 export async function updateSuggestionStatus(id: string, status: 'draft' | 'open' | 'accepted' | 'rejected') {
   const db = getDb();
-  const [row] = await db.update(suggestions).set({ status }).where(eq(suggestions.id, id)).returning();
+  type SuggestionInsert = typeof suggestions.$inferInsert;
+  const set: Partial<SuggestionInsert> = { status } as Partial<SuggestionInsert>;
+  if (status === 'accepted' || status === 'rejected') {
+    set.resolvedAt = new Date();
+  } else {
+    set.resolvedAt = null;
+  }
+  const [row] = await db.update(suggestions).set(set).where(eq(suggestions.id, id)).returning();
   return row || null;
+}
+
+export async function deleteSuggestion(id: string) {
+  const db = getDb();
+  const rows = await db.delete(suggestions).where(eq(suggestions.id, id)).returning();
+  return Array.isArray(rows) ? rows.length > 0 : false;
 }
 
 export async function addTaxiMember(teamId: string, playerId: string, activeFrom?: Date) {

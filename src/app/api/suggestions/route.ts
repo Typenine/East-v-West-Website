@@ -3,6 +3,7 @@ import path from 'path';
 import { sendEmail } from '@/lib/utils/email';
 import { getKV } from '@/lib/server/kv';
 import { listSuggestions as dbListSuggestions, createSuggestion as dbCreateSuggestion } from '@/server/db/queries';
+import { requireTeamUser } from '@/lib/server/session';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -12,6 +13,9 @@ export type Suggestion = {
   content: string;
   category?: string;
   createdAt: string; // ISO string
+  status?: 'draft' | 'open' | 'accepted' | 'rejected';
+  resolvedAt?: string;
+  sponsorTeam?: string;
 };
 
 const DATA_PATH = path.join(process.cwd(), 'data', 'suggestions.json');
@@ -72,8 +76,26 @@ export async function GET(_req: Request) {
   try {
     const rows = await dbListSuggestions();
     if (Array.isArray(rows) && rows.length > 0) {
-      type Row = { id: string; text: string; category: string | null; createdAt: string | Date };
-      const items = (rows as Row[]).map((r) => ({ id: String(r.id), content: String(r.text), category: r.category || undefined, createdAt: new Date(r.createdAt).toISOString() } as Suggestion));
+      type Row = { id: string; text: string; category: string | null; createdAt: string | Date; status?: string; resolvedAt?: Date | null };
+      let items = (rows as Row[]).map((r) => ({
+        id: String(r.id),
+        content: String(r.text),
+        category: r.category || undefined,
+        createdAt: new Date(r.createdAt).toISOString(),
+        status: (r.status as Suggestion['status']) || 'open',
+        resolvedAt: r.resolvedAt ? new Date(r.resolvedAt).toISOString() : undefined,
+      } as Suggestion));
+      // Overlay sponsor teams from KV map if present
+      try {
+        const kv = await getKV();
+        if (kv) {
+          const mapRaw = (await kv.get('suggestions:sponsors')) as string | null;
+          if (mapRaw) {
+            const map = JSON.parse(mapRaw) as Record<string, string>;
+            items = items.map((it) => ({ ...it, sponsorTeam: map[it.id] || it.sponsorTeam }));
+          }
+        }
+      } catch {}
       return Response.json(items);
     }
   } catch {}
@@ -103,6 +125,7 @@ export async function POST(request: Request) {
     const body = await request.json().catch(() => ({}));
     const content = typeof body.content === 'string' ? body.content.trim() : '';
     const category = typeof body.category === 'string' ? body.category.trim() : undefined;
+    const endorse = body && typeof body.endorse === 'boolean' ? Boolean(body.endorse) : false;
 
     if (!content || content.length < 3) {
       return Response.json({ error: 'Content must be at least 3 characters.' }, { status: 400 });
@@ -130,6 +153,14 @@ export async function POST(request: Request) {
       category: category && category.length > 0 ? category : undefined,
       createdAt: now,
     };
+    // If endorsing and authenticated, attach sponsorTeam via KV map
+    let sponsorTeam: string | undefined;
+    if (endorse) {
+      try {
+        const ident = await requireTeamUser();
+        if (ident && ident.team) sponsorTeam = ident.team;
+      } catch {}
+    }
     // DB first
     try {
       const row = await dbCreateSuggestion({ userId: null, text: item.content, category: item.category || null });
@@ -143,6 +174,19 @@ export async function POST(request: Request) {
       const items = await readSuggestions();
       items.push(item);
       await writeSuggestions(items);
+    } catch {}
+    // Record sponsor team in KV map
+    try {
+      if (sponsorTeam) {
+        const kv = await getKV();
+        if (kv) {
+          const key = 'suggestions:sponsors';
+          const raw = (await kv.get(key)) as string | null;
+          const map = raw ? (JSON.parse(raw) as Record<string, string>) : {};
+          map[item.id] = sponsorTeam;
+          await kv.set(key, JSON.stringify(map));
+        }
+      }
     } catch {}
     // Fire notification email (best-effort)
     try {

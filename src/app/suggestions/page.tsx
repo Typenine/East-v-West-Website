@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import SectionHeader from '@/components/ui/SectionHeader';
+import { getTeamColorStyle } from '@/lib/utils/team-utils';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import Label from '@/components/ui/Label';
 import Select from '@/components/ui/Select';
@@ -13,6 +14,9 @@ type Suggestion = {
   content: string;
   category?: string;
   createdAt: string; // ISO
+  status?: 'draft' | 'open' | 'accepted' | 'rejected';
+  resolvedAt?: string;
+  sponsorTeam?: string;
 };
 
 type Tallies = Record<string, { up: number; down: number }>;
@@ -28,9 +32,11 @@ export default function SuggestionsPage() {
   const [loading, setLoading] = useState(true);
   const [tallies, setTallies] = useState<Tallies>({});
   const [auth, setAuth] = useState(false);
+  const [myTeam, setMyTeam] = useState<string | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
   const [adminVotes, setAdminVotes] = useState<Record<string, { up: string[]; down: string[] }>>({});
   const [myVotes, setMyVotes] = useState<Record<string, 1 | -1>>({});
+  const [endorse, setEndorse] = useState(false);
 
   async function load() {
     try {
@@ -56,8 +62,8 @@ export default function SuggestionsPage() {
       .catch(() => setTallies({}));
     fetch('/api/auth/me', { cache: 'no-store' })
       .then((r) => r.json())
-      .then((j) => setAuth(Boolean(j?.authenticated)))
-      .catch(() => setAuth(false));
+      .then((j) => { setAuth(Boolean(j?.authenticated)); setMyTeam((j?.claims?.team as string) || null); })
+      .catch(() => { setAuth(false); setMyTeam(null); });
     fetch('/api/admin-login', { cache: 'no-store', credentials: 'include' })
       .then((r) => r.ok ? r.json() : Promise.reject())
       .then((j) => setIsAdmin(Boolean(j?.isAdmin)))
@@ -122,7 +128,7 @@ export default function SuggestionsPage() {
       const res = await fetch('/api/suggestions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: content.trim(), category: category || undefined }),
+        body: JSON.stringify({ content: content.trim(), category: category || undefined, endorse: endorse }),
       });
       if (!res.ok) {
         const j = await res.json().catch(() => ({}));
@@ -166,6 +172,13 @@ export default function SuggestionsPage() {
                   </Select>
                 </div>
 
+                {auth && (
+                  <label className="flex items-center gap-2 text-sm">
+                    <input type="checkbox" checked={endorse} onChange={(e) => setEndorse(e.target.checked)} />
+                    <span>Publicly endorse as {myTeam ? myTeam : 'my team'}</span>
+                  </label>
+                )}
+
                 <div>
                   <Label htmlFor="content" className="mb-1 block">
                     Your suggestion (anonymous)
@@ -207,8 +220,11 @@ export default function SuggestionsPage() {
                 <p className="text-[var(--muted)]">No suggestions yet. Be the first to submit one!</p>
               ) : (
                 <ul className="space-y-4">
-                  {items.map((s) => (
-                    <li key={s.id} className="evw-surface border border-[var(--border)] rounded-[var(--radius-card)] p-4">
+                  {items.map((s) => {
+                    const style = s.sponsorTeam ? getTeamColorStyle(s.sponsorTeam) : null;
+                    const secondary = s.sponsorTeam ? getTeamColorStyle(s.sponsorTeam, 'secondary') : null;
+                    return (
+                    <li key={s.id} className="evw-surface border border-[var(--border)] rounded-[var(--radius-card)] p-4" style={style ? { borderLeftColor: (secondary?.backgroundColor as string), borderLeftWidth: 4, borderLeftStyle: 'solid' } : undefined}>
                       <div className="flex items-center justify-between mb-2">
                         <span className="text-sm text-[var(--muted)]">
                           {new Date(s.createdAt).toLocaleString(undefined, {
@@ -221,6 +237,13 @@ export default function SuggestionsPage() {
                         )}
                       </div>
                       <p className="whitespace-pre-wrap text-[var(--text)]">{s.content}</p>
+                      {s.sponsorTeam && (
+                        <div className="mt-2">
+                          <span className="text-xs px-2 py-0.5 rounded-full border" style={{ borderColor: (style?.backgroundColor as string), color: (style?.backgroundColor as string) }}>
+                            Endorsed by {s.sponsorTeam}
+                          </span>
+                        </div>
+                      )}
                       <div className="mt-3 flex items-center gap-3">
                         <span className="text-sm text-[var(--muted)]">Up: {tallies[s.id]?.up || 0}</span>
                         <span className="text-sm text-[var(--muted)]">Down: {tallies[s.id]?.down || 0}</span>
@@ -246,7 +269,7 @@ export default function SuggestionsPage() {
                         )}
                       </div>
                     </li>
-                  ))}
+                  );})}
                 </ul>
               )}
             </CardContent>
