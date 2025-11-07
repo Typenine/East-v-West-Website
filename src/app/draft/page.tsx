@@ -225,134 +225,153 @@ export default function DraftPage() {
               label: 'Next Draft',
               content: (
                 <div className="space-y-6">
-                  <Card>
-                    <CardHeader>
-                      <CardTitle>Next Draft: July 18, 2026</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <CountdownTimer
-                        targetDate={IMPORTANT_DATES.NEXT_DRAFT}
-                        title="Countdown to Draft Day"
-                        className="mb-4"
-                      />
-                      <div className="grid gap-4">
-                        <Card className="evw-surface">
-                          <CardHeader>
-                            <CardTitle>Airbnb Information</CardTitle>
-                          </CardHeader>
-                          <CardContent>
-                            <div className="space-y-4">
-                              <div>
-                                <h4 className="font-semibold text-[var(--text)]">Listing</h4>
-                                <p className="font-medium">Not Your Typical Mountain Cabin - Must See Photos</p>
-                                <a
-                                  href="https://www.airbnb.com/rooms/21559127?viralityEntryPoint=1&s=76&source_impression_id=p3_1751382164_P3PAwIqHxrQ87fn9"
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="text-[var(--accent-strong)] hover:underline"
-                                  aria-label="View Airbnb listing in a new tab"
-                                >
-                                  View on Airbnb
-                                </a>
-                              </div>
-                              <div>
-                                <h4 className="font-semibold text-[var(--text)]">Location</h4>
-                                <p>Somerset, Pennsylvania, United States</p>
-                              </div>
-                              <div>
-                                <h4 className="font-semibold text-[var(--text)]">Dates</h4>
-                                <p>July 16-19, 2026 (Thursday-Sunday)</p>
-                              </div>
-                              <div>
-                                <h4 className="font-semibold text-[var(--text)]">Notes</h4>
-                                <ul className="list-disc pl-5">
-                                  <li>Check-in: 3:00 PM Thursday</li>
-                                  <li>Check-out: 11:00 AM Sunday</li>
-                                  <li>Draft starts at 1:00 PM ET on Saturday</li>
-                                  <li>Linens provided for all beds — please bring your own shower towels.</li>
-                                </ul>
-                              </div>
+                  <CountdownTimer
+                    targetDate={IMPORTANT_DATES.NEXT_DRAFT}
+                    title="Countdown to Draft Day"
+                    className="mb-2"
+                  />
+                  <Tabs
+                    tabs={[
+                      {
+                        id: 'airbnb',
+                        label: 'Airbnb Info',
+                        content: (
+                          <div className="space-y-4">
+                            <Card>
+                              <CardHeader>
+                                <CardTitle>Next Draft: July 18, 2026</CardTitle>
+                              </CardHeader>
+                              <CardContent>
+                                <div className="grid gap-4">
+                                  <Card className="evw-surface">
+                                    <CardHeader>
+                                      <CardTitle>Airbnb Information</CardTitle>
+                                    </CardHeader>
+                                    <CardContent>
+                                      <div className="space-y-4">
+                                        <div>
+                                          <h4 className="font-semibold text-[var(--text)]">Listing</h4>
+                                          <p className="font-medium">Not Your Typical Mountain Cabin - Must See Photos</p>
+                                          <a
+                                            href="https://www.airbnb.com/rooms/21559127?viralityEntryPoint=1&s=76&source_impression_id=p3_1751382164_P3PAwIqHxrQ87fn9"
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="text-[var(--accent-strong)] hover:underline"
+                                            aria-label="View Airbnb listing in a new tab"
+                                          >
+                                            View on Airbnb
+                                          </a>
+                                        </div>
+                                        <div>
+                                          <h4 className="font-semibold text-[var(--text)]">Location</h4>
+                                          <p>Somerset, Pennsylvania, United States</p>
+                                        </div>
+                                        <div>
+                                          <h4 className="font-semibold text-[var(--text)]">Dates</h4>
+                                          <p>July 16-19, 2026 (Thursday-Sunday)</p>
+                                        </div>
+                                        <div>
+                                          <h4 className="font-semibold text-[var(--text)]">Notes</h4>
+                                          <ul className="list-disc pl-5">
+                                            <li>Check-in: 3:00 PM Thursday</li>
+                                            <li>Check-out: 11:00 AM Sunday</li>
+                                            <li>Draft starts at 1:00 PM ET on Saturday</li>
+                                            <li>Linens provided for all beds — please bring your own shower towels.</li>
+                                          </ul>
+                                        </div>
 
-                              <div className="mt-2 pt-4 border-t border-[var(--border)]">
-                                <h4 className="font-semibold text-[var(--text)] mb-2">Amenities</h4>
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                  <div className="rounded-lg border border-[var(--border)] p-4">
-                                    <h5 className="font-semibold mb-2 flex items-center gap-2"><HomeIcon className="h-4 w-4 text-[var(--muted)]" aria-hidden="true" />Kitchen</h5>
-                                    <ul className="list-disc pl-5 space-y-1 text-sm">
-                                      <li>Space where guests can cook their own meals</li>
-                                      <li>Refrigerator</li>
-                                      <li>Microwave</li>
-                                      <li>Cooking basics (pots and pans, oil, salt and pepper)</li>
-                                      <li>Dishes and silverware (bowls, chopsticks, plates, cups, etc.)</li>
-                                      <li>Mini fridge</li>
-                                      <li>Freezer</li>
-                                      <li>Dishwasher</li>
-                                      <li>Stove & Oven</li>
-                                      <li>Coffee makers (regular + Keurig)</li>
-                                      <li>Wine glasses</li>
-                                      <li>Toaster</li>
-                                      <li>Baking sheet</li>
-                                      <li>Blender</li>
-                                      <li>Barbecue utensils (grill tools, skewers, etc.)</li>
-                                      <li>Dining table</li>
-                                    </ul>
-                                  </div>
-                                  <div className="rounded-lg border border-[var(--border)] p-4">
-                                    <h5 className="font-semibold mb-2 flex items-center gap-2"><TvIcon className="h-4 w-4 text-[var(--muted)]" aria-hidden="true" />Entertainment</h5>
-                                    <ul className="list-disc pl-5 space-y-1 text-sm">
-                                      <li>98&quot; Hi‑Def TV</li>
-                                      <li>Full bar area with mini fridge</li>
-                                      <li>Full-size arcade games</li>
-                                      <li>Dart board</li>
-                                      <li>Bubble hockey game</li>
-                                    </ul>
-                                  </div>
-                                  <div className="rounded-lg border border-[var(--border)] p-4">
-                                    <h5 className="font-semibold mb-2 flex items-center gap-2"><FireIcon className="h-4 w-4 text-[var(--muted)]" aria-hidden="true" />Outdoor</h5>
-                                    <ul className="list-disc pl-5 space-y-1 text-sm">
-                                      <li>Fire pit</li>
-                                      <li>Outdoor furniture</li>
-                                      <li>Outdoor dining area</li>
-                                      <li>BBQ grill</li>
-                                      <li>Plenty of parking</li>
-                                    </ul>
-                                  </div>
-                                  <div className="rounded-lg border border-[var(--border)] p-4">
-                                    <h5 className="font-semibold mb-2 flex items-center gap-2"><MoonIcon className="h-4 w-4 text-[var(--muted)]" aria-hidden="true" />Sleeping Arrangements</h5>
-                                    <ul className="list-disc pl-5 space-y-1 text-sm">
-                                      <li>5 bedrooms total</li>
-                                      <li>2 queen beds</li>
-                                      <li>1 king bed</li>
-                                      <li>2 bunk beds</li>
-                                      <li>1 sofa bed</li>
-                                      <li>2 single beds</li>
-                                    </ul>
-                                  </div>
-                                  <div className="rounded-lg border border-[var(--border)] p-4">
-                                    <h5 className="font-semibold mb-2 flex items-center gap-2"><HomeIcon className="h-4 w-4 text-[var(--muted)]" aria-hidden="true" />Comfort & Utilities</h5>
-                                    <ul className="list-disc pl-5 space-y-1 text-sm">
-                                      <li>Washer &amp; dryer</li>
-                                      <li>Geothermal A/C</li>
-                                      <li>Wood fireplace &amp; geothermal heating</li>
-                                    </ul>
-                                  </div>
-                                  <div className="rounded-lg border border-[var(--border)] p-4 md:col-span-2">
-                                    <h5 className="font-semibold mb-2 flex items-center gap-2"><BookOpenIcon className="h-4 w-4 text-[var(--muted)]" aria-hidden="true" />Loft</h5>
-                                    <p className="text-sm">
-                                      The upstairs loft area includes a library with many books and a large shuffleboard game.
-                                    </p>
-                                  </div>
+                                        <div className="mt-2 pt-4 border-t border-[var(--border)]">
+                                          <h4 className="font-semibold text-[var(--text)] mb-2">Amenities</h4>
+                                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                            <div className="rounded-lg border border-[var(--border)] p-4">
+                                              <h5 className="font-semibold mb-2 flex items-center gap-2"><HomeIcon className="h-4 w-4 text-[var(--muted)]" aria-hidden="true" />Kitchen</h5>
+                                              <ul className="list-disc pl-5 space-y-1 text-sm">
+                                                <li>Space where guests can cook their own meals</li>
+                                                <li>Refrigerator</li>
+                                                <li>Microwave</li>
+                                                <li>Cooking basics (pots and pans, oil, salt and pepper)</li>
+                                                <li>Dishes and silverware (bowls, chopsticks, plates, cups, etc.)</li>
+                                                <li>Mini fridge</li>
+                                                <li>Freezer</li>
+                                                <li>Dishwasher</li>
+                                                <li>Stove & Oven</li>
+                                                <li>Coffee makers (regular + Keurig)</li>
+                                                <li>Wine glasses</li>
+                                                <li>Toaster</li>
+                                                <li>Baking sheet</li>
+                                                <li>Blender</li>
+                                                <li>Barbecue utensils (grill tools, skewers, etc.)</li>
+                                                <li>Dining table</li>
+                                              </ul>
+                                            </div>
+                                            <div className="rounded-lg border border-[var(--border)] p-4">
+                                              <h5 className="font-semibold mb-2 flex items-center gap-2"><TvIcon className="h-4 w-4 text-[var(--muted)]" aria-hidden="true" />Entertainment</h5>
+                                              <ul className="list-disc pl-5 space-y-1 text-sm">
+                                                <li>98&quot; Hi‑Def TV</li>
+                                                <li>Full bar area with mini fridge</li>
+                                                <li>Full-size arcade games</li>
+                                                <li>Dart board</li>
+                                                <li>Bubble hockey game</li>
+                                              </ul>
+                                            </div>
+                                            <div className="rounded-lg border border-[var(--border)] p-4">
+                                              <h5 className="font-semibold mb-2 flex items-center gap-2"><FireIcon className="h-4 w-4 text-[var(--muted)]" aria-hidden="true" />Outdoor</h5>
+                                              <ul className="list-disc pl-5 space-y-1 text-sm">
+                                                <li>Fire pit</li>
+                                                <li>Outdoor furniture</li>
+                                                <li>Outdoor dining area</li>
+                                                <li>BBQ grill</li>
+                                                <li>Plenty of parking</li>
+                                              </ul>
+                                            </div>
+                                            <div className="rounded-lg border border-[var(--border)] p-4">
+                                              <h5 className="font-semibold mb-2 flex items-center gap-2"><MoonIcon className="h-4 w-4 text-[var(--muted)]" aria-hidden="true" />Sleeping Arrangements</h5>
+                                              <ul className="list-disc pl-5 space-y-1 text-sm">
+                                                <li>5 bedrooms total</li>
+                                                <li>2 queen beds</li>
+                                                <li>1 king bed</li>
+                                                <li>2 bunk beds</li>
+                                                <li>1 sofa bed</li>
+                                                <li>2 single beds</li>
+                                              </ul>
+                                            </div>
+                                            <div className="rounded-lg border border-[var(--border)] p-4">
+                                              <h5 className="font-semibold mb-2 flex items-center gap-2"><HomeIcon className="h-4 w-4 text-[var(--muted)]" aria-hidden="true" />Comfort & Utilities</h5>
+                                              <ul className="list-disc pl-5 space-y-1 text-sm">
+                                                <li>Washer &amp; dryer</li>
+                                                <li>Geothermal A/C</li>
+                                                <li>Wood fireplace &amp; geothermal heating</li>
+                                              </ul>
+                                            </div>
+                                            <div className="rounded-lg border border-[var(--border)] p-4 md:col-span-2">
+                                              <h5 className="font-semibold mb-2 flex items-center gap-2"><BookOpenIcon className="h-4 w-4 text-[var(--muted)]" aria-hidden="true" />Loft</h5>
+                                              <p className="text-sm">
+                                                The upstairs loft area includes a library with many books and a large shuffleboard game.
+                                              </p>
+                                            </div>
+                                          </div>
+                                        </div>
+                                        <div>
+                                          <Button onClick={handleAddToCalendar} variant="primary">Add to Calendar (.ics)</Button>
+                                        </div>
+                                      </div>
+                                    </CardContent>
+                                  </Card>
                                 </div>
-                              </div>
-                            </div>
-                          </CardContent>
-                        </Card>
-                        <div>
-                          <Button onClick={handleAddToCalendar} variant="primary">Add to Calendar (.ics)</Button>
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
+                              </CardContent>
+                            </Card>
+                          </div>
+                        ),
+                      },
+                      {
+                        id: 'order',
+                        label: 'Draft Order',
+                        content: (
+                          <DraftOrderView />
+                        ),
+                      },
+                    ]}
+                  />
                 </div>
               ),
             },
@@ -561,6 +580,127 @@ export default function DraftPage() {
           ]}
         />
       </div>
+    </div>
+  );
+}
+
+function DraftOrderView() {
+  const [data, setData] = useState<{
+    season: number;
+    rounds: number;
+    rosterCount: number;
+    generatedAt?: string;
+    slotOrder: Array<{ slot: number; rosterId: number; team: string; record: { wins: number; losses: number; ties: number; fpts: number; fptsAgainst: number } }>;
+    roundsData: Array<{ round: number; picks: Array<{ slot: number; round: number; originalTeam: string; ownerTeam: string; originalRosterId: number; ownerRosterId: number; history: Array<{ tradeId: string; timestamp: number; fromTeam: string; toTeam: string }> }> }>;
+    summary: { factoids: string[]; picksPerTeam: Array<{ team: string; overall: number; firstTwo: number }>; leaders: { mostOverall: { team: string; count: number } | null; mostFirstTwo: { team: string; count: number } | null } };
+    transfers: Array<{ round: number; slot: number | null; tradeId: string; timestamp: number; fromTeam: string; toTeam: string; originalTeam: string; ownerTeam: string }>;
+  } | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        const res = await fetch('/api/draft/next-order', { cache: 'no-store' });
+        const j = await res.json();
+        if (!res.ok) throw new Error(j?.error || 'Failed to load draft order');
+        if (!cancelled) setData(j);
+      } catch {
+        if (!cancelled) setError('Unable to load draft order right now.');
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  if (loading) return <LoadingState message="Loading draft order..." />;
+  if (error) return <ErrorState message={error} />;
+  if (!data) return <EmptyState title="No data" message="Draft order is not available yet." />;
+
+  return (
+    <div className="space-y-6">
+      <Card>
+        <CardHeader>
+          <CardTitle>Projected Draft Order • {data.season}</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+            {data.roundsData.map((round) => (
+              <div key={round.round} className="evw-surface border border-[var(--border)] rounded-lg overflow-hidden">
+                <div className="px-3 py-2 text-sm font-semibold border-b border-[var(--border)]">Round {round.round}</div>
+                <ul className="divide-y divide-[var(--border)]">
+                  {round.picks.map((p) => {
+                    const style = getTeamColorStyle(p.ownerTeam);
+                    return (
+                      <li key={`${round.round}-${p.slot}`} className="flex items-center gap-3 px-3 py-2" style={{ backgroundColor: (style.backgroundColor as string) + '11' }}>
+                        <div className="text-xs font-semibold w-8 shrink-0 text-[var(--muted)]">#{p.slot}</div>
+                        <div className="w-9 h-9 rounded-full flex items-center justify-center overflow-hidden shrink-0" style={style}>
+                          <Image src={getTeamLogoPath(p.ownerTeam)} alt={p.ownerTeam} width={24} height={24} className="object-contain" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                        </div>
+                        <div className="min-w-0">
+                          <div className="text-sm font-medium truncate" style={{ color: style.backgroundColor as string }}>{p.ownerTeam}</div>
+                          {p.originalTeam && p.originalTeam !== p.ownerTeam && (
+                            <div className="text-xs text-[var(--muted)] truncate">from {p.originalTeam}</div>
+                          )}
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Factoids</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <ul className="list-disc pl-5 space-y-1 text-sm">
+            {data.summary.factoids.map((f, i) => (
+              <li key={i}>{f}</li>
+            ))}
+          </ul>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Pick Transfer History</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {data.transfers.length === 0 ? (
+            <div className="text-sm text-[var(--muted)]">No trades involving next year’s picks yet.</div>
+          ) : (
+            <ul className="space-y-2">
+              {data.transfers.map((t, idx) => (
+                <li key={idx} className="text-sm evw-surface border border-[var(--border)] rounded-md px-3 py-2">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <span className="font-medium">R{t.round}{typeof t.slot === 'number' ? `, S${t.slot}` : ''}</span>
+                      <span className="text-[var(--muted)]"> • orig {t.originalTeam}</span>
+                    </div>
+                    <div className="text-xs text-[var(--muted)]">{new Date(t.timestamp).toLocaleDateString()}</div>
+                  </div>
+                  <div className="mt-1">
+                    <span>{t.fromTeam}</span>
+                    <span className="mx-1">→</span>
+                    <span>{t.toTeam}</span>
+                    <span className="text-[var(--muted)]"> (now {t.ownerTeam})</span>
+                    <a href={`/trades/${t.tradeId}`} className="ml-2 text-[var(--accent-strong)] hover:underline" aria-label={`View trade ${t.tradeId}`}>View trade</a>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }
