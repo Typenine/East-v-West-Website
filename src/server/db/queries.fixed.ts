@@ -72,6 +72,43 @@ export async function deleteSuggestion(id: string) {
   return Array.isArray(rows) ? rows.length > 0 : false;
 }
 
+// --- Suggestion sponsors (persist "endorse as team") ---
+export async function ensureSuggestionSponsorColumn() {
+  try {
+    const db = getDb();
+    // Best-effort: add column if missing. Safe in Postgres 9.6+.
+    await db.execute(sql`ALTER TABLE suggestions ADD COLUMN IF NOT EXISTS sponsor_team varchar(255)`);
+  } catch {}
+}
+
+export async function setSuggestionSponsor(id: string, team: string | null) {
+  try {
+    await ensureSuggestionSponsorColumn();
+    const db = getDb();
+    await db.execute(sql`UPDATE suggestions SET sponsor_team = ${team} WHERE id = ${id}::uuid`);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function getSuggestionSponsorsMap(): Promise<Record<string, string>> {
+  const out: Record<string, string> = {};
+  try {
+    await ensureSuggestionSponsorColumn();
+    const db = getDb();
+    // Return id::text for stable mapping across drivers
+    const res = await db.execute(sql`SELECT id::text AS id, sponsor_team FROM suggestions WHERE sponsor_team IS NOT NULL`);
+    const rawRows = (res as unknown as { rows?: Array<{ id: string; sponsor_team: string }> }).rows || [];
+    for (const r of rawRows) {
+      const id = typeof r.id === 'string' ? r.id : '';
+      const team = typeof r.sponsor_team === 'string' ? r.sponsor_team : '';
+      if (id && team) out[id] = team;
+    }
+  } catch {}
+  return out;
+}
+
 export async function addTaxiMember(teamId: string, playerId: string, activeFrom?: Date) {
   const db = getDb();
   const [row] = await db.insert(taxiSquadMembers).values({ teamId, playerId, activeFrom: activeFrom || new Date() }).returning();

@@ -3,6 +3,8 @@
 import { useEffect, useState } from 'react';
 import SectionHeader from '@/components/ui/SectionHeader';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
+import { TEAM_NAMES } from '@/lib/constants/league';
+import { getTeamColorStyle } from '@/lib/utils/team-utils';
 
 type Suggestion = {
   id: string;
@@ -11,6 +13,7 @@ type Suggestion = {
   createdAt: string; // ISO
   status?: 'draft' | 'open' | 'accepted' | 'rejected';
   resolvedAt?: string | null;
+  sponsorTeam?: string | null;
 };
 
 type VotesMap = Record<string, { up: string[]; down: string[] }>; // suggestionId -> { up, down }
@@ -72,6 +75,7 @@ export default function AdminSuggestionsPage() {
               {items.map((s) => {
                 const v = votes[s.id] || { up: [], down: [] };
                 const isAccepted = s.status === 'accepted';
+                const sponsorStyle = s.sponsorTeam ? getTeamColorStyle(s.sponsorTeam) : null;
                 return (
                   <li key={s.id} className="evw-surface border border-[var(--border)] rounded-[var(--radius-card)] p-4" style={isAccepted ? { boxShadow: 'inset 0 0 0 2px #16a34a33' } : undefined}>
                     <div className="flex items-center justify-between mb-2">
@@ -88,6 +92,13 @@ export default function AdminSuggestionsPage() {
                     <p className="whitespace-pre-wrap mb-2">{isAccepted ? '✅ ' : ''}{s.content}</p>
                     {isAccepted && (
                       <div className="mb-3 text-xs text-[var(--muted)]">Marked added{ s.resolvedAt ? ` on ${new Date(s.resolvedAt).toLocaleDateString()}` : '' }</div>
+                    )}
+                    {s.sponsorTeam && (
+                      <div className="mb-3">
+                        <span className="text-xs px-2 py-0.5 rounded-full border" style={{ borderColor: sponsorStyle?.backgroundColor as string, color: sponsorStyle?.backgroundColor as string }}>
+                          Endorsed by {s.sponsorTeam}
+                        </span>
+                      </div>
                     )}
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                       <div>
@@ -115,7 +126,38 @@ export default function AdminSuggestionsPage() {
                         )}
                       </div>
                     </div>
-                    <div className="mt-3 flex gap-2">
+                    <div className="mt-3 flex flex-wrap gap-2 items-center">
+                      <label className="text-xs flex items-center gap-2">
+                        <span className="uppercase tracking-wide">Sponsor</span>
+                        <select
+                          className="border border-[var(--border)] rounded px-2 py-1 text-sm"
+                          value={s.sponsorTeam || ''}
+                          disabled={busy === s.id}
+                          onChange={async (e) => {
+                            const val = e.target.value;
+                            setBusy(s.id);
+                            try {
+                              const res = await fetch('/api/admin/suggestions', {
+                                method: 'PUT',
+                                credentials: 'include',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ id: s.id, sponsorTeam: val || null }),
+                              });
+                              if (res.ok) {
+                                const j = await res.json().catch(() => ({}));
+                                setItems((prev) => prev.map((it) => it.id === s.id ? ({ ...it, sponsorTeam: (j?.sponsorTeam ?? (val || null)) || null }) : it));
+                              }
+                            } finally {
+                              setBusy(null);
+                            }
+                          }}
+                        >
+                          <option value="">— None —</option>
+                          {TEAM_NAMES.map((team) => (
+                            <option key={team} value={team}>{team}</option>
+                          ))}
+                        </select>
+                      </label>
                       {isAccepted ? (
                         <button
                           className="text-sm px-3 py-1 rounded border border-[var(--border)]"

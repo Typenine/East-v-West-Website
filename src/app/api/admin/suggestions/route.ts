@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server';
-import { updateSuggestionStatus, deleteSuggestion } from '@/server/db/queries';
+import { updateSuggestionStatus, deleteSuggestion, setSuggestionSponsor } from '@/server/db/queries';
+import { canonicalizeTeamName } from '@/lib/server/user-identity';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -22,13 +23,31 @@ export async function PUT(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
   const id = typeof body?.id === 'string' ? body.id : '';
   const status = body?.status as 'draft' | 'open' | 'accepted' | 'rejected' | undefined;
+  const sponsorRaw = body?.sponsorTeam;
+  let sponsorTeam: string | null | undefined = undefined;
+  if (typeof sponsorRaw === 'string') {
+    const val = sponsorRaw.trim();
+    sponsorTeam = val ? canonicalizeTeamName(val) : null;
+  } else if (sponsorRaw === null) {
+    sponsorTeam = null;
+  }
   if (!id) return Response.json({ error: 'id required' }, { status: 400 });
-  if (!status || !['draft', 'open', 'accepted', 'rejected'].includes(status)) {
-    return Response.json({ error: 'invalid status' }, { status: 400 });
+  if (!status && sponsorTeam === undefined) {
+    return Response.json({ error: 'nothing to update' }, { status: 400 });
   }
   try {
-    const row = await updateSuggestionStatus(id, status);
-    return Response.json({ ok: true, id, status, resolvedAt: row?.resolvedAt || null });
+    let resolvedAt: string | null | undefined;
+    if (status) {
+      if (!['draft', 'open', 'accepted', 'rejected'].includes(status)) {
+        return Response.json({ error: 'invalid status' }, { status: 400 });
+      }
+      const row = await updateSuggestionStatus(id, status);
+      resolvedAt = row?.resolvedAt ? new Date(row.resolvedAt as unknown as Date).toISOString() : null;
+    }
+    if (sponsorTeam !== undefined) {
+      await setSuggestionSponsor(id, sponsorTeam);
+    }
+    return Response.json({ ok: true, id, status, resolvedAt: resolvedAt ?? null, sponsorTeam: sponsorTeam ?? undefined });
   } catch {
     return Response.json({ error: 'update failed' }, { status: 500 });
   }

@@ -2,7 +2,7 @@ import { promises as fs } from 'fs';
 import path from 'path';
 import { sendEmail } from '@/lib/utils/email';
 import { getKV } from '@/lib/server/kv';
-import { listSuggestions as dbListSuggestions, createSuggestion as dbCreateSuggestion } from '@/server/db/queries';
+import { listSuggestions as dbListSuggestions, createSuggestion as dbCreateSuggestion, setSuggestionSponsor, getSuggestionSponsorsMap } from '@/server/db/queries';
 import { requireTeamUser } from '@/lib/server/session';
 
 export const runtime = 'nodejs';
@@ -85,6 +85,13 @@ export async function GET(_req: Request) {
         status: (r.status as Suggestion['status']) || 'open',
         resolvedAt: r.resolvedAt ? new Date(r.resolvedAt).toISOString() : undefined,
       } as Suggestion));
+      // Overlay sponsors from DB column if present
+      try {
+        const dbMap = await getSuggestionSponsorsMap();
+        if (dbMap && Object.keys(dbMap).length > 0) {
+          items = items.map((it) => ({ ...it, sponsorTeam: dbMap[it.id] || it.sponsorTeam }));
+        }
+      } catch {}
       // Overlay sponsor teams from KV map if present
       try {
         const kv = await getKV();
@@ -184,7 +191,11 @@ export async function POST(request: Request) {
       items.push(item);
       await writeSuggestions(items);
     } catch {}
-    // Record sponsor team in KV map
+    // Persist sponsor in DB (authoritative)
+    try {
+      if (sponsorTeam && item.id) await setSuggestionSponsor(item.id, sponsorTeam);
+    } catch {}
+    // Record sponsor team in KV map (best-effort caching)
     try {
       if (sponsorTeam) {
         const kv = await getKV();
