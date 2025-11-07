@@ -223,8 +223,13 @@ export default function SuggestionsPage() {
                   {items.map((s) => {
                     const style = s.sponsorTeam ? getTeamColorStyle(s.sponsorTeam) : null;
                     const secondary = s.sponsorTeam ? getTeamColorStyle(s.sponsorTeam, 'secondary') : null;
+                    const isAccepted = s.status === 'accepted';
+                    const liStyle: React.CSSProperties | undefined = {
+                      ...(style ? { borderLeftColor: (secondary?.backgroundColor as string), borderLeftWidth: 4, borderLeftStyle: 'solid' } : {}),
+                      ...(isAccepted ? { boxShadow: 'inset 0 0 0 2px #16a34a33' } : {}),
+                    };
                     return (
-                    <li key={s.id} className="evw-surface border border-[var(--border)] rounded-[var(--radius-card)] p-4" style={style ? { borderLeftColor: (secondary?.backgroundColor as string), borderLeftWidth: 4, borderLeftStyle: 'solid' } : undefined}>
+                    <li key={s.id} className="evw-surface border border-[var(--border)] rounded-[var(--radius-card)] p-4" style={liStyle}>
                       <div className="flex items-center justify-between mb-2">
                         <span className="text-sm text-[var(--muted)]">
                           {new Date(s.createdAt).toLocaleString(undefined, {
@@ -236,7 +241,10 @@ export default function SuggestionsPage() {
                           <span className="text-xs px-2 py-0.5 rounded-full border border-[var(--border)] evw-surface text-[var(--text)]">{s.category}</span>
                         )}
                       </div>
-                      <p className="whitespace-pre-wrap text-[var(--text)]">{s.content}</p>
+                      <p className="whitespace-pre-wrap text-[var(--text)]">{isAccepted ? '✅ ' : ''}{s.content}</p>
+                      {isAccepted && (
+                        <div className="mt-1 text-xs text-[var(--muted)]">Marked added{s.resolvedAt ? ` on ${new Date(s.resolvedAt).toLocaleDateString()}` : ''}</div>
+                      )}
                       {s.sponsorTeam && (
                         <div className="mt-2">
                           <span className="text-xs px-2 py-0.5 rounded-full border" style={{ borderColor: (style?.backgroundColor as string), color: (style?.backgroundColor as string) }}>

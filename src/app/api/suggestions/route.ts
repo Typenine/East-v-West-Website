@@ -96,6 +96,13 @@ export async function GET(_req: Request) {
           }
         }
       } catch {}
+      // Fallback: overlay sponsorTeam from local suggestions if KV not populated
+      try {
+        const local = await readSuggestionsLocalAll();
+        const lmap: Record<string, string | undefined> = {};
+        for (const it of local) if (it && it.id) lmap[it.id] = it.sponsorTeam;
+        if (Object.keys(lmap).length > 0) items = items.map((it) => ({ ...it, sponsorTeam: it.sponsorTeam || lmap[it.id] }));
+      } catch {}
       return Response.json(items);
     }
   } catch {}
@@ -172,6 +179,8 @@ export async function POST(request: Request) {
 
     try {
       const items = await readSuggestions();
+      // persist sponsorTeam too when present
+      if (sponsorTeam) item.sponsorTeam = sponsorTeam;
       items.push(item);
       await writeSuggestions(items);
     } catch {}
