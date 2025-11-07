@@ -128,6 +128,7 @@ export default function SuggestionsPage() {
       const res = await fetch('/api/suggestions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({ content: content.trim(), category: category || undefined, endorse: endorse }),
       });
       if (!res.ok) {
