@@ -7,6 +7,7 @@ import Label from '@/components/ui/Label';
 import Textarea from '@/components/ui/Textarea';
 import Button from '@/components/ui/Button';
 import { getTeamLogoPath, getTeamColorStyle } from '@/lib/utils/team-utils';
+import Select from '@/components/ui/Select';
 
 export type TradeAsset =
   | { type: 'player'; playerId: string }
@@ -247,7 +248,7 @@ export default function TradeBlockTab() {
                             )}
                             {row.tradeWants.contactMethod && (
                               <div className="mt-2 text-xs" style={{ color: primaryFg }}>
-                                <span className="uppercase tracking-wide" style={{ opacity: 0.9 }}>Contact: </span>
+                                <span className="tracking-wide" style={{ opacity: 0.9 }}>Preferred Contact: </span>
                                 {row.tradeWants.contactMethod === 'text' && (
                                   <span>Text{row.tradeWants.phone ? ` (${row.tradeWants.phone})` : ''}</span>
                                 )}
@@ -415,8 +416,9 @@ export default function TradeBlockTab() {
                 <div>
                   <Label className="mb-1 block">Preferred Contact</Label>
                   <div className="flex items-center gap-2">
-                    <select
-                      className="border border-[var(--border)] rounded px-2 py-1 text-sm"
+                    <Select
+                      size="sm"
+                      fullWidth={false}
                       value={contactMethod || ''}
                       onChange={(e) => setContactMethod((e.target.value || undefined) as TradeWants['contactMethod'])}
                     >
@@ -425,7 +427,7 @@ export default function TradeBlockTab() {
                       <option value="discord">Discord</option>
                       <option value="snap">Snap</option>
                       <option value="sleeper">Sleeper</option>
-                    </select>
+                    </Select>
                     {contactMethod === 'text' && (
                       <input
                         type="tel"
