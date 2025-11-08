@@ -60,7 +60,24 @@ export async function PUT(req: NextRequest) {
   doc.tradeBlock = filtered;
   const pos = Array.isArray(wants.positions) ? wants.positions.map(String).slice(0, 12) : [];
   const text = typeof wants.text === 'string' ? wants.text.slice(0, 300) : undefined;
-  doc.tradeWants = { text, positions: pos };
+  // Validate contact preferences
+  const mRaw = typeof wants.contactMethod === 'string' ? wants.contactMethod.toLowerCase() : undefined;
+  const allowed = new Set(['text', 'discord', 'snap', 'sleeper']);
+  const contactMethod = allowed.has(mRaw as string) ? (mRaw as 'text' | 'discord' | 'snap' | 'sleeper') : undefined;
+  let phone: string | undefined;
+  let snap: string | undefined;
+  if (contactMethod === 'text') {
+    const raw = typeof wants.phone === 'string' ? wants.phone : '';
+    const digits = raw.replace(/[^0-9+]/g, '');
+    // Keep a leading + if present, otherwise just digits
+    phone = digits.slice(0, 20);
+  } else if (contactMethod === 'snap') {
+    const raw = typeof wants.snap === 'string' ? wants.snap : '';
+    // Snap usernames: letters, numbers, underscore, dot; 3-15 typical but we allow up to 30
+    const cleaned = raw.replace(/[^a-zA-Z0-9._-]/g, '');
+    snap = cleaned.slice(0, 30);
+  }
+  doc.tradeWants = { text, positions: pos, contactMethod, phone, snap };
   doc.version = (doc.version || 0) + 1;
   doc.updatedAt = new Date().toISOString();
   const ok = await writeUserDoc(doc);

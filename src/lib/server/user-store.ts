@@ -11,6 +11,10 @@ export type TradeAsset =
 export type TradeWants = {
   text?: string;
   positions?: string[];
+  // Preferred communication settings for Trade Block
+  contactMethod?: 'text' | 'discord' | 'snap' | 'sleeper';
+  phone?: string; // only if contactMethod === 'text'
+  snap?: string;  // only if contactMethod === 'snap'
 };
 
 export type UserDoc = {
@@ -62,7 +66,7 @@ export async function writeUserDoc(doc: UserDoc): Promise<boolean> {
       updatedAt: new Date(doc.updatedAt),
       votes: doc.votes ?? null,
       tradeBlock: (doc.tradeBlock as Array<Record<string, unknown>> | null) ?? null,
-      tradeWants: (doc.tradeWants as { text?: string; positions?: string[] } | null) ?? null,
+      tradeWants: (doc.tradeWants as unknown as Record<string, unknown> | null) ?? null,
     });
     dbOk = true;
   } catch {}

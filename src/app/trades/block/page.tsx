@@ -14,7 +14,13 @@ type TradeAsset =
   | { type: 'pick'; year: number; round: number; originalTeam: string }
   | { type: 'faab'; amount?: number };
 
-type TradeWants = { text?: string; positions?: string[] };
+type TradeWants = {
+  text?: string;
+  positions?: string[];
+  contactMethod?: 'text' | 'discord' | 'snap' | 'sleeper';
+  phone?: string;
+  snap?: string;
+};
 
 type TeamRow = { team: string; tradeBlock: TradeAsset[]; tradeWants: TradeWants | null; updatedAt: string | null };
 
@@ -47,6 +53,9 @@ export default function TradeBlockPage() {
   const [faabAmt, setFaabAmt] = useState<number>(0);
   const [wantsText, setWantsText] = useState('');
   const [wantsPos, setWantsPos] = useState<Record<string, boolean>>({});
+  const [contactMethod, setContactMethod] = useState<TradeWants['contactMethod']>(undefined);
+  const [phone, setPhone] = useState('');
+  const [snap, setSnap] = useState('');
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -133,6 +142,9 @@ export default function TradeBlockPage() {
     if (mySaved?.tradeWants) {
       wt = mySaved.tradeWants.text || '';
       for (const p of (mySaved.tradeWants.positions || [])) wp[p] = true;
+      setContactMethod(mySaved.tradeWants.contactMethod);
+      setPhone(mySaved.tradeWants.phone || '');
+      setSnap(mySaved.tradeWants.snap || '');
     }
 
     setSelPlayers(selP);
@@ -151,7 +163,13 @@ export default function TradeBlockPage() {
       for (const pid of myAssets.players) if (selPlayers[pid]) tradeBlock.push({ type: 'player', playerId: pid });
       for (const p of myAssets.picks) if (selPicks[`${p.year}-${p.round}-${p.originalTeam}`]) tradeBlock.push({ type: 'pick', year: p.year, round: p.round, originalTeam: p.originalTeam });
       if (faabOn) tradeBlock.push({ type: 'faab', amount: Math.max(0, Math.min(myAssets.faab, faabAmt || 0)) });
-      const tradeWants: TradeWants = { text: wantsText.slice(0, 300), positions: WANT_POSITIONS.filter((k) => wantsPos[k]) };
+      const tradeWants: TradeWants = {
+        text: wantsText.slice(0, 300),
+        positions: WANT_POSITIONS.filter((k) => wantsPos[k]),
+        contactMethod: contactMethod,
+        phone: contactMethod === 'text' ? phone : undefined,
+        snap: contactMethod === 'snap' ? snap : undefined,
+      };
       const res = await fetch('/api/me/trade-block', {
         method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tradeBlock, tradeWants })
       });
@@ -216,7 +234,7 @@ export default function TradeBlockPage() {
                           </div>
                         </div>
 
-                        {row.tradeWants && (row.tradeWants.text || (row.tradeWants.positions && row.tradeWants.positions.length > 0)) ? (
+                        {row.tradeWants && (row.tradeWants.text || (row.tradeWants.positions && row.tradeWants.positions.length > 0) || row.tradeWants.contactMethod) ? (
                           <div className="mb-3 rounded-md p-3" style={{ backgroundColor: primaryBg, color: primaryFg }}>
                             <div className="text-xs uppercase tracking-wide mb-1" style={{ opacity: 0.9 }}>Wants</div>
                             {row.tradeWants.text && <div className="text-sm mb-1">{row.tradeWants.text}</div>}
@@ -227,6 +245,23 @@ export default function TradeBlockPage() {
                                     {p}
                                   </span>
                                 ))}
+                              </div>
+                            )}
+                            {row.tradeWants.contactMethod && (
+                              <div className="mt-2 text-xs">
+                                <span className="uppercase tracking-wide" style={{ opacity: 0.9 }}>Contact: </span>
+                                {row.tradeWants.contactMethod === 'text' && (
+                                  <span>Text{row.tradeWants.phone ? ` (${row.tradeWants.phone})` : ''}</span>
+                                )}
+                                {row.tradeWants.contactMethod === 'discord' && (
+                                  <span>Discord</span>
+                                )}
+                                {row.tradeWants.contactMethod === 'snap' && (
+                                  <span>Snap{row.tradeWants.snap ? ` (${row.tradeWants.snap})` : ''}</span>
+                                )}
+                                {row.tradeWants.contactMethod === 'sleeper' && (
+                                  <span>Sleeper</span>
+                                )}
                               </div>
                             )}
                           </div>
@@ -355,6 +390,42 @@ export default function TradeBlockPage() {
                         aria-label="FAAB amount"
                       />
                       <span className="text-xs text-[var(--muted)]">Available: ${myAssets.faab}</span>
+                    </div>
+                  </div>
+
+                  {/* Contact Preferences */}
+                  <div>
+                    <Label className="mb-1 block">Preferred Contact</Label>
+                    <div className="flex items-center gap-2">
+                      <select
+                        className="border border-[var(--border)] rounded px-2 py-1 text-sm"
+                        value={contactMethod || ''}
+                        onChange={(e) => setContactMethod((e.target.value || undefined) as TradeWants['contactMethod'])}
+                      >
+                        <option value="">No preference</option>
+                        <option value="text">Text</option>
+                        <option value="discord">Discord</option>
+                        <option value="snap">Snap</option>
+                        <option value="sleeper">Sleeper</option>
+                      </select>
+                      {contactMethod === 'text' && (
+                        <input
+                          type="tel"
+                          placeholder="Phone number"
+                          className="border border-[var(--border)] rounded px-2 py-1 text-sm"
+                          value={phone}
+                          onChange={(e) => setPhone(e.target.value)}
+                        />
+                      )}
+                      {contactMethod === 'snap' && (
+                        <input
+                          type="text"
+                          placeholder="Snap username"
+                          className="border border-[var(--border)] rounded px-2 py-1 text-sm"
+                          value={snap}
+                          onChange={(e) => setSnap(e.target.value)}
+                        />
+                      )}
                     </div>
                   </div>
 
