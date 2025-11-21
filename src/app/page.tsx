@@ -247,15 +247,47 @@ export default async function Home({ searchParams }: { searchParams?: Promise<Re
         </Card>
       </section>
       
-      {/* Quick Links */}
+      {/* Data Exports */}
       <section>
-        <SectionHeader title="Quick links" />
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-          <LinkButton href="/teams" aria-label="View all teams">Teams</LinkButton>
-          <LinkButton href="/standings" aria-label="View league standings">Standings</LinkButton>
-          <LinkButton href="/history" aria-label="View league history">History</LinkButton>
-          <LinkButton href="/draft" aria-label="View draft information">Draft</LinkButton>
-          <LinkButton href="/suggestions" aria-label="Submit anonymous suggestions">Suggestions</LinkButton>
+        <SectionHeader title="Data exports" />
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <LinkButton
+            href="/api/export/all"
+            aria-label="Download full league export JSON including rosters, rules, drafts, history, and trades"
+            variant="primary"
+          >
+            Export everything (.json)
+          </LinkButton>
+          <LinkButton
+            href="/api/export/rosters"
+            aria-label="Download rosters and teams JSON across seasons"
+          >
+            Rosters & Teams (.json)
+          </LinkButton>
+          <LinkButton
+            href="/api/export/rules"
+            aria-label="Download league rules and settings JSON"
+          >
+            Rules & Settings (.json)
+          </LinkButton>
+          <LinkButton
+            href="/api/export/drafts"
+            aria-label="Download drafts and picks JSON across seasons"
+          >
+            Drafts & Picks (.json)
+          </LinkButton>
+          <LinkButton
+            href="/api/export/history"
+            aria-label="Download league history and records JSON"
+          >
+            History & Records (.json)
+          </LinkButton>
+          <LinkButton
+            href="/api/export/trades"
+            aria-label="Download trades and transactions JSON"
+          >
+            Trades & Transactions (.json)
+          </LinkButton>
         </div>
       </section>
     </div>
