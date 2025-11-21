@@ -1,40 +1,49 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { GET as getRosters } from '@/app/api/export/rosters/route';
+import { GET as getRules } from '@/app/api/export/rules/route';
+import { GET as getDrafts } from '@/app/api/export/drafts/route';
+import { GET as getHistory } from '@/app/api/export/history/route';
+import { GET as getTrades } from '@/app/api/export/trades/route';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-export async function GET(req: NextRequest) {
+export async function GET(_req: NextRequest) {
   try {
-    const url = new URL(req.url);
-    const base = `${url.protocol}//${url.host}`;
-
-    const endpoints: Record<string, string> = {
-      rosters: '/api/export/rosters',
-      rules: '/api/export/rules',
-      drafts: '/api/export/drafts',
-      history: '/api/export/history',
-      trades: '/api/export/trades',
+    // Map logical keys to their route handlers. Calling these directly bypasses
+    // any HTTP-layer auth/middleware and runs entirely on the server.
+    const handlers: Record<string, () => Promise<Response>> = {
+      rosters: () => getRosters(),
+      rules: () => getRules(),
+      drafts: () => getDrafts(),
+      history: () => getHistory(),
+      trades: () => getTrades(),
     };
 
-    const entries = Object.entries(endpoints);
+    const entries = Object.entries(handlers);
 
     const settled = await Promise.allSettled(
-      entries.map(async ([key, path]) => {
+      entries.map(async ([key, fn]) => {
         try {
-          const res = await fetch(`${base}${path}`, { cache: 'no-store' });
-          if (!res.ok) {
-            const raw = await res.text().catch(() => '');
-            const msg = `HTTP ${res.status} from ${path}${raw ? `: ${raw.slice(0, 300)}` : ''}`;
-            return { key, data: null as unknown, error: msg };
-          }
-          const json = await res.json().catch(() => null as unknown);
+          const res = await fn();
+          const json = await res
+            .json()
+            .catch(() => null as unknown);
           if (json === null) {
-            return { key, data: null as unknown, error: `Failed to parse JSON from ${path}` };
+            return {
+              key,
+              data: null as unknown,
+              error: `Failed to parse JSON from ${key} export handler`,
+            };
           }
           return { key, data: json as unknown, error: null as string | null };
         } catch (e) {
           const msg = e instanceof Error ? e.message : String(e);
-          return { key, data: null as unknown, error: `Request to ${path} failed: ${msg}` };
+          return {
+            key,
+            data: null as unknown,
+            error: `Export handler for ${key} failed: ${msg}`,
+          };
         }
       }),
     );
@@ -50,7 +59,10 @@ export async function GET(req: NextRequest) {
         if (error) errors[key] = error;
       } else {
         payload[key] = null;
-        errors[key] = result.reason instanceof Error ? result.reason.message : String(result.reason);
+        errors[key] =
+          result.reason instanceof Error
+            ? result.reason.message
+            : String(result.reason);
       }
     });
 
@@ -68,11 +80,15 @@ export async function GET(req: NextRequest) {
       status: 200,
       headers: {
         'Content-Type': 'application/json',
-        'Content-Disposition': 'attachment; filename="evw-league-export-all.json"',
+        'Content-Disposition':
+          'attachment; filename="evw-league-export-all.json"',
       },
     });
   } catch (err) {
     console.error('export/all GET error', err);
-    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+    return NextResponse.json(
+      { error: 'Internal Server Error' },
+      { status: 500 },
+    );
   }
 }

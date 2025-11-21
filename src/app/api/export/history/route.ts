@@ -9,6 +9,7 @@ import {
   getWeeklyHighsBySeason,
   getLeagueMatchups,
   getTeamsData,
+  getLeaguePlayoffBracketsWithScores,
   type FranchiseSummary,
   type LeagueRecordBook,
   type SplitRecord,
@@ -17,6 +18,7 @@ import {
   type SleeperFetchOptions,
   type SleeperMatchup,
   type TeamData,
+  type SleeperBracketGameWithScore,
 } from '@/lib/utils/sleeper-api';
 import { getHeadToHeadAllTime } from '@/lib/utils/headtohead';
 
@@ -60,11 +62,23 @@ export async function GET() {
     ];
 
     const weeklyHighsBySeason: Record<string, WeeklyHighByWeekEntry[]> = {};
-    for (const season of seasons) {
-      weeklyHighsBySeason[season] = await getWeeklyHighsBySeason(season, optsCached).catch(
-        () => [] as WeeklyHighByWeekEntry[],
-      );
-    }
+
+    // Per-season containers
+    const championshipGames: Record<string, {
+      winner: string;
+      loser: string;
+      winnerPoints: number;
+      loserPoints: number;
+      week: number | null;
+      notes?: string;
+    } | null> = {};
+
+    const playoffBrackets: Record<string, {
+      winners: SleeperBracketGameWithScore[];
+      losers: SleeperBracketGameWithScore[];
+    }> = {};
+
+    const weeklyHighsBySeasonLocal: Record<string, WeeklyHighByWeekEntry[]> = {};
 
     // Matchup-level game logs by season and week
     type MatchupLogEntry = {
@@ -88,6 +102,9 @@ export async function GET() {
           : LEAGUE_IDS.PREVIOUS[season as keyof typeof LEAGUE_IDS.PREVIOUS];
       if (!leagueId) {
         matchupLogsBySeason[season] = [];
+        weeklyHighsBySeasonLocal[season] = [];
+        championshipGames[season] = null;
+        playoffBrackets[season] = { winners: [], losers: [] };
         continue;
       }
 
@@ -96,6 +113,11 @@ export async function GET() {
       );
       const rosterIdToName = new Map<number, string>(
         teams.map((t) => [t.rosterId, t.teamName] as const),
+      );
+
+      // Per-season weekly highs (explicit) for convenience
+      weeklyHighsBySeasonLocal[season] = await getWeeklyHighsBySeason(season, optsCached).catch(
+        () => [] as WeeklyHighByWeekEntry[],
       );
 
       // League uses 17 active weeks; exclude any Week 18 data to avoid erroneous entries
@@ -142,6 +164,52 @@ export async function GET() {
       });
 
       matchupLogsBySeason[season] = logs;
+
+      // Playoff brackets + scores
+      try {
+        const brackets = await getLeaguePlayoffBracketsWithScores(leagueId, optsCached);
+        playoffBrackets[season] = brackets;
+
+        // Try to identify the championship game from winners bracket: deepest round, non-null scores
+        const winnersGames = brackets.winners || [];
+        let champ: SleeperBracketGameWithScore | null = null;
+        for (const g of winnersGames) {
+          if (!g.t1 || !g.t2) continue;
+          const hasScores = (g.t1_points ?? null) !== null || (g.t2_points ?? null) !== null;
+          if (!hasScores) continue;
+          if (!champ || (g.r ?? 0) > (champ.r ?? 0)) champ = g;
+        }
+        if (champ && champ.t1 && champ.t2) {
+          const t1Name = rosterIdToName.get(champ.t1) ?? `Roster ${champ.t1}`;
+          const t2Name = rosterIdToName.get(champ.t2) ?? `Roster ${champ.t2}`;
+          const t1Pts = Number(champ.t1_points ?? 0);
+          const t2Pts = Number(champ.t2_points ?? 0);
+          let winnerName = t1Name;
+          let loserName = t2Name;
+          let winnerPoints = t1Pts;
+          let loserPoints = t2Pts;
+          if (t2Pts > t1Pts) {
+            winnerName = t2Name;
+            loserName = t1Name;
+            winnerPoints = t2Pts;
+            loserPoints = t1Pts;
+          }
+          const week = null; // can be derived from brackets metadata; left null for now
+          championshipGames[season] = {
+            winner: winnerName,
+            loser: loserName,
+            winnerPoints,
+            loserPoints,
+            week,
+            notes: undefined,
+          };
+        } else {
+          championshipGames[season] = null;
+        }
+      } catch {
+        playoffBrackets[season] = { winners: [], losers: [] };
+        championshipGames[season] = null;
+      }
     }
 
     const body = {
@@ -164,6 +232,16 @@ export async function GET() {
       weeklyHighsBySeason,
       headToHeadAllTime: h2h,
       matchupsBySeason: matchupLogsBySeason,
+      championshipGames,
+      playoffBrackets,
+      playerRecords: {
+        // Top single-game scoring weeks across all seasons grouped by category
+        topWeeks: {
+          regular: topRegular,
+          playoffs: topPlayoffs,
+          all: topAll,
+        },
+      },
     };
 
     return new NextResponse(JSON.stringify(body, null, 2), {

@@ -3,7 +3,7 @@ import { SleeperTransaction, SleeperDraftPick, getLeagueTrades, getLeagueRosters
 
 // Define trade types
 export type TradeAsset = {
-  type: 'player' | 'pick';
+  type: 'player' | 'pick' | 'faab';
   name: string;
   position?: string;
   team?: string;
@@ -20,6 +20,15 @@ export type TradeAsset = {
   becameTeam?: string; // NFL team of the player the pick turned into
   becamePlayerId?: string; // Sleeper player_id for the drafted player (if available)
   pickInRound?: number; // Exact pick number within the round (1..N), if determinable
+  // Structured pick context (for type === 'pick')
+  pick?: {
+    season: string;
+    round: number;
+    originalOwner: string;
+    currentOwner: string;
+  };
+  // FAAB-specific metadata (for type === 'faab')
+  faabAmount?: number;
 };
 
 /**
@@ -44,7 +53,7 @@ export const fetchTradesAllTime = async (): Promise<Trade[]> => {
           trades.push(tradesCache[transaction.transaction_id]);
           continue;
         }
-        const trade = await convertSleeperTradeToTrade(transaction, leagueId);
+        const trade = await convertSleeperTradeToTrade(transaction, leagueId, year);
         tradesCache[transaction.transaction_id] = trade;
         trades.push(trade);
       }
@@ -81,6 +90,11 @@ export type Trade = {
   status: 'completed' | 'pending' | 'vetoed';
   notes?: string;
   relatedTrades?: string[]; // IDs of related trades for trade trees
+  // Enriched metadata used by exports and analysis helpers
+  season?: string;
+  week?: number | null;
+  created?: number | null;
+  tradeId?: string;
 };
 
 // Manual trade payload from our API (superset of Trade with override flags)
@@ -249,12 +263,16 @@ async function resolvePickBecame(season: string, round: number, originalRosterId
 }
 
 // Convert Sleeper transaction to our Trade format
-async function convertSleeperTradeToTrade(transaction: SleeperTransaction, leagueId: string): Promise<Trade> {
+async function convertSleeperTradeToTrade(
+  transaction: SleeperTransaction,
+  leagueId: string,
+  seasonHint?: string,
+): Promise<Trade> {
   // Build rosterId -> canonical team name map for the league
   const rosterIdToTeam = await getRosterIdToTeamNameMap(leagueId);
   const rosters = await getLeagueRosters(leagueId);
   const rosterMap = new Map(rosters.map(r => [r.roster_id, r]));
-  
+
   // Resolve canonical names in transaction order
   const teamNames = transaction.roster_ids.map((rosterId) => {
     const name = rosterIdToTeam.get(rosterId);
@@ -264,21 +282,21 @@ async function convertSleeperTradeToTrade(transaction: SleeperTransaction, leagu
     const metaName = roster?.metadata?.team_name;
     return metaName ? metaName : `Roster ${rosterId}`;
   });
-  
+
   // Fetch players data if not already cached
   if (!playersCache) {
     playersCache = await getAllPlayers();
   }
-  
+
   // Create trade teams
   const tradeTeams: TradeTeam[] = [];
-  
+
   // Process each roster involved in the trade
   for (let i = 0; i < transaction.roster_ids.length; i++) {
     const rosterId = transaction.roster_ids[i];
     const teamName = teamNames[i];
     const assets: TradeAsset[] = [];
-    
+
     // Process player adds (players received by this team)
     if (transaction.adds) {
       Object.entries(transaction.adds).forEach(([playerId, receivingRosterId]) => {
@@ -296,7 +314,7 @@ async function convertSleeperTradeToTrade(transaction: SleeperTransaction, leagu
         }
       });
     }
-    
+
     // Process draft picks received by this team
     if (transaction.draft_picks) {
       const picksReceived = transaction.draft_picks
@@ -334,35 +352,52 @@ async function convertSleeperTradeToTrade(transaction: SleeperTransaction, leagu
           becameTeam,
           becamePlayerId,
           pickInRound,
+          pick: {
+            season: String(pick.season),
+            round: pick.round,
+            originalOwner: originalOwnerName,
+            currentOwner: teamName,
+          },
         });
       }
     }
-    
+
     // Add FAAB if applicable
     if (transaction.waiver_budget) {
       transaction.waiver_budget
         .filter(budget => budget.receiver === rosterId)
         .forEach(budget => {
+          const amt = Number(budget.amount ?? 0) || 0;
           assets.push({
-            type: 'pick',
-            name: `$${budget.amount} FAAB`
+            type: 'faab',
+            name: `$${amt} FAAB`,
+            faabAmount: amt,
           });
         });
     }
-    
+
     tradeTeams.push({
       name: teamName,
       assets
     });
   }
-  
-  // Create the trade object
+
+  // Create the trade object with enriched metadata
+  const created = Number(transaction.created ?? 0) || 0;
+  // Sleeper uses `leg` for NFL week; treat non-positive as null/offseason
+  const legRaw = Number((transaction as { leg?: number }).leg ?? 0);
+  const week = Number.isFinite(legRaw) && legRaw > 0 ? legRaw : null;
+  const season = seasonHint || (created ? new Date(created).getFullYear().toString() : undefined);
   return {
     id: transaction.transaction_id,
-    date: new Date(transaction.created).toISOString().split('T')[0],
+    date: new Date(created || Number(transaction.created ?? Date.now())).toISOString().split('T')[0],
     teams: tradeTeams,
     status: transaction.status as 'completed' | 'pending' | 'vetoed',
-    relatedTrades: [] // We'll populate this later if needed
+    relatedTrades: [], // We'll populate this later if needed
+    season,
+    week,
+    created: created || null,
+    tradeId: transaction.transaction_id,
   };
 }
 
@@ -608,7 +643,7 @@ export const fetchTradesByYear = async (year: string): Promise<Trade[]> => {
       }
       
       // Convert and cache the trade
-      const trade = await convertSleeperTradeToTrade(transaction, leagueId);
+      const trade = await convertSleeperTradeToTrade(transaction, leagueId, year);
       tradesCache[transaction.transaction_id] = trade;
       trades.push(trade);
     }
