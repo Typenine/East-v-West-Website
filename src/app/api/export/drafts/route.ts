@@ -7,6 +7,9 @@ import {
   getAllPlayersCached,
   getDraftById,
   getLeagueTrades,
+  getLeague,
+  getLeagueRosters,
+  getRosterIdToTeamNameMap,
   type SleeperDraftPick,
   type SleeperPlayer,
   type TeamData,
@@ -42,22 +45,31 @@ type DraftSeasonExport = {
   season: string;
   rounds: number;
   picksPerRound: number;
-   // Draft configuration
-   draftType?: string | null;
-   draftOrder?: Array<{
-     slot: number;
-     rosterId: number | null;
-     team: string | null;
-   }>;
-   // Ownership of picks by round before the draft (after all trades)
-   pickOwnership?: Record<string, Array<{
-     originalRosterId: number;
-     originalTeam: string;
-     ownerRosterId: number;
-     ownerTeam: string;
-   }>>;
+  // Draft configuration
+  draftType?: string | null;
+  draftOrder?: Array<{
+    slot: number;
+    rosterId: number | null;
+    team: string | null;
+  }>;
+  // Ownership of picks by round before the draft (after all trades)
+  pickOwnership?: Record<string, Array<{
+    originalRosterId: number;
+    originalTeam: string;
+    ownerRosterId: number;
+    ownerTeam: string;
+  }>>;
   picks: DraftExportPick[];
 };
+
+type FuturePickOwnershipEntry = {
+  originalRosterId: number;
+  originalTeam: string;
+  ownerRosterId: number;
+  ownerTeam: string;
+};
+
+type FuturePickOwnership = Record<string, Record<string, FuturePickOwnershipEntry[]>>;
 
 function buildYearToLeagueMap(): Record<string, string | undefined> {
   return {
@@ -79,6 +91,115 @@ function computePrice(pick: SleeperDraftPick): number | null {
     ? (metaAmount as number)
     : (Number.isFinite(rootAmount) ? (rootAmount as number) : undefined);
   return Number.isFinite(price) ? (price as number) : null;
+}
+
+async function buildFuturePickOwnershipForSeasons(
+  leagueId: string,
+  options: SleeperFetchOptions,
+  seasons: string[],
+): Promise<FuturePickOwnership> {
+  const league = await getLeague(leagueId, options).catch(() => null as unknown);
+  const rosters = await getLeagueRosters(leagueId, options).catch(
+    () => [] as Awaited<ReturnType<typeof getLeagueRosters>>,
+  );
+  const nameMap = await getRosterIdToTeamNameMap(leagueId, options).catch(
+    () => new Map<number, string>(),
+  );
+  if (!league || !rosters.length) return {};
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const anyLeague = league as any;
+  const roundsRaw = (anyLeague?.settings?.draft_rounds ?? 4) as number | string;
+  const roundsNum = typeof roundsRaw === 'string' ? Number(roundsRaw) : roundsRaw;
+  const totalRounds = Number.isFinite(roundsNum) && roundsNum > 0 ? (roundsNum as number) : 4;
+
+  type SleeperTradedPick = { season?: string | number; round?: number; roster_id?: number; owner_id?: number };
+  let tradedPicks: SleeperTradedPick[] = [];
+  try {
+    const resp = await fetch(`https://api.sleeper.app/v1/league/${leagueId}/traded_picks`, { cache: 'no-store' });
+    if (resp.ok) {
+      tradedPicks = (await resp.json()) as SleeperTradedPick[];
+    }
+  } catch {
+    tradedPicks = [];
+  }
+
+  let transactions: SleeperTransaction[] = [];
+  try {
+    transactions = await getLeagueTrades(leagueId, options).catch(
+      () => [] as SleeperTransaction[],
+    );
+  } catch {
+    transactions = [];
+  }
+
+  const result: FuturePickOwnership = {};
+
+  for (const season of seasons) {
+    const seasonStr = String(season);
+    const baseOwners = new Map<string, number>();
+
+    for (const r of rosters) {
+      for (let rd = 1; rd <= totalRounds; rd++) {
+        baseOwners.set(`${r.roster_id}-${rd}`, r.roster_id);
+      }
+    }
+
+    for (const tp of tradedPicks) {
+      if (!tp || String(tp.season) !== seasonStr) continue;
+      const rosterId = Number(tp.roster_id);
+      const round = Number(tp.round);
+      const ownerId = Number(tp.owner_id);
+      if (!Number.isFinite(rosterId) || !Number.isFinite(round) || !Number.isFinite(ownerId)) continue;
+      const key = `${rosterId}-${round}`;
+      baseOwners.set(key, ownerId);
+    }
+
+    for (const txn of transactions) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const anyTxn = txn as any;
+      const dps = Array.isArray(anyTxn?.draft_picks)
+        ? (anyTxn.draft_picks as Array<{
+          season?: string | number;
+          round?: number;
+          roster_id?: number;
+          owner_id?: number;
+        }>)
+        : [];
+      for (const dp of dps) {
+        if (!dp || String(dp.season) !== seasonStr) continue;
+        const round = Number(dp.round);
+        const origRosterId = Number(dp.roster_id);
+        const newOwner = Number(dp.owner_id);
+        if (!Number.isFinite(round) || !Number.isFinite(origRosterId) || !Number.isFinite(newOwner)) continue;
+        const key = `${origRosterId}-${round}`;
+        baseOwners.set(key, newOwner);
+      }
+    }
+
+    const seasonOwnership: Record<string, FuturePickOwnershipEntry[]> = {};
+    for (const [key, ownerRosterId] of baseOwners.entries()) {
+      const [origRosterIdStr, roundStr] = key.split('-');
+      const origRosterId = Number(origRosterIdStr);
+      const round = Number(roundStr);
+      if (!Number.isFinite(origRosterId) || !Number.isFinite(round)) continue;
+      const originalTeam = nameMap.get(origRosterId) || `Roster ${origRosterId}`;
+      const ownerTeam = nameMap.get(ownerRosterId) || `Roster ${ownerRosterId}`;
+      const arrKey = String(round);
+      const arr = seasonOwnership[arrKey] || [];
+      arr.push({
+        originalRosterId: origRosterId,
+        originalTeam,
+        ownerRosterId,
+        ownerTeam,
+      });
+      seasonOwnership[arrKey] = arr;
+    }
+
+    result[seasonStr] = seasonOwnership;
+  }
+
+  return result;
 }
 
 export async function GET() {
@@ -255,7 +376,7 @@ export async function GET() {
           playerId: p.player_id,
           playerName: name,
           position: player?.position,
-           price,
+          price,
           fromTeam,
           acquiredVia,
           tradeId,
@@ -295,6 +416,20 @@ export async function GET() {
       };
     }
 
+    let futurePickOwnership: FuturePickOwnership = {};
+    try {
+      const currentLeagueId = LEAGUE_IDS.CURRENT;
+      if (currentLeagueId) {
+        futurePickOwnership = await buildFuturePickOwnershipForSeasons(
+          currentLeagueId,
+          opts,
+          ['2026', '2027', '2028'],
+        );
+      }
+    } catch {
+      futurePickOwnership = {};
+    }
+
     const body = {
       meta: {
         type: 'drafts-and-picks',
@@ -302,6 +437,7 @@ export async function GET() {
         generatedAt: new Date().toISOString(),
       },
       draftsBySeason,
+      futurePickOwnership,
     };
 
     return new NextResponse(JSON.stringify(body, null, 2), {
