@@ -8,25 +8,51 @@ export async function GET(req: NextRequest) {
     const url = new URL(req.url);
     const base = `${url.protocol}//${url.host}`;
 
-    const [rostersRes, rulesRes, draftsRes, historyRes, tradesRes] = await Promise.all([
-      fetch(`${base}/api/export/rosters`, { cache: 'no-store' }),
-      fetch(`${base}/api/export/rules`, { cache: 'no-store' }),
-      fetch(`${base}/api/export/drafts`, { cache: 'no-store' }),
-      fetch(`${base}/api/export/history`, { cache: 'no-store' }),
-      fetch(`${base}/api/export/trades`, { cache: 'no-store' }),
-    ]);
+    const endpoints: Record<string, string> = {
+      rosters: '/api/export/rosters',
+      rules: '/api/export/rules',
+      drafts: '/api/export/drafts',
+      history: '/api/export/history',
+      trades: '/api/export/trades',
+    };
 
-    if (!rostersRes.ok || !rulesRes.ok || !draftsRes.ok || !historyRes.ok || !tradesRes.ok) {
-      throw new Error('One or more export endpoints failed');
-    }
+    const entries = Object.entries(endpoints);
 
-    const [rosters, rules, drafts, history, trades] = await Promise.all([
-      rostersRes.json(),
-      rulesRes.json(),
-      draftsRes.json(),
-      historyRes.json(),
-      tradesRes.json(),
-    ]);
+    const settled = await Promise.allSettled(
+      entries.map(async ([key, path]) => {
+        try {
+          const res = await fetch(`${base}${path}`, { cache: 'no-store' });
+          if (!res.ok) {
+            const raw = await res.text().catch(() => '');
+            const msg = `HTTP ${res.status} from ${path}${raw ? `: ${raw.slice(0, 300)}` : ''}`;
+            return { key, data: null as unknown, error: msg };
+          }
+          const json = await res.json().catch(() => null as unknown);
+          if (json === null) {
+            return { key, data: null as unknown, error: `Failed to parse JSON from ${path}` };
+          }
+          return { key, data: json as unknown, error: null as string | null };
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          return { key, data: null as unknown, error: `Request to ${path} failed: ${msg}` };
+        }
+      }),
+    );
+
+    const payload: Record<string, unknown> = {};
+    const errors: Record<string, string> = {};
+
+    settled.forEach((result, idx) => {
+      const [key] = entries[idx];
+      if (result.status === 'fulfilled') {
+        const { data, error } = result.value;
+        payload[key] = data;
+        if (error) errors[key] = error;
+      } else {
+        payload[key] = null;
+        errors[key] = result.reason instanceof Error ? result.reason.message : String(result.reason);
+      }
+    });
 
     const body = {
       meta: {
@@ -34,11 +60,8 @@ export async function GET(req: NextRequest) {
         version: 1,
         generatedAt: new Date().toISOString(),
       },
-      rosters,
-      rules,
-      drafts,
-      history,
-      trades,
+      ...payload,
+      errors: Object.keys(errors).length ? errors : undefined,
     };
 
     return new NextResponse(JSON.stringify(body, null, 2), {
