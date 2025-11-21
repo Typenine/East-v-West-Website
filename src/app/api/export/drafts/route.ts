@@ -77,13 +77,12 @@ export async function GET() {
         continue;
       }
 
-      const [drafts, teams] = await Promise.all<[
-        Awaited<ReturnType<typeof getLeagueDrafts>>,
-        TeamData[],
-      ]>([
-        getLeagueDrafts(leagueId, opts).catch(() => []),
-        getTeamsData(leagueId, opts).catch(() => [] as TeamData[]),
-      ]);
+      const drafts = await getLeagueDrafts(leagueId, opts).catch(
+        () => [] as Awaited<ReturnType<typeof getLeagueDrafts>>,
+      );
+      const teams = await getTeamsData(leagueId, opts).catch(
+        () => [] as TeamData[],
+      );
 
       const draft = drafts.find((d) => d.season === season) || drafts[0];
       if (!draft) {
