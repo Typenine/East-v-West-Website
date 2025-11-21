@@ -37,13 +37,8 @@ export async function GET() {
   try {
     const seasons = listAllSeasons();
 
-    const [trades, ledger] = await Promise.all<[
-      Trade[],
-      LeagueTransaction[],
-    ]>([
-      fetchTradesAllTime(),
-      buildTransactionLedger(),
-    ]);
+    const trades = await fetchTradesAllTime();
+    const ledger = await buildTransactionLedger();
 
     const summary = buildSummary(ledger);
 
