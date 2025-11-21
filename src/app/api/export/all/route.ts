@@ -8,6 +8,65 @@ import { GET as getTrades } from '@/app/api/export/trades/route';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
+type PlayerEntity = {
+  idx: number;
+  playerId: string;
+  name: string;
+  position: string | null;
+  nflTeam: string | null;
+};
+
+type TeamEntity = {
+  idx: number;
+  team: string;
+};
+
+function buildEntitiesIndex(payload: Record<string, unknown>): { players: PlayerEntity[]; teams: TeamEntity[] } | undefined {
+  try {
+    const rosters = payload.rosters as unknown as {
+      playerInfo?: Record<string, { name?: string; position?: string | null; nflTeam?: string | null }>;
+      teamsBySeason?: Record<string, Array<{ teamName?: string }>>;
+    } | null;
+    if (!rosters) return undefined;
+
+    const players: PlayerEntity[] = [];
+    const info = rosters.playerInfo;
+    if (info && typeof info === 'object') {
+      let idx = 0;
+      for (const [pid, meta] of Object.entries(info)) {
+        const name = (meta as any)?.name ?? pid;
+        const position = ((meta as any)?.position ?? null) as string | null;
+        const nflTeam = ((meta as any)?.nflTeam ?? null) as string | null;
+        players.push({ idx, playerId: pid, name, position, nflTeam });
+        idx += 1;
+      }
+    }
+
+    const teamSet = new Set<string>();
+    const tbs = rosters.teamsBySeason;
+    if (tbs && typeof tbs === 'object') {
+      for (const seasonTeams of Object.values(tbs) as Array<unknown>) {
+        if (!Array.isArray(seasonTeams)) continue;
+        for (const t of seasonTeams as Array<{ teamName?: string }>) {
+          const name = t?.teamName;
+          if (typeof name === 'string' && name.trim().length > 0) {
+            teamSet.add(name);
+          }
+        }
+      }
+    }
+
+    const teams: TeamEntity[] = Array.from(teamSet)
+      .sort((a, b) => a.localeCompare(b))
+      .map((name, idx) => ({ idx, team: name }));
+
+    if (!players.length && !teams.length) return undefined;
+    return { players, teams };
+  } catch {
+    return undefined;
+  }
+}
+
 export async function GET(_req: NextRequest) {
   try {
     // Map logical keys to their route handlers. Calling these directly bypasses
@@ -66,6 +125,8 @@ export async function GET(_req: NextRequest) {
       }
     });
 
+    const entities = buildEntitiesIndex(payload);
+
     const body = {
       meta: {
         type: 'full-league-export',
@@ -73,6 +134,7 @@ export async function GET(_req: NextRequest) {
         generatedAt: new Date().toISOString(),
       },
       ...payload,
+      entities,
       errors: Object.keys(errors).length ? errors : undefined,
     };
 

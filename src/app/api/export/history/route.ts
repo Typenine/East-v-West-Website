@@ -63,6 +63,15 @@ export async function GET() {
 
     const weeklyHighsBySeason: Record<string, WeeklyHighByWeekEntry[]> = {};
 
+    // Per-player weekly fantasy logs by season and week, using league-scoring
+    // players_points from Sleeper matchups.
+    type PlayerWeeklyStat = {
+      points: number;
+      team: string;
+      rosterId: number;
+    };
+    const playerWeeklyStats: Record<string, Record<string, Record<string, PlayerWeeklyStat>>> = {};
+
     // Per-season containers
     const championshipGames: Record<string, {
       winner: string;
@@ -119,6 +128,7 @@ export async function GET() {
       weeklyHighsBySeasonLocal[season] = await getWeeklyHighsBySeason(season, optsCached).catch(
         () => [] as WeeklyHighByWeekEntry[],
       );
+      weeklyHighsBySeason[season] = weeklyHighsBySeasonLocal[season];
 
       // League uses 17 active weeks; exclude any Week 18 data to avoid erroneous entries
       const weeks = Array.from({ length: 17 }, (_, i) => i + 1);
@@ -132,9 +142,19 @@ export async function GET() {
 
       const logs: MatchupLogEntry[] = [];
 
+      // Player weekly stats for this season; weeks are 1-based keys as strings
+      const seasonPlayerWeekly: Record<string, Record<string, PlayerWeeklyStat>> = {};
+
       allWeekMatchups.forEach((weekMatchups, idx) => {
         const week = idx + 1;
         if (!weekMatchups || weekMatchups.length === 0) return;
+
+        const weekKey = String(week);
+        let statsForWeek = seasonPlayerWeekly[weekKey];
+        if (!statsForWeek) {
+          statsForWeek = {};
+          seasonPlayerWeekly[weekKey] = statsForWeek;
+        }
 
         const byId = new Map<number, SleeperMatchup[]>();
         for (const m of weekMatchups) {
@@ -161,9 +181,32 @@ export async function GET() {
             awayPoints: aPts,
           });
         }
+
+        // Accumulate per-player weekly fantasy points from players_points
+        for (const m of weekMatchups) {
+          const pointsMap = (m.players_points || {}) as Record<string, number>;
+          const rosterId = m.roster_id;
+          const teamName = rosterIdToName.get(rosterId) ?? `Roster ${rosterId}`;
+          for (const [pid, raw] of Object.entries(pointsMap)) {
+            const pts = Number(raw);
+            if (!Number.isFinite(pts)) continue;
+            const existing = statsForWeek[pid];
+            if (existing) {
+              existing.points = Number((existing.points + pts).toFixed(4));
+            } else {
+              statsForWeek[pid] = {
+                points: pts,
+                team: teamName,
+                rosterId,
+              };
+            }
+          }
+        }
       });
 
       matchupLogsBySeason[season] = logs;
+
+      playerWeeklyStats[season] = seasonPlayerWeekly;
 
       // Playoff brackets + scores
       try {
@@ -232,6 +275,7 @@ export async function GET() {
       weeklyHighsBySeason,
       headToHeadAllTime: h2h,
       matchupsBySeason: matchupLogsBySeason,
+      playerWeeklyStats,
       championshipGames,
       playoffBrackets,
       playerRecords: {

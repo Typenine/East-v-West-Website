@@ -4,10 +4,14 @@ import {
   getTeamsData,
   getLeagueRosters,
   getAllPlayersCached,
+  getPlayersPPRAndPPG,
+  getSleeperInjuriesCached,
+  resolveAvailabilityFromSleeper,
   type TeamData,
   type SleeperFetchOptions,
   type SleeperRoster,
   type SleeperPlayer,
+  type SleeperInjury,
 } from '@/lib/utils/sleeper-api';
 import { getTeamLogoPath } from '@/lib/utils/team-utils';
 
@@ -34,7 +38,16 @@ export async function GET() {
     const allPlayers = await getAllPlayersCached().catch(
       () => ({} as Record<string, SleeperPlayer>),
     );
-    const playerInfo: Record<string, { name: string; position: string | null; nflTeam: string | null; isDefense: boolean }> = {};
+    const playerInfo: Record<string, {
+      name: string;
+      position: string | null;
+      nflTeam: string | null;
+      isDefense: boolean;
+      yearsExp: number | null;
+      rookieYear: string | number | null;
+      age: number | null;
+      birthDate: string | null;
+    }> = {};
 
     const teamsBySeason: Record<string, Array<TeamData & {
       roster?: {
@@ -47,6 +60,20 @@ export async function GET() {
         logoUrl?: string;
       };
     }>> = {};
+
+    // Snapshot of current injury/availability state by player
+    const injuries = await getSleeperInjuriesCached(5 * 60 * 1000, opts).catch(
+      () => [] as SleeperInjury[],
+    );
+    const injuryByPlayerId = new Map<string, SleeperInjury>();
+    for (const inj of injuries) {
+      if (inj && typeof inj.player_id === 'string') {
+        injuryByPlayerId.set(inj.player_id, inj);
+      }
+    }
+    const playerAvailability: Record<string, { tier: string; reasons: string[]; injuryStatus: string | null }> = {};
+
+    const playerIdsBySeason: Record<string, Set<string>> = {};
 
     for (const season of seasons) {
       const leagueId = yearToLeague[season];
@@ -100,6 +127,12 @@ export async function GET() {
         }
 
         const allIds = new Set<string>([...starters, ...bench, ...ir, ...taxi]);
+        // Track which players appear in which season so we can attach season-level stats
+        let seasonSet = playerIdsBySeason[season];
+        if (!seasonSet) {
+          seasonSet = new Set<string>();
+          playerIdsBySeason[season] = seasonSet;
+        }
         for (const pid of allIds) {
           if (!pid || playerInfo[pid]) continue;
           const pl = allPlayers[pid];
@@ -108,12 +141,32 @@ export async function GET() {
           const teamCode = pl?.team ?? null;
           const upPos = (pl?.position || '').toUpperCase();
           const isDefense = upPos === 'DEF' || upPos === 'DST';
+          const yearsExp = typeof pl?.years_exp === 'number' ? pl.years_exp : null;
+          const rookieYear = (pl?.rookie_year ?? null) as string | number | null;
+          const anyPl = pl as unknown as { age?: number; birth_date?: string } | undefined;
+          const age = typeof anyPl?.age === 'number' ? anyPl.age : null;
+          const birthDate = typeof anyPl?.birth_date === 'string' ? anyPl.birth_date : null;
+          const inj = injuryByPlayerId.get(pid);
+          const availability = resolveAvailabilityFromSleeper(pl, inj);
           playerInfo[pid] = {
             name: fullName || pid,
             position: pos,
             nflTeam: teamCode,
             isDefense,
+            yearsExp,
+            rookieYear,
+            age,
+            birthDate,
           };
+          playerAvailability[pid] = {
+            tier: availability.tier,
+            reasons: availability.reasons,
+            injuryStatus: inj?.status ?? (pl?.status ?? null) ?? null,
+          };
+        }
+        for (const pid of allIds) {
+          if (!pid) continue;
+          seasonSet.add(pid);
         }
 
         const meta = {
@@ -130,6 +183,29 @@ export async function GET() {
       teamsBySeason[season] = seasonTeams;
     }
 
+    // Season-level fantasy stats (PPR totals, games, PPG) for players that
+    // appear in our rosters, keyed by season then playerId.
+    const playerSeasonStats: Record<string, Record<string, { totalPPR: number; gp: number; ppg: number }>> = {};
+    for (const season of seasons) {
+      const ids = playerIdsBySeason[season];
+      if (!ids || !ids.size) {
+        playerSeasonStats[season] = {};
+        continue;
+      }
+      try {
+        const stats = await getPlayersPPRAndPPG(
+          season,
+          Array.from(ids),
+          opts,
+        ).catch(
+          () => ({} as Record<string, { totalPPR: number; gp: number; ppg: number }>),
+        );
+        playerSeasonStats[season] = stats;
+      } catch {
+        playerSeasonStats[season] = {};
+      }
+    }
+
     const body = {
       meta: {
         type: 'rosters-and-teams',
@@ -139,6 +215,8 @@ export async function GET() {
       },
       teamsBySeason,
       playerInfo,
+      playerAvailability,
+      playerSeasonStats,
     };
 
     return new NextResponse(JSON.stringify(body, null, 2), {
