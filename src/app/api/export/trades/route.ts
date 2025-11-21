@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { fetchTradesAllTime, type Trade } from '@/lib/utils/trades';
+import { fetchTradesAllTime } from '@/lib/utils/trades';
 import {
   buildTransactionLedger,
   listAllSeasons,

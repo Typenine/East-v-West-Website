@@ -21,10 +21,16 @@ type TeamEntity = {
   team: string;
 };
 
+type PlayerInfoMeta = {
+  name?: string;
+  position?: string | null;
+  nflTeam?: string | null;
+};
+
 function buildEntitiesIndex(payload: Record<string, unknown>): { players: PlayerEntity[]; teams: TeamEntity[] } | undefined {
   try {
     const rosters = payload.rosters as unknown as {
-      playerInfo?: Record<string, { name?: string; position?: string | null; nflTeam?: string | null }>;
+      playerInfo?: Record<string, PlayerInfoMeta>;
       teamsBySeason?: Record<string, Array<{ teamName?: string }>>;
     } | null;
     if (!rosters) return undefined;
@@ -33,10 +39,11 @@ function buildEntitiesIndex(payload: Record<string, unknown>): { players: Player
     const info = rosters.playerInfo;
     if (info && typeof info === 'object') {
       let idx = 0;
-      for (const [pid, meta] of Object.entries(info)) {
-        const name = (meta as any)?.name ?? pid;
-        const position = ((meta as any)?.position ?? null) as string | null;
-        const nflTeam = ((meta as any)?.nflTeam ?? null) as string | null;
+      const typedInfo = info as Record<string, PlayerInfoMeta>;
+      for (const [pid, meta] of Object.entries(typedInfo)) {
+        const name = meta.name ?? pid;
+        const position = meta.position ?? null;
+        const nflTeam = meta.nflTeam ?? null;
         players.push({ idx, playerId: pid, name, position, nflTeam });
         idx += 1;
       }
@@ -67,7 +74,7 @@ function buildEntitiesIndex(payload: Record<string, unknown>): { players: Player
   }
 }
 
-export async function GET(_req: NextRequest) {
+export async function GET() {
   try {
     // Map logical keys to their route handlers. Calling these directly bypasses
     // any HTTP-layer auth/middleware and runs entirely on the server.
