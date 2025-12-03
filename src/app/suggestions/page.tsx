@@ -20,6 +20,7 @@ type Suggestion = {
   proposerTeam?: string;
   vague?: boolean;
   endorsers?: string[];
+  voteTag?: 'voted_on' | 'vote_passed' | 'vote_failed';
 };
 
 type Tallies = Record<string, { up: number; down: number }>;
@@ -251,6 +252,15 @@ export default function SuggestionsPage() {
                           )}
                           {isVague && (
                             <span className="text-xs px-2 py-0.5 rounded-full border" style={{ borderColor: '#f59e0b', color: '#f59e0b' }}>VAGUE</span>
+                          )}
+                          {s.voteTag === 'voted_on' && (
+                            <span className="text-xs px-2 py-0.5 rounded-full border" style={{ borderColor: '#0b5f98', color: '#0b5f98' }}>VOTED ON</span>
+                          )}
+                          {s.voteTag === 'vote_passed' && (
+                            <span className="text-xs px-2 py-0.5 rounded-full border" style={{ borderColor: '#16a34a', color: '#16a34a' }}>VOTE PASSED</span>
+                          )}
+                          {s.voteTag === 'vote_failed' && (
+                            <span className="text-xs px-2 py-0.5 rounded-full border" style={{ borderColor: '#be161e', color: '#be161e' }}>VOTE FAILED</span>
                           )}
                         </div>
                       </div>
