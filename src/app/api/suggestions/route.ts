@@ -12,6 +12,7 @@ import {
   getSuggestionVagueMap,
   addSuggestionEndorsement,
   getSuggestionEndorsementsMap,
+  getSuggestionVoteTagsMap,
 } from '@/server/db/queries';
 import { requireTeamUser } from '@/lib/server/session';
 
@@ -29,6 +30,7 @@ export type Suggestion = {
   proposerTeam?: string;
   vague?: boolean;
   endorsers?: string[];
+  voteTag?: 'voted_on' | 'vote_passed' | 'vote_failed';
 };
 
 const DATA_PATH = path.join(process.cwd(), 'data', 'suggestions.json');
@@ -124,6 +126,13 @@ export async function GET() {
         const emap = await getSuggestionEndorsementsMap();
         if (emap && Object.keys(emap).length > 0) {
           items = items.map((it) => ({ ...it, endorsers: emap[it.id] || it.endorsers }));
+        }
+      } catch {}
+      // Overlay voteTag map
+      try {
+        const tmap = await getSuggestionVoteTagsMap();
+        if (tmap && Object.keys(tmap).length > 0) {
+          items = items.map((it) => ({ ...it, voteTag: (tmap as Record<string, 'voted_on' | 'vote_passed' | 'vote_failed'>)[it.id] || it.voteTag }));
         }
       } catch {}
       // Overlay sponsor teams from KV map if present

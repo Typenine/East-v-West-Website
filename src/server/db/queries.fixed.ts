@@ -239,6 +239,43 @@ export async function getSuggestionEndorsementsMap(): Promise<Record<string, str
   return out;
 }
 
+// --- Suggestion vote tags (Voted On / Vote Passed / Vote Failed) ---
+export async function ensureSuggestionVoteTagColumn() {
+  try {
+    const db = getDb();
+    await db.execute(sql`ALTER TABLE suggestions ADD COLUMN IF NOT EXISTS vote_tag varchar(32)`);
+  } catch {}
+}
+
+export type VoteTag = 'voted_on' | 'vote_passed' | 'vote_failed';
+
+export async function setSuggestionVoteTag(id: string, tag: VoteTag | null) {
+  try {
+    await ensureSuggestionVoteTagColumn();
+    const db = getDb();
+    await db.execute(sql`UPDATE suggestions SET vote_tag = ${tag} WHERE id = ${id}::uuid`);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function getSuggestionVoteTagsMap(): Promise<Record<string, VoteTag>> {
+  const out: Record<string, VoteTag> = {};
+  try {
+    await ensureSuggestionVoteTagColumn();
+    const db = getDb();
+    const res = await db.execute(sql`SELECT id::text AS id, vote_tag FROM suggestions WHERE vote_tag IS NOT NULL`);
+    const rawRows = (res as unknown as { rows?: Array<{ id: string; vote_tag: string }> }).rows || [];
+    for (const r of rawRows) {
+      const id = typeof r.id === 'string' ? r.id : '';
+      const tag = typeof r.vote_tag === 'string' ? (r.vote_tag as VoteTag) : undefined;
+      if (id && tag) out[id] = tag;
+    }
+  } catch {}
+  return out;
+}
+
 export async function addTaxiMember(teamId: string, playerId: string, activeFrom?: Date) {
   const db = getDb();
   const [row] = await db.insert(taxiSquadMembers).values({ teamId, playerId, activeFrom: activeFrom || new Date() }).returning();

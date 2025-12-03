@@ -17,6 +17,7 @@ type Suggestion = {
   proposerTeam?: string | null;
   vague?: boolean;
   endorsers?: string[];
+  voteTag?: 'voted_on' | 'vote_passed' | 'vote_failed';
 };
 
 type VotesMap = Record<string, { up: string[]; down: string[] }>; // suggestionId -> { up, down }
@@ -100,6 +101,15 @@ export default function AdminSuggestionsPage() {
                         {isVague && (
                           <span className="text-xs px-2 py-0.5 rounded-full border" style={{ borderColor: '#f59e0b', color: '#f59e0b' }}>VAGUE</span>
                         )}
+                        {s.voteTag === 'voted_on' && (
+                          <span className="text-xs px-2 py-0.5 rounded-full border" style={{ borderColor: '#0b5f98', color: '#0b5f98' }}>VOTED ON</span>
+                        )}
+                        {s.voteTag === 'vote_passed' && (
+                          <span className="text-xs px-2 py-0.5 rounded-full border" style={{ borderColor: '#16a34a', color: '#16a34a' }}>VOTE PASSED</span>
+                        )}
+                        {s.voteTag === 'vote_failed' && (
+                          <span className="text-xs px-2 py-0.5 rounded-full border" style={{ borderColor: '#be161e', color: '#be161e' }}>VOTE FAILED</span>
+                        )}
                       </div>
                     </div>
                     <p className="whitespace-pre-wrap mb-2">{isAccepted ? '✅ ' : ''}{s.content}</p>
@@ -182,6 +192,37 @@ export default function AdminSuggestionsPage() {
                           {TEAM_NAMES.map((team) => (
                             <option key={team} value={team}>{team}</option>
                           ))}
+                        </select>
+                      </label>
+                      <label className="text-xs flex items-center gap-2">
+                        <span className="uppercase tracking-wide">Vote Tag</span>
+                        <select
+                          className="border border-[var(--border)] rounded px-2 py-1 text-sm"
+                          value={s.voteTag || ''}
+                          disabled={busy === s.id}
+                          onChange={async (e) => {
+                            const val = e.target.value;
+                            setBusy(s.id);
+                            try {
+                              const res = await fetch('/api/admin/suggestions', {
+                                method: 'PUT',
+                                credentials: 'include',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ id: s.id, voteTag: val || '' }),
+                              });
+                              if (res.ok) {
+                                const j = await res.json().catch(() => ({}));
+                                setItems((prev) => prev.map((it) => it.id === s.id ? ({ ...it, voteTag: (j?.voteTag ?? (val || undefined)) || undefined }) : it));
+                              }
+                            } finally {
+                              setBusy(null);
+                            }
+                          }}
+                        >
+                          <option value="">— None —</option>
+                          <option value="voted_on">Voted On</option>
+                          <option value="vote_passed">Vote Passed</option>
+                          <option value="vote_failed">Vote Failed</option>
                         </select>
                       </label>
                       <button
