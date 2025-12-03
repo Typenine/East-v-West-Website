@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import SectionHeader from '@/components/ui/SectionHeader';
 import { getTeamColorStyle } from '@/lib/utils/team-utils';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
@@ -8,6 +8,7 @@ import Label from '@/components/ui/Label';
 import Select from '@/components/ui/Select';
 import Textarea from '@/components/ui/Textarea';
 import Button from '@/components/ui/Button';
+import { rulesHtmlSections } from '@/data/rules';
 
 type Suggestion = {
   id: string;
@@ -34,7 +35,7 @@ export default function SuggestionsPage() {
     category: string;
     content: string;
     endorse?: boolean;
-    rules?: { proposal: string; issue: string; fix: string; conclusion: string; refTitle?: string; refCode?: string; effective?: string } | null;
+    rules?: { proposal: string; issue: string; fix: string; conclusion: string; sectionId?: string; refTitle?: string; refCode?: string; effective?: string } | null;
   };
   const [drafts, setDrafts] = useState<Draft[]>([
     { category: '', content: '', rules: null },
@@ -50,8 +51,54 @@ export default function SuggestionsPage() {
   const [adminVotes, setAdminVotes] = useState<Record<string, { up: string[]; down: string[] }>>({});
   const [myVotes, setMyVotes] = useState<Record<string, 1 | -1>>({});
   const [endorseBusy, setEndorseBusy] = useState<string | null>(null);
-  const RULE_CODES = ['4.3 (a)', '4.3 (b)', '5.1', '6.2', '8.0'];
   const EFFECTIVE_OPTS = ['Immediately', 'Next season', 'After draft', 'Two seasons from now', 'Other'];
+
+  // Build section options and precomputed item options from the rulebook HTML
+  type RuleItem = { code: string; title: string; label: string };
+  const ruleSections = useMemo(() => rulesHtmlSections.map((s) => ({ id: s.id, title: s.title, html: s.html })), []);
+  const ruleSectionOptions = useMemo(() => ruleSections.map((s) => {
+    const m = s.title.match(/^(\d+)\.\s*(.*)$/);
+    return { id: s.id, num: m ? m[1] : s.title, label: s.title } as { id: string; num: string; label: string };
+  }), [ruleSections]);
+  const itemsBySection: Record<string, RuleItem[]> = useMemo(() => {
+    const map: Record<string, RuleItem[]> = {};
+    for (const s of ruleSections) {
+      const html = s.html;
+      const list: RuleItem[] = [];
+      const seen = new Set<string>();
+      const headingByCode: Record<string, string> = {};
+      // Strong headings like 2.3 - Bench:
+      const strongRe = /<strong>\s*([0-9]+(?:\.[0-9]+)+)\s*[–-]?\s*([^:<]+?)(?::|<\/strong>)/gi;
+      let m: RegExpExecArray | null;
+      while ((m = strongRe.exec(html)) !== null) {
+        const code = m[1].trim();
+        const title = m[2].trim();
+        const label = `${code} ${title}`;
+        if (!seen.has(label)) { list.push({ code, title, label }); seen.add(label); }
+        // store parent heading for sub-items
+        headingByCode[code] = title;
+      }
+      // List items like 2.5(a) Taxi ...
+      const liRe = /<li>\s*([0-9]+(?:\.[0-9]+)+)\s*\(([a-z0-9]+)\)\s*([^<]+)<\/li>/gi;
+      while ((m = liRe.exec(html)) !== null) {
+        const base = m[1].trim();
+        const sub = m[2].trim();
+        const tail = m[3].trim().replace(/\s+/g, ' ');
+        const code = `${base}(${sub})`;
+        const titleBase = (headingByCode[base] || tail.replace(/^[–-]\s*/, ''));
+        // summarize tail: drop parentheticals and shorten
+        let summary = tail.replace(/\([^)]*\)/g, '').trim().replace(/\s+/g, ' ');
+        if (!summary) summary = titleBase;
+        const MAX_SUMMARY = 60;
+        if (summary.length > MAX_SUMMARY) summary = summary.slice(0, MAX_SUMMARY - 1) + '…';
+        const title = `${titleBase} - ${summary}`;
+        const label = `${code} ${title}`;
+        if (!seen.has(label)) { list.push({ code, title, label }); seen.add(label); }
+      }
+      map[s.id] = list;
+    }
+    return map;
+  }, [ruleSections]);
 
   async function load() {
     try {
@@ -145,7 +192,7 @@ export default function SuggestionsPage() {
         return;
       }
       if (cat.toLowerCase() === 'rules') {
-        const r = d.rules || { proposal: '', issue: '', fix: '', conclusion: '', refTitle: '', refCode: '', effective: '' };
+        const r = d.rules || { proposal: '', issue: '', fix: '', conclusion: '', sectionId: '', refTitle: '', refCode: '', effective: '' };
         const proposal = (r.proposal || '').trim();
         const issue = (r.issue || '').trim();
         const fix = (r.fix || '').trim();
@@ -154,7 +201,15 @@ export default function SuggestionsPage() {
           setError('Rules items require proposal, issue, fix, and conclusion.');
           return;
         }
-        payload.push({ category: 'Rules', endorse: Boolean(d.endorse), rules: { proposal, issue, fix, conclusion, reference: { title: (r.refTitle || '').trim(), code: (r.refCode || '').trim() }, effective: (r.effective || '').trim() } });
+        if (!r.sectionId) {
+          setError('Select a Rule Section.');
+          return;
+        }
+        if (!r.refTitle) {
+          setError('Select a Rule Item.');
+          return;
+        }
+        payload.push({ category: 'Rules', endorse: Boolean(d.endorse), rules: { proposal, issue, fix, conclusion, reference: { title: (r.refTitle || '').trim(), code: '' }, effective: (r.effective || '').trim() } });
       } else {
         const text = (d.content || '').trim();
         if (text.length < 3) {
@@ -235,33 +290,41 @@ export default function SuggestionsPage() {
                       {isRules ? (
                         <div className="grid grid-cols-1 gap-3">
                           <div>
-                            <Label className="mb-1 block">Rule Reference Title</Label>
-                            <input className="w-full border border-[var(--border)] rounded px-2 py-1 text-sm bg-transparent" value={d.rules?.refTitle || ''} onChange={(e) => setDrafts((prev) => prev.map((it, i) => i === idx ? ({ ...it, rules: { ...(it.rules || { proposal: '', issue: '', fix: '', conclusion: '', refTitle: '', refCode: '', effective: '' }), refTitle: e.target.value } }) : it))} required />
+                            <Label className="mb-1 block">Rule Section</Label>
+                            <Select
+                              value={d.rules?.sectionId || ''}
+                              onChange={(e) => setDrafts((prev) => prev.map((it, i) => i === idx ? ({
+                                ...it,
+                                rules: { ...(it.rules || { proposal: '', issue: '', fix: '', conclusion: '', sectionId: '', refTitle: '', refCode: '', effective: '' }), sectionId: e.target.value, refTitle: '' }
+                              }) : it))}
+                              required
+                            >
+                              <option value="">Select a section (1–13)</option>
+                              {ruleSectionOptions.map((opt) => (
+                                <option key={opt.id} value={opt.id}>{opt.label}</option>
+                              ))}
+                            </Select>
                           </div>
                           <div>
-                            <Label className="mb-1 block">Rule Code</Label>
-                            <Select value={d.rules?.refCode || ''} onChange={(e) => setDrafts((prev) => prev.map((it, i) => i === idx ? ({ ...it, rules: { ...(it.rules || { proposal: '', issue: '', fix: '', conclusion: '', refTitle: '', refCode: '', effective: '' }), refCode: e.target.value } }) : it))}>
-                              <option value="">Select code</option>
-                              {RULE_CODES.map((code) => (
-                                <option key={code} value={code}>{code}</option>
+                            <Label className="mb-1 block">Rule Item</Label>
+                            <Select
+                              value={d.rules?.refTitle || ''}
+                              onChange={(e) => setDrafts((prev) => prev.map((it, i) => i === idx ? ({
+                                ...it,
+                                rules: { ...(it.rules || { proposal: '', issue: '', fix: '', conclusion: '', sectionId: '', refTitle: '', refCode: '', effective: '' }), refTitle: e.target.value }
+                              }) : it))}
+                              required
+                              disabled={!d.rules?.sectionId}
+                            >
+                              <option value="">{d.rules?.sectionId ? 'Select rule item' : 'Select a section first'}</option>
+                              {(d.rules?.sectionId ? itemsBySection[d.rules.sectionId] || [] : []).map((it) => (
+                                <option key={it.label} value={it.label}>{it.label}</option>
                               ))}
-                              <option value="Custom">Custom…</option>
                             </Select>
-                            {(d.rules?.refCode === 'Custom') && (
-                              <input
-                                className="mt-2 w-full border border-[var(--border)] rounded px-2 py-1 text-sm bg-transparent"
-                                placeholder="Enter code (e.g., 4.3 (a))"
-                                onChange={(e) => setDrafts((prev) => prev.map((it, i) => {
-                                  if (i !== idx) return it;
-                                  const base = it.rules || { proposal: '', issue: '', fix: '', conclusion: '', refTitle: '', refCode: '', effective: '' };
-                                  return { ...it, rules: { ...base, refCode: e.target.value } };
-                                }))}
-                              />
-                            )}
                           </div>
                           <div>
                             <Label className="mb-1 block">Effective</Label>
-                            <Select value={d.rules?.effective || ''} onChange={(e) => setDrafts((prev) => prev.map((it, i) => i === idx ? ({ ...it, rules: { ...(it.rules || { proposal: '', issue: '', fix: '', conclusion: '', refTitle: '', refCode: '', effective: '' }), effective: e.target.value } }) : it))}>
+                            <Select value={d.rules?.effective || ''} onChange={(e) => setDrafts((prev) => prev.map((it, i) => i === idx ? ({ ...it, rules: { ...(it.rules || { proposal: '', issue: '', fix: '', conclusion: '', sectionId: '', refTitle: '', refCode: '', effective: '' }), effective: e.target.value } }) : it))}>
                               <option value="">Select when it would take effect</option>
                               {EFFECTIVE_OPTS.map((opt) => (
                                 <option key={opt} value={opt}>{opt}</option>
@@ -270,19 +333,19 @@ export default function SuggestionsPage() {
                           </div>
                           <div>
                             <Label className="mb-1 block">Proposal</Label>
-                            <Textarea rows={3} value={d.rules?.proposal || ''} onChange={(e) => setDrafts((prev) => prev.map((it, i) => i === idx ? ({ ...it, rules: { ...(it.rules || { proposal: '', issue: '', fix: '', conclusion: '' }), proposal: e.target.value } }) : it))} required />
+                            <Textarea rows={3} value={d.rules?.proposal || ''} onChange={(e) => setDrafts((prev) => prev.map((it, i) => i === idx ? ({ ...it, rules: { ...(it.rules || { proposal: '', issue: '', fix: '', conclusion: '', sectionId: '', refTitle: '', refCode: '', effective: '' }), proposal: e.target.value } }) : it))} required />
                           </div>
                           <div>
                             <Label className="mb-1 block">Issue</Label>
-                            <Textarea rows={3} value={d.rules?.issue || ''} onChange={(e) => setDrafts((prev) => prev.map((it, i) => i === idx ? ({ ...it, rules: { ...(it.rules || { proposal: '', issue: '', fix: '', conclusion: '' }), issue: e.target.value } }) : it))} required />
+                            <Textarea rows={3} value={d.rules?.issue || ''} onChange={(e) => setDrafts((prev) => prev.map((it, i) => i === idx ? ({ ...it, rules: { ...(it.rules || { proposal: '', issue: '', fix: '', conclusion: '', sectionId: '', refTitle: '', refCode: '', effective: '' }), issue: e.target.value } }) : it))} required />
                           </div>
                           <div>
                             <Label className="mb-1 block">How it fixes</Label>
-                            <Textarea rows={3} value={d.rules?.fix || ''} onChange={(e) => setDrafts((prev) => prev.map((it, i) => i === idx ? ({ ...it, rules: { ...(it.rules || { proposal: '', issue: '', fix: '', conclusion: '' }), fix: e.target.value } }) : it))} required />
+                            <Textarea rows={3} value={d.rules?.fix || ''} onChange={(e) => setDrafts((prev) => prev.map((it, i) => i === idx ? ({ ...it, rules: { ...(it.rules || { proposal: '', issue: '', fix: '', conclusion: '', sectionId: '', refTitle: '', refCode: '', effective: '' }), fix: e.target.value } }) : it))} required />
                           </div>
                           <div>
                             <Label className="mb-1 block">Conclusion</Label>
-                            <Textarea rows={3} value={d.rules?.conclusion || ''} onChange={(e) => setDrafts((prev) => prev.map((it, i) => i === idx ? ({ ...it, rules: { ...(it.rules || { proposal: '', issue: '', fix: '', conclusion: '' }), conclusion: e.target.value } }) : it))} required />
+                            <Textarea rows={3} value={d.rules?.conclusion || ''} onChange={(e) => setDrafts((prev) => prev.map((it, i) => i === idx ? ({ ...it, rules: { ...(it.rules || { proposal: '', issue: '', fix: '', conclusion: '', sectionId: '', refTitle: '', refCode: '', effective: '' }), conclusion: e.target.value } }) : it))} required />
                           </div>
                         </div>
                       ) : (
