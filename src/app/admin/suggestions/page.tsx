@@ -99,7 +99,7 @@ export default function AdminSuggestionsPage() {
                           <span className="text-xs px-2 py-0.5 rounded-full border border-[var(--border)] evw-surface text-[var(--text)]">{s.category}</span>
                         )}
                         {isVague && (
-                          <span className="text-xs px-2 py-0.5 rounded-full border" style={{ borderColor: '#f59e0b', color: '#f59e0b' }}>VAGUE</span>
+                          <span className="text-xs px-2 py-0.5 rounded-full border" style={{ borderColor: '#f59e0b', color: '#f59e0b' }}>Needs Clarification</span>
                         )}
                         {s.voteTag === 'voted_on' && (
                           <span className="text-xs px-2 py-0.5 rounded-full border" style={{ borderColor: '#0b5f98', color: '#0b5f98' }}>VOTED ON</span>
@@ -240,8 +240,8 @@ export default function AdminSuggestionsPage() {
                             if (r.ok) setItems((prev) => prev.map((it) => it.id === s.id ? ({ ...it, vague: !s.vague }) : it));
                           } finally { setBusy(null); }
                         }}
-                        title={s.vague ? 'Clear VAGUE' : 'Mark VAGUE'}
-                      >{s.vague ? 'Clear VAGUE' : 'Mark VAGUE'}</button>
+                        title={s.vague ? 'Clear Needs Clarification' : 'Mark Needs Clarification'}
+                      >{s.vague ? 'Clear Needs Clarification' : 'Mark Needs Clarification'}</button>
                       {isAccepted ? (
                         <button
                           className="text-sm px-3 py-1 rounded border border-[var(--border)]"

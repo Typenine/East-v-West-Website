@@ -208,10 +208,14 @@ export async function POST(request: Request) {
 
     // Multi-item path (grouped submission)
     if (itemsBodyRaw && itemsBodyRaw.length > 0) {
-      type NewItem = { content?: string; category?: string; rules?: { proposal?: string; issue?: string; fix?: string; conclusion?: string } };
-      const itemsParsed: Array<{ content: string; category?: string }> = [];
+      type NewItem = { content?: string; category?: string; endorse?: boolean; rules?: { proposal?: string; issue?: string; fix?: string; conclusion?: string; reference?: { title?: string; code?: string }; effective?: string } };
+      const itemsParsed: Array<{ content: string; category?: string; endorse?: boolean }> = [];
+      const itemsRulesMeta: Array<{ ruleLine?: string; effectiveLine?: string }> = [];
       for (const raw of itemsBodyRaw as NewItem[]) {
         const cat = typeof raw.category === 'string' ? raw.category.trim() : '';
+        if (!cat) {
+          return Response.json({ error: 'Category is required for each suggestion.' }, { status: 400 });
+        }
         // If Rules with prompts
         if (cat && cat.toLowerCase() === 'rules' && raw.rules) {
           const proposal = String(raw.rules.proposal || '').trim();
@@ -221,13 +225,23 @@ export async function POST(request: Request) {
           if (!proposal || !issue || !fix || !conclusion) {
             return Response.json({ error: 'Rules items require proposal, issue, fix, and conclusion.' }, { status: 400 });
           }
-          const assembled = `Proposal: ${proposal}\nIssue: ${issue}\nHow it fixes: ${fix}\nConclusion: ${conclusion}`;
-          itemsParsed.push({ content: assembled, category: 'Rules' });
+          const refTitle = String(raw.rules.reference?.title || '').trim();
+          const refCode = String(raw.rules.reference?.code || '').trim();
+          const effRaw = String(raw.rules.effective || '').trim();
+          const eff = effRaw ? effRaw : '';
+          const ruleLine = (refTitle || refCode) ? `Rule: ${refTitle}${refCode ? ` ${refCode}` : ''}` : undefined;
+          const effectiveLine = eff ? `Effective: ${eff}` : undefined;
+          const header = [ruleLine, effectiveLine].filter(Boolean).join('\n');
+          const bodyLines = `Proposal: ${proposal}\nIssue: ${issue}\nHow it fixes: ${fix}\nConclusion: ${conclusion}`;
+          const assembled = header ? `${header}\n${bodyLines}` : bodyLines;
+          itemsParsed.push({ content: assembled, category: 'Rules', endorse: Boolean(raw.endorse) });
+          itemsRulesMeta.push({ ruleLine, effectiveLine });
         } else {
           const text = String(raw.content || '').trim();
           if (!text || text.length < 3) return Response.json({ error: 'Each item must be at least 3 characters.' }, { status: 400 });
           if (text.length > 5000) return Response.json({ error: 'Item too long (max 5000 chars).' }, { status: 400 });
-          itemsParsed.push({ content: text, category: cat || undefined });
+          itemsParsed.push({ content: text, category: cat || undefined, endorse: Boolean(raw.endorse) });
+          itemsRulesMeta.push({});
         }
       }
       if (itemsParsed.length === 0) return Response.json({ error: 'No valid items' }, { status: 400 });
@@ -244,15 +258,12 @@ export async function POST(request: Request) {
         }
       } catch {}
 
-      let sponsorTeam: string | undefined;
-      let proposerTeam: string | undefined;
-      if (endorse) {
+      // Determine identity once for endorsing items
+      let identTeam: string | undefined;
+      if ((itemsParsed || []).some((i) => i.endorse)) {
         try {
           const ident = await requireTeamUser();
-          if (ident && ident.team) {
-            sponsorTeam = ident.team;
-            proposerTeam = ident.team;
-          }
+          if (ident && ident.team) identTeam = ident.team;
         } catch {}
       }
 
@@ -275,9 +286,10 @@ export async function POST(request: Request) {
           }
         } catch {}
         // Persist proposer/sponsor and endorsement
-        try { if (sponsorTeam && s.id) await setSuggestionSponsor(s.id, sponsorTeam); } catch {}
-        try { if (proposerTeam && s.id) await setSuggestionProposer(s.id, proposerTeam); } catch {}
-        try { if (sponsorTeam && s.id) await addSuggestionEndorsement(s.id, sponsorTeam); } catch {}
+        const endorseThis = Boolean(itemsParsed[i]?.endorse) && Boolean(identTeam);
+        try { if (endorseThis && s.id) await setSuggestionSponsor(s.id, identTeam!); } catch {}
+        try { if (endorseThis && s.id) await setSuggestionProposer(s.id, identTeam!); } catch {}
+        try { if (endorseThis && s.id) await addSuggestionEndorsement(s.id, identTeam!); } catch {}
         // Group assignment
         try { if (s.id) await setSuggestionGroup(s.id, groupId, i + 1); s.groupId = groupId; s.groupPos = i + 1; } catch {}
         created.push(s);
@@ -290,13 +302,16 @@ export async function POST(request: Request) {
         await writeSuggestions(arr);
       } catch {}
       try {
-        if (sponsorTeam) {
+        if (identTeam) {
           const kv = await getKV();
           if (kv) {
             const key = 'suggestions:sponsors';
             const raw = (await kv.get(key)) as string | null;
             const map = raw ? (JSON.parse(raw) as Record<string, string>) : {};
-            for (const s of created) map[s.id] = sponsorTeam;
+            for (let i = 0; i < created.length; i++) {
+              const s = created[i];
+              if (itemsParsed[i]?.endorse) map[s.id] = identTeam;
+            }
             await kv.set(key, JSON.stringify(map));
           }
         }
@@ -319,6 +334,9 @@ export async function POST(request: Request) {
     }
 
     // Single-item legacy path
+    if (!category || !category.trim()) {
+      return Response.json({ error: 'Category is required.' }, { status: 400 });
+    }
     if (!content || content.length < 3) {
       return Response.json({ error: 'Content must be at least 3 characters.' }, { status: 400 });
     }

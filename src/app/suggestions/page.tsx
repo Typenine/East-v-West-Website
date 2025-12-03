@@ -33,7 +33,8 @@ export default function SuggestionsPage() {
   type Draft = {
     category: string;
     content: string;
-    rules?: { proposal: string; issue: string; fix: string; conclusion: string } | null;
+    endorse?: boolean;
+    rules?: { proposal: string; issue: string; fix: string; conclusion: string; refTitle?: string; refCode?: string; effective?: string } | null;
   };
   const [drafts, setDrafts] = useState<Draft[]>([
     { category: '', content: '', rules: null },
@@ -48,8 +49,9 @@ export default function SuggestionsPage() {
   const [isAdmin, setIsAdmin] = useState(false);
   const [adminVotes, setAdminVotes] = useState<Record<string, { up: string[]; down: string[] }>>({});
   const [myVotes, setMyVotes] = useState<Record<string, 1 | -1>>({});
-  const [endorse, setEndorse] = useState(false);
   const [endorseBusy, setEndorseBusy] = useState<string | null>(null);
+  const RULE_CODES = ['4.3 (a)', '4.3 (b)', '5.1', '6.2', '8.0'];
+  const EFFECTIVE_OPTS = ['Immediately', 'Next season', 'After draft', 'Two seasons from now', 'Other'];
 
   async function load() {
     try {
@@ -135,11 +137,15 @@ export default function SuggestionsPage() {
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     // Build items payload from drafts; validate each
-    const payload: Array<{ content?: string; category?: string; rules?: { proposal: string; issue: string; fix: string; conclusion: string } }> = [];
+    const payload: Array<{ content?: string; category?: string; endorse?: boolean; rules?: { proposal: string; issue: string; fix: string; conclusion: string; reference?: { title?: string; code?: string }; effective?: string } }> = [];
     for (const d of drafts) {
       const cat = (d.category || '').trim();
+      if (!cat) {
+        setError('Category is required for each suggestion.');
+        return;
+      }
       if (cat.toLowerCase() === 'rules') {
-        const r = d.rules || { proposal: '', issue: '', fix: '', conclusion: '' };
+        const r = d.rules || { proposal: '', issue: '', fix: '', conclusion: '', refTitle: '', refCode: '', effective: '' };
         const proposal = (r.proposal || '').trim();
         const issue = (r.issue || '').trim();
         const fix = (r.fix || '').trim();
@@ -148,7 +154,7 @@ export default function SuggestionsPage() {
           setError('Rules items require proposal, issue, fix, and conclusion.');
           return;
         }
-        payload.push({ category: 'Rules', rules: { proposal, issue, fix, conclusion } });
+        payload.push({ category: 'Rules', endorse: Boolean(d.endorse), rules: { proposal, issue, fix, conclusion, reference: { title: (r.refTitle || '').trim(), code: (r.refCode || '').trim() }, effective: (r.effective || '').trim() } });
       } else {
         const text = (d.content || '').trim();
         if (text.length < 3) {
@@ -159,7 +165,7 @@ export default function SuggestionsPage() {
           setError('Suggestion too long (max 5000 chars).');
           return;
         }
-        payload.push({ category: cat || undefined, content: text });
+        payload.push({ category: cat || undefined, content: text, endorse: Boolean(d.endorse) });
       }
     }
     try {
@@ -169,7 +175,7 @@ export default function SuggestionsPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ items: payload, endorse: endorse }),
+        body: JSON.stringify({ items: payload }),
       });
       if (!res.ok) {
         const j = await res.json().catch(() => ({}));
@@ -205,12 +211,13 @@ export default function SuggestionsPage() {
                         )}
                       </div>
                       <div className="mb-2">
-                        <Label className="mb-1 block">Category (optional)</Label>
+                        <Label className="mb-1 block">Category</Label>
                         <Select
                           value={d.category}
+                          required
                           onChange={(e) => {
                             const v = e.target.value;
-                            setDrafts((prev) => prev.map((it, i) => i === idx ? ({ ...it, category: v, rules: v.toLowerCase() === 'rules' ? { proposal: '', issue: '', fix: '', conclusion: '' } : null }) : it));
+                            setDrafts((prev) => prev.map((it, i) => i === idx ? ({ ...it, category: v, rules: v.toLowerCase() === 'rules' ? { proposal: '', issue: '', fix: '', conclusion: '', refTitle: '', refCode: '', effective: '' } : null }) : it));
                           }}
                         >
                           <option value="">Select a category</option>
@@ -219,8 +226,48 @@ export default function SuggestionsPage() {
                           ))}
                         </Select>
                       </div>
+                      {auth && (
+                        <label className="flex items-center gap-2 text-sm mb-2">
+                          <input type="checkbox" checked={Boolean(d.endorse)} onChange={(e) => setDrafts((prev) => prev.map((it, i) => i === idx ? ({ ...it, endorse: e.target.checked }) : it))} />
+                          <span>Endorse this suggestion as {myTeam ? myTeam : 'my team'}</span>
+                        </label>
+                      )}
                       {isRules ? (
                         <div className="grid grid-cols-1 gap-3">
+                          <div>
+                            <Label className="mb-1 block">Rule Reference Title</Label>
+                            <input className="w-full border border-[var(--border)] rounded px-2 py-1 text-sm bg-transparent" value={d.rules?.refTitle || ''} onChange={(e) => setDrafts((prev) => prev.map((it, i) => i === idx ? ({ ...it, rules: { ...(it.rules || { proposal: '', issue: '', fix: '', conclusion: '', refTitle: '', refCode: '', effective: '' }), refTitle: e.target.value } }) : it))} required />
+                          </div>
+                          <div>
+                            <Label className="mb-1 block">Rule Code</Label>
+                            <Select value={d.rules?.refCode || ''} onChange={(e) => setDrafts((prev) => prev.map((it, i) => i === idx ? ({ ...it, rules: { ...(it.rules || { proposal: '', issue: '', fix: '', conclusion: '', refTitle: '', refCode: '', effective: '' }), refCode: e.target.value } }) : it))}>
+                              <option value="">Select code</option>
+                              {RULE_CODES.map((code) => (
+                                <option key={code} value={code}>{code}</option>
+                              ))}
+                              <option value="Custom">Custom…</option>
+                            </Select>
+                            {(d.rules?.refCode === 'Custom') && (
+                              <input
+                                className="mt-2 w-full border border-[var(--border)] rounded px-2 py-1 text-sm bg-transparent"
+                                placeholder="Enter code (e.g., 4.3 (a))"
+                                onChange={(e) => setDrafts((prev) => prev.map((it, i) => {
+                                  if (i !== idx) return it;
+                                  const base = it.rules || { proposal: '', issue: '', fix: '', conclusion: '', refTitle: '', refCode: '', effective: '' };
+                                  return { ...it, rules: { ...base, refCode: e.target.value } };
+                                }))}
+                              />
+                            )}
+                          </div>
+                          <div>
+                            <Label className="mb-1 block">Effective</Label>
+                            <Select value={d.rules?.effective || ''} onChange={(e) => setDrafts((prev) => prev.map((it, i) => i === idx ? ({ ...it, rules: { ...(it.rules || { proposal: '', issue: '', fix: '', conclusion: '', refTitle: '', refCode: '', effective: '' }), effective: e.target.value } }) : it))}>
+                              <option value="">Select when it would take effect</option>
+                              {EFFECTIVE_OPTS.map((opt) => (
+                                <option key={opt} value={opt}>{opt}</option>
+                              ))}
+                            </Select>
+                          </div>
                           <div>
                             <Label className="mb-1 block">Proposal</Label>
                             <Textarea rows={3} value={d.rules?.proposal || ''} onChange={(e) => setDrafts((prev) => prev.map((it, i) => i === idx ? ({ ...it, rules: { ...(it.rules || { proposal: '', issue: '', fix: '', conclusion: '' }), proposal: e.target.value } }) : it))} required />
@@ -256,15 +303,8 @@ export default function SuggestionsPage() {
                 })}
 
                 <div className="flex items-center gap-2">
-                  <Button type="button" variant="ghost" onClick={() => setDrafts((prev) => [...prev, { category: '', content: '', rules: null }])}>Add another suggestion</Button>
+                  <Button type="button" className="border border-[var(--border)]" variant="primary" onClick={() => setDrafts((prev) => [...prev, { category: '', content: '', rules: null }])}>Add another suggestion</Button>
                 </div>
-
-                {auth && (
-                  <label className="flex items-center gap-2 text-sm">
-                    <input type="checkbox" checked={endorse} onChange={(e) => setEndorse(e.target.checked)} />
-                    <span>Publicly endorse as {myTeam ? myTeam : 'my team'}</span>
-                  </label>
-                )}
 
                 {error && <p className="text-sm text-[var(--danger)]">{error}</p>}
 
@@ -334,7 +374,21 @@ export default function SuggestionsPage() {
                                       )}
                                     </div>
                                   </div>
-                                  <p className="whitespace-pre-wrap text-[var(--text)]">{isAccepted ? '✅ ' : ''}{s.content}</p>
+                                  {(() => {
+                                    const lines = String(s.content || '').split('\n');
+                                    const renderLine = (ln: string, key: number) => {
+                                      const m = ln.match(/^(Rule|Effective|Proposal|Issue|How it fixes|Conclusion):\s*(.*)$/i);
+                                      if (m) {
+                                        return (
+                                          <div key={key} className="text-[var(--text)]">
+                                            <strong>{m[1]}:</strong> {m[2]}
+                                          </div>
+                                        );
+                                      }
+                                      return <div key={key} className="text-[var(--text)]">{ln}</div>;
+                                    };
+                                    return <div>{isAccepted ? <div>✅</div> : null}{lines.map((ln, i) => renderLine(ln, i))}</div>;
+                                  })()}
                                   {isAccepted && (
                                     <div className="mt-1 text-xs text-[var(--muted)]">Marked added{s.resolvedAt ? ` on ${new Date(s.resolvedAt).toLocaleDateString()}` : ''}</div>
                                   )}
