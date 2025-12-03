@@ -13,6 +13,8 @@ import {
   addSuggestionEndorsement,
   getSuggestionEndorsementsMap,
   getSuggestionVoteTagsMap,
+  setSuggestionGroup,
+  getSuggestionGroupsMap,
 } from '@/server/db/queries';
 import { requireTeamUser } from '@/lib/server/session';
 
@@ -31,6 +33,8 @@ export type Suggestion = {
   vague?: boolean;
   endorsers?: string[];
   voteTag?: 'voted_on' | 'vote_passed' | 'vote_failed';
+  groupId?: string;
+  groupPos?: number;
 };
 
 const DATA_PATH = path.join(process.cwd(), 'data', 'suggestions.json');
@@ -135,6 +139,13 @@ export async function GET() {
           items = items.map((it) => ({ ...it, voteTag: (tmap as Record<string, 'voted_on' | 'vote_passed' | 'vote_failed'>)[it.id] || it.voteTag }));
         }
       } catch {}
+      // Overlay group info
+      try {
+        const gmap = await getSuggestionGroupsMap();
+        if (gmap && Object.keys(gmap).length > 0) {
+          items = items.map((it) => ({ ...it, groupId: (gmap[it.id]?.groupId) || it.groupId, groupPos: (gmap[it.id]?.groupPos) || it.groupPos }));
+        }
+      } catch {}
       // Overlay sponsor teams from KV map if present
       try {
         const kv = await getKV();
@@ -192,7 +203,122 @@ export async function POST(request: Request) {
     const content = typeof body.content === 'string' ? body.content.trim() : '';
     const category = typeof body.category === 'string' ? body.category.trim() : undefined;
     const endorse = body && typeof body.endorse === 'boolean' ? Boolean(body.endorse) : false;
+    type NewItemBody = { content?: string; category?: string; rules?: { proposal?: string; issue?: string; fix?: string; conclusion?: string } };
+    const itemsBodyRaw: NewItemBody[] | null = Array.isArray(body.items) ? (body.items as NewItemBody[]) : null;
 
+    // Multi-item path (grouped submission)
+    if (itemsBodyRaw && itemsBodyRaw.length > 0) {
+      type NewItem = { content?: string; category?: string; rules?: { proposal?: string; issue?: string; fix?: string; conclusion?: string } };
+      const itemsParsed: Array<{ content: string; category?: string }> = [];
+      for (const raw of itemsBodyRaw as NewItem[]) {
+        const cat = typeof raw.category === 'string' ? raw.category.trim() : '';
+        // If Rules with prompts
+        if (cat && cat.toLowerCase() === 'rules' && raw.rules) {
+          const proposal = String(raw.rules.proposal || '').trim();
+          const issue = String(raw.rules.issue || '').trim();
+          const fix = String(raw.rules.fix || '').trim();
+          const conclusion = String(raw.rules.conclusion || '').trim();
+          if (!proposal || !issue || !fix || !conclusion) {
+            return Response.json({ error: 'Rules items require proposal, issue, fix, and conclusion.' }, { status: 400 });
+          }
+          const assembled = `Proposal: ${proposal}\nIssue: ${issue}\nHow it fixes: ${fix}\nConclusion: ${conclusion}`;
+          itemsParsed.push({ content: assembled, category: 'Rules' });
+        } else {
+          const text = String(raw.content || '').trim();
+          if (!text || text.length < 3) return Response.json({ error: 'Each item must be at least 3 characters.' }, { status: 400 });
+          if (text.length > 5000) return Response.json({ error: 'Item too long (max 5000 chars).' }, { status: 400 });
+          itemsParsed.push({ content: text, category: cat || undefined });
+        }
+      }
+      if (itemsParsed.length === 0) return Response.json({ error: 'No valid items' }, { status: 400 });
+
+      // basic IP rate-limit 10/min
+      try {
+        const ip = (request.headers.get('x-forwarded-for') || '').split(',')[0].trim() || 'unknown';
+        const kv = await getKV();
+        if (kv) {
+          const key = `rl:suggestions:${ip}`;
+          const n = await kv.incr(key);
+          if (kv.expire && n === 1) await kv.expire(key, 60);
+          if (n > 10) return Response.json({ error: 'Too many requests' }, { status: 429 });
+        }
+      } catch {}
+
+      let sponsorTeam: string | undefined;
+      let proposerTeam: string | undefined;
+      if (endorse) {
+        try {
+          const ident = await requireTeamUser();
+          if (ident && ident.team) {
+            sponsorTeam = ident.team;
+            proposerTeam = ident.team;
+          }
+        } catch {}
+      }
+
+      const groupId = `g-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const created: Suggestion[] = [];
+      for (let i = 0; i < itemsParsed.length; i++) {
+        const ipt = itemsParsed[i];
+        // DB row
+        const s: Suggestion = {
+          id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          content: ipt.content,
+          category: ipt.category,
+          createdAt: new Date().toISOString(),
+        };
+        try {
+          const row = await dbCreateSuggestion({ userId: null, text: s.content, category: s.category || null });
+          if (row && row.id) {
+            s.id = String(row.id);
+            s.createdAt = new Date(row.createdAt).toISOString();
+          }
+        } catch {}
+        // Persist proposer/sponsor and endorsement
+        try { if (sponsorTeam && s.id) await setSuggestionSponsor(s.id, sponsorTeam); } catch {}
+        try { if (proposerTeam && s.id) await setSuggestionProposer(s.id, proposerTeam); } catch {}
+        try { if (sponsorTeam && s.id) await addSuggestionEndorsement(s.id, sponsorTeam); } catch {}
+        // Group assignment
+        try { if (s.id) await setSuggestionGroup(s.id, groupId, i + 1); s.groupId = groupId; s.groupPos = i + 1; } catch {}
+        created.push(s);
+      }
+
+      // Try to persist a local/log copy (best-effort) and KV sponsor cache
+      try {
+        const arr = await readSuggestions();
+        for (const s of created) arr.push(s);
+        await writeSuggestions(arr);
+      } catch {}
+      try {
+        if (sponsorTeam) {
+          const kv = await getKV();
+          if (kv) {
+            const key = 'suggestions:sponsors';
+            const raw = (await kv.get(key)) as string | null;
+            const map = raw ? (JSON.parse(raw) as Record<string, string>) : {};
+            for (const s of created) map[s.id] = sponsorTeam;
+            await kv.set(key, JSON.stringify(map));
+          }
+        }
+      } catch {}
+
+      // Notify email
+      try {
+        const lines = created.map((s, idx) => `#${idx + 1}${s.category ? ` [${s.category}]` : ''}: ${s.content.slice(0, 240)}${s.content.length > 240 ? '…' : ''}`).join('\n\n');
+        await sendEmail({
+          to: NOTIFY_EMAIL,
+          subject: `New suggestions (${created.length})`,
+          text: `A new suggestion group was submitted at ${created[0]?.createdAt}. Items: ${created.length}.\n\n${lines}`,
+          html: `<p>A new suggestion group was submitted at <strong>${created[0]?.createdAt}</strong>. Items: <strong>${created.length}</strong>.</p>`
+            + created.map((s, idx) => `<p><strong>#${idx + 1}${s.category ? ` [${s.category}]` : ''}</strong></p><pre style="white-space:pre-wrap;word-wrap:break-word;font-family:ui-monospace,Menlo,Monaco,Consolas,monospace">${s.content.replace(/</g,'&lt;')}</pre>`).join('')
+        });
+      } catch (e) {
+        console.warn('[suggestions] notify email failed', e);
+      }
+      return Response.json({ ok: true, groupId, items: created }, { status: 201 });
+    }
+
+    // Single-item legacy path
     if (!content || content.length < 3) {
       return Response.json({ error: 'Content must be at least 3 characters.' }, { status: 400 });
     }

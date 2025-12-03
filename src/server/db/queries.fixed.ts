@@ -276,6 +276,44 @@ export async function getSuggestionVoteTagsMap(): Promise<Record<string, VoteTag
   return out;
 }
 
+// --- Suggestion grouping (multi-suggestion submissions) ---
+export async function ensureSuggestionGroupColumns() {
+  try {
+    const db = getDb();
+    await db.execute(sql`ALTER TABLE suggestions ADD COLUMN IF NOT EXISTS group_id varchar(64)`);
+    await db.execute(sql`ALTER TABLE suggestions ADD COLUMN IF NOT EXISTS group_pos integer DEFAULT 1 NOT NULL`);
+  } catch {}
+}
+
+export async function setSuggestionGroup(id: string, groupId: string | null, groupPos?: number | null) {
+  try {
+    await ensureSuggestionGroupColumns();
+    const db = getDb();
+    await db.execute(sql`UPDATE suggestions SET group_id = ${groupId}, group_pos = ${groupPos ?? 1} WHERE id = ${id}::uuid`);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function getSuggestionGroupsMap(): Promise<Record<string, { groupId: string; groupPos: number }>> {
+  const out: Record<string, { groupId: string; groupPos: number }> = {};
+  try {
+    await ensureSuggestionGroupColumns();
+    const db = getDb();
+    const res = await db.execute(sql`SELECT id::text AS id, group_id, group_pos FROM suggestions WHERE group_id IS NOT NULL`);
+    const rawRows = (res as unknown as { rows?: Array<{ id: string; group_id: string; group_pos: number | string }> }).rows || [];
+    for (const r of rawRows) {
+      const id = typeof r.id === 'string' ? r.id : '';
+      const gid = typeof r.group_id === 'string' ? r.group_id : '';
+      const posRaw = r.group_pos;
+      const pos = typeof posRaw === 'number' ? posRaw : Number(posRaw ?? 1);
+      if (id && gid) out[id] = { groupId: gid, groupPos: pos > 0 ? pos : 1 };
+    }
+  } catch {}
+  return out;
+}
+
 export async function addTaxiMember(teamId: string, playerId: string, activeFrom?: Date) {
   const db = getDb();
   const [row] = await db.insert(taxiSquadMembers).values({ teamId, playerId, activeFrom: activeFrom || new Date() }).returning();

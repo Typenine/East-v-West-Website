@@ -21,6 +21,8 @@ type Suggestion = {
   vague?: boolean;
   endorsers?: string[];
   voteTag?: 'voted_on' | 'vote_passed' | 'vote_failed';
+  groupId?: string;
+  groupPos?: number;
 };
 
 type Tallies = Record<string, { up: number; down: number }>;
@@ -28,8 +30,14 @@ type Tallies = Record<string, { up: number; down: number }>;
 const CATEGORIES = ['Rules', 'Website', 'Discord', 'Location', 'Other'];
 
 export default function SuggestionsPage() {
-  const [content, setContent] = useState('');
-  const [category, setCategory] = useState<string>('');
+  type Draft = {
+    category: string;
+    content: string;
+    rules?: { proposal: string; issue: string; fix: string; conclusion: string } | null;
+  };
+  const [drafts, setDrafts] = useState<Draft[]>([
+    { category: '', content: '', rules: null },
+  ]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [items, setItems] = useState<Suggestion[]>([]);
@@ -126,7 +134,34 @@ export default function SuggestionsPage() {
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!content.trim()) return;
+    // Build items payload from drafts; validate each
+    const payload: Array<{ content?: string; category?: string; rules?: { proposal: string; issue: string; fix: string; conclusion: string } }> = [];
+    for (const d of drafts) {
+      const cat = (d.category || '').trim();
+      if (cat.toLowerCase() === 'rules') {
+        const r = d.rules || { proposal: '', issue: '', fix: '', conclusion: '' };
+        const proposal = (r.proposal || '').trim();
+        const issue = (r.issue || '').trim();
+        const fix = (r.fix || '').trim();
+        const conclusion = (r.conclusion || '').trim();
+        if (!proposal || !issue || !fix || !conclusion) {
+          setError('Rules items require proposal, issue, fix, and conclusion.');
+          return;
+        }
+        payload.push({ category: 'Rules', rules: { proposal, issue, fix, conclusion } });
+      } else {
+        const text = (d.content || '').trim();
+        if (text.length < 3) {
+          setError('Each suggestion must be at least 3 characters.');
+          return;
+        }
+        if (text.length > 5000) {
+          setError('Suggestion too long (max 5000 chars).');
+          return;
+        }
+        payload.push({ category: cat || undefined, content: text });
+      }
+    }
     try {
       setSubmitting(true);
       setError(null);
@@ -134,14 +169,13 @@ export default function SuggestionsPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ content: content.trim(), category: category || undefined, endorse: endorse }),
+        body: JSON.stringify({ items: payload, endorse: endorse }),
       });
       if (!res.ok) {
         const j = await res.json().catch(() => ({}));
         throw new Error(j?.error || 'Failed to submit');
       }
-      setContent('');
-      setCategory('');
+      setDrafts([{ category: '', content: '', rules: null }]);
       await load();
     } catch (e: unknown) {
       const message = e instanceof Error ? e.message : 'Failed to submit suggestion';
@@ -160,22 +194,69 @@ export default function SuggestionsPage() {
           <Card>
             <CardContent>
               <form onSubmit={onSubmit} className="space-y-4">
-                <div>
-                  <Label htmlFor="category" className="mb-1 block">
-                    Category (optional)
-                  </Label>
-                  <Select
-                    id="category"
-                    value={category}
-                    onChange={(e) => setCategory(e.target.value)}
-                  >
-                    <option value="">Select a category</option>
-                    {CATEGORIES.map((c) => (
-                      <option key={c} value={c}>
-                        {c}
-                      </option>
-                    ))}
-                  </Select>
+                {drafts.map((d, idx) => {
+                  const isRules = (d.category || '').toLowerCase() === 'rules';
+                  return (
+                    <div key={idx} className="p-3 border border-[var(--border)] rounded-[var(--radius-card)]">
+                      <div className="flex items-center justify-between mb-2">
+                        <Label>Suggestion {idx + 1}</Label>
+                        {drafts.length > 1 && (
+                          <Button type="button" variant="ghost" onClick={() => setDrafts((prev) => prev.filter((_, i) => i !== idx))}>Remove</Button>
+                        )}
+                      </div>
+                      <div className="mb-2">
+                        <Label className="mb-1 block">Category (optional)</Label>
+                        <Select
+                          value={d.category}
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            setDrafts((prev) => prev.map((it, i) => i === idx ? ({ ...it, category: v, rules: v.toLowerCase() === 'rules' ? { proposal: '', issue: '', fix: '', conclusion: '' } : null }) : it));
+                          }}
+                        >
+                          <option value="">Select a category</option>
+                          {CATEGORIES.map((c) => (
+                            <option key={c} value={c}>{c}</option>
+                          ))}
+                        </Select>
+                      </div>
+                      {isRules ? (
+                        <div className="grid grid-cols-1 gap-3">
+                          <div>
+                            <Label className="mb-1 block">Proposal</Label>
+                            <Textarea rows={3} value={d.rules?.proposal || ''} onChange={(e) => setDrafts((prev) => prev.map((it, i) => i === idx ? ({ ...it, rules: { ...(it.rules || { proposal: '', issue: '', fix: '', conclusion: '' }), proposal: e.target.value } }) : it))} required />
+                          </div>
+                          <div>
+                            <Label className="mb-1 block">Issue</Label>
+                            <Textarea rows={3} value={d.rules?.issue || ''} onChange={(e) => setDrafts((prev) => prev.map((it, i) => i === idx ? ({ ...it, rules: { ...(it.rules || { proposal: '', issue: '', fix: '', conclusion: '' }), issue: e.target.value } }) : it))} required />
+                          </div>
+                          <div>
+                            <Label className="mb-1 block">How it fixes</Label>
+                            <Textarea rows={3} value={d.rules?.fix || ''} onChange={(e) => setDrafts((prev) => prev.map((it, i) => i === idx ? ({ ...it, rules: { ...(it.rules || { proposal: '', issue: '', fix: '', conclusion: '' }), fix: e.target.value } }) : it))} required />
+                          </div>
+                          <div>
+                            <Label className="mb-1 block">Conclusion</Label>
+                            <Textarea rows={3} value={d.rules?.conclusion || ''} onChange={(e) => setDrafts((prev) => prev.map((it, i) => i === idx ? ({ ...it, rules: { ...(it.rules || { proposal: '', issue: '', fix: '', conclusion: '' }), conclusion: e.target.value } }) : it))} required />
+                          </div>
+                        </div>
+                      ) : (
+                        <div>
+                          <Label className="mb-1 block">Your suggestion (anonymous)</Label>
+                          <Textarea
+                            rows={6}
+                            value={d.content}
+                            onChange={(e) => setDrafts((prev) => prev.map((it, i) => i === idx ? ({ ...it, content: e.target.value }) : it))}
+                            minLength={3}
+                            maxLength={5000}
+                            placeholder="Propose changes to rules, website, Discord, etc."
+                          />
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+
+                <div className="flex items-center gap-2">
+                  <Button type="button" variant="ghost" onClick={() => setDrafts((prev) => [...prev, { category: '', content: '', rules: null }])}>Add another suggestion</Button>
                 </div>
 
                 {auth && (
@@ -185,29 +266,10 @@ export default function SuggestionsPage() {
                   </label>
                 )}
 
-                <div>
-                  <Label htmlFor="content" className="mb-1 block">
-                    Your suggestion (anonymous)
-                  </Label>
-                  <Textarea
-                    id="content"
-                    value={content}
-                    onChange={(e) => setContent(e.target.value)}
-                    rows={6}
-                    required
-                    minLength={3}
-                    maxLength={5000}
-                    placeholder="Propose changes to rules, website, Discord, etc."
-                  />
-                </div>
-
                 {error && <p className="text-sm text-[var(--danger)]">{error}</p>}
 
-                <Button
-                  type="submit"
-                  disabled={submitting || content.trim().length < 3}
-                >
-                  {submitting ? 'Submitting…' : 'Submit Suggestion'}
+                <Button type="submit" disabled={submitting}>
+                  {submitting ? 'Submitting…' : drafts.length > 1 ? 'Submit Suggestions' : 'Submit Suggestion'}
                 </Button>
               </form>
             </CardContent>
@@ -226,128 +288,142 @@ export default function SuggestionsPage() {
                 <p className="text-[var(--muted)]">No suggestions yet. Be the first to submit one!</p>
               ) : (
                 <ul className="space-y-4">
-                  {items.map((s) => {
-                    const style = s.sponsorTeam ? getTeamColorStyle(s.sponsorTeam) : null;
-                    const secondary = s.sponsorTeam ? getTeamColorStyle(s.sponsorTeam, 'secondary') : null;
-                    const isAccepted = s.status === 'accepted';
-                    const isVague = Boolean(s.vague);
-                    const liStyle: React.CSSProperties | undefined = {
-                      ...(style ? { borderLeftColor: (secondary?.backgroundColor as string), borderLeftWidth: 4, borderLeftStyle: 'solid' } : {}),
-                      ...(isAccepted ? { boxShadow: 'inset 0 0 0 2px #16a34a33' } : {}),
-                      ...(isVague ? { boxShadow: `${isAccepted ? 'inset 0 0 0 2px #16a34a33,' : ''} inset 0 0 0 2px #f59e0b55` } : {}),
-                    };
-                    const myEndorsed = !!(auth && myTeam && s.endorsers && s.endorsers.includes(myTeam));
-                    return (
-                    <li key={s.id} className="evw-surface border border-[var(--border)] rounded-[var(--radius-card)] p-4" style={liStyle}>
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="text-sm text-[var(--muted)]">
-                          {new Date(s.createdAt).toLocaleString(undefined, {
-                            year: 'numeric', month: 'short', day: 'numeric',
-                            hour: 'numeric', minute: '2-digit'
-                          })}
-                        </span>
-                        <div className="flex items-center gap-2">
-                          {s.category && (
-                            <span className="text-xs px-2 py-0.5 rounded-full border border-[var(--border)] evw-surface text-[var(--text)]">{s.category}</span>
-                          )}
-                          {isVague && (
-                            <span className="text-xs px-2 py-0.5 rounded-full border" style={{ borderColor: '#f59e0b', color: '#f59e0b' }}>VAGUE</span>
-                          )}
-                          {s.voteTag === 'voted_on' && (
-                            <span className="text-xs px-2 py-0.5 rounded-full border" style={{ borderColor: '#0b5f98', color: '#0b5f98' }}>VOTED ON</span>
-                          )}
-                          {s.voteTag === 'vote_passed' && (
-                            <span className="text-xs px-2 py-0.5 rounded-full border" style={{ borderColor: '#16a34a', color: '#16a34a' }}>VOTE PASSED</span>
-                          )}
-                          {s.voteTag === 'vote_failed' && (
-                            <span className="text-xs px-2 py-0.5 rounded-full border" style={{ borderColor: '#be161e', color: '#be161e' }}>VOTE FAILED</span>
-                          )}
-                        </div>
-                      </div>
-                      <p className="whitespace-pre-wrap text-[var(--text)]">{isAccepted ? '✅ ' : ''}{s.content}</p>
-                      {isAccepted && (
-                        <div className="mt-1 text-xs text-[var(--muted)]">Marked added{s.resolvedAt ? ` on ${new Date(s.resolvedAt).toLocaleDateString()}` : ''}</div>
-                      )}
-                      {(s.proposerTeam || (s.endorsers && s.endorsers.length > 0) || s.sponsorTeam) && (
-                        <div className="mt-2 flex flex-wrap gap-2 items-center">
-                          {s.proposerTeam && (
-                            <span className="text-xs px-2 py-0.5 rounded-full border" style={{ borderColor: getTeamColorStyle(s.proposerTeam)?.backgroundColor as string, color: getTeamColorStyle(s.proposerTeam)?.backgroundColor as string }}>
-                              Proposed by {s.proposerTeam}
-                            </span>
-                          )}
-                          {s.endorsers && s.endorsers.length > 0 && (
-                            <span className="text-xs text-[var(--muted)]">Endorsed by</span>
-                          )}
-                          {s.endorsers?.map((t) => (
-                            <span key={t} className="text-xs px-2 py-0.5 rounded-full border" style={{ borderColor: getTeamColorStyle(t)?.backgroundColor as string, color: getTeamColorStyle(t)?.backgroundColor as string }}>{t}</span>
-                          ))}
-                          {!s.endorsers?.length && s.sponsorTeam && (
-                            <span className="text-xs px-2 py-0.5 rounded-full border" style={{ borderColor: (style?.backgroundColor as string), color: (style?.backgroundColor as string) }}>
-                              Endorsed by {s.sponsorTeam}
-                            </span>
-                          )}
-                        </div>
-                      )}
-                      <div className="mt-3 flex items-center gap-3">
-                        <span className="text-sm text-[var(--muted)]">Up: {tallies[s.id]?.up || 0}</span>
-                        <span className="text-sm text-[var(--muted)]">Down: {tallies[s.id]?.down || 0}</span>
-                        {(auth || isAdmin) && (
-                          <div className="ml-auto flex gap-2">
-                            <Button
-                              type="button"
-                              onClick={() => auth ? vote(s.id, 1) : undefined}
-                              aria-label="Thumbs up"
-                              title={isAdmin && adminVotes[s.id]?.up?.length ? `Up votes: ${adminVotes[s.id].up.join(', ')}` : undefined}
-                              disabled={!auth}
-                              variant={myVotes[s.id] === 1 ? 'primary' : 'ghost'}
-                            >👍</Button>
-                            <Button
-                              type="button"
-                              onClick={() => auth ? vote(s.id, -1) : undefined}
-                              aria-label="Thumbs down"
-                              title={isAdmin && adminVotes[s.id]?.down?.length ? `Down votes: ${adminVotes[s.id].down.join(', ')}` : undefined}
-                              disabled={!auth}
-                              variant={myVotes[s.id] === -1 ? 'danger' : 'ghost'}
-                            >👎</Button>
-                            <Button
-                              type="button"
-                              onClick={async () => {
-                                if (!auth || !myTeam) return;
-                                setEndorseBusy(s.id);
-                                try {
-                                  const res = await fetch('/api/me/suggestions/endorse', {
-                                    method: 'PUT',
-                                    headers: { 'Content-Type': 'application/json' },
-                                    credentials: 'include',
-                                    body: JSON.stringify({ suggestionId: s.id, endorse: !myEndorsed }),
-                                  });
-                                  if (res.ok) {
-                                    setItems((prev) => prev.map((it) => {
-                                      if (it.id !== s.id) return it;
-                                      const arr = Array.isArray(it.endorsers) ? [...it.endorsers] : [];
-                                      if (!myEndorsed) {
-                                        if (!arr.includes(myTeam)) arr.push(myTeam);
-                                      } else {
-                                        const idx = arr.indexOf(myTeam);
-                                        if (idx >= 0) arr.splice(idx, 1);
-                                      }
-                                      return { ...it, endorsers: arr } as Suggestion;
-                                    }));
-                                  }
-                                } finally {
-                                  setEndorseBusy(null);
-                                }
-                              }}
-                              disabled={!auth || endorseBusy === s.id}
-                              variant={myEndorsed ? 'primary' : 'ghost'}
-                              aria-label={myEndorsed ? 'Unendorse' : 'Endorse'}
-                              title={myEndorsed ? 'Unendorse this suggestion' : 'Endorse this suggestion'}
-                            >⭐</Button>
+                  {(() => {
+                    // Group items by groupId (or single)
+                    const groups = new Map<string, Suggestion[]>();
+                    for (const s of items) {
+                      const key = s.groupId ? `g:${s.groupId}` : `s:${s.id}`;
+                      if (!groups.has(key)) groups.set(key, []);
+                      groups.get(key)!.push(s);
+                    }
+                    const ordered = Array.from(groups.values()).map((arr) => arr.sort((a, b) => (a.groupPos || 0) - (b.groupPos || 0)));
+                    ordered.sort((a, b) => Date.parse(b[0].createdAt) - Date.parse(a[0].createdAt));
+                    return ordered.map((arr, gi) => {
+                      // Group container uses first item sponsor styling
+                      const first = arr[0];
+                      const style = first.sponsorTeam ? getTeamColorStyle(first.sponsorTeam) : null;
+                      const secondary = first.sponsorTeam ? getTeamColorStyle(first.sponsorTeam, 'secondary') : null;
+                      const groupStyle: React.CSSProperties | undefined = style ? { borderLeftColor: (secondary?.backgroundColor as string), borderLeftWidth: 4, borderLeftStyle: 'solid' } : undefined;
+                      return (
+                        <li key={`grp-${gi}`} className="evw-surface border border-[var(--border)] rounded-[var(--radius-card)] p-3" style={groupStyle}>
+                          <div className="mb-2 text-sm text-[var(--muted)]">{new Date(first.createdAt).toLocaleString()}</div>
+                          <div className="space-y-4">
+                            {arr.map((s, idx) => {
+                              const isAccepted = s.status === 'accepted';
+                              const isVague = Boolean(s.vague);
+                              const myEndorsed = !!(auth && myTeam && s.endorsers && s.endorsers.includes(myTeam));
+                              return (
+                                <div key={s.id} className="p-3 rounded-[var(--radius-card)] border border-[var(--border)]" style={{ ...(isAccepted ? { boxShadow: 'inset 0 0 0 2px #16a34a33' } : {}), ...(isVague ? { boxShadow: `${isAccepted ? 'inset 0 0 0 2px #16a34a33,' : ''} inset 0 0 0 2px #f59e0b55` } : {}) }}>
+                                  <div className="flex items-center justify-between mb-1">
+                                    <div className="font-medium">Suggestion {idx + 1}</div>
+                                    <div className="flex items-center gap-2">
+                                      {s.category && (
+                                        <span className="text-xs px-2 py-0.5 rounded-full border border-[var(--border)] evw-surface text-[var(--text)]">{s.category}</span>
+                                      )}
+                                      {s.voteTag === 'voted_on' && (
+                                        <span className="text-xs px-2 py-0.5 rounded-full border" style={{ borderColor: '#0b5f98', color: '#0b5f98' }}>VOTED ON</span>
+                                      )}
+                                      {s.voteTag === 'vote_passed' && (
+                                        <span className="text-xs px-2 py-0.5 rounded-full border" style={{ borderColor: '#16a34a', color: '#16a34a' }}>VOTE PASSED</span>
+                                      )}
+                                      {s.voteTag === 'vote_failed' && (
+                                        <span className="text-xs px-2 py-0.5 rounded-full border" style={{ borderColor: '#be161e', color: '#be161e' }}>VOTE FAILED</span>
+                                      )}
+                                      {isVague && (
+                                        <span className="text-xs px-2 py-0.5 rounded-full border" style={{ borderColor: '#f59e0b', color: '#f59e0b' }}>VAGUE</span>
+                                      )}
+                                    </div>
+                                  </div>
+                                  <p className="whitespace-pre-wrap text-[var(--text)]">{isAccepted ? '✅ ' : ''}{s.content}</p>
+                                  {isAccepted && (
+                                    <div className="mt-1 text-xs text-[var(--muted)]">Marked added{s.resolvedAt ? ` on ${new Date(s.resolvedAt).toLocaleDateString()}` : ''}</div>
+                                  )}
+                                  {(s.proposerTeam || (s.endorsers && s.endorsers.length > 0) || s.sponsorTeam) && (
+                                    <div className="mt-2 flex flex-wrap gap-2 items-center">
+                                      {s.proposerTeam && (
+                                        <span className="text-xs px-2 py-0.5 rounded-full border" style={{ borderColor: getTeamColorStyle(s.proposerTeam)?.backgroundColor as string, color: getTeamColorStyle(s.proposerTeam)?.backgroundColor as string }}>
+                                          Proposed by {s.proposerTeam}
+                                        </span>
+                                      )}
+                                      {s.endorsers && s.endorsers.length > 0 && (
+                                        <span className="text-xs text-[var(--muted)]">Endorsed by</span>
+                                      )}
+                                      {s.endorsers?.map((t) => (
+                                        <span key={t} className="text-xs px-2 py-0.5 rounded-full border" style={{ borderColor: getTeamColorStyle(t)?.backgroundColor as string, color: getTeamColorStyle(t)?.backgroundColor as string }}>{t}</span>
+                                      ))}
+                                      {!s.endorsers?.length && s.sponsorTeam && (
+                                        <span className="text-xs px-2 py-0.5 rounded-full border" style={{ borderColor: (getTeamColorStyle(first.sponsorTeam || '')?.backgroundColor as string), color: (getTeamColorStyle(first.sponsorTeam || '')?.backgroundColor as string) }}>
+                                          Endorsed by {s.sponsorTeam}
+                                        </span>
+                                      )}
+                                    </div>
+                                  )}
+                                  <div className="mt-3 flex items-center gap-3">
+                                    <span className="text-sm text-[var(--muted)]">Up: {tallies[s.id]?.up || 0}</span>
+                                    <span className="text-sm text-[var(--muted)]">Down: {tallies[s.id]?.down || 0}</span>
+                                    {(auth || isAdmin) && (
+                                      <div className="ml-auto flex gap-2">
+                                        <Button
+                                          type="button"
+                                          onClick={() => auth ? vote(s.id, 1) : undefined}
+                                          aria-label="Thumbs up"
+                                          title={isAdmin && adminVotes[s.id]?.up?.length ? `Up votes: ${adminVotes[s.id].up.join(', ')}` : undefined}
+                                          disabled={!auth}
+                                          variant={myVotes[s.id] === 1 ? 'primary' : 'ghost'}
+                                        >👍</Button>
+                                        <Button
+                                          type="button"
+                                          onClick={() => auth ? vote(s.id, -1) : undefined}
+                                          aria-label="Thumbs down"
+                                          title={isAdmin && adminVotes[s.id]?.down?.length ? `Down votes: ${adminVotes[s.id].down.join(', ')}` : undefined}
+                                          disabled={!auth}
+                                          variant={myVotes[s.id] === -1 ? 'danger' : 'ghost'}
+                                        >👎</Button>
+                                        <Button
+                                          type="button"
+                                          onClick={async () => {
+                                            if (!auth || !myTeam) return;
+                                            setEndorseBusy(s.id);
+                                            try {
+                                              const res = await fetch('/api/me/suggestions/endorse', {
+                                                method: 'PUT',
+                                                headers: { 'Content-Type': 'application/json' },
+                                                credentials: 'include',
+                                                body: JSON.stringify({ suggestionId: s.id, endorse: !myEndorsed }),
+                                              });
+                                              if (res.ok) {
+                                                setItems((prev) => prev.map((it) => {
+                                                  if (it.id !== s.id) return it;
+                                                  const arr = Array.isArray(it.endorsers) ? [...it.endorsers] : [];
+                                                  if (!myEndorsed) {
+                                                    if (!arr.includes(myTeam)) arr.push(myTeam);
+                                                  } else {
+                                                    const idx = arr.indexOf(myTeam);
+                                                    if (idx >= 0) arr.splice(idx, 1);
+                                                  }
+                                                  return { ...it, endorsers: arr } as Suggestion;
+                                                }));
+                                              }
+                                            } finally {
+                                              setEndorseBusy(null);
+                                            }
+                                          }}
+                                          disabled={!auth || endorseBusy === s.id}
+                                          variant={myEndorsed ? 'primary' : 'ghost'}
+                                          aria-label={myEndorsed ? 'Unendorse' : 'Endorse'}
+                                          title={myEndorsed ? 'Unendorse this suggestion' : 'Endorse this suggestion'}
+                                        >⭐</Button>
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            })}
                           </div>
-                        )}
-                      </div>
-                    </li>
-                  );})}
+                        </li>
+                      );
+                    });
+                  })()}
                 </ul>
               )}
             </CardContent>
