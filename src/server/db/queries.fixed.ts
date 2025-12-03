@@ -109,6 +109,134 @@ export async function getSuggestionSponsorsMap(): Promise<Record<string, string>
   return out;
 }
 
+// --- Suggestion proposer (who submitted publicly when also endorsing) ---
+export async function ensureSuggestionProposerColumn() {
+  try {
+    const db = getDb();
+    await db.execute(sql`ALTER TABLE suggestions ADD COLUMN IF NOT EXISTS proposer_team varchar(255)`);
+  } catch {}
+}
+
+export async function setSuggestionProposer(id: string, team: string | null) {
+  try {
+    await ensureSuggestionProposerColumn();
+    const db = getDb();
+    await db.execute(sql`UPDATE suggestions SET proposer_team = ${team} WHERE id = ${id}::uuid`);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function getSuggestionProposersMap(): Promise<Record<string, string>> {
+  const out: Record<string, string> = {};
+  try {
+    await ensureSuggestionProposerColumn();
+    const db = getDb();
+    const res = await db.execute(sql`SELECT id::text AS id, proposer_team FROM suggestions WHERE proposer_team IS NOT NULL`);
+    const rawRows = (res as unknown as { rows?: Array<{ id: string; proposer_team: string }> }).rows || [];
+    for (const r of rawRows) {
+      const id = typeof r.id === 'string' ? r.id : '';
+      const team = typeof r.proposer_team === 'string' ? r.proposer_team : '';
+      if (id && team) out[id] = team;
+    }
+  } catch {}
+  return out;
+}
+
+// --- Suggestion VAGUE flag ---
+export async function ensureSuggestionVagueColumn() {
+  try {
+    const db = getDb();
+    // use integer 0/1 for compatibility
+    await db.execute(sql`ALTER TABLE suggestions ADD COLUMN IF NOT EXISTS vague integer DEFAULT 0 NOT NULL`);
+  } catch {}
+}
+
+export async function setSuggestionVague(id: string, vague: boolean) {
+  try {
+    await ensureSuggestionVagueColumn();
+    const db = getDb();
+    await db.execute(sql`UPDATE suggestions SET vague = ${vague ? 1 : 0} WHERE id = ${id}::uuid`);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function getSuggestionVagueMap(): Promise<Record<string, boolean>> {
+  const out: Record<string, boolean> = {};
+  try {
+    await ensureSuggestionVagueColumn();
+    const db = getDb();
+    const res = await db.execute(sql`SELECT id::text AS id, vague FROM suggestions`);
+    const rawRows = (res as unknown as { rows?: Array<{ id: string; vague: number }> }).rows || [];
+    for (const r of rawRows) {
+      const id = typeof r.id === 'string' ? r.id : '';
+      const v = typeof (r as any).vague === 'number' ? (r as any).vague : 0;
+      if (id) out[id] = v === 1;
+    }
+  } catch {}
+  return out;
+}
+
+// --- Suggestion endorsements (multiple teams) ---
+export async function ensureSuggestionEndorsementsTable() {
+  try {
+    const db = getDb();
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS suggestion_endorsements (
+        suggestion_id uuid NOT NULL,
+        team varchar(255) NOT NULL,
+        endorsed_at timestamp DEFAULT now() NOT NULL,
+        PRIMARY KEY (suggestion_id, team)
+      )
+    `);
+  } catch {}
+}
+
+export async function addSuggestionEndorsement(suggestionId: string, team: string) {
+  try {
+    await ensureSuggestionEndorsementsTable();
+    const db = getDb();
+    await db.execute(sql`INSERT INTO suggestion_endorsements (suggestion_id, team) VALUES (${suggestionId}::uuid, ${team}) ON CONFLICT DO NOTHING`);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function removeSuggestionEndorsement(suggestionId: string, team: string) {
+  try {
+    await ensureSuggestionEndorsementsTable();
+    const db = getDb();
+    await db.execute(sql`DELETE FROM suggestion_endorsements WHERE suggestion_id = ${suggestionId}::uuid AND team = ${team}`);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function getSuggestionEndorsementsMap(): Promise<Record<string, string[]>> {
+  const out: Record<string, string[]> = {};
+  try {
+    await ensureSuggestionEndorsementsTable();
+    const db = getDb();
+    const res = await db.execute(sql`SELECT suggestion_id::text AS suggestion_id, team FROM suggestion_endorsements`);
+    const rawRows = (res as unknown as { rows?: Array<{ suggestion_id: string; team: string }> }).rows || [];
+    for (const r of rawRows) {
+      const id = typeof r.suggestion_id === 'string' ? r.suggestion_id : '';
+      const team = typeof r.team === 'string' ? r.team : '';
+      if (!id || !team) continue;
+      if (!out[id]) out[id] = [];
+      out[id].push(team);
+    }
+    // sort for stable UI
+    for (const k of Object.keys(out)) out[k].sort((a, b) => a.localeCompare(b));
+  } catch {}
+  return out;
+}
+
 export async function addTaxiMember(teamId: string, playerId: string, activeFrom?: Date) {
   const db = getDb();
   const [row] = await db.insert(taxiSquadMembers).values({ teamId, playerId, activeFrom: activeFrom || new Date() }).returning();

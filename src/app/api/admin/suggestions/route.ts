@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server';
-import { updateSuggestionStatus, deleteSuggestion, setSuggestionSponsor } from '@/server/db/queries';
+import { updateSuggestionStatus, deleteSuggestion, setSuggestionSponsor, setSuggestionVague } from '@/server/db/queries';
 import { canonicalizeTeamName } from '@/lib/server/user-identity';
 
 export const runtime = 'nodejs';
@@ -25,6 +25,8 @@ export async function PUT(req: NextRequest) {
   const status = body?.status as 'draft' | 'open' | 'accepted' | 'rejected' | undefined;
   const sponsorRaw = body?.sponsorTeam;
   let sponsorTeam: string | null | undefined = undefined;
+  const vagueRaw = body?.vague;
+  const vague: boolean | undefined = typeof vagueRaw === 'boolean' ? vagueRaw : undefined;
   if (typeof sponsorRaw === 'string') {
     const val = sponsorRaw.trim();
     sponsorTeam = val ? canonicalizeTeamName(val) : null;
@@ -32,7 +34,7 @@ export async function PUT(req: NextRequest) {
     sponsorTeam = null;
   }
   if (!id) return Response.json({ error: 'id required' }, { status: 400 });
-  if (!status && sponsorTeam === undefined) {
+  if (!status && sponsorTeam === undefined && vague === undefined) {
     return Response.json({ error: 'nothing to update' }, { status: 400 });
   }
   try {
@@ -47,7 +49,10 @@ export async function PUT(req: NextRequest) {
     if (sponsorTeam !== undefined) {
       await setSuggestionSponsor(id, sponsorTeam);
     }
-    return Response.json({ ok: true, id, status, resolvedAt: resolvedAt ?? null, sponsorTeam: sponsorTeam ?? undefined });
+    if (vague !== undefined) {
+      await setSuggestionVague(id, vague);
+    }
+    return Response.json({ ok: true, id, status, resolvedAt: resolvedAt ?? null, sponsorTeam: sponsorTeam ?? undefined, vague });
   } catch {
     return Response.json({ error: 'update failed' }, { status: 500 });
   }

@@ -2,7 +2,17 @@ import { promises as fs } from 'fs';
 import path from 'path';
 import { sendEmail } from '@/lib/utils/email';
 import { getKV } from '@/lib/server/kv';
-import { listSuggestions as dbListSuggestions, createSuggestion as dbCreateSuggestion, setSuggestionSponsor, getSuggestionSponsorsMap } from '@/server/db/queries';
+import {
+  listSuggestions as dbListSuggestions,
+  createSuggestion as dbCreateSuggestion,
+  setSuggestionSponsor,
+  getSuggestionSponsorsMap,
+  setSuggestionProposer,
+  getSuggestionProposersMap,
+  getSuggestionVagueMap,
+  addSuggestionEndorsement,
+  getSuggestionEndorsementsMap,
+} from '@/server/db/queries';
 import { requireTeamUser } from '@/lib/server/session';
 
 export const runtime = 'nodejs';
@@ -16,6 +26,9 @@ export type Suggestion = {
   status?: 'draft' | 'open' | 'accepted' | 'rejected';
   resolvedAt?: string;
   sponsorTeam?: string;
+  proposerTeam?: string;
+  vague?: boolean;
+  endorsers?: string[];
 };
 
 const DATA_PATH = path.join(process.cwd(), 'data', 'suggestions.json');
@@ -71,7 +84,7 @@ async function readSuggestionsLocalAll(): Promise<Suggestion[]> {
   return Object.values(out);
 }
 
-export async function GET(_req: Request) {
+export async function GET() {
   // legacy params ignored
   try {
     const rows = await dbListSuggestions();
@@ -92,6 +105,27 @@ export async function GET(_req: Request) {
           items = items.map((it) => ({ ...it, sponsorTeam: dbMap[it.id] || it.sponsorTeam }));
         }
       } catch {}
+      // Overlay proposers from DB column if present
+      try {
+        const pmap = await getSuggestionProposersMap();
+        if (pmap && Object.keys(pmap).length > 0) {
+          items = items.map((it) => ({ ...it, proposerTeam: pmap[it.id] || it.proposerTeam }));
+        }
+      } catch {}
+      // Overlay vague flags
+      try {
+        const vmap = await getSuggestionVagueMap();
+        if (vmap && Object.keys(vmap).length > 0) {
+          items = items.map((it) => ({ ...it, vague: vmap[it.id] ?? it.vague }));
+        }
+      } catch {}
+      // Overlay endorsements array
+      try {
+        const emap = await getSuggestionEndorsementsMap();
+        if (emap && Object.keys(emap).length > 0) {
+          items = items.map((it) => ({ ...it, endorsers: emap[it.id] || it.endorsers }));
+        }
+      } catch {}
       // Overlay sponsor teams from KV map if present
       try {
         const kv = await getKV();
@@ -106,9 +140,18 @@ export async function GET(_req: Request) {
       // Fallback: overlay sponsorTeam from local suggestions if KV not populated
       try {
         const local = await readSuggestionsLocalAll();
-        const lmap: Record<string, string | undefined> = {};
-        for (const it of local) if (it && it.id) lmap[it.id] = it.sponsorTeam;
-        if (Object.keys(lmap).length > 0) items = items.map((it) => ({ ...it, sponsorTeam: it.sponsorTeam || lmap[it.id] }));
+        const smap: Record<string, string | undefined> = {};
+        const pmap: Record<string, string | undefined> = {};
+        const vmap: Record<string, boolean | undefined> = {};
+        type LegacyLocal = Suggestion & { proposerTeam?: string; vague?: boolean };
+        for (const it of local as LegacyLocal[]) if (it && it.id) {
+          smap[it.id] = it.sponsorTeam;
+          pmap[it.id] = it.proposerTeam;
+          vmap[it.id] = typeof it.vague === 'boolean' ? it.vague : undefined;
+        }
+        if (Object.keys(smap).length > 0) items = items.map((it) => ({ ...it, sponsorTeam: it.sponsorTeam || smap[it.id] }));
+        if (Object.keys(pmap).length > 0) items = items.map((it) => ({ ...it, proposerTeam: it.proposerTeam || pmap[it.id] }));
+        if (Object.keys(vmap).length > 0) items = items.map((it) => ({ ...it, vague: it.vague ?? vmap[it.id] }));
       } catch {}
       return Response.json(items);
     }
@@ -169,10 +212,14 @@ export async function POST(request: Request) {
     };
     // If endorsing and authenticated, attach sponsorTeam via KV map
     let sponsorTeam: string | undefined;
+    let proposerTeam: string | undefined;
     if (endorse) {
       try {
         const ident = await requireTeamUser();
-        if (ident && ident.team) sponsorTeam = ident.team;
+        if (ident && ident.team) {
+          sponsorTeam = ident.team;
+          proposerTeam = ident.team; // reveal proposer only when they opt-in by endorsing
+        }
       } catch {}
     }
     // DB first
@@ -188,12 +235,21 @@ export async function POST(request: Request) {
       const items = await readSuggestions();
       // persist sponsorTeam too when present
       if (sponsorTeam) item.sponsorTeam = sponsorTeam;
+      if (proposerTeam) item.proposerTeam = proposerTeam;
       items.push(item);
       await writeSuggestions(items);
     } catch {}
     // Persist sponsor in DB (authoritative)
     try {
       if (sponsorTeam && item.id) await setSuggestionSponsor(item.id, sponsorTeam);
+    } catch {}
+    // Persist proposer in DB (authoritative)
+    try {
+      if (proposerTeam && item.id) await setSuggestionProposer(item.id, proposerTeam);
+    } catch {}
+    // Add endorsement record for endorsing team
+    try {
+      if (sponsorTeam && item.id) await addSuggestionEndorsement(item.id, sponsorTeam);
     } catch {}
     // Record sponsor team in KV map (best-effort caching)
     try {

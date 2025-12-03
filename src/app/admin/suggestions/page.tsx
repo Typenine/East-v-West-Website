@@ -14,6 +14,9 @@ type Suggestion = {
   status?: 'draft' | 'open' | 'accepted' | 'rejected';
   resolvedAt?: string | null;
   sponsorTeam?: string | null;
+  proposerTeam?: string | null;
+  vague?: boolean;
+  endorsers?: string[];
 };
 
 type VotesMap = Record<string, { up: string[]; down: string[] }>; // suggestionId -> { up, down }
@@ -76,8 +79,13 @@ export default function AdminSuggestionsPage() {
                 const v = votes[s.id] || { up: [], down: [] };
                 const isAccepted = s.status === 'accepted';
                 const sponsorStyle = s.sponsorTeam ? getTeamColorStyle(s.sponsorTeam) : null;
+                const isVague = Boolean(s.vague);
+                const liStyle: React.CSSProperties | undefined = {
+                  ...(isAccepted ? { boxShadow: 'inset 0 0 0 2px #16a34a33' } : {}),
+                  ...(isVague ? { boxShadow: `${isAccepted ? 'inset 0 0 0 2px #16a34a33,' : ''} inset 0 0 0 2px #f59e0b55` } : {}),
+                };
                 return (
-                  <li key={s.id} className="evw-surface border border-[var(--border)] rounded-[var(--radius-card)] p-4" style={isAccepted ? { boxShadow: 'inset 0 0 0 2px #16a34a33' } : undefined}>
+                  <li key={s.id} className="evw-surface border border-[var(--border)] rounded-[var(--radius-card)] p-4" style={liStyle}>
                     <div className="flex items-center justify-between mb-2">
                       <div className="text-sm text-[var(--muted)]">
                         {new Date(s.createdAt).toLocaleString(undefined, {
@@ -85,19 +93,37 @@ export default function AdminSuggestionsPage() {
                           hour: 'numeric', minute: '2-digit'
                         })}
                       </div>
-                      {s.category && (
-                        <span className="text-xs px-2 py-0.5 rounded-full border border-[var(--border)] evw-surface text-[var(--text)]">{s.category}</span>
-                      )}
+                      <div className="flex items-center gap-2">
+                        {s.category && (
+                          <span className="text-xs px-2 py-0.5 rounded-full border border-[var(--border)] evw-surface text-[var(--text)]">{s.category}</span>
+                        )}
+                        {isVague && (
+                          <span className="text-xs px-2 py-0.5 rounded-full border" style={{ borderColor: '#f59e0b', color: '#f59e0b' }}>VAGUE</span>
+                        )}
+                      </div>
                     </div>
                     <p className="whitespace-pre-wrap mb-2">{isAccepted ? '✅ ' : ''}{s.content}</p>
                     {isAccepted && (
                       <div className="mb-3 text-xs text-[var(--muted)]">Marked added{ s.resolvedAt ? ` on ${new Date(s.resolvedAt).toLocaleDateString()}` : '' }</div>
                     )}
-                    {s.sponsorTeam && (
-                      <div className="mb-3">
-                        <span className="text-xs px-2 py-0.5 rounded-full border" style={{ borderColor: sponsorStyle?.backgroundColor as string, color: sponsorStyle?.backgroundColor as string }}>
-                          Endorsed by {s.sponsorTeam}
-                        </span>
+                    {(s.proposerTeam || (s.endorsers && s.endorsers.length > 0) || s.sponsorTeam) && (
+                      <div className="mb-3 flex flex-wrap gap-2 items-center">
+                        {s.proposerTeam && (
+                          <span className="text-xs px-2 py-0.5 rounded-full border" style={{ borderColor: getTeamColorStyle(s.proposerTeam)?.backgroundColor as string, color: getTeamColorStyle(s.proposerTeam)?.backgroundColor as string }}>
+                            Proposed by {s.proposerTeam}
+                          </span>
+                        )}
+                        {(s.endorsers && s.endorsers.length > 0) && (
+                          <span className="text-xs text-[var(--muted)]">Endorsed by</span>
+                        )}
+                        {s.endorsers?.map((t) => (
+                          <span key={t} className="text-xs px-2 py-0.5 rounded-full border" style={{ borderColor: getTeamColorStyle(t)?.backgroundColor as string, color: getTeamColorStyle(t)?.backgroundColor as string }}>{t}</span>
+                        ))}
+                        {!s.endorsers?.length && s.sponsorTeam && (
+                          <span className="text-xs px-2 py-0.5 rounded-full border" style={{ borderColor: sponsorStyle?.backgroundColor as string, color: sponsorStyle?.backgroundColor as string }}>
+                            Endorsed by {s.sponsorTeam}
+                          </span>
+                        )}
                       </div>
                     )}
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -158,6 +184,23 @@ export default function AdminSuggestionsPage() {
                           ))}
                         </select>
                       </label>
+                      <button
+                        className="text-sm px-3 py-1 rounded border border-[var(--border)]"
+                        disabled={busy === s.id}
+                        onClick={async () => {
+                          setBusy(s.id);
+                          try {
+                            const r = await fetch('/api/admin/suggestions', {
+                              method: 'PUT',
+                              credentials: 'include',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ id: s.id, vague: !s.vague })
+                            });
+                            if (r.ok) setItems((prev) => prev.map((it) => it.id === s.id ? ({ ...it, vague: !s.vague }) : it));
+                          } finally { setBusy(null); }
+                        }}
+                        title={s.vague ? 'Clear VAGUE' : 'Mark VAGUE'}
+                      >{s.vague ? 'Clear VAGUE' : 'Mark VAGUE'}</button>
                       {isAccepted ? (
                         <button
                           className="text-sm px-3 py-1 rounded border border-[var(--border)]"

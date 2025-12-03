@@ -17,6 +17,9 @@ type Suggestion = {
   status?: 'draft' | 'open' | 'accepted' | 'rejected';
   resolvedAt?: string;
   sponsorTeam?: string;
+  proposerTeam?: string;
+  vague?: boolean;
+  endorsers?: string[];
 };
 
 type Tallies = Record<string, { up: number; down: number }>;
@@ -37,6 +40,7 @@ export default function SuggestionsPage() {
   const [adminVotes, setAdminVotes] = useState<Record<string, { up: string[]; down: string[] }>>({});
   const [myVotes, setMyVotes] = useState<Record<string, 1 | -1>>({});
   const [endorse, setEndorse] = useState(false);
+  const [endorseBusy, setEndorseBusy] = useState<string | null>(null);
 
   async function load() {
     try {
@@ -225,10 +229,13 @@ export default function SuggestionsPage() {
                     const style = s.sponsorTeam ? getTeamColorStyle(s.sponsorTeam) : null;
                     const secondary = s.sponsorTeam ? getTeamColorStyle(s.sponsorTeam, 'secondary') : null;
                     const isAccepted = s.status === 'accepted';
+                    const isVague = Boolean(s.vague);
                     const liStyle: React.CSSProperties | undefined = {
                       ...(style ? { borderLeftColor: (secondary?.backgroundColor as string), borderLeftWidth: 4, borderLeftStyle: 'solid' } : {}),
                       ...(isAccepted ? { boxShadow: 'inset 0 0 0 2px #16a34a33' } : {}),
+                      ...(isVague ? { boxShadow: `${isAccepted ? 'inset 0 0 0 2px #16a34a33,' : ''} inset 0 0 0 2px #f59e0b55` } : {}),
                     };
+                    const myEndorsed = !!(auth && myTeam && s.endorsers && s.endorsers.includes(myTeam));
                     return (
                     <li key={s.id} className="evw-surface border border-[var(--border)] rounded-[var(--radius-card)] p-4" style={liStyle}>
                       <div className="flex items-center justify-between mb-2">
@@ -238,19 +245,37 @@ export default function SuggestionsPage() {
                             hour: 'numeric', minute: '2-digit'
                           })}
                         </span>
-                        {s.category && (
-                          <span className="text-xs px-2 py-0.5 rounded-full border border-[var(--border)] evw-surface text-[var(--text)]">{s.category}</span>
-                        )}
+                        <div className="flex items-center gap-2">
+                          {s.category && (
+                            <span className="text-xs px-2 py-0.5 rounded-full border border-[var(--border)] evw-surface text-[var(--text)]">{s.category}</span>
+                          )}
+                          {isVague && (
+                            <span className="text-xs px-2 py-0.5 rounded-full border" style={{ borderColor: '#f59e0b', color: '#f59e0b' }}>VAGUE</span>
+                          )}
+                        </div>
                       </div>
                       <p className="whitespace-pre-wrap text-[var(--text)]">{isAccepted ? '✅ ' : ''}{s.content}</p>
                       {isAccepted && (
                         <div className="mt-1 text-xs text-[var(--muted)]">Marked added{s.resolvedAt ? ` on ${new Date(s.resolvedAt).toLocaleDateString()}` : ''}</div>
                       )}
-                      {s.sponsorTeam && (
-                        <div className="mt-2">
-                          <span className="text-xs px-2 py-0.5 rounded-full border" style={{ borderColor: (style?.backgroundColor as string), color: (style?.backgroundColor as string) }}>
-                            Endorsed by {s.sponsorTeam}
-                          </span>
+                      {(s.proposerTeam || (s.endorsers && s.endorsers.length > 0) || s.sponsorTeam) && (
+                        <div className="mt-2 flex flex-wrap gap-2 items-center">
+                          {s.proposerTeam && (
+                            <span className="text-xs px-2 py-0.5 rounded-full border" style={{ borderColor: getTeamColorStyle(s.proposerTeam)?.backgroundColor as string, color: getTeamColorStyle(s.proposerTeam)?.backgroundColor as string }}>
+                              Proposed by {s.proposerTeam}
+                            </span>
+                          )}
+                          {s.endorsers && s.endorsers.length > 0 && (
+                            <span className="text-xs text-[var(--muted)]">Endorsed by</span>
+                          )}
+                          {s.endorsers?.map((t) => (
+                            <span key={t} className="text-xs px-2 py-0.5 rounded-full border" style={{ borderColor: getTeamColorStyle(t)?.backgroundColor as string, color: getTeamColorStyle(t)?.backgroundColor as string }}>{t}</span>
+                          ))}
+                          {!s.endorsers?.length && s.sponsorTeam && (
+                            <span className="text-xs px-2 py-0.5 rounded-full border" style={{ borderColor: (style?.backgroundColor as string), color: (style?.backgroundColor as string) }}>
+                              Endorsed by {s.sponsorTeam}
+                            </span>
+                          )}
                         </div>
                       )}
                       <div className="mt-3 flex items-center gap-3">
@@ -274,6 +299,40 @@ export default function SuggestionsPage() {
                               disabled={!auth}
                               variant={myVotes[s.id] === -1 ? 'danger' : 'ghost'}
                             >👎</Button>
+                            <Button
+                              type="button"
+                              onClick={async () => {
+                                if (!auth || !myTeam) return;
+                                setEndorseBusy(s.id);
+                                try {
+                                  const res = await fetch('/api/me/suggestions/endorse', {
+                                    method: 'PUT',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    credentials: 'include',
+                                    body: JSON.stringify({ suggestionId: s.id, endorse: !myEndorsed }),
+                                  });
+                                  if (res.ok) {
+                                    setItems((prev) => prev.map((it) => {
+                                      if (it.id !== s.id) return it;
+                                      const arr = Array.isArray(it.endorsers) ? [...it.endorsers] : [];
+                                      if (!myEndorsed) {
+                                        if (!arr.includes(myTeam)) arr.push(myTeam);
+                                      } else {
+                                        const idx = arr.indexOf(myTeam);
+                                        if (idx >= 0) arr.splice(idx, 1);
+                                      }
+                                      return { ...it, endorsers: arr } as Suggestion;
+                                    }));
+                                  }
+                                } finally {
+                                  setEndorseBusy(null);
+                                }
+                              }}
+                              disabled={!auth || endorseBusy === s.id}
+                              variant={myEndorsed ? 'primary' : 'ghost'}
+                              aria-label={myEndorsed ? 'Unendorse' : 'Endorse'}
+                              title={myEndorsed ? 'Unendorse this suggestion' : 'Endorse this suggestion'}
+                            >⭐</Button>
                           </div>
                         )}
                       </div>
