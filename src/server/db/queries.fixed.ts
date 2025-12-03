@@ -170,11 +170,13 @@ export async function getSuggestionVagueMap(): Promise<Record<string, boolean>> 
     await ensureSuggestionVagueColumn();
     const db = getDb();
     const res = await db.execute(sql`SELECT id::text AS id, vague FROM suggestions`);
-    const rawRows = (res as unknown as { rows?: Array<{ id: string; vague: number }> }).rows || [];
-    for (const r of rawRows) {
+    const rawRows = (res as unknown as { rows?: Array<{ id: string; vague: number | string }> }).rows || [];
+    type Row = { id: string; vague: number | string };
+    for (const r of rawRows as Row[]) {
       const id = typeof r.id === 'string' ? r.id : '';
-      const v = typeof (r as any).vague === 'number' ? (r as any).vague : 0;
-      if (id) out[id] = v === 1;
+      const vRaw = r.vague;
+      const vNum = typeof vRaw === 'number' ? vRaw : Number(vRaw ?? 0);
+      if (id) out[id] = vNum === 1;
     }
   } catch {}
   return out;
