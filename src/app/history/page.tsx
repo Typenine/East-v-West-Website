@@ -106,11 +106,11 @@ export default function HistoryPage() {
   // Weekly Highs tab state
   const allYears = useMemo(() => {
     const prev = Object.keys(LEAGUE_IDS.PREVIOUS || {});
-    const ys = ['2025', ...prev];
+    const ys = ['2026', ...prev];
     // sort desc (most recent first)
     return ys.sort((a, b) => b.localeCompare(a));
   }, []);
-  const [weeklyTabYear, setWeeklyTabYear] = useState<string>('2025');
+  const [weeklyTabYear, setWeeklyTabYear] = useState<string>('2026');
   const [weeklyHighs, setWeeklyHighs] = useState<WeeklyHighByWeekEntry[]>([]);
   const [weeklyTabLoading, setWeeklyTabLoading] = useState(false);
   const [weeklyTabError, setWeeklyTabError] = useState<string | null>(null);
@@ -172,7 +172,7 @@ export default function HistoryPage() {
     let cancelled = false;
     async function loadPodiums() {
       try {
-        const years = ['2024', '2023'];
+        const years = ['2025', '2024', '2023'];
         const results = await Promise.all(
           years.map((y) =>
             derivePodiumFromWinnersBracketByYear(y, { signal: ac.signal, timeoutMs: DEFAULT_TIMEOUT })
@@ -204,12 +204,13 @@ export default function HistoryPage() {
   }, []);
   
   // Brackets state
-  const [bracketYear, setBracketYear] = useState('2025');
+  const [bracketYear, setBracketYear] = useState('2026');
   const [bracketLoading, setBracketLoading] = useState(false);
   const [bracketError, setBracketError] = useState<string | null>(null);
   const [winnersBracket, setWinnersBracket] = useState<SleeperBracketGameWithScore[]>([]);
   const [losersBracket, setLosersBracket] = useState<SleeperBracketGameWithScore[]>([]);
   const [bracketNameMap, setBracketNameMap] = useState<Map<number, string>>(new Map());
+  const [seedByRosterId, setSeedByRosterId] = useState<Map<number, number>>(new Map());
   // Leaderboards: playoff appearances computed from winners bracket participants per year
   const [playoffAppearances, setPlayoffAppearances] = useState<{
     ownerId: string;
@@ -226,22 +227,23 @@ export default function HistoryPage() {
       try {
         setBracketLoading(true);
         setBracketError(null);
-        const leagueId = bracketYear === '2025'
+        const leagueId = bracketYear === '2026'
           ? LEAGUE_IDS.CURRENT
           : LEAGUE_IDS.PREVIOUS[bracketYear as keyof typeof LEAGUE_IDS.PREVIOUS];
         if (!leagueId) {
           throw new Error(`No league ID configured for year ${bracketYear}`);
         }
-        const [brackets, nameMap] = await Promise.all([
+        const [brackets, nameMap, teamsForSeeds] = await Promise.all([
           getLeaguePlayoffBracketsWithScores(leagueId, { signal: ac.signal, timeoutMs: DEFAULT_TIMEOUT, forceFresh: true }),
           getRosterIdToTeamNameMap(leagueId, { signal: ac.signal, timeoutMs: DEFAULT_TIMEOUT, forceFresh: true }),
+          getTeamsData(leagueId, { signal: ac.signal, timeoutMs: DEFAULT_TIMEOUT, forceFresh: true }),
         ]);
         if (cancelled) return;
         // For current season, suppress brackets if there are no scores yet (start of season)
         const hasAnyScore = [...(brackets.winners || []), ...(brackets.losers || [])].some(
           (g) => (g.t1_points ?? null) !== null || (g.t2_points ?? null) !== null
         );
-        if (bracketYear === '2025' && !hasAnyScore) {
+        if (bracketYear === '2026' && !hasAnyScore) {
           setWinnersBracket([]);
           setLosersBracket([]);
         } else {
@@ -249,6 +251,14 @@ export default function HistoryPage() {
           setLosersBracket(brackets.losers || []);
         }
         setBracketNameMap(nameMap);
+        // Build seeds by rosterId using final regular-season standings (wins desc, then PF desc)
+        try {
+          const sorted = [...(teamsForSeeds as TeamData[])]
+            .sort((a, b) => (b.wins ?? 0) - (a.wins ?? 0) || (b.fpts ?? 0) - (a.fpts ?? 0));
+          const map = new Map<number, number>();
+          sorted.forEach((t, i) => map.set(t.rosterId, i + 1));
+          setSeedByRosterId(map);
+        } catch {}
       } catch (e) {
         if (isAbortError(e)) return;
         console.error('Error loading brackets:', e);
@@ -890,6 +900,7 @@ export default function HistoryPage() {
                   value={bracketYear}
                   onChange={(e) => setBracketYear(e.target.value)}
                 >
+                  <option value="2026">2026 Season</option>
                   <option value="2025">2025 Season</option>
                   <option value="2024">2024 Season</option>
                   <option value="2023">2023 Season</option>
@@ -923,22 +934,30 @@ export default function HistoryPage() {
                       if (rid == null) return 'BYE';
                       return bracketNameMap.get(rid) || `Roster ${rid}`;
                     };
-                    const TeamRow = ({ rid, isWinner, score }: { rid?: number | null; isWinner: boolean; score?: number | null }) => (
-                      <div className={`flex items-center justify-between gap-2 ${isWinner ? 'font-semibold text-[var(--accent)]' : ''}`}>
-                        <div className="min-w-0 flex-1">
-                          {rid != null ? (
-                            <Link href={`/teams/${rid}`} className="block truncate hover:underline" title={nameFor(rid)}>
-                              {nameFor(rid)}
-                            </Link>
-                          ) : (
-                            <span className="block truncate text-[var(--muted)]" title="BYE">BYE</span>
+                    const TeamRow = ({ rid, isWinner, score }: { rid?: number | null; isWinner: boolean; score?: number | null }) => {
+                      const nm = rid != null ? nameFor(rid) : 'BYE';
+                      const seed = rid != null ? (seedByRosterId.get(rid) ?? null) : null;
+                      const color = nm && nm !== 'BYE' ? getTeamColors(nm)?.primary : undefined;
+                      return (
+                        <div className={`flex items-center justify-between gap-2 ${isWinner ? 'font-semibold text-[var(--accent)]' : ''}`}>
+                          <div className="min-w-0 flex-1 flex items-center gap-2">
+                            {nm !== 'BYE' && rid != null ? (
+                              <Link href={`/teams/${rid}`} className="flex items-center gap-2 min-w-0 hover:underline" title={nm}>
+                                <div className="w-5 h-5 rounded-full overflow-hidden border" style={{ borderColor: color || 'var(--border)' }}>
+                                  <Image src={getTeamLogoPath(nm)} alt={nm} width={20} height={20} className="object-contain w-5 h-5" />
+                                </div>
+                                <span className="truncate">{seed ? `#${seed} ` : ''}{nm}</span>
+                              </Link>
+                            ) : (
+                              <span className="block truncate text-[var(--muted)]" title="BYE">BYE</span>
+                            )}
+                          </div>
+                          {score != null && (
+                            <span className="shrink-0 ml-2 text-xs px-1.5 py-0.5 rounded border border-[var(--border)] text-[var(--muted)]">{score.toFixed(2)}</span>
                           )}
                         </div>
-                        {score != null && (
-                          <span className="shrink-0 ml-2 text-xs px-1.5 py-0.5 rounded border border-[var(--border)] text-[var(--muted)]">{score.toFixed(2)}</span>
-                        )}
-                      </div>
-                    );
+                      );
+                    };
                     const MATCH_H = 72; // px
                     const GAP = 24; // px
                     return (
@@ -989,22 +1008,30 @@ export default function HistoryPage() {
                       if (rid == null) return 'BYE';
                       return bracketNameMap.get(rid) || `Roster ${rid}`;
                     };
-                    const TeamRow = ({ rid, isWinner, score }: { rid?: number | null; isWinner: boolean; score?: number | null }) => (
-                      <div className={`flex items-center justify-between gap-2 ${isWinner ? 'font-semibold text-[var(--accent)]' : ''}`}>
-                        <div className="min-w-0 flex-1">
-                          {rid != null ? (
-                            <Link href={`/teams/${rid}`} className="block truncate hover:underline" title={nameFor(rid)}>
-                              {nameFor(rid)}
-                            </Link>
-                          ) : (
-                            <span className="block truncate text-[var(--muted)]" title="BYE">BYE</span>
+                    const TeamRow = ({ rid, isWinner, score }: { rid?: number | null; isWinner: boolean; score?: number | null }) => {
+                      const nm = rid != null ? nameFor(rid) : 'BYE';
+                      const seed = rid != null ? (seedByRosterId.get(rid) ?? null) : null;
+                      const color = nm && nm !== 'BYE' ? getTeamColors(nm)?.primary : undefined;
+                      return (
+                        <div className={`flex items-center justify-between gap-2 ${isWinner ? 'font-semibold text-[var(--accent)]' : ''}`}>
+                          <div className="min-w-0 flex-1 flex items-center gap-2">
+                            {nm !== 'BYE' && rid != null ? (
+                              <Link href={`/teams/${rid}`} className="flex items-center gap-2 min-w-0 hover:underline" title={nm}>
+                                <div className="w-5 h-5 rounded-full overflow-hidden border" style={{ borderColor: color || 'var(--border)' }}>
+                                  <Image src={getTeamLogoPath(nm)} alt={nm} width={20} height={20} className="object-contain w-5 h-5" />
+                                </div>
+                                <span className="truncate">{seed ? `#${seed} ` : ''}{nm}</span>
+                              </Link>
+                            ) : (
+                              <span className="block truncate text-[var(--muted)]" title="BYE">BYE</span>
+                            )}
+                          </div>
+                          {score != null && (
+                            <span className="shrink-0 ml-2 text-xs px-1.5 py-0.5 rounded border border-[var(--border)] text-[var(--muted)]">{score.toFixed(2)}</span>
                           )}
                         </div>
-                        {score != null && (
-                          <span className="shrink-0 ml-2 text-xs px-1.5 py-0.5 rounded border border-[var(--border)] text-[var(--muted)]">{score.toFixed(2)}</span>
-                        )}
-                      </div>
-                    );
+                      );
+                    };
                     const MATCH_H = 72; // px
                     const GAP = 24; // px
                     return (
