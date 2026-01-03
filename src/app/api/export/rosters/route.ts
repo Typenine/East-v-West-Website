@@ -7,6 +7,7 @@ import {
   getPlayersPPRAndPPG,
   getSleeperInjuriesCached,
   resolveAvailabilityFromSleeper,
+  getNFLState,
   type TeamData,
   type SleeperFetchOptions,
   type SleeperRoster,
@@ -18,16 +19,34 @@ import { getTeamLogoPath } from '@/lib/utils/team-utils';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-function buildYearToLeagueMap(): Record<string, string | undefined> {
-  return {
-    '2025': LEAGUE_IDS.CURRENT,
-    ...LEAGUE_IDS.PREVIOUS,
-  } as Record<string, string | undefined>;
+async function buildYearToLeagueMap(): Promise<Record<string, string | undefined>> {
+  let seasonNum = new Date().getFullYear();
+  try {
+    const st = await getNFLState();
+    const s = Number((st as { season?: string | number }).season ?? seasonNum);
+    if (Number.isFinite(s)) seasonNum = s;
+  } catch {}
+
+  const map: Record<string, string | undefined> = {};
+  // Current season
+  map[String(seasonNum)] = LEAGUE_IDS.CURRENT;
+
+  // Previous season (season - 1)
+  const prevYear = String(seasonNum - 1);
+  const prevId = (LEAGUE_IDS.PREVIOUS as Record<string, string | undefined>)[prevYear];
+  if (prevId) map[prevYear] = prevId;
+
+  // Optionally include older seasons from PREVIOUS without duplicating keys
+  for (const [y, lid] of Object.entries(LEAGUE_IDS.PREVIOUS || {})) {
+    if (map[y] === undefined) map[y] = lid;
+  }
+
+  return map;
 }
 
 export async function GET() {
   try {
-    const yearToLeague = buildYearToLeagueMap();
+    const yearToLeague = await buildYearToLeagueMap();
     const seasons = Object.keys(yearToLeague)
       .filter((season) => Boolean(yearToLeague[season]))
       .sort();

@@ -2,8 +2,9 @@
 
 // Sleeper League IDs
 export const LEAGUE_IDS = {
-  CURRENT: '1205237529570193408', // 2025
+  CURRENT: '1312872384503484416', // 2026
   PREVIOUS: {
+    '2025': '1205237529570193408',
     '2024': '1116504942988107776',
     '2023': '991521604930772992',
   }
@@ -36,11 +37,13 @@ export const IMPORTANT_DATES = {
   TRADE_DEADLINE: new Date('2025-11-24T23:45:00-05:00'),
   // Playoffs start at Week 15 kickoff (TNF)
   PLAYOFFS_START: new Date('2025-12-11T20:20:00-05:00'),
+  NEW_LEAGUE_YEAR: new Date('2026-02-08T18:30:00-05:00'),
   NEXT_DRAFT: new Date('2026-07-18T13:00:00-04:00')        // Next draft date
 };
 
 // Champions by year
 export const CHAMPIONS = {
+  '2026': { champion: 'TBD', runnerUp: 'TBD', thirdPlace: 'TBD' },
   '2025': { champion: 'TBD', runnerUp: 'TBD', thirdPlace: 'TBD' },
   '2024': { champion: 'Belltown Raptors', runnerUp: 'TBD', thirdPlace: 'TBD' },
   '2023': { champion: 'Double Trouble', runnerUp: 'TBD', thirdPlace: 'TBD' }

@@ -27,8 +27,14 @@ function pickRunType(day: string, hour: number, minute: number): 'wed_warn' | 't
   return null;
 }
 
-export async function GET() {
+async function handle(req: Request) {
   try {
+    // Require cron secret for authorization via header
+    const envSecret = process.env.CRON_SECRET;
+    const incomingSecret = req.headers.get('x-cron-secret');
+    if (!envSecret || !incomingSecret || incomingSecret !== envSecret) {
+      return Response.json({ ok: false, error: 'unauthorized' }, { status: 401 });
+    }
     const { day, hour, minute, now } = nowInET();
     const runType = pickRunType(day, hour, minute);
     if (!runType) {
@@ -103,4 +109,12 @@ export async function GET() {
   } catch {
     return Response.json({ error: 'server_error' }, { status: 500 });
   }
+}
+
+export async function GET(req: Request) {
+  return handle(req);
+}
+
+export async function POST(req: Request) {
+  return handle(req);
 }

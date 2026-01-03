@@ -11,10 +11,6 @@
     {
       "path": "/api/taxi/prune",
       "schedule": "0 3 1 * *"
-    },
-    {
-      "path": "/api/taxi/cron",
-      "schedule": "0 * * * *"
     }
   ]
 }

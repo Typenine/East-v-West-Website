@@ -6,9 +6,10 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 function getLeagueIdByYear(year: string): string | null {
-  if (year === '2025') return LEAGUE_IDS.CURRENT;
   const prev = (LEAGUE_IDS.PREVIOUS as Record<string, string | undefined>)[year];
-  return prev || null;
+  if (prev) return prev;
+  // Fallback: treat any non-previous year as current season
+  return LEAGUE_IDS.CURRENT || null;
 }
 
 type Matchup = { roster_id?: number; matchup_id?: number; starters?: string[]; players?: string[]; points?: number; custom_points?: number };
@@ -16,7 +17,7 @@ type Matchup = { roster_id?: number; matchup_id?: number; starters?: string[]; p
 export async function GET() {
   try {
     const state = await getNFLState();
-    const season = String(state.season || '2025');
+    const season = String(state.season || new Date().getFullYear());
     const leagueId = getLeagueIdByYear(season);
     if (!leagueId) return Response.json({ error: 'no_league' }, { status: 400 });
 
