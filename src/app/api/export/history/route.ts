@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { LEAGUE_IDS, CHAMPIONS } from '@/lib/constants/league';
+import { CHAMPIONS } from '@/lib/constants/league';
 import {
   getFranchisesAllTime,
   getLeagueRecordBook,
@@ -19,6 +19,7 @@ import {
   type SleeperMatchup,
   type TeamData,
   type SleeperBracketGameWithScore,
+  buildYearToLeagueMapUnique,
 } from '@/lib/utils/sleeper-api';
 import { getHeadToHeadAllTime } from '@/lib/utils/headtohead';
 
@@ -27,8 +28,9 @@ export const dynamic = 'force-dynamic';
 
 export async function GET() {
   try {
-    const seasons = ['2025', ...Object.keys(LEAGUE_IDS.PREVIOUS || {})].sort();
     const optsCached: SleeperFetchOptions = { timeoutMs: 20000 };
+    const yearToLeague = await buildYearToLeagueMapUnique(optsCached);
+    const seasons = Object.keys(yearToLeague).sort();
 
     const promises = [
       getFranchisesAllTime(optsCached),
@@ -105,10 +107,7 @@ export async function GET() {
     const matchupLogsBySeason: Record<string, MatchupLogEntry[]> = {};
 
     for (const season of seasons) {
-      const leagueId =
-        season === '2025'
-          ? LEAGUE_IDS.CURRENT
-          : LEAGUE_IDS.PREVIOUS[season as keyof typeof LEAGUE_IDS.PREVIOUS];
+      const leagueId = yearToLeague[season];
       if (!leagueId) {
         matchupLogsBySeason[season] = [];
         weeklyHighsBySeasonLocal[season] = [];

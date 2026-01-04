@@ -24,10 +24,7 @@ export interface SleeperFetchOptions {
 export async function getAllLeagueTransactions(options?: SleeperFetchOptions): Promise<Record<string, SleeperTransaction[]>> {
   try {
     const transactionsByYear: Record<string, SleeperTransaction[]> = {};
-    const yearToLeague: Record<string, string> = {
-      '2025': LEAGUE_IDS.CURRENT,
-      ...LEAGUE_IDS.PREVIOUS,
-    };
+    const yearToLeague = await buildYearToLeagueMapUnique(options);
     for (const [year, leagueId] of Object.entries(yearToLeague)) {
       const transactions = await getLeagueTransactionsAllWeeks(leagueId, options);
       transactionsByYear[year] = transactions;
@@ -91,11 +88,8 @@ export async function getWeeklyHighsBySeason(
   season: string,
   options?: SleeperFetchOptions
 ): Promise<WeeklyHighByWeekEntry[]> {
-  const yearToLeague: Record<string, string> = {
-    '2025': LEAGUE_IDS.CURRENT,
-    ...LEAGUE_IDS.PREVIOUS,
-  };
-  const leagueId = yearToLeague[season];
+  const y2l = await buildYearToLeagueMapUnique(options);
+  const leagueId = y2l[season];
   if (!leagueId) return [];
 
   const rosters = await getLeagueRosters(leagueId, options);
@@ -327,13 +321,37 @@ export async function getNFLState(ttlMs: number = NFL_STATE_TTL_DEFAULT, options
 }
 
 /**
+ * Build a dynamic, unique mapping of season year -> leagueId.
+ * - Current season resolves to LEAGUE_IDS.CURRENT
+ * - Previous season (current-1) resolves from LEAGUE_IDS.PREVIOUS when available
+ * - Older seasons from PREVIOUS are included only if not already present
+ */
+export async function buildYearToLeagueMapUnique(options?: SleeperFetchOptions): Promise<Record<string, string>> {
+  let seasonNum = new Date().getFullYear();
+  try {
+    const st = await getNFLState(undefined, options);
+    const s = Number((st as { season?: string | number }).season ?? seasonNum);
+    if (Number.isFinite(s)) seasonNum = s;
+  } catch {}
+
+  const map: Record<string, string> = {};
+  if (LEAGUE_IDS.CURRENT) map[String(seasonNum)] = LEAGUE_IDS.CURRENT;
+
+  const prevMap = LEAGUE_IDS.PREVIOUS as Record<string, string | undefined>;
+  const prevYear = String(seasonNum - 1);
+  if (prevMap?.[prevYear]) map[prevYear] = prevMap[prevYear] as string;
+
+  for (const [y, lid] of Object.entries(prevMap || {})) {
+    if (!(y in map) && lid) map[y] = lid;
+  }
+  return map;
+}
+
+/**
  * Get all unique owner IDs that have participated across configured seasons
  */
 export async function getAllOwnerIdsAcrossSeasons(options?: SleeperFetchOptions): Promise<string[]> {
-  const yearToLeague: Record<string, string> = {
-    '2025': LEAGUE_IDS.CURRENT,
-    ...LEAGUE_IDS.PREVIOUS,
-  };
+  const yearToLeague = await buildYearToLeagueMapUnique(options);
   const ownerSet = new Set<string>();
   for (const leagueId of Object.values(yearToLeague)) {
     if (!leagueId) continue;
@@ -453,10 +471,7 @@ export interface LeagueRecordBook {
  * Compute league record book across all seasons using weekly matchups
  */
 export async function getLeagueRecordBook(options?: SleeperFetchOptions): Promise<LeagueRecordBook> {
-  const yearToLeague: Record<string, string> = {
-    '2025': LEAGUE_IDS.CURRENT,
-    ...LEAGUE_IDS.PREVIOUS,
-  };
+  const yearToLeague = await buildYearToLeagueMapUnique(options);
 
   let highestScoringGame: LeagueRecordBook['highestScoringGame'] = null;
   let lowestScoringGame: LeagueRecordBook['lowestScoringGame'] = null;
@@ -622,10 +637,7 @@ export async function getWeeklyHighScoreTallyAcrossSeasons(
   params?: { tuesdayFlip?: boolean },
   options?: SleeperFetchOptions
 ): Promise<Record<string, number>> {
-  const yearToLeague: Record<string, string> = {
-    '2025': LEAGUE_IDS.CURRENT,
-    ...LEAGUE_IDS.PREVIOUS,
-  };
+  const yearToLeague = await buildYearToLeagueMapUnique(options);
 
   const tally: Record<string, number> = {};
 
@@ -740,10 +752,7 @@ export interface SplitRecord {
 export async function getSplitRecordsAllTime(
   options?: SleeperFetchOptions
 ): Promise<Record<string, { teamName: string; regular: SplitRecord; playoffs: SplitRecord; toilet: SplitRecord }>> {
-  const yearToLeague: Record<string, string> = {
-    '2025': LEAGUE_IDS.CURRENT,
-    ...LEAGUE_IDS.PREVIOUS,
-  };
+  const yearToLeague = await buildYearToLeagueMapUnique(options);
 
   const agg: Record<string, { teamName: string; regular: SplitRecord; playoffs: SplitRecord; toilet: SplitRecord }> = {};
 
@@ -891,10 +900,7 @@ export async function getTopScoringWeeksAllTime(
   options?: SleeperFetchOptions
 ): Promise<TopScoringWeekEntry[]> {
   const { category, top = 10 } = params;
-  const yearToLeague: Record<string, string> = {
-    '2025': LEAGUE_IDS.CURRENT,
-    ...LEAGUE_IDS.PREVIOUS,
-  };
+  const yearToLeague = await buildYearToLeagueMapUnique(options);
 
   const rows: TopScoringWeekEntry[] = [];
 
@@ -1016,10 +1022,7 @@ export async function getTopScoringWeeksByOwner(
 ): Promise<TeamTopWeek[]> {
   const { top = 5, category = 'all', sort = 'desc' } = params || {};
 
-  const yearToLeague: Record<string, string> = {
-    '2025': LEAGUE_IDS.CURRENT,
-    ...LEAGUE_IDS.PREVIOUS,
-  };
+  const yearToLeague = await buildYearToLeagueMapUnique(options);
 
   const rows: TeamTopWeek[] = [];
 
@@ -1113,10 +1116,7 @@ export async function getTeamAllTimeStatsByOwner(ownerId: string, options?: Slee
   lowestScore: number;
 }> {
   try {
-    const yearToLeague: Record<string, string> = {
-      '2025': LEAGUE_IDS.CURRENT,
-      ...LEAGUE_IDS.PREVIOUS,
-    };
+    const yearToLeague = await buildYearToLeagueMapUnique(options);
 
     let wins = 0;
     let losses = 0;
@@ -1219,10 +1219,7 @@ export async function getTeamAllTimeStatsByOwner(ownerId: string, options?: Slee
  */
 export async function getTeamH2HRecordsAllTimeByOwner(ownerId: string, options?: SleeperFetchOptions): Promise<Record<string, { wins: number; losses: number; ties: number }>> {
   try {
-    const yearToLeague: Record<string, string> = {
-      '2025': LEAGUE_IDS.CURRENT,
-      ...LEAGUE_IDS.PREVIOUS,
-    };
+    const yearToLeague = await buildYearToLeagueMapUnique(options);
 
     const h2h: Record<string, { wins: number; losses: number; ties: number }> = {};
 
@@ -2155,10 +2152,7 @@ export async function getAllLeagueTrades(options?: SleeperFetchOptions): Promise
     const tradesByYear: Record<string, SleeperTransaction[]> = {};
     
     // Build a map of year -> leagueId across current and previous seasons
-    const yearToLeague: Record<string, string> = {
-      '2025': LEAGUE_IDS.CURRENT,
-      ...LEAGUE_IDS.PREVIOUS,
-    };
+    const yearToLeague = await buildYearToLeagueMapUnique(options);
     // Process each league year
     for (const [year, leagueId] of Object.entries(yearToLeague)) {
       const trades = await getLeagueTrades(leagueId, options);

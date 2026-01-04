@@ -1,5 +1,5 @@
 import { LEAGUE_IDS } from '@/lib/constants/league';
-import { SleeperTransaction, SleeperDraftPick, getLeagueTrades, getLeagueRosters, getAllPlayers, getRosterIdToTeamNameMap, getLeagueDrafts, getDraftById, getDraftPicks, getAllLeagueTrades } from '@/lib/utils/sleeper-api';
+import { SleeperTransaction, SleeperDraftPick, getLeagueTrades, getLeagueRosters, getAllPlayers, getRosterIdToTeamNameMap, getLeagueDrafts, getDraftById, getDraftPicks, getAllLeagueTrades, buildYearToLeagueMapUnique } from '@/lib/utils/sleeper-api';
 
 // Define trade types
 export type TradeAsset = {
@@ -40,10 +40,7 @@ export const fetchTradesAllTime = async (): Promise<Trade[]> => {
     const transactionsByYear = await getAllLeagueTrades();
 
     // Map year -> leagueId like sleeper-api does internally
-    const yearToLeague: Record<string, string> = {
-      '2025': LEAGUE_IDS.CURRENT,
-      ...LEAGUE_IDS.PREVIOUS,
-    } as const;
+    const yearToLeague = await buildYearToLeagueMapUnique();
 
     for (const [year, txns] of Object.entries(transactionsByYear)) {
       const leagueId = yearToLeague[year];
@@ -689,10 +686,7 @@ export const fetchTradeById = async (id: string): Promise<Trade | null> => {
     
     // If not in cache, we need to fetch all trades and find it
     // This is inefficient but necessary since we don't know which league the trade belongs to
-    const yearToLeague: Record<string, string> = {
-      '2025': LEAGUE_IDS.CURRENT,
-      ...LEAGUE_IDS.PREVIOUS,
-    } as const;
+    const yearToLeague = await buildYearToLeagueMapUnique();
 
     for (const leagueId of Object.values(yearToLeague)) {
       const sleeperTrades = await getLeagueTrades(leagueId);

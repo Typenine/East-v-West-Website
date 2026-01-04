@@ -1,5 +1,5 @@
 import { LEAGUE_IDS } from '@/lib/constants/league';
-import { getTeamsData, getLeagueRosters, getAllPlayersCached, getLeagueTransactionsAllWeeks, getLeagueMatchups, SleeperTransaction, getNFLState, getLeagueDrafts, getDraftPicks } from '@/lib/utils/sleeper-api';
+import { getTeamsData, getLeagueRosters, getAllPlayersCached, getLeagueTransactionsAllWeeks, getLeagueMatchups, SleeperTransaction, getNFLState, getLeagueDrafts, getDraftPicks, buildYearToLeagueMapUnique } from '@/lib/utils/sleeper-api';
 import { resolveCanonicalTeamName } from '@/lib/utils/team-utils';
 import { upsertTenure, deleteTenure, markTenureActive, bulkInsertTxnCacheWithPrune, getFirstTaxiSeenForPlayer, getTaxiObservation, setTaxiObservation } from '@/server/db/queries';
 import { getObjectText } from '@/server/storage/r2';
@@ -14,7 +14,7 @@ export type TaxiValidateResult = {
 };
 
 function getLeagueIdForSeason(season: string): string | null {
-  if (season === '2025') return LEAGUE_IDS.CURRENT;
+  if (season === String(new Date().getFullYear())) return LEAGUE_IDS.CURRENT;
   const prev = (LEAGUE_IDS.PREVIOUS as Record<string, string | undefined>)[season];
   return prev || null;
 }
@@ -54,7 +54,7 @@ export async function validateTaxiForRoster(selectedSeason: string, selectedRost
   // starters/reserve used only for same-week inconsistencies which we no longer flag
 
   // Seed txn_cache + tenures from transactions across seasons for this franchise
-  const yearToLeague: Record<string, string> = { '2025': LEAGUE_IDS.CURRENT, ...(LEAGUE_IDS.PREVIOUS as Record<string, string>) };
+  const yearToLeague = await buildYearToLeagueMapUnique();
   const seasons = Object.keys(yearToLeague).sort();
   const rosterIdBySeason = new Map<string, number>();
   for (const y of seasons) {

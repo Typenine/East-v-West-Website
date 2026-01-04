@@ -1,5 +1,4 @@
-import { LEAGUE_IDS } from '@/lib/constants/league';
-import { getTeamsData, getLeagueMatchups, getLeagueTransactionsAllWeeks, getAllPlayersCached, SleeperTransaction, getLeagueRosters, getNFLState } from '@/lib/utils/sleeper-api';
+import { getTeamsData, getLeagueMatchups, getLeagueTransactionsAllWeeks, getAllPlayersCached, SleeperTransaction, getLeagueRosters, getNFLState, buildYearToLeagueMapUnique } from '@/lib/utils/sleeper-api';
 import { getObjectText } from '@/server/storage/r2';
 import { resolveCanonicalTeamName } from '@/lib/utils/team-utils';
 
@@ -31,7 +30,8 @@ export type TaxiAnalysis = {
  *   and have not left the franchise in between (carries across seasons).
  */
 export async function computeTaxiAnalysisForRoster(selectedSeason: string, selectedRosterId: number): Promise<TaxiAnalysis | null> {
-  const leagueId = selectedSeason === '2025' ? LEAGUE_IDS.CURRENT : LEAGUE_IDS.PREVIOUS[selectedSeason as keyof typeof LEAGUE_IDS.PREVIOUS];
+  const yearToLeague = await buildYearToLeagueMapUnique();
+  const leagueId = yearToLeague[selectedSeason] || null;
   if (!leagueId) return null;
 
   // Resolve the franchise owner and canonical team name from selected season
@@ -42,7 +42,6 @@ export async function computeTaxiAnalysisForRoster(selectedSeason: string, selec
   const canonicalName = resolveCanonicalTeamName({ ownerId });
 
   // Build mapping of season -> rosterId for this franchise using canonical name
-  const yearToLeague: Record<string, string> = { '2025': LEAGUE_IDS.CURRENT, ...LEAGUE_IDS.PREVIOUS } as const;
   const seasons: string[] = Object.keys(yearToLeague).sort();
   const rosterIdBySeason = new Map<string, number>();
   // Optional snapshot loader to include reserve (IR) per week if an admin created a snapshot
