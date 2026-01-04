@@ -204,7 +204,7 @@ export default function HistoryPage() {
   }, []);
   
   // Brackets state
-  const [bracketYear, setBracketYear] = useState('2026');
+  const [bracketYear, setBracketYear] = useState('2025');
   const [bracketLoading, setBracketLoading] = useState(false);
   const [bracketError, setBracketError] = useState<string | null>(null);
   const [winnersBracket, setWinnersBracket] = useState<SleeperBracketGameWithScore[]>([]);

@@ -3,7 +3,7 @@ import Link from 'next/link';
 import CountdownTimer from '@/components/ui/countdown-timer';
 import MatchupCard from '@/components/ui/matchup-card';
 import { IMPORTANT_DATES, LEAGUE_IDS, CHAMPIONS } from '@/lib/constants/league';
-import { getLeagueMatchups, getTeamsData, getNFLState, derivePodiumFromWinnersBracketByYear, getSeasonAwardsUsingLeagueScoring, getWeeklyHighsBySeason, getLeaguePlayoffBracketsWithScores, getRosterIdToTeamNameMap, type SleeperBracketGameWithScore, type WeeklyHighByWeekEntry } from '@/lib/utils/sleeper-api';
+import { getLeagueMatchups, getTeamsData, getNFLState, derivePodiumFromWinnersBracketByYear, getSeasonAwardsUsingLeagueScoring, getWeeklyHighsBySeason, getLeaguePlayoffBracketsWithScores, getRosterIdToTeamNameMap, buildYearToLeagueMapUnique, type SleeperBracketGameWithScore, type WeeklyHighByWeekEntry } from '@/lib/utils/sleeper-api';
 import EmptyState from '@/components/ui/empty-state';
 import SectionHeader from '@/components/ui/SectionHeader';
 import LinkButton from '@/components/ui/LinkButton';
@@ -18,7 +18,8 @@ import { getTeamLogoPath, getTeamColors } from '@/lib/utils/team-utils';
 export const revalidate = 20; // ISR: refresh at most every 20s to reduce API churn and flakiness
 
 export default async function Home({ searchParams }: { searchParams?: Promise<Record<string, string | string[] | undefined>> }) {
-  const leagueId = LEAGUE_IDS.CURRENT;
+  let leagueId = LEAGUE_IDS.CURRENT;
+  let yearMap: Record<string, string> = {};
   const currentWeekMatchups: Array<{
     homeTeam: string;
     awayTeam: string;
@@ -46,23 +47,30 @@ export default async function Home({ searchParams }: { searchParams?: Promise<Re
   const hasUserOverride = Number.isFinite(requestedWeekNum) && requestedWeekNum >= 1 && requestedWeekNum <= MAX_REGULAR_WEEKS;
   let selectedWeek = 1;
   try {
-    // Get current NFL state and teams in parallel
-    const [nflState, teams] = await Promise.all([
-      getNFLState().catch(() => ({ week: 1, display_week: 1, season_type: 'regular' })),
-      getTeamsData(leagueId).catch(() => [] as Array<{ rosterId: number; teamName: string }>),
-    ]);
+    // Get current NFL state first, then resolve the active league ID dynamically for that season
+    const nflState = await getNFLState().catch(() => ({ week: 1, display_week: 1, season_type: 'regular' }));
     const seasonType = (nflState as { season_type?: string }).season_type ?? 'regular';
     seasonTypeStr = seasonType;
     const hasScores = (nflState as { season_has_scores?: boolean }).season_has_scores;
     seasonYear = String((nflState as { season?: string | number }).season ?? seasonYear);
+    try {
+      yearMap = await buildYearToLeagueMapUnique().catch(() => ({} as Record<string, string>));
+      leagueId = yearMap[seasonYear] || leagueId;
+    } catch {}
+    const teams = await getTeamsData(leagueId).catch(() => [] as Array<{ rosterId: number; teamName: string }>);
     const week1Ts = new Date(IMPORTANT_DATES.NFL_WEEK_1_START).getTime();
-    const beforeWeek1 = Number.isFinite(week1Ts) && Date.now() < week1Ts;
-    isRegularSeason = seasonType === 'regular' && !beforeWeek1;
-    isPlayoffs = seasonTypeStr === 'post';
+    const playoffsStartTs = new Date(IMPORTANT_DATES.PLAYOFFS_START).getTime();
+    const newYearTs = new Date(IMPORTANT_DATES.NEW_LEAGUE_YEAR).getTime();
+    const now = new Date();
+    const nowTs = now.getTime();
+    const beforeWeek1 = Number.isFinite(week1Ts) && nowTs < week1Ts;
+    const afterPlayoffsStart = Number.isFinite(playoffsStartTs) && nowTs >= playoffsStartTs;
+    const withinSeasonWindow = Number.isFinite(newYearTs) && nowTs < (newYearTs + 48 * 60 * 60 * 1000);
+    isPlayoffs = seasonTypeStr === 'post' || (afterPlayoffsStart && withinSeasonWindow);
+    isRegularSeason = seasonType === 'regular' && !beforeWeek1 && !afterPlayoffsStart;
     if (!isRegularSeason || hasScores === false) {
       defaultWeek = 1;
     } else {
-      const now = new Date();
       const dowET = new Intl.DateTimeFormat('en-US', { weekday: 'short', timeZone: 'America/New_York' }).format(now);
       const raw = Number(((nflState as { week?: number }).week ?? (nflState as { display_week?: number }).display_week ?? 1));
       const baseWeek = Number.isFinite(raw) ? raw : 1;
@@ -136,6 +144,16 @@ export default async function Home({ searchParams }: { searchParams?: Promise<Re
     }
   } catch {
     // If Sleeper data isn't available yet, render with empty state below
+    const now = new Date();
+    const nowTs = now.getTime();
+    const week1Ts = new Date(IMPORTANT_DATES.NFL_WEEK_1_START).getTime();
+    const playoffsStartTs = new Date(IMPORTANT_DATES.PLAYOFFS_START).getTime();
+    const newYearTs = new Date(IMPORTANT_DATES.NEW_LEAGUE_YEAR).getTime();
+    const beforeWeek1 = Number.isFinite(week1Ts) && nowTs < week1Ts;
+    const afterPlayoffsStart = Number.isFinite(playoffsStartTs) && nowTs >= playoffsStartTs;
+    const withinSeasonWindow = Number.isFinite(newYearTs) && nowTs < (newYearTs + 48 * 60 * 60 * 1000);
+    isPlayoffs = afterPlayoffsStart && withinSeasonWindow;
+    isRegularSeason = !beforeWeek1 && !afterPlayoffsStart;
   }
   // Seeds by rosterId (based on final regular-season standings for current league)
   const seedByRosterId = new Map<number, number>();
@@ -160,10 +178,10 @@ export default async function Home({ searchParams }: { searchParams?: Promise<Re
   } = {};
   if (!isRegularSeason) {
     try {
-      const leagueIdRecap = seasonYear === '2025' ? leagueId : LEAGUE_IDS.PREVIOUS[seasonYear as keyof typeof LEAGUE_IDS.PREVIOUS];
+      const leagueIdRecap = yearMap[seasonYear] || LEAGUE_IDS.PREVIOUS[seasonYear as keyof typeof LEAGUE_IDS.PREVIOUS];
       const [podiumDerived, awards, weeklyHighs, recapBrackets, recapNameMap] = await Promise.all([
         derivePodiumFromWinnersBracketByYear(seasonYear).catch(() => null),
-        getSeasonAwardsUsingLeagueScoring(seasonYear, leagueId, 14).catch(() => null),
+        getSeasonAwardsUsingLeagueScoring(seasonYear, leagueIdRecap ?? leagueId, 14).catch(() => null),
         getWeeklyHighsBySeason(seasonYear).catch(() => [] as WeeklyHighByWeekEntry[]),
         leagueIdRecap ? getLeaguePlayoffBracketsWithScores(leagueIdRecap).catch(() => ({ winners: [] as SleeperBracketGameWithScore[], losers: [] as SleeperBracketGameWithScore[] })) : Promise.resolve({ winners: [] as SleeperBracketGameWithScore[], losers: [] as SleeperBracketGameWithScore[] }),
         leagueIdRecap ? getRosterIdToTeamNameMap(leagueIdRecap).catch(() => new Map<number, string>()) : Promise.resolve(new Map<number, string>()),
