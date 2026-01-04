@@ -60,13 +60,13 @@ export default async function Home({ searchParams }: { searchParams?: Promise<Re
     const teams = await getTeamsData(leagueId).catch(() => [] as Array<{ rosterId: number; teamName: string }>);
     const week1Ts = new Date(IMPORTANT_DATES.NFL_WEEK_1_START).getTime();
     const playoffsStartTs = new Date(IMPORTANT_DATES.PLAYOFFS_START).getTime();
-    const newYearTs = new Date(IMPORTANT_DATES.NEW_LEAGUE_YEAR).getTime();
     const now = new Date();
     const nowTs = now.getTime();
     const beforeWeek1 = Number.isFinite(week1Ts) && nowTs < week1Ts;
     const afterPlayoffsStart = Number.isFinite(playoffsStartTs) && nowTs >= playoffsStartTs;
-    const withinSeasonWindow = Number.isFinite(newYearTs) && nowTs < (newYearTs + 48 * 60 * 60 * 1000);
-    isPlayoffs = seasonTypeStr === 'post' || (afterPlayoffsStart && withinSeasonWindow);
+    // Playoffs are active based on NFL season state and PLAYOFFS_START.
+    // Super Bowl date does not affect playoffs/offseason gating; recap flip is driven by championship completion below.
+    isPlayoffs = (seasonTypeStr === 'post' || afterPlayoffsStart);
     isRegularSeason = seasonType === 'regular' && !beforeWeek1 && !afterPlayoffsStart;
     if (!isRegularSeason || hasScores === false) {
       defaultWeek = 1;
@@ -88,6 +88,31 @@ export default async function Home({ searchParams }: { searchParams?: Promise<Re
         winnersBracket = (brackets as { winners?: SleeperBracketGameWithScore[] }).winners || [];
         losersBracket = (brackets as { losers?: SleeperBracketGameWithScore[] }).losers || [];
         bracketNameMap = nameMap as Map<number, string>;
+        // If winners bracket final is decided, consider playoffs complete -> show offseason recap
+        try {
+          const byRound: Record<number, SleeperBracketGameWithScore[]> = {};
+          for (const g of winnersBracket) {
+            const r = (g as { r?: number }).r ?? 0;
+            (byRound[r] ||= []).push(g);
+          }
+          const rounds = Object.keys(byRound).map((n) => Number(n));
+          if (rounds.length > 0) {
+            const maxR = Math.max(...rounds);
+            const final = (byRound[maxR] || []).find((g) => (g as unknown as { w?: number | null }).w != null);
+            if (final) {
+              isPlayoffs = false;
+            }
+          }
+        } catch {}
+        // Fallback: derive champion directly; if present, flip to offseason
+        if (isPlayoffs) {
+          try {
+            const pod = await derivePodiumFromWinnersBracketByYear(seasonYear).catch(() => null);
+            if (pod && pod.champion && pod.champion !== 'TBD') {
+              isPlayoffs = false;
+            }
+          } catch {}
+        }
         // If the playoffs window is active but no bracket data exists, fall back to offseason recap display
         if ((winnersBracket.length === 0) && (losersBracket.length === 0)) {
           isPlayoffs = false;
@@ -423,7 +448,7 @@ export default async function Home({ searchParams }: { searchParams?: Promise<Re
         ) : isPlayoffs ? (
           <>
             <SectionHeader title="Playoff brackets" />
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
+            <div className="grid grid-cols-1 gap-6 mt-6">
               {[{ id: 'winners', title: 'Winners Bracket', data: winnersBracket }, { id: 'losers', title: 'Losers Bracket', data: losersBracket }].map((b) => (
                 <Card key={b.id}>
                   <CardContent>
