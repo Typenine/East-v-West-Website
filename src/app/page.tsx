@@ -82,14 +82,33 @@ export default async function Home({ searchParams }: { searchParams?: Promise<Re
     if (isPlayoffs) {
       try {
         const [brackets, nameMap] = await Promise.all([
-          getLeaguePlayoffBracketsWithScores(leagueId).catch(() => ({ winners: [], losers: [] })),
+          getLeaguePlayoffBracketsWithScores(leagueId, { forceFresh: true }).catch(() => ({ winners: [], losers: [] })),
           getRosterIdToTeamNameMap(leagueId).catch(() => new Map<number, string>()),
         ]);
         winnersBracket = (brackets as { winners?: SleeperBracketGameWithScore[] }).winners || [];
         losersBracket = (brackets as { losers?: SleeperBracketGameWithScore[] }).losers || [];
         bracketNameMap = nameMap as Map<number, string>;
+        // If the playoffs window is active but no bracket data exists, fall back to offseason recap display
+        if ((winnersBracket.length === 0) && (losersBracket.length === 0)) {
+          isPlayoffs = false;
+        }
       } catch {}
     }
+    }
+    // If we are in playoffs and brackets haven't been loaded (due to gating), load them now and fall back if empty
+    if (isPlayoffs && winnersBracket.length === 0 && losersBracket.length === 0) {
+      try {
+        const [brackets, nameMap] = await Promise.all([
+          getLeaguePlayoffBracketsWithScores(leagueId, { forceFresh: true }).catch(() => ({ winners: [], losers: [] })),
+          getRosterIdToTeamNameMap(leagueId).catch(() => new Map<number, string>()),
+        ]);
+        winnersBracket = (brackets as { winners?: SleeperBracketGameWithScore[] }).winners || [];
+        losersBracket = (brackets as { losers?: SleeperBracketGameWithScore[] }).losers || [];
+        bracketNameMap = nameMap as Map<number, string>;
+        if ((winnersBracket.length === 0) && (losersBracket.length === 0)) {
+          isPlayoffs = false;
+        }
+      } catch {}
     }
     // Clamp default to regular-season bounds
     defaultWeek = Math.min(Math.max(1, defaultWeek), MAX_REGULAR_WEEKS);
@@ -183,7 +202,7 @@ export default async function Home({ searchParams }: { searchParams?: Promise<Re
         derivePodiumFromWinnersBracketByYear(seasonYear).catch(() => null),
         getSeasonAwardsUsingLeagueScoring(seasonYear, leagueIdRecap ?? leagueId, 14).catch(() => null),
         getWeeklyHighsBySeason(seasonYear).catch(() => [] as WeeklyHighByWeekEntry[]),
-        leagueIdRecap ? getLeaguePlayoffBracketsWithScores(leagueIdRecap).catch(() => ({ winners: [] as SleeperBracketGameWithScore[], losers: [] as SleeperBracketGameWithScore[] })) : Promise.resolve({ winners: [] as SleeperBracketGameWithScore[], losers: [] as SleeperBracketGameWithScore[] }),
+        leagueIdRecap ? getLeaguePlayoffBracketsWithScores(leagueIdRecap, { forceFresh: true }).catch(() => ({ winners: [] as SleeperBracketGameWithScore[], losers: [] as SleeperBracketGameWithScore[] })) : Promise.resolve({ winners: [] as SleeperBracketGameWithScore[], losers: [] as SleeperBracketGameWithScore[] }),
         leagueIdRecap ? getRosterIdToTeamNameMap(leagueIdRecap).catch(() => new Map<number, string>()) : Promise.resolve(new Map<number, string>()),
       ]);
       recapWinnersBracket = (recapBrackets?.winners || []) as SleeperBracketGameWithScore[];
