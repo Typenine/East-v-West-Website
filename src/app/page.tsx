@@ -40,6 +40,7 @@ export default async function Home({ searchParams }: { searchParams?: Promise<Re
   let winnersBracket: SleeperBracketGameWithScore[] = [];
   let bracketNameMap = new Map<number, string>();
   let losersBracket: SleeperBracketGameWithScore[] = [];
+  let recapYear = seasonYear;
   const sp = (await (searchParams ?? Promise.resolve({}))) as Record<string, string | string[] | undefined>;
   const requestedWeekRaw = sp.week;
   const requestedWeekStr = Array.isArray(requestedWeekRaw) ? requestedWeekRaw[0] : requestedWeekRaw;
@@ -58,6 +59,9 @@ export default async function Home({ searchParams }: { searchParams?: Promise<Re
       leagueId = yearMap[seasonYear] || leagueId;
     } catch {}
     const teams = await getTeamsData(leagueId).catch(() => [] as Array<{ rosterId: number; teamName: string }>);
+    // Determine the season year that corresponds to the leagueId we are showing brackets for (recent fantasy season)
+    const leagueYearEntry = Object.entries(LEAGUE_IDS.PREVIOUS || {}).find(([, lid]) => lid === leagueId);
+    recapYear = leagueYearEntry?.[0] || seasonYear;
     const week1Ts = new Date(IMPORTANT_DATES.NFL_WEEK_1_START).getTime();
     const playoffsStartTs = new Date(IMPORTANT_DATES.PLAYOFFS_START).getTime();
     const now = new Date();
@@ -98,8 +102,10 @@ export default async function Home({ searchParams }: { searchParams?: Promise<Re
           const rounds = Object.keys(byRound).map((n) => Number(n));
           if (rounds.length > 0) {
             const maxR = Math.max(...rounds);
-            const final = (byRound[maxR] || []).find((g) => (g as unknown as { w?: number | null }).w != null);
-            if (final) {
+            const lastRound = byRound[maxR] || [];
+            const final = lastRound.find((g) => (g as unknown as { w?: number | null }).w != null);
+            const finalHasScores = lastRound.some((g) => (g as { t1_points?: number | null }).t1_points != null || (g as { t2_points?: number | null }).t2_points != null);
+            if (final || finalHasScores) {
               isPlayoffs = false;
             }
           }
@@ -107,7 +113,7 @@ export default async function Home({ searchParams }: { searchParams?: Promise<Re
         // Fallback: derive champion directly; if present, flip to offseason
         if (isPlayoffs) {
           try {
-            const pod = await derivePodiumFromWinnersBracketByYear(seasonYear).catch(() => null);
+            const pod = await derivePodiumFromWinnersBracketByYear(recapYear).catch(() => null);
             if (pod && pod.champion && pod.champion !== 'TBD') {
               isPlayoffs = false;
             }
@@ -130,6 +136,34 @@ export default async function Home({ searchParams }: { searchParams?: Promise<Re
         winnersBracket = (brackets as { winners?: SleeperBracketGameWithScore[] }).winners || [];
         losersBracket = (brackets as { losers?: SleeperBracketGameWithScore[] }).losers || [];
         bracketNameMap = nameMap as Map<number, string>;
+        // Detect championship completion again after fresh fetch
+        try {
+          const byRound2: Record<number, SleeperBracketGameWithScore[]> = {};
+          for (const g of winnersBracket) {
+            const r = (g as { r?: number }).r ?? 0;
+            (byRound2[r] ||= []).push(g);
+          }
+          const rounds2 = Object.keys(byRound2).map((n) => Number(n));
+          if (rounds2.length > 0) {
+            const maxR2 = Math.max(...rounds2);
+            const lastRound2 = byRound2[maxR2] || [];
+            const final2 = lastRound2.find((g) => (g as unknown as { w?: number | null }).w != null);
+            const final2HasScores = lastRound2.some((g) => (g as { t1_points?: number | null }).t1_points != null || (g as { t2_points?: number | null }).t2_points != null);
+            if (final2 || final2HasScores) {
+              isPlayoffs = false;
+            }
+          }
+        } catch {}
+        if (isPlayoffs) {
+          try {
+            const pod2 = await derivePodiumFromWinnersBracketByYear(recapYear).catch(() => null);
+            const fallbackYear = String(Number(recapYear) - 1);
+            const pod2b = pod2 ?? await derivePodiumFromWinnersBracketByYear(fallbackYear).catch(() => null);
+            if (pod2b && pod2b.champion && pod2b.champion !== 'TBD') {
+              isPlayoffs = false;
+            }
+          } catch {}
+        }
         if ((winnersBracket.length === 0) && (losersBracket.length === 0)) {
           isPlayoffs = false;
         }
@@ -220,13 +254,13 @@ export default async function Home({ searchParams }: { searchParams?: Promise<Re
     pfLeader?: { teamName: string; rosterId: number; fpts: number };
     topWeek?: { teamName: string; rosterId: number; week: number; points: number; opponentTeamName: string; opponentRosterId: number };
   } = {};
-  if (!isRegularSeason) {
+  if (!isRegularSeason && !isPlayoffs) {
     try {
-      const leagueIdRecap = yearMap[seasonYear] || LEAGUE_IDS.PREVIOUS[seasonYear as keyof typeof LEAGUE_IDS.PREVIOUS];
+      const leagueIdRecap = yearMap[recapYear] || LEAGUE_IDS.PREVIOUS[recapYear as keyof typeof LEAGUE_IDS.PREVIOUS];
       const [podiumDerived, awards, weeklyHighs, recapBrackets, recapNameMap] = await Promise.all([
-        derivePodiumFromWinnersBracketByYear(seasonYear).catch(() => null),
-        getSeasonAwardsUsingLeagueScoring(seasonYear, leagueIdRecap ?? leagueId, 14).catch(() => null),
-        getWeeklyHighsBySeason(seasonYear).catch(() => [] as WeeklyHighByWeekEntry[]),
+        derivePodiumFromWinnersBracketByYear(recapYear).catch(() => null),
+        getSeasonAwardsUsingLeagueScoring(recapYear, leagueIdRecap ?? leagueId, 14).catch(() => null),
+        getWeeklyHighsBySeason(recapYear).catch(() => [] as WeeklyHighByWeekEntry[]),
         leagueIdRecap ? getLeaguePlayoffBracketsWithScores(leagueIdRecap, { forceFresh: true }).catch(() => ({ winners: [] as SleeperBracketGameWithScore[], losers: [] as SleeperBracketGameWithScore[] })) : Promise.resolve({ winners: [] as SleeperBracketGameWithScore[], losers: [] as SleeperBracketGameWithScore[] }),
         leagueIdRecap ? getRosterIdToTeamNameMap(leagueIdRecap).catch(() => new Map<number, string>()) : Promise.resolve(new Map<number, string>()),
       ]);
@@ -238,7 +272,7 @@ export default async function Home({ searchParams }: { searchParams?: Promise<Re
         const sortedRecap = [...teamsRecap].sort((a, b) => (b.wins ?? 0) - (a.wins ?? 0) || (b.fpts ?? 0) - (a.fpts ?? 0));
         sortedRecap.forEach((t, i) => seedByRosterIdRecap.set(t.rosterId, i + 1));
       }
-      const base = (CHAMPIONS as Record<string, { champion?: string; runnerUp?: string; thirdPlace?: string }>)[seasonYear] || {};
+      const base = (CHAMPIONS as Record<string, { champion?: string; runnerUp?: string; thirdPlace?: string }>)[recapYear] || {};
       const mergedPodium = {
         champion: (podiumDerived?.champion ?? base.champion ?? 'TBD') as string,
         runnerUp: (podiumDerived?.runnerUp ?? base.runnerUp ?? 'TBD') as string,
@@ -470,7 +504,7 @@ export default async function Home({ searchParams }: { searchParams?: Promise<Re
                           if (r === maxRound - 1) return 'Semifinals';
                           return `Round ${r}`;
                         };
-                        const totalRows = Math.max(1, (2 ** roundNums.length) * 2 - 1);
+                        const totalRows = Math.max(2, 2 ** roundNums.length);
                         const totalCols = Math.max(1, roundNums.length * 2 - 1);
                         const colTemplate = Array.from({ length: totalCols }, (_, i) => (i % 2 === 0 ? 'minmax(240px,1fr)' : '64px')).join(' ');
                         return (
@@ -494,9 +528,10 @@ export default async function Home({ searchParams }: { searchParams?: Promise<Re
                                   const c2 = t2Name && t2Name !== 'Bye' ? getTeamColors(t2Name)?.primary : undefined;
                                   const inFinal = r === maxRound;
                                   const matchLabel = inFinal ? (b.id === 'winners' ? (arrInRound.length > 1 ? (idx === 0 ? 'Championship' : '3rd Place') : 'Championship') : 'Final') : undefined;
-                                  const row = ((idx + 1) * (2 ** (rIdx + 1))) - 1;
+                                  // Center matches at rows: 1,3,5... for round 0; 2,6 for round 1; etc.
+                                  const row = (2 ** rIdx) + idx * (2 ** (rIdx + 1));
                                   const elements = [(
-                                    <div key={`m-${r}-${idx}`} style={{ gridColumn: rIdx * 2 + 1, gridRow: row }} className="evw-surface border rounded-[var(--radius-card)] p-3">
+                                    <div key={`m-${r}-${idx}`} style={{ gridColumn: rIdx * 2 + 1, gridRow: row, alignSelf: 'center' }} className="evw-surface border rounded-[var(--radius-card)] p-3">
                                       {matchLabel && (<div className="text-xs text-[var(--muted)] mb-1">{matchLabel}</div>)}
                                       <div className="flex items-center justify-between gap-3">
                                         <div className="flex items-center gap-2 min-w-0">
@@ -546,7 +581,7 @@ export default async function Home({ searchParams }: { searchParams?: Promise<Re
                                     </div>
                                   )];
                                   if (rIdx < roundNums.length - 1) {
-                                    const span = 1 << rIdx;
+                                    const span = 2 ** rIdx;
                                     const start = Math.max(1, row - span);
                                     const end = row + span + 1;
                                     elements.push(
@@ -573,7 +608,7 @@ export default async function Home({ searchParams }: { searchParams?: Promise<Re
           </>
         ) : (
           <>
-            <SectionHeader title={`Season recap (${seasonYear})`} />
+            <SectionHeader title={`Season recap (${recapYear})`} />
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mt-6">
               <Card>
                 <CardContent>
