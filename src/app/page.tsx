@@ -439,12 +439,26 @@ export default async function Home({ searchParams }: { searchParams?: Promise<Re
                           rounds.set(g.r, arr);
                         }
                         const roundNums = Array.from(rounds.keys()).sort((a, b) => a - b);
+                        const maxRound = roundNums.length ? roundNums[roundNums.length - 1] : 0;
+                        const roundTitle = (r: number) => {
+                          if (r === maxRound) return 'Finals';
+                          if (r === maxRound - 1) return 'Semifinals';
+                          return `Round ${r}`;
+                        };
+                        const totalRows = Math.max(1, (2 ** roundNums.length) * 2 - 1);
+                        const totalCols = Math.max(1, roundNums.length * 2 - 1);
+                        const colTemplate = Array.from({ length: totalCols }, (_, i) => (i % 2 === 0 ? 'minmax(240px,1fr)' : '64px')).join(' ');
                         return (
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            {roundNums.map((r) => (
-                              <div key={r} className="space-y-3">
-                                <h4 className="font-semibold">Round {r}</h4>
-                                {(rounds.get(r) || []).map((g, idx) => {
+                          <div className="w-full overflow-x-auto">
+                            <div className="grid gap-3" style={{ gridTemplateColumns: colTemplate }}>
+                              {roundNums.map((r, rIdx) => (
+                                <div key={`hdr-${r}`} className="text-sm font-semibold" style={{ gridColumn: rIdx * 2 + 1 }}>{roundTitle(r)}</div>
+                              ))}
+                            </div>
+                            <div className="grid gap-4" style={{ gridTemplateColumns: colTemplate, gridTemplateRows: `repeat(${totalRows}, minmax(0,1fr))` }}>
+                              {roundNums.map((r, rIdx) => {
+                                const arrInRound = (rounds.get(r) || []).sort((a, b) => (a.m ?? 0) - (b.m ?? 0));
+                                return arrInRound.flatMap((g, idx) => {
                                   const t1Name = g.t1 != null ? (bracketNameMap.get(g.t1) || `Roster ${g.t1}`) : 'Bye';
                                   const t2Name = g.t2 != null ? (bracketNameMap.get(g.t2) || `Roster ${g.t2}`) : 'Bye';
                                   const t1p = g.t1_points ?? null;
@@ -453,8 +467,12 @@ export default async function Home({ searchParams }: { searchParams?: Promise<Re
                                   const t2Seed = g.t2 != null ? (seedByRosterId.get(g.t2) ?? null) : null;
                                   const c1 = t1Name && t1Name !== 'Bye' ? getTeamColors(t1Name)?.primary : undefined;
                                   const c2 = t2Name && t2Name !== 'Bye' ? getTeamColors(t2Name)?.primary : undefined;
-                                  return (
-                                    <div key={idx} className="evw-surface border rounded-[var(--radius-card)] p-3">
+                                  const inFinal = r === maxRound;
+                                  const matchLabel = inFinal ? (b.id === 'winners' ? (arrInRound.length > 1 ? (idx === 0 ? 'Championship' : '3rd Place') : 'Championship') : 'Final') : undefined;
+                                  const row = ((idx + 1) * (2 ** (rIdx + 1))) - 1;
+                                  const elements = [(
+                                    <div key={`m-${r}-${idx}`} style={{ gridColumn: rIdx * 2 + 1, gridRow: row }} className="evw-surface border rounded-[var(--radius-card)] p-3">
+                                      {matchLabel && (<div className="text-xs text-[var(--muted)] mb-1">{matchLabel}</div>)}
                                       <div className="flex items-center justify-between gap-3">
                                         <div className="flex items-center gap-2 min-w-0">
                                           {t1Name && t1Name !== 'Bye' && g.t1 != null ? (
@@ -501,10 +519,23 @@ export default async function Home({ searchParams }: { searchParams?: Promise<Re
                                         </div>
                                       )}
                                     </div>
-                                  );
-                                })}
-                              </div>
-                            ))}
+                                  )];
+                                  if (rIdx < roundNums.length - 1) {
+                                    const span = 1 << rIdx;
+                                    const start = Math.max(1, row - span);
+                                    const end = row + span + 1;
+                                    elements.push(
+                                      <div key={`c-${r}-${idx}`} style={{ gridColumn: rIdx * 2 + 2, gridRow: `${start} / ${end}`, position: 'relative' }}>
+                                        <div style={{ position: 'absolute', left: '50%', top: 0, bottom: 0, width: 2, transform: 'translateX(-50%)', background: 'var(--border)' }} />
+                                        <div style={{ position: 'absolute', top: '50%', left: 0, right: '50%', height: 2, transform: 'translateY(-50%)', background: 'var(--border)' }} />
+                                        <div style={{ position: 'absolute', top: '50%', left: '50%', right: 0, height: 2, transform: 'translateY(-50%)', background: 'var(--border)' }} />
+                                      </div>
+                                    );
+                                  }
+                                  return elements;
+                                });
+                              })}
+                            </div>
                           </div>
                         );
                       })()
@@ -513,6 +544,7 @@ export default async function Home({ searchParams }: { searchParams?: Promise<Re
                 </Card>
               ))}
             </div>
+
           </>
         ) : (
           <>
@@ -714,12 +746,18 @@ export default async function Home({ searchParams }: { searchParams?: Promise<Re
                             rounds.set(g.r, arr);
                           }
                           const roundNums = Array.from(rounds.keys()).sort((a, b) => a - b);
+                          const maxRound = roundNums.length ? roundNums[roundNums.length - 1] : 0;
+                          const roundTitle = (r: number) => {
+                            if (r === maxRound) return 'Finals';
+                            if (r === maxRound - 1) return 'Semifinals';
+                            return `Round ${r}`;
+                          };
                           return (
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                               {roundNums.map((r) => (
                                 <div key={r} className="space-y-3">
-                                  <h4 className="font-semibold">Round {r}</h4>
-                                  {(rounds.get(r) || []).map((g, idx) => {
+                                  <h4 className="font-semibold">{roundTitle(r)}</h4>
+                                  {((rounds.get(r) || []).sort((a, b) => (a.m ?? 0) - (b.m ?? 0))).map((g, idx, arrInRound) => {
                                     const t1Name = g.t1 != null ? (recapBracketNameMap.get(g.t1) || `Roster ${g.t1}`) : 'Bye';
                                     const t2Name = g.t2 != null ? (recapBracketNameMap.get(g.t2) || `Roster ${g.t2}`) : 'Bye';
                                     const t1p = g.t1_points ?? null;
@@ -728,8 +766,17 @@ export default async function Home({ searchParams }: { searchParams?: Promise<Re
                                     const t2Seed = g.t2 != null ? (seedByRosterIdRecap.get(g.t2) ?? null) : null;
                                     const c1 = t1Name && t1Name !== 'Bye' ? getTeamColors(t1Name)?.primary : undefined;
                                     const c2 = t2Name && t2Name !== 'Bye' ? getTeamColors(t2Name)?.primary : undefined;
+                                    const inFinal = r === maxRound;
+                                    const matchLabel = inFinal
+                                      ? (b.id === 'winners-recap'
+                                          ? (arrInRound.length > 1 ? (idx === 0 ? 'Championship' : '3rd Place') : 'Championship')
+                                          : 'Final')
+                                      : undefined;
                                     return (
                                       <div key={idx} className="evw-surface border rounded-[var(--radius-card)] p-3">
+                                        {matchLabel && (
+                                          <div className="text-xs text-[var(--muted)] mb-1">{matchLabel}</div>
+                                        )}
                                         <div className="flex items-center justify-between gap-3">
                                           <div className="flex items-center gap-2 min-w-0">
                                             <div className="w-7 h-7 rounded-full overflow-hidden border" style={{ borderColor: c1 || 'var(--border)' }}>
