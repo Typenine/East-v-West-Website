@@ -5,6 +5,7 @@ import {
   type SleeperTransaction,
   type SleeperPlayer,
   getAllPlayersCached,
+  buildYearToLeagueMapUnique,
 } from "@/lib/utils/sleeper-api";
 
 export type LeagueTransaction = {
@@ -29,7 +30,8 @@ export type TransactionsSummary = {
 };
 
 export function listAllSeasons(): string[] {
-  const seasons = ['2025', ...Object.keys(LEAGUE_IDS.PREVIOUS || {})];
+  const uniq = new Set<string>(['2025', ...Object.keys(LEAGUE_IDS.PREVIOUS || {})]);
+  const seasons = Array.from(uniq);
   // Latest first
   return seasons.sort((a, b) => b.localeCompare(a));
 }
@@ -38,10 +40,7 @@ export async function buildTransactionLedger(arg?: { season?: string }): Promise
   const players = await getAllPlayersCached().catch(() => ({} as Record<string, SleeperPlayer>));
   const out: LeagueTransaction[] = [];
 
-  const yearToLeague: Record<string, string> = {
-    '2025': LEAGUE_IDS.CURRENT,
-    ...LEAGUE_IDS.PREVIOUS,
-  };
+  const yearToLeague = await buildYearToLeagueMapUnique();
 
   const entries = Object.entries(yearToLeague).filter(([season]) => !arg?.season || arg.season === season);
 

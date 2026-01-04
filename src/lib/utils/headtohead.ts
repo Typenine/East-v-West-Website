@@ -1,4 +1,3 @@
-import { LEAGUE_IDS } from "@/lib/constants/league";
 import {
   getLeague,
   getLeagueMatchups,
@@ -8,6 +7,7 @@ import {
   getAllOwnerIdsAcrossSeasons,
   type SleeperFetchOptions,
   type SleeperBracketGame,
+  buildYearToLeagueMapUnique,
 } from "@/lib/utils/sleeper-api";
 import { resolveCanonicalTeamName } from "@/lib/utils/team-utils";
 
@@ -46,10 +46,7 @@ export async function getHeadToHeadAllTime(options?: SleeperFetchOptions): Promi
   if (cache && now - cache.ts < CACHE_TTL_MS && !options?.forceFresh) return cache.data;
 
   // Build year->league map
-  const yearToLeague: Record<string, string> = {
-    "2025": LEAGUE_IDS.CURRENT,
-    ...LEAGUE_IDS.PREVIOUS,
-  };
+  const yearToLeague = await buildYearToLeagueMapUnique(options);
 
   // Determine full set of canonical teams across seasons
   const ownerIds = await getAllOwnerIdsAcrossSeasons(options);

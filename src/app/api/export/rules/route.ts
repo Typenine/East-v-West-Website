@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { LEAGUE_IDS, IMPORTANT_DATES, TEAM_NAMES } from '@/lib/constants/league';
+import { getNFLState } from '@/lib/utils/sleeper-api';
 import { rulesHtmlSections } from '@/data/rules';
 
 export const runtime = 'nodejs';
@@ -15,11 +16,29 @@ function stripTags(html: string): string {
 
 export async function GET() {
   try {
-    const seasons = ['2025', ...Object.keys(LEAGUE_IDS.PREVIOUS || {})].sort();
-    const leagueIds: Record<string, string> = {
-      '2025': LEAGUE_IDS.CURRENT,
-      ...LEAGUE_IDS.PREVIOUS,
-    } as Record<string, string>;
+    // Build year -> leagueId map dynamically using detected season
+    let seasonNum = new Date().getFullYear();
+    try {
+      const st = await getNFLState();
+      const s = Number((st as { season?: string | number }).season ?? seasonNum);
+      if (Number.isFinite(s)) seasonNum = s;
+    } catch {}
+
+    const leagueIds: Record<string, string> = {} as Record<string, string>;
+    // Current season
+    if (LEAGUE_IDS.CURRENT) {
+      leagueIds[String(seasonNum)] = LEAGUE_IDS.CURRENT as string;
+    }
+    // Previous season (season - 1)
+    const prevYear = String(seasonNum - 1);
+    const prevId = (LEAGUE_IDS.PREVIOUS as Record<string, string | undefined>)[prevYear];
+    if (prevId) leagueIds[prevYear] = prevId;
+    // Optionally include older seasons from PREVIOUS without duplicating keys
+    for (const [y, lid] of Object.entries(LEAGUE_IDS.PREVIOUS || {})) {
+      if (!leagueIds[y] && lid) leagueIds[y] = lid;
+    }
+
+    const seasons = Object.keys(leagueIds).sort();
 
     const importantDates = {
       NFL_WEEK_1_START: IMPORTANT_DATES.NFL_WEEK_1_START.toISOString(),

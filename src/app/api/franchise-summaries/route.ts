@@ -6,29 +6,43 @@ import {
   type FranchiseSummary,
   type SleeperFetchOptions,
 } from '@/lib/utils/sleeper-api';
+import { getNFLState } from '@/lib/utils/sleeper-api';
 
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const fresh = searchParams.get('fresh');
     const yearsParam = searchParams.get('years');
-    const years: string[] = yearsParam ? yearsParam.split(',') : ['2025', '2024', '2023'];
+
+    // Determine current season and build a unique year -> leagueId map
+    const { season } = await getNFLState();
+    const currentSeason = String(season ?? new Date().getFullYear());
+    const yearToLeague: Record<string, string | undefined> = {};
+    yearToLeague[currentSeason] = LEAGUE_IDS.CURRENT;
+    const prevSeason = String(Number(currentSeason) - 1);
+    const prevMap = LEAGUE_IDS.PREVIOUS as Record<string, string | undefined>;
+    if (prevMap?.[prevSeason]) {
+      yearToLeague[prevSeason] = prevMap[prevSeason];
+    }
+    for (const [y, lid] of Object.entries(prevMap || {})) {
+      if (!(y in yearToLeague)) {
+        yearToLeague[y] = lid;
+      }
+    }
+
+    const years: string[] = yearsParam
+      ? yearsParam.split(',')
+      : Object.keys(yearToLeague).sort((a, b) => b.localeCompare(a));
 
     const optsFresh: SleeperFetchOptions = { forceFresh: true, timeoutMs: 12000 };
     const optsCached: SleeperFetchOptions = { timeoutMs: 12000 };
-
-    // map year -> leagueId
-    const yearToLeague: Record<string, string | undefined> = {
-      '2025': LEAGUE_IDS.CURRENT,
-      ...LEAGUE_IDS.PREVIOUS,
-    } as Record<string, string | undefined>;
 
     // fetch teams by year (current fresh, prev cached)
     const results = await Promise.all(
       years.map((y) => {
         const lid = yearToLeague[y];
         if (!lid) return Promise.resolve<[string, TeamData[]]>([y, []]);
-        const opts = fresh && y === '2025' ? optsFresh : optsCached;
+        const opts = fresh && y === currentSeason ? optsFresh : optsCached;
         return getTeamsData(lid, opts)
           .then((arr) => [y, arr] as [string, TeamData[]])
           .catch(() => [y, []] as [string, TeamData[]]);

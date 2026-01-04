@@ -1,5 +1,4 @@
-import { LEAGUE_IDS } from '@/lib/constants/league';
-import { getAllPlayersCached, getLeagueMatchups, type SleeperMatchup, type SleeperPlayer } from '@/lib/utils/sleeper-api';
+import { getAllPlayersCached, getLeagueMatchups, type SleeperMatchup, type SleeperPlayer, buildYearToLeagueMapUnique } from '@/lib/utils/sleeper-api';
 
 export type WPCalibrationBucket = { range: [number, number]; a: number; b: number; n: number };
 export type WPModel = {
@@ -89,10 +88,7 @@ function countPosMeans(starters: string[], players: Record<string, SleeperPlayer
 }
 
 export async function trainWPModel(): Promise<WPModel> {
-  const yearToLeague: Record<string, string> = {
-    '2025': LEAGUE_IDS.CURRENT,
-    ...LEAGUE_IDS.PREVIOUS,
-  };
+  const yearToLeague = await buildYearToLeagueMapUnique();
   const players = await getAllPlayersCached().catch(() => ({} as Record<string, SleeperPlayer>));
 
   // Dataset buckets by fraction remaining
