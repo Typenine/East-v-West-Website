@@ -147,7 +147,7 @@ export default function HistoryPage() {
         setWeeklyTabError(null);
         const rows = await getWeeklyHighsBySeason(weeklyTabYear, { signal: ac.signal, timeoutMs: DEFAULT_TIMEOUT });
         if (cancelled) return;
-        setWeeklyHighs(rows || []);
+        setWeeklyHighs((rows || []).filter((r) => (r.week ?? 0) <= 14));
       } catch (e) {
         if (isAbortError(e)) return;
         console.error('Failed to load weekly highs:', e);

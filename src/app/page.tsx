@@ -296,7 +296,7 @@ export default async function Home({ searchParams }: { searchParams?: Promise<Re
           roy: awards.roy && awards.roy[0] ? { name: awards.roy[0].name, points: awards.roy[0].points, teamName: (awards.roy[0].teamName ?? undefined) as string | undefined } : undefined,
         };
       }
-      const weeklyHighsRows = (weeklyHighs as WeeklyHighByWeekEntry[]) || [];
+      const weeklyHighsRows = ((weeklyHighs as WeeklyHighByWeekEntry[]) || []).filter((w) => (w.week ?? 0) <= 14);
       if (weeklyHighsRows.length > 0) {
         const counts = new Map<string, number>();
         for (const row of weeklyHighsRows) {
@@ -370,8 +370,14 @@ export default async function Home({ searchParams }: { searchParams?: Promise<Re
               recap.lastPlace = { teamName: nmMap.get(lRid) || `Roster ${lRid}`, rosterId: lRid || undefined };
             }
           }
-          // Tenth place game winner: pick next highest avg seed match (if present)
-          const tenthGame = sortedLast[1];
+          // Tenth place game winner: prefer the match featuring seeds 9 and 10; else fall back to lowest average seed
+          const matchIs910 = (g: SleeperBracketGameWithScore) => {
+            const s1 = g.t1 != null ? (seedByRosterIdRecap.get(g.t1) ?? null) : null;
+            const s2 = g.t2 != null ? (seedByRosterIdRecap.get(g.t2) ?? null) : null;
+            const set = new Set([s1, s2]);
+            return set.has(9) && set.has(10) && set.size === 2;
+          };
+          const tenthGame = (last.find(matchIs910)) || sortedLast[sortedLast.length - 1];
           if (tenthGame) {
             const wRid = (tenthGame.w != null) ? tenthGame.w : ((tenthGame.t1_points != null && tenthGame.t2_points != null) ? ((tenthGame.t1_points > tenthGame.t2_points) ? (tenthGame.t1 ?? null) : (tenthGame.t2 ?? null)) : null);
             if (wRid != null) {
@@ -596,7 +602,7 @@ export default async function Home({ searchParams }: { searchParams?: Promise<Re
                           if (losersSet && isPair([g.t1 ?? null, g.t2 ?? null], losersSet)) return '3rd Place';
                           return undefined; // Other placement games (5th/7th) remain unlabeled
                         };
-                        const MATCH_H = 72; // px
+                        const MATCH_H = 84; // px
                         const GAP = 24; // px
                         const roundTitle = (r: number) => {
                           if (r === maxRound) return 'Finals';
@@ -612,15 +618,15 @@ export default async function Home({ searchParams }: { searchParams?: Promise<Re
                                 const matches = byRound[r];
                                 const n = matches.length;
                                 const colHeight = mtFirst + n * MATCH_H + Math.max(0, n - 1) * mtBetween;
-                                // Round column element
+                                // Round column element (header outside measured height)
                                 const roundCol = (
-                                  <div key={`${b.id}-round-${r}`} className="min-w-[260px]" style={{ height: colHeight }}>
+                                  <div key={`${b.id}-round-${r}`} className="min-w-[260px]">
                                     <h4 className="font-semibold text-[var(--muted)] mb-2">{roundTitle(r)}</h4>
-                                    <div>
+                                    <div style={{ height: colHeight }}>
                                       {matches.map((g, idx) => (
                                         <div key={`${b.id}-${r}-${g.m}`} style={{ marginTop: idx === 0 ? mtFirst : mtBetween }}>
-                                          <div className="border rounded p-3 h-[72px] flex flex-col justify-between">
-                                            {(() => { const ml = labelFor(g, r); return ml ? <div className="text-xs text-[var(--muted)] mb-1">{ml}</div> : null; })()}
+                                          <div className="border rounded p-3 h-[84px] relative flex flex-col justify-between overflow-hidden">
+                                            {(() => { const ml = labelFor(g, r); return ml ? <div className="absolute top-1 left-2 text-[10px] px-1.5 py-0.5 rounded border bg-[var(--surface)] text-[var(--muted)]">{ml}</div> : null; })()}
                                             <TeamRow rid={g.t1 ?? null} isWinner={g.w != null && g.t1 != null && g.w === g.t1} score={g.t1_points ?? null} />
                                             <TeamRow rid={g.t2 ?? null} isWinner={g.w != null && g.t2 != null && g.w === g.t2} score={g.t2_points ?? null} />
                                           </div>
@@ -709,60 +715,68 @@ export default async function Home({ searchParams }: { searchParams?: Promise<Re
                   <h3 className="text-lg font-semibold mb-2">Awards</h3>
                   <ul className="space-y-2">
                     <li>
-                      <div className="flex items-center gap-2">
-                        <span className="font-medium">MVP:</span>
-                        {recap.awards?.mvp ? (
-                          <>
-                            <span>{recap.awards.mvp.name} ({recap.awards.mvp.points.toFixed(2)} pts)</span>
-                            {(() => {
-                              if (!recap.awards?.mvp?.teamName) return null;
-                              const invert = new Map<string, number>();
-                              recapBracketNameMap.forEach((nm, rid) => invert.set(nm, rid));
-                              const rid = invert.get(recap.awards.mvp.teamName);
-                              return (
-                                <span className="flex items-center gap-1">
-                                  <Image src={getTeamLogoPath(recap.awards.mvp.teamName)} alt={recap.awards.mvp.teamName} width={16} height={16} className="object-contain w-4 h-4" />
-                                  {rid ? (
-                                    <Link href={`/teams/${rid}`} className="text-xs text-[var(--muted)] hover:underline">{recap.awards.mvp.teamName}</Link>
-                                  ) : (
-                                    <span className="text-xs text-[var(--muted)]">{recap.awards.mvp.teamName}</span>
-                                  )}
-                                </span>
-                              );
-                            })()}
-                          </>
-                        ) : (
-                          <span>TBD</span>
-                        )}
-                      </div>
+                      {(() => {
+                        const row = recap.awards?.mvp;
+                        if (!row) return <div className="text-[var(--muted)]">MVP: TBD</div>;
+                        const t = row.teamName;
+                        const colors = t ? getTeamColors(t) : { primary: 'var(--border)', secondary: 'var(--border)' };
+                        const bg = t ? hexToRgba(colors.secondary || colors.primary, 0.08) : 'transparent';
+                        const invert = new Map<string, number>();
+                        recapBracketNameMap.forEach((nm, rid) => invert.set(nm, rid));
+                        const rid = t ? invert.get(t) : undefined;
+                        return (
+                          <div className="flex items-center justify-between gap-3 p-2 rounded-md border" style={{ borderColor: colors.primary, backgroundColor: bg }}>
+                            <div className="flex items-center gap-2 min-w-0">
+                              <span className="font-medium shrink-0">MVP:</span>
+                              {t && (
+                                <div className="w-6 h-6 rounded-full evw-surface border overflow-hidden flex items-center justify-center shrink-0" style={{ borderColor: colors.primary }}>
+                                  <Image src={getTeamLogoPath(t)} alt={t} width={20} height={20} className="object-contain" />
+                                </div>
+                              )}
+                              <span className="truncate">{row.name} ({row.points.toFixed(2)} pts)</span>
+                              {t && (
+                                rid ? (
+                                  <Link href={`/teams/${rid}`} className="text-xs text-[var(--muted)] hover:underline">{t}</Link>
+                                ) : (
+                                  <span className="text-xs text-[var(--muted)]">{t}</span>
+                                )
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })()}
                     </li>
                     <li>
-                      <div className="flex items-center gap-2">
-                        <span className="font-medium">Rookie of the Year:</span>
-                        {recap.awards?.roy ? (
-                          <>
-                            <span>{recap.awards.roy.name} ({recap.awards.roy.points.toFixed(2)} pts)</span>
-                            {(() => {
-                              if (!recap.awards?.roy?.teamName) return null;
-                              const invert = new Map<string, number>();
-                              recapBracketNameMap.forEach((nm, rid) => invert.set(nm, rid));
-                              const rid = invert.get(recap.awards.roy.teamName);
-                              return (
-                                <span className="flex items-center gap-1">
-                                  <Image src={getTeamLogoPath(recap.awards.roy.teamName)} alt={recap.awards.roy.teamName} width={16} height={16} className="object-contain w-4 h-4" />
-                                  {rid ? (
-                                    <Link href={`/teams/${rid}`} className="text-xs text-[var(--muted)] hover:underline">{recap.awards.roy.teamName}</Link>
-                                  ) : (
-                                    <span className="text-xs text-[var(--muted)]">{recap.awards.roy.teamName}</span>
-                                  )}
-                                </span>
-                              );
-                            })()}
-                          </>
-                        ) : (
-                          <span>TBD</span>
-                        )}
-                      </div>
+                      {(() => {
+                        const row = recap.awards?.roy;
+                        if (!row) return <div className="text-[var(--muted)]">Rookie of the Year: TBD</div>;
+                        const t = row.teamName;
+                        const colors = t ? getTeamColors(t) : { primary: 'var(--border)', secondary: 'var(--border)' };
+                        const bg = t ? hexToRgba(colors.secondary || colors.primary, 0.08) : 'transparent';
+                        const invert = new Map<string, number>();
+                        recapBracketNameMap.forEach((nm, rid) => invert.set(nm, rid));
+                        const rid = t ? invert.get(t) : undefined;
+                        return (
+                          <div className="flex items-center justify-between gap-3 p-2 rounded-md border" style={{ borderColor: colors.primary, backgroundColor: bg }}>
+                            <div className="flex items-center gap-2 min-w-0">
+                              <span className="font-medium shrink-0">Rookie of the Year:</span>
+                              {t && (
+                                <div className="w-6 h-6 rounded-full evw-surface border overflow-hidden flex items-center justify-center shrink-0" style={{ borderColor: colors.primary }}>
+                                  <Image src={getTeamLogoPath(t)} alt={t} width={20} height={20} className="object-contain" />
+                                </div>
+                              )}
+                              <span className="truncate">{row.name} ({row.points.toFixed(2)} pts)</span>
+                              {t && (
+                                rid ? (
+                                  <Link href={`/teams/${rid}`} className="text-xs text-[var(--muted)] hover:underline">{t}</Link>
+                                ) : (
+                                  <span className="text-xs text-[var(--muted)]">{t}</span>
+                                )
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })()}
                     </li>
                   </ul>
                 </CardContent>
@@ -998,13 +1012,13 @@ export default async function Home({ searchParams }: { searchParams?: Promise<Re
                                   const n = matches.length;
                                   const colHeight = mtFirst + n * MATCH_H + Math.max(0, n - 1) * mtBetween;
                                   const roundCol = (
-                                    <div key={`${b.id}-round-${r}`} className="min-w-[260px]" style={{ height: colHeight }}>
+                                    <div key={`${b.id}-round-${r}`} className="min-w-[260px]">
                                       <h4 className="font-semibold text-[var(--muted)] mb-2">{roundTitle(r)}</h4>
-                                      <div>
+                                      <div style={{ height: colHeight }}>
                                         {matches.map((g, idx) => (
                                           <div key={`${b.id}-${r}-${g.m}`} style={{ marginTop: idx === 0 ? mtFirst : mtBetween }}>
-                                            <div className="border rounded p-3 h-[72px] flex flex-col justify-between">
-                                              {(() => { const ml = labelFor(g, r); return ml ? <div className="text-xs text-[var(--muted)] mb-1">{ml}</div> : null; })()}
+                                            <div className="border rounded p-3 h-[72px] relative flex flex-col justify-between overflow-hidden">
+                                              {(() => { const ml = labelFor(g, r); return ml ? <div className="absolute -top-2 left-2 text-[10px] px-1.5 py-0.5 rounded border bg-[var(--surface)] text-[var(--muted)]">{ml}</div> : null; })()}
                                               <TeamRow rid={g.t1 ?? null} isWinner={g.w != null && g.t1 != null && g.w === g.t1} score={g.t1_points ?? null} />
                                               <TeamRow rid={g.t2 ?? null} isWinner={g.w != null && g.t2 != null && g.w === g.t2} score={g.t2_points ?? null} />
                                             </div>
