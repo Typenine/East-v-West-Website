@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getNextDraftOwnership } from '@/lib/server/trade-assets';
-import { getTeamsData } from '@/lib/utils/sleeper-api';
+import { getTeamsData, getLeagueWinnersBracket, type SleeperBracketGame } from '@/lib/utils/sleeper-api';
 import { LEAGUE_IDS } from '@/lib/constants/league';
 import { fetchTradeById, Trade } from '@/lib/utils/trades';
 
@@ -15,26 +15,107 @@ export async function GET() {
     const teams = await getTeamsData(leagueId);
     const teamByRosterId = new Map(teams.map((t) => [t.rosterId, t] as const));
 
-    const sortedForDraft = [...teams].sort((a, b) => {
+    // Comparator: worse regular-season standing first
+    const byStandingAsc = (a: typeof teams[number], b: typeof teams[number]) => {
       if (a.wins !== b.wins) return a.wins - b.wins;
       if (a.losses !== b.losses) return b.losses - a.losses;
       if (a.fpts !== b.fpts) return a.fpts - b.fpts;
       if (a.fptsAgainst !== b.fptsAgainst) return a.fptsAgainst - b.fptsAgainst;
       return a.teamName.localeCompare(b.teamName);
-    });
+    };
 
-    const slotOrder = sortedForDraft.map((team, index) => ({
-      slot: index + 1,
-      rosterId: team.rosterId,
-      team: team.teamName,
-      record: {
-        wins: team.wins,
-        losses: team.losses,
-        ties: team.ties,
-        fpts: team.fpts,
-        fptsAgainst: team.fptsAgainst,
-      },
-    }));
+    // Use winners bracket to determine playoff participants and finalists
+    let slotOrder: Array<{ slot: number; rosterId: number; team: string; record: { wins: number; losses: number; ties: number; fpts: number; fptsAgainst: number } }> = [];
+    try {
+      const winners: SleeperBracketGame[] = await getLeagueWinnersBracket(leagueId).catch(() => []);
+      const participantIds = new Set<number>();
+      for (const g of winners) {
+        if (g.t1 != null) participantIds.add(g.t1);
+        if (g.t2 != null) participantIds.add(g.t2);
+      }
+      // Map loser -> elimination round (round they lost)
+      const eliminatedInRound = new Map<number, number>();
+      for (const g of winners) {
+        const r = g.r ?? 0;
+        if (g.t1 != null && g.t2 != null && g.w != null) {
+          const loser = g.w === g.t1 ? g.t2 : g.t1;
+          if (loser != null && !eliminatedInRound.has(loser)) eliminatedInRound.set(loser, r);
+        }
+      }
+
+      // Identify finalists from the highest round game
+      let champId: number | null = null;
+      let runnerId: number | null = null;
+      if (winners.length > 0) {
+        const maxRound = Math.max(...winners.map((g) => g.r ?? 0));
+        const finals = winners.filter((g) => (g.r ?? 0) === maxRound && g.t1 != null && g.t2 != null);
+        const final = finals[0];
+        if (final) {
+          const w = final.w ?? null;
+          const a = final.t1 ?? null;
+          const b = final.t2 ?? null;
+          if (w != null && a != null && b != null) {
+            champId = w;
+            runnerId = w === a ? b : a;
+          }
+        }
+      }
+
+      if (participantIds.size > 0 && champId != null && runnerId != null) {
+        const byRoster = new Map(teams.map((t) => [t.rosterId, t] as const));
+        const nonPlayoff = teams.filter((t) => !participantIds.has(t.rosterId)).sort(byStandingAsc);
+        const playoffNonFinalists = teams.filter((t) => participantIds.has(t.rosterId) && t.rosterId !== champId && t.rosterId !== runnerId);
+        // Bucket playoff non-finalists by elimination round, lowest round first
+        const rounds = Array.from(new Set(playoffNonFinalists.map((t) => eliminatedInRound.get(t.rosterId) ?? Number.MAX_SAFE_INTEGER)))
+          .filter((r) => Number.isFinite(r))
+          .sort((a, b) => (a as number) - (b as number)) as number[];
+        const playoffOrdered: Array<typeof teams[number]> = [];
+        for (const r of rounds) {
+          const bucket = playoffNonFinalists.filter((t) => (eliminatedInRound.get(t.rosterId) ?? Number.MAX_SAFE_INTEGER) === r);
+          bucket.sort(byStandingAsc);
+          playoffOrdered.push(...bucket);
+        }
+        const finalists = [byRoster.get(runnerId)!, byRoster.get(champId)!];
+
+        const ordered = [
+          ...nonPlayoff,
+          ...playoffOrdered,
+          finalists[0], // runner-up gets pick 11
+          finalists[1], // champion gets pick 12
+        ].filter(Boolean);
+
+        slotOrder = ordered.map((team, index) => ({
+          slot: index + 1,
+          rosterId: team!.rosterId,
+          team: team!.teamName,
+          record: {
+            wins: team!.wins,
+            losses: team!.losses,
+            ties: team!.ties,
+            fpts: team!.fpts,
+            fptsAgainst: team!.fptsAgainst,
+          },
+        }));
+      }
+    } catch {
+      // fall back to record-only ordering
+    }
+
+    if (slotOrder.length === 0) {
+      const fallback = [...teams].sort(byStandingAsc);
+      slotOrder = fallback.map((team, index) => ({
+        slot: index + 1,
+        rosterId: team.rosterId,
+        team: team.teamName,
+        record: {
+          wins: team.wins,
+          losses: team.losses,
+          ties: team.ties,
+          fpts: team.fpts,
+          fptsAgainst: team.fptsAgainst,
+        },
+      }));
+    }
 
     const slotByRoster = new Map<number, number>();
     for (const entry of slotOrder) slotByRoster.set(entry.rosterId, entry.slot);

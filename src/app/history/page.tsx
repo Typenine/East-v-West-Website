@@ -160,37 +160,49 @@ export default function HistoryPage() {
   }, [activeTab, weeklyTabYear]);
   // Auto-derived podiums from Sleeper brackets (by year)
   const [podiumsByYear, setPodiumsByYear] = useState<Record<string, { champion: string; runnerUp: string; thirdPlace: string }>>({});
+  // Basic per-season team stats (wins/losses/ties/PF) for rendering under champions
+  const [teamStatsByYear, setTeamStatsByYear] = useState<Record<string, Record<string, { wins: number; losses: number; ties: number; fpts: number; rosterId: number }>>>({});
 
   // Regular season winners count per franchise (by team name)
   const [regularSeasonWinnerCounts, setRegularSeasonWinnerCounts] = useState<Record<string, number>>({});
   const DEFAULT_TIMEOUT = 15000;
   const AWARDS_TIMEOUT = 30000;
 
-  // Derive podiums for past seasons (do not block the main load)
+  // Derive podiums and load team stats for seasons (do not block the main load)
   useEffect(() => {
     const ac = new AbortController();
     let cancelled = false;
     async function loadPodiums() {
       try {
         const years = ['2025', '2024', '2023'];
-        const results = await Promise.all(
-          years.map((y) =>
-            derivePodiumFromWinnersBracketByYear(y, { signal: ac.signal, timeoutMs: DEFAULT_TIMEOUT })
-          )
-        );
-        if (cancelled) return;
-        const merged: Record<string, { champion: string; runnerUp: string; thirdPlace: string }> = {};
-        years.forEach((y, idx) => {
-          const r = results[idx];
-          if (!r) return;
+        const podiums: Record<string, { champion: string; runnerUp: string; thirdPlace: string }> = {};
+        const statsPerYear: Record<string, Record<string, { wins: number; losses: number; ties: number; fpts: number; rosterId: number }>> = {};
+        for (const y of years) {
+          // Try to derive from brackets, fall back to constants
+          let derived = null as null | { champion: string | null; runnerUp: string | null; thirdPlace: string | null };
+          try {
+            derived = await derivePodiumFromWinnersBracketByYear(y, { signal: ac.signal, timeoutMs: DEFAULT_TIMEOUT });
+          } catch {}
           const base = CHAMPIONS[y as keyof typeof CHAMPIONS];
-          merged[y] = {
-            champion: (r.champion ?? base?.champion ?? 'TBD') as string,
-            runnerUp: (r.runnerUp ?? base?.runnerUp ?? 'TBD') as string,
-            thirdPlace: (r.thirdPlace ?? base?.thirdPlace ?? 'TBD') as string,
+          podiums[y] = {
+            champion: (derived?.champion ?? base?.champion ?? 'TBD') as string,
+            runnerUp: (derived?.runnerUp ?? base?.runnerUp ?? 'TBD') as string,
+            thirdPlace: (derived?.thirdPlace ?? base?.thirdPlace ?? 'TBD') as string,
           };
-        });
-        setPodiumsByYear(merged);
+          // Load team stats for that season to show record/PF lines
+          const leagueId = y === '2025' ? LEAGUE_IDS.CURRENT : (LEAGUE_IDS.PREVIOUS as Record<string, string | undefined>)[y];
+          if (leagueId) {
+            try {
+              const teams = await getTeamsData(leagueId, { signal: ac.signal, timeoutMs: DEFAULT_TIMEOUT });
+              statsPerYear[y] = Object.fromEntries(
+                teams.map((t) => [t.teamName, { wins: t.wins, losses: t.losses, ties: t.ties, fpts: t.fpts, rosterId: t.rosterId }])
+              );
+            } catch {}
+          }
+        }
+        if (cancelled) return;
+        setPodiumsByYear(podiums);
+        setTeamStatsByYear(statsPerYear);
       } catch (e) {
         if (isAbortError(e)) return;
         console.error('Failed to auto-derive podiums:', e);
@@ -746,16 +758,13 @@ export default function HistoryPage() {
                 ? podiumsByYear[year]
                 : (data as { champion: string; runnerUp: string; thirdPlace: string });
               const { champion, runnerUp, thirdPlace } = merged;
-              const renderLink = (teamName: string) => {
-                const ownerId = ownerByTeamName[teamName];
-                const rosterId = ownerId ? ownerToRosterId[ownerId] : undefined;
-                if (teamName === 'TBD' || !ownerId || rosterId === undefined) {
-                  return <span className="text-[var(--muted)] text-xs">Link unavailable</span>;
-                }
+              const renderSeasonLine = (teamName: string, year: string) => {
+                if (!teamName || teamName === 'TBD') return <span className="text-[var(--muted)] text-xs">—</span>;
+                const stats = teamStatsByYear[year]?.[teamName];
+                if (!stats) return <span className="text-[var(--muted)] text-xs">—</span>;
+                const ties = stats.ties && stats.ties > 0 ? `-${stats.ties}` : '';
                 return (
-                  <Link href={`/teams/${rosterId}`} className="text-[var(--accent)] text-xs hover:underline">
-                    View Team
-                  </Link>
+                  <span className="text-[var(--muted)] text-xs">{`${stats.wins}-${stats.losses}${ties} • ${stats.fpts.toFixed(2)} PF`}</span>
                 );
               };
 
@@ -798,7 +807,7 @@ export default function HistoryPage() {
                         </div>
                       </div>
                       <h3 className="text-xl font-semibold mb-2 text-[var(--text)]">{champion}</h3>
-                      {renderLink(champion)}
+                      {renderSeasonLine(champion, year)}
                     </div>
 
                     {/* Runner-up and Third Place */}
@@ -836,7 +845,7 @@ export default function HistoryPage() {
                         <div className="flex-1 min-w-0">
                           <div className="text-xs text-[var(--muted)]">Runner-up</div>
                           <div className="text-sm font-medium text-[var(--text)] truncate">{runnerUp}</div>
-                          {renderLink(runnerUp)}
+                          {renderSeasonLine(runnerUp, year)}
                         </div>
                       </div>
 
@@ -873,7 +882,7 @@ export default function HistoryPage() {
                         <div className="flex-1 min-w-0">
                           <div className="text-xs text-[var(--muted)]">Third Place</div>
                           <div className="text-sm font-medium text-[var(--text)] truncate">{thirdPlace}</div>
-                          {renderLink(thirdPlace)}
+                          {renderSeasonLine(thirdPlace, year)}
                         </div>
                       </div>
                     </div>
@@ -1929,6 +1938,19 @@ export default function HistoryPage() {
                         <p>Total PF: {f.totalPF.toFixed(2)}</p>
                         <p>Avg PF: {f.avgPF.toFixed(2)}</p>
                         <p>Championships: {f.championships}</p>
+                        {f.championships > 0 && (
+                          <p>
+                            Titles:
+                            {' '}
+                            {(() => {
+                              const years = Object.entries(CHAMPIONS)
+                                .filter(([, c]) => c.champion === f.teamName)
+                                .map(([year]) => year)
+                                .sort();
+                              return years.join(', ');
+                            })()}
+                          </p>
+                        )}
                         <p>2nd Place: {ruCount}</p>
                         <p>3rd Place: {tpCount}</p>
                         <p>Regular Season Winner: {rsCount}</p>

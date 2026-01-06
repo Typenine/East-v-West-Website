@@ -4,8 +4,6 @@
 export const LEAGUE_IDS = {
   CURRENT: '1205237529570193408', // 2025
   PREVIOUS: {
-    '2026': '1312872384503484416',
-    '2025': '1205237529570193408',
     '2024': '1116504942988107776',
     '2023': '991521604930772992',
   }
@@ -45,7 +43,7 @@ export const IMPORTANT_DATES = {
 // Champions by year
 export const CHAMPIONS = {
   '2026': { champion: 'TBD', runnerUp: 'TBD', thirdPlace: 'TBD' },
-  '2025': { champion: 'TBD', runnerUp: 'TBD', thirdPlace: 'TBD' },
+  '2025': { champion: 'BeerNeverBrokeMyHeart', runnerUp: 'TBD', thirdPlace: 'TBD' },
   '2024': { champion: 'Belltown Raptors', runnerUp: 'TBD', thirdPlace: 'TBD' },
   '2023': { champion: 'Double Trouble', runnerUp: 'TBD', thirdPlace: 'TBD' }
 };
