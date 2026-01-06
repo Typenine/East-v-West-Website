@@ -363,23 +363,56 @@ export default async function Home({ searchParams }: { searchParams?: Promise<Re
           const sortedLast = [...last].sort((a,b) => avgSeed(b) - avgSeed(a));
           const losersFinal = sortedLast[0];
           if (losersFinal) {
-            const wRid = (losersFinal.w != null) ? losersFinal.w : ((losersFinal.t1_points != null && losersFinal.t2_points != null) ? ((losersFinal.t1_points > losersFinal.t2_points) ? (losersFinal.t1 ?? null) : (losersFinal.t2 ?? null)) : null);
+            let wRid: number | null = null;
+            if (losersFinal.t1_points != null && losersFinal.t2_points != null) {
+              if (losersFinal.t1_points > losersFinal.t2_points) wRid = losersFinal.t1 ?? null;
+              else if (losersFinal.t2_points > losersFinal.t1_points) wRid = losersFinal.t2 ?? null;
+              else wRid = (losersFinal.w ?? (losersFinal.t1 ?? null));
+            } else {
+              wRid = losersFinal.w ?? null;
+            }
             const lRid = (wRid != null) ? ((wRid === losersFinal.t1) ? (losersFinal.t2 ?? null) : (losersFinal.t1 ?? null)) : null;
             if (lRid != null) {
               const nmMap = recapNameMap as Map<number, string>;
               recap.lastPlace = { teamName: nmMap.get(lRid) || `Roster ${lRid}`, rosterId: lRid || undefined };
             }
           }
-          // Tenth place game winner: prefer the match featuring seeds 9 and 10; else fall back to lowest average seed
-          const matchIs910 = (g: SleeperBracketGameWithScore) => {
+          // Tenth place game winner: directly locate the game between rosterIds seeded #9 and #10
+          let rid9: number | null = null;
+          let rid10: number | null = null;
+          for (const [rid, seed] of seedByRosterIdRecap.entries()) {
+            if (seed === 9) rid9 = rid;
+            if (seed === 10) rid10 = rid;
+          }
+          const involves910 = (g: SleeperBracketGameWithScore) => {
+            if (rid9 == null || rid10 == null) return false;
+            const a = g.t1 ?? null;
+            const b = g.t2 ?? null;
+            return (a === rid9 && b === rid10) || (a === rid10 && b === rid9);
+          };
+          // Prefer the latest round where 9 plays 10; if none found, fall back to seed-based check; if still none, pick lowest average seed game
+          const direct910 = lb.filter(involves910);
+          const matchIs910BySeed = (g: SleeperBracketGameWithScore) => {
             const s1 = g.t1 != null ? (seedByRosterIdRecap.get(g.t1) ?? null) : null;
             const s2 = g.t2 != null ? (seedByRosterIdRecap.get(g.t2) ?? null) : null;
             const set = new Set([s1, s2]);
             return set.has(9) && set.has(10) && set.size === 2;
           };
-          const tenthGame = (last.find(matchIs910)) || sortedLast[sortedLast.length - 1];
+          const all910BySeed = direct910.length === 0 ? lb.filter(matchIs910BySeed) : [];
+          const tenthGame = direct910.length > 0
+            ? [...direct910].sort((a, b) => (b.r ?? 0) - (a.r ?? 0) || (b.m ?? 0) - (a.m ?? 0))[0]
+            : (all910BySeed.length > 0
+                ? [...all910BySeed].sort((a, b) => (b.r ?? 0) - (a.r ?? 0) || (b.m ?? 0) - (a.m ?? 0))[0]
+                : ([...lb].sort((a, b) => avgSeed(a) - avgSeed(b))[0] || null));
           if (tenthGame) {
-            const wRid = (tenthGame.w != null) ? tenthGame.w : ((tenthGame.t1_points != null && tenthGame.t2_points != null) ? ((tenthGame.t1_points > tenthGame.t2_points) ? (tenthGame.t1 ?? null) : (tenthGame.t2 ?? null)) : null);
+            let wRid: number | null = null;
+            if (tenthGame.t1_points != null && tenthGame.t2_points != null) {
+              if (tenthGame.t1_points > tenthGame.t2_points) wRid = tenthGame.t1 ?? null;
+              else if (tenthGame.t2_points > tenthGame.t1_points) wRid = tenthGame.t2 ?? null;
+              else wRid = (tenthGame.w ?? (tenthGame.t1 ?? null));
+            } else {
+              wRid = tenthGame.w ?? null;
+            }
             if (wRid != null) {
               const nmMap = recapNameMap as Map<number, string>;
               recap.tenthPlaceWinner = { teamName: nmMap.get(wRid) || `Roster ${wRid}`, rosterId: wRid || undefined };
