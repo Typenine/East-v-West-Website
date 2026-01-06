@@ -491,109 +491,124 @@ export default async function Home({ searchParams }: { searchParams?: Promise<Re
                       <p className="text-[var(--muted)]">No games yet.</p>
                     ) : (
                       (() => {
-                        const rounds = new Map<number, Array<{ r: number; m: number; t1?: number | null; t2?: number | null; t1_points?: number | null; t2_points?: number | null }>>();
-                        for (const g of b.data) {
-                          const arr = rounds.get(g.r) || [];
-                          arr.push(g);
-                          rounds.set(g.r, arr);
-                        }
-                        const roundNums = Array.from(rounds.keys()).sort((a, b) => a - b);
+                        const byRound: Record<number, SleeperBracketGameWithScore[]> = {};
+                        b.data.forEach((g) => {
+                          const r = g.r ?? 0;
+                          if (!byRound[r]) byRound[r] = [];
+                          byRound[r].push(g);
+                        });
+                        const roundNums = Object.keys(byRound).map(n => Number(n)).sort((a,b) => a - b);
+                        roundNums.forEach(r => byRound[r].sort((a,b) => (a.m ?? 0) - (b.m ?? 0)));
+
+                        const nameFor = (rid?: number | null) => {
+                          if (rid == null) return 'BYE';
+                          return bracketNameMap.get(rid) || `Roster ${rid}`;
+                        };
+                        const TeamRow = ({ rid, isWinner, score }: { rid?: number | null; isWinner: boolean; score?: number | null }) => {
+                          const nm = rid != null ? nameFor(rid) : 'BYE';
+                          const seed = rid != null ? (seedByRosterId.get(rid) ?? null) : null;
+                          const color = nm && nm !== 'BYE' ? getTeamColors(nm)?.primary : undefined;
+                          return (
+                            <div className={`flex items-center justify-between gap-2 ${isWinner ? 'font-semibold text-[var(--accent)]' : ''}`}>
+                              <div className="min-w-0 flex-1 flex items-center gap-2">
+                                {nm !== 'BYE' && rid != null ? (
+                                  <Link href={`/teams/${rid}`} className="flex items-center gap-2 min-w-0 hover:underline" title={nm}>
+                                    <div className="w-5 h-5 rounded-full overflow-hidden border" style={{ borderColor: color || 'var(--border)' }}>
+                                      <Image src={getTeamLogoPath(nm)} alt={nm} width={20} height={20} className="object-contain w-5 h-5" />
+                                    </div>
+                                    <span className="truncate">{seed ? `#${seed} ` : ''}{nm}</span>
+                                  </Link>
+                                ) : (
+                                  <span className="block truncate text-[var(--muted)]" title="BYE">BYE</span>
+                                )}
+                              </div>
+                              {score != null && (
+                                <span className="shrink-0 ml-2 text-xs px-1.5 py-0.5 rounded border border-[var(--border)] text-[var(--muted)]">{score.toFixed(2)}</span>
+                              )}
+                            </div>
+                          );
+                        };
                         const maxRound = roundNums.length ? roundNums[roundNums.length - 1] : 0;
+                        // Determine proper Championship and 3rd Place labeling only for winners bracket
+                        const semiWinners: Array<number> = [];
+                        const semiLosers: Array<number> = [];
+                        if ((b.id === 'winners') && roundNums.length >= 2) {
+                          const semiRound = roundNums[roundNums.length - 2];
+                          const semis = byRound[semiRound] || [];
+                          for (const s of semis) {
+                            const w = s.w ?? ((s.t1_points != null && s.t2_points != null) ? ((s.t1_points > s.t2_points) ? s.t1 : s.t2) : null);
+                            const l = w != null ? ((w === s.t1) ? s.t2 : s.t1) : null;
+                            if (w != null) semiWinners.push(w);
+                            if (l != null) semiLosers.push(l);
+                          }
+                        }
+                        const isPair = (pair: [number | null | undefined, number | null | undefined], set: Set<number>) => {
+                          const [a,b] = pair;
+                          if (a == null || b == null) return false;
+                          return set.has(a) && set.has(b) && set.size === 2;
+                        };
+                        const winnersSet = semiWinners.length === 2 ? new Set<number>(semiWinners) : null;
+                        const losersSet = semiLosers.length === 2 ? new Set<number>(semiLosers) : null;
+                        const labelFor = (g: SleeperBracketGameWithScore, rNum: number): string | undefined => {
+                          if (rNum !== maxRound) return undefined;
+                          if (b.id === 'losers') return 'Final';
+                          if (winnersSet && isPair([g.t1 ?? null, g.t2 ?? null], winnersSet)) return 'Championship';
+                          if (losersSet && isPair([g.t1 ?? null, g.t2 ?? null], losersSet)) return '3rd Place';
+                          return undefined; // Other placement games (5th/7th) remain unlabeled
+                        };
+                        const MATCH_H = 72; // px
+                        const GAP = 24; // px
                         const roundTitle = (r: number) => {
                           if (r === maxRound) return 'Finals';
                           if (r === maxRound - 1) return 'Semifinals';
                           return `Round ${r}`;
                         };
-                        const totalRows = Math.max(2, 2 ** roundNums.length);
-                        const totalCols = Math.max(1, roundNums.length * 2 - 1);
-                        const colTemplate = Array.from({ length: totalCols }, (_, i) => (i % 2 === 0 ? 'minmax(240px,1fr)' : '64px')).join(' ');
                         return (
-                          <div className="w-full overflow-x-auto">
-                            <div className="grid gap-3" style={{ gridTemplateColumns: colTemplate }}>
-                              {roundNums.map((r, rIdx) => (
-                                <div key={`hdr-${r}`} className="text-sm font-semibold" style={{ gridColumn: rIdx * 2 + 1 }}>{roundTitle(r)}</div>
-                              ))}
-                            </div>
-                            <div className="grid gap-4" style={{ gridTemplateColumns: colTemplate, gridTemplateRows: `repeat(${totalRows}, minmax(0,1fr))` }}>
+                          <div className="overflow-x-auto">
+                            <div className="flex items-start gap-8">
                               {roundNums.map((r, rIdx) => {
-                                const arrInRound = (rounds.get(r) || []).sort((a, b) => (a.m ?? 0) - (b.m ?? 0));
-                                return arrInRound.flatMap((g, idx) => {
-                                  const t1Name = g.t1 != null ? (bracketNameMap.get(g.t1) || `Roster ${g.t1}`) : 'Bye';
-                                  const t2Name = g.t2 != null ? (bracketNameMap.get(g.t2) || `Roster ${g.t2}`) : 'Bye';
-                                  const t1p = g.t1_points ?? null;
-                                  const t2p = g.t2_points ?? null;
-                                  const t1Seed = g.t1 != null ? (seedByRosterId.get(g.t1) ?? null) : null;
-                                  const t2Seed = g.t2 != null ? (seedByRosterId.get(g.t2) ?? null) : null;
-                                  const c1 = t1Name && t1Name !== 'Bye' ? getTeamColors(t1Name)?.primary : undefined;
-                                  const c2 = t2Name && t2Name !== 'Bye' ? getTeamColors(t2Name)?.primary : undefined;
-                                  const inFinal = r === maxRound;
-                                  const matchLabel = inFinal ? (b.id === 'winners' ? (arrInRound.length > 1 ? (idx === 0 ? 'Championship' : '3rd Place') : 'Championship') : 'Final') : undefined;
-                                  // Center matches at rows: 1,3,5... for round 0; 2,6 for round 1; etc.
-                                  const row = (2 ** rIdx) + idx * (2 ** (rIdx + 1));
-                                  const elements = [(
-                                    <div key={`m-${r}-${idx}`} style={{ gridColumn: rIdx * 2 + 1, gridRow: row, alignSelf: 'center' }} className="evw-surface border rounded-[var(--radius-card)] p-3">
-                                      {matchLabel && (<div className="text-xs text-[var(--muted)] mb-1">{matchLabel}</div>)}
-                                      <div className="flex items-center justify-between gap-3">
-                                        <div className="flex items-center gap-2 min-w-0">
-                                          {t1Name && t1Name !== 'Bye' && g.t1 != null ? (
-                                            <Link href={`/teams/${g.t1}`} className="flex items-center gap-2 min-w-0 hover:underline">
-                                              <div className="w-7 h-7 rounded-full overflow-hidden border" style={{ borderColor: c1 || 'var(--border)' }}>
-                                                <Image src={getTeamLogoPath(t1Name)} alt={t1Name} width={28} height={28} className="object-contain w-7 h-7" />
-                                              </div>
-                                              <div className="truncate">
-                                                <div className="text-sm font-semibold truncate">{t1Seed ? `#${t1Seed} ` : ''}{t1Name}</div>
-                                                <div className="text-xs text-[var(--muted)]">{t1p == null ? '—' : t1p.toFixed(2)}</div>
-                                              </div>
-                                            </Link>
-                                          ) : (
-                                            <div className="truncate">
-                                              <div className="text-sm font-semibold truncate">{t1Name}</div>
-                                              <div className="text-xs text-[var(--muted)]">{t1p == null ? '—' : t1p.toFixed(2)}</div>
-                                            </div>
-                                          )}
+                                const mtFirst = rIdx === 0 ? 0 : ((MATCH_H + GAP) * Math.pow(2, rIdx - 1)) / 2;
+                                const mtBetween = rIdx === 0 ? GAP : ((MATCH_H + GAP) * Math.pow(2, rIdx - 1));
+                                const matches = byRound[r];
+                                const n = matches.length;
+                                const colHeight = mtFirst + n * MATCH_H + Math.max(0, n - 1) * mtBetween;
+                                // Round column element
+                                const roundCol = (
+                                  <div key={`${b.id}-round-${r}`} className="min-w-[260px]" style={{ height: colHeight }}>
+                                    <h4 className="font-semibold text-[var(--muted)] mb-2">{roundTitle(r)}</h4>
+                                    <div>
+                                      {matches.map((g, idx) => (
+                                        <div key={`${b.id}-${r}-${g.m}`} style={{ marginTop: idx === 0 ? mtFirst : mtBetween }}>
+                                          <div className="border rounded p-3 h-[72px] flex flex-col justify-between">
+                                            {(() => { const ml = labelFor(g, r); return ml ? <div className="text-xs text-[var(--muted)] mb-1">{ml}</div> : null; })()}
+                                            <TeamRow rid={g.t1 ?? null} isWinner={g.w != null && g.t1 != null && g.w === g.t1} score={g.t1_points ?? null} />
+                                            <TeamRow rid={g.t2 ?? null} isWinner={g.w != null && g.t2 != null && g.w === g.t2} score={g.t2_points ?? null} />
+                                          </div>
                                         </div>
-                                        <span className="text-[var(--muted)]">vs</span>
-                                        <div className="flex items-center gap-2 min-w-0">
-                                          {t2Name && t2Name !== 'Bye' && g.t2 != null ? (
-                                            <Link href={`/teams/${g.t2}`} className="flex items-center gap-2 min-w-0 hover:underline">
-                                              <div className="w-7 h-7 rounded-full overflow-hidden border" style={{ borderColor: c2 || 'var(--border)' }}>
-                                                <Image src={getTeamLogoPath(t2Name)} alt={t2Name} width={28} height={28} className="object-contain w-7 h-7" />
-                                              </div>
-                                              <div className="truncate text-right">
-                                                <div className="text-sm font-semibold truncate">{t2Seed ? `#${t2Seed} ` : ''}{t2Name}</div>
-                                                <div className="text-xs text-[var(--muted)]">{t2p == null ? '—' : t2p.toFixed(2)}</div>
-                                              </div>
-                                            </Link>
-                                          ) : (
-                                            <div className="truncate text-right">
-                                              <div className="text-sm font-semibold truncate">{t2Name}</div>
-                                              <div className="text-xs text-[var(--muted)]">{t2p == null ? '—' : t2p.toFixed(2)}</div>
-                                            </div>
-                                          )}
-                                        </div>
-                                      </div>
-                                      {(c1 || c2) && (
-                                        <div className="mt-2 grid grid-cols-2 h-1 rounded-full overflow-hidden">
-                                          <div style={{ backgroundColor: c1 || 'transparent' }} />
-                                          <div style={{ backgroundColor: c2 || 'transparent' }} />
-                                        </div>
-                                      )}
+                                      ))}
                                     </div>
-                                  )];
-                                  if (rIdx < roundNums.length - 1) {
-                                    const span = 2 ** rIdx;
-                                    const start = Math.max(1, row - span);
-                                    const end = row + span + 1;
-                                    elements.push(
-                                      <div key={`c-${r}-${idx}`} style={{ gridColumn: rIdx * 2 + 2, gridRow: `${start} / ${end}`, position: 'relative' }}>
-                                        <div style={{ position: 'absolute', left: '50%', top: 0, bottom: 0, width: 2, transform: 'translateX(-50%)', background: 'var(--border)' }} />
-                                        <div style={{ position: 'absolute', top: '50%', left: 0, right: '50%', height: 2, transform: 'translateY(-50%)', background: 'var(--border)' }} />
-                                        <div style={{ position: 'absolute', top: '50%', left: '50%', right: 0, height: 2, transform: 'translateY(-50%)', background: 'var(--border)' }} />
-                                      </div>
-                                    );
-                                  }
-                                  return elements;
-                                });
+                                  </div>
+                                );
+                                // Connector column (between this round and next)
+                                const connCol = (rIdx < roundNums.length - 1) ? (
+                                  <div key={`${b.id}-conn-${r}`} className="relative w-16" style={{ height: colHeight }}>
+                                    {Array.from({ length: Math.floor(n / 2) }, (_, k) => {
+                                      const i1 = 2 * k;
+                                      const i2 = i1 + 1;
+                                      const y1 = mtFirst + i1 * (MATCH_H + GAP) + MATCH_H / 2;
+                                      const y2 = mtFirst + i2 * (MATCH_H + GAP) + MATCH_H / 2;
+                                      const mid = (y1 + y2) / 2;
+                                      return (
+                                        <div key={`${b.id}-connseg-${r}-${k}`}>
+                                          <div style={{ position: 'absolute', left: '50%', top: `${y1}px`, height: `${y2 - y1}px`, width: 2, transform: 'translateX(-50%)', background: 'var(--border)' }} />
+                                          <div style={{ position: 'absolute', top: `${mid}px`, left: 0, right: '50%', height: 2, transform: 'translateY(-50%)', background: 'var(--border)' }} />
+                                          <div style={{ position: 'absolute', top: `${mid}px`, left: '50%', right: 0, height: 2, transform: 'translateY(-50%)', background: 'var(--border)' }} />
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                ) : null;
+                                return [roundCol, connCol];
                               })}
                             </div>
                           </div>
@@ -799,80 +814,123 @@ export default async function Home({ searchParams }: { searchParams?: Promise<Re
                         <p className="text-[var(--muted)]">No games.</p>
                       ) : (
                         (() => {
-                          const rounds = new Map<number, SleeperBracketGameWithScore[]>();
-                          for (const g of b.data) {
-                            const arr = rounds.get(g.r) || [];
-                            arr.push(g);
-                            rounds.set(g.r, arr);
-                          }
-                          const roundNums = Array.from(rounds.keys()).sort((a, b) => a - b);
+                          const byRound: Record<number, SleeperBracketGameWithScore[]> = {};
+                          b.data.forEach((g) => {
+                            const r = g.r ?? 0;
+                            if (!byRound[r]) byRound[r] = [];
+                            byRound[r].push(g);
+                          });
+                          const roundNums = Object.keys(byRound).map(n => Number(n)).sort((a,b) => a - b);
+                          roundNums.forEach(r => byRound[r].sort((a,b) => (a.m ?? 0) - (b.m ?? 0)));
+                          const nameFor = (rid?: number | null) => {
+                            if (rid == null) return 'BYE';
+                            return recapBracketNameMap.get(rid) || `Roster ${rid}`;
+                          };
+                          const TeamRow = ({ rid, isWinner, score }: { rid?: number | null; isWinner: boolean; score?: number | null }) => {
+                            const nm = rid != null ? nameFor(rid) : 'BYE';
+                            const seed = rid != null ? (seedByRosterIdRecap.get(rid) ?? null) : null;
+                            const color = nm && nm !== 'BYE' ? getTeamColors(nm)?.primary : undefined;
+                            return (
+                              <div className={`flex items-center justify-between gap-2 ${isWinner ? 'font-semibold text-[var(--accent)]' : ''}`}>
+                                <div className="min-w-0 flex-1 flex items-center gap-2">
+                                  {nm !== 'BYE' && rid != null ? (
+                                    <Link href={`/teams/${rid}`} className="flex items-center gap-2 min-w-0 hover:underline" title={nm}>
+                                      <div className="w-5 h-5 rounded-full overflow-hidden border" style={{ borderColor: color || 'var(--border)' }}>
+                                        <Image src={getTeamLogoPath(nm)} alt={nm} width={20} height={20} className="object-contain w-5 h-5" />
+                                      </div>
+                                      <span className="truncate">{seed ? `#${seed} ` : ''}{nm}</span>
+                                    </Link>
+                                  ) : (
+                                    <span className="block truncate text-[var(--muted)]" title="BYE">BYE</span>
+                                  )}
+                                </div>
+                                {score != null && (
+                                  <span className="shrink-0 ml-2 text-xs px-1.5 py-0.5 rounded border border-[var(--border)] text-[var(--muted)]">{score.toFixed(2)}</span>
+                                )}
+                              </div>
+                            );
+                          };
                           const maxRound = roundNums.length ? roundNums[roundNums.length - 1] : 0;
+                          // Proper Championship and 3rd Place labeling for winners recap only
+                          const semiWinners: Array<number> = [];
+                          const semiLosers: Array<number> = [];
+                          if ((b.id === 'winners-recap') && roundNums.length >= 2) {
+                            const semiRound = roundNums[roundNums.length - 2];
+                            const semis = byRound[semiRound] || [];
+                            for (const s of semis) {
+                              const w = s.w ?? ((s.t1_points != null && s.t2_points != null) ? ((s.t1_points > s.t2_points) ? s.t1 : s.t2) : null);
+                              const l = w != null ? ((w === s.t1) ? s.t2 : s.t1) : null;
+                              if (w != null) semiWinners.push(w);
+                              if (l != null) semiLosers.push(l);
+                            }
+                          }
+                          const winnersSet = semiWinners.length === 2 ? new Set<number>(semiWinners) : null;
+                          const losersSet = semiLosers.length === 2 ? new Set<number>(semiLosers) : null;
+                          const isPair = (pair: [number | null | undefined, number | null | undefined], set: Set<number>) => {
+                            const [a,b] = pair;
+                            if (a == null || b == null) return false;
+                            return set.has(a) && set.has(b) && set.size === 2;
+                          };
+                          const labelFor = (g: SleeperBracketGameWithScore, rNum: number): string | undefined => {
+                            if (rNum !== maxRound) return undefined;
+                            if (b.id === 'losers-recap') return 'Final';
+                            if (winnersSet && isPair([g.t1 ?? null, g.t2 ?? null], winnersSet)) return 'Championship';
+                            if (losersSet && isPair([g.t1 ?? null, g.t2 ?? null], losersSet)) return '3rd Place';
+                            return undefined;
+                          };
+                          const MATCH_H = 72; // px
+                          const GAP = 24; // px
                           const roundTitle = (r: number) => {
                             if (r === maxRound) return 'Finals';
                             if (r === maxRound - 1) return 'Semifinals';
                             return `Round ${r}`;
                           };
                           return (
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                              {roundNums.map((r) => (
-                                <div key={r} className="space-y-3">
-                                  <h4 className="font-semibold">{roundTitle(r)}</h4>
-                                  {((rounds.get(r) || []).sort((a, b) => (a.m ?? 0) - (b.m ?? 0))).map((g, idx, arrInRound) => {
-                                    const t1Name = g.t1 != null ? (recapBracketNameMap.get(g.t1) || `Roster ${g.t1}`) : 'Bye';
-                                    const t2Name = g.t2 != null ? (recapBracketNameMap.get(g.t2) || `Roster ${g.t2}`) : 'Bye';
-                                    const t1p = g.t1_points ?? null;
-                                    const t2p = g.t2_points ?? null;
-                                    const t1Seed = g.t1 != null ? (seedByRosterIdRecap.get(g.t1) ?? null) : null;
-                                    const t2Seed = g.t2 != null ? (seedByRosterIdRecap.get(g.t2) ?? null) : null;
-                                    const c1 = t1Name && t1Name !== 'Bye' ? getTeamColors(t1Name)?.primary : undefined;
-                                    const c2 = t2Name && t2Name !== 'Bye' ? getTeamColors(t2Name)?.primary : undefined;
-                                    const inFinal = r === maxRound;
-                                    const matchLabel = inFinal
-                                      ? (b.id === 'winners-recap'
-                                          ? (arrInRound.length > 1 ? (idx === 0 ? 'Championship' : '3rd Place') : 'Championship')
-                                          : 'Final')
-                                      : undefined;
-                                    return (
-                                      <div key={idx} className="evw-surface border rounded-[var(--radius-card)] p-3">
-                                        {matchLabel && (
-                                          <div className="text-xs text-[var(--muted)] mb-1">{matchLabel}</div>
-                                        )}
-                                        <div className="flex items-center justify-between gap-3">
-                                          <div className="flex items-center gap-2 min-w-0">
-                                            <div className="w-7 h-7 rounded-full overflow-hidden border" style={{ borderColor: c1 || 'var(--border)' }}>
-                                              {t1Name && t1Name !== 'Bye' && (
-                                                <Image src={getTeamLogoPath(t1Name)} alt={t1Name} width={28} height={28} className="object-contain w-7 h-7" />
-                                              )}
-                                            </div>
-                                            <div className="truncate">
-                                              <div className="text-sm font-semibold truncate">{t1Seed ? `#${t1Seed} ` : ''}{t1Name}</div>
-                                              <div className="text-xs text-[var(--muted)]">{t1p == null ? '—' : t1p.toFixed(2)}</div>
+                            <div className="overflow-x-auto">
+                              <div className="flex items-start gap-8">
+                                {roundNums.map((r, rIdx) => {
+                                  const mtFirst = rIdx === 0 ? 0 : ((MATCH_H + GAP) * Math.pow(2, rIdx - 1)) / 2;
+                                  const mtBetween = rIdx === 0 ? GAP : ((MATCH_H + GAP) * Math.pow(2, rIdx - 1));
+                                  const matches = byRound[r];
+                                  const n = matches.length;
+                                  const colHeight = mtFirst + n * MATCH_H + Math.max(0, n - 1) * mtBetween;
+                                  const roundCol = (
+                                    <div key={`${b.id}-round-${r}`} className="min-w-[260px]" style={{ height: colHeight }}>
+                                      <h4 className="font-semibold text-[var(--muted)] mb-2">{roundTitle(r)}</h4>
+                                      <div>
+                                        {matches.map((g, idx) => (
+                                          <div key={`${b.id}-${r}-${g.m}`} style={{ marginTop: idx === 0 ? mtFirst : mtBetween }}>
+                                            <div className="border rounded p-3 h-[72px] flex flex-col justify-between">
+                                              {(() => { const ml = labelFor(g, r); return ml ? <div className="text-xs text-[var(--muted)] mb-1">{ml}</div> : null; })()}
+                                              <TeamRow rid={g.t1 ?? null} isWinner={g.w != null && g.t1 != null && g.w === g.t1} score={g.t1_points ?? null} />
+                                              <TeamRow rid={g.t2 ?? null} isWinner={g.w != null && g.t2 != null && g.w === g.t2} score={g.t2_points ?? null} />
                                             </div>
                                           </div>
-                                          <span className="text-[var(--muted)]">vs</span>
-                                          <div className="flex items-center gap-2 min-w-0">
-                                            <div className="w-7 h-7 rounded-full overflow-hidden border" style={{ borderColor: c2 || 'var(--border)' }}>
-                                              {t2Name && t2Name !== 'Bye' && (
-                                                <Image src={getTeamLogoPath(t2Name)} alt={t2Name} width={28} height={28} className="object-contain w-7 h-7" />
-                                              )}
-                                            </div>
-                                            <div className="truncate text-right">
-                                              <div className="text-sm font-semibold truncate">{t2Seed ? `#${t2Seed} ` : ''}{t2Name}</div>
-                                              <div className="text-xs text-[var(--muted)]">{t2p == null ? '—' : t2p.toFixed(2)}</div>
-                                            </div>
-                                          </div>
-                                        </div>
-                                        {(c1 || c2) && (
-                                          <div className="mt-2 grid grid-cols-2 h-1 rounded-full overflow-hidden">
-                                            <div style={{ backgroundColor: c1 || 'transparent' }} />
-                                            <div style={{ backgroundColor: c2 || 'transparent' }} />
-                                          </div>
-                                        )}
+                                        ))}
                                       </div>
-                                    );
-                                  })}
-                                </div>
-                              ))}
+                                    </div>
+                                  );
+                                  const connCol = (rIdx < roundNums.length - 1) ? (
+                                    <div key={`${b.id}-conn-${r}`} className="relative w-16" style={{ height: colHeight }}>
+                                      {Array.from({ length: Math.floor(n / 2) }, (_, k) => {
+                                        const i1 = 2 * k;
+                                        const i2 = i1 + 1;
+                                        const y1 = mtFirst + i1 * (MATCH_H + GAP) + MATCH_H / 2;
+                                        const y2 = mtFirst + i2 * (MATCH_H + GAP) + MATCH_H / 2;
+                                        const mid = (y1 + y2) / 2;
+                                        return (
+                                          <div key={`${b.id}-connseg-${r}-${k}`}>
+                                            <div style={{ position: 'absolute', left: '50%', top: `${y1}px`, height: `${y2 - y1}px`, width: 2, transform: 'translateX(-50%)', background: 'var(--border)' }} />
+                                            <div style={{ position: 'absolute', top: `${mid}px`, left: 0, right: '50%', height: 2, transform: 'translateY(-50%)', background: 'var(--border)' }} />
+                                            <div style={{ position: 'absolute', top: `${mid}px`, left: '50%', right: 0, height: 2, transform: 'translateY(-50%)', background: 'var(--border)' }} />
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  ) : null;
+                                  return [roundCol, connCol];
+                                })}
+                              </div>
                             </div>
                           );
                         })()
