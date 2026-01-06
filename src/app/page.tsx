@@ -482,9 +482,9 @@ export default async function Home({ searchParams }: { searchParams?: Promise<Re
         ) : isPlayoffs ? (
           <>
             <SectionHeader title="Playoff brackets" />
-            <div className="grid grid-cols-1 gap-6 mt-6">
+            <div className="flex flex-col gap-6 mt-6">
               {[{ id: 'winners', title: 'Winners Bracket', data: winnersBracket }, { id: 'losers', title: 'Losers Bracket', data: losersBracket }].map((b) => (
-                <Card key={b.id}>
+                <Card key={b.id} className="w-full">
                   <CardContent>
                     <h3 className="text-lg font-semibold mb-3">{b.title}</h3>
                     {b.data.length === 0 ? (
@@ -790,9 +790,9 @@ export default async function Home({ searchParams }: { searchParams?: Promise<Re
             {/* Recap Playoff Brackets */}
             <div className="mt-8">
               <SectionHeader title="Playoff brackets (recap)" />
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-4">
+              <div className="flex flex-col gap-6 mt-4">
                 {[{ id: 'winners-recap', title: 'Winners Bracket', data: recapWinnersBracket }, { id: 'losers-recap', title: 'Losers Bracket', data: recapLosersBracket }].map((b) => (
-                  <Card key={b.id}>
+                  <Card key={b.id} className="w-full">
                     <CardContent>
                       <h3 className="text-lg font-semibold mb-3">{b.title}</h3>
                       {b.data.length === 0 ? (
