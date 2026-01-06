@@ -43,21 +43,33 @@ export async function GET() {
         }
       }
 
-      // Identify finalists from the highest round game
+      // Identify finalists and third-place game using semifinal winners/losers
       let champId: number | null = null;
       let runnerId: number | null = null;
+      let thirdWinnerId: number | null = null;
+      let thirdLoserId: number | null = null;
+      let maxRound = 0;
       if (winners.length > 0) {
-        const maxRound = Math.max(...winners.map((g) => g.r ?? 0));
-        const finals = winners.filter((g) => (g.r ?? 0) === maxRound && g.t1 != null && g.t2 != null);
-        const final = finals[0];
-        if (final) {
-          const w = final.w ?? null;
-          const a = final.t1 ?? null;
-          const b = final.t2 ?? null;
-          if (w != null && a != null && b != null) {
-            champId = w;
-            runnerId = w === a ? b : a;
-          }
+        maxRound = Math.max(...winners.map((g) => g.r ?? 0));
+        const semiRound = maxRound - 1;
+        const lastRoundGames = winners.filter((g) => (g.r ?? 0) === maxRound && g.t1 != null && g.t2 != null);
+        const semiGames = winners.filter((g) => (g.r ?? 0) === semiRound && g.t1 != null && g.t2 != null);
+        const semiWinners = new Set<number>();
+        const semiLosers = new Set<number>();
+        for (const sg of semiGames) {
+          if (sg.w != null) semiWinners.add(sg.w);
+          const loser = sg.l ?? (sg.w === sg.t1 ? sg.t2 ?? null : sg.t1 ?? null);
+          if (loser != null) semiLosers.add(loser);
+        }
+        const finalGame = lastRoundGames.find((g) => (semiWinners.has(g.t1 as number) && semiWinners.has(g.t2 as number)) && g.w != null);
+        const thirdGame = lastRoundGames.find((g) => (semiLosers.has(g.t1 as number) && semiLosers.has(g.t2 as number)) && g.w != null);
+        if (finalGame) {
+          champId = finalGame.w ?? null;
+          runnerId = finalGame.l ?? (finalGame.w === finalGame.t1 ? (finalGame.t2 ?? null) : (finalGame.t1 ?? null));
+        }
+        if (thirdGame) {
+          thirdWinnerId = thirdGame.w ?? null;
+          thirdLoserId = thirdGame.l ?? (thirdGame.w === thirdGame.t1 ? (thirdGame.t2 ?? null) : (thirdGame.t1 ?? null));
         }
       }
 
@@ -70,16 +82,41 @@ export async function GET() {
           .filter((r) => Number.isFinite(r))
           .sort((a, b) => (a as number) - (b as number)) as number[];
         const playoffOrdered: Array<typeof teams[number]> = [];
+        const semiRound = maxRound > 0 ? maxRound - 1 : -1;
         for (const r of rounds) {
           const bucket = playoffNonFinalists.filter((t) => (eliminatedInRound.get(t.rosterId) ?? Number.MAX_SAFE_INTEGER) === r);
-          bucket.sort(byStandingAsc);
+          if (r === semiRound && thirdWinnerId != null && thirdLoserId != null) {
+            bucket.sort((a, b) => {
+              const aId = a.rosterId;
+              const bId = b.rosterId;
+              const aTP = aId === thirdWinnerId || aId === thirdLoserId;
+              const bTP = bId === thirdWinnerId || bId === thirdLoserId;
+              if (aTP && bTP) {
+                if (aId === thirdLoserId && bId === thirdWinnerId) return -1; // 4th place first
+                if (aId === thirdWinnerId && bId === thirdLoserId) return 1;  // then 3rd place
+              }
+              return byStandingAsc(a, b);
+            });
+          } else {
+            bucket.sort(byStandingAsc);
+          }
           playoffOrdered.push(...bucket);
+        }
+        // Ensure semifinal losers (third-place game participants) occupy picks 9–10 in loser/winner order
+        let playoffOrderedAdjusted = playoffOrdered;
+        if (thirdWinnerId != null && thirdLoserId != null) {
+          const withoutThirds = playoffOrdered.filter((t) => t.rosterId !== thirdLoserId && t.rosterId !== thirdWinnerId);
+          const thirdLoserTeam = byRoster.get(thirdLoserId);
+          const thirdWinnerTeam = byRoster.get(thirdWinnerId);
+          if (thirdLoserTeam && thirdWinnerTeam) {
+            playoffOrderedAdjusted = [...withoutThirds, thirdLoserTeam, thirdWinnerTeam];
+          }
         }
         const finalists = [byRoster.get(runnerId)!, byRoster.get(champId)!];
 
         const ordered = [
           ...nonPlayoff,
-          ...playoffOrdered,
+          ...playoffOrderedAdjusted,
           finalists[0], // runner-up gets pick 11
           finalists[1], // champion gets pick 12
         ].filter(Boolean);

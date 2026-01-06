@@ -99,6 +99,65 @@ async function loadNextDraftOwnership(args: LoadNextDraftArgs): Promise<NextDraf
     }
   } catch {}
 
+  // Apply manual trades last so overrides win and are reflected in transfer history
+  try {
+    type ManualTradeAsset = { type: 'player' | 'pick' | 'cash'; name: string; year?: string; round?: number; originalOwner?: string };
+    type ManualTradeTeam = { name: string; assets: ManualTradeAsset[] };
+    type ManualTrade = { id: string; date: string; status: 'completed' | 'pending' | 'vetoed'; teams: ManualTradeTeam[]; active?: boolean };
+    const res = await fetch('/api/manual-trades?all=1', { cache: 'no-store' }).catch(() => null);
+    if (res && res.ok) {
+      const j = (await res.json()) as { trades?: ManualTrade[] };
+      const trades = Array.isArray(j?.trades) ? j.trades : [];
+      const tsFromDate = (d: string) => {
+        const t = Date.parse(d);
+        return Number.isFinite(t) ? t : Date.now();
+      };
+      const findRosterIdByTeam = (teamName: string | undefined): number | null => {
+        if (!teamName) return null;
+        for (const [rid, name] of nameMap.entries()) {
+          if (name === teamName) return rid;
+        }
+        return null;
+      };
+      for (const mt of trades) {
+        if (mt.active === false) continue;
+        if (mt.status !== 'completed') continue;
+        const timestamp = tsFromDate(mt.date);
+        for (const team of (mt.teams || [])) {
+          const toRosterId = findRosterIdByTeam(team.name);
+          if (!toRosterId) continue;
+          for (const a of (team.assets || [])) {
+            if (a.type !== 'pick') continue;
+            const yearStr = a.year ? String(a.year) : '';
+            const rd = Number(a.round);
+            if (!yearStr || yearStr !== nextSeasonStr) continue;
+            if (!Number.isFinite(rd)) continue;
+            const origRosterId = findRosterIdByTeam(a.originalOwner);
+            if (!origRosterId) continue;
+            const key = `${origRosterId}-${rd}`;
+            const prevOwner = baseOwners.get(key);
+            baseOwners.set(key, toRosterId);
+            const fromTeam = prevOwner != null ? (nameMap.get(prevOwner) || `Roster ${prevOwner}`) : (a.originalOwner || 'Unknown');
+            const toTeam = nameMap.get(toRosterId) || `Roster ${toRosterId}`;
+            const event: DraftPickTransferEvent = {
+              tradeId: mt.id,
+              timestamp,
+              fromRosterId: prevOwner ?? origRosterId,
+              toRosterId: toRosterId,
+              fromTeam,
+              toTeam,
+            };
+            const arr = historyMap.get(key) || [];
+            arr.push(event);
+            historyMap.set(key, arr);
+          }
+        }
+      }
+    }
+  } catch {}
+
+  
+
   try {
     const txns = await getLeagueTrades(args.leagueId);
     const sorted = [...txns]

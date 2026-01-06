@@ -239,7 +239,7 @@ export default function HistoryPage() {
       try {
         setBracketLoading(true);
         setBracketError(null);
-        const leagueId = bracketYear === '2026'
+        const leagueId = bracketYear === '2025'
           ? LEAGUE_IDS.CURRENT
           : LEAGUE_IDS.PREVIOUS[bracketYear as keyof typeof LEAGUE_IDS.PREVIOUS];
         if (!leagueId) {
@@ -393,7 +393,7 @@ export default function HistoryPage() {
 
         // Compute Regular Season Winners per franchise (previous completed seasons)
         const rsCounts: Record<string, number> = {};
-        const rsYears: string[] = ['2024', '2023'];
+        const rsYears: string[] = ['2025', '2024', '2023'];
         for (const y of rsYears) {
           const teams = allTeams[y] || [];
           if (!teams || teams.length === 0) continue;
