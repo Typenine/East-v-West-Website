@@ -15,6 +15,14 @@ import { getHeadToHeadAllTime } from '@/lib/utils/headtohead';
 import TaxiBanner from '@/components/taxi/TaxiBanner';
 import { getTeamLogoPath, getTeamColors } from '@/lib/utils/team-utils';
 
+function hexToRgba(hex: string, alpha = 1): string {
+  const clean = hex.replace('#', '');
+  const r = parseInt(clean.substring(0, 2), 16);
+  const g = parseInt(clean.substring(2, 4), 16);
+  const b = parseInt(clean.substring(4, 6), 16);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
 export const revalidate = 20; // ISR: refresh at most every 20s to reduce API churn and flakiness
 
 export default async function Home({ searchParams }: { searchParams?: Promise<Record<string, string | string[] | undefined>> }) {
@@ -249,10 +257,13 @@ export default async function Home({ searchParams }: { searchParams?: Promise<Re
     podium?: { champion: string; runnerUp: string; thirdPlace: string };
     awards?: { mvp?: { name: string; points: number; teamName?: string }; roy?: { name: string; points: number; teamName?: string } };
     weeklyHighsLeader?: { teamName: string; count: number };
-    toiletChampion?: string;
+    weeklyHighsTopTeams?: Array<{ teamName: string; rosterId?: number; count: number }>;
+    lastPlace?: { teamName: string; rosterId?: number };
+    tenthPlaceWinner?: { teamName: string; rosterId?: number };
     regularSeasonWinner?: { teamName: string; rosterId: number; wins: number; fpts: number };
     pfLeader?: { teamName: string; rosterId: number; fpts: number };
     topWeek?: { teamName: string; rosterId: number; week: number; points: number; opponentTeamName: string; opponentRosterId: number };
+    topWeeks3?: Array<{ teamName: string; rosterId: number; week: number; points: number; opponentTeamName: string; opponentRosterId: number }>;
   } = {};
   if (!isRegularSeason && !isPlayoffs) {
     try {
@@ -301,6 +312,15 @@ export default async function Home({ searchParams }: { searchParams?: Promise<Re
           }
         }
         recap.weeklyHighsLeader = { teamName: bestTeam, count: bestCount };
+        // Top 3 teams by weekly-high wins
+        const agg: Array<{ teamName: string; count: number; rosterId?: number }> = [];
+        const invert = new Map<string, number>();
+        recapBracketNameMap.forEach((nm, rid) => invert.set(nm, rid));
+        for (const [tn, c] of counts.entries()) {
+          agg.push({ teamName: tn, count: c, rosterId: invert.get(tn) });
+        }
+        agg.sort((a,b) => b.count - a.count || a.teamName.localeCompare(b.teamName));
+        recap.weeklyHighsTopTeams = agg.slice(0, 3);
       }
       // Additional recap stats
       if (leagueIdRecap) {
@@ -316,10 +336,12 @@ export default async function Home({ searchParams }: { searchParams?: Promise<Re
         } catch {}
       }
       if (weeklyHighsRows.length > 0) {
-        const top = [...weeklyHighsRows].sort((a, b) => (b.points ?? 0) - (a.points ?? 0))[0];
+        const sortedWeeks = [...weeklyHighsRows].sort((a, b) => (b.points ?? 0) - (a.points ?? 0));
+        const top = sortedWeeks[0];
         if (top) recap.topWeek = { teamName: top.teamName, rosterId: top.rosterId, week: top.week, points: top.points, opponentTeamName: top.opponentTeamName, opponentRosterId: top.opponentRosterId };
+        recap.topWeeks3 = sortedWeeks.slice(0, 3).map((w) => ({ teamName: w.teamName, rosterId: w.rosterId, week: w.week, points: w.points, opponentTeamName: w.opponentTeamName, opponentRosterId: w.opponentRosterId }));
       }
-      // Toilet Bowl champion (losers bracket final winner)
+      // Derive Last Place (losers final loser) and 10th Place Winner (classification game winner) from losers bracket
       if (recapBrackets && (recapBrackets.losers || []).length > 0) {
         const lb = recapBrackets.losers as SleeperBracketGameWithScore[];
         const byRound: Record<number, SleeperBracketGameWithScore[]> = {};
@@ -332,12 +354,30 @@ export default async function Home({ searchParams }: { searchParams?: Promise<Re
         if (rounds.length > 0) {
           const maxRound = Math.max(...rounds);
           const last = byRound[maxRound] || [];
-          const final: SleeperBracketGameWithScore | undefined = last.find((g) => g.w != null);
-          const champRid = final?.w ?? null;
-          if (champRid != null && recapNameMap) {
-            const nm = recapNameMap as Map<number, string>;
-            const name = nm.get(champRid) || `Roster ${champRid}`;
-            recap.toiletChampion = name;
+          // Choose the losers final as the game with the highest average seed (worst teams)
+          const avgSeed = (g: SleeperBracketGameWithScore) => {
+            const s1 = g.t1 != null ? (seedByRosterIdRecap.get(g.t1) ?? 99) : 99;
+            const s2 = g.t2 != null ? (seedByRosterIdRecap.get(g.t2) ?? 99) : 99;
+            return (s1 + s2) / 2;
+          };
+          const sortedLast = [...last].sort((a,b) => avgSeed(b) - avgSeed(a));
+          const losersFinal = sortedLast[0];
+          if (losersFinal) {
+            const wRid = (losersFinal.w != null) ? losersFinal.w : ((losersFinal.t1_points != null && losersFinal.t2_points != null) ? ((losersFinal.t1_points > losersFinal.t2_points) ? (losersFinal.t1 ?? null) : (losersFinal.t2 ?? null)) : null);
+            const lRid = (wRid != null) ? ((wRid === losersFinal.t1) ? (losersFinal.t2 ?? null) : (losersFinal.t1 ?? null)) : null;
+            if (lRid != null) {
+              const nmMap = recapNameMap as Map<number, string>;
+              recap.lastPlace = { teamName: nmMap.get(lRid) || `Roster ${lRid}`, rosterId: lRid || undefined };
+            }
+          }
+          // Tenth place game winner: pick next highest avg seed match (if present)
+          const tenthGame = sortedLast[1];
+          if (tenthGame) {
+            const wRid = (tenthGame.w != null) ? tenthGame.w : ((tenthGame.t1_points != null && tenthGame.t2_points != null) ? ((tenthGame.t1_points > tenthGame.t2_points) ? (tenthGame.t1 ?? null) : (tenthGame.t2 ?? null)) : null);
+            if (wRid != null) {
+              const nmMap = recapNameMap as Map<number, string>;
+              recap.tenthPlaceWinner = { teamName: nmMap.get(wRid) || `Roster ${wRid}`, rosterId: wRid || undefined };
+            }
           }
         }
       }
@@ -729,11 +769,35 @@ export default async function Home({ searchParams }: { searchParams?: Promise<Re
               </Card>
               <Card>
                 <CardContent>
-                  <h3 className="text-lg font-semibold mb-2">Most weekly-high wins</h3>
-                  {recap.weeklyHighsLeader ? (
-                    <p>
-                      <span className="font-medium">{recap.weeklyHighsLeader.teamName}</span> — {recap.weeklyHighsLeader.count}
-                    </p>
+                  <h3 className="text-lg font-semibold mb-2">Most weekly-high wins (Top 3)</h3>
+                  {recap.weeklyHighsTopTeams && recap.weeklyHighsTopTeams.length > 0 ? (
+                    <div className="space-y-2">
+                      {recap.weeklyHighsTopTeams.map((row, idx) => {
+                        const colors = getTeamColors(row.teamName);
+                        const bg = hexToRgba(colors.secondary || colors.primary, 0.08);
+                        const borderColor = colors.primary;
+                        const content = (
+                          <div className="flex items-center justify-between gap-3 p-2 rounded-md border" style={{ borderColor, backgroundColor: bg }}>
+                            <div className="flex items-center gap-2 min-w-0">
+                              <div className="w-7 h-7 rounded-full evw-surface border overflow-hidden flex items-center justify-center shrink-0" style={{ borderColor }}>
+                                <Image src={getTeamLogoPath(row.teamName)} alt={row.teamName} width={24} height={24} className="object-contain" />
+                              </div>
+                              <div className="truncate">
+                                <div className="text-sm font-semibold truncate">#{idx + 1} {row.teamName}</div>
+                              </div>
+                            </div>
+                            <span className="text-sm text-[var(--muted)]">{row.count}</span>
+                          </div>
+                        );
+                        return row.rosterId ? (
+                          <Link key={row.teamName} href={`/teams/${row.rosterId}`} className="block hover:underline">
+                            {content}
+                          </Link>
+                        ) : (
+                          <div key={row.teamName}>{content}</div>
+                        );
+                      })}
+                    </div>
                   ) : (
                     <p className="text-[var(--muted)]">TBD</p>
                   )}
@@ -763,40 +827,79 @@ export default async function Home({ searchParams }: { searchParams?: Promise<Re
                   </CardContent>
                 </Card>
               )}
-              {recap.topWeek && (
+              {recap.topWeeks3 && recap.topWeeks3.length > 0 && (
                 <Card>
                   <CardContent>
-                    <h3 className="text-lg font-semibold mb-2">Highest weekly score</h3>
-                    <div className="flex items-center justify-between gap-3">
-                      <Link href={`/teams/${recap.topWeek.rosterId}`} className="flex items-center gap-3 hover:underline">
-                        <Image src={getTeamLogoPath(recap.topWeek.teamName)} alt={recap.topWeek.teamName} width={28} height={28} className="object-contain w-7 h-7 rounded-full border" />
-                        <span className="font-semibold">{recap.topWeek.teamName}</span>
-                        <span className="text-xs text-[var(--muted)]">Week {recap.topWeek.week}</span>
-                      </Link>
-                      <div className="text-right">
-                        <div className="text-lg font-bold text-[var(--accent)]">{recap.topWeek.points.toFixed(2)}</div>
-                        <Link href={`/teams/${recap.topWeek.opponentRosterId}`} className="text-xs text-[var(--muted)] hover:underline">vs {recap.topWeek.opponentTeamName}</Link>
-                      </div>
+                    <h3 className="text-lg font-semibold mb-2">Top weekly scores</h3>
+                    <div className="space-y-2">
+                      {recap.topWeeks3.map((w, i) => {
+                        const colors = getTeamColors(w.teamName);
+                        const bg = hexToRgba(colors.secondary || colors.primary, 0.08);
+                        const borderColor = colors.primary;
+                        return (
+                          <div key={`${w.week}-${w.rosterId}-${i}`} className="flex items-center justify-between gap-3 p-2 rounded-md border" style={{ borderColor, backgroundColor: bg }}>
+                            <Link href={`/teams/${w.rosterId}`} className="flex items-center gap-3 hover:underline min-w-0">
+                              <div className="w-7 h-7 rounded-full evw-surface border overflow-hidden flex items-center justify-center shrink-0" style={{ borderColor }}>
+                                <Image src={getTeamLogoPath(w.teamName)} alt={w.teamName} width={24} height={24} className="object-contain" />
+                              </div>
+                              <span className="font-semibold truncate">#{i + 1} {w.teamName}</span>
+                              <span className="text-xs text-[var(--muted)]">Week {w.week}</span>
+                            </Link>
+                            <div className="text-right">
+                              <div className="text-lg font-bold text-[var(--accent)]">{w.points.toFixed(2)}</div>
+                              <Link href={`/teams/${w.opponentRosterId}`} className="text-xs text-[var(--muted)] hover:underline">vs {w.opponentTeamName}</Link>
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
                   </CardContent>
                 </Card>
               )}
-              {recap.toiletChampion && (
+              {recap.lastPlace && (
                 <Card>
                   <CardContent>
-                    <h3 className="text-lg font-semibold mb-2">Toilet Bowl Champion</h3>
+                    <h3 className="text-lg font-semibold mb-2">Last Place</h3>
                     {(() => {
-                      const name = recap.toiletChampion as string | undefined;
+                      const name = recap.lastPlace?.teamName;
                       if (!name) return <p className="text-[var(--muted)]">TBD</p>;
                       const color = getTeamColors(name)?.primary;
-                      return (
-                        <div className="flex items-center gap-3 p-2 rounded-md border" style={{ borderColor: color || 'var(--border)' }}>
+                      const bg = hexToRgba(getTeamColors(name)?.secondary || color, 0.08);
+                      const content = (
+                        <div className="flex items-center gap-3 p-2 rounded-md border" style={{ borderColor: color || 'var(--border)', backgroundColor: bg }}>
                           <div className="w-8 h-8 rounded-full overflow-hidden border" style={{ borderColor: color || 'var(--border)' }}>
                             <Image src={getTeamLogoPath(name)} alt={name} width={32} height={32} className="object-contain w-8 h-8" />
                           </div>
-                          <div className="font-semibold">{name}</div>
+                          <div className="font-semibold truncate">{name}</div>
                         </div>
                       );
+                      return recap.lastPlace?.rosterId ? (
+                        <Link href={`/teams/${recap.lastPlace.rosterId}`} className="block hover:underline">{content}</Link>
+                      ) : content;
+                    })()}
+                  </CardContent>
+                </Card>
+              )}
+              {recap.tenthPlaceWinner && (
+                <Card>
+                  <CardContent>
+                    <h3 className="text-lg font-semibold mb-2">10th place (winner)</h3>
+                    {(() => {
+                      const name = recap.tenthPlaceWinner?.teamName;
+                      if (!name) return <p className="text-[var(--muted)]">TBD</p>;
+                      const color = getTeamColors(name)?.primary;
+                      const bg = hexToRgba(getTeamColors(name)?.secondary || color, 0.08);
+                      const content = (
+                        <div className="flex items-center gap-3 p-2 rounded-md border" style={{ borderColor: color || 'var(--border)', backgroundColor: bg }}>
+                          <div className="w-8 h-8 rounded-full overflow-hidden border" style={{ borderColor: color || 'var(--border)' }}>
+                            <Image src={getTeamLogoPath(name)} alt={name} width={32} height={32} className="object-contain w-8 h-8" />
+                          </div>
+                          <div className="font-semibold truncate">{name}</div>
+                        </div>
+                      );
+                      return recap.tenthPlaceWinner?.rosterId ? (
+                        <Link href={`/teams/${recap.tenthPlaceWinner.rosterId}`} className="block hover:underline">{content}</Link>
+                      ) : content;
                     })()}
                   </CardContent>
                 </Card>
