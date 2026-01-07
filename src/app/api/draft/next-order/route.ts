@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getNextDraftOwnership } from '@/lib/server/trade-assets';
-import { getTeamsData, getLeagueWinnersBracket, type SleeperBracketGame } from '@/lib/utils/sleeper-api';
+import { getTeamsData, getLeagueWinnersBracket, type SleeperBracketGame, derivePodiumFromWinnersBracketByYear } from '@/lib/utils/sleeper-api';
 import { LEAGUE_IDS } from '@/lib/constants/league';
 import { fetchTradeById, Trade } from '@/lib/utils/trades';
 
@@ -27,12 +27,13 @@ export async function GET() {
     // Use winners bracket to determine playoff participants and finalists
     let slotOrder: Array<{ slot: number; rosterId: number; team: string; record: { wins: number; losses: number; ties: number; fpts: number; fptsAgainst: number } }> = [];
     try {
-      const winners: SleeperBracketGame[] = await getLeagueWinnersBracket(leagueId).catch(() => []);
+      const winners: SleeperBracketGame[] = await getLeagueWinnersBracket(leagueId, { forceFresh: true }).catch(() => []);
       const participantIds = new Set<number>();
       for (const g of winners) {
         if (g.t1 != null) participantIds.add(g.t1);
         if (g.t2 != null) participantIds.add(g.t2);
       }
+
       // Map loser -> elimination round (round they lost)
       const eliminatedInRound = new Map<number, number>();
       for (const g of winners) {
@@ -71,6 +72,23 @@ export async function GET() {
           thirdWinnerId = thirdGame.w ?? null;
           thirdLoserId = thirdGame.l ?? (thirdGame.w === thirdGame.t1 ? (thirdGame.t2 ?? null) : (thirdGame.t1 ?? null));
         }
+      }
+
+      // Fallback: derive podium by year if finalists not detected
+      if ((champId == null || runnerId == null) && ownership?.season) {
+        const yearStr = String(Number(ownership.season) - 1);
+        try {
+          const podium = await derivePodiumFromWinnersBracketByYear(yearStr, { forceFresh: true });
+          if (podium) {
+            const nameToRoster = new Map(teams.map((t) => [t.teamName, t.rosterId] as const));
+            if (champId == null && podium.champion && nameToRoster.has(podium.champion)) {
+              champId = nameToRoster.get(podium.champion)!;
+            }
+            if (runnerId == null && podium.runnerUp && nameToRoster.has(podium.runnerUp)) {
+              runnerId = nameToRoster.get(podium.runnerUp)!;
+            }
+          }
+        } catch {}
       }
 
       if (participantIds.size > 0 && champId != null && runnerId != null) {

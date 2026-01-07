@@ -408,10 +408,12 @@ export default function HistoryPage() {
         }
         setRegularSeasonWinnerCounts(rsCounts);
 
-        // Compute Most Playoff Appearances using winners bracket participants per season (exclude 2025 at season start)
-        const previousYears: string[] = ['2024', '2023'];
+        // Compute Most Playoff Appearances using winners bracket participants per season (include 2025 now completed)
+        const previousYears: string[] = ['2025', '2024', '2023'];
         const leagueIdsByYear: Record<string, string> = {};
-        for (const y of previousYears) leagueIdsByYear[y] = LEAGUE_IDS.PREVIOUS[y as keyof typeof LEAGUE_IDS.PREVIOUS];
+        for (const y of previousYears) {
+          leagueIdsByYear[y] = y === '2025' ? LEAGUE_IDS.CURRENT : LEAGUE_IDS.PREVIOUS[y as keyof typeof LEAGUE_IDS.PREVIOUS];
+        }
 
         // Build rosterId -> ownerId mapping per year for bracket lookups
         const rosterToOwnerByYear: Record<string, Map<number, { ownerId: string; teamName: string }>> = {};
@@ -423,7 +425,8 @@ export default function HistoryPage() {
         const winnersByYear: Record<string, SleeperBracketGame[]> = {};
         await Promise.all(previousYears.map(async (y) => {
           const lid = leagueIdsByYear[y];
-          winnersByYear[y] = lid ? await getLeagueWinnersBracket(lid, optsCached).catch(() => []) : [];
+          const opts = y === '2025' ? optsFresh : optsCached;
+          winnersByYear[y] = lid ? await getLeagueWinnersBracket(lid, opts).catch(() => []) : [];
         }));
 
         // Count unique participants per season, then aggregate by owner

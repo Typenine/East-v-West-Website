@@ -1,5 +1,6 @@
 import { LEAGUE_IDS } from '@/lib/constants/league';
 import { getLeague, getLeagueRosters, getRosterIdToTeamNameMap, getLeagueTrades, SleeperTransaction } from '@/lib/utils/sleeper-api';
+import { getObjectText } from '@/server/storage/r2';
 import { canonicalizeTeamName } from '@/lib/server/user-identity';
 
 export type TeamAssets = {
@@ -99,15 +100,59 @@ async function loadNextDraftOwnership(args: LoadNextDraftArgs): Promise<NextDraf
     }
   } catch {}
 
-  // Apply manual trades last so overrides win and are reflected in transfer history
+  
+
+  try {
+    const txns = await getLeagueTrades(args.leagueId);
+    const sorted = [...txns]
+      .filter((t) => t && t.status === 'complete')
+      .sort((a: SleeperTransaction, b: SleeperTransaction) => {
+        const aTs = Number(a.status_updated || a.created || 0);
+        const bTs = Number(b.status_updated || b.created || 0);
+        return aTs - bTs;
+      });
+    for (const txn of sorted) {
+      if (!Array.isArray(txn.draft_picks)) continue;
+      const timestamp = Number(txn.status_updated || txn.created || 0);
+      for (const p of txn.draft_picks) {
+        if (!p || String(p.season) !== nextSeasonStr) continue;
+        const key = `${p.roster_id}-${p.round}`;
+        const prevOwner = Number(p.previous_owner_id);
+        const newOwner = Number(p.owner_id);
+        if (!Number.isFinite(prevOwner) || !Number.isFinite(newOwner) || prevOwner === newOwner) continue;
+        baseOwners.set(key, newOwner);
+        const fromTeam = nameMap.get(prevOwner) || `Roster ${prevOwner}`;
+        const toTeam = nameMap.get(newOwner) || `Roster ${newOwner}`;
+        const event: DraftPickTransferEvent = {
+          tradeId: String(txn.transaction_id),
+          timestamp,
+          fromRosterId: prevOwner,
+          toRosterId: newOwner,
+          fromTeam,
+          toTeam,
+        };
+        const arr = historyMap.get(key) || [];
+        arr.push(event);
+        historyMap.set(key, arr);
+      }
+    }
+  } catch {}
+
+  // Apply manual trades last so overrides win and appear in history
   try {
     type ManualTradeAsset = { type: 'player' | 'pick' | 'cash'; name: string; year?: string; round?: number; originalOwner?: string };
     type ManualTradeTeam = { name: string; assets: ManualTradeAsset[] };
     type ManualTrade = { id: string; date: string; status: 'completed' | 'pending' | 'vetoed'; teams: ManualTradeTeam[]; active?: boolean };
-    const res = await fetch('/api/manual-trades?all=1', { cache: 'no-store' }).catch(() => null);
-    if (res && res.ok) {
-      const j = (await res.json()) as { trades?: ManualTrade[] };
-      const trades = Array.isArray(j?.trades) ? j.trades : [];
+    const BLOB_PATH = 'evw/manual_trades.json';
+    let trades: ManualTrade[] = [];
+    try {
+      const txt = await getObjectText({ key: BLOB_PATH });
+      if (txt) {
+        const arr = JSON.parse(txt);
+        if (Array.isArray(arr)) trades = arr as ManualTrade[];
+      }
+    } catch {}
+    if (trades.length) {
       const tsFromDate = (d: string) => {
         const t = Date.parse(d);
         return Number.isFinite(t) ? t : Date.now();
@@ -152,44 +197,6 @@ async function loadNextDraftOwnership(args: LoadNextDraftArgs): Promise<NextDraf
             historyMap.set(key, arr);
           }
         }
-      }
-    }
-  } catch {}
-
-  
-
-  try {
-    const txns = await getLeagueTrades(args.leagueId);
-    const sorted = [...txns]
-      .filter((t) => t && t.status === 'complete')
-      .sort((a: SleeperTransaction, b: SleeperTransaction) => {
-        const aTs = Number(a.status_updated || a.created || 0);
-        const bTs = Number(b.status_updated || b.created || 0);
-        return aTs - bTs;
-      });
-    for (const txn of sorted) {
-      if (!Array.isArray(txn.draft_picks)) continue;
-      const timestamp = Number(txn.status_updated || txn.created || 0);
-      for (const p of txn.draft_picks) {
-        if (!p || String(p.season) !== nextSeasonStr) continue;
-        const key = `${p.roster_id}-${p.round}`;
-        const prevOwner = Number(p.previous_owner_id);
-        const newOwner = Number(p.owner_id);
-        if (!Number.isFinite(prevOwner) || !Number.isFinite(newOwner) || prevOwner === newOwner) continue;
-        baseOwners.set(key, newOwner);
-        const fromTeam = nameMap.get(prevOwner) || `Roster ${prevOwner}`;
-        const toTeam = nameMap.get(newOwner) || `Roster ${newOwner}`;
-        const event: DraftPickTransferEvent = {
-          tradeId: String(txn.transaction_id),
-          timestamp,
-          fromRosterId: prevOwner,
-          toRosterId: newOwner,
-          fromTeam,
-          toTeam,
-        };
-        const arr = historyMap.get(key) || [];
-        arr.push(event);
-        historyMap.set(key, arr);
       }
     }
   } catch {}
