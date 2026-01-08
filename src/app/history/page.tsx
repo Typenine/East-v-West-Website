@@ -16,7 +16,6 @@ import {
   getRosterIdToTeamNameMap,
   derivePodiumFromWinnersBracketByYear,
   getSeasonAwardsUsingLeagueScoring,
-  getWeeklyHighScoreTallyAcrossSeasons,
   getSplitRecordsAllTime,
   getTopScoringWeeksAllTime,
   getWeeklyHighsBySeason,
@@ -116,7 +115,8 @@ export default function HistoryPage() {
   const [weeklyTabError, setWeeklyTabError] = useState<string | null>(null);
   // Owner -> rosterId mapping (prefer most recent season)
   const [ownerToRosterId, setOwnerToRosterId] = useState<Record<string, number>>({});
-  // Weekly High Score tally per owner across seasons
+  // Weekly High Score tallies across seasons
+  const [weeklyHighsByTeam, setWeeklyHighsByTeam] = useState<Record<string, number>>({});
   const [weeklyHighsByOwner, setWeeklyHighsByOwner] = useState<Record<string, number>>({});
   // Split records (regular/playoffs/toilet) per owner across seasons
   const [splitRecords, setSplitRecords] = useState<Record<string, { teamName: string; regular: SplitRecord; playoffs: SplitRecord; toilet: SplitRecord }>>({});
@@ -302,12 +302,14 @@ export default function HistoryPage() {
         const needWeeklyHighs = activeTab === 'franchises';
         const needSplitRecords = activeTab === 'leaderboards';
         const needTopWeeks = activeTab === 'leaderboards';
-        const [teams2025, teams2024, teams2023, weeklyHighs, splits, topReg, topPO, topAll] = await Promise.all([
+        const [teams2025, teams2024, teams2023, wh2025, wh2024, wh2023, splits, topReg, topPO, topAll] = await Promise.all([
           getTeamsData(LEAGUE_IDS.CURRENT, optsFresh),
           getTeamsData(LEAGUE_IDS.PREVIOUS['2024'], optsCached),
           getTeamsData(LEAGUE_IDS.PREVIOUS['2023'], optsCached),
-          // Weekly highs: only needed for Franchises grid; cached is fine
-          needWeeklyHighs ? getWeeklyHighScoreTallyAcrossSeasons({ tuesdayFlip: true }, optsFresh) : Promise.resolve({} as Record<string, number>),
+          // Weekly highs by season -> aggregate to tally (aligns exactly with table logic)
+          needWeeklyHighs ? getWeeklyHighsBySeason('2025', optsFresh) : Promise.resolve([] as WeeklyHighByWeekEntry[]),
+          needWeeklyHighs ? getWeeklyHighsBySeason('2024', optsCached) : Promise.resolve([] as WeeklyHighByWeekEntry[]),
+          needWeeklyHighs ? getWeeklyHighsBySeason('2023', optsCached) : Promise.resolve([] as WeeklyHighByWeekEntry[]),
           // Split records: only needed for Leaderboards tab
           needSplitRecords ? getSplitRecordsAllTime(optsCached) : Promise.resolve({} as Record<string, { teamName: string; regular: SplitRecord; playoffs: SplitRecord; toilet: SplitRecord }>),
           // Top weeks: regular + playoffs
@@ -333,7 +335,18 @@ export default function HistoryPage() {
           }
         }
         setOwnerToRosterId(ownerRosterMap);
-        setWeeklyHighsByOwner(weeklyHighs || {});
+        if (needWeeklyHighs) {
+          const tallyTeam: Record<string, number> = {};
+          const tallyOwner: Record<string, number> = {};
+          for (const row of [...(wh2025 || []), ...(wh2024 || []), ...(wh2023 || [])]) {
+            const tname = row?.teamName || '';
+            if (tname) tallyTeam[tname] = (tallyTeam[tname] || 0) + 1;
+            const oid = row?.ownerId || '';
+            if (oid) tallyOwner[oid] = (tallyOwner[oid] || 0) + 1;
+          }
+          setWeeklyHighsByTeam(tallyTeam);
+          setWeeklyHighsByOwner(tallyOwner);
+        }
         if (needSplitRecords) setSplitRecords(splits || {});
         if (needTopWeeks) {
           setTopRegularWeeks(topReg || []);
@@ -1974,7 +1987,7 @@ export default function HistoryPage() {
                         <p>2nd Place: {ruCount}</p>
                         <p>3rd Place: {tpCount}</p>
                         <p>Regular Season Winner: {rsCount}</p>
-                        <p>Weekly Highs: {weeklyHighsByOwner[f.ownerId] ?? 0}</p>
+                        <p>Weekly Highs: {weeklyHighsByOwner[f.ownerId] ?? weeklyHighsByTeam[f.teamName] ?? 0}</p>
                       </div>
                     </CardContent>
                   </Card>

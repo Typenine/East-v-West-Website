@@ -348,6 +348,17 @@ export async function buildYearToLeagueMapUnique(options?: SleeperFetchOptions):
   const map: Record<string, string> = {};
   if (LEAGUE_IDS.CURRENT) map[String(seasonNum)] = LEAGUE_IDS.CURRENT;
 
+  // Offseason backfill: when the calendar year advances before LEAGUE_IDS rotates,
+  // still resolve last season string to CURRENT league id so queries for the last
+  // completed season (e.g., '2025') continue to work.
+  const lastSeasonStr = String(seasonNum - 1);
+  if (LEAGUE_IDS.CURRENT && !map[lastSeasonStr]) {
+    const prevMapProbe = (LEAGUE_IDS.PREVIOUS as Record<string, string | undefined>) || {};
+    if (!prevMapProbe[lastSeasonStr]) {
+      map[lastSeasonStr] = LEAGUE_IDS.CURRENT;
+    }
+  }
+
   const prevMap = LEAGUE_IDS.PREVIOUS as Record<string, string | undefined>;
   const prevYear = String(seasonNum - 1);
   if (prevMap?.[prevYear]) map[prevYear] = prevMap[prevYear] as string;
