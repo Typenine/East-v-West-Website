@@ -18,6 +18,7 @@ import { getTeamColors, getTeamColorStyle, getTeamLogoPath } from '@/lib/utils/t
 import { HomeIcon, TvIcon, FireIcon, MoonIcon, BookOpenIcon } from '@heroicons/react/24/outline';
 import Input from '@/components/ui/Input';
 import Textarea from '@/components/ui/Textarea';
+import { Table, THead, TBody, Tr, Th, Td } from '@/components/ui/Table';
 
 // Draft data types
 type TeamHaul = {
@@ -122,8 +123,10 @@ export default function DraftPage() {
     }>>([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
-    const [form, setForm] = useState<{ entryType: 'arrival' | 'departure'; person: string; team: string; airline: string; flightNo: string; airport: string; dt: string; seats: string; canPickup: boolean; canDropoff: boolean; notes: string }>({ entryType: 'arrival', person: '', team: '', airline: '', flightNo: '', airport: '', dt: '', seats: '', canPickup: false, canDropoff: false, notes: '' });
-    const [submitting, setSubmitting] = useState(false);
+    const empty = { person: '', team: '', airline: '', flightNo: '', airport: '', dt: '', seats: '', canPickup: false, canDropoff: false, notes: '' };
+    const [arrForm, setArrForm] = useState<typeof empty>({ ...empty });
+    const [depForm, setDepForm] = useState<typeof empty>({ ...empty });
+    const [submitting, setSubmitting] = useState<'arrival' | 'departure' | null>(null);
 
     const load = useCallback(async () => {
       try {
@@ -142,140 +145,169 @@ export default function DraftPage() {
 
     useEffect(() => { load(); }, [load]);
 
-    const onSubmit = async (ev: React.FormEvent) => {
-      ev.preventDefault();
-      if (!form.person || !form.entryType) return;
+    const submit = async (entryType: 'arrival' | 'departure', formData: typeof empty) => {
+      if (!formData.person) return;
       try {
-        setSubmitting(true);
+        setSubmitting(entryType);
         const payload = {
           trip,
-          entryType: form.entryType,
-          person: form.person,
-          team: form.team || null,
-          airline: form.airline || null,
-          flightNo: form.flightNo || null,
-          airport: form.airport || null,
-          dt: form.dt || null,
-          seats: form.seats ? Number(form.seats) : null,
-          canPickup: !!form.canPickup,
-          canDropoff: !!form.canDropoff,
-          notes: form.notes || null,
+          entryType,
+          person: formData.person,
+          team: formData.team || null,
+          airline: formData.airline || null,
+          flightNo: formData.flightNo || null,
+          airport: formData.airport || null,
+          dt: formData.dt || null,
+          seats: formData.seats ? Number(formData.seats) : null,
+          canPickup: !!formData.canPickup,
+          canDropoff: !!formData.canDropoff,
+          notes: formData.notes || null,
         };
         const r = await fetch('/api/draft/travel', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
         const j = await r.json();
         if (!r.ok) throw new Error(j?.error || 'Failed to submit');
-        // reset person only partially keep toggles
-        setForm({ entryType: 'arrival', person: '', team: '', airline: '', flightNo: '', airport: '', dt: '', seats: '', canPickup: form.canPickup, canDropoff: form.canDropoff, notes: '' });
+        if (entryType === 'arrival') setArrForm({ ...empty, canPickup: arrForm.canPickup, canDropoff: arrForm.canDropoff });
+        else setDepForm({ ...empty, canPickup: depForm.canPickup, canDropoff: depForm.canDropoff });
         await load();
       } catch {
         alert('Failed to submit');
       } finally {
-        setSubmitting(false);
+        setSubmitting(null);
       }
     };
 
     const arrivals = items.filter(i => i.entryType === 'arrival');
     const departures = items.filter(i => i.entryType === 'departure');
 
-    const EntryList = ({ title, arr }: { title: string; arr: typeof items }) => (
-      <Card className="evw-surface">
-        <CardHeader>
-          <CardTitle>{title}</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {arr.length === 0 ? (
-            <div className="text-sm text-[var(--muted)]">No entries</div>
-          ) : (
-            <ul className="divide-y divide-[var(--border)]">
-              {arr.map((it) => (
-                <li key={it.id} className="py-2 flex flex-col gap-1">
-                  <div className="flex items-center justify-between">
-                    <div className="font-medium text-[var(--text)]">{it.person}{it.team ? ` • ${it.team}` : ''}</div>
-                    <div className="text-xs text-[var(--muted)]">{it.dt ? new Date(it.dt).toLocaleString() : ''}</div>
-                  </div>
-                  <div className="text-sm text-[var(--text)]">
-                    {[it.airline, it.flightNo].filter(Boolean).join(' ')}{it.airport ? ` • ${it.airport}` : ''}
-                  </div>
-                  {(it.canPickup || it.canDropoff || (it.seats ?? 0) > 0) && (
-                    <div className="text-xs text-[var(--muted)]">
-                      {it.canPickup ? 'Can pick up' : ''}{it.canPickup && it.canDropoff ? ' • ' : ''}{it.canDropoff ? 'Can drop off' : ''}{(it.seats ?? 0) > 0 ? ` • Seats: ${it.seats}` : ''}
-                    </div>
-                  )}
-                  {it.notes ? <div className="text-xs text-[var(--muted)]">{it.notes}</div> : null}
-                </li>
-              ))}
-            </ul>
-          )}
-        </CardContent>
-      </Card>
-    );
-
     return (
       <div className="space-y-6">
-        <Card>
-          <CardHeader>
-            <CardTitle>Flights / Arrivals</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <form onSubmit={onSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <Label htmlFor="ftype">Type</Label>
-                <Select id="ftype" value={form.entryType} onChange={(e) => setForm({ ...form, entryType: (e.target.value as 'arrival' | 'departure') })}>
-                  <option value="arrival">Arrival</option>
-                  <option value="departure">Departure</option>
-                </Select>
-              </div>
-              <div>
-                <Label htmlFor="person">Name</Label>
-                <Input id="person" value={form.person} onChange={(e) => setForm({ ...form, person: e.target.value })} required />
-              </div>
-              <div>
-                <Label htmlFor="team">Team</Label>
-                <Input id="team" value={form.team} onChange={(e) => setForm({ ...form, team: e.target.value })} placeholder="Optional" />
-              </div>
-              <div>
-                <Label htmlFor="dt">Date & Time</Label>
-                <Input id="dt" type="datetime-local" value={form.dt} onChange={(e) => setForm({ ...form, dt: e.target.value })} />
-              </div>
-              <div>
-                <Label htmlFor="airline">Airline</Label>
-                <Input id="airline" value={form.airline} onChange={(e) => setForm({ ...form, airline: e.target.value })} />
-              </div>
-              <div>
-                <Label htmlFor="flight">Flight #</Label>
-                <Input id="flight" value={form.flightNo} onChange={(e) => setForm({ ...form, flightNo: e.target.value })} />
-              </div>
-              <div>
-                <Label htmlFor="airport">Airport</Label>
-                <Input id="airport" value={form.airport} onChange={(e) => setForm({ ...form, airport: e.target.value })} placeholder="e.g., DEN" />
-              </div>
-              <div>
-                <Label htmlFor="seats">Seats offered</Label>
-                <Input id="seats" type="number" min={0} value={form.seats} onChange={(e) => setForm({ ...form, seats: e.target.value })} />
-              </div>
-              <div className="flex items-center gap-3">
-                <label className="flex items-center gap-2 text-sm text-[var(--text)]"><input type="checkbox" checked={form.canPickup} onChange={(e) => setForm({ ...form, canPickup: e.target.checked })} /> Can pick up</label>
-                <label className="flex items-center gap-2 text-sm text-[var(--text)]"><input type="checkbox" checked={form.canDropoff} onChange={(e) => setForm({ ...form, canDropoff: e.target.checked })} /> Can drop off</label>
-              </div>
-              <div className="md:col-span-2">
-                <Label htmlFor="notes">Notes</Label>
-                <Textarea id="notes" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} rows={3} />
-              </div>
-              <div className="md:col-span-2">
-                <Button type="submit" variant="primary" disabled={submitting}>{submitting ? 'Submitting…' : 'Submit Entry'}</Button>
-              </div>
-            </form>
-          </CardContent>
-        </Card>
-
         {loading ? (
           <LoadingState message="Loading entries…" />
         ) : error ? (
           <ErrorState message={error} />
         ) : (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            <EntryList title="Arrivals" arr={arrivals} />
-            <EntryList title="Departures" arr={departures} />
+            <Card className="evw-surface">
+              <CardHeader>
+                <CardTitle>Arrivals</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="overflow-x-auto">
+                  <Table>
+                    <THead>
+                      <Tr>
+                        <Th>Name</Th>
+                        <Th>Team</Th>
+                        <Th>Date &amp; Time</Th>
+                        <Th>Airline</Th>
+                        <Th>Flight #</Th>
+                        <Th>Airport</Th>
+                        <Th>Seats</Th>
+                        <Th>Pickup</Th>
+                        <Th>Dropoff</Th>
+                        <Th>Notes</Th>
+                        <Th></Th>
+                      </Tr>
+                    </THead>
+                    <TBody>
+                      <Tr>
+                        <Td><Input placeholder="Name" value={arrForm.person} onChange={(e) => setArrForm({ ...arrForm, person: e.target.value })} /></Td>
+                        <Td><Input placeholder="Team" value={arrForm.team} onChange={(e) => setArrForm({ ...arrForm, team: e.target.value })} /></Td>
+                        <Td><Input type="datetime-local" value={arrForm.dt} onChange={(e) => setArrForm({ ...arrForm, dt: e.target.value })} /></Td>
+                        <Td><Input placeholder="Airline" value={arrForm.airline} onChange={(e) => setArrForm({ ...arrForm, airline: e.target.value })} /></Td>
+                        <Td><Input placeholder="Flight #" value={arrForm.flightNo} onChange={(e) => setArrForm({ ...arrForm, flightNo: e.target.value })} /></Td>
+                        <Td><Input placeholder="Airport" value={arrForm.airport} onChange={(e) => setArrForm({ ...arrForm, airport: e.target.value })} /></Td>
+                        <Td><Input type="number" min={0} value={arrForm.seats} onChange={(e) => setArrForm({ ...arrForm, seats: e.target.value })} /></Td>
+                        <Td><input type="checkbox" checked={arrForm.canPickup} onChange={(e) => setArrForm({ ...arrForm, canPickup: e.target.checked })} /></Td>
+                        <Td><input type="checkbox" checked={arrForm.canDropoff} onChange={(e) => setArrForm({ ...arrForm, canDropoff: e.target.checked })} /></Td>
+                        <Td><Textarea rows={1} value={arrForm.notes} onChange={(e) => setArrForm({ ...arrForm, notes: e.target.value })} /></Td>
+                        <Td className="whitespace-nowrap"><Button size="sm" disabled={submitting==='arrival' || !arrForm.person} onClick={() => submit('arrival', arrForm)}>{submitting==='arrival' ? 'Adding…' : 'Add'}</Button></Td>
+                      </Tr>
+                      {arrivals.length === 0 ? (
+                        <Tr><Td colSpan={11} className="text-sm text-[var(--muted)]">No arrivals yet</Td></Tr>
+                      ) : (
+                        arrivals.map((it) => (
+                          <Tr key={it.id}>
+                            <Td className="font-medium">{it.person}</Td>
+                            <Td>{it.team || '—'}</Td>
+                            <Td>{it.dt ? new Date(it.dt).toLocaleString() : '—'}</Td>
+                            <Td>{it.airline || '—'}</Td>
+                            <Td>{it.flightNo || '—'}</Td>
+                            <Td>{it.airport || '—'}</Td>
+                            <Td>{typeof it.seats === 'number' ? it.seats : '—'}</Td>
+                            <Td>{it.canPickup ? 'Yes' : '—'}</Td>
+                            <Td>{it.canDropoff ? 'Yes' : '—'}</Td>
+                            <Td className="max-w-[220px] truncate" title={it.notes || ''}>{it.notes || '—'}</Td>
+                            <Td />
+                          </Tr>
+                        ))
+                      )}
+                    </TBody>
+                  </Table>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="evw-surface">
+              <CardHeader>
+                <CardTitle>Departures</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="overflow-x-auto">
+                  <Table>
+                    <THead>
+                      <Tr>
+                        <Th>Name</Th>
+                        <Th>Team</Th>
+                        <Th>Date &amp; Time</Th>
+                        <Th>Airline</Th>
+                        <Th>Flight #</Th>
+                        <Th>Airport</Th>
+                        <Th>Seats</Th>
+                        <Th>Pickup</Th>
+                        <Th>Dropoff</Th>
+                        <Th>Notes</Th>
+                        <Th></Th>
+                      </Tr>
+                    </THead>
+                    <TBody>
+                      <Tr>
+                        <Td><Input placeholder="Name" value={depForm.person} onChange={(e) => setDepForm({ ...depForm, person: e.target.value })} /></Td>
+                        <Td><Input placeholder="Team" value={depForm.team} onChange={(e) => setDepForm({ ...depForm, team: e.target.value })} /></Td>
+                        <Td><Input type="datetime-local" value={depForm.dt} onChange={(e) => setDepForm({ ...depForm, dt: e.target.value })} /></Td>
+                        <Td><Input placeholder="Airline" value={depForm.airline} onChange={(e) => setDepForm({ ...depForm, airline: e.target.value })} /></Td>
+                        <Td><Input placeholder="Flight #" value={depForm.flightNo} onChange={(e) => setDepForm({ ...depForm, flightNo: e.target.value })} /></Td>
+                        <Td><Input placeholder="Airport" value={depForm.airport} onChange={(e) => setDepForm({ ...depForm, airport: e.target.value })} /></Td>
+                        <Td><Input type="number" min={0} value={depForm.seats} onChange={(e) => setDepForm({ ...depForm, seats: e.target.value })} /></Td>
+                        <Td><input type="checkbox" checked={depForm.canPickup} onChange={(e) => setDepForm({ ...depForm, canPickup: e.target.checked })} /></Td>
+                        <Td><input type="checkbox" checked={depForm.canDropoff} onChange={(e) => setDepForm({ ...depForm, canDropoff: e.target.checked })} /></Td>
+                        <Td><Textarea rows={1} value={depForm.notes} onChange={(e) => setDepForm({ ...depForm, notes: e.target.value })} /></Td>
+                        <Td className="whitespace-nowrap"><Button size="sm" disabled={submitting==='departure' || !depForm.person} onClick={() => submit('departure', depForm)}>{submitting==='departure' ? 'Adding…' : 'Add'}</Button></Td>
+                      </Tr>
+                      {departures.length === 0 ? (
+                        <Tr><Td colSpan={11} className="text-sm text-[var(--muted)]">No departures yet</Td></Tr>
+                      ) : (
+                        departures.map((it) => (
+                          <Tr key={it.id}>
+                            <Td className="font-medium">{it.person}</Td>
+                            <Td>{it.team || '—'}</Td>
+                            <Td>{it.dt ? new Date(it.dt).toLocaleString() : '—'}</Td>
+                            <Td>{it.airline || '—'}</Td>
+                            <Td>{it.flightNo || '—'}</Td>
+                            <Td>{it.airport || '—'}</Td>
+                            <Td>{typeof it.seats === 'number' ? it.seats : '—'}</Td>
+                            <Td>{it.canPickup ? 'Yes' : '—'}</Td>
+                            <Td>{it.canDropoff ? 'Yes' : '—'}</Td>
+                            <Td className="max-w-[220px] truncate" title={it.notes || ''}>{it.notes || '—'}</Td>
+                            <Td />
+                          </Tr>
+                        ))
+                      )}
+                    </TBody>
+                  </Table>
+                </div>
+              </CardContent>
+            </Card>
           </div>
         )}
       </div>
