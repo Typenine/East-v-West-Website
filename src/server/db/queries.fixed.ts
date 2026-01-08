@@ -15,6 +15,149 @@ export async function createUser(params: { email: string; displayName?: string; 
 }
 
 // =====================
+// Draft Travel (Flights / Arrivals)
+// =====================
+
+export async function ensureDraftTravelTable() {
+  const db = getDb();
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS draft_travel (
+      id uuid PRIMARY KEY,
+      trip varchar(16) NOT NULL,
+      entry_type varchar(16) NOT NULL,
+      person varchar(255) NOT NULL,
+      team varchar(255),
+      airline varchar(64),
+      flight_no varchar(32),
+      airport varchar(32),
+      dt timestamp NULL,
+      seats integer,
+      can_pickup integer NOT NULL DEFAULT 0,
+      can_dropoff integer NOT NULL DEFAULT 0,
+      notes text,
+      created_at timestamp NOT NULL DEFAULT now()
+    )
+  `);
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_draft_travel_trip_dt ON draft_travel(trip, dt, created_at)`);
+}
+
+export type DraftTravelEntry = {
+  id: string;
+  trip: string;
+  entryType: 'arrival' | 'departure';
+  person: string;
+  team?: string | null;
+  airline?: string | null;
+  flightNo?: string | null;
+  airport?: string | null;
+  dt?: string | null; // ISO string or null
+  seats?: number | null;
+  canPickup?: boolean;
+  canDropoff?: boolean;
+  notes?: string | null;
+  createdAt: string; // ISO
+};
+
+export async function addDraftTravelEntry(params: {
+  trip: string;
+  entryType: 'arrival' | 'departure';
+  person: string;
+  team?: string | null;
+  airline?: string | null;
+  flightNo?: string | null;
+  airport?: string | null;
+  dt?: Date | null;
+  seats?: number | null;
+  canPickup?: boolean;
+  canDropoff?: boolean;
+  notes?: string | null;
+}): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
+  try {
+    await ensureDraftTravelTable();
+    const db = getDb();
+    const id = randomUUID();
+    const trip = String(params.trip || '').trim();
+    const et = String(params.entryType || '').toLowerCase() === 'departure' ? 'departure' : 'arrival';
+    const person = String(params.person || '').trim();
+    if (!trip || !person) return { ok: false, error: 'missing_fields' };
+    const team = params.team ? String(params.team).trim() : null;
+    const airline = params.airline ? String(params.airline).trim() : null;
+    const flightNo = params.flightNo ? String(params.flightNo).trim() : null;
+    const airport = params.airport ? String(params.airport).trim() : null;
+    const dt = params.dt ? new Date(params.dt) : null;
+    const seats = params.seats == null ? null : (Number(params.seats) | 0);
+    const canPickup = params.canPickup ? 1 : 0;
+    const canDropoff = params.canDropoff ? 1 : 0;
+    const notes = params.notes ? String(params.notes) : null;
+    await db.execute(sql`
+      INSERT INTO draft_travel (id, trip, entry_type, person, team, airline, flight_no, airport, dt, seats, can_pickup, can_dropoff, notes)
+      VALUES (${id}::uuid, ${trip}, ${et}, ${person}, ${team}, ${airline}, ${flightNo}, ${airport}, ${dt}, ${seats}, ${canPickup}, ${canDropoff}, ${notes})
+    `);
+    return { ok: true, id } as const;
+  } catch (e) {
+    return { ok: false, error: String(e || 'unknown') } as const;
+  }
+}
+
+export async function listDraftTravelEntries(trip: string): Promise<DraftTravelEntry[]> {
+  await ensureDraftTravelTable();
+  const db = getDb();
+  const res = await db.execute(sql`
+    SELECT
+      id::text AS id,
+      trip,
+      entry_type AS entry_type,
+      person,
+      team,
+      airline,
+      flight_no,
+      airport,
+      dt,
+      seats,
+      can_pickup,
+      can_dropoff,
+      notes,
+      created_at
+    FROM draft_travel
+    WHERE trip = ${trip}
+    ORDER BY dt ASC NULLS LAST, created_at ASC
+  `);
+  type Row = {
+    id: string;
+    trip: string;
+    entry_type: string;
+    person: string;
+    team: string | null;
+    airline: string | null;
+    flight_no: string | null;
+    airport: string | null;
+    dt: Date | null;
+    seats: number | null;
+    can_pickup: number;
+    can_dropoff: number;
+    notes: string | null;
+    created_at: Date;
+  };
+  const rows = (res as unknown as { rows?: Row[] }).rows || [];
+  return rows.map((r) => ({
+    id: String(r.id),
+    trip: String(r.trip),
+    entryType: r.entry_type === 'departure' ? 'departure' : 'arrival',
+    person: String(r.person),
+    team: r.team || null,
+    airline: r.airline || null,
+    flightNo: r.flight_no || null,
+    airport: r.airport || null,
+    dt: r.dt ? new Date(r.dt).toISOString() : null,
+    seats: r.seats == null ? null : Number(r.seats),
+    canPickup: r.can_pickup === 1,
+    canDropoff: r.can_dropoff === 1,
+    notes: r.notes || null,
+    createdAt: new Date(r.created_at).toISOString(),
+  }));
+}
+
+// =====================
 // Draft Brain (DB layer)
 // =====================
 type DraftStatus = 'NOT_STARTED' | 'LIVE' | 'PAUSED' | 'COMPLETED';

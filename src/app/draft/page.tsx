@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import Image from 'next/image';
 import CountdownTimer from '@/components/ui/countdown-timer';
 import { IMPORTANT_DATES, LEAGUE_IDS } from '@/lib/constants/league';
@@ -16,6 +16,8 @@ import Select from '@/components/ui/Select';
 import Button from '@/components/ui/Button';
 import { getTeamColors, getTeamColorStyle, getTeamLogoPath } from '@/lib/utils/team-utils';
 import { HomeIcon, TvIcon, FireIcon, MoonIcon, BookOpenIcon } from '@heroicons/react/24/outline';
+import Input from '@/components/ui/Input';
+import Textarea from '@/components/ui/Textarea';
 
 // Draft data types
 type TeamHaul = {
@@ -113,6 +115,172 @@ export default function DraftPage() {
       alert('Could not generate calendar file.');
     }
   };
+
+  function TravelSubtab({ trip }: { trip: string }) {
+    const [items, setItems] = useState<Array<{
+      id: string; trip: string; entryType: 'arrival' | 'departure'; person: string; team?: string | null; airline?: string | null; flightNo?: string | null; airport?: string | null; dt?: string | null; seats?: number | null; canPickup?: boolean; canDropoff?: boolean; notes?: string | null; createdAt: string;
+    }>>([]);
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+    const [form, setForm] = useState<{ entryType: 'arrival' | 'departure'; person: string; team: string; airline: string; flightNo: string; airport: string; dt: string; seats: string; canPickup: boolean; canDropoff: boolean; notes: string }>({ entryType: 'arrival', person: '', team: '', airline: '', flightNo: '', airport: '', dt: '', seats: '', canPickup: false, canDropoff: false, notes: '' });
+    const [submitting, setSubmitting] = useState(false);
+
+    const load = useCallback(async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        const r = await fetch(`/api/draft/travel?trip=${encodeURIComponent(trip)}`, { cache: 'no-store' });
+        if (!r.ok) throw new Error('Failed to load');
+        const j = await r.json();
+        setItems(Array.isArray(j) ? j : []);
+      } catch {
+        setError('Unable to load entries');
+      } finally {
+        setLoading(false);
+      }
+    }, [trip]);
+
+    useEffect(() => { load(); }, [load]);
+
+    const onSubmit = async (ev: React.FormEvent) => {
+      ev.preventDefault();
+      if (!form.person || !form.entryType) return;
+      try {
+        setSubmitting(true);
+        const payload = {
+          trip,
+          entryType: form.entryType,
+          person: form.person,
+          team: form.team || null,
+          airline: form.airline || null,
+          flightNo: form.flightNo || null,
+          airport: form.airport || null,
+          dt: form.dt || null,
+          seats: form.seats ? Number(form.seats) : null,
+          canPickup: !!form.canPickup,
+          canDropoff: !!form.canDropoff,
+          notes: form.notes || null,
+        };
+        const r = await fetch('/api/draft/travel', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+        const j = await r.json();
+        if (!r.ok) throw new Error(j?.error || 'Failed to submit');
+        // reset person only partially keep toggles
+        setForm({ entryType: 'arrival', person: '', team: '', airline: '', flightNo: '', airport: '', dt: '', seats: '', canPickup: form.canPickup, canDropoff: form.canDropoff, notes: '' });
+        await load();
+      } catch {
+        alert('Failed to submit');
+      } finally {
+        setSubmitting(false);
+      }
+    };
+
+    const arrivals = items.filter(i => i.entryType === 'arrival');
+    const departures = items.filter(i => i.entryType === 'departure');
+
+    const EntryList = ({ title, arr }: { title: string; arr: typeof items }) => (
+      <Card className="evw-surface">
+        <CardHeader>
+          <CardTitle>{title}</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {arr.length === 0 ? (
+            <div className="text-sm text-[var(--muted)]">No entries</div>
+          ) : (
+            <ul className="divide-y divide-[var(--border)]">
+              {arr.map((it) => (
+                <li key={it.id} className="py-2 flex flex-col gap-1">
+                  <div className="flex items-center justify-between">
+                    <div className="font-medium text-[var(--text)]">{it.person}{it.team ? ` • ${it.team}` : ''}</div>
+                    <div className="text-xs text-[var(--muted)]">{it.dt ? new Date(it.dt).toLocaleString() : ''}</div>
+                  </div>
+                  <div className="text-sm text-[var(--text)]">
+                    {[it.airline, it.flightNo].filter(Boolean).join(' ')}{it.airport ? ` • ${it.airport}` : ''}
+                  </div>
+                  {(it.canPickup || it.canDropoff || (it.seats ?? 0) > 0) && (
+                    <div className="text-xs text-[var(--muted)]">
+                      {it.canPickup ? 'Can pick up' : ''}{it.canPickup && it.canDropoff ? ' • ' : ''}{it.canDropoff ? 'Can drop off' : ''}{(it.seats ?? 0) > 0 ? ` • Seats: ${it.seats}` : ''}
+                    </div>
+                  )}
+                  {it.notes ? <div className="text-xs text-[var(--muted)]">{it.notes}</div> : null}
+                </li>
+              ))}
+            </ul>
+          )}
+        </CardContent>
+      </Card>
+    );
+
+    return (
+      <div className="space-y-6">
+        <Card>
+          <CardHeader>
+            <CardTitle>Flights / Arrivals</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <form onSubmit={onSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <Label htmlFor="ftype">Type</Label>
+                <Select id="ftype" value={form.entryType} onChange={(e) => setForm({ ...form, entryType: (e.target.value as 'arrival' | 'departure') })}>
+                  <option value="arrival">Arrival</option>
+                  <option value="departure">Departure</option>
+                </Select>
+              </div>
+              <div>
+                <Label htmlFor="person">Name</Label>
+                <Input id="person" value={form.person} onChange={(e) => setForm({ ...form, person: e.target.value })} required />
+              </div>
+              <div>
+                <Label htmlFor="team">Team</Label>
+                <Input id="team" value={form.team} onChange={(e) => setForm({ ...form, team: e.target.value })} placeholder="Optional" />
+              </div>
+              <div>
+                <Label htmlFor="dt">Date & Time</Label>
+                <Input id="dt" type="datetime-local" value={form.dt} onChange={(e) => setForm({ ...form, dt: e.target.value })} />
+              </div>
+              <div>
+                <Label htmlFor="airline">Airline</Label>
+                <Input id="airline" value={form.airline} onChange={(e) => setForm({ ...form, airline: e.target.value })} />
+              </div>
+              <div>
+                <Label htmlFor="flight">Flight #</Label>
+                <Input id="flight" value={form.flightNo} onChange={(e) => setForm({ ...form, flightNo: e.target.value })} />
+              </div>
+              <div>
+                <Label htmlFor="airport">Airport</Label>
+                <Input id="airport" value={form.airport} onChange={(e) => setForm({ ...form, airport: e.target.value })} placeholder="e.g., DEN" />
+              </div>
+              <div>
+                <Label htmlFor="seats">Seats offered</Label>
+                <Input id="seats" type="number" min={0} value={form.seats} onChange={(e) => setForm({ ...form, seats: e.target.value })} />
+              </div>
+              <div className="flex items-center gap-3">
+                <label className="flex items-center gap-2 text-sm text-[var(--text)]"><input type="checkbox" checked={form.canPickup} onChange={(e) => setForm({ ...form, canPickup: e.target.checked })} /> Can pick up</label>
+                <label className="flex items-center gap-2 text-sm text-[var(--text)]"><input type="checkbox" checked={form.canDropoff} onChange={(e) => setForm({ ...form, canDropoff: e.target.checked })} /> Can drop off</label>
+              </div>
+              <div className="md:col-span-2">
+                <Label htmlFor="notes">Notes</Label>
+                <Textarea id="notes" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} rows={3} />
+              </div>
+              <div className="md:col-span-2">
+                <Button type="submit" variant="primary" disabled={submitting}>{submitting ? 'Submitting…' : 'Submit Entry'}</Button>
+              </div>
+            </form>
+          </CardContent>
+        </Card>
+
+        {loading ? (
+          <LoadingState message="Loading entries…" />
+        ) : error ? (
+          <ErrorState message={error} />
+        ) : (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <EntryList title="Arrivals" arr={arrivals} />
+            <EntryList title="Departures" arr={departures} />
+          </div>
+        )}
+      </div>
+    );
+  }
 
   const handleAddToCalendar2027 = () => {
     try {
@@ -413,6 +581,13 @@ export default function DraftPage() {
                         ),
                       },
                       {
+                        id: 'travel',
+                        label: 'Flights / Arrivals',
+                        content: (
+                          <TravelSubtab trip="2026" />
+                        ),
+                      },
+                      {
                         id: 'order',
                         label: 'Draft Order',
                         content: (
@@ -557,6 +732,13 @@ export default function DraftPage() {
                               </CardContent>
                             </Card>
                           </div>
+                        ),
+                      },
+                      {
+                        id: 'travel-2027',
+                        label: 'Flights / Arrivals',
+                        content: (
+                          <TravelSubtab trip="2027" />
                         ),
                       },
                     ]}
