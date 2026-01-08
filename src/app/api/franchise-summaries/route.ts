@@ -42,7 +42,8 @@ export async function GET(request: Request) {
       years.map((y) => {
         const lid = yearToLeague[y];
         if (!lid) return Promise.resolve<[string, TeamData[]]>([y, []]);
-        const opts = fresh && y === currentSeason ? optsFresh : optsCached;
+        // If caller requested fresh, fetch fresh for the season that maps to CURRENT league id
+        const opts = fresh && lid === LEAGUE_IDS.CURRENT ? optsFresh : optsCached;
         return getTeamsData(lid, opts)
           .then((arr) => [y, arr] as [string, TeamData[]])
           .catch(() => [y, []] as [string, TeamData[]]);

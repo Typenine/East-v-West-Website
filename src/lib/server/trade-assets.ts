@@ -1,5 +1,5 @@
 import { LEAGUE_IDS } from '@/lib/constants/league';
-import { getLeague, getLeagueRosters, getRosterIdToTeamNameMap, getLeagueTrades, SleeperTransaction } from '@/lib/utils/sleeper-api';
+import { getLeague, getLeagueRosters, getRosterIdToTeamNameMap } from '@/lib/utils/sleeper-api';
 import { getObjectText } from '@/server/storage/r2';
 import { canonicalizeTeamName } from '@/lib/server/user-identity';
 
@@ -102,41 +102,8 @@ async function loadNextDraftOwnership(args: LoadNextDraftArgs): Promise<NextDraf
 
   
 
-  try {
-    const txns = await getLeagueTrades(args.leagueId);
-    const sorted = [...txns]
-      .filter((t) => t && t.status === 'complete')
-      .sort((a: SleeperTransaction, b: SleeperTransaction) => {
-        const aTs = Number(a.status_updated || a.created || 0);
-        const bTs = Number(b.status_updated || b.created || 0);
-        return aTs - bTs;
-      });
-    for (const txn of sorted) {
-      if (!Array.isArray(txn.draft_picks)) continue;
-      const timestamp = Number(txn.status_updated || txn.created || 0);
-      for (const p of txn.draft_picks) {
-        if (!p || String(p.season) !== nextSeasonStr) continue;
-        const key = `${p.roster_id}-${p.round}`;
-        const prevOwner = Number(p.previous_owner_id);
-        const newOwner = Number(p.owner_id);
-        if (!Number.isFinite(prevOwner) || !Number.isFinite(newOwner) || prevOwner === newOwner) continue;
-        baseOwners.set(key, newOwner);
-        const fromTeam = nameMap.get(prevOwner) || `Roster ${prevOwner}`;
-        const toTeam = nameMap.get(newOwner) || `Roster ${newOwner}`;
-        const event: DraftPickTransferEvent = {
-          tradeId: String(txn.transaction_id),
-          timestamp,
-          fromRosterId: prevOwner,
-          toRosterId: newOwner,
-          fromTeam,
-          toTeam,
-        };
-        const arr = historyMap.get(key) || [];
-        arr.push(event);
-        historyMap.set(key, arr);
-      }
-    }
-  } catch {}
+  // Intentionally skip fetching Sleeper weekly transactions for speed. Ownership is determined
+  // by traded_picks plus manual overrides. History will include manual-trade events only.
 
   // Apply manual trades last so overrides win and appear in history
   try {

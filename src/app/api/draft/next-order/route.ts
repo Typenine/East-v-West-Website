@@ -306,7 +306,7 @@ export async function GET() {
     transfers.sort((a, b) => b.timestamp - a.timestamp);
 
     // Attach trade summaries for context
-    const uniqueIds = Array.from(new Set(transfers.map((t) => t.tradeId))).filter(Boolean);
+    const uniqueIds = Array.from(new Set(transfers.map((t) => t.tradeId))).filter(Boolean).slice(0, 30);
     const tradeMap = new Map<string, Trade | null>();
     await Promise.all(uniqueIds.map(async (id) => {
       try {
@@ -350,7 +350,7 @@ export async function GET() {
         },
       },
       transfers,
-    });
+    }, { headers: { 'Cache-Control': 's-maxage=30, stale-while-revalidate=60' } });
   } catch (error) {
     console.error('Failed to build draft order data', error);
     return NextResponse.json({ error: 'server_error' }, { status: 500 });

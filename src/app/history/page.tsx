@@ -147,7 +147,7 @@ export default function HistoryPage() {
         setWeeklyTabError(null);
         const rows = await getWeeklyHighsBySeason(weeklyTabYear, { signal: ac.signal, timeoutMs: DEFAULT_TIMEOUT });
         if (cancelled) return;
-        setWeeklyHighs((rows || []).filter((r) => (r.week ?? 0) <= 14));
+        setWeeklyHighs(rows || []);
       } catch (e) {
         if (isAbortError(e)) return;
         console.error('Failed to load weekly highs:', e);
@@ -363,7 +363,7 @@ export default function HistoryPage() {
               games: 0,
               championships: 0,
             });
-            a.teamName = t.teamName || a.teamName;
+            // Preserve the first-seen name (2025) as the canonical display name
             a.wins += t.wins || 0;
             a.losses += t.losses || 0;
             a.ties += t.ties || 0;
@@ -391,6 +391,22 @@ export default function HistoryPage() {
         }));
         setFranchises(franchisesDerived);
 
+        try {
+          const res = await fetch('/api/franchise-summaries?fresh=1&years=2025,2024,2023');
+          if (res.ok) {
+            const j = await res.json();
+            if (Array.isArray(j?.franchises) && j.franchises.length > 0) {
+              const srv = j.franchises as FranchiseSummary[];
+              // Remap display names to canonical current-season names per owner
+              const mapped = srv.map((f) => ({
+                ...f,
+                teamName: ownerNameMap[f.ownerId] ?? f.teamName,
+              }));
+              setFranchises(mapped);
+            }
+          }
+        } catch {}
+
         // Compute Regular Season Winners per franchise (previous completed seasons)
         const rsCounts: Record<string, number> = {};
         const rsYears: string[] = ['2025', '2024', '2023'];
@@ -402,8 +418,9 @@ export default function HistoryPage() {
             return (b.fpts ?? 0) - (a.fpts ?? 0);
           });
           const top = sorted[0];
-          if (top?.teamName) {
-            rsCounts[top.teamName] = (rsCounts[top.teamName] || 0) + 1;
+          if (top) {
+            const tn = ownerNameMap[top.ownerId] ?? top.teamName;
+            rsCounts[tn] = (rsCounts[tn] || 0) + 1;
           }
         }
         setRegularSeasonWinnerCounts(rsCounts);

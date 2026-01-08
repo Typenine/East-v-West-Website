@@ -92,14 +92,21 @@ export async function getWeeklyHighsBySeason(
   const leagueId = y2l[season];
   if (!leagueId) return [];
 
+  // Determine regular-season length using league settings (playoff start week - 1)
+  const league = await getLeague(leagueId, options).catch(
+    () => null as { settings?: { playoff_week_start?: number; playoff_start_week?: number } } | null
+  );
+  const settings = (league?.settings || {}) as { playoff_week_start?: number; playoff_start_week?: number };
+  const startWeek = Number(settings.playoff_week_start ?? settings.playoff_start_week ?? 15);
+  const regularWeeks = Math.max(1, startWeek - 1);
+
   const rosters = await getLeagueRosters(leagueId, options);
   const rosterOwner = new Map<number, string>();
   for (const r of rosters) rosterOwner.set(r.roster_id, r.owner_id);
   const rosterIdToName = await getRosterIdToTeamNameMap(leagueId, options).catch(() => new Map<number, string>());
 
   const results: WeeklyHighByWeekEntry[] = [];
-  // Cap at 17 to match league finals in Week 17
-  const weeks = Array.from({ length: 17 }, (_, i) => i + 1);
+  const weeks = Array.from({ length: regularWeeks }, (_, i) => i + 1);
   const allWeekMatchups = await Promise.all(
     weeks.map((w) => getLeagueMatchups(leagueId, w, options).catch(() => [] as SleeperMatchup[]))
   );
@@ -680,9 +687,16 @@ export async function getWeeklyHighScoreTallyAcrossSeasons(
     const rosterOwner = new Map<number, string>();
     for (const r of rosters) rosterOwner.set(r.roster_id, r.owner_id);
 
-    // Decide weeks to process: for current season, apply Tuesday flip cutoff; previous seasons process all 1..18
+    // Decide weeks to process: limit to regular season (before playoffs) and apply Tuesday flip cutoff for current season
+    const league = await getLeague(leagueId, options).catch(
+      () => null as { settings?: { playoff_week_start?: number; playoff_start_week?: number } } | null
+    );
+    const settings = (league?.settings || {}) as { playoff_week_start?: number; playoff_start_week?: number };
+    const startWeek = Number(settings.playoff_week_start ?? settings.playoff_start_week ?? 15);
+    const regularLastWeek = Math.max(1, startWeek - 1);
     const isCurrentSeason = leagueId === LEAGUE_IDS.CURRENT;
-    const upToWeek = isCurrentSeason && currentSeasonCutoffWeek != null ? currentSeasonCutoffWeek : 18;
+    const cutoff = isCurrentSeason && currentSeasonCutoffWeek != null ? currentSeasonCutoffWeek : regularLastWeek;
+    const upToWeek = Math.min(regularLastWeek, cutoff);
     if (upToWeek <= 0) continue;
 
     // Fetch weeks 1..upToWeek matchups in parallel
