@@ -19,6 +19,7 @@ import {
   getLeagueMatchups,
   getTopScoringWeeksByOwner,
   TeamTopWeek,
+  getLeague,
 } from '@/lib/utils/sleeper-api';
 import { LEAGUE_IDS } from '@/lib/constants/league';
 import { getTeamLogoPath, getTeamColorStyle, getTeamColors, resolveCanonicalTeamName } from '@/lib/utils/team-utils';
@@ -91,6 +92,7 @@ export default function TeamPage() {
     opponentRosterId: number;
     played: boolean;
   }>>([]);
+  const [playoffStartWeek, setPlayoffStartWeek] = useState<number>(15);
   const [h2hRecords, setH2HRecords] = useState<Record<string, { wins: number, losses: number, ties: number }>>({});
   const [players, setPlayers] = useState<Record<string, SleeperPlayer>>({});
   const [playerSeasonStats, setPlayerSeasonStats] = useState<Record<string, { totalPPR: number; gp: number; ppg: number }>>({});
@@ -172,6 +174,10 @@ export default function TeamPage() {
     })();
     return () => { mounted = false; };
   }, [rosterId, selectedYear]);
+
+  const visibleWeeklyResults = useMemo(() => {
+    return (weeklyResults || []).filter((r) => r.week < playoffStartWeek || r.played);
+  }, [weeklyResults, playoffStartWeek]);
 
   // Lineup snapshot viewer
   const [snapYear, setSnapYear] = useState<string>(selectedYear);
@@ -645,6 +651,10 @@ export default function TeamPage() {
         
         // Fetch teams data for the selected year
         const teamsData = await getTeamsData(leagueId);
+        const league = await getLeague(leagueId).catch(() => undefined);
+        const settings = (league?.settings || {}) as { playoff_week_start?: number; playoff_start_week?: number };
+        const psw = Number(settings.playoff_week_start ?? settings.playoff_start_week ?? 15);
+        setPlayoffStartWeek(Number.isFinite(psw) && psw > 0 ? psw : 15);
         setAllTeams(teamsData);
         
         // Find the current team
@@ -1405,7 +1415,7 @@ export default function TeamPage() {
                   </div>
                 </CardHeader>
                 <CardContent>
-                  {weeklyResults && weeklyResults.length > 0 ? (
+                  {visibleWeeklyResults && visibleWeeklyResults.length > 0 ? (
                     <div className="overflow-x-auto">
                       <Table>
                         <THead style={{ backgroundColor: (tertiaryStyle.backgroundColor as string), color: (tertiaryStyle.color as string) }}>
@@ -1417,7 +1427,7 @@ export default function TeamPage() {
                           </Tr>
                         </THead>
                         <TBody>
-                          {weeklyResults.map((result) => {
+                          {visibleWeeklyResults.map((result) => {
                             const opponentTeam = allTeams.find(t => t.rosterId === result.opponent);
                             const opponentName = opponentTeam ? opponentTeam.teamName : 'Unknown Team';
                             const isPlayed = !!result.played;

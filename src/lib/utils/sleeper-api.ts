@@ -1954,8 +1954,8 @@ export async function getTeamWeeklyResults(leagueId: string, rosterId: number, o
   played: boolean;
 }[]> {
   try {
-    // Assuming 18 weeks in a season
-    const weekPromises = Array.from({ length: 18 }, (_, i) => i + 1).map(week => 
+    // Fantasy season uses Weeks 1–17 (exclude NFL Week 18)
+    const weekPromises = Array.from({ length: 17 }, (_, i) => i + 1).map((week) =>
       getLeagueMatchups(leagueId, week, options)
     );
     
