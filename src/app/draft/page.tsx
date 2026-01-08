@@ -114,6 +114,55 @@ export default function DraftPage() {
     }
   };
 
+  const handleAddToCalendar2027 = () => {
+    try {
+      const formatICSDate = (d: Date) => d.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
+      const tripStart = new Date('2027-07-08T15:00:00-04:00');
+      const tripEnd = new Date('2027-07-11T11:00:00-04:00');
+      const draftStart = new Date('2027-07-10T13:00:00-04:00');
+      const draftEnd = new Date(draftStart.getTime() + 2 * 60 * 60 * 1000);
+      const now = new Date();
+      const ics = [
+        'BEGIN:VCALENDAR',
+        'VERSION:2.0',
+        'PRODID:-//East v. West//Draft Trip//EN',
+        'CALSCALE:GREGORIAN',
+        'METHOD:PUBLISH',
+        'BEGIN:VEVENT',
+        `UID:evw-trip-2027@eastvwest`,
+        `DTSTAMP:${formatICSDate(now)}`,
+        `DTSTART:${formatICSDate(tripStart)}`,
+        `DTEND:${formatICSDate(tripEnd)}`,
+        'SUMMARY:East v. West Draft Trip',
+        'LOCATION:Denver, Colorado, United States',
+        'DESCRIPTION:Airbnb: https://www.airbnb.com/rooms/1260402684146301716',
+        'END:VEVENT',
+        'BEGIN:VEVENT',
+        `UID:evw-draft-2027@eastvwest`,
+        `DTSTAMP:${formatICSDate(now)}`,
+        `DTSTART:${formatICSDate(draftStart)}`,
+        `DTEND:${formatICSDate(draftEnd)}`,
+        'SUMMARY:East v. West Rookie Draft',
+        'DESCRIPTION:Draft starts at 1:00 PM ET',
+        'END:VEVENT',
+        'END:VCALENDAR',
+      ].join('\r\n');
+
+      const blob = new Blob([ics], { type: 'text/calendar;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'evw-draft-trip-2027.ics';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      console.error('Failed to create 2027 calendar file', e);
+      alert('Could not generate calendar file.');
+    }
+  };
+
   useEffect(() => {
     const leagueId = selectedYear === '2025' 
       ? LEAGUE_IDS.CURRENT 
@@ -368,6 +417,146 @@ export default function DraftPage() {
                         label: 'Draft Order',
                         content: (
                           <DraftOrderView />
+                        ),
+                      },
+                    ]}
+                  />
+                </div>
+              ),
+            },
+            {
+              id: '2027',
+              label: '2027 Draft',
+              content: (
+                <div className="space-y-6">
+                  <CountdownTimer
+                    targetDate={new Date('2027-07-10T13:00:00-04:00')}
+                    title="Countdown to Draft Day"
+                    className="mb-2"
+                  />
+                  <Tabs
+                    tabs={[
+                      {
+                        id: 'airbnb-2027',
+                        label: 'Airbnb Info',
+                        content: (
+                          <div className="space-y-4">
+                            <Card>
+                              <CardHeader>
+                                <CardTitle>2027 Draft: July 10, 2027</CardTitle>
+                              </CardHeader>
+                              <CardContent>
+                                <div className="grid gap-4">
+                                  <Card className="evw-surface">
+                                    <CardHeader>
+                                      <CardTitle>Airbnb Information</CardTitle>
+                                    </CardHeader>
+                                    <CardContent>
+                                      <div className="space-y-4">
+                                        <div>
+                                          <h4 className="font-semibold text-[var(--text)]">Listing</h4>
+                                          <p className="font-medium">Denver Airbnb</p>
+                                          <a
+                                            href="https://www.airbnb.com/rooms/1260402684146301716?adults=10&children=0&infants=0&pets=0&wishlist_item_id=11005650071920&check_in=2027-07-08&check_out=2027-07-11&source_impression_id=p3_1765135617_P3pwC3M86B1vG_Xa&previous_page_section_name=1000"
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="text-[var(--accent-strong)] hover:underline"
+                                            aria-label="View Airbnb listing in a new tab"
+                                          >
+                                            View on Airbnb
+                                          </a>
+                                        </div>
+                                        <div>
+                                          <h4 className="font-semibold text-[var(--text)]">Location</h4>
+                                          <p>Denver, Colorado, United States</p>
+                                        </div>
+                                        <div>
+                                          <h4 className="font-semibold text-[var(--text)]">Dates</h4>
+                                          <p>July 8-11, 2027 (Thursday-Sunday)</p>
+                                        </div>
+                                        <div>
+                                          <h4 className="font-semibold text-[var(--text)]">Notes</h4>
+                                          <ul className="list-disc pl-5">
+                                            <li>Check-in: 3:00 PM Thursday</li>
+                                            <li>Check-out: 11:00 AM Sunday</li>
+                                            <li>Draft starts at 1:00 PM ET on Saturday</li>
+                                          </ul>
+                                        </div>
+
+                                        <div className="mt-2 pt-4 border-t border-[var(--border)]">
+                                          <h4 className="font-semibold text-[var(--text)] mb-2">Amenities</h4>
+                                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                            <div className="rounded-lg border border-[var(--border)] p-4">
+                                              <h5 className="font-semibold mb-2 flex items-center gap-2"><HomeIcon className="h-4 w-4 text-[var(--muted)]" aria-hidden="true" />Kitchen</h5>
+                                              <ul className="list-disc pl-5 space-y-1 text-sm">
+                                                <li>Space where guests can cook their own meals</li>
+                                                <li>Refrigerator</li>
+                                                <li>Microwave</li>
+                                                <li>Cooking basics (pots and pans, oil, salt and pepper)</li>
+                                                <li>Dishes and silverware (bowls, chopsticks, plates, cups, etc.)</li>
+                                                <li>Mini fridge</li>
+                                                <li>Freezer</li>
+                                                <li>Dishwasher</li>
+                                                <li>Stove & Oven</li>
+                                                <li>Coffee makers (regular + Keurig)</li>
+                                                <li>Wine glasses</li>
+                                                <li>Toaster</li>
+                                                <li>Baking sheet</li>
+                                                <li>Blender</li>
+                                                <li>Barbecue utensils (grill tools, skewers, etc.)</li>
+                                                <li>Dining table</li>
+                                              </ul>
+                                            </div>
+                                            <div className="rounded-lg border border-[var(--border)] p-4">
+                                              <h5 className="font-semibold mb-2 flex items-center gap-2"><TvIcon className="h-4 w-4 text-[var(--muted)]" aria-hidden="true" />Entertainment</h5>
+                                              <ul className="list-disc pl-5 space-y-1 text-sm">
+                                                <li>Hi‑Def TV</li>
+                                                <li>Bar area / mini fridge</li>
+                                                <li>Games area</li>
+                                              </ul>
+                                            </div>
+                                            <div className="rounded-lg border border-[var(--border)] p-4">
+                                              <h5 className="font-semibold mb-2 flex items-center gap-2"><FireIcon className="h-4 w-4 text-[var(--muted)]" aria-hidden="true" />Outdoor</h5>
+                                              <ul className="list-disc pl-5 space-y-1 text-sm">
+                                                <li>Fire pit</li>
+                                                <li>Outdoor furniture</li>
+                                                <li>Outdoor dining area</li>
+                                                <li>BBQ grill</li>
+                                              </ul>
+                                            </div>
+                                            <div className="rounded-lg border border-[var(--border)] p-4">
+                                              <h5 className="font-semibold mb-2 flex items-center gap-2"><MoonIcon className="h-4 w-4 text-[var(--muted)]" aria-hidden="true" />Sleeping Arrangements</h5>
+                                              <ul className="list-disc pl-5 space-y-1 text-sm">
+                                                <li>Multiple bedrooms</li>
+                                                <li>Varied bed sizes (see listing)</li>
+                                              </ul>
+                                            </div>
+                                            <div className="rounded-lg border border-[var(--border)] p-4">
+                                              <h5 className="font-semibold mb-2 flex items-center gap-2"><HomeIcon className="h-4 w-4 text-[var(--muted)]" aria-hidden="true" />Comfort & Utilities</h5>
+                                              <ul className="list-disc pl-5 space-y-1 text-sm">
+                                                <li>Washer &amp; dryer</li>
+                                                <li>Air conditioning</li>
+                                                <li>Heating</li>
+                                              </ul>
+                                            </div>
+                                            <div className="rounded-lg border border-[var(--border)] p-4 md:col-span-2">
+                                              <h5 className="font-semibold mb-2 flex items-center gap-2"><BookOpenIcon className="h-4 w-4 text-[var(--muted)]" aria-hidden="true" />Loft</h5>
+                                              <p className="text-sm">
+                                                Additional common spaces per listing details.
+                                              </p>
+                                            </div>
+                                          </div>
+                                        </div>
+                                        <div>
+                                          <Button onClick={handleAddToCalendar2027} variant="primary">Add to Calendar (.ics)</Button>
+                                        </div>
+                                      </div>
+                                    </CardContent>
+                                  </Card>
+                                </div>
+                              </CardContent>
+                            </Card>
+                          </div>
                         ),
                       },
                     ]}
