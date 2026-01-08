@@ -124,12 +124,14 @@ export async function getWeeklyHighsBySeason(
       byId.set(m.matchup_id, arr);
     }
 
-    let best: WeeklyHighByWeekEntry | null = null;
+    // Build candidate entries for both sides of each matchup
+    const candidates: WeeklyHighByWeekEntry[] = [];
     for (const pair of byId.values()) {
       if (!pair || pair.length < 2) continue;
       const [a, b] = pair;
       const aPts = a.custom_points ?? a.points ?? 0;
       const bPts = b.custom_points ?? b.points ?? 0;
+      // Skip scheduled/unplayed matchups (both 0)
       if ((aPts ?? 0) === 0 && (bPts ?? 0) === 0) continue;
 
       const aOwner = rosterOwner.get(a.roster_id);
@@ -138,7 +140,7 @@ export async function getWeeklyHighsBySeason(
       const aName = rosterIdToName.get(a.roster_id) || resolveCanonicalTeamName({ ownerId: aOwner });
       const bName = rosterIdToName.get(b.roster_id) || resolveCanonicalTeamName({ ownerId: bOwner });
 
-      const candA: WeeklyHighByWeekEntry = {
+      candidates.push({
         week,
         teamName: aName,
         ownerId: aOwner,
@@ -148,8 +150,8 @@ export async function getWeeklyHighsBySeason(
         opponentOwnerId: bOwner,
         opponentRosterId: b.roster_id,
         opponentPoints: bPts,
-      };
-      const candB: WeeklyHighByWeekEntry = {
+      });
+      candidates.push({
         week,
         teamName: bName,
         ownerId: bOwner,
@@ -159,12 +161,14 @@ export async function getWeeklyHighsBySeason(
         opponentOwnerId: aOwner,
         opponentRosterId: a.roster_id,
         opponentPoints: aPts,
-      };
-
-      const better = (x: WeeklyHighByWeekEntry, y: WeeklyHighByWeekEntry) => (x.points >= y.points ? x : y);
-      best = best ? better(best, better(candA, candB)) : better(candA, candB);
+      });
     }
-    if (best) results.push(best);
+
+    if (candidates.length === 0) continue;
+    let maxPts = -Infinity;
+    for (const c of candidates) if (c.points > maxPts) maxPts = c.points;
+    // Push all tied weekly-high winners for this week
+    for (const c of candidates) if (c.points === maxPts) results.push(c);
   }
 
   // Only include weeks with scoring; keep ascending by week

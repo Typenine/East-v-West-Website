@@ -106,11 +106,11 @@ export default function HistoryPage() {
   // Weekly Highs tab state
   const allYears = useMemo(() => {
     const prev = Object.keys(LEAGUE_IDS.PREVIOUS || {});
-    const ys = ['2026', ...prev];
+    const ys = ['2025', ...prev];
     // sort desc (most recent first)
     return ys.sort((a, b) => b.localeCompare(a));
   }, []);
-  const [weeklyTabYear, setWeeklyTabYear] = useState<string>('2026');
+  const [weeklyTabYear, setWeeklyTabYear] = useState<string>('2025');
   const [weeklyHighs, setWeeklyHighs] = useState<WeeklyHighByWeekEntry[]>([]);
   const [weeklyTabLoading, setWeeklyTabLoading] = useState(false);
   const [weeklyTabError, setWeeklyTabError] = useState<string | null>(null);
@@ -145,7 +145,7 @@ export default function HistoryPage() {
       try {
         setWeeklyTabLoading(true);
         setWeeklyTabError(null);
-        const rows = await getWeeklyHighsBySeason(weeklyTabYear, { signal: ac.signal, timeoutMs: DEFAULT_TIMEOUT });
+        const rows = await getWeeklyHighsBySeason(weeklyTabYear, { signal: ac.signal, timeoutMs: DEFAULT_TIMEOUT, forceFresh: true });
         if (cancelled) return;
         setWeeklyHighs(rows || []);
       } catch (e) {
@@ -307,7 +307,7 @@ export default function HistoryPage() {
           getTeamsData(LEAGUE_IDS.PREVIOUS['2024'], optsCached),
           getTeamsData(LEAGUE_IDS.PREVIOUS['2023'], optsCached),
           // Weekly highs: only needed for Franchises grid; cached is fine
-          needWeeklyHighs ? getWeeklyHighScoreTallyAcrossSeasons({ tuesdayFlip: true }, optsCached) : Promise.resolve({} as Record<string, number>),
+          needWeeklyHighs ? getWeeklyHighScoreTallyAcrossSeasons({ tuesdayFlip: true }, optsFresh) : Promise.resolve({} as Record<string, number>),
           // Split records: only needed for Leaderboards tab
           needSplitRecords ? getSplitRecordsAllTime(optsCached) : Promise.resolve({} as Record<string, { teamName: string; regular: SplitRecord; playoffs: SplitRecord; toilet: SplitRecord }>),
           // Top weeks: regular + playoffs

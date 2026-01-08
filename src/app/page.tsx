@@ -296,7 +296,7 @@ export default async function Home({ searchParams }: { searchParams?: Promise<Re
           roy: awards.roy && awards.roy[0] ? { name: awards.roy[0].name, points: awards.roy[0].points, teamName: (awards.roy[0].teamName ?? undefined) as string | undefined } : undefined,
         };
       }
-      const weeklyHighsRows = ((weeklyHighs as WeeklyHighByWeekEntry[]) || []).filter((w) => (w.week ?? 0) <= 14);
+      const weeklyHighsRows = (weeklyHighs as WeeklyHighByWeekEntry[]) || [];
       if (weeklyHighsRows.length > 0) {
         const counts = new Map<string, number>();
         for (const row of weeklyHighsRows) {
