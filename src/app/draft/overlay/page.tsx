@@ -31,7 +31,6 @@ export default function DraftOverlayPage() {
   const pickBannerRef = useRef<HTMLDivElement | null>(null);
   const [lastOverallSeen, setLastOverallSeen] = useState<number | null>(null);
   const [showPickBanner, setShowPickBanner] = useState(false);
-  const [tickerIndex, setTickerIndex] = useState(0);
   const [lastUpdateMs, setLastUpdateMs] = useState<number>(Date.now());
   const [tick, setTick] = useState(0);
 
@@ -88,18 +87,18 @@ export default function DraftOverlayPage() {
   const ss = s % 60;
   const clockDisplay = `${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}`;
 
-  useEffect(() => {
-    const i = setInterval(() => setTickerIndex((x) => (x + 1) % 3), 5000);
-    return () => clearInterval(i);
-  }, []);
+  const recentList = (draft?.recentPicks || [])
+    .slice(-8)
+    .reverse()
+    .map((p) => `#${p.overall} R${p.round} ${p.team} — ${p.playerName || p.playerId}`);
+  const upcomingList = (draft?.upcoming || [])
+    .slice(0, 8)
+    .map((u) => `#${u.overall} R${u.round} — ${u.team}`);
+  const availList = (available || [])
+    .slice(0, 8)
+    .map((a) => `${a.name} (${a.pos} ${a.nfl})`);
 
   const onClockTeam = draft?.onClockTeam || null;
-  const infoBlocks = [
-    { key: "recent", title: "Recent Picks", content: (draft?.recentPicks || []).slice(-5).reverse().map((p) => `#${p.overall} R${p.round} ${p.team} — ${p.playerName || p.playerId}`) },
-    { key: "upcoming", title: "Upcoming", content: (draft?.upcoming || []).slice(0, 5).map((u) => `#${u.overall} R${u.round} — ${u.team}`) },
-    { key: "available", title: usingCustom ? "Available (Custom)" : "Available", content: (available || []).slice(0, 5).map((a) => `${a.name} (${a.pos} ${a.nfl})`) },
-  ];
-  const activeInfo = infoBlocks[tickerIndex];
 
   return (
     <div className="fixed inset-0 bg-black text-white">
@@ -153,18 +152,42 @@ export default function DraftOverlayPage() {
               )}
             </div>
           </div>
-          <div className="col-span-2">
-            <div className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-4 h-24">
-              <div className="text-zinc-400 text-sm">{activeInfo.title}</div>
-              <div className="mt-2 flex gap-6 text-sm">
-                {activeInfo.content.length === 0 ? (
-                  <div className="text-zinc-500">—</div>
-                ) : (
-                  activeInfo.content.map((s, i) => (
-                    <div key={i} className="truncate max-w-[12rem]">{s}</div>
-                  ))
-                )}
-              </div>
+          <div className="col-span-2 space-y-4">
+            <div className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-4">
+              <div className="text-zinc-400 text-sm">Recent Picks</div>
+              {recentList.length === 0 ? (
+                <div className="mt-2 text-sm text-zinc-500">—</div>
+              ) : (
+                <ul className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1 text-sm">
+                  {recentList.map((item, i) => (
+                    <li key={`r-${i}`} className="truncate">{item}</li>
+                  ))}
+                </ul>
+              )}
+            </div>
+            <div className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-4">
+              <div className="text-zinc-400 text-sm">Upcoming</div>
+              {upcomingList.length === 0 ? (
+                <div className="mt-2 text-sm text-zinc-500">—</div>
+              ) : (
+                <ul className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1 text-sm">
+                  {upcomingList.map((item, i) => (
+                    <li key={`u-${i}`} className="truncate">{item}</li>
+                  ))}
+                </ul>
+              )}
+            </div>
+            <div className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-4">
+              <div className="text-zinc-400 text-sm">Top Available{usingCustom ? ' (Custom)' : ''}</div>
+              {availList.length === 0 ? (
+                <div className="mt-2 text-sm text-zinc-500">—</div>
+              ) : (
+                <ul className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1 text-sm">
+                  {availList.map((item, i) => (
+                    <li key={`a-${i}`} className="truncate">{item}</li>
+                  ))}
+                </ul>
+              )}
             </div>
           </div>
         </div>

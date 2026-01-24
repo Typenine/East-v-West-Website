@@ -15,6 +15,9 @@ function isProtectedPath(pathname: string): boolean {
 
 export async function middleware(req: NextRequest) {
   const { pathname, search } = req.nextUrl;
+  const adminSecret = process.env.EVW_ADMIN_SECRET || '002023';
+  const adminCookie = req.cookies.get('evw_admin')?.value || '';
+  const isAdmin = adminCookie === adminSecret;
   // Optional: draft preview lock using EVW_PREVIEW_SECRET
   const previewSecret = process.env.EVW_PREVIEW_SECRET || '';
   const isDraftFeaturePath = pathname === '/draft/room' || pathname === '/draft/overlay' || pathname === '/admin/draft' || pathname.startsWith('/api/draft');
@@ -39,6 +42,11 @@ export async function middleware(req: NextRequest) {
         return res;
       }
     }
+  }
+
+  // Allow admin to access Draft Room without a user session
+  if (pathname === '/draft/room' && isAdmin) {
+    return NextResponse.next();
   }
 
   if (!isProtectedPath(pathname)) return NextResponse.next();

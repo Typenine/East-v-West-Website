@@ -45,9 +45,9 @@ export default function AdminDraftPage() {
     fetch('/api/admin-login').then(r => r.json()).then(j => setIsAdmin(Boolean(j?.isAdmin))).catch(() => setIsAdmin(false));
   }, []);
 
-  async function load(includeAvail = false) {
+  async function load(includeAvail = false, showSpinner = false) {
     try {
-      setLoading(true);
+      if (showSpinner) setLoading(true);
       const url = includeAvail ? '/api/draft?include=available' : '/api/draft';
       const res = await fetch(url, { cache: 'no-store' });
       if (!res.ok) throw new Error('failed');
@@ -58,12 +58,12 @@ export default function AdminDraftPage() {
     } catch {
       setError('Failed to load draft');
     } finally {
-      setLoading(false);
+      if (showSpinner) setLoading(false);
     }
   }
 
   useEffect(() => {
-    load(true);
+    load(true, true);
     const t = setInterval(() => load(false), 3000);
     return () => clearInterval(t);
   }, []);
