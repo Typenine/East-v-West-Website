@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import SectionHeader from '@/components/ui/SectionHeader';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import Label from '@/components/ui/Label';
@@ -32,7 +33,9 @@ export default function AdminDraftPage() {
   const [error, setError] = useState<string | null>(null);
   const [draft, setDraft] = useState<DraftOverview | null>(null);
   const [remainingSec, setRemainingSec] = useState<number | null>(null);
-  const [form, setForm] = useState({ year: new Date().getFullYear().toString(), rounds: '4', clock: '60', snake: 'true' });
+  const [clockMins, setClockMins] = useState('2');
+  const [clockSecs, setClockSecs] = useState('0');
+  const [form, setForm] = useState({ year: new Date().getFullYear().toString(), rounds: '4', snake: 'true' });
   const [search, setSearch] = useState('');
   const [pos, setPos] = useState('');
   const [avail, setAvail] = useState<Array<{ id: string; name: string; pos: string; nfl: string }>>([]);
@@ -40,6 +43,16 @@ export default function AdminDraftPage() {
   const [busy, setBusy] = useState<string | null>(null);
   const [teamOrder, setTeamOrder] = useState<string[]>(TEAM_NAMES);
   const [playersInfo, setPlayersInfo] = useState<{ useCustom: boolean; count: number }>({ useCustom: false, count: 0 });
+
+  // Convert mins:secs to total seconds
+  const getTotalSeconds = () => Number(clockMins || 0) * 60 + Number(clockSecs || 0);
+  
+  // Format seconds as MM:SS
+  const formatTime = (sec: number) => {
+    const m = Math.floor(sec / 60);
+    const s = sec % 60;
+    return `${m}:${String(s).padStart(2, '0')}`;
+  };
 
   useEffect(() => {
     fetch('/api/admin-login').then(r => r.json()).then(j => setIsAdmin(Boolean(j?.isAdmin))).catch(() => setIsAdmin(false));
@@ -200,7 +213,22 @@ export default function AdminDraftPage() {
 
   return (
     <div className="container mx-auto px-4 py-8">
-      <SectionHeader title="Admin: Draft Control" />
+      {/* Header with navigation */}
+      <div className="flex items-center justify-between mb-6">
+        <SectionHeader title="Admin: Draft Control" />
+        <div className="flex gap-2">
+          <Link href="/draft">
+            <Button variant="ghost" size="sm">← Draft Page</Button>
+          </Link>
+          <Link href="/draft/overlay" target="_blank">
+            <Button variant="primary" size="sm">🖥️ Open Overlay</Button>
+          </Link>
+          <Link href="/draft/room" target="_blank">
+            <Button variant="ghost" size="sm">📋 Draft Room</Button>
+          </Link>
+        </div>
+      </div>
+
       {error && (
         <div className="mb-4 text-[var(--danger)] text-sm">{error}</div>
       )}
@@ -209,17 +237,41 @@ export default function AdminDraftPage() {
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="lg:col-span-2 space-y-4">
+            {/* Live Status Banner */}
+            {draft && (
+              <div className={`rounded-lg p-4 ${draft.status === 'LIVE' ? 'bg-emerald-900/30 border border-emerald-600' : draft.status === 'PAUSED' ? 'bg-yellow-900/30 border border-yellow-600' : 'bg-zinc-800/50 border border-zinc-700'}`}>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-4">
+                    <div className={`px-3 py-1 rounded-full text-sm font-bold ${draft.status === 'LIVE' ? 'bg-emerald-600 text-white' : draft.status === 'PAUSED' ? 'bg-yellow-600 text-black' : 'bg-zinc-600 text-white'}`}>
+                      {draft.status}
+                    </div>
+                    <div className="text-lg">
+                      <span className="font-bold">{draft.onClockTeam || '—'}</span>
+                      <span className="text-[var(--muted)] ml-2">on the clock</span>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <div className={`text-3xl font-mono font-bold ${remainingSec !== null && remainingSec <= 10 ? 'text-red-500' : ''}`}>
+                      {remainingSec !== null ? formatTime(remainingSec) : '--:--'}
+                    </div>
+                    <div className="text-sm text-[var(--muted)]">
+                      Pick #{draft.curOverall} • Round {draft.upcoming?.[0]?.round || Math.ceil(draft.curOverall / TEAM_NAMES.length)}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
             <Card>
               <CardHeader>
-                <CardTitle>Draft Status</CardTitle>
+                <CardTitle>{draft ? 'Draft Controls' : 'Create Draft'}</CardTitle>
               </CardHeader>
               <CardContent>
                 {loading ? (
                   <p className="text-[var(--muted)]">Loading…</p>
                 ) : !draft ? (
                   <div className="space-y-4">
-                    <p>No draft exists.</p>
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                       <div>
                         <Label className="mb-1 block">Year</Label>
                         <Input value={form.year} onChange={(e) => setForm({ ...form, year: e.target.value })} />
@@ -229,8 +281,12 @@ export default function AdminDraftPage() {
                         <Input type="number" min={1} value={form.rounds} onChange={(e) => setForm({ ...form, rounds: e.target.value })} />
                       </div>
                       <div>
-                        <Label className="mb-1 block">Clock (seconds)</Label>
-                        <Input type="number" min={10} value={form.clock} onChange={(e) => setForm({ ...form, clock: e.target.value })} />
+                        <Label className="mb-1 block">Clock Time</Label>
+                        <div className="flex gap-1 items-center">
+                          <Input type="number" min={0} max={59} value={clockMins} onChange={(e) => setClockMins(e.target.value)} className="w-16 text-center" placeholder="min" />
+                          <span className="text-lg font-bold">:</span>
+                          <Input type="number" min={0} max={59} value={clockSecs} onChange={(e) => setClockSecs(e.target.value)} className="w-16 text-center" placeholder="sec" />
+                        </div>
                       </div>
                       <div>
                         <Label className="mb-1 block">Snake Order</Label>
@@ -242,48 +298,65 @@ export default function AdminDraftPage() {
                     </div>
                     <div>
                       <Label className="mb-2 block">Team Order (Round 1)</Label>
-                      <div className="max-h-64 overflow-auto border rounded">
-                        <ul className="divide-y">
+                      <div className="max-h-64 overflow-auto border rounded bg-zinc-900/50">
+                        <ul className="divide-y divide-zinc-800">
                           {teamOrder.map((t, i) => (
-                            <li key={t} className="flex items-center justify-between px-2 py-1 text-sm">
-                              <span className="flex-1">{i + 1}. {t}</span>
+                            <li key={t} className="flex items-center justify-between px-3 py-2 text-sm hover:bg-zinc-800/50">
+                              <span className="flex-1"><span className="text-[var(--muted)] mr-2">{i + 1}.</span> {t}</span>
                               <div className="flex gap-1">
-                                <Button size="sm" variant="ghost" onClick={() => moveTeam(i, -1)}>↑</Button>
-                                <Button size="sm" variant="ghost" onClick={() => moveTeam(i, 1)}>↓</Button>
+                                <Button size="sm" variant="ghost" onClick={() => moveTeam(i, -1)} disabled={i === 0}>↑</Button>
+                                <Button size="sm" variant="ghost" onClick={() => moveTeam(i, 1)} disabled={i === teamOrder.length - 1}>↓</Button>
                               </div>
                             </li>
                           ))}
                         </ul>
                       </div>
-                      <div className="mt-2 flex gap-2">
-                        <Button variant="ghost" onClick={() => setTeamOrder(TEAM_NAMES)}>Reset</Button>
+                      <div className="mt-2">
+                        <Button variant="ghost" size="sm" onClick={() => setTeamOrder(TEAM_NAMES)}>Reset Order</Button>
                       </div>
                     </div>
-                    <Button disabled={busy==='create'} onClick={() => onAdmin('create', { year: Number(form.year), rounds: Number(form.rounds), clockSeconds: Number(form.clock), snake: form.snake === 'true', teams: teamOrder })}>Create Draft</Button>
+                    <Button disabled={busy==='create'} onClick={() => onAdmin('create', { year: Number(form.year), rounds: Number(form.rounds), clockSeconds: getTotalSeconds(), snake: form.snake === 'true', teams: teamOrder })}>
+                      Create Draft
+                    </Button>
                   </div>
                 ) : (
-                  <div className="space-y-2">
-                    <div className="flex items-center gap-3">
-                      <span className="text-sm text-[var(--muted)]">Year {draft.year}</span>
-                      <span className="text-sm">Round {draft.upcoming?.[0]?.round || Math.ceil(draft.curOverall / TEAM_NAMES.length)}</span>
-                      <span className="text-sm">Overall #{draft.curOverall}</span>
-                      <span className="text-sm">Status: {draft.status}</span>
-                      {draft.onClockTeam && <span className="text-sm">On the clock: <strong>{draft.onClockTeam}</strong></span>}
-                      {remainingSec !== null && <span className="text-sm">Time left: {remainingSec}s</span>}
+                  <div className="space-y-4">
+                    {/* Primary Controls */}
+                    <div className="flex flex-wrap gap-2">
+                      {draft.status === 'NOT_STARTED' && (
+                        <Button disabled={busy==='start'} variant="primary" onClick={() => onAdmin('start')}>▶️ Start Draft</Button>
+                      )}
+                      {draft.status === 'LIVE' && (
+                        <Button disabled={busy==='pause'} variant="ghost" onClick={() => onAdmin('pause')}>⏸️ Pause</Button>
+                      )}
+                      {draft.status === 'PAUSED' && (
+                        <Button disabled={busy==='resume'} variant="primary" onClick={() => onAdmin('resume')}>▶️ Resume</Button>
+                      )}
+                      <Button disabled={busy==='undo'} variant="ghost" onClick={() => onAdmin('undo')}>↩️ Undo Last Pick</Button>
+                      <Button disabled={busy==='auto_pick'} variant="ghost" onClick={() => onAdmin('auto_pick')} title="Force auto-pick using queue or highest-ranked player">
+                        🤖 Auto-Pick
+                      </Button>
                     </div>
-                    <div className="flex flex-wrap gap-2 mt-2">
-                      <Button disabled={busy==='start'} onClick={() => onAdmin('start')}>Start</Button>
-                      <Button disabled={busy==='pause'} onClick={() => onAdmin('pause')}>Pause</Button>
-                      <Button disabled={busy==='resume'} onClick={() => onAdmin('resume')}>Resume</Button>
-                      <Button disabled={busy==='undo'} onClick={() => onAdmin('undo')}>Undo Last Pick</Button>
-                      <Button disabled={busy==='auto_pick'} variant="ghost" onClick={() => onAdmin('auto_pick')} title="Force auto-pick using queue or highest-ranked player">Auto-Pick</Button>
-                    </div>
-                    <div className="flex items-end gap-2 mt-3">
-                      <div>
-                        <Label className="mb-1 block">Set Clock (sec)</Label>
-                        <Input type="number" min={10} value={form.clock} onChange={(e) => setForm({ ...form, clock: e.target.value })} />
+
+                    {/* Clock Controls */}
+                    <div className="p-3 bg-zinc-800/50 rounded-lg">
+                      <Label className="mb-2 block text-sm font-semibold">Set Clock Time</Label>
+                      <div className="flex items-center gap-2">
+                        <div className="flex gap-1 items-center">
+                          <Input type="number" min={0} max={59} value={clockMins} onChange={(e) => setClockMins(e.target.value)} className="w-16 text-center" />
+                          <span className="text-lg font-bold">:</span>
+                          <Input type="number" min={0} max={59} value={clockSecs} onChange={(e) => setClockSecs(e.target.value)} className="w-16 text-center" />
+                        </div>
+                        <span className="text-sm text-[var(--muted)]">({getTotalSeconds()}s)</span>
+                        <Button disabled={busy==='set_clock'} size="sm" onClick={() => onAdmin('set_clock', { seconds: getTotalSeconds() })}>
+                          Apply
+                        </Button>
+                        <div className="flex gap-1 ml-2">
+                          <Button size="sm" variant="ghost" onClick={() => { setClockMins('1'); setClockSecs('0'); }}>1:00</Button>
+                          <Button size="sm" variant="ghost" onClick={() => { setClockMins('2'); setClockSecs('0'); }}>2:00</Button>
+                          <Button size="sm" variant="ghost" onClick={() => { setClockMins('3'); setClockSecs('0'); }}>3:00</Button>
+                        </div>
                       </div>
-                      <Button disabled={busy==='set_clock'} onClick={() => onAdmin('set_clock', { seconds: Number(form.clock) })}>Apply</Button>
                     </div>
                   </div>
                 )}

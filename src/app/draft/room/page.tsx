@@ -1,12 +1,12 @@
 'use client';
 
 import { useEffect, useState, useRef, useCallback } from 'react';
-import SectionHeader from '@/components/ui/SectionHeader';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import Label from '@/components/ui/Label';
 import Input from '@/components/ui/Input';
 import Select from '@/components/ui/Select';
 import Button from '@/components/ui/Button';
+import { getTeamByName, getTeamLogoPath } from '@/components/draft-overlay/teams';
 
 type DraftOverview = {
   id: string;
@@ -164,34 +164,98 @@ export default function DraftRoomPage() {
     await fetch('/api/draft', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'queue_set', playerIds: newQueue.map(q => q.id) }) });
   };
 
+  // Get current team info for presentation
+  const currentTeam = onClock ? getTeamByName(onClock) : null;
+  const teamLogo = currentTeam ? getTeamLogoPath(currentTeam) : null;
+  const teamColors = currentTeam?.colors || ['#333', '#555', null];
+
+  // Format time as MM:SS
+  const formatTime = (sec: number) => {
+    const m = Math.floor(sec / 60);
+    const s = sec % 60;
+    return `${m}:${String(s).padStart(2, '0')}`;
+  };
+
   return (
-    <div className="container mx-auto px-4 py-8">
-      <SectionHeader title="Draft Room" />
+    <div className="container mx-auto px-4 py-6">
+      {/* Presentation Header */}
+      <div className="mb-6">
+        <div className="flex items-center justify-between mb-4">
+          <h1 className="text-2xl font-bold">Draft Room</h1>
+          <div className="text-sm text-[var(--muted)]">
+            {myTeam ? `Logged in as: ${myTeam}` : 'Not logged in'}
+          </div>
+        </div>
+
+        {/* Live Status Banner */}
+        {draft && (
+          <div 
+            className="rounded-xl p-4 mb-4"
+            style={{
+              background: `linear-gradient(135deg, ${teamColors[0]}40 0%, ${teamColors[1]}40 100%)`,
+              border: `2px solid ${teamColors[0]}80`,
+            }}
+          >
+            <div className="flex items-center gap-6">
+              {/* Team Logo */}
+              <div 
+                className="w-20 h-20 rounded-lg overflow-hidden bg-black/30 flex items-center justify-center shrink-0"
+                style={{ border: `2px solid ${teamColors[0]}` }}
+              >
+                {teamLogo ? (
+                  <img src={teamLogo} alt={currentTeam?.name} className="w-full h-full object-contain" />
+                ) : (
+                  <span className="text-2xl font-bold">{currentTeam?.abbrev || '?'}</span>
+                )}
+              </div>
+
+              {/* On Clock Info */}
+              <div className="flex-1">
+                <div className="text-sm text-white/70 uppercase tracking-wide">On The Clock</div>
+                <div className="text-3xl font-bold">{onClock || '—'}</div>
+                <div className="text-sm text-white/70">
+                  Pick #{draft.curOverall} • Round {draft.upcoming?.[0]?.round || 1}
+                </div>
+              </div>
+
+              {/* Clock */}
+              <div className="text-right">
+                <div className={`text-5xl font-mono font-bold ${localRemaining !== null && localRemaining <= 10 ? 'text-red-500 animate-pulse' : ''}`}>
+                  {localRemaining !== null ? formatTime(localRemaining) : '--:--'}
+                </div>
+                <div className={`text-sm px-2 py-0.5 rounded inline-block mt-1 ${
+                  draft.status === 'LIVE' ? 'bg-emerald-600' : 
+                  draft.status === 'PAUSED' ? 'bg-yellow-600 text-black' : 'bg-zinc-600'
+                }`}>
+                  {draft.status}
+                </div>
+              </div>
+            </div>
+
+            {/* Your Turn Alert */}
+            {isMyTurn && (
+              <div className="mt-3 p-3 bg-emerald-600/80 rounded-lg text-center">
+                <div className="text-xl font-bold">🎯 YOUR TURN TO PICK!</div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 space-y-4">
           <Card>
-            <CardHeader><CardTitle>Live</CardTitle></CardHeader>
+            <CardHeader><CardTitle>{isMyTurn ? 'Make Your Pick' : 'Draft Status'}</CardTitle></CardHeader>
             <CardContent>
               {loading ? <p className="text-[var(--muted)]">Loading…</p> : !draft ? (
                 <p className="text-[var(--muted)]">No active draft.</p>
               ) : (
-                <div className="space-y-2">
-                  <div className="flex items-center gap-3">
-                    <span className="text-sm">Status: {draft.status}</span>
-                    <span className="text-sm">Overall #{draft.curOverall}</span>
-                    <span className="text-sm">On the clock: <strong>{onClock || '—'}</strong></span>
-                    {localRemaining !== null && (
-                      <span className={`text-sm font-mono ${localRemaining <= 10 ? 'text-red-500 font-bold animate-pulse' : ''}`}>
-                        Time left: {localRemaining}s
-                      </span>
-                    )}
-                  </div>
+                <div className="space-y-4">
                   {isMyTurn ? (
-                    <div className="p-3 border rounded">
-                      <div className="font-medium mb-2">Your team is on the clock</div>
+                    <div className="space-y-4">
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                         <div>
-                          <Label className="mb-1 block">Search</Label>
+                          <Label className="mb-1 block">Search Players</Label>
                           <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Name search" />
                         </div>
                         <div>
@@ -210,7 +274,7 @@ export default function DraftRoomPage() {
                           <Button variant="ghost" onClick={() => setAvail([])}>Clear</Button>
                         </div>
                       </div>
-                      <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                         <div className="border rounded p-2 max-h-80 overflow-auto">
                           <div className="font-medium mb-1">Available</div>
                           <ul className="space-y-1">

@@ -89,18 +89,18 @@ export default function DraftOverlayLive() {
     <div className={styles.overlay}>
       {/* Draft Board Grid */}
       <div className={styles.draftBoardContainer}>
-        <div className="grid grid-cols-5 gap-1 h-full p-2 bg-black/80 rounded-lg">
+        <div className="grid grid-cols-5 gap-[2px] h-full bg-black/80 rounded-lg overflow-hidden">
           {/* Header Row */}
-          <div className="text-center text-xs font-bold text-zinc-400 py-1">Pick</div>
+          <div className="text-center text-[11px] font-bold text-zinc-400 py-1 bg-zinc-900">Pick</div>
           {[1, 2, 3, 4].map(r => (
-            <div key={r} className="text-center text-xs font-bold text-zinc-400 py-1">Round {r}</div>
+            <div key={r} className="text-center text-[11px] font-bold text-zinc-400 py-1 bg-zinc-900">Round {r}</div>
           ))}
           
           {/* Pick Rows */}
           {Array.from({ length: 12 }, (_, pickIdx) => (
             <React.Fragment key={pickIdx}>
               {/* Pick number */}
-              <div className={`text-center text-sm font-bold py-2 ${currentPickIndex % 12 === pickIdx ? 'text-yellow-400' : 'text-zinc-500'}`}>
+              <div className={`text-center text-xs font-bold flex items-center justify-center ${currentPickIndex % 12 === pickIdx ? 'text-yellow-400 bg-yellow-400/10' : 'text-zinc-500 bg-zinc-900/80'}`}>
                 {pickIdx + 1}
               </div>
               {/* Round cells */}
@@ -111,7 +111,7 @@ export default function DraftOverlayLive() {
                 return (
                   <div
                     key={gridIdx}
-                    className={`relative rounded text-xs p-1 transition-all ${
+                    className={`relative text-[10px] px-1 py-[2px] flex flex-col justify-center ${
                       isCurrentPick
                         ? 'ring-2 ring-yellow-400 bg-yellow-400/20'
                         : pick
@@ -123,10 +123,10 @@ export default function DraftOverlayLive() {
                     }}
                   >
                     {pick ? (
-                      <div className="truncate">
-                        <div className="font-semibold text-white truncate">{pick.player}</div>
-                        <div className="text-zinc-400 text-[10px]">{pick.position}</div>
-                      </div>
+                      <>
+                        <div className="font-semibold text-white truncate leading-tight">{pick.player}</div>
+                        <div className="text-zinc-400 text-[9px] leading-tight">{pick.position}</div>
+                      </>
                     ) : null}
                   </div>
                 );
@@ -140,29 +140,28 @@ export default function DraftOverlayLive() {
       <div className={styles.topRow}>
         {/* ClockBox */}
         <div
-          className="flex items-stretch h-full"
+          className="flex items-stretch shrink-0"
           style={{
-            width: '420px',
+            width: '340px',
             background: 'linear-gradient(to bottom, #202020, #282828)',
             borderRadius: '4px',
             border: '1px solid #333',
           }}
         >
           {/* Left: Team Abbrev + Round/Pick */}
-          <div className="flex flex-col justify-between p-3 w-36">
+          <div className="flex flex-col justify-center p-2 w-28">
             <div
-              className="px-3 py-1 rounded-md text-center font-black text-2xl text-white"
+              className="px-2 py-1 rounded text-center font-black text-xl text-white"
               style={{
                 background: `linear-gradient(135deg, ${teamColors[0]}cc 0%, ${teamColors[0]}cc 50%, ${teamColors[1]}cc 50%, ${teamColors[1]}cc 100%)`,
                 border: '2px solid #a4c810',
                 boxShadow: '0 0 10px rgba(196, 255, 0, 0.4)',
-                animation: 'pulse 3s ease-in-out infinite',
               }}
             >
               {currentTeam?.abbrev || '---'}
             </div>
-            <div className="text-white text-lg mt-2">
-              <span className="font-bold">RD</span> {roundNumber} PK {pickInRound}
+            <div className="text-white text-sm mt-1 text-center">
+              <span className="font-bold">RD</span> {roundNumber} <span className="font-bold">PK</span> {pickInRound}
             </div>
           </div>
 
@@ -170,7 +169,7 @@ export default function DraftOverlayLive() {
           <div className="flex-1 flex items-center justify-center">
             <div
               ref={clockRef}
-              className={`text-6xl font-bold font-mono ${localRemainingSec <= 10 ? 'text-red-500' : 'text-[#a4c810]'}`}
+              className={`text-4xl font-bold font-mono ${localRemainingSec <= 10 ? 'text-red-500' : 'text-[#a4c810]'}`}
               style={{ textShadow: '0 0 10px rgba(196, 255, 0, 0.4)' }}
             >
               {formatTime(localRemainingSec)}
@@ -178,44 +177,42 @@ export default function DraftOverlayLive() {
           </div>
 
           {/* Right: Next Up + Team Logo */}
-          <div className="flex flex-col p-2 w-60">
-            <div className="flex items-center gap-2 bg-zinc-700 rounded px-2 py-1 mb-2">
-              <span className="text-xs text-zinc-400">NEXT</span>
+          <div className="flex items-center gap-2 p-2">
+            <div className="flex flex-col items-center gap-1">
+              <span className="text-[10px] text-zinc-400">NEXT</span>
               <div className="flex gap-1">
                 {nextTeams.slice(0, 2).map((t, i) => (
-                  <div key={i} className="w-8 h-8 bg-zinc-600 rounded overflow-hidden">
+                  <div key={i} className="w-6 h-6 bg-zinc-600 rounded overflow-hidden">
                     {t.logoPath && <img src={t.logoPath} alt={t.name} className="w-full h-full object-contain" />}
                   </div>
                 ))}
               </div>
             </div>
-            <div className="flex-1 flex items-center justify-center">
-              <div
-                className="w-24 h-28 bg-zinc-700 rounded-lg overflow-hidden border-2 border-[#a4c810]"
-                style={{ boxShadow: '0 0 10px rgba(196, 255, 0, 0.4)' }}
-              >
-                {teamLogo && <img src={teamLogo} alt={currentTeam?.name} className="w-full h-full object-contain" />}
-              </div>
+            <div
+              className="w-16 h-16 bg-zinc-700 rounded overflow-hidden border-2 border-[#a4c810]"
+              style={{ boxShadow: '0 0 8px rgba(196, 255, 0, 0.4)' }}
+            >
+              {teamLogo && <img src={teamLogo} alt={currentTeam?.name} className="w-full h-full object-contain" />}
             </div>
           </div>
         </div>
 
         {/* InfoBar: Best Available */}
         <div
-          className="flex-1 h-full p-4"
+          className="flex-1 p-2 overflow-hidden"
           style={{
             background: teamColors[0],
             borderRadius: '4px',
           }}
         >
-          <div className="text-white/80 text-sm font-semibold mb-2">
+          <div className="text-white/80 text-xs font-semibold mb-1">
             Best Available{usingCustom ? ' (Custom)' : ''}
           </div>
-          <div className="grid grid-cols-5 gap-2">
+          <div className="grid grid-cols-5 gap-1">
             {available.slice(0, 10).map((p, i) => (
-              <div key={p.id} className="bg-black/30 rounded px-2 py-1 text-xs">
+              <div key={p.id} className="bg-black/30 rounded px-1 py-[2px] text-[10px]">
                 <div className="font-semibold text-white truncate">{i + 1}. {p.name}</div>
-                <div className="text-white/60">{p.pos} - {p.nfl || '-'}</div>
+                <div className="text-white/60 truncate">{p.pos} - {p.nfl || '-'}</div>
               </div>
             ))}
           </div>
@@ -245,11 +242,11 @@ export default function DraftOverlayLive() {
       )}
 
       {/* Status Bar */}
-      <div className="fixed top-0 left-0 right-0 bg-zinc-900/90 border-b border-zinc-700 px-6 py-3 flex items-center justify-between z-40">
-        <div className="text-xl font-bold text-white">
+      <div className="fixed top-0 left-0 right-0 bg-zinc-900/95 border-b border-zinc-700 px-4 py-2 flex items-center justify-between z-40">
+        <div className="text-lg font-bold text-white">
           East v West Draft {draft?.year ?? new Date().getFullYear()}
         </div>
-        <div className="text-zinc-400">
+        <div className="text-sm text-zinc-400">
           Overall #{draft?.curOverall ?? 1} • {draft?.status ?? 'NOT_STARTED'}
         </div>
       </div>

@@ -15,20 +15,20 @@
   bottom: 0;
   left: 0;
   right: 0;
-  height: 160px;
+  height: 80px;
   display: flex;
   gap: 4px;
-  padding: 0 8px 8px 8px;
+  padding: 0 8px 4px 8px;
   z-index: 30;
 }
 
 /* Container for the DraftBoard */
 .draftBoardContainer {
   position: absolute;
-  top: 60px;
+  top: 44px;
   left: 8px;
   right: 8px;
-  bottom: 170px;
+  bottom: 88px;
   z-index: 20;
   border: 2px solid rgba(253, 207, 33, 0.6);
   border-radius: 8px;
