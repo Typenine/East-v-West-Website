@@ -61,6 +61,11 @@ export default function DraftPage() {
   const playersRef = useRef<Record<string, SleeperPlayer> | null>(null);
   const loadedYearsRef = useRef<Set<string>>(new Set());
   const [draftView, setDraftView] = useState<'teams' | 'linear'>('teams');
+  const [isAdmin, setIsAdmin] = useState(false);
+
+  useEffect(() => {
+    fetch('/api/admin-login').then(r => r.json()).then(j => setIsAdmin(Boolean(j?.isAdmin))).catch(() => setIsAdmin(false));
+  }, []);
 
   // Removed local classNames helper – primitives use tokenized styles
 
@@ -980,6 +985,52 @@ export default function DraftPage() {
                 </Card>
               ),
             },
+            ...(isAdmin ? [{
+              id: 'draft-room',
+              label: 'Draft Room',
+              content: (
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Live Draft Room</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-4">
+                      <p className="text-[var(--muted)]">
+                        Access the live draft room to participate in the draft, view picks in real-time, and manage your queue.
+                      </p>
+                      <Button onClick={() => window.location.href = '/draft/room'} variant="primary">
+                        Enter Draft Room
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              ),
+            },{
+              id: 'setup-draft',
+              label: 'Setup Draft',
+              content: (
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Draft Setup &amp; Control</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-4">
+                      <p className="text-[var(--muted)]">
+                        Commissioner controls for setting up and managing the live draft. Create drafts, upload custom player lists, control the clock, and more.
+                      </p>
+                      <div className="flex gap-3">
+                        <Button onClick={() => window.location.href = '/admin/draft'} variant="primary">
+                          Open Draft Control Panel
+                        </Button>
+                        <Button onClick={() => window.location.href = '/draft/overlay'} variant="ghost">
+                          Open Presentation Overlay
+                        </Button>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              ),
+            }] : []),
           ]}
         />
       </div>

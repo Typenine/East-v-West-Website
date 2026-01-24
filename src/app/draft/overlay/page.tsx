@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { gsap } from "gsap";
 import TeamBadge from "@/components/teams/TeamBadge";
 
 type DraftOverview = {
@@ -16,28 +17,17 @@ type DraftOverview = {
   onClockTeam?: string | null;
   clockStartedAt?: string | null;
   deadlineTs?: string | null;
-  recentPicks: Array<{ overall: number; round: number; team: string; playerId: string; playerName?: string | null; madeAt: string }>;
+  recentPicks: Array<{ overall: number; round: number; team: string; playerId: string; playerName?: string | null; playerPos?: string | null; playerNfl?: string | null; madeAt: string }>;
   upcoming: Array<{ overall: number; round: number; team: string }>;
 };
 
-type GsapLike = {
-  fromTo: (target: Element | null, fromVars: Record<string, unknown>, toVars: Record<string, unknown>) => unknown;
-  to: (target: Element | null, vars: Record<string, unknown>) => unknown;
-  killTweensOf: (target: Element | null) => unknown;
-};
-
-declare global {
-  interface Window {
-    gsap?: GsapLike;
-  }
-}
 
 export default function DraftOverlayPage() {
   const [draft, setDraft] = useState<DraftOverview | null>(null);
   const [remainingSec, setRemainingSec] = useState<number | null>(null);
   const [available, setAvailable] = useState<Array<{ id: string; name: string; pos: string; nfl: string }>>([]);
+  const [lastPickDetails, setLastPickDetails] = useState<{ pos?: string; nfl?: string } | null>(null);
   const [usingCustom, setUsingCustom] = useState(false);
-  const gsapRef = useRef<GsapLike | null>(null);
   const pickBannerRef = useRef<HTMLDivElement | null>(null);
   const [lastOverallSeen, setLastOverallSeen] = useState<number | null>(null);
   const [showPickBanner, setShowPickBanner] = useState(false);
@@ -58,9 +48,14 @@ export default function DraftOverlayPage() {
     const curLast = d?.recentPicks?.length ? d.recentPicks[d.recentPicks.length - 1].overall : null;
     if (curLast && curLast !== lastOverallSeen) {
       setLastOverallSeen(curLast);
-      if (pickBannerRef.current && gsapRef.current) {
+      // Try to find player details from available list
+      const lastP = d?.recentPicks?.[d.recentPicks.length - 1];
+      if (lastP) {
+        const found = (j?.available as Array<{ id: string; pos: string; nfl: string }> || []).find(a => a.id === lastP.playerId);
+        setLastPickDetails(found ? { pos: found.pos, nfl: found.nfl } : { pos: lastP.playerPos || undefined, nfl: lastP.playerNfl || undefined });
+      }
+      if (pickBannerRef.current) {
         setShowPickBanner(true);
-        const gsap = gsapRef.current;
         gsap.killTweensOf(pickBannerRef.current);
         gsap.fromTo(
           pickBannerRef.current,
@@ -77,17 +72,6 @@ export default function DraftOverlayPage() {
   }, [lastOverallSeen]);
 
   useEffect(() => {
-    const ensureGsap = () => new Promise<void>((resolve) => {
-      if (gsapRef.current || typeof window === 'undefined') return resolve();
-      if (window.gsap) { gsapRef.current = window.gsap!; return resolve(); }
-      const script = document.createElement('script');
-      script.src = 'https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js';
-      script.async = true;
-      script.onload = () => { gsapRef.current = window.gsap || null; resolve(); };
-      script.onerror = () => resolve();
-      document.head.appendChild(script);
-    });
-    void ensureGsap();
     load();
     const t = setInterval(load, 3000);
     return () => { clearInterval(t); };
@@ -141,7 +125,7 @@ export default function DraftOverlayPage() {
           </div>
           <div className="col-span-2 flex flex-col items-center justify-center">
             <div className="text-3xl text-zinc-300 mb-3">Clock</div>
-            <div className={`text-8xl font-mono ${remainingSec !== null && remainingSec <= 10 ? "text-red-400" : ""}`}>
+            <div className={`text-8xl font-mono ${s <= 10 ? "text-red-400 animate-pulse" : ""}`}>
               {clockDisplay}
             </div>
             <div className="text-zinc-500 mt-2">{draft?.status === "LIVE" ? "LIVE" : draft?.status}</div>
@@ -153,9 +137,17 @@ export default function DraftOverlayPage() {
             <div className="h-24 relative overflow-hidden">
               {showPickBanner && lastPick && (
                 <div ref={pickBannerRef} className="absolute inset-x-0 bottom-0 mx-auto max-w-4xl rounded-lg bg-emerald-600 px-6 py-4 shadow-xl">
-                  <div className="text-center text-2xl font-bold">Pick is in</div>
-                  <div className="text-center mt-1 text-lg">
-                    #{lastPick.overall} R{lastPick.round} {lastPick.team} — {lastPick.playerName || lastPick.playerId}
+                  <div className="text-center text-2xl font-bold">🏈 Pick is in!</div>
+                  <div className="text-center mt-1 text-xl font-semibold">
+                    {lastPick.playerName || lastPick.playerId}
+                    {lastPickDetails?.pos && (
+                      <span className="ml-2 px-2 py-0.5 bg-white/20 rounded text-sm">
+                        {lastPickDetails.pos}{lastPickDetails.nfl ? ` • ${lastPickDetails.nfl}` : ''}
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-center mt-1 text-sm text-emerald-100">
+                    Pick #{lastPick.overall} (Round {lastPick.round}) • {lastPick.team}
                   </div>
                 </div>
               )}

@@ -6,6 +6,7 @@ const PROTECTED_PREFIXES = [
   '/vote',
   '/api/trade-block',
   '/api/votes',
+  '/draft/room',
 ];
 
 function isProtectedPath(pathname: string): boolean {

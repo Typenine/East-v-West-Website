@@ -502,6 +502,78 @@ export async function setTeamQueue(draftId: string, team: string, playerIds: str
   return true;
 }
 
+// Auto-pick: check if clock expired and make pick from queue or highest-ranked available
+export async function checkAndAutoPick(draftId: string): Promise<{ picked: boolean; playerId?: string; playerName?: string; error?: string }> {
+  await ensureDraftTables();
+  const db = getDb();
+  // Check if draft is LIVE and deadline has passed
+  const draftRes = await db.execute(sql`
+    SELECT d.status, d.deadline_ts, d.cur_overall, s.team
+    FROM drafts d
+    JOIN draft_slots s ON s.draft_id = d.id AND s.overall = d.cur_overall
+    WHERE d.id = ${draftId}::uuid
+    LIMIT 1
+  `);
+  const draft = (draftRes as unknown as { rows?: Array<{ status: string; deadline_ts: string | null; cur_overall: number; team: string }> }).rows?.[0];
+  if (!draft) return { picked: false, error: 'no_draft' };
+  if (draft.status !== 'LIVE') return { picked: false };
+  if (!draft.deadline_ts) return { picked: false };
+  const deadline = new Date(draft.deadline_ts).getTime();
+  if (Date.now() < deadline) return { picked: false }; // clock not expired
+
+  const team = draft.team;
+  const takenRes = await db.execute(sql`SELECT player_id FROM draft_picks WHERE draft_id = ${draftId}::uuid`);
+  const taken = new Set(((takenRes as unknown as { rows?: Array<{ player_id: string }> }).rows || []).map(r => r.player_id));
+
+  // Try queue first
+  const queueRes = await db.execute(sql`SELECT player_id FROM draft_queues WHERE draft_id = ${draftId}::uuid AND team = ${team} ORDER BY rank ASC`);
+  const queue = ((queueRes as unknown as { rows?: Array<{ player_id: string }> }).rows || []).map(r => r.player_id);
+  for (const pid of queue) {
+    if (!taken.has(pid)) {
+      // Pick from queue
+      const pickRes = await forcePick({ draftId, playerId: pid, playerName: null, team, madeBy: 'auto' });
+      if (pickRes.ok) {
+        // Remove from queue
+        await db.execute(sql`DELETE FROM draft_queues WHERE draft_id = ${draftId}::uuid AND team = ${team} AND player_id = ${pid}`);
+        return { picked: true, playerId: pid };
+      }
+    }
+  }
+
+  // Try custom player pool (sorted by rank)
+  await ensureDraftPlayersTable();
+  const customRes = await db.execute(sql`
+    SELECT player_id, name FROM draft_players
+    WHERE draft_id = ${draftId}::uuid
+    ORDER BY COALESCE(rank, 999999) ASC, name ASC
+  `);
+  const customPlayers = (customRes as unknown as { rows?: Array<{ player_id: string; name: string }> }).rows || [];
+  for (const p of customPlayers) {
+    if (!taken.has(p.player_id)) {
+      const pickRes = await forcePick({ draftId, playerId: p.player_id, playerName: p.name, team, madeBy: 'auto' });
+      if (pickRes.ok) return { picked: true, playerId: p.player_id, playerName: p.name };
+    }
+  }
+
+  // No custom pool, skip pick (or could pick random from Sleeper - leaving as skip for now)
+  // Advance clock to next pick without making a selection (skip)
+  const clkRes = await db.execute(sql`SELECT clock_seconds FROM drafts WHERE id = ${draftId}::uuid LIMIT 1`);
+  const secs = (clkRes as unknown as { rows?: Array<{ clock_seconds: number }> }).rows?.[0]?.clock_seconds || 60;
+  const nextRes = await db.execute(sql`
+    SELECT s.overall FROM draft_slots s
+    WHERE s.draft_id = ${draftId}::uuid AND s.overall > ${draft.cur_overall}
+      AND NOT EXISTS (SELECT 1 FROM draft_picks p WHERE p.draft_id = s.draft_id AND p.overall = s.overall)
+    ORDER BY s.overall ASC LIMIT 1
+  `);
+  const next = (nextRes as unknown as { rows?: Array<{ overall: number }> }).rows?.[0]?.overall as number | undefined;
+  if (typeof next === 'number') {
+    await db.execute(sql`UPDATE drafts SET cur_overall = ${next}, clock_started_at = now(), deadline_ts = now() + (interval '1 second' * ${secs}) WHERE id = ${draftId}::uuid`);
+  } else {
+    await db.execute(sql`UPDATE drafts SET status = 'COMPLETED', completed_at = now() WHERE id = ${draftId}::uuid`);
+  }
+  return { picked: false, error: 'no_available_player' };
+}
+
 export async function prunePriorSeasonsKeepOfficial(currentSeason: number) {
   const db = getDb();
   try {

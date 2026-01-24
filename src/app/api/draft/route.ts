@@ -18,6 +18,7 @@ import {
   getDraftPlayers,
   setDraftPlayers,
   clearDraftPlayers,
+  checkAndAutoPick,
 } from '@/server/db/queries';
 import type { DraftOverview } from '@/server/db/queries';
 import { TEAM_NAMES } from '@/lib/constants/league';
@@ -50,6 +51,8 @@ export async function GET(req: NextRequest) {
     const includeAvail = url.searchParams.get('include') === 'available';
     const draftId = id || (await getActiveOrLatestDraftId());
     if (!draftId) return ok({ draft: null });
+    // Check for auto-pick on clock expiry before returning overview
+    await checkAndAutoPick(draftId);
     const overview = await getDraftOverview(draftId);
     if (!overview) return ok({ draft: null });
     // Compute clock remaining
@@ -97,7 +100,7 @@ export async function POST(req: NextRequest) {
     const id = typeof body.id === 'string' ? body.id : '';
 
     // Admin-only actions
-    if (['create','start','pause','resume','set_clock','force_pick','undo','upload_players','clear_players'].includes(action)) {
+    if (['create','start','pause','resume','set_clock','force_pick','undo','upload_players','clear_players','auto_pick'].includes(action)) {
       if (!isAdmin(req)) return bad('forbidden', 403);
       if (action === 'create') {
         const year = Number(body.year || new Date().getFullYear());
@@ -143,6 +146,10 @@ export async function POST(req: NextRequest) {
       if (action === 'clear_players') {
         await clearDraftPlayers(draftId);
         return ok({ ok: true, count: 0 });
+      }
+      if (action === 'auto_pick') {
+        const result = await checkAndAutoPick(draftId);
+        return ok({ ok: result.picked, ...result });
       }
     }
 

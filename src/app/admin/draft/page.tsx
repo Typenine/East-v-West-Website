@@ -276,6 +276,7 @@ export default function AdminDraftPage() {
                       <Button disabled={busy==='pause'} onClick={() => onAdmin('pause')}>Pause</Button>
                       <Button disabled={busy==='resume'} onClick={() => onAdmin('resume')}>Resume</Button>
                       <Button disabled={busy==='undo'} onClick={() => onAdmin('undo')}>Undo Last Pick</Button>
+                      <Button disabled={busy==='auto_pick'} variant="ghost" onClick={() => onAdmin('auto_pick')} title="Force auto-pick using queue or highest-ranked player">Auto-Pick</Button>
                     </div>
                     <div className="flex items-end gap-2 mt-3">
                       <div>
