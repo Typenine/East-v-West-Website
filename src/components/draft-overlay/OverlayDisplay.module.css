@@ -1,10 +1,8 @@
-/* Main container that covers the entire viewport */
+/* Main container that covers the entire viewport - z-index 9999 to cover website chrome */
 .overlay {
   position: fixed;
-  top: 0;
-  bottom: 0;
-  left: 0;
-  right: 0;
+  inset: 0;
+  z-index: 9999;
   overflow: hidden;
   background: linear-gradient(135deg, #0a0a0a 0%, #1a1a2e 50%, #0a0a0a 100%);
 }
@@ -19,7 +17,7 @@
   display: flex;
   gap: 4px;
   padding: 0 8px 4px 8px;
-  z-index: 30;
+  z-index: 10030;
 }
 
 /* Container for the DraftBoard */

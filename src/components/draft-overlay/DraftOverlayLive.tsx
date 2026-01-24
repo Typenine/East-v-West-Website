@@ -223,8 +223,8 @@ export default function DraftOverlayLive() {
       {showPickBanner && lastPick && (
         <div
           ref={pickBannerRef}
-          className="fixed bottom-40 left-1/2 -translate-x-1/2 z-50 bg-gradient-to-r from-emerald-600 to-emerald-500 px-8 py-6 rounded-xl shadow-2xl"
-          style={{ minWidth: '400px' }}
+          className="fixed bottom-40 left-1/2 -translate-x-1/2 bg-gradient-to-r from-emerald-600 to-emerald-500 px-8 py-6 rounded-xl shadow-2xl"
+          style={{ minWidth: '400px', zIndex: 10050 }}
         >
           <div className="text-center text-3xl font-bold text-white">🏈 PICK IS IN!</div>
           <div className="text-center text-2xl font-semibold text-white mt-2">
@@ -242,7 +242,7 @@ export default function DraftOverlayLive() {
       )}
 
       {/* Status Bar */}
-      <div className="fixed top-0 left-0 right-0 bg-zinc-900/95 border-b border-zinc-700 px-4 py-2 flex items-center justify-between z-40">
+      <div className="fixed top-0 left-0 right-0 bg-zinc-900/95 border-b border-zinc-700 px-4 py-2 flex items-center justify-between" style={{ zIndex: 10040 }}>
         <div className="text-lg font-bold text-white">
           East v West Draft {draft?.year ?? new Date().getFullYear()}
         </div>
