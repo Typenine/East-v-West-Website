@@ -1,0 +1,170 @@
+.clockBox {
+  width: 423px;
+  height: 185px;
+  bottom: 0;
+  transform: translateY(-40px);
+  display: flex;
+  color: white;
+  position: relative;
+  background: 
+    linear-gradient(170deg, 
+      transparent 0%, 
+      rgba(70,70,70,0.4) 45%, 
+      rgba(90,90,90,0.4) 50%,
+      rgba(40,40,40,0.4) 55%,
+      transparent 100%
+    ),
+    linear-gradient(to bottom, #202020, #282828);
+  box-shadow: 
+    inset 0 1px 0 rgba(255,255,255,0.15),
+    inset 0 -1px 0 rgba(0,0,0,0.8),
+    0 2px 4px rgba(0,0,0,0.5);
+  border: 1px solid #333;
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+
+
+.leftSection {
+  width: 141px;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+.teamAbbrevContainer {
+  padding: 2px 10px;
+  border-radius: 6px;
+  margin-bottom: 4px;
+  border: 2px solid #a4c810;
+  box-shadow: 0 0 10px rgba(196, 255, 0, 0.4);
+  animation: onClockPulse 3s ease-in-out infinite;
+}
+
+.teamAbbrev {
+  font-size: 32px;
+  font-weight: 900;
+  letter-spacing: 1px;
+  display: inline-block;
+}
+
+.roundInfo {
+  font-size: 18px;
+  margin-bottom: 8px;
+}
+
+.label {
+  font-weight: 700;
+}
+
+.centerSection {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.timer {
+  font-size: 72px;
+  font-family: 'Arial', sans-serif;
+  font-weight: 700;
+  width: 180px;
+  height: 96px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding-top: 12px;
+  color: #a4c810;
+  text-shadow: 0 0 10px rgba(196, 255, 0, 0.4);
+  letter-spacing: -2px;
+}
+
+.rightSection {
+  width: 246px;
+  display: flex;
+  flex-direction: column;
+}
+
+.nextUp {
+  height: 48px;
+  width: 140px;
+  padding: 4px 8px;
+  background-color: #333;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-start;
+  border-radius: 4px;
+  margin-bottom: 4px;
+}
+
+.nextText {
+  font-size: 12px;
+  opacity: 0.8;
+  margin-right: 8px;
+  width: 32px;
+}
+
+.nextLogos {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.nextUpLogo {
+  width: 40px;
+  height: 40px;
+  background-color: rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.nextUpLogo img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.teamLogo {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+@keyframes onClockPulse {
+  0% {
+    border-color: #a4c810;
+    box-shadow: 0 0 10px rgba(196, 255, 0, 0.4);
+  }
+  50% {
+    border-color: #c4ff00;
+    box-shadow: 0 0 15px rgba(196, 255, 0, 0.6);
+  }
+  100% {
+    border-color: #a4c810;
+    box-shadow: 0 0 10px rgba(196, 255, 0, 0.4);
+  }
+}
+
+.logoPlaceholder {
+  width: 110px;
+  height: 120px;
+  background-color: #333;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 2px solid #a4c810;
+  box-shadow: 0 0 10px rgba(196, 255, 0, 0.4);
+  animation: onClockPulse 3s ease-in-out infinite;
+}
+
+.logoPlaceholder img {
+  width: 100%;
+  height: 100%;
+  object-fit: fill;
+}

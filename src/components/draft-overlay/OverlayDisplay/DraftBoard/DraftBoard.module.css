@@ -1,0 +1,398 @@
+/* DraftBoard internal styles - All positioning is handled by OverlayDisplay.module.css */
+
+/* Grid container for all draft picks */
+.grid {
+  display: flex;              /* Enables row/column layout */
+  width: 100%;               /* Takes full width of container */
+  height: 100%;              /* Takes full height of container */
+  gap: 1px;                  /* Space between grid cells */
+  background-color: #312806;  /* Dark brown background */
+  box-shadow: inset 0 0 30px rgba(0, 0, 0, 0.5);  /* Inner shadow for depth */
+  border-radius: 6px;         /* Slightly larger rounded corners */
+  overflow: hidden;           /* Keep children within rounded corners */
+  position: relative;         /* For background pattern */
+  border: 1px solid rgb(196, 255, 0);  /* Subtle outer border */
+  padding: 2px;              /* Increased space for border */
+  margin: 4px;               /* Safe zone margin */
+}
+
+/* Animated background pattern */
+.grid::before {
+  content: '';
+  position: absolute;
+  top: -150%;
+  left: -150%;
+  width: 400%;
+  height: 400%;
+  background-image: repeating-linear-gradient(
+    45deg,
+    rgba(253, 207, 33, 0.03) 0,
+    rgba(253, 207, 33, 0.03) 1px,
+    transparent 1px,
+    transparent 10px
+  );
+  animation: movePattern 120s linear infinite;
+  pointer-events: none;
+  z-index: 0;
+}
+
+@keyframes movePattern {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+/* Ensure grid content stays above pattern */
+.grid > * {
+  position: relative;
+  z-index: 1;
+}
+
+/* Left-most column showing pick numbers */
+.pickColumn {
+  width: 40px;                /* Fixed width for pick numbers */
+  flex: 0 0 40px;            /* Prevents column from growing/shrinking */
+  display: flex;             /* Enable vertical flex layout */
+  flex-direction: column;    /* Stack cells vertically */
+  height: 100%;             /* Take full height */
+  position: relative;        /* For decorative elements */
+}
+
+/* Decorative corner accent */
+.pickColumn::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 8px;
+  height: 8px;
+  border-top: 2px solid rgba(253, 207, 33, 0.6);
+  border-left: 2px solid rgba(253, 207, 33, 0.6);
+}
+
+.pickColumn::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 8px;
+  height: 8px;
+  border-bottom: 2px solid rgba(253, 207, 33, 0.6);
+  border-left: 2px solid rgba(253, 207, 33, 0.6);
+}
+
+/* Columns for each round (1-4) */
+.roundColumn {
+  width: 371.4px;               /* Slightly reduced for safe zone */
+  flex: 0 0 371.4px;           /* Don't grow or shrink */
+  display: flex;             /* Enable vertical flex layout */
+  flex-direction: column;    /* Stack cells vertically */
+  height: 100%;             /* Take full height */
+  position: relative;       /* For round separator */
+  padding: 0 1px;           /* Space for separator */
+}
+
+/* Round separator line */
+.roundColumn::after {
+  content: '';
+  position: absolute;
+  top: 43px;               /* Start after header */
+  bottom: 0;
+  right: 0;
+  width: 2px;
+  background: linear-gradient(
+    to bottom,
+    rgba(253, 207, 33, 0.4) 0%,
+    rgba(253, 207, 33, 0.1) 50%,
+    rgba(253, 207, 33, 0.4) 100%
+  );
+}
+
+/* Column header cells (Pick #, Round 1, etc.) */
+.headerCell {
+  height: 42.8px;               /* Header height for 578.7px container */
+  flex: 0 0 42.8px;            /* Don't grow or shrink */
+  min-height: 42.8px;         /* Ensure minimum height */
+  clip-path: polygon(
+    0 0,
+    100% 0,
+    100% calc(100% - 4px),
+    calc(100% - 4px) 100%,
+    4px 100%,
+    0 calc(100% - 4px)
+  );                          /* Clipped corners */
+  background: linear-gradient(
+    to bottom,
+    rgba(253, 207, 33, 0.9) 0%,
+    rgba(253, 207, 33, 0.7) 100%
+  );                         /* Gradient gold header */
+  color: white;              /* White text for better contrast */
+  display: flex;              /* Centers content */
+  align-items: center;        /* Vertical centering */
+  justify-content: center;    /* Horizontal centering */
+  font-size: 15px;           /* Slightly larger header text */
+  font-weight: bold;          /* Makes header text bold */
+  text-transform: uppercase;  /* UPPERCASE text */
+  letter-spacing: 1.5px;      /* More letter spacing */
+  text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.4);  /* Stronger text shadow */
+  border-bottom: 2px solid rgba(49, 40, 6, 0.8);  /* Semi-transparent border */
+  position: relative;         /* For pseudo-element */
+  overflow: hidden;           /* Contains shine effect */
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);  /* Header shadow */
+}
+
+/* Cells in the pick number column */
+.pickCell {
+  height: 52.5px;              /* Taller height: (678.9px - 42.8px - 8px) / 12 */
+  background-color: rgba(0, 0, 0, 0.6);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 17px;
+  font-weight: bold;
+  text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.5);
+}
+
+/* Standard grid cells (for team/player info) */
+.cell {
+  height: 52.5px;              /* Taller height: (678.9px - 42.8px - 8px) / 12 */
+  background-color: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 14px;
+  border: 1px solid rgba(253, 207, 33, 0.4);
+  position: relative;
+  transition: all 0.2s ease;
+  backdrop-filter: blur(2px);
+}
+
+/* When a cell has player data, add team color background and position stripe */
+.cell:has(.playerInfo) {
+  background: linear-gradient(
+    135deg,
+    var(--team-primary-color) 0%,
+    var(--team-secondary-color) 50%,
+    var(--team-tertiary-color) 100%
+  );
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.15),
+              inset 0 2px 4px rgba(255, 255, 255, 0.1),
+              inset 0 -2px 4px rgba(0, 0, 0, 0.2);
+  transform: scale(1.01);     /* Subtle pop effect */
+  z-index: 1;                 /* Lift above other cells */
+  animation: revealPick 0.5s ease-out forwards;
+  position: relative;         /* For team accent */
+  color: white;              /* For debugging */
+}
+
+/* Team accent line */
+.cell:has(.playerInfo)::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 3px;
+  background: linear-gradient(
+    to bottom,
+    var(--team-primary-color) 0%,
+    var(--team-secondary-color) 50%,
+    var(--team-tertiary-color) 100%
+  );
+  opacity: 0.8;
+  border-radius: 2px;
+}
+
+/* Sequential reveal animation */
+@keyframes revealPick {
+  0% {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  50% {
+    transform: scale(1.05);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1.01);
+  }
+}
+
+/* Ripple effect for new picks */
+.cell:has(.playerInfo)::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 10px;
+  height: 10px;
+  background: rgba(255, 255, 255, 0.8);
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  animation: ripple 1s ease-out forwards;
+}
+
+@keyframes ripple {
+  0% {
+    width: 10px;
+    height: 10px;
+    opacity: 1;
+  }
+  100% {
+    width: 200px;
+    height: 200px;
+    opacity: 0;
+  }
+}
+
+
+
+/* Highlights the current pick in the grid */
+.currentPick {
+  background-color: rgba(59, 130, 246, 0.3);  /* Semi-transparent blue highlight */
+  border: 1px solid rgba(59, 130, 246, 0.5);   /* Subtle blue border */
+  animation: pulse 2s ease-in-out infinite;    /* Continuous pulse animation */
+  position: relative;                          /* For pseudo-element glow */
+}
+
+/* Pulsing glow animation */
+@keyframes pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 20px 0 rgba(59, 130, 246, 0.6);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.4);
+  }
+}
+
+/* Add glow effect to current pick */
+.currentPick::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: radial-gradient(
+    circle at center,
+    rgba(59, 130, 246, 0.3) 0%,
+    transparent 70%
+  );
+  opacity: 0;
+  animation: glowPulse 2s ease-in-out infinite;
+  pointer-events: none;
+}
+
+@keyframes glowPulse {
+  0% {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.05);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+}
+
+/* Container for team logos in grid cells */
+.teamLogo {
+  width: 38px;                /* Bigger logo container width */
+  height: 38px;               /* Bigger logo container height */
+  flex-shrink: 0;             /* Prevents logo from shrinking */
+  display: flex;              /* Centers logo image */
+  align-items: center;        /* Vertical centering */
+  justify-content: center;    /* Horizontal centering */
+  position: relative;         /* For team accent */
+  border-radius: 4px;         /* Rounded corners */
+  background: radial-gradient(
+    circle at center,
+    rgba(255, 255, 255, 0.1) 0%,
+    transparent 70%
+  );                         /* Subtle logo highlight */
+}
+
+/* Team logo image styling */
+.logo {
+  max-width: 100%;            /* Limits width to container */
+  max-height: 100%;           /* Limits height to container */
+  object-fit: contain;        /* Maintains aspect ratio */
+  filter: drop-shadow(0 0 1px rgba(255, 255, 255, 0.5))  /* Subtle white outline */
+         drop-shadow(0 0 1px rgba(255, 255, 255, 0.3));  /* Double shadow for stronger effect */
+}
+
+/* Fade in animation for new content */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(5px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Container for player name and position */
+.playerInfo {
+  flex: 1;                    /* Takes remaining space after logo */
+  min-width: 0;               /* Allows text to truncate */
+  display: flex;              /* Enables name + position layout */
+  align-items: center;        /* Vertical centering */
+  gap: 8px;                   /* Space between name and position */
+  color: white;               /* Player info text color */
+  text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.5); /* Better text readability */
+  background: linear-gradient(90deg, 
+    rgba(255, 255, 255, 0.15), 
+    rgba(255, 255, 255, 0.05) 50%,
+    transparent);
+  border-radius: 4px;
+  padding: 4px 8px;
+  animation: fadeIn 0.3s ease-out;
+}
+
+/* Player name text styling */
+.playerName {
+  font-size: 19px;            /* Maximum size while maintaining card dimensions */
+  font-weight: 700;           /* Bold weight */
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;  /* Modern font stack */
+  letter-spacing: -0.4px;    /* Tighter letter spacing for larger font */
+  white-space: nowrap;        /* Prevents name wrapping */
+  overflow: hidden;           /* Hides overflow */
+  text-overflow: ellipsis;    /* Shows ... for overflow */
+  color: rgba(255, 255, 255, 0.98);  /* High contrast */
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);  /* Enhanced shadow for larger text */
+  flex: 1;                    /* Takes remaining space */
+  min-width: 0;               /* Allows text to truncate */
+  line-height: 1.1;           /* Tighter line height for better vertical fit */
+}
+
+/* Position text styling */
+.position {
+  font-size: 13px;            /* Slightly larger position text */
+  font-weight: 600;           /* Semi-bold for better visibility */
+  color: rgba(255, 255, 255, 0.9);  /* More opaque for better contrast */
+  flex-shrink: 0;             /* Prevents position from shrinking */
+  text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.5);  /* Text shadow for readability */
+  margin-left: 6px;          /* Space from player name */
+  padding: 1px 0;            /* Reduced vertical padding */
+  border: 1px solid var(--position-color);
+  border-radius: 2px;
+  box-shadow: 0 0 8px var(--position-color),
+              inset 0 0 2px var(--position-color);
+  background: rgba(0, 0, 0, 0.4);
+  width: 26px;               /* Fixed width for all positions */
+  text-align: center;        /* Center the text */
+  display: inline-block;     /* Allow width to work */
+  letter-spacing: -0.2px;    /* Tighter text for DEF/K */
+}

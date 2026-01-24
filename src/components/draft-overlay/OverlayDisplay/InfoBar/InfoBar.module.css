@@ -1,0 +1,199 @@
+.infoBar {
+  width: 1452px;
+  height: 185px;
+  bottom: 0;
+  transform: translateY(-40px);
+  color: white;
+  font-family: 'Arial', sans-serif;
+  overflow: hidden;
+  background: var(--team-primary-color);
+  border-left: 6px solid var(--team-secondary-color);
+  position: relative;
+}
+
+.infoBar::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: 0;
+  width: 6px;
+  background: var(--team-secondary-color);
+}
+
+.viewTitle {
+  font-size: 18px;
+  font-weight: bold;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 6px;
+  padding: 0 24px;
+}
+
+/* Common View Styles */
+.bestAvailable,
+.draft2024,
+.teamInfo {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  position: absolute;
+  left: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  padding: 8px 24px 12px;
+}
+
+.playerList {
+  display: grid;
+  grid-template-columns: auto auto;
+  grid-template-rows: auto auto;
+  gap: 8px 24px;
+  width: 800px;
+  padding-left: 24px;
+  margin-right: auto;
+}
+
+.playerCard {
+  display: flex;
+  height: 40px;
+  padding: 10px 0;
+  position: relative;
+  min-width: 0;
+  width: auto;
+  gap: 12px;
+  align-items: center;
+}
+
+.playerCard:nth-child(-n+2)::before {
+  content: '';
+  position: absolute;
+  bottom: -2px;
+  left: 12px;
+  right: 12px;
+  height: 1px;
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.rank {
+  font-size: 16px;
+  font-weight: bold;
+  opacity: 0.8;
+  width: 30px;
+  padding-top: 8px;
+}
+
+.playerDetails {
+  font-size: 16px;
+  opacity: 0.8;
+  line-height: 20px;
+  white-space: nowrap;
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.playerName {
+  font-size: 20px;
+  font-weight: bold;
+  line-height: 24px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 300px;
+  margin-bottom: 2px;
+}
+
+.playerName {
+  font-size: 20px;
+  font-weight: bold;
+  line-height: 24px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.playerInfo {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  flex: 1;
+  min-width: 0;
+}
+
+/* Team Info View Styles */
+.infoGrid {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: 8px 24px 16px;
+  width: 1000px;
+  margin-right: auto;
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.4) 0%, rgba(0, 0, 0, 0.2) 100%);
+  border-radius: 4px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.infoRow {
+  display: grid;
+  grid-template-columns: 0.8fr 1.2fr 1.2fr 1.8fr;
+  gap: 16px;
+  align-items: flex-start;
+  text-align: center;
+  padding: 0;
+  min-height: 56px;
+}
+
+.infoRow:last-child {
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.05), transparent);
+}
+
+.infoHeader {
+  font-size: 15px;
+  font-weight: 700;
+  opacity: 0.85;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  padding-bottom: 2px;
+  color: #FFD700;
+  font-family: 'Arial', sans-serif;
+  margin-bottom: -4px;
+}
+
+.infoValue {
+  font-size: 20px;
+  color: #FFFFFF;
+  font-weight: 700;
+  padding: 4px 0;
+  font-family: 'Arial', sans-serif;
+  text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+/* Apply nowrap to all columns except the last one (playoff result) */
+.infoRow > .infoValue:not(:last-child) {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Allow wrapping for playoff result */
+.infoRow > .infoValue:last-child {
+  white-space: normal;
+  line-height: 1.2;
+  font-size: 18px;
+  padding: 8px 4px;
+}
+
+.rank {
+  font-size: 14px;
+  color: #FFD700;
+  opacity: 0.9;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+}
+
+
