@@ -68,6 +68,7 @@ export default function AdminNewsletterPage() {
       const res = await fetch('/api/newsletter', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include', // Include cookies for admin auth
         body: JSON.stringify({
           week,
           season: currentSeason,
