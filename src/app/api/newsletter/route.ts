@@ -77,6 +77,93 @@ async function getTransactions(leagueId: string, week: number): Promise<Array<{
   return fetchJson(`${SLEEPER_API}/league/${leagueId}/transactions/${week}`);
 }
 
+// Extended roster type for standings
+interface ExtendedRoster {
+  roster_id: number;
+  owner_id: string;
+  players?: string[];
+  settings?: {
+    wins?: number;
+    losses?: number;
+    fpts?: number;
+    fpts_decimal?: number;
+  };
+  metadata?: {
+    division?: string;
+  };
+}
+
+async function getExtendedRosters(leagueId: string): Promise<ExtendedRoster[]> {
+  return fetchJson(`${SLEEPER_API}/league/${leagueId}/rosters`);
+}
+
+// NFL bye weeks by week number (2025 season - update annually)
+const NFL_BYE_WEEKS: Record<number, string[]> = {
+  5: ['DET', 'LAC'],
+  6: ['KC', 'LAR', 'MIA', 'MIN'],
+  7: ['CHI', 'DAL'],
+  8: [],
+  9: ['CLE', 'GB', 'LV', 'SEA'],
+  10: ['ARI', 'CAR', 'NYG', 'TB'],
+  11: ['ATL', 'IND', 'NE', 'NO'],
+  12: ['BAL', 'CIN', 'JAX', 'NYJ'],
+  13: ['BUF', 'PIT', 'SF', 'WAS'],
+  14: ['DEN', 'HOU', 'PHI', 'TEN'],
+};
+
+function getByeTeamsForWeek(week: number): string[] {
+  return NFL_BYE_WEEKS[week] || [];
+}
+
+// Build enhanced context for LLM
+async function buildEnhancedContext(
+  leagueId: string,
+  week: number,
+  users: Array<{ user_id: string; display_name?: string; username?: string; metadata?: { team_name?: string } }>,
+): Promise<{
+  standings?: Array<{ name: string; wins: number; losses: number; pointsFor: number; division?: 'East' | 'West' }>;
+  byeTeams?: string[];
+}> {
+  try {
+    const extendedRosters = await getExtendedRosters(leagueId);
+    
+    // Build user map
+    const userMap = new Map<string, string>();
+    for (const u of users) {
+      const name = u.metadata?.team_name || u.display_name || u.username || `User ${u.user_id}`;
+      userMap.set(u.user_id, name);
+    }
+
+    // Build standings
+    const standings = extendedRosters.map(r => {
+      const name = userMap.get(r.owner_id) || `Roster ${r.roster_id}`;
+      const wins = r.settings?.wins || 0;
+      const losses = r.settings?.losses || 0;
+      const fpts = (r.settings?.fpts || 0) + (r.settings?.fpts_decimal || 0) / 100;
+      
+      // Determine division based on roster_id (1-5 = East, 6-10 = West for 10-team league)
+      // Or use metadata if available
+      let division: 'East' | 'West' | undefined;
+      if (r.metadata?.division) {
+        division = r.metadata.division === '1' ? 'East' : 'West';
+      } else if (r.roster_id <= 5) {
+        division = 'East';
+      } else {
+        division = 'West';
+      }
+
+      return { name, wins, losses, pointsFor: fpts, division };
+    });
+
+    const byeTeams = getByeTeamsForWeek(week);
+
+    return { standings, byeTeams };
+  } catch (error) {
+    console.error('Failed to build enhanced context:', error);
+    return {};
+  }
+}
+
 // ============ Auth Helper ============
 
 function getSecret(): string {
@@ -222,6 +309,10 @@ export async function POST(request: NextRequest) {
 
     console.log(`Loaded bot memory - Entertainer: ${existingMemoryEntertainer ? 'found' : 'new'}, Analyst: ${existingMemoryAnalyst ? 'found' : 'new'}`);
 
+    // Build enhanced context for richer LLM generation
+    const enhancedContext = await buildEnhancedContext(leagueId, week, users);
+    console.log(`Enhanced context: standings=${enhancedContext.standings?.length || 0} teams, byes=${enhancedContext.byeTeams?.length || 0} NFL teams`);
+
     // Generate the newsletter
     const result = await generateNewsletter({
       leagueName: league.name || 'East v. West',
@@ -237,6 +328,7 @@ export async function POST(request: NextRequest) {
       existingMemoryAnalyst,
       existingRecords,
       pendingPicks: existingPendingPicks,
+      enhancedContext,
     });
 
     const generatedAt = new Date().toISOString();

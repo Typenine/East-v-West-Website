@@ -43,6 +43,22 @@ interface SleeperTransaction {
   waiver_bid?: number;
 }
 
+// Enhanced context for richer LLM generation
+interface TeamStanding {
+  name: string;
+  wins: number;
+  losses: number;
+  pointsFor: number;
+  division?: 'East' | 'West';
+}
+
+interface EnhancedContext {
+  standings?: TeamStanding[];
+  topScorers?: Array<{ team: string; player: string; points: number }>;
+  previousPredictions?: { entertainer: string[]; analyst: string[] };
+  byeTeams?: string[]; // NFL teams on bye
+}
+
 export interface GenerateNewsletterInput {
   leagueName: string;
   leagueId: string;
@@ -67,6 +83,8 @@ export interface GenerateNewsletterInput {
       analyst_pick: string;
     }>;
   } | null;
+  // Optional: enhanced context for richer LLM generation
+  enhancedContext?: EnhancedContext;
 }
 
 export interface GenerateNewsletterResult {
@@ -168,6 +186,7 @@ export async function generateNewsletter(
     memAnalyst,
     forecast: forecastWithRecords,
     lastCallbacks: null, // TODO: Load from previous week
+    enhancedContext: input.enhancedContext,
   });
 
   // 9. Render to HTML
