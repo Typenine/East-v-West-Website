@@ -194,6 +194,12 @@ export default function Navbar() {
                         <>
                           <button
                             className="w-full text-left px-2 py-1.5 rounded hover:bg-[var(--surface-strong)]"
+                            onClick={() => { setAccountMenuOpen(false); router.push('/admin/newsletter'); }}
+                          >
+                            Admin: Newsletter
+                          </button>
+                          <button
+                            className="w-full text-left px-2 py-1.5 rounded hover:bg-[var(--surface-strong)]"
                             onClick={() => { setAccountMenuOpen(false); router.push('/admin/trades'); }}
                           >
                             Admin: Trades

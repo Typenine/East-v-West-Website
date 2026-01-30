@@ -20,24 +20,60 @@ interface NewsletterData {
   fromCache: boolean;
 }
 
+interface NFLState {
+  season: string;
+  week: number;
+  season_type: string;
+}
+
 export default function NewsletterPage() {
   const [selectedWeek, setSelectedWeek] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [newsletterData, setNewsletterData] = useState<NewsletterData | null>(null);
   const [currentSeason, setCurrentSeason] = useState<string>('2025');
-  const [currentWeek, setCurrentWeek] = useState<number>(1);
+  const [currentWeek, setCurrentWeek] = useState<number>(17); // Default to last week
+  const [seasonType, setSeasonType] = useState<string>('off');
+  const [availableWeeks, setAvailableWeeks] = useState<number[]>([]);
 
   // Generate weeks 1-17 for the archive
   const weeks = Array.from({ length: 17 }, (_, i) => i + 1);
 
-  // Fetch current NFL state on mount
+  // Check if we're in offseason
+  const isOffseason = seasonType !== 'regular' && seasonType !== 'post';
+
+  // Fetch current NFL state and available newsletters on mount
   useEffect(() => {
+    // Get NFL state
     fetch('https://api.sleeper.app/v1/state/nfl')
       .then(r => r.json())
-      .then(state => {
+      .then((state: NFLState) => {
         setCurrentSeason(state.season || '2025');
-        setCurrentWeek(state.week || 1);
+        setSeasonType(state.season_type || 'off');
+        
+        // In offseason, default to week 17; during season use current week
+        const inSeason = state.season_type === 'regular' || state.season_type === 'post';
+        if (inSeason) {
+          setCurrentWeek(state.week || 1);
+        } else {
+          // Offseason: default to last regular season week
+          setCurrentWeek(17);
+        }
+      })
+      .catch(() => {});
+
+    // Get list of available newsletters
+    fetch('/api/newsletter?list=true')
+      .then(r => r.json())
+      .then(data => {
+        if (data.weeks && Array.isArray(data.weeks)) {
+          setAvailableWeeks(data.weeks);
+          // If we have newsletters, default to the latest one in offseason
+          if (data.weeks.length > 0) {
+            const latestWeek = Math.max(...data.weeks);
+            setCurrentWeek(latestWeek);
+          }
+        }
       })
       .catch(() => {});
   }, []);
@@ -76,6 +112,18 @@ export default function NewsletterPage() {
     <div className="container mx-auto px-4 py-8">
       <SectionHeader title="Weekly Newsletter" />
 
+      {/* Offseason Banner */}
+      {isOffseason && (
+        <div className="max-w-4xl mx-auto mb-4">
+          <div className="p-3 bg-amber-900/30 border border-amber-600 rounded-lg text-center">
+            <span className="text-amber-300 font-medium">🏈 Offseason</span>
+            <span className="text-amber-200 ml-2">
+              — Browse the archive below for past newsletters. New issues return when the season starts!
+            </span>
+          </div>
+        </div>
+      )}
+
       <div className="max-w-4xl mx-auto">
         <Card>
           <CardHeader>
@@ -85,7 +133,7 @@ export default function NewsletterPage() {
               </CardTitle>
               {selectedWeek && (
                 <Button variant="ghost" size="sm" onClick={() => setSelectedWeek(null)}>
-                  ← Back to Current
+                  ← Back to Latest
                 </Button>
               )}
             </div>
@@ -144,18 +192,28 @@ export default function NewsletterPage() {
           </CardHeader>
           <CardContent>
             <div className="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-9 gap-2">
-              {weeks.map((week) => (
-                <Button
-                  key={week}
-                  variant={selectedWeek === week ? 'primary' : 'secondary'}
-                  size="sm"
-                  onClick={() => setSelectedWeek(week === selectedWeek ? null : week)}
-                  className={week > currentWeek ? 'opacity-50' : ''}
-                >
-                  Wk {week}
-                </Button>
-              ))}
+              {weeks.map((week) => {
+                const hasNewsletter = availableWeeks.includes(week);
+                const isSelected = selectedWeek === week || (!selectedWeek && week === currentWeek);
+                return (
+                  <Button
+                    key={week}
+                    variant={isSelected ? 'primary' : 'secondary'}
+                    size="sm"
+                    onClick={() => setSelectedWeek(week === selectedWeek ? null : week)}
+                    className={!hasNewsletter ? 'opacity-40' : ''}
+                    title={hasNewsletter ? `View Week ${week} Newsletter` : 'No newsletter available'}
+                  >
+                    Wk {week}
+                  </Button>
+                );
+              })}
             </div>
+            {availableWeeks.length === 0 && (
+              <p className="text-center text-[var(--muted)] mt-4 text-sm">
+                No newsletters have been published yet.
+              </p>
+            )}
           </CardContent>
         </Card>
       </div>

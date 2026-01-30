@@ -91,12 +91,24 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const weekParam = searchParams.get('week');
   const seasonParam = searchParams.get('season');
+  const listParam = searchParams.get('list');
 
   try {
     // Get current NFL state
     const state = await getSleeperState();
     const season = seasonParam || state.season;
     const seasonNum = parseInt(season, 10);
+
+    // If list=true, just return available weeks
+    if (listParam === 'true') {
+      const weeks = await listNewsletterWeeks(seasonNum);
+      return NextResponse.json({
+        success: true,
+        season: seasonNum,
+        weeks,
+      });
+    }
+
     const week = weekParam ? parseInt(weekParam, 10) : state.week;
 
     // Load from database
