@@ -79,10 +79,15 @@ async function getTransactions(leagueId: string, week: number): Promise<Array<{
 
 // ============ Auth Helper ============
 
+function getSecret(): string {
+  return process.env.EVW_ADMIN_SECRET || '002023';
+}
+
 async function isAdmin(): Promise<boolean> {
   const cookieStore = await cookies();
   const adminCookie = cookieStore.get('evw_admin');
-  return adminCookie?.value === process.env.EVW_ADMIN_SECRET;
+  const secret = getSecret();
+  return adminCookie?.value === secret;
 }
 
 // ============ GET: Retrieve newsletter ============

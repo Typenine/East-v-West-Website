@@ -44,17 +44,12 @@ export default function NewsletterPage() {
 
   // Fetch current NFL state and available newsletters on mount
   useEffect(() => {
-    let sleeperWeek = 1;
-    let inSeason = false;
-
     // Get NFL state first
     fetch('https://api.sleeper.app/v1/state/nfl')
       .then(r => r.json())
       .then((state: NFLState) => {
         setCurrentSeason(state.season || '2025');
         setSeasonType(state.season_type || 'off');
-        sleeperWeek = state.week || 1;
-        inSeason = state.season_type === 'regular' || state.season_type === 'post';
         
         // Then get available newsletters
         return fetch(`/api/newsletter?list=true&season=${state.season || '2025'}`);
@@ -68,16 +63,12 @@ export default function NewsletterPage() {
             // Default to latest available newsletter
             const latestWeek = Math.max(...data.weeks);
             setCurrentWeek(latestWeek);
-          } else if (inSeason) {
-            // No newsletters yet, but in season - show current week
-            setCurrentWeek(sleeperWeek);
           } else {
-            // Offseason with no newsletters - show null (triggers offseason message)
+            // No newsletters exist - show null (triggers offseason/empty message)
             setCurrentWeek(null);
           }
-        } else if (inSeason) {
-          setCurrentWeek(sleeperWeek);
         } else {
+          // No data - show null
           setCurrentWeek(null);
         }
         setLoading(false);
@@ -224,7 +215,7 @@ export default function NewsletterPage() {
             <div className="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-9 gap-2">
               {weeks.map((week) => {
                 const hasNewsletter = availableWeeks.includes(week);
-                const isSelected = selectedWeek === week || (!selectedWeek && week === currentWeek);
+                const isSelected = selectedWeek === week || (!selectedWeek && currentWeek !== null && week === currentWeek);
                 return (
                   <Button
                     key={week}
