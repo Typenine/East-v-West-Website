@@ -1,0 +1,27 @@
+{
+  "thresholds": { "lowMax": 39, "moderateMax": 69 },
+  "trade": {
+    "weights": {
+      "dynastyRoleImpact": 20,
+      "positionalScarcity": 15,
+      "pointsImpact": 20,
+      "capitalPaid": 15,
+      "teamNeedFit": 15,
+      "tagShiftPotential": 15
+    },
+    "blockbuster_floor": 70,
+    "lateral_cap": 55,
+    "narrative_bonus": 5
+  },
+  "waiver": {
+    "weights": {
+      "faabSpentVsValue": 30,
+      "bidHeat": 15,
+      "needFit": 20,
+      "projectionRole": 20,
+      "timing": 15
+    },
+    "fa_only_min": 40,
+    "high_floor": 70
+  }
+}

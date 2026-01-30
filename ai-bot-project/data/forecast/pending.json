@@ -1,0 +1,47 @@
+{
+  "week": 2,
+  "picks": [
+    {
+      "matchup_id": 3,
+      "team1": "Belltown Raptors",
+      "team2": "Bimg Bamg Boomg",
+      "entertainer_pick": "Belltown Raptors",
+      "analyst_pick": "Belltown Raptors"
+    },
+    {
+      "matchup_id": 6,
+      "team1": "Belleview Badgers",
+      "team2": "Minshew's Maniacs",
+      "entertainer_pick": "Belleview Badgers",
+      "analyst_pick": "Belleview Badgers"
+    },
+    {
+      "matchup_id": 2,
+      "team1": "Red Pandas",
+      "team2": "Mt. Lebanon Cake Eaters",
+      "entertainer_pick": "Red Pandas",
+      "analyst_pick": "Red Pandas"
+    },
+    {
+      "matchup_id": 1,
+      "team1": "Double Trouble",
+      "team2": "BeerNeverBrokeMyHeart",
+      "entertainer_pick": "Double Trouble",
+      "analyst_pick": "Double Trouble"
+    },
+    {
+      "matchup_id": 4,
+      "team1": "Elemental Heroes",
+      "team2": "bop pop",
+      "entertainer_pick": "Elemental Heroes",
+      "analyst_pick": "Elemental Heroes"
+    },
+    {
+      "matchup_id": 5,
+      "team1": "Detroit Dawgs",
+      "team2": "The Lone Ginger",
+      "entertainer_pick": "Detroit Dawgs",
+      "analyst_pick": "Detroit Dawgs"
+    }
+  ]
+}

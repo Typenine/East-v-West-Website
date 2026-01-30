@@ -1,0 +1,11 @@
+{
+  "debate": {
+    "enable": true,
+    "gradeGapToDebate": 2,
+    "lines": [
+      "Entertainer: ceiling wins in December. Analyst: roles win in November.",
+      "Entertainer: flags planted. Analyst: variance warned.",
+      "Entertainer: shove the chips. Analyst: bank the picks."
+    ]
+  }
+}

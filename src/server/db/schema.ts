@@ -159,3 +159,89 @@ export const taxiSnapshots = pgTable('taxi_snapshots', {
   teamIdx: index('taxi_snapshots_team_idx').on(t.teamId),
 }));
 
+// ============ Newsletter Bot Memory ============
+
+export const botNameEnum = pgEnum('bot_name', ['entertainer', 'analyst']);
+export const summaryMoodEnum = pgEnum('summary_mood', ['Focused', 'Fired Up', 'Deflated']);
+export const teamMoodEnum = pgEnum('team_mood', ['Neutral', 'Confident', 'Suspicious', 'Irritated']);
+
+// Bot memory - stores overall bot state and per-team sentiment
+export const botMemory = pgTable('bot_memory', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  bot: botNameEnum('bot').notNull(),
+  season: integer('season').notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  summaryMood: summaryMoodEnum('summary_mood').default('Focused').notNull(),
+  // Per-team memory stored as JSONB: { "Team Name": { trust: number, frustration: number, mood: string } }
+  teams: jsonb('teams').$type<Record<string, { trust: number; frustration: number; mood: string }>>().default({}).notNull(),
+}, (t) => ({
+  botSeasonIdx: index('bot_memory_bot_season_idx').on(t.bot, t.season),
+}));
+
+// Forecast records - tracks prediction accuracy over the season
+export const forecastRecords = pgTable('forecast_records', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  season: integer('season').notNull(),
+  bot: botNameEnum('bot').notNull(),
+  wins: integer('wins').default(0).notNull(),
+  losses: integer('losses').default(0).notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+}, (t) => ({
+  seasonBotIdx: index('forecast_records_season_bot_idx').on(t.season, t.bot),
+}));
+
+// Pending picks - stores predictions to grade next week
+export const pendingPicks = pgTable('pending_picks', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  season: integer('season').notNull(),
+  week: integer('week').notNull(), // The week these picks are FOR (next week)
+  matchupId: varchar('matchup_id', { length: 64 }).notNull(),
+  team1: varchar('team1', { length: 255 }),
+  team2: varchar('team2', { length: 255 }),
+  entertainerPick: varchar('entertainer_pick', { length: 255 }),
+  analystPick: varchar('analyst_pick', { length: 255 }),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+}, (t) => ({
+  seasonWeekIdx: index('pending_picks_season_week_idx').on(t.season, t.week),
+}));
+
+// Staged newsletter generation - tracks progress of Tuesday→Wednesday builds
+export const newsletterStatusEnum = pgEnum('newsletter_status', ['pending', 'in_progress', 'completed', 'failed', 'published']);
+
+export const newsletterStaged = pgTable('newsletter_staged', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  season: integer('season').notNull(),
+  week: integer('week').notNull(),
+  status: newsletterStatusEnum('status').default('pending').notNull(),
+  startedAt: timestamp('started_at', { withTimezone: true }),
+  completedAt: timestamp('completed_at', { withTimezone: true }),
+  publishedAt: timestamp('published_at', { withTimezone: true }),
+  sectionsCompleted: text('sections_completed').array().default([]).notNull(),
+  currentSection: varchar('current_section', { length: 64 }),
+  error: text('error'),
+  // Generated content per section: { "Intro": { entertainer: "...", analyst: "..." }, ... }
+  generatedContent: jsonb('generated_content').$type<Record<string, { entertainer: string; analyst: string }>>().default({}).notNull(),
+  // Derived data snapshot (so we don't re-fetch)
+  derivedData: jsonb('derived_data').$type<Record<string, unknown>>(),
+}, (t) => ({
+  seasonWeekIdx: index('newsletter_staged_season_week_idx').on(t.season, t.week),
+}));
+
+// Generated newsletters - stores the full newsletter content
+export const newsletters = pgTable('newsletters', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  season: integer('season').notNull(),
+  week: integer('week').notNull(),
+  leagueName: varchar('league_name', { length: 255 }).notNull(),
+  // Full newsletter JSON structure
+  content: jsonb('content').$type<{
+    meta: { leagueName: string; week: number; date: string; season: number };
+    sections: Array<{ type: string; data: unknown }>;
+  }>().notNull(),
+  // Pre-rendered HTML for fast display
+  html: text('html').notNull(),
+  generatedAt: timestamp('generated_at', { withTimezone: true }).defaultNow().notNull(),
+}, (t) => ({
+  seasonWeekIdx: index('newsletters_season_week_idx').on(t.season, t.week),
+}));
+

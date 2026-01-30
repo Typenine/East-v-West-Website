@@ -1,68 +1,190 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import SectionHeader from '@/components/ui/SectionHeader';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
 
+interface NewsletterData {
+  newsletter: {
+    meta: {
+      leagueName: string;
+      week: number;
+      date: string;
+      season: number;
+    };
+    sections: Array<{ type: string; data: unknown }>;
+  };
+  html: string;
+  generatedAt: string;
+  fromCache: boolean;
+}
+
 export default function NewsletterPage() {
   const [selectedWeek, setSelectedWeek] = useState<number | null>(null);
-  
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [newsletterData, setNewsletterData] = useState<NewsletterData | null>(null);
+  const [currentSeason, setCurrentSeason] = useState<string>('2025');
+  const [currentWeek, setCurrentWeek] = useState<number>(1);
+
   // Generate weeks 1-17 for the archive
   const weeks = Array.from({ length: 17 }, (_, i) => i + 1);
-  
+
+  // Fetch current NFL state on mount
+  useEffect(() => {
+    fetch('https://api.sleeper.app/v1/state/nfl')
+      .then(r => r.json())
+      .then(state => {
+        setCurrentSeason(state.season || '2025');
+        setCurrentWeek(state.week || 1);
+      })
+      .catch(() => {});
+  }, []);
+
+  // Fetch newsletter when week changes
+  useEffect(() => {
+    const week = selectedWeek || currentWeek;
+    if (!week) return;
+
+    setLoading(true);
+    setError(null);
+
+    fetch(`/api/newsletter?season=${currentSeason}&week=${week}`)
+      .then(r => r.json())
+      .then(data => {
+        if (data.success) {
+          setNewsletterData(data);
+        } else {
+          setNewsletterData(null);
+          // Don't show error for "not found" - just show empty state
+          if (data.error !== 'Newsletter not found') {
+            setError(data.error || 'Failed to load newsletter');
+          }
+        }
+      })
+      .catch(err => {
+        setError(err.message || 'Failed to load newsletter');
+        setNewsletterData(null);
+      })
+      .finally(() => setLoading(false));
+  }, [selectedWeek, currentWeek, currentSeason]);
+
+  const displayWeek = selectedWeek || currentWeek;
+
   return (
     <div className="container mx-auto px-4 py-8">
       <SectionHeader title="Weekly Newsletter" />
-      
-      <div className="max-w-3xl mx-auto">
+
+      <div className="max-w-4xl mx-auto">
         <Card>
           <CardHeader>
-            <CardTitle>{selectedWeek ? `Week ${selectedWeek} Newsletter` : 'Current Newsletter'}</CardTitle>
+            <div className="flex items-center justify-between">
+              <CardTitle>
+                {selectedWeek ? `Week ${selectedWeek} Newsletter` : `Week ${currentWeek} Newsletter`}
+              </CardTitle>
+              {selectedWeek && (
+                <Button variant="ghost" size="sm" onClick={() => setSelectedWeek(null)}>
+                  ← Back to Current
+                </Button>
+              )}
+            </div>
           </CardHeader>
           <CardContent>
-            {selectedWeek ? (
+            {loading ? (
+              <div className="text-center py-12">
+                <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-[var(--primary)]"></div>
+                <p className="mt-4 text-[var(--muted)]">Loading newsletter...</p>
+              </div>
+            ) : error ? (
+              <div className="text-center py-12">
+                <p className="text-[var(--danger)]">{error}</p>
+              </div>
+            ) : newsletterData ? (
               <div>
-                <div className="flex justify-between items-center mb-6">
-                  <div />
-                  <Button variant="ghost" onClick={() => setSelectedWeek(null)}>
-                    Back to Current
-                  </Button>
+                <div className="mb-4 text-sm text-[var(--muted)] flex items-center justify-between">
+                  <span>
+                    {newsletterData.newsletter.meta.leagueName} • Season {newsletterData.newsletter.meta.season}
+                  </span>
+                  <span>
+                    Generated: {new Date(newsletterData.generatedAt).toLocaleString()}
+                  </span>
                 </div>
-                <div className="text-center py-12 text-[var(--muted)]">
-                  Archive content coming soon
-                </div>
+                {/* Render the HTML content */}
+                <div
+                  className="newsletter-content"
+                  dangerouslySetInnerHTML={{ __html: newsletterData.html }}
+                  style={{
+                    // Override some inline styles for better integration
+                    background: 'transparent',
+                  }}
+                />
               </div>
             ) : (
-              <div className="prose max-w-none">
-                <p className="text-center py-12 text-lg">Coming Soon</p>
-                <p className="text-sm text-[var(--muted)] italic text-center">
-                  Weekly newsletters will be automatically generated during the season
+              <div className="text-center py-12">
+                <div className="text-6xl mb-4">📰</div>
+                <p className="text-lg font-medium mb-2">No Newsletter Yet</p>
+                <p className="text-[var(--muted)] mb-6">
+                  The Week {displayWeek} newsletter hasn&apos;t been generated yet.
+                </p>
+                <p className="text-sm text-[var(--muted)] italic">
+                  Newsletters are generated by admins after each week&apos;s games complete.
                 </p>
               </div>
             )}
           </CardContent>
         </Card>
       </div>
-      
-      <div className="mt-8">
+
+      {/* Archive Section */}
+      <div className="mt-8 max-w-4xl mx-auto">
         <Card>
           <CardHeader>
             <CardTitle>Archive</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-3 sm:grid-cols-6 md:grid-cols-9 gap-2">
+            <div className="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-9 gap-2">
               {weeks.map((week) => (
                 <Button
                   key={week}
-                  variant="secondary"
+                  variant={selectedWeek === week ? 'primary' : 'secondary'}
                   size="sm"
-                  onClick={() => setSelectedWeek(week)}
-                  disabled={true}
+                  onClick={() => setSelectedWeek(week === selectedWeek ? null : week)}
+                  className={week > currentWeek ? 'opacity-50' : ''}
                 >
-                  Week {week}
+                  Wk {week}
                 </Button>
               ))}
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Info Section */}
+      <div className="mt-8 max-w-4xl mx-auto">
+        <Card>
+          <CardHeader>
+            <CardTitle>About the Newsletter</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="prose prose-sm max-w-none text-[var(--foreground)]">
+              <p>
+                The East v. West Weekly Newsletter features AI-powered analysis from two distinct personalities:
+              </p>
+              <ul className="mt-4 space-y-2">
+                <li>
+                  <strong>The Entertainer</strong> — Bold takes, hot reactions, and maximum entertainment value.
+                  Loves chaos, big plays, and calling out underperformers.
+                </li>
+                <li>
+                  <strong>The Analyst</strong> — Data-driven insights, process-focused evaluation, and measured
+                  predictions. Focuses on sustainability and long-term trends.
+                </li>
+              </ul>
+              <p className="mt-4 text-[var(--muted)]">
+                Each week, both personalities analyze matchup results, trades, waiver moves, and make predictions
+                for the upcoming week. Their track records are maintained throughout the season.
+              </p>
             </div>
           </CardContent>
         </Card>

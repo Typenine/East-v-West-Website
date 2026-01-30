@@ -1,0 +1,171 @@
+{
+  "week": 1,
+  "saved_at": "2025-08-12T06:27:07.620Z",
+  "spotlight_team": "Belltown Raptors",
+  "forecast_picks": [
+    {
+      "matchup_id": 3,
+      "team1": "Belltown Raptors",
+      "team2": "Bimg Bamg Boomg",
+      "entertainer_pick": "Belltown Raptors",
+      "analyst_pick": "Belltown Raptors"
+    },
+    {
+      "matchup_id": 6,
+      "team1": "Belleview Badgers",
+      "team2": "Minshew's Maniacs",
+      "entertainer_pick": "Belleview Badgers",
+      "analyst_pick": "Belleview Badgers"
+    },
+    {
+      "matchup_id": 2,
+      "team1": "Red Pandas",
+      "team2": "Mt. Lebanon Cake Eaters",
+      "entertainer_pick": "Red Pandas",
+      "analyst_pick": "Red Pandas"
+    },
+    {
+      "matchup_id": 1,
+      "team1": "Double Trouble",
+      "team2": "BeerNeverBrokeMyHeart",
+      "entertainer_pick": "Double Trouble",
+      "analyst_pick": "Double Trouble"
+    },
+    {
+      "matchup_id": 4,
+      "team1": "Elemental Heroes",
+      "team2": "bop pop",
+      "entertainer_pick": "Elemental Heroes",
+      "analyst_pick": "Elemental Heroes"
+    },
+    {
+      "matchup_id": 5,
+      "team1": "Detroit Dawgs",
+      "team2": "The Lone Ginger",
+      "entertainer_pick": "Detroit Dawgs",
+      "analyst_pick": "Detroit Dawgs"
+    }
+  ],
+  "trade_grades": [
+    {
+      "event_id": "1245413409088880640",
+      "team": "Red Pandas",
+      "grade": "D"
+    },
+    {
+      "event_id": "1245413409088880640",
+      "team": "Minshew's Maniacs",
+      "grade": "B+"
+    },
+    {
+      "event_id": "1242418710140944384",
+      "team": "Belleview Badgers",
+      "grade": "A"
+    },
+    {
+      "event_id": "1242418710140944384",
+      "team": "Minshew's Maniacs",
+      "grade": "D"
+    },
+    {
+      "event_id": "1242320467386175488",
+      "team": "Mt. Lebanon Cake Eaters",
+      "grade": "C"
+    },
+    {
+      "event_id": "1242320467386175488",
+      "team": "Minshew's Maniacs",
+      "grade": "B"
+    },
+    {
+      "event_id": "1242301929279737856",
+      "team": "Belleview Badgers",
+      "grade": "C+"
+    },
+    {
+      "event_id": "1242301929279737856",
+      "team": "Bimg Bamg Boomg",
+      "grade": "C+"
+    },
+    {
+      "event_id": "1242279230218174464",
+      "team": "Double Trouble",
+      "grade": "B"
+    },
+    {
+      "event_id": "1242279230218174464",
+      "team": "Bimg Bamg Boomg",
+      "grade": "C-"
+    },
+    {
+      "event_id": "1242250229583974400",
+      "team": "Belltown Raptors",
+      "grade": "B-"
+    },
+    {
+      "event_id": "1242250229583974400",
+      "team": "Minshew's Maniacs",
+      "grade": "B-"
+    },
+    {
+      "event_id": "1242244362113404928",
+      "team": "The Lone Ginger",
+      "grade": "A"
+    },
+    {
+      "event_id": "1242244362113404928",
+      "team": "Minshew's Maniacs",
+      "grade": "D"
+    },
+    {
+      "event_id": "1242234485819310080",
+      "team": "Double Trouble",
+      "grade": "C+"
+    },
+    {
+      "event_id": "1242234485819310080",
+      "team": "Mt. Lebanon Cake Eaters",
+      "grade": "C+"
+    },
+    {
+      "event_id": "1242038877103861760",
+      "team": "Detroit Dawgs",
+      "grade": "A"
+    },
+    {
+      "event_id": "1242038877103861760",
+      "team": "The Lone Ginger",
+      "grade": "D"
+    },
+    {
+      "event_id": "1241995719414386688",
+      "team": "Double Trouble",
+      "grade": "D"
+    },
+    {
+      "event_id": "1241995719414386688",
+      "team": "bop pop",
+      "grade": "A"
+    },
+    {
+      "event_id": "1241987259670990848",
+      "team": "The Lone Ginger",
+      "grade": "D"
+    },
+    {
+      "event_id": "1241987259670990848",
+      "team": "Minshew's Maniacs",
+      "grade": "A"
+    },
+    {
+      "event_id": "1241952009918099456",
+      "team": "Double Trouble",
+      "grade": "D"
+    },
+    {
+      "event_id": "1241952009918099456",
+      "team": "Bimg Bamg Boomg",
+      "grade": "A"
+    }
+  ]
+}

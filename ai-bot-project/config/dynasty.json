@@ -1,0 +1,15 @@
+{
+  "enabled": true,
+  "lineup": { "QB": 1, "RB": 2, "WR": 2, "TE": 1, "FLEX": 2 },
+  "pickYearDecay": 0.07,
+  "ageCurves": {
+    "QB": { "primeStart": 24, "primeEnd": 33 },
+    "RB": { "primeStart": 23, "primeEnd": 26 },
+    "WR": { "primeStart": 23, "primeEnd": 28 },
+    "TE": { "primeStart": 24, "primeEnd": 30 }
+  },
+  "draftRoundValue": { "1": 12, "2": 7, "3": 4, "4": 2, "5": 1, "6": 0, "7": 0, "UDFA": -3 },
+  "injuryPenalty": 5,
+  "starterWeight": 1.0,
+  "benchWeight": 0.35
+}
