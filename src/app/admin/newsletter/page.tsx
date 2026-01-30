@@ -18,6 +18,7 @@ interface GenerationResult {
       season: number;
     };
   };
+  html?: string;
   generatedAt?: string;
   fromCache?: boolean;
   stats?: {
@@ -33,10 +34,14 @@ export default function AdminNewsletterPage() {
   const [generating, setGenerating] = useState(false);
   const [result, setResult] = useState<GenerationResult | null>(null);
   const [currentSeason, setCurrentSeason] = useState('2025');
-  const [currentWeek, setCurrentWeek] = useState(1);
-  const [weekInput, setWeekInput] = useState('');
+  const [currentWeek, setCurrentWeek] = useState<number | null>(null);
+  const [seasonType, setSeasonType] = useState('off');
+  const [weekInput, setWeekInput] = useState('17'); // Default to last week
   const [forceRegenerate, setForceRegenerate] = useState(false);
   const [previewMode, setPreviewMode] = useState(true); // Default to preview for safety
+  const [showPreviewHtml, setShowPreviewHtml] = useState(false);
+
+  const isOffseason = seasonType !== 'regular';
 
   // Check admin status
   useEffect(() => {
@@ -47,14 +52,38 @@ export default function AdminNewsletterPage() {
       .finally(() => setLoading(false));
   }, []);
 
-  // Fetch current NFL state
+  // Fetch current NFL state and last published newsletter
   useEffect(() => {
     fetch('https://api.sleeper.app/v1/state/nfl')
       .then(r => r.json())
       .then(state => {
         setCurrentSeason(state.season || '2025');
-        setCurrentWeek(state.week || 1);
-        setWeekInput(String(state.week || 1));
+        setSeasonType(state.season_type || 'off');
+        
+        // During season, use current week; offseason, fetch last published
+        const inSeason = state.season_type === 'regular';
+        if (inSeason) {
+          setCurrentWeek(state.week || 1);
+          setWeekInput(String(state.week || 1));
+        } else {
+          // Offseason - get last published newsletter week
+          fetch(`/api/newsletter?list=true&season=${state.season || '2025'}`)
+            .then(r => r.json())
+            .then(data => {
+              if (data.weeks?.length > 0) {
+                const lastWeek = Math.max(...data.weeks);
+                setCurrentWeek(lastWeek);
+                setWeekInput(String(lastWeek));
+              } else {
+                setCurrentWeek(null);
+                setWeekInput('17');
+              }
+            })
+            .catch(() => {
+              setCurrentWeek(null);
+              setWeekInput('17');
+            });
+        }
       })
       .catch(() => {});
   }, []);
@@ -132,7 +161,13 @@ export default function AdminNewsletterPage() {
             <div className="space-y-4">
               <div className="p-3 bg-zinc-800/50 rounded-lg text-sm">
                 <div className="text-[var(--muted)]">Current NFL State</div>
-                <div className="font-medium">Season {currentSeason} • Week {currentWeek}</div>
+                <div className="font-medium">
+                  Season {currentSeason} • {isOffseason ? (
+                    <span className="text-amber-400">Offseason</span>
+                  ) : (
+                    `Week ${currentWeek}`
+                  )}
+                </div>
               </div>
 
               <div>
@@ -265,11 +300,23 @@ export default function AdminNewsletterPage() {
                       </div>
                     )}
 
-                    <Link href="/newsletter">
-                      <Button variant="ghost" className="w-full">
-                        View Newsletter →
+                    {result.html && (
+                      <Button 
+                        variant="secondary" 
+                        className="w-full"
+                        onClick={() => setShowPreviewHtml(!showPreviewHtml)}
+                      >
+                        {showPreviewHtml ? '🔼 Hide Preview' : '👁️ View Generated HTML'}
                       </Button>
-                    </Link>
+                    )}
+
+                    {!previewMode && (
+                      <Link href="/newsletter">
+                        <Button variant="ghost" className="w-full">
+                          View Published Newsletter →
+                        </Button>
+                      </Link>
+                    )}
                   </>
                 ) : (
                   <div className="p-3 bg-red-900/30 border border-red-600 rounded-lg">
@@ -290,6 +337,28 @@ export default function AdminNewsletterPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Preview HTML Display */}
+      {showPreviewHtml && result?.html && (
+        <div className="mt-6">
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <CardTitle>Newsletter Preview</CardTitle>
+                <Button variant="ghost" size="sm" onClick={() => setShowPreviewHtml(false)}>
+                  ✕ Close
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div 
+                className="newsletter-preview bg-white text-black rounded-lg overflow-auto max-h-[600px]"
+                dangerouslySetInnerHTML={{ __html: result.html }}
+              />
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
       {/* Info Section */}
       <div className="mt-6">
