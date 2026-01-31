@@ -840,9 +840,12 @@ WINNER: ${p.winner.name} scored ${p.winner.points.toFixed(1)} points (All-time r
 LOSER: ${p.loser.name} scored ${p.loser.points.toFixed(1)} points (All-time record: ${loserRecord})
 MARGIN: ${p.margin.toFixed(1)} points
 
-IMPORTANT: Write ONLY about ${p.winner.name} and ${p.loser.name}. Do not mention any other teams.
-Do not make up statistics, records, or facts. Only use the data provided above.
-Do not use placeholder text like [insert player name] - if you don't have specific player info, focus on the team performance.`;
+IMPORTANT RULES:
+1. Write ONLY about ${p.winner.name} and ${p.loser.name}. Do not mention any other teams.
+2. The ONLY statistics you may cite are: the score (${p.winner.points.toFixed(1)} to ${p.loser.points.toFixed(1)}), the margin (${p.margin.toFixed(1)}), and the all-time records shown above.
+3. Do NOT make up points per game, averages, percentages, or any other statistics not explicitly listed above.
+4. Do not use placeholder text like [insert player name] - focus on team performance, not individual players.
+5. If you want to reference performance, use only the actual game score from this matchup.`;
 
     const tokensPerMatchup = isChampionshipWeek && bracketInfo.includes('Championship') ? 400 : 
                              isChampionshipWeek ? 250 : 
