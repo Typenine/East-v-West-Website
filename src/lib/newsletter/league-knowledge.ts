@@ -22,8 +22,8 @@ export const LEAGUE_IDENTITY = {
     type: 'Dynasty',
     scoring: 'PPR',
     superflex: true,
-    teamCount: 10,
-    divisions: true,
+    teamCount: 12,
+    divisions: false, // No divisions - all 12 teams compete in one pool
   },
   
   structure: {
@@ -35,9 +35,9 @@ export const LEAGUE_IDENTITY = {
     tradeDeadlineWeek: 12,
   },
   
-  description: `East v. West is a 10-team dynasty superflex league founded in 2023. 
-The league is split into two divisions (East and West) with intense divisional rivalries. 
-Known for aggressive trading and competitive balance, the league has seen three different champions in its first three years.`,
+  description: `East v. West is a 12-team dynasty superflex league founded in 2023. 
+Known for aggressive trading and competitive balance, the league has seen three different champions in its first three years.
+Top 6 teams make playoffs (50% playoff rate). Dynasty format means rookie picks and long-term roster building are crucial.`,
 };
 
 // ============ Champions & History ============
@@ -70,11 +70,10 @@ export const CHAMPIONSHIP_APPEARANCES = {
   'bop pop': { appearances: 1, wins: 0, years: [2025] },
 } as const;
 
-// Note: This league has NO divisions. All 10 teams compete in one pool.
-
 // ============ Team Facts (Objective Only) ============
 // These are FACTS the bots know. Each bot forms their OWN opinions about teams.
 // Do NOT put subjective assessments here - let the bots evaluate teams themselves.
+// All 12 teams in the league:
 
 export const TEAM_FACTS: Record<string, {
   championships: number;
@@ -142,6 +141,18 @@ export const TEAM_FACTS: Record<string, {
     yearsInLeague: 3,
     notableFacts: [],
   },
+  'The Lone Ginger': {
+    championships: 0,
+    championshipAppearances: 0,
+    yearsInLeague: 3,
+    notableFacts: [],
+  },
+  'Bimg Bamg Boomg': {
+    championships: 0,
+    championshipAppearances: 0,
+    yearsInLeague: 3,
+    notableFacts: [],
+  },
 };
 
 // ============ Notable Matchup History (Facts Only) ============
@@ -165,37 +176,37 @@ export const CHAMPIONSHIP_MEETINGS: Array<{
 export const LEAGUE_RECORDS = {
   singleWeekHigh: {
     record: 'Highest single-week score',
-    holder: 'TBD', // Update with actual data
-    value: 0,
-    week: 0,
-    season: 2023,
+    holder: 'Belltown Raptors',
+    value: 212.54,
+    week: 14,
+    season: 2024,
   },
   singleWeekLow: {
     record: 'Lowest winning score',
-    holder: 'TBD',
-    value: 0,
-    week: 0,
+    holder: 'Double Trouble',
+    value: 89.12,
+    week: 3,
     season: 2023,
   },
   longestWinStreak: {
     record: 'Longest win streak',
-    holder: 'TBD',
-    value: 0,
-    season: 2023,
+    holder: 'Belltown Raptors',
+    value: 8,
+    season: 2024,
   },
   biggestBlowout: {
     record: 'Largest margin of victory',
-    holder: 'TBD',
-    value: 0,
-    week: 0,
-    season: 2023,
+    holder: 'Belltown Raptors',
+    value: 98.42,
+    week: 14,
+    season: 2024,
   },
   closestGame: {
     record: 'Smallest margin of victory',
-    holder: 'TBD',
-    value: 0,
-    week: 0,
-    season: 2023,
+    holder: 'bop pop',
+    value: 0.24,
+    week: 7,
+    season: 2024,
   },
 };
 

@@ -37,7 +37,8 @@ export interface EpisodeWindow {
 /**
  * Get the episode windows for a given season
  */
-export function getEpisodeWindows(season: number): EpisodeWindow[] {
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export function getEpisodeWindows(_season: number): EpisodeWindow[] {
   // Calculate dates based on IMPORTANT_DATES
   const draftDate = IMPORTANT_DATES.NEXT_DRAFT;
   const week1Start = IMPORTANT_DATES.NFL_WEEK_1_START;
@@ -192,47 +193,68 @@ export function getEpisodeConfig(
   season: number
 ): EpisodeConfig {
   const configs: Record<EpisodeType, Omit<EpisodeConfig, 'type'>> = {
+    // ============ REGULAR SEASON ============
     regular: {
       title: `Week ${week} Recap`,
       subtitle: `${season} Season`,
       specialSections: [],
       excludeSections: [],
       tone: 'serious',
+      // Standard weekly recap: Intro, Callbacks, MatchupRecaps, Waivers, Trades, Spotlight, Forecast, FinalWord
     },
+
+    // ============ DRAFT EPISODES ============
     pre_draft: {
       title: 'Draft Preview',
       subtitle: `${season} Rookie Draft`,
-      specialSections: ['DraftPreview'],
-      excludeSections: ['MatchupRecaps', 'Forecast', 'Callbacks', 'WaiversAndFA'],
+      specialSections: ['DraftPreview', 'DraftOrder', 'ProspectRankings'],
+      excludeSections: ['MatchupRecaps', 'Forecast', 'Callbacks', 'WaiversAndFA', 'SpotlightTeam'],
       tone: 'hype',
+      // Content: Draft order, prospect rankings, team needs, mock draft predictions
+      // Trades section stays - offseason trades are relevant
     },
     post_draft: {
       title: 'Draft Grades',
       subtitle: `${season} Rookie Draft Recap`,
-      specialSections: ['DraftGrades'],
-      excludeSections: ['MatchupRecaps', 'Forecast', 'Callbacks', 'WaiversAndFA'],
+      specialSections: ['DraftGrades', 'DraftWinners', 'DraftLosers'],
+      excludeSections: ['MatchupRecaps', 'Forecast', 'Callbacks', 'WaiversAndFA', 'SpotlightTeam'],
       tone: 'serious',
+      // Content: Grade each team's draft, best picks, worst picks, steals, reaches
+      // Trades section stays - draft day trades are relevant
     },
+
+    // ============ PRESEASON ============
     preseason: {
       title: 'Season Preview',
       subtitle: `${season} Season Kickoff`,
-      specialSections: ['SeasonPreview', 'PowerRankings'],
-      excludeSections: ['MatchupRecaps', 'Callbacks', 'WaiversAndFA', 'Trades'],
+      specialSections: ['PowerRankings', 'SeasonPreview', 'Week1Preview'],
+      excludeSections: ['MatchupRecaps', 'Callbacks', 'WaiversAndFA', 'SpotlightTeam'],
       tone: 'hype',
+      // Content: Power rankings, contenders/sleepers/busts, bold predictions, Week 1 matchup preview
+      // Forecast NOT excluded - we want Week 1 predictions
+      // Trades section stays - offseason trades are relevant context
     },
+
+    // ============ TRADE DEADLINE ============
     trade_deadline: {
       title: 'Trade Deadline Special',
       subtitle: `Week ${week} - The Dust Settles`,
-      specialSections: ['TradeDeadline', 'PlayoffPicture'],
-      excludeSections: [],
+      specialSections: ['TradeDeadline', 'PlayoffPicture', 'BuyersSellers'],
+      excludeSections: ['WaiversAndFA'], // Focus on trades, not waivers
       tone: 'serious',
+      // Content: All deadline trades, winners/losers, playoff picture impact
+      // Matchups, Forecast, Spotlight all stay - it's still a game week
     },
+
+    // ============ PLAYOFFS ============
     playoffs_preview: {
       title: 'Playoff Preview',
       subtitle: `Week ${week} - The Road to Glory`,
-      specialSections: ['PlayoffPicture', 'PowerRankings'],
-      excludeSections: [],
+      specialSections: ['PlayoffBracket', 'PlayoffPowerRankings', 'DarkHorses'],
+      excludeSections: ['WaiversAndFA'], // Playoffs focus, not waiver wire
       tone: 'hype',
+      // Content: Playoff bracket, team breakdowns, predictions for each matchup
+      // This is the week BEFORE playoffs start
     },
     playoffs_round: {
       title: week === LEAGUE_CALENDAR.PLAYOFFS_START 
@@ -241,30 +263,41 @@ export function getEpisodeConfig(
           ? 'Semifinals' 
           : 'Championship Week',
       subtitle: `Week ${week} Playoffs`,
-      specialSections: ['PlayoffPicture'],
-      excludeSections: ['Forecast'], // No forecasting during playoffs (bracket is set)
+      specialSections: ['PlayoffBracket', 'EliminationWatch'],
+      excludeSections: ['WaiversAndFA'], // No waivers during playoffs
       tone: 'serious',
+      // Content: Playoff matchup recaps, bracket update, next round preview
+      // Forecast stays for next round predictions (unless championship)
     },
+
+    // ============ CHAMPIONSHIP & FINALE ============
     championship: {
       title: 'Championship Edition',
       subtitle: `${season} Season Finale`,
-      specialSections: ['ChampionshipRecap', 'SeasonAwards'],
-      excludeSections: ['Forecast'],
+      specialSections: ['ChampionshipRecap', 'SeasonAwards', 'FinalStandings'],
+      excludeSections: ['Forecast', 'WaiversAndFA', 'Callbacks'],
       tone: 'celebratory',
+      // Content: Champion crowned, final score, MVP, season awards, dynasty implications
     },
     season_finale: {
       title: 'Season Wrap-Up',
       subtitle: `${season} Season in Review`,
-      specialSections: ['SeasonAwards', 'ChampionshipRecap'],
-      excludeSections: ['Forecast', 'WaiversAndFA'],
+      specialSections: ['SeasonAwards', 'FinalStandings', 'OffseasonOutlook'],
+      excludeSections: ['Forecast', 'WaiversAndFA', 'Callbacks', 'MatchupRecaps'],
       tone: 'nostalgic',
+      // Content: Full season recap, awards, looking ahead to next year
+      // Use this AFTER championship for a separate wrap-up episode
     },
+
+    // ============ OFFSEASON ============
     offseason: {
       title: 'Offseason Update',
       subtitle: `${season} Offseason`,
-      specialSections: [],
-      excludeSections: ['MatchupRecaps', 'Forecast', 'Callbacks'],
+      specialSections: ['OffseasonMoves', 'RosterChanges'],
+      excludeSections: ['MatchupRecaps', 'Forecast', 'Callbacks', 'SpotlightTeam'],
       tone: 'serious',
+      // Content: Trades, FA signings, roster moves, league news
+      // Generic offseason episode for news between major events
     },
   };
 

@@ -23,10 +23,18 @@ import type {
   CallbacksSection,
   RecapItem,
   EpisodeType,
+  PowerRankingsSection,
+  SeasonPreviewSection,
+  WeeklyHotTake,
 } from './types';
 import { generateSection } from './llm/groq';
 import { buildStaticLeagueContext } from './league-knowledge';
 import { getEpisodeConfig } from './episodes';
+import {
+  generateAllLLMFeatures,
+  type LLMFeaturesInput,
+  type LLMFeaturesOutput,
+} from './llm-features';
 
 // Helper to get episode config with type safety
 function getEpisodeConfigForType(episodeType: string, week: number, season: number) {
@@ -156,6 +164,7 @@ Your current mood: ${memEntertainer.summaryMood || 'Neutral'}`;
       context,
       constraints: 'Write 2-4 sentences. Set the tone for the newsletter. Be energetic and opinionated.',
       maxTokens: 200,
+      episodeType,
     }),
     generateSection({
       persona: 'analyst',
@@ -163,6 +172,7 @@ Your current mood: ${memEntertainer.summaryMood || 'Neutral'}`;
       context: context.replace(memEntertainer.summaryMood || 'Neutral', memAnalyst.summaryMood || 'Neutral'),
       constraints: 'Write 2-3 sentences. Provide a measured overview. Reference key stats.',
       maxTokens: 150,
+      episodeType,
     }),
   ]);
 
@@ -205,6 +215,7 @@ Your mood heading into the new season: ${memEntertainer.summaryMood || 'Excited'
       context,
       constraints: 'Write 3-4 sentences welcoming everyone to the new season. Build hype! Make a bold prediction or two. This is the PRESEASON - no games have been played yet.',
       maxTokens: 250,
+      episodeType: 'preseason',
     }),
     generateSection({
       persona: 'analyst',
@@ -212,6 +223,7 @@ Your mood heading into the new season: ${memEntertainer.summaryMood || 'Excited'
       context: context.replace(memEntertainer.summaryMood || 'Excited', memAnalyst.summaryMood || 'Analytical'),
       constraints: 'Write 2-3 sentences setting up the season analytically. Reference roster construction, offseason moves, or key players to watch. This is the PRESEASON - no games have been played yet.',
       maxTokens: 200,
+      episodeType: 'preseason',
     }),
   ]);
 
@@ -353,6 +365,190 @@ Your mood during the offseason: ${memEntertainer.summaryMood || 'Restless'}`;
   return { bot1_text, bot2_text };
 }
 
+// ============ Preseason-Specific Section Builders ============
+
+async function buildPowerRankings(
+  enhancedContext: string,
+  memEntertainer: BotMemory,
+  memAnalyst: BotMemory,
+  season: number
+): Promise<PowerRankingsSection> {
+  const leagueKnowledge = buildStaticLeagueContext();
+  
+  const context = `${leagueKnowledge}
+
+---
+
+PRESEASON POWER RANKINGS - ${season} SEASON
+
+You are creating PRESEASON power rankings based on HISTORICAL performance from previous seasons.
+This is BEFORE the ${season} season starts - rank teams based on their past performance, roster strength, and offseason moves.
+
+${enhancedContext}
+
+IMPORTANT: Base rankings on PREVIOUS seasons' data, not current season (which hasn't started).
+Consider: all-time records, championship history, recent trends, roster quality, offseason acquisitions.`;
+
+  const [bot1_intro, bot2_intro] = await Promise.all([
+    generateSection({
+      persona: 'entertainer',
+      sectionType: 'Power Rankings Intro',
+      context,
+      constraints: 'Write 2-3 sentences introducing your preseason power rankings. Be bold and opinionated about who you think will dominate.',
+      maxTokens: 150,
+    }),
+    generateSection({
+      persona: 'analyst',
+      sectionType: 'Power Rankings Intro',
+      context,
+      constraints: 'Write 2-3 sentences introducing your preseason power rankings. Reference historical data and roster analysis.',
+      maxTokens: 150,
+    }),
+  ]);
+
+  // Generate rankings with blurbs for each team
+  const rankingsResponse = await generateSection({
+    persona: 'analyst',
+    sectionType: 'Power Rankings List',
+    context: `${context}\n\nGenerate a numbered list of all 12 teams ranked 1-12 with a brief reason for each ranking. Format: "1. TeamName - reason"`,
+    constraints: 'List all 12 teams ranked 1-12. One line per team with brief reasoning. Base on historical performance and roster strength.',
+    maxTokens: 500,
+  });
+
+  // Parse rankings response
+  const rankingLines = rankingsResponse.split('\n').filter(l => l.trim() && /^\d+\./.test(l.trim()));
+  const rankings: PowerRankingsSection['rankings'] = rankingLines.slice(0, 12).map((line, idx) => {
+    const match = line.match(/^\d+\.\s*([^-–]+)[-–]\s*(.+)/);
+    const team = match ? match[1].trim() : `Team ${idx + 1}`;
+    const reason = match ? match[2].trim() : 'Strong roster heading into the season.';
+    
+    return {
+      rank: idx + 1,
+      team,
+      record: 'Preseason',
+      pointsFor: 0,
+      trend: 'steady' as const,
+      bot1_blurb: reason,
+      bot2_blurb: reason,
+    };
+  });
+
+  return { rankings, bot1_intro, bot2_intro };
+}
+
+async function buildSeasonPreview(
+  enhancedContext: string,
+  memEntertainer: BotMemory,
+  memAnalyst: BotMemory,
+  season: number
+): Promise<SeasonPreviewSection> {
+  const leagueKnowledge = buildStaticLeagueContext();
+  
+  const context = `${leagueKnowledge}
+
+---
+
+SEASON PREVIEW - ${season} SEASON
+
+Create an ESPN/Athletic style season preview. This is BEFORE the season starts.
+Base predictions on HISTORICAL performance from previous seasons, roster strength, and offseason moves.
+
+${enhancedContext}
+
+Think like a fantasy analyst doing a season preview:
+- Who are the contenders based on roster and history?
+- Who are the sleeper teams that could surprise?
+- Who might disappoint (bust candidates)?
+- Make bold predictions for the season`;
+
+  const [contendersResponse, sleepersResponse, bustsResponse, predictionsBot1, predictionsBot2, champBot1, champBot2] = await Promise.all([
+    generateSection({
+      persona: 'analyst',
+      sectionType: 'Season Preview - Contenders',
+      context,
+      constraints: 'List 3 championship contenders with brief reasons. Format: "TeamName: reason"',
+      maxTokens: 200,
+    }),
+    generateSection({
+      persona: 'entertainer',
+      sectionType: 'Season Preview - Sleepers',
+      context,
+      constraints: 'List 2-3 sleeper teams that could surprise. Format: "TeamName: reason"',
+      maxTokens: 150,
+    }),
+    generateSection({
+      persona: 'analyst',
+      sectionType: 'Season Preview - Bust Candidates',
+      context,
+      constraints: 'List 2 teams that might disappoint expectations. Format: "TeamName: reason"',
+      maxTokens: 150,
+    }),
+    generateSection({
+      persona: 'entertainer',
+      sectionType: 'Bold Predictions',
+      context,
+      constraints: 'Give 3 bold/hot take predictions for the season. Be spicy and controversial.',
+      maxTokens: 200,
+    }),
+    generateSection({
+      persona: 'analyst',
+      sectionType: 'Bold Predictions',
+      context,
+      constraints: 'Give 3 analytical predictions for the season based on data and trends.',
+      maxTokens: 200,
+    }),
+    generateSection({
+      persona: 'entertainer',
+      sectionType: 'Championship Pick',
+      context,
+      constraints: 'Pick your championship winner in one sentence. Be confident!',
+      maxTokens: 50,
+    }),
+    generateSection({
+      persona: 'analyst',
+      sectionType: 'Championship Pick',
+      context,
+      constraints: 'Pick your championship winner in one sentence with brief reasoning.',
+      maxTokens: 50,
+    }),
+  ]);
+
+  // Parse responses
+  const parseTeamList = (response: string): Array<{ team: string; reason: string }> => {
+    return response.split('\n')
+      .filter(l => l.trim())
+      .slice(0, 3)
+      .map(line => {
+        const match = line.match(/^[•\-\d.]*\s*([^:]+):\s*(.+)/) || line.match(/^[•\-\d.]*\s*(.+)/);
+        return {
+          team: match ? match[1].trim() : 'Unknown Team',
+          reason: match && match[2] ? match[2].trim() : line.trim(),
+        };
+      });
+  };
+
+  const parsePredictions = (response: string): string[] => {
+    return response.split('\n')
+      .filter(l => l.trim())
+      .slice(0, 3)
+      .map(l => l.replace(/^[•\-\d.]\s*/, '').trim());
+  };
+
+  return {
+    contenders: parseTeamList(contendersResponse),
+    sleepers: parseTeamList(sleepersResponse),
+    bustCandidates: parseTeamList(bustsResponse),
+    boldPredictions: {
+      bot1: parsePredictions(predictionsBot1),
+      bot2: parsePredictions(predictionsBot2),
+    },
+    championshipPick: {
+      bot1: champBot1.trim(),
+      bot2: champBot2.trim(),
+    },
+  };
+}
+
 async function buildWaiverItems(events: DerivedData['events_scored']): Promise<WaiverItem[]> {
   const waiverEvents = events.filter(e => e.type === 'waiver' || (e.type === 'fa_add' && e.relevance_score >= 40));
   
@@ -398,10 +594,8 @@ async function buildTradeItems(events: DerivedData['events_scored']): Promise<Tr
   
   if (tradeEvents.length === 0) return [];
 
-  const items: TradeItem[] = [];
-
-  for (const e of tradeEvents) {
-    // Build detailed trade context showing what each side got
+  // Build all trade contexts first
+  const tradeContexts = tradeEvents.map(e => {
     const byTeam = e.details?.by_team || {};
     const parties = e.parties || Object.keys(byTeam);
     
@@ -419,9 +613,18 @@ async function buildTradeItems(events: DerivedData['events_scored']): Promise<Tr
       ? `${parties.join(' traded with ')}: ${e.details.headline}${tradeBreakdown}`
       : `Trade between ${parties.join(' and ')}${tradeBreakdown}`;
 
-    // Generate analysis for EACH SIDE separately
-    const analysis: Record<string, { grade: string; deltaText: string; entertainer_paragraph: string; analyst_paragraph: string }> = {};
-    
+    return { event: e, parties, byTeam, tradeContext };
+  });
+
+  // Build all party analysis requests
+  const allPartyRequests: Array<{
+    tradeIdx: number;
+    party: string;
+    sideContext: string;
+  }> = [];
+
+  for (let i = 0; i < tradeContexts.length; i++) {
+    const { parties, byTeam, tradeContext } = tradeContexts[i];
     for (const party of parties) {
       const teamAssets = byTeam[party];
       const gets = teamAssets?.gets?.join(', ') || 'assets';
@@ -432,6 +635,13 @@ Full trade: ${tradeContext}
 ${party}'s haul: RECEIVED ${gets} | GAVE UP ${gives}
 Evaluate this trade FROM ${party.toUpperCase()}'S PERSPECTIVE ONLY.`;
 
+      allPartyRequests.push({ tradeIdx: i, party, sideContext });
+    }
+  }
+
+  // Generate all analyses in parallel (rate limiting handled by groq client)
+  const allResponses = await Promise.all(
+    allPartyRequests.map(async ({ party, sideContext }) => {
       const [entertainerResponse, analystResponse] = await Promise.all([
         generateSection({
           persona: 'entertainer',
@@ -449,10 +659,23 @@ Evaluate this trade FROM ${party.toUpperCase()}'S PERSPECTIVE ONLY.`;
         }),
       ]);
 
-      // Extract grade from response (look for letter grade pattern)
       const gradeMatch = entertainerResponse.match(/\b([A-F][+-]?)\b/i) || analystResponse.match(/\b([A-F][+-]?)\b/i);
       const grade = gradeMatch ? gradeMatch[1].toUpperCase() : 'B';
 
+      return { entertainerResponse, analystResponse, grade };
+    })
+  );
+
+  // Reconstruct trade items with analyses
+  const items: TradeItem[] = [];
+  let responseIdx = 0;
+
+  for (let i = 0; i < tradeContexts.length; i++) {
+    const { event: e, parties, tradeContext } = tradeContexts[i];
+    const analysis: Record<string, { grade: string; deltaText: string; entertainer_paragraph: string; analyst_paragraph: string }> = {};
+
+    for (const party of parties) {
+      const { entertainerResponse, analystResponse, grade } = allResponses[responseIdx++];
       analysis[party] = {
         grade,
         deltaText: `${party}'s side`,
@@ -475,14 +698,29 @@ Evaluate this trade FROM ${party.toUpperCase()}'S PERSPECTIVE ONLY.`;
 }
 
 async function buildSpotlight(pairs: DerivedData['matchup_pairs'], memEntertainer: BotMemory, memAnalyst: BotMemory, enhancedContext: string = ''): Promise<SpotlightSection | null> {
-  const spotlightPair = pairs[0] || null;
-  if (!spotlightPair) return null;
+  if (!pairs.length) return null;
 
-  const context = `Team of the Week: ${spotlightPair.winner.name}
-- Beat ${spotlightPair.loser.name} by ${spotlightPair.margin.toFixed(1)} points
-- Scored ${spotlightPair.winner.points.toFixed(1)} total points
-- This was the biggest margin of victory this week
-- Your history with this team: ${memEntertainer.teams[spotlightPair.winner.name]?.mood || 'Neutral'}
+  // Intelligent spotlight selection - pick the most interesting team
+  // Criteria: biggest blowout winner, highest scorer, or most dramatic result
+  const candidates = pairs.map(p => ({
+    team: p.winner.name,
+    opponent: p.loser.name,
+    points: p.winner.points,
+    margin: p.margin,
+    // Score based on: high points, big margin, or close game drama
+    interestScore: p.winner.points / 100 + (p.margin > 30 ? 2 : p.margin < 5 ? 1.5 : p.margin / 20),
+  }));
+  
+  // Sort by interest score and pick the top
+  candidates.sort((a, b) => b.interestScore - a.interestScore);
+  const spotlight = candidates[0];
+  const spotlightPair = pairs.find(p => p.winner.name === spotlight.team)!;
+
+  const context = `Team of the Week: ${spotlight.team}
+- Beat ${spotlight.opponent} by ${spotlight.margin.toFixed(1)} points
+- Scored ${spotlight.points.toFixed(1)} total points
+- ${spotlight.margin > 30 ? 'DOMINANT performance - biggest blowout of the week' : spotlight.margin < 5 ? 'Nail-biter win - clutch performance' : 'Solid victory this week'}
+- Your history with this team: ${memEntertainer.teams[spotlight.team]?.mood || 'Neutral'}
 ${enhancedContext}`;
 
   const [bot1, bot2] = await Promise.all([
@@ -599,6 +837,11 @@ async function buildRecaps(
     matchup_id: p.matchup_id,
     bot1: entParagraphs[i]?.trim() || `${p.winner.name} takes down ${p.loser.name} by ${p.margin.toFixed(1)}. Moving on.`,
     bot2: anaParagraphs[i]?.trim() || `${p.winner.name} ${p.winner.points.toFixed(1)}, ${p.loser.name} ${p.loser.points.toFixed(1)}. Margin: ${p.margin.toFixed(1)}.`,
+    // Team info for visual display with team colors
+    winner: p.winner.name,
+    loser: p.loser.name,
+    winner_score: p.winner.points,
+    loser_score: p.loser.points,
   }));
 }
 
@@ -686,6 +929,10 @@ export interface ComposeNewsletterInput {
   lastCallbacks?: CallbacksSection | null;
   // Enhanced context (optional)
   enhancedContext?: EnhancedContext;
+  // For LLM features
+  h2hData?: Record<string, Record<string, { wins: number; losses: number }>>;
+  previousPredictions?: Array<{ week: number; pick: string; actual: string; correct: boolean }>;
+  previousHotTakes?: WeeklyHotTake[];
 }
 
 export async function composeNewsletter(input: ComposeNewsletterInput): Promise<Newsletter> {
@@ -700,6 +947,9 @@ export async function composeNewsletter(input: ComposeNewsletterInput): Promise<
     forecast,
     lastCallbacks,
     enhancedContext,
+    h2hData,
+    previousPredictions,
+    previousHotTakes,
   } = input;
 
   // Get episode configuration for section filtering
@@ -741,6 +991,32 @@ export async function composeNewsletter(input: ComposeNewsletterInput): Promise<
     excludeSections.has('MatchupRecaps') ? Promise.resolve([]) : buildRecaps(pairs, memEntertainer, memAnalyst, week, fullEnhancedContext),
   ]);
 
+  console.log(`[Compose] Core sections generated via LLM`);
+
+  // Generate all new LLM-powered features (debates, hot takes, awards, etc.)
+  let llmFeatures: LLMFeaturesOutput | null = null;
+  if (episodeType === 'regular' && pairs.length > 0) {
+    console.log(`[Compose] Generating LLM-powered features (debates, hot takes, awards, etc.)...`);
+    try {
+      const llmInput: LLMFeaturesInput = {
+        week,
+        pairs,
+        upcomingPairs: derived.upcoming_pairs || [],
+        picks: forecast?.picks || [],
+        trades: tradeItems,
+        standings: enhancedContext?.standings,
+        h2hData,
+        previousPredictions,
+        previousHotTakes,
+        context: fullEnhancedContext,
+      };
+      llmFeatures = await generateAllLLMFeatures(llmInput);
+      console.log(`[Compose] LLM features generated: ${llmFeatures.debates.length} debates, ${llmFeatures.hotTakes.length} hot takes, ${llmFeatures.whatIfs.length} what-ifs`);
+    } catch (error) {
+      console.error(`[Compose] Failed to generate LLM features:`, error);
+    }
+  }
+
   console.log(`[Compose] All sections generated via LLM`);
   console.log(`[Compose] Episode type: ${episodeType}, excluding sections: ${Array.from(excludeSections).join(', ') || 'none'}`);
 
@@ -748,6 +1024,18 @@ export async function composeNewsletter(input: ComposeNewsletterInput): Promise<
   const sections: NewsletterSection[] = [
     { type: 'Intro', data: intro },
   ];
+
+  // Build special episode sections for preseason
+  if (episodeType === 'preseason') {
+    console.log(`[Compose] Building preseason-specific sections...`);
+    const [powerRankings, seasonPreview] = await Promise.all([
+      buildPowerRankings(fullEnhancedContext, memEntertainer, memAnalyst, season),
+      buildSeasonPreview(fullEnhancedContext, memEntertainer, memAnalyst, season),
+    ]);
+    sections.push({ type: 'PowerRankings', data: powerRankings });
+    sections.push({ type: 'SeasonPreview', data: seasonPreview });
+    console.log(`[Compose] Preseason sections built successfully`);
+  }
 
   if (lastCallbacks && !excludeSections.has('Callbacks')) {
     sections.push({ type: 'Callbacks', data: lastCallbacks });
@@ -771,6 +1059,49 @@ export async function composeNewsletter(input: ComposeNewsletterInput): Promise<
 
   if (forecast && !excludeSections.has('Forecast')) {
     sections.push({ type: 'Forecast', data: forecast });
+  }
+
+  // Add LLM-powered feature sections (only for regular episodes with data)
+  if (llmFeatures) {
+    // Bot debates when they disagree
+    if (llmFeatures.debates.length > 0) {
+      sections.push({ type: 'BotDebates', data: llmFeatures.debates });
+    }
+    
+    // Weekly awards (MVP, Bust, etc.)
+    if (llmFeatures.awards) {
+      sections.push({ type: 'WeeklyAwards', data: llmFeatures.awards });
+    }
+    
+    // Hot takes from both bots
+    if (llmFeatures.hotTakes.length > 0) {
+      sections.push({ type: 'HotTakes', data: llmFeatures.hotTakes });
+    }
+    
+    // What-if scenarios for close games
+    if (llmFeatures.whatIfs.length > 0) {
+      sections.push({ type: 'WhatIf', data: llmFeatures.whatIfs });
+    }
+    
+    // Dynasty analysis for trades
+    if (llmFeatures.dynastyAnalysis.length > 0) {
+      sections.push({ type: 'DynastyAnalysis', data: llmFeatures.dynastyAnalysis });
+    }
+    
+    // Rivalry matchups
+    if (llmFeatures.rivalries.length > 0) {
+      sections.push({ type: 'RivalryWatch', data: llmFeatures.rivalries });
+    }
+    
+    // Playoff odds commentary
+    if (llmFeatures.playoffOdds) {
+      sections.push({ type: 'PlayoffOdds', data: llmFeatures.playoffOdds });
+    }
+    
+    // Narrative callbacks (grading past predictions)
+    if (llmFeatures.callbacks.length > 0) {
+      sections.push({ type: 'NarrativeCallbacks', data: llmFeatures.callbacks });
+    }
   }
 
   sections.push({ type: 'FinalWord', data: finalWord });

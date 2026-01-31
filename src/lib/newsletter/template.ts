@@ -14,7 +14,62 @@ import type {
   ForecastData,
   FinalWordSection,
   CallbacksSection,
+  PowerRankingsSection,
+  SeasonPreviewSection,
+  BotDebate,
+  WeeklyHotTake,
+  WeeklyAwards,
+  WhatIfScenario,
+  DynastyAnalysis,
+  RivalryMatchup,
+  PlayoffOddsSection,
+  NarrativeCallback,
 } from './types';
+import { TEAM_COLORS } from '@/lib/constants/team-colors';
+
+// ============ Team Color Helpers ============
+
+function getTeamColor(teamName: string, type: 'primary' | 'secondary' = 'primary'): string {
+  const colors = TEAM_COLORS[teamName];
+  if (!colors) return type === 'primary' ? '#3b5b8b' : '#ba1010';
+  return type === 'primary' ? colors.primary : colors.secondary;
+}
+
+function teamBadge(teamName: string, size: 'sm' | 'md' | 'lg' = 'md'): string {
+  const primary = getTeamColor(teamName, 'primary');
+  const secondary = getTeamColor(teamName, 'secondary');
+  const sizes = { sm: '24px', md: '32px', lg: '48px' };
+  const fontSize = { sm: '10px', md: '12px', lg: '16px' };
+  const initials = teamName.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
+  
+  return `<span style="display:inline-flex;align-items:center;justify-content:center;width:${sizes[size]};height:${sizes[size]};border-radius:50%;background:linear-gradient(135deg, ${primary}, ${secondary});color:#fff;font-weight:700;font-size:${fontSize[size]};flex-shrink:0;">${initials}</span>`;
+}
+
+function teamNameStyled(teamName: string): string {
+  const primary = getTeamColor(teamName, 'primary');
+  return `<span style="font-weight:600;color:${primary};">${esc(teamName)}</span>`;
+}
+
+function matchupVsBlock(team1: string, team2: string, score1?: number, score2?: number): string {
+  const t1Primary = getTeamColor(team1, 'primary');
+  const t2Primary = getTeamColor(team2, 'primary');
+  const winner = score1 !== undefined && score2 !== undefined ? (score1 > score2 ? team1 : team2) : null;
+  
+  return `
+  <div style="display:flex;align-items:center;gap:12px;padding:12px;background:#f9fafb;border-radius:8px;margin:8px 0;">
+    <div style="flex:1;text-align:right;">
+      ${teamBadge(team1, 'sm')}
+      <span style="margin-left:8px;font-weight:${winner === team1 ? '700' : '500'};color:${t1Primary};">${esc(team1)}</span>
+      ${score1 !== undefined ? `<span style="margin-left:8px;font-weight:700;color:${winner === team1 ? '#059669' : '#6b7280'};">${score1.toFixed(1)}</span>` : ''}
+    </div>
+    <div style="font-weight:700;color:#9ca3af;font-size:12px;">VS</div>
+    <div style="flex:1;text-align:left;">
+      ${score2 !== undefined ? `<span style="margin-right:8px;font-weight:700;color:${winner === team2 ? '#059669' : '#6b7280'};">${score2.toFixed(1)}</span>` : ''}
+      <span style="margin-right:8px;font-weight:${winner === team2 ? '700' : '500'};color:${t2Primary};">${esc(team2)}</span>
+      ${teamBadge(team2, 'sm')}
+    </div>
+  </div>`;
+}
 
 // ============ Helper Functions ============
 
@@ -59,15 +114,36 @@ function dualPerspective(entertainerText: string, analystText: string): string {
 
 // ============ Section Renderers ============
 
-function sectionIntro(d: IntroSection, week: number): string {
-  const isChampionship = week >= 17;
+function sectionIntro(d: IntroSection, week: number, episodeType?: string, episodeTitle?: string): string {
+  const isChampionship = week >= 17 || episodeType === 'championship';
   const isSemifinal = week === 16;
-  const isPlayoffs = week >= 15;
+  const isPlayoffs = week >= 15 || episodeType === 'playoffs_round' || episodeType === 'playoffs_preview';
+  const isSpecialEpisode = episodeType && episodeType !== 'regular';
   
   let headerTitle = `WEEK ${week} RECAP`;
   let subtitle = '';
   
-  if (isChampionship) {
+  // Handle special episode types first
+  if (isSpecialEpisode && episodeTitle) {
+    headerTitle = episodeTitle.toUpperCase();
+    switch (episodeType) {
+      case 'preseason':
+        subtitle = 'Your complete guide to the upcoming season';
+        break;
+      case 'pre_draft':
+        subtitle = 'Everything you need to know before the draft';
+        break;
+      case 'post_draft':
+        subtitle = 'Grading every team\'s draft haul';
+        break;
+      case 'offseason':
+        subtitle = 'Catching up on league news';
+        break;
+      case 'trade_deadline':
+        subtitle = 'Breaking down the deadline deals';
+        break;
+    }
+  } else if (isChampionship) {
     headerTitle = '🏆 CHAMPIONSHIP EDITION';
     subtitle = 'The final showdown is here. One team will be crowned champion.';
   } else if (isSemifinal) {
@@ -141,9 +217,16 @@ function sectionRecaps(list: RecapItem[], week: number): string {
       ? 'background:linear-gradient(135deg, #fef3c7, #fff7ed);border:2px solid #f59e0b;'
       : 'background:#fff;border:1px solid #e5e7eb;';
     
+    // Extract team names and scores from recap data if available
+    const winner = x.winner || '';
+    const loser = x.loser || '';
+    const winnerScore = x.winner_score;
+    const loserScore = x.loser_score;
+    
     return `
     <div style="${cardStyle}border-radius:12px;padding:24px;margin-bottom:20px;">
       <div style="font-weight:700;font-size:${isChampMatch ? '16px' : '14px'};color:${isChampMatch ? '#92400e' : '#374151'};margin-bottom:16px;${isChampMatch ? 'text-align:center;' : ''}">${matchLabel}</div>
+      ${winner && loser ? matchupVsBlock(winner, loser, winnerScore, loserScore) : ''}
       ${dualPerspective(x.bot1, x.bot2)}
     </div>`;
   }).join('');
@@ -286,6 +369,345 @@ function sectionFinal(d: FinalWordSection): string {
   </article>`;
 }
 
+// ============ New LLM-Powered Section Renderers ============
+
+function sectionBotDebates(debates: BotDebate[]): string {
+  if (!debates || debates.length === 0) return '';
+
+  const debateCards = debates.map(d => `
+    <div style="background:#fff;border:2px solid #dc2626;border-radius:12px;padding:20px;margin-bottom:20px;">
+      <div style="text-align:center;margin-bottom:16px;">
+        <span style="background:linear-gradient(135deg, #dc2626, #f59e0b);color:#fff;padding:4px 12px;border-radius:20px;font-size:12px;font-weight:700;">🔥 DEBATE 🔥</span>
+      </div>
+      <div style="font-weight:700;font-size:18px;text-align:center;margin-bottom:16px;">${esc(d.team1)} vs ${esc(d.team2)}</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+        <div style="background:linear-gradient(135deg, #fef3c7, #fde68a);padding:16px;border-radius:8px;">
+          <div style="font-size:11px;color:#92400e;font-weight:600;margin-bottom:8px;">🎭 ENTERTAINER PICKS: ${esc(d.entertainer_position)}</div>
+          <div style="font-size:14px;color:#1f2937;">${esc(d.entertainer_argument)}</div>
+        </div>
+        <div style="background:#f0f9ff;padding:16px;border-radius:8px;">
+          <div style="font-size:11px;color:#0b5f98;font-weight:600;margin-bottom:8px;">📊 ANALYST PICKS: ${esc(d.analyst_position)}</div>
+          <div style="font-size:14px;color:#1f2937;">${esc(d.analyst_argument)}</div>
+        </div>
+      </div>
+    </div>
+  `).join('');
+
+  return `
+  <article>
+    ${sectionHeader('THE GREAT DEBATE', 'When our columnists disagree')}
+    ${debateCards}
+  </article>`;
+}
+
+function sectionHotTakes(takes: WeeklyHotTake[]): string {
+  if (!takes || takes.length === 0) return '';
+
+  const boldnessEmoji = { mild: '🌶️', spicy: '🌶️🌶️', nuclear: '🌶️🌶️🌶️' };
+  const boldnessColor = { mild: '#f59e0b', spicy: '#dc2626', nuclear: '#7c2d12' };
+
+  const takeCards = takes.map(t => `
+    <div style="background:#fff;border-left:4px solid ${boldnessColor[t.boldness]};padding:16px;margin-bottom:12px;border-radius:0 8px 8px 0;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+        <span style="font-size:12px;color:#6b7280;">${t.bot === 'entertainer' ? '🎭 Entertainer' : '📊 Analyst'}</span>
+        <span style="font-size:12px;">${boldnessEmoji[t.boldness]} ${t.boldness.toUpperCase()}</span>
+      </div>
+      <div style="font-weight:700;color:#111827;margin-bottom:4px;">${esc(t.subject)}</div>
+      <div style="font-size:15px;color:#374151;">${esc(t.take)}</div>
+      ${t.followUp ? `<div style="margin-top:8px;font-size:13px;color:#6b7280;font-style:italic;">Update: ${esc(t.followUp)}</div>` : ''}
+    </div>
+  `).join('');
+
+  return `
+  <article>
+    ${sectionHeader('🔥 HOT TAKES', 'Bold predictions we\'ll grade later')}
+    ${takeCards}
+  </article>`;
+}
+
+function sectionWeeklyAwards(awards: WeeklyAwards): string {
+  if (!awards) return '';
+
+  return `
+  <article>
+    ${sectionHeader('🏆 WEEKLY AWARDS', 'This week\'s winners and losers')}
+    
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:20px;">
+      <div style="background:linear-gradient(135deg, #dcfce7, #bbf7d0);border-radius:12px;padding:20px;">
+        <div style="font-size:12px;color:#166534;font-weight:600;margin-bottom:8px;">🏅 MVP OF THE WEEK</div>
+        <div style="font-weight:700;font-size:18px;color:#14532d;">${esc(awards.mvp.team)}</div>
+        ${awards.mvp.points ? `<div style="font-size:14px;color:#166534;margin-bottom:12px;">${awards.mvp.points.toFixed(1)} points</div>` : ''}
+        <div style="font-size:13px;color:#15803d;margin-bottom:8px;">🎭 ${esc(awards.mvp.entertainer_take)}</div>
+        <div style="font-size:13px;color:#166534;">📊 ${esc(awards.mvp.analyst_take)}</div>
+      </div>
+      
+      <div style="background:linear-gradient(135deg, #fee2e2, #fecaca);border-radius:12px;padding:20px;">
+        <div style="font-size:12px;color:#991b1b;font-weight:600;margin-bottom:8px;">💀 BUST OF THE WEEK</div>
+        <div style="font-weight:700;font-size:18px;color:#7f1d1d;">${esc(awards.bust.team)}</div>
+        ${awards.bust.points ? `<div style="font-size:14px;color:#991b1b;margin-bottom:12px;">${awards.bust.points.toFixed(1)} points</div>` : ''}
+        <div style="font-size:13px;color:#b91c1c;margin-bottom:8px;">🎭 ${esc(awards.bust.entertainer_take)}</div>
+        <div style="font-size:13px;color:#991b1b;">📊 ${esc(awards.bust.analyst_take)}</div>
+      </div>
+    </div>
+
+    ${awards.biggest_blowout ? `
+    <div style="background:#f9fafb;border-radius:8px;padding:16px;margin-bottom:12px;">
+      <div style="font-size:12px;color:#6b7280;font-weight:600;margin-bottom:4px;">💥 BIGGEST BLOWOUT</div>
+      <div style="font-weight:600;">${esc(awards.biggest_blowout.winner)} destroyed ${esc(awards.biggest_blowout.loser)} by ${awards.biggest_blowout.margin.toFixed(1)}</div>
+      <div style="font-size:13px;color:#6b7280;margin-top:4px;">${esc(awards.biggest_blowout.commentary)}</div>
+    </div>` : ''}
+
+    ${awards.nail_biter ? `
+    <div style="background:#f9fafb;border-radius:8px;padding:16px;">
+      <div style="font-size:12px;color:#6b7280;font-weight:600;margin-bottom:4px;">😰 NAIL-BITER</div>
+      <div style="font-weight:600;">${esc(awards.nail_biter.winner)} edged ${esc(awards.nail_biter.loser)} by ${awards.nail_biter.margin.toFixed(1)}</div>
+      <div style="font-size:13px;color:#6b7280;margin-top:4px;">${esc(awards.nail_biter.commentary)}</div>
+    </div>` : ''}
+  </article>`;
+}
+
+function sectionWhatIf(scenarios: WhatIfScenario[]): string {
+  if (!scenarios || scenarios.length === 0) return '';
+
+  const scenarioCards = scenarios.map(s => `
+    <div style="background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:16px;margin-bottom:12px;">
+      <div style="font-size:12px;color:#6b7280;margin-bottom:8px;">${esc(s.winner)} beat ${esc(s.loser)} by ${s.margin.toFixed(1)}</div>
+      <div style="font-weight:600;color:#111827;">${esc(s.scenario)}</div>
+      <div style="color:#059669;margin-top:4px;">→ ${esc(s.outcome_change)}</div>
+    </div>
+  `).join('');
+
+  return `
+  <article>
+    ${sectionHeader('🤔 WHAT IF...', 'Alternative timelines for close games')}
+    ${scenarioCards}
+  </article>`;
+}
+
+function sectionDynastyAnalysis(analyses: DynastyAnalysis[]): string {
+  if (!analyses || analyses.length === 0) return '';
+
+  const analysisCards = analyses.map(a => `
+    <div style="background:linear-gradient(135deg, #f3e8ff, #e9d5ff);border-radius:12px;padding:20px;margin-bottom:16px;">
+      <div style="font-size:12px;color:#7c3aed;font-weight:600;margin-bottom:12px;">👑 DYNASTY DEEP DIVE</div>
+      <div style="font-weight:700;font-size:16px;margin-bottom:12px;">${a.teams.join(' ↔️ ')}</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;">
+        <div style="background:#fff;padding:12px;border-radius:8px;">
+          <div style="font-size:11px;color:#6b7280;">Short-term Winner</div>
+          <div style="font-weight:700;color:#059669;">${esc(a.short_term_winner)}</div>
+        </div>
+        <div style="background:#fff;padding:12px;border-radius:8px;">
+          <div style="font-size:11px;color:#6b7280;">Long-term Winner</div>
+          <div style="font-weight:700;color:#7c3aed;">${esc(a.long_term_winner)}</div>
+        </div>
+      </div>
+      ${dualPerspective(a.entertainer_dynasty_take, a.analyst_dynasty_take)}
+    </div>
+  `).join('');
+
+  return `
+  <article>
+    ${sectionHeader('DYNASTY OUTLOOK', 'Long-term trade implications')}
+    ${analysisCards}
+  </article>`;
+}
+
+function sectionRivalryWatch(rivalries: RivalryMatchup[]): string {
+  if (!rivalries || rivalries.length === 0) return '';
+
+  const rivalryCards = rivalries.map(r => `
+    <div style="background:linear-gradient(135deg, #1f2937, #374151);color:#fff;border-radius:12px;padding:20px;margin-bottom:16px;">
+      <div style="text-align:center;margin-bottom:16px;">
+        ${r.rivalry_name ? `<div style="font-size:12px;color:#f59e0b;font-weight:600;margin-bottom:4px;">${esc(r.rivalry_name)}</div>` : ''}
+        <div style="font-size:24px;font-weight:800;">${esc(r.team1)} vs ${esc(r.team2)}</div>
+        <div style="font-size:14px;color:#9ca3af;margin-top:4px;">All-time: ${r.all_time_record.team1_wins}-${r.all_time_record.team2_wins}</div>
+      </div>
+      <div style="background:rgba(255,255,255,0.1);border-radius:8px;padding:16px;margin-bottom:12px;">
+        <div style="font-size:11px;color:#f59e0b;font-weight:600;margin-bottom:4px;">🎭 THE HYPE</div>
+        <div style="font-size:14px;">${esc(r.entertainer_hype)}</div>
+      </div>
+      <div style="background:rgba(255,255,255,0.1);border-radius:8px;padding:16px;">
+        <div style="font-size:11px;color:#60a5fa;font-weight:600;margin-bottom:4px;">📊 THE BREAKDOWN</div>
+        <div style="font-size:14px;">${esc(r.analyst_breakdown)}</div>
+      </div>
+    </div>
+  `).join('');
+
+  return `
+  <article>
+    ${sectionHeader('⚔️ RIVALRY WATCH', 'When history meets the present')}
+    ${rivalryCards}
+  </article>`;
+}
+
+function sectionPlayoffOdds(odds: PlayoffOddsSection): string {
+  if (!odds) return '';
+
+  return `
+  <article>
+    ${sectionHeader('📊 PLAYOFF PICTURE', 'Who\'s in, who\'s out, who\'s sweating')}
+    
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:20px;">
+      <div style="background:#dcfce7;border-radius:8px;padding:16px;text-align:center;">
+        <div style="font-size:12px;color:#166534;font-weight:600;margin-bottom:8px;">✅ CLINCHED</div>
+        ${odds.clinched.length > 0 
+          ? odds.clinched.map(t => `<div style="font-weight:600;color:#14532d;">${esc(t)}</div>`).join('')
+          : '<div style="color:#6b7280;font-size:13px;">None yet</div>'}
+      </div>
+      <div style="background:#fef3c7;border-radius:8px;padding:16px;text-align:center;">
+        <div style="font-size:12px;color:#92400e;font-weight:600;margin-bottom:8px;">😰 BUBBLE</div>
+        ${odds.bubble_teams.length > 0 
+          ? odds.bubble_teams.map(t => `<div style="font-weight:600;color:#78350f;">${esc(t.team)} (${t.wins}-${t.losses})</div><div style="font-size:11px;color:#92400e;">${esc(t.scenario)}</div>`).join('')
+          : '<div style="color:#6b7280;font-size:13px;">TBD</div>'}
+      </div>
+      <div style="background:#fee2e2;border-radius:8px;padding:16px;text-align:center;">
+        <div style="font-size:12px;color:#991b1b;font-weight:600;margin-bottom:8px;">❌ ELIMINATED</div>
+        ${odds.eliminated.length > 0 
+          ? odds.eliminated.map(t => `<div style="font-weight:600;color:#7f1d1d;">${esc(t)}</div>`).join('')
+          : '<div style="color:#6b7280;font-size:13px;">None yet</div>'}
+      </div>
+    </div>
+
+    ${dualPerspective(odds.entertainer_commentary, odds.analyst_commentary)}
+  </article>`;
+}
+
+function sectionNarrativeCallbacks(callbacks: NarrativeCallback[]): string {
+  if (!callbacks || callbacks.length === 0) return '';
+
+  const callbackCards = callbacks.map(c => {
+    const typeEmoji = {
+      prediction_grade: '🎯',
+      hot_take_followup: '🌶️',
+      streak_update: '📈',
+      rivalry_continuation: '⚔️',
+    };
+    const typeLabel = {
+      prediction_grade: 'Prediction Check',
+      hot_take_followup: 'Hot Take Update',
+      streak_update: 'Streak Watch',
+      rivalry_continuation: 'Rivalry Update',
+    };
+
+    return `
+    <div style="background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:16px;margin-bottom:12px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+        <span style="font-size:12px;color:#6b7280;">${typeEmoji[c.type]} ${typeLabel[c.type]}</span>
+        <span style="font-size:11px;color:#9ca3af;">Week ${c.original_week}</span>
+      </div>
+      <div style="font-size:13px;color:#6b7280;margin-bottom:8px;">Original: "${esc(c.original_statement)}"</div>
+      <div style="font-weight:600;color:#111827;margin-bottom:4px;">${esc(c.current_status)}</div>
+      <div style="font-size:14px;color:#374151;font-style:italic;">"${esc(c.bot_reaction)}"</div>
+    </div>
+  `;
+  }).join('');
+
+  return `
+  <article>
+    ${sectionHeader('📜 RECEIPTS', 'Following up on past predictions')}
+    ${callbackCards}
+  </article>`;
+}
+
+// ============ Special Episode Section Renderers ============
+
+function sectionPowerRankings(d: PowerRankingsSection): string {
+  const rankings = (d.rankings || []).map(r => `
+    <div style="display:flex;align-items:center;gap:16px;padding:16px;background:#fff;border:1px solid #e5e7eb;border-radius:8px;margin-bottom:12px;">
+      <div style="width:40px;height:40px;background:${r.rank <= 3 ? 'linear-gradient(135deg, #f59e0b, #d97706)' : r.rank <= 6 ? '#3b82f6' : '#6b7280'};color:#fff;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:18px;">
+        ${r.rank}
+      </div>
+      <div style="flex:1;">
+        <div style="font-weight:700;font-size:16px;color:#111827;">${esc(r.team)}</div>
+        <div style="font-size:13px;color:#6b7280;margin-top:4px;">${esc(r.bot1_blurb)}</div>
+      </div>
+    </div>
+  `).join('');
+
+  return `
+  <article>
+    ${sectionHeader('PRESEASON POWER RANKINGS', 'Who\'s poised for glory?')}
+    ${dualPerspective(d.bot1_intro, d.bot2_intro)}
+    <div style="margin-top:24px;">
+      ${rankings}
+    </div>
+  </article>`;
+}
+
+function sectionSeasonPreview(d: SeasonPreviewSection): string {
+  const contenders = (d.contenders || []).map(c => `
+    <div style="padding:12px;background:#dcfce7;border-left:4px solid #22c55e;border-radius:0 8px 8px 0;margin-bottom:8px;">
+      <div style="font-weight:700;color:#166534;">${esc(c.team)}</div>
+      <div style="font-size:13px;color:#15803d;">${esc(c.reason)}</div>
+    </div>
+  `).join('');
+
+  const sleepers = (d.sleepers || []).map(s => `
+    <div style="padding:12px;background:#fef3c7;border-left:4px solid #f59e0b;border-radius:0 8px 8px 0;margin-bottom:8px;">
+      <div style="font-weight:700;color:#92400e;">${esc(s.team)}</div>
+      <div style="font-size:13px;color:#a16207;">${esc(s.reason)}</div>
+    </div>
+  `).join('');
+
+  const busts = (d.bustCandidates || []).map(b => `
+    <div style="padding:12px;background:#fee2e2;border-left:4px solid #ef4444;border-radius:0 8px 8px 0;margin-bottom:8px;">
+      <div style="font-weight:700;color:#991b1b;">${esc(b.team)}</div>
+      <div style="font-size:13px;color:#b91c1c;">${esc(b.reason)}</div>
+    </div>
+  `).join('');
+
+  const predictions1 = (d.boldPredictions?.bot1 || []).map(p => `<li style="margin-bottom:8px;">${esc(p)}</li>`).join('');
+  const predictions2 = (d.boldPredictions?.bot2 || []).map(p => `<li style="margin-bottom:8px;">${esc(p)}</li>`).join('');
+
+  return `
+  <article>
+    ${sectionHeader('SEASON PREVIEW', 'Your complete guide to the upcoming season')}
+    
+    <div style="margin-bottom:32px;">
+      <h3 style="font-size:16px;font-weight:700;color:#111827;margin-bottom:16px;">🏆 Championship Contenders</h3>
+      ${contenders || '<div style="color:#6b7280;">No contenders identified.</div>'}
+    </div>
+
+    <div style="margin-bottom:32px;">
+      <h3 style="font-size:16px;font-weight:700;color:#111827;margin-bottom:16px;">😴 Sleeper Teams</h3>
+      ${sleepers || '<div style="color:#6b7280;">No sleepers identified.</div>'}
+    </div>
+
+    <div style="margin-bottom:32px;">
+      <h3 style="font-size:16px;font-weight:700;color:#111827;margin-bottom:16px;">📉 Bust Watch</h3>
+      ${busts || '<div style="color:#6b7280;">No bust candidates identified.</div>'}
+    </div>
+
+    <div style="margin-bottom:32px;">
+      <h3 style="font-size:16px;font-weight:700;color:#111827;margin-bottom:16px;">🔥 Bold Predictions</h3>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;">
+        <div style="background:linear-gradient(135deg, #fef3c7, #fde68a);padding:16px;border-radius:8px;">
+          <div style="font-weight:600;font-size:12px;color:#92400e;margin-bottom:8px;">🎭 THE ENTERTAINER</div>
+          <ul style="margin:0;padding-left:20px;font-size:14px;color:#1f2937;">${predictions1}</ul>
+        </div>
+        <div style="background:#f0f9ff;padding:16px;border-radius:8px;">
+          <div style="font-weight:600;font-size:12px;color:#0b5f98;margin-bottom:8px;">📊 THE ANALYST</div>
+          <ul style="margin:0;padding-left:20px;font-size:14px;color:#374151;">${predictions2}</ul>
+        </div>
+      </div>
+    </div>
+
+    <div style="background:linear-gradient(135deg, #fef3c7, #fff7ed);border:2px solid #f59e0b;border-radius:12px;padding:24px;text-align:center;">
+      <h3 style="font-size:18px;font-weight:700;color:#92400e;margin:0 0 16px;">🏆 Championship Picks</h3>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;">
+        <div>
+          <div style="font-size:12px;color:#92400e;margin-bottom:4px;">🎭 Entertainer</div>
+          <div style="font-weight:700;font-size:15px;color:#1f2937;">${esc(d.championshipPick?.bot1 || 'TBD')}</div>
+        </div>
+        <div>
+          <div style="font-size:12px;color:#0b5f98;margin-bottom:4px;">📊 Analyst</div>
+          <div style="font-weight:700;font-size:15px;color:#1f2937;">${esc(d.championshipPick?.bot2 || 'TBD')}</div>
+        </div>
+      </div>
+    </div>
+  </article>`;
+}
+
 // ============ Main Render Function ============
 
 export function renderHtml(newsletter: Newsletter): string {
@@ -353,7 +775,7 @@ export function renderHtml(newsletter: Newsletter): string {
 
   const body = sections.map(s => {
     switch (s.type) {
-      case 'Intro': return sectionIntro(s.data, week);
+      case 'Intro': return sectionIntro(s.data, week, episodeType, meta.episodeTitle);
       case 'Callbacks': return sectionCallbacks(s.data);
       case 'Blurt': return sectionBlurt(s.data);
       case 'MatchupRecaps': return sectionRecaps(s.data, week);
@@ -362,6 +784,9 @@ export function renderHtml(newsletter: Newsletter): string {
       case 'SpotlightTeam': return sectionSpotlight(s.data);
       case 'Forecast': return sectionForecast(s.data);
       case 'FinalWord': return sectionFinal(s.data);
+      // Special episode sections
+      case 'PowerRankings': return sectionPowerRankings(s.data);
+      case 'SeasonPreview': return sectionSeasonPreview(s.data);
       default: return '';
     }
   }).join('\n');
@@ -409,6 +834,15 @@ export function renderNewsletterData(newsletter: Newsletter): {
       case 'SpotlightTeam': html = sectionSpotlight(s.data); break;
       case 'Forecast': html = sectionForecast(s.data); break;
       case 'FinalWord': html = sectionFinal(s.data); break;
+      // New LLM-powered sections
+      case 'BotDebates': html = sectionBotDebates(s.data); break;
+      case 'HotTakes': html = sectionHotTakes(s.data); break;
+      case 'WeeklyAwards': html = sectionWeeklyAwards(s.data); break;
+      case 'WhatIf': html = sectionWhatIf(s.data); break;
+      case 'DynastyAnalysis': html = sectionDynastyAnalysis(s.data); break;
+      case 'RivalryWatch': html = sectionRivalryWatch(s.data); break;
+      case 'PlayoffOdds': html = sectionPlayoffOdds(s.data); break;
+      case 'NarrativeCallbacks': html = sectionNarrativeCallbacks(s.data); break;
     }
     return { type: s.type, html };
   });

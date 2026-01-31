@@ -1,13 +1,21 @@
 /**
  * Memory Module
  * Manages columnist memory (trust, frustration, mood) for each team
- * This version uses in-memory state that can be persisted to database
+ * Now uses EnhancedBotMemory with win streaks, narratives, and prediction tracking
  * 
  * Note: The "bot" terminology in types is internal only - the columnists
  * are presented as media personalities, never as bots or AI.
  */
 
-import type { BotName, BotMemory, TeamMemory, DerivedData } from './types';
+import type { 
+  BotName, 
+  BotMemory, 
+  TeamMemory, 
+  DerivedData,
+  EnhancedBotMemory,
+  EnhancedTeamMemory,
+  Narrative,
+} from './types';
 
 // ============ Constants ============
 
@@ -24,12 +32,66 @@ export function createFreshMemory(bot: BotName): BotMemory {
   };
 }
 
+/**
+ * Create a fresh EnhancedBotMemory with all tracking features
+ */
+export function createEnhancedMemory(bot: BotName, season: number): EnhancedBotMemory {
+  return {
+    bot,
+    season,
+    updated_at: new Date().toISOString(),
+    lastGeneratedWeek: 0,
+    summaryMood: 'Focused',
+    narratives: [],
+    teams: {},
+    predictions: [],
+    predictionStats: {
+      correct: 0,
+      wrong: 0,
+      winRate: 0,
+      hotStreak: 0,
+      bestStreak: 0,
+      worstStreak: 0,
+    },
+    hotTakes: [],
+    milestones: [],
+  };
+}
+
 export function ensureTeams(mem: BotMemory, teamNames: string[]): void {
   for (const name of teamNames) {
     if (!mem.teams[name]) {
       mem.teams[name] = { trust: 0, frustration: 0, mood: 'Neutral' };
     }
   }
+}
+
+/**
+ * Ensure all teams exist in enhanced memory
+ */
+export function ensureEnhancedTeams(mem: EnhancedBotMemory, teamNames: string[]): void {
+  for (const name of teamNames) {
+    if (!mem.teams[name]) {
+      mem.teams[name] = createFreshEnhancedTeamMemory();
+    }
+  }
+}
+
+function createFreshEnhancedTeamMemory(): EnhancedTeamMemory {
+  return {
+    mood: 'neutral',
+    trajectory: 'steady',
+    winStreak: 0,
+    trust: 0,
+    frustration: 0,
+    notableEvents: [],
+    seasonStats: {
+      wins: 0,
+      losses: 0,
+      pointsFor: 0,
+      pointsAgainst: 0,
+    },
+  };
 }
 
 // ============ Memory Decay ============
@@ -128,6 +190,233 @@ export function updateMemoryAfterWeek(mem: BotMemory, derived: DerivedData): voi
   mem.updated_at = new Date().toISOString();
 }
 
+/**
+ * Update enhanced memory after a week - tracks streaks, trajectories, narratives
+ */
+export function updateEnhancedMemoryAfterWeek(
+  mem: EnhancedBotMemory, 
+  derived: DerivedData,
+  week: number
+): void {
+  // Process matchup results with enhanced tracking
+  for (const p of derived.matchup_pairs || []) {
+    const winnerName = p.winner.name;
+    const loserName = p.loser.name;
+    
+    // Ensure teams exist
+    if (!mem.teams[winnerName]) mem.teams[winnerName] = createFreshEnhancedTeamMemory();
+    if (!mem.teams[loserName]) mem.teams[loserName] = createFreshEnhancedTeamMemory();
+    
+    const w = mem.teams[winnerName];
+    const l = mem.teams[loserName];
+    
+    // Update win streaks
+    w.winStreak = w.winStreak >= 0 ? w.winStreak + 1 : 1;
+    l.winStreak = l.winStreak <= 0 ? l.winStreak - 1 : -1;
+    
+    // Update season stats
+    if (w.seasonStats) {
+      w.seasonStats.wins++;
+      w.seasonStats.pointsFor += p.winner.points;
+      w.seasonStats.pointsAgainst += p.loser.points;
+    }
+    if (l.seasonStats) {
+      l.seasonStats.losses++;
+      l.seasonStats.pointsFor += p.loser.points;
+      l.seasonStats.pointsAgainst += p.winner.points;
+    }
+    
+    // Update trust/frustration
+    if (p.margin >= 30) {
+      w.trust = CLAMP(w.trust + 4, -50, 50);
+      w.frustration = CLAMP(w.frustration - 1, 0, 50);
+      l.trust = CLAMP(l.trust - 1, -50, 50);
+      l.frustration = CLAMP(l.frustration + 4, 0, 50);
+      
+      // Add notable event for blowout
+      w.notableEvents.push({ week, event: `Dominated ${loserName} by ${p.margin.toFixed(1)}`, sentiment: 'positive' });
+      l.notableEvents.push({ week, event: `Got destroyed by ${winnerName} by ${p.margin.toFixed(1)}`, sentiment: 'negative' });
+    } else if (p.margin <= 5) {
+      w.trust = CLAMP(w.trust + 2, -50, 50);
+      l.frustration = CLAMP(l.frustration + 2, 0, 50);
+      
+      // Add notable event for nail-biter
+      w.notableEvents.push({ week, event: `Clutch win over ${loserName} by ${p.margin.toFixed(1)}`, sentiment: 'positive' });
+      l.notableEvents.push({ week, event: `Heartbreaker loss to ${winnerName} by ${p.margin.toFixed(1)}`, sentiment: 'negative' });
+    } else {
+      w.trust = CLAMP(w.trust + 3, -50, 50);
+      l.frustration = CLAMP(l.frustration + 3, 0, 50);
+    }
+    
+    // Update trajectories and moods
+    updateEnhancedTeamMood(w);
+    updateEnhancedTeamMood(l);
+    updateTeamTrajectory(w);
+    updateTeamTrajectory(l);
+  }
+  
+  // Check for narrative triggers
+  detectAndAddNarratives(mem, derived, week);
+  
+  // Update summary mood
+  updateEnhancedSummaryMood(mem);
+  
+  mem.lastGeneratedWeek = week;
+  mem.updated_at = new Date().toISOString();
+}
+
+function updateEnhancedTeamMood(t: EnhancedTeamMemory): void {
+  const delta = t.trust - t.frustration;
+  const streak = t.winStreak;
+  
+  if (streak >= 3) {
+    t.mood = 'hot';
+  } else if (streak <= -3) {
+    t.mood = 'cold';
+  } else if (t.frustration >= 15 && t.trust >= 10) {
+    t.mood = 'chaotic';
+  } else if (delta >= 15) {
+    t.mood = 'dangerous'; // High trust, low frustration = dangerous team
+  } else {
+    t.mood = 'neutral';
+  }
+}
+
+function updateTeamTrajectory(t: EnhancedTeamMemory): void {
+  const streak = t.winStreak;
+  const stats = t.seasonStats;
+  
+  if (!stats) {
+    t.trajectory = 'steady';
+    return;
+  }
+  
+  const totalGames = stats.wins + stats.losses;
+  if (totalGames < 3) {
+    t.trajectory = 'steady';
+    return;
+  }
+  
+  // Check recent trend based on streak
+  if (streak >= 2) {
+    t.trajectory = 'rising';
+  } else if (streak <= -2) {
+    t.trajectory = 'falling';
+  } else if (Math.abs(streak) <= 1 && t.notableEvents.length >= 2) {
+    // Check if recent events are mixed
+    const recent = t.notableEvents.slice(-3);
+    const positive = recent.filter(e => e.sentiment === 'positive').length;
+    const negative = recent.filter(e => e.sentiment === 'negative').length;
+    if (positive > 0 && negative > 0) {
+      t.trajectory = 'volatile';
+    } else {
+      t.trajectory = 'steady';
+    }
+  } else {
+    t.trajectory = 'steady';
+  }
+}
+
+function updateEnhancedSummaryMood(mem: EnhancedBotMemory): void {
+  const teams = Object.values(mem.teams);
+  if (teams.length === 0) {
+    mem.summaryMood = 'Focused';
+    return;
+  }
+  
+  const avgTrust = teams.reduce((sum, t) => sum + t.trust, 0) / teams.length;
+  const avgFrustration = teams.reduce((sum, t) => sum + t.frustration, 0) / teams.length;
+  const hotTeams = teams.filter(t => t.mood === 'hot' || t.mood === 'dangerous').length;
+  const coldTeams = teams.filter(t => t.mood === 'cold').length;
+  
+  // Check prediction performance
+  const { winRate, hotStreak } = mem.predictionStats;
+  
+  if (hotStreak >= 5 || winRate >= 0.7) {
+    mem.summaryMood = 'Vindicated';
+  } else if (hotTeams >= 3 || avgTrust > 10) {
+    mem.summaryMood = 'Fired Up';
+  } else if (coldTeams >= 3 || avgFrustration > 15) {
+    mem.summaryMood = 'Deflated';
+  } else if (teams.filter(t => t.trajectory === 'volatile').length >= 3) {
+    mem.summaryMood = 'Chaotic';
+  } else {
+    mem.summaryMood = 'Focused';
+  }
+}
+
+function detectAndAddNarratives(mem: EnhancedBotMemory, derived: DerivedData, week: number): void {
+  for (const p of derived.matchup_pairs || []) {
+    const winnerTeam = mem.teams[p.winner.name];
+    const loserTeam = mem.teams[p.loser.name];
+    
+    if (!winnerTeam || !loserTeam) continue;
+    
+    // Detect win streak narrative
+    if (winnerTeam.winStreak >= 3) {
+      const existingStreak = mem.narratives.find(
+        n => n.type === 'streak' && n.teams.includes(p.winner.name) && !n.resolved
+      );
+      if (!existingStreak) {
+        addNarrative(mem, {
+          type: 'streak',
+          teams: [p.winner.name],
+          title: `${p.winner.name}'s Hot Streak`,
+          description: `${p.winner.name} is on a ${winnerTeam.winStreak}-game winning streak`,
+          startedWeek: week - winnerTeam.winStreak + 1,
+          lastUpdated: week,
+        });
+      } else {
+        existingStreak.description = `${p.winner.name} extends their streak to ${winnerTeam.winStreak} games`;
+        existingStreak.lastUpdated = week;
+      }
+    }
+    
+    // Detect losing streak narrative
+    if (loserTeam.winStreak <= -3) {
+      const existingStreak = mem.narratives.find(
+        n => n.type === 'collapse' && n.teams.includes(p.loser.name) && !n.resolved
+      );
+      if (!existingStreak) {
+        addNarrative(mem, {
+          type: 'collapse',
+          teams: [p.loser.name],
+          title: `${p.loser.name} in Freefall`,
+          description: `${p.loser.name} has lost ${Math.abs(loserTeam.winStreak)} straight`,
+          startedWeek: week + loserTeam.winStreak + 1,
+          lastUpdated: week,
+        });
+      } else {
+        existingStreak.description = `${p.loser.name} extends their losing streak to ${Math.abs(loserTeam.winStreak)} games`;
+        existingStreak.lastUpdated = week;
+      }
+    }
+    
+    // Resolve streak narratives when they end
+    if (winnerTeam.winStreak === 1 && loserTeam.winStreak === -1) {
+      // Winner just broke a losing streak
+      const losingStreak = mem.narratives.find(
+        n => n.type === 'collapse' && n.teams.includes(p.winner.name) && !n.resolved
+      );
+      if (losingStreak) {
+        losingStreak.resolved = true;
+        losingStreak.resolution = `${p.winner.name} snapped their losing streak with a win over ${p.loser.name}`;
+      }
+    }
+  }
+}
+
+function addNarrative(
+  mem: EnhancedBotMemory,
+  narrative: Omit<Narrative, 'id' | 'resolved' | 'resolution'>
+): void {
+  mem.narratives.push({
+    ...narrative,
+    id: `${narrative.type}-${narrative.teams.join('-')}-${narrative.startedWeek}`,
+    resolved: false,
+  });
+}
+
 // ============ Memory Getters ============
 
 export function getTeamMood(mem: BotMemory, teamName: string): TeamMemory['mood'] {
@@ -150,4 +439,40 @@ export function serializeMemory(mem: BotMemory): string {
 
 export function deserializeMemory(json: string): BotMemory {
   return JSON.parse(json) as BotMemory;
+}
+
+export function serializeEnhancedMemory(mem: EnhancedBotMemory): string {
+  return JSON.stringify(mem);
+}
+
+export function deserializeEnhancedMemory(json: string): EnhancedBotMemory {
+  return JSON.parse(json) as EnhancedBotMemory;
+}
+
+/**
+ * Convert legacy BotMemory to EnhancedBotMemory
+ */
+export function upgradeToEnhancedMemory(legacy: BotMemory, season: number): EnhancedBotMemory {
+  const enhanced = createEnhancedMemory(legacy.bot, season);
+  
+  // Convert legacy team memories
+  for (const [teamName, legacyTeam] of Object.entries(legacy.teams)) {
+    enhanced.teams[teamName] = {
+      mood: legacyTeam.mood === 'Confident' ? 'hot' 
+          : legacyTeam.mood === 'Irritated' ? 'cold'
+          : legacyTeam.mood === 'Suspicious' ? 'cold'
+          : 'neutral',
+      trajectory: 'steady',
+      winStreak: 0,
+      trust: legacyTeam.trust,
+      frustration: legacyTeam.frustration,
+      notableEvents: [],
+      seasonStats: { wins: 0, losses: 0, pointsFor: 0, pointsAgainst: 0 },
+    };
+  }
+  
+  // Preserve legacy teams for reference
+  enhanced.legacyTeams = legacy.teams;
+  
+  return enhanced;
 }

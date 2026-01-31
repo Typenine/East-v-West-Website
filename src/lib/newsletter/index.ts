@@ -21,11 +21,23 @@ export {
 } from './config';
 
 // Core modules
-export { buildDerived, mapUsersById, mapRosters } from './derive';
+export { buildDerived, mapUsersById, mapRosters, setPlayerNameCache, resolvePlayerName } from './derive';
 export { getProfile, openerFor, makeBlurt, getTonePhrase, determineOutcome } from './personality';
-export { createFreshMemory, ensureTeams, updateMemoryAfterWeek, serializeMemory, deserializeMemory } from './memory';
-export { buildDeepRecaps, generateSingleRecap } from './recaps';
+export { createFreshMemory, ensureTeams, updateMemoryAfterWeek, serializeMemory, deserializeMemory, ensureEnhancedTeams, updateEnhancedMemoryAfterWeek, upgradeToEnhancedMemory } from './memory';
+// Note: recaps.ts contains legacy template-based recaps, now replaced by LLM-powered recaps in compose.ts
+// export { buildDeepRecaps, generateSingleRecap } from './recaps';
 export { makeForecast, gradePendingPicks } from './forecast';
+export { 
+  generateAllLLMFeatures,
+  generateBotDebates,
+  generateHotTakes,
+  generateWeeklyAwards,
+  generateWhatIfScenarios,
+  generateDynastyAnalysis,
+  detectRivalries,
+  generatePlayoffOddsCommentary,
+  generateNarrativeCallbacks,
+} from './llm-features';
 export { composeNewsletter } from './compose';
 export { renderHtml, renderNewsletterData } from './template';
 
@@ -104,3 +116,14 @@ export {
   getUpcomingEpisodes,
   type EpisodeWindow,
 } from './episodes';
+
+// Comprehensive Data Integration
+export {
+  fetchComprehensiveLeagueData,
+  buildComprehensiveContextString,
+  buildTeamContextString,
+  buildMatchupH2HContext,
+  type TeamProfile,
+  type LeagueRecords as ComprehensiveLeagueRecords,
+  type ComprehensiveLeagueData,
+} from './data-integration';

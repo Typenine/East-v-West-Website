@@ -265,6 +265,129 @@ export async function listNewsletterWeeks(season: number): Promise<number[]> {
   return rows.map(r => r.week).sort((a, b) => a - b);
 }
 
+/**
+ * Load previous newsletter for callbacks/references
+ * Returns the newsletter from the previous week if it exists
+ */
+export async function loadPreviousNewsletter(
+  season: number,
+  currentWeek: number
+): Promise<NewsletterData | null> {
+  if (currentWeek <= 1) return null;
+  return loadNewsletter(season, currentWeek - 1);
+}
+
+/**
+ * Extract predictions from a previous newsletter for grading
+ */
+export function extractPredictionsFromNewsletter(
+  newsletter: NewsletterData
+): Array<{
+  matchupId: string | number;
+  team1: string;
+  team2: string;
+  entertainerPick: string;
+  analystPick: string;
+}> {
+  const predictions: Array<{
+    matchupId: string | number;
+    team1: string;
+    team2: string;
+    entertainerPick: string;
+    analystPick: string;
+  }> = [];
+  
+  // Find the Forecast section
+  const forecastSection = newsletter.newsletter.sections.find(s => s.type === 'Forecast');
+  if (!forecastSection || !forecastSection.data) return predictions;
+  
+  const data = forecastSection.data as {
+    picks?: Array<{
+      matchup_id: string | number;
+      team1: string;
+      team2: string;
+      bot1_pick: string;
+      bot2_pick: string;
+    }>;
+  };
+  
+  if (!data.picks) return predictions;
+  
+  for (const pick of data.picks) {
+    predictions.push({
+      matchupId: pick.matchup_id,
+      team1: pick.team1,
+      team2: pick.team2,
+      entertainerPick: pick.bot1_pick,
+      analystPick: pick.bot2_pick,
+    });
+  }
+  
+  return predictions;
+}
+
+/**
+ * Extract hot takes from a previous newsletter for revisiting
+ */
+export function extractHotTakesFromNewsletter(
+  newsletter: NewsletterData
+): Array<{
+  bot: 'entertainer' | 'analyst';
+  take: string;
+  subject: string;
+}> {
+  const hotTakes: Array<{
+    bot: 'entertainer' | 'analyst';
+    take: string;
+    subject: string;
+  }> = [];
+  
+  // Look through intro and other sections for bold statements
+  for (const section of newsletter.newsletter.sections) {
+    const data = section.data as { bot1_text?: string; bot2_text?: string };
+    
+    // Simple heuristic: look for strong language patterns
+    const patterns = [
+      /I('m| am) calling it/i,
+      /mark my words/i,
+      /guarantee/i,
+      /no way/i,
+      /will (definitely|absolutely|certainly)/i,
+      /fraud/i,
+      /pretender/i,
+      /contender/i,
+    ];
+    
+    if (data.bot1_text) {
+      for (const pattern of patterns) {
+        if (pattern.test(data.bot1_text)) {
+          hotTakes.push({
+            bot: 'entertainer',
+            take: data.bot1_text.slice(0, 200),
+            subject: section.type,
+          });
+          break;
+        }
+      }
+    }
+    
+    if (data.bot2_text) {
+      for (const pattern of patterns) {
+        if (pattern.test(data.bot2_text)) {
+          hotTakes.push({
+            bot: 'analyst',
+            take: data.bot2_text.slice(0, 200),
+            subject: section.type,
+          });
+          break;
+        }
+      }
+    }
+  }
+  
+  return hotTakes;
+}
+
 export async function deleteNewsletter(season: number, week: number): Promise<boolean> {
   const db = getDb();
   const result = await db

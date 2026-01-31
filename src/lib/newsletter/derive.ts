@@ -1,6 +1,7 @@
 /**
  * Derive Module
  * Transforms raw Sleeper data into matchup pairs, upcoming pairs, and scored events
+ * Now includes player name resolution for better readability
  */
 
 import type {
@@ -11,6 +12,28 @@ import type {
   RelevanceConfig,
 } from './types';
 import { RELEVANCE_CONFIG } from './config';
+
+// Player name cache - populated lazily
+let playerNameCache: Record<string, string> | null = null;
+
+/**
+ * Set the player name cache for resolving player IDs to names
+ * Should be called with data from getAllPlayersCached before buildDerived
+ */
+export function setPlayerNameCache(players: Record<string, { full_name?: string; first_name?: string; last_name?: string }>) {
+  playerNameCache = {};
+  for (const [id, player] of Object.entries(players)) {
+    playerNameCache[id] = player.full_name || `${player.first_name || ''} ${player.last_name || ''}`.trim() || `Player ${id}`;
+  }
+}
+
+/**
+ * Resolve a player ID to a name
+ */
+export function resolvePlayerName(playerId: string): string {
+  if (!playerNameCache) return playerId;
+  return playerNameCache[playerId] || playerId;
+}
 
 // ============ Helper Functions ============
 

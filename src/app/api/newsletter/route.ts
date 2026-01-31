@@ -13,9 +13,13 @@ import {
   calculatePlayoffImplications,
   checkForRecords,
   buildEnhancedContextString,
+  fetchComprehensiveLeagueData,
+  buildComprehensiveContextString,
+  setPlayerNameCache,
   type EnhancedContextData,
   type LeagueRecords,
 } from '@/lib/newsletter';
+import { getAllPlayersCached, getSleeperInjuriesCached } from '@/lib/utils/sleeper-api';
 import {
   loadBotMemory,
   saveBotMemory,
@@ -27,6 +31,8 @@ import {
   saveNewsletter,
   listNewsletterWeeks,
   deleteNewsletter,
+  loadPreviousNewsletter,
+  extractPredictionsFromNewsletter,
 } from '@/server/db/newsletter-queries';
 import { getHeadToHeadAllTime } from '@/lib/utils/headtohead';
 import { fetchTradesAllTime } from '@/lib/utils/trades';
@@ -137,6 +143,9 @@ async function buildEnhancedContextFull(
   standings?: Array<{ name: string; wins: number; losses: number; pointsFor: number }>;
   byeTeams?: string[];
   enhancedContextString?: string;
+  // For LLM features
+  h2hData?: Record<string, Record<string, { wins: number; losses: number }>>;
+  injuries?: Array<{ playerId: string; playerName: string; team: string; status: string }>;
 }> {
   try {
     const extendedRosters = await getExtendedRosters(leagueId);
@@ -166,6 +175,7 @@ async function buildEnhancedContextFull(
 
     // ============ IMPROVEMENT 2: H2H Data Integration ============
     let h2hContext: { notableH2H: string[] } = { notableH2H: [] };
+    const h2hDataSimplified: Record<string, Record<string, { wins: number; losses: number }>> = {};
     try {
       const h2hData = await getHeadToHeadAllTime();
       // Build this week's matchups for H2H lookup
@@ -188,6 +198,7 @@ async function buildEnhancedContextFull(
       const h2hFormatted: Record<string, Record<string, { meetings: number; wins: { total: number; playoffs: number }; losses: { total: number }; lastMeeting?: { year: string; week: number } }>> = {};
       for (const team1 of h2hData.teams) {
         h2hFormatted[team1] = {};
+        h2hDataSimplified[team1] = {};
         for (const team2 of h2hData.teams) {
           if (team1 === team2) continue;
           const cell = h2hData.matrix[team1]?.[team2];
@@ -197,6 +208,11 @@ async function buildEnhancedContextFull(
               wins: { total: cell.wins.total, playoffs: cell.wins.playoffs },
               losses: { total: cell.losses.total },
               lastMeeting: cell.lastMeeting,
+            };
+            // Simplified format for LLM features
+            h2hDataSimplified[team1][team2] = {
+              wins: cell.wins.total,
+              losses: cell.losses.total,
             };
           }
         }
@@ -304,10 +320,118 @@ async function buildEnhancedContextFull(
 
     const enhancedContextString = buildEnhancedContextString(enhancedData);
 
-    return { standings, byeTeams, enhancedContextString };
+    return { standings, byeTeams, enhancedContextString, h2hData: h2hDataSimplified };
   } catch (error) {
     console.error('Failed to build enhanced context:', error);
     return {};
+  }
+}
+
+// ============ Build Historical Context for Preseason ============
+
+async function buildPreseasonHistoricalContext(
+  currentSeason: number,
+  users: Array<{ user_id: string; display_name?: string; username?: string; metadata?: { team_name?: string } }>
+): Promise<string> {
+  try {
+    // Build user map for team names
+    const userMap = new Map<string, string>();
+    for (const u of users) {
+      const name = u.metadata?.team_name || u.display_name || u.username || `User ${u.user_id}`;
+      userMap.set(u.user_id, name);
+    }
+
+    // Fetch all-time H2H data (includes all previous seasons)
+    const h2hData = await getHeadToHeadAllTime();
+    
+    // Fetch all-time trade history
+    const allTrades = await fetchTradesAllTime();
+    
+    // Build historical standings summary
+    let historicalContext = `
+=== HISTORICAL LEAGUE DATA (FOR PRESEASON ${currentSeason} PREVIEW) ===
+
+IMPORTANT: This is a PRESEASON preview. The ${currentSeason} season has NOT started yet.
+Base all analysis on PREVIOUS seasons' performance, NOT current season data.
+
+`;
+
+    // Add all-time records from H2H data
+    if (h2hData.teams.length > 0) {
+      historicalContext += `\n--- ALL-TIME TEAM PERFORMANCE ---\n`;
+      
+      // Calculate all-time records for each team
+      const teamRecords: Array<{ team: string; wins: number; losses: number; playoffWins: number }> = [];
+      
+      for (const team of h2hData.teams) {
+        let totalWins = 0;
+        let totalLosses = 0;
+        let playoffWins = 0;
+        
+        for (const opponent of h2hData.teams) {
+          if (team === opponent) continue;
+          const cell = h2hData.matrix[team]?.[opponent];
+          if (cell) {
+            totalWins += cell.wins.total;
+            totalLosses += cell.losses.total;
+            playoffWins += cell.wins.playoffs;
+          }
+        }
+        
+        teamRecords.push({ team, wins: totalWins, losses: totalLosses, playoffWins });
+      }
+      
+      // Sort by wins
+      teamRecords.sort((a, b) => b.wins - a.wins || a.losses - b.losses);
+      
+      historicalContext += `All-Time Records (sorted by wins):\n`;
+      for (const r of teamRecords) {
+        const winPct = r.wins + r.losses > 0 ? (r.wins / (r.wins + r.losses) * 100).toFixed(1) : '0.0';
+        historicalContext += `- ${r.team}: ${r.wins}-${r.losses} (${winPct}%)${r.playoffWins > 0 ? ` [${r.playoffWins} playoff wins]` : ''}\n`;
+      }
+    }
+
+    // Add championship history
+    historicalContext += `\n--- CHAMPIONSHIP HISTORY ---\n`;
+    historicalContext += `- 2024: Belltown Raptors (Champion)\n`;
+    historicalContext += `- 2023: Double Trouble (Inaugural Champion)\n`;
+
+    // Add recent trade activity summary
+    if (allTrades.length > 0) {
+      historicalContext += `\n--- RECENT OFFSEASON TRADE ACTIVITY ---\n`;
+      historicalContext += `Total trades in league history: ${allTrades.length}\n`;
+      
+      // Group trades by team to show who's been active
+      const tradesByTeam = new Map<string, number>();
+      for (const trade of allTrades) {
+        // Trade type has 'teams' array of TradeTeam objects with 'name' property
+        for (const tradeTeam of trade.teams || []) {
+          tradesByTeam.set(tradeTeam.name, (tradesByTeam.get(tradeTeam.name) || 0) + 1);
+        }
+      }
+      
+      const sortedTraders = [...tradesByTeam.entries()].sort((a, b) => b[1] - a[1]);
+      historicalContext += `Most active traders all-time:\n`;
+      for (const [team, count] of sortedTraders.slice(0, 5)) {
+        historicalContext += `- ${team}: ${count} trades\n`;
+      }
+    }
+
+    historicalContext += `
+--- PRESEASON ANALYSIS GUIDELINES ---
+When creating the preseason preview:
+1. Reference HISTORICAL performance (all-time records, championships, playoff appearances)
+2. Consider offseason moves and trades
+3. Evaluate roster strength based on player acquisitions
+4. Make predictions for the UPCOMING ${currentSeason} season
+5. DO NOT reference any ${currentSeason} season games or matchups (they haven't happened)
+6. DO NOT say "Week X" - this is a preseason preview, not a weekly recap
+`;
+
+    return historicalContext;
+  } catch (error) {
+    console.error('Failed to build preseason historical context:', error);
+    return `PRESEASON PREVIEW for ${currentSeason} season. Base analysis on historical performance.`;
   }
 }
 
@@ -448,20 +572,78 @@ export async function POST(request: NextRequest) {
     ]);
 
     // Load existing memory state from database (PERSISTENT!)
-    const [existingMemoryEntertainer, existingMemoryAnalyst, existingRecords, existingPendingPicks] = await Promise.all([
+    const [existingMemoryEntertainer, existingMemoryAnalyst, existingRecords, existingPendingPicks, previousNewsletter] = await Promise.all([
       loadBotMemory('entertainer', seasonNum),
       loadBotMemory('analyst', seasonNum),
       loadForecastRecords(seasonNum),
       loadPendingPicks(seasonNum, week), // Load picks made for THIS week to grade
+      loadPreviousNewsletter(seasonNum, week), // Load previous newsletter for callbacks
     ]);
 
     console.log(`Loaded bot memory - Entertainer: ${existingMemoryEntertainer ? 'found' : 'new'}, Analyst: ${existingMemoryAnalyst ? 'found' : 'new'}`);
+    
+    // Extract predictions from previous newsletter for grading/callbacks
+    const previousPredictions = previousNewsletter ? extractPredictionsFromNewsletter(previousNewsletter) : [];
+    if (previousPredictions.length > 0) {
+      console.log(`[Newsletter] Found ${previousPredictions.length} predictions from previous newsletter to reference`);
+    }
 
-    // Build enhanced context for richer LLM generation (all 8 improvements)
-    const enhancedContext = await buildEnhancedContextFull(leagueId, week, seasonNum, users, matchups);
-    console.log(`Enhanced context: standings=${enhancedContext.standings?.length || 0} teams, byes=${enhancedContext.byeTeams?.length || 0} NFL teams`);
-    if (enhancedContext.enhancedContextString) {
-      console.log(`Enhanced context includes: H2H, trades, records, playoff implications`);
+    // Load player name cache for resolving player IDs to names in waivers/trades
+    console.log('[Newsletter] Loading player name cache and injury data...');
+    const [allPlayers, injuryData] = await Promise.all([
+      getAllPlayersCached(12 * 60 * 60 * 1000), // 12 hour cache
+      getSleeperInjuriesCached().catch(() => []), // Graceful fallback if injuries fail
+    ]);
+    setPlayerNameCache(allPlayers);
+    console.log(`[Newsletter] Player cache loaded: ${Object.keys(allPlayers).length} players, ${injuryData.length} injuries`);
+
+    // Format injuries for LLM context - look up player names from cache
+    const formattedInjuries = injuryData
+      .filter(inj => inj.status && inj.status !== 'Healthy' && inj.status !== 'Active')
+      .slice(0, 30) // Limit to top 30 injuries to avoid context bloat
+      .map(inj => {
+        const player = allPlayers[inj.player_id];
+        return {
+          playerId: inj.player_id,
+          playerName: player ? `${player.first_name} ${player.last_name}` : `Player ${inj.player_id}`,
+          team: player?.team || 'FA',
+          status: inj.status || 'Unknown',
+        };
+      })
+      .filter(inj => inj.playerName !== `Player ${inj.playerId}`); // Only include players we can identify
+
+    // Fetch comprehensive league data from all sources (records, H2H, trades, etc.)
+    console.log('[Newsletter] Fetching comprehensive league data...');
+    const comprehensiveData = await fetchComprehensiveLeagueData();
+    const comprehensiveContextString = buildComprehensiveContextString(comprehensiveData);
+    console.log(`[Newsletter] Comprehensive data: ${Object.keys(comprehensiveData.teams).length} teams, ${comprehensiveData.allTrades.length} trades, ${comprehensiveData.topScoringWeeks.length} top weeks`);
+
+    // Build enhanced context for richer LLM generation
+    // For preseason episodes, use historical data instead of current season data
+    const isPreseasonEpisode = episodeType === 'preseason' || episodeType === 'pre_draft' || episodeType === 'post_draft' || episodeType === 'offseason';
+    
+    let enhancedContext: Awaited<ReturnType<typeof buildEnhancedContextFull>>;
+    
+    if (isPreseasonEpisode) {
+      console.log(`[${episodeType}] Building historical context for special episode...`);
+      const historicalContext = await buildPreseasonHistoricalContext(seasonNum, users);
+      // Combine historical context with comprehensive league data
+      enhancedContext = {
+        standings: [], // No current standings for preseason
+        byeTeams: [],
+        enhancedContextString: `${comprehensiveContextString}\n\n${historicalContext}`,
+      };
+      console.log(`Historical context built for ${episodeType} episode`);
+    } else {
+      enhancedContext = await buildEnhancedContextFull(leagueId, week, seasonNum, users, matchups);
+      // Prepend comprehensive data to the enhanced context
+      enhancedContext.enhancedContextString = `${comprehensiveContextString}\n\n${enhancedContext.enhancedContextString || ''}`;
+      // Add injuries to enhanced context
+      enhancedContext.injuries = formattedInjuries;
+      console.log(`Enhanced context: standings=${enhancedContext.standings?.length || 0} teams, byes=${enhancedContext.byeTeams?.length || 0} NFL teams`);
+      if (enhancedContext.enhancedContextString) {
+        console.log(`Enhanced context includes: comprehensive league data, H2H, trades, records, playoff implications`);
+      }
     }
 
     // Generate the newsletter
@@ -481,6 +663,7 @@ export async function POST(request: NextRequest) {
       existingRecords,
       pendingPicks: existingPendingPicks,
       enhancedContext,
+      previousPredictions, // Pass previous predictions for narrative callbacks
     });
 
     const generatedAt = new Date().toISOString();

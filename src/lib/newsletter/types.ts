@@ -289,6 +289,11 @@ export interface RecapItem {
   matchup_id: string | number;
   bot1: string;
   bot2: string;
+  // Team info for visual display
+  winner?: string;
+  loser?: string;
+  winner_score?: number;
+  loser_score?: number;
 }
 
 export interface WaiverItem {
@@ -340,6 +345,125 @@ export interface CallbacksSection {
   trade_grades: Array<{ team: string; grade: string }>;
 }
 
+// ============ New LLM-Powered Section Types ============
+
+/** Bot debate when they disagree on a pick */
+export interface BotDebate {
+  topic: string;
+  team1: string;
+  team2: string;
+  entertainer_position: string;
+  entertainer_argument: string;
+  analyst_position: string;
+  analyst_argument: string;
+  verdict?: string; // Added after the game resolves
+}
+
+/** Weekly hot take with tracking */
+export interface WeeklyHotTake {
+  week: number;
+  bot: 'entertainer' | 'analyst';
+  take: string;
+  subject: string; // Team or player
+  boldness: 'mild' | 'spicy' | 'nuclear';
+  graded?: boolean;
+  correct?: boolean;
+  followUp?: string;
+}
+
+/** Weekly awards section */
+export interface WeeklyAwards {
+  mvp: {
+    team: string;
+    player?: string;
+    points?: number;
+    entertainer_take: string;
+    analyst_take: string;
+  };
+  bust: {
+    team: string;
+    player?: string;
+    points?: number;
+    entertainer_take: string;
+    analyst_take: string;
+  };
+  waiver_winner?: {
+    team: string;
+    player: string;
+    entertainer_take: string;
+    analyst_take: string;
+  };
+  biggest_blowout?: {
+    winner: string;
+    loser: string;
+    margin: number;
+    commentary: string;
+  };
+  nail_biter?: {
+    winner: string;
+    loser: string;
+    margin: number;
+    commentary: string;
+  };
+}
+
+/** What-if scenario for close games */
+export interface WhatIfScenario {
+  matchup_id: string | number;
+  winner: string;
+  loser: string;
+  margin: number;
+  scenario: string; // "If X had started Y instead of Z..."
+  outcome_change: string; // "...they would have won by 5"
+}
+
+/** Dynasty value analysis for trades */
+export interface DynastyAnalysis {
+  trade_id: string;
+  teams: string[];
+  short_term_winner: string;
+  long_term_winner: string;
+  entertainer_dynasty_take: string;
+  analyst_dynasty_take: string;
+  key_assets: Array<{ asset: string; age?: number; value_trend: 'rising' | 'falling' | 'stable' }>;
+}
+
+/** Rivalry matchup special coverage */
+export interface RivalryMatchup {
+  team1: string;
+  team2: string;
+  rivalry_name?: string;
+  all_time_record: { team1_wins: number; team2_wins: number };
+  recent_meetings: string;
+  stakes: string;
+  entertainer_hype: string;
+  analyst_breakdown: string;
+}
+
+/** Playoff odds commentary */
+export interface PlayoffOddsSection {
+  week: number;
+  clinched: string[];
+  eliminated: string[];
+  bubble_teams: Array<{
+    team: string;
+    wins: number;
+    losses: number;
+    scenario: string; // "Must win + X loses"
+  }>;
+  entertainer_commentary: string;
+  analyst_commentary: string;
+}
+
+/** Narrative callback referencing past events */
+export interface NarrativeCallback {
+  type: 'prediction_grade' | 'hot_take_followup' | 'streak_update' | 'rivalry_continuation';
+  original_week: number;
+  original_statement: string;
+  current_status: string;
+  bot_reaction: string;
+}
+
 export type NewsletterSection =
   // Standard sections (regular episodes)
   | { type: 'Intro'; data: IntroSection }
@@ -351,6 +475,15 @@ export type NewsletterSection =
   | { type: 'SpotlightTeam'; data: SpotlightSection }
   | { type: 'Forecast'; data: ForecastData }
   | { type: 'FinalWord'; data: FinalWordSection }
+  // New LLM-powered sections
+  | { type: 'BotDebates'; data: BotDebate[] }
+  | { type: 'HotTakes'; data: WeeklyHotTake[] }
+  | { type: 'WeeklyAwards'; data: WeeklyAwards }
+  | { type: 'WhatIf'; data: WhatIfScenario[] }
+  | { type: 'DynastyAnalysis'; data: DynastyAnalysis[] }
+  | { type: 'RivalryWatch'; data: RivalryMatchup[] }
+  | { type: 'PlayoffOdds'; data: PlayoffOddsSection }
+  | { type: 'NarrativeCallbacks'; data: NarrativeCallback[] }
   // Special episode sections
   | { type: 'PowerRankings'; data: PowerRankingsSection }
   | { type: 'SeasonPreview'; data: SeasonPreviewSection }

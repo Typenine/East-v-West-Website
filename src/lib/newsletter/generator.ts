@@ -58,6 +58,10 @@ interface EnhancedContext {
   byeTeams?: string[]; // NFL teams on bye
   // NEW: Full enhanced context string with all 8 improvements
   enhancedContextString?: string;
+  // For LLM features
+  h2hData?: Record<string, Record<string, { wins: number; losses: number }>>;
+  topPlayers?: Array<{ playerId: string; playerName: string; team: string; position: string; points: number }>;
+  injuries?: Array<{ playerId: string; playerName: string; team: string; status: string }>;
 }
 
 export interface GenerateNewsletterInput {
@@ -87,6 +91,14 @@ export interface GenerateNewsletterInput {
   } | null;
   // Optional: enhanced context for richer LLM generation
   enhancedContext?: EnhancedContext;
+  // Optional: previous predictions for narrative callbacks
+  previousPredictions?: Array<{
+    matchupId: string | number;
+    team1: string;
+    team2: string;
+    entertainerPick: string;
+    analystPick: string;
+  }>;
 }
 
 export interface GenerateNewsletterResult {
@@ -163,14 +175,19 @@ export async function generateNewsletter(
     records = gradePendingPicks(pendingPicks, derived.matchup_pairs, records);
   }
 
-  // 7. Generate forecast for next week
+  // 7. Generate forecast for next week (now LLM-powered)
   const nextWeek = week + 1;
-  const { forecast, pending: newPending } = makeForecast({
+  const { forecast, pending: newPending } = await makeForecast({
     upcoming_pairs: derived.upcoming_pairs,
     last_pairs: derived.matchup_pairs,
     memEntertainer,
     memAnalyst,
     nextWeek,
+    enhancedContext: input.enhancedContext?.enhancedContextString,
+    standings: input.enhancedContext?.standings,
+    h2hData: input.enhancedContext?.h2hData,
+    topPlayers: input.enhancedContext?.topPlayers,
+    injuries: input.enhancedContext?.injuries,
   });
 
   // Add records to forecast
@@ -180,6 +197,14 @@ export async function generateNewsletter(
   };
 
   // 8. Compose the newsletter
+  // Convert previous predictions to the format expected by compose
+  const formattedPreviousPredictions = input.previousPredictions?.map(p => ({
+    week: week - 1,
+    pick: `${p.entertainerPick} / ${p.analystPick}`,
+    actual: '', // Will be filled in by grading logic
+    correct: false, // Will be determined by grading logic
+  }));
+
   const newsletter = await composeNewsletter({
     leagueName,
     week,
@@ -189,8 +214,10 @@ export async function generateNewsletter(
     memEntertainer,
     memAnalyst,
     forecast: forecastWithRecords,
-    lastCallbacks: null, // TODO: Load from previous week
+    lastCallbacks: null, // Callbacks are built from previousPredictions in compose
     enhancedContext: input.enhancedContext,
+    h2hData: input.enhancedContext?.h2hData,
+    previousPredictions: formattedPreviousPredictions,
   });
 
   // 9. Render to HTML
