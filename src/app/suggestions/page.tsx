@@ -12,6 +12,7 @@ import { rulesHtmlSections } from '@/data/rules';
 
 type Suggestion = {
   id: string;
+  title?: string;
   content: string;
   category?: string;
   createdAt: string; // ISO
@@ -34,8 +35,9 @@ export default function SuggestionsPage() {
   type Draft = {
     category: string;
     content: string;
+    title?: string;
     endorse?: boolean;
-    rules?: { proposal: string; issue: string; fix: string; conclusion: string; sectionId?: string; refTitle?: string; refCode?: string; effective?: string } | null;
+    rules?: { title: string; proposal: string; issue: string; fix: string; conclusion: string; sectionId?: string; refTitle?: string; refCode?: string; effective?: string } | null;
   };
   const [drafts, setDrafts] = useState<Draft[]>([
     { category: '', content: '', rules: null },
@@ -184,7 +186,7 @@ export default function SuggestionsPage() {
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     // Build items payload from drafts; validate each
-    const payload: Array<{ content?: string; category?: string; endorse?: boolean; rules?: { proposal: string; issue: string; fix: string; conclusion: string; reference?: { title?: string; code?: string }; effective?: string } }> = [];
+    const payload: Array<{ content?: string; category?: string; endorse?: boolean; rules?: { title: string; proposal: string; issue: string; fix: string; conclusion: string; reference?: { title?: string; code?: string }; effective?: string } }> = [];
     for (const d of drafts) {
       const cat = (d.category || '').trim();
       if (!cat) {
@@ -192,7 +194,16 @@ export default function SuggestionsPage() {
         return;
       }
       if (cat.toLowerCase() === 'rules') {
-        const r = d.rules || { proposal: '', issue: '', fix: '', conclusion: '', sectionId: '', refTitle: '', refCode: '', effective: '' };
+        if (!auth) {
+          setError('You must be logged in to submit Rules suggestions.');
+          return;
+        }
+        const r = d.rules || { title: '', proposal: '', issue: '', fix: '', conclusion: '', sectionId: '', refTitle: '', refCode: '', effective: '' };
+        const ruleTitle = (r.title || '').trim();
+        if (!ruleTitle) {
+          setError('Title is required for Rules suggestions.');
+          return;
+        }
         const proposal = (r.proposal || '').trim();
         const issue = (r.issue || '').trim();
         const fix = (r.fix || '').trim();
@@ -209,7 +220,7 @@ export default function SuggestionsPage() {
           setError('Select a Rule Item.');
           return;
         }
-        payload.push({ category: 'Rules', endorse: Boolean(d.endorse), rules: { proposal, issue, fix, conclusion, reference: { title: (r.refTitle || '').trim(), code: '' }, effective: (r.effective || '').trim() } });
+        payload.push({ category: 'Rules', endorse: Boolean(d.endorse), rules: { title: ruleTitle, proposal, issue, fix, conclusion, reference: { title: (r.refTitle || '').trim(), code: '' }, effective: (r.effective || '').trim() } });
       } else {
         const text = (d.content || '').trim();
         if (text.length < 3) {
@@ -272,7 +283,7 @@ export default function SuggestionsPage() {
                           required
                           onChange={(e) => {
                             const v = e.target.value;
-                            setDrafts((prev) => prev.map((it, i) => i === idx ? ({ ...it, category: v, rules: v.toLowerCase() === 'rules' ? { proposal: '', issue: '', fix: '', conclusion: '', refTitle: '', refCode: '', effective: '' } : null }) : it));
+                            setDrafts((prev) => prev.map((it, i) => i === idx ? ({ ...it, category: v, rules: v.toLowerCase() === 'rules' ? { title: '', proposal: '', issue: '', fix: '', conclusion: '', sectionId: '', refTitle: '', refCode: '', effective: '' } : null }) : it));
                           }}
                         >
                           <option value="">Select a category</option>
@@ -289,13 +300,31 @@ export default function SuggestionsPage() {
                       )}
                       {isRules ? (
                         <div className="grid grid-cols-1 gap-3">
+                          {!auth && (
+                            <div className="p-2 rounded border border-[var(--warning)] bg-[var(--warning)]/10 text-sm text-[var(--warning)]">
+                              You must be logged in to submit Rules suggestions.
+                            </div>
+                          )}
+                          <div>
+                            <Label className="mb-1 block">Title (for ballot)</Label>
+                            <input
+                              className="w-full border border-[var(--border)] rounded px-2 py-1.5 text-sm bg-transparent"
+                              value={d.rules?.title || ''}
+                              onChange={(e) => setDrafts((prev) => prev.map((it, i) => i === idx ? ({
+                                ...it,
+                                rules: { ...(it.rules || { title: '', proposal: '', issue: '', fix: '', conclusion: '', sectionId: '', refTitle: '', refCode: '', effective: '' }), title: e.target.value }
+                              }) : it))}
+                              placeholder="e.g., Expand Taxi Squad"
+                              required
+                            />
+                          </div>
                           <div>
                             <Label className="mb-1 block">Rule Section</Label>
                             <Select
                               value={d.rules?.sectionId || ''}
                               onChange={(e) => setDrafts((prev) => prev.map((it, i) => i === idx ? ({
                                 ...it,
-                                rules: { ...(it.rules || { proposal: '', issue: '', fix: '', conclusion: '', sectionId: '', refTitle: '', refCode: '', effective: '' }), sectionId: e.target.value, refTitle: '' }
+                                rules: { ...(it.rules || { title: '', proposal: '', issue: '', fix: '', conclusion: '', sectionId: '', refTitle: '', refCode: '', effective: '' }), sectionId: e.target.value, refTitle: '' }
                               }) : it))}
                               required
                             >
@@ -311,7 +340,7 @@ export default function SuggestionsPage() {
                               value={d.rules?.refTitle || ''}
                               onChange={(e) => setDrafts((prev) => prev.map((it, i) => i === idx ? ({
                                 ...it,
-                                rules: { ...(it.rules || { proposal: '', issue: '', fix: '', conclusion: '', sectionId: '', refTitle: '', refCode: '', effective: '' }), refTitle: e.target.value }
+                                rules: { ...(it.rules || { title: '', proposal: '', issue: '', fix: '', conclusion: '', sectionId: '', refTitle: '', refCode: '', effective: '' }), refTitle: e.target.value }
                               }) : it))}
                               required
                               disabled={!d.rules?.sectionId}
@@ -324,7 +353,7 @@ export default function SuggestionsPage() {
                           </div>
                           <div>
                             <Label className="mb-1 block">Effective</Label>
-                            <Select value={d.rules?.effective || ''} onChange={(e) => setDrafts((prev) => prev.map((it, i) => i === idx ? ({ ...it, rules: { ...(it.rules || { proposal: '', issue: '', fix: '', conclusion: '', sectionId: '', refTitle: '', refCode: '', effective: '' }), effective: e.target.value } }) : it))}>
+                            <Select value={d.rules?.effective || ''} onChange={(e) => setDrafts((prev) => prev.map((it, i) => i === idx ? ({ ...it, rules: { ...(it.rules || { title: '', proposal: '', issue: '', fix: '', conclusion: '', sectionId: '', refTitle: '', refCode: '', effective: '' }), effective: e.target.value } }) : it))}>
                               <option value="">Select when it would take effect</option>
                               {EFFECTIVE_OPTS.map((opt) => (
                                 <option key={opt} value={opt}>{opt}</option>
@@ -333,19 +362,19 @@ export default function SuggestionsPage() {
                           </div>
                           <div>
                             <Label className="mb-1 block">Proposal</Label>
-                            <Textarea rows={3} value={d.rules?.proposal || ''} onChange={(e) => setDrafts((prev) => prev.map((it, i) => i === idx ? ({ ...it, rules: { ...(it.rules || { proposal: '', issue: '', fix: '', conclusion: '', sectionId: '', refTitle: '', refCode: '', effective: '' }), proposal: e.target.value } }) : it))} required />
+                            <Textarea rows={3} value={d.rules?.proposal || ''} onChange={(e) => setDrafts((prev) => prev.map((it, i) => i === idx ? ({ ...it, rules: { ...(it.rules || { title: '', proposal: '', issue: '', fix: '', conclusion: '', sectionId: '', refTitle: '', refCode: '', effective: '' }), proposal: e.target.value } }) : it))} required />
                           </div>
                           <div>
                             <Label className="mb-1 block">Issue</Label>
-                            <Textarea rows={3} value={d.rules?.issue || ''} onChange={(e) => setDrafts((prev) => prev.map((it, i) => i === idx ? ({ ...it, rules: { ...(it.rules || { proposal: '', issue: '', fix: '', conclusion: '', sectionId: '', refTitle: '', refCode: '', effective: '' }), issue: e.target.value } }) : it))} required />
+                            <Textarea rows={3} value={d.rules?.issue || ''} onChange={(e) => setDrafts((prev) => prev.map((it, i) => i === idx ? ({ ...it, rules: { ...(it.rules || { title: '', proposal: '', issue: '', fix: '', conclusion: '', sectionId: '', refTitle: '', refCode: '', effective: '' }), issue: e.target.value } }) : it))} required />
                           </div>
                           <div>
                             <Label className="mb-1 block">How it fixes</Label>
-                            <Textarea rows={3} value={d.rules?.fix || ''} onChange={(e) => setDrafts((prev) => prev.map((it, i) => i === idx ? ({ ...it, rules: { ...(it.rules || { proposal: '', issue: '', fix: '', conclusion: '', sectionId: '', refTitle: '', refCode: '', effective: '' }), fix: e.target.value } }) : it))} required />
+                            <Textarea rows={3} value={d.rules?.fix || ''} onChange={(e) => setDrafts((prev) => prev.map((it, i) => i === idx ? ({ ...it, rules: { ...(it.rules || { title: '', proposal: '', issue: '', fix: '', conclusion: '', sectionId: '', refTitle: '', refCode: '', effective: '' }), fix: e.target.value } }) : it))} required />
                           </div>
                           <div>
                             <Label className="mb-1 block">Conclusion</Label>
-                            <Textarea rows={3} value={d.rules?.conclusion || ''} onChange={(e) => setDrafts((prev) => prev.map((it, i) => i === idx ? ({ ...it, rules: { ...(it.rules || { proposal: '', issue: '', fix: '', conclusion: '', sectionId: '', refTitle: '', refCode: '', effective: '' }), conclusion: e.target.value } }) : it))} required />
+                            <Textarea rows={3} value={d.rules?.conclusion || ''} onChange={(e) => setDrafts((prev) => prev.map((it, i) => i === idx ? ({ ...it, rules: { ...(it.rules || { title: '', proposal: '', issue: '', fix: '', conclusion: '', sectionId: '', refTitle: '', refCode: '', effective: '' }), conclusion: e.target.value } }) : it))} required />
                           </div>
                         </div>
                       ) : (
@@ -418,7 +447,7 @@ export default function SuggestionsPage() {
                               return (
                                 <div key={s.id} className="p-3 rounded-[var(--radius-card)] border border-[var(--border)]" style={{ ...(isAccepted ? { boxShadow: 'inset 0 0 0 2px #16a34a33' } : {}), ...(isVague ? { boxShadow: `${isAccepted ? 'inset 0 0 0 2px #16a34a33,' : ''} inset 0 0 0 2px #f59e0b55` } : {}) }}>
                                   <div className="flex items-center justify-between mb-1">
-                                    <div className="font-medium">Suggestion {idx + 1}</div>
+                                    <div className="font-medium">{s.title ? s.title : `Suggestion ${idx + 1}`}</div>
                                     <div className="flex items-center gap-2">
                                       {s.category && (
                                         <span className="text-xs px-2 py-0.5 rounded-full border border-[var(--border)] evw-surface text-[var(--text)]">{s.category}</span>
@@ -496,40 +525,49 @@ export default function SuggestionsPage() {
                                           disabled={!auth}
                                           variant={myVotes[s.id] === -1 ? 'danger' : 'ghost'}
                                         >👎</Button>
-                                        <Button
-                                          type="button"
-                                          onClick={async () => {
-                                            if (!auth || !myTeam) return;
-                                            setEndorseBusy(s.id);
-                                            try {
-                                              const res = await fetch('/api/me/suggestions/endorse', {
-                                                method: 'PUT',
-                                                headers: { 'Content-Type': 'application/json' },
-                                                credentials: 'include',
-                                                body: JSON.stringify({ suggestionId: s.id, endorse: !myEndorsed }),
-                                              });
-                                              if (res.ok) {
-                                                setItems((prev) => prev.map((it) => {
-                                                  if (it.id !== s.id) return it;
-                                                  const arr = Array.isArray(it.endorsers) ? [...it.endorsers] : [];
-                                                  if (!myEndorsed) {
-                                                    if (!arr.includes(myTeam)) arr.push(myTeam);
-                                                  } else {
-                                                    const idx = arr.indexOf(myTeam);
-                                                    if (idx >= 0) arr.splice(idx, 1);
+                                        {(() => {
+                                          const canEndorse = !isVague && !s.voteTag && !(s.proposerTeam === myTeam);
+                                          return (
+                                            <Button
+                                              type="button"
+                                              onClick={async () => {
+                                                if (!auth || !myTeam || !canEndorse) return;
+                                                setEndorseBusy(s.id);
+                                                try {
+                                                  const res = await fetch('/api/me/suggestions/endorse', {
+                                                    method: 'PUT',
+                                                    headers: { 'Content-Type': 'application/json' },
+                                                    credentials: 'include',
+                                                    body: JSON.stringify({ suggestionId: s.id, endorse: !myEndorsed }),
+                                                  });
+                                                  if (res.ok) {
+                                                    setItems((prev) => prev.map((it) => {
+                                                      if (it.id !== s.id) return it;
+                                                      const arr = Array.isArray(it.endorsers) ? [...it.endorsers] : [];
+                                                      if (!myEndorsed) {
+                                                        if (!arr.includes(myTeam)) arr.push(myTeam);
+                                                      } else {
+                                                        const idx2 = arr.indexOf(myTeam);
+                                                        if (idx2 >= 0) arr.splice(idx2, 1);
+                                                      }
+                                                      return { ...it, endorsers: arr } as Suggestion;
+                                                    }));
                                                   }
-                                                  return { ...it, endorsers: arr } as Suggestion;
-                                                }));
+                                                } finally {
+                                                  setEndorseBusy(null);
+                                                }
+                                              }}
+                                              disabled={!auth || endorseBusy === s.id || !canEndorse}
+                                              variant={myEndorsed ? 'primary' : 'ghost'}
+                                              aria-label={myEndorsed ? 'Unendorse' : 'Endorse'}
+                                              title={
+                                                !canEndorse
+                                                  ? (s.proposerTeam === myTeam ? 'Cannot endorse your own proposal' : 'Cannot endorse (voted on or needs clarification)')
+                                                  : (myEndorsed ? 'Unendorse this suggestion' : 'Endorse this suggestion')
                                               }
-                                            } finally {
-                                              setEndorseBusy(null);
-                                            }
-                                          }}
-                                          disabled={!auth || endorseBusy === s.id}
-                                          variant={myEndorsed ? 'primary' : 'ghost'}
-                                          aria-label={myEndorsed ? 'Unendorse' : 'Endorse'}
-                                          title={myEndorsed ? 'Unendorse this suggestion' : 'Endorse this suggestion'}
-                                        >⭐</Button>
+                                            >⭐</Button>
+                                          );
+                                        })()}
                                       </div>
                                     )}
                                   </div>

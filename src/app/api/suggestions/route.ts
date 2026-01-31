@@ -23,6 +23,7 @@ export const dynamic = 'force-dynamic';
 
 export type Suggestion = {
   id: string;
+  title?: string;
   content: string;
   category?: string;
   createdAt: string; // ISO string
@@ -39,6 +40,67 @@ export type Suggestion = {
 
 const DATA_PATH = path.join(process.cwd(), 'data', 'suggestions.json');
 const NOTIFY_EMAIL = process.env.SUGGESTIONS_NOTIFY_EMAIL || 'patrickmmcnulty62@gmail.com';
+const DISCORD_WEBHOOK_URL = process.env.DISCORD_SUGGESTIONS_WEBHOOK_URL;
+
+// Track posted suggestion IDs to prevent duplicates (in-memory, resets on restart)
+const postedToDiscord = new Set<string>();
+
+async function postToDiscord(suggestion: Suggestion, teamName?: string): Promise<void> {
+  if (!DISCORD_WEBHOOK_URL) return;
+  if (postedToDiscord.has(suggestion.id)) return; // idempotent
+  postedToDiscord.add(suggestion.id);
+
+  const embedTitle = suggestion.title
+    ? `New Suggestion: ${suggestion.title}`
+    : 'New Suggestion';
+
+  // Build description: category, rule reference if present, and a snippet of content
+  let description = '';
+  if (suggestion.category) description += `**Category:** ${suggestion.category}\n`;
+  // Extract rule line from content if present
+  const ruleMatch = suggestion.content.match(/^Rule:\s*(.+)$/m);
+  if (ruleMatch) description += `**Rule:** ${ruleMatch[1]}\n`;
+  // Add content snippet (first 300 chars)
+  const snippet = suggestion.content.slice(0, 300) + (suggestion.content.length > 300 ? '…' : '');
+  description += `\n${snippet}`;
+
+  const embed = {
+    title: embedTitle,
+    description,
+    color: 0x3b82f6, // blue
+    timestamp: suggestion.createdAt,
+    footer: teamName ? { text: `Submitted by ${teamName}` } : { text: 'Anonymous submission' },
+  };
+
+  const payload = {
+    embeds: [embed],
+    allowed_mentions: { parse: [] },
+  };
+
+  const doPost = async (): Promise<Response> => {
+    return fetch(DISCORD_WEBHOOK_URL!, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+  };
+
+  try {
+    let res = await doPost();
+    // Handle rate limit with one retry
+    if (res.status === 429) {
+      const retryAfter = res.headers.get('Retry-After');
+      const delayMs = retryAfter ? parseFloat(retryAfter) * 1000 : 1000;
+      await new Promise((r) => setTimeout(r, Math.min(delayMs, 5000)));
+      res = await doPost();
+    }
+    if (!res.ok) {
+      console.warn('[suggestions] Discord webhook failed', res.status, await res.text().catch(() => ''));
+    }
+  } catch (e) {
+    console.warn('[suggestions] Discord webhook error', e);
+  }
+}
 
 async function readSuggestions(): Promise<Suggestion[]> {
   try {
@@ -203,14 +265,28 @@ export async function POST(request: Request) {
     const content = typeof body.content === 'string' ? body.content.trim() : '';
     const category = typeof body.category === 'string' ? body.category.trim() : undefined;
     const endorse = body && typeof body.endorse === 'boolean' ? Boolean(body.endorse) : false;
-    type NewItemBody = { content?: string; category?: string; rules?: { proposal?: string; issue?: string; fix?: string; conclusion?: string } };
+    type NewItemBody = { content?: string; category?: string; title?: string; rules?: { title?: string; proposal?: string; issue?: string; fix?: string; conclusion?: string } };
     const itemsBodyRaw: NewItemBody[] | null = Array.isArray(body.items) ? (body.items as NewItemBody[]) : null;
 
     // Multi-item path (grouped submission)
     if (itemsBodyRaw && itemsBodyRaw.length > 0) {
-      type NewItem = { content?: string; category?: string; endorse?: boolean; rules?: { proposal?: string; issue?: string; fix?: string; conclusion?: string; reference?: { title?: string; code?: string }; effective?: string } };
-      const itemsParsed: Array<{ content: string; category?: string; endorse?: boolean }> = [];
-      const itemsRulesMeta: Array<{ ruleLine?: string; effectiveLine?: string }> = [];
+      type NewItem = { content?: string; category?: string; title?: string; endorse?: boolean; rules?: { title?: string; proposal?: string; issue?: string; fix?: string; conclusion?: string; reference?: { title?: string; code?: string }; effective?: string } };
+      const itemsParsed: Array<{ content: string; category?: string; title?: string; endorse?: boolean }> = [];
+      const itemsRulesMeta: Array<{ ruleLine?: string; effectiveLine?: string; title?: string }> = [];
+
+      // For Rules category, require login
+      const hasRulesItem = (itemsBodyRaw as NewItem[]).some((r) => (r.category || '').toLowerCase() === 'rules');
+      let rulesIdentTeam: string | undefined;
+      if (hasRulesItem) {
+        try {
+          const ident = await requireTeamUser();
+          if (ident && ident.team) rulesIdentTeam = ident.team;
+        } catch {}
+        if (!rulesIdentTeam) {
+          return Response.json({ error: 'You must be logged in to submit Rules suggestions.' }, { status: 401 });
+        }
+      }
+
       for (const raw of itemsBodyRaw as NewItem[]) {
         const cat = typeof raw.category === 'string' ? raw.category.trim() : '';
         if (!cat) {
@@ -218,6 +294,10 @@ export async function POST(request: Request) {
         }
         // If Rules with prompts
         if (cat && cat.toLowerCase() === 'rules' && raw.rules) {
+          const ruleTitle = String(raw.rules.title || '').trim();
+          if (!ruleTitle) {
+            return Response.json({ error: 'Title is required for Rules suggestions.' }, { status: 400 });
+          }
           const proposal = String(raw.rules.proposal || '').trim();
           const issue = String(raw.rules.issue || '').trim();
           const fix = String(raw.rules.fix || '').trim();
@@ -234,14 +314,15 @@ export async function POST(request: Request) {
           const header = [ruleLine, effectiveLine].filter(Boolean).join('\n');
           const bodyLines = `Proposal: ${proposal}\nIssue: ${issue}\nHow it fixes: ${fix}\nConclusion: ${conclusion}`;
           const assembled = header ? `${header}\n${bodyLines}` : bodyLines;
-          itemsParsed.push({ content: assembled, category: 'Rules', endorse: Boolean(raw.endorse) });
-          itemsRulesMeta.push({ ruleLine, effectiveLine });
+          itemsParsed.push({ content: assembled, category: 'Rules', title: ruleTitle, endorse: Boolean(raw.endorse) });
+          itemsRulesMeta.push({ ruleLine, effectiveLine, title: ruleTitle });
         } else {
           const text = String(raw.content || '').trim();
+          const itemTitle = String(raw.title || '').trim();
           if (!text || text.length < 3) return Response.json({ error: 'Each item must be at least 3 characters.' }, { status: 400 });
           if (text.length > 5000) return Response.json({ error: 'Item too long (max 5000 chars).' }, { status: 400 });
-          itemsParsed.push({ content: text, category: cat || undefined, endorse: Boolean(raw.endorse) });
-          itemsRulesMeta.push({});
+          itemsParsed.push({ content: text, category: cat || undefined, title: itemTitle || undefined, endorse: Boolean(raw.endorse) });
+          itemsRulesMeta.push({ title: itemTitle || undefined });
         }
       }
       if (itemsParsed.length === 0) return Response.json({ error: 'No valid items' }, { status: 400 });
@@ -274,6 +355,7 @@ export async function POST(request: Request) {
         // DB row
         const s: Suggestion = {
           id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          title: ipt.title,
           content: ipt.content,
           category: ipt.category,
           createdAt: new Date().toISOString(),
@@ -330,6 +412,12 @@ export async function POST(request: Request) {
       } catch (e) {
         console.warn('[suggestions] notify email failed', e);
       }
+
+      // Discord webhook (best-effort, non-blocking)
+      for (const s of created) {
+        postToDiscord(s, identTeam).catch(() => {});
+      }
+
       return Response.json({ ok: true, groupId, items: created }, { status: 201 });
     }
 
@@ -428,6 +516,10 @@ export async function POST(request: Request) {
     } catch (e) {
       console.warn('[suggestions] notify email failed', e);
     }
+
+    // Discord webhook (best-effort, non-blocking)
+    postToDiscord(item, sponsorTeam).catch(() => {});
+
     return Response.json(item, { status: 201 });
   } catch (e: unknown) {
     const err = e as NodeJS.ErrnoException;
