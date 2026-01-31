@@ -825,101 +825,63 @@ async function buildRecaps(
     }
   }
 
-  // Build detailed context for each matchup including bracket labels AND team records
-  const matchupContext = pairs.map((p, i) => {
-    const bracketInfo = p.bracketLabel ? ` [${p.bracketLabel}]` : '';
-    const winnerRecord = teamRecords.get(p.winner.name);
-    const loserRecord = teamRecords.get(p.loser.name);
-    const recordInfo = winnerRecord && loserRecord 
-      ? `\n   All-time records: ${p.winner.name} is ${winnerRecord}, ${p.loser.name} is ${loserRecord}`
-      : '';
-    return `${i + 1}. ${p.winner.name} (${p.winner.points.toFixed(1)}) beat ${p.loser.name} (${p.loser.points.toFixed(1)}) by ${p.margin.toFixed(1)} points${bracketInfo}${recordInfo}`;
-  }).join('\n');
 
-  // Determine appropriate token limit based on number of matchups and week importance
-  const baseTokensPerMatchup = isChampionshipWeek ? 300 : isPlayoffs ? 250 : 200;
-  const maxTokens = Math.max(800, pairs.length * baseTokensPerMatchup);
+  // Generate recaps for EACH matchup individually to prevent LLM confusion
+  // This ensures each recap is about the correct teams
+  const recapPromises = pairs.map(async (p) => {
+    const bracketInfo = p.bracketLabel || 'Matchup';
+    const winnerRecord = teamRecords.get(p.winner.name) || 'record unknown';
+    const loserRecord = teamRecords.get(p.loser.name) || 'record unknown';
+    
+    // Build focused context for THIS specific matchup only
+    const matchupSpecificContext = `
+MATCHUP: ${bracketInfo}
+WINNER: ${p.winner.name} scored ${p.winner.points.toFixed(1)} points (All-time record: ${winnerRecord})
+LOSER: ${p.loser.name} scored ${p.loser.points.toFixed(1)} points (All-time record: ${loserRecord})
+MARGIN: ${p.margin.toFixed(1)} points
 
-  // Build constraints based on week type
-  let entertainerConstraints: string;
-  let analystConstraints: string;
-  
-  if (isChampionshipWeek) {
-    entertainerConstraints = `Write a DETAILED, dramatic recap for EACH matchup. Number each recap to match the matchup list.
-For the CHAMPIONSHIP game: This is THE moment - give it 3-4 paragraphs of pure drama. Crown the champion with gravitas. Reference their journey, key moments, and what this means for their legacy.
-For other games (3rd place, consolation, toilet bowl): Give each 2 paragraphs. Make it entertaining - the toilet bowl loser deserves roasting, 3rd place is still respectable.
-Be dramatic, use vivid language, reference the stakes. USE THE EXACT ALL-TIME RECORDS PROVIDED for each team (e.g., "45-23 (66.2%)") - these are the real stats from the league database.`;
-    analystConstraints = `Write a DETAILED analytical recap for EACH matchup. Number each recap to match the matchup list.
-For the CHAMPIONSHIP game: Provide 3-4 paragraphs of deep analysis. Break down what went right for the winner, what went wrong for the loser. Discuss roster decisions, key player performances, and the margin of victory.
-For other games: Give each 2 paragraphs of analysis. Evaluate performance objectively.
-USE THE EXACT ALL-TIME RECORDS PROVIDED for each team - these are the real stats from the league database. Do not modify or round these numbers.`;
-  } else if (isPlayoffs) {
-    entertainerConstraints = `Write a DETAILED, dramatic recap for EACH playoff matchup. Number each recap to match the matchup list. 2-3 paragraphs per matchup.
-This is playoff football - every game matters! Be dramatic about eliminations, celebrate survivors. Reference the bracket position (semifinal, consolation, etc.).
-DO NOT make up statistics or records - only reference what's in the context provided.`;
-    analystConstraints = `Write a DETAILED analytical recap for EACH playoff matchup. Number each recap to match the matchup list. 2-3 paragraphs per matchup.
-Analyze what worked, what didn't, and playoff implications. Consider roster decisions and key performances.
-DO NOT make up statistics, records, or win percentages - only reference data explicitly provided in the context.`;
-  } else {
-    entertainerConstraints = `Write a detailed, entertaining recap for EACH matchup. Number each recap to match the matchup list. 2 paragraphs per matchup minimum.
-Be dramatic about blowouts, sarcastic about close losses. Show personality! Reference playoff implications and division rivalries when relevant.
-DO NOT make up statistics or records - only reference what's in the context provided.`;
-    analystConstraints = `Write a detailed analytical recap for EACH matchup. Number each recap to match the matchup list. 2 paragraphs per matchup minimum.
-Analyze the margin of victory, what it means for standings, and any notable patterns.
-DO NOT make up statistics, records, or win percentages - only reference data explicitly provided in the context.`;
-  }
+IMPORTANT: Write ONLY about ${p.winner.name} and ${p.loser.name}. Do not mention any other teams.
+Do not make up statistics, records, or facts. Only use the data provided above.
+Do not use placeholder text like [insert player name] - if you don't have specific player info, focus on the team performance.`;
 
-  const [entertainerResponse, analystResponse] = await Promise.all([
-    generateSection({
-      persona: 'entertainer',
-      sectionType: 'Matchup Recaps',
-      context: `SEASONAL CONTEXT: ${seasonalContext}
+    const tokensPerMatchup = isChampionshipWeek && bracketInfo.includes('Championship') ? 400 : 
+                             isChampionshipWeek ? 250 : 
+                             isPlayoffs ? 200 : 150;
 
-IMPORTANT: Only use statistics and records that are explicitly provided below. Do not invent or hallucinate any win-loss records, percentages, or historical data.
+    const [entResponse, anaResponse] = await Promise.all([
+      generateSection({
+        persona: 'entertainer',
+        sectionType: `${bracketInfo} Recap`,
+        context: `${seasonalContext}\n${matchupSpecificContext}`,
+        constraints: isChampionshipWeek && bracketInfo.includes('Championship')
+          ? `Write 2-3 dramatic paragraphs about THIS championship game. Crown ${p.winner.name} as champion. Be dramatic but ONLY discuss ${p.winner.name} and ${p.loser.name}.`
+          : `Write 1-2 entertaining paragraphs about this ${bracketInfo}. ONLY discuss ${p.winner.name} beating ${p.loser.name}. No other teams.`,
+        maxTokens: tokensPerMatchup,
+      }),
+      generateSection({
+        persona: 'analyst',
+        sectionType: `${bracketInfo} Analysis`,
+        context: `${seasonalContext}\n${matchupSpecificContext}`,
+        constraints: isChampionshipWeek && bracketInfo.includes('Championship')
+          ? `Write 2-3 analytical paragraphs about THIS championship game. Analyze ${p.winner.name}'s victory over ${p.loser.name}. ONLY discuss these two teams.`
+          : `Write 1-2 analytical paragraphs about this ${bracketInfo}. ONLY analyze ${p.winner.name} vs ${p.loser.name}. No other teams.`,
+        maxTokens: tokensPerMatchup,
+      }),
+    ]);
 
-${enhancedContext}
+    return {
+      matchup_id: p.matchup_id,
+      bot1: entResponse.trim() || `${p.winner.name} takes down ${p.loser.name} by ${p.margin.toFixed(1)}. Moving on.`,
+      bot2: anaResponse.trim() || `${p.winner.name} ${p.winner.points.toFixed(1)}, ${p.loser.name} ${p.loser.points.toFixed(1)}. Margin: ${p.margin.toFixed(1)}.`,
+      winner: p.winner.name,
+      loser: p.loser.name,
+      winner_score: p.winner.points,
+      loser_score: p.loser.points,
+      bracketLabel: p.bracketLabel,
+    };
+  });
 
-This week's matchup results:
-${matchupContext}
-
-Your mood toward teams: ${JSON.stringify(Object.fromEntries(Object.entries(memEntertainer.teams || {}).map(([k, v]) => [k, v.mood])))}`,
-      constraints: entertainerConstraints,
-      maxTokens,
-    }),
-    generateSection({
-      persona: 'analyst',
-      sectionType: 'Matchup Recaps',
-      context: `SEASONAL CONTEXT: ${seasonalContext}
-
-IMPORTANT: Only use statistics and records that are explicitly provided below. Do not invent or hallucinate any win-loss records, percentages, or historical data.
-
-${enhancedContext}
-
-This week's matchup results:
-${matchupContext}
-
-Your assessment of teams: ${JSON.stringify(Object.fromEntries(Object.entries(memAnalyst.teams || {}).map(([k, v]) => [k, v.mood])))}`,
-      constraints: analystConstraints,
-      maxTokens,
-    }),
-  ]);
-
-  // Parse responses - split by numbered lines
-  const entParagraphs = entertainerResponse.split(/\d+\.\s+/).filter(p => p.trim());
-  const anaParagraphs = analystResponse.split(/\d+\.\s+/).filter(p => p.trim());
-
-  return pairs.map((p, i) => ({
-    matchup_id: p.matchup_id,
-    bot1: entParagraphs[i]?.trim() || `${p.winner.name} takes down ${p.loser.name} by ${p.margin.toFixed(1)}. Moving on.`,
-    bot2: anaParagraphs[i]?.trim() || `${p.winner.name} ${p.winner.points.toFixed(1)}, ${p.loser.name} ${p.loser.points.toFixed(1)}. Margin: ${p.margin.toFixed(1)}.`,
-    // Team info for visual display with team colors
-    winner: p.winner.name,
-    loser: p.loser.name,
-    winner_score: p.winner.points,
-    loser_score: p.loser.points,
-    // Playoff bracket label (Championship, 3rd Place, Toilet Bowl, etc.)
-    bracketLabel: p.bracketLabel,
-  }));
+  return Promise.all(recapPromises);
 }
 
 // ============ Enhanced Context Helpers ============
