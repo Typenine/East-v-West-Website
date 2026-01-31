@@ -2,6 +2,11 @@
  * Compose Module
  * Assembles all newsletter sections into a complete newsletter object
  * Uses Groq LLM for natural language generation
+ * 
+ * Context is built from three tiers:
+ * - Tier 1: Static league knowledge (champions, rules, team profiles)
+ * - Tier 2: Dynamic bot memory (narratives, predictions, hot takes)
+ * - Tier 3: Live context (standings, matchups, H2H history)
  */
 
 import type {
@@ -19,6 +24,7 @@ import type {
   RecapItem,
 } from './types';
 import { generateSection } from './llm/groq';
+import { buildStaticLeagueContext } from './league-knowledge';
 
 // ============ Helper Functions ============
 
@@ -26,7 +32,7 @@ function countBy<T>(arr: T[], pred: (x: T) => boolean): number {
   return arr.reduce((n, x) => n + (pred(x) ? 1 : 0), 0);
 }
 
-function getSeasonalContext(week: number): string {
+function getSeasonalContext(week: number, championshipMatchup?: { team1: string; team2: string }): string {
   // Fantasy playoffs typically start Week 15, championship Week 17
   const TRADE_DEADLINE_WEEK = 12;
   const PLAYOFFS_START_WEEK = 15;
@@ -34,11 +40,14 @@ function getSeasonalContext(week: number): string {
   const CHAMPIONSHIP_WEEK = 17;
 
   if (week >= CHAMPIONSHIP_WEEK) {
-    return `🏆 CHAMPIONSHIP WEEK! This is it - the final showdown. One team will be crowned champion. Maximum stakes, maximum drama.`;
+    const matchupText = championshipMatchup 
+      ? `The championship is between ${championshipMatchup.team1} and ${championshipMatchup.team2} - ONLY these two teams are competing for the title.`
+      : 'Two teams have made it to the final.';
+    return `🏆 CHAMPIONSHIP WEEK! This is the FINAL - exactly TWO teams are playing for the title. ${matchupText} Everyone else is playing consolation games that don't matter for the championship. Focus your coverage on the championship matchup. The winner takes home the trophy.`;
   } else if (week >= SEMIFINAL_WEEK) {
-    return `🔥 PLAYOFF SEMIFINALS! Only 4 teams remain. Win or go home. Every point matters.`;
+    return `🔥 PLAYOFF SEMIFINALS! Only 4 teams remain in contention. Two matchups will determine who plays in next week's championship. Win or go home. Every point matters.`;
   } else if (week >= PLAYOFFS_START_WEEK) {
-    return `🏈 PLAYOFFS HAVE BEGUN! The regular season is over. This is single elimination - lose and your season ends.`;
+    return `🏈 PLAYOFFS HAVE BEGUN! The regular season is over. This is single elimination - lose and your season ends. 6 teams entered, only 1 will be champion.`;
   } else if (week === PLAYOFFS_START_WEEK - 1) {
     return `⚡ FINAL WEEK OF REGULAR SEASON! Playoff spots are on the line. Some teams are fighting for their lives, others are locked in.`;
   } else if (week === PLAYOFFS_START_WEEK - 2) {
@@ -75,9 +84,26 @@ async function buildIntro(
   const closest = pairs.reduce((a, b) => (!a || b.margin < a.margin ? b : a), null as typeof pairs[0] | null);
   const trades = events.filter(e => e.type === 'trade').length;
   const waivers = events.filter(e => e.type === 'waiver' || e.type === 'fa_add').length;
-  const seasonalContext = getSeasonalContext(week);
+  
+  // For championship week, identify the championship matchup (matchup_id 1 is typically the championship)
+  const CHAMPIONSHIP_WEEK = 17;
+  let championshipMatchup: { team1: string; team2: string } | undefined;
+  if (week >= CHAMPIONSHIP_WEEK && pairs.length > 0) {
+    // Find the championship matchup - usually matchup_id 1
+    const champPair = pairs.find(p => p.matchup_id === 1) || pairs[0];
+    if (champPair) {
+      championshipMatchup = { team1: champPair.winner.name, team2: champPair.loser.name };
+    }
+  }
+  
+  const seasonalContext = getSeasonalContext(week, championshipMatchup);
+  const leagueKnowledge = buildStaticLeagueContext();
 
-  const context = `SEASONAL CONTEXT: ${seasonalContext}
+  const context = `${leagueKnowledge}
+
+---
+
+SEASONAL CONTEXT: ${seasonalContext}
 ${enhancedContext}
 
 Week ${week} Summary:
@@ -310,7 +336,6 @@ interface TeamStanding {
   wins: number;
   losses: number;
   pointsFor: number;
-  division?: 'East' | 'West';
 }
 
 interface EnhancedContext {
@@ -318,6 +343,8 @@ interface EnhancedContext {
   topScorers?: Array<{ team: string; player: string; points: number }>;
   previousPredictions?: { entertainer: string[]; analyst: string[] };
   byeTeams?: string[]; // NFL teams on bye
+  // NEW: Full enhanced context string with all 8 improvements (H2H, trades, records, playoffs, etc.)
+  enhancedContextString?: string;
 }
 
 function buildStandingsContext(standings: TeamStanding[] | undefined): string {
@@ -327,18 +354,10 @@ function buildStandingsContext(standings: TeamStanding[] | undefined): string {
   const top3 = sorted.slice(0, 3);
   const bottom3 = sorted.slice(-3).reverse();
   
-  const eastTeams = standings.filter(t => t.division === 'East');
-  const westTeams = standings.filter(t => t.division === 'West');
-  const eastWins = eastTeams.reduce((sum, t) => sum + t.wins, 0);
-  const westWins = westTeams.reduce((sum, t) => sum + t.wins, 0);
-  
+  // No divisions in this league - all 10 teams compete in one pool
   let context = `\nSTANDINGS CONTEXT:`;
   context += `\n- Top 3: ${top3.map(t => `${t.name} (${t.wins}-${t.losses})`).join(', ')}`;
   context += `\n- Bottom 3: ${bottom3.map(t => `${t.name} (${t.wins}-${t.losses})`).join(', ')}`;
-  
-  if (eastTeams.length > 0 && westTeams.length > 0) {
-    context += `\n- DIVISION RIVALRY: East (${eastWins} wins) vs West (${westWins} wins) - ${eastWins > westWins ? 'East leads!' : westWins > eastWins ? 'West leads!' : 'Tied!'}`;
-  }
   
   return context;
 }
@@ -374,23 +393,10 @@ function buildByeWeekContext(byeTeams: string[] | undefined): string {
   return `\nNFL BYE WEEKS: ${byeTeams.join(', ')} players were unavailable this week. Factor this into your analysis of affected fantasy teams.`;
 }
 
-function buildDivisionRivalryContext(pairs: DerivedData['matchup_pairs'], standings: TeamStanding[] | undefined): string {
-  if (!standings) return '';
-  
-  const divisionMatchups = pairs.filter(p => {
-    const winnerDiv = standings.find(s => s.name === p.winner.name)?.division;
-    const loserDiv = standings.find(s => s.name === p.loser.name)?.division;
-    return winnerDiv && loserDiv && winnerDiv !== loserDiv;
-  });
-  
-  if (divisionMatchups.length === 0) return '';
-  
-  const eastWins = divisionMatchups.filter(p => {
-    return standings.find(s => s.name === p.winner.name)?.division === 'East';
-  }).length;
-  const westWins = divisionMatchups.length - eastWins;
-  
-  return `\nDIVISION BATTLES: ${divisionMatchups.length} East vs West matchups this week. East won ${eastWins}, West won ${westWins}. ${eastWins > westWins ? 'East dominates!' : westWins > eastWins ? 'West strikes back!' : 'Split decision!'}`;
+// No divisions in this league - this function is kept for backward compatibility but returns empty
+function buildDivisionRivalryContext(_pairs: DerivedData['matchup_pairs'], _standings: TeamStanding[] | undefined): string {
+  // No divisions in this league - all 10 teams compete in one pool
+  return '';
 }
 
 // ============ Main Compose Function ============
@@ -431,11 +437,17 @@ export async function composeNewsletter(input: ComposeNewsletterInput): Promise<
   const byeCtx = buildByeWeekContext(enhancedContext?.byeTeams);
   const rivalryCtx = buildDivisionRivalryContext(pairs, enhancedContext?.standings);
   
-  const fullEnhancedContext = `${standingsCtx}${topScorersCtx}${predictionsCtx}${byeCtx}${rivalryCtx}`;
+  // Use the new comprehensive enhanced context string if available (all 8 improvements)
+  // Otherwise fall back to the legacy context builders
+  const fullEnhancedContext = enhancedContext?.enhancedContextString 
+    ? enhancedContext.enhancedContextString 
+    : `${standingsCtx}${topScorersCtx}${predictionsCtx}${byeCtx}${rivalryCtx}`;
 
   console.log(`[Compose] Starting LLM-powered newsletter generation for Week ${week}...`);
-  if (fullEnhancedContext) {
-    console.log(`[Compose] Enhanced context available: standings=${!!enhancedContext?.standings}, topScorers=${!!enhancedContext?.topScorers}, predictions=${!!enhancedContext?.previousPredictions}, byes=${!!enhancedContext?.byeTeams}`);
+  if (enhancedContext?.enhancedContextString) {
+    console.log(`[Compose] Using FULL enhanced context (H2H, trades, records, playoffs, etc.)`);
+  } else if (fullEnhancedContext) {
+    console.log(`[Compose] Using legacy enhanced context: standings=${!!enhancedContext?.standings}, topScorers=${!!enhancedContext?.topScorers}, predictions=${!!enhancedContext?.previousPredictions}, byes=${!!enhancedContext?.byeTeams}`);
   }
 
   // Build all sections using LLM (run in parallel where possible)

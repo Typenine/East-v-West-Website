@@ -6,7 +6,16 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { LEAGUE_IDS } from '@/lib/constants/league';
-import { generateNewsletter } from '@/lib/newsletter';
+import { 
+  generateNewsletter,
+  buildH2HContext,
+  buildTradeContext,
+  calculatePlayoffImplications,
+  checkForRecords,
+  buildEnhancedContextString,
+  type EnhancedContextData,
+  type LeagueRecords,
+} from '@/lib/newsletter';
 import {
   loadBotMemory,
   saveBotMemory,
@@ -19,6 +28,8 @@ import {
   listNewsletterWeeks,
   deleteNewsletter,
 } from '@/server/db/newsletter-queries';
+import { getHeadToHeadAllTime } from '@/lib/utils/headtohead';
+import { fetchTradesAllTime } from '@/lib/utils/trades';
 
 // ============ Sleeper API Helpers ============
 
@@ -115,49 +126,185 @@ function getByeTeamsForWeek(week: number): string[] {
   return NFL_BYE_WEEKS[week] || [];
 }
 
-// Build enhanced context for LLM
-async function buildEnhancedContext(
+// Build enhanced context for LLM - integrates all 8 improvements
+async function buildEnhancedContextFull(
   leagueId: string,
   week: number,
+  season: number,
   users: Array<{ user_id: string; display_name?: string; username?: string; metadata?: { team_name?: string } }>,
+  matchups: Array<{ roster_id: number; matchup_id: number | null; points?: number }>,
 ): Promise<{
-  standings?: Array<{ name: string; wins: number; losses: number; pointsFor: number; division?: 'East' | 'West' }>;
+  standings?: Array<{ name: string; wins: number; losses: number; pointsFor: number }>;
   byeTeams?: string[];
+  enhancedContextString?: string;
 }> {
   try {
     const extendedRosters = await getExtendedRosters(leagueId);
     
-    // Build user map
+    // Build user map (roster_id -> team name)
     const userMap = new Map<string, string>();
+    const rosterToTeam = new Map<number, string>();
     for (const u of users) {
       const name = u.metadata?.team_name || u.display_name || u.username || `User ${u.user_id}`;
       userMap.set(u.user_id, name);
     }
+    for (const r of extendedRosters) {
+      const name = userMap.get(r.owner_id) || `Roster ${r.roster_id}`;
+      rosterToTeam.set(r.roster_id, name);
+    }
 
-    // Build standings
+    // Build standings (no divisions in this league)
     const standings = extendedRosters.map(r => {
       const name = userMap.get(r.owner_id) || `Roster ${r.roster_id}`;
       const wins = r.settings?.wins || 0;
       const losses = r.settings?.losses || 0;
       const fpts = (r.settings?.fpts || 0) + (r.settings?.fpts_decimal || 0) / 100;
-      
-      // Determine division based on roster_id (1-5 = East, 6-10 = West for 10-team league)
-      // Or use metadata if available
-      let division: 'East' | 'West' | undefined;
-      if (r.metadata?.division) {
-        division = r.metadata.division === '1' ? 'East' : 'West';
-      } else if (r.roster_id <= 5) {
-        division = 'East';
-      } else {
-        division = 'West';
-      }
-
-      return { name, wins, losses, pointsFor: fpts, division };
+      return { name, wins, losses, pointsFor: fpts };
     });
 
     const byeTeams = getByeTeamsForWeek(week);
 
-    return { standings, byeTeams };
+    // ============ IMPROVEMENT 2: H2H Data Integration ============
+    let h2hContext: { notableH2H: string[] } = { notableH2H: [] };
+    try {
+      const h2hData = await getHeadToHeadAllTime();
+      // Build this week's matchups for H2H lookup
+      const matchupPairs: Array<{ team1: string; team2: string }> = [];
+      const matchupGroups = new Map<number, string[]>();
+      for (const m of matchups) {
+        if (m.matchup_id === null) continue;
+        const team = rosterToTeam.get(m.roster_id) || `Roster ${m.roster_id}`;
+        const group = matchupGroups.get(m.matchup_id) || [];
+        group.push(team);
+        matchupGroups.set(m.matchup_id, group);
+      }
+      for (const [, teams] of matchupGroups) {
+        if (teams.length === 2) {
+          matchupPairs.push({ team1: teams[0], team2: teams[1] });
+        }
+      }
+      
+      // Convert H2H data format
+      const h2hFormatted: Record<string, Record<string, { meetings: number; wins: { total: number; playoffs: number }; losses: { total: number }; lastMeeting?: { year: string; week: number } }>> = {};
+      for (const team1 of h2hData.teams) {
+        h2hFormatted[team1] = {};
+        for (const team2 of h2hData.teams) {
+          if (team1 === team2) continue;
+          const cell = h2hData.matrix[team1]?.[team2];
+          if (cell) {
+            h2hFormatted[team1][team2] = {
+              meetings: cell.meetings,
+              wins: { total: cell.wins.total, playoffs: cell.wins.playoffs },
+              losses: { total: cell.losses.total },
+              lastMeeting: cell.lastMeeting,
+            };
+          }
+        }
+      }
+      h2hContext = buildH2HContext(h2hFormatted, matchupPairs);
+    } catch (e) {
+      console.warn('Failed to fetch H2H data:', e);
+    }
+
+    // ============ IMPROVEMENT 3: Trade History Context ============
+    let tradeContext: ReturnType<typeof buildTradeContext> = {
+      recentTrades: [],
+      buyerTeams: [],
+      sellerTeams: [],
+      mostActiveTrader: null,
+      biggestTrade: null,
+    };
+    try {
+      const allTrades = await fetchTradesAllTime();
+      // Filter to current season and format for buildTradeContext
+      const seasonTrades = allTrades
+        .filter(t => t.date && new Date(t.date).getFullYear() === season)
+        .map(t => ({
+          id: t.id,
+          date: t.date,
+          week: t.week ?? undefined,
+          teams: t.teams.map(tm => ({
+            name: tm.name,
+            assets: { gets: tm.assets.map(a => a.name), gives: [] as string[] },
+          })),
+        }));
+      tradeContext = buildTradeContext(seasonTrades, week);
+    } catch (e) {
+      console.warn('Failed to fetch trade data:', e);
+    }
+
+    // ============ IMPROVEMENT 4: Weekly High Scores / Records ============
+    let recordsContext: LeagueRecords = {
+      highestWeeklyScore: null,
+      lowestWinningScore: null,
+      biggestBlowout: null,
+      closestGame: null,
+      longestWinStreak: null,
+      currentWeekNotable: [],
+    };
+    try {
+      // Build this week's results for record checking
+      const thisWeekResults: Array<{ team: string; points: number; opponent: string; opponentPoints: number }> = [];
+      const matchupGroups = new Map<number, Array<{ team: string; points: number }>>();
+      for (const m of matchups) {
+        if (m.matchup_id === null) continue;
+        const team = rosterToTeam.get(m.roster_id) || `Roster ${m.roster_id}`;
+        const group = matchupGroups.get(m.matchup_id) || [];
+        group.push({ team, points: m.points || 0 });
+        matchupGroups.set(m.matchup_id, group);
+      }
+      for (const [, teams] of matchupGroups) {
+        if (teams.length === 2) {
+          thisWeekResults.push({
+            team: teams[0].team,
+            points: teams[0].points,
+            opponent: teams[1].team,
+            opponentPoints: teams[1].points,
+          });
+        }
+      }
+      const { updatedRecords } = checkForRecords(thisWeekResults, recordsContext, week, season);
+      recordsContext = updatedRecords;
+    } catch (e) {
+      console.warn('Failed to check records:', e);
+    }
+
+    // ============ IMPROVEMENT 5: Playoff Implications ============
+    let playoffImplications: ReturnType<typeof calculatePlayoffImplications> = null;
+    try {
+      // Convert standings format for playoff implications (name -> team)
+      const standingsForPlayoffs = standings.map(s => ({ team: s.name, wins: s.wins, losses: s.losses, pointsFor: s.pointsFor }));
+      playoffImplications = calculatePlayoffImplications(standingsForPlayoffs, week, 6, 14);
+    } catch (e) {
+      console.warn('Failed to calculate playoff implications:', e);
+    }
+
+    // ============ Build the enhanced context string ============
+    const enhancedData: EnhancedContextData = {
+      week,
+      season,
+      entertainerMemory: null, // Will be loaded separately
+      analystMemory: null,
+      h2hForThisWeek: [],
+      notableH2H: h2hContext.notableH2H,
+      tradeContext,
+      leagueRecords: recordsContext,
+      playoffImplications,
+      activeDisagreements: [],
+      recentResolutions: [],
+      predictionRecords: {
+        entertainer: { correct: 0, wrong: 0, rate: 0 },
+        analyst: { correct: 0, wrong: 0, rate: 0 },
+      },
+      breakoutPerformances: [], // Would need player stats
+      injuryImpacts: [],
+      predictionsToGrade: [],
+      hotTakesToRevisit: [],
+    };
+
+    const enhancedContextString = buildEnhancedContextString(enhancedData);
+
+    return { standings, byeTeams, enhancedContextString };
   } catch (error) {
     console.error('Failed to build enhanced context:', error);
     return {};
@@ -309,9 +456,12 @@ export async function POST(request: NextRequest) {
 
     console.log(`Loaded bot memory - Entertainer: ${existingMemoryEntertainer ? 'found' : 'new'}, Analyst: ${existingMemoryAnalyst ? 'found' : 'new'}`);
 
-    // Build enhanced context for richer LLM generation
-    const enhancedContext = await buildEnhancedContext(leagueId, week, users);
+    // Build enhanced context for richer LLM generation (all 8 improvements)
+    const enhancedContext = await buildEnhancedContextFull(leagueId, week, seasonNum, users, matchups);
     console.log(`Enhanced context: standings=${enhancedContext.standings?.length || 0} teams, byes=${enhancedContext.byeTeams?.length || 0} NFL teams`);
+    if (enhancedContext.enhancedContextString) {
+      console.log(`Enhanced context includes: H2H, trades, records, playoff implications`);
+    }
 
     // Generate the newsletter
     const result = await generateNewsletter({

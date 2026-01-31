@@ -29,5 +29,61 @@ export { makeForecast, gradePendingPicks } from './forecast';
 export { composeNewsletter } from './compose';
 export { renderHtml, renderNewsletterData } from './template';
 
+// League Knowledge (Tier 1 - Static)
+export {
+  LEAGUE_IDENTITY,
+  CHAMPIONS,
+  TEAM_FACTS,
+  CHAMPIONSHIP_MEETINGS,
+  LEAGUE_RECORDS,
+  LEAGUE_RULES,
+  getTeamFacts,
+  getChampionshipMeetings,
+  isDefendingChampion,
+  buildStaticLeagueContext,
+} from './league-knowledge';
+
+// Context Builder (Tier 2 & 3)
+export {
+  buildFullContext,
+  buildLiveContextFromDerived,
+  type LiveContext,
+  type LiveMatchupContext,
+  type LiveStandingsContext,
+  type FullContext,
+} from './context-builder';
+
+// Enhanced Context (All 8 improvements)
+export {
+  // Memory helpers
+  createEnhancedMemory,
+  recordPrediction,
+  gradePrediction,
+  recordHotTake,
+  gradeHotTake,
+  addNarrative,
+  resolveNarrative,
+  serializeEnhancedMemory,
+  deserializeEnhancedMemory,
+  // Context builders
+  buildH2HContext,
+  buildTradeContext,
+  calculatePlayoffImplications,
+  checkForRecords,
+  trackDisagreement,
+  resolveDisagreement,
+  detectBreakouts,
+  buildEnhancedContextString,
+  // Types
+  type H2HMatchupHistory,
+  type TradeContext,
+  type LeagueRecords,
+  type PlayoffImplications,
+  type BotDisagreement,
+  type PlayerBreakout,
+  type PreviousPrediction,
+  type EnhancedContextData,
+} from './enhanced-context';
+
 // Generator
 export { generateNewsletter, type GenerateNewsletterInput, type GenerateNewsletterResult } from './generator';

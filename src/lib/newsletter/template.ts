@@ -1,6 +1,6 @@
 /**
  * Template Module
- * Renders newsletter data to HTML
+ * Renders newsletter data to HTML - The Athletic style
  */
 
 import type {
@@ -25,20 +25,73 @@ function esc(s: string | number | undefined | null = ''): string {
     .replace(/>/g, '&gt;');
 }
 
-function h2(title: string): string {
-  return `<h2 style="margin:24px 0 8px;font-size:20px;line-height:1.2;color:#0f172a;">${esc(title)}</h2>
-  <div style="height:2px;background:#e5e7eb;margin-bottom:12px;"></div>`;
+function sectionHeader(title: string, subtitle?: string): string {
+  return `
+  <div style="margin:48px 0 24px;border-bottom:3px solid #be161e;">
+    <h2 style="margin:0 0 8px;font-size:13px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#be161e;">${esc(title)}</h2>
+    ${subtitle ? `<p style="margin:0 0 12px;font-size:14px;color:#6b7280;">${esc(subtitle)}</p>` : ''}
+  </div>`;
+}
+
+function authorByline(name: string, role: string): string {
+  return `<div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;">
+    <div style="width:40px;height:40px;border-radius:50%;background:${role === 'entertainer' ? 'linear-gradient(135deg, #be161e, #bf9944)' : 'linear-gradient(135deg, #0b5f98, #1e40af)'};display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:14px;">${name.charAt(0).toUpperCase()}</div>
+    <div>
+      <div style="font-weight:600;font-size:14px;color:#111827;">${esc(name)}</div>
+      <div style="font-size:12px;color:#6b7280;">${role === 'entertainer' ? 'The Entertainer' : 'The Analyst'}</div>
+    </div>
+  </div>`;
+}
+
+function dualPerspective(entertainerText: string, analystText: string): string {
+  return `
+  <div style="display:grid;gap:24px;margin:20px 0;">
+    <div style="background:linear-gradient(135deg, #fef3c7, #fde68a);border-left:4px solid #f59e0b;padding:16px 20px;border-radius:0 8px 8px 0;">
+      <div style="font-weight:600;font-size:12px;color:#92400e;margin-bottom:8px;text-transform:uppercase;letter-spacing:0.5px;">🎭 The Entertainer</div>
+      <p style="margin:0;font-size:15px;line-height:1.6;color:#1f2937;">${esc(entertainerText)}</p>
+    </div>
+    <div style="background:#f0f9ff;border-left:4px solid #0b5f98;padding:16px 20px;border-radius:0 8px 8px 0;">
+      <div style="font-weight:600;font-size:12px;color:#0b5f98;margin-bottom:8px;text-transform:uppercase;letter-spacing:0.5px;">📊 The Analyst</div>
+      <p style="margin:0;font-size:15px;line-height:1.6;color:#374151;">${esc(analystText)}</p>
+    </div>
+  </div>`;
 }
 
 // ============ Section Renderers ============
 
-function sectionIntro(d: IntroSection): string {
+function sectionIntro(d: IntroSection, week: number): string {
+  const isChampionship = week >= 17;
+  const isSemifinal = week === 16;
+  const isPlayoffs = week >= 15;
+  
+  let headerTitle = `WEEK ${week} RECAP`;
+  let subtitle = '';
+  
+  if (isChampionship) {
+    headerTitle = '🏆 CHAMPIONSHIP EDITION';
+    subtitle = 'The final showdown is here. One team will be crowned champion.';
+  } else if (isSemifinal) {
+    headerTitle = '🔥 PLAYOFF SEMIFINALS';
+    subtitle = 'Four teams remain. Two will advance to the championship.';
+  } else if (isPlayoffs) {
+    headerTitle = '🏈 PLAYOFF EDITION';
+    subtitle = 'Win or go home. The postseason is here.';
+  }
+  
   return `
-  ${h2('Intro')}
-  <div style="display:grid;gap:8px;">
-    <div><strong>Entertainer:</strong> ${esc(d.bot1_text)}</div>
-    <div><strong>Analyst:</strong> ${esc(d.bot2_text)}</div>
-  </div>`;
+  <article style="margin-bottom:40px;">
+    ${sectionHeader(headerTitle, subtitle)}
+    
+    <div style="background:linear-gradient(135deg, #fef3c7, #fde68a);border-left:4px solid #f59e0b;padding:24px 28px;margin-bottom:24px;border-radius:0 12px 12px 0;">
+      ${authorByline('The Entertainer', 'entertainer')}
+      <p style="margin:0;font-size:19px;line-height:1.8;color:#1f2937;font-style:italic;">"${esc(d.bot1_text)}"</p>
+    </div>
+    
+    <div style="background:#f0f9ff;border-left:4px solid #0b5f98;padding:24px 28px;border-radius:0 12px 12px 0;">
+      ${authorByline('The Analyst', 'analyst')}
+      <p style="margin:0;font-size:17px;line-height:1.8;color:#374151;">${esc(d.bot2_text)}</p>
+    </div>
+  </article>`;
 }
 
 function sectionCallbacks(cb: CallbacksSection | null): string {
@@ -46,204 +99,229 @@ function sectionCallbacks(cb: CallbacksSection | null): string {
   
   const picks = (cb.forecast_picks || []).map(x => {
     const label = (x.team1 && x.team2)
-      ? `${esc(x.team1)} vs ${esc(x.team2)}${x.matchup_id ? ` (#${esc(x.matchup_id)})` : ''}`
+      ? `${esc(x.team1)} vs ${esc(x.team2)}`
       : `Matchup #${esc(x.matchup_id)}`;
-    return `<li style="margin:4px 0;">${label} — Entertainer: ${esc(x.entertainer_pick || '—')} · Analyst: ${esc(x.analyst_pick || '—')}</li>`;
+    return `<div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #e5e7eb;">
+      <span style="font-weight:500;">${label}</span>
+      <span style="color:#6b7280;">🎭 ${esc(x.entertainer_pick || '—')} · 📊 ${esc(x.analyst_pick || '—')}</span>
+    </div>`;
   }).join('');
 
-  const trades = (cb.trade_grades || []).slice(0, 6).map(t =>
-    `<li style="margin:4px 0;">${esc(t.team)} — Grade ${esc(t.grade)}</li>`
-  ).join('');
-
   return `
-  ${h2('Callbacks')}
-  <div style="color:#64748b;font-size:12px;margin-bottom:6px;">Last week: ${esc(cb.saved_at || '')}</div>
-  <div style="display:grid;gap:8px;">
-    <div><strong>Spotlight (then):</strong> ${esc(cb.spotlight_team || '—')}</div>
-    <div><strong>Forecast Picks:</strong>${picks ? `<ul style="margin:6px 0 0 18px;">${picks}</ul>` : ' —'}</div>
-    <div><strong>Trade Grades:</strong>${trades ? `<ul style="margin:6px 0 0 18px;">${trades}</ul>` : ' —'}</div>
-  </div>`;
+  <article>
+    ${sectionHeader('LOOKING BACK', 'How did our predictions hold up?')}
+    <div style="background:#f9fafb;border-radius:12px;padding:20px;margin-bottom:24px;">
+      <div style="font-size:12px;color:#6b7280;margin-bottom:12px;">Last week: ${esc(cb.saved_at || '')}</div>
+      ${cb.spotlight_team ? `<div style="margin-bottom:16px;"><strong>Spotlight Team:</strong> ${esc(cb.spotlight_team)}</div>` : ''}
+      ${picks || '<div style="color:#6b7280;">No predictions to review.</div>'}
+    </div>
+  </article>`;
 }
 
 function sectionBlurt(d: BlurtSection): string {
-  const rows: string[] = [];
-  if (d.bot1) rows.push(`<div><strong>Entertainer:</strong> ${esc(d.bot1)}</div>`);
-  if (d.bot2) rows.push(`<div><strong>Analyst:</strong> ${esc(d.bot2)}</div>`);
-  if (!rows.length) return '';
+  if (!d.bot1 && !d.bot2) return '';
 
   return `
-  ${h2('Side Notes')}
-  <div style="border:1px solid #e5e7eb;border-radius:10px;padding:12px;background:#fff;">
-    ${rows.join('')}
-  </div>`;
+  <article>
+    ${sectionHeader('QUICK TAKES')}
+    ${dualPerspective(d.bot1 || '', d.bot2 || '')}
+  </article>`;
 }
 
-function sectionRecaps(list: RecapItem[]): string {
-  if (!list?.length) return `${h2('Matchup Recaps')}<div style="color:#334155;">No games found.</div>`;
+function sectionRecaps(list: RecapItem[], week: number): string {
+  if (!list?.length) return `${sectionHeader('MATCHUP RECAPS')}<div style="color:#6b7280;padding:20px;">No games found.</div>`;
 
-  const rows = list.map(x => `
-    <tr>
-      <td style="padding:8px 10px;border-bottom:1px solid #e5e7eb;">#${esc(x.matchup_id)}</td>
-      <td style="padding:8px 10px;border-bottom:1px solid #e5e7eb;"><strong>Entertainer:</strong> ${esc(x.bot1)}</td>
-      <td style="padding:8px 10px;border-bottom:1px solid #e5e7eb;"><strong>Analyst:</strong> ${esc(x.bot2)}</td>
-    </tr>`).join('');
-
-  return `
-  ${h2('Matchup Recaps')}
-  <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;">
-    <tbody>${rows}</tbody>
-  </table>`;
-}
-
-function sectionWaivers(list: WaiverItem[]): string {
-  const items = (list || []).map(x => {
-    const badge = x.coverage_level
-      ? `<span style="display:inline-block;padding:2px 6px;border:1px solid #e5e7eb;border-radius:8px;font-size:12px;margin-right:6px;text-transform:capitalize;">${esc(x.coverage_level)}</span>`
-      : '';
-    const why = (x.reasons && x.reasons.length)
-      ? `<div style="color:#64748b;font-size:12px;margin-top:2px;">${esc(x.reasons.join(' • '))}</div>`
-      : '';
-    return `<li style="margin:6px 0;">${badge}<strong>Entertainer:</strong> ${esc(x.bot1)}<br/><strong>Analyst:</strong> ${esc(x.bot2)}${why}</li>`;
+  const isChampionship = week >= 17;
+  
+  // For championship week, highlight matchup #1 as THE championship
+  const recaps = list.map((x, idx) => {
+    const isChampMatch = isChampionship && (x.matchup_id === 1 || idx === 0);
+    const matchLabel = isChampMatch ? '🏆 THE CHAMPIONSHIP' : `Matchup ${x.matchup_id}`;
+    const cardStyle = isChampMatch 
+      ? 'background:linear-gradient(135deg, #fef3c7, #fff7ed);border:2px solid #f59e0b;'
+      : 'background:#fff;border:1px solid #e5e7eb;';
+    
+    return `
+    <div style="${cardStyle}border-radius:12px;padding:24px;margin-bottom:20px;">
+      <div style="font-weight:700;font-size:${isChampMatch ? '16px' : '14px'};color:${isChampMatch ? '#92400e' : '#374151'};margin-bottom:16px;${isChampMatch ? 'text-align:center;' : ''}">${matchLabel}</div>
+      ${dualPerspective(x.bot1, x.bot2)}
+    </div>`;
   }).join('');
 
   return `
-  ${h2('Waiver Wire & Free Agent Moves')}
-  ${items ? `<ul style="padding-left:18px;margin:0;">${items}</ul>` : `<div style="color:#334155;">No notable moves.</div>`}`;
+  <article>
+    ${sectionHeader(isChampionship ? 'THE FINAL RESULTS' : 'MATCHUP RECAPS', isChampionship ? 'A champion has been crowned' : `${list.length} matchups this week`)}
+    ${recaps}
+  </article>`;
+}
+
+function sectionWaivers(list: WaiverItem[]): string {
+  if (!list?.length) return '';
+
+  const items = list.map(x => {
+    const badge = x.coverage_level === 'high' 
+      ? '<span style="background:#dc2626;color:#fff;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;margin-right:8px;">HOT</span>'
+      : x.coverage_level === 'moderate'
+      ? '<span style="background:#f59e0b;color:#fff;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;margin-right:8px;">NOTABLE</span>'
+      : '';
+    
+    return `
+    <div style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:20px;margin-bottom:16px;">
+      <div style="margin-bottom:12px;">${badge}${x.reasons?.length ? `<span style="color:#6b7280;font-size:13px;">${esc(x.reasons.join(' • '))}</span>` : ''}</div>
+      ${dualPerspective(x.bot1, x.bot2)}
+    </div>`;
+  }).join('');
+
+  return `
+  <article>
+    ${sectionHeader('WAIVER WIRE', 'This week\'s roster moves')}
+    ${items}
+  </article>`;
 }
 
 function sectionTrades(list: TradeItem[]): string {
-  const items = (list || []).map(x => {
-    const badge = x.coverage_level
-      ? `<span style="display:inline-block;padding:2px 6px;border:1px solid #e5e7eb;border-radius:8px;font-size:12px;margin-right:6px;text-transform:capitalize;">${esc(x.coverage_level)}</span>`
-      : '';
-    const header = `${badge}${esc(x.context || 'Trade')}`;
+  if (!list?.length) return '';
 
+  const items = list.map(x => {
     const teamMoves = x.teams
       ? Object.entries(x.teams).map(([team, rec]) => `
-          <div style="color:#475569;font-size:13px;margin:4px 0 0;">
-            <em>${esc(team)}</em> gets: ${esc((rec.gets || []).join(', ') || '—')} • gives: ${esc((rec.gives || []).join(', ') || '—')}
+          <div style="background:#f9fafb;padding:12px 16px;border-radius:8px;margin:8px 0;">
+            <div style="font-weight:600;color:#111827;margin-bottom:4px;">${esc(team)}</div>
+            <div style="font-size:13px;color:#059669;">📥 Gets: ${esc((rec.gets || []).join(', ') || '—')}</div>
+            <div style="font-size:13px;color:#dc2626;">📤 Gives: ${esc((rec.gives || []).join(', ') || '—')}</div>
           </div>
         `).join('')
       : '';
 
     const teamAnalysis = Object.entries(x.analysis || {}).map(([team, a]) => `
-      <div style="margin:10px 0 2px 0;">
-        <div style="font-weight:700;">${esc(team)} — Grade ${esc(a.grade)} <span style="color:#64748b;">(${esc(a.deltaText)})</span></div>
-        <div><strong>Entertainer:</strong> ${esc(a.entertainer_paragraph)}</div>
-        <div><strong>Analyst:</strong> ${esc(a.analyst_paragraph)}</div>
+      <div style="margin:16px 0;padding:16px;background:#fff;border:1px solid #e5e7eb;border-radius:8px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+          <span style="font-weight:700;font-size:15px;">${esc(team)}</span>
+          <span style="background:${a.grade === 'A' || a.grade === 'A+' ? '#059669' : a.grade === 'B' || a.grade === 'B+' ? '#0b5f98' : a.grade === 'C' ? '#f59e0b' : '#dc2626'};color:#fff;padding:4px 12px;border-radius:6px;font-weight:700;">Grade: ${esc(a.grade)}</span>
+        </div>
+        ${dualPerspective(a.entertainer_paragraph, a.analyst_paragraph)}
       </div>
     `).join('');
 
-    const debate = x.debate_line
-      ? `<div style="margin-top:6px;padding:8px 10px;border-left:3px solid #eab308;background:#fffbeb;color:#92400e;font-size:13px;">${esc(x.debate_line)}</div>`
-      : '';
-
-    const reasons = x.reasons?.length
-      ? `<div style="color:#64748b;font-size:12px;margin-top:4px;">${esc(x.reasons.join(' • '))}</div>`
-      : '';
-
     return `
-    <li style="margin:10px 0;">
-      <div>${header}</div>
+    <div style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:24px;margin-bottom:20px;">
+      <div style="font-weight:700;font-size:16px;color:#111827;margin-bottom:16px;">${esc(x.context || 'Trade')}</div>
       ${teamMoves}
       ${teamAnalysis}
-      ${debate}
-      ${reasons}
-    </li>`;
+    </div>`;
   }).join('');
 
   return `
-  ${h2('Trades')}
-  ${items ? `<ul style="padding-left:18px;margin:0;">${items}</ul>` : `<div style="color:#334155;">No trades this week.</div>`}`;
+  <article>
+    ${sectionHeader('TRADE ANALYSIS', 'Breaking down this week\'s deals')}
+    ${items}
+  </article>`;
 }
 
 function sectionSpotlight(d: SpotlightSection): string {
   return `
-  ${h2('Spotlight Team')}
-  <div style="border:1px solid #e5e7eb;border-radius:10px;padding:12px;background:#fff;">
-    <div style="font-weight:700;margin-bottom:6px;">${esc(d.team)}</div>
-    <div><strong>Entertainer:</strong> ${esc(d.bot1)}</div>
-    <div><strong>Analyst:</strong> ${esc(d.bot2)}</div>
-  </div>`;
+  <article>
+    ${sectionHeader('TEAM OF THE WEEK', 'Spotlight performance')}
+    <div style="background:linear-gradient(135deg, #fef3c7, #fff7ed);border:2px solid #f59e0b;border-radius:12px;padding:24px;">
+      <div style="font-weight:700;font-size:20px;color:#92400e;margin-bottom:16px;text-align:center;">⭐ ${esc(d.team)}</div>
+      ${dualPerspective(d.bot1, d.bot2)}
+    </div>
+  </article>`;
 }
 
 function sectionForecast(d: ForecastData): string {
   const recordsLine = d.records
-    ? `<div style="color:#64748b;font-size:12px;margin-bottom:6px;">
-         Records — Entertainer: ${esc(String(d.records.entertainer?.w || 0))}-${esc(String(d.records.entertainer?.l || 0))}
-         · Analyst: ${esc(String(d.records.analyst?.w || 0))}-${esc(String(d.records.analyst?.l || 0))}
-       </div>`
-    : '';
-
-  const summaryLine = d.summary
-    ? `<div style="color:#64748b;font-size:12px;margin-bottom:6px;">
-         Agreement: ${esc(String(d.summary.agree_count || 0))}/${esc(String(d.summary.total || 0))}
-         ${d.summary.disagreements?.length ? `· Disagreements: ${esc(d.summary.disagreements.join(', '))}` : ''}
+    ? `<div style="display:flex;gap:24px;margin-bottom:16px;">
+         <div style="background:#f9fafb;padding:12px 16px;border-radius:8px;flex:1;text-align:center;">
+           <div style="font-size:12px;color:#6b7280;margin-bottom:4px;">🎭 Entertainer Record</div>
+           <div style="font-size:20px;font-weight:700;color:#111827;">${esc(String(d.records.entertainer?.w || 0))}-${esc(String(d.records.entertainer?.l || 0))}</div>
+         </div>
+         <div style="background:#f9fafb;padding:12px 16px;border-radius:8px;flex:1;text-align:center;">
+           <div style="font-size:12px;color:#6b7280;margin-bottom:4px;">📊 Analyst Record</div>
+           <div style="font-size:20px;font-weight:700;color:#111827;">${esc(String(d.records.analyst?.w || 0))}-${esc(String(d.records.analyst?.l || 0))}</div>
+         </div>
        </div>`
     : '';
 
   const rows = (d.picks || []).map(p => `
-    <tr>
-      <td style="padding:10px;border-bottom:1px solid #e5e7eb;vertical-align:top;">${esc(p.team1)} vs ${esc(p.team2)}</td>
-      <td style="padding:10px;border-bottom:1px solid #e5e7eb;vertical-align:top;">
-        <div>
-          <strong>Entertainer:</strong> ${esc(p.bot1_pick || '-')}
-          <span style="color:#64748b;font-size:12px;">(${esc(p.confidence_bot1 || '')})</span>
-          ${p.upset_bot1 ? `<span style="margin-left:6px;border:1px solid #f59e0b;border-radius:8px;padding:1px 6px;font-size:12px;color:#92400e;background:#fffbeb;">upset</span>` : ''}
+    <div style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:20px;margin-bottom:16px;">
+      <div style="font-weight:600;font-size:15px;color:#111827;margin-bottom:16px;text-align:center;">${esc(p.team1)} vs ${esc(p.team2)}</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+        <div style="background:linear-gradient(135deg, #fef3c7, #fde68a);padding:12px 16px;border-radius:8px;">
+          <div style="font-size:11px;color:#92400e;font-weight:600;margin-bottom:4px;">🎭 ENTERTAINER PICK</div>
+          <div style="font-weight:700;color:#1f2937;">${esc(p.bot1_pick || '-')}</div>
+          ${p.confidence_bot1 ? `<div style="font-size:12px;color:#6b7280;">${esc(p.confidence_bot1)}</div>` : ''}
+          ${p.upset_bot1 ? `<span style="display:inline-block;margin-top:4px;background:#f59e0b;color:#fff;padding:2px 8px;border-radius:4px;font-size:11px;">UPSET</span>` : ''}
         </div>
-        ${p.est_bot1 ? `<div style="color:#64748b;font-size:12px;">Est: ${esc(p.est_bot1)}</div>` : ''}
-        ${p.note_bot1 ? `<div style="color:#0f172a;font-size:12px;margin-top:2px;">${esc(p.note_bot1)}</div>` : ''}
-      </td>
-      <td style="padding:10px;border-bottom:1px solid #e5e7eb;vertical-align:top;">
-        <div>
-          <strong>Analyst:</strong> ${esc(p.bot2_pick || '-')}
-          <span style="color:#64748b;font-size:12px;">(${esc(p.confidence_bot2 || '')})</span>
-          ${p.upset_bot2 ? `<span style="margin-left:6px;border:1px solid #f59e0b;border-radius:8px;padding:1px 6px;font-size:12px;color:#92400e;background:#fffbeb;">upset</span>` : ''}
+        <div style="background:#f0f9ff;padding:12px 16px;border-radius:8px;">
+          <div style="font-size:11px;color:#0b5f98;font-weight:600;margin-bottom:4px;">📊 ANALYST PICK</div>
+          <div style="font-weight:700;color:#1f2937;">${esc(p.bot2_pick || '-')}</div>
+          ${p.confidence_bot2 ? `<div style="font-size:12px;color:#6b7280;">${esc(p.confidence_bot2)}</div>` : ''}
+          ${p.upset_bot2 ? `<span style="display:inline-block;margin-top:4px;background:#f59e0b;color:#fff;padding:2px 8px;border-radius:4px;font-size:11px;">UPSET</span>` : ''}
         </div>
-        ${p.est_bot2 ? `<div style="color:#64748b;font-size:12px;">Est: ${esc(p.est_bot2)}</div>` : ''}
-        ${p.note_bot2 ? `<div style="color:#0f172a;font-size:12px;margin-top:2px;">${esc(p.note_bot2)}</div>` : ''}
-      </td>
-    </tr>`).join('');
+      </div>
+    </div>`).join('');
 
-  const extras = `
-    <div style="margin-top:8px;color:#334155;">
-      <div><strong>Entertainer — Matchup of the Week:</strong> ${esc(d.bot1_matchup_of_the_week || '—')}</div>
-      <div><strong>Analyst — Matchup of the Week:</strong> ${esc(d.bot2_matchup_of_the_week || '—')}</div>
-      <div style="margin-top:6px;"><strong>Bold Picks:</strong> Entertainer — ${esc(d.bot1_bold_player || '—')} · Analyst — ${esc(d.bot2_bold_player || '—')}</div>
-    </div>`;
+  const extras = d.bot1_matchup_of_the_week || d.bot2_matchup_of_the_week ? `
+    <div style="background:#f9fafb;border-radius:12px;padding:20px;margin-top:20px;">
+      <div style="font-weight:600;margin-bottom:12px;">🔥 Matchups of the Week</div>
+      ${d.bot1_matchup_of_the_week ? `<div style="margin-bottom:8px;"><span style="color:#92400e;">🎭</span> ${esc(d.bot1_matchup_of_the_week)}</div>` : ''}
+      ${d.bot2_matchup_of_the_week ? `<div><span style="color:#0b5f98;">📊</span> ${esc(d.bot2_matchup_of_the_week)}</div>` : ''}
+    </div>` : '';
 
   return `
-  ${h2("Next Week's Forecast")}
-  ${recordsLine}${summaryLine}
-  ${rows
-    ? `<table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;"><tbody>${rows}</tbody></table>${extras}`
-    : `<div style="color:#334155;">No upcoming matchups found.</div>`}`;
+  <article>
+    ${sectionHeader("NEXT WEEK'S FORECAST", 'Who will come out on top?')}
+    ${recordsLine}
+    ${rows || '<div style="color:#6b7280;padding:20px;">No upcoming matchups found.</div>'}
+    ${extras}
+  </article>`;
 }
 
 function sectionFinal(d: FinalWordSection): string {
   return `
-  ${h2('The Final Word')}
-  <div><strong>Entertainer:</strong> ${esc(d.bot1)}</div>
-  <div><strong>Analyst:</strong> ${esc(d.bot2)}</div>`;
+  <article>
+    ${sectionHeader('THE FINAL WORD', 'Closing thoughts')}
+    ${dualPerspective(d.bot1, d.bot2)}
+  </article>`;
 }
 
 // ============ Main Render Function ============
 
 export function renderHtml(newsletter: Newsletter): string {
   const { meta, sections } = newsletter;
+  const week = meta.week;
+  const isChampionship = week >= 17;
+  const isSemifinal = week === 16;
+  const isPlayoffs = week >= 15;
+
+  let headerBg = 'linear-gradient(135deg, #0f172a, #1e293b)';
+  let headerAccent = '';
+  
+  if (isChampionship) {
+    headerBg = 'linear-gradient(135deg, #92400e, #b45309)';
+    headerAccent = '🏆 ';
+  } else if (isSemifinal) {
+    headerBg = 'linear-gradient(135deg, #be161e, #991b1b)';
+    headerAccent = '🔥 ';
+  } else if (isPlayoffs) {
+    headerBg = 'linear-gradient(135deg, #0b5f98, #1e40af)';
+    headerAccent = '🏈 ';
+  }
 
   const header = `
-  <div style="background:#0f172a;color:#fff;border-radius:12px;padding:18px 20px;">
-    <div style="font-size:14px;opacity:.9;">${esc(meta.date)} • Week ${esc(meta.week)}</div>
-    <h1 style="margin:6px 0 0;font-size:24px;line-height:1.2;">${esc(meta.leagueName)} — Weekly Newsletter</h1>
-  </div>`;
+  <header style="background:${headerBg};color:#fff;border-radius:16px;padding:32px;margin-bottom:32px;">
+    <div style="font-size:12px;opacity:.8;letter-spacing:1px;text-transform:uppercase;margin-bottom:8px;">${esc(meta.date)}</div>
+    <h1 style="margin:0 0 8px;font-size:32px;line-height:1.2;font-weight:800;">${headerAccent}${esc(meta.leagueName)}</h1>
+    <div style="font-size:18px;opacity:.9;">Week ${esc(meta.week)} ${isChampionship ? '— Championship Edition' : isPlayoffs ? '— Playoffs' : ''}</div>
+  </header>`;
 
   const body = sections.map(s => {
     switch (s.type) {
-      case 'Intro': return sectionIntro(s.data);
+      case 'Intro': return sectionIntro(s.data, week);
       case 'Callbacks': return sectionCallbacks(s.data);
       case 'Blurt': return sectionBlurt(s.data);
-      case 'MatchupRecaps': return sectionRecaps(s.data);
+      case 'MatchupRecaps': return sectionRecaps(s.data, week);
       case 'WaiversAndFA': return sectionWaivers(s.data);
       case 'Trades': return sectionTrades(s.data);
       case 'SpotlightTeam': return sectionSpotlight(s.data);
@@ -258,12 +336,19 @@ export function renderHtml(newsletter: Newsletter): string {
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>${esc(meta.leagueName)} — Week ${esc(meta.week)} Newsletter</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 0; background: #f8fafc; font-family: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif; color: #1f2937; line-height: 1.6; }
+  article { margin-bottom: 48px; }
+</style>
 </head>
-<body style="margin:0;padding:0;background:#f1f5f9;font-family:ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, Arial;">
-  <div style="max-width:740px;margin:24px auto;padding:0 16px;">
+<body>
+  <div style="max-width:720px;margin:0 auto;padding:24px 20px;">
     ${header}
     ${body}
-    <div style="color:#94a3b8;font-size:12px;margin:20px 0 40px;">Generated by AI League Newsletter • Data: Sleeper</div>
+    <footer style="text-align:center;color:#9ca3af;font-size:12px;padding:32px 0;border-top:1px solid #e5e7eb;margin-top:48px;">
+      Generated by East v. West AI Newsletter • Data from Sleeper
+    </footer>
   </div>
 </body></html>`;
 }
@@ -275,14 +360,15 @@ export function renderNewsletterData(newsletter: Newsletter): {
   htmlSections: Array<{ type: string; html: string }>;
 } {
   const { meta, sections } = newsletter;
+  const week = meta.week;
 
   const htmlSections = sections.map(s => {
     let html = '';
     switch (s.type) {
-      case 'Intro': html = sectionIntro(s.data); break;
+      case 'Intro': html = sectionIntro(s.data, week); break;
       case 'Callbacks': html = sectionCallbacks(s.data); break;
       case 'Blurt': html = sectionBlurt(s.data); break;
-      case 'MatchupRecaps': html = sectionRecaps(s.data); break;
+      case 'MatchupRecaps': html = sectionRecaps(s.data, week); break;
       case 'WaiversAndFA': html = sectionWaivers(s.data); break;
       case 'Trades': html = sectionTrades(s.data); break;
       case 'SpotlightTeam': html = sectionSpotlight(s.data); break;

@@ -49,7 +49,6 @@ interface TeamStanding {
   wins: number;
   losses: number;
   pointsFor: number;
-  division?: 'East' | 'West';
 }
 
 interface EnhancedContext {
@@ -57,6 +56,8 @@ interface EnhancedContext {
   topScorers?: Array<{ team: string; player: string; points: number }>;
   previousPredictions?: { entertainer: string[]; analyst: string[] };
   byeTeams?: string[]; // NFL teams on bye
+  // NEW: Full enhanced context string with all 8 improvements
+  enhancedContextString?: string;
 }
 
 export interface GenerateNewsletterInput {

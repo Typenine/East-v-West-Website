@@ -84,17 +84,158 @@ export interface StyleSliderConfig {
 
 // ============ Memory Types ============
 
+// Legacy team memory (kept for backward compatibility)
 export interface TeamMemory {
   trust: number;       // -50 to 50
   frustration: number; // 0 to 50
   mood: 'Neutral' | 'Confident' | 'Suspicious' | 'Irritated';
 }
 
+// Legacy bot memory (kept for backward compatibility)
 export interface BotMemory {
   bot: BotName;
   updated_at: string;
   summaryMood: 'Focused' | 'Fired Up' | 'Deflated';
   teams: Record<string, TeamMemory>;
+}
+
+// ============ Enhanced Memory Types (Tier 2) ============
+
+export type NarrativeType = 
+  | 'streak'      // Win/loss streak
+  | 'rivalry'     // Ongoing rivalry storyline
+  | 'redemption'  // Comeback story
+  | 'collapse'    // Team falling apart
+  | 'underdog'    // Surprising success
+  | 'dynasty'     // Sustained dominance
+  | 'trade_saga'  // Multi-week trade storyline
+  | 'injury'      // Key injury impact
+  | 'breakout'    // Player/team breakout
+  | 'bust'        // Disappointing performance;
+
+export interface Narrative {
+  id: string;
+  type: NarrativeType;
+  teams: string[];
+  title: string;           // Short title: "Double Trouble's Revenge Tour"
+  description: string;     // Current state of the narrative
+  startedWeek: number;
+  lastUpdated: number;
+  resolved: boolean;
+  resolution?: string;     // How it ended
+}
+
+export type TeamTrajectory = 'rising' | 'falling' | 'steady' | 'volatile';
+export type TeamMoodEnhanced = 'hot' | 'cold' | 'neutral' | 'chaotic' | 'dangerous';
+
+export interface EnhancedTeamMemory {
+  // Current state
+  mood: TeamMoodEnhanced;
+  trajectory: TeamTrajectory;
+  
+  // Streaks (negative = loss streak)
+  winStreak: number;
+  
+  // Trust/frustration from legacy
+  trust: number;
+  frustration: number;
+  
+  // Notable events this season
+  notableEvents: Array<{
+    week: number;
+    event: string;
+    sentiment: 'positive' | 'negative' | 'neutral';
+  }>;
+  
+  // Bot's last written assessment
+  lastAssessment?: {
+    week: number;
+    text: string;
+  };
+  
+  // Season stats tracking
+  seasonStats?: {
+    wins: number;
+    losses: number;
+    pointsFor: number;
+    pointsAgainst: number;
+    playoffOdds?: number;
+  };
+}
+
+export interface PredictionRecord {
+  week: number;
+  matchupId: string | number;
+  team1: string;
+  team2: string;
+  pick: string;
+  confidence: 'high' | 'medium' | 'low';
+  reasoning?: string;
+  result?: 'correct' | 'wrong';
+  actualWinner?: string;
+  margin?: number;
+}
+
+export interface HotTake {
+  week: number;
+  take: string;
+  subject: string;        // Team or player name
+  boldness: 'mild' | 'spicy' | 'nuclear';
+  agedWell?: boolean;
+  followUp?: string;      // "I was right!" or "I'll own this L"
+}
+
+export interface SeasonMilestone {
+  week: number;
+  event: string;
+  teams?: string[];
+  significance: 'minor' | 'major' | 'historic';
+}
+
+export interface EnhancedBotMemory {
+  // Identity
+  bot: BotName;
+  season: number;
+  updated_at: string;
+  lastGeneratedWeek: number;
+  
+  // Overall mood
+  summaryMood: 'Focused' | 'Fired Up' | 'Deflated' | 'Chaotic' | 'Vindicated';
+  
+  // Running narratives (the "stories" of the season)
+  narratives: Narrative[];
+  
+  // Team-by-team assessments
+  teams: Record<string, EnhancedTeamMemory>;
+  
+  // Prediction tracking
+  predictions: PredictionRecord[];
+  predictionStats: {
+    correct: number;
+    wrong: number;
+    winRate: number;
+    hotStreak: number;    // Current correct streak (negative = wrong streak)
+    bestStreak: number;
+    worstStreak: number;
+  };
+  
+  // Hot takes archive
+  hotTakes: HotTake[];
+  
+  // Season milestones observed
+  milestones: SeasonMilestone[];
+  
+  // Feuds with the other bot
+  botFeud?: {
+    topic: string;
+    myPosition: string;
+    theirPosition: string;
+    startedWeek: number;
+    resolved: boolean;
+  };
+  
+  // Legacy compatibility
+  legacyTeams?: Record<string, TeamMemory>;
 }
 
 // ============ Forecast Types ============
