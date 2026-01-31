@@ -806,26 +806,101 @@ async function buildRecaps(
   if (pairs.length === 0) return [];
 
   const seasonalContext = getSeasonalContext(week);
+  const isPlayoffs = week >= 15;
+  const isChampionshipWeek = week >= 17;
 
-  // Build context for all matchups
-  const matchupContext = pairs.map((p, i) => 
-    `${i + 1}. ${p.winner.name} (${p.winner.points.toFixed(1)}) beat ${p.loser.name} (${p.loser.points.toFixed(1)}) by ${p.margin.toFixed(1)} points`
-  ).join('\n');
+  // Extract team records from enhanced context if available
+  // Parse the "ALL-TIME TEAM RANKINGS" section to get actual records
+  const teamRecords = new Map<string, string>();
+  const rankingsMatch = enhancedContext.match(/--- ALL-TIME TEAM RANKINGS[^-]*---\n([\s\S]*?)(?=\n---|\n\n===|$)/);
+  if (rankingsMatch) {
+    const lines = rankingsMatch[1].split('\n').filter(l => l.trim());
+    for (const line of lines) {
+      // Parse lines like "1. Double Trouble: 45-23 (66.2%) [2x Champion]"
+      const match = line.match(/^\d+\.\s+([^:]+):\s+(\d+-\d+(?:-\d+)?)\s+\(([^)]+)\)/);
+      if (match) {
+        const [, teamName, record, winPct] = match;
+        teamRecords.set(teamName.trim(), `${record} (${winPct})`);
+      }
+    }
+  }
+
+  // Build detailed context for each matchup including bracket labels AND team records
+  const matchupContext = pairs.map((p, i) => {
+    const bracketInfo = p.bracketLabel ? ` [${p.bracketLabel}]` : '';
+    const winnerRecord = teamRecords.get(p.winner.name);
+    const loserRecord = teamRecords.get(p.loser.name);
+    const recordInfo = winnerRecord && loserRecord 
+      ? `\n   All-time records: ${p.winner.name} is ${winnerRecord}, ${p.loser.name} is ${loserRecord}`
+      : '';
+    return `${i + 1}. ${p.winner.name} (${p.winner.points.toFixed(1)}) beat ${p.loser.name} (${p.loser.points.toFixed(1)}) by ${p.margin.toFixed(1)} points${bracketInfo}${recordInfo}`;
+  }).join('\n');
+
+  // Determine appropriate token limit based on number of matchups and week importance
+  const baseTokensPerMatchup = isChampionshipWeek ? 300 : isPlayoffs ? 250 : 200;
+  const maxTokens = Math.max(800, pairs.length * baseTokensPerMatchup);
+
+  // Build constraints based on week type
+  let entertainerConstraints: string;
+  let analystConstraints: string;
+  
+  if (isChampionshipWeek) {
+    entertainerConstraints = `Write a DETAILED, dramatic recap for EACH matchup. Number each recap to match the matchup list.
+For the CHAMPIONSHIP game: This is THE moment - give it 3-4 paragraphs of pure drama. Crown the champion with gravitas. Reference their journey, key moments, and what this means for their legacy.
+For other games (3rd place, consolation, toilet bowl): Give each 2 paragraphs. Make it entertaining - the toilet bowl loser deserves roasting, 3rd place is still respectable.
+Be dramatic, use vivid language, reference the stakes. USE THE EXACT ALL-TIME RECORDS PROVIDED for each team (e.g., "45-23 (66.2%)") - these are the real stats from the league database.`;
+    analystConstraints = `Write a DETAILED analytical recap for EACH matchup. Number each recap to match the matchup list.
+For the CHAMPIONSHIP game: Provide 3-4 paragraphs of deep analysis. Break down what went right for the winner, what went wrong for the loser. Discuss roster decisions, key player performances, and the margin of victory.
+For other games: Give each 2 paragraphs of analysis. Evaluate performance objectively.
+USE THE EXACT ALL-TIME RECORDS PROVIDED for each team - these are the real stats from the league database. Do not modify or round these numbers.`;
+  } else if (isPlayoffs) {
+    entertainerConstraints = `Write a DETAILED, dramatic recap for EACH playoff matchup. Number each recap to match the matchup list. 2-3 paragraphs per matchup.
+This is playoff football - every game matters! Be dramatic about eliminations, celebrate survivors. Reference the bracket position (semifinal, consolation, etc.).
+DO NOT make up statistics or records - only reference what's in the context provided.`;
+    analystConstraints = `Write a DETAILED analytical recap for EACH playoff matchup. Number each recap to match the matchup list. 2-3 paragraphs per matchup.
+Analyze what worked, what didn't, and playoff implications. Consider roster decisions and key performances.
+DO NOT make up statistics, records, or win percentages - only reference data explicitly provided in the context.`;
+  } else {
+    entertainerConstraints = `Write a detailed, entertaining recap for EACH matchup. Number each recap to match the matchup list. 2 paragraphs per matchup minimum.
+Be dramatic about blowouts, sarcastic about close losses. Show personality! Reference playoff implications and division rivalries when relevant.
+DO NOT make up statistics or records - only reference what's in the context provided.`;
+    analystConstraints = `Write a detailed analytical recap for EACH matchup. Number each recap to match the matchup list. 2 paragraphs per matchup minimum.
+Analyze the margin of victory, what it means for standings, and any notable patterns.
+DO NOT make up statistics, records, or win percentages - only reference data explicitly provided in the context.`;
+  }
 
   const [entertainerResponse, analystResponse] = await Promise.all([
     generateSection({
       persona: 'entertainer',
       sectionType: 'Matchup Recaps',
-      context: `SEASONAL CONTEXT: ${seasonalContext}${enhancedContext}\n\nThis week's matchup results:\n${matchupContext}\n\nYour mood toward teams: ${JSON.stringify(Object.fromEntries(Object.entries(memEntertainer.teams || {}).map(([k, v]) => [k, v.mood])))}`,
-      constraints: `Write a brief, punchy recap for EACH matchup. One paragraph per matchup, numbered to match. Be dramatic about blowouts, sarcastic about close losses. Reference the seasonal stakes, standings, and division rivalry when relevant!`,
-      maxTokens: 600,
+      context: `SEASONAL CONTEXT: ${seasonalContext}
+
+IMPORTANT: Only use statistics and records that are explicitly provided below. Do not invent or hallucinate any win-loss records, percentages, or historical data.
+
+${enhancedContext}
+
+This week's matchup results:
+${matchupContext}
+
+Your mood toward teams: ${JSON.stringify(Object.fromEntries(Object.entries(memEntertainer.teams || {}).map(([k, v]) => [k, v.mood])))}`,
+      constraints: entertainerConstraints,
+      maxTokens,
     }),
     generateSection({
       persona: 'analyst',
       sectionType: 'Matchup Recaps',
-      context: `SEASONAL CONTEXT: ${seasonalContext}${enhancedContext}\n\nThis week's matchup results:\n${matchupContext}\n\nYour assessment of teams: ${JSON.stringify(Object.fromEntries(Object.entries(memAnalyst.teams || {}).map(([k, v]) => [k, v.mood])))}`,
-      constraints: `Write a brief analytical recap for EACH matchup. One paragraph per matchup, numbered to match. Consider playoff implications, standings context, and seasonal timing.`,
-      maxTokens: 600,
+      context: `SEASONAL CONTEXT: ${seasonalContext}
+
+IMPORTANT: Only use statistics and records that are explicitly provided below. Do not invent or hallucinate any win-loss records, percentages, or historical data.
+
+${enhancedContext}
+
+This week's matchup results:
+${matchupContext}
+
+Your assessment of teams: ${JSON.stringify(Object.fromEntries(Object.entries(memAnalyst.teams || {}).map(([k, v]) => [k, v.mood])))}`,
+      constraints: analystConstraints,
+      maxTokens,
     }),
   ]);
 
