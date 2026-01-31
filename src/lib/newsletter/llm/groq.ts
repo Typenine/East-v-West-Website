@@ -161,7 +161,46 @@ export async function generateWithGroq(options: GroqGenerateOptions): Promise<Gr
         throw new Error(`Groq API error ${response.status}: ${errorText}`);
       }
 
-      const data = await response.json();
+      // Parse response carefully - Groq sometimes returns text errors
+      const responseText = await response.text();
+      let data;
+      try {
+        data = JSON.parse(responseText);
+      } catch {
+        // Response wasn't valid JSON - likely an error message
+        console.error(`[Groq] Invalid JSON response: ${responseText.substring(0, 200)}`);
+        
+        // Check if it's a rate limit message in text form
+        if (responseText.toLowerCase().includes('rate limit') || responseText.toLowerCase().includes('too many')) {
+          const waitTime = 90000 + (attempt * 30000);
+          console.log(`[Groq] Rate limit detected in response text, waiting ${Math.round(waitTime / 1000)}s...`);
+          await sleep(waitTime);
+          rateLimitState.callsThisMinute = 0;
+          rateLimitState.tokensThisMinute = 0;
+          rateLimitState.minuteStart = Date.now();
+          continue;
+        }
+        
+        throw new Error(`Groq returned invalid JSON: ${responseText.substring(0, 100)}`);
+      }
+      
+      // Check for error in the parsed response
+      if (data.error) {
+        const errorMsg = data.error.message || data.error;
+        console.error(`[Groq] API error in response: ${errorMsg}`);
+        
+        if (errorMsg.toLowerCase().includes('rate limit')) {
+          const waitTime = 90000 + (attempt * 30000);
+          console.log(`[Groq] Rate limit in error response, waiting ${Math.round(waitTime / 1000)}s...`);
+          await sleep(waitTime);
+          rateLimitState.callsThisMinute = 0;
+          rateLimitState.tokensThisMinute = 0;
+          rateLimitState.minuteStart = Date.now();
+          continue;
+        }
+        
+        throw new Error(`Groq API error: ${errorMsg}`);
+      }
       
       const result: GroqResponse = {
         content: data.choices?.[0]?.message?.content || '',
