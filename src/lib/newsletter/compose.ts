@@ -1451,35 +1451,39 @@ Wrap it up.`,
     
     // Evolve personality based on this matchup's outcome
     // This is how the bots learn and change over time
-    const memEntEnhanced = memEntertainer as unknown as import('./types').EnhancedBotMemory;
-    const memAnaEnhanced = memAnalyst as unknown as import('./types').EnhancedBotMemory;
+    // Only apply if the memory has the enhanced personality fields
+    const memEntEnhanced = 'personality' in memEntertainer ? memEntertainer as unknown as import('./types').EnhancedBotMemory : null;
+    const memAnaEnhanced = 'personality' in memAnalyst ? memAnalyst as unknown as import('./types').EnhancedBotMemory : null;
     
-    if (entertainerVindicated) {
-      evolvePersonality(memEntEnhanced, { type: 'vindicated', intensity: isChampionship ? 9 : 5, week });
-      updateEmotionalState(memEntEnhanced, 'smug', isChampionship ? 80 : 50, { week, event: `Called ${p.winner.name} win` });
-    }
-    if (entertainerBurned) {
-      evolvePersonality(memEntEnhanced, { type: 'humbled', intensity: isChampionship ? 8 : 5, context: `${p.loser.name} let me down`, week });
-      updateEmotionalState(memEntEnhanced, 'frustrated', isChampionship ? 70 : 45, { week, event: `${p.loser.name} disappointed`, team: p.loser.name });
-    }
-    if (analystVindicated) {
-      evolvePersonality(memAnaEnhanced, { type: 'vindicated', intensity: isChampionship ? 8 : 4, week });
-      updateEmotionalState(memAnaEnhanced, 'smug', isChampionship ? 60 : 40, { week, event: `Analysis on ${p.winner.name} held up` });
-    }
-    if (analystBurned) {
-      evolvePersonality(memAnaEnhanced, { type: 'humbled', intensity: isChampionship ? 7 : 4, context: `${p.loser.name} defied the numbers`, week });
-      updateEmotionalState(memAnaEnhanced, 'anxious', isChampionship ? 55 : 35, { week, event: `Model missed on ${p.loser.name}`, team: p.loser.name });
+    if (memEntEnhanced) {
+      if (entertainerVindicated) {
+        evolvePersonality(memEntEnhanced, { type: 'vindicated', intensity: isChampionship ? 9 : 5, week });
+        updateEmotionalState(memEntEnhanced, 'smug', isChampionship ? 80 : 50, { week, event: `Called ${p.winner.name} win` });
+      }
+      if (entertainerBurned) {
+        evolvePersonality(memEntEnhanced, { type: 'humbled', intensity: isChampionship ? 8 : 5, context: `${p.loser.name} let me down`, week });
+        updateEmotionalState(memEntEnhanced, 'frustrated', isChampionship ? 70 : 45, { week, event: `${p.loser.name} disappointed`, team: p.loser.name });
+      }
+      if (p.margin > 40 && entertainerVindicated) {
+        evolvePersonality(memEntEnhanced, { type: 'big_win', intensity: 7, week });
+      }
+      if (p.margin < 3) {
+        evolvePersonality(memEntEnhanced, { type: 'heartbreak', intensity: 4, week });
+      }
     }
     
-    // Big margin games affect optimism
-    if (p.margin > 40) {
-      // Blowout - whoever backed the winner feels great
-      if (entertainerVindicated) evolvePersonality(memEntEnhanced, { type: 'big_win', intensity: 7, week });
-      if (analystVindicated) evolvePersonality(memAnaEnhanced, { type: 'big_win', intensity: 6, week });
-    }
-    if (p.margin < 3) {
-      // Nail-biter - emotional volatility increases
-      evolvePersonality(memEntEnhanced, { type: 'heartbreak', intensity: 4, week });
+    if (memAnaEnhanced) {
+      if (analystVindicated) {
+        evolvePersonality(memAnaEnhanced, { type: 'vindicated', intensity: isChampionship ? 8 : 4, week });
+        updateEmotionalState(memAnaEnhanced, 'smug', isChampionship ? 60 : 40, { week, event: `Analysis on ${p.winner.name} held up` });
+      }
+      if (analystBurned) {
+        evolvePersonality(memAnaEnhanced, { type: 'humbled', intensity: isChampionship ? 7 : 4, context: `${p.loser.name} defied the numbers`, week });
+        updateEmotionalState(memAnaEnhanced, 'anxious', isChampionship ? 55 : 35, { week, event: `Model missed on ${p.loser.name}`, team: p.loser.name });
+      }
+      if (p.margin > 40 && analystVindicated) {
+        evolvePersonality(memAnaEnhanced, { type: 'big_win', intensity: 6, week });
+      }
     }
 
     return {

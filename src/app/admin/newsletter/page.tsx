@@ -11,6 +11,7 @@ import Input from '@/components/ui/Input';
 interface GenerationResult {
   success: boolean;
   error?: string;
+  details?: string; // Detailed error message from server
   newsletter?: {
     meta: {
       leagueName: string;
@@ -398,6 +399,11 @@ export default function AdminNewsletterPage() {
                   <div className="p-3 bg-red-900/30 border border-red-600 rounded-lg">
                     <div className="font-medium text-red-400">❌ Error</div>
                     <div className="text-sm mt-1">{result.error}</div>
+                    {result.details && (
+                      <div className="text-xs mt-2 p-2 bg-red-950/50 rounded font-mono break-all">
+                        {result.details}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
