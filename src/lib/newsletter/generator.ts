@@ -149,7 +149,14 @@ export async function generateNewsletter(
   });
 
   // 2. Get team names for memory initialization
-  const teamNames = derived.matchup_pairs.flatMap(p => [p.winner.name, p.loser.name]);
+  // For preseason/special episodes, get team names from users since there are no matchups
+  let teamNames: string[];
+  if (derived.matchup_pairs.length > 0) {
+    teamNames = derived.matchup_pairs.flatMap(p => [p.winner.name, p.loser.name]);
+  } else {
+    // Fallback to user data for preseason episodes
+    teamNames = users.map(u => u.metadata?.team_name || u.display_name || u.username || `User ${u.user_id}`);
+  }
   const uniqueTeamNames = Array.from(new Set(teamNames));
 
   // 3. Initialize or load memory
