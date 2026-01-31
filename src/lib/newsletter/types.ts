@@ -11,6 +11,8 @@ export interface MatchupPair {
   winner: { name: string; points: number };
   loser: { name: string; points: number };
   margin: number;
+  // Playoff bracket label (e.g., "Championship", "3rd Place", "5th Place", "Toilet Bowl")
+  bracketLabel?: string;
 }
 
 export interface UpcomingPair {
@@ -294,6 +296,8 @@ export interface RecapItem {
   loser?: string;
   winner_score?: number;
   loser_score?: number;
+  // Playoff bracket label (e.g., "🏆 Championship", "🥉 3rd Place Game", "🚽 Toilet Bowl")
+  bracketLabel?: string;
 }
 
 export interface WaiverItem {

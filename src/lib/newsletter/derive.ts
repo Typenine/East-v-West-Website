@@ -92,17 +92,76 @@ function mapRosters(
 
 // ============ Matchup Pairs ============
 
+/**
+ * Get bracket label for a playoff matchup based on matchup_id and week
+ * Sleeper playoff bracket structure (6-team playoffs, 2 byes):
+ * - Week 15 (Round 1): matchup_id 1-2 are winners bracket first round, 3-6 are losers bracket
+ * - Week 16 (Round 2): matchup_id 1-2 are winners bracket semifinals, 3-6 are consolation
+ * - Week 17 (Round 3): matchup_id 1 is Championship, 2 is 3rd place, 3-6 are lower consolation
+ */
+function getPlayoffBracketLabel(matchupId: string | number, week: number, playoffStartWeek: number = 15): string | undefined {
+  if (week < playoffStartWeek) return undefined;
+  
+  const playoffRound = week - playoffStartWeek + 1; // 1, 2, or 3
+  const mid = typeof matchupId === 'string' ? parseInt(matchupId, 10) : matchupId;
+  
+  if (isNaN(mid)) return undefined;
+  
+  // Championship week (typically week 17, round 3)
+  if (playoffRound === 3) {
+    switch (mid) {
+      case 1: return '🏆 Championship';
+      case 2: return '🥉 3rd Place Game';
+      case 3: return '5th Place Game';
+      case 4: return '7th Place Game';
+      case 5: return '9th Place Game';
+      case 6: return '🚽 Toilet Bowl';
+      default: return `Consolation ${mid}`;
+    }
+  }
+  
+  // Semifinals week (typically week 16, round 2)
+  if (playoffRound === 2) {
+    switch (mid) {
+      case 1: return 'Semifinal 1';
+      case 2: return 'Semifinal 2';
+      case 3: return '5th Place Semifinal';
+      case 4: return '7th Place Semifinal';
+      case 5: return '9th Place Semifinal';
+      case 6: return 'Toilet Bowl Semifinal';
+      default: return `Round 2 Matchup ${mid}`;
+    }
+  }
+  
+  // First round (typically week 15, round 1)
+  if (playoffRound === 1) {
+    switch (mid) {
+      case 1: return 'Quarterfinal 1';
+      case 2: return 'Quarterfinal 2';
+      case 3: return 'Consolation Round 1';
+      case 4: return 'Consolation Round 1';
+      case 5: return 'Consolation Round 1';
+      case 6: return 'Consolation Round 1';
+      default: return `Round 1 Matchup ${mid}`;
+    }
+  }
+  
+  return undefined;
+}
+
 function buildMatchupPairs(
   matchups: SleeperMatchup[],
-  rostersIndex: Map<number, { owner_id: string; owner_name: string }>
+  rostersIndex: Map<number, { owner_id: string; owner_name: string }>,
+  week?: number,
+  playoffStartWeek?: number
 ): MatchupPair[] {
-  const groups = new Map<string | number, Array<{ owner_name: string; points: number }>>();
+  const groups = new Map<string | number, Array<{ owner_name: string; points: number; roster_id: number }>>();
   
   for (const m of matchups) {
     const k = m.matchup_id ?? 'unknown';
     if (!groups.has(k)) groups.set(k, []);
     const owner_name = rostersIndex.get(m.roster_id)?.owner_name || `Roster ${m.roster_id}`;
-    groups.get(k)!.push({ owner_name, points: Number(m.points ?? 0) });
+    groups.get(k)!.push({ owner_name, points: Number(m.points ?? 0), roster_id: m.roster_id });
   }
 
   const pairs: MatchupPair[] = [];
@@ -112,15 +171,36 @@ function buildMatchupPairs(
     const winner = sorted[0];
     const loser = sorted[sorted.length - 1];
     const margin = Number((winner.points - loser.points).toFixed(2));
+    
+    // Get bracket label for playoff weeks
+    const bracketLabel = week && playoffStartWeek 
+      ? getPlayoffBracketLabel(mid, week, playoffStartWeek)
+      : undefined;
+    
     pairs.push({
       matchup_id: mid,
       teams: entries.map(e => ({ name: e.owner_name, points: e.points })),
       winner: { name: winner.owner_name, points: winner.points },
       loser: { name: loser.owner_name, points: loser.points },
       margin,
+      bracketLabel,
     });
   }
-  return pairs.sort((a, b) => b.margin - a.margin);
+  
+  // Sort: Championship first, then by bracket importance, then by margin
+  return pairs.sort((a, b) => {
+    // Championship always first
+    if (a.bracketLabel?.includes('Championship')) return -1;
+    if (b.bracketLabel?.includes('Championship')) return 1;
+    // 3rd place second
+    if (a.bracketLabel?.includes('3rd Place')) return -1;
+    if (b.bracketLabel?.includes('3rd Place')) return 1;
+    // Toilet Bowl last among labeled games
+    if (a.bracketLabel?.includes('Toilet Bowl') && !b.bracketLabel?.includes('Toilet Bowl')) return 1;
+    if (b.bracketLabel?.includes('Toilet Bowl') && !a.bracketLabel?.includes('Toilet Bowl')) return -1;
+    // Otherwise sort by margin
+    return b.margin - a.margin;
+  });
 }
 
 function buildUpcomingPairs(
@@ -341,12 +421,27 @@ function scoreEvents(
 
 // ============ Main Export ============
 
+// Bracket game info for playoff labeling
+export interface BracketGame {
+  matchup_id: number;
+  round: number;
+  bracket: 'winners' | 'losers';
+  // Derived label based on round and bracket position
+  label?: string;
+}
+
 export interface BuildDerivedInput {
   users: SleeperUser[];
   rosters: SleeperRoster[];
   matchups: SleeperMatchup[];
   nextMatchups?: SleeperMatchup[];
   transactions: SleeperTransaction[];
+  // Optional bracket context for playoff weeks
+  bracketContext?: {
+    week: number;
+    playoffStartWeek: number;
+    bracketGames: BracketGame[];
+  };
 }
 
 export function buildDerived(input: BuildDerivedInput): DerivedData {
@@ -354,7 +449,11 @@ export function buildDerived(input: BuildDerivedInput): DerivedData {
   const usersById = mapUsersById(input.users);
   const rostersIndex = mapRosters(input.rosters, usersById);
 
-  const matchup_pairs = buildMatchupPairs(input.matchups, rostersIndex);
+  // Pass bracket context for playoff labeling
+  const week = input.bracketContext?.week;
+  const playoffStartWeek = input.bracketContext?.playoffStartWeek;
+  
+  const matchup_pairs = buildMatchupPairs(input.matchups, rostersIndex, week, playoffStartWeek);
   const upcoming_pairs = buildUpcomingPairs(input.nextMatchups, rostersIndex);
 
   const events_normalized = normalizeTransactions(input.transactions, rostersIndex);

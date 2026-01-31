@@ -70,6 +70,7 @@ export interface GenerateNewsletterInput {
   season: number;
   week: number;
   episodeType?: string; // Episode type for special newsletters (pre_draft, post_draft, preseason, etc.)
+  playoffStartWeek?: number; // Week playoffs start (default 15) for bracket labeling
   users: SleeperUser[];
   rosters: SleeperRoster[];
   matchups: SleeperMatchup[];
@@ -139,13 +140,22 @@ export async function generateNewsletter(
     pendingPicks,
   } = input;
 
+  // Get playoff start week (default 15)
+  const playoffStartWeek = input.playoffStartWeek || 15;
+  
   // 1. Build derived data from raw Sleeper data
+  // Pass bracket context for playoff labeling during playoff weeks
   const derived = buildDerived({
     users,
     rosters,
     matchups,
     nextMatchups,
     transactions,
+    bracketContext: week >= playoffStartWeek ? {
+      week,
+      playoffStartWeek,
+      bracketGames: [], // Bracket games are derived from matchup_id mapping
+    } : undefined,
   });
 
   // 2. Get team names for memory initialization

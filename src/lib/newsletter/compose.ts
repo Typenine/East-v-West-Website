@@ -842,6 +842,8 @@ async function buildRecaps(
     loser: p.loser.name,
     winner_score: p.winner.points,
     loser_score: p.loser.points,
+    // Playoff bracket label (Championship, 3rd Place, Toilet Bowl, etc.)
+    bracketLabel: p.bracketLabel,
   }));
 }
 

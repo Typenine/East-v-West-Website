@@ -25,7 +25,8 @@ import type {
   PlayoffOddsSection,
   NarrativeCallback,
 } from './types';
-import { TEAM_COLORS } from '@/lib/constants/team-colors';
+import { TEAM_COLORS } from '../constants/team-colors';
+import { getTeamLogoPath } from '../utils/team-utils';
 
 // ============ Team Color Helpers ============
 
@@ -39,10 +40,11 @@ function teamBadge(teamName: string, size: 'sm' | 'md' | 'lg' = 'md'): string {
   const primary = getTeamColor(teamName, 'primary');
   const secondary = getTeamColor(teamName, 'secondary');
   const sizes = { sm: '24px', md: '32px', lg: '48px' };
-  const fontSize = { sm: '10px', md: '12px', lg: '16px' };
+  const logoPath = getTeamLogoPath(teamName);
   const initials = teamName.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
   
-  return `<span style="display:inline-flex;align-items:center;justify-content:center;width:${sizes[size]};height:${sizes[size]};border-radius:50%;background:linear-gradient(135deg, ${primary}, ${secondary});color:#fff;font-weight:700;font-size:${fontSize[size]};flex-shrink:0;">${initials}</span>`;
+  // Use actual team logo with gradient background fallback
+  return `<span style="display:inline-flex;align-items:center;justify-content:center;width:${sizes[size]};height:${sizes[size]};border-radius:50%;background:linear-gradient(135deg, ${primary}, ${secondary});overflow:hidden;flex-shrink:0;"><img src="${logoPath}" alt="${esc(initials)}" style="width:100%;height:100%;object-fit:cover;" onerror="this.style.display='none';this.parentElement.style.color='#fff';this.parentElement.style.fontWeight='700';this.parentElement.innerHTML='${initials}'"/></span>`;
 }
 
 function teamNameStyled(teamName: string): string {
@@ -207,15 +209,55 @@ function sectionBlurt(d: BlurtSection): string {
 function sectionRecaps(list: RecapItem[], week: number): string {
   if (!list?.length) return `${sectionHeader('MATCHUP RECAPS')}<div style="color:#6b7280;padding:20px;">No games found.</div>`;
 
-  const isChampionship = week >= 17;
+  const isPlayoffs = week >= 15;
+  const isChampionshipWeek = week >= 17;
   
-  // For championship week, highlight matchup #1 as THE championship
-  const recaps = list.map((x, idx) => {
-    const isChampMatch = isChampionship && (x.matchup_id === 1 || idx === 0);
-    const matchLabel = isChampMatch ? '🏆 THE CHAMPIONSHIP' : `Matchup ${x.matchup_id}`;
-    const cardStyle = isChampMatch 
-      ? 'background:linear-gradient(135deg, #fef3c7, #fff7ed);border:2px solid #f59e0b;'
-      : 'background:#fff;border:1px solid #e5e7eb;';
+  // Use bracket labels from derived data for proper playoff game identification
+  const recaps = list.map((x) => {
+    // Use bracketLabel if available, otherwise fall back to matchup_id
+    const bracketLabel = x.bracketLabel;
+    const isChampMatch = bracketLabel?.includes('Championship') || false;
+    const isThirdPlace = bracketLabel?.includes('3rd Place') || false;
+    const isToiletBowl = bracketLabel?.includes('Toilet Bowl') || false;
+    
+    // Determine match label and styling based on bracket position
+    let matchLabel: string;
+    let cardStyle: string;
+    let labelColor: string;
+    let fontSize: string;
+    let textAlign: string;
+    
+    if (isChampMatch) {
+      matchLabel = bracketLabel || '🏆 Championship';
+      cardStyle = 'background:linear-gradient(135deg, #fef3c7, #fff7ed);border:2px solid #f59e0b;';
+      labelColor = '#92400e';
+      fontSize = '16px';
+      textAlign = 'text-align:center;';
+    } else if (isThirdPlace) {
+      matchLabel = bracketLabel || '🥉 3rd Place Game';
+      cardStyle = 'background:linear-gradient(135deg, #fef3c7, #fde68a);border:2px solid #d97706;';
+      labelColor = '#92400e';
+      fontSize = '15px';
+      textAlign = 'text-align:center;';
+    } else if (isToiletBowl) {
+      matchLabel = bracketLabel || '🚽 Toilet Bowl';
+      cardStyle = 'background:linear-gradient(135deg, #fef2f2, #fee2e2);border:2px solid #ef4444;';
+      labelColor = '#991b1b';
+      fontSize = '14px';
+      textAlign = 'text-align:center;';
+    } else if (bracketLabel) {
+      matchLabel = bracketLabel;
+      cardStyle = 'background:#f9fafb;border:1px solid #d1d5db;';
+      labelColor = '#374151';
+      fontSize = '14px';
+      textAlign = '';
+    } else {
+      matchLabel = isPlayoffs ? `Playoff Matchup ${x.matchup_id}` : `Matchup ${x.matchup_id}`;
+      cardStyle = 'background:#fff;border:1px solid #e5e7eb;';
+      labelColor = '#374151';
+      fontSize = '14px';
+      textAlign = '';
+    }
     
     // Extract team names and scores from recap data if available
     const winner = x.winner || '';
@@ -225,15 +267,29 @@ function sectionRecaps(list: RecapItem[], week: number): string {
     
     return `
     <div style="${cardStyle}border-radius:12px;padding:24px;margin-bottom:20px;">
-      <div style="font-weight:700;font-size:${isChampMatch ? '16px' : '14px'};color:${isChampMatch ? '#92400e' : '#374151'};margin-bottom:16px;${isChampMatch ? 'text-align:center;' : ''}">${matchLabel}</div>
+      <div style="font-weight:700;font-size:${fontSize};color:${labelColor};margin-bottom:16px;${textAlign}">${matchLabel}</div>
       ${winner && loser ? matchupVsBlock(winner, loser, winnerScore, loserScore) : ''}
       ${dualPerspective(x.bot1, x.bot2)}
     </div>`;
   }).join('');
 
+  // Determine section header based on week
+  let sectionTitle: string;
+  let sectionSubtitle: string;
+  if (isChampionshipWeek) {
+    sectionTitle = 'THE FINAL RESULTS';
+    sectionSubtitle = 'A champion has been crowned';
+  } else if (isPlayoffs) {
+    sectionTitle = 'PLAYOFF RESULTS';
+    sectionSubtitle = `${list.length} playoff matchups this week`;
+  } else {
+    sectionTitle = 'MATCHUP RECAPS';
+    sectionSubtitle = `${list.length} matchups this week`;
+  }
+
   return `
   <article>
-    ${sectionHeader(isChampionship ? 'THE FINAL RESULTS' : 'MATCHUP RECAPS', isChampionship ? 'A champion has been crowned' : `${list.length} matchups this week`)}
+    ${sectionHeader(sectionTitle, sectionSubtitle)}
     ${recaps}
   </article>`;
 }
