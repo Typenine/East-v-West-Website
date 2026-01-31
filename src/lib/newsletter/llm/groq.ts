@@ -39,9 +39,9 @@ const rateLimitState = {
 };
 
 const RATE_LIMITS = {
-  maxCallsPerMinute: 25, // Stay well under 30 limit
+  maxCallsPerMinute: 20, // Stay well under 30 limit
   maxTokensPerMinute: 5000, // Stay under 6000 limit
-  minDelayBetweenCalls: 3000, // 3 seconds between calls - slower but safe for free tier
+  minDelayBetweenCalls: 4000, // 4 seconds between calls - safer for free tier
 };
 
 function resetRateLimitIfNeeded() {
@@ -120,7 +120,7 @@ export async function generateWithGroq(options: GroqGenerateOptions): Promise<Gr
   };
 
   let lastError: Error | null = null;
-  const maxRetries = 3;
+  const maxRetries = 5; // More retries for resilience
 
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
@@ -136,10 +136,22 @@ export async function generateWithGroq(options: GroqGenerateOptions): Promise<Gr
       if (!response.ok) {
         const errorText = await response.text();
         
-        // Handle rate limit errors
+        // Handle rate limit errors with progressive backoff
         if (response.status === 429) {
-          console.log(`[Groq] Rate limited (429), waiting 60s before retry...`);
-          await sleep(60000);
+          const waitTime = 65000 + (attempt * 15000); // 65s, 80s, 95s, 110s, 125s
+          console.log(`[Groq] Rate limited (429), attempt ${attempt + 1}/${maxRetries}, waiting ${Math.round(waitTime / 1000)}s...`);
+          await sleep(waitTime);
+          // Reset our rate limit tracking since we just waited
+          rateLimitState.callsThisMinute = 0;
+          rateLimitState.tokensThisMinute = 0;
+          rateLimitState.minuteStart = Date.now();
+          continue;
+        }
+        
+        // Handle server errors with retry
+        if (response.status >= 500) {
+          console.log(`[Groq] Server error (${response.status}), attempt ${attempt + 1}/${maxRetries}, retrying...`);
+          await sleep(5000 * (attempt + 1));
           continue;
         }
 

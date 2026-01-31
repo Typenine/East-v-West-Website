@@ -1241,20 +1241,8 @@ IMPORTANT RULES:
       (Math.random() > 0.6); // 40% chance analyst starts anyway for variety
     
     const starterBot = analystShouldStart ? 'analyst' : 'entertainer';
-    const responderBot = analystShouldStart ? 'entertainer' : 'analyst';
     
-    // Get the right context for whoever is starting
-    const starterContext = starterBot === 'entertainer' ? entertainerMatchupContext : analystMatchupContext;
-    const starterHooks = starterBot === 'entertainer' ? hooksContext : analystHooksContext;
-    const starterBurned = starterBot === 'entertainer' ? entertainerBurned : analystBurned;
-    const starterVindicated = starterBot === 'entertainer' ? entertainerVindicated : analystVindicated;
-    
-    const responderContext = responderBot === 'entertainer' ? entertainerMatchupContext : analystMatchupContext;
-    const responderHooks = responderBot === 'entertainer' ? hooksContext : analystHooksContext;
-    const responderBurned = responderBot === 'entertainer' ? entertainerBurned : analystBurned;
-    const responderVindicated = responderBot === 'entertainer' ? entertainerVindicated : analystVindicated;
-    
-    // Different opener styles based on who's starting and context
+    // Different opener styles based on who's starting
     const openerStyles = starterBot === 'entertainer' 
       ? [
           'hot take', 'emotional reaction', 'bold claim', 'callback to previous prediction',
@@ -1264,147 +1252,97 @@ IMPORTANT RULES:
           'stat-driven observation', 'analytical breakdown', 'trend identification',
           'measured assessment', 'data point highlight', 'process-focused take'
         ];
-    const openerStyle = openerStyles[Math.floor(Math.random() * openerStyles.length)];
     
-    // Generate dialogue with FULL CONVERSATIONAL CONTEXT - each turn sees previous responses
-    // This preserves nuance, personality, and real back-and-forth
-    // Rate limiting is handled by the LLM client (3 second delays between calls)
+    // EFFICIENT DIALOGUE GENERATION: Generate entire conversation in ONE API call
+    // This dramatically reduces API calls (from 2-5 per matchup to just 1)
+    // while maintaining quality through detailed prompting
+    
     const dialogue: Array<{ speaker: 'entertainer' | 'analyst'; text: string }> = [];
-    let conversationHistory = '';
     
-    // Turn 1: Starter opens (could be either bot)
-    const opener = await generateSection({
-      persona: starterBot,
-      sectionType: `${bracketInfo} Opening Take`,
-      context: `${seasonalContext}\n${starterContext}${starterHooks}${debateAngles}`,
-      constraints: `Open the discussion about ${p.winner.name} beating ${p.loser.name} ${p.winner.points.toFixed(1)}-${p.loser.points.toFixed(1)}. 
-Style: ${openerStyle}
-Reference specific players who performed: ${winnerPlayers}. 
-${p.margin > 25 ? 'This was a BLOWOUT - react accordingly.' : p.margin < 5 ? 'This was a NAIL-BITER - the drama!' : 'Solid win.'}
-${starterBurned ? 'You got this one wrong - acknowledge it with personality, don\'t ignore it.' : ''}
-${starterVindicated ? 'You called this - you can mention it but don\'t be smug.' : ''}
-Give your take in 2-3 sentences. Be specific about what happened.${dialogueTurns > 2 ? ` Set up something the ${responderBot === 'entertainer' ? 'Entertainer' : 'Analyst'} might push back on.` : ''}`,
-      maxTokens: isChampionship ? 150 : 100,
+    // Build a comprehensive prompt that generates the full dialogue at once
+    const fullDialoguePrompt = `Generate a ${dialogueTurns}-turn dialogue between two fantasy football analysts discussing this matchup.
+
+MATCHUP RESULT:
+${p.winner.name} defeated ${p.loser.name}
+Score: ${p.winner.points.toFixed(1)} - ${p.loser.points.toFixed(1)} (margin: ${p.margin.toFixed(1)})
+Winner's top performers: ${winnerPlayers}
+Loser's top performers: ${loserPlayers}
+${isChampionship ? '🏆 THIS IS THE CHAMPIONSHIP GAME!' : ''}
+${p.margin > 25 ? 'This was a BLOWOUT.' : p.margin < 5 ? 'This was a NAIL-BITER!' : ''}
+
+THE ENTERTAINER (starts ${starterBot === 'entertainer' ? 'first' : 'second'}):
+- Personality: Emotional, dramatic, loves hot takes, holds grudges, lives for chaos
+- Style: ${openerStyles.join(', ')}
+${entertainerBurned ? `- GOT BURNED: They trusted ${p.loser.name} or doubted ${p.winner.name} - they need to acknowledge this!` : ''}
+${entertainerVindicated ? `- VINDICATED: They called this one right - can take a small victory lap` : ''}
+${entertainerPersonalityContext ? `- Current state: ${entertainerPersonalityContext.replace(/\n/g, ' ')}` : ''}
+
+THE ANALYST (starts ${starterBot === 'analyst' ? 'first' : 'second'}):
+- Personality: Data-driven, measured, trusts the process, analytical
+- Style: stat-driven observation, trend identification, measured assessment
+${analystBurned ? `- GOT BURNED: Their analysis on ${p.loser.name} didn't hold up - acknowledge briefly` : ''}
+${analystVindicated ? `- VINDICATED: The numbers were right - can note it professionally` : ''}
+${analystPersonalityContext ? `- Current state: ${analystPersonalityContext.replace(/\n/g, ' ')}` : ''}
+
+DIALOGUE REQUIREMENTS:
+- ${dialogueTurns} total turns, alternating speakers
+- ${starterBot.toUpperCase()} speaks first
+- Each turn: 1-3 sentences
+- They can agree, disagree, or build on each other's points
+- Reference specific players and actual scores
+- ${isChampionship ? 'This is the CHAMPIONSHIP - make it memorable!' : 'Keep it natural and conversational'}
+${debateAngles}
+
+FORMAT YOUR RESPONSE EXACTLY LIKE THIS (no extra text):
+ENTERTAINER: [their take]
+ANALYST: [their response]
+${dialogueTurns >= 3 ? (starterBot === 'entertainer' ? 'ENTERTAINER: [follow-up]' : 'ANALYST: [follow-up]') : ''}
+${dialogueTurns >= 4 ? (starterBot === 'entertainer' ? 'ANALYST: [reaction]' : 'ENTERTAINER: [reaction]') : ''}
+${dialogueTurns >= 5 ? (entertainerVindicated || entertainerBurned ? 'ENTERTAINER: [final word]' : 'ANALYST: [final word]') : ''}`;
+
+    // Single API call for the entire dialogue
+    const fullDialogue = await generateSection({
+      persona: starterBot, // Use starter's persona config for temperature
+      sectionType: `${bracketInfo} Full Dialogue`,
+      context: `${seasonalContext}\n${entertainerMatchupContext}`,
+      constraints: fullDialoguePrompt,
+      maxTokens: isChampionship ? 400 : 300, // More tokens for full dialogue
     });
-    dialogue.push({ speaker: starterBot, text: opener.trim() });
-    conversationHistory = `${starterBot.toUpperCase()}: "${opener.trim()}"`;
-
-    // Turn 2: Responder responds - SEES what starter said
-    const response = await generateSection({
-      persona: responderBot,
-      sectionType: `${bracketInfo} Response`,
-      context: `${seasonalContext}\n${responderContext}${responderHooks}
-
-CONVERSATION SO FAR:
-${conversationHistory}
-
-Now respond to what the ${starterBot === 'entertainer' ? 'Entertainer' : 'Analyst'} just said.`,
-      constraints: `Respond to their take about ${p.winner.name} vs ${p.loser.name}. 
-You can agree, disagree, or add nuance. Reference the actual numbers: ${p.winner.points.toFixed(1)}-${p.loser.points.toFixed(1)}, margin of ${p.margin.toFixed(1)}.
-Mention specific players if relevant: Winner had ${winnerPlayers}. Loser had ${loserPlayers}.
-${responderBurned ? 'Your analysis was wrong here - own it briefly, then pivot to what you learned.' : ''}
-${responderVindicated ? 'Your numbers held up - you can note it but stay analytical, not gloating.' : ''}
-2-3 sentences.${dialogueTurns > 2 ? ' If you disagree, make it clear - this could spark more discussion.' : ' Wrap up your thoughts on this game.'}`,
-      maxTokens: isChampionship ? 150 : 100,
-    });
-    dialogue.push({ speaker: responderBot, text: response.trim() });
-    conversationHistory += `\n${responderBot.toUpperCase()}: "${response.trim()}"`;
-
-    // Detect if there's actual disagreement to make follow-ups more organic
-    const hasDisagreement = 
-      response.toLowerCase().includes('disagree') || 
-      response.toLowerCase().includes('but ') ||
-      response.toLowerCase().includes('however') ||
-      response.toLowerCase().includes('actually') ||
-      response.toLowerCase().includes('not sure') ||
-      response.toLowerCase().includes('i don\'t') ||
-      response.toLowerCase().includes('pump the brakes');
-
-    // Turn 3+: Continue alternating, but randomize who gets extra turns
-    // The conversation should feel organic, not formulaic
-    if (dialogueTurns >= 3) {
-      // Randomly decide if starter or responder gets the next turn
-      // This creates variety - sometimes one bot dominates, sometimes it's even
-      const turn3Bot = Math.random() > 0.5 ? starterBot : responderBot;
-      const turn3Context = turn3Bot === 'entertainer' ? entertainerMatchupContext : analystMatchupContext;
-      const otherBot = turn3Bot === 'entertainer' ? 'Analyst' : 'Entertainer';
+    
+    // Parse the dialogue response
+    const lines = fullDialogue.trim().split('\n').filter(line => line.trim());
+    for (const line of lines) {
+      const entertainerMatch = line.match(/^ENTERTAINER:\s*(.+)/i);
+      const analystMatch = line.match(/^ANALYST:\s*(.+)/i);
       
-      const turn3Reaction = await generateSection({
-        persona: turn3Bot,
-        sectionType: `${bracketInfo} Reaction`,
-        context: `${seasonalContext}\n${turn3Context}
-
-CONVERSATION SO FAR:
-${conversationHistory}
-
-React to what was just said.`,
-        constraints: `React to the ${otherBot}'s take. ${hasDisagreement 
-          ? 'There\'s some disagreement here - defend your position, concede a point, or find middle ground.' 
-          : 'You seem to be aligned - build on it, add a prediction, or bring up something new about these teams.'} 
-1-2 sentences. Be yourself.${dialogueTurns > 3 ? ' Keep the conversation going.' : ''}`,
-        maxTokens: 80,
-      });
-      dialogue.push({ speaker: turn3Bot, text: turn3Reaction.trim() });
-      conversationHistory += `\n${turn3Bot.toUpperCase()}: "${turn3Reaction.trim()}"`;
+      if (entertainerMatch) {
+        dialogue.push({ speaker: 'entertainer', text: entertainerMatch[1].trim() });
+      } else if (analystMatch) {
+        dialogue.push({ speaker: 'analyst', text: analystMatch[1].trim() });
+      }
     }
-
-    // Turn 4: Could be either bot - randomize again
-    if (dialogueTurns >= 4) {
-      // Whoever didn't go last should probably go now, but not always
-      const lastSpeaker = dialogue[dialogue.length - 1].speaker;
-      const turn4Bot = Math.random() > 0.3 
-        ? (lastSpeaker === 'entertainer' ? 'analyst' : 'entertainer')
-        : lastSpeaker; // 30% chance same person continues (they're on a roll)
-      const turn4Context = turn4Bot === 'entertainer' ? entertainerMatchupContext : analystMatchupContext;
-      
-      const turn4Angle = hasDisagreement 
-        ? `The debate is heating up. Either double down, find common ground, or pivot to a new angle.`
-        : `Add a forward-looking thought - what does this mean for ${p.winner.name} going forward? Predictions?`;
-      
-      const turn4Response = await generateSection({
-        persona: turn4Bot,
-        sectionType: `${bracketInfo} Follow-up`,
-        context: `${seasonalContext}\n${turn4Context}
-
-CONVERSATION SO FAR:
-${conversationHistory}
-
-Add one more thought.`,
-        constraints: `${turn4Angle} 1-2 sentences. Make it count.`,
-        maxTokens: 70,
+    
+    // Fallback if parsing failed - generate simple 2-turn dialogue
+    if (dialogue.length < 2) {
+      console.log(`[Dialogue] Parsing failed for ${p.winner.name} vs ${p.loser.name}, using fallback`);
+      dialogue.length = 0; // Clear any partial results
+      dialogue.push({ 
+        speaker: 'entertainer', 
+        text: `${p.winner.name} takes it ${p.winner.points.toFixed(1)}-${p.loser.points.toFixed(1)}. ${p.margin > 20 ? 'Not even close!' : p.margin < 5 ? 'What a finish!' : 'Solid win.'}`
       });
-      dialogue.push({ speaker: turn4Bot, text: turn4Response.trim() });
-      conversationHistory += `\n${turn4Bot.toUpperCase()}: "${turn4Response.trim()}"`;
-    }
-
-    // Turn 5: Final word - could be either bot
-    if (dialogueTurns >= 5) {
-      // Final word goes to whoever has more stake or randomly
-      const turn5Bot = (entertainerVindicated || entertainerBurned) ? 'entertainer' 
-        : (analystVindicated || analystBurned) ? 'analyst'
-        : Math.random() > 0.5 ? 'entertainer' : 'analyst';
-      const turn5Context = turn5Bot === 'entertainer' ? entertainerMatchupContext : analystMatchupContext;
-      
-      const finalWordAngle = isChampionship 
-        ? `This is the CHAMPIONSHIP. Make your final word legendary.`
-        : hasDisagreement
-        ? `You've been going back and forth. End it with conviction.`
-        : `Wrap this up with energy. A prediction, a warning, something memorable.`;
-      
-      const finalWord = await generateSection({
-        persona: turn5Bot,
-        sectionType: `${bracketInfo} Final Word`,
-        context: `${seasonalContext}\n${turn5Context}
-
-CONVERSATION SO FAR:
-${conversationHistory}
-
-Wrap it up.`,
-        constraints: `${finalWordAngle} 1 sentence max. Make it quotable.`,
-        maxTokens: 50,
+      dialogue.push({ 
+        speaker: 'analyst', 
+        text: `The margin of ${p.margin.toFixed(1)} tells the story. ${winnerPlayers.split(',')[0]} was the difference maker.`
       });
-      dialogue.push({ speaker: turn5Bot, text: finalWord.trim() });
     }
+    
+    // Detect disagreement for memory tracking
+    const hasDisagreement = dialogue.some(d => 
+      d.text.toLowerCase().includes('disagree') || 
+      d.text.toLowerCase().includes('but ') ||
+      d.text.toLowerCase().includes('however') ||
+      d.text.toLowerCase().includes('actually')
+    );
 
     // Build bot1/bot2 for backwards compatibility
     const entertainerTexts = dialogue.filter(d => d.speaker === 'entertainer').map(d => d.text);
