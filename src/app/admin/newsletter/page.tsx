@@ -37,11 +37,16 @@ export default function AdminNewsletterPage() {
   const [currentWeek, setCurrentWeek] = useState<number | null>(null);
   const [seasonType, setSeasonType] = useState('off');
   const [weekInput, setWeekInput] = useState('17'); // Default to last week
+  const [episodeType, setEpisodeType] = useState<string>('regular'); // Episode type selector
   const [forceRegenerate, setForceRegenerate] = useState(false);
   const [previewMode, setPreviewMode] = useState(true); // Default to preview for safety
   const [showPreviewHtml, setShowPreviewHtml] = useState(false);
 
   const isOffseason = seasonType !== 'regular';
+  
+  // Episode types that don't need a week number
+  const weeklessEpisodes = ['pre_draft', 'post_draft', 'preseason', 'offseason'];
+  const needsWeek = !weeklessEpisodes.includes(episodeType);
 
   // Check admin status
   useEffect(() => {
@@ -93,7 +98,7 @@ export default function AdminNewsletterPage() {
     setResult(null);
 
     try {
-      const week = parseInt(weekInput, 10) || currentWeek;
+      const week = needsWeek ? (parseInt(weekInput, 10) || currentWeek) : 0;
       const res = await fetch('/api/newsletter', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -101,6 +106,7 @@ export default function AdminNewsletterPage() {
         body: JSON.stringify({
           week,
           season: currentSeason,
+          episodeType, // Include episode type for special episodes
           forceRegenerate,
           preview: previewMode, // Don't save to DB in preview mode
         }),
@@ -171,16 +177,48 @@ export default function AdminNewsletterPage() {
               </div>
 
               <div>
-                <Label className="mb-1 block">Week to Generate</Label>
-                <Input
-                  type="number"
-                  min={1}
-                  max={17}
-                  value={weekInput}
-                  onChange={(e) => setWeekInput(e.target.value)}
-                  placeholder={String(currentWeek)}
-                />
+                <Label className="mb-1 block">Episode Type</Label>
+                <select
+                  value={episodeType}
+                  onChange={(e) => setEpisodeType(e.target.value)}
+                  className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
+                >
+                  <optgroup label="Regular Season">
+                    <option value="regular">📅 Weekly Recap</option>
+                    <option value="trade_deadline">🔔 Trade Deadline Special</option>
+                    <option value="playoffs_preview">🏈 Playoffs Preview</option>
+                    <option value="playoffs_round">🏆 Playoff Round Recap</option>
+                    <option value="championship">👑 Championship Edition</option>
+                    <option value="season_finale">🎬 Season Finale</option>
+                  </optgroup>
+                  <optgroup label="Offseason">
+                    <option value="pre_draft">📋 Pre-Draft Preview</option>
+                    <option value="post_draft">📊 Post-Draft Grades</option>
+                    <option value="preseason">🌟 Preseason Preview</option>
+                    <option value="offseason">💤 Offseason Update</option>
+                  </optgroup>
+                </select>
               </div>
+
+              {needsWeek && (
+                <div>
+                  <Label className="mb-1 block">Week Number</Label>
+                  <Input
+                    type="number"
+                    min={1}
+                    max={17}
+                    value={weekInput}
+                    onChange={(e) => setWeekInput(e.target.value)}
+                    placeholder={String(currentWeek)}
+                  />
+                </div>
+              )}
+
+              {!needsWeek && (
+                <div className="p-2 bg-blue-900/30 border border-blue-600 rounded text-sm text-blue-300">
+                  ℹ️ This episode type doesn&apos;t require a specific week number.
+                </div>
+              )}
 
               <div className="flex items-center gap-2">
                 <input
@@ -221,7 +259,7 @@ export default function AdminNewsletterPage() {
                   disabled={generating}
                   variant={previewMode ? 'secondary' : 'primary'}
                 >
-                  {generating ? 'Generating...' : previewMode ? '👁️ Preview Newsletter' : '🤖 Publish Newsletter'}
+                  {generating ? 'Generating...' : previewMode ? '👁️ Preview Newsletter' : '📰 Publish Newsletter'}
                 </Button>
                 <Button
                   onClick={async () => {

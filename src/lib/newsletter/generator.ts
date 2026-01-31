@@ -65,6 +65,7 @@ export interface GenerateNewsletterInput {
   leagueId: string;
   season: number;
   week: number;
+  episodeType?: string; // Episode type for special newsletters (pre_draft, post_draft, preseason, etc.)
   users: SleeperUser[];
   rosters: SleeperRoster[];
   matchups: SleeperMatchup[];

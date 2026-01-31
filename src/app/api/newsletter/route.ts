@@ -393,9 +393,10 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json().catch(() => ({}));
-    const { week: weekOverride, season: seasonOverride, forceRegenerate, preview } = body as {
+    const { week: weekOverride, season: seasonOverride, episodeType, forceRegenerate, preview } = body as {
       week?: number;
       season?: string;
+      episodeType?: string; // Episode type for special newsletters (pre_draft, post_draft, preseason, etc.)
       forceRegenerate?: boolean;
       preview?: boolean; // Preview mode - generates but doesn't save to DB or show on public page
     };
@@ -469,6 +470,7 @@ export async function POST(request: NextRequest) {
       leagueId,
       season: seasonNum,
       week,
+      episodeType: episodeType || 'regular', // Pass episode type for special newsletters
       users,
       rosters,
       matchups,
