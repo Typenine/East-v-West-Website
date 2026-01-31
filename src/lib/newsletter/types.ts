@@ -217,6 +217,236 @@ export interface SeasonMilestone {
   significance: 'minor' | 'major' | 'historic';
 }
 
+// ============ Personality Evolution Types ============
+
+/**
+ * Core personality traits that evolve over time based on experiences
+ * Each trait is on a scale of -100 to 100
+ */
+export interface PersonalityTraits {
+  // Confidence vs Humility: High = cocky/bold, Low = humble/cautious
+  confidence: number;
+  
+  // Optimism vs Pessimism: High = glass half full, Low = expects the worst
+  optimism: number;
+  
+  // Loyalty vs Fickleness: High = sticks with teams through thick/thin, Low = quick to abandon
+  loyalty: number;
+  
+  // Analytics vs Gut: High = trusts the numbers, Low = trusts instinct
+  analyticalTrust: number;
+  
+  // Grudge-holding: High = never forgets, Low = forgives easily
+  grudgeLevel: number;
+  
+  // Risk tolerance: High = loves bold picks, Low = plays it safe
+  riskTolerance: number;
+  
+  // Emotional volatility: High = big swings, Low = steady eddie
+  volatility: number;
+  
+  // === NEW TRAITS ===
+  
+  // Contrarianism: High = loves going against the grain, Low = follows consensus
+  contrarianism: number;
+  
+  // Nostalgia: High = constantly references the past, Low = focused on present
+  nostalgia: number;
+  
+  // Pettiness: High = remembers small slights, Low = lets things go
+  pettiness: number;
+  
+  // Patience: High = willing to wait for long-term plays, Low = wants immediate results
+  patience: number;
+  
+  // Superstition: High = believes in jinxes/curses/momentum, Low = purely rational
+  superstition: number;
+  
+  // Competitiveness with co-host: High = always wants to be right, Low = collaborative
+  competitiveness: number;
+  
+  // Attachment to underdogs: High = roots for longshots, Low = respects favorites
+  underdogAffinity: number;
+  
+  // Drama appreciation: High = loves chaos and storylines, Low = prefers boring consistency
+  dramaAppreciation: number;
+}
+
+/**
+ * Emotional state that persists and influences commentary
+ */
+export interface EmotionalState {
+  // Current dominant emotion
+  primary: 'neutral' | 'excited' | 'frustrated' | 'smug' | 'anxious' | 'nostalgic' | 'vengeful' | 'hopeful';
+  
+  // Intensity of the emotion (0-100)
+  intensity: number;
+  
+  // What triggered this state
+  trigger?: {
+    week: number;
+    event: string;
+    team?: string;
+    player?: string;
+  };
+  
+  // How long this has persisted (weeks)
+  duration: number;
+}
+
+/**
+ * Speech patterns and catchphrases that evolve ORGANICALLY over time
+ * Catchphrases should NOT appear quickly - they need to be earned through repeated events
+ */
+export interface SpeechPatterns {
+  // Potential catchphrases that are building (not ready yet)
+  emergingPhrases: Array<{
+    phrase: string;
+    context: string;
+    occurrences: number; // Must hit threshold before becoming a catchphrase
+    firstSeen: number; // Week first used
+    events: string[]; // What triggered each occurrence
+  }>;
+  
+  // Established catchphrases (only after 3+ similar events over 3+ weeks)
+  catchphrases: Array<{
+    phrase: string;
+    context: string; // When to use it
+    frequency: number; // How often (0-100) - starts low, builds over time
+    origin: { week: number; event: string };
+    timesUsed: number; // Track actual usage
+    lastUsed?: number; // Week last used - don't overuse
+  }>;
+  
+  // Words/phrases they naturally gravitate toward (not forced catchphrases)
+  verbalTics: string[];
+  
+  // Topics they keep coming back to (need 2+ weeks of relevance)
+  obsessions: Array<{
+    topic: string;
+    reason: string;
+    startedWeek: number;
+    mentions: number; // How many times they've brought it up
+  }>;
+  
+  // Things they refuse to talk about (sore subjects)
+  avoidTopics: Array<{
+    topic: string;
+    reason: string;
+    until?: number; // Week they might revisit
+  }>;
+  
+  // Signature reactions (more natural than catchphrases)
+  signatureReactions: Array<{
+    trigger: string; // What causes this reaction
+    reaction: string; // How they typically respond
+    examples: string[]; // Past instances
+  }>;
+}
+
+/**
+ * Deep player relationship with history
+ */
+export interface DeepPlayerRelationship {
+  playerId: string;
+  playerName: string;
+  team?: string;
+  
+  // Overall sentiment
+  sentiment: 'beloved' | 'trusted' | 'neutral' | 'skeptical' | 'grudge' | 'enemy' | 'redeemed';
+  trustLevel: number; // -100 to 100
+  
+  // The story of this relationship
+  history: Array<{
+    week: number;
+    season: number;
+    event: string;
+    impact: number; // How much this changed trust
+    emotional: boolean; // Was this an emotional moment?
+  }>;
+  
+  // Key moments
+  definingMoment?: {
+    week: number;
+    season: number;
+    event: string;
+    sentiment: 'positive' | 'negative';
+  };
+  
+  // Predictions about this player
+  predictions: Array<{
+    week: number;
+    prediction: string;
+    wasRight?: boolean;
+  }>;
+  
+  // Nicknames given
+  nicknames: string[];
+  
+  // How often they mention this player (0-100)
+  mentionFrequency: number;
+}
+
+/**
+ * Team relationship with deep history
+ */
+export interface DeepTeamRelationship {
+  teamName: string;
+  
+  // Overall stance
+  stance: 'believer' | 'skeptic' | 'neutral' | 'grudging_respect' | 'nemesis' | 'bandwagon';
+  trustLevel: number;
+  
+  // History of takes
+  takeHistory: Array<{
+    week: number;
+    season: number;
+    take: string;
+    wasRight?: boolean;
+    memorable?: boolean;
+  }>;
+  
+  // Times they've been burned/vindicated
+  timesBurned: number;
+  timesVindicated: number;
+  
+  // Current narrative about this team
+  currentNarrative?: string;
+  
+  // Specific players on this team they have opinions about
+  playerOpinions: Record<string, 'love' | 'hate' | 'neutral' | 'intrigued'>;
+}
+
+/**
+ * Growth and learning over time
+ */
+export interface PersonalGrowth {
+  // Lessons learned the hard way
+  hardLessons: Array<{
+    week: number;
+    season: number;
+    lesson: string;
+    context: string;
+    appliedSince: boolean;
+  }>;
+  
+  // Biases they've recognized
+  recognizedBiases: Array<{
+    bias: string;
+    discoveredWeek: number;
+    workingOnIt: boolean;
+  }>;
+  
+  // Things they've gotten better at
+  improvements: Array<{
+    skill: string;
+    evidence: string;
+  }>;
+  
+  // Blind spots they still have
+  blindSpots: string[];
+}
+
 export interface EnhancedBotMemory {
   // Identity
   bot: BotName;
@@ -226,6 +456,16 @@ export interface EnhancedBotMemory {
   
   // Overall mood
   summaryMood: 'Focused' | 'Fired Up' | 'Deflated' | 'Chaotic' | 'Vindicated';
+  
+  // === NEW: Evolving Personality ===
+  personality?: PersonalityTraits;
+  emotionalState?: EmotionalState;
+  speechPatterns?: SpeechPatterns;
+  personalGrowth?: PersonalGrowth;
+  
+  // Deep relationships (replaces simple playerRelationships)
+  deepPlayerRelationships?: Record<string, DeepPlayerRelationship>;
+  deepTeamRelationships?: Record<string, DeepTeamRelationship>;
   
   // Running narratives (the "stories" of the season)
   narratives: Narrative[];
@@ -250,13 +490,41 @@ export interface EnhancedBotMemory {
   // Season milestones observed
   milestones: SeasonMilestone[];
   
-  // Feuds with the other bot
-  botFeud?: {
-    topic: string;
-    myPosition: string;
-    theirPosition: string;
-    startedWeek: number;
-    resolved: boolean;
+  // Relationship with the other bot - tracks ongoing dynamics
+  partnerDynamics?: {
+    // Recent agreements/disagreements
+    recentInteractions: Array<{
+      week: number;
+      matchup?: string;
+      topic: string;
+      agreed: boolean;
+      myTake: string;
+      theirTake: string;
+      whoWasRight?: 'me' | 'them' | 'neither' | 'both';
+      memorable?: boolean; // Worth referencing later
+    }>;
+    // Running tally
+    agreementRate: number; // 0-100, how often we agree
+    timesTheyWereRight: number;
+    timesIWasRight: number;
+    // Current feud if any
+    activeFeud?: {
+      topic: string;
+      myPosition: string;
+      theirPosition: string;
+      startedWeek: number;
+      intensity: 'mild' | 'heated' | 'war';
+    };
+    // Things I've learned from them
+    lessonsLearned: Array<{
+      week: number;
+      lesson: string; // "They were right about Double Trouble's ceiling"
+    }>;
+    // Running jokes or callbacks
+    insideJokes: Array<{
+      reference: string; // "Remember when you said Beer would miss playoffs?"
+      week: number;
+    }>;
   };
   
   // Player relationships - how the bot feels about individual players

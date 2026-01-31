@@ -34,14 +34,93 @@ export function createFreshMemory(bot: BotName): BotMemory {
 
 /**
  * Create a fresh EnhancedBotMemory with all tracking features
+ * Includes evolving personality system
  */
 export function createEnhancedMemory(bot: BotName, season: number): EnhancedBotMemory {
+  // Different starting personalities for each bot
+  const entertainerPersonality: import('./types').PersonalityTraits = {
+    confidence: 60,      // Starts cocky
+    optimism: 40,        // Slightly optimistic
+    loyalty: 30,         // Quick to jump ship
+    analyticalTrust: -20, // Trusts gut over numbers
+    grudgeLevel: 50,     // Holds grudges
+    riskTolerance: 70,   // Loves bold picks
+    volatility: 60,      // Big emotional swings
+    // New traits
+    contrarianism: 55,   // Likes going against the grain
+    nostalgia: 40,       // References past seasons sometimes
+    pettiness: 60,       // Remembers small slights
+    patience: -20,       // Wants results NOW
+    superstition: 50,    // Believes in momentum, curses
+    competitiveness: 70, // Really wants to beat the analyst
+    underdogAffinity: 60,// Loves a good underdog story
+    dramaAppreciation: 80,// Lives for chaos
+  };
+  
+  const analystPersonality: import('./types').PersonalityTraits = {
+    confidence: 30,      // More measured
+    optimism: 0,         // Neutral/realistic
+    loyalty: 50,         // Sticks with process
+    analyticalTrust: 80, // Trusts the numbers
+    grudgeLevel: 20,     // Forgives based on data
+    riskTolerance: 20,   // Plays it safe
+    volatility: 20,      // Steady eddie
+    // New traits
+    contrarianism: -10,  // Generally follows consensus
+    nostalgia: 20,       // Occasionally references history
+    pettiness: 10,       // Mostly lets things go
+    patience: 60,        // Willing to wait for long-term
+    superstition: -40,   // Doesn't believe in jinxes
+    competitiveness: 40, // Wants to be right but not obsessed
+    underdogAffinity: -20,// Respects favorites
+    dramaAppreciation: 10,// Prefers boring consistency
+  };
+  
   return {
     bot,
     season,
     updated_at: new Date().toISOString(),
     lastGeneratedWeek: 0,
     summaryMood: 'Focused',
+    
+    // Evolving personality
+    personality: bot === 'entertainer' ? entertainerPersonality : analystPersonality,
+    emotionalState: {
+      primary: 'neutral',
+      intensity: 30,
+      duration: 0,
+    },
+    speechPatterns: {
+      emergingPhrases: [], // Phrases that are building but not yet catchphrases
+      catchphrases: [], // Only after 3+ occurrences over 3+ weeks
+      verbalTics: bot === 'entertainer' 
+        ? ['Look,', 'I\'m telling you,', 'Mark my words,', 'Here\'s the thing -']
+        : ['The numbers suggest', 'Historically speaking,', 'If we look at the data,', 'The trend indicates'],
+      obsessions: [],
+      avoidTopics: [],
+      signatureReactions: bot === 'entertainer'
+        ? [
+            { trigger: 'team I believed in wins big', reaction: 'vindicated celebration', examples: [] },
+            { trigger: 'team I doubted proves me wrong', reaction: 'grudging respect with asterisk', examples: [] },
+          ]
+        : [
+            { trigger: 'data prediction holds', reaction: 'quiet satisfaction, note the process', examples: [] },
+            { trigger: 'model misses badly', reaction: 'analytical post-mortem', examples: [] },
+          ],
+    },
+    personalGrowth: {
+      hardLessons: [],
+      recognizedBiases: [],
+      improvements: [],
+      blindSpots: bot === 'entertainer'
+        ? ['Gets too attached to narratives', 'Overvalues recent performance']
+        : ['Undervalues intangibles', 'Too slow to adjust to injuries'],
+    },
+    
+    // Deep relationships
+    deepPlayerRelationships: {},
+    deepTeamRelationships: {},
+    
     narratives: [],
     teams: {},
     predictions: [],
@@ -450,6 +529,658 @@ export function serializeEnhancedMemory(mem: EnhancedBotMemory): string {
 
 export function deserializeEnhancedMemory(json: string): EnhancedBotMemory {
   return JSON.parse(json) as EnhancedBotMemory;
+}
+
+// ============ Bot-to-Bot Interaction Tracking ============
+
+/**
+ * Record an interaction between the two bots for future reference
+ * This allows them to learn from each other and reference past conversations
+ */
+export function recordBotInteraction(
+  mem: EnhancedBotMemory,
+  week: number,
+  interaction: {
+    matchup?: string;
+    topic: string;
+    agreed: boolean;
+    myTake: string;
+    theirTake: string;
+    memorable?: boolean;
+  }
+): void {
+  // Initialize partnerDynamics if needed
+  if (!mem.partnerDynamics) {
+    mem.partnerDynamics = {
+      recentInteractions: [],
+      agreementRate: 50,
+      timesTheyWereRight: 0,
+      timesIWasRight: 0,
+      lessonsLearned: [],
+      insideJokes: [],
+    };
+  }
+  
+  // Add the interaction
+  mem.partnerDynamics.recentInteractions.push({
+    week,
+    ...interaction,
+  });
+  
+  // Keep only last 20 interactions
+  if (mem.partnerDynamics.recentInteractions.length > 20) {
+    mem.partnerDynamics.recentInteractions = mem.partnerDynamics.recentInteractions.slice(-20);
+  }
+  
+  // Update agreement rate
+  const recent = mem.partnerDynamics.recentInteractions;
+  const agreements = recent.filter(i => i.agreed).length;
+  mem.partnerDynamics.agreementRate = Math.round((agreements / recent.length) * 100);
+}
+
+/**
+ * Record when one bot was proven right about something
+ */
+export function recordWhoWasRight(
+  mem: EnhancedBotMemory,
+  week: number,
+  matchup: string,
+  iWasRight: boolean,
+  topic: string
+): void {
+  if (!mem.partnerDynamics) return;
+  
+  // Find the interaction and update it
+  const interaction = mem.partnerDynamics.recentInteractions.find(
+    i => i.matchup === matchup && i.week === week - 1 // Previous week's prediction
+  );
+  
+  if (interaction) {
+    interaction.whoWasRight = iWasRight ? 'me' : 'them';
+  }
+  
+  // Update tallies
+  if (iWasRight) {
+    mem.partnerDynamics.timesIWasRight++;
+  } else {
+    mem.partnerDynamics.timesTheyWereRight++;
+    
+    // If they've been right multiple times about something, learn from it
+    if (mem.partnerDynamics.timesTheyWereRight % 3 === 0) {
+      mem.partnerDynamics.lessonsLearned.push({
+        week,
+        lesson: `Maybe I should listen more when they talk about ${topic}`,
+      });
+    }
+  }
+}
+
+/**
+ * Add an inside joke or callback reference between the bots
+ */
+export function addInsideJoke(
+  mem: EnhancedBotMemory,
+  week: number,
+  reference: string
+): void {
+  if (!mem.partnerDynamics) {
+    mem.partnerDynamics = {
+      recentInteractions: [],
+      agreementRate: 50,
+      timesTheyWereRight: 0,
+      timesIWasRight: 0,
+      lessonsLearned: [],
+      insideJokes: [],
+    };
+  }
+  
+  mem.partnerDynamics.insideJokes.push({ week, reference });
+  
+  // Keep only last 10 inside jokes
+  if (mem.partnerDynamics.insideJokes.length > 10) {
+    mem.partnerDynamics.insideJokes = mem.partnerDynamics.insideJokes.slice(-10);
+  }
+}
+
+/**
+ * Start or update a feud between the bots
+ */
+export function updateBotFeud(
+  mem: EnhancedBotMemory,
+  feud: {
+    topic: string;
+    myPosition: string;
+    theirPosition: string;
+    startedWeek: number;
+    intensity: 'mild' | 'heated' | 'war';
+  } | null
+): void {
+  if (!mem.partnerDynamics) {
+    mem.partnerDynamics = {
+      recentInteractions: [],
+      agreementRate: 50,
+      timesTheyWereRight: 0,
+      timesIWasRight: 0,
+      lessonsLearned: [],
+      insideJokes: [],
+    };
+  }
+  
+  mem.partnerDynamics.activeFeud = feud || undefined;
+}
+
+/**
+ * Get context about the bot's relationship with their partner for prompts
+ */
+export function getPartnerDynamicsContext(mem: EnhancedBotMemory): string {
+  if (!mem.partnerDynamics) return '';
+  
+  const lines: string[] = [];
+  const pd = mem.partnerDynamics;
+  
+  // Agreement rate
+  if (pd.agreementRate > 70) {
+    lines.push(`You and your co-host usually see eye to eye (${pd.agreementRate}% agreement rate).`);
+  } else if (pd.agreementRate < 40) {
+    lines.push(`You and your co-host often disagree (only ${pd.agreementRate}% agreement rate). That's part of the fun.`);
+  }
+  
+  // Who's been right more
+  const total = pd.timesIWasRight + pd.timesTheyWereRight;
+  if (total > 5) {
+    if (pd.timesIWasRight > pd.timesTheyWereRight * 1.5) {
+      lines.push(`Your predictions have been more accurate than theirs lately. You've earned some swagger.`);
+    } else if (pd.timesTheyWereRight > pd.timesIWasRight * 1.5) {
+      lines.push(`They've been right more often than you lately. Maybe listen to them more... or double down.`);
+    }
+  }
+  
+  // Active feud
+  if (pd.activeFeud) {
+    lines.push(`ONGOING FEUD: You disagree about "${pd.activeFeud.topic}". Your position: "${pd.activeFeud.myPosition}". Their position: "${pd.activeFeud.theirPosition}". Intensity: ${pd.activeFeud.intensity}.`);
+  }
+  
+  // Recent memorable interactions
+  const memorable = pd.recentInteractions.filter(i => i.memorable).slice(-2);
+  if (memorable.length > 0) {
+    lines.push(`Recent memorable moments with your co-host:`);
+    for (const m of memorable) {
+      lines.push(`  - Week ${m.week}: ${m.topic} (${m.agreed ? 'agreed' : 'disagreed'})`);
+    }
+  }
+  
+  // Lessons learned
+  if (pd.lessonsLearned.length > 0) {
+    const recent = pd.lessonsLearned.slice(-1)[0];
+    lines.push(`Something you've learned: "${recent.lesson}"`);
+  }
+  
+  // Inside jokes
+  if (pd.insideJokes.length > 0) {
+    const joke = pd.insideJokes[Math.floor(Math.random() * pd.insideJokes.length)];
+    lines.push(`Callback opportunity: "${joke.reference}" (Week ${joke.week})`);
+  }
+  
+  return lines.length > 0 ? `\nYOUR RELATIONSHIP WITH YOUR CO-HOST:\n${lines.join('\n')}` : '';
+}
+
+// ============ Personality Evolution Functions ============
+
+/**
+ * Evolve personality traits based on an experience
+ * This is how the bot learns and changes over time
+ */
+export function evolvePersonality(
+  mem: EnhancedBotMemory,
+  event: {
+    type: 'prediction_correct' | 'prediction_wrong' | 'big_win' | 'heartbreak' | 
+          'vindicated' | 'humbled' | 'partner_was_right' | 'partner_was_wrong' |
+          'favorite_player_performed' | 'favorite_player_disappointed' |
+          'bold_take_paid_off' | 'bold_take_backfired';
+    intensity: number; // 1-10
+    context?: string;
+    week: number;
+  }
+): void {
+  if (!mem.personality) return;
+  
+  const p = mem.personality;
+  const i = event.intensity;
+  
+  switch (event.type) {
+    case 'prediction_correct':
+      p.confidence = CLAMP(p.confidence + i * 2, -100, 100);
+      if (i >= 7) p.riskTolerance = CLAMP(p.riskTolerance + 3, -100, 100);
+      break;
+      
+    case 'prediction_wrong':
+      p.confidence = CLAMP(p.confidence - i * 1.5, -100, 100);
+      if (i >= 7) {
+        p.riskTolerance = CLAMP(p.riskTolerance - 5, -100, 100);
+        // Learn a hard lesson
+        if (mem.personalGrowth && event.context) {
+          mem.personalGrowth.hardLessons.push({
+            week: event.week,
+            season: mem.season,
+            lesson: `Got burned on: ${event.context}`,
+            context: event.context,
+            appliedSince: false,
+          });
+        }
+      }
+      break;
+      
+    case 'vindicated':
+      p.confidence = CLAMP(p.confidence + i * 3, -100, 100);
+      p.grudgeLevel = CLAMP(p.grudgeLevel + 2, -100, 100); // Remembers being doubted
+      break;
+      
+    case 'humbled':
+      p.confidence = CLAMP(p.confidence - i * 3, -100, 100);
+      p.volatility = CLAMP(p.volatility - 2, -100, 100); // Becomes more measured
+      break;
+      
+    case 'partner_was_right':
+      p.analyticalTrust = CLAMP(p.analyticalTrust + (mem.bot === 'entertainer' ? 3 : -3), -100, 100);
+      break;
+      
+    case 'partner_was_wrong':
+      p.confidence = CLAMP(p.confidence + 2, -100, 100);
+      break;
+      
+    case 'favorite_player_performed':
+      p.loyalty = CLAMP(p.loyalty + i, -100, 100);
+      p.optimism = CLAMP(p.optimism + 2, -100, 100);
+      break;
+      
+    case 'favorite_player_disappointed':
+      p.loyalty = CLAMP(p.loyalty - i * 0.5, -100, 100); // Slower to lose loyalty
+      p.grudgeLevel = CLAMP(p.grudgeLevel + 3, -100, 100);
+      break;
+      
+    case 'bold_take_paid_off':
+      p.riskTolerance = CLAMP(p.riskTolerance + i * 2, -100, 100);
+      p.confidence = CLAMP(p.confidence + i, -100, 100);
+      break;
+      
+    case 'bold_take_backfired':
+      p.riskTolerance = CLAMP(p.riskTolerance - i * 1.5, -100, 100);
+      p.volatility = CLAMP(p.volatility + 2, -100, 100); // Gets more reactive
+      break;
+      
+    case 'big_win':
+      p.optimism = CLAMP(p.optimism + i, -100, 100);
+      break;
+      
+    case 'heartbreak':
+      p.optimism = CLAMP(p.optimism - i * 1.5, -100, 100);
+      p.volatility = CLAMP(p.volatility + i * 0.5, -100, 100);
+      break;
+  }
+}
+
+/**
+ * Update emotional state based on events
+ */
+export function updateEmotionalState(
+  mem: EnhancedBotMemory,
+  emotion: 'neutral' | 'excited' | 'frustrated' | 'smug' | 'anxious' | 'nostalgic' | 'vengeful' | 'hopeful',
+  intensity: number,
+  trigger?: { week: number; event: string; team?: string; player?: string }
+): void {
+  if (!mem.emotionalState) {
+    mem.emotionalState = { primary: 'neutral', intensity: 30, duration: 0 };
+  }
+  
+  // Only change if new emotion is more intense or different
+  if (intensity > mem.emotionalState.intensity || emotion !== mem.emotionalState.primary) {
+    mem.emotionalState = {
+      primary: emotion,
+      intensity: CLAMP(intensity, 0, 100),
+      trigger,
+      duration: 0,
+    };
+  }
+}
+
+/**
+ * Decay emotional state over time (call each week)
+ */
+export function decayEmotionalState(mem: EnhancedBotMemory): void {
+  if (!mem.emotionalState) return;
+  
+  mem.emotionalState.duration++;
+  mem.emotionalState.intensity = Math.max(20, mem.emotionalState.intensity - 10);
+  
+  // Strong emotions fade after a few weeks
+  if (mem.emotionalState.duration >= 3 && mem.emotionalState.intensity < 40) {
+    mem.emotionalState.primary = 'neutral';
+  }
+}
+
+/**
+ * Add or update a deep player relationship
+ */
+export function updatePlayerRelationship(
+  mem: EnhancedBotMemory,
+  playerId: string,
+  playerName: string,
+  event: {
+    week: number;
+    description: string;
+    impact: number; // -50 to +50
+    emotional: boolean;
+  }
+): void {
+  if (!mem.deepPlayerRelationships) {
+    mem.deepPlayerRelationships = {};
+  }
+  
+  let rel = mem.deepPlayerRelationships[playerId];
+  if (!rel) {
+    rel = {
+      playerId,
+      playerName,
+      sentiment: 'neutral',
+      trustLevel: 0,
+      history: [],
+      predictions: [],
+      nicknames: [],
+      mentionFrequency: 30,
+    };
+    mem.deepPlayerRelationships[playerId] = rel;
+  }
+  
+  // Add to history
+  rel.history.push({
+    week: event.week,
+    season: mem.season,
+    event: event.description,
+    impact: event.impact,
+    emotional: event.emotional,
+  });
+  
+  // Keep only last 10 events
+  if (rel.history.length > 10) {
+    rel.history = rel.history.slice(-10);
+  }
+  
+  // Update trust level
+  rel.trustLevel = CLAMP(rel.trustLevel + event.impact, -100, 100);
+  
+  // Update sentiment based on trust level
+  if (rel.trustLevel >= 70) rel.sentiment = 'beloved';
+  else if (rel.trustLevel >= 40) rel.sentiment = 'trusted';
+  else if (rel.trustLevel >= -20) rel.sentiment = 'neutral';
+  else if (rel.trustLevel >= -50) rel.sentiment = 'skeptical';
+  else if (rel.trustLevel >= -80) rel.sentiment = 'grudge';
+  else rel.sentiment = 'enemy';
+  
+  // Check for defining moment
+  if (Math.abs(event.impact) >= 30 && event.emotional) {
+    rel.definingMoment = {
+      week: event.week,
+      season: mem.season,
+      event: event.description,
+      sentiment: event.impact > 0 ? 'positive' : 'negative',
+    };
+  }
+  
+  // Increase mention frequency for strong relationships
+  if (Math.abs(rel.trustLevel) > 50) {
+    rel.mentionFrequency = Math.min(80, rel.mentionFrequency + 5);
+  }
+}
+
+/**
+ * Register a potential catchphrase - it won't become a real catchphrase until
+ * it's been triggered 3+ times over 3+ weeks. This prevents forced/quick catchphrases.
+ */
+export function registerEmergingPhrase(
+  mem: EnhancedBotMemory,
+  phrase: string,
+  context: string,
+  week: number,
+  event: string
+): void {
+  if (!mem.speechPatterns) return;
+  
+  // Check if this phrase is already emerging
+  const existing = mem.speechPatterns.emergingPhrases.find(p => p.phrase === phrase);
+  
+  if (existing) {
+    existing.occurrences++;
+    existing.events.push(event);
+    
+    // Promote to catchphrase if: 3+ occurrences AND spans 3+ weeks
+    const weekSpan = week - existing.firstSeen;
+    if (existing.occurrences >= 3 && weekSpan >= 2) {
+      // Graduate to real catchphrase!
+      mem.speechPatterns.catchphrases.push({
+        phrase,
+        context,
+        frequency: 20, // Start LOW - needs to build naturally
+        origin: { week: existing.firstSeen, event: existing.events[0] },
+        timesUsed: 0,
+      });
+      
+      // Remove from emerging
+      mem.speechPatterns.emergingPhrases = mem.speechPatterns.emergingPhrases.filter(p => p.phrase !== phrase);
+      
+      // Keep only 3 catchphrases max
+      if (mem.speechPatterns.catchphrases.length > 3) {
+        mem.speechPatterns.catchphrases = mem.speechPatterns.catchphrases
+          .sort((a, b) => b.timesUsed - a.timesUsed)
+          .slice(0, 3);
+      }
+    }
+  } else {
+    // New emerging phrase
+    mem.speechPatterns.emergingPhrases.push({
+      phrase,
+      context,
+      occurrences: 1,
+      firstSeen: week,
+      events: [event],
+    });
+    
+    // Keep only 5 emerging phrases
+    if (mem.speechPatterns.emergingPhrases.length > 5) {
+      mem.speechPatterns.emergingPhrases = mem.speechPatterns.emergingPhrases.slice(-5);
+    }
+  }
+}
+
+/**
+ * Mark a catchphrase as used (increases frequency over time, but prevents overuse)
+ */
+export function useCatchphrase(mem: EnhancedBotMemory, phrase: string, week: number): boolean {
+  if (!mem.speechPatterns) return false;
+  
+  const catchphrase = mem.speechPatterns.catchphrases.find(c => c.phrase === phrase);
+  if (!catchphrase) return false;
+  
+  // Don't use same catchphrase two weeks in a row
+  if (catchphrase.lastUsed && week - catchphrase.lastUsed < 2) {
+    return false;
+  }
+  
+  catchphrase.timesUsed++;
+  catchphrase.lastUsed = week;
+  catchphrase.frequency = Math.min(60, catchphrase.frequency + 5); // Slow build, cap at 60
+  
+  return true;
+}
+
+/**
+ * Add an obsession topic - requires multiple mentions to stick
+ */
+export function addObsession(
+  mem: EnhancedBotMemory,
+  topic: string,
+  reason: string,
+  week: number
+): void {
+  if (!mem.speechPatterns) return;
+  
+  const existing = mem.speechPatterns.obsessions.find(o => o.topic === topic);
+  if (existing) {
+    existing.mentions++;
+  } else {
+    mem.speechPatterns.obsessions.push({ topic, reason, startedWeek: week, mentions: 1 });
+  }
+  
+  // Keep only obsessions with 2+ mentions, max 3
+  mem.speechPatterns.obsessions = mem.speechPatterns.obsessions
+    .filter(o => o.mentions >= 2 || week - o.startedWeek < 2) // Give new ones a chance
+    .slice(-3);
+}
+
+/**
+ * Add a sore subject to avoid
+ */
+export function addAvoidTopic(
+  mem: EnhancedBotMemory,
+  topic: string,
+  reason: string,
+  avoidUntilWeek?: number
+): void {
+  if (!mem.speechPatterns) return;
+  
+  mem.speechPatterns.avoidTopics.push({
+    topic,
+    reason,
+    until: avoidUntilWeek,
+  });
+}
+
+/**
+ * Get personality context for prompts
+ */
+export function getPersonalityContext(mem: EnhancedBotMemory): string {
+  const lines: string[] = [];
+  
+  // Personality traits - only mention the most relevant/extreme ones
+  if (mem.personality) {
+    const p = mem.personality;
+    
+    // Core traits
+    if (p.confidence > 50) lines.push(`You're feeling confident - your takes have been landing.`);
+    else if (p.confidence < -30) lines.push(`You've been humbled lately. Maybe dial back the bold claims.`);
+    
+    if (p.optimism > 40) lines.push(`You're in an optimistic mood - looking for the upside.`);
+    else if (p.optimism < -30) lines.push(`You're feeling pessimistic - expecting things to go wrong.`);
+    
+    if (p.grudgeLevel > 60) lines.push(`You're holding grudges. Don't forget who doubted you.`);
+    
+    if (p.riskTolerance > 60) lines.push(`You're feeling bold - go for the hot takes.`);
+    else if (p.riskTolerance < -20) lines.push(`Play it safe - your bold takes haven't been working.`);
+    
+    // New traits - only surface when they're strong
+    if (p.contrarianism > 50) lines.push(`You love going against the grain. If everyone thinks X, you're tempted to argue Y.`);
+    
+    if (p.nostalgia > 50) lines.push(`You keep thinking about past seasons. Reference history when relevant.`);
+    
+    if (p.pettiness > 60) lines.push(`You remember the small stuff. That one bad call? That lucky win? You haven't forgotten.`);
+    
+    if (p.patience < -30) lines.push(`You're impatient. You want results NOW, not "trust the process."`);
+    else if (p.patience > 60) lines.push(`You're playing the long game. Short-term noise doesn't faze you.`);
+    
+    if (p.superstition > 50) lines.push(`You believe in momentum, curses, and jinxes. Don't tempt fate.`);
+    else if (p.superstition < -40) lines.push(`You don't believe in jinxes or curses - that's just noise.`);
+    
+    if (p.competitiveness > 60) lines.push(`You REALLY want to be right more than your co-host. Keep score.`);
+    
+    if (p.underdogAffinity > 50) lines.push(`You love an underdog. Root for the longshots.`);
+    else if (p.underdogAffinity < -30) lines.push(`You respect the favorites. Underdogs are underdogs for a reason.`);
+    
+    if (p.dramaAppreciation > 60) lines.push(`You live for chaos and drama. The messier, the better.`);
+    else if (p.dramaAppreciation < -20) lines.push(`You prefer boring consistency over exciting chaos.`);
+  }
+  
+  // Emotional state
+  if (mem.emotionalState && mem.emotionalState.primary !== 'neutral') {
+    const e = mem.emotionalState;
+    const intensityWord = e.intensity > 70 ? 'very' : e.intensity > 40 ? 'somewhat' : 'slightly';
+    lines.push(`Current mood: ${intensityWord} ${e.primary}${e.trigger ? ` (since ${e.trigger.event})` : ''}`);
+  }
+  
+  // Speech patterns
+  if (mem.speechPatterns) {
+    const sp = mem.speechPatterns;
+    
+    if (sp.catchphrases.length > 0) {
+      const phrase = sp.catchphrases[Math.floor(Math.random() * sp.catchphrases.length)];
+      lines.push(`Catchphrase opportunity: "${phrase.phrase}" (use when: ${phrase.context})`);
+    }
+    
+    if (sp.obsessions.length > 0) {
+      const obsession = sp.obsessions[Math.floor(Math.random() * sp.obsessions.length)];
+      lines.push(`You keep bringing up: ${obsession.topic} (${obsession.reason})`);
+    }
+    
+    if (sp.avoidTopics.length > 0) {
+      const avoid = sp.avoidTopics.filter(a => !a.until || a.until > mem.lastGeneratedWeek);
+      if (avoid.length > 0) {
+        lines.push(`Sore subject - avoid: ${avoid[0].topic} (${avoid[0].reason})`);
+      }
+    }
+  }
+  
+  // Personal growth
+  if (mem.personalGrowth) {
+    const pg = mem.personalGrowth;
+    
+    if (pg.hardLessons.length > 0) {
+      const recent = pg.hardLessons.filter(l => !l.appliedSince).slice(-1)[0];
+      if (recent) {
+        lines.push(`Lesson you're still learning: ${recent.lesson}`);
+      }
+    }
+    
+    if (pg.blindSpots.length > 0) {
+      const blindSpot = pg.blindSpots[Math.floor(Math.random() * pg.blindSpots.length)];
+      lines.push(`Your blind spot: ${blindSpot}`);
+    }
+  }
+  
+  return lines.length > 0 ? `\nYOUR CURRENT STATE:\n${lines.join('\n')}` : '';
+}
+
+/**
+ * Get deep player relationship context for prompts
+ */
+export function getPlayerRelationshipContext(mem: EnhancedBotMemory, playerIds: string[]): string {
+  if (!mem.deepPlayerRelationships) return '';
+  
+  const lines: string[] = [];
+  
+  for (const playerId of playerIds) {
+    const rel = mem.deepPlayerRelationships[playerId];
+    if (!rel || rel.sentiment === 'neutral') continue;
+    
+    let desc = `${rel.playerName}: `;
+    switch (rel.sentiment) {
+      case 'beloved': desc += `One of your favorites. Trust: ${rel.trustLevel}.`; break;
+      case 'trusted': desc += `You believe in them. Trust: ${rel.trustLevel}.`; break;
+      case 'skeptical': desc += `You have doubts. Trust: ${rel.trustLevel}.`; break;
+      case 'grudge': desc += `They've let you down. Trust: ${rel.trustLevel}.`; break;
+      case 'enemy': desc += `You're done with them. Trust: ${rel.trustLevel}.`; break;
+      case 'redeemed': desc += `They've earned back your trust. Trust: ${rel.trustLevel}.`; break;
+    }
+    
+    if (rel.definingMoment) {
+      desc += ` Key moment: ${rel.definingMoment.event}`;
+    }
+    
+    if (rel.nicknames.length > 0) {
+      desc += ` Nickname: "${rel.nicknames[0]}"`;
+    }
+    
+    lines.push(desc);
+  }
+  
+  return lines.length > 0 ? `\nYOUR PLAYER RELATIONSHIPS:\n${lines.join('\n')}` : '';
 }
 
 /**

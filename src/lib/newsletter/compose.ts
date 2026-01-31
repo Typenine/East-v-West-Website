@@ -35,6 +35,7 @@ import {
   type LLMFeaturesInput,
   type LLMFeaturesOutput,
 } from './llm-features';
+import { getPartnerDynamicsContext, recordBotInteraction, getPersonalityContext, evolvePersonality, updateEmotionalState } from './memory';
 
 // Helper to get episode config with type safety
 function getEpisodeConfigForType(episodeType: string, week: number, season: number) {
@@ -982,6 +983,23 @@ async function buildRecaps(
     // Build overall bot state context
     const entertainerState = buildBotMemoryContext(memEntertainer);
     const analystState = buildBotMemoryContext(memAnalyst);
+    
+    // Get partner dynamics context (how they relate to each other)
+    // Only available for EnhancedBotMemory - check if partnerDynamics exists
+    const entertainerPartnerContext = 'partnerDynamics' in memEntertainer 
+      ? getPartnerDynamicsContext(memEntertainer as unknown as import('./types').EnhancedBotMemory)
+      : '';
+    const analystPartnerContext = 'partnerDynamics' in memAnalyst
+      ? getPartnerDynamicsContext(memAnalyst as unknown as import('./types').EnhancedBotMemory)
+      : '';
+    
+    // Get evolving personality context (confidence, emotional state, speech patterns)
+    const entertainerPersonalityContext = 'personality' in memEntertainer
+      ? getPersonalityContext(memEntertainer as unknown as import('./types').EnhancedBotMemory)
+      : '';
+    const analystPersonalityContext = 'personality' in memAnalyst
+      ? getPersonalityContext(memAnalyst as unknown as import('./types').EnhancedBotMemory)
+      : '';
 
     // Build focused context for THIS specific matchup only
     const baseMatchupContext = `
@@ -997,7 +1015,7 @@ LOSER: ${p.loser.name}
 
 MARGIN OF VICTORY: ${p.margin.toFixed(1)} points`;
 
-    // Entertainer gets their personal history with these teams
+    // Entertainer gets their personal history with these teams + partner dynamics + personality
     const entertainerMatchupContext = `${baseMatchupContext}
 
 YOUR HISTORY WITH THESE TEAMS:
@@ -1005,6 +1023,8 @@ ${entertainerWinnerMemory || `You don't have strong feelings about ${p.winner.na
 ${entertainerLoserMemory || `You don't have strong feelings about ${p.loser.name} yet.`}
 
 ${entertainerState}
+${entertainerPartnerContext}
+${entertainerPersonalityContext}
 
 USE YOUR HISTORY: If you've been high on a team and they won, feel vindicated. If you've been down on them and they won, acknowledge you might have been wrong. If a team you trusted let you down, express that disappointment. Your feelings about teams should color how you talk about this result.
 
@@ -1012,9 +1032,11 @@ IMPORTANT RULES:
 1. Write ONLY about ${p.winner.name} and ${p.loser.name}. Do not mention any other teams.
 2. Reference the TOP PERFORMERS listed above - these are the actual players who scored in this game.
 3. Let your history with these teams influence your tone - but don't just list your feelings, weave them into your take.
-4. Do NOT make up statistics - focus on THIS game and your reaction to it.`;
+4. Do NOT make up statistics - focus on THIS game and your reaction to it.
+5. If you have callbacks or inside jokes with your co-host, use them naturally when relevant.
+6. Let your current emotional state and personality traits influence HOW you say things.`;
 
-    // Analyst gets their personal history with these teams
+    // Analyst gets their personal history with these teams + partner dynamics + personality
     const analystMatchupContext = `${baseMatchupContext}
 
 YOUR HISTORY WITH THESE TEAMS:
@@ -1022,6 +1044,8 @@ ${analystWinnerMemory || `You don't have strong feelings about ${p.winner.name} 
 ${analystLoserMemory || `You don't have strong feelings about ${p.loser.name} yet.`}
 
 ${analystState}
+${analystPartnerContext}
+${analystPersonalityContext}
 
 USE YOUR HISTORY: If you predicted this outcome, note it briefly. If this result surprises you based on your analysis, acknowledge it. If a team you've been tracking is confirming or defying your expectations, that's worth mentioning. Your analytical history should inform your perspective.
 
@@ -1029,9 +1053,65 @@ IMPORTANT RULES:
 1. Write ONLY about ${p.winner.name} and ${p.loser.name}. Do not mention any other teams.
 2. Reference the TOP PERFORMERS listed above - these are the actual players who scored in this game.
 3. Let your analytical history inform your take - but analyze the game, don't just recite your past positions.
-4. Do NOT make up statistics - focus on THIS game and what it means.`;
+4. Do NOT make up statistics - focus on THIS game and what it means.
+5. If you have callbacks or inside jokes with your co-host, use them naturally when relevant.
+6. Let your current emotional state and personality traits influence HOW you say things.`;
 
     const isChampionship = isChampionshipWeek && bracketInfo.includes('Championship');
+    
+    // Helper to extract sentiment strength from team memory
+    const getTeamSentiment = (mem: BotMemory, teamName: string): { trust: number; frustration: number; hasStreak: boolean; hasMood: boolean } => {
+      const teamMem = mem.teams[teamName];
+      if (!teamMem) return { trust: 0, frustration: 0, hasStreak: false, hasMood: false };
+      const enhanced = teamMem as unknown as Record<string, unknown>;
+      const trust = (teamMem.trust ?? 0);
+      const frustration = (teamMem.frustration ?? 0);
+      const hasStreak = 'winStreak' in enhanced && Math.abs(enhanced.winStreak as number) >= 3;
+      const hasMood = 'mood' in enhanced && ['hot', 'cold', 'dangerous', 'chaotic'].includes(enhanced.mood as string);
+      return { trust, frustration, hasStreak, hasMood };
+    };
+    
+    // Check if any top performers are players the bots have strong opinions about
+    const checkPlayerInterest = (mem: BotMemory, players: string): boolean => {
+      const enhanced = mem as unknown as Record<string, unknown>;
+      if ('favoritePlayers' in enhanced && Array.isArray(enhanced.favoritePlayers)) {
+        const favorites = enhanced.favoritePlayers as string[];
+        return favorites.some(fav => players.toLowerCase().includes(fav.toLowerCase()));
+      }
+      if ('disappointments' in enhanced && Array.isArray(enhanced.disappointments)) {
+        const disappointments = enhanced.disappointments as string[];
+        return disappointments.some(d => players.toLowerCase().includes(d.toLowerCase()));
+      }
+      return false;
+    };
+    
+    // Get sentiment for both teams from both bots
+    const entWinnerSentiment = getTeamSentiment(memEntertainer, p.winner.name);
+    const entLoserSentiment = getTeamSentiment(memEntertainer, p.loser.name);
+    const anaWinnerSentiment = getTeamSentiment(memAnalyst, p.winner.name);
+    const anaLoserSentiment = getTeamSentiment(memAnalyst, p.loser.name);
+    
+    // Check if bots have strong feelings (high trust or frustration)
+    const entertainerHasStrongFeelings = 
+      Math.abs(entWinnerSentiment.trust) > 15 || Math.abs(entLoserSentiment.trust) > 15 ||
+      entWinnerSentiment.frustration > 15 || entLoserSentiment.frustration > 15 ||
+      entWinnerSentiment.hasStreak || entLoserSentiment.hasStreak ||
+      entWinnerSentiment.hasMood || entLoserSentiment.hasMood;
+    
+    const analystHasStrongFeelings = 
+      Math.abs(anaWinnerSentiment.trust) > 15 || Math.abs(anaLoserSentiment.trust) > 15 ||
+      anaWinnerSentiment.frustration > 15 || anaLoserSentiment.frustration > 15 ||
+      anaWinnerSentiment.hasStreak || anaLoserSentiment.hasStreak;
+    
+    // Check if players they care about performed
+    const entertainerCaresAboutPlayers = checkPlayerInterest(memEntertainer, winnerPlayers + ' ' + loserPlayers);
+    const analystCaresAboutPlayers = checkPlayerInterest(memAnalyst, winnerPlayers + ' ' + loserPlayers);
+    
+    // Vindication/Frustration scenarios (bot was right/wrong about a team)
+    const entertainerVindicated = (entWinnerSentiment.trust > 10) || (entLoserSentiment.trust < -10);
+    const entertainerBurned = (entLoserSentiment.trust > 10) || (entWinnerSentiment.trust < -10);
+    const analystVindicated = (anaWinnerSentiment.trust > 10) || (anaLoserSentiment.trust < -10);
+    const analystBurned = (anaLoserSentiment.trust > 10) || (anaWinnerSentiment.trust < -10);
     
     // Determine how "interesting" this matchup is - affects dialogue length
     // More interesting = more back-and-forth
@@ -1042,10 +1122,14 @@ IMPORTANT RULES:
       isNailBiter: p.margin < 5,
       hasStrongMemory: !!(entertainerWinnerMemory || entertainerLoserMemory || analystWinnerMemory || analystLoserMemory),
       highScoring: p.winner.points > 140 || p.loser.points > 130,
-      upsetPotential: false, // Could check standings if available
+      // NEW: Bot-specific interest factors
+      entertainerPassionate: entertainerHasStrongFeelings || entertainerCaresAboutPlayers,
+      analystPassionate: analystHasStrongFeelings || analystCaresAboutPlayers,
+      someoneVindicated: entertainerVindicated || analystVindicated,
+      someoneBurned: entertainerBurned || analystBurned,
     };
     
-    // Calculate interest score (0-10)
+    // Calculate interest score (0-10+)
     let interestScore = 2; // Base
     if (interestFactors.isChampionship) interestScore += 4;
     else if (interestFactors.isPlayoffGame) interestScore += 2;
@@ -1053,107 +1137,350 @@ IMPORTANT RULES:
     if (interestFactors.isNailBiter) interestScore += 2;
     if (interestFactors.hasStrongMemory) interestScore += 1;
     if (interestFactors.highScoring) interestScore += 1;
+    // NEW: Add points for bot passion
+    if (interestFactors.entertainerPassionate) interestScore += 2;
+    if (interestFactors.analystPassionate) interestScore += 1;
+    if (interestFactors.someoneVindicated) interestScore += 1; // "I told you so" moments
+    if (interestFactors.someoneBurned) interestScore += 2; // Eating crow is dramatic
     
     // Dialogue length: 2 turns (boring), 3 turns (normal), 4+ turns (heated/interesting)
     // Min 2, max 5
     const dialogueTurns = Math.min(5, Math.max(2, Math.floor(interestScore / 2)));
     
-    // Generate dynamic dialogue
+    // Build rich situational context for more nuanced dialogue
+    const buildSituationalHooks = (): string[] => {
+      const hooks: string[] = [];
+      
+      // Emotional arc hooks
+      if (interestFactors.someoneBurned) {
+        if (entertainerBurned) hooks.push(`⚠️ YOU (Entertainer) got burned here - a team you trusted lost or a team you doubted won. Address this.`);
+        if (analystBurned) hooks.push(`⚠️ The Analyst got burned here - their analysis didn't hold up. They might be defensive.`);
+      }
+      if (interestFactors.someoneVindicated) {
+        if (entertainerVindicated) hooks.push(`✓ YOU (Entertainer) called this - feel free to take a victory lap (but don't be insufferable).`);
+        if (analystVindicated) hooks.push(`✓ The Analyst's numbers were right - they'll probably mention it.`);
+      }
+      
+      // Streak narratives
+      if (entWinnerSentiment.hasStreak || anaWinnerSentiment.hasStreak) {
+        hooks.push(`📈 ${p.winner.name} is on a streak - is this sustainable or are they due for regression?`);
+      }
+      if (entLoserSentiment.hasStreak || anaLoserSentiment.hasStreak) {
+        hooks.push(`📉 ${p.loser.name} has been struggling - is this rock bottom or more pain ahead?`);
+      }
+      
+      // Margin-based narratives
+      if (p.margin > 40) {
+        hooks.push(`💀 This was an EMBARRASSMENT. ${p.loser.name} got absolutely destroyed. How do they recover?`);
+      } else if (p.margin < 3) {
+        hooks.push(`😰 This came down to the WIRE. One play different and the result flips. Talk about the drama.`);
+      }
+      
+      // High/low scoring narratives
+      if (p.winner.points > 160) {
+        hooks.push(`🔥 ${p.winner.name} put up a MONSTER week (${p.winner.points.toFixed(1)}). This is elite.`);
+      }
+      if (p.loser.points < 80) {
+        hooks.push(`💩 ${p.loser.name} only scored ${p.loser.points.toFixed(1)}. What went wrong?`);
+      }
+      if (p.loser.points > 120 && p.margin > 15) {
+        hooks.push(`😤 ${p.loser.name} scored ${p.loser.points.toFixed(1)} and STILL lost by ${p.margin.toFixed(1)}. Brutal scheduling luck.`);
+      }
+      
+      // Playoff implications
+      if (isPlayoffs) {
+        hooks.push(`🏆 PLAYOFF GAME - every word matters more. This result has real consequences.`);
+      }
+      
+      return hooks;
+    };
+    
+    const situationalHooks = buildSituationalHooks();
+    const hooksContext = situationalHooks.length > 0 
+      ? `\n\nNARRATIVE HOOKS (use these naturally, don't force all of them):\n${situationalHooks.join('\n')}`
+      : '';
+    
+    // Build debate angle suggestions based on the matchup
+    const getDebateAngles = (): string => {
+      const angles: string[] = [];
+      
+      if (p.margin > 20 && p.loser.points > 100) {
+        angles.push(`Was this a fluke blowout or is ${p.winner.name} actually this good?`);
+      }
+      if (p.margin < 10) {
+        angles.push(`Did ${p.winner.name} get lucky or did they find a way to win?`);
+      }
+      if (entertainerVindicated !== analystVindicated) {
+        angles.push(`One of you was right about these teams, one was wrong - hash it out.`);
+      }
+      if (interestFactors.entertainerPassionate && interestFactors.analystPassionate) {
+        angles.push(`You both have strong feelings about these teams - don't hold back.`);
+      }
+      
+      return angles.length > 0 ? `\nPOTENTIAL DEBATE ANGLES: ${angles.join(' OR ')}` : '';
+    };
+    
+    const debateAngles = dialogueTurns > 2 ? getDebateAngles() : '';
+    
+    // Build analyst-specific hooks (swap perspective)
+    const analystHooksContext = situationalHooks.length > 0 
+      ? `\n\nNARRATIVE HOOKS (use naturally):\n${situationalHooks.map(h => 
+          h.replace('YOU (Entertainer)', 'The Entertainer').replace('✓ The Analyst', '✓ YOU (Analyst)').replace('⚠️ The Analyst', '⚠️ YOU (Analyst)')
+        ).join('\n')}`
+      : '';
+    
+    // RANDOMIZE who starts the conversation - not always the same pattern!
+    // Factors that influence who starts:
+    // - If analyst has strong data point, they might lead
+    // - If entertainer has emotional stake, they might lead
+    // - Sometimes just random for variety
+    const analystShouldStart = 
+      (analystVindicated && !entertainerVindicated) || // Analyst called it
+      (p.margin > 40 && Math.random() > 0.5) || // Big blowout, analyst might lead with stats
+      (interestFactors.analystPassionate && !interestFactors.entertainerPassionate) || // Analyst cares more
+      (Math.random() > 0.6); // 40% chance analyst starts anyway for variety
+    
+    const starterBot = analystShouldStart ? 'analyst' : 'entertainer';
+    const responderBot = analystShouldStart ? 'entertainer' : 'analyst';
+    
+    // Get the right context for whoever is starting
+    const starterContext = starterBot === 'entertainer' ? entertainerMatchupContext : analystMatchupContext;
+    const starterHooks = starterBot === 'entertainer' ? hooksContext : analystHooksContext;
+    const starterBurned = starterBot === 'entertainer' ? entertainerBurned : analystBurned;
+    const starterVindicated = starterBot === 'entertainer' ? entertainerVindicated : analystVindicated;
+    
+    const responderContext = responderBot === 'entertainer' ? entertainerMatchupContext : analystMatchupContext;
+    const responderHooks = responderBot === 'entertainer' ? hooksContext : analystHooksContext;
+    const responderBurned = responderBot === 'entertainer' ? entertainerBurned : analystBurned;
+    const responderVindicated = responderBot === 'entertainer' ? entertainerVindicated : analystVindicated;
+    
+    // Different opener styles based on who's starting and context
+    const openerStyles = starterBot === 'entertainer' 
+      ? [
+          'hot take', 'emotional reaction', 'bold claim', 'callback to previous prediction',
+          'dramatic opener', 'rhetorical question', 'celebration or frustration'
+        ]
+      : [
+          'stat-driven observation', 'analytical breakdown', 'trend identification',
+          'measured assessment', 'data point highlight', 'process-focused take'
+        ];
+    const openerStyle = openerStyles[Math.floor(Math.random() * openerStyles.length)];
+    
+    // Generate dialogue with FULL CONVERSATIONAL CONTEXT - each turn sees previous responses
+    // This preserves nuance, personality, and real back-and-forth
+    // Rate limiting is handled by the LLM client (3 second delays between calls)
     const dialogue: Array<{ speaker: 'entertainer' | 'analyst'; text: string }> = [];
     let conversationHistory = '';
     
-    // Turn 1: Entertainer opens
-    const entertainerOpener = await generateSection({
-      persona: 'entertainer',
+    // Turn 1: Starter opens (could be either bot)
+    const opener = await generateSection({
+      persona: starterBot,
       sectionType: `${bracketInfo} Opening Take`,
-      context: `${seasonalContext}\n${entertainerMatchupContext}`,
+      context: `${seasonalContext}\n${starterContext}${starterHooks}${debateAngles}`,
       constraints: `Open the discussion about ${p.winner.name} beating ${p.loser.name} ${p.winner.points.toFixed(1)}-${p.loser.points.toFixed(1)}. 
+Style: ${openerStyle}
 Reference specific players who performed: ${winnerPlayers}. 
 ${p.margin > 25 ? 'This was a BLOWOUT - react accordingly.' : p.margin < 5 ? 'This was a NAIL-BITER - the drama!' : 'Solid win.'}
-Give your hot take in 2-3 sentences. Be specific about what happened.${dialogueTurns > 2 ? ' Set up something the Analyst might push back on.' : ''}`,
+${starterBurned ? 'You got this one wrong - acknowledge it with personality, don\'t ignore it.' : ''}
+${starterVindicated ? 'You called this - you can mention it but don\'t be smug.' : ''}
+Give your take in 2-3 sentences. Be specific about what happened.${dialogueTurns > 2 ? ` Set up something the ${responderBot === 'entertainer' ? 'Entertainer' : 'Analyst'} might push back on.` : ''}`,
       maxTokens: isChampionship ? 150 : 100,
     });
-    dialogue.push({ speaker: 'entertainer', text: entertainerOpener.trim() });
-    conversationHistory = `ENTERTAINER: "${entertainerOpener.trim()}"`;
+    dialogue.push({ speaker: starterBot, text: opener.trim() });
+    conversationHistory = `${starterBot.toUpperCase()}: "${opener.trim()}"`;
 
-    // Turn 2: Analyst responds
-    const analystResponse = await generateSection({
-      persona: 'analyst',
+    // Turn 2: Responder responds - SEES what starter said
+    const response = await generateSection({
+      persona: responderBot,
       sectionType: `${bracketInfo} Response`,
-      context: `${seasonalContext}\n${analystMatchupContext}
+      context: `${seasonalContext}\n${responderContext}${responderHooks}
 
 CONVERSATION SO FAR:
 ${conversationHistory}
 
-Now respond.`,
-      constraints: `Respond to the Entertainer's take about ${p.winner.name} vs ${p.loser.name}. 
+Now respond to what the ${starterBot === 'entertainer' ? 'Entertainer' : 'Analyst'} just said.`,
+      constraints: `Respond to their take about ${p.winner.name} vs ${p.loser.name}. 
 You can agree, disagree, or add nuance. Reference the actual numbers: ${p.winner.points.toFixed(1)}-${p.loser.points.toFixed(1)}, margin of ${p.margin.toFixed(1)}.
 Mention specific players if relevant: Winner had ${winnerPlayers}. Loser had ${loserPlayers}.
+${responderBurned ? 'Your analysis was wrong here - own it briefly, then pivot to what you learned.' : ''}
+${responderVindicated ? 'Your numbers held up - you can note it but stay analytical, not gloating.' : ''}
 2-3 sentences.${dialogueTurns > 2 ? ' If you disagree, make it clear - this could spark more discussion.' : ' Wrap up your thoughts on this game.'}`,
       maxTokens: isChampionship ? 150 : 100,
     });
-    dialogue.push({ speaker: 'analyst', text: analystResponse.trim() });
-    conversationHistory += `\nANALYST: "${analystResponse.trim()}"`;
+    dialogue.push({ speaker: responderBot, text: response.trim() });
+    conversationHistory += `\n${responderBot.toUpperCase()}: "${response.trim()}"`;
 
-    // Additional turns if the matchup warrants it
+    // Detect if there's actual disagreement to make follow-ups more organic
+    const hasDisagreement = 
+      response.toLowerCase().includes('disagree') || 
+      response.toLowerCase().includes('but ') ||
+      response.toLowerCase().includes('however') ||
+      response.toLowerCase().includes('actually') ||
+      response.toLowerCase().includes('not sure') ||
+      response.toLowerCase().includes('i don\'t') ||
+      response.toLowerCase().includes('pump the brakes');
+
+    // Turn 3+: Continue alternating, but randomize who gets extra turns
+    // The conversation should feel organic, not formulaic
     if (dialogueTurns >= 3) {
-      // Turn 3: Entertainer reacts
-      const entReaction = await generateSection({
-        persona: 'entertainer',
+      // Randomly decide if starter or responder gets the next turn
+      // This creates variety - sometimes one bot dominates, sometimes it's even
+      const turn3Bot = Math.random() > 0.5 ? starterBot : responderBot;
+      const turn3Context = turn3Bot === 'entertainer' ? entertainerMatchupContext : analystMatchupContext;
+      const otherBot = turn3Bot === 'entertainer' ? 'Analyst' : 'Entertainer';
+      
+      const turn3Reaction = await generateSection({
+        persona: turn3Bot,
         sectionType: `${bracketInfo} Reaction`,
-        context: `${seasonalContext}\n${entertainerMatchupContext}
+        context: `${seasonalContext}\n${turn3Context}
 
 CONVERSATION SO FAR:
 ${conversationHistory}
 
-React to what the Analyst just said.`,
-        constraints: `React to the Analyst's take. ${analystResponse.includes('disagree') || analystResponse.includes('but') || analystResponse.includes('however') ? 'They pushed back - defend your position or concede the point.' : 'They seem to agree - build on it or pivot to a new angle.'} 1-2 sentences.${dialogueTurns > 3 ? ' Keep the conversation going.' : ''}`,
+React to what was just said.`,
+        constraints: `React to the ${otherBot}'s take. ${hasDisagreement 
+          ? 'There\'s some disagreement here - defend your position, concede a point, or find middle ground.' 
+          : 'You seem to be aligned - build on it, add a prediction, or bring up something new about these teams.'} 
+1-2 sentences. Be yourself.${dialogueTurns > 3 ? ' Keep the conversation going.' : ''}`,
         maxTokens: 80,
       });
-      dialogue.push({ speaker: 'entertainer', text: entReaction.trim() });
-      conversationHistory += `\nENTERTAINER: "${entReaction.trim()}"`;
+      dialogue.push({ speaker: turn3Bot, text: turn3Reaction.trim() });
+      conversationHistory += `\n${turn3Bot.toUpperCase()}: "${turn3Reaction.trim()}"`;
     }
 
+    // Turn 4: Could be either bot - randomize again
     if (dialogueTurns >= 4) {
-      // Turn 4: Analyst follow-up
-      const anaFollowup = await generateSection({
-        persona: 'analyst',
+      // Whoever didn't go last should probably go now, but not always
+      const lastSpeaker = dialogue[dialogue.length - 1].speaker;
+      const turn4Bot = Math.random() > 0.3 
+        ? (lastSpeaker === 'entertainer' ? 'analyst' : 'entertainer')
+        : lastSpeaker; // 30% chance same person continues (they're on a roll)
+      const turn4Context = turn4Bot === 'entertainer' ? entertainerMatchupContext : analystMatchupContext;
+      
+      const turn4Angle = hasDisagreement 
+        ? `The debate is heating up. Either double down, find common ground, or pivot to a new angle.`
+        : `Add a forward-looking thought - what does this mean for ${p.winner.name} going forward? Predictions?`;
+      
+      const turn4Response = await generateSection({
+        persona: turn4Bot,
         sectionType: `${bracketInfo} Follow-up`,
-        context: `${seasonalContext}\n${analystMatchupContext}
+        context: `${seasonalContext}\n${turn4Context}
 
 CONVERSATION SO FAR:
 ${conversationHistory}
 
 Add one more thought.`,
-        constraints: `One more analytical point about ${p.winner.name} vs ${p.loser.name}. Maybe a prediction, a concern, or something you noticed. 1-2 sentences.`,
+        constraints: `${turn4Angle} 1-2 sentences. Make it count.`,
         maxTokens: 70,
       });
-      dialogue.push({ speaker: 'analyst', text: anaFollowup.trim() });
-      conversationHistory += `\nANALYST: "${anaFollowup.trim()}"`;
+      dialogue.push({ speaker: turn4Bot, text: turn4Response.trim() });
+      conversationHistory += `\n${turn4Bot.toUpperCase()}: "${turn4Response.trim()}"`;
     }
 
+    // Turn 5: Final word - could be either bot
     if (dialogueTurns >= 5) {
-      // Turn 5: Entertainer final word (only for really interesting matchups)
-      const entFinal = await generateSection({
-        persona: 'entertainer',
+      // Final word goes to whoever has more stake or randomly
+      const turn5Bot = (entertainerVindicated || entertainerBurned) ? 'entertainer' 
+        : (analystVindicated || analystBurned) ? 'analyst'
+        : Math.random() > 0.5 ? 'entertainer' : 'analyst';
+      const turn5Context = turn5Bot === 'entertainer' ? entertainerMatchupContext : analystMatchupContext;
+      
+      const finalWordAngle = isChampionship 
+        ? `This is the CHAMPIONSHIP. Make your final word legendary.`
+        : hasDisagreement
+        ? `You've been going back and forth. End it with conviction.`
+        : `Wrap this up with energy. A prediction, a warning, something memorable.`;
+      
+      const finalWord = await generateSection({
+        persona: turn5Bot,
         sectionType: `${bracketInfo} Final Word`,
-        context: `${seasonalContext}\n${entertainerMatchupContext}
+        context: `${seasonalContext}\n${turn5Context}
 
 CONVERSATION SO FAR:
 ${conversationHistory}
 
 Wrap it up.`,
-        constraints: `Final word on this ${isChampionship ? 'championship' : 'matchup'}. Make it memorable. 1 sentence.`,
+        constraints: `${finalWordAngle} 1 sentence max. Make it quotable.`,
         maxTokens: 50,
       });
-      dialogue.push({ speaker: 'entertainer', text: entFinal.trim() });
+      dialogue.push({ speaker: turn5Bot, text: finalWord.trim() });
     }
 
-    // Build bot1/bot2 for backwards compatibility (combine all entertainer/analyst turns)
+    // Build bot1/bot2 for backwards compatibility
     const entertainerTexts = dialogue.filter(d => d.speaker === 'entertainer').map(d => d.text);
     const analystTexts = dialogue.filter(d => d.speaker === 'analyst').map(d => d.text);
     const bot1Combined = entertainerTexts.join('\n\n');
     const bot2Combined = analystTexts.join('\n\n');
+    
+    // Record this interaction in memory for future reference
+    // This allows bots to learn from each other and reference past conversations
+    const matchupTopic = `${p.winner.name} vs ${p.loser.name}`;
+    const didTheyAgree = !hasDisagreement;
+    
+    // Record for entertainer's memory
+    if ('partnerDynamics' in memEntertainer || true) {
+      recordBotInteraction(
+        memEntertainer as unknown as import('./types').EnhancedBotMemory,
+        week,
+        {
+          matchup: matchupTopic,
+          topic: matchupTopic,
+          agreed: didTheyAgree,
+          myTake: entertainerTexts[0] || '',
+          theirTake: analystTexts[0] || '',
+          memorable: isChampionship || p.margin > 40 || p.margin < 3,
+        }
+      );
+    }
+    
+    // Record for analyst's memory (from their perspective)
+    if ('partnerDynamics' in memAnalyst || true) {
+      recordBotInteraction(
+        memAnalyst as unknown as import('./types').EnhancedBotMemory,
+        week,
+        {
+          matchup: matchupTopic,
+          topic: matchupTopic,
+          agreed: didTheyAgree,
+          myTake: analystTexts[0] || '',
+          theirTake: entertainerTexts[0] || '',
+          memorable: isChampionship || p.margin > 40 || p.margin < 3,
+        }
+      );
+    }
+    
+    // Evolve personality based on this matchup's outcome
+    // This is how the bots learn and change over time
+    const memEntEnhanced = memEntertainer as unknown as import('./types').EnhancedBotMemory;
+    const memAnaEnhanced = memAnalyst as unknown as import('./types').EnhancedBotMemory;
+    
+    if (entertainerVindicated) {
+      evolvePersonality(memEntEnhanced, { type: 'vindicated', intensity: isChampionship ? 9 : 5, week });
+      updateEmotionalState(memEntEnhanced, 'smug', isChampionship ? 80 : 50, { week, event: `Called ${p.winner.name} win` });
+    }
+    if (entertainerBurned) {
+      evolvePersonality(memEntEnhanced, { type: 'humbled', intensity: isChampionship ? 8 : 5, context: `${p.loser.name} let me down`, week });
+      updateEmotionalState(memEntEnhanced, 'frustrated', isChampionship ? 70 : 45, { week, event: `${p.loser.name} disappointed`, team: p.loser.name });
+    }
+    if (analystVindicated) {
+      evolvePersonality(memAnaEnhanced, { type: 'vindicated', intensity: isChampionship ? 8 : 4, week });
+      updateEmotionalState(memAnaEnhanced, 'smug', isChampionship ? 60 : 40, { week, event: `Analysis on ${p.winner.name} held up` });
+    }
+    if (analystBurned) {
+      evolvePersonality(memAnaEnhanced, { type: 'humbled', intensity: isChampionship ? 7 : 4, context: `${p.loser.name} defied the numbers`, week });
+      updateEmotionalState(memAnaEnhanced, 'anxious', isChampionship ? 55 : 35, { week, event: `Model missed on ${p.loser.name}`, team: p.loser.name });
+    }
+    
+    // Big margin games affect optimism
+    if (p.margin > 40) {
+      // Blowout - whoever backed the winner feels great
+      if (entertainerVindicated) evolvePersonality(memEntEnhanced, { type: 'big_win', intensity: 7, week });
+      if (analystVindicated) evolvePersonality(memAnaEnhanced, { type: 'big_win', intensity: 6, week });
+    }
+    if (p.margin < 3) {
+      // Nail-biter - emotional volatility increases
+      evolvePersonality(memEntEnhanced, { type: 'heartbreak', intensity: 4, week });
+    }
 
     return {
       matchup_id: p.matchup_id,

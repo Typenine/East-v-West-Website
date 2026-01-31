@@ -290,14 +290,52 @@ export default function AdminNewsletterPage() {
           </CardHeader>
           <CardContent>
             {generating ? (
-              <div className="text-center py-8">
-                <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-[var(--primary)]"></div>
-                <p className="mt-4 text-[var(--muted)]">
-                  Fetching data from Sleeper and generating newsletter...
-                </p>
-                <p className="text-sm text-[var(--muted)] mt-2">
-                  This may take 10-30 seconds.
-                </p>
+              <div className="py-6 space-y-4">
+                <div className="text-center">
+                  <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-[var(--primary)]"></div>
+                </div>
+                
+                {/* Progress indicator */}
+                <div className="space-y-2">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-[var(--muted)]">Generating newsletter...</span>
+                    <span className="text-[var(--primary)]">~2-4 minutes</span>
+                  </div>
+                  <div className="w-full bg-zinc-800 rounded-full h-2 overflow-hidden">
+                    <div 
+                      className="h-full bg-gradient-to-r from-[var(--primary)] to-amber-500 rounded-full"
+                      style={{ animation: 'progress 180s linear forwards' }}
+                    />
+                  </div>
+                </div>
+
+                <div className="text-sm text-[var(--muted)] space-y-2">
+                  <p>📡 Fetching data from Sleeper API...</p>
+                  <p>🤖 Generating AI commentary with full conversational context...</p>
+                  <p className="text-xs text-zinc-500">
+                    (Each bot turn sees previous responses for natural back-and-forth. 
+                    Rate-limited to 3s between calls to stay within free tier.)
+                  </p>
+                  <p>📝 Building newsletter sections...</p>
+                </div>
+
+                <div className="mt-4 p-3 bg-blue-900/20 border border-blue-800 rounded text-xs text-blue-300">
+                  💡 <strong>Why so long?</strong> To preserve nuanced dialogue where bots actually respond to each other, 
+                  we make multiple LLM calls per matchup with delays to stay within free API limits. 
+                  This gives you real personality and back-and-forth, not generic commentary.
+                </div>
+
+                <style jsx>{`
+                  @keyframes progress {
+                    0% { width: 3%; }
+                    10% { width: 12%; }
+                    25% { width: 30%; }
+                    50% { width: 55%; }
+                    75% { width: 78%; }
+                    90% { width: 88%; }
+                    100% { width: 95%; }
+                  }
+                `}</style>
               </div>
             ) : result ? (
               <div className="space-y-4">

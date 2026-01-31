@@ -39,9 +39,9 @@ const rateLimitState = {
 };
 
 const RATE_LIMITS = {
-  maxCallsPerMinute: 25, // Stay under 30 limit
+  maxCallsPerMinute: 25, // Stay well under 30 limit
   maxTokensPerMinute: 5000, // Stay under 6000 limit
-  minDelayBetweenCalls: 2500, // 2.5 seconds between calls
+  minDelayBetweenCalls: 3000, // 3 seconds between calls - slower but safe for free tier
 };
 
 function resetRateLimitIfNeeded() {
