@@ -341,6 +341,7 @@ export interface CallbacksSection {
 }
 
 export type NewsletterSection =
+  // Standard sections (regular episodes)
   | { type: 'Intro'; data: IntroSection }
   | { type: 'Callbacks'; data: CallbacksSection }
   | { type: 'Blurt'; data: BlurtSection }
@@ -349,13 +350,154 @@ export type NewsletterSection =
   | { type: 'Trades'; data: TradeItem[] }
   | { type: 'SpotlightTeam'; data: SpotlightSection }
   | { type: 'Forecast'; data: ForecastData }
-  | { type: 'FinalWord'; data: FinalWordSection };
+  | { type: 'FinalWord'; data: FinalWordSection }
+  // Special episode sections
+  | { type: 'PowerRankings'; data: PowerRankingsSection }
+  | { type: 'SeasonPreview'; data: SeasonPreviewSection }
+  | { type: 'TradeDeadline'; data: TradeDeadlineSection }
+  | { type: 'PlayoffPicture'; data: PlayoffPictureSection }
+  | { type: 'SeasonAwards'; data: SeasonAwardsSection }
+  | { type: 'ChampionshipRecap'; data: ChampionshipRecapSection }
+  // Draft episode sections
+  | { type: 'DraftPreview'; data: DraftPreviewSection }
+  | { type: 'DraftGrades'; data: DraftGradesSection };
+
+// ============ Episode Types ============
+
+/**
+ * Special episode types for non-standard newsletters
+ * - 'regular': Standard weekly recap (default)
+ * - 'pre_draft': Before the rookie draft - draft preview, mock drafts
+ * - 'post_draft': After the rookie draft - draft grades, analysis
+ * - 'preseason': Season preview before Week 1 - ESPN/Athletic style predictions
+ * - 'trade_deadline': Trade deadline special (after deadline passes)
+ * - 'playoffs_preview': Week before playoffs start
+ * - 'playoffs_round': Playoff round recap
+ * - 'championship': Championship week special
+ * - 'season_finale': End of season wrap-up
+ * - 'offseason': General offseason updates
+ */
+export type EpisodeType = 
+  | 'regular'
+  | 'pre_draft'
+  | 'post_draft'
+  | 'preseason'
+  | 'trade_deadline'
+  | 'playoffs_preview'
+  | 'playoffs_round'
+  | 'championship'
+  | 'season_finale'
+  | 'offseason';
+
+export interface EpisodeConfig {
+  type: EpisodeType;
+  title?: string;              // Custom title override
+  subtitle?: string;           // Episode subtitle
+  specialSections?: string[];  // Additional sections to include
+  excludeSections?: string[];  // Sections to skip
+  tone?: 'hype' | 'serious' | 'nostalgic' | 'celebratory';
+}
+
+// ============ Additional Section Types for Special Episodes ============
+
+export interface PowerRankingsSection {
+  rankings: Array<{
+    rank: number;
+    team: string;
+    record: string;
+    pointsFor: number;
+    trend: 'up' | 'down' | 'steady';
+    trendAmount?: number;
+    bot1_blurb: string;
+    bot2_blurb: string;
+  }>;
+  bot1_intro: string;
+  bot2_intro: string;
+}
+
+export interface SeasonPreviewSection {
+  contenders: Array<{ team: string; reason: string }>;
+  sleepers: Array<{ team: string; reason: string }>;
+  bustCandidates: Array<{ team: string; reason: string }>;
+  boldPredictions: { bot1: string[]; bot2: string[] };
+  championshipPick: { bot1: string; bot2: string };
+}
+
+export interface TradeDeadlineSection {
+  winners: Array<{ team: string; analysis: string }>;
+  losers: Array<{ team: string; analysis: string }>;
+  mostActiveTrader: { team: string; trades: number; netAssets: string };
+  biggestMove: { description: string; teams: string[] };
+  missedOpportunities: Array<{ team: string; suggestion: string }>;
+  bot1_summary: string;
+  bot2_summary: string;
+}
+
+export interface PlayoffPictureSection {
+  clinched: string[];
+  inHunt: Array<{ team: string; scenario: string }>;
+  eliminated: string[];
+  bracketPreview?: {
+    matchups: Array<{ seed1: string; seed2: string; bot1_pick: string; bot2_pick: string }>;
+  };
+  bot1_analysis: string;
+  bot2_analysis: string;
+}
+
+export interface SeasonAwardsSection {
+  mvpTeam: { winner: string; bot1_case: string; bot2_case: string };
+  mostImproved: { winner: string; reason: string };
+  biggestDisappointment: { winner: string; reason: string };
+  bestTrade: { description: string; winner: string };
+  worstTrade: { description: string; loser: string };
+  bestWaiverPickup: { player: string; team: string };
+  bot1_finalThoughts: string;
+  bot2_finalThoughts: string;
+}
+
+export interface ChampionshipRecapSection {
+  champion: string;
+  runnerUp: string;
+  finalScore: { winner: number; loser: number };
+  mvpPlayer?: { name: string; points: number };
+  championPath: string[];  // "Beat Team A in semis, Team B in finals"
+  bot1_coronation: string;
+  bot2_coronation: string;
+  seasonInReview: string;
+}
+
+export interface DraftPreviewSection {
+  draftOrder: Array<{ pick: number; team: string }>;
+  topProspects: Array<{ name: string; position: string; analysis: string }>;
+  teamNeeds: Array<{ team: string; needs: string[]; strategy: string }>;
+  mockDraft?: Array<{ pick: number; team: string; player: string; analysis: string }>;
+  bot1_preview: string;
+  bot2_preview: string;
+}
+
+export interface DraftGradesSection {
+  grades: Array<{
+    team: string;
+    picks: Array<{ round: number; pick: number; player: string; position: string }>;
+    grade: string;  // A+, A, B+, etc.
+    bot1_analysis: string;
+    bot2_analysis: string;
+  }>;
+  bestPick: { team: string; player: string; reason: string };
+  worstPick: { team: string; player: string; reason: string };
+  stealOfTheDraft: { team: string; player: string; reason: string };
+  bot1_summary: string;
+  bot2_summary: string;
+}
 
 export interface NewsletterMeta {
   leagueName: string;
   week: number;
   date: string;
   season: number;
+  episodeType?: EpisodeType;
+  episodeTitle?: string;
+  episodeSubtitle?: string;
 }
 
 export interface Newsletter {

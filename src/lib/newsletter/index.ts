@@ -87,3 +87,16 @@ export {
 
 // Generator
 export { generateNewsletter, type GenerateNewsletterInput, type GenerateNewsletterResult } from './generator';
+
+// Episodes and Season Management
+export {
+  LEAGUE_CALENDAR,
+  detectEpisodeType,
+  getEpisodeConfig,
+  getCurrentSeason,
+  getLeagueIdForSeason,
+  checkSeasonTransition,
+  initializeSeasonMemory,
+  validateWeek,
+  generateEpisodeTitle,
+} from './episodes';

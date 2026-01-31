@@ -1,7 +1,10 @@
 /**
  * Memory Module
- * Manages bot memory (trust, frustration, mood) for each team
+ * Manages columnist memory (trust, frustration, mood) for each team
  * This version uses in-memory state that can be persisted to database
+ * 
+ * Note: The "bot" terminology in types is internal only - the columnists
+ * are presented as media personalities, never as bots or AI.
  */
 
 import type { BotName, BotMemory, TeamMemory, DerivedData } from './types';

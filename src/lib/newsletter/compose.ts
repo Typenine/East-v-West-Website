@@ -185,34 +185,61 @@ async function buildTradeItems(events: DerivedData['events_scored']): Promise<Tr
   const items: TradeItem[] = [];
 
   for (const e of tradeEvents) {
+    // Build detailed trade context showing what each side got
+    const byTeam = e.details?.by_team || {};
+    const parties = e.parties || Object.keys(byTeam);
+    
+    let tradeBreakdown = '';
+    for (const team of parties) {
+      const teamAssets = byTeam[team];
+      if (teamAssets) {
+        const gets = teamAssets.gets?.join(', ') || 'unknown';
+        const gives = teamAssets.gives?.join(', ') || 'unknown';
+        tradeBreakdown += `\n${team}: GETS ${gets} | GIVES ${gives}`;
+      }
+    }
+
     const tradeContext = e.details?.headline
-      ? `${e.parties?.join(' traded with ')}: ${e.details.headline}`
-      : `Trade between ${e.parties?.join(' and ') || 'teams'}`;
+      ? `${parties.join(' traded with ')}: ${e.details.headline}${tradeBreakdown}`
+      : `Trade between ${parties.join(' and ')}${tradeBreakdown}`;
 
-    const [entertainerResponse, analystResponse] = await Promise.all([
-      generateSection({
-        persona: 'entertainer',
-        sectionType: 'Trade Analysis',
-        context: `Trade: ${tradeContext}\nParties: ${e.parties?.join(', ')}\nRelevance score: ${e.relevance_score}/100`,
-        constraints: 'Give your hot take on this trade. Who won? Who got fleeced? 2-3 sentences max. Be bold.',
-        maxTokens: 150,
-      }),
-      generateSection({
-        persona: 'analyst',
-        sectionType: 'Trade Analysis',
-        context: `Trade: ${tradeContext}\nParties: ${e.parties?.join(', ')}\nRelevance score: ${e.relevance_score}/100`,
-        constraints: 'Analyze this trade objectively. Consider value, roster fit, and timeline. 2-3 sentences.',
-        maxTokens: 150,
-      }),
-    ]);
-
+    // Generate analysis for EACH SIDE separately
     const analysis: Record<string, { grade: string; deltaText: string; entertainer_paragraph: string; analyst_paragraph: string }> = {};
     
-    for (const party of e.parties || []) {
-      const grade = e.relevance_score >= 70 ? 'B+' : e.relevance_score >= 50 ? 'B' : 'C+';
+    for (const party of parties) {
+      const teamAssets = byTeam[party];
+      const gets = teamAssets?.gets?.join(', ') || 'assets';
+      const gives = teamAssets?.gives?.join(', ') || 'assets';
+      
+      const sideContext = `Trade Analysis for ${party}:
+Full trade: ${tradeContext}
+${party}'s haul: RECEIVED ${gets} | GAVE UP ${gives}
+Evaluate this trade FROM ${party.toUpperCase()}'S PERSPECTIVE ONLY.`;
+
+      const [entertainerResponse, analystResponse] = await Promise.all([
+        generateSection({
+          persona: 'entertainer',
+          sectionType: 'Trade Grade',
+          context: sideContext,
+          constraints: `Grade this trade for ${party} specifically (A+ to F). Did THEY win or lose? 2 sentences max. Include your letter grade.`,
+          maxTokens: 100,
+        }),
+        generateSection({
+          persona: 'analyst',
+          sectionType: 'Trade Grade',
+          context: sideContext,
+          constraints: `Grade this trade for ${party} specifically (A+ to F). Evaluate value received vs given from their perspective. 2 sentences. Include letter grade.`,
+          maxTokens: 100,
+        }),
+      ]);
+
+      // Extract grade from response (look for letter grade pattern)
+      const gradeMatch = entertainerResponse.match(/\b([A-F][+-]?)\b/i) || analystResponse.match(/\b([A-F][+-]?)\b/i);
+      const grade = gradeMatch ? gradeMatch[1].toUpperCase() : 'B';
+
       analysis[party] = {
         grade,
-        deltaText: 'see analysis',
+        deltaText: `${party}'s side`,
         entertainer_paragraph: entertainerResponse,
         analyst_paragraph: analystResponse,
       };

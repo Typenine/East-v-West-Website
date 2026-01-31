@@ -389,8 +389,7 @@ export default function AdminNewsletterPage() {
                 </li>
               </ol>
               <p className="mt-4 text-[var(--muted)]">
-                Note: Currently using in-memory cache. Generated newsletters will be lost on server restart.
-                Database persistence coming soon.
+                ✓ Database persistence enabled. Bot memory, forecast records, and published newsletters are saved to the database.
               </p>
             </div>
           </CardContent>
