@@ -8,8 +8,8 @@
 export interface MatchupPair {
   matchup_id: string | number;
   teams: Array<{ name: string; points: number }>;
-  winner: { name: string; points: number };
-  loser: { name: string; points: number };
+  winner: { name: string; points: number; topPlayers?: Array<{ name: string; points: number }> };
+  loser: { name: string; points: number; topPlayers?: Array<{ name: string; points: number }> };
   margin: number;
   // Playoff bracket label (e.g., "Championship", "3rd Place", "5th Place", "Toilet Bowl")
   bracketLabel?: string;
@@ -130,6 +130,29 @@ export interface Narrative {
 export type TeamTrajectory = 'rising' | 'falling' | 'steady' | 'volatile';
 export type TeamMoodEnhanced = 'hot' | 'cold' | 'neutral' | 'chaotic' | 'dangerous';
 
+// Player relationship tracking - how the bot feels about individual players
+export type PlayerSentiment = 'favorite' | 'trusted' | 'neutral' | 'skeptical' | 'disappointed' | 'enemy';
+
+export interface PlayerRelationship {
+  playerId: string;
+  playerName: string;
+  sentiment: PlayerSentiment;
+  trustLevel: number;  // -100 to 100
+  // Why they feel this way
+  reasons: Array<{
+    week: number;
+    event: string;  // "Dropped 40 in championship", "Busted in playoffs", "Consistent 20+ weeks"
+    impact: number; // How much this changed trust (-50 to +50)
+  }>;
+  // Key moments
+  bestMoment?: { week: number; points: number; context: string };  // "35 pts in semifinal"
+  worstMoment?: { week: number; points: number; context: string }; // "4 pts in championship"
+  // Tracking
+  gamesWatched: number;
+  avgPoints: number;
+  bigGamePerformance: number;  // Avg in weeks 14+ (playoffs)
+}
+
 export interface EnhancedTeamMemory {
   // Current state
   mood: TeamMoodEnhanced;
@@ -236,6 +259,13 @@ export interface EnhancedBotMemory {
     resolved: boolean;
   };
   
+  // Player relationships - how the bot feels about individual players
+  playerRelationships: Record<string, PlayerRelationship>;
+  
+  // Quick access lists for player sentiments
+  favoritePlayers: string[];      // Player IDs the bot loves
+  disappointments: string[];       // Players who let them down
+  
   // Legacy compatibility
   legacyTeams?: Record<string, TeamMemory>;
 }
@@ -298,6 +328,11 @@ export interface RecapItem {
   loser_score?: number;
   // Playoff bracket label (e.g., "🏆 Championship", "🥉 3rd Place Game", "🚽 Toilet Bowl")
   bracketLabel?: string;
+  // Dialogue format - array of back-and-forth exchanges
+  dialogue?: Array<{
+    speaker: 'entertainer' | 'analyst';
+    text: string;
+  }>;
 }
 
 export interface WaiverItem {

@@ -163,6 +163,9 @@ export function createEnhancedMemory(bot: BotName, season: number): EnhancedBotM
     },
     hotTakes: [],
     milestones: [],
+    playerRelationships: {},
+    favoritePlayers: [],
+    disappointments: [],
   };
 }
 

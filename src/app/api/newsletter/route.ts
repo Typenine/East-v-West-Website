@@ -15,6 +15,10 @@ import {
   buildEnhancedContextString,
   fetchComprehensiveLeagueData,
   buildComprehensiveContextString,
+  fetchCurrentWeekContext,
+  buildCurrentStandingsContext,
+  buildTransactionsContext,
+  getLeagueRulesContext,
   setPlayerNameCache,
   type EnhancedContextData,
   type LeagueRecords,
@@ -618,6 +622,14 @@ export async function POST(request: NextRequest) {
     const comprehensiveContextString = buildComprehensiveContextString(comprehensiveData);
     console.log(`[Newsletter] Comprehensive data: ${Object.keys(comprehensiveData.teams).length} teams, ${comprehensiveData.allTrades.length} trades, ${comprehensiveData.topScoringWeeks.length} top weeks`);
 
+    // Fetch CURRENT SEASON context (standings, streaks, transactions, playoff implications)
+    console.log('[Newsletter] Fetching current week context...');
+    const currentWeekContext = await fetchCurrentWeekContext(leagueId, seasonNum, week);
+    const currentStandingsString = buildCurrentStandingsContext(currentWeekContext);
+    const transactionsString = buildTransactionsContext(currentWeekContext);
+    const rulesString = getLeagueRulesContext();
+    console.log(`[Newsletter] Current week: ${currentWeekContext.standings.length} teams, ${currentWeekContext.recentTransactions.length} transactions`);
+
     // Build enhanced context for richer LLM generation
     // For preseason episodes, use historical data instead of current season data
     const isPreseasonEpisode = episodeType === 'preseason' || episodeType === 'pre_draft' || episodeType === 'post_draft' || episodeType === 'offseason';
@@ -627,23 +639,21 @@ export async function POST(request: NextRequest) {
     if (isPreseasonEpisode) {
       console.log(`[${episodeType}] Building historical context for special episode...`);
       const historicalContext = await buildPreseasonHistoricalContext(seasonNum, users);
-      // Combine historical context with comprehensive league data
+      // Combine historical context with comprehensive league data and rules
       enhancedContext = {
         standings: [], // No current standings for preseason
         byeTeams: [],
-        enhancedContextString: `${comprehensiveContextString}\n\n${historicalContext}`,
+        enhancedContextString: `${rulesString}\n\n${comprehensiveContextString}\n\n${historicalContext}`,
       };
       console.log(`Historical context built for ${episodeType} episode`);
     } else {
       enhancedContext = await buildEnhancedContextFull(leagueId, week, seasonNum, users, matchups);
-      // Prepend comprehensive data to the enhanced context
-      enhancedContext.enhancedContextString = `${comprehensiveContextString}\n\n${enhancedContext.enhancedContextString || ''}`;
+      // Combine ALL context: rules + comprehensive data + current standings + transactions + enhanced context
+      enhancedContext.enhancedContextString = `${rulesString}\n\n${comprehensiveContextString}\n\n${currentStandingsString}\n\n${transactionsString}\n\n${enhancedContext.enhancedContextString || ''}`;
       // Add injuries to enhanced context
       enhancedContext.injuries = formattedInjuries;
       console.log(`Enhanced context: standings=${enhancedContext.standings?.length || 0} teams, byes=${enhancedContext.byeTeams?.length || 0} NFL teams`);
-      if (enhancedContext.enhancedContextString) {
-        console.log(`Enhanced context includes: comprehensive league data, H2H, trades, records, playoff implications`);
-      }
+      console.log(`Enhanced context includes: league rules, comprehensive data, current standings, transactions, H2H, trades, records, playoff implications`);
     }
 
     // Generate the newsletter

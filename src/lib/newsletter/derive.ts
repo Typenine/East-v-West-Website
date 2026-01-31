@@ -54,6 +54,9 @@ interface SleeperMatchup {
   roster_id: number;
   matchup_id: number | null;
   points?: number;
+  starters?: string[];
+  players?: string[];
+  players_points?: Record<string, number>;
 }
 
 interface SleeperTransaction {
@@ -99,6 +102,29 @@ function mapRosters(
  * - Week 16 (Round 2): matchup_id 1-2 are winners bracket semifinals, 3-6 are consolation
  * - Week 17 (Round 3): matchup_id 1 is Championship, 2 is 3rd place, 3-6 are lower consolation
  */
+/**
+ * Extract top scoring players from a matchup
+ */
+function extractTopPlayers(matchup: SleeperMatchup | undefined, count: number = 3): Array<{ name: string; points: number }> {
+  if (!matchup?.players_points || !matchup?.starters) return [];
+  
+  // Get points for starters only (not bench players)
+  const starterPoints: Array<{ playerId: string; points: number }> = [];
+  for (const playerId of matchup.starters) {
+    if (playerId && matchup.players_points[playerId] !== undefined) {
+      starterPoints.push({ playerId, points: matchup.players_points[playerId] });
+    }
+  }
+  
+  // Sort by points descending and take top N
+  starterPoints.sort((a, b) => b.points - a.points);
+  
+  return starterPoints.slice(0, count).map(p => ({
+    name: resolvePlayerName(p.playerId),
+    points: Number(p.points.toFixed(1)),
+  }));
+}
+
 function getPlayoffBracketLabel(matchupId: string | number, week: number, playoffStartWeek: number = 15): string | undefined {
   if (week < playoffStartWeek) return undefined;
   
@@ -155,6 +181,12 @@ function buildMatchupPairs(
   week?: number,
   playoffStartWeek?: number
 ): MatchupPair[] {
+  // Build a map of roster_id -> matchup data for player extraction
+  const matchupByRoster = new Map<number, SleeperMatchup>();
+  for (const m of matchups) {
+    matchupByRoster.set(m.roster_id, m);
+  }
+
   const groups = new Map<string | number, Array<{ owner_name: string; points: number; roster_id: number }>>();
   
   for (const m of matchups) {
@@ -176,12 +208,19 @@ function buildMatchupPairs(
     const bracketLabel = week && playoffStartWeek 
       ? getPlayoffBracketLabel(mid, week, playoffStartWeek)
       : undefined;
+
+    // Extract top players for winner and loser
+    const winnerMatchup = matchupByRoster.get(winner.roster_id);
+    const loserMatchup = matchupByRoster.get(loser.roster_id);
+    
+    const winnerTopPlayers = extractTopPlayers(winnerMatchup, 3);
+    const loserTopPlayers = extractTopPlayers(loserMatchup, 3);
     
     pairs.push({
       matchup_id: mid,
       teams: entries.map(e => ({ name: e.owner_name, points: e.points })),
-      winner: { name: winner.owner_name, points: winner.points },
-      loser: { name: loser.owner_name, points: loser.points },
+      winner: { name: winner.owner_name, points: winner.points, topPlayers: winnerTopPlayers },
+      loser: { name: loser.owner_name, points: loser.points, topPlayers: loserTopPlayers },
       margin,
       bracketLabel,
     });

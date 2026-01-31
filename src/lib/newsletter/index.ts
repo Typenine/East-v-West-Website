@@ -123,7 +123,23 @@ export {
   buildComprehensiveContextString,
   buildTeamContextString,
   buildMatchupH2HContext,
+  // Current week context (standings, streaks, transactions, playoff implications)
+  fetchCurrentWeekContext,
+  buildCurrentStandingsContext,
+  buildTransactionsContext,
+  getLeagueRulesContext,
+  // Additional data source context builders
+  buildTeamMatchupHistoryContext,
+  buildDraftHistoryContext,
+  buildTradeBlockContext,
+  buildTaxiSquadContext,
+  buildRosterNewsContext,
+  buildDefenseStrengthContext,
+  buildPlayerGameLogsContext,
   type TeamProfile,
   type LeagueRecords as ComprehensiveLeagueRecords,
   type ComprehensiveLeagueData,
+  type CurrentWeekContext,
+  type CurrentSeasonTeamData,
+  type PlayoffImplications as CurrentPlayoffImplications,
 } from './data-integration';

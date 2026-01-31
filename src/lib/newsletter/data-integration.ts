@@ -5,11 +5,14 @@
  * This is the bridge between the website's data layer and the newsletter generation system.
  * 
  * Data Sources:
- * - sleeper-api.ts: League records, franchise stats, weekly highs, matchups, injuries
+ * - sleeper-api.ts: League records, franchise stats, weekly highs, matchups, injuries, standings, streaks
  * - headtohead.ts: All-time H2H records between teams
  * - trades.ts: Trade history, active traders
  * - team-utils.ts: Team colors, logos, canonical names
  * - league.ts: League constants, champions, important dates
+ * - transactions.ts: Waiver/FA activity
+ * - taxi.ts: Taxi squad data
+ * - rules.ts: League rulebook
  */
 
 import { TEAM_NAMES, CHAMPIONS } from '@/lib/constants/league';
@@ -23,12 +26,73 @@ import {
   getWeeklyHighScoreTallyAcrossSeasons,
   getSplitRecordsAllTime,
   getTopScoringWeeksAllTime,
+  getTeamsData,
+  getCurrentStreaksForLeague,
+  getLeagueTransactions,
+  getLeague,
   type LeagueRecordBook,
   type FranchiseSummary,
   type TopScoringWeekEntry,
+  type TeamData,
+  type SleeperTransaction,
 } from '@/lib/utils/sleeper-api';
+import { rulesHtmlSections } from '@/data/rules';
 
 // ============ Types ============
+
+// Current season data for a team
+export interface CurrentSeasonTeamData {
+  teamName: string;
+  rosterId: number;
+  ownerId: string;
+  // Current season record
+  wins: number;
+  losses: number;
+  ties: number;
+  pointsFor: number;
+  pointsAgainst: number;
+  // Standings position
+  standingsPosition: number;
+  playoffPosition: 'clinched' | 'in' | 'bubble' | 'out' | 'eliminated';
+  // Current streak
+  streak: { type: 'W' | 'L' | 'T' | null; length: number };
+  // Recent results (last 5 weeks)
+  recentResults: Array<{ week: number; result: 'W' | 'L' | 'T'; points: number; opponentPoints: number; opponent: string }>;
+}
+
+// Transaction/waiver activity
+export interface RecentTransaction {
+  type: 'waiver' | 'free_agent' | 'trade';
+  teamName: string;
+  week: number;
+  adds: Array<{ playerName: string; playerId: string }>;
+  drops: Array<{ playerName: string; playerId: string }>;
+  faabSpent?: number;
+}
+
+// Playoff implications
+export interface PlayoffImplications {
+  clinched: string[];
+  inPlayoffPosition: string[];
+  onBubble: string[];
+  eliminated: string[];
+  magicNumbers: Record<string, number>; // Team -> games needed to clinch
+}
+
+// Full current week context
+export interface CurrentWeekContext {
+  season: number;
+  week: number;
+  // Current standings with all teams
+  standings: CurrentSeasonTeamData[];
+  // Recent transactions this week
+  recentTransactions: RecentTransaction[];
+  // Playoff picture
+  playoffImplications: PlayoffImplications;
+  // League settings from Sleeper
+  playoffStartWeek: number;
+  playoffTeams: number;
+}
 
 export interface TeamProfile {
   name: string;
@@ -208,6 +272,209 @@ export async function fetchComprehensiveLeagueData(): Promise<ComprehensiveLeagu
     allTrades,
     fetchedAt: new Date().toISOString(),
   };
+}
+
+/**
+ * Fetch current season/week context - standings, streaks, transactions, playoff implications
+ * This provides the "right now" context that complements the all-time historical data
+ */
+export async function fetchCurrentWeekContext(
+  leagueId: string,
+  season: number,
+  week: number
+): Promise<CurrentWeekContext> {
+  console.log(`[DataIntegration] Fetching current week context for Season ${season} Week ${week}...`);
+
+  // Fetch current season data in parallel
+  const [teamsData, streaks, league, transactions] = await Promise.all([
+    getTeamsData(leagueId).catch(e => { console.warn('Failed to fetch teams data:', e); return [] as TeamData[]; }),
+    getCurrentStreaksForLeague(leagueId).catch(e => { console.warn('Failed to fetch streaks:', e); return {} as Record<number, { type: 'W' | 'L' | 'T' | null; length: number }>; }),
+    getLeague(leagueId).catch(e => { console.warn('Failed to fetch league:', e); return null; }),
+    getLeagueTransactions(leagueId, week).catch(e => { console.warn('Failed to fetch transactions:', e); return [] as SleeperTransaction[]; }),
+  ]);
+
+  // Get league settings
+  const playoffStartWeek = Number(league?.settings?.playoff_week_start) || 15;
+  const playoffTeams = Number(league?.settings?.playoff_teams) || 8;
+
+  // Sort teams by wins (then points for as tiebreaker)
+  const sortedTeams = [...teamsData].sort((a, b) => {
+    if (b.wins !== a.wins) return b.wins - a.wins;
+    return b.fpts - a.fpts;
+  });
+
+  // Calculate playoff implications
+  const weeksRemaining = Math.max(0, playoffStartWeek - 1 - week);
+  const playoffImplications: PlayoffImplications = {
+    clinched: [],
+    inPlayoffPosition: [],
+    onBubble: [],
+    eliminated: [],
+    magicNumbers: {},
+  };
+
+  // Build current season team data with playoff position
+  const standings: CurrentSeasonTeamData[] = sortedTeams.map((team, idx) => {
+    const position = idx + 1;
+    let playoffPosition: CurrentSeasonTeamData['playoffPosition'] = 'out';
+    
+    if (week >= playoffStartWeek) {
+      // Playoffs have started
+      playoffPosition = position <= playoffTeams ? 'in' : 'eliminated';
+    } else {
+      // Regular season
+      if (position <= playoffTeams - 2) {
+        playoffPosition = 'in';
+        playoffImplications.inPlayoffPosition.push(team.teamName);
+      } else if (position <= playoffTeams) {
+        playoffPosition = 'bubble';
+        playoffImplications.onBubble.push(team.teamName);
+      } else if (position <= playoffTeams + 2) {
+        playoffPosition = 'bubble';
+        playoffImplications.onBubble.push(team.teamName);
+      } else {
+        playoffPosition = 'out';
+      }
+      
+      // Check if mathematically eliminated (simplified)
+      const maxPossibleWins = team.wins + weeksRemaining;
+      const teamsAhead = sortedTeams.filter(t => t.wins > maxPossibleWins).length;
+      if (teamsAhead >= playoffTeams) {
+        playoffPosition = 'eliminated';
+        playoffImplications.eliminated.push(team.teamName);
+      }
+    }
+
+    const streak = streaks[team.rosterId] || { type: null, length: 0 };
+
+    return {
+      teamName: team.teamName,
+      rosterId: team.rosterId,
+      ownerId: team.ownerId,
+      wins: team.wins,
+      losses: team.losses,
+      ties: team.ties || 0,
+      pointsFor: team.fpts,
+      pointsAgainst: team.fptsAgainst,
+      standingsPosition: position,
+      playoffPosition,
+      streak,
+      recentResults: [], // Would need to fetch weekly results for each team
+    };
+  });
+
+  // Process transactions into readable format
+  const recentTransactions: RecentTransaction[] = transactions
+    .filter(t => t.type === 'waiver' || t.type === 'free_agent')
+    .slice(0, 20)
+    .map(t => {
+      const teamName = sortedTeams.find(team => team.rosterId === t.roster_ids?.[0])?.teamName || 'Unknown';
+      const faabBid = t.settings?.waiver_bid;
+      return {
+        type: t.type as 'waiver' | 'free_agent',
+        teamName,
+        week,
+        adds: Object.keys(t.adds || {}).map(pid => ({ playerName: pid, playerId: pid })), // Would need player lookup
+        drops: Object.keys(t.drops || {}).map(pid => ({ playerName: pid, playerId: pid })),
+        faabSpent: typeof faabBid === 'number' ? faabBid : undefined,
+      };
+    });
+
+  console.log(`[DataIntegration] Current week context: ${standings.length} teams, ${recentTransactions.length} transactions`);
+
+  return {
+    season,
+    week,
+    standings,
+    recentTransactions,
+    playoffImplications,
+    playoffStartWeek,
+    playoffTeams,
+  };
+}
+
+/**
+ * Build a context string for current season standings
+ */
+export function buildCurrentStandingsContext(context: CurrentWeekContext): string {
+  const lines: string[] = [];
+  
+  lines.push(`=== CURRENT SEASON STANDINGS (Week ${context.week}) ===`);
+  lines.push('');
+  
+  for (const team of context.standings) {
+    const streakStr = team.streak.type ? ` (${team.streak.type}${team.streak.length})` : '';
+    const positionEmoji = team.standingsPosition <= context.playoffTeams ? '✅' : '❌';
+    const bubbleNote = team.playoffPosition === 'bubble' ? ' [BUBBLE]' : 
+                       team.playoffPosition === 'eliminated' ? ' [ELIMINATED]' : '';
+    
+    lines.push(`${team.standingsPosition}. ${positionEmoji} ${team.teamName}: ${team.wins}-${team.losses} (${team.pointsFor.toFixed(1)} PF)${streakStr}${bubbleNote}`);
+  }
+  
+  lines.push('');
+  lines.push(`Playoff spots: Top ${context.playoffTeams} teams`);
+  lines.push(`Playoffs start: Week ${context.playoffStartWeek}`);
+  
+  if (context.playoffImplications.onBubble.length > 0) {
+    lines.push('');
+    lines.push('🔥 PLAYOFF BUBBLE: ' + context.playoffImplications.onBubble.join(', '));
+  }
+  
+  if (context.playoffImplications.eliminated.length > 0) {
+    lines.push('💀 ELIMINATED: ' + context.playoffImplications.eliminated.join(', '));
+  }
+  
+  return lines.join('\n');
+}
+
+/**
+ * Build context string for recent transactions
+ */
+export function buildTransactionsContext(context: CurrentWeekContext): string {
+  if (context.recentTransactions.length === 0) return '';
+  
+  const lines: string[] = [];
+  lines.push('=== RECENT TRANSACTIONS ===');
+  
+  for (const txn of context.recentTransactions.slice(0, 10)) {
+    const adds = txn.adds.map(a => a.playerName).join(', ');
+    const drops = txn.drops.map(d => d.playerName).join(', ');
+    const faab = txn.faabSpent ? ` ($${txn.faabSpent} FAAB)` : '';
+    
+    if (adds && drops) {
+      lines.push(`- ${txn.teamName}: Added ${adds}, Dropped ${drops}${faab}`);
+    } else if (adds) {
+      lines.push(`- ${txn.teamName}: Added ${adds}${faab}`);
+    } else if (drops) {
+      lines.push(`- ${txn.teamName}: Dropped ${drops}`);
+    }
+  }
+  
+  return lines.join('\n');
+}
+
+/**
+ * Get league rules as a context string for the bots
+ */
+export function getLeagueRulesContext(): string {
+  const lines: string[] = [];
+  lines.push('=== LEAGUE RULES (from Rulebook) ===');
+  
+  // Extract key rules from the HTML sections
+  for (const section of rulesHtmlSections) {
+    // Strip HTML tags and get plain text
+    const plainText = section.html
+      .replace(/<[^>]*>/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    
+    if (plainText.length > 0) {
+      lines.push(`\n--- ${section.title} ---`);
+      lines.push(plainText.slice(0, 500)); // Limit each section
+    }
+  }
+  
+  return lines.join('\n');
 }
 
 // ============ Context Builders ============
@@ -399,6 +666,199 @@ export function buildMatchupH2HContext(data: ComprehensiveLeagueData, team1: str
     lines.push(`⚠️ ${team1} has NEVER lost to ${team2}!`);
   } else if (cell.losses.total > 0 && cell.wins.total === 0) {
     lines.push(`⚠️ ${team1} has NEVER beaten ${team2}!`);
+  }
+  
+  return lines.join('\n');
+}
+
+// ============ Additional Data Source Connections ============
+
+/**
+ * Build context for team matchup history (recent results)
+ */
+export function buildTeamMatchupHistoryContext(
+  teamName: string,
+  results: Array<{ week: number; result: 'W' | 'L' | 'T'; points: number; opponentPoints: number; opponent: string }>
+): string {
+  if (results.length === 0) return '';
+  
+  const lines: string[] = [];
+  lines.push(`=== ${teamName} RECENT RESULTS ===`);
+  
+  for (const r of results.slice(0, 5)) {
+    const emoji = r.result === 'W' ? '✅' : r.result === 'L' ? '❌' : '➖';
+    lines.push(`Week ${r.week}: ${emoji} ${r.result} vs ${r.opponent} (${r.points.toFixed(1)} - ${r.opponentPoints.toFixed(1)})`);
+  }
+  
+  const wins = results.filter(r => r.result === 'W').length;
+  const losses = results.filter(r => r.result === 'L').length;
+  lines.push(`Last ${results.length} games: ${wins}-${losses}`);
+  
+  return lines.join('\n');
+}
+
+/**
+ * Build context for draft history (who drafted whom)
+ */
+export function buildDraftHistoryContext(
+  draftPicks: Array<{
+    round: number;
+    pick: number;
+    teamName: string;
+    playerName: string;
+    position: string;
+    season: string;
+  }>
+): string {
+  if (draftPicks.length === 0) return '';
+  
+  const lines: string[] = [];
+  lines.push('=== RECENT DRAFT PICKS ===');
+  
+  const bySeason = new Map<string, typeof draftPicks>();
+  for (const pick of draftPicks) {
+    if (!bySeason.has(pick.season)) bySeason.set(pick.season, []);
+    bySeason.get(pick.season)!.push(pick);
+  }
+  
+  for (const [season, picks] of Array.from(bySeason.entries()).slice(0, 2)) {
+    lines.push(`\n--- ${season} Draft ---`);
+    for (const pick of picks.slice(0, 12)) {
+      lines.push(`${pick.round}.${String(pick.pick).padStart(2, '0')}: ${pick.teamName} - ${pick.playerName} (${pick.position})`);
+    }
+  }
+  
+  return lines.join('\n');
+}
+
+/**
+ * Build context for trade block (players being shopped)
+ */
+export function buildTradeBlockContext(
+  tradeBlock: Array<{
+    teamName: string;
+    playerName: string;
+    position: string;
+  }>
+): string {
+  if (tradeBlock.length === 0) return '';
+  
+  const lines: string[] = [];
+  lines.push('=== TRADE BLOCK ===');
+  lines.push('Players currently being shopped:');
+  
+  const byTeam = new Map<string, string[]>();
+  for (const item of tradeBlock) {
+    if (!byTeam.has(item.teamName)) byTeam.set(item.teamName, []);
+    byTeam.get(item.teamName)!.push(`${item.playerName} (${item.position})`);
+  }
+  
+  for (const [team, players] of byTeam) {
+    lines.push(`- ${team}: ${players.join(', ')}`);
+  }
+  
+  return lines.join('\n');
+}
+
+/**
+ * Build context for taxi squad moves
+ */
+export function buildTaxiSquadContext(
+  taxiMoves: Array<{
+    teamName: string;
+    playerName: string;
+    action: 'promoted' | 'added';
+    week: number;
+  }>
+): string {
+  if (taxiMoves.length === 0) return '';
+  
+  const lines: string[] = [];
+  lines.push('=== TAXI SQUAD ACTIVITY ===');
+  
+  for (const move of taxiMoves.slice(0, 10)) {
+    const actionStr = move.action === 'promoted' ? 'called up from taxi' : 'added to taxi';
+    lines.push(`- ${move.teamName} ${actionStr} ${move.playerName} (Week ${move.week})`);
+  }
+  
+  return lines.join('\n');
+}
+
+/**
+ * Build context for roster news (injuries, breaking news)
+ */
+export function buildRosterNewsContext(
+  news: Array<{
+    playerName: string;
+    teamName: string;
+    headline: string;
+  }>
+): string {
+  if (news.length === 0) return '';
+  
+  const lines: string[] = [];
+  lines.push('=== ROSTER NEWS ===');
+  
+  for (const item of news.slice(0, 10)) {
+    lines.push(`- ${item.playerName} (${item.teamName}): ${item.headline}`);
+  }
+  
+  return lines.join('\n');
+}
+
+/**
+ * Build context for defense strength (matchup analysis)
+ */
+export function buildDefenseStrengthContext(
+  defenseRankings: Array<{
+    nflTeam: string;
+    vsQB: number;
+    vsRB: number;
+    vsWR: number;
+    vsTE: number;
+  }>
+): string {
+  if (defenseRankings.length === 0) return '';
+  
+  const lines: string[] = [];
+  lines.push('=== NFL DEFENSE RANKINGS ===');
+  
+  const sortedVsQB = [...defenseRankings].sort((a, b) => a.vsQB - b.vsQB);
+  const sortedVsRB = [...defenseRankings].sort((a, b) => a.vsRB - b.vsRB);
+  const sortedVsWR = [...defenseRankings].sort((a, b) => a.vsWR - b.vsWR);
+  
+  lines.push('Toughest vs QB: ' + sortedVsQB.slice(0, 5).map(d => d.nflTeam).join(', '));
+  lines.push('Toughest vs RB: ' + sortedVsRB.slice(0, 5).map(d => d.nflTeam).join(', '));
+  lines.push('Toughest vs WR: ' + sortedVsWR.slice(0, 5).map(d => d.nflTeam).join(', '));
+  
+  return lines.join('\n');
+}
+
+/**
+ * Build context for player game logs (performance trends)
+ */
+export function buildPlayerGameLogsContext(
+  playerLogs: Array<{
+    playerName: string;
+    position: string;
+    teamName: string;
+    recentWeeks: Array<{ week: number; points: number }>;
+  }>
+): string {
+  if (playerLogs.length === 0) return '';
+  
+  const lines: string[] = [];
+  lines.push('=== TOP PERFORMER TRENDS ===');
+  
+  for (const player of playerLogs.slice(0, 15)) {
+    const recent = player.recentWeeks.slice(0, 5);
+    const avg = recent.reduce((sum, w) => sum + w.points, 0) / recent.length;
+    const trend = recent.length >= 3 
+      ? (recent[0].points > recent[2].points ? '📈' : recent[0].points < recent[2].points ? '📉' : '➡️')
+      : '';
+    
+    const weekScores = recent.map(w => w.points.toFixed(1)).join(', ');
+    lines.push(`- ${player.playerName} (${player.position}, ${player.teamName}): ${trend} [${weekScores}] Avg: ${avg.toFixed(1)}`);
   }
   
   return lines.join('\n');
