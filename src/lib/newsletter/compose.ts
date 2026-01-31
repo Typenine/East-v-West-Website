@@ -1144,8 +1144,11 @@ IMPORTANT RULES:
     if (interestFactors.someoneBurned) interestScore += 2; // Eating crow is dramatic
     
     // Dialogue length: 2 turns (boring), 3 turns (normal), 4+ turns (heated/interesting)
-    // Min 2, max 5
-    const dialogueTurns = Math.min(5, Math.max(2, Math.floor(interestScore / 2)));
+    // Min 2, max 5 - but championship ALWAYS gets at least 4 turns
+    const baseDialogueTurns = Math.min(5, Math.max(2, Math.floor(interestScore / 2)));
+    const dialogueTurns = isChampionship ? Math.max(4, baseDialogueTurns) : baseDialogueTurns;
+    
+    console.log(`[Dialogue] ${p.winner.name} vs ${p.loser.name}: interest=${interestScore}, turns=${dialogueTurns}, championship=${isChampionship}`);
     
     // Build rich situational context for more nuanced dialogue
     const buildSituationalHooks = (): string[] => {
@@ -1259,6 +1262,26 @@ IMPORTANT RULES:
     
     const dialogue: Array<{ speaker: 'entertainer' | 'analyst'; text: string }> = [];
     
+    // Build turn-by-turn format template based on dialogueTurns
+    const buildTurnTemplate = (): string => {
+      const turns: string[] = [];
+      let currentSpeaker = starterBot;
+      
+      for (let i = 1; i <= dialogueTurns; i++) {
+        const speaker = currentSpeaker.toUpperCase();
+        let turnType = '';
+        if (i === 1) turnType = 'opening take';
+        else if (i === 2) turnType = 'response';
+        else if (i === dialogueTurns) turnType = 'final word';
+        else turnType = 'follow-up';
+        
+        turns.push(`${speaker}: [${turnType} - 1-3 sentences]`);
+        currentSpeaker = currentSpeaker === 'entertainer' ? 'analyst' : 'entertainer';
+      }
+      
+      return turns.join('\n');
+    };
+    
     // Build a comprehensive prompt that generates the full dialogue at once
     const fullDialoguePrompt = `Generate a ${dialogueTurns}-turn dialogue between two fantasy football analysts discussing this matchup.
 
@@ -1267,46 +1290,38 @@ ${p.winner.name} defeated ${p.loser.name}
 Score: ${p.winner.points.toFixed(1)} - ${p.loser.points.toFixed(1)} (margin: ${p.margin.toFixed(1)})
 Winner's top performers: ${winnerPlayers}
 Loser's top performers: ${loserPlayers}
-${isChampionship ? '🏆 THIS IS THE CHAMPIONSHIP GAME!' : ''}
+${isChampionship ? '🏆 THIS IS THE CHAMPIONSHIP GAME! This deserves extended discussion!' : ''}
 ${p.margin > 25 ? 'This was a BLOWOUT.' : p.margin < 5 ? 'This was a NAIL-BITER!' : ''}
 
-THE ENTERTAINER (starts ${starterBot === 'entertainer' ? 'first' : 'second'}):
+THE ENTERTAINER:
 - Personality: Emotional, dramatic, loves hot takes, holds grudges, lives for chaos
 - Style: ${openerStyles.join(', ')}
-${entertainerBurned ? `- GOT BURNED: They trusted ${p.loser.name} or doubted ${p.winner.name} - they need to acknowledge this!` : ''}
-${entertainerVindicated ? `- VINDICATED: They called this one right - can take a small victory lap` : ''}
+${entertainerBurned ? `- GOT BURNED: They trusted ${p.loser.name} or doubted ${p.winner.name} - acknowledge this!` : ''}
+${entertainerVindicated ? `- VINDICATED: They called this one right - can take a victory lap` : ''}
 ${entertainerPersonalityContext ? `- Current state: ${entertainerPersonalityContext.replace(/\n/g, ' ')}` : ''}
 
-THE ANALYST (starts ${starterBot === 'analyst' ? 'first' : 'second'}):
+THE ANALYST:
 - Personality: Data-driven, measured, trusts the process, analytical
 - Style: stat-driven observation, trend identification, measured assessment
-${analystBurned ? `- GOT BURNED: Their analysis on ${p.loser.name} didn't hold up - acknowledge briefly` : ''}
-${analystVindicated ? `- VINDICATED: The numbers were right - can note it professionally` : ''}
+${analystBurned ? `- GOT BURNED: Their analysis didn't hold up - acknowledge briefly` : ''}
+${analystVindicated ? `- VINDICATED: The numbers were right - note it professionally` : ''}
 ${analystPersonalityContext ? `- Current state: ${analystPersonalityContext.replace(/\n/g, ' ')}` : ''}
 
-DIALOGUE REQUIREMENTS:
-- ${dialogueTurns} total turns, alternating speakers
-- ${starterBot.toUpperCase()} speaks first
-- Each turn: 1-3 sentences
-- They can agree, disagree, or build on each other's points
-- Reference specific players and actual scores
-- ${isChampionship ? 'This is the CHAMPIONSHIP - make it memorable!' : 'Keep it natural and conversational'}
+CRITICAL: Generate EXACTLY ${dialogueTurns} turns of dialogue. ${isChampionship ? 'This is the championship - they should go back and forth, building on each other\'s points, maybe disagreeing, making predictions.' : ''}
 ${debateAngles}
 
-FORMAT YOUR RESPONSE EXACTLY LIKE THIS (no extra text):
-ENTERTAINER: [their take]
-ANALYST: [their response]
-${dialogueTurns >= 3 ? (starterBot === 'entertainer' ? 'ENTERTAINER: [follow-up]' : 'ANALYST: [follow-up]') : ''}
-${dialogueTurns >= 4 ? (starterBot === 'entertainer' ? 'ANALYST: [reaction]' : 'ENTERTAINER: [reaction]') : ''}
-${dialogueTurns >= 5 ? (entertainerVindicated || entertainerBurned ? 'ENTERTAINER: [final word]' : 'ANALYST: [final word]') : ''}`;
+FORMAT - Generate EXACTLY this many lines (${dialogueTurns} total):
+${buildTurnTemplate()}`;
 
     // Single API call for the entire dialogue
+    // Token budget: ~80 tokens per turn, plus buffer
+    const tokenBudget = Math.max(300, dialogueTurns * 100 + 100);
     const fullDialogue = await generateSection({
       persona: starterBot, // Use starter's persona config for temperature
       sectionType: `${bracketInfo} Full Dialogue`,
       context: `${seasonalContext}\n${entertainerMatchupContext}`,
       constraints: fullDialoguePrompt,
-      maxTokens: isChampionship ? 400 : 300, // More tokens for full dialogue
+      maxTokens: isChampionship ? Math.max(500, tokenBudget) : tokenBudget,
     });
     
     // Parse the dialogue response
@@ -1320,6 +1335,11 @@ ${dialogueTurns >= 5 ? (entertainerVindicated || entertainerBurned ? 'ENTERTAINE
       } else if (analystMatch) {
         dialogue.push({ speaker: 'analyst', text: analystMatch[1].trim() });
       }
+    }
+    
+    console.log(`[Dialogue] Parsed ${dialogue.length}/${dialogueTurns} turns for ${p.winner.name} vs ${p.loser.name}`);
+    if (dialogue.length < dialogueTurns) {
+      console.log(`[Dialogue] Raw response:\n${fullDialogue.substring(0, 500)}...`);
     }
     
     // Fallback if parsing failed - generate simple 2-turn dialogue

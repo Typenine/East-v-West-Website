@@ -39,9 +39,11 @@ const rateLimitState = {
 };
 
 const RATE_LIMITS = {
-  maxCallsPerMinute: 20, // Stay well under 30 limit
-  maxTokensPerMinute: 5000, // Stay under 6000 limit
-  minDelayBetweenCalls: 4000, // 4 seconds between calls - safer for free tier
+  maxCallsPerMinute: 15, // Very conservative - stay well under 30 limit
+  maxTokensPerMinute: 4500, // Stay well under 6000 limit
+  minDelayBetweenCalls: 6000, // 6 seconds between calls - guaranteed safe for free tier
+  // Note: Longer delays are acceptable since newsletter generation can take time
+  // Auto-generation during season has 36+ hours, preview can take several minutes
 };
 
 function resetRateLimitIfNeeded() {
@@ -137,9 +139,10 @@ export async function generateWithGroq(options: GroqGenerateOptions): Promise<Gr
         const errorText = await response.text();
         
         // Handle rate limit errors with progressive backoff
+        // Wait longer to guarantee we're back under limits
         if (response.status === 429) {
-          const waitTime = 65000 + (attempt * 15000); // 65s, 80s, 95s, 110s, 125s
-          console.log(`[Groq] Rate limited (429), attempt ${attempt + 1}/${maxRetries}, waiting ${Math.round(waitTime / 1000)}s...`);
+          const waitTime = 90000 + (attempt * 30000); // 90s, 120s, 150s, 180s, 210s
+          console.log(`[Groq] Rate limited (429), attempt ${attempt + 1}/${maxRetries}, waiting ${Math.round(waitTime / 1000)}s to ensure limits reset...`);
           await sleep(waitTime);
           // Reset our rate limit tracking since we just waited
           rateLimitState.callsThisMinute = 0;

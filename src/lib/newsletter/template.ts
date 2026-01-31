@@ -114,6 +114,31 @@ function dualPerspective(entertainerText: string, analystText: string): string {
   </div>`;
 }
 
+// Render dialogue as a back-and-forth conversation with multiple blobs
+function conversationalDialogue(dialogue: Array<{ speaker: 'entertainer' | 'analyst'; text: string }>): string {
+  if (!dialogue?.length) return '';
+  
+  return `
+  <div style="display:grid;gap:16px;margin:20px 0;">
+    ${dialogue.map((turn) => {
+      const isEntertainer = turn.speaker === 'entertainer';
+      const bgStyle = isEntertainer 
+        ? 'background:linear-gradient(135deg, #fef3c7, #fde68a);border-left:4px solid #f59e0b;'
+        : 'background:#f0f9ff;border-left:4px solid #0b5f98;';
+      const labelColor = isEntertainer ? '#92400e' : '#0b5f98';
+      const textColor = isEntertainer ? '#1f2937' : '#374151';
+      const icon = isEntertainer ? '🎭' : '📊';
+      const label = isEntertainer ? 'The Entertainer' : 'The Analyst';
+      
+      return `
+      <div style="${bgStyle}padding:16px 20px;border-radius:0 8px 8px 0;">
+        <div style="font-weight:600;font-size:12px;color:${labelColor};margin-bottom:8px;text-transform:uppercase;letter-spacing:0.5px;">${icon} ${label}</div>
+        <p style="margin:0;font-size:15px;line-height:1.6;color:${textColor};">${esc(turn.text)}</p>
+      </div>`;
+    }).join('')}
+  </div>`;
+}
+
 // ============ Section Renderers ============
 
 function sectionIntro(d: IntroSection, week: number, episodeType?: string, episodeTitle?: string): string {
@@ -265,11 +290,16 @@ function sectionRecaps(list: RecapItem[], week: number): string {
     const winnerScore = x.winner_score;
     const loserScore = x.loser_score;
     
+    // Use conversational dialogue if available (multi-turn), otherwise fall back to dual perspective
+    const dialogueHtml = x.dialogue && x.dialogue.length > 0 
+      ? conversationalDialogue(x.dialogue)
+      : dualPerspective(x.bot1, x.bot2);
+    
     return `
     <div style="${cardStyle}border-radius:12px;padding:24px;margin-bottom:20px;">
       <div style="font-weight:700;font-size:${fontSize};color:${labelColor};margin-bottom:16px;${textAlign}">${matchLabel}</div>
       ${winner && loser ? matchupVsBlock(winner, loser, winnerScore, loserScore) : ''}
-      ${dualPerspective(x.bot1, x.bot2)}
+      ${dialogueHtml}
     </div>`;
   }).join('');
 
