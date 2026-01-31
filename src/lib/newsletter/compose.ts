@@ -22,9 +22,23 @@ import type {
   FinalWordSection,
   CallbacksSection,
   RecapItem,
+  EpisodeType,
 } from './types';
 import { generateSection } from './llm/groq';
 import { buildStaticLeagueContext } from './league-knowledge';
+import { getEpisodeConfig } from './episodes';
+
+// Helper to get episode config with type safety
+function getEpisodeConfigForType(episodeType: string, week: number, season: number) {
+  const validTypes: EpisodeType[] = [
+    'regular', 'pre_draft', 'post_draft', 'preseason', 'trade_deadline',
+    'playoffs_preview', 'playoffs_round', 'championship', 'season_finale', 'offseason'
+  ];
+  const type = validTypes.includes(episodeType as EpisodeType) 
+    ? (episodeType as EpisodeType) 
+    : 'regular';
+  return getEpisodeConfig(type, week, season);
+}
 
 // ============ Helper Functions ============
 
@@ -75,8 +89,27 @@ async function buildIntro(
   events: DerivedData['events_scored'],
   memEntertainer: BotMemory,
   memAnalyst: BotMemory,
-  enhancedContext: string = ''
+  enhancedContext: string = '',
+  episodeType: string = 'regular',
+  season: number = new Date().getFullYear()
 ): Promise<IntroSection> {
+  const leagueKnowledge = buildStaticLeagueContext();
+  
+  // Handle special episode types with custom context
+  if (episodeType === 'preseason') {
+    return buildPreseasonIntro(leagueKnowledge, season, memEntertainer, memAnalyst, enhancedContext);
+  }
+  if (episodeType === 'pre_draft') {
+    return buildPreDraftIntro(leagueKnowledge, season, memEntertainer, memAnalyst, enhancedContext);
+  }
+  if (episodeType === 'post_draft') {
+    return buildPostDraftIntro(leagueKnowledge, season, memEntertainer, memAnalyst, enhancedContext);
+  }
+  if (episodeType === 'offseason') {
+    return buildOffseasonIntro(leagueKnowledge, season, memEntertainer, memAnalyst, enhancedContext);
+  }
+
+  // Regular weekly episode
   const numGames = pairs.length;
   const blowouts = countBy(pairs, p => p.margin >= 30);
   const nailbiters = countBy(pairs, p => p.margin <= 5);
@@ -97,7 +130,6 @@ async function buildIntro(
   }
   
   const seasonalContext = getSeasonalContext(week, championshipMatchup);
-  const leagueKnowledge = buildStaticLeagueContext();
 
   const context = `${leagueKnowledge}
 
@@ -131,6 +163,190 @@ Your current mood: ${memEntertainer.summaryMood || 'Neutral'}`;
       context: context.replace(memEntertainer.summaryMood || 'Neutral', memAnalyst.summaryMood || 'Neutral'),
       constraints: 'Write 2-3 sentences. Provide a measured overview. Reference key stats.',
       maxTokens: 150,
+    }),
+  ]);
+
+  return { bot1_text, bot2_text };
+}
+
+// ============ Special Episode Intro Builders ============
+
+async function buildPreseasonIntro(
+  leagueKnowledge: string,
+  season: number,
+  memEntertainer: BotMemory,
+  memAnalyst: BotMemory,
+  enhancedContext: string
+): Promise<IntroSection> {
+  const context = `${leagueKnowledge}
+
+---
+
+EPISODE TYPE: PRESEASON PREVIEW - ${season} SEASON
+
+This is the PRESEASON PREVIEW newsletter. The ${season} NFL season is about to begin. 
+This is NOT a weekly recap - there are no matchups to discuss yet.
+Your job is to preview the upcoming fantasy football season for the East v. West league.
+
+Think like ESPN or The Athletic doing a season preview:
+- Which teams are contenders? Which are rebuilding?
+- What storylines should we watch this season?
+- Who has the best roster? Who made the best offseason moves?
+- Bold predictions for the season ahead
+
+${enhancedContext}
+
+Your mood heading into the new season: ${memEntertainer.summaryMood || 'Excited'}`;
+
+  const [bot1_text, bot2_text] = await Promise.all([
+    generateSection({
+      persona: 'entertainer',
+      sectionType: 'Preseason Preview Intro',
+      context,
+      constraints: 'Write 3-4 sentences welcoming everyone to the new season. Build hype! Make a bold prediction or two. This is the PRESEASON - no games have been played yet.',
+      maxTokens: 250,
+    }),
+    generateSection({
+      persona: 'analyst',
+      sectionType: 'Preseason Preview Intro',
+      context: context.replace(memEntertainer.summaryMood || 'Excited', memAnalyst.summaryMood || 'Analytical'),
+      constraints: 'Write 2-3 sentences setting up the season analytically. Reference roster construction, offseason moves, or key players to watch. This is the PRESEASON - no games have been played yet.',
+      maxTokens: 200,
+    }),
+  ]);
+
+  return { bot1_text, bot2_text };
+}
+
+async function buildPreDraftIntro(
+  leagueKnowledge: string,
+  season: number,
+  memEntertainer: BotMemory,
+  memAnalyst: BotMemory,
+  enhancedContext: string
+): Promise<IntroSection> {
+  const context = `${leagueKnowledge}
+
+---
+
+EPISODE TYPE: PRE-DRAFT PREVIEW - ${season} ROOKIE DRAFT
+
+This is the PRE-DRAFT newsletter. The rookie draft is coming up soon.
+This is NOT a weekly recap - there are no matchups to discuss.
+Your job is to preview the upcoming rookie draft.
+
+Think like a draft analyst:
+- Who are the top prospects?
+- Which teams have the most draft capital?
+- What positions are deep in this class?
+- Who needs to make moves?
+
+${enhancedContext}
+
+Your mood heading into the draft: ${memEntertainer.summaryMood || 'Excited'}`;
+
+  const [bot1_text, bot2_text] = await Promise.all([
+    generateSection({
+      persona: 'entertainer',
+      sectionType: 'Pre-Draft Preview Intro',
+      context,
+      constraints: 'Write 3-4 sentences building hype for the draft. Who should we be watching? Any hot takes on prospects?',
+      maxTokens: 250,
+    }),
+    generateSection({
+      persona: 'analyst',
+      sectionType: 'Pre-Draft Preview Intro',
+      context: context.replace(memEntertainer.summaryMood || 'Excited', memAnalyst.summaryMood || 'Analytical'),
+      constraints: 'Write 2-3 sentences analyzing the draft landscape. Reference draft capital, team needs, or prospect tiers.',
+      maxTokens: 200,
+    }),
+  ]);
+
+  return { bot1_text, bot2_text };
+}
+
+async function buildPostDraftIntro(
+  leagueKnowledge: string,
+  season: number,
+  memEntertainer: BotMemory,
+  memAnalyst: BotMemory,
+  enhancedContext: string
+): Promise<IntroSection> {
+  const context = `${leagueKnowledge}
+
+---
+
+EPISODE TYPE: POST-DRAFT GRADES - ${season} ROOKIE DRAFT
+
+This is the POST-DRAFT newsletter. The rookie draft just happened.
+This is NOT a weekly recap - there are no matchups to discuss.
+Your job is to grade the draft and analyze each team's haul.
+
+Think like a draft analyst giving grades:
+- Who had the best draft?
+- Who reached? Who got steals?
+- Which teams addressed their needs?
+- Any surprising picks?
+
+${enhancedContext}
+
+Your mood after the draft: ${memEntertainer.summaryMood || 'Opinionated'}`;
+
+  const [bot1_text, bot2_text] = await Promise.all([
+    generateSection({
+      persona: 'entertainer',
+      sectionType: 'Post-Draft Grades Intro',
+      context,
+      constraints: 'Write 3-4 sentences reacting to the draft. Who won? Who lost? Any shocking picks?',
+      maxTokens: 250,
+    }),
+    generateSection({
+      persona: 'analyst',
+      sectionType: 'Post-Draft Grades Intro',
+      context: context.replace(memEntertainer.summaryMood || 'Opinionated', memAnalyst.summaryMood || 'Analytical'),
+      constraints: 'Write 2-3 sentences with initial draft analysis. Reference value, fit, or process.',
+      maxTokens: 200,
+    }),
+  ]);
+
+  return { bot1_text, bot2_text };
+}
+
+async function buildOffseasonIntro(
+  leagueKnowledge: string,
+  season: number,
+  memEntertainer: BotMemory,
+  memAnalyst: BotMemory,
+  enhancedContext: string
+): Promise<IntroSection> {
+  const context = `${leagueKnowledge}
+
+---
+
+EPISODE TYPE: OFFSEASON UPDATE - ${season}
+
+This is an OFFSEASON newsletter. The season has ended.
+This is NOT a weekly recap - there are no matchups to discuss.
+Your job is to cover offseason news, trades, and updates.
+
+${enhancedContext}
+
+Your mood during the offseason: ${memEntertainer.summaryMood || 'Restless'}`;
+
+  const [bot1_text, bot2_text] = await Promise.all([
+    generateSection({
+      persona: 'entertainer',
+      sectionType: 'Offseason Update Intro',
+      context,
+      constraints: 'Write 2-3 sentences about the offseason. Any moves happening? What should we be watching?',
+      maxTokens: 200,
+    }),
+    generateSection({
+      persona: 'analyst',
+      sectionType: 'Offseason Update Intro',
+      context: context.replace(memEntertainer.summaryMood || 'Restless', memAnalyst.summaryMood || 'Patient'),
+      constraints: 'Write 2-3 sentences with offseason analysis. Reference roster moves or upcoming events.',
+      maxTokens: 200,
     }),
   ]);
 
@@ -289,22 +505,52 @@ ${enhancedContext}`;
   return { team: spotlightPair.winner.name, bot1, bot2 };
 }
 
-async function buildFinalWord(week: number): Promise<FinalWordSection> {
-  const context = `Week ${week} is in the books. Sign off the newsletter with a memorable closing thought.`;
+async function buildFinalWord(week: number, episodeType: string = 'regular'): Promise<FinalWordSection> {
+  // Build context based on episode type
+  let context: string;
+  let entertainerConstraint: string;
+  let analystConstraint: string;
+
+  switch (episodeType) {
+    case 'preseason':
+      context = 'The season is about to begin. Sign off the preseason preview with excitement for what\'s to come.';
+      entertainerConstraint = 'One punchy sentence about the upcoming season. Build hype! Make a bold prediction.';
+      analystConstraint = 'One measured closing thought about the season ahead. Reference what to watch.';
+      break;
+    case 'pre_draft':
+      context = 'The rookie draft is coming up. Sign off the pre-draft preview with anticipation.';
+      entertainerConstraint = 'One punchy sentence about the upcoming draft. Who should we be watching?';
+      analystConstraint = 'One measured closing thought about draft strategy or prospects.';
+      break;
+    case 'post_draft':
+      context = 'The rookie draft is complete. Sign off the draft grades with final thoughts.';
+      entertainerConstraint = 'One punchy sentence about the draft results. Any winners or losers to call out?';
+      analystConstraint = 'One measured closing thought about the draft class or team improvements.';
+      break;
+    case 'offseason':
+      context = 'It\'s the offseason. Sign off with thoughts on what\'s next.';
+      entertainerConstraint = 'One punchy sentence about the offseason. What should we be watching?';
+      analystConstraint = 'One measured closing thought about offseason moves or upcoming events.';
+      break;
+    default:
+      context = `Week ${week} is in the books. Sign off the newsletter with a memorable closing thought.`;
+      entertainerConstraint = 'One punchy sentence to close the show. Make it memorable. Tease next week.';
+      analystConstraint = 'One measured closing thought. Keep it brief and professional.';
+  }
 
   const [bot1, bot2] = await Promise.all([
     generateSection({
       persona: 'entertainer',
       sectionType: 'Final Word',
       context,
-      constraints: 'One punchy sentence to close the show. Make it memorable. Tease next week.',
+      constraints: entertainerConstraint,
       maxTokens: 60,
     }),
     generateSection({
       persona: 'analyst',
       sectionType: 'Final Word',
       context,
-      constraints: 'One measured closing thought. Keep it brief and professional.',
+      constraints: analystConstraint,
       maxTokens: 60,
     }),
   ]);
@@ -432,6 +678,7 @@ export interface ComposeNewsletterInput {
   leagueName: string;
   week: number;
   season: number;
+  episodeType?: string; // Episode type for special newsletters
   derived: DerivedData;
   memEntertainer: BotMemory;
   memAnalyst: BotMemory;
@@ -446,6 +693,7 @@ export async function composeNewsletter(input: ComposeNewsletterInput): Promise<
     leagueName,
     week,
     season,
+    episodeType = 'regular',
     derived,
     memEntertainer,
     memAnalyst,
@@ -453,6 +701,11 @@ export async function composeNewsletter(input: ComposeNewsletterInput): Promise<
     lastCallbacks,
     enhancedContext,
   } = input;
+
+  // Get episode configuration for section filtering
+  const episodeConfig = getEpisodeConfigForType(episodeType, week, season);
+  const excludeSections = new Set(episodeConfig.excludeSections || []);
+  const isSpecialEpisode = episodeType !== 'regular';
 
   const pairs = derived.matchup_pairs || [];
   const events = derived.events_scored || [];
@@ -478,52 +731,63 @@ export async function composeNewsletter(input: ComposeNewsletterInput): Promise<
   }
 
   // Build all sections using LLM (run in parallel where possible)
+  // Pass episode type and season to buildIntro for special episode handling
   const [intro, waiverItems, tradeItems, spotlight, finalWord, recaps] = await Promise.all([
-    buildIntro(week, pairs, events, memEntertainer, memAnalyst, fullEnhancedContext),
-    buildWaiverItems(events),
-    buildTradeItems(events),
-    buildSpotlight(pairs, memEntertainer, memAnalyst, fullEnhancedContext),
-    buildFinalWord(week),
-    buildRecaps(pairs, memEntertainer, memAnalyst, week, fullEnhancedContext),
+    buildIntro(week, pairs, events, memEntertainer, memAnalyst, fullEnhancedContext, episodeType, season),
+    excludeSections.has('WaiversAndFA') ? Promise.resolve([]) : buildWaiverItems(events),
+    excludeSections.has('Trades') ? Promise.resolve([]) : buildTradeItems(events),
+    excludeSections.has('SpotlightTeam') ? Promise.resolve(null) : buildSpotlight(pairs, memEntertainer, memAnalyst, fullEnhancedContext),
+    buildFinalWord(week, episodeType),
+    excludeSections.has('MatchupRecaps') ? Promise.resolve([]) : buildRecaps(pairs, memEntertainer, memAnalyst, week, fullEnhancedContext),
   ]);
 
   console.log(`[Compose] All sections generated via LLM`);
+  console.log(`[Compose] Episode type: ${episodeType}, excluding sections: ${Array.from(excludeSections).join(', ') || 'none'}`);
 
-  // Assemble sections array
+  // Assemble sections array, respecting episode-specific exclusions
   const sections: NewsletterSection[] = [
     { type: 'Intro', data: intro },
   ];
 
-  if (lastCallbacks) {
+  if (lastCallbacks && !excludeSections.has('Callbacks')) {
     sections.push({ type: 'Callbacks', data: lastCallbacks });
   }
 
-  sections.push({ type: 'MatchupRecaps', data: recaps });
+  if (!excludeSections.has('MatchupRecaps') && recaps.length > 0) {
+    sections.push({ type: 'MatchupRecaps', data: recaps });
+  }
 
-  if (waiverItems.length > 0) {
+  if (waiverItems.length > 0 && !excludeSections.has('WaiversAndFA')) {
     sections.push({ type: 'WaiversAndFA', data: waiverItems });
   }
 
-  if (tradeItems.length > 0) {
+  if (tradeItems.length > 0 && !excludeSections.has('Trades')) {
     sections.push({ type: 'Trades', data: tradeItems });
   }
 
-  if (spotlight) {
+  if (spotlight && !excludeSections.has('SpotlightTeam')) {
     sections.push({ type: 'SpotlightTeam', data: spotlight });
   }
 
-  if (forecast) {
+  if (forecast && !excludeSections.has('Forecast')) {
     sections.push({ type: 'Forecast', data: forecast });
   }
 
   sections.push({ type: 'FinalWord', data: finalWord });
 
+  // Build episode title based on type
+  const episodeTitle = isSpecialEpisode ? episodeConfig.title : undefined;
+  const episodeSubtitle = isSpecialEpisode ? episodeConfig.subtitle : undefined;
+
   return {
     meta: {
       leagueName,
-      week,
+      week: isSpecialEpisode && ['pre_draft', 'post_draft', 'preseason', 'offseason'].includes(episodeType) ? 0 : week,
       date: new Date().toLocaleDateString(),
       season,
+      episodeType: episodeType as import('./types').EpisodeType,
+      episodeTitle,
+      episodeSubtitle,
     },
     sections,
     _forCallbacks: { tradeItems, spotlight },

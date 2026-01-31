@@ -115,6 +115,7 @@ export async function generateNewsletter(
     leagueName,
     season,
     week,
+    episodeType = 'regular',
     users,
     rosters,
     matchups,
@@ -183,6 +184,7 @@ export async function generateNewsletter(
     leagueName,
     week,
     season,
+    episodeType, // Pass episode type for special newsletters
     derived,
     memEntertainer,
     memAnalyst,

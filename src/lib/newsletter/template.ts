@@ -291,14 +291,32 @@ function sectionFinal(d: FinalWordSection): string {
 export function renderHtml(newsletter: Newsletter): string {
   const { meta, sections } = newsletter;
   const week = meta.week;
-  const isChampionship = week >= 17;
+  const episodeType = meta.episodeType || 'regular';
+  const isSpecialEpisode = episodeType !== 'regular';
+  const isChampionship = week >= 17 || episodeType === 'championship';
   const isSemifinal = week === 16;
-  const isPlayoffs = week >= 15;
+  const isPlayoffs = week >= 15 || episodeType === 'playoffs_round' || episodeType === 'playoffs_preview';
 
+  // Determine header styling based on episode type
   let headerBg = 'linear-gradient(135deg, #0f172a, #1e293b)';
   let headerAccent = '';
   
-  if (isChampionship) {
+  if (episodeType === 'preseason') {
+    headerBg = 'linear-gradient(135deg, #059669, #047857)';
+    headerAccent = '🌟 ';
+  } else if (episodeType === 'pre_draft') {
+    headerBg = 'linear-gradient(135deg, #7c3aed, #5b21b6)';
+    headerAccent = '📋 ';
+  } else if (episodeType === 'post_draft') {
+    headerBg = 'linear-gradient(135deg, #2563eb, #1d4ed8)';
+    headerAccent = '📊 ';
+  } else if (episodeType === 'trade_deadline') {
+    headerBg = 'linear-gradient(135deg, #dc2626, #b91c1c)';
+    headerAccent = '🔔 ';
+  } else if (episodeType === 'offseason') {
+    headerBg = 'linear-gradient(135deg, #6b7280, #4b5563)';
+    headerAccent = '💤 ';
+  } else if (isChampionship) {
     headerBg = 'linear-gradient(135deg, #92400e, #b45309)';
     headerAccent = '🏆 ';
   } else if (isSemifinal) {
@@ -309,11 +327,28 @@ export function renderHtml(newsletter: Newsletter): string {
     headerAccent = '🏈 ';
   }
 
+  // Build subtitle based on episode type
+  let subtitle = '';
+  if (isSpecialEpisode && meta.episodeTitle) {
+    subtitle = meta.episodeSubtitle || '';
+  } else if (isChampionship) {
+    subtitle = '— Championship Edition';
+  } else if (isPlayoffs) {
+    subtitle = '— Playoffs';
+  } else if (week > 0) {
+    subtitle = '';
+  }
+
+  // Build main title
+  const mainTitle = isSpecialEpisode && meta.episodeTitle 
+    ? meta.episodeTitle 
+    : (week > 0 ? `Week ${week}` : 'Newsletter');
+
   const header = `
   <header style="background:${headerBg};color:#fff;border-radius:16px;padding:32px;margin-bottom:32px;">
     <div style="font-size:12px;opacity:.8;letter-spacing:1px;text-transform:uppercase;margin-bottom:8px;">${esc(meta.date)}</div>
     <h1 style="margin:0 0 8px;font-size:32px;line-height:1.2;font-weight:800;">${headerAccent}${esc(meta.leagueName)}</h1>
-    <div style="font-size:18px;opacity:.9;">Week ${esc(meta.week)} ${isChampionship ? '— Championship Edition' : isPlayoffs ? '— Playoffs' : ''}</div>
+    <div style="font-size:18px;opacity:.9;">${esc(mainTitle)}${subtitle ? ` ${esc(subtitle)}` : ''}</div>
   </header>`;
 
   const body = sections.map(s => {
@@ -335,7 +370,7 @@ export function renderHtml(newsletter: Newsletter): string {
 <html lang="en"><head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>${esc(meta.leagueName)} — Week ${esc(meta.week)} Newsletter</title>
+<title>${esc(meta.leagueName)} — ${isSpecialEpisode && meta.episodeTitle ? esc(meta.episodeTitle) : `Week ${esc(String(meta.week))}`} Newsletter</title>
 <style>
   * { box-sizing: border-box; }
   body { margin: 0; padding: 0; background: #f8fafc; font-family: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif; color: #1f2937; line-height: 1.6; }

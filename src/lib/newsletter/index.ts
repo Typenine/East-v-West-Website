@@ -99,4 +99,8 @@ export {
   initializeSeasonMemory,
   validateWeek,
   generateEpisodeTitle,
+  getEpisodeWindows,
+  suggestEpisodeType,
+  getUpcomingEpisodes,
+  type EpisodeWindow,
 } from './episodes';

@@ -4,6 +4,7 @@
  */
 
 import type { EpisodeType, EpisodeConfig } from './types';
+import { IMPORTANT_DATES } from '@/lib/constants/league';
 
 // ============ League Calendar Constants ============
 
@@ -16,6 +17,115 @@ export const LEAGUE_CALENDAR = {
   CHAMPIONSHIP_WEEK: 17,
   TOTAL_WEEKS: 17,
 } as const;
+
+// ============ Episode Timing ============
+
+/**
+ * Episode timing windows - when each special episode should be generated
+ * All dates are relative to key events in the league calendar
+ */
+export interface EpisodeWindow {
+  type: EpisodeType;
+  name: string;
+  description: string;
+  /** Function to check if we're in this episode's window */
+  isActive: (now: Date, season: number) => boolean;
+  /** Suggested generation date */
+  suggestedDate?: (season: number) => Date;
+}
+
+/**
+ * Get the episode windows for a given season
+ */
+export function getEpisodeWindows(season: number): EpisodeWindow[] {
+  // Calculate dates based on IMPORTANT_DATES
+  const draftDate = IMPORTANT_DATES.NEXT_DRAFT;
+  const week1Start = IMPORTANT_DATES.NFL_WEEK_1_START;
+  
+  // Pre-draft: 1 week before draft
+  const preDraftStart = new Date(draftDate);
+  preDraftStart.setDate(preDraftStart.getDate() - 7);
+  
+  // Post-draft: 1 day after draft to 1 week after
+  const postDraftStart = new Date(draftDate);
+  postDraftStart.setDate(postDraftStart.getDate() + 1);
+  const postDraftEnd = new Date(draftDate);
+  postDraftEnd.setDate(postDraftEnd.getDate() + 7);
+  
+  // Preseason: 1 week before Week 1
+  const preseasonStart = new Date(week1Start);
+  preseasonStart.setDate(preseasonStart.getDate() - 7);
+  
+  return [
+    {
+      type: 'pre_draft',
+      name: 'Pre-Draft Preview',
+      description: 'Rookie draft preview - 1 week before the draft',
+      isActive: (now) => now >= preDraftStart && now < draftDate,
+      suggestedDate: () => preDraftStart,
+    },
+    {
+      type: 'post_draft',
+      name: 'Post-Draft Grades',
+      description: 'Draft grades and analysis - 1 week after the draft',
+      isActive: (now) => now >= postDraftStart && now < postDraftEnd,
+      suggestedDate: () => postDraftStart,
+    },
+    {
+      type: 'preseason',
+      name: 'Preseason Preview',
+      description: 'Season preview - 1 week before Week 1',
+      isActive: (now) => now >= preseasonStart && now < week1Start,
+      suggestedDate: () => preseasonStart,
+    },
+    {
+      type: 'offseason',
+      name: 'Offseason Update',
+      description: 'General offseason news and updates',
+      isActive: (now) => {
+        // Offseason is after championship and before preseason
+        const championshipEnd = new Date(week1Start);
+        championshipEnd.setFullYear(championshipEnd.getFullYear() - 1);
+        championshipEnd.setMonth(11); // December
+        championshipEnd.setDate(25); // Approx end of fantasy season
+        return now > championshipEnd && now < preDraftStart;
+      },
+      suggestedDate: () => new Date(), // Anytime during offseason
+    },
+  ];
+}
+
+/**
+ * Suggests the appropriate episode type based on current date
+ */
+export function suggestEpisodeType(now: Date = new Date(), season: number): EpisodeType | null {
+  const windows = getEpisodeWindows(season);
+  
+  for (const window of windows) {
+    if (window.isActive(now, season)) {
+      return window.type;
+    }
+  }
+  
+  return null; // No special episode suggested - use regular weekly
+}
+
+/**
+ * Get upcoming special episodes with their suggested dates
+ */
+export function getUpcomingEpisodes(season: number): Array<{ type: EpisodeType; name: string; suggestedDate: Date }> {
+  const windows = getEpisodeWindows(season);
+  const now = new Date();
+  
+  return windows
+    .filter(w => w.suggestedDate && w.suggestedDate(season) > now)
+    .map(w => ({
+      type: w.type,
+      name: w.name,
+      suggestedDate: w.suggestedDate!(season),
+    }))
+    .sort((a, b) => a.suggestedDate.getTime() - b.suggestedDate.getTime());
+}
 
 // ============ Episode Detection ============
 
