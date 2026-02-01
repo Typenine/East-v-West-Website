@@ -8,24 +8,58 @@
 
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
-import { dirname, resolve as pathResolve } from 'node:path';
+import { dirname, resolve as pathResolve, join } from 'node:path';
+import { mkdir, writeFile } from 'node:fs/promises';
 
 // Utilities
 function parseArgs(argv) {
   const args = new Map();
   for (let i = 2; i < argv.length; i++) {
     const a = argv[i];
-    if (a.startsWith('--')) {
-      const [k, v] = a.includes('=') ? a.slice(2).split('=') : [a.slice(2), 'true'];
-      args.set(k, v);
+    if (!a.startsWith('--')) continue;
+    let key;
+    let val;
+    const sliced = a.slice(2);
+    if (sliced.includes('=')) {
+      const idx = sliced.indexOf('=');
+      key = sliced.slice(0, idx);
+      val = sliced.slice(idx + 1);
+    } else {
+      key = sliced;
+      const next = argv[i + 1];
+      if (next && !next.startsWith('--')) {
+        val = next;
+        i++;
+      } else {
+        val = 'true';
+      }
     }
+    args.set(key, val);
   }
+  const asString = (k) => {
+    const v = args.get(k);
+    if (v === undefined || v === null || v === '') return null;
+    return String(v);
+  };
+  const asNumber = (k) => {
+    const v = asString(k);
+    if (v === null) return null;
+    const n = parseInt(v, 10);
+    return Number.isFinite(n) ? n : null;
+  };
+  const asBool = (k) => {
+    if (!args.has(k)) return false;
+    const raw = String(args.get(k)).toLowerCase();
+    if (raw === 'true' || raw === '1' || raw === 'yes') return true;
+    if (raw === 'false' || raw === '0' || raw === 'no' || raw === '') return false;
+    return true;
+  };
   return {
-    season: args.get('season') || null,
-    week: args.get('week') ? parseInt(args.get('week'), 10) : null,
-    episodeType: args.get('episodeType') || null,
-    force: args.get('force') === 'true' || args.has('force'),
-    preview: args.get('preview') === 'true' || args.has('preview'),
+    season: asString('season'),
+    week: asNumber('week'),
+    episodeType: asString('episodeType') || asString('episode_type') || null,
+    force: asBool('force'),
+    preview: asBool('preview'),
   };
 }
 
@@ -173,30 +207,52 @@ async function main() {
   const args = parseArgs(process.argv);
   const now = new Date();
 
-  console.log(`[Runner] Args:`, args);
-
-  const target = await resolveNewsletterRunTarget({
-    now,
+  console.log(`[Runner] Inputs resolved:`, {
+    season: args.season,
+    week: args.week,
+    episodeType: args.episodeType,
+    preview: args.preview,
     force: args.force,
-    seasonArg: args.season,
-    weekArg: args.week,
-    episodeTypeArg: args.episodeType,
   });
 
-  if (!target) {
-    console.log('[Runner] Outside of scheduling window. Exiting 0.');
-    process.exit(0);
+  let target;
+  if (args.preview) {
+    const state = await getSleeperState();
+    const season = args.season ? parseInt(args.season, 10) : parseInt(state.season, 10);
+    const episodeType = args.episodeType || 'regular';
+    let week = (args.week !== null && Number.isFinite(args.week)) ? args.week : (parseInt(state.week, 10) || 1);
+    let storageWeek = week;
+    if (episodeType === 'preseason' || episodeType === 'pre_draft' || episodeType === 'post_draft') {
+      week = args.week ?? 0;
+      storageWeek = EPISODE_WEEK_STORAGE[episodeType] ?? 900;
+    }
+    target = { season, week, episodeType, storageWeek, reason: 'preview override' };
+  } else {
+    target = await resolveNewsletterRunTarget({
+      now,
+      force: args.force,
+      seasonArg: args.season,
+      weekArg: args.week,
+      episodeTypeArg: args.episodeType,
+    });
+
+    if (!target) {
+      console.log('[Runner] Outside of scheduling window. Exiting 0.');
+      process.exit(0);
+    }
   }
 
   console.log(`[Runner] Target resolved: season=${target.season}, week=${target.week}, episodeType=${target.episodeType}, storageWeek=${target.storageWeek} (${target.reason})`);
 
   const { loadNewsletter, saveNewsletter, loadBotMemory, saveBotMemory, loadForecastRecords, saveForecastRecords, loadPendingPicks, savePendingPicks, loadPreviousNewsletter, extractPredictionsFromNewsletter } = await importDb();
 
-  // Idempotency check
-  const existing = await loadNewsletter(target.season, target.storageWeek);
-  if (existing) {
-    console.log('[Runner] Newsletter already exists for target. Exiting 0.');
-    process.exit(0);
+  // Idempotency check (skip for preview)
+  if (!args.preview) {
+    const existing = await loadNewsletter(target.season, target.storageWeek);
+    if (existing) {
+      console.log('[Runner] Newsletter already exists for target. Exiting 0.');
+      process.exit(0);
+    }
   }
 
   const { getLeagueIdForSeason, fetchComprehensiveLeagueData, buildComprehensiveContextString, fetchCurrentWeekContext, buildCurrentStandingsContext, buildTransactionsContext, getLeagueRulesContext, fetchAllExternalData, buildExternalDataContext, generateNewsletter } = await importNewsletter();
@@ -313,22 +369,30 @@ async function main() {
     previousPredictions,
   });
 
-  // Strict publish gating
-  if (strictFailIfDegraded(result)) {
+  // Strict publish gating (only for non-preview)
+  if (!args.preview && strictFailIfDegraded(result)) {
     console.error('[Runner] Strict publish gating failed (composeFailed or fallbackUsed). No writes. Exiting non-zero.');
     process.exit(3);
   }
 
   if (args.preview) {
     console.log('[Runner] PREVIEW MODE: not persisting memory or newsletter.');
-    console.log(JSON.stringify({
-      meta: result.newsletter.meta,
-      stats: {
-        sections: result.newsletter.sections.length,
-        fallbackUsed: result.fallbackUsed,
-        fallbackSections: result.fallbackSections || [],
-      },
-    }, null, 2));
+    const artifactsDir = pathResolve(projectRoot, 'artifacts');
+    await mkdir(artifactsDir, { recursive: true });
+    const htmlPath = join(artifactsDir, 'newsletter-preview.html');
+    const metaPath = join(artifactsDir, 'newsletter-preview.json');
+    await writeFile(htmlPath, result.html || '', 'utf8');
+    const meta = {
+      season: target.season,
+      week: target.week,
+      episodeType: target.episodeType || 'regular',
+      timestamp: new Date().toISOString(),
+    };
+    await writeFile(metaPath, JSON.stringify(meta, null, 2), 'utf8');
+    console.log(`[Runner] Wrote preview artifacts:`);
+    console.log(` - ${htmlPath}`);
+    console.log(` - ${metaPath}`);
+    console.log(`Download artifact → open newsletter-preview.html`);
     process.exit(0);
   }
 

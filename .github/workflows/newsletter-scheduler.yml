@@ -68,3 +68,12 @@ jobs:
           ${{ github.event.inputs.episodeType && format('--episodeType {0}', github.event.inputs.episodeType) || '' }}
           ${{ github.event.inputs.force == 'true' && '--force' || '' }}
           ${{ github.event.inputs.preview == 'true' && '--preview' || '' }}
+
+      - name: Upload preview artifact
+        if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.preview == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: newsletter-preview-${{ github.run_id }}-s${{ github.event.inputs.season || 'auto' }}-w${{ github.event.inputs.week || 'auto' }}-e${{ github.event.inputs.episodeType || 'regular' }}
+          path: artifacts/*
+          if-no-files-found: warn
+          retention-days: 7
