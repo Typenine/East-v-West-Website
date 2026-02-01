@@ -149,7 +149,7 @@ export default function AdminNewsletterPage() {
       const week = needsWeek ? (parseInt(weekInput, 10) || currentWeek) : 0;
       const res = await fetch('/api/newsletter', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
         credentials: 'include', // Include cookies for admin auth
         body: JSON.stringify({
           week,
@@ -160,7 +160,24 @@ export default function AdminNewsletterPage() {
         }),
       });
 
-      const data = await res.json();
+      const ct = res.headers.get('content-type') || '';
+      type ErrorResult = { success: false; error: string; details?: string; [k: string]: unknown };
+      let data: GenerationResult | ErrorResult;
+      if (ct.includes('application/json')) {
+        try {
+          data = await res.json();
+        } catch {
+          const txt = await res.text().catch(() => '');
+          data = { success: false, error: 'Invalid JSON response from server', details: txt.slice(0, 2000) };
+        }
+      } else {
+        const txt = await res.text().catch(() => '');
+        data = { success: false, error: `Server returned ${res.status}`, details: txt.slice(0, 2000) };
+      }
+      if (!res.ok && data && typeof data === 'object') {
+        data.success = false;
+        if (!data.error) data.error = `HTTP ${res.status}`;
+      }
       setProgress({ percent: 100, stage: '✅ Complete!', elapsed: Math.floor((Date.now() - startTime) / 1000) });
       setResult(data);
     } catch (err) {

@@ -43,6 +43,9 @@ import {
 import { getHeadToHeadAllTime } from '@/lib/utils/headtohead';
 import { fetchTradesAllTime } from '@/lib/utils/trades';
 
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+
 // ============ Sleeper API Helpers ============
 
 const SLEEPER_API = 'https://api.sleeper.app/v1';

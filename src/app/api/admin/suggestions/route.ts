@@ -45,6 +45,13 @@ export async function PUT(req: NextRequest) {
   } else if (sponsorRaw === null) {
     sponsorTeam = null;
   }
+  // Parse proposer before early-exit so proposer-only updates work
+  if (typeof proposerRaw === 'string') {
+    const val = proposerRaw.trim();
+    proposerTeam = val ? canonicalizeTeamName(val) : null;
+  } else if (proposerRaw === null) {
+    proposerTeam = null;
+  }
   if (!id) return Response.json({ error: 'id required' }, { status: 400 });
   if (!status && sponsorTeam === undefined && proposerTeam === undefined && vague === undefined && voteTag === undefined) {
     return Response.json({ error: 'nothing to update' }, { status: 400 });
@@ -60,12 +67,6 @@ export async function PUT(req: NextRequest) {
     }
     if (sponsorTeam !== undefined) {
       await setSuggestionSponsor(id, sponsorTeam);
-    }
-    if (typeof proposerRaw === 'string') {
-      const val = proposerRaw.trim();
-      proposerTeam = val ? canonicalizeTeamName(val) : null;
-    } else if (proposerRaw === null) {
-      proposerTeam = null;
     }
     if (proposerTeam !== undefined) {
       await setSuggestionProposer(id, proposerTeam);
