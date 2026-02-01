@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Component, ReactNode } from 'react';
 import Link from 'next/link';
 import SectionHeader from '@/components/ui/SectionHeader';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
@@ -29,8 +29,48 @@ interface GenerationResult {
   };
 }
 
-export default function AdminNewsletterPage() {
+// Detect if running on Vercel (production deployment)
+const IS_VERCEL = typeof window !== 'undefined' && (
+  window.location.hostname.includes('vercel.app') ||
+  window.location.hostname === 'eastvswest.football' ||
+  window.location.hostname.endsWith('.eastvswest.football')
+);
+
+// Error boundary to prevent crashes from taking down the page
+class NewsletterErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean; error: Error | null }> {
+  constructor(props: { children: ReactNode }) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, error };
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <Card>
+          <CardContent className="py-8">
+            <div className="text-center">
+              <div className="text-red-400 font-medium mb-2">⚠️ Component Error</div>
+              <p className="text-[var(--muted)] text-sm mb-4">
+                Something went wrong in the newsletter panel. The page is still usable.
+              </p>
+              <p className="text-xs font-mono text-red-300 mb-4">{this.state.error?.message}</p>
+              <Button onClick={() => this.setState({ hasError: false, error: null })} variant="secondary">
+                Try Again
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+function AdminNewsletterPageInner() {
   const [isAdmin, setIsAdmin] = useState(false);
+  const [adminChecked, setAdminChecked] = useState(false); // Track if we've checked admin status
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
   const [progress, setProgress] = useState<{ percent: number; stage: string; elapsed: number } | null>(null);
@@ -50,14 +90,17 @@ export default function AdminNewsletterPage() {
   const weeklessEpisodes = ['pre_draft', 'post_draft', 'preseason', 'offseason'];
   const needsWeek = !weeklessEpisodes.includes(episodeType);
 
-  // Check admin status
+  // Check admin status - single call, no retry loop
   useEffect(() => {
-    fetch('/api/admin-login')
-      .then(r => r.json())
+    if (adminChecked) return; // Don't retry
+    const controller = new AbortController();
+    fetch('/api/admin-login', { signal: controller.signal })
+      .then(r => r.ok ? r.json() : Promise.reject(new Error(`${r.status}`)))
       .then(j => setIsAdmin(Boolean(j?.isAdmin)))
       .catch(() => setIsAdmin(false))
-      .finally(() => setLoading(false));
-  }, []);
+      .finally(() => { setAdminChecked(true); setLoading(false); });
+    return () => controller.abort();
+  }, [adminChecked]);
 
   // Fetch current NFL state and last published newsletter
   useEffect(() => {
@@ -320,13 +363,45 @@ export default function AdminNewsletterPage() {
                 </div>
               )}
 
+              {/* Block generation on Vercel - it will timeout */}
+              {IS_VERCEL && (
+                <div className="p-3 bg-red-900/30 border border-red-600 rounded text-sm space-y-2">
+                  <div className="font-medium text-red-400">🚫 Generation Disabled on Deployed Site</div>
+                  <p className="text-red-300">
+                    Newsletter generation takes ~3 minutes and exceeds Vercel&apos;s serverless timeout.
+                    Use one of these methods instead:
+                  </p>
+                  <div className="space-y-1 text-xs">
+                    <div><strong>GitHub Actions (recommended):</strong></div>
+                    <a 
+                      href="https://github.com/Typenine/East-v-West-Website/actions/workflows/newsletter-scheduler.yml"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="block text-blue-400 hover:underline"
+                    >
+                      → Open Newsletter Scheduler workflow
+                    </a>
+                    <div className="text-[var(--muted)] mt-1">
+                      Click &quot;Run workflow&quot; → set episode_type, week, preview=true
+                    </div>
+                  </div>
+                  <div className="space-y-1 text-xs mt-2">
+                    <div><strong>Local CLI:</strong></div>
+                    <code className="block bg-black/30 px-2 py-1 rounded text-green-300">
+                      node scripts/run-newsletter.mjs --preview --episode {episodeType} --week {weekInput}
+                    </code>
+                  </div>
+                </div>
+              )}
+
               <div className="flex gap-2">
                 <Button
                   onClick={handleGenerate}
-                  disabled={generating}
+                  disabled={generating || IS_VERCEL}
                   variant={previewMode ? 'secondary' : 'primary'}
+                  title={IS_VERCEL ? 'Generation disabled on deployed site - use GitHub Actions' : undefined}
                 >
-                  {generating ? 'Generating...' : previewMode ? '👁️ Preview Newsletter' : '📰 Publish Newsletter'}
+                  {generating ? 'Generating...' : IS_VERCEL ? '🚫 Disabled (use GH Actions)' : previewMode ? '👁️ Preview Newsletter' : '📰 Publish Newsletter'}
                 </Button>
                 <Button
                   onClick={async () => {
@@ -538,5 +613,14 @@ export default function AdminNewsletterPage() {
         </Card>
       </div>
     </div>
+  );
+}
+
+// Wrap with error boundary for resilience
+export default function AdminNewsletterPage() {
+  return (
+    <NewsletterErrorBoundary>
+      <AdminNewsletterPageInner />
+    </NewsletterErrorBoundary>
   );
 }
