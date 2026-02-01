@@ -25,16 +25,37 @@ export async function loadBotMemory(
   season: number
 ): Promise<BotMemory | null> {
   const db = getDb();
-  const rows = await db
-    .select()
-    .from(botMemory)
-    .where(and(eq(botMemory.bot, bot), eq(botMemory.season, season)))
-    .limit(1);
+  let row: {
+    updatedAt: Date;
+    summaryMood: unknown;
+    teams: unknown;
+    enhancedData?: unknown;
+  } | null = null;
+  try {
+    const rows = await db
+      .select()
+      .from(botMemory)
+      .where(and(eq(botMemory.bot, bot), eq(botMemory.season, season)))
+      .limit(1);
+    row = rows.length ? rows[0] : null;
+  } catch (err) {
+    const anyErr = err as { code?: string; message?: string } | undefined;
+    const msg = anyErr?.message ?? '';
+    const code = anyErr?.code ?? '';
+    const missingEnhanced = code === '42703' || msg.toLowerCase().includes('enhanced_data');
+    if (!missingEnhanced) throw err;
+    // Backward-compat: select only legacy columns (no enhanced_data)
+    const rows = await db
+      .select({ updatedAt: botMemory.updatedAt, summaryMood: botMemory.summaryMood, teams: botMemory.teams })
+      .from(botMemory)
+      .where(and(eq(botMemory.bot, bot), eq(botMemory.season, season)))
+      .limit(1);
+    row = rows.length ? rows[0] : null;
+  }
 
-  if (!rows.length) return null;
+  if (!row) return null;
 
-  const row = rows[0];
-  const enhancedData = (row.enhancedData || {}) as Record<string, unknown>;
+  const enhancedData = (row.enhancedData as Record<string, unknown> | undefined) || {};
   
   // Check if we have enhanced memory data
   const hasEnhancedData = Object.keys(enhancedData).length > 0;
@@ -131,24 +152,56 @@ export async function saveBotMemory(
 
   if (existing.length) {
     // Update
-    await db
-      .update(botMemory)
-      .set({
+    try {
+      await db
+        .update(botMemory)
+        .set({
+          summaryMood: dbSummaryMood,
+          teams: memory.teams,
+          enhancedData: enhancedData,
+          updatedAt: new Date(),
+        })
+        .where(eq(botMemory.id, existing[0].id));
+    } catch (err) {
+      const anyErr = err as { code?: string; message?: string } | undefined;
+      const msg = anyErr?.message ?? '';
+      const code = anyErr?.code ?? '';
+      const missingEnhanced = code === '42703' || msg.toLowerCase().includes('enhanced_data');
+      if (!missingEnhanced) throw err;
+      // Retry without enhancedData for legacy schema
+      await db
+        .update(botMemory)
+        .set({
+          summaryMood: dbSummaryMood,
+          teams: memory.teams,
+          updatedAt: new Date(),
+        })
+        .where(eq(botMemory.id, existing[0].id));
+    }
+  } else {
+    // Insert
+    try {
+      await db.insert(botMemory).values({
+        bot,
+        season,
         summaryMood: dbSummaryMood,
         teams: memory.teams,
         enhancedData: enhancedData,
-        updatedAt: new Date(),
-      })
-      .where(eq(botMemory.id, existing[0].id));
-  } else {
-    // Insert
-    await db.insert(botMemory).values({
-      bot,
-      season,
-      summaryMood: dbSummaryMood,
-      teams: memory.teams,
-      enhancedData: enhancedData,
-    });
+      });
+    } catch (err) {
+      const anyErr = err as { code?: string; message?: string } | undefined;
+      const msg = anyErr?.message ?? '';
+      const code = anyErr?.code ?? '';
+      const missingEnhanced = code === '42703' || msg.toLowerCase().includes('enhanced_data');
+      if (!missingEnhanced) throw err;
+      // Retry without enhancedData for legacy schema
+      await db.insert(botMemory).values({
+        bot,
+        season,
+        summaryMood: dbSummaryMood,
+        teams: memory.teams,
+      });
+    }
   }
 }
 
