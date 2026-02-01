@@ -166,14 +166,18 @@ export const summaryMoodEnum = pgEnum('summary_mood', ['Focused', 'Fired Up', 'D
 export const teamMoodEnum = pgEnum('team_mood', ['Neutral', 'Confident', 'Suspicious', 'Irritated']);
 
 // Bot memory - stores overall bot state and per-team sentiment
+// Now includes enhanced memory fields for personality evolution
 export const botMemory = pgTable('bot_memory', {
   id: uuid('id').primaryKey().defaultRandom(),
   bot: botNameEnum('bot').notNull(),
   season: integer('season').notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
   summaryMood: summaryMoodEnum('summary_mood').default('Focused').notNull(),
-  // Per-team memory stored as JSONB: { "Team Name": { trust: number, frustration: number, mood: string } }
+  // Per-team memory stored as JSONB: { "Team Name": { trust: number, frustration: number, mood: string, ... } }
   teams: jsonb('teams').$type<Record<string, { trust: number; frustration: number; mood: string }>>().default({}).notNull(),
+  // Enhanced memory fields stored as JSONB for personality evolution
+  // Includes: personality traits, emotional state, speech patterns, partner dynamics, predictions, hot takes, narratives
+  enhancedData: jsonb('enhanced_data').$type<Record<string, unknown>>().default({}).notNull(),
 }, (t) => ({
   botSeasonIdx: index('bot_memory_bot_season_idx').on(t.bot, t.season),
 }));

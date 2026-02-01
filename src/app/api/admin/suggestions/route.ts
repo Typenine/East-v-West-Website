@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server';
-import { updateSuggestionStatus, deleteSuggestion, setSuggestionSponsor, setSuggestionVague, setSuggestionVoteTag } from '@/server/db/queries';
+import { updateSuggestionStatus, deleteSuggestion, setSuggestionSponsor, setSuggestionVague, setSuggestionVoteTag, setSuggestionProposer } from '@/server/db/queries';
 import { canonicalizeTeamName } from '@/lib/server/user-identity';
 
 export const runtime = 'nodejs';
@@ -25,6 +25,8 @@ export async function PUT(req: NextRequest) {
   const status = body?.status as 'draft' | 'open' | 'accepted' | 'rejected' | undefined;
   const sponsorRaw = body?.sponsorTeam;
   let sponsorTeam: string | null | undefined = undefined;
+  const proposerRaw = body?.proposerTeam;
+  let proposerTeam: string | null | undefined = undefined;
   const vagueRaw = body?.vague;
   const vague: boolean | undefined = typeof vagueRaw === 'boolean' ? vagueRaw : undefined;
   const voteTagRaw = body?.voteTag;
@@ -44,7 +46,7 @@ export async function PUT(req: NextRequest) {
     sponsorTeam = null;
   }
   if (!id) return Response.json({ error: 'id required' }, { status: 400 });
-  if (!status && sponsorTeam === undefined && vague === undefined && voteTag === undefined) {
+  if (!status && sponsorTeam === undefined && proposerTeam === undefined && vague === undefined && voteTag === undefined) {
     return Response.json({ error: 'nothing to update' }, { status: 400 });
   }
   try {
@@ -59,13 +61,22 @@ export async function PUT(req: NextRequest) {
     if (sponsorTeam !== undefined) {
       await setSuggestionSponsor(id, sponsorTeam);
     }
+    if (typeof proposerRaw === 'string') {
+      const val = proposerRaw.trim();
+      proposerTeam = val ? canonicalizeTeamName(val) : null;
+    } else if (proposerRaw === null) {
+      proposerTeam = null;
+    }
+    if (proposerTeam !== undefined) {
+      await setSuggestionProposer(id, proposerTeam);
+    }
     if (vague !== undefined) {
       await setSuggestionVague(id, vague);
     }
     if (voteTag !== undefined) {
       await setSuggestionVoteTag(id, voteTag);
     }
-    return Response.json({ ok: true, id, status, resolvedAt: resolvedAt ?? null, sponsorTeam: sponsorTeam ?? undefined, vague, voteTag });
+    return Response.json({ ok: true, id, status, resolvedAt: resolvedAt ?? null, sponsorTeam: sponsorTeam ?? undefined, proposerTeam: proposerTeam ?? undefined, vague, voteTag });
   } catch {
     return Response.json({ error: 'update failed' }, { status: 500 });
   }

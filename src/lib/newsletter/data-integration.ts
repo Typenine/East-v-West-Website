@@ -863,3 +863,351 @@ export function buildPlayerGameLogsContext(
   
   return lines.join('\n');
 }
+
+// ============ EXTERNAL API INTEGRATION ============
+// Free APIs for enhanced knowledge: ESPN, Sleeper trending, etc.
+
+export interface ExternalNewsItem {
+  source: string;
+  headline: string;
+  playerName?: string;
+  nflTeam?: string;
+  category: 'injury' | 'news' | 'transaction' | 'projection' | 'analysis';
+  timestamp?: string;
+  url?: string;
+}
+
+export interface ExternalInjuryReport {
+  playerName: string;
+  nflTeam: string;
+  position: string;
+  status: string; // 'Out', 'Doubtful', 'Questionable', 'Probable', 'IR'
+  injury: string;
+  lastUpdate?: string;
+}
+
+export interface ExternalProjection {
+  playerName: string;
+  position: string;
+  nflTeam: string;
+  projectedPoints: number;
+  rank: number;
+  notes?: string;
+}
+
+export interface TrendingPlayer {
+  playerId: string;
+  playerName: string;
+  position: string;
+  nflTeam: string;
+  addCount: number;
+  dropCount: number;
+  trend: 'rising' | 'falling' | 'stable';
+}
+
+export interface ExternalDataBundle {
+  news: ExternalNewsItem[];
+  injuries: ExternalInjuryReport[];
+  projections: ExternalProjection[];
+  trending: TrendingPlayer[];
+  fetchedAt: string;
+}
+
+// ============ Simple TTL Cache (in-memory) ============
+
+const __ttlCache = new Map<string, { expires: number; value: unknown }>();
+
+function makeCacheKey(parts: Array<string | number | boolean | undefined | null>): string {
+  return parts.map((p) => (p === undefined || p === null ? '' : String(p))).join('|');
+}
+
+async function withTTL<T>(key: string, ttlMs: number, fn: () => Promise<T>): Promise<T> {
+  const now = Date.now();
+  const hit = __ttlCache.get(key);
+  if (hit && hit.expires > now) return hit.value as T;
+  const val = await fn();
+  __ttlCache.set(key, { expires: now + ttlMs, value: val });
+  return val;
+}
+
+/**
+ * Fetch trending players from Sleeper (free, no auth required)
+ * This shows who's being added/dropped across all Sleeper leagues
+ */
+export async function fetchSleeperTrending(sport: string = 'nfl', type: 'add' | 'drop' = 'add', lookbackHours: number = 24): Promise<TrendingPlayer[]> {
+  try {
+    const key = makeCacheKey(['sleeper-trending', sport, type, lookbackHours]);
+    return await withTTL<TrendingPlayer[]>(key, 60 * 60 * 1000, async () => {
+      const url = `https://api.sleeper.app/v1/players/${sport}/trending/${type}?lookback_hours=${lookbackHours}&limit=25`;
+      const res = await fetch(url, { next: { revalidate: 3600 } }); // Cache for 1 hour
+      if (!res.ok) throw new Error(`Sleeper trending API error: ${res.status}`);
+      const data = await res.json() as Array<{ player_id: string; count: number }>;
+      // Get player details from Sleeper
+      const playersRes = await fetch('https://api.sleeper.app/v1/players/nfl', { next: { revalidate: 86400 } });
+      const players = await playersRes.json() as Record<string, { full_name?: string; position?: string; team?: string }>;
+      return data.map(item => {
+        const player = players[item.player_id] || {};
+        return {
+          playerId: item.player_id,
+          playerName: player.full_name || `Player ${item.player_id}`,
+          position: player.position || 'Unknown',
+          nflTeam: player.team || 'FA',
+          addCount: type === 'add' ? item.count : 0,
+          dropCount: type === 'drop' ? item.count : 0,
+          trend: type === 'add' ? 'rising' : 'falling',
+        };
+      });
+    });
+  } catch (error) {
+    console.warn('[ExternalAPI] Failed to fetch Sleeper trending:', error);
+    return [];
+  }
+}
+
+/**
+ * Fetch injury data from ESPN's public API (unofficial, no auth required)
+ * Note: This is unofficial and may change without notice
+ */
+export async function fetchESPNInjuries(): Promise<ExternalInjuryReport[]> {
+  try {
+    return await withTTL<ExternalInjuryReport[]>('espn-injuries', 60 * 60 * 1000, async () => {
+      // ESPN's public injuries endpoint
+      const url = 'https://site.api.espn.com/apis/site/v2/sports/football/nfl/injuries';
+      const res = await fetch(url, { next: { revalidate: 3600 } }); // Cache for 1 hour
+      if (!res.ok) throw new Error(`ESPN injuries API error: ${res.status}`);
+      const data = await res.json();
+      const injuries: ExternalInjuryReport[] = [];
+      // Parse ESPN's injury format
+      if (data.injuries && Array.isArray(data.injuries)) {
+        for (const teamInjuries of data.injuries) {
+          // teamName available if needed: teamInjuries.team?.displayName
+          const teamAbbrev = teamInjuries.team?.abbreviation || 'UNK';
+          if (teamInjuries.injuries && Array.isArray(teamInjuries.injuries)) {
+            for (const injury of teamInjuries.injuries) {
+              injuries.push({
+                playerName: injury.athlete?.displayName || 'Unknown Player',
+                nflTeam: teamAbbrev,
+                position: injury.athlete?.position?.abbreviation || 'UNK',
+                status: injury.status || 'Unknown',
+                injury: injury.type?.description || injury.details?.type || 'Unknown injury',
+                lastUpdate: injury.date || undefined,
+              });
+            }
+          }
+        }
+      }
+      console.log(`[ExternalAPI] Fetched ${injuries.length} injuries from ESPN`);
+      return injuries;
+    });
+  } catch (error) {
+    console.warn('[ExternalAPI] Failed to fetch ESPN injuries:', error);
+    return [];
+  }
+}
+
+/**
+ * Fetch NFL news from ESPN's public API
+ */
+export async function fetchESPNNews(): Promise<ExternalNewsItem[]> {
+  try {
+    const url = 'https://site.api.espn.com/apis/site/v2/sports/football/nfl/news?limit=25';
+    const res = await fetch(url, { next: { revalidate: 1800 } }); // Cache for 30 min
+    if (!res.ok) throw new Error(`ESPN news API error: ${res.status}`);
+    
+    const data = await res.json();
+    const news: ExternalNewsItem[] = [];
+    
+    if (data.articles && Array.isArray(data.articles)) {
+      for (const article of data.articles) {
+        news.push({
+          source: 'ESPN',
+          headline: article.headline || article.title || '',
+          category: categorizeNews(article.headline || ''),
+          timestamp: article.published || undefined,
+          url: article.links?.web?.href || undefined,
+        });
+      }
+    }
+    
+    console.log(`[ExternalAPI] Fetched ${news.length} news items from ESPN`);
+    return news;
+  } catch (error) {
+    console.warn('[ExternalAPI] Failed to fetch ESPN news:', error);
+    return [];
+  }
+}
+
+/**
+ * Fetch NFL scoreboard/schedule from ESPN (for upcoming matchups context)
+ */
+export async function fetchESPNScoreboard(): Promise<Array<{ homeTeam: string; awayTeam: string; date: string; status: string }>> {
+  try {
+    const url = 'https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard';
+    const res = await fetch(url, { next: { revalidate: 3600 } });
+    if (!res.ok) throw new Error(`ESPN scoreboard API error: ${res.status}`);
+    
+    const data = await res.json();
+    const games: Array<{ homeTeam: string; awayTeam: string; date: string; status: string }> = [];
+    
+    if (data.events && Array.isArray(data.events)) {
+      for (const event of data.events) {
+        const competition = event.competitions?.[0];
+        if (competition) {
+          const homeTeam = competition.competitors?.find((c: { homeAway: string }) => c.homeAway === 'home');
+          const awayTeam = competition.competitors?.find((c: { homeAway: string }) => c.homeAway === 'away');
+          
+          games.push({
+            homeTeam: homeTeam?.team?.abbreviation || 'UNK',
+            awayTeam: awayTeam?.team?.abbreviation || 'UNK',
+            date: event.date || '',
+            status: competition.status?.type?.description || 'Unknown',
+          });
+        }
+      }
+    }
+    
+    console.log(`[ExternalAPI] Fetched ${games.length} games from ESPN scoreboard`);
+    return games;
+  } catch (error) {
+    console.warn('[ExternalAPI] Failed to fetch ESPN scoreboard:', error);
+    return [];
+  }
+}
+
+/**
+ * Helper to categorize news headlines
+ */
+function categorizeNews(headline: string): ExternalNewsItem['category'] {
+  const lower = headline.toLowerCase();
+  if (lower.includes('injur') || lower.includes('out') || lower.includes('questionable') || lower.includes('doubtful')) {
+    return 'injury';
+  }
+  if (lower.includes('trade') || lower.includes('sign') || lower.includes('release') || lower.includes('waive')) {
+    return 'transaction';
+  }
+  if (lower.includes('project') || lower.includes('expect') || lower.includes('predict') || lower.includes('rank')) {
+    return 'projection';
+  }
+  if (lower.includes('analysis') || lower.includes('breakdown') || lower.includes('scout')) {
+    return 'analysis';
+  }
+  return 'news';
+}
+
+/**
+ * Fetch all external data in parallel
+ * This is the main entry point for getting enhanced external context
+ */
+export async function fetchAllExternalData(): Promise<ExternalDataBundle> {
+  console.log('[ExternalAPI] Fetching all external data sources...');
+  
+  const [
+    trendingAdds,
+    trendingDrops,
+    injuries,
+    news,
+  ] = await Promise.all([
+    fetchSleeperTrending('nfl', 'add', 24),
+    fetchSleeperTrending('nfl', 'drop', 24),
+    fetchESPNInjuries(),
+    fetchESPNNews(),
+  ]);
+  
+  // Merge trending adds and drops
+  const trendingMap = new Map<string, TrendingPlayer>();
+  for (const player of trendingAdds) {
+    trendingMap.set(player.playerId, player);
+  }
+  for (const player of trendingDrops) {
+    const existing = trendingMap.get(player.playerId);
+    if (existing) {
+      existing.dropCount = player.dropCount;
+      existing.trend = existing.addCount > player.dropCount ? 'rising' : 
+                       existing.addCount < player.dropCount ? 'falling' : 'stable';
+    } else {
+      trendingMap.set(player.playerId, player);
+    }
+  }
+  
+  const result: ExternalDataBundle = {
+    news,
+    injuries,
+    projections: [], // Could add FantasyPros or similar in future
+    trending: Array.from(trendingMap.values()),
+    fetchedAt: new Date().toISOString(),
+  };
+  
+  console.log(`[ExternalAPI] Fetched: ${news.length} news, ${injuries.length} injuries, ${result.trending.length} trending players`);
+  return result;
+}
+
+/**
+ * Build context string from external data for LLM prompts
+ */
+export function buildExternalDataContext(data: ExternalDataBundle): string {
+  const lines: string[] = [];
+  
+  // Trending players section
+  if (data.trending.length > 0) {
+    lines.push('=== TRENDING PLAYERS (ACROSS ALL SLEEPER LEAGUES) ===');
+    const rising = data.trending.filter(p => p.trend === 'rising').slice(0, 10);
+    const falling = data.trending.filter(p => p.trend === 'falling').slice(0, 10);
+    
+    if (rising.length > 0) {
+      lines.push('🔥 HOT PICKUPS:');
+      for (const p of rising) {
+        lines.push(`  - ${p.playerName} (${p.position}, ${p.nflTeam}): +${p.addCount} adds in 24h`);
+      }
+    }
+    if (falling.length > 0) {
+      lines.push('❄️ BEING DROPPED:');
+      for (const p of falling) {
+        lines.push(`  - ${p.playerName} (${p.position}, ${p.nflTeam}): -${p.dropCount} drops in 24h`);
+      }
+    }
+    lines.push('');
+  }
+  
+  // Injury report section
+  if (data.injuries.length > 0) {
+    lines.push('=== NFL INJURY REPORT ===');
+    const byStatus = {
+      out: data.injuries.filter(i => i.status.toLowerCase() === 'out'),
+      doubtful: data.injuries.filter(i => i.status.toLowerCase() === 'doubtful'),
+      questionable: data.injuries.filter(i => i.status.toLowerCase() === 'questionable'),
+    };
+    
+    if (byStatus.out.length > 0) {
+      lines.push('OUT:');
+      for (const i of byStatus.out.slice(0, 15)) {
+        lines.push(`  - ${i.playerName} (${i.position}, ${i.nflTeam}): ${i.injury}`);
+      }
+    }
+    if (byStatus.doubtful.length > 0) {
+      lines.push('DOUBTFUL:');
+      for (const i of byStatus.doubtful.slice(0, 10)) {
+        lines.push(`  - ${i.playerName} (${i.position}, ${i.nflTeam}): ${i.injury}`);
+      }
+    }
+    if (byStatus.questionable.length > 0) {
+      lines.push('QUESTIONABLE:');
+      for (const i of byStatus.questionable.slice(0, 10)) {
+        lines.push(`  - ${i.playerName} (${i.position}, ${i.nflTeam}): ${i.injury}`);
+      }
+    }
+    lines.push('');
+  }
+  
+  // News section
+  if (data.news.length > 0) {
+    lines.push('=== LATEST NFL NEWS ===');
+    for (const item of data.news.slice(0, 15)) {
+      const emoji = item.category === 'injury' ? '🏥' :
+                    item.category === 'transaction' ? '📝' :
+                    item.category === 'projection' ? '📊' : '📰';
+      lines.push(`${emoji} ${item.headline}`);
+    }
+  }
+  
+  return lines.join('\n');
+}

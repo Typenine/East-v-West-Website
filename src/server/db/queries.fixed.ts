@@ -14,6 +14,41 @@ export async function createUser(params: { email: string; displayName?: string; 
   return row;
 }
 
+// --- Suggestion title (for ballots)
+export async function ensureSuggestionTitleColumn() {
+  try {
+    const db = getDb();
+    await db.execute(sql`ALTER TABLE suggestions ADD COLUMN IF NOT EXISTS title varchar(255)`);
+  } catch {}
+}
+
+export async function setSuggestionTitle(id: string, title: string | null) {
+  try {
+    await ensureSuggestionTitleColumn();
+    const db = getDb();
+    await db.execute(sql`UPDATE suggestions SET title = ${title} WHERE id = ${id}::uuid`);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function getSuggestionTitlesMap(): Promise<Record<string, string>> {
+  const out: Record<string, string> = {};
+  try {
+    await ensureSuggestionTitleColumn();
+    const db = getDb();
+    const res = await db.execute(sql`SELECT id::text AS id, title FROM suggestions WHERE title IS NOT NULL`);
+    const rawRows = (res as unknown as { rows?: Array<{ id: string; title: string | null }> }).rows || [];
+    for (const r of rawRows) {
+      const id = typeof r.id === 'string' ? r.id : '';
+      const t = typeof r.title === 'string' ? r.title : '';
+      if (id && t) out[id] = t;
+    }
+  } catch {}
+  return out;
+}
+
 // =====================
 // Draft Travel (Flights / Arrivals)
 // =====================
@@ -668,6 +703,48 @@ export async function getSuggestionSponsorsMap(): Promise<Record<string, string>
     }
   } catch {}
   return out;
+}
+
+// --- Ballot eligibility notification (persisted, atomic) ---
+export async function ensureSuggestionBallotNotifyColumns() {
+  try {
+    const db = getDb();
+    await db.execute(sql`ALTER TABLE suggestions ADD COLUMN IF NOT EXISTS ballot_eligible_notified integer DEFAULT 0 NOT NULL`);
+    await db.execute(sql`ALTER TABLE suggestions ADD COLUMN IF NOT EXISTS ballot_eligible_at timestamp NULL`);
+  } catch {}
+}
+
+export async function markBallotEligibleIfThreshold(id: string): Promise<{ becameEligible: boolean; eligibleCount: number }> {
+  await ensureSuggestionEndorsementsTable();
+  await ensureSuggestionProposerColumn();
+  await ensureSuggestionBallotNotifyColumns();
+  const db = getDb();
+  // Atomically compute eligible count (exclude proposer) and set notified flag if crossing threshold
+  const res = await db.execute(sql`
+    WITH cnt AS (
+      SELECT COUNT(1)::int AS c
+      FROM suggestion_endorsements e
+      LEFT JOIN suggestions s ON s.id = e.suggestion_id
+      WHERE e.suggestion_id = ${id}::uuid
+        AND (s.proposer_team IS NULL OR e.team <> s.proposer_team)
+    ),
+    upd AS (
+      UPDATE suggestions
+      SET ballot_eligible_notified = 1,
+          ballot_eligible_at = now()
+      WHERE id = ${id}::uuid
+        AND ballot_eligible_notified = 0
+        AND (SELECT c FROM cnt) >= 4
+      RETURNING 1 AS updated
+    )
+    SELECT (SELECT c FROM cnt) AS count,
+           EXISTS(SELECT 1 FROM upd) AS updated
+  `);
+  type Row = { count: number | string; updated: boolean };
+  const row = (res as unknown as { rows?: Row[] }).rows?.[0];
+  const eligibleCount = row ? (typeof row.count === 'number' ? row.count : Number(row.count || 0)) : 0;
+  const becameEligible = Boolean(row && row.updated);
+  return { becameEligible, eligibleCount };
 }
 
 // --- Suggestion proposer (who submitted publicly when also endorsing) ---

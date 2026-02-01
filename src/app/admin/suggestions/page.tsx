@@ -164,6 +164,37 @@ export default function AdminSuggestionsPage() {
                     </div>
                     <div className="mt-3 flex flex-wrap gap-2 items-center">
                       <label className="text-xs flex items-center gap-2">
+                        <span className="uppercase tracking-wide">Proposed by</span>
+                        <select
+                          className="border border-[var(--border)] rounded px-2 py-1 text-sm"
+                          value={s.proposerTeam || ''}
+                          disabled={busy === s.id}
+                          onChange={async (e) => {
+                            const val = e.target.value;
+                            setBusy(s.id);
+                            try {
+                              const res = await fetch('/api/admin/suggestions', {
+                                method: 'PUT',
+                                credentials: 'include',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ id: s.id, proposerTeam: val || null }),
+                              });
+                              if (res.ok) {
+                                const j = await res.json().catch(() => ({}));
+                                setItems((prev) => prev.map((it) => it.id === s.id ? ({ ...it, proposerTeam: (j?.proposerTeam ?? (val || null)) || null }) : it));
+                              }
+                            } finally {
+                              setBusy(null);
+                            }
+                          }}
+                        >
+                          <option value="">— None —</option>
+                          {TEAM_NAMES.map((team) => (
+                            <option key={team} value={team}>{team}</option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="text-xs flex items-center gap-2">
                         <span className="uppercase tracking-wide">Sponsor</span>
                         <select
                           className="border border-[var(--border)] rounded px-2 py-1 text-sm"

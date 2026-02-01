@@ -33,6 +33,7 @@ export default function AdminNewsletterPage() {
   const [isAdmin, setIsAdmin] = useState(false);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
+  const [progress, setProgress] = useState<{ percent: number; stage: string; elapsed: number } | null>(null);
   const [result, setResult] = useState<GenerationResult | null>(null);
   const [currentSeason, setCurrentSeason] = useState('2025');
   const [currentWeek, setCurrentWeek] = useState<number | null>(null);
@@ -97,6 +98,52 @@ export default function AdminNewsletterPage() {
   const handleGenerate = async () => {
     setGenerating(true);
     setResult(null);
+    setProgress({ percent: 0, stage: 'Starting...', elapsed: 0 });
+
+    // Track elapsed time and estimate progress based on typical generation time (~180s)
+    const startTime = Date.now();
+    const ESTIMATED_TOTAL_MS = 180000; // 3 minutes estimated
+    
+    // Progress stages with approximate timing
+    const stages = [
+      { percent: 5, stage: '📡 Fetching Sleeper data...', time: 3000 },
+      { percent: 10, stage: '📊 Building context...', time: 8000 },
+      { percent: 15, stage: '🧠 Loading bot memory...', time: 12000 },
+      { percent: 20, stage: '✍️ Generating intro...', time: 20000 },
+      { percent: 30, stage: '🏈 Processing matchups (1/6)...', time: 35000 },
+      { percent: 40, stage: '🏈 Processing matchups (2/6)...', time: 55000 },
+      { percent: 50, stage: '🏈 Processing matchups (3/6)...', time: 75000 },
+      { percent: 60, stage: '🏈 Processing matchups (4/6)...', time: 95000 },
+      { percent: 70, stage: '🏈 Processing matchups (5/6)...', time: 115000 },
+      { percent: 75, stage: '🏈 Processing matchups (6/6)...', time: 130000 },
+      { percent: 80, stage: '📈 Building power rankings...', time: 145000 },
+      { percent: 85, stage: '🔮 Generating forecasts...', time: 155000 },
+      { percent: 90, stage: '📝 Finalizing sections...', time: 165000 },
+      { percent: 95, stage: '🎨 Rendering HTML...', time: 175000 },
+    ];
+
+    const progressInterval = setInterval(() => {
+      const elapsed = Date.now() - startTime;
+      const elapsedSec = Math.floor(elapsed / 1000);
+      
+      // Find current stage based on elapsed time
+      let currentStage = stages[0];
+      for (const stage of stages) {
+        if (elapsed >= stage.time) {
+          currentStage = stage;
+        }
+      }
+      
+      // Estimate percent (cap at 95% until complete)
+      const estimatedPercent = Math.min(95, Math.floor((elapsed / ESTIMATED_TOTAL_MS) * 100));
+      const percent = Math.max(currentStage.percent, estimatedPercent);
+      
+      setProgress({
+        percent,
+        stage: currentStage.stage,
+        elapsed: elapsedSec,
+      });
+    }, 500);
 
     try {
       const week = needsWeek ? (parseInt(weekInput, 10) || currentWeek) : 0;
@@ -114,6 +161,7 @@ export default function AdminNewsletterPage() {
       });
 
       const data = await res.json();
+      setProgress({ percent: 100, stage: '✅ Complete!', elapsed: Math.floor((Date.now() - startTime) / 1000) });
       setResult(data);
     } catch (err) {
       setResult({
@@ -121,6 +169,7 @@ export default function AdminNewsletterPage() {
         error: err instanceof Error ? err.message : 'Unknown error',
       });
     } finally {
+      clearInterval(progressInterval);
       setGenerating(false);
     }
   };
@@ -292,32 +341,38 @@ export default function AdminNewsletterPage() {
           <CardContent>
             {generating ? (
               <div className="py-6 space-y-4">
+                {/* Large percentage display */}
                 <div className="text-center">
-                  <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-[var(--primary)]"></div>
+                  <div className="text-5xl font-bold text-[var(--primary)]">
+                    {progress?.percent ?? 0}%
+                  </div>
+                  <div className="text-sm text-[var(--muted)] mt-1">
+                    {progress?.elapsed ? `${Math.floor(progress.elapsed / 60)}:${(progress.elapsed % 60).toString().padStart(2, '0')} elapsed` : 'Starting...'}
+                  </div>
                 </div>
                 
-                {/* Progress indicator */}
+                {/* Progress bar with percentage */}
                 <div className="space-y-2">
                   <div className="flex justify-between text-sm">
-                    <span className="text-[var(--muted)]">Generating newsletter...</span>
-                    <span className="text-[var(--primary)]">~2-4 minutes</span>
+                    <span className="text-white font-medium">{progress?.stage || 'Initializing...'}</span>
+                    <span className="text-[var(--primary)] font-mono">{progress?.percent ?? 0}%</span>
                   </div>
-                  <div className="w-full bg-zinc-800 rounded-full h-2 overflow-hidden">
+                  <div className="w-full bg-zinc-800 rounded-full h-3 overflow-hidden">
                     <div 
-                      className="h-full bg-gradient-to-r from-[var(--primary)] to-amber-500 rounded-full"
-                      style={{ animation: 'progress 180s linear forwards' }}
+                      className="h-full bg-gradient-to-r from-[var(--primary)] to-amber-500 rounded-full transition-all duration-500 ease-out"
+                      style={{ width: `${progress?.percent ?? 0}%` }}
                     />
+                  </div>
+                  <div className="flex justify-between text-xs text-[var(--muted)]">
+                    <span>0%</span>
+                    <span>Estimated: ~3 minutes</span>
+                    <span>100%</span>
                   </div>
                 </div>
 
-                <div className="text-sm text-[var(--muted)] space-y-2">
-                  <p>📡 Fetching data from Sleeper API...</p>
-                  <p>🤖 Generating AI commentary with full conversational context...</p>
-                  <p className="text-xs text-zinc-500">
-                    (Each bot turn sees previous responses for natural back-and-forth. 
-                    Rate-limited to 3s between calls to stay within free tier.)
-                  </p>
-                  <p>📝 Building newsletter sections...</p>
+                {/* Spinner */}
+                <div className="text-center">
+                  <div className="inline-block animate-spin rounded-full h-6 w-6 border-b-2 border-[var(--primary)]"></div>
                 </div>
 
                 <div className="mt-4 p-3 bg-blue-900/20 border border-blue-800 rounded text-xs text-blue-300">
@@ -325,18 +380,6 @@ export default function AdminNewsletterPage() {
                   we make multiple LLM calls per matchup with delays to stay within free API limits. 
                   This gives you real personality and back-and-forth, not generic commentary.
                 </div>
-
-                <style jsx>{`
-                  @keyframes progress {
-                    0% { width: 3%; }
-                    10% { width: 12%; }
-                    25% { width: 30%; }
-                    50% { width: 55%; }
-                    75% { width: 78%; }
-                    90% { width: 88%; }
-                    100% { width: 95%; }
-                  }
-                `}</style>
               </div>
             ) : result ? (
               <div className="space-y-4">

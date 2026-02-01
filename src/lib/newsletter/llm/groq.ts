@@ -16,6 +16,9 @@ export interface GroqGenerateOptions {
   temperature?: number;
   maxTokens?: number;
   topP?: number;
+  // Optional structured response validator. If provided and returns false,
+  // the call is retried/fallback model is attempted.
+  validate?: (content: string) => boolean;
 }
 
 export interface GroqResponse {
@@ -30,13 +33,23 @@ export interface GroqResponse {
 // ============ Rate Limiting ============
 
 // Track API calls to stay within limits
-// Groq free tier: ~30 requests/minute, ~6000 tokens/minute
-const rateLimitState = {
-  callsThisMinute: 0,
-  tokensThisMinute: 0,
-  minuteStart: Date.now(),
-  lastCallTime: 0,
+// Use per-model limiter to avoid cross-model collisions in concurrent requests
+// Groq free tier guidance: ~30 requests/minute, ~6000 tokens/minute
+type RLState = {
+  callsThisMinute: number;
+  tokensThisMinute: number;
+  minuteStart: number;
+  lastCallTime: number;
 };
+const rateLimitByModel = new Map<string, RLState>();
+function getRLState(key: string): RLState {
+  let st = rateLimitByModel.get(key);
+  if (!st) {
+    st = { callsThisMinute: 0, tokensThisMinute: 0, minuteStart: Date.now(), lastCallTime: 0 };
+    rateLimitByModel.set(key, st);
+  }
+  return st;
+}
 
 const RATE_LIMITS = {
   maxCallsPerMinute: 15, // Very conservative - stay well under 30 limit
@@ -46,45 +59,72 @@ const RATE_LIMITS = {
   // Auto-generation during season has 36+ hours, preview can take several minutes
 };
 
-function resetRateLimitIfNeeded() {
+// ============ Concurrency Gate (Semaphore) ============
+
+const MAX_CONCURRENCY = Math.max(1, parseInt(process.env.NEWSLETTER_MAX_CONCURRENCY || '2', 10) || 2);
+let _inFlight = 0;
+const _waitQueue: Array<() => void> = [];
+
+async function acquireSlot(): Promise<void> {
+  if (_inFlight < MAX_CONCURRENCY) {
+    _inFlight++;
+    return;
+  }
+  await new Promise<void>(resolve => {
+    _waitQueue.push(() => {
+      _inFlight++;
+      resolve();
+    });
+  });
+}
+
+function releaseSlot(): void {
+  _inFlight = Math.max(0, _inFlight - 1);
+  const next = _waitQueue.shift();
+  if (next) next();
+}
+
+function resetRateLimitIfNeeded(state: RLState) {
   const now = Date.now();
-  if (now - rateLimitState.minuteStart > 60000) {
-    rateLimitState.callsThisMinute = 0;
-    rateLimitState.tokensThisMinute = 0;
-    rateLimitState.minuteStart = now;
+  if (now - state.minuteStart > 60000) {
+    state.callsThisMinute = 0;
+    state.tokensThisMinute = 0;
+    state.minuteStart = now;
   }
 }
 
-async function waitForRateLimit(): Promise<void> {
-  resetRateLimitIfNeeded();
+async function waitForRateLimit(key: string): Promise<void> {
+  const state = getRLState(key);
+  resetRateLimitIfNeeded(state);
 
   // Check if we're at call limit
-  if (rateLimitState.callsThisMinute >= RATE_LIMITS.maxCallsPerMinute) {
-    const waitTime = 60000 - (Date.now() - rateLimitState.minuteStart) + 1000;
+  if (state.callsThisMinute >= RATE_LIMITS.maxCallsPerMinute) {
+    const waitTime = 60000 - (Date.now() - state.minuteStart) + 1000;
     console.log(`[Groq] Rate limit reached, waiting ${Math.round(waitTime / 1000)}s...`);
     await sleep(waitTime);
-    resetRateLimitIfNeeded();
+    resetRateLimitIfNeeded(state);
   }
 
   // Check if we're at token limit
-  if (rateLimitState.tokensThisMinute >= RATE_LIMITS.maxTokensPerMinute) {
-    const waitTime = 60000 - (Date.now() - rateLimitState.minuteStart) + 1000;
+  if (state.tokensThisMinute >= RATE_LIMITS.maxTokensPerMinute) {
+    const waitTime = 60000 - (Date.now() - state.minuteStart) + 1000;
     console.log(`[Groq] Token limit reached, waiting ${Math.round(waitTime / 1000)}s...`);
     await sleep(waitTime);
-    resetRateLimitIfNeeded();
+    resetRateLimitIfNeeded(state);
   }
 
   // Enforce minimum delay between calls
-  const timeSinceLastCall = Date.now() - rateLimitState.lastCallTime;
+  const timeSinceLastCall = Date.now() - state.lastCallTime;
   if (timeSinceLastCall < RATE_LIMITS.minDelayBetweenCalls) {
     await sleep(RATE_LIMITS.minDelayBetweenCalls - timeSinceLastCall);
   }
 }
 
-function recordCall(tokens: number) {
-  rateLimitState.callsThisMinute++;
-  rateLimitState.tokensThisMinute += tokens;
-  rateLimitState.lastCallTime = Date.now();
+function recordCall(tokens: number, key: string) {
+  const state = getRLState(key);
+  state.callsThisMinute++;
+  state.tokensThisMinute += tokens;
+  state.lastCallTime = Date.now();
 }
 
 function sleep(ms: number): Promise<void> {
@@ -95,8 +135,15 @@ function sleep(ms: number): Promise<void> {
 
 const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
 const DEFAULT_MODEL = 'llama-3.1-8b-instant'; // Fast, good quality, generous limits
+const MODEL_FALLBACKS = [
+  DEFAULT_MODEL,
+  'llama-3.1-70b-versatile',
+  'mixtral-8x7b-32768',
+];
 
 export async function generateWithGroq(options: GroqGenerateOptions): Promise<GroqResponse> {
+  await acquireSlot();
+  try {
   const apiKey = process.env.GROQ_API_KEY;
   if (!apiKey) {
     throw new Error('GROQ_API_KEY environment variable is not set');
@@ -108,23 +155,27 @@ export async function generateWithGroq(options: GroqGenerateOptions): Promise<Gr
     temperature = 0.7,
     maxTokens = 500,
     topP = 0.9,
+    validate,
   } = options;
-
-  // Wait for rate limit
-  await waitForRateLimit();
-
-  const body = {
-    model,
-    messages,
-    temperature,
-    max_tokens: maxTokens,
-    top_p: topP,
-  };
 
   let lastError: Error | null = null;
   const maxRetries = 5; // More retries for resilience
 
-  for (let attempt = 0; attempt < maxRetries; attempt++) {
+  // Build model fallback order (unique, preserves order)
+  const modelsToTry = Array.from(new Set([model, ...MODEL_FALLBACKS]));
+
+  for (const candidateModel of modelsToTry) {
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      // Wait for rate limit (per-model)
+      await waitForRateLimit(candidateModel);
+
+      const body = {
+        model: candidateModel,
+        messages,
+        temperature,
+        max_tokens: maxTokens,
+        top_p: topP,
+      };
     try {
       const response = await fetch(GROQ_API_URL, {
         method: 'POST',
@@ -145,9 +196,10 @@ export async function generateWithGroq(options: GroqGenerateOptions): Promise<Gr
           console.log(`[Groq] Rate limited (429), attempt ${attempt + 1}/${maxRetries}, waiting ${Math.round(waitTime / 1000)}s to ensure limits reset...`);
           await sleep(waitTime);
           // Reset our rate limit tracking since we just waited
-          rateLimitState.callsThisMinute = 0;
-          rateLimitState.tokensThisMinute = 0;
-          rateLimitState.minuteStart = Date.now();
+          const st = getRLState(candidateModel);
+          st.callsThisMinute = 0;
+          st.tokensThisMinute = 0;
+          st.minuteStart = Date.now();
           continue;
         }
         
@@ -175,9 +227,10 @@ export async function generateWithGroq(options: GroqGenerateOptions): Promise<Gr
           const waitTime = 90000 + (attempt * 30000);
           console.log(`[Groq] Rate limit detected in response text, waiting ${Math.round(waitTime / 1000)}s...`);
           await sleep(waitTime);
-          rateLimitState.callsThisMinute = 0;
-          rateLimitState.tokensThisMinute = 0;
-          rateLimitState.minuteStart = Date.now();
+          const st = getRLState(candidateModel);
+          st.callsThisMinute = 0;
+          st.tokensThisMinute = 0;
+          st.minuteStart = Date.now();
           continue;
         }
         
@@ -193,9 +246,10 @@ export async function generateWithGroq(options: GroqGenerateOptions): Promise<Gr
           const waitTime = 90000 + (attempt * 30000);
           console.log(`[Groq] Rate limit in error response, waiting ${Math.round(waitTime / 1000)}s...`);
           await sleep(waitTime);
-          rateLimitState.callsThisMinute = 0;
-          rateLimitState.tokensThisMinute = 0;
-          rateLimitState.minuteStart = Date.now();
+          const st = getRLState(candidateModel);
+          st.callsThisMinute = 0;
+          st.tokensThisMinute = 0;
+          st.minuteStart = Date.now();
           continue;
         }
         
@@ -212,7 +266,15 @@ export async function generateWithGroq(options: GroqGenerateOptions): Promise<Gr
       };
 
       // Record usage for rate limiting
-      recordCall(result.usage.totalTokens);
+      recordCall(result.usage.totalTokens, candidateModel);
+
+      // Validate structured output if requested
+      if (validate && !validate(result.content)) {
+        console.warn('[Groq] Validation failed for structured output, retrying...');
+        lastError = new Error('Validation failed');
+        await sleep(1500 * (attempt + 1));
+        continue; // retry same model/attempt
+      }
 
       return result;
 
@@ -224,9 +286,14 @@ export async function generateWithGroq(options: GroqGenerateOptions): Promise<Gr
         await sleep(2000 * (attempt + 1)); // Exponential backoff
       }
     }
+    }
+    // Move to next fallback model
   }
 
   throw lastError || new Error('Groq API call failed after retries');
+  } finally {
+    releaseSlot();
+  }
 }
 
 // ============ Persona-Specific Generation ============
@@ -425,10 +492,11 @@ export interface GenerateSectionOptions {
   constraints?: string;
   maxTokens?: number;
   episodeType?: string; // For episode-specific prompting
+  validate?: (content: string) => boolean;
 }
 
 export async function generateSection(options: GenerateSectionOptions): Promise<string> {
-  const { persona, sectionType, context, constraints, maxTokens = 400, episodeType } = options;
+  const { persona, sectionType, context, constraints, maxTokens = 400, episodeType, validate } = options;
   const config = PERSONA_CONFIGS[persona];
 
   // Build system prompt with episode-specific additions if applicable
@@ -457,6 +525,7 @@ Remember to use your signature style and voice. Make it feel like YOU wrote this
     ],
     temperature: config.temperature,
     maxTokens,
+    validate,
   });
 
   return response.content.trim();

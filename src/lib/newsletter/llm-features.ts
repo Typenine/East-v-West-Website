@@ -33,7 +33,9 @@ import { generateSection } from './llm/groq';
  */
 export async function generateBotDebates(
   picks: ForecastPick[],
-  context: string
+  context: string,
+  personaContextEntertainer?: string,
+  personaContextAnalyst?: string
 ): Promise<BotDebate[]> {
   const disagreements = picks.filter(p => p.bot1_pick !== p.bot2_pick);
   
@@ -57,14 +59,14 @@ Generate a mini-debate where each columnist defends their pick.`;
       generateSection({
         persona: 'entertainer',
         sectionType: 'Debate Argument',
-        context: debateContext,
+        context: `${debateContext}\n\n${personaContextEntertainer || ''}`,
         constraints: `Defend your pick of ${pick.bot1_pick}. Be passionate and dismissive of the other pick. 2-3 sentences. Attack the other position!`,
         maxTokens: 100,
       }),
       generateSection({
         persona: 'analyst',
         sectionType: 'Debate Argument',
-        context: debateContext,
+        context: `${debateContext}\n\n${personaContextAnalyst || ''}`,
         constraints: `Defend your pick of ${pick.bot2_pick}. Use data and logic. Explain why the other pick is flawed. 2-3 sentences.`,
         maxTokens: 100,
       }),
@@ -92,7 +94,9 @@ Generate a mini-debate where each columnist defends their pick.`;
 export async function generateHotTakes(
   week: number,
   context: string,
-  standings?: Array<{ name: string; wins: number; losses: number }>
+  standings?: Array<{ name: string; wins: number; losses: number }>,
+  personaContextEntertainer?: string,
+  personaContextAnalyst?: string
 ): Promise<WeeklyHotTake[]> {
   const standingsContext = standings 
     ? '\n\nCurrent Standings:\n' + standings.map(s => `${s.name}: ${s.wins}-${s.losses}`).join('\n')
@@ -102,14 +106,14 @@ export async function generateHotTakes(
     generateSection({
       persona: 'entertainer',
       sectionType: 'Hot Take',
-      context: `Week ${week} Hot Take Time!\n${context}${standingsContext}\n\nGive a BOLD, controversial take about a team or player. Something that will age well or terribly.`,
+      context: `Week ${week} Hot Take Time!\n${context}${standingsContext}\n\n${personaContextEntertainer || ''}\n\nGive a BOLD, controversial take about a team or player. Something that will age well or terribly.`,
       constraints: 'One spicy hot take. Be bold! Format: "[SUBJECT]: [HOT TAKE]" - make it memorable and trackable.',
       maxTokens: 80,
     }),
     generateSection({
       persona: 'analyst',
       sectionType: 'Hot Take',
-      context: `Week ${week} Hot Take Time!\n${context}${standingsContext}\n\nGive a contrarian analytical take. Something the data suggests that goes against popular opinion.`,
+      context: `Week ${week} Hot Take Time!\n${context}${standingsContext}\n\n${personaContextAnalyst || ''}\n\nGive a contrarian analytical take. Something the data suggests that goes against popular opinion.`,
       constraints: 'One data-driven contrarian take. Format: "[SUBJECT]: [HOT TAKE]" - make it specific and verifiable.',
       maxTokens: 80,
     }),
@@ -142,7 +146,9 @@ export async function generateHotTakes(
  */
 export async function generateWeeklyAwards(
   pairs: MatchupPair[],
-  context: string
+  context: string,
+  personaContextEntertainer?: string,
+  personaContextAnalyst?: string
 ): Promise<WeeklyAwards> {
   if (pairs.length === 0) {
     return {
@@ -169,42 +175,42 @@ ${context}`;
     generateSection({
       persona: 'entertainer',
       sectionType: 'MVP Award',
-      context: awardsContext,
+      context: `${awardsContext}\n\n${personaContextEntertainer || ''}`,
       constraints: `Crown ${highestScorer.winner.name} as MVP. One hype sentence. Be dramatic!`,
       maxTokens: 60,
     }),
     generateSection({
       persona: 'analyst',
       sectionType: 'MVP Award',
-      context: awardsContext,
+      context: `${awardsContext}\n\n${personaContextAnalyst || ''}`,
       constraints: `Analyze why ${highestScorer.winner.name} deserves MVP. One analytical sentence.`,
       maxTokens: 60,
     }),
     generateSection({
       persona: 'entertainer',
       sectionType: 'Bust Award',
-      context: awardsContext,
+      context: `${awardsContext}\n\n${personaContextEntertainer || ''}`,
       constraints: `Roast ${lowestScorer.loser.name} for their terrible performance. One savage sentence.`,
       maxTokens: 60,
     }),
     generateSection({
       persona: 'analyst',
       sectionType: 'Bust Award',
-      context: awardsContext,
+      context: `${awardsContext}\n\n${personaContextAnalyst || ''}`,
       constraints: `Explain what went wrong for ${lowestScorer.loser.name}. One analytical sentence.`,
       maxTokens: 60,
     }),
     generateSection({
       persona: 'entertainer',
       sectionType: 'Blowout Commentary',
-      context: `${biggestBlowout.winner.name} destroyed ${biggestBlowout.loser.name} by ${biggestBlowout.margin.toFixed(1)} points`,
+      context: `${biggestBlowout.winner.name} destroyed ${biggestBlowout.loser.name} by ${biggestBlowout.margin.toFixed(1)} points\n\n${personaContextEntertainer || ''}`,
       constraints: 'One dramatic sentence about this beatdown.',
       maxTokens: 50,
     }),
     closestGame.margin <= 10 ? generateSection({
       persona: 'analyst',
       sectionType: 'Nail-biter Commentary',
-      context: `${closestGame.winner.name} barely beat ${closestGame.loser.name} by ${closestGame.margin.toFixed(1)} points`,
+      context: `${closestGame.winner.name} barely beat ${closestGame.loser.name} by ${closestGame.margin.toFixed(1)} points\n\n${personaContextAnalyst || ''}`,
       constraints: 'One sentence about this close game and what decided it.',
       maxTokens: 50,
     }) : Promise.resolve(''),
@@ -245,7 +251,9 @@ ${context}`;
  */
 export async function generateWhatIfScenarios(
   pairs: MatchupPair[],
-  context: string
+  context: string,
+  personaContextEntertainer?: string,
+  personaContextAnalyst?: string
 ): Promise<WhatIfScenario[]> {
   // Only generate for games decided by 10 or fewer points
   const closeGames = pairs.filter(p => p.margin <= 10);
@@ -262,6 +270,8 @@ export async function generateWhatIfScenarios(
       context: `CLOSE GAME: ${game.winner.name} (${game.winner.points.toFixed(1)}) beat ${game.loser.name} (${game.loser.points.toFixed(1)}) by just ${game.margin.toFixed(1)} points.
 
 ${context}
+
+${personaContextAnalyst || ''}
 
 Create a realistic "what-if" scenario about a lineup decision that could have changed the outcome.`,
       constraints: 'Format: "If [TEAM] had [DECISION], [OUTCOME]" - be specific about a player or decision. One sentence.',
@@ -291,7 +301,9 @@ Create a realistic "what-if" scenario about a lineup decision that could have ch
  */
 export async function generateDynastyAnalysis(
   trades: TradeItem[],
-  context: string
+  context: string,
+  personaContextEntertainer?: string,
+  personaContextAnalyst?: string
 ): Promise<DynastyAnalysis[]> {
   if (trades.length === 0) return [];
 
@@ -310,14 +322,14 @@ export async function generateDynastyAnalysis(
       generateSection({
         persona: 'entertainer',
         sectionType: 'Dynasty Analysis',
-        context: `TRADE FOR DYNASTY ANALYSIS:\n${tradeDetails}\n\n${context}`,
+        context: `TRADE FOR DYNASTY ANALYSIS:\n${tradeDetails}\n\n${context}\n\n${personaContextEntertainer || ''}`,
         constraints: 'Who wins this trade long-term (3+ years)? Consider age, potential, and draft capital. 2 sentences. Name the winner!',
         maxTokens: 100,
       }),
       generateSection({
         persona: 'analyst',
         sectionType: 'Dynasty Analysis',
-        context: `TRADE FOR DYNASTY ANALYSIS:\n${tradeDetails}\n\n${context}`,
+        context: `TRADE FOR DYNASTY ANALYSIS:\n${tradeDetails}\n\n${context}\n\n${personaContextAnalyst || ''}`,
         constraints: 'Analyze dynasty value: short-term winner vs long-term winner. Consider age curves and asset depreciation. 2 sentences.',
         maxTokens: 100,
       }),
@@ -355,7 +367,9 @@ const KNOWN_RIVALRIES: Array<{ teams: [string, string]; name: string }> = [
 export async function detectRivalries(
   upcomingPairs: Array<{ teams: string[] }>,
   h2hData: Record<string, Record<string, { wins: number; losses: number }>> | undefined,
-  context: string
+  context: string,
+  personaContextEntertainer?: string,
+  personaContextAnalyst?: string
 ): Promise<RivalryMatchup[]> {
   const rivalries: RivalryMatchup[] = [];
 
@@ -383,7 +397,9 @@ export async function detectRivalries(
 All-time record: ${team1} leads ${h2hRecord.wins}-${h2hRecord.losses}
 ${knownRivalry ? `Known as: ${knownRivalry.name}` : 'These teams have history!'}
 
-${context}`,
+${context}
+
+${personaContextEntertainer || ''}`,
           constraints: 'Hype up this rivalry matchup! What makes it special? 2 sentences of pure drama.',
           maxTokens: 80,
         }),
@@ -393,7 +409,9 @@ ${context}`,
           context: `RIVALRY MATCHUP: ${team1} vs ${team2}
 All-time record: ${team1} leads ${h2hRecord.wins}-${h2hRecord.losses}
 
-${context}`,
+${context}
+
+${personaContextAnalyst || ''}`,
           constraints: 'Break down the historical matchup. What patterns emerge? 2 sentences.',
           maxTokens: 80,
         }),
@@ -424,7 +442,9 @@ export async function generatePlayoffOddsCommentary(
   week: number,
   standings: Array<{ name: string; wins: number; losses: number; pointsFor: number }>,
   playoffSpots: number = 6,
-  context: string
+  context: string,
+  personaContextEntertainer?: string,
+  personaContextAnalyst?: string
 ): Promise<PlayoffOddsSection> {
   if (standings.length === 0) {
     return {
@@ -492,14 +512,14 @@ ${context}`;
     generateSection({
       persona: 'entertainer',
       sectionType: 'Playoff Odds',
-      context: playoffContext,
+      context: `${playoffContext}\n\n${personaContextEntertainer || ''}`,
       constraints: 'Comment on the playoff race! Who should be nervous? Who is safe? 2-3 dramatic sentences.',
       maxTokens: 100,
     }),
     generateSection({
       persona: 'analyst',
       sectionType: 'Playoff Odds',
-      context: playoffContext,
+      context: `${playoffContext}\n\n${personaContextAnalyst || ''}`,
       constraints: 'Analyze the playoff scenarios. What do bubble teams need to do? 2-3 analytical sentences.',
       maxTokens: 100,
     }),
@@ -525,7 +545,9 @@ export async function generateNarrativeCallbacks(
   previousPredictions: Array<{ week: number; pick: string; actual: string; correct: boolean }>,
   previousHotTakes: WeeklyHotTake[],
   currentResults: MatchupPair[],
-  context: string
+  context: string,
+  personaContextEntertainer?: string,
+  personaContextAnalyst?: string
 ): Promise<NarrativeCallback[]> {
   const callbacks: NarrativeCallback[] = [];
 
@@ -537,7 +559,8 @@ export async function generateNarrativeCallbacks(
     const reaction = await generateSection({
       persona: pred.correct ? 'entertainer' : 'analyst',
       sectionType: 'Prediction Callback',
-      context: `Last week I predicted ${pred.pick} would win. ${pred.correct ? 'I was RIGHT!' : `I was WRONG - ${pred.actual} won instead.`}`,
+      context: `Last week I predicted ${pred.pick} would win. ${pred.correct ? 'I was RIGHT!' : `I was WRONG - ${pred.actual} won instead.`}` +
+        (pred.correct ? `\n\n${personaContextEntertainer || ''}` : `\n\n${personaContextAnalyst || ''}`),
       constraints: pred.correct 
         ? 'Gloat about being right! One sentence of pure vindication.'
         : 'Own the L or make an excuse. One sentence.',
@@ -592,6 +615,8 @@ export interface LLMFeaturesInput {
   previousPredictions?: Array<{ week: number; pick: string; actual: string; correct: boolean }>;
   previousHotTakes?: WeeklyHotTake[];
   context: string;
+  personaContextEntertainer?: string;
+  personaContextAnalyst?: string;
 }
 
 export interface LLMFeaturesOutput {
@@ -620,25 +645,29 @@ export async function generateAllLLMFeatures(input: LLMFeaturesInput): Promise<L
     previousPredictions,
     previousHotTakes,
     context,
+    personaContextEntertainer,
+    personaContextAnalyst,
   } = input;
 
   // Run independent features in parallel
   const [debates, hotTakes, awards, whatIfs, dynastyAnalysis, rivalries, playoffOdds, callbacks] = await Promise.all([
-    generateBotDebates(picks, context),
-    generateHotTakes(week, context, standings),
-    generateWeeklyAwards(pairs, context),
-    generateWhatIfScenarios(pairs, context),
-    generateDynastyAnalysis(trades, context),
-    detectRivalries(upcomingPairs, h2hData, context),
+    generateBotDebates(picks, context, personaContextEntertainer, personaContextAnalyst),
+    generateHotTakes(week, context, standings, personaContextEntertainer, personaContextAnalyst),
+    generateWeeklyAwards(pairs, context, personaContextEntertainer, personaContextAnalyst),
+    generateWhatIfScenarios(pairs, context, personaContextEntertainer, personaContextAnalyst),
+    generateDynastyAnalysis(trades, context, personaContextEntertainer, personaContextAnalyst),
+    detectRivalries(upcomingPairs, h2hData, context, personaContextEntertainer, personaContextAnalyst),
     standings && standings.length > 0 
-      ? generatePlayoffOddsCommentary(week, standings, 6, context)
+      ? generatePlayoffOddsCommentary(week, standings, 6, context, personaContextEntertainer, personaContextAnalyst)
       : Promise.resolve(null),
     generateNarrativeCallbacks(
       week,
       previousPredictions || [],
       previousHotTakes || [],
       pairs,
-      context
+      context,
+      personaContextEntertainer,
+      personaContextAnalyst
     ),
   ]);
 

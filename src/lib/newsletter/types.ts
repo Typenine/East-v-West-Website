@@ -86,19 +86,98 @@ export interface StyleSliderConfig {
 
 // ============ Memory Types ============
 
-// Legacy team memory (kept for backward compatibility)
+// All possible team mood values (unified for type compatibility)
+export type TeamMood = 'Neutral' | 'Confident' | 'Suspicious' | 'Irritated' | 'hot' | 'cold' | 'neutral' | 'chaotic' | 'dangerous';
+
+// All possible bot mood values (unified for type compatibility)
+export type BotMood = 'Focused' | 'Fired Up' | 'Deflated' | 'Chaotic' | 'Vindicated';
+
+// Team memory - unified interface that works for both basic and enhanced
 export interface TeamMemory {
   trust: number;       // -50 to 50
   frustration: number; // 0 to 50
-  mood: 'Neutral' | 'Confident' | 'Suspicious' | 'Irritated';
+  mood: TeamMood;
+  // Optional enhanced fields (present in EnhancedTeamMemory)
+  trajectory?: 'rising' | 'falling' | 'steady' | 'volatile';
+  winStreak?: number;
+  notableEvents?: Array<{
+    week: number;
+    event: string;
+    sentiment: 'positive' | 'negative' | 'neutral';
+  }>;
+  lastAssessment?: {
+    week: number;
+    text: string;
+  };
+  seasonStats?: {
+    wins: number;
+    losses: number;
+    pointsFor: number;
+    pointsAgainst: number;
+    playoffOdds?: number;
+  };
 }
 
-// Legacy bot memory (kept for backward compatibility)
+// Bot memory - unified interface that works for both basic and enhanced
 export interface BotMemory {
   bot: BotName;
   updated_at: string;
-  summaryMood: 'Focused' | 'Fired Up' | 'Deflated';
+  summaryMood: BotMood;
   teams: Record<string, TeamMemory>;
+  // Optional enhanced fields
+  season?: number;
+  lastGeneratedWeek?: number;
+  personality?: PersonalityTraits;
+  emotionalState?: EmotionalState;
+  speechPatterns?: SpeechPatterns;
+  personalGrowth?: PersonalGrowth;
+  deepPlayerRelationships?: Record<string, DeepPlayerRelationship>;
+  deepTeamRelationships?: Record<string, DeepTeamRelationship>;
+  partnerDynamics?: {
+    recentInteractions: Array<{
+      week: number;
+      matchup?: string;
+      topic: string;
+      agreed: boolean;
+      myTake: string;
+      theirTake: string;
+      whoWasRight?: 'me' | 'them' | 'neither' | 'both';
+      memorable?: boolean;
+    }>;
+    agreementRate: number;
+    timesTheyWereRight: number;
+    timesIWasRight: number;
+    activeFeud?: {
+      topic: string;
+      myPosition: string;
+      theirPosition: string;
+      startedWeek: number;
+      intensity: 'mild' | 'heated' | 'war';
+    };
+    lessonsLearned: Array<{
+      week: number;
+      lesson: string;
+    }>;
+    insideJokes: Array<{
+      reference: string;
+      week: number;
+    }>;
+  };
+  narratives?: Narrative[];
+  predictions?: PredictionRecord[];
+  predictionStats?: {
+    correct: number;
+    wrong: number;
+    winRate: number;
+    hotStreak: number;
+    bestStreak: number;
+    worstStreak: number;
+  };
+  hotTakes?: HotTake[];
+  milestones?: SeasonMilestone[];
+  playerRelationships?: Record<string, PlayerRelationship>;
+  favoritePlayers?: string[];
+  disappointments?: string[];
 }
 
 // ============ Enhanced Memory Types (Tier 2) ============
@@ -128,7 +207,7 @@ export interface Narrative {
 }
 
 export type TeamTrajectory = 'rising' | 'falling' | 'steady' | 'volatile';
-export type TeamMoodEnhanced = 'hot' | 'cold' | 'neutral' | 'chaotic' | 'dangerous';
+// Note: TeamMoodEnhanced was removed - use TeamMood which includes all values
 
 // Player relationship tracking - how the bot feels about individual players
 export type PlayerSentiment = 'favorite' | 'trusted' | 'neutral' | 'skeptical' | 'disappointed' | 'enemy';
@@ -153,40 +232,19 @@ export interface PlayerRelationship {
   bigGamePerformance: number;  // Avg in weeks 14+ (playoffs)
 }
 
-export interface EnhancedTeamMemory {
-  // Current state
-  mood: TeamMoodEnhanced;
+/**
+ * EnhancedTeamMemory is now just TeamMemory with required enhanced fields.
+ * TeamMemory has all fields as optional, so this type makes some required.
+ */
+export type EnhancedTeamMemory = TeamMemory & {
   trajectory: TeamTrajectory;
-  
-  // Streaks (negative = loss streak)
   winStreak: number;
-  
-  // Trust/frustration from legacy
-  trust: number;
-  frustration: number;
-  
-  // Notable events this season
   notableEvents: Array<{
     week: number;
     event: string;
     sentiment: 'positive' | 'negative' | 'neutral';
   }>;
-  
-  // Bot's last written assessment
-  lastAssessment?: {
-    week: number;
-    text: string;
-  };
-  
-  // Season stats tracking
-  seasonStats?: {
-    wins: number;
-    losses: number;
-    pointsFor: number;
-    pointsAgainst: number;
-    playoffOdds?: number;
-  };
-}
+};
 
 export interface PredictionRecord {
   week: number;
@@ -447,96 +505,92 @@ export interface PersonalGrowth {
   blindSpots: string[];
 }
 
-export interface EnhancedBotMemory {
-  // Identity
-  bot: BotName;
-  season: number;
-  updated_at: string;
-  lastGeneratedWeek: number;
-  
-  // Overall mood
-  summaryMood: 'Focused' | 'Fired Up' | 'Deflated' | 'Chaotic' | 'Vindicated';
-  
-  // === NEW: Evolving Personality ===
-  personality?: PersonalityTraits;
-  emotionalState?: EmotionalState;
-  speechPatterns?: SpeechPatterns;
-  personalGrowth?: PersonalGrowth;
-  
-  // Deep relationships (replaces simple playerRelationships)
-  deepPlayerRelationships?: Record<string, DeepPlayerRelationship>;
-  deepTeamRelationships?: Record<string, DeepTeamRelationship>;
-  
-  // Running narratives (the "stories" of the season)
-  narratives: Narrative[];
-  
-  // Team-by-team assessments
-  teams: Record<string, EnhancedTeamMemory>;
-  
-  // Prediction tracking
-  predictions: PredictionRecord[];
+/**
+ * Enhanced memory shape - BotMemory with all critical enhanced fields present.
+ * Used as the narrowed type after isEnhancedMemory guard passes.
+ */
+export type EnhancedBotMemory = BotMemory & {
+  personality: PersonalityTraits;
   predictionStats: {
     correct: number;
     wrong: number;
     winRate: number;
-    hotStreak: number;    // Current correct streak (negative = wrong streak)
+    hotStreak: number;
     bestStreak: number;
     worstStreak: number;
   };
-  
-  // Hot takes archive
-  hotTakes: HotTake[];
-  
-  // Season milestones observed
-  milestones: SeasonMilestone[];
-  
-  // Relationship with the other bot - tracks ongoing dynamics
-  partnerDynamics?: {
-    // Recent agreements/disagreements
-    recentInteractions: Array<{
-      week: number;
-      matchup?: string;
-      topic: string;
-      agreed: boolean;
-      myTake: string;
-      theirTake: string;
-      whoWasRight?: 'me' | 'them' | 'neither' | 'both';
-      memorable?: boolean; // Worth referencing later
-    }>;
-    // Running tally
-    agreementRate: number; // 0-100, how often we agree
-    timesTheyWereRight: number;
-    timesIWasRight: number;
-    // Current feud if any
-    activeFeud?: {
-      topic: string;
-      myPosition: string;
-      theirPosition: string;
-      startedWeek: number;
-      intensity: 'mild' | 'heated' | 'war';
-    };
-    // Things I've learned from them
-    lessonsLearned: Array<{
-      week: number;
-      lesson: string; // "They were right about Double Trouble's ceiling"
-    }>;
-    // Running jokes or callbacks
-    insideJokes: Array<{
-      reference: string; // "Remember when you said Beer would miss playoffs?"
-      week: number;
-    }>;
-  };
-  
-  // Player relationships - how the bot feels about individual players
-  playerRelationships: Record<string, PlayerRelationship>;
-  
-  // Quick access lists for player sentiments
-  favoritePlayers: string[];      // Player IDs the bot loves
-  disappointments: string[];       // Players who let them down
-  
-  // Legacy compatibility
-  legacyTeams?: Record<string, TeamMemory>;
+  narratives: Narrative[];
+  emotionalState: EmotionalState;
+  speechPatterns: SpeechPatterns;
+};
+
+/**
+ * Canonical type guard to check if a memory object has enhanced fields.
+ * Use this instead of ad-hoc checks like `'personality' in mem`.
+ */
+export function isEnhancedMemory(mem: BotMemory): mem is EnhancedBotMemory {
+  return (
+    mem.personality !== undefined &&
+    mem.predictionStats !== undefined &&
+    mem.narratives !== undefined &&
+    mem.emotionalState !== undefined &&
+    mem.speechPatterns !== undefined
+  );
 }
+
+/**
+ * @deprecated Use isEnhancedMemory() instead. This alias exists for backwards compatibility.
+ */
+export function hasNormalizedMemory(mem: BotMemory): mem is EnhancedBotMemory {
+  return isEnhancedMemory(mem);
+}
+
+/**
+ * Default values for enhanced memory fields.
+ * Used by memory creation to ensure all fields exist.
+ */
+export const DEFAULT_PERSONALITY_TRAITS: PersonalityTraits = {
+  confidence: 50,
+  optimism: 50,
+  loyalty: 50,
+  analyticalTrust: 50,
+  grudgeLevel: 30,
+  riskTolerance: 50,
+  volatility: 40,
+  contrarianism: 40,
+  nostalgia: 30,
+  pettiness: 20,
+  patience: 50,
+  superstition: 20,
+  competitiveness: 50,
+  underdogAffinity: 50,
+  dramaAppreciation: 50,
+};
+
+export const DEFAULT_PREDICTION_STATS = {
+  correct: 0,
+  wrong: 0,
+  winRate: 0.5,
+  hotStreak: 0,
+  bestStreak: 0,
+  worstStreak: 0,
+};
+
+export const DEFAULT_SPEECH_PATTERNS: SpeechPatterns = {
+  emergingPhrases: [],
+  catchphrases: [],
+  verbalTics: [],
+  obsessions: [],
+  avoidTopics: [],
+  signatureReactions: [],
+};
+
+export const DEFAULT_PERSONAL_GROWTH: PersonalGrowth = {
+  hardLessons: [],
+  recognizedBiases: [],
+  improvements: [],
+  blindSpots: [],
+};
 
 // ============ Forecast Types ============
 

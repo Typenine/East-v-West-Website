@@ -445,7 +445,7 @@ export default function SuggestionsPage() {
                               const isVague = Boolean(s.vague);
                               const myEndorsed = !!(auth && myTeam && s.endorsers && s.endorsers.includes(myTeam));
                               return (
-                                <div key={s.id} className="p-3 rounded-[var(--radius-card)] border border-[var(--border)]" style={{ ...(isAccepted ? { boxShadow: 'inset 0 0 0 2px #16a34a33' } : {}), ...(isVague ? { boxShadow: `${isAccepted ? 'inset 0 0 0 2px #16a34a33,' : ''} inset 0 0 0 2px #f59e0b55` } : {}) }}>
+                                <div id={s.id} key={s.id} className="p-3 rounded-[var(--radius-card)] border border-[var(--border)]" style={{ ...(isAccepted ? { boxShadow: 'inset 0 0 0 2px #16a34a33' } : {}), ...(isVague ? { boxShadow: `${isAccepted ? 'inset 0 0 0 2px #16a34a33,' : ''} inset 0 0 0 2px #f59e0b55` } : {}) }}>
                                   <div className="flex items-center justify-between mb-1">
                                     <div className="font-medium">{s.title ? s.title : `Suggestion ${idx + 1}`}</div>
                                     <div className="flex items-center gap-2">

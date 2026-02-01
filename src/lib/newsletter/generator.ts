@@ -5,7 +5,8 @@
 
 import type { Newsletter, BotMemory, ForecastData } from './types';
 import { buildDerived } from './derive';
-import { createFreshMemory, ensureTeams, updateMemoryAfterWeek } from './memory';
+import { createEnhancedMemory, ensureEnhancedTeams, updateEnhancedMemoryAfterWeek, upgradeToEnhancedMemory } from './memory';
+import { isEnhancedMemory } from './types';
 import { makeForecast, gradePendingPicks, type ForecastRecords } from './forecast';
 import { composeNewsletter } from './compose';
 import { renderHtml } from './template';
@@ -77,6 +78,7 @@ export interface GenerateNewsletterInput {
   nextMatchups?: SleeperMatchup[];
   transactions: SleeperTransaction[];
   // Optional: existing memory state (load from DB)
+  // Accepts BotMemory for personality evolution
   existingMemoryEntertainer?: BotMemory | null;
   existingMemoryAnalyst?: BotMemory | null;
   // Optional: existing forecast records
@@ -117,6 +119,12 @@ export interface GenerateNewsletterResult {
       analyst_pick: string;
     }>;
   };
+  // True if compose failed but memory was still updated
+  composeFailed?: boolean;
+  // True if any section fell back to a degraded path (safeSection fallback)
+  fallbackUsed?: boolean;
+  // Names of sections that used fallbacks
+  fallbackSections?: string[];
 }
 
 // ============ Main Generator ============
@@ -169,17 +177,33 @@ export async function generateNewsletter(
   }
   const uniqueTeamNames = Array.from(new Set(teamNames));
 
-  // 3. Initialize or load memory
-  const memEntertainer = existingMemoryEntertainer || createFreshMemory('entertainer');
-  const memAnalyst = existingMemoryAnalyst || createFreshMemory('analyst');
+  // 3. Initialize or load memory - always use enhanced memory
+  // If existing memory lacks enhanced fields, upgrade it in-place
+  let memEntertainer: BotMemory;
+  if (existingMemoryEntertainer) {
+    memEntertainer = isEnhancedMemory(existingMemoryEntertainer)
+      ? existingMemoryEntertainer
+      : upgradeToEnhancedMemory(existingMemoryEntertainer, season);
+  } else {
+    memEntertainer = createEnhancedMemory('entertainer', season);
+  }
 
-  // Ensure all teams exist in memory
-  ensureTeams(memEntertainer, uniqueTeamNames);
-  ensureTeams(memAnalyst, uniqueTeamNames);
+  let memAnalyst: BotMemory;
+  if (existingMemoryAnalyst) {
+    memAnalyst = isEnhancedMemory(existingMemoryAnalyst)
+      ? existingMemoryAnalyst
+      : upgradeToEnhancedMemory(existingMemoryAnalyst, season);
+  } else {
+    memAnalyst = createEnhancedMemory('analyst', season);
+  }
 
-  // 4. Update memory based on this week's results
-  updateMemoryAfterWeek(memEntertainer, derived);
-  updateMemoryAfterWeek(memAnalyst, derived);
+  // Ensure all teams exist in memory (with enhanced fields)
+  ensureEnhancedTeams(memEntertainer, uniqueTeamNames);
+  ensureEnhancedTeams(memAnalyst, uniqueTeamNames);
+
+  // 4. Update memory based on this week's results (enhanced update with streaks, trajectories)
+  updateEnhancedMemoryAfterWeek(memEntertainer, derived, week);
+  updateEnhancedMemoryAfterWeek(memAnalyst, derived, week);
 
   // 5. Initialize or load forecast records
   let records: ForecastRecords = existingRecords || {
@@ -213,7 +237,7 @@ export async function generateNewsletter(
     records,
   };
 
-  // 8. Compose the newsletter
+  // 8. Compose the newsletter (with error recovery)
   // Convert previous predictions to the format expected by compose
   const formattedPreviousPredictions = input.previousPredictions?.map(p => ({
     week: week - 1,
@@ -222,23 +246,53 @@ export async function generateNewsletter(
     correct: false, // Will be determined by grading logic
   }));
 
-  const newsletter = await composeNewsletter({
-    leagueName,
-    week,
-    season,
-    episodeType, // Pass episode type for special newsletters
-    derived,
-    memEntertainer,
-    memAnalyst,
-    forecast: forecastWithRecords,
-    lastCallbacks: null, // Callbacks are built from previousPredictions in compose
-    enhancedContext: input.enhancedContext,
-    h2hData: input.enhancedContext?.h2hData,
-    previousPredictions: formattedPreviousPredictions,
-  });
+  let newsletter: Newsletter;
+  let html: string;
+  let composeFailed = false;
+  const qualityReport: { usedFallbacks: string[] } = { usedFallbacks: [] };
 
-  // 9. Render to HTML
-  const html = renderHtml(newsletter);
+  try {
+    newsletter = await composeNewsletter({
+      leagueName,
+      week,
+      season,
+      episodeType, // Pass episode type for special newsletters
+      derived,
+      memEntertainer,
+      memAnalyst,
+      forecast: forecastWithRecords,
+      lastCallbacks: null, // Callbacks are built from previousPredictions in compose
+      enhancedContext: input.enhancedContext,
+      h2hData: input.enhancedContext?.h2hData,
+      previousPredictions: formattedPreviousPredictions,
+    }, qualityReport);
+
+    // 9. Render to HTML
+    html = renderHtml(newsletter);
+  } catch (composeError) {
+    // Compose failed - create minimal fallback newsletter but still return updated memory
+    console.error('[Generator] Newsletter composition failed, creating fallback:', composeError);
+    composeFailed = true;
+    
+    newsletter = {
+      meta: {
+        leagueName,
+        week,
+        date: new Date().toLocaleDateString(),
+        season,
+      },
+      sections: [
+        {
+          type: 'Intro',
+          data: {
+            bot1_text: 'Newsletter generation encountered an error. Please try again.',
+            bot2_text: 'Technical difficulties. Memory and forecasts have been saved.',
+          },
+        },
+      ],
+    };
+    html = `<html><body><h1>Newsletter Generation Error</h1><p>Week ${week} newsletter failed to generate. Memory has been preserved.</p></body></html>`;
+  }
 
   return {
     newsletter,
@@ -247,6 +301,9 @@ export async function generateNewsletter(
     memoryAnalyst: memAnalyst,
     records,
     pendingPicks: newPending,
+    composeFailed, // Signal to caller that compose had issues
+    fallbackUsed: qualityReport.usedFallbacks.length > 0,
+    fallbackSections: qualityReport.usedFallbacks,
   };
 }
 
@@ -256,20 +313,24 @@ export async function generateNewsletter(
  * Simplified generator that fetches data from Sleeper API
  * This would be called from an API route
  */
+/**
+ * @deprecated Use generateNewsletter() with pre-fetched data from the API route.
+ * This function is not implemented - all Sleeper API integration happens in the API route.
+ */
 export async function generateNewsletterFromSleeper(
-  leagueId: string,
-  week: number,
-  existingState?: {
+  _leagueId: string,
+  _week: number,
+  _existingState?: {
     memoryEntertainer?: BotMemory | null;
     memoryAnalyst?: BotMemory | null;
     records?: ForecastRecords | null;
     pendingPicks?: GenerateNewsletterInput['pendingPicks'];
   }
 ): Promise<GenerateNewsletterResult> {
-  // This function would be implemented to fetch from Sleeper API
-  // For now, it's a placeholder that shows the expected interface
+  // Sleeper API integration is handled in src/app/api/newsletter/route.ts
+  // This function exists for interface compatibility only
   throw new Error(
-    'generateNewsletterFromSleeper requires Sleeper API integration. ' +
-    'Use generateNewsletter() with pre-fetched data instead.'
+    'generateNewsletterFromSleeper is deprecated. ' +
+    'Use the /api/newsletter route which handles Sleeper API integration.'
   );
 }

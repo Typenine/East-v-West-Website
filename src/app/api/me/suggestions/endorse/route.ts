@@ -6,7 +6,38 @@ import {
   getSuggestionVagueMap,
   getSuggestionVoteTagsMap,
   getSuggestionProposersMap,
+  markBallotEligibleIfThreshold,
 } from '@/server/db/queries';
+
+const DISCORD_WEBHOOK_URL = process.env.DISCORD_SUGGESTIONS_WEBHOOK_URL;
+const SITE_URL = process.env.SITE_URL;
+
+async function postBallotEligibleDiscord(suggestionId: string, eligibleCount: number) {
+  if (!DISCORD_WEBHOOK_URL) return;
+  const base = (SITE_URL || '').replace(/\/$/, '');
+  const link = base ? `${base}/suggestions#${suggestionId}` : undefined;
+  const embed = {
+    title: 'Ballot Eligible',
+    description: link ? `This suggestion has reached ${eligibleCount} eligible endorsements.` : `This suggestion has reached ${eligibleCount} eligible endorsements.`,
+    url: link,
+    color: 0x16a34a,
+    timestamp: new Date().toISOString(),
+  };
+  const payload = { content: link ? `Ballot Eligible: ${link}` : undefined, embeds: [embed], allowed_mentions: { parse: [] } };
+  const doPost = async (): Promise<Response> => fetch(DISCORD_WEBHOOK_URL!, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+  try {
+    let res = await doPost();
+    if (res.status === 429) {
+      const ra = res.headers.get('Retry-After');
+      const ms = ra ? parseFloat(ra) * 1000 : 1000;
+      await new Promise((r) => setTimeout(r, Math.min(ms, 5000)));
+      res = await doPost();
+    }
+    if (!res.ok) console.warn('[endorse] ballot webhook failed', res.status, await res.text().catch(() => ''));
+  } catch (e) {
+    console.warn('[endorse] ballot webhook error', e);
+  }
+}
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -54,6 +85,15 @@ export async function PUT(req: NextRequest) {
       ? await addSuggestionEndorsement(suggestionId, ident.team)
       : await removeSuggestionEndorsement(suggestionId, ident.team);
     if (!ok) return Response.json({ error: 'Persist failed' }, { status: 500 });
+    // If endorsed, check ballot eligibility atomically and notify once
+    if (endorse) {
+      try {
+        const { becameEligible, eligibleCount } = await markBallotEligibleIfThreshold(suggestionId);
+        if (becameEligible) postBallotEligibleDiscord(suggestionId, eligibleCount).catch(() => {});
+      } catch (e) {
+        console.warn('[endorse] ballot eligibility check failed', e);
+      }
+    }
     return Response.json({ ok: true, suggestionId, endorse });
   } catch {
     return Response.json({ error: 'Failed' }, { status: 500 });

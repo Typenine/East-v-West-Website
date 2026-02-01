@@ -19,7 +19,6 @@ import {
 // No divisions in this league - removed division logic
 
 import type { 
-  EnhancedBotMemory, 
   BotMemory,
   DerivedData,
   BotName,
@@ -170,13 +169,13 @@ function buildStandingsContext(standings: LiveStandingsContext[]): string {
   return lines.join('\n');
 }
 
-function buildBotMemoryContext(memory: EnhancedBotMemory | BotMemory | null, botName: BotName): string {
+function buildBotMemoryContext(memory: BotMemory | null, botName: BotName): string {
   if (!memory) return `No prior memory for ${botName}. This is a fresh start.`;
   
   const lines: string[] = [`${botName.toUpperCase()}'S MEMORY:`];
   
   // Check if it's enhanced memory
-  const enhanced = memory as EnhancedBotMemory;
+  const enhanced = memory as BotMemory;
   if (enhanced.narratives) {
     // Enhanced memory
     lines.push(`\nMood: ${enhanced.summaryMood}`);
@@ -214,7 +213,8 @@ function buildBotMemoryContext(memory: EnhancedBotMemory | BotMemory | null, bot
       lines.push(`\nTEAM ASSESSMENTS:`);
       teamEntries.slice(0, 5).forEach(([team, data]) => {
         const trajectory = data.trajectory ? `(${data.trajectory})` : '';
-        const streak = data.winStreak > 0 ? `W${data.winStreak}` : data.winStreak < 0 ? `L${Math.abs(data.winStreak)}` : '';
+        const winStreak = data.winStreak ?? 0;
+        const streak = winStreak > 0 ? `W${winStreak}` : winStreak < 0 ? `L${Math.abs(winStreak)}` : '';
         lines.push(`- ${team}: ${data.mood} ${trajectory} ${streak}`);
       });
     }
@@ -284,8 +284,8 @@ function buildLiveContextString(live: LiveContext): string {
 
 export function buildFullContext(
   live: LiveContext,
-  entertainerMemory: EnhancedBotMemory | BotMemory | null,
-  analystMemory: EnhancedBotMemory | BotMemory | null
+  entertainerMemory: BotMemory | null,
+  analystMemory: BotMemory | null
 ): FullContext {
   // Tier 1: Static league knowledge
   const leagueKnowledge = buildStaticLeagueContext();

@@ -8,6 +8,9 @@ import type {
   StyleSliderConfig,
   RelevanceConfig,
   DynastyConfig,
+  BotMemory,
+  BotName,
+  EpisodeType,
 } from './types';
 
 // ============ Persona Configs ============
@@ -129,3 +132,119 @@ export const TONE_RULES = {
     loss_close: ['unlucky variance', 'margins tight', 'process sound'],
   },
 };
+
+// ============ Episode-Specific Style Modifiers ============
+
+const EPISODE_STYLE_MODIFIERS: Partial<Record<EpisodeType, { exciteBoost: number; depthBoost: number; snarkBoost: number }>> = {
+  championship: { exciteBoost: 3, depthBoost: 0, snarkBoost: 2 },
+  playoffs_round: { exciteBoost: 2, depthBoost: 1, snarkBoost: 1 },
+  playoffs_preview: { exciteBoost: 2, depthBoost: 2, snarkBoost: 0 },
+  trade_deadline: { exciteBoost: 1, depthBoost: 1, snarkBoost: 2 },
+  season_finale: { exciteBoost: 2, depthBoost: 1, snarkBoost: 1 },
+  preseason: { exciteBoost: 1, depthBoost: 2, snarkBoost: 0 },
+};
+
+// ============ Merged Persona Context ============
+
+export interface MergedPersonaContext {
+  basePersona: PersonaConfig;
+  evolvedStyle: {
+    sarcasm: number;
+    excite: number;
+    depth: number;
+    snark: number;
+    pacing: 'bursty' | 'measured';
+  };
+  emotionalModifier: string;
+  personalityNotes: string[];
+}
+
+/**
+ * Merge static persona with evolved personality traits from memory and episode overrides.
+ * Returns a context object that can be used in LLM prompts.
+ */
+export function getPersonaContext(
+  role: BotName,
+  mem: BotMemory | null,
+  episodeType: EpisodeType = 'regular',
+  weekContext?: { week: number; isPlayoffs: boolean }
+): MergedPersonaContext {
+  const basePersona = role === 'entertainer' ? ENTERTAINER_PERSONA : ANALYST_PERSONA;
+  
+  // Start with base style
+  const evolvedStyle = { ...basePersona.style };
+  
+  // Apply episode modifiers
+  const episodeMod = EPISODE_STYLE_MODIFIERS[episodeType];
+  if (episodeMod) {
+    evolvedStyle.excite = Math.min(10, evolvedStyle.excite + episodeMod.exciteBoost);
+    evolvedStyle.depth = Math.min(10, evolvedStyle.depth + episodeMod.depthBoost);
+    evolvedStyle.snark = Math.min(10, evolvedStyle.snark + episodeMod.snarkBoost);
+  }
+  
+  // Apply evolved personality traits from memory (if present)
+  const personalityNotes: string[] = [];
+  let emotionalModifier = '';
+  
+  if (mem?.personality) {
+    const p = mem.personality;
+    
+    // Confidence affects sarcasm and snark
+    if (p.confidence > 70) {
+      evolvedStyle.sarcasm = Math.min(10, evolvedStyle.sarcasm + 1);
+      personalityNotes.push('Feeling confident - more bold takes');
+    } else if (p.confidence < 30) {
+      evolvedStyle.sarcasm = Math.max(0, evolvedStyle.sarcasm - 1);
+      personalityNotes.push('Confidence shaken - more measured');
+    }
+    
+    // Optimism affects excitability
+    if (p.optimism > 70) {
+      evolvedStyle.excite = Math.min(10, evolvedStyle.excite + 1);
+      personalityNotes.push('Optimistic outlook');
+    } else if (p.optimism < 30) {
+      evolvedStyle.excite = Math.max(0, evolvedStyle.excite - 1);
+      personalityNotes.push('Pessimistic this week');
+    }
+    
+    // Volatility affects pacing
+    if (p.volatility > 70 && evolvedStyle.pacing === 'measured') {
+      personalityNotes.push('More reactive than usual');
+    }
+    
+    // Grudge level affects snark
+    if (p.grudgeLevel > 60) {
+      evolvedStyle.snark = Math.min(10, evolvedStyle.snark + 1);
+      personalityNotes.push('Holding grudges - expect callbacks');
+    }
+  }
+  
+  // Apply emotional state modifier
+  if (mem?.emotionalState) {
+    const es = mem.emotionalState;
+    if (es.intensity > 50) {
+      switch (es.primary) {
+        case 'excited': emotionalModifier = 'Currently hyped up'; break;
+        case 'frustrated': emotionalModifier = 'Frustrated with recent events'; break;
+        case 'smug': emotionalModifier = 'Feeling vindicated'; break;
+        case 'anxious': emotionalModifier = 'Anxious about outcomes'; break;
+        case 'vengeful': emotionalModifier = 'Looking for payback'; break;
+        case 'nostalgic': emotionalModifier = 'In a reminiscing mood'; break;
+        case 'hopeful': emotionalModifier = 'Cautiously optimistic'; break;
+      }
+    }
+  }
+  
+  // Playoff intensity boost
+  if (weekContext?.isPlayoffs) {
+    evolvedStyle.excite = Math.min(10, evolvedStyle.excite + 1);
+    personalityNotes.push('Playoff intensity mode');
+  }
+  
+  return {
+    basePersona,
+    evolvedStyle,
+    emotionalModifier,
+    personalityNotes,
+  };
+}

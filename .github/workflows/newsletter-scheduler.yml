@@ -1,0 +1,70 @@
+name: Newsletter Scheduler
+
+on:
+  workflow_dispatch:
+    inputs:
+      season:
+        description: "Season number (e.g., 2025)"
+        required: false
+        type: string
+      week:
+        description: "Week number"
+        required: false
+        type: string
+      episodeType:
+        description: "Episode type (regular, pre_draft, post_draft, preseason)"
+        required: false
+        type: string
+      force:
+        description: "Bypass schedule gating"
+        required: false
+        type: boolean
+      preview:
+        description: "Preview mode (never persist)"
+        required: false
+        type: boolean
+  schedule:
+    # In-season retries: every 6 hours on Wednesday (UTC). Runner will gate by league timezone (ET) as needed
+    - cron: '0 */6 * * 3'
+    # Offseason checks (3x/week). Runner will no-op except on exact target days
+    - cron: '0 12 * * 1,4,6'
+
+concurrency:
+  group: newsletter-scheduler
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    env:
+      # Free-tier safety: slow + safe + fluid
+      NEWSLETTER_MAX_CONCURRENCY: '1'
+      NEWSLETTER_STRICT_PUBLISH: 'true'
+      # Optional fallbacks for offseason targeting when Sleeper/consts are not accessible
+      EVW_DRAFT_DATE_ISO: ${{ secrets.EVW_DRAFT_DATE_ISO }}
+      EVW_SEASON_START_ISO: ${{ secrets.EVW_SEASON_START_ISO }}
+      # Required secrets
+      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.x'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run newsletter generator
+        run: >-
+          npx tsx scripts/run-newsletter.mjs
+          ${{ github.event.inputs.season && format('--season {0}', github.event.inputs.season) || '' }}
+          ${{ github.event.inputs.week && format('--week {0}', github.event.inputs.week) || '' }}
+          ${{ github.event.inputs.episodeType && format('--episodeType {0}', github.event.inputs.episodeType) || '' }}
+          ${{ github.event.inputs.force == 'true' && '--force' || '' }}
+          ${{ github.event.inputs.preview == 'true' && '--preview' || '' }}

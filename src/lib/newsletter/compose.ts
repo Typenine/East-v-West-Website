@@ -27,6 +27,7 @@ import type {
   SeasonPreviewSection,
   WeeklyHotTake,
 } from './types';
+import { isEnhancedMemory } from './types';
 import { generateSection } from './llm/groq';
 import { buildStaticLeagueContext } from './league-knowledge';
 import { getEpisodeConfig } from './episodes';
@@ -35,7 +36,8 @@ import {
   type LLMFeaturesInput,
   type LLMFeaturesOutput,
 } from './llm-features';
-import { getPartnerDynamicsContext, recordBotInteraction, getPersonalityContext, evolvePersonality, updateEmotionalState } from './memory';
+import { getPartnerDynamicsContext, recordBotInteraction, getPersonalityContext, evolvePersonality, updateEmotionalState, registerEmergingPhrase } from './memory';
+import { recordHotTake } from './enhanced-context';
 
 // Helper to get episode config with type safety
 function getEpisodeConfigForType(episodeType: string, week: number, season: number) {
@@ -571,6 +573,151 @@ Consider: all-time records, championship history, recent trends, roster quality,
   return { rankings, bot1_intro, bot2_intro };
 }
 
+/**
+ * Build WEEKLY power rankings - each bot ranks all 12 teams based on current season performance
+ * This runs every week (not just preseason) and reflects how the bots' opinions evolve
+ */
+async function buildWeeklyPowerRankings(
+  week: number,
+  pairs: DerivedData['matchup_pairs'],
+  memEntertainer: BotMemory,
+  memAnalyst: BotMemory,
+  enhancedContext: string
+): Promise<PowerRankingsSection> {
+  const leagueKnowledge = buildStaticLeagueContext();
+  
+  // Extract standings from enhanced context if available
+  const standingsMatch = enhancedContext.match(/STANDINGS[^:]*:?\s*([\s\S]*?)(?=\n\n|---|$)/i);
+  const standingsContext = standingsMatch ? standingsMatch[1] : '';
+  
+  // Build bot-specific team opinions
+  const entertainerTeamOpinions: string[] = [];
+  const analystTeamOpinions: string[] = [];
+  
+  for (const [teamName, teamMem] of Object.entries(memEntertainer.teams)) {
+    const trust = teamMem.trust ?? 0;
+    const mood = teamMem.mood ?? 'Neutral';
+    if (trust > 10 || trust < -10 || mood !== 'Neutral') {
+      entertainerTeamOpinions.push(`${teamName}: Trust ${trust > 0 ? '+' : ''}${trust}, Mood: ${mood}`);
+    }
+  }
+  
+  for (const [teamName, teamMem] of Object.entries(memAnalyst.teams)) {
+    const trust = teamMem.trust ?? 0;
+    const mood = teamMem.mood ?? 'Neutral';
+    if (trust > 10 || trust < -10 || mood !== 'Neutral') {
+      analystTeamOpinions.push(`${teamName}: Trust ${trust > 0 ? '+' : ''}${trust}, Mood: ${mood}`);
+    }
+  }
+
+  const context = `${leagueKnowledge}
+
+---
+
+WEEK ${week} POWER RANKINGS
+
+You are creating power rankings based on THIS SEASON's performance through Week ${week}.
+Rank teams 1-12 based on: record, points scored, roster strength, recent performance, and trajectory.
+
+${standingsContext ? `CURRENT STANDINGS:\n${standingsContext}` : ''}
+
+${enhancedContext}
+
+YOUR OPINIONS MATTER: Let your feelings about teams influence your rankings.
+If you've been burned by a team, maybe rank them lower. If a team has impressed you, rank them higher.
+This isn't just about stats - it's about YOUR take on who's actually good.`;
+
+  // Generate entertainer's rankings
+  const entertainerRankings = await generateSection({
+    persona: 'entertainer',
+    sectionType: 'Weekly Power Rankings',
+    context: `${context}
+
+YOUR TEAM OPINIONS:
+${entertainerTeamOpinions.length > 0 ? entertainerTeamOpinions.join('\n') : 'No strong opinions yet - form some!'}
+
+Generate YOUR power rankings 1-12. Be opinionated! If you think a team is overrated, say so.
+If you're high on a team others doubt, rank them up. Let your personality show.`,
+    constraints: `Format each line as: "RANK. TeamName - [your hot take reason]"
+Example: "1. Double Trouble - They're the real deal and I've been saying it all year"
+Rank all 12 teams. Be bold, be dramatic, have opinions.`,
+    maxTokens: 600,
+  });
+
+  // Generate analyst's rankings
+  const analystRankings = await generateSection({
+    persona: 'analyst',
+    sectionType: 'Weekly Power Rankings',
+    context: `${context}
+
+YOUR TEAM OPINIONS:
+${analystTeamOpinions.length > 0 ? analystTeamOpinions.join('\n') : 'Building data on all teams.'}
+
+Generate YOUR power rankings 1-12. Base it on the numbers but don't be afraid to have takes.
+If the data says a team is good despite their record, rank them accordingly.`,
+    constraints: `Format each line as: "RANK. TeamName - [analytical reason]"
+Example: "1. Double Trouble - Best points-per-game average and favorable schedule ahead"
+Rank all 12 teams. Be measured but have opinions.`,
+    maxTokens: 600,
+  });
+
+  // Parse both rankings
+  const parseRankings = (response: string): Array<{ rank: number; team: string; blurb: string }> => {
+    const lines = response.split('\n').filter(l => l.trim() && /^\d+\./.test(l.trim()));
+    return lines.slice(0, 12).map((line, idx) => {
+      const match = line.match(/^\d+\.\s*([^-–]+)[-–]\s*(.+)/);
+      const team = match ? match[1].trim() : `Team ${idx + 1}`;
+      const blurb = match ? match[2].trim() : 'Solid team.';
+      return { rank: idx + 1, team, blurb };
+    });
+  };
+
+  const entRankings = parseRankings(entertainerRankings);
+  const anaRankings = parseRankings(analystRankings);
+
+  // Merge rankings - use entertainer's order but include both blurbs
+  const rankings: PowerRankingsSection['rankings'] = entRankings.map((ent, idx) => {
+    // Find analyst's take on this team
+    const anaMatch = anaRankings.find(a => a.team.toLowerCase() === ent.team.toLowerCase());
+    const anaRank = anaMatch ? anaRankings.indexOf(anaMatch) + 1 : idx + 1;
+    
+    // Determine trend based on rank difference
+    const rankDiff = anaRank - ent.rank;
+    const trend: 'up' | 'down' | 'steady' = Math.abs(rankDiff) <= 1 ? 'steady' : rankDiff > 0 ? 'up' : 'down';
+    
+    return {
+      rank: ent.rank,
+      team: ent.team,
+      record: '', // Will be filled from standings if available
+      pointsFor: 0,
+      trend,
+      trendAmount: Math.abs(rankDiff),
+      bot1_blurb: ent.blurb,
+      bot2_blurb: anaMatch?.blurb || 'No strong take.',
+    };
+  });
+
+  // Generate intro blurbs
+  const [bot1_intro, bot2_intro] = await Promise.all([
+    generateSection({
+      persona: 'entertainer',
+      sectionType: 'Power Rankings Intro',
+      context,
+      constraints: 'Write 1-2 sentences introducing your Week ' + week + ' power rankings. Be bold about who impressed or disappointed you.',
+      maxTokens: 100,
+    }),
+    generateSection({
+      persona: 'analyst',
+      sectionType: 'Power Rankings Intro',
+      context,
+      constraints: 'Write 1-2 sentences introducing your Week ' + week + ' power rankings. Reference key trends or data points.',
+      maxTokens: 100,
+    }),
+  ]);
+
+  return { rankings, bot1_intro, bot2_intro };
+}
+
 async function buildSeasonPreview(
   enhancedContext: string,
   memEntertainer: BotMemory,
@@ -936,7 +1083,8 @@ async function buildRecaps(
   memEntertainer: BotMemory,
   memAnalyst: BotMemory,
   week: number,
-  enhancedContext: string = ''
+  enhancedContext: string = '',
+  qualityReport?: { usedFallbacks: string[] }
 ): Promise<RecapItem[]> {
   if (pairs.length === 0) return [];
 
@@ -985,20 +1133,20 @@ async function buildRecaps(
     const analystState = buildBotMemoryContext(memAnalyst);
     
     // Get partner dynamics context (how they relate to each other)
-    // Only available for EnhancedBotMemory - check if partnerDynamics exists
+    // Only available for BotMemory - check if partnerDynamics exists
     const entertainerPartnerContext = 'partnerDynamics' in memEntertainer 
-      ? getPartnerDynamicsContext(memEntertainer as unknown as import('./types').EnhancedBotMemory)
+      ? getPartnerDynamicsContext(memEntertainer as unknown as import('./types').BotMemory)
       : '';
     const analystPartnerContext = 'partnerDynamics' in memAnalyst
-      ? getPartnerDynamicsContext(memAnalyst as unknown as import('./types').EnhancedBotMemory)
+      ? getPartnerDynamicsContext(memAnalyst as unknown as import('./types').BotMemory)
       : '';
     
     // Get evolving personality context (confidence, emotional state, speech patterns)
-    const entertainerPersonalityContext = 'personality' in memEntertainer
-      ? getPersonalityContext(memEntertainer as unknown as import('./types').EnhancedBotMemory)
+    const entertainerPersonalityContext = isEnhancedMemory(memEntertainer)
+      ? getPersonalityContext(memEntertainer)
       : '';
-    const analystPersonalityContext = 'personality' in memAnalyst
-      ? getPersonalityContext(memAnalyst as unknown as import('./types').EnhancedBotMemory)
+    const analystPersonalityContext = isEnhancedMemory(memAnalyst)
+      ? getPersonalityContext(memAnalyst)
       : '';
 
     // Build focused context for THIS specific matchup only
@@ -1036,26 +1184,7 @@ IMPORTANT RULES:
 5. If you have callbacks or inside jokes with your co-host, use them naturally when relevant.
 6. Let your current emotional state and personality traits influence HOW you say things.`;
 
-    // Analyst gets their personal history with these teams + partner dynamics + personality
-    const analystMatchupContext = `${baseMatchupContext}
-
-YOUR HISTORY WITH THESE TEAMS:
-${analystWinnerMemory || `You don't have strong feelings about ${p.winner.name} yet.`}
-${analystLoserMemory || `You don't have strong feelings about ${p.loser.name} yet.`}
-
-${analystState}
-${analystPartnerContext}
-${analystPersonalityContext}
-
-USE YOUR HISTORY: If you predicted this outcome, note it briefly. If this result surprises you based on your analysis, acknowledge it. If a team you've been tracking is confirming or defying your expectations, that's worth mentioning. Your analytical history should inform your perspective.
-
-IMPORTANT RULES:
-1. Write ONLY about ${p.winner.name} and ${p.loser.name}. Do not mention any other teams.
-2. Reference the TOP PERFORMERS listed above - these are the actual players who scored in this game.
-3. Let your analytical history inform your take - but analyze the game, don't just recite your past positions.
-4. Do NOT make up statistics - focus on THIS game and what it means.
-5. If you have callbacks or inside jokes with your co-host, use them naturally when relevant.
-6. Let your current emotional state and personality traits influence HOW you say things.`;
+    // Note: Analyst context is included directly in fullDialoguePrompt below
 
     const isChampionship = isChampionshipWeek && bracketInfo.includes('Championship');
     
@@ -1143,12 +1272,14 @@ IMPORTANT RULES:
     if (interestFactors.someoneVindicated) interestScore += 1; // "I told you so" moments
     if (interestFactors.someoneBurned) interestScore += 2; // Eating crow is dramatic
     
-    // Dialogue length: 2 turns (boring), 3 turns (normal), 4+ turns (heated/interesting)
-    // Min 2, max 5 - but championship ALWAYS gets at least 4 turns
-    const baseDialogueTurns = Math.min(5, Math.max(2, Math.floor(interestScore / 2)));
-    const dialogueTurns = isChampionship ? Math.max(4, baseDialogueTurns) : baseDialogueTurns;
+    // Interest level determines how much the bots WANT to talk - but they decide the actual length
+    // We just give them context about how interesting this game is
+    const interestLevel = isChampionship ? 'extremely high' : 
+                          interestScore >= 8 ? 'very high' :
+                          interestScore >= 5 ? 'moderate' :
+                          interestScore >= 3 ? 'low' : 'minimal';
     
-    console.log(`[Dialogue] ${p.winner.name} vs ${p.loser.name}: interest=${interestScore}, turns=${dialogueTurns}, championship=${isChampionship}`);
+    console.log(`[Dialogue] ${p.winner.name} vs ${p.loser.name}: interest=${interestScore} (${interestLevel}), championship=${isChampionship}`);
     
     // Build rich situational context for more nuanced dialogue
     const buildSituationalHooks = (): string[] => {
@@ -1199,9 +1330,7 @@ IMPORTANT RULES:
     };
     
     const situationalHooks = buildSituationalHooks();
-    const hooksContext = situationalHooks.length > 0 
-      ? `\n\nNARRATIVE HOOKS (use these naturally, don't force all of them):\n${situationalHooks.join('\n')}`
-      : '';
+    // Note: situationalHooks array is used directly in fullDialoguePrompt
     
     // Build debate angle suggestions based on the matchup
     const getDebateAngles = (): string => {
@@ -1223,14 +1352,10 @@ IMPORTANT RULES:
       return angles.length > 0 ? `\nPOTENTIAL DEBATE ANGLES: ${angles.join(' OR ')}` : '';
     };
     
-    const debateAngles = dialogueTurns > 2 ? getDebateAngles() : '';
+    // Include debate angles for interesting games
+    const debateAngles = (interestLevel === 'very high' || interestLevel === 'extremely high' || isChampionship) ? getDebateAngles() : '';
     
-    // Build analyst-specific hooks (swap perspective)
-    const analystHooksContext = situationalHooks.length > 0 
-      ? `\n\nNARRATIVE HOOKS (use naturally):\n${situationalHooks.map(h => 
-          h.replace('YOU (Entertainer)', 'The Entertainer').replace('✓ The Analyst', '✓ YOU (Analyst)').replace('⚠️ The Analyst', '⚠️ YOU (Analyst)')
-        ).join('\n')}`
-      : '';
+    // Note: Hooks are used directly in fullDialoguePrompt, perspective swapping handled there
     
     // RANDOMIZE who starts the conversation - not always the same pattern!
     // Factors that influence who starts:
@@ -1245,106 +1370,148 @@ IMPORTANT RULES:
     
     const starterBot = analystShouldStart ? 'analyst' : 'entertainer';
     
-    // Different opener styles based on who's starting
-    const openerStyles = starterBot === 'entertainer' 
-      ? [
-          'hot take', 'emotional reaction', 'bold claim', 'callback to previous prediction',
-          'dramatic opener', 'rhetorical question', 'celebration or frustration'
-        ]
-      : [
-          'stat-driven observation', 'analytical breakdown', 'trend identification',
-          'measured assessment', 'data point highlight', 'process-focused take'
-        ];
+    // Opener style is determined by the LLM based on starterBot and context
     
-    // EFFICIENT DIALOGUE GENERATION: Generate entire conversation in ONE API call
-    // This dramatically reduces API calls (from 2-5 per matchup to just 1)
-    // while maintaining quality through detailed prompting
+    // FREE-FORM DIALOGUE GENERATION
+    // Let the bots talk as much or as little as they want based on their interest
+    // No scripted turn counts - just give them context and let them go
     
     const dialogue: Array<{ speaker: 'entertainer' | 'analyst'; text: string }> = [];
     
-    // Build turn-by-turn format template based on dialogueTurns
-    const buildTurnTemplate = (): string => {
-      const turns: string[] = [];
-      let currentSpeaker = starterBot;
-      
-      for (let i = 1; i <= dialogueTurns; i++) {
-        const speaker = currentSpeaker.toUpperCase();
-        let turnType = '';
-        if (i === 1) turnType = 'opening take';
-        else if (i === 2) turnType = 'response';
-        else if (i === dialogueTurns) turnType = 'final word';
-        else turnType = 'follow-up';
-        
-        turns.push(`${speaker}: [${turnType} - 1-3 sentences]`);
-        currentSpeaker = currentSpeaker === 'entertainer' ? 'analyst' : 'entertainer';
-      }
-      
-      return turns.join('\n');
-    };
+    // Build rich historical context for this specific matchup
+    const winnerRecord = teamRecords.get(p.winner.name) || '';
+    const loserRecord = teamRecords.get(p.loser.name) || '';
     
-    // Build a comprehensive prompt that generates the full dialogue at once
-    const fullDialoguePrompt = `Generate a ${dialogueTurns}-turn dialogue between two fantasy football analysts discussing this matchup.
+    // Extract H2H history if available from enhanced context
+    const h2hPattern = new RegExp(`${p.winner.name}.*vs.*${p.loser.name}|${p.loser.name}.*vs.*${p.winner.name}`, 'i');
+    const h2hMatch = enhancedContext.match(new RegExp(`(${h2hPattern.source}[^\\n]*(?:\\n[^\\n-][^\\n]*)*)`, 'i'));
+    const h2hHistory = h2hMatch ? h2hMatch[1].trim() : '';
+    
+    // Extract any narratives about these teams from enhanced context
+    const narrativePattern = new RegExp(`(${p.winner.name}|${p.loser.name})[^\\n]*narrative|story|saga`, 'gi');
+    const narrativeMatches = enhancedContext.match(narrativePattern);
+    const narrativeContext = narrativeMatches ? narrativeMatches.slice(0, 2).join('; ') : '';
+    
+    // Build a prompt that provides rich context but encourages NATURAL use of it
+    const fullDialoguePrompt = `You are two fantasy football analysts having a natural conversation about a game result.
 
-MATCHUP RESULT:
+=== THE GAME ===
 ${p.winner.name} defeated ${p.loser.name}
-Score: ${p.winner.points.toFixed(1)} - ${p.loser.points.toFixed(1)} (margin: ${p.margin.toFixed(1)})
-Winner's top performers: ${winnerPlayers}
-Loser's top performers: ${loserPlayers}
-${isChampionship ? '🏆 THIS IS THE CHAMPIONSHIP GAME! This deserves extended discussion!' : ''}
-${p.margin > 25 ? 'This was a BLOWOUT.' : p.margin < 5 ? 'This was a NAIL-BITER!' : ''}
+Final: ${p.winner.points.toFixed(1)} - ${p.loser.points.toFixed(1)} (margin: ${p.margin.toFixed(1)})
+${isChampionship ? '🏆 THIS IS THE CHAMPIONSHIP GAME - THE BIGGEST GAME OF THE SEASON!' : ''}
+${isPlayoffs ? '🏈 PLAYOFF GAME' : ''}
+${p.margin > 40 ? '💀 ABSOLUTE DESTRUCTION' : p.margin > 25 ? '📢 BLOWOUT' : p.margin < 3 ? '😱 PHOTO FINISH' : p.margin < 8 ? '😰 NAIL-BITER' : ''}
 
-THE ENTERTAINER:
-- Personality: Emotional, dramatic, loves hot takes, holds grudges, lives for chaos
-- Style: ${openerStyles.join(', ')}
-${entertainerBurned ? `- GOT BURNED: They trusted ${p.loser.name} or doubted ${p.winner.name} - acknowledge this!` : ''}
-${entertainerVindicated ? `- VINDICATED: They called this one right - can take a victory lap` : ''}
-${entertainerPersonalityContext ? `- Current state: ${entertainerPersonalityContext.replace(/\n/g, ' ')}` : ''}
+=== KEY PERFORMERS ===
+${p.winner.name}'s heroes: ${winnerPlayers}
+${p.loser.name}'s top scorers: ${loserPlayers}
 
-THE ANALYST:
-- Personality: Data-driven, measured, trusts the process, analytical
-- Style: stat-driven observation, trend identification, measured assessment
-${analystBurned ? `- GOT BURNED: Their analysis didn't hold up - acknowledge briefly` : ''}
-${analystVindicated ? `- VINDICATED: The numbers were right - note it professionally` : ''}
-${analystPersonalityContext ? `- Current state: ${analystPersonalityContext.replace(/\n/g, ' ')}` : ''}
+=== BACKGROUND KNOWLEDGE (use naturally, don't force) ===
+${winnerRecord ? `${p.winner.name} all-time: ${winnerRecord}` : ''}
+${loserRecord ? `${p.loser.name} all-time: ${loserRecord}` : ''}
+${h2hHistory ? `Head-to-head history: ${h2hHistory}` : ''}
+${narrativeContext ? `Ongoing storylines: ${narrativeContext}` : ''}
+${isChampionship ? `${p.winner.name} IS NOW THE CHAMPION. This is their crowning moment.` : ''}
 
-CRITICAL: Generate EXACTLY ${dialogueTurns} turns of dialogue. ${isChampionship ? 'This is the championship - they should go back and forth, building on each other\'s points, maybe disagreeing, making predictions.' : ''}
+=== THE ENTERTAINER ===
+${entertainerState}
+${entertainerWinnerMemory ? `History with ${p.winner.name}: ${entertainerWinnerMemory}` : ''}
+${entertainerLoserMemory ? `History with ${p.loser.name}: ${entertainerLoserMemory}` : ''}
+${entertainerBurned ? `⚠️ GOT BURNED THIS WEEK - trusted ${p.loser.name} or doubted ${p.winner.name}` : ''}
+${entertainerVindicated ? `✓ VINDICATED - called this one right` : ''}
+${entertainerPersonalityContext}
+${entertainerPartnerContext}
+
+=== THE ANALYST ===
+${analystState}
+${analystWinnerMemory ? `History with ${p.winner.name}: ${analystWinnerMemory}` : ''}
+${analystLoserMemory ? `History with ${p.loser.name}: ${analystLoserMemory}` : ''}
+${analystBurned ? `⚠️ GOT BURNED - analysis didn't hold up` : ''}
+${analystVindicated ? `✓ VINDICATED - the numbers were right` : ''}
+${analystPersonalityContext}
+${analystPartnerContext}
+
+=== CONVERSATION ENERGY: ${interestLevel.toUpperCase()} ===
+${isChampionship ? `This is THE moment. Crown the champion. Roast the runner-up. Talk legacy, what this means, predictions for next year. Go DEEP - 6-10 exchanges minimum. This conversation should feel like a celebration/post-mortem.` : ''}
+${interestLevel === 'very high' && !isChampionship ? `Major storylines here. Dig in - 4-6 exchanges. Explore what this means.` : ''}
+${interestLevel === 'moderate' ? `Solid game worth discussing. 3-4 exchanges.` : ''}
+${interestLevel === 'low' || interestLevel === 'minimal' ? `Not much drama. Quick 2-3 exchanges and move on.` : ''}
+
 ${debateAngles}
+${situationalHooks.length > 0 ? `\nPOTENTIAL ANGLES (pick what feels natural):\n${situationalHooks.slice(0, 3).join('\n')}` : ''}
 
-FORMAT - Generate EXACTLY this many lines (${dialogueTurns} total):
-${buildTurnTemplate()}`;
+=== HOW TO USE THIS CONTEXT ===
+- DON'T force-mention everything. Use what feels natural to the conversation.
+- DO let your history with teams color your reactions (if you've been burned by a team, show it)
+- DO reference specific players who performed - they're the story
+- DO build on each other's points - agree, disagree, push back, concede
+- DO let your personality show - the entertainer is dramatic, the analyst is measured
+- DON'T just list facts - have a CONVERSATION with opinions and reactions
+- If you have an inside joke or callback with your co-host, use it naturally
+- The conversation should flow like two people who know each other well
 
-    // Single API call for the entire dialogue
-    // Token budget: ~80 tokens per turn, plus buffer
-    const tokenBudget = Math.max(300, dialogueTurns * 100 + 100);
+=== OUTPUT FORMAT ===
+Each line starts with "ENTERTAINER:" or "ANALYST:"
+Alternate speakers. No other formatting.
+${starterBot === 'entertainer' ? 'Entertainer speaks first.' : 'Analyst speaks first.'}
+
+BEGIN:`;
+
+    // GENEROUS token budget - let them talk
+    // Championship/high interest: 800 tokens (can support 8+ turns)
+    // Moderate: 500 tokens (4-5 turns)
+    // Low: 300 tokens (2-3 turns)
+    const tokenBudget = isChampionship ? 800 : 
+                        interestLevel === 'very high' ? 600 :
+                        interestLevel === 'moderate' ? 400 : 250;
+    
     const fullDialogue = await generateSection({
-      persona: starterBot, // Use starter's persona config for temperature
-      sectionType: `${bracketInfo} Full Dialogue`,
+      persona: starterBot,
+      sectionType: `${bracketInfo} Dialogue`,
       context: `${seasonalContext}\n${entertainerMatchupContext}`,
       constraints: fullDialoguePrompt,
-      maxTokens: isChampionship ? Math.max(500, tokenBudget) : tokenBudget,
+      maxTokens: tokenBudget,
     });
     
-    // Parse the dialogue response
+    // Parse the dialogue response - handle various LLM output formats
     const lines = fullDialogue.trim().split('\n').filter(line => line.trim());
+    console.log(`[Dialogue] Raw response has ${lines.length} lines for ${p.winner.name} vs ${p.loser.name}, interest=${interestLevel}`);
+    
     for (const line of lines) {
-      const entertainerMatch = line.match(/^ENTERTAINER:\s*(.+)/i);
-      const analystMatch = line.match(/^ANALYST:\s*(.+)/i);
+      // Clean up common LLM formatting artifacts
+      const cleanLine = line
+        .replace(/^\*\*/, '')
+        .replace(/\*\*$/, '')
+        .replace(/^\[/, '')
+        .replace(/\]/, '')
+        .replace(/^[-•]\s*/, '')
+        .trim();
+      
+      // Flexible regex patterns
+      const entertainerMatch = cleanLine.match(/^(?:the\s+)?entertainer[:\s]+(.+)/i);
+      const analystMatch = cleanLine.match(/^(?:the\s+)?analyst[:\s]+(.+)/i);
       
       if (entertainerMatch) {
-        dialogue.push({ speaker: 'entertainer', text: entertainerMatch[1].trim() });
+        const text = entertainerMatch[1].replace(/^\*\*/, '').replace(/\*\*$/, '').replace(/^["']/, '').replace(/["']$/, '').trim();
+        if (text) dialogue.push({ speaker: 'entertainer', text });
       } else if (analystMatch) {
-        dialogue.push({ speaker: 'analyst', text: analystMatch[1].trim() });
+        const text = analystMatch[1].replace(/^\*\*/, '').replace(/\*\*$/, '').replace(/^["']/, '').replace(/["']$/, '').trim();
+        if (text) dialogue.push({ speaker: 'analyst', text });
       }
     }
     
-    console.log(`[Dialogue] Parsed ${dialogue.length}/${dialogueTurns} turns for ${p.winner.name} vs ${p.loser.name}`);
-    if (dialogue.length < dialogueTurns) {
-      console.log(`[Dialogue] Raw response:\n${fullDialogue.substring(0, 500)}...`);
+    console.log(`[Dialogue] Parsed ${dialogue.length} turns for ${p.winner.name} vs ${p.loser.name}`);
+    if (dialogue.length < 2) {
+      console.log(`[Dialogue] Raw response:\n${fullDialogue.substring(0, 800)}`);
     }
     
-    // Fallback if parsing failed - generate simple 2-turn dialogue
+    // Fallback only if parsing completely failed
     if (dialogue.length < 2) {
       console.log(`[Dialogue] Parsing failed for ${p.winner.name} vs ${p.loser.name}, using fallback`);
+      if (qualityReport) {
+        if (!Array.isArray(qualityReport.usedFallbacks)) qualityReport.usedFallbacks = [];
+        qualityReport.usedFallbacks.push('Recaps.DialogueParse');
+      }
       dialogue.length = 0; // Clear any partial results
       dialogue.push({ 
         speaker: 'entertainer', 
@@ -1378,7 +1545,7 @@ ${buildTurnTemplate()}`;
     // Record for entertainer's memory
     if ('partnerDynamics' in memEntertainer || true) {
       recordBotInteraction(
-        memEntertainer as unknown as import('./types').EnhancedBotMemory,
+        memEntertainer as unknown as import('./types').BotMemory,
         week,
         {
           matchup: matchupTopic,
@@ -1394,7 +1561,7 @@ ${buildTurnTemplate()}`;
     // Record for analyst's memory (from their perspective)
     if ('partnerDynamics' in memAnalyst || true) {
       recordBotInteraction(
-        memAnalyst as unknown as import('./types').EnhancedBotMemory,
+        memAnalyst as unknown as import('./types').BotMemory,
         week,
         {
           matchup: matchupTopic,
@@ -1410,8 +1577,13 @@ ${buildTurnTemplate()}`;
     // Evolve personality based on this matchup's outcome
     // This is how the bots learn and change over time
     // Only apply if the memory has the enhanced personality fields
-    const memEntEnhanced = 'personality' in memEntertainer ? memEntertainer as unknown as import('./types').EnhancedBotMemory : null;
-    const memAnaEnhanced = 'personality' in memAnalyst ? memAnalyst as unknown as import('./types').EnhancedBotMemory : null;
+    const memEntEnhanced = isEnhancedMemory(memEntertainer) ? memEntertainer : null;
+    const memAnaEnhanced = isEnhancedMemory(memAnalyst) ? memAnalyst : null;
+    
+    // TODO: Wire registerEmergingPhrase() here once we have a good source of short phrases.
+    // Current candidates (hot takes, intro text) are full sentences, not catchphrase-style.
+    // Need: LLM to extract 2-3 word phrases from generated content, or a dedicated
+    // "hook line" field in recap output. Don't add speculative extraction logic.
     
     if (memEntEnhanced) {
       if (entertainerVindicated) {
@@ -1550,7 +1722,7 @@ export interface ComposeNewsletterInput {
   previousHotTakes?: WeeklyHotTake[];
 }
 
-export async function composeNewsletter(input: ComposeNewsletterInput): Promise<Newsletter> {
+export async function composeNewsletter(input: ComposeNewsletterInput, qualityReport?: { usedFallbacks: string[] }): Promise<Newsletter> {
   const {
     leagueName,
     week,
@@ -1595,24 +1767,54 @@ export async function composeNewsletter(input: ComposeNewsletterInput): Promise<
     console.log(`[Compose] Using legacy enhanced context: standings=${!!enhancedContext?.standings}, topScorers=${!!enhancedContext?.topScorers}, predictions=${!!enhancedContext?.previousPredictions}, byes=${!!enhancedContext?.byeTeams}`);
   }
 
+  // Helper to wrap section builders with error recovery
+  async function safeSection<T>(
+    name: string,
+    builder: () => Promise<T>,
+    fallback: T
+  ): Promise<T> {
+    try {
+      return await builder();
+    } catch (error) {
+      console.error(`[Compose] Section "${name}" failed, using fallback:`, error);
+      if (qualityReport) {
+        if (!Array.isArray(qualityReport.usedFallbacks)) qualityReport.usedFallbacks = [];
+        qualityReport.usedFallbacks.push(name);
+      }
+      return fallback;
+    }
+  }
+
+  // Fallback content for failed sections
+  const fallbackIntro: IntroSection = {
+    bot1_text: `Week ${week} is in the books. Let's break it down.`,
+    bot2_text: `The numbers tell an interesting story this week.`,
+  };
+  const fallbackFinalWord: FinalWordSection = {
+    bot1: 'Until next week, keep the faith.',
+    bot2: 'The data will guide us. See you next week.',
+  };
+
   // Build all sections using LLM (run in parallel where possible)
-  // Pass episode type and season to buildIntro for special episode handling
+  // Each section is wrapped in error recovery to prevent one failure from killing the whole newsletter
   const [intro, waiverItems, tradeItems, spotlight, finalWord, recaps] = await Promise.all([
-    buildIntro(week, pairs, events, memEntertainer, memAnalyst, fullEnhancedContext, episodeType, season),
-    excludeSections.has('WaiversAndFA') ? Promise.resolve([]) : buildWaiverItems(events),
-    excludeSections.has('Trades') ? Promise.resolve([]) : buildTradeItems(events),
-    excludeSections.has('SpotlightTeam') ? Promise.resolve(null) : buildSpotlight(pairs, memEntertainer, memAnalyst, fullEnhancedContext),
-    buildFinalWord(week, episodeType),
-    excludeSections.has('MatchupRecaps') ? Promise.resolve([]) : buildRecaps(pairs, memEntertainer, memAnalyst, week, fullEnhancedContext),
+    safeSection('Intro', () => buildIntro(week, pairs, events, memEntertainer, memAnalyst, fullEnhancedContext, episodeType, season), fallbackIntro),
+    excludeSections.has('WaiversAndFA') ? Promise.resolve([]) : safeSection('WaiversAndFA', () => buildWaiverItems(events), []),
+    excludeSections.has('Trades') ? Promise.resolve([]) : safeSection('Trades', () => buildTradeItems(events), []),
+    excludeSections.has('SpotlightTeam') ? Promise.resolve(null) : safeSection('Spotlight', () => buildSpotlight(pairs, memEntertainer, memAnalyst, fullEnhancedContext), null),
+    safeSection('FinalWord', () => buildFinalWord(week, episodeType), fallbackFinalWord),
+    excludeSections.has('MatchupRecaps') ? Promise.resolve([]) : safeSection('Recaps', () => buildRecaps(pairs, memEntertainer, memAnalyst, week, fullEnhancedContext, qualityReport), []),
   ]);
 
-  console.log(`[Compose] Core sections generated via LLM`);
+  console.log(`[Compose] Core sections generated via LLM (with error recovery)`);
 
   // Generate all new LLM-powered features (debates, hot takes, awards, etc.)
   let llmFeatures: LLMFeaturesOutput | null = null;
   if (episodeType === 'regular' && pairs.length > 0) {
     console.log(`[Compose] Generating LLM-powered features (debates, hot takes, awards, etc.)...`);
     try {
+      const personaCtxEnt = `${getPersonalityContext(memEntertainer)}${getPartnerDynamicsContext(memEntertainer)}`;
+      const personaCtxAna = `${getPersonalityContext(memAnalyst)}${getPartnerDynamicsContext(memAnalyst)}`;
       const llmInput: LLMFeaturesInput = {
         week,
         pairs,
@@ -1624,9 +1826,43 @@ export async function composeNewsletter(input: ComposeNewsletterInput): Promise<
         previousPredictions,
         previousHotTakes,
         context: fullEnhancedContext,
+        personaContextEntertainer: personaCtxEnt,
+        personaContextAnalyst: personaCtxAna,
       };
       llmFeatures = await generateAllLLMFeatures(llmInput);
       console.log(`[Compose] LLM features generated: ${llmFeatures.debates.length} debates, ${llmFeatures.hotTakes.length} hot takes, ${llmFeatures.whatIfs.length} what-ifs`);
+
+      // Persist hot takes into memory (enhanced only) and register short emerging phrases safely
+      if (llmFeatures.hotTakes && llmFeatures.hotTakes.length > 0) {
+        for (const ht of llmFeatures.hotTakes) {
+          if (ht.bot === 'entertainer' && isEnhancedMemory(memEntertainer)) {
+            recordHotTake(memEntertainer, {
+              week: ht.week,
+              take: ht.take,
+              subject: ht.subject,
+              boldness: ht.boldness,
+            });
+            const phrase = (ht.subject || '').trim();
+            const wordCount = phrase.split(/\s+/).filter(Boolean).length;
+            if (phrase && wordCount >= 2 && wordCount <= 3) {
+              registerEmergingPhrase(memEntertainer, phrase, 'Hot Take subject', week, `HotTake: ${ht.take}`);
+            }
+          }
+          if (ht.bot === 'analyst' && isEnhancedMemory(memAnalyst)) {
+            recordHotTake(memAnalyst, {
+              week: ht.week,
+              take: ht.take,
+              subject: ht.subject,
+              boldness: ht.boldness,
+            });
+            const phrase = (ht.subject || '').trim();
+            const wordCount = phrase.split(/\s+/).filter(Boolean).length;
+            if (phrase && wordCount >= 2 && wordCount <= 3) {
+              registerEmergingPhrase(memAnalyst, phrase, 'Hot Take subject', week, `HotTake: ${ht.take}`);
+            }
+          }
+        }
+      }
     } catch (error) {
       console.error(`[Compose] Failed to generate LLM features:`, error);
     }
@@ -1640,16 +1876,30 @@ export async function composeNewsletter(input: ComposeNewsletterInput): Promise<
     { type: 'Intro', data: intro },
   ];
 
+  // Build WEEKLY power rankings for regular episodes (each bot ranks all 12 teams)
+  // This is different from preseason rankings - it reflects current season performance
+  if (episodeType === 'regular' && pairs.length > 0 && !excludeSections.has('PowerRankings')) {
+    console.log(`[Compose] Building weekly power rankings...`);
+    const weeklyPowerRankings = await safeSection('WeeklyPowerRankings', 
+      () => buildWeeklyPowerRankings(week, pairs, memEntertainer, memAnalyst, fullEnhancedContext),
+      null
+    );
+    if (weeklyPowerRankings) {
+      sections.push({ type: 'PowerRankings', data: weeklyPowerRankings });
+      console.log(`[Compose] Weekly power rankings built successfully`);
+    }
+  }
+
   // Build special episode sections for preseason
   if (episodeType === 'preseason') {
     console.log(`[Compose] Building preseason-specific sections...`);
     const [powerRankings, seasonPreview] = await Promise.all([
-      buildPowerRankings(fullEnhancedContext, memEntertainer, memAnalyst, season),
-      buildSeasonPreview(fullEnhancedContext, memEntertainer, memAnalyst, season),
+      safeSection('PreseasonRankings', () => buildPowerRankings(fullEnhancedContext, memEntertainer, memAnalyst, season), null),
+      safeSection('SeasonPreview', () => buildSeasonPreview(fullEnhancedContext, memEntertainer, memAnalyst, season), null),
     ]);
-    sections.push({ type: 'PowerRankings', data: powerRankings });
-    sections.push({ type: 'SeasonPreview', data: seasonPreview });
-    console.log(`[Compose] Preseason sections built successfully`);
+    if (powerRankings) sections.push({ type: 'PowerRankings', data: powerRankings });
+    if (seasonPreview) sections.push({ type: 'SeasonPreview', data: seasonPreview });
+    console.log(`[Compose] Preseason sections built (with error recovery)`);
   }
 
   if (lastCallbacks && !excludeSections.has('Callbacks')) {

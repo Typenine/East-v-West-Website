@@ -5,7 +5,9 @@
  */
 
 import type { UpcomingPair, MatchupPair, BotMemory, ForecastData, ForecastPick } from './types';
+import { isEnhancedMemory } from './types';
 import { generateSection } from './llm/groq';
+import { recordPrediction } from './enhanced-context';
 
 // ============ Forecast Generation ============
 
@@ -70,19 +72,23 @@ export function makeForecastSync(input: ForecastInput): ForecastResult {
     const entScore1 = t1TrustEnt + (t1LastScore > 120 ? 5 : 0);
     const entScore2 = t2TrustEnt + (t2LastScore > 120 ? 5 : 0);
     const bot1_pick = entScore1 >= entScore2 ? team1 : team2;
-    const confidence_bot1: 'high' | 'medium' | 'low' = Math.abs(entScore1 - entScore2) > 10 ? 'high' : Math.abs(entScore1 - entScore2) > 5 ? 'medium' : 'low';
+    let confidence_bot1: 'high' | 'medium' | 'low' = Math.abs(entScore1 - entScore2) > 10 ? 'high' : Math.abs(entScore1 - entScore2) > 5 ? 'medium' : 'low';
 
     const anaScore1 = t1TrustAna + (t1LastScore / 10);
     const anaScore2 = t2TrustAna + (t2LastScore / 10);
     const bot2_pick = anaScore1 >= anaScore2 ? team1 : team2;
-    const confidence_bot2: 'high' | 'medium' | 'low' = Math.abs(anaScore1 - anaScore2) > 15 ? 'high' : Math.abs(anaScore1 - anaScore2) > 8 ? 'medium' : 'low';
+    let confidence_bot2: 'high' | 'medium' | 'low' = Math.abs(anaScore1 - anaScore2) > 15 ? 'high' : Math.abs(anaScore1 - anaScore2) > 8 ? 'medium' : 'low';
+
+    // Calibrate confidence conservatively using historical accuracy
+    confidence_bot1 = calibrateConfidence(confidence_bot1, memEntertainer.predictionStats);
+    confidence_bot2 = calibrateConfidence(confidence_bot2, memAnalyst.predictionStats);
 
     const upset_bot1 = (bot1_pick === team1 && t2LastScore > t1LastScore + 20) ||
                        (bot1_pick === team2 && t1LastScore > t2LastScore + 20);
     const upset_bot2 = (bot2_pick === team1 && t2LastScore > t1LastScore + 20) ||
                        (bot2_pick === team2 && t1LastScore > t2LastScore + 20);
 
-    picks.push({
+    const pick: ForecastPick = {
       matchup_id: pair.matchup_id,
       team1,
       team2,
@@ -94,7 +100,33 @@ export function makeForecastSync(input: ForecastInput): ForecastResult {
       note_bot2: upset_bot2 ? 'Variance play.' : confidence_bot2 === 'high' ? 'Process favors this outcome.' : undefined,
       upset_bot1,
       upset_bot2,
-    });
+    };
+
+    // Record predictions into memory (enhanced only)
+    if (isEnhancedMemory(memEntertainer)) {
+      recordPrediction(memEntertainer, {
+        week: nextWeek,
+        matchupId: pair.matchup_id,
+        team1,
+        team2,
+        pick: bot1_pick,
+        confidence: confidence_bot1,
+        reasoning: pick.note_bot1,
+      });
+    }
+    if (isEnhancedMemory(memAnalyst)) {
+      recordPrediction(memAnalyst, {
+        week: nextWeek,
+        matchupId: pair.matchup_id,
+        team1,
+        team2,
+        pick: bot2_pick,
+        confidence: confidence_bot2,
+        reasoning: pick.note_bot2,
+      });
+    }
+
+    picks.push(pick);
 
     pendingPicks.push({ matchup_id: pair.matchup_id, entertainer_pick: bot1_pick, analyst_pick: bot2_pick });
 
@@ -191,6 +223,7 @@ export async function makeForecast(input: ForecastInput): Promise<ForecastResult
 1. [TEAM1 vs TEAM2]: Pick: [WINNER] | Confidence: [high/medium/low] | Reason: [brief reason]
 Be bold! Trust your gut. Pick upsets when you feel it. Consider injuries!`,
         maxTokens: 400,
+        validate: (txt) => /Pick:\s*/i.test(txt) && /Confidence:\s*/i.test(txt),
       }),
       generateSection({
         persona: 'analyst',
@@ -200,6 +233,7 @@ Be bold! Trust your gut. Pick upsets when you feel it. Consider injuries!`,
 1. [TEAM1 vs TEAM2]: Pick: [WINNER] | Confidence: [high/medium/low] | Reason: [brief reason]
 Use data and trends. Consider sample size, regression, and injury impact.`,
         maxTokens: 400,
+        validate: (txt) => /Pick:\s*/i.test(txt) && /Confidence:\s*/i.test(txt),
       }),
       // Bold player predictions
       topPlayers && topPlayers.length > 0 ? generateSection({
@@ -219,7 +253,39 @@ Use data and trends. Consider sample size, regression, and injury impact.`,
     ]);
 
     // Parse LLM responses into structured picks
-    const picks = parseLLMPredictions(upcoming_pairs, entertainerResponse, analystResponse);
+    const basePicks = parseLLMPredictions(upcoming_pairs, entertainerResponse, analystResponse);
+
+    // Calibrate confidence and record predictions into memory (enhanced only)
+    const picks = basePicks.map(p => {
+      const c1 = calibrateConfidence(p.confidence_bot1, input.memEntertainer.predictionStats);
+      const c2 = calibrateConfidence(p.confidence_bot2, input.memAnalyst.predictionStats);
+
+      if (isEnhancedMemory(input.memEntertainer)) {
+        recordPrediction(input.memEntertainer, {
+          week: nextWeek,
+          matchupId: p.matchup_id,
+          team1: p.team1,
+          team2: p.team2,
+          pick: p.bot1_pick,
+          confidence: c1,
+          reasoning: p.note_bot1,
+        });
+      }
+      if (isEnhancedMemory(input.memAnalyst)) {
+        recordPrediction(input.memAnalyst, {
+          week: nextWeek,
+          matchupId: p.matchup_id,
+          team1: p.team1,
+          team2: p.team2,
+          pick: p.bot2_pick,
+          confidence: c2,
+          reasoning: p.note_bot2,
+        });
+      }
+
+      return { ...p, confidence_bot1: c1, confidence_bot2: c2 };
+    });
+
     const pendingPicks = picks.map(p => ({ matchup_id: p.matchup_id, entertainer_pick: p.bot1_pick, analyst_pick: p.bot2_pick }));
 
     // Find matchup of the week (where bots disagree or have high confidence)
@@ -326,6 +392,25 @@ function extractPick(
   }
 
   return { winner, confidence, reason };
+}
+
+// ============ Confidence Calibration ============
+
+function calibrateConfidence(
+  base: 'high' | 'medium' | 'low',
+  stats: BotMemory['predictionStats'] | undefined
+): 'high' | 'medium' | 'low' {
+  const toScore = (c: 'high' | 'medium' | 'low') => (c === 'high' ? 2 : c === 'medium' ? 1 : 0);
+  const toLabel = (s: number) => (s >= 2 ? 'high' : s === 1 ? 'medium' : 'low') as 'high' | 'medium' | 'low';
+  let score = toScore(base);
+  if (!stats) return base;
+  const winRate = typeof stats.winRate === 'number' ? stats.winRate : 0;
+  const hotStreak = typeof stats.hotStreak === 'number' ? stats.hotStreak : 0;
+  if (winRate > 0.65 || hotStreak >= 3) score += 1;
+  else if (winRate < 0.45 || hotStreak <= -3) score -= 1;
+  if (score < 0) score = 0;
+  if (score > 2) score = 2;
+  return toLabel(score);
 }
 
 // ============ Grading Previous Predictions ============

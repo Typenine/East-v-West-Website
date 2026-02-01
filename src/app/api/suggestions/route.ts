@@ -15,6 +15,8 @@ import {
   getSuggestionVoteTagsMap,
   setSuggestionGroup,
   getSuggestionGroupsMap,
+  getSuggestionTitlesMap,
+  setSuggestionTitle,
 } from '@/server/db/queries';
 import { requireTeamUser } from '@/lib/server/session';
 
@@ -41,6 +43,7 @@ export type Suggestion = {
 const DATA_PATH = path.join(process.cwd(), 'data', 'suggestions.json');
 const NOTIFY_EMAIL = process.env.SUGGESTIONS_NOTIFY_EMAIL || 'patrickmmcnulty62@gmail.com';
 const DISCORD_WEBHOOK_URL = process.env.DISCORD_SUGGESTIONS_WEBHOOK_URL;
+const SITE_URL = process.env.SITE_URL;
 
 // Track posted suggestion IDs to prevent duplicates (in-memory, resets on restart)
 const postedToDiscord = new Set<string>();
@@ -64,15 +67,21 @@ async function postToDiscord(suggestion: Suggestion, teamName?: string): Promise
   const snippet = suggestion.content.slice(0, 300) + (suggestion.content.length > 300 ? '…' : '');
   description += `\n${snippet}`;
 
+  // Absolute link to suggestion
+  const base = (SITE_URL || '').replace(/\/$/, '');
+  const link = suggestion.id && base ? `${base}/suggestions#${suggestion.id}` : undefined;
+
   const embed = {
     title: embedTitle,
     description,
+    url: link,
     color: 0x3b82f6, // blue
     timestamp: suggestion.createdAt,
     footer: teamName ? { text: `Submitted by ${teamName}` } : { text: 'Anonymous submission' },
   };
 
   const payload = {
+    content: link ? `New suggestion: ${link}` : undefined,
     embeds: [embed],
     allowed_mentions: { parse: [] },
   };
@@ -171,6 +180,13 @@ export async function GET() {
         const dbMap = await getSuggestionSponsorsMap();
         if (dbMap && Object.keys(dbMap).length > 0) {
           items = items.map((it) => ({ ...it, sponsorTeam: dbMap[it.id] || it.sponsorTeam }));
+        }
+      } catch {}
+      // Overlay titles from DB column if present
+      try {
+        const tmap = await getSuggestionTitlesMap();
+        if (tmap && Object.keys(tmap).length > 0) {
+          items = items.map((it) => ({ ...it, title: tmap[it.id] || it.title }));
         }
       } catch {}
       // Overlay proposers from DB column if present
@@ -367,8 +383,19 @@ export async function POST(request: Request) {
             s.createdAt = new Date(row.createdAt).toISOString();
           }
         } catch {}
+        // Persist title if provided
+        try { if (s.id && (ipt.title || '').trim()) { await setSuggestionTitle(s.id, ipt.title!.trim()); } } catch {}
+        // Persist proposer for Rules items if logged-in Rules submitter exists
+        try {
+          if (s.id && (ipt.category || '').toLowerCase() === 'rules' && rulesIdentTeam) {
+            await setSuggestionProposer(s.id, rulesIdentTeam);
+            s.proposerTeam = rulesIdentTeam;
+          }
+        } catch {}
         // Persist proposer/sponsor and endorsement
-        const endorseThis = Boolean(itemsParsed[i]?.endorse) && Boolean(identTeam);
+        // Prevent self-endorsement for Rules submissions at creation time
+        const isRulesItem = (ipt.category || '').toLowerCase() === 'rules';
+        const endorseThis = Boolean(itemsParsed[i]?.endorse) && Boolean(identTeam) && !isRulesItem;
         try { if (endorseThis && s.id) await setSuggestionSponsor(s.id, identTeam!); } catch {}
         try { if (endorseThis && s.id) await setSuggestionProposer(s.id, identTeam!); } catch {}
         try { if (endorseThis && s.id) await addSuggestionEndorsement(s.id, identTeam!); } catch {}
@@ -471,6 +498,7 @@ export async function POST(request: Request) {
         item.createdAt = new Date(row.createdAt).toISOString();
       }
     } catch {}
+    // No title supported on single-item legacy path currently
 
     try {
       const items = await readSuggestions();

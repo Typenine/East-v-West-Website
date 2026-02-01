@@ -8,3 +8,4 @@ R2_BUCKET=
 R2_PUBLIC_BASE=
 # Discord webhook for new suggestions notifications
 DISCORD_SUGGESTIONS_WEBHOOK_URL=
+SITE_URL=

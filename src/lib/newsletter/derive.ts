@@ -106,23 +106,30 @@ function mapRosters(
  * Extract top scoring players from a matchup
  */
 function extractTopPlayers(matchup: SleeperMatchup | undefined, count: number = 3): Array<{ name: string; points: number }> {
-  if (!matchup?.players_points || !matchup?.starters) return [];
-  
-  // Get points for starters only (not bench players)
-  const starterPoints: Array<{ playerId: string; points: number }> = [];
-  for (const playerId of matchup.starters) {
-    if (playerId && matchup.players_points[playerId] !== undefined) {
-      starterPoints.push({ playerId, points: matchup.players_points[playerId] });
+  try {
+    if (!matchup?.players_points || !matchup?.starters) return [];
+
+    // Get points for starters only (not bench players)
+    const starterPoints: Array<{ playerId: string; points: number }> = [];
+    for (const playerId of matchup.starters) {
+      if (playerId && matchup.players_points[playerId] !== undefined) {
+        const pts = Number(matchup.players_points[playerId] ?? 0);
+        if (!Number.isFinite(pts)) continue;
+        starterPoints.push({ playerId, points: pts });
+      }
     }
+
+    // Sort by points descending and take top N
+    starterPoints.sort((a, b) => b.points - a.points);
+
+    return starterPoints.slice(0, count).map(p => ({
+      name: resolvePlayerName(p.playerId),
+      points: Number(p.points.toFixed(1)),
+    }));
+  } catch (err) {
+    console.warn('[Derive] extractTopPlayers failed for a matchup; returning empty list:', err);
+    return [];
   }
-  
-  // Sort by points descending and take top N
-  starterPoints.sort((a, b) => b.points - a.points);
-  
-  return starterPoints.slice(0, count).map(p => ({
-    name: resolvePlayerName(p.playerId),
-    points: Number(p.points.toFixed(1)),
-  }));
 }
 
 function getPlayoffBracketLabel(matchupId: string | number, week: number, playoffStartWeek: number = 15): string | undefined {

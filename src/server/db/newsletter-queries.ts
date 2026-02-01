@@ -16,6 +16,10 @@ import type { BotMemory, BotName } from '@/lib/newsletter/types';
 
 // ============ Bot Memory ============
 
+/**
+ * Load bot memory from database
+ * BotMemory now includes all enhanced fields as optional, so we always return BotMemory
+ */
 export async function loadBotMemory(
   bot: BotName,
   season: number
@@ -30,6 +34,44 @@ export async function loadBotMemory(
   if (!rows.length) return null;
 
   const row = rows[0];
+  const enhancedData = (row.enhancedData || {}) as Record<string, unknown>;
+  
+  // Check if we have enhanced memory data
+  const hasEnhancedData = Object.keys(enhancedData).length > 0;
+  
+  if (hasEnhancedData) {
+    // Return full BotMemory
+    return {
+      bot,
+      season,
+      updated_at: row.updatedAt.toISOString(),
+      summaryMood: (enhancedData.summaryMood as BotMemory['summaryMood']) || row.summaryMood as BotMemory['summaryMood'],
+      lastGeneratedWeek: (enhancedData.lastGeneratedWeek as number) || 0,
+      teams: (row.teams || {}) as BotMemory['teams'],
+      // Personality evolution
+      personality: enhancedData.personality as BotMemory['personality'],
+      emotionalState: enhancedData.emotionalState as BotMemory['emotionalState'],
+      speechPatterns: enhancedData.speechPatterns as BotMemory['speechPatterns'],
+      personalGrowth: enhancedData.personalGrowth as BotMemory['personalGrowth'],
+      // Relationships
+      deepPlayerRelationships: enhancedData.deepPlayerRelationships as BotMemory['deepPlayerRelationships'],
+      deepTeamRelationships: enhancedData.deepTeamRelationships as BotMemory['deepTeamRelationships'],
+      partnerDynamics: enhancedData.partnerDynamics as BotMemory['partnerDynamics'],
+      // Tracking
+      narratives: (enhancedData.narratives as BotMemory['narratives']) || [],
+      predictions: (enhancedData.predictions as BotMemory['predictions']) || [],
+      predictionStats: (enhancedData.predictionStats as BotMemory['predictionStats']) || {
+        correct: 0, wrong: 0, winRate: 0, hotStreak: 0, bestStreak: 0, worstStreak: 0
+      },
+      hotTakes: (enhancedData.hotTakes as BotMemory['hotTakes']) || [],
+      milestones: (enhancedData.milestones as BotMemory['milestones']) || [],
+      playerRelationships: (enhancedData.playerRelationships as BotMemory['playerRelationships']) || {},
+      favoritePlayers: (enhancedData.favoritePlayers as string[]) || [],
+      disappointments: (enhancedData.disappointments as string[]) || [],
+    };
+  }
+  
+  // Return basic BotMemory for backward compatibility
   return {
     bot,
     updated_at: row.updatedAt.toISOString(),
@@ -38,12 +80,42 @@ export async function loadBotMemory(
   };
 }
 
+/**
+ * Save bot memory to database
+ * Handles both basic BotMemory and BotMemory
+ */
 export async function saveBotMemory(
   bot: BotName,
   season: number,
-  memory: BotMemory
+  memory: BotMemory | BotMemory
 ): Promise<void> {
   const db = getDb();
+
+  // Extract enhanced data if present
+  const isEnhanced = 'personality' in memory || 'predictions' in memory || 'partnerDynamics' in memory;
+  
+  // Build enhanced data object with all the extra fields
+  const enhancedData: Record<string, unknown> = {};
+  if (isEnhanced) {
+    const enhanced = memory as BotMemory;
+    enhancedData.summaryMood = enhanced.summaryMood;
+    enhancedData.lastGeneratedWeek = enhanced.lastGeneratedWeek;
+    enhancedData.personality = enhanced.personality;
+    enhancedData.emotionalState = enhanced.emotionalState;
+    enhancedData.speechPatterns = enhanced.speechPatterns;
+    enhancedData.personalGrowth = enhanced.personalGrowth;
+    enhancedData.deepPlayerRelationships = enhanced.deepPlayerRelationships;
+    enhancedData.deepTeamRelationships = enhanced.deepTeamRelationships;
+    enhancedData.partnerDynamics = enhanced.partnerDynamics;
+    enhancedData.narratives = enhanced.narratives;
+    enhancedData.predictions = enhanced.predictions;
+    enhancedData.predictionStats = enhanced.predictionStats;
+    enhancedData.hotTakes = enhanced.hotTakes;
+    enhancedData.milestones = enhanced.milestones;
+    enhancedData.playerRelationships = enhanced.playerRelationships;
+    enhancedData.favoritePlayers = enhanced.favoritePlayers;
+    enhancedData.disappointments = enhanced.disappointments;
+  }
 
   // Check if exists
   const existing = await db
@@ -52,13 +124,19 @@ export async function saveBotMemory(
     .where(and(eq(botMemory.bot, bot), eq(botMemory.season, season)))
     .limit(1);
 
+  // Map enhanced mood values to basic ones for the database enum
+  const dbSummaryMood = (['Focused', 'Fired Up', 'Deflated'].includes(memory.summaryMood) 
+    ? memory.summaryMood 
+    : 'Focused') as 'Focused' | 'Fired Up' | 'Deflated';
+
   if (existing.length) {
     // Update
     await db
       .update(botMemory)
       .set({
-        summaryMood: memory.summaryMood,
+        summaryMood: dbSummaryMood,
         teams: memory.teams,
+        enhancedData: enhancedData,
         updatedAt: new Date(),
       })
       .where(eq(botMemory.id, existing[0].id));
@@ -67,8 +145,9 @@ export async function saveBotMemory(
     await db.insert(botMemory).values({
       bot,
       season,
-      summaryMood: memory.summaryMood,
+      summaryMood: dbSummaryMood,
       teams: memory.teams,
+      enhancedData: enhancedData,
     });
   }
 }
@@ -390,7 +469,7 @@ export function extractHotTakesFromNewsletter(
 
 export async function deleteNewsletter(season: number, week: number): Promise<boolean> {
   const db = getDb();
-  const result = await db
+  await db
     .delete(newsletters)
     .where(and(eq(newsletters.season, season), eq(newsletters.week, week)));
   

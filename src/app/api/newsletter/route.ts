@@ -20,6 +20,8 @@ import {
   buildTransactionsContext,
   getLeagueRulesContext,
   setPlayerNameCache,
+  fetchAllExternalData,
+  buildExternalDataContext,
   type EnhancedContextData,
   type LeagueRecords,
 } from '@/lib/newsletter';
@@ -445,11 +447,18 @@ function getSecret(): string {
   return process.env.EVW_ADMIN_SECRET || '002023';
 }
 
-async function isAdmin(): Promise<boolean> {
+async function isAdmin(req?: NextRequest): Promise<boolean> {
   const cookieStore = await cookies();
   const adminCookie = cookieStore.get('evw_admin');
   const secret = getSecret();
-  return adminCookie?.value === secret;
+  // Allow header or query param for cron invocations
+  const headerSecret = req?.headers.get('x-admin-secret');
+  const urlSecret = req ? new URL(req.url).searchParams.get('secret') : null;
+  return (
+    adminCookie?.value === secret ||
+    headerSecret === secret ||
+    urlSecret === secret
+  );
 }
 
 // ============ GET: Retrieve newsletter ============
@@ -515,7 +524,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   // Check admin auth
-  if (!(await isAdmin())) {
+  if (!(await isAdmin(request))) {
     return NextResponse.json({ error: 'Admin access required' }, { status: 403 });
   }
 
@@ -601,17 +610,37 @@ export async function POST(request: NextRequest) {
     setPlayerNameCache(allPlayers);
     console.log(`[Newsletter] Player cache loaded: ${Object.keys(allPlayers).length} players, ${injuryData.length} injuries`);
 
-    // Format injuries for LLM context - look up player names from cache
+    // Build best-effort map from playerId -> fantasy team (using current league rosters)
+    const userNameById = new Map<string, string>();
+    for (const u of users) {
+      const display = u?.metadata?.team_name || u.display_name || u.username || `User ${u.user_id}`;
+      userNameById.set(u.user_id, display);
+    }
+    const rosterNameById = new Map<number, string>();
+    for (const r of rosters) {
+      const name = userNameById.get(r.owner_id) || `Roster ${r.roster_id}`;
+      rosterNameById.set(r.roster_id, name);
+    }
+    const playerToFantasyTeam = new Map<string, string>();
+    for (const r of rosters) {
+      for (const pid of r.players || []) {
+        if (!playerToFantasyTeam.has(pid)) playerToFantasyTeam.set(pid, rosterNameById.get(r.roster_id) || `Roster ${r.roster_id}`);
+      }
+    }
+
+    // Format injuries for LLM context - look up player names from cache and map to fantasy team
     const formattedInjuries = injuryData
       .filter(inj => inj.status && inj.status !== 'Healthy' && inj.status !== 'Active')
       .slice(0, 30) // Limit to top 30 injuries to avoid context bloat
       .map(inj => {
         const player = allPlayers[inj.player_id];
+        const fantasyTeam = playerToFantasyTeam.get(inj.player_id) || 'FA';
         return {
           playerId: inj.player_id,
           playerName: player ? `${player.first_name} ${player.last_name}` : `Player ${inj.player_id}`,
           team: player?.team || 'FA',
           status: inj.status || 'Unknown',
+          fantasyTeam,
         };
       })
       .filter(inj => inj.playerName !== `Player ${inj.playerId}`); // Only include players we can identify
@@ -648,15 +677,23 @@ export async function POST(request: NextRequest) {
       console.log(`Historical context built for ${episodeType} episode`);
     } else {
       enhancedContext = await buildEnhancedContextFull(leagueId, week, seasonNum, users, matchups);
-      // Combine ALL context: rules + comprehensive data + current standings + transactions + enhanced context
-      enhancedContext.enhancedContextString = `${rulesString}\n\n${comprehensiveContextString}\n\n${currentStandingsString}\n\n${transactionsString}\n\n${enhancedContext.enhancedContextString || ''}`;
+      
+      // Fetch external data (ESPN injuries/news, Sleeper trending) for enhanced knowledge
+      console.log('[Newsletter] Fetching external data sources (ESPN, Sleeper trending)...');
+      const externalData = await fetchAllExternalData();
+      const externalDataString = buildExternalDataContext(externalData);
+      console.log(`[Newsletter] External data: ${externalData.news.length} news, ${externalData.injuries.length} injuries, ${externalData.trending.length} trending`);
+      
+      // Combine ALL context: rules + comprehensive data + current standings + transactions + external data + enhanced context
+      enhancedContext.enhancedContextString = `${rulesString}\n\n${comprehensiveContextString}\n\n${currentStandingsString}\n\n${transactionsString}\n\n${externalDataString}\n\n${enhancedContext.enhancedContextString || ''}`;
       // Add injuries to enhanced context
       enhancedContext.injuries = formattedInjuries;
       console.log(`Enhanced context: standings=${enhancedContext.standings?.length || 0} teams, byes=${enhancedContext.byeTeams?.length || 0} NFL teams`);
-      console.log(`Enhanced context includes: league rules, comprehensive data, current standings, transactions, H2H, trades, records, playoff implications`);
+      console.log(`Enhanced context includes: league rules, comprehensive data, current standings, transactions, external APIs (ESPN/Sleeper), H2H, trades, records, playoff implications`);
     }
 
     // Generate the newsletter
+    // Memory is ALWAYS persisted even if compose partially fails (composeFailed flag)
     const result = await generateNewsletter({
       leagueName: league.name || 'East v. West',
       leagueId,
@@ -678,7 +715,33 @@ export async function POST(request: NextRequest) {
 
     const generatedAt = new Date().toISOString();
 
-    // In preview mode, don't save to database - just return the result for testing
+    // ALWAYS persist bot memories first - this is critical for personality continuity
+    // Even if newsletter save fails or composeFailed is true, memory must be preserved
+    try {
+      // In preview mode, allow gating persistence via env (free-tier safety)
+      const allowPreviewPersist = process.env.NEWSLETTER_PERSIST_IN_PREVIEW === 'true';
+      if (!preview || allowPreviewPersist) {
+        await Promise.all([
+          saveBotMemory('entertainer', seasonNum, result.memoryEntertainer),
+          saveBotMemory('analyst', seasonNum, result.memoryAnalyst),
+          saveForecastRecords(seasonNum, result.records),
+          savePendingPicks(seasonNum, result.pendingPicks),
+        ]);
+        console.log(`[Newsletter] Bot memory persisted - Entertainer: ${result.memoryEntertainer.summaryMood}, Analyst: ${result.memoryAnalyst.summaryMood}`);
+      } else {
+        console.log('[PREVIEW] Skipping DB persistence for bot memory/records (NEWSLETTER_PERSIST_IN_PREVIEW != true)');
+      }
+    } catch (memoryError) {
+      console.error('[Newsletter] CRITICAL: Failed to persist bot memory:', memoryError);
+      // Continue - we still want to return the result even if persistence failed
+    }
+
+    // Log if compose had issues but still produced a result
+    if (result.composeFailed) {
+      console.warn(`[Newsletter] Compose had errors but memory was preserved. Newsletter may have fallback content.`);
+    }
+
+    // In preview mode, don't save newsletter to database - just return the result for testing
     if (preview) {
       console.log(`[PREVIEW] Newsletter generated for Season ${season} Week ${week} (not saved)`);
       
@@ -714,18 +777,10 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // Save everything to database for persistence
-    // Save bot memories (this is crucial for personality continuity!)
-    await Promise.all([
-      saveBotMemory('entertainer', seasonNum, result.memoryEntertainer),
-      saveBotMemory('analyst', seasonNum, result.memoryAnalyst),
-      saveForecastRecords(seasonNum, result.records),
-      savePendingPicks(seasonNum, result.pendingPicks),
-      saveNewsletter(seasonNum, week, league.name || 'East v. West', result.newsletter as { meta: { leagueName: string; week: number; date: string; season: number }; sections: Array<{ type: string; data: unknown }> }, result.html),
-    ]);
+    // Save newsletter to database (memory was already persisted above)
+    await saveNewsletter(seasonNum, week, league.name || 'East v. West', result.newsletter as { meta: { leagueName: string; week: number; date: string; season: number }; sections: Array<{ type: string; data: unknown }> }, result.html);
 
-    console.log(`Newsletter generated and saved for Season ${season} Week ${week}`);
-    console.log(`Bot memory persisted - Entertainer mood: ${result.memoryEntertainer.summaryMood}, Analyst mood: ${result.memoryAnalyst.summaryMood}`);
+    console.log(`Newsletter generated and saved for Season ${season} Week ${week}${result.composeFailed ? ' (with fallback content)' : ''}`);
 
     // Type-safe section access
     type NewsletterSection = { type: string; data: unknown };

@@ -1,7 +1,7 @@
 /**
  * Memory Module
  * Manages columnist memory (trust, frustration, mood) for each team
- * Now uses EnhancedBotMemory with win streaks, narratives, and prediction tracking
+ * Now uses BotMemory with win streaks, narratives, and prediction tracking
  * 
  * Note: The "bot" terminology in types is internal only - the columnists
  * are presented as media personalities, never as bots or AI.
@@ -12,7 +12,6 @@ import type {
   BotMemory, 
   TeamMemory, 
   DerivedData,
-  EnhancedBotMemory,
   EnhancedTeamMemory,
   Narrative,
 } from './types';
@@ -20,6 +19,19 @@ import type {
 // ============ Constants ============
 
 const CLAMP = (n: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, n));
+
+// ============ Minimal Config (defaults match current behavior) ============
+
+const MEMORY_DECAY_CONFIG = {
+  // Trust/frustration weekly drift toward 0
+  trustDecayPerWeek: 1,
+  frustrationDecayPerWeek: 1,
+  // Emotional decay per week and minimum clamp
+  emotionalDecayPerWeek: 5,
+  emotionalIntensityMin: 25,
+  // Weeks after which low-intensity emotions reset to neutral
+  emotionalResetWeeks: 3,
+};
 
 // ============ Memory Creation ============
 
@@ -33,10 +45,10 @@ export function createFreshMemory(bot: BotName): BotMemory {
 }
 
 /**
- * Create a fresh EnhancedBotMemory with all tracking features
+ * Create a fresh BotMemory with all tracking features
  * Includes evolving personality system
  */
-export function createEnhancedMemory(bot: BotName, season: number): EnhancedBotMemory {
+export function createEnhancedMemory(bot: BotName, season: number): BotMemory {
   // Different starting personalities for each bot
   const entertainerPersonality: import('./types').PersonalityTraits = {
     confidence: 60,      // Starts cocky
@@ -140,7 +152,7 @@ export function createEnhancedMemory(bot: BotName, season: number): EnhancedBotM
   };
 }
 
-export function ensureTeams(mem: BotMemory, teamNames: string[]): void {
+export function ensureTeams(mem: BotMemory | BotMemory, teamNames: string[]): void {
   for (const name of teamNames) {
     if (!mem.teams[name]) {
       mem.teams[name] = { trust: 0, frustration: 0, mood: 'Neutral' };
@@ -151,7 +163,7 @@ export function ensureTeams(mem: BotMemory, teamNames: string[]): void {
 /**
  * Ensure all teams exist in enhanced memory
  */
-export function ensureEnhancedTeams(mem: EnhancedBotMemory, teamNames: string[]): void {
+export function ensureEnhancedTeams(mem: BotMemory, teamNames: string[]): void {
   for (const name of teamNames) {
     if (!mem.teams[name]) {
       mem.teams[name] = createFreshEnhancedTeamMemory();
@@ -181,9 +193,9 @@ function createFreshEnhancedTeamMemory(): EnhancedTeamMemory {
 function decay(mem: BotMemory): void {
   for (const t of Object.values(mem.teams)) {
     // Drift toward 0 each week
-    if (t.trust > 0) t.trust -= 1;
-    if (t.trust < 0) t.trust += 1;
-    if (t.frustration > 0) t.frustration -= 1;
+    if (t.trust > 0) t.trust -= MEMORY_DECAY_CONFIG.trustDecayPerWeek;
+    if (t.trust < 0) t.trust += MEMORY_DECAY_CONFIG.trustDecayPerWeek;
+    if (t.frustration > 0) t.frustration -= MEMORY_DECAY_CONFIG.frustrationDecayPerWeek;
   }
 }
 
@@ -221,7 +233,7 @@ function recomputeSummaryMood(mem: BotMemory): void {
  * - High relevance waivers add small trust for the acquiring team.
  * - Trades add small trust for active teams (neutral stance).
  */
-export function updateMemoryAfterWeek(mem: BotMemory, derived: DerivedData): void {
+export function updateMemoryAfterWeek(mem: BotMemory | BotMemory, derived: DerivedData): void {
   decay(mem);
 
   // Process matchup results
@@ -276,7 +288,7 @@ export function updateMemoryAfterWeek(mem: BotMemory, derived: DerivedData): voi
  * Update enhanced memory after a week - tracks streaks, trajectories, narratives
  */
 export function updateEnhancedMemoryAfterWeek(
-  mem: EnhancedBotMemory, 
+  mem: BotMemory, 
   derived: DerivedData,
   week: number
 ): void {
@@ -292,9 +304,11 @@ export function updateEnhancedMemoryAfterWeek(
     const w = mem.teams[winnerName];
     const l = mem.teams[loserName];
     
-    // Update win streaks
-    w.winStreak = w.winStreak >= 0 ? w.winStreak + 1 : 1;
-    l.winStreak = l.winStreak <= 0 ? l.winStreak - 1 : -1;
+    // Update win streaks (with null safety)
+    const wStreak = w.winStreak ?? 0;
+    const lStreak = l.winStreak ?? 0;
+    w.winStreak = wStreak >= 0 ? wStreak + 1 : 1;
+    l.winStreak = lStreak <= 0 ? lStreak - 1 : -1;
     
     // Update season stats
     if (w.seasonStats) {
@@ -315,14 +329,18 @@ export function updateEnhancedMemoryAfterWeek(
       l.trust = CLAMP(l.trust - 1, -50, 50);
       l.frustration = CLAMP(l.frustration + 4, 0, 50);
       
-      // Add notable event for blowout
+      // Add notable event for blowout (with null safety)
+      if (!w.notableEvents) w.notableEvents = [];
+      if (!l.notableEvents) l.notableEvents = [];
       w.notableEvents.push({ week, event: `Dominated ${loserName} by ${p.margin.toFixed(1)}`, sentiment: 'positive' });
       l.notableEvents.push({ week, event: `Got destroyed by ${winnerName} by ${p.margin.toFixed(1)}`, sentiment: 'negative' });
     } else if (p.margin <= 5) {
       w.trust = CLAMP(w.trust + 2, -50, 50);
       l.frustration = CLAMP(l.frustration + 2, 0, 50);
       
-      // Add notable event for nail-biter
+      // Add notable event for nail-biter (with null safety)
+      if (!w.notableEvents) w.notableEvents = [];
+      if (!l.notableEvents) l.notableEvents = [];
       w.notableEvents.push({ week, event: `Clutch win over ${loserName} by ${p.margin.toFixed(1)}`, sentiment: 'positive' });
       l.notableEvents.push({ week, event: `Heartbreaker loss to ${winnerName} by ${p.margin.toFixed(1)}`, sentiment: 'negative' });
     } else {
@@ -347,9 +365,9 @@ export function updateEnhancedMemoryAfterWeek(
   mem.updated_at = new Date().toISOString();
 }
 
-function updateEnhancedTeamMood(t: EnhancedTeamMemory): void {
+function updateEnhancedTeamMood(t: TeamMemory): void {
   const delta = t.trust - t.frustration;
-  const streak = t.winStreak;
+  const streak = t.winStreak ?? 0;
   
   if (streak >= 3) {
     t.mood = 'hot';
@@ -364,8 +382,8 @@ function updateEnhancedTeamMood(t: EnhancedTeamMemory): void {
   }
 }
 
-function updateTeamTrajectory(t: EnhancedTeamMemory): void {
-  const streak = t.winStreak;
+function updateTeamTrajectory(t: TeamMemory): void {
+  const streak = t.winStreak ?? 0;
   const stats = t.seasonStats;
   
   if (!stats) {
@@ -384,9 +402,9 @@ function updateTeamTrajectory(t: EnhancedTeamMemory): void {
     t.trajectory = 'rising';
   } else if (streak <= -2) {
     t.trajectory = 'falling';
-  } else if (Math.abs(streak) <= 1 && t.notableEvents.length >= 2) {
+  } else if (Math.abs(streak) <= 1 && (t.notableEvents?.length ?? 0) >= 2) {
     // Check if recent events are mixed
-    const recent = t.notableEvents.slice(-3);
+    const recent = (t.notableEvents ?? []).slice(-3);
     const positive = recent.filter(e => e.sentiment === 'positive').length;
     const negative = recent.filter(e => e.sentiment === 'negative').length;
     if (positive > 0 && negative > 0) {
@@ -399,7 +417,7 @@ function updateTeamTrajectory(t: EnhancedTeamMemory): void {
   }
 }
 
-function updateEnhancedSummaryMood(mem: EnhancedBotMemory): void {
+function updateEnhancedSummaryMood(mem: BotMemory): void {
   const teams = Object.values(mem.teams);
   if (teams.length === 0) {
     mem.summaryMood = 'Focused';
@@ -411,8 +429,9 @@ function updateEnhancedSummaryMood(mem: EnhancedBotMemory): void {
   const hotTeams = teams.filter(t => t.mood === 'hot' || t.mood === 'dangerous').length;
   const coldTeams = teams.filter(t => t.mood === 'cold').length;
   
-  // Check prediction performance
-  const { winRate, hotStreak } = mem.predictionStats;
+  // Check prediction performance (with null safety)
+  const winRate = mem.predictionStats?.winRate ?? 0;
+  const hotStreak = mem.predictionStats?.hotStreak ?? 0;
   
   if (hotStreak >= 5 || winRate >= 0.7) {
     mem.summaryMood = 'Vindicated';
@@ -427,16 +446,20 @@ function updateEnhancedSummaryMood(mem: EnhancedBotMemory): void {
   }
 }
 
-function detectAndAddNarratives(mem: EnhancedBotMemory, derived: DerivedData, week: number): void {
+function detectAndAddNarratives(mem: BotMemory, derived: DerivedData, week: number): void {
   for (const p of derived.matchup_pairs || []) {
     const winnerTeam = mem.teams[p.winner.name];
     const loserTeam = mem.teams[p.loser.name];
     
     if (!winnerTeam || !loserTeam) continue;
     
-    // Detect win streak narrative
-    if (winnerTeam.winStreak >= 3) {
-      const existingStreak = mem.narratives.find(
+    // Detect win streak narrative (with null safety)
+    const winnerStreak = winnerTeam.winStreak ?? 0;
+    const loserStreak = loserTeam.winStreak ?? 0;
+    const narratives = mem.narratives ?? [];
+    
+    if (winnerStreak >= 3) {
+      const existingStreak = narratives.find(
         n => n.type === 'streak' && n.teams.includes(p.winner.name) && !n.resolved
       );
       if (!existingStreak) {
@@ -444,19 +467,19 @@ function detectAndAddNarratives(mem: EnhancedBotMemory, derived: DerivedData, we
           type: 'streak',
           teams: [p.winner.name],
           title: `${p.winner.name}'s Hot Streak`,
-          description: `${p.winner.name} is on a ${winnerTeam.winStreak}-game winning streak`,
-          startedWeek: week - winnerTeam.winStreak + 1,
+          description: `${p.winner.name} is on a ${winnerStreak}-game winning streak`,
+          startedWeek: week - winnerStreak + 1,
           lastUpdated: week,
         });
       } else {
-        existingStreak.description = `${p.winner.name} extends their streak to ${winnerTeam.winStreak} games`;
+        existingStreak.description = `${p.winner.name} extends their streak to ${winnerStreak} games`;
         existingStreak.lastUpdated = week;
       }
     }
     
     // Detect losing streak narrative
-    if (loserTeam.winStreak <= -3) {
-      const existingStreak = mem.narratives.find(
+    if (loserStreak <= -3) {
+      const existingStreak = narratives.find(
         n => n.type === 'collapse' && n.teams.includes(p.loser.name) && !n.resolved
       );
       if (!existingStreak) {
@@ -464,20 +487,20 @@ function detectAndAddNarratives(mem: EnhancedBotMemory, derived: DerivedData, we
           type: 'collapse',
           teams: [p.loser.name],
           title: `${p.loser.name} in Freefall`,
-          description: `${p.loser.name} has lost ${Math.abs(loserTeam.winStreak)} straight`,
-          startedWeek: week + loserTeam.winStreak + 1,
+          description: `${p.loser.name} has lost ${Math.abs(loserStreak)} straight`,
+          startedWeek: week + loserStreak + 1,
           lastUpdated: week,
         });
       } else {
-        existingStreak.description = `${p.loser.name} extends their losing streak to ${Math.abs(loserTeam.winStreak)} games`;
+        existingStreak.description = `${p.loser.name} extends their losing streak to ${Math.abs(loserStreak)} games`;
         existingStreak.lastUpdated = week;
       }
     }
     
     // Resolve streak narratives when they end
-    if (winnerTeam.winStreak === 1 && loserTeam.winStreak === -1) {
+    if (winnerStreak === 1 && loserStreak === -1) {
       // Winner just broke a losing streak
-      const losingStreak = mem.narratives.find(
+      const losingStreak = narratives.find(
         n => n.type === 'collapse' && n.teams.includes(p.winner.name) && !n.resolved
       );
       if (losingStreak) {
@@ -489,9 +512,10 @@ function detectAndAddNarratives(mem: EnhancedBotMemory, derived: DerivedData, we
 }
 
 function addNarrative(
-  mem: EnhancedBotMemory,
+  mem: BotMemory,
   narrative: Omit<Narrative, 'id' | 'resolved' | 'resolution'>
 ): void {
+  if (!mem.narratives) mem.narratives = [];
   mem.narratives.push({
     ...narrative,
     id: `${narrative.type}-${narrative.teams.join('-')}-${narrative.startedWeek}`,
@@ -523,12 +547,12 @@ export function deserializeMemory(json: string): BotMemory {
   return JSON.parse(json) as BotMemory;
 }
 
-export function serializeEnhancedMemory(mem: EnhancedBotMemory): string {
+export function serializeEnhancedMemory(mem: BotMemory): string {
   return JSON.stringify(mem);
 }
 
-export function deserializeEnhancedMemory(json: string): EnhancedBotMemory {
-  return JSON.parse(json) as EnhancedBotMemory;
+export function deserializeEnhancedMemory(json: string): BotMemory {
+  return JSON.parse(json) as BotMemory;
 }
 
 // ============ Bot-to-Bot Interaction Tracking ============
@@ -538,7 +562,7 @@ export function deserializeEnhancedMemory(json: string): EnhancedBotMemory {
  * This allows them to learn from each other and reference past conversations
  */
 export function recordBotInteraction(
-  mem: EnhancedBotMemory,
+  mem: BotMemory,
   week: number,
   interaction: {
     matchup?: string;
@@ -580,9 +604,10 @@ export function recordBotInteraction(
 
 /**
  * Record when one bot was proven right about something
+ * Deferred by design: kept available but not wired globally to avoid changing narrative frequency unexpectedly.
  */
 export function recordWhoWasRight(
-  mem: EnhancedBotMemory,
+  mem: BotMemory,
   week: number,
   matchup: string,
   iWasRight: boolean,
@@ -617,9 +642,10 @@ export function recordWhoWasRight(
 
 /**
  * Add an inside joke or callback reference between the bots
+ * Deferred by design: available for future conversational features; not auto-wired to prevent unwanted tone shifts.
  */
 export function addInsideJoke(
-  mem: EnhancedBotMemory,
+  mem: BotMemory,
   week: number,
   reference: string
 ): void {
@@ -646,7 +672,7 @@ export function addInsideJoke(
  * Start or update a feud between the bots
  */
 export function updateBotFeud(
-  mem: EnhancedBotMemory,
+  mem: BotMemory,
   feud: {
     topic: string;
     myPosition: string;
@@ -672,7 +698,7 @@ export function updateBotFeud(
 /**
  * Get context about the bot's relationship with their partner for prompts
  */
-export function getPartnerDynamicsContext(mem: EnhancedBotMemory): string {
+export function getPartnerDynamicsContext(mem: BotMemory): string {
   if (!mem.partnerDynamics) return '';
   
   const lines: string[] = [];
@@ -731,7 +757,7 @@ export function getPartnerDynamicsContext(mem: EnhancedBotMemory): string {
  * This is how the bot learns and changes over time
  */
 export function evolvePersonality(
-  mem: EnhancedBotMemory,
+  mem: BotMemory,
   event: {
     type: 'prediction_correct' | 'prediction_wrong' | 'big_win' | 'heartbreak' | 
           'vindicated' | 'humbled' | 'partner_was_right' | 'partner_was_wrong' |
@@ -761,7 +787,7 @@ export function evolvePersonality(
         if (mem.personalGrowth && event.context) {
           mem.personalGrowth.hardLessons.push({
             week: event.week,
-            season: mem.season,
+            season: mem.season ?? 0,
             lesson: `Got burned on: ${event.context}`,
             context: event.context,
             appliedSince: false,
@@ -823,7 +849,7 @@ export function evolvePersonality(
  * Update emotional state based on events
  */
 export function updateEmotionalState(
-  mem: EnhancedBotMemory,
+  mem: BotMemory,
   emotion: 'neutral' | 'excited' | 'frustrated' | 'smug' | 'anxious' | 'nostalgic' | 'vengeful' | 'hopeful',
   intensity: number,
   trigger?: { week: number; event: string; team?: string; player?: string }
@@ -846,14 +872,18 @@ export function updateEmotionalState(
 /**
  * Decay emotional state over time (call each week)
  */
-export function decayEmotionalState(mem: EnhancedBotMemory): void {
+export function decayEmotionalState(mem: BotMemory): void {
   if (!mem.emotionalState) return;
   
   mem.emotionalState.duration++;
-  mem.emotionalState.intensity = Math.max(20, mem.emotionalState.intensity - 10);
+  // Decay based on config
+  mem.emotionalState.intensity = Math.max(
+    MEMORY_DECAY_CONFIG.emotionalIntensityMin,
+    mem.emotionalState.intensity - MEMORY_DECAY_CONFIG.emotionalDecayPerWeek
+  );
   
   // Strong emotions fade after a few weeks
-  if (mem.emotionalState.duration >= 3 && mem.emotionalState.intensity < 40) {
+  if (mem.emotionalState.duration >= MEMORY_DECAY_CONFIG.emotionalResetWeeks && mem.emotionalState.intensity < 40) {
     mem.emotionalState.primary = 'neutral';
   }
 }
@@ -862,7 +892,7 @@ export function decayEmotionalState(mem: EnhancedBotMemory): void {
  * Add or update a deep player relationship
  */
 export function updatePlayerRelationship(
-  mem: EnhancedBotMemory,
+  mem: BotMemory,
   playerId: string,
   playerName: string,
   event: {
@@ -894,7 +924,7 @@ export function updatePlayerRelationship(
   // Add to history
   rel.history.push({
     week: event.week,
-    season: mem.season,
+    season: mem.season ?? 0,
     event: event.description,
     impact: event.impact,
     emotional: event.emotional,
@@ -920,7 +950,7 @@ export function updatePlayerRelationship(
   if (Math.abs(event.impact) >= 30 && event.emotional) {
     rel.definingMoment = {
       week: event.week,
-      season: mem.season,
+      season: mem.season ?? 0,
       event: event.description,
       sentiment: event.impact > 0 ? 'positive' : 'negative',
     };
@@ -937,7 +967,7 @@ export function updatePlayerRelationship(
  * it's been triggered 3+ times over 3+ weeks. This prevents forced/quick catchphrases.
  */
 export function registerEmergingPhrase(
-  mem: EnhancedBotMemory,
+  mem: BotMemory,
   phrase: string,
   context: string,
   week: number,
@@ -994,7 +1024,7 @@ export function registerEmergingPhrase(
 /**
  * Mark a catchphrase as used (increases frequency over time, but prevents overuse)
  */
-export function useCatchphrase(mem: EnhancedBotMemory, phrase: string, week: number): boolean {
+export function useCatchphrase(mem: BotMemory, phrase: string, week: number): boolean {
   if (!mem.speechPatterns) return false;
   
   const catchphrase = mem.speechPatterns.catchphrases.find(c => c.phrase === phrase);
@@ -1016,7 +1046,7 @@ export function useCatchphrase(mem: EnhancedBotMemory, phrase: string, week: num
  * Add an obsession topic - requires multiple mentions to stick
  */
 export function addObsession(
-  mem: EnhancedBotMemory,
+  mem: BotMemory,
   topic: string,
   reason: string,
   week: number
@@ -1040,7 +1070,7 @@ export function addObsession(
  * Add a sore subject to avoid
  */
 export function addAvoidTopic(
-  mem: EnhancedBotMemory,
+  mem: BotMemory,
   topic: string,
   reason: string,
   avoidUntilWeek?: number
@@ -1057,7 +1087,7 @@ export function addAvoidTopic(
 /**
  * Get personality context for prompts
  */
-export function getPersonalityContext(mem: EnhancedBotMemory): string {
+export function getPersonalityContext(mem: BotMemory): string {
   const lines: string[] = [];
   
   // Personality traits - only mention the most relevant/extreme ones
@@ -1120,7 +1150,7 @@ export function getPersonalityContext(mem: EnhancedBotMemory): string {
     }
     
     if (sp.avoidTopics.length > 0) {
-      const avoid = sp.avoidTopics.filter(a => !a.until || a.until > mem.lastGeneratedWeek);
+      const avoid = sp.avoidTopics.filter(a => !a.until || a.until > (mem.lastGeneratedWeek ?? 0));
       if (avoid.length > 0) {
         lines.push(`Sore subject - avoid: ${avoid[0].topic} (${avoid[0].reason})`);
       }
@@ -1150,7 +1180,7 @@ export function getPersonalityContext(mem: EnhancedBotMemory): string {
 /**
  * Get deep player relationship context for prompts
  */
-export function getPlayerRelationshipContext(mem: EnhancedBotMemory, playerIds: string[]): string {
+export function getPlayerRelationshipContext(mem: BotMemory, playerIds: string[]): string {
   if (!mem.deepPlayerRelationships) return '';
   
   const lines: string[] = [];
@@ -1184,9 +1214,9 @@ export function getPlayerRelationshipContext(mem: EnhancedBotMemory, playerIds: 
 }
 
 /**
- * Convert legacy BotMemory to EnhancedBotMemory
+ * Convert legacy BotMemory to BotMemory
  */
-export function upgradeToEnhancedMemory(legacy: BotMemory, season: number): EnhancedBotMemory {
+export function upgradeToEnhancedMemory(legacy: BotMemory, season: number): BotMemory {
   const enhanced = createEnhancedMemory(legacy.bot, season);
   
   // Convert legacy team memories
@@ -1205,8 +1235,7 @@ export function upgradeToEnhancedMemory(legacy: BotMemory, season: number): Enha
     };
   }
   
-  // Preserve legacy teams for reference
-  enhanced.legacyTeams = legacy.teams;
+  // Note: legacy teams are already converted above, no need to preserve separately
   
   return enhanced;
 }

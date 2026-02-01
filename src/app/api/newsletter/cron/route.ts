@@ -14,10 +14,11 @@ import { LEAGUE_IDS } from '@/lib/constants/league';
 import {
   loadBotMemory,
   saveBotMemory,
-  loadForecastRecords,
-  saveForecastRecords,
-  loadPendingPicks,
-  savePendingPicks,
+  // TODO: Wire these for prediction tracking in post-week update
+  // loadForecastRecords,
+  // saveForecastRecords,
+  // loadPendingPicks,
+  // savePendingPicks,
   saveNewsletter,
   loadStagedNewsletter,
   createStagedNewsletter,
@@ -27,8 +28,8 @@ import {
 } from '@/server/db/newsletter-queries';
 import { generateSection, SECTION_GENERATION_ORDER } from '@/lib/newsletter/llm/groq';
 import { buildDerived } from '@/lib/newsletter/derive';
-import { renderNewsletterData } from '@/lib/newsletter/template';
-import type { Newsletter, BotMemory } from '@/lib/newsletter/types';
+// TODO: Use renderNewsletterData when generating final HTML
+import type { BotMemory } from '@/lib/newsletter/types';
 
 // ============ Auth ============
 
@@ -165,6 +166,7 @@ async function runStagedGeneration(
   let memAnalyst = await loadBotMemory('analyst', season);
 
   // If no memory for this season, initialize from previous season
+  // Note: loadPreviousSeasonMemory may return EnhancedBotMemory which is a superset of BotMemory
   if (!memEntertainer) {
     const prevMem = await loadPreviousSeasonMemory('entertainer', season);
     memEntertainer = await initializeSeasonMemory('entertainer', season, prevMem);
@@ -393,7 +395,7 @@ function buildSectionContext(
   sectionType: string,
   derived: Record<string, unknown>,
   memEntertainer: { teams: Record<string, { trust: number; frustration: number; mood: string }> },
-  memAnalyst: { teams: Record<string, { trust: number; frustration: number; mood: string }> }
+  _memAnalyst: { teams: Record<string, { trust: number; frustration: number; mood: string }> } // TODO: Use analyst memory for section context
 ): string {
   const matchupPairs = derived.matchup_pairs as Array<{ winner: { name: string; points: number }; loser: { name: string; points: number }; margin: number }> || [];
   const upcomingPairs = derived.upcoming_pairs as Array<{ teams: string[] }> || [];

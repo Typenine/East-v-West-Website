@@ -17,7 +17,7 @@
 
 import type { 
   BotName, 
-  EnhancedBotMemory, 
+  BotMemory, 
   PredictionRecord, 
   HotTake, 
   Narrative,
@@ -108,8 +108,8 @@ export interface EnhancedContextData {
   season: number;
   
   // 1. Bot Memory
-  entertainerMemory: EnhancedBotMemory | null;
-  analystMemory: EnhancedBotMemory | null;
+  entertainerMemory: BotMemory | null;
+  analystMemory: BotMemory | null;
   
   // 2. H2H History
   h2hForThisWeek: H2HMatchupHistory[];
@@ -142,37 +142,15 @@ export interface EnhancedContextData {
 }
 
 // ============ Memory Helpers ============
-
-export function createEnhancedMemory(bot: BotName, season: number): EnhancedBotMemory {
-  return {
-    bot,
-    season,
-    updated_at: new Date().toISOString(),
-    lastGeneratedWeek: 0,
-    summaryMood: 'Focused',
-    narratives: [],
-    teams: {},
-    predictions: [],
-    predictionStats: {
-      correct: 0,
-      wrong: 0,
-      winRate: 0,
-      hotStreak: 0,
-      bestStreak: 0,
-      worstStreak: 0,
-    },
-    hotTakes: [],
-    milestones: [],
-    playerRelationships: {},
-    favoritePlayers: [],
-    disappointments: [],
-  };
-}
+// Note: createEnhancedMemory is now in memory.ts - import from there
+// Re-export for backwards compatibility
+export { createEnhancedMemory } from './memory';
 
 export function recordPrediction(
-  memory: EnhancedBotMemory,
+  memory: BotMemory,
   prediction: Omit<PredictionRecord, 'result' | 'actualWinner' | 'margin'>
 ): void {
+  if (!memory.predictions) memory.predictions = [];
   memory.predictions.push({
     ...prediction,
     result: undefined,
@@ -180,12 +158,13 @@ export function recordPrediction(
 }
 
 export function gradePrediction(
-  memory: EnhancedBotMemory,
+  memory: BotMemory,
   week: number,
   matchupId: string | number,
   actualWinner: string,
   margin: number
 ): void {
+  if (!memory.predictions) return;
   const pred = memory.predictions.find(
     p => p.week === week && p.matchupId === matchupId && !p.result
   );
@@ -195,7 +174,10 @@ export function gradePrediction(
   pred.margin = margin;
   pred.result = pred.pick === actualWinner ? 'correct' : 'wrong';
   
-  // Update stats
+  // Update stats (with null safety)
+  if (!memory.predictionStats) {
+    memory.predictionStats = { correct: 0, wrong: 0, winRate: 0, hotStreak: 0, bestStreak: 0, worstStreak: 0 };
+  }
   const stats = memory.predictionStats;
   if (pred.result === 'correct') {
     stats.correct++;
@@ -210,9 +192,10 @@ export function gradePrediction(
 }
 
 export function recordHotTake(
-  memory: EnhancedBotMemory,
+  memory: BotMemory,
   take: Omit<HotTake, 'agedWell' | 'followUp'>
 ): void {
+  if (!memory.hotTakes) memory.hotTakes = [];
   memory.hotTakes.push({
     ...take,
     agedWell: undefined,
@@ -221,11 +204,12 @@ export function recordHotTake(
 }
 
 export function gradeHotTake(
-  memory: EnhancedBotMemory,
+  memory: BotMemory,
   week: number,
   agedWell: boolean,
   followUp: string
 ): void {
+  if (!memory.hotTakes) return;
   const take = memory.hotTakes.find(t => t.week === week && t.agedWell === undefined);
   if (take) {
     take.agedWell = agedWell;
@@ -234,9 +218,10 @@ export function gradeHotTake(
 }
 
 export function addNarrative(
-  memory: EnhancedBotMemory,
+  memory: BotMemory,
   narrative: Omit<Narrative, 'id' | 'resolved' | 'resolution'>
 ): void {
+  if (!memory.narratives) memory.narratives = [];
   memory.narratives.push({
     ...narrative,
     id: `${narrative.type}-${narrative.teams.join('-')}-${narrative.startedWeek}`,
@@ -245,10 +230,11 @@ export function addNarrative(
 }
 
 export function resolveNarrative(
-  memory: EnhancedBotMemory,
+  memory: BotMemory,
   narrativeId: string,
   resolution: string
 ): void {
+  if (!memory.narratives) return;
   const narrative = memory.narratives.find(n => n.id === narrativeId);
   if (narrative) {
     narrative.resolved = true;
@@ -626,15 +612,17 @@ export function buildEnhancedContextString(data: EnhancedContextData): string {
     lines.push('--- BOT MEMORY STATUS ---');
     if (data.entertainerMemory) {
       const em = data.entertainerMemory;
-      lines.push(`ENTERTAINER: Mood=${em.summaryMood}, Predictions=${em.predictionStats.correct}-${em.predictionStats.wrong} (${(em.predictionStats.winRate * 100).toFixed(0)}%)`);
-      if (em.predictionStats.hotStreak > 2) lines.push(`  🔥 On a ${em.predictionStats.hotStreak}-game correct streak!`);
-      if (em.predictionStats.hotStreak < -2) lines.push(`  😬 On a ${Math.abs(em.predictionStats.hotStreak)}-game wrong streak`);
+      const emStats = em.predictionStats ?? { correct: 0, wrong: 0, winRate: 0, hotStreak: 0 };
+      lines.push(`ENTERTAINER: Mood=${em.summaryMood}, Predictions=${emStats.correct}-${emStats.wrong} (${(emStats.winRate * 100).toFixed(0)}%)`);
+      if (emStats.hotStreak > 2) lines.push(`  🔥 On a ${emStats.hotStreak}-game correct streak!`);
+      if (emStats.hotStreak < -2) lines.push(`  😬 On a ${Math.abs(emStats.hotStreak)}-game wrong streak`);
     }
     if (data.analystMemory) {
       const am = data.analystMemory;
-      lines.push(`ANALYST: Mood=${am.summaryMood}, Predictions=${am.predictionStats.correct}-${am.predictionStats.wrong} (${(am.predictionStats.winRate * 100).toFixed(0)}%)`);
-      if (am.predictionStats.hotStreak > 2) lines.push(`  🔥 On a ${am.predictionStats.hotStreak}-game correct streak!`);
-      if (am.predictionStats.hotStreak < -2) lines.push(`  😬 On a ${Math.abs(am.predictionStats.hotStreak)}-game wrong streak`);
+      const amStats = am.predictionStats ?? { correct: 0, wrong: 0, winRate: 0, hotStreak: 0 };
+      lines.push(`ANALYST: Mood=${am.summaryMood}, Predictions=${amStats.correct}-${amStats.wrong} (${(amStats.winRate * 100).toFixed(0)}%)`);
+      if (amStats.hotStreak > 2) lines.push(`  🔥 On a ${amStats.hotStreak}-game correct streak!`);
+      if (amStats.hotStreak < -2) lines.push(`  😬 On a ${Math.abs(amStats.hotStreak)}-game wrong streak`);
     }
     lines.push('');
   }
@@ -728,10 +716,10 @@ export function buildEnhancedContextString(data: EnhancedContextData): string {
 
 // ============ Serialization ============
 
-export function serializeEnhancedMemory(memory: EnhancedBotMemory): string {
+export function serializeEnhancedMemory(memory: BotMemory): string {
   return JSON.stringify(memory);
 }
 
-export function deserializeEnhancedMemory(json: string): EnhancedBotMemory {
-  return JSON.parse(json) as EnhancedBotMemory;
+export function deserializeEnhancedMemory(json: string): BotMemory {
+  return JSON.parse(json) as BotMemory;
 }
