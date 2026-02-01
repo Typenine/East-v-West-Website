@@ -6,6 +6,17 @@ R2_SECRET_ACCESS_KEY=
 R2_BUCKET=
 # Optional public base for R2 files if you put Cloudflare Worker or CDN in front
 R2_PUBLIC_BASE=
-# Discord webhook for new suggestions notifications
+
+# Discord webhooks
+# Webhook for new suggestions notifications
 DISCORD_SUGGESTIONS_WEBHOOK_URL=
+# Webhook for trade notifications (posted when trades are accepted/completed)
+DISCORD_TRADES_WEBHOOK_URL=
+# Webhook for newsletter announcements (posted when newsletter is published)
+DISCORD_NEWSLETTER_WEBHOOK_URL=
+
+# Sleeper league ID for trade monitoring
+SLEEPER_LEAGUE_ID=
+
+# Site URL for links in Discord embeds
 SITE_URL=

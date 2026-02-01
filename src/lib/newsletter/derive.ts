@@ -29,10 +29,51 @@ export function setPlayerNameCache(players: Record<string, { full_name?: string;
 
 /**
  * Resolve a player ID to a name
+ * NEVER returns a bare numeric ID - always returns a readable name or "Unknown Player"
  */
 export function resolvePlayerName(playerId: string): string {
-  if (!playerNameCache) return playerId;
-  return playerNameCache[playerId] || playerId;
+  if (!playerNameCache) {
+    // Cache not loaded - return fallback instead of bare ID
+    return /^\d+$/.test(playerId) ? 'Unknown Player' : playerId;
+  }
+  const name = playerNameCache[playerId];
+  if (name) return name;
+  // ID not found in cache - return fallback instead of bare ID
+  return /^\d+$/.test(playerId) ? 'Unknown Player' : playerId;
+}
+
+/**
+ * Quality gate: Scan HTML for unresolved player IDs (bare numeric sequences that look like Sleeper IDs)
+ * Returns array of warnings if suspicious patterns found
+ */
+export function scanForUnresolvedPlayerIds(html: string): string[] {
+  const warnings: string[] = [];
+  
+  // Pattern 1: "top performers of 7523, 12507" - comma-separated numeric IDs
+  const commaPattern = /(?:top\s+performers?|players?|scorers?)\s+(?:of\s+)?(\d{4,}(?:\s*,\s*\d{4,})+)/gi;
+  let match;
+  while ((match = commaPattern.exec(html)) !== null) {
+    warnings.push(`Unresolved player IDs in context: "${match[0]}"`);
+  }
+  
+  // Pattern 2: Bare 4-7 digit numbers in player-name contexts (not years, not scores)
+  // Look for patterns like "added 7523" or "dropped 12507" which should be player names
+  const actionPattern = /(?:added|dropped|acquired|traded|picked up|claimed)\s+(\d{4,7})(?:\s|,|\.|\)|$)/gi;
+  while ((match = actionPattern.exec(html)) !== null) {
+    warnings.push(`Possible unresolved player ID after action verb: "${match[0].trim()}"`);
+  }
+  
+  // Pattern 3: Multiple consecutive 4+ digit numbers that aren't scores (scores are usually 2-3 digits with decimals)
+  const consecutivePattern = /\b(\d{4,})\s+(?:and\s+)?(\d{4,})\b/g;
+  while ((match = consecutivePattern.exec(html)) !== null) {
+    // Skip if both look like years (2023-2026 range)
+    const n1 = parseInt(match[1], 10);
+    const n2 = parseInt(match[2], 10);
+    if (n1 >= 2020 && n1 <= 2030 && n2 >= 2020 && n2 <= 2030) continue;
+    warnings.push(`Consecutive large numbers (possible IDs): "${match[0]}"`);
+  }
+  
+  return warnings;
 }
 
 // ============ Helper Functions ============

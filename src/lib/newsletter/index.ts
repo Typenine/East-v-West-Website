@@ -21,7 +21,7 @@ export {
 } from './config';
 
 // Core modules
-export { buildDerived, mapUsersById, mapRosters, setPlayerNameCache, resolvePlayerName } from './derive';
+export { buildDerived, mapUsersById, mapRosters, setPlayerNameCache, resolvePlayerName, scanForUnresolvedPlayerIds } from './derive';
 export { getProfile, openerFor, makeBlurt, getTonePhrase, determineOutcome } from './personality';
 export { createFreshMemory, ensureTeams, updateMemoryAfterWeek, serializeMemory, deserializeMemory, ensureEnhancedTeams, updateEnhancedMemoryAfterWeek, upgradeToEnhancedMemory } from './memory';
 // Note: recaps.ts contains legacy template-based recaps, now replaced by LLM-powered recaps in compose.ts

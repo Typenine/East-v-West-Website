@@ -245,7 +245,24 @@ export const newsletters = pgTable('newsletters', {
   // Pre-rendered HTML for fast display
   html: text('html').notNull(),
   generatedAt: timestamp('generated_at', { withTimezone: true }).defaultNow().notNull(),
+  // Track if newsletter was posted to Discord
+  discordPostedAt: timestamp('discord_posted_at', { withTimezone: true }),
 }, (t) => ({
   seasonWeekIdx: index('newsletters_season_week_idx').on(t.season, t.week),
+}));
+
+// Discord notification dedupe - tracks which events have been posted to Discord
+export const discordNotificationTypeEnum = pgEnum('discord_notification_type', ['trade_accepted', 'trade_complete', 'newsletter_published']);
+
+export const discordNotifications = pgTable('discord_notifications', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  notificationType: discordNotificationTypeEnum('notification_type').notNull(),
+  // Unique key for deduplication (e.g., transaction_id for trades, season-week for newsletters)
+  dedupeKey: varchar('dedupe_key', { length: 255 }).notNull(),
+  postedAt: timestamp('posted_at', { withTimezone: true }).defaultNow().notNull(),
+  // Optional metadata about the notification
+  meta: jsonb('meta').$type<Record<string, unknown>>(),
+}, (t) => ({
+  typeKeyIdx: index('discord_notifications_type_key_idx').on(t.notificationType, t.dedupeKey),
 }));
 

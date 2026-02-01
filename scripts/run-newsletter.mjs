@@ -255,7 +255,7 @@ async function main() {
     }
   }
 
-  const { getLeagueIdForSeason, fetchComprehensiveLeagueData, buildComprehensiveContextString, fetchCurrentWeekContext, buildCurrentStandingsContext, buildTransactionsContext, getLeagueRulesContext, fetchAllExternalData, buildExternalDataContext, generateNewsletter } = await importNewsletter();
+  const { getLeagueIdForSeason, fetchComprehensiveLeagueData, buildComprehensiveContextString, fetchCurrentWeekContext, buildCurrentStandingsContext, buildTransactionsContext, getLeagueRulesContext, fetchAllExternalData, buildExternalDataContext, generateNewsletter, setPlayerNameCache, scanForUnresolvedPlayerIds } = await importNewsletter();
 
   const leagueId = getLeagueIdForSeason(target.season);
   if (!leagueId) {
@@ -288,6 +288,15 @@ async function main() {
   const comprehensiveData = await fetchComprehensiveLeagueData();
   const comprehensiveContextString = buildComprehensiveContextString(comprehensiveData);
 
+  // Load player name cache EARLY - required for all episode types to resolve player IDs to names
+  const { getAllPlayersCached, getSleeperInjuriesCached } = await import(pathResolve(projectRoot, 'src', 'lib', 'utils', 'sleeper-api.ts'));
+  const [allPlayers, injuryData] = await Promise.all([
+    getAllPlayersCached(12 * 60 * 60 * 1000), // 12 hour cache
+    getSleeperInjuriesCached().catch(() => []),
+  ]);
+  setPlayerNameCache(allPlayers);
+  console.log(`[Runner] Player cache loaded: ${Object.keys(allPlayers).length} players`);
+
   let enhancedContext = {};
   if (target.episodeType === 'preseason' || target.episodeType === 'pre_draft' || target.episodeType === 'post_draft' || target.episodeType === 'offseason') {
     const rulesString = getLeagueRulesContext();
@@ -304,13 +313,7 @@ async function main() {
     const externalDataString = buildExternalDataContext(externalData);
     const rulesString = getLeagueRulesContext();
 
-    // Injuries + fantasy team mapping (best-effort), mirroring API route behavior
-    const { getAllPlayersCached, getSleeperInjuriesCached } = await import(pathResolve(projectRoot, 'src', 'lib', 'utils', 'sleeper-api.ts'));
-    const [allPlayers, injuryData] = await Promise.all([
-      getAllPlayersCached(12 * 60 * 60 * 1000),
-      getSleeperInjuriesCached().catch(() => []),
-    ]);
-    // Build roster name lookup
+    // Build roster name lookup (allPlayers and injuryData already loaded above)
     const userNameById = new Map();
     for (const u of users) {
       const display = (u?.metadata?.team_name) || u.display_name || u.username || `User ${u.user_id}`;
@@ -369,6 +372,22 @@ async function main() {
     previousPredictions,
   });
 
+  // Quality gate: Check for unresolved player IDs in HTML
+  const playerIdWarnings = scanForUnresolvedPlayerIds(result.html || '');
+  if (playerIdWarnings.length > 0) {
+    console.warn('[Runner] ⚠️ QUALITY WARNING: Possible unresolved player IDs detected:');
+    for (const w of playerIdWarnings) {
+      console.warn(`  - ${w}`);
+    }
+    if (!args.preview) {
+      // For publish runs, treat as quality failure
+      console.error('[Runner] Unresolved player IDs in publish run. Marking as fallbackUsed.');
+      result.fallbackUsed = true;
+      result.fallbackSections = result.fallbackSections || [];
+      result.fallbackSections.push('player_id_resolution');
+    }
+  }
+
   // Strict publish gating (only for non-preview)
   if (!args.preview && strictFailIfDegraded(result)) {
     console.error('[Runner] Strict publish gating failed (composeFailed or fallbackUsed). No writes. Exiting non-zero.');
@@ -387,11 +406,15 @@ async function main() {
       week: target.week,
       episodeType: target.episodeType || 'regular',
       timestamp: new Date().toISOString(),
+      warnings: playerIdWarnings.length > 0 ? playerIdWarnings : undefined,
     };
     await writeFile(metaPath, JSON.stringify(meta, null, 2), 'utf8');
     console.log(`[Runner] Wrote preview artifacts:`);
     console.log(` - ${htmlPath}`);
     console.log(` - ${metaPath}`);
+    if (playerIdWarnings.length > 0) {
+      console.log(`[Runner] ⚠️ Preview contains ${playerIdWarnings.length} quality warnings - see newsletter-preview.json`);
+    }
     console.log(`Download artifact → open newsletter-preview.html`);
     process.exit(0);
   }

@@ -42,6 +42,10 @@ import {
 } from '@/server/db/newsletter-queries';
 import { getHeadToHeadAllTime } from '@/lib/utils/headtohead';
 import { fetchTradesAllTime } from '@/lib/utils/trades';
+import { postToDiscordWebhook, buildNewsletterEmbed } from '@/lib/utils/discord';
+import { getDb } from '@/server/db/client';
+import { discordNotifications } from '@/server/db/schema';
+import { eq, and } from 'drizzle-orm';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -784,6 +788,51 @@ export async function POST(request: NextRequest) {
     await saveNewsletter(seasonNum, week, league.name || 'East v. West', result.newsletter as { meta: { leagueName: string; week: number; date: string; season: number }; sections: Array<{ type: string; data: unknown }> }, result.html);
 
     console.log(`Newsletter generated and saved for Season ${season} Week ${week}${result.composeFailed ? ' (with fallback content)' : ''}`);
+
+    // Post to Discord if webhook is configured and not already posted
+    const discordWebhookUrl = process.env.DISCORD_NEWSLETTER_WEBHOOK_URL;
+    const siteUrl = process.env.SITE_URL || 'https://eastvswest.football';
+    if (discordWebhookUrl) {
+      try {
+        const db = getDb();
+        const dedupeKey = `${seasonNum}-${week}`;
+        
+        // Check if already posted
+        const existing = await db
+          .select()
+          .from(discordNotifications)
+          .where(and(
+            eq(discordNotifications.notificationType, 'newsletter_published'),
+            eq(discordNotifications.dedupeKey, dedupeKey)
+          ))
+          .limit(1)
+          .catch(() => []);
+        
+        if (existing.length === 0) {
+          const embed = buildNewsletterEmbed({
+            season: seasonNum,
+            week,
+            siteUrl,
+          });
+          
+          const discordResult = await postToDiscordWebhook(discordWebhookUrl, { embeds: [embed] });
+          if (discordResult.success) {
+            await db.insert(discordNotifications).values({
+              notificationType: 'newsletter_published',
+              dedupeKey,
+              meta: { season: seasonNum, week },
+            }).catch(() => {});
+            console.log(`[Newsletter] Posted to Discord for Season ${seasonNum} Week ${week}`);
+          } else {
+            console.warn(`[Newsletter] Discord post failed: ${discordResult.error}`);
+          }
+        } else {
+          console.log(`[Newsletter] Already posted to Discord for Season ${seasonNum} Week ${week}`);
+        }
+      } catch (discordErr) {
+        console.warn('[Newsletter] Discord notification error (non-fatal):', discordErr);
+      }
+    }
 
     // Type-safe section access
     type NewsletterSection = { type: string; data: unknown };
