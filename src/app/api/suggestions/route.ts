@@ -17,6 +17,9 @@ import {
   getSuggestionGroupsMap,
   getSuggestionTitlesMap,
   setSuggestionTitle,
+  getSuggestionDisplayNumbersMap,
+  backfillSuggestionDisplayNumbers,
+  getBallotForcedMap,
 } from '@/server/db/queries';
 import { requireTeamUser } from '@/lib/server/session';
 
@@ -38,6 +41,8 @@ export type Suggestion = {
   voteTag?: 'voted_on' | 'vote_passed' | 'vote_failed';
   groupId?: string;
   groupPos?: number;
+  displayNumber?: number;
+  ballotForced?: boolean;
 };
 
 const DATA_PATH = path.join(process.cwd(), 'data', 'suggestions.json');
@@ -177,6 +182,17 @@ export async function GET() {
         status: (r.status as Suggestion['status']) || 'open',
         resolvedAt: r.resolvedAt ? new Date(r.resolvedAt).toISOString() : undefined,
       } as Suggestion));
+      // Backfill display numbers if needed (best-effort, non-blocking)
+      try {
+        await backfillSuggestionDisplayNumbers();
+      } catch {}
+      // Overlay display numbers from DB column
+      try {
+        const dmap = await getSuggestionDisplayNumbersMap();
+        if (dmap && Object.keys(dmap).length > 0) {
+          items = items.map((it) => ({ ...it, displayNumber: dmap[it.id] || it.displayNumber }));
+        }
+      } catch {}
       // Overlay sponsors from DB column if present
       try {
         const dbMap = await getSuggestionSponsorsMap();
@@ -224,6 +240,13 @@ export async function GET() {
         const gmap = await getSuggestionGroupsMap();
         if (gmap && Object.keys(gmap).length > 0) {
           items = items.map((it) => ({ ...it, groupId: (gmap[it.id]?.groupId) || it.groupId, groupPos: (gmap[it.id]?.groupPos) || it.groupPos }));
+        }
+      } catch {}
+      // Overlay ballot forced flags
+      try {
+        const bmap = await getBallotForcedMap();
+        if (bmap && Object.keys(bmap).length > 0) {
+          items = items.map((it) => ({ ...it, ballotForced: bmap[it.id] || it.ballotForced }));
         }
       } catch {}
       // Overlay sponsor teams from KV map if present

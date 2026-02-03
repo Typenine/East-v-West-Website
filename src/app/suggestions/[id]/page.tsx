@@ -23,9 +23,18 @@ type Suggestion = {
   voteTag?: 'voted_on' | 'vote_passed' | 'vote_failed';
   groupId?: string;
   groupPos?: number;
+  displayNumber?: number;
+  ballotForced?: boolean;
 };
 
 const ENDORSEMENT_THRESHOLD = 3;
+
+// Helper to format suggestion display label
+function getSuggestionLabel(s: Suggestion): string {
+  if (s.title && s.title.trim()) return s.title;
+  if (s.displayNumber) return `Suggestion ${String(s.displayNumber).padStart(4, '0')}`;
+  return `Suggestion #${s.id.slice(0, 8)}`;
+}
 
 export default function SuggestionDetailPage() {
   const params = useParams();
@@ -150,7 +159,7 @@ export default function SuggestionDetailPage() {
 
   return (
     <div className="container mx-auto px-4 py-8">
-      <SectionHeader title={s.title || `Suggestion #${s.id.slice(0, 8)}`} />
+      <SectionHeader title={getSuggestionLabel(s)} />
 
       <div className="mb-4">
         <Link href="/suggestions">

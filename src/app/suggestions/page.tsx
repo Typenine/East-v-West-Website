@@ -28,6 +28,8 @@ type Suggestion = {
   voteTag?: 'voted_on' | 'vote_passed' | 'vote_failed';
   groupId?: string;
   groupPos?: number;
+  displayNumber?: number;
+  ballotForced?: boolean;
 };
 
 type Tallies = Record<string, { up: number; down: number }>;
@@ -35,6 +37,13 @@ type Tallies = Record<string, { up: number; down: number }>;
 const CATEGORIES = ['Rules', 'Website', 'Discord', 'Location', 'Other'];
 
 type SortOption = 'newest' | 'oldest' | 'closest_to_ballot';
+
+// Helper to format suggestion display label
+function getSuggestionLabel(s: Suggestion): string {
+  if (s.title && s.title.trim()) return s.title;
+  if (s.displayNumber) return `Suggestion ${String(s.displayNumber).padStart(4, '0')}`;
+  return `Suggestion #${s.id.slice(0, 8)}`;
+}
 
 export default function SuggestionsPage() {
   type Draft = {
@@ -441,11 +450,12 @@ export default function SuggestionsPage() {
               return endorsers.filter((t) => t !== s.proposerTeam).length;
             };
 
-            // Ballot-eligible items: >= 3 eligible endorsements, not finalized (no voteTag or voteTag === 'voted_on')
+            // Ballot-eligible items: >= 3 eligible endorsements OR ballotForced, not finalized (no voteTag or voteTag === 'voted_on')
             const ballotQueue = items.filter((s) => {
               const eligibleCount = getEligibleCount(s);
               const isFinalized = s.voteTag === 'vote_passed' || s.voteTag === 'vote_failed';
-              return eligibleCount >= ENDORSEMENT_THRESHOLD && !isFinalized && !s.vague;
+              const isBallotEligible = eligibleCount >= ENDORSEMENT_THRESHOLD || s.ballotForced;
+              return isBallotEligible && !isFinalized && !s.vague;
             });
 
             if (ballotQueue.length === 0) return null;
@@ -467,7 +477,7 @@ export default function SuggestionsPage() {
                           className="block p-3 rounded-lg border border-[var(--border)] evw-surface hover:border-[var(--accent)] transition-colors"
                         >
                           <div className="flex items-center justify-between">
-                            <span className="font-medium">{s.title || `Suggestion #${s.id.slice(0, 8)}`}</span>
+                            <span className="font-medium">{getSuggestionLabel(s)}</span>
                             {s.voteTag === 'voted_on' && (
                               <span className="text-xs px-2 py-0.5 rounded-full border" style={{ borderColor: '#0b5f98', color: '#0b5f98' }}>
                                 VOTING
