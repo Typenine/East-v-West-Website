@@ -22,14 +22,19 @@ export async function ensureSuggestionTitleColumn() {
   } catch {}
 }
 
-export async function setSuggestionTitle(id: string, title: string | null) {
+export async function setSuggestionTitle(id: string, title: string | null): Promise<{ success: boolean; rowCount?: number; error?: string }> {
   try {
     await ensureSuggestionTitleColumn();
     const db = getDb();
-    await db.execute(sql`UPDATE suggestions SET title = ${title} WHERE id = ${id}::uuid`);
-    return true;
-  } catch {
-    return false;
+    const result = await db.execute(sql`UPDATE suggestions SET title = ${title} WHERE id = ${id}::uuid`);
+    // Extract rowCount from result - Neon/Postgres client returns this in the result object
+    const rowCount = typeof result === 'object' && result !== null && 'rowCount' in result 
+      ? Number(result.rowCount) || 0 
+      : 0;
+    return { success: true, rowCount };
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    return { success: false, error: errorMessage };
   }
 }
 

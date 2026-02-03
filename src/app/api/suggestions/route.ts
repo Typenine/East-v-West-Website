@@ -252,10 +252,13 @@ export async function GET() {
       // Overlay titles from DB column if present
       try {
         const tmap = await getSuggestionTitlesMap();
+        console.log(`[suggestions/GET] Retrieved ${Object.keys(tmap).length} titles from DB`);
         if (tmap && Object.keys(tmap).length > 0) {
           items = items.map((it) => ({ ...it, title: tmap[it.id] || it.title }));
         }
-      } catch {}
+      } catch (error) {
+        console.error('[suggestions/GET] Failed to load titles:', error);
+      }
       // Overlay proposers from DB column if present
       try {
         const pmap = await getSuggestionProposersMap();
