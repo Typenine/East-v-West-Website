@@ -1077,6 +1077,40 @@ export async function getSuggestionDisplayNumbersMap(): Promise<Record<string, n
   return out;
 }
 
+// --- Ballot forced (admin override to add/remove from ballot) ---
+export async function ensureBallotForcedColumn() {
+  try {
+    const db = getDb();
+    await db.execute(sql`ALTER TABLE suggestions ADD COLUMN IF NOT EXISTS ballot_forced integer DEFAULT 0 NOT NULL`);
+  } catch {}
+}
+
+export async function setBallotForced(id: string, forced: boolean) {
+  try {
+    await ensureBallotForcedColumn();
+    const db = getDb();
+    await db.execute(sql`UPDATE suggestions SET ballot_forced = ${forced ? 1 : 0} WHERE id = ${id}::uuid`);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function getBallotForcedMap(): Promise<Record<string, boolean>> {
+  const out: Record<string, boolean> = {};
+  try {
+    await ensureBallotForcedColumn();
+    const db = getDb();
+    const res = await db.execute(sql`SELECT id::text AS id, ballot_forced FROM suggestions WHERE ballot_forced = 1`);
+    const rawRows = (res as unknown as { rows?: Array<{ id: string; ballot_forced: number }> }).rows || [];
+    for (const r of rawRows) {
+      const id = typeof r.id === 'string' ? r.id : '';
+      if (id) out[id] = true;
+    }
+  } catch {}
+  return out;
+}
+
 export async function addTaxiMember(teamId: string, playerId: string, activeFrom?: Date) {
   const db = getDb();
   const [row] = await db.insert(taxiSquadMembers).values({ teamId, playerId, activeFrom: activeFrom || new Date() }).returning();

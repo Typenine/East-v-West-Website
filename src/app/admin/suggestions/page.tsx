@@ -20,6 +20,7 @@ type Suggestion = {
   endorsers?: string[];
   voteTag?: 'voted_on' | 'vote_passed' | 'vote_failed';
   displayNumber?: number;
+  ballotForced?: boolean;
 };
 
 type VotesMap = Record<string, { up: string[]; down: string[] }>; // suggestionId -> { up, down }
@@ -314,6 +315,23 @@ export default function AdminSuggestionsPage() {
                         }}
                         title={s.vague ? 'Clear Needs Clarification' : 'Mark Needs Clarification'}
                       >{s.vague ? 'Clear Needs Clarification' : 'Mark Needs Clarification'}</button>
+                      <button
+                        className={`text-sm px-3 py-1 rounded border ${s.ballotForced ? 'bg-blue-600 text-white border-blue-600' : 'border-[var(--border)]'}`}
+                        disabled={busy === s.id}
+                        onClick={async () => {
+                          setBusy(s.id);
+                          try {
+                            const r = await fetch('/api/admin/suggestions', {
+                              method: 'PUT',
+                              credentials: 'include',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ id: s.id, ballotForced: !s.ballotForced })
+                            });
+                            if (r.ok) setItems((prev) => prev.map((it) => it.id === s.id ? ({ ...it, ballotForced: !s.ballotForced }) : it));
+                          } finally { setBusy(null); }
+                        }}
+                        title={s.ballotForced ? 'Remove from Ballot Queue' : 'Force Add to Ballot Queue'}
+                      >{s.ballotForced ? '🗳️ Remove from Ballot' : '🗳️ Add to Ballot'}</button>
                       {isAccepted ? (
                         <button
                           className="text-sm px-3 py-1 rounded border border-[var(--border)]"

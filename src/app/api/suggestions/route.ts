@@ -19,6 +19,7 @@ import {
   setSuggestionTitle,
   getSuggestionDisplayNumbersMap,
   backfillSuggestionDisplayNumbers,
+  getBallotForcedMap,
 } from '@/server/db/queries';
 import { requireTeamUser } from '@/lib/server/session';
 
@@ -41,6 +42,7 @@ export type Suggestion = {
   groupId?: string;
   groupPos?: number;
   displayNumber?: number;
+  ballotForced?: boolean;
 };
 
 const DATA_PATH = path.join(process.cwd(), 'data', 'suggestions.json');
@@ -238,6 +240,13 @@ export async function GET() {
         const gmap = await getSuggestionGroupsMap();
         if (gmap && Object.keys(gmap).length > 0) {
           items = items.map((it) => ({ ...it, groupId: (gmap[it.id]?.groupId) || it.groupId, groupPos: (gmap[it.id]?.groupPos) || it.groupPos }));
+        }
+      } catch {}
+      // Overlay ballot forced flags
+      try {
+        const bmap = await getBallotForcedMap();
+        if (bmap && Object.keys(bmap).length > 0) {
+          items = items.map((it) => ({ ...it, ballotForced: bmap[it.id] || it.ballotForced }));
         }
       } catch {}
       // Overlay sponsor teams from KV map if present

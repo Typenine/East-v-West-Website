@@ -29,6 +29,7 @@ type Suggestion = {
   groupId?: string;
   groupPos?: number;
   displayNumber?: number;
+  ballotForced?: boolean;
 };
 
 type Tallies = Record<string, { up: number; down: number }>;
@@ -449,11 +450,12 @@ export default function SuggestionsPage() {
               return endorsers.filter((t) => t !== s.proposerTeam).length;
             };
 
-            // Ballot-eligible items: >= 3 eligible endorsements, not finalized (no voteTag or voteTag === 'voted_on')
+            // Ballot-eligible items: >= 3 eligible endorsements OR ballotForced, not finalized (no voteTag or voteTag === 'voted_on')
             const ballotQueue = items.filter((s) => {
               const eligibleCount = getEligibleCount(s);
               const isFinalized = s.voteTag === 'vote_passed' || s.voteTag === 'vote_failed';
-              return eligibleCount >= ENDORSEMENT_THRESHOLD && !isFinalized && !s.vague;
+              const isBallotEligible = eligibleCount >= ENDORSEMENT_THRESHOLD || s.ballotForced;
+              return isBallotEligible && !isFinalized && !s.vague;
             });
 
             if (ballotQueue.length === 0) return null;

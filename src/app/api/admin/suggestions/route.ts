@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server';
-import { updateSuggestionStatus, deleteSuggestion, setSuggestionSponsor, setSuggestionVague, setSuggestionVoteTag, setSuggestionProposer, setSuggestionTitle } from '@/server/db/queries';
+import { updateSuggestionStatus, deleteSuggestion, setSuggestionSponsor, setSuggestionVague, setSuggestionVoteTag, setSuggestionProposer, setSuggestionTitle, setBallotForced } from '@/server/db/queries';
 import { canonicalizeTeamName } from '@/lib/server/user-identity';
 
 export const runtime = 'nodejs';
@@ -33,6 +33,9 @@ export async function PUT(req: NextRequest) {
   let voteTag: 'voted_on' | 'vote_passed' | 'vote_failed' | null | undefined = undefined;
   const titleRaw = body?.title;
   let title: string | null | undefined = undefined;
+  const ballotForcedRaw = body?.ballotForced;
+  const ballotForced: boolean | undefined = typeof ballotForcedRaw === 'boolean' ? ballotForcedRaw : undefined;
+  
   if (typeof titleRaw === 'string') {
     const val = titleRaw.trim();
     title = val || null;
@@ -61,7 +64,7 @@ export async function PUT(req: NextRequest) {
     proposerTeam = null;
   }
   if (!id) return Response.json({ error: 'id required' }, { status: 400 });
-  if (!status && sponsorTeam === undefined && proposerTeam === undefined && vague === undefined && voteTag === undefined && title === undefined) {
+  if (!status && sponsorTeam === undefined && proposerTeam === undefined && vague === undefined && voteTag === undefined && title === undefined && ballotForced === undefined) {
     return Response.json({ error: 'nothing to update' }, { status: 400 });
   }
   try {
@@ -88,7 +91,10 @@ export async function PUT(req: NextRequest) {
     if (title !== undefined) {
       await setSuggestionTitle(id, title);
     }
-    return Response.json({ ok: true, id, status, resolvedAt: resolvedAt ?? null, sponsorTeam: sponsorTeam ?? undefined, proposerTeam: proposerTeam ?? undefined, vague, voteTag, title: title ?? undefined });
+    if (ballotForced !== undefined) {
+      await setBallotForced(id, ballotForced);
+    }
+    return Response.json({ ok: true, id, status, resolvedAt: resolvedAt ?? null, sponsorTeam: sponsorTeam ?? undefined, proposerTeam: proposerTeam ?? undefined, vague, voteTag, title: title ?? undefined, ballotForced });
   } catch {
     return Response.json({ error: 'update failed' }, { status: 500 });
   }
