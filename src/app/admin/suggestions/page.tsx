@@ -31,6 +31,7 @@ export default function AdminSuggestionsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [saveStatus, setSaveStatus] = useState<Record<string, 'saving' | 'saved' | 'error' | null>>({});
 
   useEffect(() => {
     let mounted = true;
@@ -167,17 +168,30 @@ export default function AdminSuggestionsPage() {
                     </div>
                     <div className="mt-3 mb-3">
                       <label className="text-xs flex flex-col gap-1">
-                        <span className="uppercase tracking-wide">Title</span>
+                        <span className="uppercase tracking-wide flex items-center gap-2">
+                          Title
+                          {saveStatus[s.id] === 'saving' && <span className="text-blue-600">Saving...</span>}
+                          {saveStatus[s.id] === 'saved' && <span className="text-green-600">✓ Saved</span>}
+                          {saveStatus[s.id] === 'error' && <span className="text-red-600">Failed to save</span>}
+                        </span>
                         <input
                           type="text"
                           className="border border-[var(--border)] rounded px-2 py-1 text-sm w-full"
                           value={s.title || ''}
                           disabled={busy === s.id}
-                          placeholder="Enter suggestion title (optional)"
+                          placeholder="Enter suggestion title (auto-saves on blur)"
+                          data-original-title={s.title || ''}
+                          onFocus={(e) => {
+                            // Store the original value when focus starts
+                            e.target.setAttribute('data-original-title', s.title || '');
+                            setSaveStatus((prev) => ({ ...prev, [s.id]: null }));
+                          }}
                           onBlur={async (e) => {
                             const val = e.target.value.trim();
-                            const currentTitle = (s.title || '').trim();
-                            if (val === currentTitle) return; // No change
+                            const originalTitle = e.target.getAttribute('data-original-title') || '';
+                            if (val === originalTitle) return; // No change from original
+                            
+                            setSaveStatus((prev) => ({ ...prev, [s.id]: 'saving' }));
                             setBusy(s.id);
                             try {
                               const res = await fetch('/api/admin/suggestions', {
@@ -191,7 +205,20 @@ export default function AdminSuggestionsPage() {
                                 // Use response title if available, else fallback to what we sent
                                 const newTitle = j?.title !== undefined ? j.title : (val || null);
                                 setItems((prev) => prev.map((it) => it.id === s.id ? ({ ...it, title: newTitle || undefined }) : it));
+                                setSaveStatus((prev) => ({ ...prev, [s.id]: 'saved' }));
+                                // Clear success message after 2 seconds
+                                setTimeout(() => {
+                                  setSaveStatus((prev) => ({ ...prev, [s.id]: null }));
+                                }, 2000);
+                              } else {
+                                setSaveStatus((prev) => ({ ...prev, [s.id]: 'error' }));
+                                // Revert to original value on error
+                                setItems((prev) => prev.map((it) => it.id === s.id ? ({ ...it, title: originalTitle || undefined }) : it));
                               }
+                            } catch (err) {
+                              setSaveStatus((prev) => ({ ...prev, [s.id]: 'error' }));
+                              // Revert to original value on error
+                              setItems((prev) => prev.map((it) => it.id === s.id ? ({ ...it, title: originalTitle || undefined }) : it));
                             } finally {
                               setBusy(null);
                             }
