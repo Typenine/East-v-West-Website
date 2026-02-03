@@ -13,6 +13,9 @@ import {
 const DISCORD_WEBHOOK_URL = process.env.DISCORD_SUGGESTIONS_WEBHOOK_URL;
 const SITE_URL = process.env.SITE_URL;
 
+// Endorsement threshold for ballot eligibility
+const REQUIRED_ENDORSEMENTS = 3;
+
 /**
  * Build base site URL from env or request headers
  */
@@ -51,7 +54,7 @@ async function postBallotEligibleDiscord(
 
   // Build embed with title and proposer info
   const embedTitle = title ? `🗳️ Ballot Eligible: ${title}` : '🗳️ Ballot Eligible';
-  let description = `This suggestion has reached **${eligibleCount}/3** eligible endorsements and is now on the ballot queue.\n`;
+  let description = `This suggestion has reached **${eligibleCount}/${REQUIRED_ENDORSEMENTS}** eligible endorsements and is now on the ballot queue.\n`;
   if (proposerTeam) description += `**Proposed by:** ${proposerTeam}\n`;
 
   // Build plain text content with link on first line
@@ -59,11 +62,11 @@ async function postBallotEligibleDiscord(
   if (link) {
     plainContent = `Ballot eligible: ${link}\n`;
     if (title) plainContent += `**${title}**\n`;
-    plainContent += `Endorsements: ${eligibleCount}/3`;
+    plainContent += `Endorsements: ${eligibleCount}/${REQUIRED_ENDORSEMENTS}`;
   } else {
     plainContent = 'Ballot eligible: (link unavailable)\n';
     if (title) plainContent += `**${title}**\n`;
-    plainContent += `Endorsements: ${eligibleCount}/3`;
+    plainContent += `Endorsements: ${eligibleCount}/${REQUIRED_ENDORSEMENTS}`;
   }
 
   // Build embed with link field

@@ -53,6 +53,9 @@ const SITE_URL = process.env.SITE_URL;
 // Track posted suggestion IDs to prevent duplicates (in-memory, resets on restart)
 const postedToDiscord = new Set<string>();
 
+// Constants for Discord webhook message formatting
+const MAX_SYNOPSIS_LENGTH = 300;
+
 /**
  * Build base site URL from env or request headers
  */
@@ -96,10 +99,10 @@ async function postToDiscord(suggestion: Suggestion, teamName?: string, baseUrl?
   if (suggestion.category) description += `**Category:** ${suggestion.category}\n`;
   if (teamName) description += `**Proposed by:** ${teamName}\n`;
   
-  // Add short synopsis (truncate ~300 chars)
+  // Add short synopsis (truncate to MAX_SYNOPSIS_LENGTH chars)
   if (suggestion.content) {
-    const synopsis = suggestion.content.length > 300 
-      ? suggestion.content.slice(0, 300) + '…' 
+    const synopsis = suggestion.content.length > MAX_SYNOPSIS_LENGTH 
+      ? suggestion.content.slice(0, MAX_SYNOPSIS_LENGTH) + '…' 
       : suggestion.content;
     description += `\n${synopsis}\n`;
   }
