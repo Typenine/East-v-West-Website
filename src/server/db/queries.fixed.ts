@@ -674,6 +674,7 @@ export async function createSuggestion(params: { userId?: string | null; text: s
     status: row.status as 'draft' | 'open' | 'accepted' | 'rejected',
     createdAt: new Date(row.created_at),
     resolvedAt: row.resolved_at ? new Date(row.resolved_at) : null,
+    displayNumber: typeof row.display_number === 'number' ? row.display_number : Number(row.display_number || 0),
   };
 }
 

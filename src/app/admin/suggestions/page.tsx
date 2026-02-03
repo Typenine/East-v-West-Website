@@ -172,7 +172,7 @@ export default function AdminSuggestionsPage() {
                           className="border border-[var(--border)] rounded px-2 py-1 text-sm w-full"
                           value={s.title || ''}
                           disabled={busy === s.id}
-                          placeholder="Enter suggestion title (optional for existing suggestions)"
+                          placeholder="Enter suggestion title (optional)"
                           onBlur={async (e) => {
                             const val = e.target.value.trim();
                             if (val === (s.title || '')) return; // No change
