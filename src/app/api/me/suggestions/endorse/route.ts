@@ -6,24 +6,44 @@ import {
   getSuggestionVagueMap,
   getSuggestionVoteTagsMap,
   getSuggestionProposersMap,
+  getSuggestionTitlesMap,
   markBallotEligibleIfThreshold,
 } from '@/server/db/queries';
 
 const DISCORD_WEBHOOK_URL = process.env.DISCORD_SUGGESTIONS_WEBHOOK_URL;
 const SITE_URL = process.env.SITE_URL;
 
-async function postBallotEligibleDiscord(suggestionId: string, eligibleCount: number) {
+async function postBallotEligibleDiscord(
+  suggestionId: string,
+  eligibleCount: number,
+  title?: string,
+  proposerTeam?: string
+) {
   if (!DISCORD_WEBHOOK_URL) return;
   const base = (SITE_URL || '').replace(/\/$/, '');
-  const link = base ? `${base}/suggestions#${suggestionId}` : undefined;
+  // Use stable detail URL (not anchor)
+  const link = base ? `${base}/suggestions/${suggestionId}` : undefined;
+
+  // Build embed with title and proposer info
+  const embedTitle = title ? `🗳️ Ballot Eligible: ${title}` : '🗳️ Ballot Eligible';
+  let description = `This suggestion has reached **${eligibleCount}** eligible endorsements and is now on the ballot queue.\n`;
+  if (proposerTeam) description += `**Proposed by:** ${proposerTeam}\n`;
+  if (link) description += `\n🔗 **[View Suggestion](${link})**`;
+
   const embed = {
-    title: 'Ballot Eligible',
-    description: link ? `This suggestion has reached ${eligibleCount} eligible endorsements.` : `This suggestion has reached ${eligibleCount} eligible endorsements.`,
+    title: embedTitle,
+    description,
     url: link,
-    color: 0x16a34a,
+    color: 0x16a34a, // green
     timestamp: new Date().toISOString(),
   };
-  const payload = { content: link ? `Ballot Eligible: ${link}` : undefined, embeds: [embed], allowed_mentions: { parse: [] } };
+
+  // Plain text link at top level for maximum visibility
+  const plainContent = link
+    ? `🗳️ **Ballot Eligible${title ? `: ${title}` : ''}**\n${link}`
+    : undefined;
+
+  const payload = { content: plainContent, embeds: [embed], allowed_mentions: { parse: [] } };
   const doPost = async (): Promise<Response> => fetch(DISCORD_WEBHOOK_URL!, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
   try {
     let res = await doPost();
@@ -89,7 +109,20 @@ export async function PUT(req: NextRequest) {
     if (endorse) {
       try {
         const { becameEligible, eligibleCount } = await markBallotEligibleIfThreshold(suggestionId);
-        if (becameEligible) postBallotEligibleDiscord(suggestionId, eligibleCount).catch(() => {});
+        if (becameEligible) {
+          // Fetch title and proposer for the Discord message
+          let title: string | undefined;
+          let proposerTeam: string | undefined;
+          try {
+            const [titlesMap, proposersMap] = await Promise.all([
+              getSuggestionTitlesMap(),
+              getSuggestionProposersMap(),
+            ]);
+            title = titlesMap[suggestionId];
+            proposerTeam = proposersMap[suggestionId];
+          } catch {}
+          postBallotEligibleDiscord(suggestionId, eligibleCount, title, proposerTeam).catch(() => {});
+        }
       } catch (e) {
         console.warn('[endorse] ballot eligibility check failed', e);
       }

@@ -53,23 +53,21 @@ async function postToDiscord(suggestion: Suggestion, teamName?: string): Promise
   if (postedToDiscord.has(suggestion.id)) return; // idempotent
   postedToDiscord.add(suggestion.id);
 
-  const embedTitle = suggestion.title
-    ? `New Suggestion: ${suggestion.title}`
-    : 'New Suggestion';
+  // Build stable detail URL (not an anchor)
+  const base = (SITE_URL || '').replace(/\/$/, '');
+  const link = suggestion.id && base ? `${base}/suggestions/${suggestion.id}` : undefined;
 
-  // Build description: category, rule reference if present, and a snippet of content
+  // Title for embed
+  const embedTitle = suggestion.title
+    ? `📋 ${suggestion.title}`
+    : '📋 New Suggestion';
+
+  // Build compact description: category only (no long content dump)
   let description = '';
   if (suggestion.category) description += `**Category:** ${suggestion.category}\n`;
-  // Extract rule line from content if present
-  const ruleMatch = suggestion.content.match(/^Rule:\s*(.+)$/m);
-  if (ruleMatch) description += `**Rule:** ${ruleMatch[1]}\n`;
-  // Add content snippet (first 300 chars)
-  const snippet = suggestion.content.slice(0, 300) + (suggestion.content.length > 300 ? '…' : '');
-  description += `\n${snippet}`;
-
-  // Absolute link to suggestion
-  const base = (SITE_URL || '').replace(/\/$/, '');
-  const link = suggestion.id && base ? `${base}/suggestions#${suggestion.id}` : undefined;
+  if (teamName) description += `**Proposed by:** ${teamName}\n`;
+  // Add link inside embed description for visibility
+  if (link) description += `\n🔗 **[View Suggestion](${link})**`;
 
   const embed = {
     title: embedTitle,
@@ -77,11 +75,15 @@ async function postToDiscord(suggestion: Suggestion, teamName?: string): Promise
     url: link,
     color: 0x3b82f6, // blue
     timestamp: suggestion.createdAt,
-    footer: teamName ? { text: `Submitted by ${teamName}` } : { text: 'Anonymous submission' },
   };
 
+  // Plain text link at top level for maximum visibility
+  const plainContent = link
+    ? `📋 **New Suggestion${suggestion.title ? `: ${suggestion.title}` : ''}**\n${link}`
+    : undefined;
+
   const payload = {
-    content: link ? `New suggestion: ${link}` : undefined,
+    content: plainContent,
     embeds: [embed],
     allowed_mentions: { parse: [] },
   };
@@ -335,10 +337,12 @@ export async function POST(request: Request) {
         } else {
           const text = String(raw.content || '').trim();
           const itemTitle = String(raw.title || '').trim();
+          // Title is required for all new suggestions
+          if (!itemTitle) return Response.json({ error: 'Title is required for each suggestion.' }, { status: 400 });
           if (!text || text.length < 3) return Response.json({ error: 'Each item must be at least 3 characters.' }, { status: 400 });
           if (text.length > 5000) return Response.json({ error: 'Item too long (max 5000 chars).' }, { status: 400 });
-          itemsParsed.push({ content: text, category: cat || undefined, title: itemTitle || undefined, endorse: Boolean(raw.endorse) });
-          itemsRulesMeta.push({ title: itemTitle || undefined });
+          itemsParsed.push({ content: text, category: cat || undefined, title: itemTitle, endorse: Boolean(raw.endorse) });
+          itemsRulesMeta.push({ title: itemTitle });
         }
       }
       if (itemsParsed.length === 0) return Response.json({ error: 'No valid items' }, { status: 400 });

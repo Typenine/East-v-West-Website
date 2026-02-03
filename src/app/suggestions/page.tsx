@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import SectionHeader from '@/components/ui/SectionHeader';
 import { getTeamColorStyle } from '@/lib/utils/team-utils';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
@@ -9,6 +10,8 @@ import Select from '@/components/ui/Select';
 import Textarea from '@/components/ui/Textarea';
 import Button from '@/components/ui/Button';
 import { rulesHtmlSections } from '@/data/rules';
+
+const ENDORSEMENT_THRESHOLD = 3;
 
 type Suggestion = {
   id: string;
@@ -31,6 +34,8 @@ type Tallies = Record<string, { up: number; down: number }>;
 
 const CATEGORIES = ['Rules', 'Website', 'Discord', 'Location', 'Other'];
 
+type SortOption = 'newest' | 'oldest' | 'closest_to_ballot';
+
 export default function SuggestionsPage() {
   type Draft = {
     category: string;
@@ -40,8 +45,9 @@ export default function SuggestionsPage() {
     rules?: { title: string; proposal: string; issue: string; fix: string; conclusion: string; sectionId?: string; refTitle?: string; refCode?: string; effective?: string } | null;
   };
   const [drafts, setDrafts] = useState<Draft[]>([
-    { category: '', content: '', rules: null },
+    { category: '', content: '', title: '', rules: null },
   ]);
+  const [sortBy, setSortBy] = useState<SortOption>('newest');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [items, setItems] = useState<Suggestion[]>([]);
@@ -223,6 +229,12 @@ export default function SuggestionsPage() {
         payload.push({ category: 'Rules', endorse: Boolean(d.endorse), rules: { title: ruleTitle, proposal, issue, fix, conclusion, reference: { title: (r.refTitle || '').trim(), code: '' }, effective: (r.effective || '').trim() } });
       } else {
         const text = (d.content || '').trim();
+        const itemTitle = (d.title || '').trim();
+        // Title is required for all suggestions
+        if (!itemTitle) {
+          setError('Title is required for each suggestion.');
+          return;
+        }
         if (text.length < 3) {
           setError('Each suggestion must be at least 3 characters.');
           return;
@@ -231,7 +243,7 @@ export default function SuggestionsPage() {
           setError('Suggestion too long (max 5000 chars).');
           return;
         }
-        payload.push({ category: cat || undefined, content: text, endorse: Boolean(d.endorse) });
+        payload.push({ category: cat || undefined, content: text, title: itemTitle, endorse: Boolean(d.endorse) } as typeof payload[number]);
       }
     }
     try {
@@ -378,16 +390,28 @@ export default function SuggestionsPage() {
                           </div>
                         </div>
                       ) : (
-                        <div>
-                          <Label className="mb-1 block">Your suggestion (anonymous)</Label>
-                          <Textarea
-                            rows={6}
-                            value={d.content}
-                            onChange={(e) => setDrafts((prev) => prev.map((it, i) => i === idx ? ({ ...it, content: e.target.value }) : it))}
-                            minLength={3}
-                            maxLength={5000}
-                            placeholder="Propose changes to rules, website, Discord, etc."
-                          />
+                        <div className="space-y-3">
+                          <div>
+                            <Label className="mb-1 block">Title (required)</Label>
+                            <input
+                              className="w-full border border-[var(--border)] rounded px-2 py-1.5 text-sm bg-transparent"
+                              value={d.title || ''}
+                              onChange={(e) => setDrafts((prev) => prev.map((it, i) => i === idx ? ({ ...it, title: e.target.value }) : it))}
+                              placeholder="e.g., Add Flex Spot to Roster"
+                              required
+                            />
+                          </div>
+                          <div>
+                            <Label className="mb-1 block">Description</Label>
+                            <Textarea
+                              rows={6}
+                              value={d.content}
+                              onChange={(e) => setDrafts((prev) => prev.map((it, i) => i === idx ? ({ ...it, content: e.target.value }) : it))}
+                              minLength={3}
+                              maxLength={5000}
+                              placeholder="Describe your suggestion in detail..."
+                            />
+                          </div>
                         </div>
                       )}
                     </div>
@@ -408,10 +432,79 @@ export default function SuggestionsPage() {
           </Card>
         </div>
 
-        <div className="lg:col-span-2">
+        <div className="lg:col-span-2 space-y-6">
+          {/* Ballot Queue Section */}
+          {(() => {
+            // Helper to compute eligible endorsement count (excludes proposer)
+            const getEligibleCount = (s: Suggestion) => {
+              const endorsers = s.endorsers || [];
+              return endorsers.filter((t) => t !== s.proposerTeam).length;
+            };
+
+            // Ballot-eligible items: >= 3 eligible endorsements, not finalized (no voteTag or voteTag === 'voted_on')
+            const ballotQueue = items.filter((s) => {
+              const eligibleCount = getEligibleCount(s);
+              const isFinalized = s.voteTag === 'vote_passed' || s.voteTag === 'vote_failed';
+              return eligibleCount >= ENDORSEMENT_THRESHOLD && !isFinalized && !s.vague;
+            });
+
+            if (ballotQueue.length === 0) return null;
+
+            return (
+              <Card>
+                <CardHeader>
+                  <CardTitle>🗳️ Ballot Queue</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-sm text-[var(--muted)] mb-3">
+                    These suggestions have reached {ENDORSEMENT_THRESHOLD} endorsements and are eligible for voting.
+                  </p>
+                  <ul className="space-y-2">
+                    {ballotQueue.map((s) => (
+                      <li key={s.id}>
+                        <Link
+                          href={`/suggestions/${s.id}`}
+                          className="block p-3 rounded-lg border border-[var(--border)] evw-surface hover:border-[var(--accent)] transition-colors"
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className="font-medium">{s.title || `Suggestion #${s.id.slice(0, 8)}`}</span>
+                            {s.voteTag === 'voted_on' && (
+                              <span className="text-xs px-2 py-0.5 rounded-full border" style={{ borderColor: '#0b5f98', color: '#0b5f98' }}>
+                                VOTING
+                              </span>
+                            )}
+                          </div>
+                          {s.content && (
+                            <p className="text-sm text-[var(--muted)] mt-1 line-clamp-2">
+                              {s.content.slice(0, 120)}{s.content.length > 120 ? '…' : ''}
+                            </p>
+                          )}
+                        </Link>
+                      </li>
+                    ))}
+                  </ul>
+                </CardContent>
+              </Card>
+            );
+          })()}
+
           <Card>
             <CardHeader>
-              <CardTitle>Recent Suggestions</CardTitle>
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <CardTitle>Recent Suggestions</CardTitle>
+                <div className="flex items-center gap-2">
+                  <Label className="text-sm">Sort:</Label>
+                  <Select
+                    value={sortBy}
+                    onChange={(e) => setSortBy(e.target.value as SortOption)}
+                    className="text-sm py-1"
+                  >
+                    <option value="newest">Newest first</option>
+                    <option value="oldest">Oldest first</option>
+                    <option value="closest_to_ballot">Closest to ballot</option>
+                  </Select>
+                </div>
+              </div>
             </CardHeader>
             <CardContent>
               {loading ? (
@@ -421,6 +514,12 @@ export default function SuggestionsPage() {
               ) : (
                 <ul className="space-y-4">
                   {(() => {
+                    // Helper to compute eligible endorsement count (excludes proposer)
+                    const getEligibleCount = (s: Suggestion) => {
+                      const endorsers = s.endorsers || [];
+                      return endorsers.filter((t) => t !== s.proposerTeam).length;
+                    };
+
                     // Group items by groupId (or single)
                     const groups = new Map<string, Suggestion[]>();
                     for (const s of items) {
@@ -429,7 +528,20 @@ export default function SuggestionsPage() {
                       groups.get(key)!.push(s);
                     }
                     const ordered = Array.from(groups.values()).map((arr) => arr.sort((a, b) => (a.groupPos || 0) - (b.groupPos || 0)));
-                    ordered.sort((a, b) => Date.parse(b[0].createdAt) - Date.parse(a[0].createdAt));
+
+                    // Apply sorting
+                    if (sortBy === 'newest') {
+                      ordered.sort((a, b) => Date.parse(b[0].createdAt) - Date.parse(a[0].createdAt));
+                    } else if (sortBy === 'oldest') {
+                      ordered.sort((a, b) => Date.parse(a[0].createdAt) - Date.parse(b[0].createdAt));
+                    } else if (sortBy === 'closest_to_ballot') {
+                      // Sort by fewest endorsements needed (closest to threshold first)
+                      ordered.sort((a, b) => {
+                        const aNeeds = Math.max(0, ENDORSEMENT_THRESHOLD - getEligibleCount(a[0]));
+                        const bNeeds = Math.max(0, ENDORSEMENT_THRESHOLD - getEligibleCount(b[0]));
+                        return aNeeds - bNeeds;
+                      });
+                    }
                     return ordered.map((arr, gi) => {
                       // Group container uses first item sponsor styling
                       const first = arr[0];
@@ -444,11 +556,29 @@ export default function SuggestionsPage() {
                               const isAccepted = s.status === 'accepted';
                               const isVague = Boolean(s.vague);
                               const myEndorsed = !!(auth && myTeam && s.endorsers && s.endorsers.includes(myTeam));
+                              // Compute eligible endorsement count (excludes proposer)
+                              const eligibleCount = getEligibleCount(s);
+                              const needsMore = Math.max(0, ENDORSEMENT_THRESHOLD - eligibleCount);
+                              const isBallotEligible = eligibleCount >= ENDORSEMENT_THRESHOLD;
                               return (
                                 <div id={s.id} key={s.id} className="p-3 rounded-[var(--radius-card)] border border-[var(--border)]" style={{ ...(isAccepted ? { boxShadow: 'inset 0 0 0 2px #16a34a33' } : {}), ...(isVague ? { boxShadow: `${isAccepted ? 'inset 0 0 0 2px #16a34a33,' : ''} inset 0 0 0 2px #f59e0b55` } : {}) }}>
-                                  <div className="flex items-center justify-between mb-1">
-                                    <div className="font-medium">{s.title ? s.title : `Suggestion ${idx + 1}`}</div>
-                                    <div className="flex items-center gap-2">
+                                  <div className="flex items-center justify-between mb-1 gap-2">
+                                    <Link href={`/suggestions/${s.id}`} className="font-medium hover:underline">
+                                      {s.title ? s.title : `Suggestion ${idx + 1}`}
+                                    </Link>
+                                    <div className="flex items-center gap-2 flex-shrink-0">
+                                      {/* Endorsement counter */}
+                                      <span
+                                        className="text-xs px-2 py-0.5 rounded-full border font-medium"
+                                        style={{
+                                          borderColor: isBallotEligible ? '#16a34a' : 'var(--border)',
+                                          color: isBallotEligible ? '#16a34a' : 'var(--muted)',
+                                          backgroundColor: isBallotEligible ? '#16a34a10' : 'transparent',
+                                        }}
+                                        title={needsMore > 0 ? `Needs ${needsMore} more endorsement${needsMore > 1 ? 's' : ''}` : 'Ballot eligible'}
+                                      >
+                                        {eligibleCount}/{ENDORSEMENT_THRESHOLD}
+                                      </span>
                                       {s.category && (
                                         <span className="text-xs px-2 py-0.5 rounded-full border border-[var(--border)] evw-surface text-[var(--text)]">{s.category}</span>
                                       )}
@@ -466,6 +596,12 @@ export default function SuggestionsPage() {
                                       )}
                                     </div>
                                   </div>
+                                  {/* Needs X more indicator */}
+                                  {needsMore > 0 && !s.voteTag && (
+                                    <div className="text-xs text-[var(--muted)] mb-2">
+                                      Needs {needsMore} more endorsement{needsMore > 1 ? 's' : ''}
+                                    </div>
+                                  )}
                                   {(() => {
                                     const lines = String(s.content || '').split('\n');
                                     const renderLine = (ln: string, key: number) => {

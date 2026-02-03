@@ -720,6 +720,7 @@ export async function markBallotEligibleIfThreshold(id: string): Promise<{ becam
   await ensureSuggestionBallotNotifyColumns();
   const db = getDb();
   // Atomically compute eligible count (exclude proposer) and set notified flag if crossing threshold
+  // Threshold is 3 endorsements (excluding proposer's own endorsement)
   const res = await db.execute(sql`
     WITH cnt AS (
       SELECT COUNT(1)::int AS c
@@ -734,7 +735,7 @@ export async function markBallotEligibleIfThreshold(id: string): Promise<{ becam
           ballot_eligible_at = now()
       WHERE id = ${id}::uuid
         AND ballot_eligible_notified = 0
-        AND (SELECT c FROM cnt) >= 4
+        AND (SELECT c FROM cnt) >= 3
       RETURNING 1 AS updated
     )
     SELECT (SELECT c FROM cnt) AS count,
