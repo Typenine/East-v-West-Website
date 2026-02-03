@@ -27,7 +27,10 @@ export async function setSuggestionTitle(id: string, title: string | null): Prom
     await ensureSuggestionTitleColumn();
     const db = getDb();
     const result = await db.execute(sql`UPDATE suggestions SET title = ${title} WHERE id = ${id}::uuid`);
-    const rowCount = (result as unknown as { rowCount?: number }).rowCount || 0;
+    // Extract rowCount from result - Neon/Postgres client returns this in the result object
+    const rowCount = typeof result === 'object' && result !== null && 'rowCount' in result 
+      ? Number(result.rowCount) || 0 
+      : 0;
     return { success: true, rowCount };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';

@@ -120,7 +120,7 @@ export async function PUT(req: NextRequest) {
       proposerTeam: proposerTeam ?? undefined, 
       vague, 
       voteTag, 
-      title: title !== undefined ? title : undefined, 
+      title, 
       ballotForced 
     });
   } catch (err) {
