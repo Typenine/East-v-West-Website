@@ -89,14 +89,44 @@ export async function PUT(req: NextRequest) {
       await setSuggestionVoteTag(id, voteTag);
     }
     if (title !== undefined) {
-      await setSuggestionTitle(id, title);
+      console.log(`[admin/suggestions] Updating title for suggestion ${id} to: "${title}"`);
+      const result = await setSuggestionTitle(id, title);
+      console.log(`[admin/suggestions] Title update result:`, { id, title, success: result.success, rowCount: result.rowCount });
+      
+      if (!result.success) {
+        console.error(`[admin/suggestions] Failed to update title for ${id}:`, result.error);
+        return Response.json({ 
+          error: 'Failed to update title', 
+          details: result.error 
+        }, { status: 500 });
+      }
+      
+      if (result.rowCount === 0) {
+        console.warn(`[admin/suggestions] No rows affected when updating title for ${id}`);
+        return Response.json({ 
+          error: 'Suggestion not found' 
+        }, { status: 404 });
+      }
     }
     if (ballotForced !== undefined) {
       await setBallotForced(id, ballotForced);
     }
-    return Response.json({ ok: true, id, status, resolvedAt: resolvedAt ?? null, sponsorTeam: sponsorTeam ?? undefined, proposerTeam: proposerTeam ?? undefined, vague, voteTag, title: title ?? undefined, ballotForced });
-  } catch {
-    return Response.json({ error: 'update failed' }, { status: 500 });
+    return Response.json({ 
+      ok: true, 
+      id, 
+      status, 
+      resolvedAt: resolvedAt ?? null, 
+      sponsorTeam: sponsorTeam ?? undefined, 
+      proposerTeam: proposerTeam ?? undefined, 
+      vague, 
+      voteTag, 
+      title: title !== undefined ? title : undefined, 
+      ballotForced 
+    });
+  } catch (err) {
+    const error = err instanceof Error ? err.message : 'Unknown error';
+    console.error('[admin/suggestions] Update failed:', error);
+    return Response.json({ error: 'update failed', details: error }, { status: 500 });
   }
 }
 
