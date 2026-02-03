@@ -8,6 +8,7 @@ import { getTeamColorStyle } from '@/lib/utils/team-utils';
 
 type Suggestion = {
   id: string;
+  title?: string;
   content: string;
   category?: string;
   createdAt: string; // ISO
@@ -18,6 +19,7 @@ type Suggestion = {
   vague?: boolean;
   endorsers?: string[];
   voteTag?: 'voted_on' | 'vote_passed' | 'vote_failed';
+  displayNumber?: number;
 };
 
 type VotesMap = Record<string, { up: string[]; down: string[] }>; // suggestionId -> { up, down }
@@ -161,6 +163,42 @@ export default function AdminSuggestionsPage() {
                           </div>
                         )}
                       </div>
+                    </div>
+                    <div className="mt-3 mb-3">
+                      <label className="text-xs flex flex-col gap-1">
+                        <span className="uppercase tracking-wide">Title</span>
+                        <input
+                          type="text"
+                          className="border border-[var(--border)] rounded px-2 py-1 text-sm w-full"
+                          value={s.title || ''}
+                          disabled={busy === s.id}
+                          placeholder="Enter suggestion title (optional for existing suggestions)"
+                          onBlur={async (e) => {
+                            const val = e.target.value.trim();
+                            if (val === (s.title || '')) return; // No change
+                            setBusy(s.id);
+                            try {
+                              const res = await fetch('/api/admin/suggestions', {
+                                method: 'PUT',
+                                credentials: 'include',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ id: s.id, title: val || null }),
+                              });
+                              if (res.ok) {
+                                const j = await res.json().catch(() => ({}));
+                                setItems((prev) => prev.map((it) => it.id === s.id ? ({ ...it, title: (j?.title ?? (val || null)) || undefined }) : it));
+                              }
+                            } finally {
+                              setBusy(null);
+                            }
+                          }}
+                          onChange={(e) => {
+                            // Update local state immediately for responsive typing
+                            const val = e.target.value;
+                            setItems((prev) => prev.map((it) => it.id === s.id ? ({ ...it, title: val || undefined }) : it));
+                          }}
+                        />
+                      </label>
                     </div>
                     <div className="mt-3 flex flex-wrap gap-2 items-center">
                       <label className="text-xs flex items-center gap-2">

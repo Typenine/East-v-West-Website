@@ -635,12 +635,46 @@ export async function getUserByEmail(email: string) {
 }
 
 export async function createSuggestion(params: { userId?: string | null; text: string; category?: string | null; createdAt?: Date }) {
+  await ensureSuggestionDisplayNumberColumn();
   const db = getDb();
-  const [row] = await db
-    .insert(suggestions)
-    .values({ userId: params.userId || null, text: params.text, category: params.category || null, createdAt: params.createdAt })
-    .returning();
-  return row;
+  // Create suggestion with atomically assigned display_number in a single statement
+  const res = await db.execute(sql`
+    WITH next_num AS (
+      SELECT COALESCE(MAX(display_number), 0) + 1 AS num
+      FROM suggestions
+    )
+    INSERT INTO suggestions (id, user_id, text, category, status, created_at, display_number)
+    VALUES (
+      gen_random_uuid(),
+      ${params.userId || null}::uuid,
+      ${params.text},
+      ${params.category || null},
+      'open',
+      ${params.createdAt ? params.createdAt.toISOString() : sql`now()`},
+      (SELECT num FROM next_num)
+    )
+    RETURNING *
+  `);
+  const row = (res as unknown as { rows?: Array<{ 
+    id: string; 
+    user_id: string | null; 
+    text: string; 
+    category: string | null; 
+    status: string;
+    created_at: Date | string;
+    resolved_at: Date | string | null;
+    display_number: number | string;
+  }> }).rows?.[0];
+  if (!row) return null;
+  return {
+    id: row.id,
+    userId: row.user_id,
+    text: row.text,
+    category: row.category,
+    status: row.status as 'draft' | 'open' | 'accepted' | 'rejected',
+    createdAt: new Date(row.created_at),
+    resolvedAt: row.resolved_at ? new Date(row.resolved_at) : null,
+  };
 }
 
 export async function listSuggestions() {
@@ -948,6 +982,87 @@ export async function getSuggestionGroupsMap(): Promise<Record<string, { groupId
       const posRaw = r.group_pos;
       const pos = typeof posRaw === 'number' ? posRaw : Number(posRaw ?? 1);
       if (id && gid) out[id] = { groupId: gid, groupPos: pos > 0 ? pos : 1 };
+    }
+  } catch {}
+  return out;
+}
+
+// --- Suggestion display numbers (stable sequential numbering) ---
+export async function ensureSuggestionDisplayNumberColumn() {
+  try {
+    const db = getDb();
+    await db.execute(sql`ALTER TABLE suggestions ADD COLUMN IF NOT EXISTS display_number integer`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS suggestions_display_number_idx ON suggestions(display_number) WHERE display_number IS NOT NULL`);
+  } catch {}
+}
+
+export async function backfillSuggestionDisplayNumbers() {
+  try {
+    await ensureSuggestionDisplayNumberColumn();
+    const db = getDb();
+    // Backfill display_number for existing rows by ascending createdAt (ties broken by id)
+    await db.execute(sql`
+      WITH numbered AS (
+        SELECT id, ROW_NUMBER() OVER (ORDER BY created_at ASC, id ASC) AS num
+        FROM suggestions
+        WHERE display_number IS NULL
+      )
+      UPDATE suggestions
+      SET display_number = numbered.num
+      FROM numbered
+      WHERE suggestions.id = numbered.id
+    `);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function getNextDisplayNumber(): Promise<number> {
+  try {
+    await ensureSuggestionDisplayNumberColumn();
+    const db = getDb();
+    const res = await db.execute(sql`SELECT COALESCE(MAX(display_number), 0) + 1 AS next FROM suggestions`);
+    const row = (res as unknown as { rows?: Array<{ next: number | string }> }).rows?.[0];
+    return row ? (typeof row.next === 'number' ? row.next : Number(row.next || 1)) : 1;
+  } catch {
+    return 1;
+  }
+}
+
+export async function assignDisplayNumber(id: string): Promise<number | null> {
+  try {
+    await ensureSuggestionDisplayNumberColumn();
+    const db = getDb();
+    // Atomically assign next display number using a single transaction
+    const res = await db.execute(sql`
+      WITH next_num AS (
+        SELECT COALESCE(MAX(display_number), 0) + 1 AS num
+        FROM suggestions
+      )
+      UPDATE suggestions
+      SET display_number = (SELECT num FROM next_num)
+      WHERE id = ${id}::uuid AND display_number IS NULL
+      RETURNING display_number
+    `);
+    const row = (res as unknown as { rows?: Array<{ display_number: number | string }> }).rows?.[0];
+    return row ? (typeof row.display_number === 'number' ? row.display_number : Number(row.display_number || 0)) : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function getSuggestionDisplayNumbersMap(): Promise<Record<string, number>> {
+  const out: Record<string, number> = {};
+  try {
+    await ensureSuggestionDisplayNumberColumn();
+    const db = getDb();
+    const res = await db.execute(sql`SELECT id::text AS id, display_number FROM suggestions WHERE display_number IS NOT NULL`);
+    const rawRows = (res as unknown as { rows?: Array<{ id: string; display_number: number | string }> }).rows || [];
+    for (const r of rawRows) {
+      const id = typeof r.id === 'string' ? r.id : '';
+      const num = typeof r.display_number === 'number' ? r.display_number : Number(r.display_number || 0);
+      if (id && num > 0) out[id] = num;
     }
   } catch {}
   return out;
