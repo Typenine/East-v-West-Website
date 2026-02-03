@@ -175,7 +175,8 @@ export default function AdminSuggestionsPage() {
                           placeholder="Enter suggestion title (optional)"
                           onBlur={async (e) => {
                             const val = e.target.value.trim();
-                            if (val === (s.title || '')) return; // No change
+                            const currentTitle = (s.title || '').trim();
+                            if (val === currentTitle) return; // No change
                             setBusy(s.id);
                             try {
                               const res = await fetch('/api/admin/suggestions', {
@@ -186,7 +187,9 @@ export default function AdminSuggestionsPage() {
                               });
                               if (res.ok) {
                                 const j = await res.json().catch(() => ({}));
-                                setItems((prev) => prev.map((it) => it.id === s.id ? ({ ...it, title: (j?.title ?? (val || null)) || undefined }) : it));
+                                // Use response title if available, else fallback to what we sent
+                                const newTitle = j?.title !== undefined ? j.title : (val || null);
+                                setItems((prev) => prev.map((it) => it.id === s.id ? ({ ...it, title: newTitle || undefined }) : it));
                               }
                             } finally {
                               setBusy(null);

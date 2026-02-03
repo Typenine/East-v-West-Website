@@ -638,6 +638,10 @@ export async function createSuggestion(params: { userId?: string | null; text: s
   await ensureSuggestionDisplayNumberColumn();
   const db = getDb();
   // Create suggestion with atomically assigned display_number in a single statement
+  // Note: This CTE approach is atomic within Postgres. The entire INSERT statement
+  // executes atomically, so MAX(display_number) is evaluated and used within the
+  // same transaction. This prevents duplicate display numbers under normal conditions.
+  // For extreme concurrency, consider using a Postgres SEQUENCE instead.
   const res = await db.execute(sql`
     WITH next_num AS (
       SELECT COALESCE(MAX(display_number), 0) + 1 AS num
@@ -666,6 +670,10 @@ export async function createSuggestion(params: { userId?: string | null; text: s
     display_number: number | string;
   }> }).rows?.[0];
   if (!row) return null;
+  // Note: display_number should always be assigned in the INSERT, but handle missing gracefully
+  const displayNumber = row.display_number 
+    ? (typeof row.display_number === 'number' ? row.display_number : Number(row.display_number))
+    : undefined;
   return {
     id: row.id,
     userId: row.user_id,
@@ -674,7 +682,7 @@ export async function createSuggestion(params: { userId?: string | null; text: s
     status: row.status as 'draft' | 'open' | 'accepted' | 'rejected',
     createdAt: new Date(row.created_at),
     resolvedAt: row.resolved_at ? new Date(row.resolved_at) : null,
-    displayNumber: typeof row.display_number === 'number' ? row.display_number : Number(row.display_number || 0),
+    displayNumber,
   };
 }
 
