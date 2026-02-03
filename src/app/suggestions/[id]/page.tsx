@@ -24,6 +24,7 @@ type Suggestion = {
   groupId?: string;
   groupPos?: number;
   displayNumber?: number;
+  ballotForced?: boolean;
 };
 
 const ENDORSEMENT_THRESHOLD = 3;
