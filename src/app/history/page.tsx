@@ -32,6 +32,18 @@ import {
 } from '@/lib/utils/sleeper-api';
 import { CANONICAL_TEAM_BY_USER_ID } from '@/lib/constants/team-mapping';
 import SectionHeader from '@/components/ui/SectionHeader';
+import { useRouter, useSearchParams } from 'next/navigation';
+
+const HISTORY_TABS = [
+  { id: 'champions', label: 'Champions' },
+  { id: 'brackets', label: 'Brackets' },
+  { id: 'leaderboards', label: 'Leaderboards' },
+  { id: 'weekly-highs', label: 'Weekly Highs' },
+  { id: 'franchises', label: 'Franchises' },
+  { id: 'records', label: 'Records' },
+] as const;
+
+type HistoryTabId = (typeof HISTORY_TABS)[number]['id'];
 
 // Type-safe helpers to avoid explicit 'any' casts in error handling
 function hasName(x: unknown): x is { name?: string } {
@@ -89,7 +101,11 @@ function TrophyIcon({ className = '' }: { className?: string }) {
 }
 
 export default function HistoryPage() {
-  const [activeTab, setActiveTab] = useState('champions');
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const isHistoryTabId = (value: string): value is HistoryTabId => HISTORY_TABS.some((t) => t.id === value);
+  const tabFromQuery = searchParams?.get('tab') || '';
+  const [activeTab, setActiveTab] = useState<HistoryTabId>(isHistoryTabId(tabFromQuery) ? tabFromQuery : 'champions');
   // Franchises state
   const [franchises, setFranchises] = useState<FranchiseSummary[]>([]);
   const [franchisesLoading, setFranchisesLoading] = useState(true);
@@ -603,14 +619,21 @@ export default function HistoryPage() {
     return { runnerUpCounts: ru, thirdPlaceCounts: tp };
   }, [podiumsByYear]);
   
-  const tabs = [
-    { id: 'champions', label: 'Champions' },
-    { id: 'brackets', label: 'Brackets' },
-    { id: 'leaderboards', label: 'Leaderboards' },
-    { id: 'weekly-highs', label: 'Weekly Highs' },
-    { id: 'franchises', label: 'Franchises' },
-    { id: 'records', label: 'Records' },
-  ];
+  const tabs = HISTORY_TABS;
+
+  useEffect(() => {
+    const tab = searchParams?.get('tab') || '';
+    if (!isHistoryTabId(tab)) return;
+    if (tab !== activeTab) setActiveTab(tab);
+  }, [activeTab, searchParams]);
+
+  const selectTab = (tabId: HistoryTabId) => {
+    setActiveTab(tabId);
+    const params = new URLSearchParams(searchParams?.toString() || '');
+    params.set('tab', tabId);
+    const qs = params.toString();
+    router.replace(qs ? `/history?${qs}` : '/history', { scroll: false });
+  };
 
   // Using top-level hexToRgba and readableOn helpers defined above
 
@@ -766,7 +789,7 @@ export default function HistoryPage() {
           {tabs.map((tab) => (
             <button
               key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
+              onClick={() => selectTab(tab.id)}
               className={`
                 relative whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors
                 ${activeTab === tab.id

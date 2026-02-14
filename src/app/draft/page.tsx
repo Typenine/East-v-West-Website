@@ -19,6 +19,7 @@ import { HomeIcon, TvIcon, FireIcon, MoonIcon, BookOpenIcon } from '@heroicons/r
 import Input from '@/components/ui/Input';
 import Textarea from '@/components/ui/Textarea';
 import { Table, THead, TBody, Tr, Th, Td } from '@/components/ui/Table';
+import { useRouter, useSearchParams } from 'next/navigation';
 
 // Draft data types
 type TeamHaul = {
@@ -52,6 +53,8 @@ type SleeperDraftSettings = {
 // Suggestions section will use EmptyState (no mock content)
 
 export default function DraftPage() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [selectedYear, setSelectedYear] = useState('2025');
   const years = useMemo(() => ['2025', ...Object.keys(LEAGUE_IDS.PREVIOUS)].sort((a, b) => parseInt(b) - parseInt(a)), []);
 
@@ -62,6 +65,21 @@ export default function DraftPage() {
   const loadedYearsRef = useRef<Set<string>>(new Set());
   const [draftView, setDraftView] = useState<'teams' | 'linear'>('teams');
   const [isAdmin, setIsAdmin] = useState(false);
+
+  const outerTabParam = searchParams?.get('view') || '';
+  const nextTabParam = searchParams?.get('next') || '';
+  const activeOuterTab = outerTabParam === 'next' || outerTabParam === '2027' || outerTabParam === 'past' ? outerTabParam : 'next';
+  const activeNextTab = nextTabParam === 'airbnb' || nextTabParam === 'travel' || nextTabParam === 'order' ? nextTabParam : 'airbnb';
+
+  const replaceDraftQuery = useCallback((updates: Record<string, string | null>) => {
+    const params = new URLSearchParams(searchParams?.toString() || '');
+    for (const [key, value] of Object.entries(updates)) {
+      if (value === null || value === '') params.delete(key);
+      else params.set(key, value);
+    }
+    const qs = params.toString();
+    router.replace(qs ? `/draft?${qs}` : '/draft', { scroll: false });
+  }, [router, searchParams]);
 
   useEffect(() => {
     fetch('/api/admin-login').then(r => r.json()).then(j => setIsAdmin(Boolean(j?.isAdmin))).catch(() => setIsAdmin(false));
@@ -473,6 +491,11 @@ export default function DraftPage() {
       <SectionHeader title="Draft Central" />
       <div className="mt-6">
         <Tabs
+          activeId={activeOuterTab}
+          onChange={(id) => {
+            if (id === 'next') replaceDraftQuery({ view: 'next', next: activeNextTab || 'airbnb' });
+            else replaceDraftQuery({ view: id, next: null });
+          }}
           tabs={[
             {
               id: 'next',
@@ -485,6 +508,8 @@ export default function DraftPage() {
                     className="mb-2"
                   />
                   <Tabs
+                    activeId={activeNextTab}
+                    onChange={(id) => replaceDraftQuery({ view: 'next', next: id })}
                     tabs={[
                       {
                         id: 'airbnb',

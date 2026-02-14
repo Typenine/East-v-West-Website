@@ -1,8 +1,8 @@
 'use client';
 
 import Link from 'next/link';
-import { usePathname, useRouter } from 'next/navigation';
-import { useEffect, useRef, useState } from 'react';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import ThemeToggle from '@/components/ui/ThemeToggle';
 import LinkButton from '@/components/ui/LinkButton';
 import Button from '@/components/ui/Button';
@@ -10,25 +10,65 @@ import Modal from '@/components/ui/Modal';
 import Label from '@/components/ui/Label';
 import Image from 'next/image';
 import { getTeamLogoPath, getTeamColors } from '@/lib/utils/team-utils';
+import { USER_NAV_CONFIG, type UserNavItem } from '@/lib/constants/navigation';
 
-const navItems = [
-  { name: 'Home', path: '/' },
-  { name: 'Teams', path: '/teams' },
-  { name: 'Standings', path: '/standings' },
-  { name: 'Rules', path: '/rules' },
-  { name: 'History', path: '/history' },
-  { name: 'Draft', path: '/draft' },
-  { name: 'Podcast', path: '/podcast' },
-  { name: 'Newsletter', path: '/newsletter' },
-  { name: 'Trades', path: '/trades' },
-  { name: 'Transactions', path: '/transactions' },
-  { name: 'Suggestions', path: '/suggestions' },
-];
+function matchesPath(pathname: string, targetPath: string): boolean {
+  if (targetPath === '/') return pathname === '/';
+  return pathname === targetPath || pathname.startsWith(`${targetPath}/`);
+}
+
+function isHrefActive(pathname: string, searchParams: URLSearchParams, href?: string): boolean {
+  if (!href) return false;
+  const [targetPath, rawQuery = ''] = href.split('?');
+  if (!matchesPath(pathname, targetPath)) return false;
+  if (!rawQuery) return true;
+  const targetParams = new URLSearchParams(rawQuery);
+  for (const [key, value] of targetParams.entries()) {
+    if (searchParams.get(key) !== value) return false;
+  }
+  return true;
+}
+
+function isNavItemActive(item: UserNavItem, pathname: string, searchParams: URLSearchParams): boolean {
+  if (isHrefActive(pathname, searchParams, item.href)) return true;
+  if (item.children && item.children.length > 0) {
+    const pathLevelMatch = item.children.some((child) => {
+      const childPath = child.href?.split('?')[0];
+      return childPath ? matchesPath(pathname, childPath) : false;
+    });
+    if (pathLevelMatch) return true;
+  }
+  return (item.children || []).some((child) => isNavItemActive(child, pathname, searchParams));
+}
+
+function hrefSpecificity(href?: string): number {
+  if (!href) return 0;
+  const [path, query = ''] = href.split('?');
+  return path.length + new URLSearchParams(query).size * 100;
+}
+
+function findBestActive(items: UserNavItem[], pathname: string, searchParams: URLSearchParams): { id: string; score: number } | null {
+  let best: { id: string; score: number } | null = null;
+  for (const item of items) {
+    if (item.href && isHrefActive(pathname, searchParams, item.href)) {
+      const candidate = { id: item.id, score: hrefSpecificity(item.href) };
+      if (!best || candidate.score > best.score) best = candidate;
+    }
+    if (item.children && item.children.length > 0) {
+      const childBest = findBestActive(item.children, pathname, searchParams);
+      if (childBest && (!best || childBest.score > best.score)) best = childBest;
+    }
+  }
+  return best;
+}
 
 export default function Navbar() {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const router = useRouter();
+  const currentQuery = useMemo(() => new URLSearchParams(searchParams?.toString() || ''), [searchParams]);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [mobileExpanded, setMobileExpanded] = useState<Record<string, boolean>>({});
   const [adminOpen, setAdminOpen] = useState(false);
   const [pin, setPin] = useState('');
   const [adminError, setAdminError] = useState<string | null>(null);
@@ -45,6 +85,14 @@ export default function Navbar() {
   const currentPinRef = useRef<HTMLInputElement | null>(null);
   const newPinRef = useRef<HTMLInputElement | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
+
+  const toggleMobileSection = (id: string) => {
+    setMobileExpanded((prev) => ({ ...prev, [id]: !prev[id] }));
+  };
+
+  const closeMobile = () => {
+    setMobileMenuOpen(false);
+  };
 
   // Removed special homepage click-to-admin; admin sign-in now lives on /login
 
@@ -154,18 +202,95 @@ export default function Navbar() {
               </Link>
             </div>
             <div className="hidden md:block">
-              <div className="ml-10 flex items-baseline space-x-2">
-                {navItems.map((item) => (
-                  <LinkButton
-                    key={item.name}
-                    href={item.path}
-                    aria-current={pathname === item.path ? 'page' : undefined}
-                    variant={pathname === item.path ? 'secondary' : 'ghost'}
-                    size="md"
-                  >
-                    {item.name}
-                  </LinkButton>
-                ))}
+              <div className="ml-10 flex items-center gap-1">
+                {USER_NAV_CONFIG.map((item) => {
+                  const itemActive = isNavItemActive(item, pathname, currentQuery);
+                  const hasChildren = Boolean(item.children && item.children.length > 0);
+
+                  if (!hasChildren && item.href) {
+                    return (
+                      <LinkButton
+                        key={item.id}
+                        href={item.href}
+                        aria-current={isHrefActive(pathname, currentQuery, item.href) ? 'page' : undefined}
+                        variant={itemActive ? 'secondary' : 'ghost'}
+                        size="md"
+                      >
+                        {item.label}
+                      </LinkButton>
+                    );
+                  }
+
+                  return (
+                    <div key={item.id} className="relative group">
+                      <Button
+                        type="button"
+                        variant={itemActive ? 'secondary' : 'ghost'}
+                        size="sm"
+                        className="inline-flex items-center gap-1"
+                        aria-haspopup="menu"
+                      >
+                        {item.label}
+                        <span className="text-xs">▾</span>
+                      </Button>
+
+                      <div className="absolute left-0 top-full z-50 invisible opacity-0 pointer-events-none group-hover:visible group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity duration-150">
+                        <div className="min-w-[220px] evw-surface border border-[var(--border)] rounded-md shadow-lg p-1">
+                          {(() => {
+                            const bestChild = findBestActive(item.children || [], pathname, currentQuery);
+                            return (item.children || []).map((child) => {
+                              const childIsDirectMatch = bestChild?.id === child.id;
+                              const hasGrandChildren = Boolean(child.children && child.children.length > 0);
+                              const childBranchActive = childIsDirectMatch || (child.children || []).some((g) => g.id === bestChild?.id);
+                              const bestGrand = hasGrandChildren ? findBestActive(child.children || [], pathname, currentQuery) : null;
+
+                              if (!hasGrandChildren) {
+                                return (
+                                  <Link
+                                    key={child.id}
+                                    href={child.href || '#'}
+                                    className={`block rounded px-2 py-1.5 text-sm ${childBranchActive ? 'bg-[var(--surface-strong)] text-[var(--text)] font-medium' : 'hover:bg-[var(--surface-strong)] text-[var(--text)]'}`}
+                                  >
+                                    {child.label}
+                                  </Link>
+                                );
+                              }
+
+                              return (
+                                <div key={child.id} className="relative group/submenu">
+                                  <Link
+                                    href={child.href || '#'}
+                                    className={`flex items-center justify-between rounded px-2 py-1.5 text-sm ${childBranchActive ? 'bg-[var(--surface-strong)] text-[var(--text)] font-medium' : 'hover:bg-[var(--surface-strong)] text-[var(--text)]'}`}
+                                  >
+                                    <span>{child.label}</span>
+                                    <span aria-hidden="true">▸</span>
+                                  </Link>
+
+                                  <div className="absolute left-full top-0 invisible opacity-0 pointer-events-none group-hover/submenu:visible group-hover/submenu:opacity-100 group-hover/submenu:pointer-events-auto transition-opacity duration-150">
+                                    <div className="min-w-[220px] evw-surface border border-[var(--border)] rounded-md shadow-lg p-1">
+                                      {(child.children || []).map((grand) => {
+                                        const grandActive = bestGrand?.id === grand.id;
+                                        return (
+                                          <Link
+                                            key={grand.id}
+                                            href={grand.href || '#'}
+                                            className={`block rounded px-2 py-1.5 text-sm ${grandActive ? 'bg-[var(--surface-strong)] text-[var(--text)] font-medium' : 'hover:bg-[var(--surface-strong)] text-[var(--text)]'}`}
+                                          >
+                                            {grand.label}
+                                          </Link>
+                                        );
+                                      })}
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            });
+                          })()}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           </div>
@@ -302,19 +427,110 @@ export default function Navbar() {
         aria-labelledby="mobile-menu-button"
       >
         <div className="px-2 pt-2 pb-3 space-y-1 sm:px-3">
-          {navItems.map((item) => (
-            <LinkButton
-              key={item.name}
-              href={item.path}
-              aria-current={pathname === item.path ? 'page' : undefined}
-              variant={pathname === item.path ? 'secondary' : 'ghost'}
-              size="lg"
-              className="block text-left"
-              onClick={() => setMobileMenuOpen(false)}
-            >
-              {item.name}
-            </LinkButton>
-          ))}
+          {USER_NAV_CONFIG.map((item) => {
+            const itemActive = isNavItemActive(item, pathname, currentQuery);
+            const hasChildren = Boolean(item.children && item.children.length > 0);
+
+            if (!hasChildren && item.href) {
+              return (
+                <LinkButton
+                  key={item.id}
+                  href={item.href}
+                  aria-current={isHrefActive(pathname, currentQuery, item.href) ? 'page' : undefined}
+                  variant={itemActive ? 'secondary' : 'ghost'}
+                  size="lg"
+                  className="block text-left"
+                  onClick={closeMobile}
+                >
+                  {item.label}
+                </LinkButton>
+              );
+            }
+
+            const expanded = Boolean(mobileExpanded[item.id]);
+            return (
+              <div key={item.id} className="border border-[var(--border)] rounded-md">
+                <button
+                  type="button"
+                  className={`w-full flex items-center justify-between px-3 py-2 text-left ${itemActive ? 'text-[var(--text)] font-medium' : 'text-[var(--muted)]'}`}
+                  onClick={() => toggleMobileSection(item.id)}
+                  aria-expanded={expanded}
+                >
+                  <span>{item.label}</span>
+                  <span aria-hidden="true">{expanded ? '▾' : '▸'}</span>
+                </button>
+
+                {expanded && (
+                  <div className="px-2 pb-2 space-y-1">
+                    {(() => {
+                      const bestChild = findBestActive(item.children || [], pathname, currentQuery);
+                      return (item.children || []).map((child) => {
+                      const hasGrandChildren = Boolean(child.children && child.children.length > 0);
+                      const childBranchActive = bestChild?.id === child.id || (child.children || []).some((g) => g.id === bestChild?.id);
+
+                      if (!hasGrandChildren) {
+                        return (
+                          <Link
+                            key={child.id}
+                            href={child.href || '#'}
+                            onClick={closeMobile}
+                            className={`block rounded px-2 py-1.5 text-sm ${childBranchActive ? 'bg-[var(--surface-strong)] text-[var(--text)] font-medium' : 'text-[var(--text)] hover:bg-[var(--surface-strong)]'}`}
+                          >
+                            {child.label}
+                          </Link>
+                        );
+                      }
+
+                      const childExpanded = Boolean(mobileExpanded[child.id]);
+                      const bestGrand = findBestActive(child.children || [], pathname, currentQuery);
+
+                      return (
+                        <div key={child.id} className="border border-[var(--border)] rounded-md">
+                          <div className="w-full flex items-center justify-between px-2 py-1.5 text-sm">
+                            <Link
+                              href={child.href || '#'}
+                              onClick={closeMobile}
+                              className={`${childBranchActive ? 'text-[var(--text)] font-medium' : 'text-[var(--text)]'} hover:underline`}
+                            >
+                              {child.label}
+                            </Link>
+                            <button
+                              type="button"
+                              className={`${childBranchActive ? 'text-[var(--text)] font-medium' : 'text-[var(--muted)]'}`}
+                              onClick={() => toggleMobileSection(child.id)}
+                              aria-expanded={childExpanded}
+                              aria-label={`Toggle ${child.label} submenu`}
+                            >
+                              <span aria-hidden="true">{childExpanded ? '▾' : '▸'}</span>
+                            </button>
+                          </div>
+
+                          {childExpanded && (
+                            <div className="px-2 pb-2 space-y-1">
+                              {(child.children || []).map((grand) => {
+                                const grandActive = bestGrand?.id === grand.id;
+                                return (
+                                  <Link
+                                    key={grand.id}
+                                    href={grand.href || '#'}
+                                    onClick={closeMobile}
+                                    className={`block rounded px-2 py-1.5 text-sm ${grandActive ? 'bg-[var(--surface-strong)] text-[var(--text)] font-medium' : 'text-[var(--text)] hover:bg-[var(--surface-strong)]'}`}
+                                  >
+                                    {grand.label}
+                                  </Link>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    });
+                    })()}
+                  </div>
+                )}
+              </div>
+            );
+          })}
           <div className="pt-2 border-t border-[var(--border)] flex items-center justify-between">
             {sessionTeam || isAdmin ? (
               <>
