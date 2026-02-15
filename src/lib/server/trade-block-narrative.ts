@@ -228,11 +228,6 @@ const TEMPLATES = {
     "Breaking from my sources: {team} {verb} {player}.",
     "League sources confirm {team} {verb} {player}.",
     "Per league insiders, {team} {verb} {player}.",
-    "Sources say {team} {verb} {player}. The team has been fielding calls.",
-    "I'm told {team} {verb} {player}. They're open to offers but not desperate to move him.",
-    "Breaking: {team} {verb} {player}. Multiple teams have expressed interest, per sources.",
-    "Word is {team} {verb} {player}. League sources describe them as serious sellers.",
-    "According to sources, {team} {verb} {player}. The asking price is believed to be significant.",
   ],
   playerAddMultiple: [
     "I'm hearing {team} {verb} {players}.",
@@ -250,11 +245,6 @@ const TEMPLATES = {
     "Multiple league sources confirm {team} {verb} {players}.",
     "Breaking: {team} {verb} {players}.",
     "League sources say {team} {verb} {players}.",
-    "Sources tell me {team} {verb} {players}. The team is open to moving multiple pieces.",
-    "I'm hearing {team} {verb} {players}. They've been actively shopping the group, per sources.",
-    "According to league insiders, {team} {verb} {players}. Several teams have shown interest.",
-    "Breaking: {team} {verb} {players}. The market is believed to be strong.",
-    "Word is {team} {verb} {players}. Sources describe the team as motivated sellers looking to shake things up.",
   ],
   playerRemoveSingle: [
     "Sources say {team} {verb} {player}.",
@@ -411,49 +401,23 @@ const TEMPLATES = {
     "League sources say the {team} are targeting both {positions} and {picks}. Per sources, they want immediate help plus future assets.",
   ],
   marketContext: [
-    "Notably, {count} {plural} currently {verb} {asset}, creating potential buyer interest.",
-    "With {count} {plural} seeking {asset}, there's a competitive market.",
-    "Interestingly, {count} {plural} {verb} {asset} across the league.",
-    "Worth noting: {count} {plural} have expressed interest in {asset}.",
-    "League intel shows {count} {plural} {verb} {asset} right now.",
-    "Sources say {count} {plural} are in the market for {asset}.",
-    "The demand for {asset} is strong with {count} {plural} looking.",
+    "Notably, {count} {plural} currently {verb} {asset}.",
+    "Worth noting: {count} {plural} {verb} {asset}.",
   ],
   headliner: [
-    " Notably, {headliners} {verb} on the block.",
-    " {headliners} {verb} believed to be available.",
-    " Sources say {headliners} {verb} in play.",
-    " Word is {headliners} {verb} drawing interest.",
-    " I'm told {headliners} {verb} generating calls.",
-    " {headliners} {verb} reportedly available.",
-    " Among the names available: {headliners}.",
-    " The centerpiece{plural} could be {headliners}.",
-    " Key assets include {headliners}.",
-    " {headliners} {verb} the headliner{plural}.",
+    "The team also has {headliners} on the block.",
+    "Also available: {headliners}.",
+    "The team's other notable assets include {headliners}.",
+    "Among the other names on the block: {headliners}.",
+    "The team is also listening on {headliners}.",
   ],
 };
 
 const VERBS_ADD = [
-  'are open to moving',
-  'are shopping',
   'have made available',
-  'are listening on offers for',
-  'are fielding calls on',
-  'are willing to discuss',
-  'are actively shopping',
-  'are taking calls on',
   'have put on the block',
-  'are gauging interest in',
   'are making available',
-  'are open to dealing',
-  'are willing to part with',
-  'have signaled willingness to move',
-  'are exploring deals for',
-  'are entertaining offers for',
-  'have opened trade discussions on',
-  'are receptive to offers on',
-  'are testing the market on',
-  'are floating in trade talks',
+  'are listening on',
 ];
 
 const VERBS_REMOVE = [
@@ -583,19 +547,28 @@ async function selectHeadliners(
   removedPlayers: TradeAsset[],
   players: Record<string, { first_name?: string; last_name?: string; position?: string; team?: string }>
 ): Promise<string[]> {
-  const candidates: TradeAsset[] = [];
-  
-  if (addedPlayers.length > 0) {
-    candidates.push(...addedPlayers.slice(0, 2));
-  } else {
-    const removedIds = new Set(removedPlayers.map((a) => a.type === 'player' ? a.playerId : ''));
-    const available = currentPlayers.filter((a) => a.type === 'player' && !removedIds.has(a.playerId));
-    const sorted = available.sort((a, b) => {
-      if (a.type !== 'player' || b.type !== 'player') return 0;
-      return a.playerId.localeCompare(b.playerId);
-    });
-    candidates.push(...sorted.slice(0, 2));
+  // Build set of player IDs already mentioned in the message
+  const alreadyMentioned = new Set<string>();
+  for (const p of addedPlayers) {
+    if (p.type === 'player') alreadyMentioned.add(p.playerId);
   }
+  for (const p of removedPlayers) {
+    if (p.type === 'player') alreadyMentioned.add(p.playerId);
+  }
+  
+  // Filter to only players NOT already mentioned
+  const available = currentPlayers.filter((a) => 
+    a.type === 'player' && !alreadyMentioned.has(a.playerId)
+  );
+  
+  if (available.length === 0) return [];
+  
+  const sorted = available.sort((a, b) => {
+    if (a.type !== 'player' || b.type !== 'player') return 0;
+    return a.playerId.localeCompare(b.playerId);
+  });
+  
+  const candidates = sorted.slice(0, 2);
 
   const labels: string[] = [];
   for (const asset of candidates) {
@@ -639,6 +612,8 @@ export async function buildTradeBlockReport(ctx: NarrativeContext): Promise<stri
   }
 
   const parts: string[] = [];
+  const mainNews: string[] = [];
+  const contextParts: string[] = [];
   
   if (useOpener) {
     parts.push(pickTemplate(OPENERS, rng));
@@ -649,29 +624,30 @@ export async function buildTradeBlockReport(ctx: NarrativeContext): Promise<stri
   const addedPickLabels = diff.addedPicks.map(pickToLabel);
   const removedPickLabels = diff.removedPicks.map(pickToLabel);
 
+  // MAIN NEWS: Player changes
   if (diff.addedPlayers.length > 0 && diff.removedPlayers.length === 0) {
     const verb = pickTemplate(VERBS_ADD, rng);
     if (diff.addedPlayers.length === 1) {
       const tpl = pickTemplate(TEMPLATES.playerAddSingle, rng);
       const sentence = tpl.replace('{team}', teamName).replace('{verb}', verb).replace('{player}', addedPlayerLabels[0]);
-      parts.push(sentence);
+      mainNews.push(sentence);
     } else {
       const tpl = pickTemplate(TEMPLATES.playerAddMultiple, rng);
       const playerList = formatList(addedPlayerLabels);
       const sentence = tpl.replace('{team}', teamName).replace('{verb}', verb).replace('{players}', playerList);
-      parts.push(sentence);
+      mainNews.push(sentence);
     }
   } else if (diff.removedPlayers.length > 0 && diff.addedPlayers.length === 0) {
     const verb = pickTemplate(VERBS_REMOVE, rng);
     if (diff.removedPlayers.length === 1) {
       const tpl = pickTemplate(TEMPLATES.playerRemoveSingle, rng);
       const sentence = tpl.replace('{team}', teamName).replace('{verb}', verb).replace('{player}', removedPlayerLabels[0]);
-      parts.push(sentence);
+      mainNews.push(sentence);
     } else {
       const tpl = pickTemplate(TEMPLATES.playerRemoveMultiple, rng);
       const playerList = formatList(removedPlayerLabels);
       const sentence = tpl.replace('{team}', teamName).replace('{verb}', verb).replace('{players}', playerList);
-      parts.push(sentence);
+      mainNews.push(sentence);
     }
   } else if (diff.addedPlayers.length > 0 && diff.removedPlayers.length > 0) {
     const verbAdd = pickTemplate(VERBS_ADD, rng);
@@ -680,54 +656,45 @@ export async function buildTradeBlockReport(ctx: NarrativeContext): Promise<stri
     const addedList = formatList(addedPlayerLabels);
     const removedList = formatList(removedPlayerLabels);
     const sentence = tpl.replace('{team}', teamName).replace('{verbAdd}', verbAdd).replace('{added}', addedList).replace('{verbRemove}', verbRemove).replace('{removed}', removedList);
-    parts.push(sentence);
+    mainNews.push(sentence);
   }
 
+  // Pick changes (part of main news, use transition if both players and picks changed)
   if (diff.addedPicks.length > 0 && diff.removedPicks.length === 0) {
-    if (useTransition && parts.length > 0) {
-      parts.push(pickTemplate(TRANSITIONS, rng));
+    if (useTransition && mainNews.length > 0) {
+      mainNews.push(pickTemplate(TRANSITIONS, rng));
     }
     const verb = pickTemplate(VERBS_PICK_ADD, rng);
     if (diff.addedPicks.length === 1) {
       const tpl = pickTemplate(TEMPLATES.pickAddSingle, rng);
-      parts.push(tpl.replace('{team}', teamName).replace('{verb}', verb).replace('{pick}', addedPickLabels[0]));
+      mainNews.push(tpl.replace('{team}', teamName).replace('{verb}', verb).replace('{pick}', addedPickLabels[0]));
     } else {
       const tpl = pickTemplate(TEMPLATES.pickAddMultiple, rng);
       const pickList = formatList(addedPickLabels);
-      parts.push(tpl.replace('{team}', teamName).replace('{verb}', verb).replace('{picks}', pickList));
+      mainNews.push(tpl.replace('{team}', teamName).replace('{verb}', verb).replace('{picks}', pickList));
     }
   } else if (diff.removedPicks.length > 0 && diff.addedPicks.length === 0) {
-    if (useTransition && parts.length > 0) {
-      parts.push(pickTemplate(TRANSITIONS, rng));
+    if (useTransition && mainNews.length > 0) {
+      mainNews.push(pickTemplate(TRANSITIONS, rng));
     }
     const verb = pickTemplate(VERBS_PICK_REMOVE, rng);
     if (diff.removedPicks.length === 1) {
       const tpl = pickTemplate(TEMPLATES.pickRemoveSingle, rng);
-      parts.push(tpl.replace('{team}', teamName).replace('{verb}', verb).replace('{pick}', removedPickLabels[0]));
+      mainNews.push(tpl.replace('{team}', teamName).replace('{verb}', verb).replace('{pick}', removedPickLabels[0]));
     } else {
       const tpl = pickTemplate(TEMPLATES.pickRemoveMultiple, rng);
       const pickList = formatList(removedPickLabels);
-      parts.push(tpl.replace('{team}', teamName).replace('{verb}', verb).replace('{picks}', pickList));
+      mainNews.push(tpl.replace('{team}', teamName).replace('{verb}', verb).replace('{picks}', pickList));
     }
   }
 
+  // CONTEXT: What they're looking for (provides motive/context)
   if (diff.lookingForChanged && diff.lookingForAfter) {
     const tpl = pickTemplate(TEMPLATES.lookingFor, rng);
-    parts.push(tpl.replace('{team}', teamName).replace('{wants}', diff.lookingForAfter));
-
-    // Always add context about what's available when looking-for changes
-    if (currentPlayers.length > 0) {
-      const headliners = await selectHeadliners(diff.addedPlayers, currentPlayers, diff.removedPlayers, players);
-      if (headliners.length > 0) {
-        const headlinerList = formatList(headliners);
-        const verb = headliners.length === 1 ? 'is' : 'are';
-        const plural = headliners.length === 1 ? '' : 's';
-        const tpl = pickTemplate(TEMPLATES.headliner, rng);
-        parts.push(tpl.replace('{headliners}', headlinerList).replace('{verb}', verb).replace('{plural}', plural));
-      }
-    }
+    contextParts.push(tpl.replace('{team}', teamName).replace('{wants}', diff.lookingForAfter));
   }
 
+  // Tag changes (what they want - goes with lookingFor in context section)
   if (diff.addedPositions.length > 0 || diff.addedPickTags.length > 0) {
     const hasPositions = diff.addedPositions.length > 0;
     const hasPicks = diff.addedPickTags.length > 0;
@@ -736,32 +703,33 @@ export async function buildTradeBlockReport(ctx: NarrativeContext): Promise<stri
       const tpl = pickTemplate(TEMPLATES.tagsCombo, rng);
       const positionList = formatList(diff.addedPositions);
       const pickList = formatList(diff.addedPickTags);
-      parts.push(tpl.replace('{team}', teamName).replace('{positions}', positionList).replace('{picks}', pickList));
+      contextParts.push(tpl.replace('{team}', teamName).replace('{positions}', positionList).replace('{picks}', pickList));
     } else if (hasPositions) {
       const tpl = pickTemplate(TEMPLATES.tagsPositional, rng);
       const positionList = formatList(diff.addedPositions);
-      parts.push(tpl.replace('{team}', teamName).replace('{positions}', positionList));
+      contextParts.push(tpl.replace('{team}', teamName).replace('{positions}', positionList));
     } else if (hasPicks) {
       const tpl = pickTemplate(TEMPLATES.tagsPicks, rng);
       const pickList = formatList(diff.addedPickTags);
-      parts.push(tpl.replace('{team}', teamName).replace('{picks}', pickList));
-    }
-    
-    // Add context about what's on the block when tags change
-    if (currentPlayers.length > 0) {
-      const headliners = await selectHeadliners(diff.addedPlayers, currentPlayers, diff.removedPlayers, players);
-      if (headliners.length > 0) {
-        const headlinerList = formatList(headliners);
-        const verb = headliners.length === 1 ? 'is' : 'are';
-        const plural = headliners.length === 1 ? '' : 's';
-        const tpl = pickTemplate(TEMPLATES.headliner, rng);
-        parts.push(tpl.replace('{headliners}', headlinerList).replace('{verb}', verb).replace('{plural}', plural));
-      }
+      contextParts.push(tpl.replace('{team}', teamName).replace('{picks}', pickList));
     }
   }
 
-  // Add market context if available
-  if (leagueContext && rng() > 0.4) {
+  // SUPPORTING DETAILS: Headliners (if context exists) and market intel
+  // Only add headliners if we have lookingFor or tags (provides context for what's available)
+  if (contextParts.length > 0 && currentPlayers.length > 0) {
+    const headliners = await selectHeadliners(diff.addedPlayers, currentPlayers, diff.removedPlayers, players);
+    if (headliners.length > 0) {
+      const headlinerList = formatList(headliners);
+      const verb = headliners.length === 1 ? 'is' : 'are';
+      const plural = headliners.length === 1 ? '' : 's';
+      const tpl = pickTemplate(TEMPLATES.headliner, rng);
+      contextParts.push(tpl.replace('{headliners}', headlinerList).replace('{verb}', verb).replace('{plural}', plural));
+    }
+  }
+  
+  // Market context (only if we have adds)
+  if (leagueContext && (diff.addedPlayers.length > 0 || diff.addedPicks.length > 0) && rng() > 0.4) {
     const marketInsights: string[] = [];
     
     // Check if team is adding players that others want
@@ -782,7 +750,7 @@ export async function buildTradeBlockReport(ctx: NarrativeContext): Promise<stri
               .replace('{verb}', verb)
               .replace('{asset}', pos);
             marketInsights.push(insight);
-            break; // Only add one market insight
+            break;
           }
         }
       }
@@ -811,9 +779,13 @@ export async function buildTradeBlockReport(ctx: NarrativeContext): Promise<stri
     }
     
     if (marketInsights.length > 0) {
-      parts.push(marketInsights[0]);
+      contextParts.push(marketInsights[0]);
     }
   }
+  
+  // ASSEMBLE: Main news → Context → Closer
+  parts.push(...mainNews);
+  parts.push(...contextParts);
 
   // Check if we have any substantive content (not just opener/closer)
   // This prevents posting empty messages when only contact/faab changed
