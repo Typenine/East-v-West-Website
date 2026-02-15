@@ -807,20 +807,29 @@ export async function getSplitRecordsAllTime(
     };
     const startWeek = Number(settings.playoff_week_start ?? settings.playoff_start_week ?? 15);
 
-    // Brackets -> sets of roster ids
+    // Brackets -> build sets of specific matchups (t1, t2 pairs) for each bracket
     const [winnersBracket, losersBracket] = await Promise.all([
       getLeagueWinnersBracket(leagueId, options).catch(() => [] as SleeperBracketGame[]),
       getLeagueLosersBracket(leagueId, options).catch(() => [] as SleeperBracketGame[]),
     ]);
-    const winnersSet = new Set<number>();
-    const losersSet = new Set<number>();
+    
+    // Build sets of matchup pairs for winners and losers brackets
+    // Key format: "rosterId1-rosterId2" where rosterId1 < rosterId2 for consistency
+    const makeMatchupKey = (r1: number, r2: number) => {
+      const [lo, hi] = r1 < r2 ? [r1, r2] : [r2, r1];
+      return `${lo}-${hi}`;
+    };
+    const winnersMatchups = new Set<string>();
+    const losersMatchups = new Set<string>();
     for (const g of winnersBracket) {
-      if (typeof g.t1 === 'number') winnersSet.add(g.t1);
-      if (typeof g.t2 === 'number') winnersSet.add(g.t2);
+      if (typeof g.t1 === 'number' && typeof g.t2 === 'number') {
+        winnersMatchups.add(makeMatchupKey(g.t1, g.t2));
+      }
     }
     for (const g of losersBracket) {
-      if (typeof g.t1 === 'number') losersSet.add(g.t1);
-      if (typeof g.t2 === 'number') losersSet.add(g.t2);
+      if (typeof g.t1 === 'number' && typeof g.t2 === 'number') {
+        losersMatchups.add(makeMatchupKey(g.t1, g.t2));
+      }
     }
 
     // Fetch weeks 1..17 matchups
@@ -873,13 +882,13 @@ export async function getSplitRecordsAllTime(
         if (week < startWeek) {
           category = 'regular';
         } else {
-          const aInW = winnersSet.has(a.roster_id);
-          const bInW = winnersSet.has(b.roster_id);
-          const aInL = losersSet.has(a.roster_id);
-          const bInL = losersSet.has(b.roster_id);
-          if (aInW && bInW) category = 'playoffs';
-          else if (losersSet.size > 0 ? (aInL && bInL) : (!aInW && !bInW)) category = 'toilet';
-          else category = null; // ambiguous (skip)
+          // Check if this specific matchup is in winners or losers bracket
+          const matchupKey = makeMatchupKey(a.roster_id, b.roster_id);
+          const isWinnersBracketGame = winnersMatchups.has(matchupKey);
+          const isLosersBracketGame = losersMatchups.has(matchupKey);
+          if (isWinnersBracketGame) category = 'playoffs';
+          else if (isLosersBracketGame) category = 'toilet';
+          else category = null; // not in any bracket (skip)
         }
         if (!category) continue;
 
