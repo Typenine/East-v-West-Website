@@ -862,8 +862,15 @@ export async function getSuggestionEndorsementsMap(): Promise<Record<string, str
   const out: Record<string, string[]> = {};
   try {
     await ensureSuggestionEndorsementsTable();
+    await ensureSuggestionProposerColumn();
     const db = getDb();
-    const res = await db.execute(sql`SELECT suggestion_id::text AS suggestion_id, team FROM suggestion_endorsements`);
+    // Exclude proposer's own endorsement from the map (same logic as threshold check)
+    const res = await db.execute(sql`
+      SELECT e.suggestion_id::text AS suggestion_id, e.team
+      FROM suggestion_endorsements e
+      LEFT JOIN suggestions s ON s.id = e.suggestion_id
+      WHERE s.proposer_team IS NULL OR e.team <> s.proposer_team
+    `);
     const rawRows = (res as unknown as { rows?: Array<{ suggestion_id: string; team: string }> }).rows || [];
     for (const r of rawRows) {
       const id = typeof r.suggestion_id === 'string' ? r.suggestion_id : '';
