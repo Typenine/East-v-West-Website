@@ -2,8 +2,6 @@ import { NextRequest } from 'next/server';
 import { requireTeamUser } from '@/lib/server/session';
 import { readUserDoc, writeUserDoc, TradeAsset, TradeWants } from '@/lib/server/user-store';
 import { getTeamAssets } from '@/lib/server/trade-assets';
-import { captureTradeBlockChanges } from '@/lib/server/trade-block-reporter';
-import { flushTradeBlockEvents } from '@/lib/server/trade-block-flusher';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -89,17 +87,23 @@ export async function PUT(req: NextRequest) {
   if (!ok) return Response.json({ error: 'Persist failed' }, { status: 500 });
   
   // Capture trade block changes for Clancy reporter (best-effort, don't block response)
-  captureTradeBlockChanges({
-    team: ident.team,
-    oldBlock: oldBlock as TradeAsset[],
-    newBlock: filtered,
-    oldWants: oldWantsText,
-    newWants: text,
-  }).catch((e) => console.error('Failed to capture trade block changes:', e));
-  
-  // Trigger flush of old events in background (best-effort, don't block response)
-  // This checks for events older than 40s and posts them to Discord
-  flushTradeBlockEvents().catch((e) => console.error('Failed to flush trade block events:', e));
+  try {
+    const { captureTradeBlockChanges } = await import('@/lib/server/trade-block-reporter');
+    await captureTradeBlockChanges({
+      team: ident.team,
+      oldBlock: oldBlock as TradeAsset[],
+      newBlock: filtered,
+      oldWants: oldWantsText,
+      newWants: text,
+    });
+    
+    // Trigger flush of old events in background (best-effort, don't block response)
+    // This checks for events older than 40s and posts them to Discord
+    const { flushTradeBlockEvents } = await import('@/lib/server/trade-block-flusher');
+    await flushTradeBlockEvents();
+  } catch (e) {
+    console.error('Trade block reporter error:', e);
+  }
   
   return Response.json({ ok: true, tradeBlock: doc.tradeBlock, tradeWants: doc.tradeWants });
 }
