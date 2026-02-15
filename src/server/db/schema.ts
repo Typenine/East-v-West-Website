@@ -108,6 +108,22 @@ export const userDocs = pgTable('user_docs', {
   userTeamIdx: index('user_docs_team_idx').on(t.team),
 }));
 
+export const tradeBlockEvents = pgTable('trade_block_events', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  team: varchar('team', { length: 255 }).notNull(),
+  eventType: varchar('event_type', { length: 32 }).notNull(), // 'added' | 'removed' | 'wants_changed'
+  assetType: varchar('asset_type', { length: 32 }), // 'player' | 'pick' | 'faab' | null for wants_changed
+  assetId: varchar('asset_id', { length: 255 }), // playerId, 'YEAR-ROUND-ORIGIN', 'faab', or null
+  assetLabel: text('asset_label'), // human-readable label
+  oldWants: text('old_wants'), // for wants_changed events
+  newWants: text('new_wants'), // for wants_changed events
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  sentAt: timestamp('sent_at'), // null until posted to Discord
+}, (t) => ({
+  teamCreatedIdx: index('trade_block_events_team_created_idx').on(t.team, t.createdAt),
+  sentAtIdx: index('trade_block_events_sent_at_idx').on(t.sentAt),
+}));
+
 // R2 storage config
 export const storageModeEnum = pgEnum('storage_mode', ['path', 'vhost']);
 

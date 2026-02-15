@@ -7,77 +7,32 @@ import {
   getSuggestionVoteTagsMap,
   getSuggestionProposersMap,
   getSuggestionTitlesMap,
+  getSuggestionGroupsMap,
   markBallotEligibleIfThreshold,
 } from '@/server/db/queries';
 
 const DISCORD_WEBHOOK_URL = process.env.DISCORD_SUGGESTIONS_WEBHOOK_URL;
 const SITE_URL = process.env.SITE_URL;
 
-// Endorsement threshold for ballot eligibility
-const REQUIRED_ENDORSEMENTS = 3;
-
-/**
- * Build base site URL from env or request headers
- */
-function buildBaseUrl(request?: NextRequest): string | undefined {
-  // Prefer explicit SITE_URL if set
-  if (SITE_URL) return SITE_URL.replace(/\/$/, '');
-  
-  // Derive from request headers if available
-  if (!request) return undefined;
-  
-  const proto = request.headers.get('x-forwarded-proto') || 'https';
-  const host = request.headers.get('x-forwarded-host') || request.headers.get('host');
-  
-  if (host) {
-    return `${proto}://${host}`;
-  }
-  
-  return undefined;
-}
-
 async function postBallotEligibleDiscord(
   suggestionId: string,
   eligibleCount: number,
   title?: string,
-  proposerTeam?: string,
-  baseUrl?: string
+  category?: string,
+  proposerTeam?: string
 ) {
   if (!DISCORD_WEBHOOK_URL) return;
-  const base = baseUrl?.replace(/\/$/, '') || '';
+  const base = (SITE_URL || '').replace(/\/$/, '');
   // Use stable detail URL (not anchor)
   const link = base ? `${base}/suggestions/${suggestionId}` : undefined;
 
-  if (!link) {
-    console.warn('[endorse] Discord webhook: Unable to construct URL (no SITE_URL or host headers)');
-  }
-
-  // Build embed with title and proposer info
+  // Build embed with title, category, count, and proposer info
   const embedTitle = title ? `🗳️ Ballot Eligible: ${title}` : '🗳️ Ballot Eligible';
-  let description = `This suggestion has reached **${eligibleCount}/${REQUIRED_ENDORSEMENTS}** eligible endorsements and is now on the ballot queue.\n`;
+  let description = `**This suggestion has reached the ballot!**\n\n`;
+  description += `**Endorsements:** ${eligibleCount}/3 (threshold met)\n`;
+  if (category) description += `**Category:** ${category}\n`;
   if (proposerTeam) description += `**Proposed by:** ${proposerTeam}\n`;
-
-  // Build plain text content with link on first line
-  let plainContent = '';
-  if (link) {
-    plainContent = `Ballot eligible: ${link}\n`;
-    if (title) plainContent += `**${title}**\n`;
-    plainContent += `Endorsements: ${eligibleCount}/${REQUIRED_ENDORSEMENTS}`;
-  } else {
-    plainContent = 'Ballot eligible: (link unavailable)\n';
-    if (title) plainContent += `**${title}**\n`;
-    plainContent += `Endorsements: ${eligibleCount}/${REQUIRED_ENDORSEMENTS}`;
-  }
-
-  // Build embed with link field
-  const embedFields: Array<{ name: string; value: string; inline?: boolean }> = [];
-  if (link) {
-    embedFields.push({
-      name: 'Open',
-      value: `[View suggestion](${link})`,
-      inline: false,
-    });
-  }
+  if (link) description += `\n🔗 **[View Suggestion](${link})**`;
 
   const embed = {
     title: embedTitle,
@@ -85,14 +40,14 @@ async function postBallotEligibleDiscord(
     url: link,
     color: 0x16a34a, // green
     timestamp: new Date().toISOString(),
-    fields: embedFields,
   };
 
-  const payload = { 
-    content: plainContent, 
-    embeds: [embed], 
-    allowed_mentions: { parse: [] },
-  };
+  // Plain text link at top level for maximum visibility - include title for identification
+  const plainContent = link
+    ? `🗳️ **Ballot Eligible${title ? `: ${title}` : ''}** (${eligibleCount}/3 endorsements)\n${link}`
+    : undefined;
+
+  const payload = { content: plainContent, embeds: [embed], allowed_mentions: { parse: [] } };
   const doPost = async (): Promise<Response> => fetch(DISCORD_WEBHOOK_URL!, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
   try {
     let res = await doPost();
@@ -159,19 +114,21 @@ export async function PUT(req: NextRequest) {
       try {
         const { becameEligible, eligibleCount } = await markBallotEligibleIfThreshold(suggestionId);
         if (becameEligible) {
-          // Fetch title and proposer for the Discord message
+          // Fetch title, category, and proposer for the Discord message
           let title: string | undefined;
+          let category: string | undefined;
           let proposerTeam: string | undefined;
           try {
-            const [titlesMap, proposersMap] = await Promise.all([
+            const [titlesMap, groupsMap, proposersMap] = await Promise.all([
               getSuggestionTitlesMap(),
+              getSuggestionGroupsMap(),
               getSuggestionProposersMap(),
             ]);
             title = titlesMap[suggestionId];
+            category = groupsMap[suggestionId]?.groupId;
             proposerTeam = proposersMap[suggestionId];
           } catch {}
-          const baseUrl = buildBaseUrl(req);
-          postBallotEligibleDiscord(suggestionId, eligibleCount, title, proposerTeam, baseUrl).catch(() => {});
+          postBallotEligibleDiscord(suggestionId, eligibleCount, title, category, proposerTeam).catch(() => {});
         }
       } catch (e) {
         console.warn('[endorse] ballot eligibility check failed', e);

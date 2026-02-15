@@ -116,6 +116,42 @@ export default function AdminSuggestionsPage() {
                         )}
                       </div>
                     </div>
+                    <div className="mb-3">
+                      <label className="text-xs flex flex-col gap-1">
+                        <span className="uppercase tracking-wide text-[var(--muted)]">Title (for ballot)</span>
+                        <input
+                          type="text"
+                          className="border border-[var(--border)] rounded px-2 py-1 text-sm bg-transparent"
+                          value={s.title || ''}
+                          disabled={busy === s.id}
+                          placeholder="Enter title..."
+                          onBlur={async (e) => {
+                            const val = e.target.value.trim();
+                            if (val === (s.title || '')) return; // No change
+                            setBusy(s.id);
+                            try {
+                              const res = await fetch('/api/admin/suggestions', {
+                                method: 'PUT',
+                                credentials: 'include',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ id: s.id, title: val || null }),
+                              });
+                              if (res.ok) {
+                                const j = await res.json().catch(() => ({}));
+                                setItems((prev) => prev.map((it) => it.id === s.id ? ({ ...it, title: (j?.title ?? (val || null)) || undefined }) : it));
+                              }
+                            } finally {
+                              setBusy(null);
+                            }
+                          }}
+                          onChange={(e) => {
+                            // Optimistic update for typing
+                            const val = e.target.value;
+                            setItems((prev) => prev.map((it) => it.id === s.id ? ({ ...it, title: val || undefined }) : it));
+                          }}
+                        />
+                      </label>
+                    </div>
                     <p className="whitespace-pre-wrap mb-2">{isAccepted ? '✅ ' : ''}{s.content}</p>
                     {isAccepted && (
                       <div className="mb-3 text-xs text-[var(--muted)]">Marked added{ s.resolvedAt ? ` on ${new Date(s.resolvedAt).toLocaleDateString()}` : '' }</div>

@@ -1,6 +1,6 @@
 import { getDb } from './client';
 import { randomUUID } from 'crypto';
-import { users, suggestions, taxiSquadMembers, taxiSquadEvents, teamPins, taxiObservations, userDocs, tenures, txnCache, taxiSnapshots } from './schema';
+import { users, suggestions, taxiSquadMembers, taxiSquadEvents, teamPins, taxiObservations, userDocs, tenures, txnCache, taxiSnapshots, tradeBlockEvents } from './schema';
 import { eq, and, isNull, desc, lt, sql, ne } from 'drizzle-orm';
 
 export type Role = 'admin' | 'user';
@@ -44,6 +44,24 @@ export async function getSuggestionTitlesMap(): Promise<Record<string, string>> 
       const id = typeof r.id === 'string' ? r.id : '';
       const t = typeof r.title === 'string' ? r.title : '';
       if (id && t) out[id] = t;
+    }
+  } catch {}
+  return out;
+}
+
+export async function getSuggestionBallotAddedAtMap(): Promise<Record<string, string>> {
+  const out: Record<string, string> = {};
+  try {
+    await ensureSuggestionBallotNotifyColumns();
+    const db = getDb();
+    const res = await db.execute(sql`SELECT id::text AS id, ballot_eligible_at FROM suggestions WHERE ballot_eligible_at IS NOT NULL`);
+    const rawRows = (res as unknown as { rows?: Array<{ id: string; ballot_eligible_at: Date | string | null }> }).rows || [];
+    for (const r of rawRows) {
+      const id = typeof r.id === 'string' ? r.id : '';
+      const ts = r.ballot_eligible_at;
+      if (id && ts) {
+        out[id] = new Date(ts).toISOString();
+      }
     }
   } catch {}
   return out;
@@ -905,8 +923,15 @@ export async function getSuggestionEndorsementsMap(): Promise<Record<string, str
   const out: Record<string, string[]> = {};
   try {
     await ensureSuggestionEndorsementsTable();
+    await ensureSuggestionProposerColumn();
     const db = getDb();
-    const res = await db.execute(sql`SELECT suggestion_id::text AS suggestion_id, team FROM suggestion_endorsements`);
+    // Exclude proposer's own endorsement from the map (same logic as threshold check)
+    const res = await db.execute(sql`
+      SELECT e.suggestion_id::text AS suggestion_id, e.team
+      FROM suggestion_endorsements e
+      LEFT JOIN suggestions s ON s.id = e.suggestion_id
+      WHERE s.proposer_team IS NULL OR e.team <> s.proposer_team
+    `);
     const rawRows = (res as unknown as { rows?: Array<{ suggestion_id: string; team: string }> }).rows || [];
     for (const r of rawRows) {
       const id = typeof r.suggestion_id === 'string' ? r.suggestion_id : '';
@@ -1371,4 +1396,53 @@ export async function setUserDoc(doc: {
     })
     .returning();
   return row;
+}
+
+// --- Trade Block Events ---
+export async function createTradeBlockEvent(event: {
+  team: string;
+  eventType: string;
+  assetType?: string | null;
+  assetId?: string | null;
+  assetLabel?: string | null;
+  oldWants?: string | null;
+  newWants?: string | null;
+}) {
+  const db = getDb();
+  const [row] = await db
+    .insert(tradeBlockEvents)
+    .values({
+      team: event.team,
+      eventType: event.eventType,
+      assetType: event.assetType ?? null,
+      assetId: event.assetId ?? null,
+      assetLabel: event.assetLabel ?? null,
+      oldWants: event.oldWants ?? null,
+      newWants: event.newWants ?? null,
+    })
+    .returning();
+  return row;
+}
+
+export async function getPendingTradeBlockEvents(olderThanSeconds: number = 120) {
+  const db = getDb();
+  const cutoff = new Date(Date.now() - olderThanSeconds * 1000);
+  const rows = await db
+    .select()
+    .from(tradeBlockEvents)
+    .where(and(
+      isNull(tradeBlockEvents.sentAt),
+      lt(tradeBlockEvents.createdAt, cutoff)
+    ))
+    .orderBy(tradeBlockEvents.team, tradeBlockEvents.createdAt);
+  return rows;
+}
+
+export async function markTradeBlockEventsSent(eventIds: string[]) {
+  if (eventIds.length === 0) return;
+  const db = getDb();
+  await db
+    .update(tradeBlockEvents)
+    .set({ sentAt: new Date() })
+    .where(sql`${tradeBlockEvents.id} = ANY(${eventIds}::uuid[])`);
 }

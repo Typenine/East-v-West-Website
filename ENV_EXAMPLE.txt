@@ -14,6 +14,8 @@ DISCORD_SUGGESTIONS_WEBHOOK_URL=
 DISCORD_TRADES_WEBHOOK_URL=
 # Webhook for newsletter announcements (posted when newsletter is published)
 DISCORD_NEWSLETTER_WEBHOOK_URL=
+# Webhook for trade block updates (Clancy reporter - batched every 120s)
+DISCORD_TRADE_BLOCK_WEBHOOK_URL=https://discord.com/api/webhooks/1472419947346133023/pFDzEk4ItK4YkFHAs8wDddiftIRBf1AMh6jS9Tx0CK2pft_MXahP20TdqJZI3OoW-E2H
 
 # Sleeper league ID for trade monitoring
 SLEEPER_LEAGUE_ID=

@@ -19,6 +19,7 @@ type Suggestion = {
   content: string;
   category?: string;
   createdAt: string; // ISO
+  ballotAddedAt?: string; // ISO - when it reached ballot threshold
   status?: 'draft' | 'open' | 'accepted' | 'rejected';
   resolvedAt?: string;
   sponsorTeam?: string;
@@ -28,8 +29,6 @@ type Suggestion = {
   voteTag?: 'voted_on' | 'vote_passed' | 'vote_failed';
   groupId?: string;
   groupPos?: number;
-  displayNumber?: number;
-  ballotForced?: boolean;
 };
 
 type Tallies = Record<string, { up: number; down: number }>;
@@ -37,13 +36,6 @@ type Tallies = Record<string, { up: number; down: number }>;
 const CATEGORIES = ['Rules', 'Website', 'Discord', 'Location', 'Other'];
 
 type SortOption = 'newest' | 'oldest' | 'closest_to_ballot';
-
-// Helper to format suggestion display label
-function getSuggestionLabel(s: Suggestion): string {
-  if (s.title && s.title.trim()) return s.title;
-  if (s.displayNumber) return `Suggestion ${String(s.displayNumber).padStart(4, '0')}`;
-  return `Suggestion #${s.id.slice(0, 8)}`;
-}
 
 export default function SuggestionsPage() {
   type Draft = {
@@ -450,12 +442,16 @@ export default function SuggestionsPage() {
               return endorsers.filter((t) => t !== s.proposerTeam).length;
             };
 
-            // Ballot-eligible items: >= 3 eligible endorsements OR ballotForced, not finalized (no voteTag or voteTag === 'voted_on')
+            // Ballot-eligible items: >= 3 eligible endorsements, not finalized (no voteTag or voteTag === 'voted_on')
             const ballotQueue = items.filter((s) => {
               const eligibleCount = getEligibleCount(s);
               const isFinalized = s.voteTag === 'vote_passed' || s.voteTag === 'vote_failed';
-              const isBallotEligible = eligibleCount >= ENDORSEMENT_THRESHOLD || s.ballotForced;
-              return isBallotEligible && !isFinalized && !s.vague;
+              return eligibleCount >= ENDORSEMENT_THRESHOLD && !isFinalized && !s.vague;
+            }).sort((a, b) => {
+              // Sort by ballotAddedAt (oldest first in queue)
+              const aTime = a.ballotAddedAt ? Date.parse(a.ballotAddedAt) : Date.parse(a.createdAt);
+              const bTime = b.ballotAddedAt ? Date.parse(b.ballotAddedAt) : Date.parse(b.createdAt);
+              return aTime - bTime;
             });
 
             if (ballotQueue.length === 0) return null;
@@ -463,21 +459,22 @@ export default function SuggestionsPage() {
             return (
               <Card>
                 <CardHeader>
-                  <CardTitle>🗳️ Ballot Queue</CardTitle>
+                  <CardTitle>🗳️ Ballot Queue ({ballotQueue.length})</CardTitle>
                 </CardHeader>
                 <CardContent>
                   <p className="text-sm text-[var(--muted)] mb-3">
                     These suggestions have reached {ENDORSEMENT_THRESHOLD} endorsements and are eligible for voting.
                   </p>
-                  <ul className="space-y-2">
-                    {ballotQueue.map((s) => (
-                      <li key={s.id}>
+                  <ol className="space-y-2 list-none">
+                    {ballotQueue.map((s, index) => (
+                      <li key={s.id} className="flex gap-3">
+                        <span className="flex-shrink-0 font-bold text-[var(--muted)] w-6">{index + 1}.</span>
                         <Link
                           href={`/suggestions/${s.id}`}
-                          className="block p-3 rounded-lg border border-[var(--border)] evw-surface hover:border-[var(--accent)] transition-colors"
+                          className="flex-1 block p-3 rounded-lg border border-[var(--border)] evw-surface hover:border-[var(--accent)] transition-colors"
                         >
                           <div className="flex items-center justify-between">
-                            <span className="font-medium">{getSuggestionLabel(s)}</span>
+                            <span className="font-medium">{s.title || `Suggestion #${s.id.slice(0, 8)}`}</span>
                             {s.voteTag === 'voted_on' && (
                               <span className="text-xs px-2 py-0.5 rounded-full border" style={{ borderColor: '#0b5f98', color: '#0b5f98' }}>
                                 VOTING
@@ -489,10 +486,15 @@ export default function SuggestionsPage() {
                               {s.content.slice(0, 120)}{s.content.length > 120 ? '…' : ''}
                             </p>
                           )}
+                          {s.ballotAddedAt && (
+                            <p className="text-xs text-[var(--muted)] mt-2">
+                              Added to ballot: {new Date(s.ballotAddedAt).toLocaleString()}
+                            </p>
+                          )}
                         </Link>
                       </li>
                     ))}
-                  </ul>
+                  </ol>
                 </CardContent>
               </Card>
             );
@@ -501,7 +503,7 @@ export default function SuggestionsPage() {
           <Card>
             <CardHeader>
               <div className="flex items-center justify-between flex-wrap gap-2">
-                <CardTitle>Recent Suggestions</CardTitle>
+                <CardTitle>Active Proposals</CardTitle>
                 <div className="flex items-center gap-2">
                   <Label className="text-sm">Sort:</Label>
                   <Select
@@ -519,10 +521,19 @@ export default function SuggestionsPage() {
             <CardContent>
               {loading ? (
                 <p className="text-[var(--muted)]">Loading…</p>
-              ) : items.length === 0 ? (
-                <p className="text-[var(--muted)]">No suggestions yet. Be the first to submit one!</p>
-              ) : (
-                <ul className="space-y-4">
+              ) : (() => {
+                // Separate active from closed proposals
+                const activeItems = items.filter((s) => !s.voteTag || s.voteTag === 'voted_on');
+                const closedItems = items.filter((s) => s.voteTag === 'vote_passed' || s.voteTag === 'vote_failed');
+                
+                if (activeItems.length === 0 && closedItems.length === 0) {
+                  return <p className="text-[var(--muted)]">No suggestions yet. Be the first to submit one!</p>;
+                }
+                
+                return (
+                  <>
+                    {activeItems.length > 0 && (
+                      <ul className="space-y-4">
                   {(() => {
                     // Helper to compute eligible endorsement count (excludes proposer)
                     const getEligibleCount = (s: Suggestion) => {
@@ -530,26 +541,26 @@ export default function SuggestionsPage() {
                       return endorsers.filter((t) => t !== s.proposerTeam).length;
                     };
 
-                    // Group items by groupId (or single)
+                    // Group ACTIVE items only by groupId (or single)
                     const groups = new Map<string, Suggestion[]>();
-                    for (const s of items) {
+                    for (const s of activeItems) {
                       const key = s.groupId ? `g:${s.groupId}` : `s:${s.id}`;
                       if (!groups.has(key)) groups.set(key, []);
                       groups.get(key)!.push(s);
                     }
                     const ordered = Array.from(groups.values()).map((arr) => arr.sort((a, b) => (a.groupPos || 0) - (b.groupPos || 0)));
 
-                    // Apply sorting
+                    // Apply sorting to ACTIVE proposals only
                     if (sortBy === 'newest') {
                       ordered.sort((a, b) => Date.parse(b[0].createdAt) - Date.parse(a[0].createdAt));
                     } else if (sortBy === 'oldest') {
                       ordered.sort((a, b) => Date.parse(a[0].createdAt) - Date.parse(b[0].createdAt));
                     } else if (sortBy === 'closest_to_ballot') {
-                      // Sort by fewest endorsements needed (closest to threshold first)
+                      // Sort by most endorsements first (closest to threshold)
                       ordered.sort((a, b) => {
-                        const aNeeds = Math.max(0, ENDORSEMENT_THRESHOLD - getEligibleCount(a[0]));
-                        const bNeeds = Math.max(0, ENDORSEMENT_THRESHOLD - getEligibleCount(b[0]));
-                        return aNeeds - bNeeds;
+                        const aCount = getEligibleCount(a[0]);
+                        const bCount = getEligibleCount(b[0]);
+                        return bCount - aCount; // Most endorsements first
                       });
                     }
                     return ordered.map((arr, gi) => {
@@ -725,8 +736,96 @@ export default function SuggestionsPage() {
                       );
                     });
                   })()}
-                </ul>
-              )}
+                      </ul>
+                    )}
+                    
+                    {/* Closed Proposals Section */}
+                    {closedItems.length > 0 && (
+                      <details className="mt-6">
+                        <summary className="cursor-pointer text-sm font-medium text-[var(--muted)] hover:text-[var(--text)] mb-3">
+                          ▶ Voted / Closed ({closedItems.length})
+                        </summary>
+                        <ul className="space-y-4 mt-3">
+                          {(() => {
+                            // Helper to compute eligible endorsement count (excludes proposer)
+                            const getEligibleCount = (s: Suggestion) => {
+                              const endorsers = s.endorsers || [];
+                              return endorsers.filter((t) => t !== s.proposerTeam).length;
+                            };
+                            
+                            // Group closed items
+                            const closedGroups = new Map<string, Suggestion[]>();
+                            for (const s of closedItems) {
+                              const key = s.groupId ? `g:${s.groupId}` : `s:${s.id}`;
+                              if (!closedGroups.has(key)) closedGroups.set(key, []);
+                              closedGroups.get(key)!.push(s);
+                            }
+                            const closedOrdered = Array.from(closedGroups.values()).map((arr) => arr.sort((a, b) => (a.groupPos || 0) - (b.groupPos || 0)));
+                            // Sort by newest first
+                            closedOrdered.sort((a, b) => Date.parse(b[0].createdAt) - Date.parse(a[0].createdAt));
+                            
+                            return closedOrdered.map((arr, gi) => {
+                              const first = arr[0];
+                              const style = first.sponsorTeam ? getTeamColorStyle(first.sponsorTeam) : null;
+                              const secondary = first.sponsorTeam ? getTeamColorStyle(first.sponsorTeam, 'secondary') : null;
+                              const groupStyle: React.CSSProperties | undefined = style ? { borderLeftColor: (secondary?.backgroundColor as string), borderLeftWidth: 4, borderLeftStyle: 'solid' } : undefined;
+                              return (
+                                <li key={`closed-grp-${gi}`} className="evw-surface border border-[var(--border)] rounded-[var(--radius-card)] p-3 opacity-60" style={groupStyle}>
+                                  <div className="mb-2 text-sm text-[var(--muted)]">{new Date(first.createdAt).toLocaleString()}</div>
+                                  <div className="space-y-4">
+                                    {arr.map((s, idx) => {
+                                      const isAccepted = s.status === 'accepted';
+                                      const eligibleCount = getEligibleCount(s);
+                                      return (
+                                        <div id={s.id} key={s.id} className="p-3 rounded-[var(--radius-card)] border border-[var(--border)]" style={{ ...(isAccepted ? { boxShadow: 'inset 0 0 0 2px #16a34a33' } : {}) }}>
+                                          <div className="flex items-center justify-between mb-1 gap-2">
+                                            <Link href={`/suggestions/${s.id}`} className="font-medium hover:underline">
+                                              {s.title ? s.title : `Suggestion ${idx + 1}`}
+                                            </Link>
+                                            <div className="flex items-center gap-2 flex-shrink-0">
+                                              <span className="text-xs px-2 py-0.5 rounded-full border border-[var(--border)] text-[var(--muted)]">
+                                                {eligibleCount}/{ENDORSEMENT_THRESHOLD}
+                                              </span>
+                                              {s.category && (
+                                                <span className="text-xs px-2 py-0.5 rounded-full border border-[var(--border)] evw-surface text-[var(--text)]">{s.category}</span>
+                                              )}
+                                              {s.voteTag === 'vote_passed' && (
+                                                <span className="text-xs px-2 py-0.5 rounded-full border" style={{ borderColor: '#16a34a', color: '#16a34a' }}>VOTE PASSED</span>
+                                              )}
+                                              {s.voteTag === 'vote_failed' && (
+                                                <span className="text-xs px-2 py-0.5 rounded-full border" style={{ borderColor: '#be161e', color: '#be161e' }}>VOTE FAILED</span>
+                                              )}
+                                            </div>
+                                          </div>
+                                          {(() => {
+                                            const lines = String(s.content || '').split('\n');
+                                            const renderLine = (ln: string, key: number) => {
+                                              const m = ln.match(/^(Rule|Effective|Proposal|Issue|How it fixes|Conclusion):\s*(.*)$/i);
+                                              if (m) {
+                                                return (
+                                                  <div key={key} className="text-[var(--text)]">
+                                                    <strong>{m[1]}:</strong> {m[2]}
+                                                  </div>
+                                                );
+                                              }
+                                              return <div key={key} className="text-[var(--text)]">{ln}</div>;
+                                            };
+                                            return <div>{isAccepted ? <div>✅</div> : null}{lines.map((ln, i) => renderLine(ln, i))}</div>;
+                                          })()}
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                </li>
+                              );
+                            });
+                          })()}
+                        </ul>
+                      </details>
+                    )}
+                  </>
+                );
+              })()}
             </CardContent>
           </Card>
         </div>

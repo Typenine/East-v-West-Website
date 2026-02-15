@@ -22,7 +22,9 @@ export async function PUT(req: NextRequest) {
   if (!items) return Response.json({ error: 'tradeBlock array required' }, { status: 400 });
 
   const assets = await getTeamAssets(ident.team);
-  const nextYear = assets.picks.length > 0 ? assets.picks[0].year : new Date().getFullYear() + 1;
+  const currentYear = new Date().getFullYear();
+  const nextYear = assets.picks.length > 0 ? assets.picks[0].year : currentYear + 1;
+  const yearAfterNext = nextYear + 1;
 
   const filtered: TradeAsset[] = [];
   const isPlayer = (x: unknown): x is { type: 'player'; playerId: string } => !!x && typeof x === 'object' && (x as Record<string, unknown>).type === 'player' && typeof (x as Record<string, unknown>).playerId === 'string';
@@ -40,7 +42,8 @@ export async function PUT(req: NextRequest) {
     } else if (isPick(it)) {
       const yr = it.year;
       const rd = it.round;
-      if (Number.isFinite(yr) && yr === nextYear && Number.isFinite(rd) && rd >= 1 && rd <= 10) {
+      // Allow picks for next year and the year after (2 years out)
+      if (Number.isFinite(yr) && (yr === nextYear || yr === yearAfterNext) && Number.isFinite(rd) && rd >= 1 && rd <= 10) {
         const reqOrig = typeof (it as { originalTeam?: string }).originalTeam === 'string' ? (it as { originalTeam?: string }).originalTeam : undefined;
         let owned = reqOrig
           ? assets.picks.find((p) => p.year === yr && p.round === rd && p.originalTeam === reqOrig)
@@ -57,6 +60,9 @@ export async function PUT(req: NextRequest) {
   }
 
   const doc = await readUserDoc(ident.userId, ident.team);
+  const oldBlock = doc.tradeBlock || [];
+  const oldWantsText = doc.tradeWants?.text;
+  
   doc.tradeBlock = filtered;
   const pos = Array.isArray(wants.positions) ? wants.positions.map(String).slice(0, 12) : [];
   const text = typeof wants.text === 'string' ? wants.text.slice(0, 300) : undefined;
@@ -82,5 +88,25 @@ export async function PUT(req: NextRequest) {
   doc.updatedAt = new Date().toISOString();
   const ok = await writeUserDoc(doc);
   if (!ok) return Response.json({ error: 'Persist failed' }, { status: 500 });
+  
+  // Capture trade block changes for Clancy reporter (best-effort, don't block response)
+  try {
+    const { captureTradeBlockChanges } = await import('@/lib/server/trade-block-reporter');
+    await captureTradeBlockChanges({
+      team: ident.team,
+      oldBlock: oldBlock as TradeAsset[],
+      newBlock: filtered,
+      oldWants: oldWantsText,
+      newWants: text,
+    });
+    
+    // Trigger flush of old events in background (best-effort, don't block response)
+    // This checks for events older than 40s and posts them to Discord
+    const { flushTradeBlockEvents } = await import('@/lib/server/trade-block-flusher');
+    await flushTradeBlockEvents();
+  } catch (e) {
+    console.error('Trade block reporter error:', e);
+  }
+  
   return Response.json({ ok: true, tradeBlock: doc.tradeBlock, tradeWants: doc.tradeWants });
 }

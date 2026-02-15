@@ -17,9 +17,7 @@ import {
   getSuggestionGroupsMap,
   getSuggestionTitlesMap,
   setSuggestionTitle,
-  getSuggestionDisplayNumbersMap,
-  backfillSuggestionDisplayNumbers,
-  getBallotForcedMap,
+  getSuggestionBallotAddedAtMap,
 } from '@/server/db/queries';
 import { requireTeamUser } from '@/lib/server/session';
 
@@ -32,6 +30,7 @@ export type Suggestion = {
   content: string;
   category?: string;
   createdAt: string; // ISO string
+  ballotAddedAt?: string; // ISO string - when it reached ballot threshold
   status?: 'draft' | 'open' | 'accepted' | 'rejected';
   resolvedAt?: string;
   sponsorTeam?: string;
@@ -41,8 +40,6 @@ export type Suggestion = {
   voteTag?: 'voted_on' | 'vote_passed' | 'vote_failed';
   groupId?: string;
   groupPos?: number;
-  displayNumber?: number;
-  ballotForced?: boolean;
 };
 
 const DATA_PATH = path.join(process.cwd(), 'data', 'suggestions.json');
@@ -53,79 +50,26 @@ const SITE_URL = process.env.SITE_URL;
 // Track posted suggestion IDs to prevent duplicates (in-memory, resets on restart)
 const postedToDiscord = new Set<string>();
 
-// Constants for Discord webhook message formatting
-const MAX_SYNOPSIS_LENGTH = 300;
-
-/**
- * Build base site URL from env or request headers
- */
-function buildBaseUrl(request?: Request): string | undefined {
-  // Prefer explicit SITE_URL if set
-  if (SITE_URL) return SITE_URL.replace(/\/$/, '');
-  
-  // Derive from request headers if available
-  if (!request) return undefined;
-  
-  const proto = request.headers.get('x-forwarded-proto') || 'https';
-  const host = request.headers.get('x-forwarded-host') || request.headers.get('host');
-  
-  if (host) {
-    return `${proto}://${host}`;
-  }
-  
-  return undefined;
-}
-
-async function postToDiscord(suggestion: Suggestion, teamName?: string, baseUrl?: string): Promise<void> {
+async function postToDiscord(suggestion: Suggestion, teamName?: string): Promise<void> {
   if (!DISCORD_WEBHOOK_URL) return;
   if (postedToDiscord.has(suggestion.id)) return; // idempotent
   postedToDiscord.add(suggestion.id);
 
   // Build stable detail URL (not an anchor)
-  const base = baseUrl?.replace(/\/$/, '') || '';
+  const base = (SITE_URL || '').replace(/\/$/, '');
   const link = suggestion.id && base ? `${base}/suggestions/${suggestion.id}` : undefined;
-
-  if (!link) {
-    console.warn('[suggestions] Discord webhook: Unable to construct URL (no SITE_URL or host headers)');
-  }
 
   // Title for embed
   const embedTitle = suggestion.title
     ? `📋 ${suggestion.title}`
     : '📋 New Suggestion';
 
-  // Build compact description: category, proposer, synopsis
+  // Build compact description: category only (no long content dump)
   let description = '';
   if (suggestion.category) description += `**Category:** ${suggestion.category}\n`;
   if (teamName) description += `**Proposed by:** ${teamName}\n`;
-  
-  // Add short synopsis (truncate to MAX_SYNOPSIS_LENGTH chars)
-  if (suggestion.content) {
-    const synopsis = suggestion.content.length > MAX_SYNOPSIS_LENGTH 
-      ? suggestion.content.slice(0, MAX_SYNOPSIS_LENGTH) + '…' 
-      : suggestion.content;
-    description += `\n${synopsis}\n`;
-  }
-
-  // Build plain text content with link on first line
-  let plainContent = '';
-  if (link) {
-    plainContent = `New suggestion: ${link}\n`;
-    if (suggestion.title) plainContent += `**${suggestion.title}**\n`;
-  } else {
-    plainContent = 'New suggestion: (link unavailable)\n';
-    if (suggestion.title) plainContent += `**${suggestion.title}**\n`;
-  }
-
-  // Build embed with link field
-  const embedFields: Array<{ name: string; value: string; inline?: boolean }> = [];
-  if (link) {
-    embedFields.push({
-      name: 'Open',
-      value: `[View suggestion](${link})`,
-      inline: false,
-    });
-  }
+  // Add link inside embed description for visibility
+  if (link) description += `\n🔗 **[View Suggestion](${link})**`;
 
   const embed = {
     title: embedTitle,
@@ -133,8 +77,12 @@ async function postToDiscord(suggestion: Suggestion, teamName?: string, baseUrl?
     url: link,
     color: 0x3b82f6, // blue
     timestamp: suggestion.createdAt,
-    fields: embedFields,
   };
+
+  // Plain text link at top level for maximum visibility
+  const plainContent = link
+    ? `📋 **New Suggestion${suggestion.title ? `: ${suggestion.title}` : ''}**\n${link}`
+    : undefined;
 
   const payload = {
     content: plainContent,
@@ -231,17 +179,6 @@ export async function GET() {
         status: (r.status as Suggestion['status']) || 'open',
         resolvedAt: r.resolvedAt ? new Date(r.resolvedAt).toISOString() : undefined,
       } as Suggestion));
-      // Backfill display numbers if needed (best-effort, non-blocking)
-      try {
-        await backfillSuggestionDisplayNumbers();
-      } catch {}
-      // Overlay display numbers from DB column
-      try {
-        const dmap = await getSuggestionDisplayNumbersMap();
-        if (dmap && Object.keys(dmap).length > 0) {
-          items = items.map((it) => ({ ...it, displayNumber: dmap[it.id] || it.displayNumber }));
-        }
-      } catch {}
       // Overlay sponsors from DB column if present
       try {
         const dbMap = await getSuggestionSponsorsMap();
@@ -291,11 +228,11 @@ export async function GET() {
           items = items.map((it) => ({ ...it, groupId: (gmap[it.id]?.groupId) || it.groupId, groupPos: (gmap[it.id]?.groupPos) || it.groupPos }));
         }
       } catch {}
-      // Overlay ballot forced flags
+      // Overlay ballot added timestamps
       try {
-        const bmap = await getBallotForcedMap();
+        const bmap = await getSuggestionBallotAddedAtMap();
         if (bmap && Object.keys(bmap).length > 0) {
-          items = items.map((it) => ({ ...it, ballotForced: bmap[it.id] || it.ballotForced }));
+          items = items.map((it) => ({ ...it, ballotAddedAt: bmap[it.id] || it.ballotAddedAt }));
         }
       } catch {}
       // Overlay sponsor teams from KV map if present
@@ -517,9 +454,8 @@ export async function POST(request: Request) {
       }
 
       // Discord webhook (best-effort, non-blocking)
-      const baseUrl = buildBaseUrl(request);
       for (const s of created) {
-        postToDiscord(s, identTeam, baseUrl).catch(() => {});
+        postToDiscord(s, identTeam).catch(() => {});
       }
 
       return Response.json({ ok: true, groupId, items: created }, { status: 201 });
@@ -623,8 +559,7 @@ export async function POST(request: Request) {
     }
 
     // Discord webhook (best-effort, non-blocking)
-    const baseUrl = buildBaseUrl(request);
-    postToDiscord(item, sponsorTeam, baseUrl).catch(() => {});
+    postToDiscord(item, sponsorTeam).catch(() => {});
 
     return Response.json(item, { status: 201 });
   } catch (e: unknown) {

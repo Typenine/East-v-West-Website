@@ -1,0 +1,8 @@
+﻿
+> east-v-west@0.1.0 build
+> node scripts/migrate-on-build.mjs && next build
+
+[migrate-on-build] No DATABASE_URL found. Skipping db:migrate.
+   Γû▓ Next.js 15.4.10
+   - Environments: .env.local
+

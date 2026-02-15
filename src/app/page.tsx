@@ -4,6 +4,7 @@ import CountdownTimer from '@/components/ui/countdown-timer';
 import MatchupCard from '@/components/ui/matchup-card';
 import { IMPORTANT_DATES, LEAGUE_IDS, CHAMPIONS } from '@/lib/constants/league';
 import { getLeagueMatchups, getTeamsData, getNFLState, derivePodiumFromWinnersBracketByYear, getSeasonAwardsUsingLeagueScoring, getWeeklyHighsBySeason, getLeaguePlayoffBracketsWithScores, getRosterIdToTeamNameMap, buildYearToLeagueMapUnique, type SleeperBracketGameWithScore, type WeeklyHighByWeekEntry } from '@/lib/utils/sleeper-api';
+import { getCurrentPhase, hasRegularSeasonStarted, getRecapYear } from '@/lib/utils/phase-resolver';
 import EmptyState from '@/components/ui/empty-state';
 import SectionHeader from '@/components/ui/SectionHeader';
 import LinkButton from '@/components/ui/LinkButton';
@@ -67,9 +68,9 @@ export default async function Home({ searchParams }: { searchParams?: Promise<Re
       leagueId = yearMap[seasonYear] || leagueId;
     } catch {}
     const teams = await getTeamsData(leagueId).catch(() => [] as Array<{ rosterId: number; teamName: string }>);
-    // Determine the season year that corresponds to the leagueId we are showing brackets for (recent fantasy season)
-    const leagueYearEntry = Object.entries(LEAGUE_IDS.PREVIOUS || {}).find(([, lid]) => lid === leagueId);
-    recapYear = leagueYearEntry?.[0] || seasonYear;
+    // Use phase resolver to determine recap year
+    const nflSeasonYear = Number(seasonYear);
+    recapYear = String(getRecapYear(nflSeasonYear));
     const week1Ts = new Date(IMPORTANT_DATES.NFL_WEEK_1_START).getTime();
     const playoffsStartTs = new Date(IMPORTANT_DATES.PLAYOFFS_START).getTime();
     const now = new Date();
@@ -422,12 +423,20 @@ export default async function Home({ searchParams }: { searchParams?: Promise<Re
       }
     } catch {}
   }
-  // Offseason primary countdown selection after Super Bowl hold window (48h)
-  const nowTs = Date.now();
-  const sbTs = new Date(IMPORTANT_DATES.NEW_LEAGUE_YEAR).getTime();
-  const showSuperBowl = Number.isFinite(sbTs) && nowTs < sbTs + 48 * 60 * 60 * 1000;
-  const offPrimaryDate = showSuperBowl ? IMPORTANT_DATES.NEW_LEAGUE_YEAR : IMPORTANT_DATES.NFL_WEEK_1_START;
-  const offPrimaryTitle = showSuperBowl ? 'Super Bowl in' : 'Season starts in';
+  // Offseason primary countdown selection based on phase
+  const phase = getCurrentPhase();
+  const seasonStarted = hasRegularSeasonStarted();
+  let offPrimaryDate = IMPORTANT_DATES.NFL_WEEK_1_START;
+  let offPrimaryTitle = 'Season starts in';
+  
+  if (phase === 'post_championship_pre_draft') {
+    // During post-championship pre-draft, show season countdown
+    offPrimaryDate = IMPORTANT_DATES.NFL_WEEK_1_START;
+    offPrimaryTitle = 'Season starts in';
+  } else if (phase === 'post_draft_pre_season') {
+    offPrimaryDate = IMPORTANT_DATES.NFL_WEEK_1_START;
+    offPrimaryTitle = seasonStarted ? 'Season in progress' : 'Season starts in';
+  }
   // Taxi flags (league-wide): fetch lightweight flags on SSR for speed
   let taxiFlags: { generatedAt: string; lastRunAt?: string; runType?: string; season?: number; week?: number; actual: Array<{ team: string; type: string; message: string }>; potential: Array<{ team: string; type: string; message: string }> } = { generatedAt: '', actual: [], potential: [] };
   try {

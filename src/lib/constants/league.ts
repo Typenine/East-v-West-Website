@@ -28,15 +28,14 @@ export const TEAM_NAMES = [
 // Current year for copyright and other displays
 export const CURRENT_YEAR = new Date().getFullYear();
 
-// Important dates
+// Important dates - UPDATE THESE ANNUALLY
 export const IMPORTANT_DATES = {
-  NFL_WEEK_1_START: new Date('2025-09-04T20:20:00-04:00'), // NFL Week 1 kickoff
+  NFL_WEEK_1_START: new Date('2026-09-10T20:20:00-04:00'), // NFL Week 1 kickoff (2026 season)
   // Trade deadline is end of the final game of Week 12 (approx end of MNF)
-  // Week 12 Monday in 2025 is 2025-11-24; using ~11:45 PM ET to avoid overstating remaining time
-  TRADE_DEADLINE: new Date('2025-11-24T23:45:00-05:00'),
+  TRADE_DEADLINE: new Date('2026-11-30T23:45:00-05:00'), // Week 12 Monday 2026
   // Playoffs start at Week 15 kickoff (TNF)
-  PLAYOFFS_START: new Date('2025-12-11T20:20:00-05:00'),
-  NEW_LEAGUE_YEAR: new Date('2026-02-08T18:30:00-05:00'),
+  PLAYOFFS_START: new Date('2026-12-17T20:20:00-05:00'), // Week 15 TNF 2026
+  NEW_LEAGUE_YEAR: new Date('2027-02-07T18:30:00-05:00'), // After Super Bowl LXI
   NEXT_DRAFT: new Date('2026-07-18T13:00:00-04:00')        // Next draft date
 };
 
