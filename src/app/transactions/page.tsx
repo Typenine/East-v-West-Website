@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import SectionHeader from "@/components/ui/SectionHeader";
 import Card, { CardContent } from "@/components/ui/Card";
 import TransactionsTable from "@/components/transactions/TransactionsTable";
@@ -121,21 +122,29 @@ export default async function TransactionsPage({
   return (
     <div className="container mx-auto px-4 py-8">
       <SectionHeader title="Transactions" subtitle="Waiver and free agent history across seasons" />
-      <TransactionsViewTabs />
+      <Suspense fallback={null}>
+        <TransactionsViewTabs />
+      </Suspense>
       {view === 'all' && (
         <>
-          <TransactionsFilters summary={summary} seasons={seasons} teams={teams} positions={positions} />
+          <Suspense fallback={null}>
+            <TransactionsFilters summary={summary} seasons={seasons} teams={teams} positions={positions} />
+          </Suspense>
         <Card className="mt-4">
           <CardContent className="p-0">
             <TransactionsTable data={paged} sortKey={sortKey} direction={sortDirection} />
-            <TransactionsPagination total={transactions.length} page={page} perPage={perPage} />
+            <Suspense fallback={null}>
+              <TransactionsPagination total={transactions.length} page={page} perPage={perPage} />
+            </Suspense>
           </CardContent>
         </Card>
         </>
       )}
       {view !== 'all' && (
         <>
-          <GroupedToolbar seasons={seasons} teams={teams} positions={positions} />
+          <Suspense fallback={null}>
+            <GroupedToolbar seasons={seasons} teams={teams} positions={positions} />
+          </Suspense>
           {view === 'year' && (
             <Card className="mt-4">
               <CardContent className="p-0">
