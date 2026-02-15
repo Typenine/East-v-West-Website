@@ -1946,15 +1946,29 @@ export default function HistoryContent() {
                     </CardHeader>
                     <CardContent>
                       <div className="text-sm text-[var(--muted)] space-y-1">
-                        <p>
-                          Regular-season record: {f.wins}-{f.losses}
-                          {f.ties > 0 ? `-${f.ties}` : ''} ({(() => {
-                            const g = f.wins + f.losses + f.ties;
-                            return g > 0 ? (((f.wins + f.ties * 0.5) / g) * 100).toFixed(1) : '0.0';
-                          })()}%)
-                        </p>
-                        <p>Total PF: {f.totalPF.toFixed(2)}</p>
-                        <p>Avg PF: {f.avgPF.toFixed(2)}</p>
+                        {(() => {
+                          const split = splitRecords[f.ownerId];
+                          const reg = split?.regular || { wins: 0, losses: 0, ties: 0, pf: 0, pa: 0 };
+                          const po = split?.playoffs || { wins: 0, losses: 0, ties: 0, pf: 0, pa: 0 };
+                          const allW = reg.wins + po.wins;
+                          const allL = reg.losses + po.losses;
+                          const allT = reg.ties + po.ties;
+                          const regGames = reg.wins + reg.losses + reg.ties;
+                          const poGames = po.wins + po.losses + po.ties;
+                          const allGames = allW + allL + allT;
+                          const regPct = regGames > 0 ? (((reg.wins + reg.ties * 0.5) / regGames) * 100).toFixed(1) : '0.0';
+                          const poPct = poGames > 0 ? (((po.wins + po.ties * 0.5) / poGames) * 100).toFixed(1) : '0.0';
+                          const allPct = allGames > 0 ? (((allW + allT * 0.5) / allGames) * 100).toFixed(1) : '0.0';
+                          const formatRecord = (w: number, l: number, t: number) => `${w}-${l}${t > 0 ? `-${t}` : ''}`;
+                          return (
+                            <>
+                              <p>Regular Season: {formatRecord(reg.wins, reg.losses, reg.ties)} ({regPct}%)</p>
+                              <p>Postseason: {formatRecord(po.wins, po.losses, po.ties)} ({poPct}%)</p>
+                              <p>All-Time: {formatRecord(allW, allL, allT)} ({allPct}%)</p>
+                              <p>Reg Season PF: {reg.pf.toFixed(2)} (Avg: {regGames > 0 ? (reg.pf / regGames).toFixed(2) : '0.00'})</p>
+                            </>
+                          );
+                        })()}
                         <p>Championships: {f.championships}</p>
                         {f.championships > 0 && (
                           <p>
