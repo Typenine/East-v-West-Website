@@ -59,7 +59,7 @@ export async function PUT(req: NextRequest) {
 
   const doc = await readUserDoc(ident.userId, ident.team);
   const oldBlock = doc.tradeBlock || [];
-  const oldWantsText = doc.tradeWants?.text;
+  const oldWants = doc.tradeWants || null;
   
   doc.tradeBlock = filtered;
   const pos = Array.isArray(wants.positions) ? wants.positions.map(String).slice(0, 12) : [];
@@ -81,29 +81,42 @@ export async function PUT(req: NextRequest) {
     const cleaned = raw.replace(/[^a-zA-Z0-9._-]/g, '');
     snap = cleaned.slice(0, 30);
   }
-  doc.tradeWants = { text, positions: pos, contactMethod, phone, snap };
+  const newWants: TradeWants = { text, positions: pos, contactMethod, phone, snap };
+  doc.tradeWants = newWants;
   doc.version = (doc.version || 0) + 1;
-  doc.updatedAt = new Date().toISOString();
+  const updatedAt = new Date().toISOString();
+  doc.updatedAt = updatedAt;
   const ok = await writeUserDoc(doc);
   if (!ok) return Response.json({ error: 'Persist failed' }, { status: 500 });
   
-  // Capture trade block changes for Clancy reporter (best-effort, don't block response)
+  // Post trade block update immediately to Discord (best-effort, don't block response)
   try {
-    const { captureTradeBlockChanges } = await import('@/lib/server/trade-block-reporter');
-    await captureTradeBlockChanges({
-      team: ident.team,
-      oldBlock: oldBlock as TradeAsset[],
-      newBlock: filtered,
-      oldWants: oldWantsText,
-      newWants: text,
+    const { computeDiff, buildTradeBlockReport, getTradeBlockBaseUrl } = await import('@/lib/server/trade-block-narrative');
+    const diff = await computeDiff(oldBlock as TradeAsset[], filtered, oldWants as TradeWants | null, newWants);
+    const baseUrl = getTradeBlockBaseUrl();
+    
+    const currentPlayers = filtered.filter((a) => a.type === 'player');
+    
+    const message = await buildTradeBlockReport({
+      teamName: ident.team,
+      diff,
+      currentPlayers,
+      baseUrl,
+      updatedAt,
     });
     
-    // Trigger flush of old events in background (best-effort, don't block response)
-    // This checks for events older than 40s and posts them to Discord
-    const { flushTradeBlockEvents } = await import('@/lib/server/trade-block-flusher');
-    await flushTradeBlockEvents();
+    if (message) {
+      const webhookUrl = process.env.DISCORD_TRADE_BLOCK_WEBHOOK_URL;
+      if (webhookUrl) {
+        await fetch(webhookUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ content: message }),
+        }).catch((e) => console.error('Discord webhook error:', e));
+      }
+    }
   } catch (e) {
-    console.error('Trade block reporter error:', e);
+    console.error('Trade block webhook error:', e);
   }
   
   return Response.json({ ok: true, tradeBlock: doc.tradeBlock, tradeWants: doc.tradeWants });
