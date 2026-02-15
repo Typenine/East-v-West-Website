@@ -316,7 +316,7 @@ export default function HistoryContent() {
         const optsFresh = { signal: ac.signal, timeoutMs: DEFAULT_TIMEOUT, forceFresh: true } as const;
         const optsCached = { signal: ac.signal, timeoutMs: DEFAULT_TIMEOUT } as const;
         const needWeeklyHighs = activeTab === 'franchises';
-        const needSplitRecords = activeTab === 'leaderboards';
+        const needSplitRecords = activeTab === 'leaderboards' || activeTab === 'franchises';
         const needTopWeeks = activeTab === 'leaderboards';
         const [teams2025, teams2024, teams2023, wh2025, wh2024, wh2023, splits, topReg, topPO, topAll] = await Promise.all([
           getTeamsData(LEAGUE_IDS.CURRENT, optsFresh),
@@ -370,7 +370,7 @@ export default function HistoryContent() {
           setTopAllSingleWeeks(topAll || []);
         }
 
-        // Build FranchiseSummary list using roster season totals across years (fast and current)
+        // Build FranchiseSummary list using split records for accurate regular-season-only stats
         const champCounts: Record<string, number> = {};
         Object.values(CHAMPIONS).forEach((c) => {
           if (c.champion && c.champion !== 'TBD') {
@@ -378,63 +378,25 @@ export default function HistoryContent() {
           }
         });
 
-        const agg: Record<string, { teamName: string; wins: number; losses: number; ties: number; totalPF: number; totalPA: number; games: number; championships: number }>= {};
-        for (const y of ['2025', '2024', '2023']) {
-          const teams = allTeams[y] || [];
-          for (const t of teams) {
-            const a = (agg[t.ownerId] ||= {
-              teamName: t.teamName,
-              wins: 0,
-              losses: 0,
-              ties: 0,
-              totalPF: 0,
-              totalPA: 0,
-              games: 0,
-              championships: 0,
-            });
-            // Preserve the first-seen name (2025) as the canonical display name
-            a.wins += t.wins || 0;
-            a.losses += t.losses || 0;
-            a.ties += t.ties || 0;
-            a.totalPF += t.fpts || 0;
-            a.totalPA += t.fptsAgainst || 0;
-            a.games += (t.wins || 0) + (t.losses || 0) + (t.ties || 0);
-          }
-        }
-        for (const ownerId of Object.keys(agg)) {
-          const teamName = agg[ownerId].teamName;
-          agg[ownerId].championships = champCounts[teamName] || 0;
-        }
-
-        const franchisesDerived: FranchiseSummary[] = Object.entries(agg).map(([ownerId, a]) => ({
-          ownerId,
-          teamName: a.teamName,
-          wins: a.wins,
-          losses: a.losses,
-          ties: a.ties,
-          totalPF: a.totalPF,
-          totalPA: a.totalPA,
-          avgPF: a.games > 0 ? a.totalPF / a.games : 0,
-          avgPA: a.games > 0 ? a.totalPA / a.games : 0,
-          championships: a.championships,
-        }));
+        // Use split records for regular-season-only wins/losses/PF/PA
+        const franchisesDerived: FranchiseSummary[] = Object.entries(splits).map(([ownerId, s]) => {
+          const reg = s.regular;
+          const games = reg.wins + reg.losses + reg.ties;
+          const teamName = ownerNameMap[ownerId] ?? s.teamName;
+          return {
+            ownerId,
+            teamName,
+            wins: reg.wins,
+            losses: reg.losses,
+            ties: reg.ties,
+            totalPF: reg.pf,
+            totalPA: reg.pa,
+            avgPF: games > 0 ? reg.pf / games : 0,
+            avgPA: games > 0 ? reg.pa / games : 0,
+            championships: champCounts[teamName] || 0,
+          };
+        });
         setFranchises(franchisesDerived);
-
-        try {
-          const res = await fetch('/api/franchise-summaries?fresh=1&years=2025,2024,2023');
-          if (res.ok) {
-            const j = await res.json();
-            if (Array.isArray(j?.franchises) && j.franchises.length > 0) {
-              const srv = j.franchises as FranchiseSummary[];
-              // Remap display names to canonical current-season names per owner
-              const mapped = srv.map((f) => ({
-                ...f,
-                teamName: ownerNameMap[f.ownerId] ?? f.teamName,
-              }));
-              setFranchises(mapped);
-            }
-          }
-        } catch {}
 
         // Compute Regular Season Winners per franchise (previous completed seasons)
         const rsCounts: Record<string, number> = {};
