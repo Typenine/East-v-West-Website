@@ -27,7 +27,7 @@ type TeamRow = { team: string; tradeBlock: TradeAsset[]; tradeWants: TradeWants 
 
 type PlayersLookup = Record<string, { name: string; position?: string; team?: string }>;
 
-type AssetsResponse = { players: string[]; picks: { year: number; round: number; originalTeam: string }[]; faab: number; year: number };
+type AssetsResponse = { players: string[]; picks: { year: number; round: number; originalTeam: string }[]; faab: number; year: number; years?: number[] };
 
 type MeTradeBlock = { tradeBlock: TradeAsset[]; tradeWants?: TradeWants };
 
@@ -352,28 +352,46 @@ export default function TradeBlockPage() {
                     </div>
                   </div>
 
-                  <div>
-                    <Label className="mb-1 block">Picks ({myAssets.year})</Label>
-                    <div className="space-y-1 border border-[var(--border)] rounded-[var(--radius-card)] p-2">
-                      {myAssets.picks.length === 0 ? (
-                        <div className="text-sm text-[var(--muted)]">No picks owned.</div>
-                      ) : (
-                        myAssets.picks.map((p) => {
-                          const key = `${p.year}-${p.round}-${p.originalTeam}`;
-                          return (
-                            <label key={key} className="flex items-center gap-2 text-sm">
-                              <input type="checkbox" checked={!!selPicks[key]} onChange={(e) => setSelPicks((s) => ({ ...s, [key]: e.target.checked }))} />
-                              <span>
-                                {p.year} Round {p.round}
-                                {p.originalTeam ? (
-                                  <span className="text-xs text-[var(--muted)]">{myTeam && p.originalTeam === myTeam ? '' : ` (originally ${p.originalTeam})`}</span>
-                                ) : null}
-                              </span>
-                            </label>
-                          );
-                        })
-                      )}
-                    </div>
+                  <div className="space-y-4">
+                    {(() => {
+                      const picksByYear = myAssets.picks.reduce<Record<number, { year: number; round: number; originalTeam: string }[]>>((acc, p) => {
+                        if (!acc[p.year]) acc[p.year] = [];
+                        acc[p.year].push(p);
+                        return acc;
+                      }, {});
+                      const years = (myAssets.years && myAssets.years.length > 0)
+                        ? myAssets.years
+                        : Object.keys(picksByYear).map(Number).sort((a, b) => a - b);
+                      if (years.length === 0) {
+                        return (
+                          <div>
+                            <Label className="mb-1 block">Picks</Label>
+                            <div className="text-sm text-[var(--muted)]">No picks owned.</div>
+                          </div>
+                        );
+                      }
+                      return years.map((year) => (
+                        <div key={year}>
+                          <Label className="mb-1 block">Picks ({year})</Label>
+                          <div className="space-y-1 border border-[var(--border)] rounded-[var(--radius-card)] p-2">
+                            {(picksByYear[year] || []).map((p) => {
+                              const key = `${p.year}-${p.round}-${p.originalTeam}`;
+                              return (
+                                <label key={key} className="flex items-center gap-2 text-sm">
+                                  <input type="checkbox" checked={!!selPicks[key]} onChange={(e) => setSelPicks((s) => ({ ...s, [key]: e.target.checked }))} />
+                                  <span>
+                                    {p.year} Round {p.round}
+                                    {p.originalTeam && myTeam && p.originalTeam !== myTeam ? (
+                                      <span className="text-xs text-[var(--muted)]"> (originally {p.originalTeam})</span>
+                                    ) : null}
+                                  </span>
+                                </label>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ));
+                    })()}
                   </div>
 
                   <div>

@@ -23,77 +23,84 @@ type TeamBatch = {
 };
 
 function groupEventsByTeam(events: TradeBlockEvent[]): TeamBatch[] {
-  const teamMap = new Map<string, TeamBatch>();
-  
+  const teamMap = new Map<string, { batch: TeamBatch; assetStates: Map<string, { label: string; type: 'added' | 'removed' }> }>();
+
   for (const event of events) {
     if (!teamMap.has(event.team)) {
       teamMap.set(event.team, {
-        team: event.team,
-        added: [],
-        removed: [],
-        wantsChanged: false,
-        eventIds: [],
+        batch: {
+          team: event.team,
+          added: [],
+          removed: [],
+          wantsChanged: false,
+          eventIds: [],
+        },
+        assetStates: new Map<string, { label: string; type: 'added' | 'removed' }>(),
       });
     }
-    
-    const batch = teamMap.get(event.team)!;
+
+    const entry = teamMap.get(event.team)!;
+    const batch = entry.batch;
     batch.eventIds.push(event.id);
-    
-    if (event.eventType === 'added' && event.assetLabel) {
-      // Deduplicate - only add if not already in the list
-      if (!batch.added.includes(event.assetLabel)) {
-        batch.added.push(event.assetLabel);
-      }
-    } else if (event.eventType === 'removed' && event.assetLabel) {
-      // Deduplicate - only add if not already in the list
-      if (!batch.removed.includes(event.assetLabel)) {
-        batch.removed.push(event.assetLabel);
-      }
+
+    const key = event.assetId || event.assetLabel || '';
+
+    if ((event.eventType === 'added' || event.eventType === 'removed') && key) {
+      entry.assetStates.set(key, {
+        label: event.assetLabel || key,
+        type: event.eventType === 'added' ? 'added' : 'removed',
+      });
     } else if (event.eventType === 'wants_changed') {
       batch.wantsChanged = true;
       batch.newWants = event.newWants || undefined;
     }
   }
-  
-  return Array.from(teamMap.values());
+
+  for (const entry of teamMap.values()) {
+    for (const state of entry.assetStates.values()) {
+      if (state.type === 'added') entry.batch.added.push(state.label);
+      if (state.type === 'removed') entry.batch.removed.push(state.label);
+    }
+  }
+
+  return Array.from(teamMap.values()).map((entry) => entry.batch);
 }
 
 function formatSchefterMessage(batch: TeamBatch): string {
-  // Hardcode the correct URL to avoid environment variable issues
   const siteUrl = 'https://eastvswest.win';
   const parts: string[] = [];
   
   // Authentic Schefter-style variations - breaking news tone with source attribution
   const variants = {
     addSingle: [
-      `Breaking: The ${batch.team} are making ${batch.added[0]} available via trade, per league sources.`,
-      `${batch.added[0]} is now on the trade block, per sources informed of the ${batch.team}'s plans.`,
-      `Sources: The ${batch.team} are willing to listen to offers on ${batch.added[0]}.`,
-      `The ${batch.team} have made ${batch.added[0]} available in trade talks, league sources tell ESPN.`,
+      `Breaking: League sources say the ${batch.team} are open to moving ${batch.added[0]}.`,
+      `Sources: The ${batch.team} have made ${batch.added[0]} available in trade talks.`,
+      `${batch.added[0]} is now on the trade block, per sources familiar with the ${batch.team}'s plans.`,
+      `Sources tell ESPN the ${batch.team} are listening on ${batch.added[0]}.`,
     ],
     addMultiple: [
-      `Breaking: The ${batch.team} are making {list} available via trade, per league sources.`,
-      `The ${batch.team} are shopping {list}, sources tell ESPN.`,
-      `League sources say the ${batch.team} are open to dealing {list}.`,
-      `Sources: The ${batch.team} have put {list} on the trade block.`,
+      `Breaking: League sources say the ${batch.team} are open to moving {list}.`,
+      `Sources: The ${batch.team} have made {list} available in trade talks.`,
+      `Sources tell ESPN the ${batch.team} are listening on {list}.`,
+      `Per league sources, the ${batch.team} are open to offers for {list}.`,
     ],
     removeSingle: [
-      `The ${batch.team} have pulled ${batch.removed[0]} off the trade block, per sources.`,
-      `${batch.removed[0]} is no longer available, sources tell ESPN.`,
-      `The ${batch.team} are taking ${batch.removed[0]} off the market, per league sources.`,
-      `Sources: The ${batch.team} have decided to keep ${batch.removed[0]}.`,
+      `Sources: The ${batch.team} have pulled ${batch.removed[0]} off the trade block.`,
+      `${batch.removed[0]} is no longer available, per league sources.`,
+      `Sources tell ESPN the ${batch.team} have decided to keep ${batch.removed[0]}.`,
+      `League sources: The ${batch.team} are no longer shopping ${batch.removed[0]}.`,
     ],
     removeMultiple: [
-      `The ${batch.team} have removed {list} from the trade block, per sources.`,
-      `{list} are no longer available, league sources say.`,
-      `Sources: The ${batch.team} are pulling {list} off the market.`,
-      `The ${batch.team} have decided to keep {list}, per sources informed of the decision.`,
+      `Sources: The ${batch.team} have taken {list} off the market.`,
+      `{list} are no longer available, per league sources.`,
+      `Sources tell ESPN the ${batch.team} have decided to keep {list}.`,
+      `League sources say the ${batch.team} are no longer shopping {list}.`,
     ],
     mixed: [
-      `Trade-block update: The ${batch.team} are adding {added} while removing {removed}, per sources.`,
-      `The ${batch.team} are making {added} available but pulling {removed} off the block, league sources say.`,
-      `Sources: The ${batch.team} have updated their trade plans, now shopping {added} but keeping {removed}.`,
-      `The ${batch.team} are shifting their approach, adding {added} to the block while taking {removed} off, per league sources.`,
+      `Sources: The ${batch.team} are adding {added} to the block while taking {removed} off.`,
+      `Per league sources, the ${batch.team} are making {added} available but keeping {removed}.`,
+      `Breaking: The ${batch.team} are shopping {added} but no longer listening on {removed}.`,
+      `Sources tell ESPN: The ${batch.team} add {added} to the block and remove {removed}.`,
     ],
   };
   
@@ -143,7 +150,7 @@ function formatSchefterMessage(batch: TeamBatch): string {
   }
   
   // Link
-  parts.push(`\n\n${siteUrl}/trades`);
+  parts.push(`\n\n${siteUrl}/trades/block`);
   
   return parts.join('');
 }

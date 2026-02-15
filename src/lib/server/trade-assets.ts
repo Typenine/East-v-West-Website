@@ -2,6 +2,7 @@ import { LEAGUE_IDS } from '@/lib/constants/league';
 import { getLeague, getLeagueRosters, getRosterIdToTeamNameMap } from '@/lib/utils/sleeper-api';
 import { getObjectText } from '@/server/storage/r2';
 import { canonicalizeTeamName } from '@/lib/server/user-identity';
+import { getCurrentPhase } from '@/lib/utils/phase-resolver';
 
 export type TeamAssets = {
   players: string[];
@@ -31,21 +32,36 @@ export async function getTeamAssets(team: string): Promise<TeamAssets> {
   }
 
   const picks: Array<{ year: number; round: number; originalTeam: string }> = [];
-  const ownership = await loadNextDraftOwnership({ leagueId, league, rosters, nameMap });
+  const seenPickKeys = new Set<string>();
+  const phase = getCurrentPhase();
+  const baseSeason = Number((league as unknown as { season?: string })?.season ?? new Date().getFullYear()) + 1;
+  const seasons = phase === 'post_championship_pre_draft'
+    ? [baseSeason, baseSeason + 1, baseSeason + 2]
+    : [baseSeason + 1, baseSeason + 2];
 
-  if (ownership && rosters.length > 0) {
+  const ownerships = await Promise.all(
+    seasons.map((season) => loadDraftOwnershipForSeason({ leagueId, league, rosters, nameMap, season }))
+  );
+
+  if (rosters.length > 0) {
     const teamRoster = rosters.find((r) => nameMap.get(r.roster_id) === canon);
     if (teamRoster) {
-      for (const [key, value] of Object.entries(ownership.ownership)) {
-        if (value.ownerRosterId !== teamRoster.roster_id) continue;
-        const [origRosterIdStr, roundStr] = key.split('-');
-        const round = Number(roundStr);
-        if (!Number.isFinite(round)) continue;
-        const originalTeam =
-          ownership.rosterIdToTeam[origRosterIdStr] ||
-          nameMap.get(Number(origRosterIdStr)) ||
-          canon;
-        picks.push({ year: ownership.season, round, originalTeam });
+      for (const ownership of ownerships) {
+        if (!ownership) continue;
+        for (const [key, value] of Object.entries(ownership.ownership)) {
+          if (value.ownerRosterId !== teamRoster.roster_id) continue;
+          const [origRosterIdStr, roundStr] = key.split('-');
+          const round = Number(roundStr);
+          if (!Number.isFinite(round)) continue;
+          const originalTeam =
+            ownership.rosterIdToTeam[origRosterIdStr] ||
+            nameMap.get(Number(origRosterIdStr)) ||
+            canon;
+          const pickKey = `${ownership.season}-${round}-${originalTeam}`;
+          if (seenPickKeys.has(pickKey)) continue;
+          seenPickKeys.add(pickKey);
+          picks.push({ year: ownership.season, round, originalTeam });
+        }
       }
     }
   }
@@ -64,15 +80,15 @@ type LoadNextDraftArgs = {
   nameMap?: Map<number, string>;
 };
 
-async function loadNextDraftOwnership(args: LoadNextDraftArgs): Promise<NextDraftOwnership | null> {
+async function loadDraftOwnershipForSeason(args: LoadNextDraftArgs & { season: number }): Promise<NextDraftOwnership | null> {
   const league = args.league ?? (await getLeague(args.leagueId).catch(() => null));
   const rosters = args.rosters ?? (await getLeagueRosters(args.leagueId).catch(() => []));
   const nameMap = args.nameMap ?? (await getRosterIdToTeamNameMap(args.leagueId).catch(() => new Map<number, string>()));
 
   if (!league || !rosters.length) return null;
 
-  const nextSeason = Number((league as unknown as { season?: string })?.season ?? new Date().getFullYear()) + 1;
-  const nextSeasonStr = String(nextSeason);
+  const targetSeason = Number(args.season);
+  const targetSeasonStr = String(targetSeason);
   const rounds = Math.max(1, Number(((league?.settings as unknown as { draft_rounds?: number })?.draft_rounds) ?? 4));
 
   const baseOwners: Map<string, number> = new Map();
@@ -91,7 +107,7 @@ async function loadNextDraftOwnership(args: LoadNextDraftArgs): Promise<NextDraf
       type SleeperTradedPick = { season?: string; round?: number; roster_id?: number; owner_id?: number };
       const arr = (await resp.json()) as SleeperTradedPick[];
       for (const tp of arr) {
-        if (!tp || String(tp.season) !== nextSeasonStr) continue;
+        if (!tp || String(tp.season) !== targetSeasonStr) continue;
         const key = `${Number(tp.roster_id)}-${Number(tp.round)}`;
         if (Number.isFinite(tp.owner_id as number)) {
           baseOwners.set(key, Number(tp.owner_id));
@@ -142,7 +158,7 @@ async function loadNextDraftOwnership(args: LoadNextDraftArgs): Promise<NextDraf
             if (a.type !== 'pick') continue;
             const yearStr = a.year ? String(a.year) : '';
             const rd = Number(a.round);
-            if (!yearStr || yearStr !== nextSeasonStr) continue;
+            if (!yearStr || yearStr !== targetSeasonStr) continue;
             if (!Number.isFinite(rd)) continue;
             const origRosterId = findRosterIdByTeam(a.originalOwner);
             if (!origRosterId) continue;
@@ -184,7 +200,7 @@ async function loadNextDraftOwnership(args: LoadNextDraftArgs): Promise<NextDraf
   }
 
   return {
-    season: nextSeason,
+    season: targetSeason,
     rounds,
     rosterCount: rosters.length,
     rosterIdToTeam,
@@ -209,6 +225,11 @@ export type NextDraftOwnership = {
   ownership: Record<string, { ownerRosterId: number; history: DraftPickTransferEvent[] }>;
 };
 
-export async function getNextDraftOwnership(): Promise<NextDraftOwnership | null> {
-  return loadNextDraftOwnership({ leagueId: LEAGUE_IDS.CURRENT });
+export async function loadNextDraftOwnership(args: LoadNextDraftArgs): Promise<NextDraftOwnership | null> {
+  const league = args.league ?? (await getLeague(args.leagueId).catch(() => null));
+  const rosters = args.rosters ?? (await getLeagueRosters(args.leagueId).catch(() => []));
+  const nameMap = args.nameMap ?? (await getRosterIdToTeamNameMap(args.leagueId).catch(() => new Map<number, string>()));
+  if (!league || !rosters.length) return null;
+  const nextSeason = Number((league as unknown as { season?: string })?.season ?? new Date().getFullYear()) + 1;
+  return loadDraftOwnershipForSeason({ leagueId: args.leagueId, league, rosters, nameMap, season: nextSeason });
 }
