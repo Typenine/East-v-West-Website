@@ -40,9 +40,15 @@ function groupEventsByTeam(events: TradeBlockEvent[]): TeamBatch[] {
     batch.eventIds.push(event.id);
     
     if (event.eventType === 'added' && event.assetLabel) {
-      batch.added.push(event.assetLabel);
+      // Deduplicate - only add if not already in the list
+      if (!batch.added.includes(event.assetLabel)) {
+        batch.added.push(event.assetLabel);
+      }
     } else if (event.eventType === 'removed' && event.assetLabel) {
-      batch.removed.push(event.assetLabel);
+      // Deduplicate - only add if not already in the list
+      if (!batch.removed.includes(event.assetLabel)) {
+        batch.removed.push(event.assetLabel);
+      }
     } else if (event.eventType === 'wants_changed') {
       batch.wantsChanged = true;
       batch.newWants = event.newWants || undefined;
@@ -53,7 +59,7 @@ function groupEventsByTeam(events: TradeBlockEvent[]): TeamBatch[] {
 }
 
 function formatSchefterMessage(batch: TeamBatch): string {
-  const siteUrl = process.env.SITE_URL || 'https://eastvswest.win';
+  const siteUrl = (process.env.SITE_URL || 'https://eastvswest.win').replace(/\/$/, '');
   const parts: string[] = [];
   
   // Vary the narrative structure for more natural feel
