@@ -62,32 +62,37 @@ function formatSchefterMessage(batch: TeamBatch): string {
   const siteUrl = (process.env.SITE_URL || 'https://eastvswest.win').replace(/\/$/, '');
   const parts: string[] = [];
   
-  // Vary the narrative structure for more natural feel
+  // Authentic Schefter-style variations - breaking news tone with source attribution
   const variants = {
     addSingle: [
-      `The ${batch.team} are making ${batch.added[0]} available in trade discussions, per sources.`,
-      `${batch.added[0]} is now on the trade block for the ${batch.team}, league sources say.`,
-      `The ${batch.team} have placed ${batch.added[0]} on their trade block, per sources.`,
+      `Breaking: The ${batch.team} are making ${batch.added[0]} available via trade, per league sources.`,
+      `${batch.added[0]} is now on the trade block, per sources informed of the ${batch.team}'s plans.`,
+      `Sources: The ${batch.team} are willing to listen to offers on ${batch.added[0]}.`,
+      `The ${batch.team} have made ${batch.added[0]} available in trade talks, league sources tell ESPN.`,
     ],
     addMultiple: [
-      `The ${batch.team} are shopping multiple assets, including {list}, per sources.`,
-      `League sources say the ${batch.team} have made {list} available via trade.`,
-      `The ${batch.team} are listening to offers on {list}, per sources.`,
+      `Breaking: The ${batch.team} are making {list} available via trade, per league sources.`,
+      `The ${batch.team} are shopping {list}, sources tell ESPN.`,
+      `League sources say the ${batch.team} are open to dealing {list}.`,
+      `Sources: The ${batch.team} have put {list} on the trade block.`,
     ],
     removeSingle: [
       `The ${batch.team} have pulled ${batch.removed[0]} off the trade block, per sources.`,
-      `${batch.removed[0]} is no longer available for the ${batch.team}, league sources say.`,
-      `The ${batch.team} are no longer shopping ${batch.removed[0]}, per sources.`,
+      `${batch.removed[0]} is no longer available, sources tell ESPN.`,
+      `The ${batch.team} are taking ${batch.removed[0]} off the market, per league sources.`,
+      `Sources: The ${batch.team} have decided to keep ${batch.removed[0]}.`,
     ],
     removeMultiple: [
-      `The ${batch.team} have removed {list} from trade discussions, per sources.`,
-      `League sources say {list} are no longer available from the ${batch.team}.`,
-      `The ${batch.team} are pulling back on trade talks involving {list}, per sources.`,
+      `The ${batch.team} have removed {list} from the trade block, per sources.`,
+      `{list} are no longer available, league sources say.`,
+      `Sources: The ${batch.team} are pulling {list} off the market.`,
+      `The ${batch.team} have decided to keep {list}, per sources informed of the decision.`,
     ],
     mixed: [
-      `The ${batch.team} are shaking up their trade approach: adding {added} to the block while pulling {removed} off, per sources.`,
-      `In a shift in strategy, the ${batch.team} have made {added} available while removing {removed} from consideration, league sources say.`,
-      `The ${batch.team} are recalibrating their trade plans, now shopping {added} but no longer listening on {removed}, per sources.`,
+      `Trade-block update: The ${batch.team} are adding {added} while removing {removed}, per sources.`,
+      `The ${batch.team} are making {added} available but pulling {removed} off the block, league sources say.`,
+      `Sources: The ${batch.team} have updated their trade plans, now shopping {added} but keeping {removed}.`,
+      `The ${batch.team} are shifting their approach, adding {added} to the block while taking {removed} off, per league sources.`,
     ],
   };
   
