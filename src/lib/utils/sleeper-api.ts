@@ -785,8 +785,11 @@ export async function getSplitRecordsAllTime(
 
   const agg: Record<string, { teamName: string; regular: SplitRecord; playoffs: SplitRecord; toilet: SplitRecord }> = {};
 
+  // Deduplicate league IDs to avoid counting the same season twice
+  const uniqueLeagueIds = [...new Set(Object.values(yearToLeague).filter(Boolean))];
+
   // Iterate seasons
-  for (const leagueId of Object.values(yearToLeague)) {
+  for (const leagueId of uniqueLeagueIds) {
     if (!leagueId) continue;
 
     // Build mapping roster_id -> owner_id and a stable team name via canonical resolution

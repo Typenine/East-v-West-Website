@@ -1924,25 +1924,35 @@ export default function HistoryContent() {
                 const tpCount = thirdPlaceCounts[f.teamName] || 0;
                 const rsCount = regularSeasonWinnerCounts[f.teamName] || 0;
                 const headerStyle = getTeamColorStyle(f.teamName);
-                const content = (
-                  <Card className="overflow-hidden hover-lift">
+                const teamLink = rosterId !== undefined ? `/teams/${rosterId}` : null;
+                const headerContent = (
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-full flex items-center justify-center overflow-hidden" style={{ background: 'color-mix(in srgb, var(--on-brand) 20%, transparent)' }}>
+                      <Image
+                        src={getTeamLogoPath(f.teamName)}
+                        alt={f.teamName}
+                        width={28}
+                        height={28}
+                        className="object-contain"
+                        onError={(e) => {
+                          const t = e.target as HTMLImageElement;
+                          t.style.display = 'none';
+                        }}
+                      />
+                    </div>
+                    <CardTitle className="text-current text-lg">{f.teamName}</CardTitle>
+                  </div>
+                );
+                return (
+                  <Card key={f.ownerId} className="overflow-hidden">
                     <CardHeader style={headerStyle}>
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-full flex items-center justify-center overflow-hidden" style={{ background: 'color-mix(in srgb, var(--on-brand) 20%, transparent)' }}>
-                          <Image
-                            src={getTeamLogoPath(f.teamName)}
-                            alt={f.teamName}
-                            width={28}
-                            height={28}
-                            className="object-contain"
-                            onError={(e) => {
-                              const t = e.target as HTMLImageElement;
-                              t.style.display = 'none';
-                            }}
-                          />
-                        </div>
-                        <CardTitle className="text-current text-lg">{f.teamName}</CardTitle>
-                      </div>
+                      {teamLink ? (
+                        <Link href={teamLink} className="hover:opacity-80 transition-opacity">
+                          {headerContent}
+                        </Link>
+                      ) : (
+                        headerContent
+                      )}
                     </CardHeader>
                     <CardContent>
                       <div className="text-sm text-[var(--muted)] space-y-1">
@@ -1990,13 +2000,6 @@ export default function HistoryContent() {
                       </div>
                     </CardContent>
                   </Card>
-                );
-                return rosterId !== undefined ? (
-                  <Link key={f.ownerId} href={`/teams/${rosterId}`} className="block">
-                    {content}
-                  </Link>
-                ) : (
-                  <div key={f.ownerId}>{content}</div>
                 );
               })}
             </div>
