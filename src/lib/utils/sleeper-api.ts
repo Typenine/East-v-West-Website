@@ -832,24 +832,26 @@ export async function getSplitRecordsAllTime(
       const t2FromLoser = typeof g.t2_from?.l === 'number';
       const anyFromLoser = t1FromLoser || t2FromLoser;
       
-      // A game is TRUE winners bracket if:
-      // 1. First round (r=1) - all first round playoff games count
-      // 2. Championship game (p=1) AND no teams from losers
-      // 3. Neither team came from a loser (continuing winners bracket)
-      const isFirstRound = g.r === 1;
+      // A game is TRUE winners bracket ONLY if:
+      // 1. Championship game (p=1) - the final
+      // 2. First round (r=1) - all teams still competing for championship
+      // 3. Round 2+ with NO placement designation (p is null/undefined) AND no teams from losers
+      //    (this covers semifinals and any other continuing winners bracket rounds)
       const isChampionship = g.p === 1;
+      const isFirstRound = g.r === 1;
+      const isPlacementGame = typeof g.p === 'number' && g.p > 1; // 3rd place, 5th place, etc.
       
-      if (anyFromLoser) {
-        // Consolation/placement game - at least one team came from losing
+      if (anyFromLoser || isPlacementGame) {
+        // Consolation: teams from losers OR any placement game (3rd, 5th, 7th, etc.)
         consolationMatchups.add(key);
       } else if (isFirstRound || isChampionship) {
-        // True winners bracket game
+        // True winners bracket: first round or championship
         winnersMatchups.add(key);
-      } else if (g.r > 1 && !anyFromLoser) {
-        // Round 2+ game where both teams are still in winners bracket
+      } else if (g.r > 1 && !anyFromLoser && !isPlacementGame) {
+        // Semifinals or other continuing winners bracket rounds
         winnersMatchups.add(key);
       } else {
-        // Shouldn't happen, but default to consolation to be safe
+        // Safety fallback
         consolationMatchups.add(key);
       }
     }
