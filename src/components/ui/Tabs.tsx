@@ -1,12 +1,35 @@
 "use client";
 
-import { ReactNode, useState } from "react";
+import { ReactNode, useEffect, useMemo, useState } from "react";
 import { Chip } from "@/components/ui/Chip";
 
 export type Tab = { id: string; label: string; content: ReactNode };
 
-export function Tabs({ tabs, initialId }: { tabs: Tab[]; initialId?: string }) {
-  const [active, setActive] = useState(initialId ?? tabs[0]?.id);
+export function Tabs({
+  tabs,
+  initialId,
+  activeId,
+  onChange,
+}: {
+  tabs: Tab[];
+  initialId?: string;
+  activeId?: string;
+  onChange?: (id: string) => void;
+}) {
+  const fallbackId = useMemo(() => tabs[0]?.id, [tabs]);
+  const [internalActive, setInternalActive] = useState(initialId ?? fallbackId);
+
+  useEffect(() => {
+    if (activeId !== undefined) return;
+    setInternalActive(initialId ?? fallbackId);
+  }, [activeId, initialId, fallbackId]);
+
+  const active = activeId ?? internalActive;
+
+  const setActive = (id: string) => {
+    if (activeId === undefined) setInternalActive(id);
+    onChange?.(id);
+  };
 
   return (
     <div className="w-full">
