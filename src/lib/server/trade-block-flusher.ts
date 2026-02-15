@@ -59,7 +59,8 @@ function groupEventsByTeam(events: TradeBlockEvent[]): TeamBatch[] {
 }
 
 function formatSchefterMessage(batch: TeamBatch): string {
-  const siteUrl = (process.env.SITE_URL || 'https://eastvswest.win').replace(/\/$/, '');
+  // Hardcode the correct URL to avoid environment variable issues
+  const siteUrl = 'https://eastvswest.win';
   const parts: string[] = [];
   
   // Authentic Schefter-style variations - breaking news tone with source attribution
