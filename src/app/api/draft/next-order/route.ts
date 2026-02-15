@@ -1,12 +1,12 @@
 import { NextResponse } from 'next/server';
-import { getNextDraftOwnership } from '@/lib/server/trade-assets';
+import { loadNextDraftOwnership } from '@/lib/server/trade-assets';
 import { getTeamsData, getLeagueWinnersBracket, type SleeperBracketGame, derivePodiumFromWinnersBracketByYear } from '@/lib/utils/sleeper-api';
 import { LEAGUE_IDS } from '@/lib/constants/league';
 import { fetchTradeById, Trade } from '@/lib/utils/trades';
 
 export async function GET() {
   try {
-    const ownership = await getNextDraftOwnership();
+    const ownership = await loadNextDraftOwnership({ leagueId: LEAGUE_IDS.CURRENT });
     if (!ownership) {
       return NextResponse.json({ error: 'ownership_unavailable' }, { status: 503 });
     }
