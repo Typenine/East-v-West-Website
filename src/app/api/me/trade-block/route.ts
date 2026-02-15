@@ -91,9 +91,10 @@ export async function PUT(req: NextRequest) {
   
   // Post trade block update immediately to Discord (best-effort, don't block response)
   try {
-    const { computeDiff, buildTradeBlockReport, getTradeBlockBaseUrl } = await import('@/lib/server/trade-block-narrative');
+    const { computeDiff, buildTradeBlockReport, getTradeBlockBaseUrl, getLeagueMarketContext } = await import('@/lib/server/trade-block-narrative');
     const diff = await computeDiff(oldBlock as TradeAsset[], filtered, oldWants as TradeWants | null, newWants);
     const baseUrl = getTradeBlockBaseUrl();
+    const leagueContext = await getLeagueMarketContext().catch(() => undefined);
     
     const currentPlayers = filtered.filter((a) => a.type === 'player');
     
@@ -103,6 +104,7 @@ export async function PUT(req: NextRequest) {
       currentPlayers,
       baseUrl,
       updatedAt,
+      leagueContext,
     });
     
     if (message) {

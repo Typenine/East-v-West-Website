@@ -20,6 +20,10 @@ type DiffResult = {
   tagsChanged: boolean;
   tagsBefore: Set<string>;
   tagsAfter: Set<string>;
+  addedPositions: string[];
+  removedPositions: string[];
+  addedPickTags: string[];
+  removedPickTags: string[];
 };
 
 type NarrativeContext = {
@@ -28,6 +32,12 @@ type NarrativeContext = {
   currentPlayers: TradeAsset[];
   baseUrl: string | null;
   updatedAt: string;
+  leagueContext?: LeagueMarketContext;
+};
+
+type LeagueMarketContext = {
+  teamsSeekingPositions: Record<string, number>; // e.g., {"RB": 3, "WR": 2}
+  teamsSeekingPickRounds: Record<string, number>; // e.g., {"1st": 4, "2nd": 2}
 };
 
 function assetToKey(asset: TradeAsset): string {
@@ -62,6 +72,24 @@ function pickToLabel(asset: TradeAsset): string {
   return `${asset.year} ${round}`;
 }
 
+const POSITIONAL_TAGS = new Set(['QB', 'RB', 'WR', 'TE', 'K', 'DEF']);
+const PICK_TAGS = new Set(['1ST', '2ND', '3RD']);
+
+const TEAM_HASHTAGS: Record<string, string> = {
+  'Belltown Raptors': '#ClawCrew',
+  'Double Trouble': '#DoubleThreat',
+  'Elemental Heroes': '#HeroesRise',
+  'Mt. Lebanon Cake Eaters': '#TakeTheCake',
+  'Belleview Badgers': '#DigDeep',
+  'BeerNeverBrokeMyHeart': '#BeerNation',
+  'Detroit Dawgs': '#DawgPound',
+  'bop pop': '#PopOff',
+  'Minshew\'s Maniacs': '#ManiacMode',
+  'Red Pandas': '#PandaPower',
+  'The Lone Ginger': '#GingerArmy',
+  'Bimg Bamg Boomg': '#BimgBamgBoom'
+};
+
 function extractTags(wants: TradeWants | null): Set<string> {
   const tags = new Set<string>();
   if (!wants) return tags;
@@ -69,6 +97,16 @@ function extractTags(wants: TradeWants | null): Set<string> {
     wants.positions.forEach((p) => tags.add(p.toUpperCase()));
   }
   return tags;
+}
+
+function splitTags(tags: Set<string>): { positional: string[]; picks: string[] } {
+  const positional: string[] = [];
+  const picks: string[] = [];
+  for (const tag of tags) {
+    if (POSITIONAL_TAGS.has(tag)) positional.push(tag);
+    else if (PICK_TAGS.has(tag)) picks.push(tag);
+  }
+  return { positional, picks };
 }
 
 export async function computeDiff(oldBlock: TradeAsset[], newBlock: TradeAsset[], oldWants: TradeWants | null, newWants: TradeWants | null): Promise<DiffResult> {
@@ -118,6 +156,14 @@ export async function computeDiff(oldBlock: TradeAsset[], newBlock: TradeAsset[]
   const tagsAfter = extractTags(newWants);
   const tagsChanged = tagsBefore.size !== tagsAfter.size || [...tagsBefore].some((t) => !tagsAfter.has(t));
 
+  const beforeSplit = splitTags(tagsBefore);
+  const afterSplit = splitTags(tagsAfter);
+  
+  const addedPositions = afterSplit.positional.filter((p) => !beforeSplit.positional.includes(p));
+  const removedPositions = beforeSplit.positional.filter((p) => !afterSplit.positional.includes(p));
+  const addedPickTags = afterSplit.picks.filter((p) => !beforeSplit.picks.includes(p));
+  const removedPickTags = beforeSplit.picks.filter((p) => !afterSplit.picks.includes(p));
+
   return {
     addedPlayers,
     removedPlayers,
@@ -135,6 +181,10 @@ export async function computeDiff(oldBlock: TradeAsset[], newBlock: TradeAsset[]
     tagsChanged,
     tagsBefore,
     tagsAfter,
+    addedPositions,
+    removedPositions,
+    addedPickTags,
+    removedPickTags,
   };
 }
 
@@ -305,23 +355,70 @@ const TEMPLATES = {
     "League sources confirm {team} {verbAdd} {added} but {verbRemove} {removed}.",
   ],
   lookingFor: [
-    "The {team} are believed to be targeting {wants}.",
-    "Sources say the focus is on acquiring {wants}.",
-    "League sources indicate the {team} are looking for {wants}.",
-    "I'm hearing the {team}'s priority is {wants}.",
-    "The sense is the {team} are targeting {wants}.",
-    "From what I'm told, the {team} are seeking {wants}.",
-    "Word around the league is the {team} want {wants}.",
-    "Multiple sources say the {team}'s focus is {wants}.",
-    "Per league insiders, the {team} are in the market for {wants}.",
-    "The {team} are reportedly looking to land {wants}.",
-    "Sources close to the team say they're after {wants}.",
-    "I'm hearing the {team}'s wish list includes {wants}.",
-    "According to sources, the {team} have their eyes on {wants}.",
-    "The latest: the {team} are pursuing {wants}.",
-    "League sources say the {team}'s target is {wants}.",
-    "From what I'm gathering, the {team} are hoping to acquire {wants}.",
-    "The {team} are believed to be in search of {wants}.",
+    "A {team} source tells me: \"{wants}.\"",
+    "According to a team official: \"{wants}.\"",
+    "Per someone close to the situation: \"{wants}.\"",
+    "A {team} insider says: \"{wants}.\"",
+    "I'm told by a source: \"{wants}.\"",
+    "From a {team} source: \"{wants}.\"",
+    "League source with knowledge of the {team}'s thinking: \"{wants}.\"",
+    "A team official tells me: \"{wants}.\"",
+    "Per a {team} source familiar with their plans: \"{wants}.\"",
+    "Source close to the {team}: \"{wants}.\"",
+    "Team official on what they're after: \"{wants}.\"",
+    "I'm hearing from a {team} source: \"{wants}.\"",
+    "According to someone in the {team}'s front office: \"{wants}.\"",
+    "A league source quotes a {team} official: \"{wants}.\"",
+    "Per a source with direct knowledge: \"{wants}.\"",
+  ],
+  tagsPositional: [
+    "Sources say the {team} are looking to acquire {positions} in any deal.",
+    "I'm hearing the {team} want to add help at {positions}.",
+    "League sources indicate the {team} are targeting {positions} as a key need.",
+    "Word is the {team} are looking to land {positions} in return.",
+    "The {team} are believed to be seeking upgrades at {positions}.",
+    "Per sources, the {team} want to bring in {positions} as part of any trade.",
+    "From what I'm gathering, the {team} are hoping to acquire {positions}.",
+    "Multiple sources say the {team} are looking for {positions} in trade talks.",
+    "According to league insiders, the {team} want to add at {positions}.",
+    "I'm told the {team} are seeking to bolster {positions}.",
+    "Sources close to the team say they want to get {positions} in return.",
+    "The {team} have identified {positions} as positions of need they're looking to fill.",
+    "Word around the league is the {team} are shopping for {positions}.",
+    "Per league sources, the {team} are in the market to acquire {positions}.",
+    "I'm hearing the {team} are hoping to get {positions} back in any deal.",
+  ],
+  tagsPicks: [
+    "In terms of draft capital, the {team} are looking to acquire {picks} in return.",
+    "Sources say the {team} want to get {picks} back in any deal.",
+    "I'm hearing the {team} are hoping to land {picks} as part of a trade.",
+    "The {team} are believed to be targeting {picks} to restock their draft cabinet, per sources.",
+    "League sources indicate the {team} are seeking to add {picks}.",
+    "Word is the {team} want {picks} included in any package.",
+    "From what I'm told, the {team} are looking to bring in {picks}.",
+    "According to sources, the {team} are hoping to acquire {picks} to build for the future.",
+    "The {team}'s focus is on securing {picks} in trade talks, per league insiders.",
+    "Per sources, the {team} are looking for {picks} to come back their way.",
+    "I'm hearing the {team} want to stockpile {picks} through trades.",
+  ],
+  tagsCombo: [
+    "Sources say the {team} are looking to acquire {positions} and {picks} in return.",
+    "I'm hearing the {team} want to bring in {positions} along with {picks}.",
+    "The {team} are hoping to land {positions} and also get {picks} back, per sources.",
+    "League sources indicate the {team} want to add {positions} plus secure {picks}.",
+    "Word is the {team} are seeking {positions} and {picks} in any deal.",
+    "According to sources, the {team} are looking for {positions} help and {picks} to come back.",
+    "Per league insiders, the {team} want to acquire {positions} and also land {picks}.",
+    "I'm told the {team} are hoping to get {positions} in return alongside {picks}.",
+  ],
+  marketContext: [
+    "Notably, {count} {plural} currently {verb} {asset}, creating potential buyer interest.",
+    "With {count} {plural} seeking {asset}, there's a competitive market.",
+    "Interestingly, {count} {plural} {verb} {asset} across the league.",
+    "Worth noting: {count} {plural} have expressed interest in {asset}.",
+    "League intel shows {count} {plural} {verb} {asset} right now.",
+    "Sources say {count} {plural} are in the market for {asset}.",
+    "The demand for {asset} is strong with {count} {plural} looking.",
   ],
   headliner: [
     " Notably, {headliners} {verb} on the block.",
@@ -456,6 +553,31 @@ function formatList(items: string[]): string {
   return items.slice(0, -1).join(', ') + ' and ' + items[items.length - 1];
 }
 
+export async function getLeagueMarketContext(): Promise<LeagueMarketContext> {
+  const { listAllUserDocs } = await import('@/server/db/queries');
+  const allDocs = await listAllUserDocs().catch(() => []);
+  
+  const teamsSeekingPositions: Record<string, number> = {};
+  const teamsSeekingPickRounds: Record<string, number> = {};
+  
+  for (const doc of allDocs) {
+    if (!doc.tradeWants) continue;
+    const wants = doc.tradeWants as unknown as TradeWants;
+    if (!wants.positions || !Array.isArray(wants.positions)) continue;
+    
+    for (const pos of wants.positions) {
+      const upper = pos.toUpperCase();
+      if (upper === '1ST' || upper === '2ND' || upper === '3RD') {
+        teamsSeekingPickRounds[upper] = (teamsSeekingPickRounds[upper] || 0) + 1;
+      } else if (['QB', 'RB', 'WR', 'TE', 'K', 'DEF'].includes(upper)) {
+        teamsSeekingPositions[upper] = (teamsSeekingPositions[upper] || 0) + 1;
+      }
+    }
+  }
+  
+  return { teamsSeekingPositions, teamsSeekingPickRounds };
+}
+
 async function selectHeadliners(
   addedPlayers: TradeAsset[],
   currentPlayers: TradeAsset[],
@@ -484,11 +606,12 @@ async function selectHeadliners(
 }
 
 export async function buildTradeBlockReport(ctx: NarrativeContext): Promise<string | null> {
-  const { teamName, diff, currentPlayers, baseUrl, updatedAt } = ctx;
+  const { teamName, diff, currentPlayers, baseUrl, updatedAt, leagueContext } = ctx;
 
   const hasPlayerChanges = diff.addedPlayers.length > 0 || diff.removedPlayers.length > 0;
   const hasPickChanges = diff.addedPicks.length > 0 || diff.removedPicks.length > 0;
-  const hasAnyChange = hasPlayerChanges || hasPickChanges || diff.faabChanged || diff.lookingForChanged || diff.contactChanged;
+  const hasTagChanges = diff.addedPositions.length > 0 || diff.removedPositions.length > 0 || diff.addedPickTags.length > 0 || diff.removedPickTags.length > 0;
+  const hasAnyChange = hasPlayerChanges || hasPickChanges || diff.faabChanged || diff.lookingForChanged || diff.contactChanged || hasTagChanges;
 
   if (!hasAnyChange) {
     return null;
@@ -511,6 +634,8 @@ export async function buildTradeBlockReport(ctx: NarrativeContext): Promise<stri
       addedPicks: diff.addedPicks.length,
       removedPicks: diff.removedPicks.length,
       lookingForChanged: diff.lookingForChanged,
+      addedPositions: diff.addedPositions,
+      addedPickTags: diff.addedPickTags,
     });
   }
 
@@ -603,12 +728,89 @@ export async function buildTradeBlockReport(ctx: NarrativeContext): Promise<stri
     }
   }
 
+  if (diff.addedPositions.length > 0 || diff.addedPickTags.length > 0) {
+    const hasPositions = diff.addedPositions.length > 0;
+    const hasPicks = diff.addedPickTags.length > 0;
+    
+    if (hasPositions && hasPicks) {
+      const tpl = pickTemplate(TEMPLATES.tagsCombo, rng);
+      const positionList = formatList(diff.addedPositions);
+      const pickList = formatList(diff.addedPickTags);
+      parts.push(tpl.replace('{team}', teamName).replace('{positions}', positionList).replace('{picks}', pickList));
+    } else if (hasPositions) {
+      const tpl = pickTemplate(TEMPLATES.tagsPositional, rng);
+      const positionList = formatList(diff.addedPositions);
+      parts.push(tpl.replace('{team}', teamName).replace('{positions}', positionList));
+    } else if (hasPicks) {
+      const tpl = pickTemplate(TEMPLATES.tagsPicks, rng);
+      const pickList = formatList(diff.addedPickTags);
+      parts.push(tpl.replace('{team}', teamName).replace('{picks}', pickList));
+    }
+  }
+
+  // Add market context if available
+  if (leagueContext && rng() > 0.4) {
+    const marketInsights: string[] = [];
+    
+    // Check if team is adding players that others want
+    if (diff.addedPlayers.length > 0) {
+      for (const player of diff.addedPlayers) {
+        if (player.type !== 'player') continue;
+        const playerData = players[player.playerId];
+        if (playerData?.position) {
+          const pos = playerData.position.toUpperCase();
+          const seekers = leagueContext.teamsSeekingPositions[pos] || 0;
+          if (seekers >= 2) {
+            const tpl = pickTemplate(TEMPLATES.marketContext, rng);
+            const plural = seekers === 1 ? 'team' : 'teams';
+            const verb = seekers === 1 ? 'is seeking' : 'are seeking';
+            const insight = tpl
+              .replace('{count}', String(seekers))
+              .replace('{plural}', plural)
+              .replace('{verb}', verb)
+              .replace('{asset}', pos);
+            marketInsights.push(insight);
+            break; // Only add one market insight
+          }
+        }
+      }
+    }
+    
+    // Check if team is adding picks that others want
+    if (diff.addedPicks.length > 0 && marketInsights.length === 0) {
+      for (const pick of diff.addedPicks) {
+        if (pick.type !== 'pick') continue;
+        const roundLabel = pick.round === 1 ? '1st' : pick.round === 2 ? '2nd' : pick.round === 3 ? '3rd' : `${pick.round}th`;
+        const roundUpper = roundLabel.toUpperCase().replace(/[^A-Z0-9]/g, '');
+        const seekers = leagueContext.teamsSeekingPickRounds[roundUpper] || 0;
+        if (seekers >= 2) {
+          const tpl = pickTemplate(TEMPLATES.marketContext, rng);
+          const plural = seekers === 1 ? 'team' : 'teams';
+          const verb = seekers === 1 ? 'is seeking' : 'are seeking';
+          const insight = tpl
+            .replace('{count}', String(seekers))
+            .replace('{plural}', plural)
+            .replace('{verb}', verb)
+            .replace('{asset}', `${roundLabel} round picks`);
+          marketInsights.push(insight);
+          break;
+        }
+      }
+    }
+    
+    if (marketInsights.length > 0) {
+      parts.push(marketInsights[0]);
+    }
+  }
+
   if (useCloser && rng() > 0.5) {
     parts.push(pickTemplate(CLOSERS, rng));
   }
   
   const tradeBlockUrl = baseUrl ? `${baseUrl}/trades/block` : '/trades/block';
-  const message = parts.join(' ') + `\n\n${tradeBlockUrl}`;
+  const hashtag = TEAM_HASHTAGS[teamName] || '';
+  const hashtagSuffix = hashtag ? ` ${hashtag}` : '';
+  const message = parts.join(' ') + `\n\n${tradeBlockUrl}${hashtagSuffix}`;
 
   if (DEBUG) {
     console.log(`[trade-block-narrative][${teamName}] message:`, message);

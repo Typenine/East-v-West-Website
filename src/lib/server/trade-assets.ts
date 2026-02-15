@@ -17,6 +17,7 @@ export async function getTeamAssets(team: string): Promise<TeamAssets> {
   const nameMap = await getRosterIdToTeamNameMap(leagueId).catch(() => new Map<number, string>());
 
   const canon = canonicalizeTeamName(team);
+  const phase = getCurrentPhase();
 
   // Find roster for this team by owner mapping via team name heuristic
   let rosterPlayers: string[] = [];
@@ -26,14 +27,20 @@ export async function getTeamAssets(team: string): Promise<TeamAssets> {
     const match = rosters.find((r) => nameMap.get(r.roster_id) === canon);
     if (match) {
       rosterPlayers = Array.isArray(match.players) ? match.players.filter(Boolean) : [];
-      const used = Number((match.settings as unknown as { waiver_budget_used?: number })?.waiver_budget_used ?? 0);
-      waiverBudgetUsed = Number.isFinite(used) ? used : 0;
+      // Only count waiver budget used if we're in-season
+      // During offseason/pre-season, reset to full budget
+      const inSeason = phase === 'regular_season' || phase === 'playoffs';
+      if (inSeason) {
+        const used = Number((match.settings as unknown as { waiver_budget_used?: number })?.waiver_budget_used ?? 0);
+        waiverBudgetUsed = Number.isFinite(used) ? used : 0;
+      } else {
+        waiverBudgetUsed = 0; // Full budget available in offseason
+      }
     }
   }
 
   const picks: Array<{ year: number; round: number; originalTeam: string }> = [];
   const seenPickKeys = new Set<string>();
-  const phase = getCurrentPhase();
   const baseSeason = Number((league as unknown as { season?: string })?.season ?? new Date().getFullYear()) + 1;
   const seasons = phase === 'post_championship_pre_draft'
     ? [baseSeason, baseSeason + 1, baseSeason + 2]
