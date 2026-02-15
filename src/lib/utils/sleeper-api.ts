@@ -830,11 +830,11 @@ export async function getSplitRecordsAllTime(
       // A game is TRUE winners bracket if:
       // 1. First round (r=1) - all first round playoff games count
       // 2. Championship game (p=1)
-      // 3. Both teams came from winners (t1_from.w AND t2_from.w are set)
+      // 3. Both teams came from winners (t1_from.w AND t2_from.w are set to match numbers)
       const isFirstRound = g.r === 1;
       const isChampionship = g.p === 1;
-      const t1FromWinner = g.t1_from?.w !== undefined;
-      const t2FromWinner = g.t2_from?.w !== undefined;
+      const t1FromWinner = typeof g.t1_from?.w === 'number';
+      const t2FromWinner = typeof g.t2_from?.w === 'number';
       const bothFromWinners = t1FromWinner && t2FromWinner;
       
       if (isFirstRound || isChampionship || bothFromWinners) {
