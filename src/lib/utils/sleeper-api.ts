@@ -813,22 +813,42 @@ export async function getSplitRecordsAllTime(
       getLeagueLosersBracket(leagueId, options).catch(() => [] as SleeperBracketGame[]),
     ]);
     
-    // Build sets of matchup pairs for winners and losers brackets
+    // Build sets of matchup pairs for TRUE winners bracket games vs consolation
     // Key format: "rosterId1-rosterId2" where rosterId1 < rosterId2 for consistency
     const makeMatchupKey = (r1: number, r2: number) => {
       const [lo, hi] = r1 < r2 ? [r1, r2] : [r2, r1];
       return `${lo}-${hi}`;
     };
     const winnersMatchups = new Set<string>();
-    const losersMatchups = new Set<string>();
+    const consolationMatchups = new Set<string>();
+    
+    // Analyze winners_bracket games to separate true winners bracket from consolation
     for (const g of winnersBracket) {
-      if (typeof g.t1 === 'number' && typeof g.t2 === 'number') {
-        winnersMatchups.add(makeMatchupKey(g.t1, g.t2));
+      if (typeof g.t1 !== 'number' || typeof g.t2 !== 'number') continue;
+      const key = makeMatchupKey(g.t1, g.t2);
+      
+      // A game is TRUE winners bracket if:
+      // 1. First round (r=1) - all first round playoff games count
+      // 2. Championship game (p=1)
+      // 3. Both teams came from winners (t1_from.w AND t2_from.w are set)
+      const isFirstRound = g.r === 1;
+      const isChampionship = g.p === 1;
+      const t1FromWinner = g.t1_from?.w !== undefined;
+      const t2FromWinner = g.t2_from?.w !== undefined;
+      const bothFromWinners = t1FromWinner && t2FromWinner;
+      
+      if (isFirstRound || isChampionship || bothFromWinners) {
+        winnersMatchups.add(key);
+      } else {
+        // This is a consolation/placement game within the playoff bracket
+        consolationMatchups.add(key);
       }
     }
+    
+    // Losers bracket (toilet bowl) games - teams that didn't make playoffs
     for (const g of losersBracket) {
       if (typeof g.t1 === 'number' && typeof g.t2 === 'number') {
-        losersMatchups.add(makeMatchupKey(g.t1, g.t2));
+        consolationMatchups.add(makeMatchupKey(g.t1, g.t2));
       }
     }
 
@@ -882,12 +902,12 @@ export async function getSplitRecordsAllTime(
         if (week < startWeek) {
           category = 'regular';
         } else {
-          // Check if this specific matchup is in winners or losers bracket
+          // Check if this specific matchup is in winners or consolation bracket
           const matchupKey = makeMatchupKey(a.roster_id, b.roster_id);
           const isWinnersBracketGame = winnersMatchups.has(matchupKey);
-          const isLosersBracketGame = losersMatchups.has(matchupKey);
+          const isConsolationGame = consolationMatchups.has(matchupKey);
           if (isWinnersBracketGame) category = 'playoffs';
-          else if (isLosersBracketGame) category = 'toilet';
+          else if (isConsolationGame) category = 'toilet';
           else category = null; // not in any bracket (skip)
         }
         if (!category) continue;
@@ -1711,7 +1731,9 @@ export interface SleeperBracketGame {
   t2?: number | null; // roster_id for team 2 (may be null for bye)
   w?: number | null;  // winner roster_id (if known)
   l?: number | null;  // loser roster_id (if known)
-  // Other fields from Sleeper are ignored for this UI
+  p?: number | null;  // placement (1=championship, 3=3rd place, etc.)
+  t1_from?: { w?: number; l?: number } | null; // where t1 came from (w=winner of match, l=loser of match)
+  t2_from?: { w?: number; l?: number } | null; // where t2 came from
 }
 
 /**
