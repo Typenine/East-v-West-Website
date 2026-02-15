@@ -1446,3 +1446,11 @@ export async function markTradeBlockEventsSent(eventIds: string[]) {
     .set({ sentAt: new Date() })
     .where(sql`${tradeBlockEvents.id} = ANY(${eventIds}::uuid[])`);
 }
+
+export async function clearAllPendingTradeBlockEvents() {
+  const db = getDb();
+  await db
+    .update(tradeBlockEvents)
+    .set({ sentAt: new Date() })
+    .where(isNull(tradeBlockEvents.sentAt));
+}
