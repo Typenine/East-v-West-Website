@@ -17,6 +17,7 @@ import {
   getSuggestionGroupsMap,
   getSuggestionTitlesMap,
   setSuggestionTitle,
+  getSuggestionBallotAddedAtMap,
 } from '@/server/db/queries';
 import { requireTeamUser } from '@/lib/server/session';
 
@@ -29,6 +30,7 @@ export type Suggestion = {
   content: string;
   category?: string;
   createdAt: string; // ISO string
+  ballotAddedAt?: string; // ISO string - when it reached ballot threshold
   status?: 'draft' | 'open' | 'accepted' | 'rejected';
   resolvedAt?: string;
   sponsorTeam?: string;
@@ -224,6 +226,13 @@ export async function GET() {
         const gmap = await getSuggestionGroupsMap();
         if (gmap && Object.keys(gmap).length > 0) {
           items = items.map((it) => ({ ...it, groupId: (gmap[it.id]?.groupId) || it.groupId, groupPos: (gmap[it.id]?.groupPos) || it.groupPos }));
+        }
+      } catch {}
+      // Overlay ballot added timestamps
+      try {
+        const bmap = await getSuggestionBallotAddedAtMap();
+        if (bmap && Object.keys(bmap).length > 0) {
+          items = items.map((it) => ({ ...it, ballotAddedAt: bmap[it.id] || it.ballotAddedAt }));
         }
       } catch {}
       // Overlay sponsor teams from KV map if present

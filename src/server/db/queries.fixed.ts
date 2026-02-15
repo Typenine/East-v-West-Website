@@ -49,6 +49,24 @@ export async function getSuggestionTitlesMap(): Promise<Record<string, string>> 
   return out;
 }
 
+export async function getSuggestionBallotAddedAtMap(): Promise<Record<string, string>> {
+  const out: Record<string, string> = {};
+  try {
+    await ensureSuggestionBallotNotifyColumns();
+    const db = getDb();
+    const res = await db.execute(sql`SELECT id::text AS id, ballot_eligible_at FROM suggestions WHERE ballot_eligible_at IS NOT NULL`);
+    const rawRows = (res as unknown as { rows?: Array<{ id: string; ballot_eligible_at: Date | string | null }> }).rows || [];
+    for (const r of rawRows) {
+      const id = typeof r.id === 'string' ? r.id : '';
+      const ts = r.ballot_eligible_at;
+      if (id && ts) {
+        out[id] = new Date(ts).toISOString();
+      }
+    }
+  } catch {}
+  return out;
+}
+
 // =====================
 // Draft Travel (Flights / Arrivals)
 // =====================
