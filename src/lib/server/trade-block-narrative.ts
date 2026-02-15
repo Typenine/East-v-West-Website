@@ -215,11 +215,8 @@ const TEMPLATES = {
   playerAddSingle: [
     "I'm hearing {team} {verb} {player}.",
     "According to sources, {team} {verb} {player}.",
-    "League chatter is {team} {verb} {player}.",
     "Sources tell me {team} {verb} {player}.",
     "Per sources, {team} {verb} {player}.",
-    "There's buzz that {team} {verb} {player}.",
-    "The sense is {team} {verb} {player}.",
     "{team} {verb} {player}, per league sources.",
     "Multiple sources indicate {team} {verb} {player}.",
     "Word around the league is {team} {verb} {player}.",
@@ -227,17 +224,19 @@ const TEMPLATES = {
     "From what I'm hearing, {team} {verb} {player}.",
     "Sources close to the situation say {team} {verb} {player}.",
     "I'm told {team} {verb} {player}.",
-    "According to multiple league sources, {team} {verb} {player}.",
     "The latest: {team} {verb} {player}, per sources.",
     "Breaking from my sources: {team} {verb} {player}.",
     "League sources confirm {team} {verb} {player}.",
-    "Hearing from multiple people that {team} {verb} {player}.",
     "Per league insiders, {team} {verb} {player}.",
+    "Sources say {team} {verb} {player}. The team has been fielding calls.",
+    "I'm told {team} {verb} {player}. They're open to offers but not desperate to move him.",
+    "Breaking: {team} {verb} {player}. Multiple teams have expressed interest, per sources.",
+    "Word is {team} {verb} {player}. League sources describe them as serious sellers.",
+    "According to sources, {team} {verb} {player}. The asking price is believed to be significant.",
   ],
   playerAddMultiple: [
     "I'm hearing {team} {verb} {players}.",
     "According to sources, {team} {verb} {players}.",
-    "League chatter is {team} {verb} {players}.",
     "Sources say {team} {verb} {players}.",
     "Per sources, {team} {verb} {players}.",
     "{team} {verb} {players}, according to sources.",
@@ -248,12 +247,14 @@ const TEMPLATES = {
     "Sources close to the team indicate {team} {verb} {players}.",
     "I'm told {team} {verb} {players}.",
     "The latest from my sources: {team} {verb} {players}.",
-    "Hearing {team} {verb} {players}, per league sources.",
     "Multiple league sources confirm {team} {verb} {players}.",
-    "Per people familiar with the matter, {team} {verb} {players}.",
     "Breaking: {team} {verb} {players}.",
     "League sources say {team} {verb} {players}.",
-    "According to people with knowledge of the situation, {team} {verb} {players}.",
+    "Sources tell me {team} {verb} {players}. The team is open to moving multiple pieces.",
+    "I'm hearing {team} {verb} {players}. They've been actively shopping the group, per sources.",
+    "According to league insiders, {team} {verb} {players}. Several teams have shown interest.",
+    "Breaking: {team} {verb} {players}. The market is believed to be strong.",
+    "Word is {team} {verb} {players}. Sources describe the team as motivated sellers looking to shake things up.",
   ],
   playerRemoveSingle: [
     "Sources say {team} {verb} {player}.",
@@ -264,16 +265,14 @@ const TEMPLATES = {
     "Word around the league is {team} {verb} {player}.",
     "Multiple sources tell me {team} {verb} {player}.",
     "From what I'm hearing, {team} {verb} {player}.",
-    "League insiders say {team} {verb} {player}.",
     "The latest: {team} {verb} {player}.",
-    "Sources close to the team say {team} {verb} {player}.",
     "I'm told {team} {verb} {player}.",
     "Per league sources, {team} {verb} {player}.",
-    "According to multiple sources, {team} {verb} {player}.",
-    "Hearing {team} {verb} {player}, per sources familiar with the situation.",
     "League sources confirm {team} {verb} {player}.",
-    "Breaking news: {team} {verb} {player}.",
-    "Multiple league insiders indicate {team} {verb} {player}.",
+    "Sources tell me {team} {verb} {player}. The decision came after reassessing their roster needs.",
+    "I'm hearing {team} {verb} {player}. Per sources, the team had a change of heart on moving him.",
+    "Breaking: {team} {verb} {player}. They're now expected to hold onto him for the foreseeable future.",
+    "Word is {team} {verb} {player}. League sources say talks cooled off after initial interest.",
   ],
   playerRemoveMultiple: [
     "Sources say {team} {verb} {players}.",
@@ -281,16 +280,14 @@ const TEMPLATES = {
     "Per league sources, {team} {verb} {players}.",
     "{team} {verb} {players}, according to sources.",
     "League insiders say {team} {verb} {players}.",
-    "Multiple sources indicate {team} {verb} {players}.",
     "Word is {team} {verb} {players}.",
     "From what I'm gathering, {team} {verb} {players}.",
-    "The latest from sources: {team} {verb} {players}.",
     "I'm told {team} {verb} {players}.",
-    "According to people close to the situation, {team} {verb} {players}.",
-    "Sources close to the team say {team} {verb} {players}.",
-    "Per multiple league sources, {team} {verb} {players}.",
     "League sources confirm {team} {verb} {players}.",
     "Breaking: {team} {verb} {players}.",
+    "Sources tell me {team} {verb} {players}. The team is taking a different approach moving forward.",
+    "I'm hearing {team} {verb} {players}. Per league insiders, they're now committed to this core group.",
+    "Word around the league is {team} {verb} {players}. The market didn't develop as expected, per sources.",
   ],
   pickAddSingle: [
     "I'm also hearing {team} {verb} their {pick}.",
@@ -341,7 +338,6 @@ const TEMPLATES = {
   mixed: [
     "{team} {verbAdd} {added} but {verbRemove} {removed}.",
     "Sources say {team} {verbAdd} {added} while {verbRemove} {removed}.",
-    "I'm hearing {team} {verbAdd} {added} and {verbRemove} {removed}.",
     "The latest from my sources: {team} {verbAdd} {added}, though they {verbRemove} {removed}.",
     "Word is {team} {verbAdd} {added} but {verbRemove} {removed}.",
     "League insiders tell me {team} {verbAdd} {added} while {verbRemove} {removed}.",
@@ -351,25 +347,30 @@ const TEMPLATES = {
     "Multiple sources say {team} {verbAdd} {added}, though they {verbRemove} {removed}.",
     "According to league sources, {team} {verbAdd} {added} but {verbRemove} {removed}.",
     "I'm told {team} {verbAdd} {added} even as they {verbRemove} {removed}.",
-    "The sense around the league is {team} {verbAdd} {added} while {verbRemove} {removed}.",
     "League sources confirm {team} {verbAdd} {added} but {verbRemove} {removed}.",
+    "Sources tell me {team} {verbAdd} {added} while {verbRemove} {removed}. The team is recalibrating their approach.",
+    "Breaking: {team} {verbAdd} {added} but {verbRemove} {removed}. Per sources, they're being selective about what they'll move.",
+    "Word around the league is {team} {verbAdd} {added} even as they {verbRemove} {removed}. The strategy shift is notable.",
   ],
   lookingFor: [
     "A {team} source tells me: \"{wants}.\"",
-    "According to a team official: \"{wants}.\"",
-    "Per someone close to the situation: \"{wants}.\"",
+    "According to a {team} team official: \"{wants}.\"",
+    "Per someone close to the {team}: \"{wants}.\"",
     "A {team} insider says: \"{wants}.\"",
-    "I'm told by a source: \"{wants}.\"",
+    "I'm told by a {team} source: \"{wants}.\"",
     "From a {team} source: \"{wants}.\"",
     "League source with knowledge of the {team}'s thinking: \"{wants}.\"",
-    "A team official tells me: \"{wants}.\"",
+    "A {team} team official tells me: \"{wants}.\"",
     "Per a {team} source familiar with their plans: \"{wants}.\"",
     "Source close to the {team}: \"{wants}.\"",
-    "Team official on what they're after: \"{wants}.\"",
+    "{team} official on what they're after: \"{wants}.\"",
     "I'm hearing from a {team} source: \"{wants}.\"",
     "According to someone in the {team}'s front office: \"{wants}.\"",
     "A league source quotes a {team} official: \"{wants}.\"",
-    "Per a source with direct knowledge: \"{wants}.\"",
+    "Per a {team} source with direct knowledge: \"{wants}.\"",
+    "Source with knowledge of the {team}'s plans says: \"{wants}.\" The team has been exploring their options.",
+    "A {team} official told me today: \"{wants}.\" They've been working the phones.",
+    "From a {team} source familiar with the situation: \"{wants}.\" The team is being selective but open to conversations.",
   ],
   tagsPositional: [
     "Sources say the {team} are looking to acquire {positions} in any deal.",
@@ -380,36 +381,34 @@ const TEMPLATES = {
     "Per sources, the {team} want to bring in {positions} as part of any trade.",
     "From what I'm gathering, the {team} are hoping to acquire {positions}.",
     "Multiple sources say the {team} are looking for {positions} in trade talks.",
-    "According to league insiders, the {team} want to add at {positions}.",
     "I'm told the {team} are seeking to bolster {positions}.",
-    "Sources close to the team say they want to get {positions} in return.",
-    "The {team} have identified {positions} as positions of need they're looking to fill.",
-    "Word around the league is the {team} are shopping for {positions}.",
-    "Per league sources, the {team} are in the market to acquire {positions}.",
-    "I'm hearing the {team} are hoping to get {positions} back in any deal.",
+    "The {team} have identified {positions} as areas they're looking to strengthen.",
+    "According to league insiders, the {team} are prioritizing {positions}. They've made that clear in discussions with other teams.",
+    "Sources say the {team} want to add at {positions}. Per league sources, it's their top priority in any potential deal.",
+    "I'm hearing the {team} are looking for {positions} help. Multiple teams know what they're after, per sources.",
   ],
   tagsPicks: [
     "In terms of draft capital, the {team} are looking to acquire {picks} in return.",
     "Sources say the {team} want to get {picks} back in any deal.",
     "I'm hearing the {team} are hoping to land {picks} as part of a trade.",
-    "The {team} are believed to be targeting {picks} to restock their draft cabinet, per sources.",
+    "The {team} are believed to be targeting {picks}, per sources.",
     "League sources indicate the {team} are seeking to add {picks}.",
     "Word is the {team} want {picks} included in any package.",
     "From what I'm told, the {team} are looking to bring in {picks}.",
-    "According to sources, the {team} are hoping to acquire {picks} to build for the future.",
-    "The {team}'s focus is on securing {picks} in trade talks, per league insiders.",
-    "Per sources, the {team} are looking for {picks} to come back their way.",
+    "The {team}'s focus is on securing {picks}, per league insiders.",
     "I'm hearing the {team} want to stockpile {picks} through trades.",
+    "According to sources, the {team} are prioritizing draft capital. They're specifically looking for {picks} in any potential deal.",
+    "Sources say the {team} are focused on {picks}. Per league insiders, they're building for the future and want to add premium picks.",
   ],
   tagsCombo: [
     "Sources say the {team} are looking to acquire {positions} and {picks} in return.",
     "I'm hearing the {team} want to bring in {positions} along with {picks}.",
     "The {team} are hoping to land {positions} and also get {picks} back, per sources.",
-    "League sources indicate the {team} want to add {positions} plus secure {picks}.",
     "Word is the {team} are seeking {positions} and {picks} in any deal.",
     "According to sources, the {team} are looking for {positions} help and {picks} to come back.",
     "Per league insiders, the {team} want to acquire {positions} and also land {picks}.",
     "I'm told the {team} are hoping to get {positions} in return alongside {picks}.",
+    "League sources say the {team} are targeting both {positions} and {picks}. Per sources, they want immediate help plus future assets.",
   ],
   marketContext: [
     "Notably, {count} {plural} currently {verb} {asset}, creating potential buyer interest.",
@@ -716,7 +715,8 @@ export async function buildTradeBlockReport(ctx: NarrativeContext): Promise<stri
     const tpl = pickTemplate(TEMPLATES.lookingFor, rng);
     parts.push(tpl.replace('{team}', teamName).replace('{wants}', diff.lookingForAfter));
 
-    if (currentPlayers.length > 0 && rng() > 0.3) {
+    // Always add context about what's available when looking-for changes
+    if (currentPlayers.length > 0) {
       const headliners = await selectHeadliners(diff.addedPlayers, currentPlayers, diff.removedPlayers, players);
       if (headliners.length > 0) {
         const headlinerList = formatList(headliners);
@@ -745,6 +745,18 @@ export async function buildTradeBlockReport(ctx: NarrativeContext): Promise<stri
       const tpl = pickTemplate(TEMPLATES.tagsPicks, rng);
       const pickList = formatList(diff.addedPickTags);
       parts.push(tpl.replace('{team}', teamName).replace('{picks}', pickList));
+    }
+    
+    // Add context about what's on the block when tags change
+    if (currentPlayers.length > 0) {
+      const headliners = await selectHeadliners(diff.addedPlayers, currentPlayers, diff.removedPlayers, players);
+      if (headliners.length > 0) {
+        const headlinerList = formatList(headliners);
+        const verb = headliners.length === 1 ? 'is' : 'are';
+        const plural = headliners.length === 1 ? '' : 's';
+        const tpl = pickTemplate(TEMPLATES.headliner, rng);
+        parts.push(tpl.replace('{headliners}', headlinerList).replace('{verb}', verb).replace('{plural}', plural));
+      }
     }
   }
 
@@ -803,6 +815,18 @@ export async function buildTradeBlockReport(ctx: NarrativeContext): Promise<stri
     }
   }
 
+  // Check if we have any substantive content (not just opener/closer)
+  // This prevents posting empty messages when only contact/faab changed
+  const hasSubstantiveContent = hasPlayerChanges || hasPickChanges || hasTagChanges || 
+    (diff.lookingForChanged && diff.lookingForAfter);
+  
+  if (!hasSubstantiveContent || parts.length === 0) {
+    if (DEBUG) {
+      console.log(`[trade-block-narrative][${teamName}] No substantive content, skipping message`);
+    }
+    return null;
+  }
+  
   if (useCloser && rng() > 0.5) {
     parts.push(pickTemplate(CLOSERS, rng));
   }
