@@ -516,6 +516,16 @@ function formatList(items: string[]): string {
   return items.slice(0, -1).join(', ') + ' and ' + items[items.length - 1];
 }
 
+function formatPickTags(tags: string[]): string[] {
+  return tags.map(tag => {
+    const upper = tag.toUpperCase();
+    if (upper === '1ST') return '1st round picks';
+    if (upper === '2ND') return '2nd round picks';
+    if (upper === '3RD') return '3rd round picks';
+    return `${tag} round picks`;
+  });
+}
+
 export async function getLeagueMarketContext(): Promise<LeagueMarketContext> {
   const { listAllUserDocs } = await import('@/server/db/queries');
   const allDocs = await listAllUserDocs().catch(() => []);
@@ -702,7 +712,7 @@ export async function buildTradeBlockReport(ctx: NarrativeContext): Promise<stri
     if (hasPositions && hasPicks) {
       const tpl = pickTemplate(TEMPLATES.tagsCombo, rng);
       const positionList = formatList(diff.addedPositions);
-      const pickList = formatList(diff.addedPickTags);
+      const pickList = formatList(formatPickTags(diff.addedPickTags));
       contextParts.push(tpl.replace('{team}', teamName).replace('{positions}', positionList).replace('{picks}', pickList));
     } else if (hasPositions) {
       const tpl = pickTemplate(TEMPLATES.tagsPositional, rng);
@@ -710,7 +720,7 @@ export async function buildTradeBlockReport(ctx: NarrativeContext): Promise<stri
       contextParts.push(tpl.replace('{team}', teamName).replace('{positions}', positionList));
     } else if (hasPicks) {
       const tpl = pickTemplate(TEMPLATES.tagsPicks, rng);
-      const pickList = formatList(diff.addedPickTags);
+      const pickList = formatList(formatPickTags(diff.addedPickTags));
       contextParts.push(tpl.replace('{team}', teamName).replace('{picks}', pickList));
     }
   }
@@ -806,7 +816,7 @@ export async function buildTradeBlockReport(ctx: NarrativeContext): Promise<stri
   const tradeBlockUrl = baseUrl ? `${baseUrl}/trades/block` : '/trades/block';
   const hashtag = TEAM_HASHTAGS[teamName] || '';
   const hashtagSuffix = hashtag ? ` ${hashtag}` : '';
-  const message = parts.join(' ') + `\n\n${tradeBlockUrl}${hashtagSuffix}`;
+  const message = parts.join(' ') + hashtagSuffix + `\n\n${tradeBlockUrl}`;
 
   if (DEBUG) {
     console.log(`[trade-block-narrative][${teamName}] message:`, message);
