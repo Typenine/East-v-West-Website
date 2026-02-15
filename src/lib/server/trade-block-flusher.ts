@@ -165,8 +165,9 @@ async function postToDiscord(message: string): Promise<boolean> {
 
 export async function flushTradeBlockEvents(): Promise<{ processed: number; sent: number }> {
   try {
-    // Get events older than 120 seconds
-    const events = await getPendingTradeBlockEvents(120);
+    // Get events older than 40 seconds
+    const events = await getPendingTradeBlockEvents(40);
+    console.log(`[trade-block-flusher] Found ${events.length} pending events`);
     
     if (events.length === 0) {
       return { processed: 0, sent: 0 };

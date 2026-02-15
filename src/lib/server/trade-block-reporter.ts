@@ -43,6 +43,9 @@ export async function captureTradeBlockChanges(params: {
 }) {
   const { team, oldBlock, newBlock, oldWants, newWants } = params;
   
+  console.log(`[trade-block-reporter] Capturing changes for ${team}`);
+  console.log(`[trade-block-reporter] Old block: ${oldBlock.length} items, New block: ${newBlock.length} items`);
+  
   // Build sets of asset keys
   const oldKeys = new Set(oldBlock.map(assetToKey));
   const newKeys = new Set(newBlock.map(assetToKey));
@@ -60,6 +63,8 @@ export async function captureTradeBlockChanges(params: {
     const key = assetToKey(asset);
     if (!newKeys.has(key)) removed.push(asset);
   }
+  
+  console.log(`[trade-block-reporter] Added: ${added.length}, Removed: ${removed.length}`);
   
   // Create events for added assets
   for (const asset of added) {
