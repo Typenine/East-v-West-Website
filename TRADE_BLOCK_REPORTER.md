@@ -116,20 +116,34 @@ jobs:
 
 ## Message Format
 
-Example Discord message:
+Schefter-style narrative format with "per sources" attribution:
+
+**Example 1 (additions only):**
 ```
-🚨 TRADE BLOCK UPDATE: **Badgers**
+The Badgers have added Justin Jefferson (WR, MIN) and 2025 Round 2 (Badgers) to their trade block, per sources.
 
-**Added:**
-• Justin Jefferson (WR, MIN)
-• 2025 Round 2 (Badgers)
+https://eastvswest.win/trades
+```
 
-**Removed:**
-• Saquon Barkley (RB, NYG)
+**Example 2 (removals only):**
+```
+The Badgers have removed Saquon Barkley (RB, NYG) from their trade block, per sources.
 
-**Looking for:** Young RBs, 2026 1st round picks
+https://eastvswest.win/trades
+```
 
-[View Trade Block](https://eastvswest.win/trades)
+**Example 3 (both additions and removals):**
+```
+The Badgers have updated their trade block, adding Justin Jefferson (WR, MIN) and 2025 Round 2 (Badgers) while removing Saquon Barkley (RB, NYG), per sources.
+
+https://eastvswest.win/trades
+```
+
+**Example 4 (with wants change):**
+```
+The Badgers have added Justin Jefferson (WR, MIN) to their trade block, per sources. Sources indicate the team is looking for: Young RBs, 2026 1st round picks.
+
+https://eastvswest.win/trades
 ```
 
 ## Testing

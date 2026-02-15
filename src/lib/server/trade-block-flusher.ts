@@ -53,43 +53,47 @@ function groupEventsByTeam(events: TradeBlockEvent[]): TeamBatch[] {
 }
 
 function formatSchefterMessage(batch: TeamBatch): string {
+  const siteUrl = process.env.SITE_URL || 'https://eastvswest.win';
   const parts: string[] = [];
   
-  // Header
-  parts.push(`🚨 TRADE BLOCK UPDATE: **${batch.team}**`);
-  
-  // Added section
-  if (batch.added.length > 0) {
+  // Build narrative based on what changed
+  if (batch.added.length > 0 && batch.removed.length === 0) {
+    // Only additions
     if (batch.added.length === 1) {
-      parts.push(`\n\n**Added:** ${batch.added[0]}`);
+      parts.push(`The ${batch.team} have added ${batch.added[0]} to their trade block, per sources.`);
     } else {
-      parts.push(`\n\n**Added:**`);
-      for (const asset of batch.added) {
-        parts.push(`\n• ${asset}`);
-      }
+      const lastAsset = batch.added[batch.added.length - 1];
+      const otherAssets = batch.added.slice(0, -1).join(', ');
+      parts.push(`The ${batch.team} have added ${otherAssets} and ${lastAsset} to their trade block, per sources.`);
     }
-  }
-  
-  // Removed section
-  if (batch.removed.length > 0) {
+  } else if (batch.removed.length > 0 && batch.added.length === 0) {
+    // Only removals
     if (batch.removed.length === 1) {
-      parts.push(`\n\n**Removed:** ${batch.removed[0]}`);
+      parts.push(`The ${batch.team} have removed ${batch.removed[0]} from their trade block, per sources.`);
     } else {
-      parts.push(`\n\n**Removed:**`);
-      for (const asset of batch.removed) {
-        parts.push(`\n• ${asset}`);
-      }
+      const lastAsset = batch.removed[batch.removed.length - 1];
+      const otherAssets = batch.removed.slice(0, -1).join(', ');
+      parts.push(`The ${batch.team} have removed ${otherAssets} and ${lastAsset} from their trade block, per sources.`);
     }
+  } else if (batch.added.length > 0 && batch.removed.length > 0) {
+    // Both additions and removals
+    const addedList = batch.added.length === 1 
+      ? batch.added[0]
+      : batch.added.slice(0, -1).join(', ') + ' and ' + batch.added[batch.added.length - 1];
+    const removedList = batch.removed.length === 1
+      ? batch.removed[0]
+      : batch.removed.slice(0, -1).join(', ') + ' and ' + batch.removed[batch.removed.length - 1];
+    
+    parts.push(`The ${batch.team} have updated their trade block, adding ${addedList} while removing ${removedList}, per sources.`);
   }
   
-  // Wants changed
+  // Add wants as a follow-up sentence if changed
   if (batch.wantsChanged && batch.newWants) {
-    parts.push(`\n\n**Looking for:** ${batch.newWants}`);
+    parts.push(` Sources indicate the team is looking for: ${batch.newWants}.`);
   }
   
   // Link
-  const siteUrl = process.env.SITE_URL || 'https://eastvswest.win';
-  parts.push(`\n\n[View Trade Block](${siteUrl}/trades)`);
+  parts.push(`\n\n${siteUrl}/trades`);
   
   return parts.join('');
 }
