@@ -56,24 +56,57 @@ function formatSchefterMessage(batch: TeamBatch): string {
   const siteUrl = process.env.SITE_URL || 'https://eastvswest.win';
   const parts: string[] = [];
   
-  // Build narrative based on what changed
+  // Vary the narrative structure for more natural feel
+  const variants = {
+    addSingle: [
+      `The ${batch.team} are making ${batch.added[0]} available in trade discussions, per sources.`,
+      `${batch.added[0]} is now on the trade block for the ${batch.team}, league sources say.`,
+      `The ${batch.team} have placed ${batch.added[0]} on their trade block, per sources.`,
+    ],
+    addMultiple: [
+      `The ${batch.team} are shopping multiple assets, including {list}, per sources.`,
+      `League sources say the ${batch.team} have made {list} available via trade.`,
+      `The ${batch.team} are listening to offers on {list}, per sources.`,
+    ],
+    removeSingle: [
+      `The ${batch.team} have pulled ${batch.removed[0]} off the trade block, per sources.`,
+      `${batch.removed[0]} is no longer available for the ${batch.team}, league sources say.`,
+      `The ${batch.team} are no longer shopping ${batch.removed[0]}, per sources.`,
+    ],
+    removeMultiple: [
+      `The ${batch.team} have removed {list} from trade discussions, per sources.`,
+      `League sources say {list} are no longer available from the ${batch.team}.`,
+      `The ${batch.team} are pulling back on trade talks involving {list}, per sources.`,
+    ],
+    mixed: [
+      `The ${batch.team} are shaking up their trade approach: adding {added} to the block while pulling {removed} off, per sources.`,
+      `In a shift in strategy, the ${batch.team} have made {added} available while removing {removed} from consideration, league sources say.`,
+      `The ${batch.team} are recalibrating their trade plans, now shopping {added} but no longer listening on {removed}, per sources.`,
+    ],
+  };
+  
+  // Pick a random variant for variety
+  const pick = (arr: string[]) => arr[Math.floor(Math.random() * arr.length)];
+  
   if (batch.added.length > 0 && batch.removed.length === 0) {
     // Only additions
     if (batch.added.length === 1) {
-      parts.push(`The ${batch.team} have added ${batch.added[0]} to their trade block, per sources.`);
+      parts.push(pick(variants.addSingle));
     } else {
       const lastAsset = batch.added[batch.added.length - 1];
       const otherAssets = batch.added.slice(0, -1).join(', ');
-      parts.push(`The ${batch.team} have added ${otherAssets} and ${lastAsset} to their trade block, per sources.`);
+      const list = `${otherAssets} and ${lastAsset}`;
+      parts.push(pick(variants.addMultiple).replace('{list}', list));
     }
   } else if (batch.removed.length > 0 && batch.added.length === 0) {
     // Only removals
     if (batch.removed.length === 1) {
-      parts.push(`The ${batch.team} have removed ${batch.removed[0]} from their trade block, per sources.`);
+      parts.push(pick(variants.removeSingle));
     } else {
       const lastAsset = batch.removed[batch.removed.length - 1];
       const otherAssets = batch.removed.slice(0, -1).join(', ');
-      parts.push(`The ${batch.team} have removed ${otherAssets} and ${lastAsset} from their trade block, per sources.`);
+      const list = `${otherAssets} and ${lastAsset}`;
+      parts.push(pick(variants.removeMultiple).replace('{list}', list));
     }
   } else if (batch.added.length > 0 && batch.removed.length > 0) {
     // Both additions and removals
@@ -84,12 +117,17 @@ function formatSchefterMessage(batch: TeamBatch): string {
       ? batch.removed[0]
       : batch.removed.slice(0, -1).join(', ') + ' and ' + batch.removed[batch.removed.length - 1];
     
-    parts.push(`The ${batch.team} have updated their trade block, adding ${addedList} while removing ${removedList}, per sources.`);
+    parts.push(pick(variants.mixed).replace('{added}', addedList).replace('{removed}', removedList));
   }
   
-  // Add wants as a follow-up sentence if changed
+  // Add wants as a follow-up sentence if changed - vary this too
   if (batch.wantsChanged && batch.newWants) {
-    parts.push(` Sources indicate the team is looking for: ${batch.newWants}.`);
+    const wantsVariants = [
+      ` The team is believed to be targeting: ${batch.newWants}.`,
+      ` Sources say the ${batch.team} are looking for: ${batch.newWants}.`,
+      ` According to league sources, the team's focus is on acquiring: ${batch.newWants}.`,
+    ];
+    parts.push(pick(wantsVariants));
   }
   
   // Link
