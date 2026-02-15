@@ -15,6 +15,8 @@ export type TradeWants = {
   contactMethod?: 'text' | 'discord' | 'snap' | 'sleeper';
   phone?: string; // only if contactMethod === 'text'
   snap?: string;  // only if contactMethod === 'snap'
+  // Internal: last published trade block baseline for Discord webhook diffing
+  lastPublishedTradeBlock?: TradeAsset[];
 };
 
 export type UserDoc = {

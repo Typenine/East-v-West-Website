@@ -1362,6 +1362,17 @@ export async function getUserDoc(userId: string) {
   return row || null;
 }
 
+export async function getUserDocByTeam(team: string) {
+  const db = getDb();
+  const [row] = await db
+    .select()
+    .from(userDocs)
+    .where(eq(userDocs.team, team))
+    .orderBy(desc(userDocs.updatedAt))
+    .limit(1);
+  return row || null;
+}
+
 export async function setUserDoc(doc: {
   userId: string;
   team: string;

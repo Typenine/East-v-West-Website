@@ -12,6 +12,8 @@ import { buildTransactionLedger, listAllSeasons, type LeagueTransaction, type Tr
 
 type SortKey = "created" | "faab" | "team" | "season" | "week";
 
+export const dynamic = "force-dynamic";
+
 function sortTransactions(list: LeagueTransaction[], sortKey: SortKey, direction: "asc" | "desc") {
   const dir = direction === "asc" ? 1 : -1;
   return [...list].sort((a, b) => {

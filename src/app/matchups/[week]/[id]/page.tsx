@@ -16,6 +16,7 @@ import RosterColumn, { type PlayerRow } from '@/components/matchups/RosterColumn
 import WinProbability from '@/components/matchups/WinProbability';
 import { buildPlayerAvailabilitySnapshot } from '@/lib/utils/player-availability';
 
+export const dynamic = 'force-dynamic';
 export const revalidate = 20;
 
 function clamp(n: number, min: number, max: number) {

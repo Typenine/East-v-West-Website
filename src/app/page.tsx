@@ -24,6 +24,7 @@ function hexToRgba(hex: string, alpha = 1): string {
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
+export const dynamic = 'force-dynamic';
 export const revalidate = 20; // ISR: refresh at most every 20s to reduce API churn and flakiness
 
 export default async function Home({ searchParams }: { searchParams?: Promise<Record<string, string | string[] | undefined>> }) {

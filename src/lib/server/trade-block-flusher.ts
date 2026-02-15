@@ -1,4 +1,6 @@
-import { getPendingTradeBlockEvents, markTradeBlockEventsSent } from '@/server/db/queries.fixed';
+import { getPendingTradeBlockEvents, getUserDocByTeam, markTradeBlockEventsSent, setUserDoc } from '@/server/db/queries.fixed';
+import { TradeAsset, TradeWants } from '@/lib/server/user-store';
+import { getAllPlayersCached } from '@/lib/utils/sleeper-api';
 
 type TradeBlockEvent = {
   id: string;
@@ -22,52 +24,98 @@ type TeamBatch = {
   eventIds: string[];
 };
 
-function groupEventsByTeam(events: TradeBlockEvent[]): TeamBatch[] {
-  const teamMap = new Map<string, { batch: TeamBatch; assetStates: Map<string, { label: string; type: 'added' | 'removed' }> }>();
+type TeamEventBatch = {
+  team: string;
+  eventIds: string[];
+  wantsChanged: boolean;
+};
 
-  for (const event of events) {
-    if (!teamMap.has(event.team)) {
-      teamMap.set(event.team, {
-        batch: {
-          team: event.team,
-          added: [],
-          removed: [],
-          wantsChanged: false,
-          eventIds: [],
-        },
-        assetStates: new Map<string, { label: string; type: 'added' | 'removed' }>(),
-      });
-    }
+const TRADE_BLOCK_DEBUG = process.env.TRADE_BLOCK_DEBUG === '1' || process.env.TRADE_BLOCK_DEBUG === 'true';
 
-    const entry = teamMap.get(event.team)!;
-    const batch = entry.batch;
-    batch.eventIds.push(event.id);
-
-    const key = event.assetId || event.assetLabel || '';
-
-    if ((event.eventType === 'added' || event.eventType === 'removed') && key) {
-      entry.assetStates.set(key, {
-        label: event.assetLabel || key,
-        type: event.eventType === 'added' ? 'added' : 'removed',
-      });
-    } else if (event.eventType === 'wants_changed') {
-      batch.wantsChanged = true;
-      batch.newWants = event.newWants || undefined;
-    }
-  }
-
-  for (const entry of teamMap.values()) {
-    for (const state of entry.assetStates.values()) {
-      if (state.type === 'added') entry.batch.added.push(state.label);
-      if (state.type === 'removed') entry.batch.removed.push(state.label);
-    }
-  }
-
-  return Array.from(teamMap.values()).map((entry) => entry.batch);
+function assetToKey(asset: TradeAsset): string {
+  if (asset.type === 'player') return `player:${asset.playerId}`;
+  if (asset.type === 'pick') return `pick:${asset.year}-${asset.round}-${asset.originalTeam}`;
+  if (asset.type === 'faab') return `faab:${asset.amount ?? 0}`;
+  return '';
 }
 
-function formatSchefterMessage(batch: TeamBatch): string {
-  const siteUrl = 'https://eastvswest.win';
+function assetToLabel(asset: TradeAsset, players: Record<string, { first_name?: string; last_name?: string; position?: string; team?: string }>): string {
+  if (asset.type === 'player') {
+    const player = players[asset.playerId];
+    if (player) {
+      const pos = player.position || '';
+      const team = player.team || '';
+      const name = `${player.first_name ?? ''} ${player.last_name ?? ''}`.trim() || asset.playerId;
+      return `${name} (${pos}${team ? ', ' + team : ''})`;
+    }
+    return `Player ${asset.playerId}`;
+  }
+  if (asset.type === 'pick') {
+    return `${asset.year} Round ${asset.round} (${asset.originalTeam})`;
+  }
+  if (asset.type === 'faab') {
+    return `$${asset.amount ?? 0} FAAB`;
+  }
+  return 'Unknown asset';
+}
+
+function diffAssets(current: TradeAsset[], baseline: TradeAsset[]) {
+  const currentKeys = new Set(current.map(assetToKey).filter(Boolean));
+  const baselineKeys = new Set(baseline.map(assetToKey).filter(Boolean));
+  const added = current.filter((asset) => {
+    const key = assetToKey(asset);
+    return key && !baselineKeys.has(key);
+  });
+  const removed = baseline.filter((asset) => {
+    const key = assetToKey(asset);
+    return key && !currentKeys.has(key);
+  });
+  return { added, removed, currentKeys, baselineKeys };
+}
+
+function getTradeBlockBaseUrl(): string | null {
+  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL?.trim();
+  if (siteUrl) return siteUrl.replace(/\/$/, '');
+  if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`;
+  return null;
+}
+
+function groupEventsByTeam(events: TradeBlockEvent[]): TeamEventBatch[] {
+  const teamMap = new Map<string, TeamEventBatch>();
+  for (const event of events) {
+    if (!teamMap.has(event.team)) {
+      teamMap.set(event.team, { team: event.team, eventIds: [], wantsChanged: false });
+    }
+    const entry = teamMap.get(event.team)!;
+    entry.eventIds.push(event.id);
+    if (event.eventType === 'wants_changed') entry.wantsChanged = true;
+  }
+  return Array.from(teamMap.values());
+}
+
+async function updateLastPublishedTradeBlock(params: {
+  doc: { userId: string; team: string; version: number; updatedAt: Date; votes?: Record<string, Record<string, number>> | null; tradeBlock?: Array<Record<string, unknown>> | null; tradeWants?: Record<string, unknown> | null };
+  currentBlock: TradeAsset[];
+  currentWants: TradeWants | null;
+}) {
+  const nextWants: TradeWants = {
+    ...(params.currentWants ?? {}),
+    lastPublishedTradeBlock: params.currentBlock,
+  };
+
+  await setUserDoc({
+    userId: params.doc.userId,
+    team: params.doc.team,
+    version: Number(params.doc.version ?? 0),
+    updatedAt: params.doc.updatedAt,
+    votes: (params.doc.votes as Record<string, Record<string, number>> | null) ?? null,
+    tradeBlock: (params.doc.tradeBlock as Array<Record<string, unknown>> | null) ?? null,
+    tradeWants: nextWants as unknown as { text?: string; positions?: string[] },
+  });
+}
+
+function formatSchefterMessage(batch: TeamBatch, baseUrl: string | null): string {
+  const tradeBlockUrl = baseUrl ? `${baseUrl}/trades/block` : '/trades/block';
   const parts: string[] = [];
   
   // Authentic Schefter-style variations - breaking news tone with source attribution
@@ -150,7 +198,7 @@ function formatSchefterMessage(batch: TeamBatch): string {
   }
   
   // Link
-  parts.push(`\n\n${siteUrl}/trades/block`);
+  parts.push(`\n\n${tradeBlockUrl}`);
   
   return parts.join('');
 }
@@ -192,27 +240,82 @@ export async function flushTradeBlockEvents(): Promise<{ processed: number; sent
       return { processed: 0, sent: 0 };
     }
     
+    const baseUrl = getTradeBlockBaseUrl();
+    if (!baseUrl) {
+      console.warn('[trade-block-flusher] Missing NEXT_PUBLIC_SITE_URL/VERCEL_URL for trade block links');
+    }
+
+    const players = await getAllPlayersCached().catch(() => ({} as Record<string, { first_name?: string; last_name?: string; position?: string; team?: string }>));
+
     // Group by team
-    const batches = groupEventsByTeam(events as TradeBlockEvent[]);
+    const teamBatches = groupEventsByTeam(events as TradeBlockEvent[]);
     
     let sentCount = 0;
     const sentEventIds: string[] = [];
     
     // Post each team's batch
-    for (const batch of batches) {
-      // Skip if no actual changes
-      if (batch.added.length === 0 && batch.removed.length === 0 && !batch.wantsChanged) {
-        // Still mark as sent to avoid reprocessing
+    for (const batch of teamBatches) {
+      const doc = await getUserDocByTeam(batch.team);
+      if (!doc) {
+        console.warn(`[trade-block-flusher] No user doc found for team ${batch.team}; skipping`);
         sentEventIds.push(...batch.eventIds);
         continue;
       }
-      
-      const message = formatSchefterMessage(batch);
+
+      const currentBlock = (doc.tradeBlock as TradeAsset[] | null) ?? [];
+      const currentWants = (doc.tradeWants as TradeWants | null) ?? null;
+      const lastPublished = currentWants?.lastPublishedTradeBlock ?? [];
+
+      const { added, removed, currentKeys, baselineKeys } = diffAssets(currentBlock, lastPublished);
+      const addedLabels = added.map((asset) => assetToLabel(asset, players));
+      const removedLabels = removed.map((asset) => assetToLabel(asset, players));
+
+      if (TRADE_BLOCK_DEBUG) {
+        console.log(`[trade-block-flusher][${batch.team}] baseline keys:`, Array.from(baselineKeys));
+        console.log(`[trade-block-flusher][${batch.team}] current keys:`, Array.from(currentKeys));
+        console.log(`[trade-block-flusher][${batch.team}] added:`, added.map(assetToKey));
+        console.log(`[trade-block-flusher][${batch.team}] removed:`, removed.map(assetToKey));
+        console.log(`[trade-block-flusher][${batch.team}] url:`, baseUrl ? `${baseUrl}/trades/block` : '/trades/block');
+      }
+
+      const messageBatch: TeamBatch = {
+        team: batch.team,
+        added: addedLabels,
+        removed: removedLabels,
+        wantsChanged: batch.wantsChanged,
+        newWants: batch.wantsChanged ? (currentWants?.text ?? undefined) : undefined,
+        eventIds: batch.eventIds,
+      };
+
+      // Skip if no actual changes
+      if (messageBatch.added.length === 0 && messageBatch.removed.length === 0 && !messageBatch.wantsChanged) {
+        sentEventIds.push(...messageBatch.eventIds);
+        continue;
+      }
+
+      const message = formatSchefterMessage(messageBatch, baseUrl);
       const success = await postToDiscord(message);
-      
+
       if (success) {
         sentCount++;
-        sentEventIds.push(...batch.eventIds);
+        sentEventIds.push(...messageBatch.eventIds);
+        try {
+          await updateLastPublishedTradeBlock({
+            doc: {
+              userId: doc.userId as string,
+              team: doc.team as string,
+              version: Number(doc.version ?? 0),
+              updatedAt: doc.updatedAt as Date,
+              votes: (doc.votes as Record<string, Record<string, number>> | null) ?? null,
+              tradeBlock: (doc.tradeBlock as Array<Record<string, unknown>> | null) ?? null,
+              tradeWants: (doc.tradeWants as Record<string, unknown> | null) ?? null,
+            },
+            currentBlock,
+            currentWants,
+          });
+        } catch (e) {
+          console.error(`[trade-block-flusher] Failed to update lastPublishedTradeBlock for ${batch.team}:`, e);
+        }
       } else {
         console.error(`Failed to post trade block update for ${batch.team}`);
       }
