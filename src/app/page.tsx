@@ -430,12 +430,9 @@ export default async function Home({ searchParams }: { searchParams?: Promise<Re
   let offPrimaryTitle = 'Season starts in';
   
   if (phase === 'post_championship_pre_draft') {
-    // Show Super Bowl countdown briefly, then switch to draft
-    const nowTs = Date.now();
-    const sbTs = new Date(IMPORTANT_DATES.NEW_LEAGUE_YEAR).getTime();
-    const showSuperBowl = Number.isFinite(sbTs) && nowTs < sbTs + 48 * 60 * 60 * 1000;
-    offPrimaryDate = showSuperBowl ? IMPORTANT_DATES.NEW_LEAGUE_YEAR : IMPORTANT_DATES.NFL_WEEK_1_START;
-    offPrimaryTitle = showSuperBowl ? 'Super Bowl in' : 'Season starts in';
+    // During post-championship pre-draft, show season countdown
+    offPrimaryDate = IMPORTANT_DATES.NFL_WEEK_1_START;
+    offPrimaryTitle = 'Season starts in';
   } else if (phase === 'post_draft_pre_season') {
     offPrimaryDate = IMPORTANT_DATES.NFL_WEEK_1_START;
     offPrimaryTitle = seasonStarted ? 'Season in progress' : 'Season starts in';
