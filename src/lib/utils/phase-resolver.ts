@@ -12,10 +12,12 @@ export type SitePhase =
   | 'playoffs';
 
 /**
- * Convert a date to America/Chicago timezone for comparison
+ * Get current time in America/Chicago timezone as timestamp
  */
-function toChicagoTime(date: Date): Date {
-  return new Date(date.toLocaleString('en-US', { timeZone: 'America/Chicago' }));
+function getNowInChicago(): number {
+  // Get current time and format it in Chicago timezone
+  const nowStr = new Date().toLocaleString('en-US', { timeZone: 'America/Chicago' });
+  return new Date(nowStr).getTime();
 }
 
 /**
@@ -23,12 +25,12 @@ function toChicagoTime(date: Date): Date {
  * All comparisons use America/Chicago timezone
  */
 export function getCurrentPhase(): SitePhase {
-  const now = toChicagoTime(new Date());
+  const now = getNowInChicago();
   
-  // Convert all important dates to Chicago time for comparison
-  const draftDate = toChicagoTime(IMPORTANT_DATES.NEXT_DRAFT);
-  const seasonStart = toChicagoTime(IMPORTANT_DATES.NFL_WEEK_1_START);
-  const playoffsStart = toChicagoTime(IMPORTANT_DATES.PLAYOFFS_START);
+  // Important dates are already in their respective timezones, just get timestamps
+  const draftDate = IMPORTANT_DATES.NEXT_DRAFT.getTime();
+  const seasonStart = IMPORTANT_DATES.NFL_WEEK_1_START.getTime();
+  const playoffsStart = IMPORTANT_DATES.PLAYOFFS_START.getTime();
   
   // Determine phase based on date comparisons
   if (now >= playoffsStart) {
@@ -47,8 +49,8 @@ export function getCurrentPhase(): SitePhase {
  * Uses America/Chicago timezone
  */
 export function hasRegularSeasonStarted(): boolean {
-  const now = toChicagoTime(new Date());
-  const seasonStart = toChicagoTime(IMPORTANT_DATES.NFL_WEEK_1_START);
+  const now = getNowInChicago();
+  const seasonStart = IMPORTANT_DATES.NFL_WEEK_1_START.getTime();
   return now >= seasonStart;
 }
 
@@ -57,8 +59,8 @@ export function hasRegularSeasonStarted(): boolean {
  * Uses America/Chicago timezone
  */
 export function havePlayoffsStarted(): boolean {
-  const now = toChicagoTime(new Date());
-  const playoffsStart = toChicagoTime(IMPORTANT_DATES.PLAYOFFS_START);
+  const now = getNowInChicago();
+  const playoffsStart = IMPORTANT_DATES.PLAYOFFS_START.getTime();
   return now >= playoffsStart;
 }
 
@@ -70,20 +72,27 @@ export function havePlayoffsStarted(): boolean {
 export function getRecapYear(nflSeasonYear?: number): number {
   const phase = getCurrentPhase();
   
-  // If we have the NFL season year from Sleeper, use it during active season
-  if (nflSeasonYear && (phase === 'regular_season' || phase === 'playoffs')) {
-    return nflSeasonYear;
+  // During active season (regular season or playoffs), use NFL season year from Sleeper
+  if (phase === 'regular_season' || phase === 'playoffs') {
+    return nflSeasonYear || new Date().getFullYear();
   }
   
-  // During post-championship pre-draft, show last completed season
+  // During post-championship pre-draft, always show last completed season
+  // This is the period after Super Bowl but before the draft
   if (phase === 'post_championship_pre_draft') {
-    // Current calendar year is 2026, but last completed season is 2025
+    // The last completed season is always the previous calendar year
+    // (e.g., in Feb 2026, show 2025 season recap)
     const currentYear = new Date().getFullYear();
     return currentYear - 1;
   }
   
-  // During post-draft pre-season, we could show current year or hide recap
-  // For now, return current year but caller can choose to hide
+  // During post-draft pre-season, show the upcoming season year
+  // but this recap should be hidden by default (handled by caller)
+  if (phase === 'post_draft_pre_season') {
+    return new Date().getFullYear();
+  }
+  
+  // Fallback
   return new Date().getFullYear();
 }
 
