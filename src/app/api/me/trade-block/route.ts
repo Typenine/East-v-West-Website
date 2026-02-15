@@ -96,5 +96,11 @@ export async function PUT(req: NextRequest) {
     newWants: text,
   }).catch((e) => console.error('Failed to capture trade block changes:', e));
   
+  // Trigger flush of old events in background (best-effort, don't block response)
+  // This checks for events older than 120s and posts them to Discord
+  import('@/lib/server/trade-block-flusher').then(({ flushTradeBlockEvents }) => {
+    flushTradeBlockEvents().catch((e) => console.error('Failed to flush trade block events:', e));
+  }).catch(() => {});
+  
   return Response.json({ ok: true, tradeBlock: doc.tradeBlock, tradeWants: doc.tradeWants });
 }
