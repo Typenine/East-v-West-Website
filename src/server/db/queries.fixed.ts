@@ -1,6 +1,6 @@
 import { getDb } from './client';
 import { randomUUID } from 'crypto';
-import { users, suggestions, taxiSquadMembers, taxiSquadEvents, teamPins, taxiObservations, userDocs, tenures, txnCache, taxiSnapshots } from './schema';
+import { users, suggestions, taxiSquadMembers, taxiSquadEvents, teamPins, taxiObservations, userDocs, tenures, txnCache, taxiSnapshots, tradeBlockEvents } from './schema';
 import { eq, and, isNull, desc, lt, sql, ne } from 'drizzle-orm';
 
 export type Role = 'admin' | 'user';
@@ -1238,4 +1238,53 @@ export async function setUserDoc(doc: {
     })
     .returning();
   return row;
+}
+
+// --- Trade Block Events ---
+export async function createTradeBlockEvent(event: {
+  team: string;
+  eventType: string;
+  assetType?: string | null;
+  assetId?: string | null;
+  assetLabel?: string | null;
+  oldWants?: string | null;
+  newWants?: string | null;
+}) {
+  const db = getDb();
+  const [row] = await db
+    .insert(tradeBlockEvents)
+    .values({
+      team: event.team,
+      eventType: event.eventType,
+      assetType: event.assetType ?? null,
+      assetId: event.assetId ?? null,
+      assetLabel: event.assetLabel ?? null,
+      oldWants: event.oldWants ?? null,
+      newWants: event.newWants ?? null,
+    })
+    .returning();
+  return row;
+}
+
+export async function getPendingTradeBlockEvents(olderThanSeconds: number = 120) {
+  const db = getDb();
+  const cutoff = new Date(Date.now() - olderThanSeconds * 1000);
+  const rows = await db
+    .select()
+    .from(tradeBlockEvents)
+    .where(and(
+      isNull(tradeBlockEvents.sentAt),
+      lt(tradeBlockEvents.createdAt, cutoff)
+    ))
+    .orderBy(tradeBlockEvents.team, tradeBlockEvents.createdAt);
+  return rows;
+}
+
+export async function markTradeBlockEventsSent(eventIds: string[]) {
+  if (eventIds.length === 0) return;
+  const db = getDb();
+  await db
+    .update(tradeBlockEvents)
+    .set({ sentAt: new Date() })
+    .where(sql`${tradeBlockEvents.id} = ANY(${eventIds}::uuid[])`);
 }

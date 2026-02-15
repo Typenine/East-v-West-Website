@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server';
 import { requireTeamUser } from '@/lib/server/session';
 import { readUserDoc, writeUserDoc, TradeAsset, TradeWants } from '@/lib/server/user-store';
 import { getTeamAssets } from '@/lib/server/trade-assets';
+import { captureTradeBlockChanges } from '@/lib/server/trade-block-reporter';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -57,6 +58,9 @@ export async function PUT(req: NextRequest) {
   }
 
   const doc = await readUserDoc(ident.userId, ident.team);
+  const oldBlock = doc.tradeBlock || [];
+  const oldWantsText = doc.tradeWants?.text;
+  
   doc.tradeBlock = filtered;
   const pos = Array.isArray(wants.positions) ? wants.positions.map(String).slice(0, 12) : [];
   const text = typeof wants.text === 'string' ? wants.text.slice(0, 300) : undefined;
@@ -82,5 +86,15 @@ export async function PUT(req: NextRequest) {
   doc.updatedAt = new Date().toISOString();
   const ok = await writeUserDoc(doc);
   if (!ok) return Response.json({ error: 'Persist failed' }, { status: 500 });
+  
+  // Capture trade block changes for Clancy reporter (best-effort, don't block response)
+  captureTradeBlockChanges({
+    team: ident.team,
+    oldBlock: oldBlock as TradeAsset[],
+    newBlock: filtered,
+    oldWants: oldWantsText,
+    newWants: text,
+  }).catch((e) => console.error('Failed to capture trade block changes:', e));
+  
   return Response.json({ ok: true, tradeBlock: doc.tradeBlock, tradeWants: doc.tradeWants });
 }
