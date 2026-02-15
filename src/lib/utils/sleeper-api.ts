@@ -827,20 +827,29 @@ export async function getSplitRecordsAllTime(
       if (typeof g.t1 !== 'number' || typeof g.t2 !== 'number') continue;
       const key = makeMatchupKey(g.t1, g.t2);
       
+      // A game is CONSOLATION if either team came from a loser
+      const t1FromLoser = typeof g.t1_from?.l === 'number';
+      const t2FromLoser = typeof g.t2_from?.l === 'number';
+      const anyFromLoser = t1FromLoser || t2FromLoser;
+      
       // A game is TRUE winners bracket if:
       // 1. First round (r=1) - all first round playoff games count
-      // 2. Championship game (p=1)
-      // 3. Both teams came from winners (t1_from.w AND t2_from.w are set to match numbers)
+      // 2. Championship game (p=1) AND no teams from losers
+      // 3. Neither team came from a loser (continuing winners bracket)
       const isFirstRound = g.r === 1;
       const isChampionship = g.p === 1;
-      const t1FromWinner = typeof g.t1_from?.w === 'number';
-      const t2FromWinner = typeof g.t2_from?.w === 'number';
-      const bothFromWinners = t1FromWinner && t2FromWinner;
       
-      if (isFirstRound || isChampionship || bothFromWinners) {
+      if (anyFromLoser) {
+        // Consolation/placement game - at least one team came from losing
+        consolationMatchups.add(key);
+      } else if (isFirstRound || isChampionship) {
+        // True winners bracket game
+        winnersMatchups.add(key);
+      } else if (g.r > 1 && !anyFromLoser) {
+        // Round 2+ game where both teams are still in winners bracket
         winnersMatchups.add(key);
       } else {
-        // This is a consolation/placement game within the playoff bracket
+        // Shouldn't happen, but default to consolation to be safe
         consolationMatchups.add(key);
       }
     }
