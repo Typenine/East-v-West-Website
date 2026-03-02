@@ -1,10 +1,10 @@
-import { LEAGUE_IDS } from '@/lib/constants/league';
-import { getTeamsData, getLeagueRosters, getAllPlayersCached, getLeagueTransactionsAllWeeks, getLeagueMatchups, SleeperTransaction, getNFLState, getLeagueDrafts, getDraftPicks, buildYearToLeagueMapUnique } from '@/lib/utils/sleeper-api';
+import { LEAGUE_IDS, IMPORTANT_DATES } from '@/lib/constants/league';
+import { getTeamsData, getLeagueRosters, getAllPlayersCached, getLeagueTransactionsAllWeeks, getLeagueMatchups, SleeperTransaction, getNFLState, getLeagueDrafts, getDraftPicks, buildYearToLeagueMapUnique, type SleeperPlayer } from '@/lib/utils/sleeper-api';
 import { resolveCanonicalTeamName } from '@/lib/utils/team-utils';
 import { upsertTenure, deleteTenure, markTenureActive, bulkInsertTxnCacheWithPrune, getFirstTaxiSeenForPlayer, getTaxiObservation, setTaxiObservation } from '@/server/db/queries';
 import { getObjectText } from '@/server/storage/r2';
 
-export type Violation = { code: 'too_many_on_taxi' | 'too_many_qbs' | 'invalid_intake' | 'boomerang_active_player' | 'roster_inconsistent'; detail?: string; players?: string[] };
+export type Violation = { code: 'too_many_on_taxi' | 'too_many_qbs' | 'invalid_intake' | 'boomerang_active_player' | 'boomerang_reset_ineligible' | 'roster_inconsistent'; detail?: string; players?: string[] };
 
 export type TaxiValidateResult = {
   team: { teamName: string; rosterId: number; selectedSeason: string };
@@ -14,9 +14,89 @@ export type TaxiValidateResult = {
 };
 
 function getLeagueIdForSeason(season: string): string | null {
-  if (season === String(new Date().getFullYear())) return LEAGUE_IDS.CURRENT;
+  // Use current NFL season logic, not calendar year
+  const now = new Date();
+  const currentYear = now.getFullYear();
+  // NFL season spans two calendar years (e.g., 2025 season starts Sept 2025, ends Feb 2026)
+  // If we're before March, the NFL season year is the previous calendar year
+  const nflSeasonYear = now.getMonth() < 2 ? currentYear - 1 : currentYear;
+  
+  if (season === String(nflSeasonYear)) return LEAGUE_IDS.CURRENT;
   const prev = (LEAGUE_IDS.PREVIOUS as Record<string, string | undefined>)[season];
   return prev || null;
+}
+
+/**
+ * Determine if we're in the offseason (taxi reset window).
+ * Per rulebook 5.5(e): "During each offseason, a team may place a first-year or second-year player..."
+ * Offseason = after league year ends (after Week 17) until NFL Week 1 kickoff.
+ * This is more restrictive than draft-to-Week1; it's specifically the offseason period.
+ */
+function isInOffseason(): boolean {
+  const now = new Date();
+  const seasonStart = IMPORTANT_DATES.NFL_WEEK_1_START;
+  
+  // Simple check: if we're before Week 1 kickoff and after February (Super Bowl)
+  // This covers the offseason period when reset is allowed
+  const currentYear = now.getFullYear();
+  
+  // Offseason is roughly Feb-Sept (after Super Bowl, before Week 1)
+  // More precisely: after league year ends through Week 1 kickoff
+  if (now < seasonStart) {
+    // We're before Week 1 - check if we're in the offseason window
+    // Offseason starts after Super Bowl (early Feb) and runs until Week 1
+    const superBowlApprox = new Date(currentYear, 1, 1); // Feb 1
+    return now >= superBowlApprox;
+  }
+  
+  return false;
+}
+
+/**
+ * Check if a player is eligible for the offseason reset exception.
+ * Per rulebook 5.5(e)(1): "a player remains eligible for the offseason reset until the kickoff 
+ * of Week 1 of the NFL regular season of what would be the player's third NFL season."
+ * 
+ * This means:
+ * - Rookie (year 1): Eligible through Week 1 of their 2nd season
+ * - 2nd year: Eligible through Week 1 of their 3rd season  
+ * - 3rd year+: NOT eligible (becomes ineligible at Week 1 kickoff of 3rd season)
+ */
+function isEligibleForOffseasonReset(player: SleeperPlayer | undefined, currentNFLSeason: number): boolean {
+  if (!player) return false;
+  
+  // Check rookie_year first (most reliable)
+  if (player.rookie_year !== undefined) {
+    const rookieYear = Number(player.rookie_year);
+    if (Number.isFinite(rookieYear)) {
+      // Calculate which NFL season would be their third
+      const thirdSeasonYear = rookieYear + 2;
+      
+      // Player is eligible if we haven't reached their third season yet
+      // OR if we're in their third season but before Week 1 kickoff
+      if (currentNFLSeason < thirdSeasonYear) {
+        return true; // Still in year 1 or 2
+      } else if (currentNFLSeason === thirdSeasonYear) {
+        // We're in their third season - check if Week 1 has kicked off
+        const now = new Date();
+        const week1Kickoff = IMPORTANT_DATES.NFL_WEEK_1_START;
+        return now < week1Kickoff; // Eligible until Week 1 kickoff
+      }
+      // currentNFLSeason > thirdSeasonYear - player is 3+ years, not eligible
+      return false;
+    }
+  }
+  
+  // Fallback to years_exp (0 = rookie, 1 = second year)
+  // Note: years_exp is less precise for the "until Week 1 of third season" rule
+  if (player.years_exp !== undefined) {
+    const yearsExp = Number(player.years_exp);
+    if (yearsExp === 0 || yearsExp === 1) {
+      return true; // First or second year
+    }
+  }
+  
+  return false;
 }
 
 function toVia(tx: SleeperTransaction['type'] | string): 'free_agent' | 'waiver' | 'trade' | 'draft' | 'other' {
@@ -179,27 +259,73 @@ export async function validateTaxiForRoster(selectedSeason: string, selectedRost
     }
   }
 
-  // Players meta for positions
-  const playersMeta = await getAllPlayersCached().catch(() => ({} as Record<string, { first_name?: string; last_name?: string; position?: string }>));
+  // Players meta for positions and eligibility
+  const playersMeta = await getAllPlayersCached().catch(() => ({} as Record<string, SleeperPlayer>));
+  
+  // Determine current NFL season for player year calculations
+  const now = new Date();
+  const currentYear = now.getFullYear();
+  const currentNFLSeason = now.getMonth() < 2 ? currentYear - 1 : currentYear;
+  const inOffseason = isInOffseason();
 
   // Violations
   const violations: Violation[] = [];
-  if (taxiArr.length > 3) violations.push({ code: 'too_many_on_taxi', detail: '>3 players on taxi' });
+  
+  // Rule: Max 4 players on taxi at any time
+  if (taxiArr.length > 4) violations.push({ code: 'too_many_on_taxi', detail: `${taxiArr.length} players on taxi (max 4)` });
+  
+  // Rule: Max 1 QB on taxi at any time
   const taxiQbIds = taxiArr.filter((pid) => (playersMeta[pid]?.position || '').toUpperCase() === 'QB');
   const taxiQbs = taxiQbIds.length;
-  if (taxiQbs > 1) violations.push({ code: 'too_many_qbs', detail: '2+ QBs on taxi (limit 1)', players: taxiQbIds });
+  if (taxiQbs > 1) violations.push({ code: 'too_many_qbs', detail: `${taxiQbs} QBs on taxi (max 1)`, players: taxiQbIds });
 
   // Do not compute roster_inconsistent; Sleeper ensures a player is only in one bucket at a time
 
   const invalidIntake: string[] = [];
   const boomerang: string[] = [];
+  const boomerangResetIneligible: string[] = [];
+  
+  // Check each taxi player for violations
   for (const pid of taxiArr) {
     const lj = lastJoin.get(pid);
     if (lj && !['free_agent', 'waiver', 'trade', 'draft'].includes(lj.via)) invalidIntake.push(pid);
-    if (appearedSinceJoin.has(pid)) boomerang.push(pid);
+    
+    // Boomerang check per rulebook:
+    // 5.5(c): "Once a player is Taxi Activated, that player may not be placed back on taxi 
+    //          while the player remains rostered by that team."
+    // 5.5(d): "A player who leaves the team's roster entirely may be placed on taxi again 
+    //          only if the team later reacquires the player..."
+    // → Base rule: Only check activation during CURRENT tenure (since last acquisition)
+    //
+    // 5.5(e): "During each offseason, a team may place a first-year or second-year player on taxi 
+    //          even if that player was previously Taxi Activated by that team."
+    // → Offseason exception: During offseason, 1st/2nd year players can go on taxi even if activated
+    
+    const appearedInCurrentTenure = appearedSinceJoin.has(pid);
+    
+    if (appearedInCurrentTenure) {
+      // Player was activated during current tenure (since last acquisition)
+      // Check if offseason reset exception applies
+      if (inOffseason) {
+        const player = playersMeta[pid];
+        const isEligible = isEligibleForOffseasonReset(player, currentNFLSeason);
+        if (isEligible) {
+          // 5.5(e) exception: Allowed during offseason for 1st/2nd year players
+          continue;
+        } else {
+          // Not eligible for reset exception (3+ year player or past Week 1 of third season)
+          boomerangResetIneligible.push(pid);
+        }
+      } else {
+        // Outside offseason - standard 5.5(c) boomerang violation
+        boomerang.push(pid);
+      }
+    }
   }
+  
   if (invalidIntake.length > 0) violations.push({ code: 'invalid_intake', detail: 'Taxi intake must be FA/Trade/Draft', players: invalidIntake });
-  if (boomerang.length > 0) violations.push({ code: 'boomerang_active_player', detail: 'Previously active this tenure on taxi', players: boomerang });
+  if (boomerang.length > 0) violations.push({ code: 'boomerang_active_player', detail: 'Previously active this tenure on taxi (outside offseason)', players: boomerang });
+  if (boomerangResetIneligible.length > 0) violations.push({ code: 'boomerang_reset_ineligible', detail: 'Previously active, not eligible for offseason reset (3+ year player or past Week 1 of 3rd season)', players: boomerangResetIneligible });
 
   const seasonNum = Number(selectedSeason) || new Date().getFullYear();
   // Update taxi observations for this team (throttled)

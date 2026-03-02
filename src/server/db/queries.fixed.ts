@@ -1239,7 +1239,10 @@ export async function upsertTenure(params: { teamId: string; playerId: string; a
     })
     .onConflictDoUpdate({
       target: [tenures.teamId, tenures.playerId],
-      set: { acquiredAt: params.acquiredAt, acquiredVia: params.acquiredVia, activeSeen: 0, lastActiveAt: null },
+      // IMPORTANT: Do NOT reset activeSeen on re-acquisition
+      // We need to preserve historical activation data across drop/re-acquire cycles
+      // Only update acquisition metadata
+      set: { acquiredAt: params.acquiredAt, acquiredVia: params.acquiredVia },
     })
     .returning();
   return row;
@@ -1255,12 +1258,45 @@ export async function markTenureActive(params: { teamId: string; playerId: strin
   return row || null;
 }
 
+/**
+ * Check if a player was ever activated by a team (across all tenures/acquisitions).
+ * Returns true if activeSeen = 1, meaning the player appeared on active roster at some point.
+ * This persists across drop/re-acquire cycles.
+ */
+export async function wasPlayerEverActivatedByTeam(params: { teamId: string; playerId: string }): Promise<boolean> {
+  const db = getDb();
+  const rows = await db
+    .select({ activeSeen: tenures.activeSeen })
+    .from(tenures)
+    .where(and(eq(tenures.teamId, params.teamId), eq(tenures.playerId, params.playerId)))
+    .limit(1);
+  
+  if (rows.length === 0) return false;
+  return (rows[0].activeSeen ?? 0) === 1;
+}
+
 export async function deleteTenure(params: { teamId: string; playerId: string }) {
   const db = getDb();
-  // Drizzle neon-http lacks delete returning in some versions; use update to null activeSeen as soft-delete if needed.
+  // When a player is dropped, we keep the tenure record to preserve activation history
+  // We just mark when they were last active (if they were)
+  // The activeSeen flag is preserved so we know if they were ever activated by this team
+  const existing = await db
+    .select()
+    .from(tenures)
+    .where(and(eq(tenures.teamId, params.teamId), eq(tenures.playerId, params.playerId)))
+    .limit(1);
+  
+  if (existing.length > 0 && existing[0].activeSeen === 0) {
+    // Player was never activated, we can safely delete the tenure
+    await db.delete(tenures).where(and(eq(tenures.teamId, params.teamId), eq(tenures.playerId, params.playerId)));
+    return null;
+  }
+  
+  // Player was activated - keep the record for historical tracking
+  // Just update lastActiveAt if not already set
   const [row] = await db
     .update(tenures)
-    .set({ activeSeen: 1, lastActiveAt: new Date() })
+    .set({ lastActiveAt: new Date() })
     .where(and(eq(tenures.teamId, params.teamId), eq(tenures.playerId, params.playerId)))
     .returning();
   return row || null;
