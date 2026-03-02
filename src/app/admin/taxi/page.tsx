@@ -26,12 +26,27 @@ type TaxiPlayer = {
   potentialAt?: { year: string; week: number } | null;
 };
 
+type Violation = {
+  code: 'too_many_on_taxi' | 'too_many_qbs' | 'invalid_intake' | 'boomerang_active_player' | 'boomerang_reset_ineligible' | 'roster_inconsistent';
+  detail?: string;
+  players?: string[];
+};
+
 type TaxiAnalysis = {
   team: { teamName: string; rosterId: number };
   limits: { maxSlots: number; maxQB: number };
   current: { counts: { total: number; qbs: number }; taxi: TaxiPlayer[] };
   violations: { overQB: boolean; overSlots: boolean; ineligibleOnTaxi: string[] };
+  violationDetails?: Violation[];
 };
+
+// Helper to check if we're in offseason
+function isInOffseason(): boolean {
+  const now = new Date();
+  // Offseason is roughly Feb-Sept (after Super Bowl, before Week 1)
+  const month = now.getMonth(); // 0-indexed
+  return month >= 1 && month <= 8; // Feb through Sept
+}
 
 type Flag = { team: string; type: 'over_qb' | 'over_slots' | 'player_ineligible' | 'player_potential'; message: string };
 
@@ -49,7 +64,7 @@ function StatusPill({ kind, text }: { kind: 'ok' | 'warn' | 'danger'; text: stri
 export default function AdminTaxiPage() {
   const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
   const [passkey, setPasskey] = useState('');
-  const [season, setSeason] = useState('2025');
+  const [season, setSeason] = useState('2026');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [teams, setTeams] = useState<Array<{ teamName: string; rosterId: number }>>([]);
@@ -70,11 +85,15 @@ export default function AdminTaxiPage() {
       try {
         setLoading(true);
         setError(null);
-        const leagueId = season === '2025' ? LEAGUE_IDS.CURRENT : (LEAGUE_IDS.PREVIOUS as Record<string, string | undefined>)[season] || '';
+        // Determine current NFL season (before March = previous calendar year)
+        const now = new Date();
+        const currentYear = now.getFullYear();
+        const currentNFLSeason = now.getMonth() < 2 ? currentYear - 1 : currentYear;
+        const leagueId = season === String(currentNFLSeason) ? LEAGUE_IDS.CURRENT : (LEAGUE_IDS.PREVIOUS as Record<string, string | undefined>)[season] || '';
         const t = leagueId ? await getTeamsData(leagueId) : [];
         setTeams(t);
         // fetch flags (current season only)
-        if (season === '2025') {
+        if (season === String(currentNFLSeason)) {
           const fr = await fetch('/api/taxi/flags', { cache: 'no-store' });
           if (fr.ok) setFlags(await fr.json()); else setFlags(null);
         } else {
@@ -168,11 +187,19 @@ export default function AdminTaxiPage() {
         <Card className="lg:col-span-3">
           <CardHeader>
             <div className="flex items-end justify-between gap-3">
-              <CardTitle>League Taxi Overview</CardTitle>
+              <div className="flex items-center gap-3">
+                <CardTitle>League Taxi Overview</CardTitle>
+                {isInOffseason() && (
+                  <span className="text-xs px-2 py-1 rounded bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20">
+                    Offseason Reset Active (1st/2nd year players eligible)
+                  </span>
+                )}
+              </div>
               <div className="flex items-end gap-3">
                 <div>
                   <Label htmlFor="season">Season</Label>
                   <Select id="season" value={season} onChange={(e) => setSeason(e.target.value)}>
+                    <option value="2026">2026</option>
                     <option value="2025">2025</option>
                     <option value="2024">2024</option>
                     <option value="2023">2023</option>
@@ -304,25 +331,40 @@ export default function AdminTaxiPage() {
                       ) : a.current.taxi.length === 0 ? (
                         <div className="text-[var(--muted)] text-sm">No players on taxi.</div>
                       ) : (
-                        <ul className="text-sm grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-1">
-                          {a.current.taxi.map((p) => {
-                            let statusEl = <StatusPill kind="ok" text="Eligible" />;
-                            if (p.activatedSinceJoin) {
-                              statusEl = <StatusPill kind="danger" text={`Ineligible${p.ineligibleReason ? ` • ${p.ineligibleReason}` : ''}${p.activatedAt ? ` • W${p.activatedAt.week} ${p.activatedAt.year}` : ''}`} />;
-                            } else if (p.potentialActivatedSinceJoin) {
-                              statusEl = <StatusPill kind="warn" text={`Potential${p.potentialAt ? ` • W${p.potentialAt.week} ${p.potentialAt.year}` : ''}`} />;
-                            }
-                            return (
-                              <li key={p.playerId} className="flex items-center justify-between">
-                                <span>
-                                  {p.name || p.playerId} {p.position ? <span className="text-[var(--muted)]">({p.position})</span> : null}
-                                  {p.onTaxiSince ? <span className="text-[var(--muted)] ml-2">W{p.onTaxiSince.week} {p.onTaxiSince.year}</span> : null}
-                                </span>
-                                {statusEl}
-                              </li>
-                            );
-                          })}
-                        </ul>
+                        <>
+                          {a.violationDetails && a.violationDetails.length > 0 && (
+                            <div className="mb-3 p-2 rounded bg-red-500/10 border border-red-500/20">
+                              <div className="text-xs font-semibold text-red-600 dark:text-red-400 mb-1">Violations:</div>
+                              <ul className="text-xs space-y-1">
+                                {a.violationDetails.map((v, idx) => (
+                                  <li key={idx} className="text-red-600 dark:text-red-400">
+                                    <strong>{v.code}:</strong> {v.detail}
+                                    {v.players && v.players.length > 0 && ` (${v.players.length} player${v.players.length > 1 ? 's' : ''})`}
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+                          <ul className="text-sm grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-1">
+                            {a.current.taxi.map((p) => {
+                              let statusEl = <StatusPill kind="ok" text="Eligible" />;
+                              if (p.activatedSinceJoin) {
+                                statusEl = <StatusPill kind="danger" text={`Ineligible${p.ineligibleReason ? ` • ${p.ineligibleReason}` : ''}${p.activatedAt ? ` • W${p.activatedAt.week} ${p.activatedAt.year}` : ''}`} />;
+                              } else if (p.potentialActivatedSinceJoin) {
+                                statusEl = <StatusPill kind="warn" text={`Potential${p.potentialAt ? ` • W${p.potentialAt.week} ${p.potentialAt.year}` : ''}`} />;
+                              }
+                              return (
+                                <li key={p.playerId} className="flex items-center justify-between">
+                                  <span>
+                                    {p.name || p.playerId} {p.position ? <span className="text-[var(--muted)]">({p.position})</span> : null}
+                                    {p.onTaxiSince ? <span className="text-[var(--muted)] ml-2">W{p.onTaxiSince.week} {p.onTaxiSince.year}</span> : null}
+                                  </span>
+                                  {statusEl}
+                                </li>
+                              );
+                            })}
+                          </ul>
+                        </>
                       )}
                     </div>
                   </div>
