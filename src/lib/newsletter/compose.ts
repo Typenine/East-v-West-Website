@@ -36,7 +36,7 @@ import {
   type LLMFeaturesInput,
   type LLMFeaturesOutput,
 } from './llm-features';
-import { getPartnerDynamicsContext, recordBotInteraction, getPersonalityContext, evolvePersonality, updateEmotionalState, registerEmergingPhrase } from './memory';
+import { getPartnerDynamicsContext, recordBotInteraction, getPersonalityContext, evolvePersonality, updateEmotionalState, updatePlayerRelationship, detectObsessions, fadeObsessions, getObsessionContext, decayEmotionalState } from './memory';
 import { recordHotTake } from './enhanced-context';
 
 // Helper to get episode config with type safety
@@ -1615,6 +1615,94 @@ BEGIN:`;
         evolvePersonality(memAnaEnhanced, { type: 'big_win', intensity: 6, week });
       }
     }
+    
+    // Track player relationships based on top performers
+    if (p.winner.topPlayers && p.winner.topPlayers.length > 0) {
+      const topPerformer = p.winner.topPlayers[0];
+      if (topPerformer && topPerformer.points >= 25) {
+        // Big performance - update relationships
+        if (memEntEnhanced) {
+          updatePlayerRelationship(memEntEnhanced, topPerformer.name, topPerformer.name, {
+            week,
+            description: `${topPerformer.points.toFixed(1)} pts in ${p.winner.name}'s win`,
+            impact: topPerformer.points >= 35 ? 15 : 10,
+            emotional: topPerformer.points >= 35,
+          });
+          
+          // Check if this is a favorite player - evolve personality if they performed
+          if (memEntEnhanced.favoritePlayers?.includes(topPerformer.name)) {
+            evolvePersonality(memEntEnhanced, {
+              type: 'favorite_player_performed',
+              intensity: topPerformer.points >= 35 ? 8 : 5,
+              context: `${topPerformer.name} delivered`,
+              week,
+            });
+          }
+        }
+        if (memAnaEnhanced) {
+          updatePlayerRelationship(memAnaEnhanced, topPerformer.name, topPerformer.name, {
+            week,
+            description: `${topPerformer.points.toFixed(1)} pts - strong performance`,
+            impact: topPerformer.points >= 35 ? 12 : 8,
+            emotional: false,
+          });
+          
+          // Analyst also tracks favorites but less emotionally
+          if (memAnaEnhanced.favoritePlayers?.includes(topPerformer.name)) {
+            evolvePersonality(memAnaEnhanced, {
+              type: 'favorite_player_performed',
+              intensity: topPerformer.points >= 35 ? 6 : 3,
+              context: `${topPerformer.name} validated the projection`,
+              week,
+            });
+          }
+        }
+      }
+    }
+    
+    // Track disappointing performances from loser's top players
+    if (p.loser.topPlayers && p.loser.topPlayers.length > 0) {
+      const topLoserPlayer = p.loser.topPlayers[0];
+      if (topLoserPlayer && topLoserPlayer.points < 10 && p.margin > 20) {
+        // Disappointing performance in a blowout loss
+        if (memEntEnhanced) {
+          updatePlayerRelationship(memEntEnhanced, topLoserPlayer.name, topLoserPlayer.name, {
+            week,
+            description: `Only ${topLoserPlayer.points.toFixed(1)} pts in ${p.loser.name}'s loss`,
+            impact: -8,
+            emotional: true,
+          });
+          
+          // Check if this is a favorite player who disappointed
+          if (memEntEnhanced.favoritePlayers?.includes(topLoserPlayer.name)) {
+            evolvePersonality(memEntEnhanced, {
+              type: 'favorite_player_disappointed',
+              intensity: 7,
+              context: `${topLoserPlayer.name} let me down`,
+              week,
+            });
+          }
+        }
+        if (memAnaEnhanced) {
+          updatePlayerRelationship(memAnaEnhanced, topLoserPlayer.name, topLoserPlayer.name, {
+            week,
+            description: `Underperformed with ${topLoserPlayer.points.toFixed(1)} pts`,
+            impact: -6,
+            emotional: false,
+          });
+          
+          // Analyst notes disappointment but less emotionally
+          if (memAnaEnhanced.favoritePlayers?.includes(topLoserPlayer.name)) {
+            evolvePersonality(memAnaEnhanced, {
+              type: 'favorite_player_disappointed',
+              intensity: 4,
+              context: `${topLoserPlayer.name} underperformed expectations`,
+              week,
+            });
+          }
+        }
+      }
+    }
 
     return {
       matchup_id: p.matchup_id,
@@ -1746,6 +1834,25 @@ export async function composeNewsletter(input: ComposeNewsletterInput, qualityRe
 
   const pairs = derived.matchup_pairs || [];
   const events = derived.events_scored || [];
+  
+  // Track mentions for obsession detection
+  const entertainerMentions = new Map<string, number>();
+  const analystMentions = new Map<string, number>();
+  
+  // Helper to track team mentions
+  const trackMention = (mentions: Map<string, number>, subject: string) => {
+    mentions.set(subject, (mentions.get(subject) || 0) + 1);
+  };
+  
+  // Fade old obsessions and decay emotional state at the start of each week
+  if (isEnhancedMemory(memEntertainer)) {
+    fadeObsessions(memEntertainer, week);
+    decayEmotionalState(memEntertainer);
+  }
+  if (isEnhancedMemory(memAnalyst)) {
+    fadeObsessions(memAnalyst, week);
+    decayEmotionalState(memAnalyst);
+  }
 
   // Build enhanced context string for LLM
   const standingsCtx = buildStandingsContext(enhancedContext?.standings);
@@ -1813,8 +1920,8 @@ export async function composeNewsletter(input: ComposeNewsletterInput, qualityRe
   if (episodeType === 'regular' && pairs.length > 0) {
     console.log(`[Compose] Generating LLM-powered features (debates, hot takes, awards, etc.)...`);
     try {
-      const personaCtxEnt = `${getPersonalityContext(memEntertainer)}${getPartnerDynamicsContext(memEntertainer)}`;
-      const personaCtxAna = `${getPersonalityContext(memAnalyst)}${getPartnerDynamicsContext(memAnalyst)}`;
+      const personaCtxEnt = `${getPersonalityContext(memEntertainer)}${getPartnerDynamicsContext(memEntertainer)}${getObsessionContext(memEntertainer)}`;
+      const personaCtxAna = `${getPersonalityContext(memAnalyst)}${getPartnerDynamicsContext(memAnalyst)}${getObsessionContext(memAnalyst)}`;
       const llmInput: LLMFeaturesInput = {
         week,
         pairs,
@@ -1832,7 +1939,7 @@ export async function composeNewsletter(input: ComposeNewsletterInput, qualityRe
       llmFeatures = await generateAllLLMFeatures(llmInput);
       console.log(`[Compose] LLM features generated: ${llmFeatures.debates.length} debates, ${llmFeatures.hotTakes.length} hot takes, ${llmFeatures.whatIfs.length} what-ifs`);
 
-      // Persist hot takes into memory (enhanced only) and register short emerging phrases safely
+      // Persist hot takes into memory (enhanced only)
       if (llmFeatures.hotTakes && llmFeatures.hotTakes.length > 0) {
         for (const ht of llmFeatures.hotTakes) {
           if (ht.bot === 'entertainer' && isEnhancedMemory(memEntertainer)) {
@@ -1842,10 +1949,15 @@ export async function composeNewsletter(input: ComposeNewsletterInput, qualityRe
               subject: ht.subject,
               boldness: ht.boldness,
             });
-            const phrase = (ht.subject || '').trim();
-            const wordCount = phrase.split(/\s+/).filter(Boolean).length;
-            if (phrase && wordCount >= 2 && wordCount <= 3) {
-              registerEmergingPhrase(memEntertainer, phrase, 'Hot Take subject', week, `HotTake: ${ht.take}`);
+            
+            // Evolve personality based on hot take boldness
+            if (ht.boldness === 'spicy' || ht.boldness === 'nuclear') {
+              evolvePersonality(memEntertainer, {
+                type: 'bold_take_paid_off',
+                intensity: ht.boldness === 'nuclear' ? 8 : 5,
+                context: ht.take,
+                week,
+              });
             }
           }
           if (ht.bot === 'analyst' && isEnhancedMemory(memAnalyst)) {
@@ -1855,10 +1967,15 @@ export async function composeNewsletter(input: ComposeNewsletterInput, qualityRe
               subject: ht.subject,
               boldness: ht.boldness,
             });
-            const phrase = (ht.subject || '').trim();
-            const wordCount = phrase.split(/\s+/).filter(Boolean).length;
-            if (phrase && wordCount >= 2 && wordCount <= 3) {
-              registerEmergingPhrase(memAnalyst, phrase, 'Hot Take subject', week, `HotTake: ${ht.take}`);
+            
+            // Analyst takes are more measured but still tracked
+            if (ht.boldness === 'spicy' || ht.boldness === 'nuclear') {
+              evolvePersonality(memAnalyst, {
+                type: 'bold_take_paid_off',
+                intensity: ht.boldness === 'nuclear' ? 6 : 3,
+                context: ht.take,
+                week,
+              });
             }
           }
         }
@@ -1970,6 +2087,39 @@ export async function composeNewsletter(input: ComposeNewsletterInput, qualityRe
   }
 
   sections.push({ type: 'FinalWord', data: finalWord });
+
+  // Track team mentions from recaps for obsession detection
+  for (const recap of recaps) {
+    if (recap.winner) {
+      trackMention(entertainerMentions, recap.winner);
+      trackMention(analystMentions, recap.winner);
+    }
+    if (recap.loser) {
+      trackMention(entertainerMentions, recap.loser);
+      trackMention(analystMentions, recap.loser);
+    }
+  }
+  
+  // Track mentions from hot takes
+  if (llmFeatures?.hotTakes) {
+    for (const ht of llmFeatures.hotTakes) {
+      if (ht.subject) {
+        if (ht.bot === 'entertainer') {
+          trackMention(entertainerMentions, ht.subject);
+        } else {
+          trackMention(analystMentions, ht.subject);
+        }
+      }
+    }
+  }
+  
+  // Detect obsessions based on this week's mentions
+  if (isEnhancedMemory(memEntertainer)) {
+    detectObsessions(memEntertainer, entertainerMentions, week);
+  }
+  if (isEnhancedMemory(memAnalyst)) {
+    detectObsessions(memAnalyst, analystMentions, week);
+  }
 
   // Build episode title based on type
   const episodeTitle = isSpecialEpisode ? episodeConfig.title : undefined;

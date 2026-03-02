@@ -1178,6 +1178,76 @@ export function getPersonalityContext(mem: BotMemory): string {
 }
 
 /**
+ * Detect obsessions based on mention frequency
+ * Call this after generating content to track what bots keep talking about
+ */
+export function detectObsessions(
+  mem: BotMemory,
+  mentions: Map<string, number>,
+  week: number
+): void {
+  if (!mem.speechPatterns) return;
+  
+  // Check each mentioned topic
+  for (const [topic, count] of mentions.entries()) {
+    if (count < 3) continue; // Need 3+ mentions in one week to be notable
+    
+    // Check if already an obsession
+    const existing = mem.speechPatterns.obsessions.find(o => o.topic === topic);
+    
+    if (existing) {
+      // Update existing obsession
+      existing.mentions++;
+    } else {
+      // New potential obsession - add it
+      mem.speechPatterns.obsessions.push({
+        topic,
+        reason: 'Frequently mentioned',
+        startedWeek: week,
+        mentions: 1,
+      });
+    }
+  }
+  
+  // Keep only top 3 obsessions by mention count
+  if (mem.speechPatterns.obsessions.length > 3) {
+    mem.speechPatterns.obsessions.sort((a, b) => b.mentions - a.mentions);
+    mem.speechPatterns.obsessions = mem.speechPatterns.obsessions.slice(0, 3);
+  }
+}
+
+/**
+ * Fade obsessions that haven't been mentioned recently
+ * Call this each week to clean up old obsessions
+ */
+export function fadeObsessions(mem: BotMemory, week: number): void {
+  if (!mem.speechPatterns || !mem.speechPatterns.obsessions) return;
+  
+  // Remove obsessions not mentioned in 4+ weeks (based on when they started)
+  mem.speechPatterns.obsessions = mem.speechPatterns.obsessions.filter(
+    o => week - o.startedWeek < 4
+  );
+}
+
+/**
+ * Get obsession context for LLM prompts
+ */
+export function getObsessionContext(mem: BotMemory): string {
+  if (!mem.speechPatterns || !mem.speechPatterns.obsessions || mem.speechPatterns.obsessions.length === 0) {
+    return '';
+  }
+  
+  const active = mem.speechPatterns.obsessions.filter(o => o.mentions >= 2);
+  if (active.length === 0) return '';
+  
+  const lines = active.map(o => 
+    `- You've been obsessed with ${o.topic} (mentioned ${o.mentions} times)`
+  );
+  
+  return `\nYOUR CURRENT OBSESSIONS:\n${lines.join('\n')}\nFeel free to reference these naturally if relevant.`;
+}
+
+/**
  * Get deep player relationship context for prompts
  */
 export function getPlayerRelationshipContext(mem: BotMemory, playerIds: string[]): string {
