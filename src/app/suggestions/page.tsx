@@ -357,12 +357,20 @@ export default function SuggestionsPage() {
                               }) : it))}
                               required
                               disabled={!d.rules?.sectionId}
+                              className="font-mono text-sm"
                             >
                               <option value="">{d.rules?.sectionId ? 'Select rule item' : 'Select a section first'}</option>
                               {(d.rules?.sectionId ? itemsBySection[d.rules.sectionId] || [] : []).map((it) => (
-                                <option key={it.label} value={it.label}>{it.label}</option>
+                                <option key={it.label} value={it.label}>
+                                  {it.code} — {it.title}
+                                </option>
                               ))}
                             </Select>
+                            {d.rules?.refTitle && (
+                              <p className="text-xs text-[var(--muted)] mt-1">
+                                Selected: {d.rules.refTitle}
+                              </p>
+                            )}
                           </div>
                           <div>
                             <Label className="mb-1 block">Effective</Label>

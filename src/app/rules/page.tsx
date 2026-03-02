@@ -30,7 +30,7 @@ export default function RulesPage() {
       title: s.title,
       content: (
         <div
-          className="space-y-2"
+          className="rules-content space-y-4"
           dangerouslySetInnerHTML={{ __html: s.html }}
         />
       ),
@@ -60,6 +60,41 @@ export default function RulesPage() {
   
   return (
     <div className="container mx-auto px-4 py-8">
+      <style jsx global>{`
+        .rules-content p {
+          margin-bottom: 0.75rem;
+          line-height: 1.6;
+        }
+        .rules-content p strong {
+          color: var(--text);
+          font-weight: 600;
+        }
+        .rules-content ul {
+          margin-left: 1.5rem;
+          margin-bottom: 1rem;
+          list-style-type: disc;
+        }
+        .rules-content ul ul {
+          margin-left: 1.5rem;
+          margin-top: 0.5rem;
+          list-style-type: circle;
+        }
+        .rules-content ul ul ul {
+          list-style-type: square;
+        }
+        .rules-content li {
+          margin-bottom: 0.5rem;
+          line-height: 1.6;
+          padding-left: 0.25rem;
+        }
+        .rules-content li strong {
+          color: var(--text);
+          font-weight: 600;
+        }
+        .rules-content li > ul {
+          margin-top: 0.5rem;
+        }
+      `}</style>
       <SectionHeader title="League Rules" />
       
       {/* Search Bar */}

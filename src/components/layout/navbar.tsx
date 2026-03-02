@@ -192,8 +192,8 @@ export default function Navbar() {
 
   return (
     <>
-    <nav className="evw-glass text-[var(--text)] border-b border-[var(--border)] sticky top-0 z-50 shadow-sm" aria-label="Main navigation">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    <nav className="evw-surface border-b border-[var(--border)] sticky top-0 backdrop-blur-sm bg-[var(--surface)]/95 z-50">
+      <div className="container mx-auto px-4">
         <div className="flex items-center justify-between h-16">
           <div className="flex items-center">
             <div className="flex-shrink-0">
@@ -421,7 +421,7 @@ export default function Navbar() {
 
       {/* Mobile menu, show/hide based on menu state */}
       <div
-        className={`${mobileMenuOpen ? 'block' : 'hidden'} md:hidden`}
+        className={`${mobileMenuOpen ? 'block' : 'hidden'} md:hidden relative z-40`}
         id="mobile-menu"
         role="menu"
         aria-labelledby="mobile-menu-button"
