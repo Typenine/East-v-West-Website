@@ -1025,9 +1025,9 @@ export default function DraftContent() {
                         <p className="text-[var(--muted)]">
                           Access the live draft room to participate in the draft, view picks in real-time, and manage your queue.
                         </p>
-                        <Button variant="primary" onClick={() => window.location.href = '/draft/room'}>
+                        <a href="/draft/room" className="btn btn-primary text-sm px-3 py-1.5 inline-block">
                           Enter Draft Room →
-                        </Button>
+                        </a>
                       </div>
                     </CardContent>
                   </Card>
@@ -1047,12 +1047,12 @@ export default function DraftContent() {
                         Commissioner controls for setting up and managing the live draft. Create drafts, upload custom player lists, control the clock, and more.
                       </p>
                       <div className="flex gap-3">
-                        <Button variant="primary" onClick={() => window.location.href = '/admin/draft'}>
+                        <a href="/admin/draft" className="btn btn-primary text-sm px-3 py-1.5 inline-block">
                           Open Draft Control Panel
-                        </Button>
-                        <Button variant="ghost" onClick={() => window.open('/draft/overlay', '_blank')}>
+                        </a>
+                        <a href="/draft/overlay" target="_blank" rel="noopener noreferrer" className="btn pill pill-hover text-[var(--text)] text-sm px-3 py-1.5 inline-block">
                           Open Presentation Overlay
-                        </Button>
+                        </a>
                       </div>
                     </div>
                   </CardContent>
