@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import Image from 'next/image';
+import Link from 'next/link';
 import CountdownTimer from '@/components/ui/countdown-timer';
 import { IMPORTANT_DATES, LEAGUE_IDS } from '@/lib/constants/league';
 import EmptyState from '@/components/ui/empty-state';
@@ -489,6 +490,30 @@ export default function DraftContent() {
   return (
     <div className="container mx-auto px-4 py-8">
       <SectionHeader title="Draft Central" />
+      
+      {/* Quick Access Links */}
+      <div className="mt-6 mb-6 flex gap-3 flex-wrap">
+        <Link href="/draft/room">
+          <Button variant="primary">
+            🎯 Enter Draft Room
+          </Button>
+        </Link>
+        {isAdmin && (
+          <>
+            <Link href="/admin/draft">
+              <Button variant="ghost">
+                ⚙️ Admin Panel
+              </Button>
+            </Link>
+            <Link href="/draft/overlay" target="_blank">
+              <Button variant="ghost">
+                📺 Open Overlay
+              </Button>
+            </Link>
+          </>
+        )}
+      </div>
+
       <div className="mt-6">
         <Tabs
           activeId={activeOuterTab}
@@ -1010,9 +1035,9 @@ export default function DraftContent() {
                 </Card>
               ),
             },
-            ...(isAdmin ? [{
+{
               id: 'draft-room',
-              label: 'Draft Room',
+              label: '🎯 Live Draft Room',
               content: (
                 <Card>
                   <CardHeader>
@@ -1021,16 +1046,19 @@ export default function DraftContent() {
                   <CardContent>
                     <div className="space-y-4">
                       <p className="text-[var(--muted)]">
-                        Access the live draft room to participate in the draft, view picks in real-time, and manage your queue.
+                        Access the live draft room to participate in the draft, view picks in real-time, and manage your queue. Switch between Draft Room and Broadcast View tabs.
                       </p>
-                      <Button onClick={() => window.location.href = '/draft/room'} variant="primary">
-                        Enter Draft Room
-                      </Button>
+                      <Link href="/draft/room">
+                        <Button variant="primary">
+                          Enter Draft Room →
+                        </Button>
+                      </Link>
                     </div>
                   </CardContent>
                 </Card>
               ),
-            },{
+            },
+            ...(isAdmin ? [{
               id: 'setup-draft',
               label: 'Setup Draft',
               content: (
@@ -1044,12 +1072,16 @@ export default function DraftContent() {
                         Commissioner controls for setting up and managing the live draft. Create drafts, upload custom player lists, control the clock, and more.
                       </p>
                       <div className="flex gap-3">
-                        <Button onClick={() => window.location.href = '/admin/draft'} variant="primary">
-                          Open Draft Control Panel
-                        </Button>
-                        <Button onClick={() => window.location.href = '/draft/overlay'} variant="ghost">
-                          Open Presentation Overlay
-                        </Button>
+                        <Link href="/admin/draft">
+                          <Button variant="primary">
+                            Open Draft Control Panel
+                          </Button>
+                        </Link>
+                        <Link href="/draft/overlay" target="_blank">
+                          <Button variant="ghost">
+                            Open Presentation Overlay
+                          </Button>
+                        </Link>
                       </div>
                     </div>
                   </CardContent>
