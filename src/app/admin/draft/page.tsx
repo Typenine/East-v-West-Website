@@ -229,12 +229,10 @@ export default function AdminDraftPage() {
         </div>
       </div>
 
-      {/* Live Overlay - Always Visible */}
+      {/* Live Overlay - Full Screen Display */}
       {draft && (
-        <div className="mb-4 rounded-lg overflow-hidden border border-[var(--border)] bg-black" style={{ height: '500px' }}>
-          <div className="h-full scale-[0.7] origin-top-left" style={{ width: '142.86%', height: '142.86%' }}>
-            <DraftOverlayLive />
-          </div>
+        <div className="mb-6 rounded-lg overflow-hidden border border-[var(--border)] bg-black" style={{ height: 'calc(100vh - 300px)', minHeight: '700px' }}>
+          <DraftOverlayLive />
         </div>
       )}
 

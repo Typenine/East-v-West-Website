@@ -244,11 +244,9 @@ export default function DraftRoomPage() {
         )}
       </div>
 
-      {/* Live Overlay - Always Visible */}
-      <div className="mb-4 rounded-lg overflow-hidden border border-[var(--border)] bg-black" style={{ height: '500px' }}>
-        <div className="h-full scale-[0.7] origin-top-left" style={{ width: '142.86%', height: '142.86%' }}>
-          <DraftOverlayLive />
-        </div>
+      {/* Live Overlay - Full Screen Display */}
+      <div className="mb-6 rounded-lg overflow-hidden border border-[var(--border)] bg-black" style={{ height: 'calc(100vh - 300px)', minHeight: '700px' }}>
+        <DraftOverlayLive />
       </div>
 
       {/* Draft Controls Below Overlay */}

@@ -62,20 +62,20 @@ export default function DraftPickAnimation({
     gsap.set('.gsap-player-details', { opacity: 0, y: 20 });
     gsap.set('.gsap-pick-info', { opacity: 0, y: 20 });
 
-    // Animation sequence
+    // Animation sequence - faster pacing to prevent glitches
     tl
-      // PHASE 1: Team intro (2s)
+      // PHASE 1: Team intro (1.5s)
       .to('.gsap-team-intro', {
         opacity: 1,
         scale: 1,
-        duration: 0.8,
+        duration: 0.6,
         ease: 'power2.out',
       })
       .to('.gsap-team-name-bg', {
         opacity: 1,
-        duration: 0.8,
+        duration: 0.6,
         ease: 'sine.inOut',
-      }, '-=0.6')
+      }, '-=0.4')
       .to('.gsap-team-intro', {
         scale: 1.05,
         duration: 1.0,
@@ -108,55 +108,55 @@ export default function DraftPickAnimation({
         ease: 'power2.inOut',
       }, '-=0.4')
       
-      // Hold draft card
+      // Hold draft card (reduced)
       .to('.gsap-draft-card', {
         scale: 1.02,
-        duration: 0.8,
+        duration: 0.4,
         ease: 'sine.inOut',
-      }, '+=0.5')
+      }, '+=0.2')
       
-      // PHASE 4: Transition to player card (0.6s)
+      // PHASE 4: Transition to player card (0.4s)
       .to('.gsap-draft-card', {
         opacity: 0,
         scale: 0.95,
-        duration: 0.6,
+        duration: 0.4,
         ease: 'power2.in',
-      }, '+=0.8')
+      }, '+=0.3')
       
-      // PHASE 5: Player card reveal (2s)
+      // PHASE 5: Player card reveal (1s)
       .to('.gsap-player-card', {
         opacity: 1,
         scale: 1,
-        duration: 0.8,
+        duration: 0.5,
         ease: 'back.out(1.7)',
       }, '-=0.2')
       .to('.gsap-player-name', {
         opacity: 1,
         y: 0,
-        duration: 0.6,
+        duration: 0.4,
         ease: 'power2.out',
-      }, '-=0.4')
+      }, '-=0.3')
       .to('.gsap-player-details', {
         opacity: 1,
         y: 0,
-        duration: 0.6,
+        duration: 0.4,
         ease: 'power2.out',
-      }, '-=0.4')
+      }, '-=0.3')
       .to('.gsap-pick-info', {
         opacity: 1,
         y: 0,
-        duration: 0.6,
+        duration: 0.4,
         ease: 'power2.out',
-      }, '-=0.4')
+      }, '-=0.3')
       
-      // PHASE 6: Hold (2s)
-      .to({}, { duration: 2.0 })
+      // PHASE 6: Hold (1s only)
+      .to({}, { duration: 1.0 })
       
-      // PHASE 7: Exit (1s)
+      // PHASE 7: Exit (0.5s)
       .to(containerRef.current, {
         opacity: 0,
         scale: 0.98,
-        duration: 1.0,
+        duration: 0.5,
         ease: 'power2.inOut',
       });
 

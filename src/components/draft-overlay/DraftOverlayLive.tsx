@@ -106,9 +106,9 @@ export default function DraftOverlayLive() {
   }, [draftGrid]);
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-zinc-950 to-zinc-900 p-6 flex flex-col">
+    <div className="w-full h-full bg-gradient-to-b from-zinc-950 to-zinc-900 p-6 flex flex-col">
       {/* Draft Board Grid */}
-      <div className="flex-1 mb-4">
+      <div className="flex-1 mb-4 min-h-0">
         <div className="grid grid-cols-5 gap-[2px] h-full bg-black/80 rounded-lg overflow-hidden">
           {/* Header Row */}
           <div className="text-center text-[11px] font-bold text-zinc-400 py-1 bg-zinc-900">Pick</div>
