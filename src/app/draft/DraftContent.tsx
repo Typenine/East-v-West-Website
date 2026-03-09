@@ -1011,56 +1011,50 @@ export default function DraftContent() {
                 </Card>
               ),
             },
-            ...(isAdmin ? [
-              {
-                id: 'draft-room',
-                label: '🎯 Live Draft Room',
-                content: (
-                  <Card>
-                    <CardHeader>
-                      <CardTitle>Live Draft Room</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="space-y-4">
-                        <p className="text-[var(--muted)]">
-                          Access the live draft room to participate in the draft, view picks in real-time, and manage your queue.
-                        </p>
-                        <a href="/draft/room" className="btn btn-primary text-sm px-3 py-1.5 inline-block">
-                          Enter Draft Room →
-                        </a>
-                      </div>
-                    </CardContent>
-                  </Card>
-                ),
-              },
-              {
-              id: 'setup-draft',
-              label: 'Setup Draft',
-              content: (
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Draft Setup &amp; Control</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="space-y-4">
-                      <p className="text-[var(--muted)]">
-                        Commissioner controls for setting up and managing the live draft. Create drafts, upload custom player lists, control the clock, and more.
-                      </p>
-                      <div className="flex gap-3">
-                        <a href="/admin/draft" className="btn btn-primary text-sm px-3 py-1.5 inline-block">
-                          Open Draft Control Panel
-                        </a>
-                        <a href="/draft/overlay" target="_blank" rel="noopener noreferrer" className="btn pill pill-hover text-[var(--text)] text-sm px-3 py-1.5 inline-block">
-                          Open Presentation Overlay
-                        </a>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              ),
-            }] : []),
           ]}
         />
+
+        {/* Admin Quick Links - Outside of tabs for direct access */}
+        {isAdmin && (
+          <div className="mt-8 grid grid-cols-1 md:grid-cols-2 gap-4">
+            <Card>
+              <CardHeader>
+                <CardTitle>🎯 Live Draft Room</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  <p className="text-[var(--muted)]">
+                    Access the live draft room to participate in the draft, view picks in real-time, and manage your queue.
+                  </p>
+                  <a href="/draft/room" className="btn btn-primary text-sm px-3 py-1.5 inline-block">
+                    Enter Draft Room →
+                  </a>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>⚙️ Draft Setup &amp; Control</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  <p className="text-[var(--muted)]">
+                    Commissioner controls for setting up and managing the live draft. Create drafts, upload custom player lists, control the clock, and more.
+                  </p>
+                  <div className="flex gap-3">
+                    <a href="/admin/draft" className="btn btn-primary text-sm px-3 py-1.5 inline-block">
+                      Open Draft Control Panel
+                    </a>
+                    <a href="/draft/overlay" target="_blank" rel="noopener noreferrer" className="btn pill pill-hover text-[var(--text)] text-sm px-3 py-1.5 inline-block">
+                      Open Presentation Overlay
+                    </a>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        )}
       </div>
     </div>
   );
