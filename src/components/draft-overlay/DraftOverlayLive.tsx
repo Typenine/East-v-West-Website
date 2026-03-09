@@ -6,7 +6,6 @@ import { useDraftData } from './useDraftData';
 import { getTeamLogoPath } from '@/lib/utils/team-utils';
 import { getTeamColors } from '@/lib/constants/team-colors';
 import DraftPickAnimation from './DraftPickAnimation';
-import styles from './OverlayDisplay.module.css';
 
 // Position colors for player cards
 const positionColors: Record<string, string> = {
@@ -105,9 +104,9 @@ export default function DraftOverlayLive() {
   }, [draftGrid]);
 
   return (
-    <div className={styles.overlay}>
+    <div className="min-h-screen bg-gradient-to-b from-zinc-950 to-zinc-900 p-6 flex flex-col">
       {/* Draft Board Grid */}
-      <div className={styles.draftBoardContainer}>
+      <div className="flex-1 mb-4">
         <div className="grid grid-cols-5 gap-[2px] h-full bg-black/80 rounded-lg overflow-hidden">
           {/* Header Row */}
           <div className="text-center text-[11px] font-bold text-zinc-400 py-1 bg-zinc-900">Pick</div>
@@ -163,7 +162,7 @@ export default function DraftOverlayLive() {
       </div>
 
       {/* Bottom Bar: ClockBox + InfoBar */}
-      <div className={styles.topRow}>
+      <div className="flex gap-4 items-stretch">
         {/* ClockBox */}
         <div
           className="flex items-stretch shrink-0"
