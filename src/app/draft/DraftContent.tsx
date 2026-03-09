@@ -1011,30 +1011,29 @@ export default function DraftContent() {
                 </Card>
               ),
             },
-{
-              id: 'draft-room',
-              label: '🎯 Live Draft Room',
-              content: (
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Live Draft Room</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="space-y-4">
-                      <p className="text-[var(--muted)]">
-                        Access the live draft room to participate in the draft, view picks in real-time, and manage your queue. Switch between Draft Room and Broadcast View tabs.
-                      </p>
-                      <Link href="/draft/room">
-                        <Button variant="primary">
+            ...(isAdmin ? [
+              {
+                id: 'draft-room',
+                label: '🎯 Live Draft Room',
+                content: (
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>Live Draft Room</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="space-y-4">
+                        <p className="text-[var(--muted)]">
+                          Access the live draft room to participate in the draft, view picks in real-time, and manage your queue.
+                        </p>
+                        <Button variant="primary" onClick={() => window.location.href = '/draft/room'}>
                           Enter Draft Room →
                         </Button>
-                      </Link>
-                    </div>
-                  </CardContent>
-                </Card>
-              ),
-            },
-            ...(isAdmin ? [{
+                      </div>
+                    </CardContent>
+                  </Card>
+                ),
+              },
+              {
               id: 'setup-draft',
               label: 'Setup Draft',
               content: (
@@ -1048,16 +1047,12 @@ export default function DraftContent() {
                         Commissioner controls for setting up and managing the live draft. Create drafts, upload custom player lists, control the clock, and more.
                       </p>
                       <div className="flex gap-3">
-                        <Link href="/admin/draft">
-                          <Button variant="primary">
-                            Open Draft Control Panel
-                          </Button>
-                        </Link>
-                        <Link href="/draft/overlay" target="_blank">
-                          <Button variant="ghost">
-                            Open Presentation Overlay
-                          </Button>
-                        </Link>
+                        <Button variant="primary" onClick={() => window.location.href = '/admin/draft'}>
+                          Open Draft Control Panel
+                        </Button>
+                        <Button variant="ghost" onClick={() => window.open('/draft/overlay', '_blank')}>
+                          Open Presentation Overlay
+                        </Button>
                       </div>
                     </div>
                   </CardContent>
