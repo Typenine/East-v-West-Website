@@ -45,8 +45,10 @@ export default function DraftPickAnimation({
     // Create master timeline
     const tl = gsap.timeline({
       onComplete: () => {
-        console.log('[GSAP] Draft animation completed');
-        onComplete?.();
+        console.log('[GSAP] Draft animation completed for pick', pickNumber);
+        if (onComplete) {
+          onComplete();
+        }
       },
     });
 

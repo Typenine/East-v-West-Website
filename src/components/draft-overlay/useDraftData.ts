@@ -145,9 +145,19 @@ export function useDraftData(basePollIntervalMs = 1000) {
 
       // Check for new pick
       const lastPick = draft?.recentPicks?.length ? draft.recentPicks[draft.recentPicks.length - 1] : null;
-      const isNewPick = lastPick ? lastPick.overall !== lastOverallRef.current : false;
+      
+      // On first load, initialize the ref without triggering animation
+      let isNewPick = false;
       if (lastPick) {
-        lastOverallRef.current = lastPick.overall;
+        if (lastOverallRef.current === null) {
+          // First load - don't trigger animation for existing picks
+          lastOverallRef.current = lastPick.overall;
+          isNewPick = false;
+        } else if (lastPick.overall !== lastOverallRef.current) {
+          // New pick detected
+          lastOverallRef.current = lastPick.overall;
+          isNewPick = true;
+        }
       }
 
       lastUpdateMsRef.current = Date.now();

@@ -44,9 +44,14 @@ export default function DraftOverlayLive() {
 
   // Show full pick animation when new pick comes in (only once per pick)
   useEffect(() => {
+    // Only trigger if this is genuinely a NEW pick we haven't animated yet
     if (isNewPick && lastPick && lastPick.overall !== lastAnimatedPickRef.current) {
+      console.log('[Animation] Triggering animation for pick', lastPick.overall);
       lastAnimatedPickRef.current = lastPick.overall;
       setShowPickAnimation(true);
+    } else if (!isNewPick) {
+      // If isNewPick is false, make sure animation is off
+      setShowPickAnimation(false);
     }
   }, [isNewPick, lastPick]);
 
