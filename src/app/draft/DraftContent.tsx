@@ -490,30 +490,6 @@ export default function DraftContent() {
   return (
     <div className="container mx-auto px-4 py-8">
       <SectionHeader title="Draft Central" />
-      
-      {/* Quick Access Links */}
-      <div className="mt-6 mb-6 flex gap-3 flex-wrap">
-        <Link href="/draft/room">
-          <Button variant="primary">
-            🎯 Enter Draft Room
-          </Button>
-        </Link>
-        {isAdmin && (
-          <>
-            <Link href="/admin/draft">
-              <Button variant="ghost">
-                ⚙️ Admin Panel
-              </Button>
-            </Link>
-            <Link href="/draft/overlay" target="_blank">
-              <Button variant="ghost">
-                📺 Open Overlay
-              </Button>
-            </Link>
-          </>
-        )}
-      </div>
-
       <div className="mt-6">
         <Tabs
           activeId={activeOuterTab}

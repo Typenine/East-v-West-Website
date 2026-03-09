@@ -9,6 +9,9 @@ import Input from '@/components/ui/Input';
 import Select from '@/components/ui/Select';
 import Button from '@/components/ui/Button';
 import { TEAM_NAMES } from '@/lib/constants/league';
+import DraftOverlayLive from '@/components/draft-overlay/DraftOverlayLive';
+import { getTeamLogoPath } from '@/lib/utils/team-utils';
+import { getTeamColors } from '@/lib/constants/team-colors';
 
 type DraftOverview = {
   id: string;
@@ -212,22 +215,28 @@ export default function AdminDraftPage() {
   };
 
   return (
-    <div className="container mx-auto px-4 py-8">
-      {/* Header with navigation */}
-      <div className="flex items-center justify-between mb-6">
+    <div className="container mx-auto px-4 py-8 max-w-[1800px]">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-4">
         <SectionHeader title="Admin: Draft Control" />
         <div className="flex gap-2">
           <Link href="/draft">
             <Button variant="ghost" size="sm">← Draft Page</Button>
           </Link>
-          <Link href="/draft/overlay" target="_blank">
-            <Button variant="primary" size="sm">🖥️ Open Overlay</Button>
-          </Link>
-          <Link href="/draft/room" target="_blank">
-            <Button variant="ghost" size="sm">📋 Draft Room</Button>
+          <Link href="/draft/room">
+            <Button variant="ghost" size="sm">� Draft Room</Button>
           </Link>
         </div>
       </div>
+
+      {/* Live Overlay - Always Visible */}
+      {draft && (
+        <div className="mb-4 rounded-lg overflow-hidden border border-[var(--border)] bg-black" style={{ height: '500px' }}>
+          <div className="h-full scale-[0.7] origin-top-left" style={{ width: '142.86%', height: '142.86%' }}>
+            <DraftOverlayLive />
+          </div>
+        </div>
+      )}
 
       {error && (
         <div className="mb-4 text-[var(--danger)] text-sm">{error}</div>
@@ -443,25 +452,60 @@ export default function AdminDraftPage() {
               <CardHeader><CardTitle>Recent Picks</CardTitle></CardHeader>
               <CardContent>
                 {recent.length === 0 ? <p className="text-[var(--muted)]">No picks yet.</p> : (
-                  <ul className="space-y-1">
-                    {recent.slice().reverse().map((p, idx) => (
-                      <li key={`${p.overall}-${idx}`} className="text-sm">
-                        #{p.overall} (R{p.round}) {p.team} — {p.playerName || p.playerId}
-                      </li>
-                    ))}
+                  <ul className="space-y-2">
+                    {recent.slice().reverse().map((p, idx) => {
+                      const teamLogo = getTeamLogoPath(p.team);
+                      const teamColors = getTeamColors(p.team);
+                      return (
+                        <li 
+                          key={`${p.overall}-${idx}`} 
+                          className="flex items-center gap-3 p-2 rounded"
+                          style={{
+                            background: `linear-gradient(90deg, ${teamColors.primary}20 0%, transparent 100%)`,
+                            borderLeft: `3px solid ${teamColors.primary}`
+                          }}
+                        >
+                          <div className="w-8 h-8 bg-zinc-800 rounded overflow-hidden flex-shrink-0">
+                            {teamLogo && <img src={teamLogo} alt={p.team} className="w-full h-full object-contain" />}
+                          </div>
+                          <div className="flex-1 text-sm">
+                            <div className="font-semibold">#{p.overall} (R{p.round}) — {p.playerName || p.playerId}</div>
+                            <div className="text-xs text-[var(--muted)]">{p.team}</div>
+                          </div>
+                        </li>
+                      );
+                    })}
                   </ul>
                 )}
               </CardContent>
             </Card>
 
             <Card>
-              <CardHeader><CardTitle>Upcoming</CardTitle></CardHeader>
+              <CardHeader><CardTitle>Upcoming Picks</CardTitle></CardHeader>
               <CardContent>
                 {upcoming.length === 0 ? <p className="text-[var(--muted)]">—</p> : (
-                  <ul className="flex flex-wrap gap-2">
-                    {upcoming.map((u) => (
-                      <li key={u.overall} className="text-xs px-2 py-0.5 rounded border border-[var(--border)]">#{u.overall} R{u.round} — {u.team}</li>
-                    ))}
+                  <ul className="space-y-1">
+                    {upcoming.map((u) => {
+                      const teamLogo = getTeamLogoPath(u.team);
+                      const teamColors = getTeamColors(u.team);
+                      return (
+                        <li 
+                          key={u.overall} 
+                          className="flex items-center gap-2 p-1 text-xs rounded"
+                          style={{
+                            background: `${teamColors.primary}10`,
+                            borderLeft: `2px solid ${teamColors.primary}`
+                          }}
+                        >
+                          <div className="w-6 h-6 bg-zinc-800 rounded overflow-hidden flex-shrink-0">
+                            {teamLogo && <img src={teamLogo} alt={u.team} className="w-full h-full object-contain" />}
+                          </div>
+                          <span className="font-semibold">#{u.overall}</span>
+                          <span className="text-[var(--muted)]">R{u.round}</span>
+                          <span className="flex-1">{u.team}</span>
+                        </li>
+                      );
+                    })}
                   </ul>
                 )}
               </CardContent>

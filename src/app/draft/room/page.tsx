@@ -23,7 +23,7 @@ type DraftOverview = {
   onClockTeam?: string | null;
   clockStartedAt?: string | null;
   deadlineTs?: string | null;
-  recentPicks: Array<{ overall: number; round: number; team: string; playerId: string; playerName?: string | null; madeAt: string }>;
+  recentPicks: Array<{ overall: number; round: number; team: string; playerId: string; playerName?: string | null; playerPos?: string | null; madeAt: string }>;
   upcoming: Array<{ overall: number; round: number; team: string }>;
 };
 
@@ -178,16 +178,14 @@ export default function DraftRoomPage() {
     return `${m}:${String(s).padStart(2, '0')}`;
   };
 
-  const [activeTab, setActiveTab] = useState<'room' | 'overlay'>('room');
-
   return (
-    <div className="container mx-auto px-4 py-6">
-      {/* Presentation Header */}
-      <div className="mb-6">
-        <div className="flex items-center justify-between mb-4">
-          <h1 className="text-2xl font-bold">Draft Room</h1>
+    <div className="container mx-auto px-4 py-6 max-w-[1600px]">
+      {/* Header */}
+      <div className="mb-4">
+        <div className="flex items-center justify-between">
+          <h1 className="text-xl font-bold">Draft Room{myTeam ? `: ${myTeam}` : ''}</h1>
           <div className="text-sm text-[var(--muted)]">
-            {myTeam ? `Logged in as: ${myTeam}` : 'Not logged in'}
+            {draft ? `${draft.year} Draft - ${draft.status}` : 'No active draft'}
           </div>
         </div>
 
@@ -246,39 +244,15 @@ export default function DraftRoomPage() {
         )}
       </div>
 
-      {/* View Switcher */}
-      <div className="flex gap-2 mb-6 border-b border-[var(--border)]">
-        <button
-          onClick={() => setActiveTab('room')}
-          className={`px-4 py-2 font-medium transition-colors ${
-            activeTab === 'room'
-              ? 'text-[var(--accent)] border-b-2 border-[var(--accent)]'
-              : 'text-[var(--muted)] hover:text-[var(--foreground)]'
-          }`}
-        >
-          🎯 Draft Room
-        </button>
-        <button
-          onClick={() => setActiveTab('overlay')}
-          className={`px-4 py-2 font-medium transition-colors ${
-            activeTab === 'overlay'
-              ? 'text-[var(--accent)] border-b-2 border-[var(--accent)]'
-              : 'text-[var(--muted)] hover:text-[var(--foreground)]'
-          }`}
-        >
-          📺 Broadcast View
-        </button>
+      {/* Live Overlay - Always Visible */}
+      <div className="mb-4 rounded-lg overflow-hidden border border-[var(--border)] bg-black" style={{ height: '500px' }}>
+        <div className="h-full scale-[0.7] origin-top-left" style={{ width: '142.86%', height: '142.86%' }}>
+          <DraftOverlayLive />
+        </div>
       </div>
 
-      {/* Tab Content */}
-      {activeTab === 'overlay' ? (
-        <div className="relative w-full" style={{ height: 'calc(100vh - 300px)', minHeight: '600px' }}>
-          <div className="absolute inset-0 rounded-lg overflow-hidden border border-[var(--border)]">
-            <DraftOverlayLive />
-          </div>
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      {/* Draft Controls Below Overlay */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <div className="lg:col-span-2 space-y-4">
           <Card>
             <CardHeader><CardTitle>{isMyTurn ? 'Make Your Pick' : 'Draft Status'}</CardTitle></CardHeader>
@@ -371,14 +345,68 @@ export default function DraftRoomPage() {
           </Card>
         </div>
 
-        <div className="lg:col-span-1">
+        <div className="lg:col-span-1 space-y-4">
+          {/* My Roster */}
+          {myTeam && draft && (
+            <Card>
+              <CardHeader><CardTitle>My Roster ({myTeam})</CardTitle></CardHeader>
+              <CardContent>
+                {(() => {
+                  const myPicks = draft.recentPicks.filter(p => p.team === myTeam);
+                  return myPicks.length === 0 ? (
+                    <p className="text-[var(--muted)] text-sm">No picks yet</p>
+                  ) : (
+                    <ul className="space-y-1">
+                      {myPicks.map((p) => (
+                        <li key={p.overall} className="text-sm p-2 rounded bg-[var(--card)]/50 border border-[var(--border)]">
+                          <div className="font-semibold">{p.playerName || p.playerId}</div>
+                          <div className="text-xs text-[var(--muted)]">
+                            {p.playerPos || 'N/A'} • Pick #{p.overall} (R{p.round})
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  );
+                })()}
+              </CardContent>
+            </Card>
+          )}
+
+          {/* My Upcoming Picks */}
+          {myTeam && draft && (
+            <Card>
+              <CardHeader><CardTitle>My Upcoming Picks</CardTitle></CardHeader>
+              <CardContent>
+                {(() => {
+                  const myUpcoming = draft.upcoming.filter(u => u.team === myTeam);
+                  return myUpcoming.length === 0 ? (
+                    <p className="text-[var(--muted)] text-sm">No more picks</p>
+                  ) : (
+                    <ul className="space-y-1">
+                      {myUpcoming.map((u) => (
+                        <li key={u.overall} className="text-sm p-1 rounded bg-emerald-900/20 border border-emerald-600/30">
+                          Pick #{u.overall} • Round {u.round}
+                        </li>
+                      ))}
+                    </ul>
+                  );
+                })()}
+              </CardContent>
+            </Card>
+          )}
+
           <Card>
-            <CardHeader><CardTitle>Upcoming</CardTitle></CardHeader>
+            <CardHeader><CardTitle>All Upcoming</CardTitle></CardHeader>
             <CardContent>
               {!draft || draft.upcoming.length === 0 ? <p className="text-[var(--muted)]">—</p> : (
                 <ul className="space-y-1">
-                  {draft.upcoming.map((u) => (
-                    <li key={u.overall} className="text-sm">#{u.overall} (R{u.round}) — {u.team}</li>
+                  {draft.upcoming.slice(0, 10).map((u) => (
+                    <li 
+                      key={u.overall} 
+                      className={`text-sm ${u.team === myTeam ? 'font-bold text-emerald-500' : ''}`}
+                    >
+                      #{u.overall} (R{u.round}) — {u.team}
+                    </li>
                   ))}
                 </ul>
               )}
@@ -386,7 +414,6 @@ export default function DraftRoomPage() {
           </Card>
         </div>
       </div>
-      )}
     </div>
   );
 }

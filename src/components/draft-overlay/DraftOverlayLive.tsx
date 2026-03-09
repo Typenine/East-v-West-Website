@@ -33,6 +33,7 @@ export default function DraftOverlayLive() {
 
   const [showPickAnimation, setShowPickAnimation] = useState(false);
   const clockRef = useRef<HTMLDivElement>(null);
+  const lastAnimatedPickRef = useRef<number | null>(null);
 
   // Format time as MM:SS
   const formatTime = (sec: number) => {
@@ -41,9 +42,10 @@ export default function DraftOverlayLive() {
     return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
   };
 
-  // Show full pick animation when new pick comes in
+  // Show full pick animation when new pick comes in (only once per pick)
   useEffect(() => {
-    if (isNewPick && lastPick) {
+    if (isNewPick && lastPick && lastPick.overall !== lastAnimatedPickRef.current) {
+      lastAnimatedPickRef.current = lastPick.overall;
       setShowPickAnimation(true);
     }
   }, [isNewPick, lastPick]);
