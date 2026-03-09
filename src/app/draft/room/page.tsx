@@ -6,7 +6,9 @@ import Label from '@/components/ui/Label';
 import Input from '@/components/ui/Input';
 import Select from '@/components/ui/Select';
 import Button from '@/components/ui/Button';
-import { getTeamByName, getTeamLogoPath } from '@/components/draft-overlay/teams';
+import { getTeamLogoPath } from '@/lib/utils/team-utils';
+import { getTeamColors } from '@/lib/constants/team-colors';
+import DraftOverlayLive from '@/components/draft-overlay/DraftOverlayLive';
 
 type DraftOverview = {
   id: string;
@@ -165,9 +167,9 @@ export default function DraftRoomPage() {
   };
 
   // Get current team info for presentation
-  const currentTeam = onClock ? getTeamByName(onClock) : null;
-  const teamLogo = currentTeam ? getTeamLogoPath(currentTeam) : null;
-  const teamColors = currentTeam?.colors || ['#333', '#555', null];
+  const teamLogo = onClock ? getTeamLogoPath(onClock) : null;
+  const colors = onClock ? getTeamColors(onClock) : null;
+  const teamColors = colors ? [colors.primary, colors.secondary, colors.tertiary || '#555'] : ['#333', '#555', '#555'];
 
   // Format time as MM:SS
   const formatTime = (sec: number) => {
@@ -175,6 +177,8 @@ export default function DraftRoomPage() {
     const s = sec % 60;
     return `${m}:${String(s).padStart(2, '0')}`;
   };
+
+  const [activeTab, setActiveTab] = useState<'room' | 'overlay'>('room');
 
   return (
     <div className="container mx-auto px-4 py-6">
@@ -203,9 +207,9 @@ export default function DraftRoomPage() {
                 style={{ border: `2px solid ${teamColors[0]}` }}
               >
                 {teamLogo ? (
-                  <img src={teamLogo} alt={currentTeam?.name} className="w-full h-full object-contain" />
+                  <img src={teamLogo} alt={onClock || ''} className="w-full h-full object-contain" />
                 ) : (
-                  <span className="text-2xl font-bold">{currentTeam?.abbrev || '?'}</span>
+                  <span className="text-2xl font-bold">?</span>
                 )}
               </div>
 
@@ -242,7 +246,39 @@ export default function DraftRoomPage() {
         )}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      {/* View Switcher */}
+      <div className="flex gap-2 mb-6 border-b border-[var(--border)]">
+        <button
+          onClick={() => setActiveTab('room')}
+          className={`px-4 py-2 font-medium transition-colors ${
+            activeTab === 'room'
+              ? 'text-[var(--accent)] border-b-2 border-[var(--accent)]'
+              : 'text-[var(--muted)] hover:text-[var(--foreground)]'
+          }`}
+        >
+          🎯 Draft Room
+        </button>
+        <button
+          onClick={() => setActiveTab('overlay')}
+          className={`px-4 py-2 font-medium transition-colors ${
+            activeTab === 'overlay'
+              ? 'text-[var(--accent)] border-b-2 border-[var(--accent)]'
+              : 'text-[var(--muted)] hover:text-[var(--foreground)]'
+          }`}
+        >
+          📺 Broadcast View
+        </button>
+      </div>
+
+      {/* Tab Content */}
+      {activeTab === 'overlay' ? (
+        <div className="relative w-full" style={{ height: 'calc(100vh - 300px)', minHeight: '600px' }}>
+          <div className="absolute inset-0 rounded-lg overflow-hidden border border-[var(--border)]">
+            <DraftOverlayLive />
+          </div>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 space-y-4">
           <Card>
             <CardHeader><CardTitle>{isMyTurn ? 'Make Your Pick' : 'Draft Status'}</CardTitle></CardHeader>
@@ -350,6 +386,7 @@ export default function DraftRoomPage() {
           </Card>
         </div>
       </div>
+      )}
     </div>
   );
 }

@@ -3,7 +3,9 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { gsap } from 'gsap';
 import { useDraftData } from './useDraftData';
-import { getTeamLogoPath } from './teams';
+import { getTeamLogoPath } from '@/lib/utils/team-utils';
+import { getTeamColors } from '@/lib/constants/team-colors';
+import DraftPickAnimation from './DraftPickAnimation';
 import styles from './OverlayDisplay.module.css';
 
 // Position colors for player cards
@@ -21,7 +23,6 @@ export default function DraftOverlayLive() {
     draft,
     currentTeam,
     currentPickIndex,
-    timerSeconds,
     draftGrid,
     nextTeams,
     lastPick,
@@ -29,10 +30,9 @@ export default function DraftOverlayLive() {
     available,
     usingCustom,
     localRemainingSec,
-  } = useDraftData(2000);
+  } = useDraftData(1000); // 1s during LIVE, auto-adjusts to 5s/10s for PAUSED/COMPLETED
 
-  const [showPickBanner, setShowPickBanner] = useState(false);
-  const pickBannerRef = useRef<HTMLDivElement>(null);
+  const [showPickAnimation, setShowPickAnimation] = useState(false);
   const clockRef = useRef<HTMLDivElement>(null);
 
   // Format time as MM:SS
@@ -42,28 +42,10 @@ export default function DraftOverlayLive() {
     return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
   };
 
-  // Animate pick banner when new pick comes in
+  // Show full pick animation when new pick comes in
   useEffect(() => {
-    if (isNewPick && lastPick && pickBannerRef.current) {
-      setShowPickBanner(true);
-      gsap.killTweensOf(pickBannerRef.current);
-      gsap.fromTo(
-        pickBannerRef.current,
-        { y: 80, opacity: 0, scale: 0.9 },
-        { y: 0, opacity: 1, scale: 1, duration: 0.5, ease: 'back.out(1.7)' }
-      );
-      const timeout = setTimeout(() => {
-        if (pickBannerRef.current) {
-          gsap.to(pickBannerRef.current, {
-            y: -40,
-            opacity: 0,
-            duration: 0.4,
-            ease: 'power2.in',
-            onComplete: () => setShowPickBanner(false),
-          });
-        }
-      }, 5000);
-      return () => clearTimeout(timeout);
+    if (isNewPick && lastPick) {
+      setShowPickAnimation(true);
     }
   }, [isNewPick, lastPick]);
 
@@ -83,7 +65,44 @@ export default function DraftOverlayLive() {
   const roundNumber = Math.floor(currentPickIndex / 12) + 1;
   const pickInRound = (currentPickIndex % 12) + 1;
   const teamColors = currentTeam?.colors || ['#333', '#555', null];
-  const teamLogo = currentTeam ? getTeamLogoPath(currentTeam) : null;
+  const teamLogo = currentTeam ? getTeamLogoPath(currentTeam.name) : null;
+  const prevDraftGridRef = useRef(draftGrid);
+
+  // Animate new picks appearing in the draft board
+  useEffect(() => {
+    const prevGrid = prevDraftGridRef.current;
+    const newPicks: number[] = [];
+    
+    // Find newly filled cells
+    draftGrid.forEach((pick, idx) => {
+      if (pick && !prevGrid[idx]) {
+        newPicks.push(idx);
+      }
+    });
+
+    // Animate each new pick cell
+    if (newPicks.length > 0) {
+      newPicks.forEach((idx, i) => {
+        const cell = document.querySelector(`[data-grid-idx="${idx}"]`);
+        if (cell) {
+          gsap.fromTo(
+            cell,
+            { opacity: 0, scale: 0.8, backgroundColor: '#fbbf24' },
+            {
+              opacity: 1,
+              scale: 1,
+              backgroundColor: '#27272a',
+              duration: 0.6,
+              delay: i * 0.1,
+              ease: 'back.out(1.7)',
+            }
+          );
+        }
+      });
+    }
+
+    prevDraftGridRef.current = draftGrid;
+  }, [draftGrid]);
 
   return (
     <div className={styles.overlay}>
@@ -100,7 +119,13 @@ export default function DraftOverlayLive() {
           {Array.from({ length: 12 }, (_, pickIdx) => (
             <React.Fragment key={pickIdx}>
               {/* Pick number */}
-              <div className={`text-center text-xs font-bold flex items-center justify-center ${currentPickIndex % 12 === pickIdx ? 'text-yellow-400 bg-yellow-400/10' : 'text-zinc-500 bg-zinc-900/80'}`}>
+              <div 
+                className={`text-center text-xs font-bold flex items-center justify-center transition-all duration-300 ${
+                  currentPickIndex % 12 === pickIdx 
+                    ? 'text-yellow-400 bg-yellow-400/20 animate-pulse' 
+                    : 'text-zinc-500 bg-zinc-900/80'
+                }`}
+              >
                 {pickIdx + 1}
               </div>
               {/* Round cells */}
@@ -111,6 +136,7 @@ export default function DraftOverlayLive() {
                 return (
                   <div
                     key={gridIdx}
+                    data-grid-idx={gridIdx}
                     className={`relative text-[10px] px-1 py-[2px] flex flex-col justify-center ${
                       isCurrentPick
                         ? 'ring-2 ring-yellow-400 bg-yellow-400/20'
@@ -192,7 +218,7 @@ export default function DraftOverlayLive() {
               className="w-16 h-16 bg-zinc-700 rounded overflow-hidden border-2 border-[#a4c810]"
               style={{ boxShadow: '0 0 8px rgba(196, 255, 0, 0.4)' }}
             >
-              {teamLogo && <img src={teamLogo} alt={currentTeam?.name} className="w-full h-full object-contain" />}
+              {teamLogo && <img src={teamLogo} alt={currentTeam?.name || ''} className="w-full h-full object-contain" />}
             </div>
           </div>
         </div>
@@ -219,26 +245,28 @@ export default function DraftOverlayLive() {
         </div>
       </div>
 
-      {/* Pick Banner Animation */}
-      {showPickBanner && lastPick && (
-        <div
-          ref={pickBannerRef}
-          className="fixed bottom-40 left-1/2 -translate-x-1/2 bg-gradient-to-r from-emerald-600 to-emerald-500 px-8 py-6 rounded-xl shadow-2xl"
-          style={{ minWidth: '400px', zIndex: 10050 }}
-        >
-          <div className="text-center text-3xl font-bold text-white">🏈 PICK IS IN!</div>
-          <div className="text-center text-2xl font-semibold text-white mt-2">
-            {lastPick.playerName || lastPick.playerId}
-            {lastPick.playerPos && (
-              <span className="ml-3 px-2 py-1 bg-white/20 rounded text-lg">
-                {lastPick.playerPos}{lastPick.playerNfl ? ` • ${lastPick.playerNfl}` : ''}
-              </span>
-            )}
-          </div>
-          <div className="text-center text-lg text-emerald-100 mt-2">
-            Pick #{lastPick.overall} (Round {lastPick.round}) • {lastPick.team}
-          </div>
-        </div>
+      {/* Full Pick Animation */}
+      {showPickAnimation && lastPick && (
+        <DraftPickAnimation
+          player={{
+            name: lastPick.playerName || lastPick.playerId,
+            position: lastPick.playerPos || 'N/A',
+            team: lastPick.playerNfl || undefined,
+            college: undefined, // TODO: Add college data to API if available
+          }}
+          fantasyTeam={{
+            name: lastPick.team,
+            colors: (() => {
+              const colors = getTeamColors(lastPick.team);
+              return [colors.primary, colors.secondary, colors.tertiary || null];
+            })(),
+          }}
+          pickNumber={lastPick.overall}
+          round={lastPick.round}
+          pickInRound={((lastPick.overall - 1) % 12) + 1}
+          year={draft?.year || new Date().getFullYear()}
+          onComplete={() => setShowPickAnimation(false)}
+        />
       )}
 
       {/* Status Bar */}

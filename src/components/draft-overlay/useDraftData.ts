@@ -1,7 +1,16 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { teams, getTeamByName, getTeamLogoPath, Team } from './teams';
+import { TEAM_NAMES } from '@/lib/constants/league';
+import { getTeamColors } from '@/lib/constants/team-colors';
+import { getTeamLogoPath } from '@/lib/utils/team-utils';
+
+// Team interface for overlay
+interface Team {
+  name: string;
+  abbrev: string;
+  colors: [string, string, string | null];
+}
 
 // Types matching the website's API response
 interface DraftPick {
@@ -48,18 +57,18 @@ export interface OverlayState {
   remainingSec: number | null;
   available: AvailablePlayer[];
   usingCustom: boolean;
-  // Computed values for old overlay components
+  // Computed values for overlay
   currentTeam: Team | null;
   currentPickIndex: number;
   timerSeconds: number;
-  draftOrder: number[]; // Team IDs in pick order
-  draftGrid: Array<{ player: string; position: string; team: number } | null>;
+  draftOrder: string[]; // Team names in pick order
+  draftGrid: Array<{ player: string; position: string; team: string } | null>;
   nextTeams: Array<Team & { logoPath: string | null }>;
   lastPick: DraftPick | null;
   isNewPick: boolean;
 }
 
-export function useDraftData(pollIntervalMs = 2000) {
+export function useDraftData(basePollIntervalMs = 1000) {
   const [state, setState] = useState<OverlayState>({
     draft: null,
     remainingSec: null,
@@ -77,6 +86,7 @@ export function useDraftData(pollIntervalMs = 2000) {
 
   const lastOverallRef = useRef<number | null>(null);
   const lastUpdateMsRef = useRef<number>(Date.now());
+  const [pollInterval, setPollInterval] = useState(basePollIntervalMs);
 
   const fetchDraft = useCallback(async () => {
     try {
@@ -89,9 +99,9 @@ export function useDraftData(pollIntervalMs = 2000) {
       const available = (json.available || []) as AvailablePlayer[];
       const usingCustom = Boolean(json.usingCustom);
 
-      // Compute derived values for old overlay components
+      // Compute derived values for overlay
       const onClockTeamName = draft?.onClockTeam || null;
-      const currentTeam = onClockTeamName ? getTeamByName(onClockTeamName) || null : null;
+      const currentTeam = onClockTeamName ? getTeamFromName(onClockTeamName) : null;
       
       // Current pick index (0-based)
       const currentPickIndex = draft ? draft.curOverall - 1 : 0;
@@ -99,27 +109,24 @@ export function useDraftData(pollIntervalMs = 2000) {
       // Timer in seconds
       const timerSeconds = remainingSec ?? 0;
 
-      // Build draft order from upcoming picks (team IDs)
-      // This is a simplified version - the real order comes from the draft slots
-      const draftOrder: number[] = [];
+      // Build draft order from upcoming picks (team names)
+      const draftOrder: string[] = [];
       if (draft?.upcoming) {
         for (const u of draft.upcoming) {
-          const t = getTeamByName(u.team);
-          if (t) draftOrder.push(t.id);
+          draftOrder.push(u.team);
         }
       }
 
       // Build draft grid from recent picks
-      const draftGrid: Array<{ player: string; position: string; team: number } | null> = Array(48).fill(null);
+      const draftGrid: Array<{ player: string; position: string; team: string } | null> = Array(48).fill(null);
       if (draft?.recentPicks) {
         for (const pick of draft.recentPicks) {
           const idx = pick.overall - 1;
           if (idx >= 0 && idx < 48) {
-            const t = getTeamByName(pick.team);
             draftGrid[idx] = {
               player: pick.playerName || pick.playerId,
               position: pick.playerPos || 'N/A',
-              team: t?.id || 0,
+              team: pick.team,
             };
           }
         }
@@ -129,9 +136,9 @@ export function useDraftData(pollIntervalMs = 2000) {
       const nextTeams: Array<Team & { logoPath: string | null }> = [];
       if (draft?.upcoming) {
         for (const u of draft.upcoming.slice(0, 2)) {
-          const t = getTeamByName(u.team);
-          if (t) {
-            nextTeams.push({ ...t, logoPath: getTeamLogoPath(t) });
+          const team = getTeamFromName(u.team);
+          if (team) {
+            nextTeams.push({ ...team, logoPath: getTeamLogoPath(u.team) });
           }
         }
       }
@@ -144,6 +151,13 @@ export function useDraftData(pollIntervalMs = 2000) {
       }
 
       lastUpdateMsRef.current = Date.now();
+
+      // Adjust polling based on draft status
+      // LIVE: 1s (fast updates during draft)
+      // PAUSED/NOT_STARTED: 5s (slower to conserve resources)
+      // COMPLETED: 10s (minimal polling)
+      const newPollInterval = draft?.status === 'LIVE' ? 1000 : draft?.status === 'COMPLETED' ? 10000 : 5000;
+      setPollInterval(newPollInterval);
 
       setState({
         draft,
@@ -164,12 +178,12 @@ export function useDraftData(pollIntervalMs = 2000) {
     }
   }, []);
 
-  // Initial fetch and polling
+  // Initial fetch and polling with dynamic interval
   useEffect(() => {
     fetchDraft();
-    const interval = setInterval(fetchDraft, pollIntervalMs);
+    const interval = setInterval(fetchDraft, pollInterval);
     return () => clearInterval(interval);
-  }, [fetchDraft, pollIntervalMs]);
+  }, [fetchDraft, pollInterval]);
 
   // Local countdown timer
   const [localTick, setLocalTick] = useState(0);
@@ -186,8 +200,18 @@ export function useDraftData(pollIntervalMs = 2000) {
     ...state,
     localRemainingSec,
     refetch: fetchDraft,
-    teams,
-    getTeamByName,
-    getTeamLogoPath,
+  };
+}
+
+// Helper to convert team name to Team object with colors
+function getTeamFromName(name: string): Team | null {
+  if (!TEAM_NAMES.includes(name)) return null;
+  const colors = getTeamColors(name);
+  // Generate simple abbreviation from team name
+  const abbrev = name.split(' ').map(w => w[0]).join('').slice(0, 3).toUpperCase();
+  return {
+    name,
+    abbrev,
+    colors: [colors.primary, colors.secondary, colors.tertiary || null],
   };
 }

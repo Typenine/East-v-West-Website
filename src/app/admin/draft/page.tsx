@@ -363,6 +363,82 @@ export default function AdminDraftPage() {
               </CardContent>
             </Card>
 
+            {/* Testing Tools */}
+            {draft && draft.status !== 'COMPLETED' && (
+              <Card>
+                <CardHeader>
+                  <CardTitle>🧪 Testing Tools</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-4">
+                    <div className="flex gap-2 flex-wrap">
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={async () => {
+                          if (!avail.length) {
+                            alert('Search for players first using the Force Pick panel');
+                            return;
+                          }
+                          const randomPlayer = avail[Math.floor(Math.random() * avail.length)];
+                          await onAdmin('pick', { playerId: randomPlayer.id, playerName: randomPlayer.name });
+                        }}
+                        disabled={Boolean(busy) || draft.status !== 'LIVE'}
+                      >
+                        🎲 Auto-Pick Random
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={async () => {
+                          if (!avail.length) {
+                            alert('Search for players first using the Force Pick panel');
+                            return;
+                          }
+                          if (!confirm('Auto-fill entire round with random picks? This will make 12 picks.')) return;
+                          setBusy('auto-fill');
+                          try {
+                            for (let i = 0; i < 12; i++) {
+                              const randomPlayer = avail[Math.floor(Math.random() * Math.min(avail.length, 50))];
+                              await fetch('/api/draft', {
+                                method: 'POST',
+                                headers: { 'content-type': 'application/json' },
+                                body: JSON.stringify({ action: 'pick', playerId: randomPlayer.id, playerName: randomPlayer.name })
+                              });
+                              await new Promise(resolve => setTimeout(resolve, 500));
+                            }
+                            await load(true);
+                          } catch (e) {
+                            alert('Auto-fill failed: ' + (e as Error).message);
+                          } finally {
+                            setBusy(null);
+                          }
+                        }}
+                        disabled={Boolean(busy) || draft.status !== 'LIVE'}
+                      >
+                        ⚡ Auto-Fill Round
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => {
+                          window.open('/draft/overlay', 'overlay', 'width=1920,height=1080');
+                        }}
+                      >
+                        🖥️ Test Overlay
+                      </Button>
+                    </div>
+                    <div className="text-xs text-[var(--muted)] space-y-1 mt-3">
+                      <p>• <strong>Auto-Pick Random:</strong> Makes a random pick for current team (tests single animation)</p>
+                      <p>• <strong>Auto-Fill Round:</strong> Completes entire round quickly (tests board fill + multiple animations)</p>
+                      <p>• <strong>Test Overlay:</strong> Opens overlay in popup to verify animations while making picks</p>
+                      <p className="text-yellow-600">⚠️ Testing tools only work when draft is LIVE. Search for players first.</p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
             <Card>
               <CardHeader><CardTitle>Recent Picks</CardTitle></CardHeader>
               <CardContent>
