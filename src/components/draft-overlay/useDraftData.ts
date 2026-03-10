@@ -41,7 +41,9 @@ interface DraftOverview {
   clockStartedAt?: string | null;
   deadlineTs?: string | null;
   recentPicks: DraftPick[];
+  allPicks?: DraftPick[];
   upcoming: UpcomingPick[];
+  allSlots?: Array<{ overall: number; round: number; team: string }>;
 }
 
 interface AvailablePlayer {
@@ -117,19 +119,26 @@ export function useDraftData(basePollIntervalMs = 1000) {
         }
       }
 
-      // Build slot-to-team map from upcoming picks (for all 48 slots)
+      // Build slot-to-team map from ALL slots (not just upcoming) for full grid team logos
       const slotTeamMap: Record<number, string> = {};
-      if (draft?.upcoming) {
+      if (draft?.allSlots) {
+        for (const s of draft.allSlots) {
+          slotTeamMap[s.overall - 1] = s.team;
+        }
+      } else if (draft?.upcoming) {
+        // Fallback to upcoming if allSlots not available
         for (const u of draft.upcoming) {
           slotTeamMap[u.overall - 1] = u.team;
         }
       }
       
       // Build draft grid with team ownership for ALL cells
+      // Use allPicks (all picks made) instead of recentPicks (last 10) for full grid display
       const draftGrid: Array<{ player: string | null; position: string | null; team: string }> = [];
+      const picksToUse = draft?.allPicks ?? draft?.recentPicks ?? [];
       for (let i = 0; i < 48; i++) {
         // Find if this pick has been made
-        const pick = draft?.recentPicks?.find(p => p.overall - 1 === i);
+        const pick = picksToUse.find(p => p.overall - 1 === i);
         
         // Every cell gets team ownership (from pick or from slot map)
         const teamName = pick?.team || slotTeamMap[i] || '';
@@ -197,23 +206,38 @@ export function useDraftData(basePollIntervalMs = 1000) {
     }
   }, []);
 
+  // Use ref for poll interval to avoid effect restarts when interval changes
+  const pollIntervalRef = useRef(pollInterval);
+  pollIntervalRef.current = pollInterval;
+
   // Initial fetch and polling with dynamic interval
   useEffect(() => {
     fetchDraft();
-    const interval = setInterval(fetchDraft, pollInterval);
-    return () => clearInterval(interval);
-  }, [fetchDraft, pollInterval]);
+    let intervalId: ReturnType<typeof setInterval>;
+    
+    const startPolling = () => {
+      intervalId = setInterval(() => {
+        fetchDraft();
+        // Check if interval changed and restart if needed
+        clearInterval(intervalId);
+        startPolling();
+      }, pollIntervalRef.current);
+    };
+    
+    startPolling();
+    return () => clearInterval(intervalId);
+  }, [fetchDraft]);
 
-  // Local countdown timer
-  const [localTick, setLocalTick] = useState(0);
+  // Local countdown timer - tick every second to update display
+  const [, setTick] = useState(0);
   useEffect(() => {
-    const t = setInterval(() => setLocalTick(x => x + 1), 1000);
+    const t = setInterval(() => setTick(x => x + 1), 1000);
     return () => clearInterval(t);
   }, []);
 
-  // Compute local remaining seconds
+  // Compute local remaining seconds by subtracting time elapsed since last server update
   const elapsedSinceUpdate = Math.floor((Date.now() - lastUpdateMsRef.current) / 1000);
-  const localRemainingSec = Math.max(0, (state.remainingSec ?? 0) - elapsedSinceUpdate + localTick * 0);
+  const localRemainingSec = Math.max(0, (state.remainingSec ?? 0) - elapsedSinceUpdate);
 
   return {
     ...state,

@@ -125,16 +125,15 @@ export default function DraftRoomPage() {
     if (!me?.authenticated) return;
     fetch('/api/draft', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'queue_get' }) })
       .then(r => r.json()).then((j) => {
-        const ids = (j?.queue as string[]) || [];
-        // Convert IDs to QueueItems using playerMap or placeholder
-        const items: QueueItem[] = ids.map(id => playerMap[id] || { id, name: id, pos: '', nfl: '' });
-        setQueue(items);
+        // Queue now returns full player objects from API
+        const queueData = j?.queue as QueueItem[] || [];
+        setQueue(queueData);
       })
       .catch(() => setQueue([]));
-  }, [me?.authenticated, playerMap]);
+  }, [me?.authenticated]);
 
   const pick = async (player: Avail) => {
-    const res = await fetch('/api/draft', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'pick', playerId: player.id, playerName: player.name }) });
+    const res = await fetch('/api/draft', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'pick', playerId: player.id, playerName: player.name, playerPos: player.pos, playerNfl: player.nfl }) });
     const j = await res.json();
     if (!res.ok || j?.error) {
       alert(j?.error || 'Pick failed');
@@ -146,13 +145,14 @@ export default function DraftRoomPage() {
     if (queue.some(q => q.id === player.id)) return;
     const newQueue = [...queue, player];
     setQueue(newQueue);
-    await fetch('/api/draft', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'queue_set', playerIds: newQueue.map(q => q.id) }) });
+    // Send full player objects with info
+    await fetch('/api/draft', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'queue_set', players: newQueue.map(q => ({ id: q.id, name: q.name, pos: q.pos, nfl: q.nfl })) }) });
   };
 
   const removeFromQueue = async (playerId: string) => {
     const newQueue = queue.filter((q) => q.id !== playerId);
     setQueue(newQueue);
-    await fetch('/api/draft', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'queue_set', playerIds: newQueue.map(q => q.id) }) });
+    await fetch('/api/draft', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'queue_set', players: newQueue.map(q => ({ id: q.id, name: q.name, pos: q.pos, nfl: q.nfl })) }) });
   };
 
   const moveInQueue = async (playerId: string, direction: 'up' | 'down') => {
@@ -163,7 +163,7 @@ export default function DraftRoomPage() {
     const newQueue = [...queue];
     [newQueue[idx], newQueue[newIdx]] = [newQueue[newIdx], newQueue[idx]];
     setQueue(newQueue);
-    await fetch('/api/draft', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'queue_set', playerIds: newQueue.map(q => q.id) }) });
+    await fetch('/api/draft', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'queue_set', players: newQueue.map(q => ({ id: q.id, name: q.name, pos: q.pos, nfl: q.nfl })) }) });
   };
 
   // Get current team info for presentation

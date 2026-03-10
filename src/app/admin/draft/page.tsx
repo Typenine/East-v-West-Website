@@ -26,8 +26,10 @@ type DraftOverview = {
   onClockTeam?: string | null;
   clockStartedAt?: string | null;
   deadlineTs?: string | null;
-  recentPicks: Array<{ overall: number; round: number; team: string; playerId: string; playerName?: string | null; madeAt: string }>;
+  recentPicks: Array<{ overall: number; round: number; team: string; playerId: string; playerName?: string | null; playerPos?: string | null; playerNfl?: string | null; madeAt: string }>;
+  allPicks?: Array<{ overall: number; round: number; team: string; playerId: string; playerName?: string | null; playerPos?: string | null; playerNfl?: string | null; madeAt: string }>;
   upcoming: Array<{ overall: number; round: number; team: string }>;
+  allSlots?: Array<{ overall: number; round: number; team: string }>;
 };
 
 export default function AdminDraftPage() {
@@ -461,95 +463,62 @@ export default function AdminDraftPage() {
             {draft && (draft.status === 'LIVE' || draft.status === 'PAUSED') && (
               <Card>
                 <CardHeader>
-                  <CardTitle>Reorder Upcoming Picks</CardTitle>
+                  <CardTitle>Assign Teams to Picks</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="space-y-2">
-                    {upcoming.slice(0, 10).map((pick, idx) => {
+                  <p className="text-sm text-[var(--muted)] mb-4">
+                    Select a team for each unpicked slot. Use this to handle trades or reorder picks.
+                  </p>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                    {upcoming.map((pick) => {
                       const teamLogo = getTeamLogoPath(pick.team);
                       const teamColors = getTeamColors(pick.team);
                       return (
-                        <div key={pick.overall} className="flex items-center justify-between p-2 rounded border" style={{ borderColor: teamColors.primary + '40', backgroundColor: teamColors.primary + '10' }}>
-                          <div className="flex items-center gap-2">
+                        <div 
+                          key={pick.overall} 
+                          className="flex items-center gap-2 p-2 rounded border" 
+                          style={{ borderColor: teamColors.primary + '40', backgroundColor: teamColors.primary + '10' }}
+                        >
+                          <div className="flex items-center gap-2 min-w-[80px]">
                             {teamLogo && <img src={teamLogo} alt={pick.team} className="w-6 h-6 object-contain" />}
-                            <span className="font-semibold">#{pick.overall}</span>
-                            <span className="text-sm">Round {pick.round}</span>
-                            <span className="font-medium">{pick.team}</span>
+                            <span className="font-semibold text-sm">#{pick.overall}</span>
+                            <span className="text-xs text-[var(--muted)]">R{pick.round}</span>
                           </div>
-                          <div className="flex gap-1">
-                            <Button 
-                              size="sm" 
-                              variant="ghost" 
-                              disabled={idx === 0 || busy === 'update_slot'}
-                              onClick={async () => {
-                                setBusy('update_slot');
-                                try {
-                                  const prevPick = upcoming[idx - 1];
-                                  await fetch('/api/draft', {
-                                    method: 'POST',
-                                    headers: { 'content-type': 'application/json' },
-                                    body: JSON.stringify({ 
-                                      action: 'update_slot', 
-                                      overall: pick.overall, 
-                                      newTeam: prevPick.team 
-                                    })
-                                  });
-                                  await fetch('/api/draft', {
-                                    method: 'POST',
-                                    headers: { 'content-type': 'application/json' },
-                                    body: JSON.stringify({ 
-                                      action: 'update_slot', 
-                                      overall: prevPick.overall, 
-                                      newTeam: pick.team 
-                                    })
-                                  });
+                          <Select
+                            value={pick.team}
+                            onChange={async (e) => {
+                              const newTeam = e.target.value;
+                              if (newTeam === pick.team) return;
+                              setBusy('update_slot_' + pick.overall);
+                              try {
+                                const res = await fetch('/api/draft', {
+                                  method: 'POST',
+                                  headers: { 'content-type': 'application/json' },
+                                  body: JSON.stringify({ 
+                                    action: 'update_slot', 
+                                    overall: pick.overall, 
+                                    team: newTeam  // Fixed: was 'newTeam', API expects 'team'
+                                  })
+                                });
+                                const j = await res.json();
+                                if (!j.ok) {
+                                  alert(j.error === 'slot_has_pick' ? 'This pick has already been made' : 'Failed to update slot');
+                                } else {
                                   await load(true);
-                                } catch (e) {
-                                  alert('Failed to swap picks');
-                                } finally {
-                                  setBusy(null);
                                 }
-                              }}
-                            >
-                              ↑
-                            </Button>
-                            <Button 
-                              size="sm" 
-                              variant="ghost" 
-                              disabled={idx === upcoming.slice(0, 10).length - 1 || busy === 'update_slot'}
-                              onClick={async () => {
-                                setBusy('update_slot');
-                                try {
-                                  const nextPick = upcoming[idx + 1];
-                                  await fetch('/api/draft', {
-                                    method: 'POST',
-                                    headers: { 'content-type': 'application/json' },
-                                    body: JSON.stringify({ 
-                                      action: 'update_slot', 
-                                      overall: pick.overall, 
-                                      newTeam: nextPick.team 
-                                    })
-                                  });
-                                  await fetch('/api/draft', {
-                                    method: 'POST',
-                                    headers: { 'content-type': 'application/json' },
-                                    body: JSON.stringify({ 
-                                      action: 'update_slot', 
-                                      overall: nextPick.overall, 
-                                      newTeam: pick.team 
-                                    })
-                                  });
-                                  await load(true);
-                                } catch (e) {
-                                  alert('Failed to swap picks');
-                                } finally {
-                                  setBusy(null);
-                                }
-                              }}
-                            >
-                              ↓
-                            </Button>
-                          </div>
+                              } catch (e) {
+                                alert('Failed to update slot');
+                              } finally {
+                                setBusy(null);
+                              }
+                            }}
+                            disabled={busy?.startsWith('update_slot')}
+                            className="flex-1 text-sm"
+                          >
+                            {TEAM_NAMES.map((t) => (
+                              <option key={t} value={t}>{t}</option>
+                            ))}
+                          </Select>
                         </div>
                       );
                     })}
@@ -576,7 +545,7 @@ export default function AdminDraftPage() {
                             return;
                           }
                           const randomPlayer = avail[Math.floor(Math.random() * avail.length)];
-                          await onAdmin('pick', { playerId: randomPlayer.id, playerName: randomPlayer.name });
+                          await onAdmin('force_pick', { playerId: randomPlayer.id, playerName: randomPlayer.name, playerPos: randomPlayer.pos, playerNfl: randomPlayer.nfl });
                         }}
                         disabled={Boolean(busy) || draft.status !== 'LIVE'}
                       >
@@ -598,7 +567,7 @@ export default function AdminDraftPage() {
                               await fetch('/api/draft', {
                                 method: 'POST',
                                 headers: { 'content-type': 'application/json' },
-                                body: JSON.stringify({ action: 'pick', playerId: randomPlayer.id, playerName: randomPlayer.name })
+                                body: JSON.stringify({ action: 'force_pick', playerId: randomPlayer.id, playerName: randomPlayer.name, playerPos: randomPlayer.pos, playerNfl: randomPlayer.nfl })
                               });
                               await new Promise(resolve => setTimeout(resolve, 500));
                             }

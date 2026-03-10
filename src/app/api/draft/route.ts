@@ -85,7 +85,9 @@ export async function GET(req: NextRequest) {
         const avail = Object.values(players).filter((p: SleeperPlayer) => {
           const pos = (p.position || '').toUpperCase();
           return allowed.has(pos) && !taken.has(p.player_id);
-        }).slice(0, 500);
+        })
+        .sort((a, b) => `${a.first_name} ${a.last_name}`.localeCompare(`${b.first_name} ${b.last_name}`))
+        .slice(0, 500);
         resp.available = avail.map((p) => ({ id: p.player_id, name: `${p.first_name} ${p.last_name}`.trim(), pos: p.position, nfl: p.team }));
       }
     }
@@ -178,7 +180,8 @@ export async function POST(req: NextRequest) {
         return ok({ ok: true, count: 0 });
       }
       if (action === 'auto_pick') {
-        const result = await checkAndAutoPick(draftId);
+        // Force auto-pick immediately (bypass clock check)
+        const result = await checkAndAutoPick(draftId, true);
         return ok({ ok: result.picked, ...result });
       }
     }
@@ -214,8 +217,15 @@ export async function POST(req: NextRequest) {
       if (!ident) return bad('auth_required', 401);
       const draftId = id || (await getActiveOrLatestDraftId());
       if (!draftId) return bad('no_draft');
-      const arr = Array.isArray(body.playerIds) ? (body.playerIds as string[]) : [];
-      await setTeamQueue(draftId, ident.team, arr);
+      // Accept either array of player objects or array of IDs (for backwards compatibility)
+      let players: Array<{ id: string; name?: string; pos?: string; nfl?: string }> = [];
+      if (Array.isArray(body.players)) {
+        players = body.players as Array<{ id: string; name?: string; pos?: string; nfl?: string }>;
+      } else if (Array.isArray(body.playerIds)) {
+        // Legacy format: convert IDs to objects
+        players = (body.playerIds as string[]).map(id => ({ id }));
+      }
+      await setTeamQueue(draftId, ident.team, players);
       return ok({ ok: true });
     }
 

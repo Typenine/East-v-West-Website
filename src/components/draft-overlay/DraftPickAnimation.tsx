@@ -64,39 +64,39 @@ export default function DraftPickAnimation({
     gsap.set('.gsap-player-details', { opacity: 0, y: 20 });
     gsap.set('.gsap-pick-info', { opacity: 0, y: 20 });
 
-    // Animation sequence - faster pacing to prevent glitches
+    // Animation sequence - matches original DraftAnimationGSAP.jsx timing (~9 seconds total)
     tl
-      // PHASE 1: Team intro (1.5s)
+      // PHASE 1: Team intro (0-2.0s)
       .to('.gsap-team-intro', {
         opacity: 1,
         scale: 1,
-        duration: 0.6,
+        duration: 0.8,
         ease: 'power2.out',
       })
       .to('.gsap-team-name-bg', {
         opacity: 1,
-        duration: 0.6,
+        duration: 0.8,
         ease: 'sine.inOut',
       }, '-=0.4')
       .to('.gsap-team-intro', {
         scale: 1.05,
-        duration: 1.0,
+        duration: 1.2,
         ease: 'sine.inOut',
-      }, '-=0.8')
+      }, '-=0.6')
       
-      // PHASE 2: Transition wipe (0.6s)
+      // PHASE 2: Transition wipe (2.0-2.6s)
       .to('.gsap-transition-wipe', {
         scaleX: 1,
         duration: 0.6,
         ease: 'power2.inOut',
-      }, '+=0.8')
+      }, '+=0.6')
       .to('.gsap-team-intro', {
         opacity: 0,
         duration: 0.3,
         ease: 'power2.in',
       }, '-=0.3')
       
-      // PHASE 3: Draft card reveal (1.5s)
+      // PHASE 3: Draft card reveal (2.6-4.6s)
       .to('.gsap-draft-card', {
         opacity: 1,
         scale: 1,
@@ -110,57 +110,63 @@ export default function DraftPickAnimation({
         ease: 'power2.inOut',
       }, '-=0.4')
       
-      // Hold draft card (reduced)
+      // Hold draft card
       .to('.gsap-draft-card', {
         scale: 1.02,
-        duration: 0.4,
+        duration: 1.0,
         ease: 'sine.inOut',
-      }, '+=0.2')
+      }, '+=0.4')
       
-      // PHASE 4: Transition to player card (0.4s)
+      // PHASE 4: Transition to player card (4.6-5.0s)
       .to('.gsap-draft-card', {
         opacity: 0,
         scale: 0.95,
         duration: 0.4,
         ease: 'power2.in',
-      }, '+=0.3')
+      }, '+=0.2')
       
-      // PHASE 5: Player card reveal (1s)
+      // PHASE 5: Player card reveal (5.0-6.5s)
       .to('.gsap-player-card', {
         opacity: 1,
         scale: 1,
-        duration: 0.5,
+        duration: 0.6,
         ease: 'back.out(1.7)',
       }, '-=0.2')
       .to('.gsap-player-name', {
         opacity: 1,
         y: 0,
-        duration: 0.4,
+        duration: 0.5,
         ease: 'power2.out',
       }, '-=0.3')
       .to('.gsap-player-details', {
         opacity: 1,
         y: 0,
-        duration: 0.4,
+        duration: 0.5,
         ease: 'power2.out',
       }, '-=0.3')
       .to('.gsap-pick-info', {
         opacity: 1,
         y: 0,
-        duration: 0.4,
+        duration: 0.5,
         ease: 'power2.out',
       }, '-=0.3')
       
-      // PHASE 6: Hold (1s only)
-      .to({}, { duration: 1.0 })
+      // PHASE 6: Broadcast hold (6.5-8.5s) - clean hold for viewing
+      .to({}, { duration: 2.0 })
       
-      // PHASE 7: Exit (0.5s)
+      // PHASE 7: Professional exit (8.5-9.5s)
+      .to(['.gsap-player-card'], {
+        opacity: 0.8,
+        scale: 1.02,
+        duration: 0.4,
+        ease: 'power2.out',
+      })
       .to(containerRef.current, {
         opacity: 0,
         scale: 0.98,
-        duration: 0.5,
+        duration: 0.6,
         ease: 'power2.inOut',
-      });
+      }, '-=0.2');
 
     // Cleanup
     return () => {
@@ -168,7 +174,9 @@ export default function DraftPickAnimation({
         timelineRef.current.kill();
       }
     };
-  }, [player, fantasyTeam, pickNumber, round, pickInRound, year, onComplete]);
+  // onComplete intentionally excluded to prevent animation restart glitch (matches original)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [player, fantasyTeam, pickNumber, round, pickInRound, year]);
 
   const teamLogo = getTeamLogoPath(fantasyTeam.name);
 
