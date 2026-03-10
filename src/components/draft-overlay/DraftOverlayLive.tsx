@@ -6,6 +6,8 @@ import { useDraftData } from './useDraftData';
 import { getTeamLogoPath } from '@/lib/utils/team-utils';
 import { getTeamColors } from '@/lib/constants/team-colors';
 import DraftPickAnimation from './DraftPickAnimation';
+import { getLeagueDrafts, getDraftPicks, getLeagueRosters, getAllPlayersCached } from '@/lib/utils/sleeper-api';
+import { LEAGUE_IDS } from '@/lib/constants/league';
 
 // Position colors for player cards
 const positionColors: Record<string, string> = {
@@ -17,7 +19,7 @@ const positionColors: Record<string, string> = {
   'K': '#FF8C42',
 };
 
-const tickerViews = ['bestAvailable', 'recentPicks', 'upcomingPicks'] as const;
+const tickerViews = ['bestAvailable', 'recentPicks', 'teamRecord', 'draftCapital', 'draft2024', 'draft2023', 'tradeInfo'] as const;
 
 export default function DraftOverlayLive() {
   const {
@@ -46,13 +48,10 @@ export default function DraftOverlayLive() {
 
   // Show full pick animation when new pick comes in (only once per pick)
   useEffect(() => {
-    // Only trigger if this is genuinely a NEW pick we haven't animated yet
     if (isNewPick && lastPick && lastPick.overall !== lastAnimatedPickRef.current) {
-      console.log('[Animation] Triggering animation for pick', lastPick.overall);
       lastAnimatedPickRef.current = lastPick.overall;
       setShowPickAnimation(true);
     } else if (!isNewPick) {
-      // If isNewPick is false, make sure animation is off
       setShowPickAnimation(false);
     }
   }, [isNewPick, lastPick]);
@@ -82,8 +81,16 @@ export default function DraftOverlayLive() {
   
   // Draft order data from website
   const [draftOrderData, setDraftOrderData] = useState<{
-    slotOrder: Array<{ slot: number; team: string; record: { wins: number; losses: number; fpts: number } }>;
+    slotOrder: Array<{ slot: number; team: string; record: { wins: number; losses: number; fpts: number; fptsAgainst?: number } }>;
+    roundsData: Array<{ round: number; picks: Array<{ ownerTeam: string }> }>;
+    transfers: Array<{ round: number; fromTeam: string; toTeam: string; summary?: string }>;
   } | null>(null);
+
+  // Historical draft data
+  const [historicalDrafts, setHistoricalDrafts] = useState<{
+    2023: Array<{ team: string; player: string; round: number; pick: number }> | null;
+    2024: Array<{ team: string; player: string; round: number; pick: number }> | null;
+  }>({ 2023: null, 2024: null });
 
   // Fetch draft order data from website for ticker context
   useEffect(() => {
@@ -100,6 +107,63 @@ export default function DraftOverlayLive() {
     }
     
     fetchDraftOrder();
+  }, []);
+
+  // Fetch historical draft data (2023, 2024) from Sleeper
+  useEffect(() => {
+    async function fetchHistoricalDrafts() {
+      try {
+        const players = await getAllPlayersCached();
+        
+        // Fetch 2023 draft
+        const league2023 = LEAGUE_IDS.PREVIOUS['2023'];
+        if (league2023) {
+          const drafts2023 = await getLeagueDrafts(league2023);
+          const rosters2023 = await getLeagueRosters(league2023);
+          
+          if (drafts2023.length > 0) {
+            const draftPicks2023 = await getDraftPicks(drafts2023[0].draft_id);
+            const picks2023 = draftPicks2023.map(p => {
+              const roster = rosters2023.find(r => r.roster_id === p.roster_id);
+              const player = players[p.player_id];
+              return {
+                team: roster?.metadata?.team_name || `Roster ${p.roster_id}`,
+                player: (player?.first_name && player?.last_name) ? `${player.first_name} ${player.last_name}` : p.player_id,
+                round: p.round,
+                pick: p.pick_no
+              };
+            });
+            setHistoricalDrafts(prev => ({ ...prev, 2023: picks2023 }));
+          }
+        }
+
+        // Fetch 2024 draft
+        const league2024 = LEAGUE_IDS.PREVIOUS['2024'];
+        if (league2024) {
+          const drafts2024 = await getLeagueDrafts(league2024);
+          const rosters2024 = await getLeagueRosters(league2024);
+          
+          if (drafts2024.length > 0) {
+            const draftPicks2024 = await getDraftPicks(drafts2024[0].draft_id);
+            const picks2024 = draftPicks2024.map(p => {
+              const roster = rosters2024.find(r => r.roster_id === p.roster_id);
+              const player = players[p.player_id];
+              return {
+                team: roster?.metadata?.team_name || `Roster ${p.roster_id}`,
+                player: (player?.first_name && player?.last_name) ? `${player.first_name} ${player.last_name}` : p.player_id,
+                round: p.round,
+                pick: p.pick_no
+              };
+            });
+            setHistoricalDrafts(prev => ({ ...prev, 2024: picks2024 }));
+          }
+        }
+      } catch (err) {
+        console.error('Failed to fetch historical drafts:', err);
+      }
+    }
+    
+    fetchHistoricalDrafts();
   }, []);
 
   // Ticker rotation - cycle every 10 seconds
@@ -193,7 +257,7 @@ export default function DraftOverlayLive() {
                   <div
                     key={gridIdx}
                     data-grid-idx={gridIdx}
-                    className={`relative text-[10px] px-1 py-[2px] flex flex-col justify-center overflow-hidden ${
+                    className={`relative text-[10px] px-1 py-[2px] flex flex-row items-center overflow-hidden ${
                       isCurrentPick
                         ? 'ring-2 ring-yellow-400 bg-yellow-400/20'
                         : isPicked
@@ -204,16 +268,20 @@ export default function DraftOverlayLive() {
                       borderLeft: isPicked && gridItem?.position ? `3px solid ${positionColors[gridItem.position] || '#666'}` : undefined,
                     }}
                   >
-                    {/* Team logo background - ALWAYS visible */}
-                    {teamLogo && (
-                      <div className="absolute inset-0 flex items-center justify-center opacity-20">
-                        <img src={teamLogo} alt="" className="w-8 h-8 object-contain" />
-                      </div>
-                    )}
+                    {/* Team logo on LEFT side - ALWAYS visible */}
+                    <div className="flex-shrink-0 w-6 h-6 mr-1 flex items-center justify-center">
+                      {teamLogo ? (
+                        <img src={teamLogo} alt="" className="w-full h-full object-contain opacity-40" />
+                      ) : gridItem?.team ? (
+                        <div className="text-[8px] font-bold text-zinc-500">
+                          {gridItem.team.split(' ').map(w => w[0]).join('').slice(0, 3).toUpperCase()}
+                        </div>
+                      ) : null}
+                    </div>
                     
-                    {/* Player info overlay - only when picked */}
+                    {/* Player info - only when picked */}
                     {isPicked && gridItem && (
-                      <div className="relative z-10">
+                      <div className="flex-1 min-w-0">
                         <div className="font-semibold text-white truncate leading-tight">{gridItem.player}</div>
                         <div className="text-zinc-400 text-[9px] leading-tight">{gridItem.position}</div>
                       </div>
@@ -323,42 +391,114 @@ export default function DraftOverlayLive() {
             </div>
           </div>
 
-          {/* Upcoming Picks View */}
-          <div style={{ display: currentTickerView === 'upcomingPicks' ? 'block' : 'none' }}>
-            <div className="text-white/80 text-xs font-semibold mb-1">Next 6 Picks</div>
-            <div className="grid grid-cols-3 gap-1">
-              {draft?.upcoming.slice(0, 6).map((u) => (
-                <div key={u.overall} className="bg-black/30 rounded px-1 py-[2px] text-[10px]">
-                  <div className="font-semibold text-white truncate">#{u.overall}</div>
-                  <div className="text-white/60 truncate">{u.team}</div>
+          {/* Team Record View */}
+          <div style={{ display: currentTickerView === 'teamRecord' ? 'block' : 'none' }}>
+            <div className="text-white/80 text-xs font-semibold mb-1">2024 Season</div>
+            {currentTeam && draftOrderData?.slotOrder ? (() => {
+              const teamData = draftOrderData.slotOrder.find(s => s.team === currentTeam.name);
+              return teamData ? (
+                <div className="text-white text-lg font-bold">
+                  {teamData.record.wins}-{teamData.record.losses} • {Math.round(teamData.record.fpts)} PF • {Math.round(teamData.record.fptsAgainst || 0)} PA
                 </div>
-              ))}
-            </div>
+              ) : <div className="text-white/60 text-sm">Record not available</div>;
+            })() : <div className="text-white/60 text-sm">Loading...</div>}
+          </div>
+
+          {/* Draft Capital View */}
+          <div style={{ display: currentTickerView === 'draftCapital' ? 'block' : 'none' }}>
+            <div className="text-white/80 text-xs font-semibold mb-1">Draft Capital</div>
+            {currentTeam && draftOrderData?.roundsData ? (() => {
+              const teamPicks: string[] = [];
+              draftOrderData.roundsData.forEach(rd => {
+                rd.picks.forEach((p, idx) => {
+                  if (p.ownerTeam === currentTeam.name) {
+                    teamPicks.push(`${rd.round}.${String(idx + 1).padStart(2, '0')}`);
+                  }
+                });
+              });
+              return teamPicks.length > 0 ? (
+                <div className="text-white text-sm">
+                  <div className="font-bold mb-1">{teamPicks.length} total pick{teamPicks.length > 1 ? 's' : ''}</div>
+                  <div className="text-white/80">{teamPicks.join(', ')}</div>
+                </div>
+              ) : <div className="text-white text-sm font-bold">This is their only pick</div>;
+            })() : <div className="text-white/60 text-sm">Loading...</div>}
+          </div>
+
+          {/* 2024 Draft View */}
+          <div style={{ display: currentTickerView === 'draft2024' ? 'block' : 'none' }}>
+            <div className="text-white/80 text-xs font-semibold mb-1">2024 Draft</div>
+            {currentTeam && historicalDrafts[2024] ? (() => {
+              const teamPicks = historicalDrafts[2024].filter(p => p.team === currentTeam.name).slice(0, 3);
+              return teamPicks.length > 0 ? (
+                <div className="text-white text-sm">
+                  {teamPicks.map((p, i) => (
+                    <div key={i} className="truncate">
+                      {p.player} ({p.round}.{String(p.pick % 12 || 12).padStart(2, '0')})
+                    </div>
+                  ))}
+                </div>
+              ) : <div className="text-white/60 text-sm">No picks in 2024</div>;
+            })() : <div className="text-white/60 text-sm">Loading...</div>}
+          </div>
+
+          {/* 2023 Draft View */}
+          <div style={{ display: currentTickerView === 'draft2023' ? 'block' : 'none' }}>
+            <div className="text-white/80 text-xs font-semibold mb-1">2023 Draft</div>
+            {currentTeam && historicalDrafts[2023] ? (() => {
+              const teamPicks = historicalDrafts[2023].filter(p => p.team === currentTeam.name).slice(0, 3);
+              return teamPicks.length > 0 ? (
+                <div className="text-white text-sm">
+                  {teamPicks.map((p, i) => (
+                    <div key={i} className="truncate">
+                      {p.player} ({p.round}.{String(p.pick % 12 || 12).padStart(2, '0')})
+                    </div>
+                  ))}
+                </div>
+              ) : <div className="text-white/60 text-sm">No picks in 2023</div>;
+            })() : <div className="text-white/60 text-sm">Loading...</div>}
+          </div>
+
+          {/* Trade Info View */}
+          <div style={{ display: currentTickerView === 'tradeInfo' ? 'block' : 'none' }}>
+            <div className="text-white/80 text-xs font-semibold mb-1">Pick Origin</div>
+            {currentTeam && draftOrderData?.transfers && draft?.curOverall ? (() => {
+              const currentRound = Math.floor((draft.curOverall - 1) / 12) + 1;
+              const transfer = draftOrderData.transfers.find(t => 
+                t.round === currentRound && t.toTeam === currentTeam.name
+              );
+              return transfer ? (
+                <div className="text-white text-sm">
+                  <div className="font-bold mb-1">Via trade from {transfer.fromTeam}</div>
+                  {transfer.summary && <div className="text-white/70 text-xs truncate">{transfer.summary}</div>}
+                </div>
+              ) : <div className="text-white text-sm">Original pick</div>;
+            })() : <div className="text-white/60 text-sm">Loading...</div>}
           </div>
         </div>
       </div>
 
       {/* Full Pick Animation */}
-      {showPickAnimation && lastPick && (
+      {showPickAnimation && lastPick && lastPick.playerName && (
         <DraftPickAnimation
           player={{
-            name: lastPick.playerName || lastPick.playerId,
+            name: lastPick.playerName,
             position: lastPick.playerPos || 'N/A',
             team: lastPick.playerNfl || undefined,
-            college: undefined, // TODO: Add college data to API if available
+            college: undefined,
           }}
           fantasyTeam={{
             name: lastPick.team,
-            colors: (() => {
-              const colors = getTeamColors(lastPick.team);
-              return [colors.primary, colors.secondary, colors.tertiary || null];
-            })(),
+            colors: [getTeamColors(lastPick.team).primary, getTeamColors(lastPick.team).secondary, null],
+            logoPath: getTeamLogoPath(lastPick.team),
           }}
           pickNumber={lastPick.overall}
           round={lastPick.round}
           pickInRound={((lastPick.overall - 1) % 12) + 1}
           year={draft?.year || new Date().getFullYear()}
-          onComplete={() => setShowPickAnimation(false)}
+          onComplete={() => {
+            setShowPickAnimation(false);
+          }}
         />
       )}
 

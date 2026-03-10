@@ -14,6 +14,7 @@ interface DraftPickAnimationProps {
   fantasyTeam: {
     name: string;
     colors: [string, string, string | null];
+    logoPath: string | null;
   };
   pickNumber: number;
   round: number;
@@ -45,7 +46,6 @@ export default function DraftPickAnimation({
     // Create master timeline
     const tl = gsap.timeline({
       onComplete: () => {
-        console.log('[GSAP] Draft animation completed for pick', pickNumber);
         if (onComplete) {
           onComplete();
         }

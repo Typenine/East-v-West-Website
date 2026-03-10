@@ -367,9 +367,14 @@ export default function AdminDraftPage() {
                             }
                           }}
                         >
-                          � Reload from Standings
+                          🔄 Reload from Standings
                         </Button>
                       </div>
+                      {orderLoaded && (
+                        <div className="mt-2 text-sm text-green-600 flex items-center gap-1">
+                          <span>✓</span> Order synced with standings
+                        </div>
+                      )}
                     </div>
                     <Button disabled={busy==='create'} onClick={() => onAdmin('create', { year: Number(form.year), rounds: Number(form.rounds), clockSeconds: getTotalSeconds(), snake: form.snake === 'true', teams: teamOrder })}>
                       Create Draft
@@ -451,6 +456,107 @@ export default function AdminDraftPage() {
                 )}
               </CardContent>
             </Card>
+
+            {/* Pick Reordering - Only show when draft is LIVE or PAUSED */}
+            {draft && (draft.status === 'LIVE' || draft.status === 'PAUSED') && (
+              <Card>
+                <CardHeader>
+                  <CardTitle>Reorder Upcoming Picks</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-2">
+                    {upcoming.slice(0, 10).map((pick, idx) => {
+                      const teamLogo = getTeamLogoPath(pick.team);
+                      const teamColors = getTeamColors(pick.team);
+                      return (
+                        <div key={pick.overall} className="flex items-center justify-between p-2 rounded border" style={{ borderColor: teamColors.primary + '40', backgroundColor: teamColors.primary + '10' }}>
+                          <div className="flex items-center gap-2">
+                            {teamLogo && <img src={teamLogo} alt={pick.team} className="w-6 h-6 object-contain" />}
+                            <span className="font-semibold">#{pick.overall}</span>
+                            <span className="text-sm">Round {pick.round}</span>
+                            <span className="font-medium">{pick.team}</span>
+                          </div>
+                          <div className="flex gap-1">
+                            <Button 
+                              size="sm" 
+                              variant="ghost" 
+                              disabled={idx === 0 || busy === 'update_slot'}
+                              onClick={async () => {
+                                setBusy('update_slot');
+                                try {
+                                  const prevPick = upcoming[idx - 1];
+                                  await fetch('/api/draft', {
+                                    method: 'POST',
+                                    headers: { 'content-type': 'application/json' },
+                                    body: JSON.stringify({ 
+                                      action: 'update_slot', 
+                                      overall: pick.overall, 
+                                      newTeam: prevPick.team 
+                                    })
+                                  });
+                                  await fetch('/api/draft', {
+                                    method: 'POST',
+                                    headers: { 'content-type': 'application/json' },
+                                    body: JSON.stringify({ 
+                                      action: 'update_slot', 
+                                      overall: prevPick.overall, 
+                                      newTeam: pick.team 
+                                    })
+                                  });
+                                  await load(true);
+                                } catch (e) {
+                                  alert('Failed to swap picks');
+                                } finally {
+                                  setBusy(null);
+                                }
+                              }}
+                            >
+                              ↑
+                            </Button>
+                            <Button 
+                              size="sm" 
+                              variant="ghost" 
+                              disabled={idx === upcoming.slice(0, 10).length - 1 || busy === 'update_slot'}
+                              onClick={async () => {
+                                setBusy('update_slot');
+                                try {
+                                  const nextPick = upcoming[idx + 1];
+                                  await fetch('/api/draft', {
+                                    method: 'POST',
+                                    headers: { 'content-type': 'application/json' },
+                                    body: JSON.stringify({ 
+                                      action: 'update_slot', 
+                                      overall: pick.overall, 
+                                      newTeam: nextPick.team 
+                                    })
+                                  });
+                                  await fetch('/api/draft', {
+                                    method: 'POST',
+                                    headers: { 'content-type': 'application/json' },
+                                    body: JSON.stringify({ 
+                                      action: 'update_slot', 
+                                      overall: nextPick.overall, 
+                                      newTeam: pick.team 
+                                    })
+                                  });
+                                  await load(true);
+                                } catch (e) {
+                                  alert('Failed to swap picks');
+                                } finally {
+                                  setBusy(null);
+                                }
+                              }}
+                            >
+                              ↓
+                            </Button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
 
             {/* Testing Tools */}
             {draft && draft.status !== 'COMPLETED' && (
