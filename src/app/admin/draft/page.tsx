@@ -340,8 +340,26 @@ export default function AdminDraftPage() {
                         <Button disabled={busy==='resume'} variant="primary" onClick={() => onAdmin('resume')}>▶️ Resume</Button>
                       )}
                       <Button disabled={busy==='undo'} variant="ghost" onClick={() => onAdmin('undo')}>↩️ Undo Last Pick</Button>
+                      <Button disabled={busy==='skip_pick'} variant="ghost" onClick={() => onAdmin('skip_pick')} title="Skip current pick and advance to next">
+                        ⏭️ Skip Pick
+                      </Button>
                       <Button disabled={busy==='auto_pick'} variant="ghost" onClick={() => onAdmin('auto_pick')} title="Force auto-pick using queue or highest-ranked player">
                         🤖 Auto-Pick
+                      </Button>
+                      <a href="/draft/room" target="_blank" rel="noopener noreferrer">
+                        <Button variant="ghost" size="sm">👥 Team View →</Button>
+                      </a>
+                      <Button 
+                        disabled={busy==='delete'} 
+                        variant="danger" 
+                        size="sm"
+                        onClick={async () => {
+                          if (!confirm('DELETE this entire draft? This cannot be undone!')) return;
+                          await onAdmin('delete');
+                          await load(true);
+                        }}
+                      >
+                        🗑️ Delete Draft
                       </Button>
                     </div>
 
@@ -358,10 +376,12 @@ export default function AdminDraftPage() {
                         <Button disabled={busy==='set_clock'} size="sm" onClick={() => onAdmin('set_clock', { seconds: getTotalSeconds() })}>
                           Apply
                         </Button>
-                        <div className="flex gap-1 ml-2">
+                        <div className="flex gap-1 flex-wrap">
+                          <Button size="sm" variant="ghost" onClick={() => { setClockMins('0'); setClockSecs('10'); }}>0:10</Button>
+                          <Button size="sm" variant="ghost" onClick={() => { setClockMins('0'); setClockSecs('30'); }}>0:30</Button>
                           <Button size="sm" variant="ghost" onClick={() => { setClockMins('1'); setClockSecs('0'); }}>1:00</Button>
                           <Button size="sm" variant="ghost" onClick={() => { setClockMins('2'); setClockSecs('0'); }}>2:00</Button>
-                          <Button size="sm" variant="ghost" onClick={() => { setClockMins('3'); setClockSecs('0'); }}>3:00</Button>
+                          <Button size="sm" variant="ghost" onClick={() => { setClockMins('5'); setClockSecs('0'); }}>5:00</Button>
                         </div>
                       </div>
                     </div>

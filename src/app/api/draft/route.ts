@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import {
   ensureDraftTables,
   createDraftWithOrder,
+  deleteDraft,
+  skipPick,
   getActiveOrLatestDraftId,
   getDraftOverview,
   startDraft,
@@ -100,7 +102,7 @@ export async function POST(req: NextRequest) {
     const id = typeof body.id === 'string' ? body.id : '';
 
     // Admin-only actions
-    if (['create','start','pause','resume','set_clock','force_pick','undo','upload_players','clear_players','auto_pick'].includes(action)) {
+    if (['create','delete','skip_pick','start','pause','resume','set_clock','force_pick','undo','upload_players','clear_players','auto_pick'].includes(action)) {
       if (!isAdmin(req)) return bad('forbidden', 403);
       if (action === 'create') {
         const year = Number(body.year || new Date().getFullYear());
@@ -112,8 +114,18 @@ export async function POST(req: NextRequest) {
         const draft = await getDraftOverview(result.id);
         return ok({ ok: true, id: result.id, draft });
       }
+      if (action === 'delete') {
+        const draftId = id || (await getActiveOrLatestDraftId());
+        if (!draftId) return bad('no_draft');
+        await deleteDraft(draftId);
+        return ok({ ok: true });
+      }
       const draftId = id || (await getActiveOrLatestDraftId());
       if (!draftId) return bad('no_draft');
+      if (action === 'skip_pick') {
+        const result = await skipPick(draftId);
+        return ok(result);
+      }
       if (action === 'start') { await startDraft(draftId); return ok({ ok: true }); }
       if (action === 'pause') { await pauseDraft(draftId); return ok({ ok: true }); }
       if (action === 'resume') { await resumeDraft(draftId); return ok({ ok: true }); }

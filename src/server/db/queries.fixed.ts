@@ -356,6 +356,30 @@ export async function countDraftPlayers(draftId: string): Promise<number> {
   return c | 0;
 }
 
+export async function deleteDraft(draftId: string) {
+  const db = getDb();
+  await db.execute(sql`DELETE FROM draft_picks WHERE draft_id = ${draftId}::uuid`);
+  await db.execute(sql`DELETE FROM draft_queues WHERE draft_id = ${draftId}::uuid`);
+  await db.execute(sql`DELETE FROM draft_slots WHERE draft_id = ${draftId}::uuid`);
+  await db.execute(sql`DELETE FROM draft_players WHERE draft_id = ${draftId}::uuid`);
+  await db.execute(sql`DELETE FROM drafts WHERE id = ${draftId}::uuid`);
+  return { ok: true };
+}
+
+export async function skipPick(draftId: string) {
+  const db = getDb();
+  const res = await db.execute(sql`
+    UPDATE drafts 
+    SET cur_overall = cur_overall + 1,
+        clock_started_at = NOW(),
+        deadline_ts = NOW() + (clock_seconds || interval '1 second')
+    WHERE id = ${draftId}::uuid
+    RETURNING cur_overall
+  `);
+  const newOverall = (res as unknown as { rows?: Array<{ cur_overall: number }> }).rows?.[0]?.cur_overall || 1;
+  return { ok: true, newOverall };
+}
+
 export async function createDraftWithOrder(params: { year: number; rounds: number; teams: string[]; clockSeconds?: number; snake?: boolean; id?: string }) {
   const id = params.id || randomUUID();
   const rounds = Math.max(1, params.rounds | 0);
