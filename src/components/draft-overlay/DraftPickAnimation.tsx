@@ -1,5 +1,7 @@
 'use client';
 
+/* eslint-disable @next/next/no-img-element -- Using <img> for GSAP animations that need direct DOM access */
+
 import React, { useEffect, useRef } from 'react';
 import { gsap } from 'gsap';
 import { getTeamLogoPath } from '@/lib/utils/team-utils';
@@ -34,11 +36,19 @@ export default function DraftPickAnimation({
 }: DraftPickAnimationProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const timelineRef = useRef<gsap.core.Timeline | null>(null);
+  const animationStartedForPickRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (!containerRef.current) return;
 
-    // Kill any existing timeline
+    // CRITICAL: Only start animation ONCE per pick number
+    // This prevents the animation from restarting on every parent re-render (polling)
+    if (animationStartedForPickRef.current === pickNumber) {
+      return; // Animation already running for this pick
+    }
+    animationStartedForPickRef.current = pickNumber;
+
+    // Kill any existing timeline from a previous pick
     if (timelineRef.current) {
       timelineRef.current.kill();
     }
