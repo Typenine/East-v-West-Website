@@ -268,10 +268,19 @@ export async function ensureDraftTables() {
       team varchar(255) NOT NULL,
       player_id varchar(64) NOT NULL,
       player_name varchar(255),
+      player_pos varchar(8),
+      player_nfl varchar(8),
       made_by varchar(255) NOT NULL,
       made_at timestamp NOT NULL DEFAULT now()
     )
   `);
+  // Add columns if they don't exist (migration)
+  await db.execute(sql`
+    ALTER TABLE draft_picks ADD COLUMN IF NOT EXISTS player_pos varchar(8)
+  `).catch(() => {}); // Ignore if already exists
+  await db.execute(sql`
+    ALTER TABLE draft_picks ADD COLUMN IF NOT EXISTS player_nfl varchar(8)
+  `).catch(() => {}); // Ignore if already exists
   await db.execute(sql`
     CREATE TABLE IF NOT EXISTS draft_queues (
       draft_id uuid NOT NULL,
@@ -356,6 +365,25 @@ export async function countDraftPlayers(draftId: string): Promise<number> {
   return c | 0;
 }
 
+export async function resetDraft(draftId: string) {
+  const db = getDb();
+  // Clear all picks and queues but KEEP draft structure (slots remain)
+  await db.execute(sql`DELETE FROM draft_picks WHERE draft_id = ${draftId}::uuid`);
+  await db.execute(sql`DELETE FROM draft_queues WHERE draft_id = ${draftId}::uuid`);
+  // Reset draft to NOT_STARTED with cur_overall = 1
+  await db.execute(sql`
+    UPDATE drafts 
+    SET status = 'NOT_STARTED',
+        cur_overall = 1,
+        clock_started_at = NULL,
+        deadline_ts = NULL,
+        started_at = NULL,
+        completed_at = NULL
+    WHERE id = ${draftId}::uuid
+  `);
+  return { ok: true };
+}
+
 export async function deleteDraft(draftId: string) {
   const db = getDb();
   await db.execute(sql`DELETE FROM draft_picks WHERE draft_id = ${draftId}::uuid`);
@@ -378,6 +406,18 @@ export async function skipPick(draftId: string) {
   `);
   const newOverall = (res as unknown as { rows?: Array<{ cur_overall: number }> }).rows?.[0]?.cur_overall || 1;
   return { ok: true, newOverall };
+}
+
+export async function updateDraftSlot(draftId: string, overall: number, team: string) {
+  const db = getDb();
+  // Check if pick has already been made for this slot
+  const pickCheck = await db.execute(sql`SELECT 1 FROM draft_picks WHERE draft_id = ${draftId}::uuid AND overall = ${overall} LIMIT 1`);
+  const hasPick = (pickCheck as unknown as { rows?: Array<Record<string, unknown>> }).rows?.length || 0;
+  if (hasPick > 0) return { ok: false as const, error: 'slot_has_pick' };
+  
+  // Update the slot
+  await db.execute(sql`UPDATE draft_slots SET team = ${team} WHERE draft_id = ${draftId}::uuid AND overall = ${overall}`);
+  return { ok: true as const };
 }
 
 export async function createDraftWithOrder(params: { year: number; rounds: number; teams: string[]; clockSeconds?: number; snake?: boolean; id?: string }) {
@@ -431,9 +471,9 @@ export async function getDraftOverview(draftId: string): Promise<DraftOverview |
   const curOverall = Number(head.cur_overall || 1);
   const slotRes = await db.execute(sql`SELECT team, round FROM draft_slots WHERE draft_id = ${draftId}::uuid AND overall = ${curOverall} LIMIT 1`);
   const slot = (slotRes as unknown as { rows?: Array<{ team: string; round: number }> }).rows?.[0] || null;
-  const picksRes = await db.execute(sql`SELECT overall, round, team, player_id, player_name, made_at FROM draft_picks WHERE draft_id = ${draftId}::uuid ORDER BY overall ASC`);
-  const allPicks = (picksRes as unknown as { rows?: Array<{ overall: number; round: number; team: string; player_id: string; player_name?: string; made_at: Date }> }).rows || [];
-  const recentPicks = allPicks.slice(-10).map((p) => ({ overall: p.overall, round: p.round, team: p.team, playerId: p.player_id, playerName: p.player_name || null, madeAt: new Date(p.made_at).toISOString() }));
+  const picksRes = await db.execute(sql`SELECT overall, round, team, player_id, player_name, player_pos, player_nfl, made_at FROM draft_picks WHERE draft_id = ${draftId}::uuid ORDER BY overall ASC`);
+  const allPicks = (picksRes as unknown as { rows?: Array<{ overall: number; round: number; team: string; player_id: string; player_name?: string; player_pos?: string; player_nfl?: string; made_at: Date }> }).rows || [];
+  const recentPicks = allPicks.slice(-10).map((p) => ({ overall: p.overall, round: p.round, team: p.team, playerId: p.player_id, playerName: p.player_name || null, playerPos: p.player_pos || null, playerNfl: p.player_nfl || null, madeAt: new Date(p.made_at).toISOString() }));
   const upRes = await db.execute(sql`SELECT overall, round, team FROM draft_slots WHERE draft_id = ${draftId}::uuid AND overall >= ${curOverall} ORDER BY overall ASC LIMIT 10`);
   const upcoming = (upRes as unknown as { rows?: Array<{ overall: number; round: number; team: string }> }).rows || [];
   return {
@@ -503,7 +543,7 @@ export async function setClockSeconds(draftId: string, seconds: number) {
   return true;
 }
 
-export async function makePick(params: { draftId: string; team: string; playerId: string; playerName?: string | null; madeBy: string }) {
+export async function makePick(params: { draftId: string; team: string; playerId: string; playerName?: string | null; playerPos?: string | null; playerNfl?: string | null; madeBy: string }) {
   await ensureDraftTables();
   const db = getDb();
   const picked = await db.execute(sql`SELECT 1 FROM draft_picks WHERE draft_id = ${params.draftId}::uuid AND player_id = ${params.playerId} LIMIT 1`);
@@ -516,8 +556,8 @@ export async function makePick(params: { draftId: string; team: string; playerId
   if (slot.team !== params.team) return { ok: false as const, error: 'not_on_clock' };
   const pickId = randomUUID();
   await db.execute(sql`
-    INSERT INTO draft_picks (id, draft_id, overall, round, team, player_id, player_name, made_by)
-    VALUES (${pickId}::uuid, ${params.draftId}::uuid, ${slot.overall}, ${slot.round}, ${slot.team}, ${params.playerId}, ${params.playerName || null}, ${params.madeBy})
+    INSERT INTO draft_picks (id, draft_id, overall, round, team, player_id, player_name, player_pos, player_nfl, made_by)
+    VALUES (${pickId}::uuid, ${params.draftId}::uuid, ${slot.overall}, ${slot.round}, ${slot.team}, ${params.playerId}, ${params.playerName || null}, ${params.playerPos || null}, ${params.playerNfl || null}, ${params.madeBy})
   `);
   const nextRes = await db.execute(sql`
     SELECT s.overall FROM draft_slots s
@@ -536,14 +576,14 @@ export async function makePick(params: { draftId: string; team: string; playerId
   return { ok: true as const };
 }
 
-export async function forcePick(params: { draftId: string; playerId: string; playerName?: string | null; team?: string | null; madeBy: string }) {
+export async function forcePick(params: { draftId: string; playerId: string; playerName?: string | null; playerPos?: string | null; playerNfl?: string | null; team?: string | null; madeBy: string }) {
   await ensureDraftTables();
   const db = getDb();
   const curRes = await db.execute(sql`SELECT d.cur_overall, s.team FROM drafts d JOIN draft_slots s ON s.draft_id = d.id AND s.overall = d.cur_overall WHERE d.id = ${params.draftId}::uuid LIMIT 1`);
   const cur = (curRes as unknown as { rows?: Array<{ cur_overall: number; team: string }> }).rows?.[0];
   const team = params.team || cur?.team;
   if (!team) return { ok: false as const, error: 'no_team' };
-  return makePick({ draftId: params.draftId, team, playerId: params.playerId, playerName: params.playerName || null, madeBy: params.madeBy });
+  return makePick({ draftId: params.draftId, team, playerId: params.playerId, playerName: params.playerName || null, playerPos: params.playerPos || null, playerNfl: params.playerNfl || null, madeBy: params.madeBy });
 }
 
 export async function undoLastPick(draftId: string) {

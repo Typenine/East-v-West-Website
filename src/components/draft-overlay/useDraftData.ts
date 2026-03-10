@@ -62,7 +62,7 @@ export interface OverlayState {
   currentPickIndex: number;
   timerSeconds: number;
   draftOrder: string[]; // Team names in pick order
-  draftGrid: Array<{ player: string; position: string; team: string } | null>;
+  draftGrid: Array<{ player: string | null; position: string | null; team: string }>;
   nextTeams: Array<Team & { logoPath: string | null }>;
   lastPick: DraftPick | null;
   isNewPick: boolean;
@@ -78,7 +78,7 @@ export function useDraftData(basePollIntervalMs = 1000) {
     currentPickIndex: 0,
     timerSeconds: 0,
     draftOrder: [],
-    draftGrid: Array(48).fill(null),
+    draftGrid: Array(48).fill({ player: null, position: null, team: '' }),
     nextTeams: [],
     lastPick: null,
     isNewPick: false,
@@ -117,19 +117,28 @@ export function useDraftData(basePollIntervalMs = 1000) {
         }
       }
 
-      // Build draft grid from recent picks
-      const draftGrid: Array<{ player: string; position: string; team: string } | null> = Array(48).fill(null);
-      if (draft?.recentPicks) {
-        for (const pick of draft.recentPicks) {
-          const idx = pick.overall - 1;
-          if (idx >= 0 && idx < 48) {
-            draftGrid[idx] = {
-              player: pick.playerName || pick.playerId,
-              position: pick.playerPos || 'N/A',
-              team: pick.team,
-            };
-          }
+      // Build slot-to-team map from upcoming picks (for all 48 slots)
+      const slotTeamMap: Record<number, string> = {};
+      if (draft?.upcoming) {
+        for (const u of draft.upcoming) {
+          slotTeamMap[u.overall - 1] = u.team;
         }
+      }
+      
+      // Build draft grid with team ownership for ALL cells
+      const draftGrid: Array<{ player: string | null; position: string | null; team: string }> = [];
+      for (let i = 0; i < 48; i++) {
+        // Find if this pick has been made
+        const pick = draft?.recentPicks?.find(p => p.overall - 1 === i);
+        
+        // Every cell gets team ownership (from pick or from slot map)
+        const teamName = pick?.team || slotTeamMap[i] || '';
+        
+        draftGrid[i] = {
+          player: pick ? (pick.playerName || pick.playerId) : null,
+          position: pick ? (pick.playerPos || 'N/A') : null,
+          team: teamName,
+        };
       }
 
       // Next teams (up to 2)

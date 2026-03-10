@@ -2,8 +2,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import {
   ensureDraftTables,
   createDraftWithOrder,
+  resetDraft,
   deleteDraft,
   skipPick,
+  updateDraftSlot,
   getActiveOrLatestDraftId,
   getDraftOverview,
   startDraft,
@@ -102,7 +104,7 @@ export async function POST(req: NextRequest) {
     const id = typeof body.id === 'string' ? body.id : '';
 
     // Admin-only actions
-    if (['create','delete','skip_pick','start','pause','resume','set_clock','force_pick','undo','upload_players','clear_players','auto_pick'].includes(action)) {
+    if (['create','reset','delete','skip_pick','update_slot','start','pause','resume','set_clock','force_pick','undo','upload_players','clear_players','auto_pick'].includes(action)) {
       if (!isAdmin(req)) return bad('forbidden', 403);
       if (action === 'create') {
         const year = Number(body.year || new Date().getFullYear());
@@ -113,6 +115,12 @@ export async function POST(req: NextRequest) {
         const result = await createDraftWithOrder({ year, rounds, teams, clockSeconds, snake });
         const draft = await getDraftOverview(result.id);
         return ok({ ok: true, id: result.id, draft });
+      }
+      if (action === 'reset') {
+        const draftId = id || (await getActiveOrLatestDraftId());
+        if (!draftId) return bad('no_draft');
+        await resetDraft(draftId);
+        return ok({ ok: true });
       }
       if (action === 'delete') {
         const draftId = id || (await getActiveOrLatestDraftId());
@@ -126,6 +134,14 @@ export async function POST(req: NextRequest) {
         const result = await skipPick(draftId);
         return ok(result);
       }
+      if (action === 'update_slot') {
+        const overall = Number(body.overall || 0);
+        const team = typeof body.team === 'string' ? body.team : '';
+        if (!overall || !team) return bad('overall and team required');
+        const result = await updateDraftSlot(draftId, overall, team);
+        if (!result.ok) return bad(result.error || 'failed', 400);
+        return ok({ ok: true });
+      }
       if (action === 'start') { await startDraft(draftId); return ok({ ok: true }); }
       if (action === 'pause') { await pauseDraft(draftId); return ok({ ok: true }); }
       if (action === 'resume') { await resumeDraft(draftId); return ok({ ok: true }); }
@@ -137,9 +153,11 @@ export async function POST(req: NextRequest) {
       if (action === 'force_pick') {
         const playerId = String(body.playerId || '').trim();
         const playerName = typeof body.playerName === 'string' ? body.playerName : null;
+        const playerPos = typeof body.playerPos === 'string' ? body.playerPos : null;
+        const playerNfl = typeof body.playerNfl === 'string' ? body.playerNfl : null;
         const team = typeof body.team === 'string' ? body.team : null;
         if (!playerId) return bad('playerId required');
-        const res = await forcePick({ draftId, playerId, playerName, team, madeBy: 'admin' });
+        const res = await forcePick({ draftId, playerId, playerName, playerPos, playerNfl, team, madeBy: 'admin' });
         if (!res.ok) return bad(res.error || 'failed', 400);
         return ok({ ok: true });
       }
@@ -173,8 +191,10 @@ export async function POST(req: NextRequest) {
       if (!draftId) return bad('no_draft');
       const playerId = String(body.playerId || '').trim();
       const playerName = typeof body.playerName === 'string' ? body.playerName : null;
+      const playerPos = typeof body.playerPos === 'string' ? body.playerPos : null;
+      const playerNfl = typeof body.playerNfl === 'string' ? body.playerNfl : null;
       if (!playerId) return bad('playerId required');
-      const res = await makePick({ draftId, team: ident.team, playerId, playerName, madeBy: ident.userId });
+      const res = await makePick({ draftId, team: ident.team, playerId, playerName, playerPos, playerNfl, madeBy: ident.userId });
       if (!res.ok) return bad(res.error || 'failed', 400);
       return ok({ ok: true });
     }

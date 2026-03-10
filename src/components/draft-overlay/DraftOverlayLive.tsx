@@ -17,6 +17,8 @@ const positionColors: Record<string, string> = {
   'K': '#FF8C42',
 };
 
+const tickerViews = ['bestAvailable', 'recentPicks', 'upcomingPicks'] as const;
+
 export default function DraftOverlayLive() {
   const {
     draft,
@@ -73,7 +75,52 @@ export default function DraftOverlayLive() {
   const teamColors = currentTeam?.colors || ['#333', '#555', null];
   const teamLogo = currentTeam ? getTeamLogoPath(currentTeam.name) : null;
   const prevDraftGridRef = useRef(draftGrid);
+  
+  // Ticker rotation state
+  const [currentTickerView, setCurrentTickerView] = useState<typeof tickerViews[number]>(tickerViews[0]);
+  const cycleTimerRef = useRef<NodeJS.Timeout | null>(null);
+  
+  // Draft order data from website
+  const [draftOrderData, setDraftOrderData] = useState<{
+    slotOrder: Array<{ slot: number; team: string; record: { wins: number; losses: number; fpts: number } }>;
+  } | null>(null);
 
+  // Fetch draft order data from website for ticker context
+  useEffect(() => {
+    async function fetchDraftOrder() {
+      try {
+        const res = await fetch('/api/draft/next-order', { cache: 'no-store' });
+        if (res.ok) {
+          const data = await res.json();
+          setDraftOrderData(data);
+        }
+      } catch (err) {
+        console.error('Failed to fetch draft order data:', err);
+      }
+    }
+    
+    fetchDraftOrder();
+  }, []);
+
+  // Ticker rotation - cycle every 10 seconds
+  useEffect(() => {
+    const startCycle = () => {
+      if (cycleTimerRef.current) clearTimeout(cycleTimerRef.current);
+      cycleTimerRef.current = setTimeout(() => {
+        setCurrentTickerView(prev => {
+          const index = tickerViews.indexOf(prev);
+          return tickerViews[(index + 1) % tickerViews.length];
+        });
+        startCycle();
+      }, 10000);
+    };
+    
+    startCycle();
+    return () => {
+      if (cycleTimerRef.current) clearTimeout(cycleTimerRef.current);
+    };
+  }, []);
+  
   // Animate new picks appearing in the draft board
   useEffect(() => {
     const prevGrid = prevDraftGridRef.current;
@@ -137,29 +184,40 @@ export default function DraftOverlayLive() {
               {/* Round cells */}
               {[0, 1, 2, 3].map(roundIdx => {
                 const gridIdx = roundIdx * 12 + pickIdx;
-                const pick = draftGrid[gridIdx];
+                const gridItem = draftGrid[gridIdx];
                 const isCurrentPick = currentPickIndex === gridIdx;
+                const isPicked = gridItem?.player !== null;
+                const teamLogo = gridItem?.team ? getTeamLogoPath(gridItem.team) : null;
+                
                 return (
                   <div
                     key={gridIdx}
                     data-grid-idx={gridIdx}
-                    className={`relative text-[10px] px-1 py-[2px] flex flex-col justify-center ${
+                    className={`relative text-[10px] px-1 py-[2px] flex flex-col justify-center overflow-hidden ${
                       isCurrentPick
                         ? 'ring-2 ring-yellow-400 bg-yellow-400/20'
-                        : pick
+                        : isPicked
                         ? 'bg-zinc-800'
                         : 'bg-zinc-900/50'
                     }`}
                     style={{
-                      borderLeft: pick ? `3px solid ${positionColors[pick.position] || '#666'}` : undefined,
+                      borderLeft: isPicked && gridItem?.position ? `3px solid ${positionColors[gridItem.position] || '#666'}` : undefined,
                     }}
                   >
-                    {pick ? (
-                      <>
-                        <div className="font-semibold text-white truncate leading-tight">{pick.player}</div>
-                        <div className="text-zinc-400 text-[9px] leading-tight">{pick.position}</div>
-                      </>
-                    ) : null}
+                    {/* Team logo background - ALWAYS visible */}
+                    {teamLogo && (
+                      <div className="absolute inset-0 flex items-center justify-center opacity-20">
+                        <img src={teamLogo} alt="" className="w-8 h-8 object-contain" />
+                      </div>
+                    )}
+                    
+                    {/* Player info overlay - only when picked */}
+                    {isPicked && gridItem && (
+                      <div className="relative z-10">
+                        <div className="font-semibold text-white truncate leading-tight">{gridItem.player}</div>
+                        <div className="text-zinc-400 text-[9px] leading-tight">{gridItem.position}</div>
+                      </div>
+                    )}
                   </div>
                 );
               })}
@@ -229,24 +287,53 @@ export default function DraftOverlayLive() {
           </div>
         </div>
 
-        {/* InfoBar: Best Available */}
+        {/* InfoBar: Rotating Ticker */}
         <div
-          className="flex-1 p-2 overflow-hidden"
+          className="flex-1 p-2 overflow-hidden relative"
           style={{
             background: teamColors[0],
             borderRadius: '4px',
           }}
         >
-          <div className="text-white/80 text-xs font-semibold mb-1">
-            Best Available{usingCustom ? ' (Custom)' : ''}
+          {/* Best Available View */}
+          <div style={{ display: currentTickerView === 'bestAvailable' ? 'block' : 'none' }}>
+            <div className="text-white/80 text-xs font-semibold mb-1">
+              Best Available{usingCustom ? ' (Custom)' : ''}
+            </div>
+            <div className="grid grid-cols-5 gap-1">
+              {available.slice(0, 10).map((p, i) => (
+                <div key={p.id} className="bg-black/30 rounded px-1 py-[2px] text-[10px]">
+                  <div className="font-semibold text-white truncate">{i + 1}. {p.name}</div>
+                  <div className="text-white/60 truncate">{p.pos} - {p.nfl || '-'}</div>
+                </div>
+              ))}
+            </div>
           </div>
-          <div className="grid grid-cols-5 gap-1">
-            {available.slice(0, 10).map((p, i) => (
-              <div key={p.id} className="bg-black/30 rounded px-1 py-[2px] text-[10px]">
-                <div className="font-semibold text-white truncate">{i + 1}. {p.name}</div>
-                <div className="text-white/60 truncate">{p.pos} - {p.nfl || '-'}</div>
-              </div>
-            ))}
+
+          {/* Recent Picks View */}
+          <div style={{ display: currentTickerView === 'recentPicks' ? 'block' : 'none' }}>
+            <div className="text-white/80 text-xs font-semibold mb-1">Recent Picks</div>
+            <div className="grid grid-cols-2 gap-1">
+              {draft?.recentPicks.slice(-6).reverse().map((p) => (
+                <div key={p.overall} className="bg-black/30 rounded px-1 py-[2px] text-[10px]">
+                  <div className="font-semibold text-white truncate">#{p.overall}: {p.playerName || p.playerId}</div>
+                  <div className="text-white/60 truncate">{p.team} - R{p.round}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Upcoming Picks View */}
+          <div style={{ display: currentTickerView === 'upcomingPicks' ? 'block' : 'none' }}>
+            <div className="text-white/80 text-xs font-semibold mb-1">Next 6 Picks</div>
+            <div className="grid grid-cols-3 gap-1">
+              {draft?.upcoming.slice(0, 6).map((u) => (
+                <div key={u.overall} className="bg-black/30 rounded px-1 py-[2px] text-[10px]">
+                  <div className="font-semibold text-white truncate">#{u.overall}</div>
+                  <div className="text-white/60 truncate">{u.team}</div>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       </div>

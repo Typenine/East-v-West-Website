@@ -42,10 +42,11 @@ export default function AdminDraftPage() {
   const [search, setSearch] = useState('');
   const [pos, setPos] = useState('');
   const [avail, setAvail] = useState<Array<{ id: string; name: string; pos: string; nfl: string }>>([]);
-  const [forcePlayer, setForcePlayer] = useState<string>('');
+  const [forcePlayer, setForcePlayer] = useState<{ id: string; name: string; pos: string; nfl: string } | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [teamOrder, setTeamOrder] = useState<string[]>(TEAM_NAMES);
   const [playersInfo, setPlayersInfo] = useState<{ useCustom: boolean; count: number }>({ useCustom: false, count: 0 });
+  const [orderLoaded, setOrderLoaded] = useState(false);
 
   // Convert mins:secs to total seconds
   const getTotalSeconds = () => Number(clockMins || 0) * 60 + Number(clockSecs || 0);
@@ -92,6 +93,31 @@ export default function AdminDraftPage() {
     } catch {}
   }
   useEffect(() => { refreshPlayersInfo(); }, []);
+
+  // Auto-load draft order from existing /api/draft/next-order endpoint
+  useEffect(() => {
+    if (orderLoaded) return;
+    
+    async function loadDraftOrder() {
+      try {
+        const res = await fetch('/api/draft/next-order', { cache: 'no-store' });
+        if (!res.ok) return;
+        const data = await res.json();
+        
+        if (data?.slotOrder && Array.isArray(data.slotOrder)) {
+          const order = data.slotOrder.map((slot: { team: string }) => slot.team);
+          if (order.length > 0) {
+            setTeamOrder(order);
+            setOrderLoaded(true);
+          }
+        }
+      } catch (err) {
+        console.error('Failed to auto-load draft order:', err);
+      }
+    }
+    
+    loadDraftOrder();
+  }, [orderLoaded]);
 
   const onAdmin = async (action: string, payload?: Record<string, unknown>) => {
     setBusy(action);
@@ -318,8 +344,31 @@ export default function AdminDraftPage() {
                           ))}
                         </ul>
                       </div>
-                      <div className="mt-2">
-                        <Button variant="ghost" size="sm" onClick={() => setTeamOrder(TEAM_NAMES)}>Reset Order</Button>
+                      <div className="mt-2 flex gap-2">
+                        <Button variant="ghost" size="sm" onClick={() => setTeamOrder(TEAM_NAMES)}>Reset to Default</Button>
+                        <Button 
+                          variant="ghost" 
+                          size="sm"
+                          onClick={async () => {
+                            setOrderLoaded(false);
+                            try {
+                              const res = await fetch('/api/draft/next-order', { cache: 'no-store' });
+                              if (!res.ok) throw new Error('Failed to fetch');
+                              const data = await res.json();
+                              if (data?.slotOrder && Array.isArray(data.slotOrder)) {
+                                const order = data.slotOrder.map((slot: { team: string }) => slot.team);
+                                if (order.length > 0) {
+                                  setTeamOrder(order);
+                                  setOrderLoaded(true);
+                                }
+                              }
+                            } catch (e) {
+                              alert(`❌ Error: ${(e as Error).message}`);
+                            }
+                          }}
+                        >
+                          � Reload from Standings
+                        </Button>
                       </div>
                     </div>
                     <Button disabled={busy==='create'} onClick={() => onAdmin('create', { year: Number(form.year), rounds: Number(form.rounds), clockSeconds: getTotalSeconds(), snake: form.snake === 'true', teams: teamOrder })}>
@@ -349,6 +398,19 @@ export default function AdminDraftPage() {
                       <a href="/draft/room" target="_blank" rel="noopener noreferrer">
                         <Button variant="ghost" size="sm">👥 Team View →</Button>
                       </a>
+                      <Button 
+                        disabled={busy==='reset'} 
+                        variant="ghost" 
+                        size="sm"
+                        onClick={async () => {
+                          if (!confirm('RESET draft to Round 1? This will clear all picks but keep the draft order.')) return;
+                          await onAdmin('reset');
+                          await load(true);
+                        }}
+                        title="Clear all picks but keep draft order"
+                      >
+                        🔄 Reset Draft
+                      </Button>
                       <Button 
                         disabled={busy==='delete'} 
                         variant="danger" 
@@ -559,12 +621,17 @@ export default function AdminDraftPage() {
                       {avail.map((p) => (
                         <li key={p.id} className="flex items-center justify-between text-sm">
                           <span>{p.name} <span className="text-[var(--muted)]">({p.pos} {p.nfl})</span></span>
-                          <Button size="sm" onClick={() => setForcePlayer(p.id)}>Select</Button>
+                          <Button size="sm" onClick={() => setForcePlayer(p)}>Select</Button>
                         </li>
                       ))}
                     </ul>
                   </div>
-                  <Button disabled={!forcePlayer || busy==='force_pick'} onClick={() => onAdmin('force_pick', { playerId: forcePlayer })}>Force Pick</Button>
+                  {forcePlayer && (
+                    <div className="text-sm p-2 bg-blue-50 rounded">
+                      Selected: <strong>{forcePlayer.name}</strong> ({forcePlayer.pos} {forcePlayer.nfl})
+                    </div>
+                  )}
+                  <Button disabled={!forcePlayer || busy==='force_pick'} onClick={() => onAdmin('force_pick', { playerId: forcePlayer!.id, playerName: forcePlayer!.name, playerPos: forcePlayer!.pos, playerNfl: forcePlayer!.nfl })}>Force Pick</Button>
                 </div>
               </CardContent>
             </Card>
