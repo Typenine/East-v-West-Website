@@ -113,8 +113,11 @@ export async function POST(req: NextRequest) {
         const rounds = Number(body.rounds || 4);
         const teams = Array.isArray(body.teams) && body.teams.length > 0 ? (body.teams as string[]) : TEAM_NAMES;
         const clockSeconds = Number(body.clockSeconds || 60);
-        const snake = body.snake !== false;
-        const result = await createDraftWithOrder({ year, rounds, teams, clockSeconds, snake });
+        // Accept per-round orders for dynasty drafts with trades
+        const roundOrders = (body.roundOrders && typeof body.roundOrders === 'object') 
+          ? body.roundOrders as Record<number, string[]> 
+          : undefined;
+        const result = await createDraftWithOrder({ year, rounds, teams, clockSeconds, roundOrders });
         const draft = await getDraftOverview(result.id);
         return ok({ ok: true, id: result.id, draft });
       }

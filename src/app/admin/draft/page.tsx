@@ -40,7 +40,8 @@ export default function AdminDraftPage() {
   const [remainingSec, setRemainingSec] = useState<number | null>(null);
   const [clockMins, setClockMins] = useState('2');
   const [clockSecs, setClockSecs] = useState('0');
-  const [form, setForm] = useState({ year: new Date().getFullYear().toString(), rounds: '4', snake: 'true' });
+  const [form, setForm] = useState({ year: new Date().getFullYear().toString(), rounds: '4' });
+  const [roundOrders, setRoundOrders] = useState<Record<number, string[]>>({});
   const [search, setSearch] = useState('');
   const [pos, setPos] = useState('');
   const [avail, setAvail] = useState<Array<{ id: string; name: string; pos: string; nfl: string }>>([]);
@@ -97,6 +98,7 @@ export default function AdminDraftPage() {
   useEffect(() => { refreshPlayersInfo(); }, []);
 
   // Auto-load draft order from existing /api/draft/next-order endpoint
+  // This loads ALL rounds with their unique orders (accounting for trades)
   useEffect(() => {
     if (orderLoaded) return;
     
@@ -106,7 +108,26 @@ export default function AdminDraftPage() {
         if (!res.ok) return;
         const data = await res.json();
         
-        if (data?.slotOrder && Array.isArray(data.slotOrder)) {
+        // Load per-round orders from roundsData
+        if (data?.roundsData && Array.isArray(data.roundsData)) {
+          const newRoundOrders: Record<number, string[]> = {};
+          for (const rd of data.roundsData) {
+            if (rd.round && rd.picks) {
+              // Order by slot, map to ownerTeam (who owns the pick now)
+              const sortedPicks = [...rd.picks].sort((a: {slot: number}, b: {slot: number}) => a.slot - b.slot);
+              newRoundOrders[rd.round] = sortedPicks.map((p: {ownerTeam: string}) => p.ownerTeam);
+            }
+          }
+          if (Object.keys(newRoundOrders).length > 0) {
+            setRoundOrders(newRoundOrders);
+            // Use round 1 as the base teamOrder display
+            if (newRoundOrders[1]) {
+              setTeamOrder(newRoundOrders[1]);
+            }
+            setOrderLoaded(true);
+          }
+        } else if (data?.slotOrder && Array.isArray(data.slotOrder)) {
+          // Fallback to basic slot order
           const order = data.slotOrder.map((slot: { team: string }) => slot.team);
           if (order.length > 0) {
             setTeamOrder(order);
@@ -137,19 +158,6 @@ export default function AdminDraftPage() {
 
   const recent = draft?.recentPicks || [];
   const upcoming = draft?.upcoming || [];
-
-  const moveTeam = (idx: number, dir: -1 | 1) => {
-    setTeamOrder((list) => {
-      const i = idx;
-      const j = i + dir;
-      if (i < 0 || j < 0 || i >= list.length || j >= list.length) return list;
-      const copy = list.slice();
-      const tmp = copy[i];
-      copy[i] = copy[j];
-      copy[j] = tmp;
-      return copy;
-    });
-  };
 
   const parsePlayersText = (text: string): Array<{ id: string; name: string; pos: string; nfl?: string | null; rank?: number }> => {
     // Try JSON first
@@ -324,27 +332,27 @@ export default function AdminDraftPage() {
                         </div>
                       </div>
                       <div>
-                        <Label className="mb-1 block">Snake Order</Label>
-                        <Select value={form.snake} onChange={(e) => setForm({ ...form, snake: e.target.value })}>
-                          <option value="true">Snake (on)</option>
-                          <option value="false">Linear (off)</option>
-                        </Select>
+                        <Label className="mb-1 block">Draft Type</Label>
+                        <div className="text-sm text-[var(--muted)] py-2">Linear (Dynasty)</div>
                       </div>
                     </div>
                     <div>
-                      <Label className="mb-2 block">Team Order (Round 1)</Label>
-                      <div className="max-h-64 overflow-auto border rounded bg-zinc-900/50">
-                        <ul className="divide-y divide-zinc-800">
-                          {teamOrder.map((t, i) => (
-                            <li key={t} className="flex items-center justify-between px-3 py-2 text-sm hover:bg-zinc-800/50">
-                              <span className="flex-1"><span className="text-[var(--muted)] mr-2">{i + 1}.</span> {t}</span>
-                              <div className="flex gap-1">
-                                <Button size="sm" variant="ghost" onClick={() => moveTeam(i, -1)} disabled={i === 0}>↑</Button>
-                                <Button size="sm" variant="ghost" onClick={() => moveTeam(i, 1)} disabled={i === teamOrder.length - 1}>↓</Button>
-                              </div>
-                            </li>
-                          ))}
-                        </ul>
+                      <Label className="mb-2 block">Draft Order (All Rounds)</Label>
+                      <div className="grid grid-cols-4 gap-2 max-h-80 overflow-auto border rounded bg-zinc-900/50 p-2">
+                        {[1, 2, 3, 4].map(round => {
+                          const order = roundOrders[round] || teamOrder;
+                          return (
+                            <div key={round} className="space-y-1">
+                              <div className="text-xs font-bold text-center text-[var(--muted)] border-b border-zinc-700 pb-1">Round {round}</div>
+                              {order.map((t, i) => (
+                                <div key={`${round}-${i}`} className="text-xs px-1 py-0.5 bg-zinc-800/50 rounded flex items-center gap-1">
+                                  <span className="text-[var(--muted)] w-4">{i + 1}.</span>
+                                  <span className="truncate">{t}</span>
+                                </div>
+                              ))}
+                            </div>
+                          );
+                        })}
                       </div>
                       <div className="mt-2 flex gap-2">
                         <Button variant="ghost" size="sm" onClick={() => setTeamOrder(TEAM_NAMES)}>Reset to Default</Button>
@@ -357,10 +365,25 @@ export default function AdminDraftPage() {
                               const res = await fetch('/api/draft/next-order', { cache: 'no-store' });
                               if (!res.ok) throw new Error('Failed to fetch');
                               const data = await res.json();
-                              if (data?.slotOrder && Array.isArray(data.slotOrder)) {
+                              // Load per-round orders from roundsData
+                              if (data?.roundsData && Array.isArray(data.roundsData)) {
+                                const newRoundOrders: Record<number, string[]> = {};
+                                for (const rd of data.roundsData) {
+                                  if (rd.round && rd.picks) {
+                                    const sortedPicks = [...rd.picks].sort((a: {slot: number}, b: {slot: number}) => a.slot - b.slot);
+                                    newRoundOrders[rd.round] = sortedPicks.map((p: {ownerTeam: string}) => p.ownerTeam);
+                                  }
+                                }
+                                if (Object.keys(newRoundOrders).length > 0) {
+                                  setRoundOrders(newRoundOrders);
+                                  if (newRoundOrders[1]) setTeamOrder(newRoundOrders[1]);
+                                  setOrderLoaded(true);
+                                }
+                              } else if (data?.slotOrder && Array.isArray(data.slotOrder)) {
                                 const order = data.slotOrder.map((slot: { team: string }) => slot.team);
                                 if (order.length > 0) {
                                   setTeamOrder(order);
+                                  setRoundOrders({});
                                   setOrderLoaded(true);
                                 }
                               }
@@ -378,7 +401,7 @@ export default function AdminDraftPage() {
                         </div>
                       )}
                     </div>
-                    <Button disabled={busy==='create'} onClick={() => onAdmin('create', { year: Number(form.year), rounds: Number(form.rounds), clockSeconds: getTotalSeconds(), snake: form.snake === 'true', teams: teamOrder })}>
+                    <Button disabled={busy==='create'} onClick={() => onAdmin('create', { year: Number(form.year), rounds: Number(form.rounds), clockSeconds: getTotalSeconds(), teams: teamOrder, roundOrders: Object.keys(roundOrders).length > 0 ? roundOrders : undefined })}>
                       Create Draft
                     </Button>
                   </div>

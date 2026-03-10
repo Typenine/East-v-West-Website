@@ -51,13 +51,13 @@ export default function DraftOverlayLive() {
   };
 
   // Show full pick animation when new pick comes in (only once per pick)
+  // Animation dismissal is handled by onComplete callback, NOT by isNewPick becoming false
   useEffect(() => {
     if (isNewPick && lastPick && lastPick.overall !== lastAnimatedPickRef.current) {
       lastAnimatedPickRef.current = lastPick.overall;
       setShowPickAnimation(true);
-    } else if (!isNewPick) {
-      setShowPickAnimation(false);
     }
+    // DO NOT set showPickAnimation to false here - let the animation complete naturally
   }, [isNewPick, lastPick]);
 
   // Pulse clock when low time

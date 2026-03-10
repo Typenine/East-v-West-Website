@@ -430,13 +430,19 @@ export async function updateDraftSlot(draftId: string, overall: number, team: st
   return { ok: true as const };
 }
 
-export async function createDraftWithOrder(params: { year: number; rounds: number; teams: string[]; clockSeconds?: number; snake?: boolean; id?: string }) {
+export async function createDraftWithOrder(params: { 
+  year: number; 
+  rounds: number; 
+  teams: string[]; // Round 1 order (legacy, used if roundOrders not provided)
+  roundOrders?: Record<number, string[]>; // Per-round team orders (round number -> team names in order)
+  clockSeconds?: number; 
+  id?: string 
+}) {
   const id = params.id || randomUUID();
   const rounds = Math.max(1, params.rounds | 0);
-  const teams = (params.teams || []).filter(Boolean);
-  if (teams.length === 0) throw new Error('teams required');
+  const baseTeams = (params.teams || []).filter(Boolean);
+  if (baseTeams.length === 0) throw new Error('teams required');
   const clockSeconds = Math.max(10, Math.min(24 * 60 * 60, (params.clockSeconds || 60) | 0));
-  const snake = params.snake !== false; // default true
   const db = getDb();
   await ensureDraftTables();
   await db.execute(sql`
@@ -446,7 +452,8 @@ export async function createDraftWithOrder(params: { year: number; rounds: numbe
   `);
   let overall = 1;
   for (let r = 1; r <= rounds; r++) {
-    const order = snake && r % 2 === 0 ? [...teams].reverse() : teams;
+    // Use per-round order if provided, otherwise use base teams (linear, no snake)
+    const order = params.roundOrders?.[r] || baseTeams;
     for (let i = 0; i < order.length; i++) {
       const pickInRound = i + 1;
       const team = order[i];
@@ -458,7 +465,7 @@ export async function createDraftWithOrder(params: { year: number; rounds: numbe
       overall += 1;
     }
   }
-  return { id } as const;
+  return { id };
 }
 
 export async function getActiveOrLatestDraftId(): Promise<string | null> {
