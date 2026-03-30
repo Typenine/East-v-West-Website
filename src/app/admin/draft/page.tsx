@@ -32,13 +32,113 @@ type DraftOverview = {
   allSlots?: Array<{ overall: number; round: number; team: string }>;
 };
 
+function PickVideosCard({
+  draftId,
+  recentPicks,
+}: {
+  draftId: string;
+  recentPicks: Array<{ overall: number; round: number; team: string; playerName?: string | null }>;
+}) {
+  const [videos, setVideos] = useState<Record<number, string>>({});
+  const [editing, setEditing] = useState<Record<number, string>>({});
+  const [saving, setSaving] = useState<number | null>(null);
+
+  useEffect(() => {
+    async function load() {
+      try {
+        const res = await fetch(`/api/draft/pick-videos?draftId=${draftId}`, { cache: 'no-store' });
+        if (!res.ok) return;
+        const j = await res.json();
+        const map: Record<number, string> = {};
+        for (const v of (j.videos || [])) map[v.overall] = v.videoUrl;
+        setVideos(map);
+        setEditing(map);
+      } catch {}
+    }
+    load();
+  }, [draftId]);
+
+  async function save(overall: number) {
+    setSaving(overall);
+    try {
+      const videoUrl = (editing[overall] || '').trim();
+      const pick = recentPicks.find(p => p.overall === overall);
+      if (videoUrl) {
+        await fetch('/api/draft/pick-videos', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ draftId, overall, videoUrl, playerName: pick?.playerName }),
+        });
+        setVideos(v => ({ ...v, [overall]: videoUrl }));
+      } else {
+        await fetch('/api/draft/pick-videos', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ draftId, overall, action: 'delete' }),
+        });
+        setVideos(v => { const n = { ...v }; delete n[overall]; return n; });
+      }
+    } catch {
+      alert('Save failed');
+    } finally {
+      setSaving(null);
+    }
+  }
+
+  const picks = [...recentPicks].reverse();
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>🎬 Pick Highlight Videos</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <p className="text-sm text-[var(--muted)] mb-4">
+          Paste a YouTube URL for any pick. The video will play after the pick animation, before the &quot;Now on the Clock&quot; animation.
+        </p>
+        {picks.length === 0 ? (
+          <p className="text-[var(--muted)] text-sm">No picks yet.</p>
+        ) : (
+          <div className="space-y-2">
+            {picks.map((p) => (
+              <div key={p.overall} className="flex items-center gap-2">
+                <div className="w-28 flex-shrink-0 text-sm font-semibold text-[var(--muted)]">
+                  #{p.overall} — R{p.round}
+                </div>
+                <div className="flex-1 text-xs text-[var(--muted)] truncate min-w-0 mr-1">
+                  {p.playerName || '—'}
+                </div>
+                <input
+                  type="text"
+                  className="flex-1 min-w-0 px-2 py-1 text-sm bg-zinc-800 border border-zinc-600 rounded text-white placeholder-zinc-500"
+                  placeholder="YouTube URL (optional)"
+                  value={editing[p.overall] ?? ''}
+                  onChange={e => setEditing(v => ({ ...v, [p.overall]: e.target.value }))}
+                />
+                <Button
+                  size="sm"
+                  variant={videos[p.overall] ? 'primary' : 'ghost'}
+                  disabled={saving === p.overall}
+                  onClick={() => save(p.overall)}
+                >
+                  {saving === p.overall ? '…' : videos[p.overall] ? '✓ Saved' : 'Set'}
+                </Button>
+              </div>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function AdminDraftPage() {
   const [isAdmin, setIsAdmin] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [draft, setDraft] = useState<DraftOverview | null>(null);
   const [remainingSec, setRemainingSec] = useState<number | null>(null);
-  const [clockMins, setClockMins] = useState('2');
+  const [clockMins, setClockMins] = useState('10');
   const [clockSecs, setClockSecs] = useState('0');
   const [form, setForm] = useState({ year: new Date().getFullYear().toString(), rounds: '4' });
   const [roundOrders, setRoundOrders] = useState<Record<number, string[]>>({});
@@ -474,6 +574,7 @@ export default function AdminDraftPage() {
                           <Button size="sm" variant="ghost" onClick={() => { setClockMins('1'); setClockSecs('0'); }}>1:00</Button>
                           <Button size="sm" variant="ghost" onClick={() => { setClockMins('2'); setClockSecs('0'); }}>2:00</Button>
                           <Button size="sm" variant="ghost" onClick={() => { setClockMins('5'); setClockSecs('0'); }}>5:00</Button>
+                          <Button size="sm" variant="ghost" onClick={() => { setClockMins('10'); setClockSecs('0'); }}>10:00</Button>
                         </div>
                       </div>
                     </div>
@@ -548,6 +649,11 @@ export default function AdminDraftPage() {
                   </div>
                 </CardContent>
               </Card>
+            )}
+
+            {/* Pick Videos */}
+            {draft && (
+              <PickVideosCard draftId={draft.id} recentPicks={recent} />
             )}
 
             {/* Testing Tools */}
@@ -786,3 +892,4 @@ export default function AdminDraftPage() {
     </div>
   );
 }
+

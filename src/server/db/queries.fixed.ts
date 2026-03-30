@@ -228,6 +228,7 @@ export type DraftOverview = {
   onClockTeam?: string | null;
   clockStartedAt?: string | null;
   deadlineTs?: string | null;
+  pausedRemainingSecs?: number | null;
   recentPicks: Array<{ overall: number; round: number; team: string; playerId: string; playerName?: string | null; playerPos?: string | null; playerNfl?: string | null; madeAt: string }>;
   allPicks: Array<{ overall: number; round: number; team: string; playerId: string; playerName?: string | null; playerPos?: string | null; playerNfl?: string | null; madeAt: string }>;
   upcoming: Array<{ overall: number; round: number; team: string }>;
@@ -248,9 +249,12 @@ export async function ensureDraftTables() {
       completed_at timestamp NULL,
       cur_overall integer NOT NULL DEFAULT 1,
       clock_started_at timestamp NULL,
-      deadline_ts timestamp NULL
+      deadline_ts timestamp NULL,
+      paused_remaining_secs integer NULL
     )
   `);
+  // Migration: add paused_remaining_secs if missing
+  await db.execute(sql`ALTER TABLE drafts ADD COLUMN IF NOT EXISTS paused_remaining_secs integer NULL`).catch(() => {});
   await db.execute(sql`
     CREATE TABLE IF NOT EXISTS draft_slots (
       draft_id uuid NOT NULL,
@@ -303,6 +307,17 @@ export async function ensureDraftTables() {
   await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_draft_picks_draft ON draft_picks(draft_id)`);
   await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_draft_picks_player ON draft_picks(player_id)`);
   await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_draft_slots_team ON draft_slots(draft_id, team)`);
+  // Pick videos table
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS draft_pick_videos (
+      draft_id uuid NOT NULL,
+      overall integer NOT NULL,
+      video_url text NOT NULL,
+      player_name varchar(255),
+      created_at timestamp NOT NULL DEFAULT now(),
+      PRIMARY KEY (draft_id, overall)
+    )
+  `);
 }
 
 // Optional per-draft custom player pool (alternative to Sleeper dataset)
@@ -482,7 +497,7 @@ export async function getActiveOrLatestDraftId(): Promise<string | null> {
 export async function getDraftOverview(draftId: string): Promise<DraftOverview | null> {
   await ensureDraftTables();
   const db = getDb();
-  const headRes = await db.execute(sql`SELECT id::text AS id, year, rounds, clock_seconds, status, created_at, started_at, completed_at, cur_overall, clock_started_at, deadline_ts FROM drafts WHERE id = ${draftId}::uuid LIMIT 1`);
+  const headRes = await db.execute(sql`SELECT id::text AS id, year, rounds, clock_seconds, status, created_at, started_at, completed_at, cur_overall, clock_started_at, deadline_ts, paused_remaining_secs FROM drafts WHERE id = ${draftId}::uuid LIMIT 1`);
   const head = (headRes as unknown as { rows?: Array<Record<string, unknown>> }).rows?.[0];
   if (!head) return null;
   const curOverall = Number(head.cur_overall || 1);
@@ -511,6 +526,7 @@ export async function getDraftOverview(draftId: string): Promise<DraftOverview |
     onClockTeam: slot?.team || null,
     clockStartedAt: head.clock_started_at ? new Date(head.clock_started_at as string).toISOString() : null,
     deadlineTs: head.deadline_ts ? new Date(head.deadline_ts as string).toISOString() : null,
+    pausedRemainingSecs: head.paused_remaining_secs != null ? Number(head.paused_remaining_secs) : null,
     recentPicks,
     allPicks,
     upcoming,
@@ -547,16 +563,33 @@ export async function getDraftPickedPlayerIds(draftId: string): Promise<string[]
 export async function pauseDraft(draftId: string) {
   await ensureDraftTables();
   const db = getDb();
-  await db.execute(sql`UPDATE drafts SET status = 'PAUSED' WHERE id = ${draftId}::uuid`);
+  // Save remaining seconds at pause time so resume can restore them
+  await db.execute(sql`
+    UPDATE drafts
+    SET status = 'PAUSED',
+        paused_remaining_secs = GREATEST(0, EXTRACT(EPOCH FROM (deadline_ts - now()))::integer)
+    WHERE id = ${draftId}::uuid
+  `);
   return true;
 }
 
 export async function resumeDraft(draftId: string) {
   await ensureDraftTables();
   const db = getDb();
-  const r = await db.execute(sql`SELECT clock_seconds FROM drafts WHERE id = ${draftId}::uuid LIMIT 1`);
-  const secs = (r as unknown as { rows?: Array<{ clock_seconds: number }> }).rows?.[0]?.clock_seconds || 60;
-  await db.execute(sql`UPDATE drafts SET status = 'LIVE', clock_started_at = now(), deadline_ts = now() + (interval '1 second' * ${secs}) WHERE id = ${draftId}::uuid`);
+  // Use saved remaining secs from pause; fall back to full clock if missing
+  const r = await db.execute(sql`SELECT clock_seconds, paused_remaining_secs FROM drafts WHERE id = ${draftId}::uuid LIMIT 1`);
+  const row = (r as unknown as { rows?: Array<{ clock_seconds: number; paused_remaining_secs: number | null }> }).rows?.[0];
+  const secs = (row?.paused_remaining_secs != null && row.paused_remaining_secs > 0)
+    ? row.paused_remaining_secs
+    : (row?.clock_seconds || 60);
+  await db.execute(sql`
+    UPDATE drafts
+    SET status = 'LIVE',
+        clock_started_at = now(),
+        deadline_ts = now() + (interval '1 second' * ${secs}),
+        paused_remaining_secs = NULL
+    WHERE id = ${draftId}::uuid
+  `);
   return true;
 }
 
@@ -720,6 +753,33 @@ export async function checkAndAutoPick(draftId: string, force = false): Promise<
     await db.execute(sql`UPDATE drafts SET status = 'COMPLETED', completed_at = now() WHERE id = ${draftId}::uuid`);
   }
   return { picked: false, error: 'no_available_player' };
+}
+
+// =====================
+// Pick Videos
+// =====================
+export async function getPickVideos(draftId: string): Promise<Array<{ overall: number; videoUrl: string; playerName: string | null }>> {
+  await ensureDraftTables();
+  const db = getDb();
+  const res = await db.execute(sql`SELECT overall, video_url, player_name FROM draft_pick_videos WHERE draft_id = ${draftId}::uuid ORDER BY overall ASC`);
+  const rows = (res as unknown as { rows?: Array<{ overall: number; video_url: string; player_name: string | null }> }).rows || [];
+  return rows.map(r => ({ overall: Number(r.overall), videoUrl: r.video_url, playerName: r.player_name || null }));
+}
+
+export async function setPickVideo(draftId: string, overall: number, videoUrl: string, playerName?: string | null): Promise<void> {
+  await ensureDraftTables();
+  const db = getDb();
+  await db.execute(sql`
+    INSERT INTO draft_pick_videos (draft_id, overall, video_url, player_name)
+    VALUES (${draftId}::uuid, ${overall}, ${videoUrl}, ${playerName || null})
+    ON CONFLICT (draft_id, overall) DO UPDATE SET video_url = EXCLUDED.video_url, player_name = EXCLUDED.player_name
+  `);
+}
+
+export async function deletePickVideo(draftId: string, overall: number): Promise<void> {
+  await ensureDraftTables();
+  const db = getDb();
+  await db.execute(sql`DELETE FROM draft_pick_videos WHERE draft_id = ${draftId}::uuid AND overall = ${overall}`);
 }
 
 export async function prunePriorSeasonsKeepOfficial(currentSeason: number) {

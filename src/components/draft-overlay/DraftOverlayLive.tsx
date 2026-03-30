@@ -8,6 +8,7 @@ import { useDraftData } from './useDraftData';
 import { getTeamLogoPath } from '@/lib/utils/team-utils';
 import { getTeamColors } from '@/lib/constants/team-colors';
 import DraftPickAnimation from './DraftPickAnimation';
+import NowOnClockAnimation from './NowOnClockAnimation';
 import { getLeagueDrafts, getDraftPicks, getTeamsData, getAllPlayersCached } from '@/lib/utils/sleeper-api';
 import { LEAGUE_IDS } from '@/lib/constants/league';
 
@@ -25,6 +26,22 @@ const positionColors: Record<string, string> = {
 const baseTickerViews = ['bestAvailable', 'teamRecentPicks', 'teamRecord', 'draftCapital', 'draft2025', 'draft2024', 'draft2023'] as const;
 type TickerView = typeof baseTickerViews[number] | 'tradeInfo';
 
+function getYoutubeEmbedUrl(url: string): string | null {
+  try {
+    let videoId: string | null = null;
+    if (url.includes('youtu.be/')) {
+      videoId = url.split('youtu.be/')[1]?.split(/[?&]/)[0] || null;
+    } else if (url.includes('youtube.com')) {
+      const u = new URL(url);
+      videoId = u.searchParams.get('v') || u.pathname.split('/').pop() || null;
+    }
+    if (!videoId) return null;
+    return `https://www.youtube.com/embed/${videoId}?autoplay=1&rel=0&modestbranding=1&enablejsapi=1`;
+  } catch {
+    return null;
+  }
+}
+
 export default function DraftOverlayLive() {
   const {
     draft,
@@ -39,9 +56,53 @@ export default function DraftOverlayLive() {
     localRemainingSec,
   } = useDraftData(1000); // 1s during LIVE, auto-adjusts to 5s/10s for PAUSED/COMPLETED
 
-  const [showPickAnimation, setShowPickAnimation] = useState(false);
+  // Animation state machine: pick → video → clock → idle
+  type AnimPhase = 'pick' | 'video' | 'clock' | null;
+  const [animPhase, setAnimPhase] = useState<AnimPhase>(null);
+  const animDataRef = useRef<{
+    pick: NonNullable<typeof lastPick>;
+    nextTeamName: string | null;
+    overall: number;
+    round: number;
+    pickInRound: number;
+  } | null>(null);
+
+  // Pick videos: overall → videoUrl
+  const [pickVideos, setPickVideos] = useState<Record<number, string>>({});
   const clockRef = useRef<HTMLDivElement>(null);
   const lastAnimatedPickRef = useRef<number | null>(null);
+
+  // Load pick videos on mount and whenever draft changes
+  useEffect(() => {
+    async function loadVideos() {
+      try {
+        const res = await fetch('/api/draft/pick-videos', { cache: 'no-store' });
+        if (!res.ok) return;
+        const j = await res.json();
+        const map: Record<number, string> = {};
+        for (const v of (j.videos || [])) { map[v.overall] = v.videoUrl; }
+        setPickVideos(map);
+      } catch {}
+    }
+    loadVideos();
+    const t = setInterval(loadVideos, 30000);
+    return () => clearInterval(t);
+  }, []);
+
+  // YouTube postMessage listener to detect video end
+  useEffect(() => {
+    if (animPhase !== 'video') return;
+    const handler = (e: MessageEvent) => {
+      try {
+        const data = typeof e.data === 'string' ? JSON.parse(e.data) : e.data;
+        if (data?.event === 'onStateChange' && data?.info === 0) {
+          setAnimPhase('clock');
+        }
+      } catch {}
+    };
+    window.addEventListener('message', handler);
+    return () => window.removeEventListener('message', handler);
+  }, [animPhase]);
 
   // Format time as MM:SS
   const formatTime = (sec: number) => {
@@ -50,15 +111,21 @@ export default function DraftOverlayLive() {
     return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
   };
 
-  // Show full pick animation when new pick comes in (only once per pick)
-  // Animation dismissal is handled by onComplete callback, NOT by isNewPick becoming false
+  // Trigger animation sequence on new pick
   useEffect(() => {
     if (isNewPick && lastPick && lastPick.overall !== lastAnimatedPickRef.current) {
       lastAnimatedPickRef.current = lastPick.overall;
-      setShowPickAnimation(true);
+      // Capture state at this moment; nextTeams[0] is now on the clock after this pick
+      animDataRef.current = {
+        pick: lastPick,
+        nextTeamName: nextTeams[0]?.name || null,
+        overall: lastPick.overall,
+        round: lastPick.round,
+        pickInRound: ((lastPick.overall - 1) % 12) + 1,
+      };
+      setAnimPhase('pick');
     }
-    // DO NOT set showPickAnimation to false here - let the animation complete naturally
-  }, [isNewPick, lastPick]);
+  }, [isNewPick, lastPick, nextTeams]);
 
   // Pulse clock when low time
   useEffect(() => {
@@ -533,30 +600,86 @@ export default function DraftOverlayLive() {
         </div>
       </div>
 
-      {/* Full Pick Animation */}
-      {showPickAnimation && lastPick && lastPick.playerName && (
+      {/* PHASE: Pick animation */}
+      {animPhase === 'pick' && animDataRef.current && animDataRef.current.pick.playerName && (
         <DraftPickAnimation
-          key={`pick-animation-${lastPick.overall}`}
+          key={`pick-animation-${animDataRef.current.overall}`}
           player={{
-            name: lastPick.playerName,
-            position: lastPick.playerPos || 'N/A',
-            team: lastPick.playerNfl || undefined,
+            name: animDataRef.current.pick.playerName,
+            position: animDataRef.current.pick.playerPos || 'N/A',
+            team: animDataRef.current.pick.playerNfl || undefined,
             college: undefined,
           }}
           fantasyTeam={{
-            name: lastPick.team,
-            colors: [getTeamColors(lastPick.team).primary, getTeamColors(lastPick.team).secondary, null],
-            logoPath: getTeamLogoPath(lastPick.team),
+            name: animDataRef.current.pick.team,
+            colors: [getTeamColors(animDataRef.current.pick.team).primary, getTeamColors(animDataRef.current.pick.team).secondary, null],
+            logoPath: getTeamLogoPath(animDataRef.current.pick.team),
           }}
-          pickNumber={lastPick.overall}
-          round={lastPick.round}
-          pickInRound={((lastPick.overall - 1) % 12) + 1}
+          pickNumber={animDataRef.current.overall}
+          round={animDataRef.current.round}
+          pickInRound={animDataRef.current.pickInRound}
           onComplete={() => {
-            console.log('[DraftOverlayLive] Animation complete callback - hiding animation');
-            setShowPickAnimation(false);
+            const hasVideo = !!(animDataRef.current && pickVideos[animDataRef.current.overall]);
+            setAnimPhase(hasVideo ? 'video' : 'clock');
           }}
         />
       )}
+
+      {/* PHASE: Player highlight video */}
+      {animPhase === 'video' && animDataRef.current && (() => {
+        const videoUrl = pickVideos[animDataRef.current.overall];
+        if (!videoUrl) { return null; }
+        const isYt = videoUrl.includes('youtube.com') || videoUrl.includes('youtu.be');
+        const embedUrl = isYt ? getYoutubeEmbedUrl(videoUrl) : null;
+        return (
+          <div className="fixed inset-0 z-[9999] bg-black flex flex-col items-center justify-center pointer-events-auto">
+            <div className="w-full max-w-5xl px-4">
+              {embedUrl ? (
+                <iframe
+                  src={embedUrl}
+                  className="w-full aspect-video rounded-xl"
+                  allow="autoplay; fullscreen"
+                  allowFullScreen
+                />
+              ) : (
+                <video
+                  src={videoUrl}
+                  autoPlay
+                  controls
+                  className="w-full rounded-xl"
+                  onEnded={() => setAnimPhase('clock')}
+                />
+              )}
+            </div>
+            <button
+              className="mt-6 px-8 py-3 bg-zinc-800 text-white font-bold rounded-lg hover:bg-zinc-700 transition-colors text-lg"
+              onClick={() => setAnimPhase('clock')}
+            >
+              Skip →
+            </button>
+          </div>
+        );
+      })()}
+
+      {/* PHASE: Now on the Clock animation */}
+      {animPhase === 'clock' && animDataRef.current?.nextTeamName && (() => {
+        const teamName = animDataRef.current!.nextTeamName!;
+        const colors = getTeamColors(teamName);
+        const curOverall = animDataRef.current!.overall + 1;
+        return (
+          <NowOnClockAnimation
+            key={`clock-animation-${animDataRef.current!.overall}`}
+            team={{
+              name: teamName,
+              colors: [colors.primary, colors.secondary, null],
+            }}
+            pickNumber={curOverall}
+            round={Math.floor((curOverall - 1) / 12) + 1}
+            pickInRound={((curOverall - 1) % 12) + 1}
+            onComplete={() => setAnimPhase(null)}
+          />
+        );
+      })()}
 
       {/* Status Bar */}
       <div className="fixed top-0 left-0 right-0 bg-zinc-900/95 border-b border-zinc-700 px-4 py-2 flex items-center justify-between" style={{ zIndex: 10040 }}>
