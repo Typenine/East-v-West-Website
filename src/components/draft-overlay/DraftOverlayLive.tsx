@@ -551,7 +551,6 @@ export default function DraftOverlayLive() {
           pickNumber={lastPick.overall}
           round={lastPick.round}
           pickInRound={((lastPick.overall - 1) % 12) + 1}
-          year={draft?.year || new Date().getFullYear()}
           onComplete={() => {
             console.log('[DraftOverlayLive] Animation complete callback - hiding animation');
             setShowPickAnimation(false);

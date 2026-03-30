@@ -21,8 +21,13 @@ interface DraftPickAnimationProps {
   pickNumber: number;
   round: number;
   pickInRound: number;
-  year: number;
   onComplete?: () => void;
+}
+
+function toOrdinal(n: number): string {
+  const s = ['th', 'st', 'nd', 'rd'];
+  const v = n % 100;
+  return n + (s[(v - 20) % 10] || s[v] || s[0]);
 }
 
 export default function DraftPickAnimation({
@@ -31,7 +36,6 @@ export default function DraftPickAnimation({
   pickNumber,
   round,
   pickInRound,
-  year,
   onComplete,
 }: DraftPickAnimationProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -52,14 +56,17 @@ export default function DraftPickAnimation({
     const teamNameText = container.querySelector<HTMLElement>('.gsap-team-name-text');
     const wipe         = container.querySelector<HTMLElement>('.gsap-transition-wipe');
     const draftCard    = container.querySelector<HTMLElement>('.gsap-draft-card');
-    const draftYear    = container.querySelector<HTMLElement>('.gsap-draft-year');
-    const draftWord    = container.querySelector<HTMLElement>('.gsap-draft-word');
+    const draftOrdinal  = container.querySelector<HTMLElement>('.gsap-draft-ordinal');
+    const draftOverall  = container.querySelector<HTMLElement>('.gsap-draft-overall');
+    const textReveal    = container.querySelector<HTMLElement>('.gsap-text-reveal');
+    const revealName    = container.querySelector<HTMLElement>('.gsap-reveal-name');
+    const revealDetails = container.querySelector<HTMLElement>('.gsap-reveal-details');
     const playerCard   = container.querySelector<HTMLElement>('.gsap-player-card');
     const playerDets   = container.querySelector<HTMLElement>('.gsap-player-details');
     const playerName   = container.querySelector<HTMLElement>('.gsap-player-name');
     const pickInfo     = container.querySelector<HTMLElement>('.gsap-pick-info');
 
-    if (!teamIntro || !wipe || !draftCard || !playerCard) {
+    if (!teamIntro || !wipe || !draftCard || !textReveal || !playerCard) {
       console.error('[DraftPickAnimation] Missing critical DOM elements — aborting');
       return;
     }
@@ -77,8 +84,11 @@ export default function DraftPickAnimation({
     if (teamLogo) gsap.set(teamLogo, { opacity: 0, scale: 0.8, force3D: true });
     gsap.set(wipe,         { scaleX: 0, transformOrigin: 'left center', force3D: true });
     gsap.set(draftCard,    { opacity: 0, force3D: true });
-    if (draftYear) gsap.set(draftYear, { opacity: 0, y: -28, force3D: true });
-    if (draftWord) gsap.set(draftWord, { opacity: 0, y: 28, force3D: true });
+    if (draftOrdinal)  gsap.set(draftOrdinal,  { opacity: 0, y: -30, force3D: true });
+    if (draftOverall)  gsap.set(draftOverall,  { opacity: 0, y: 30, force3D: true });
+    gsap.set(textReveal,   { opacity: 0, force3D: true });
+    if (revealName)    gsap.set(revealName,    { opacity: 0, y: 36, force3D: true });
+    if (revealDetails) gsap.set(revealDetails, { opacity: 0, y: 24, force3D: true });
     gsap.set(playerCard,   { opacity: 0, y: 32, force3D: true });
     if (playerDets) gsap.set(playerDets, { opacity: 0, y: 20, force3D: true });
     if (playerName) gsap.set(playerName, { opacity: 0, y: 20, force3D: true });
@@ -107,21 +117,28 @@ export default function DraftPickAnimation({
     // PHASE 3: Draft card in as wipe retracts (3.1–5.1s)
     tl.to(draftCard, { opacity: 1, duration: 0.4, ease: 'power2.out', force3D: true }, '-=0.1');
     tl.to(wipe,      { scaleX: 0, transformOrigin: 'right center', duration: 0.5, ease: 'power2.inOut', force3D: true }, '-=0.3');
-    if (draftYear) tl.to(draftYear, { opacity: 1, y: 0, duration: 0.5,  ease: 'power2.out', force3D: true }, '-=0.2');
-    if (draftWord) tl.to(draftWord, { opacity: 1, y: 0, duration: 0.55, ease: 'power2.out', force3D: true }, '-=0.35');
-    tl.to({}, { duration: 1.1 }); // hold
+    if (draftOrdinal) tl.to(draftOrdinal, { opacity: 1, y: 0, duration: 0.5,  ease: 'power2.out', force3D: true }, '-=0.2');
+    if (draftOverall) tl.to(draftOverall, { opacity: 1, y: 0, duration: 0.55, ease: 'power2.out', force3D: true }, '-=0.35');
+    tl.to({}, { duration: 0.9 }); // hold
 
-    // PHASE 4: Draft card out (5.1–5.5s)
-    tl.to(draftCard, { opacity: 0, duration: 0.4, ease: 'power2.in', force3D: true });
+    // PHASE 4: Ordinal card out
+    tl.to(draftCard, { opacity: 0, duration: 0.35, ease: 'power2.in', force3D: true });
 
-    // PHASE 5: Player card in (5.5–7.2s)
-    tl.to(playerCard, { opacity: 1, y: 0, duration: 0.55, ease: 'power3.out', force3D: true }, '-=0.1');
-    if (playerDets) tl.to(playerDets, { opacity: 1, y: 0, duration: 0.45, ease: 'power2.out', force3D: true }, '-=0.25');
-    if (playerName) tl.to(playerName, { opacity: 1, y: 0, duration: 0.45, ease: 'power2.out', force3D: true }, '-=0.3');
-    if (pickInfo)   tl.to(pickInfo,   { opacity: 1, y: 0, duration: 0.45, ease: 'power2.out', force3D: true }, '-=0.3');
+    // PHASE 5: Text reveal — name + details before card (5.5–7.3s)
+    tl.to(textReveal,   { opacity: 1, duration: 0.4,  ease: 'power2.out', force3D: true }, '-=0.1');
+    if (revealName)    tl.to(revealName,    { opacity: 1, y: 0, duration: 0.55, ease: 'power3.out', force3D: true }, '-=0.25');
+    if (revealDetails) tl.to(revealDetails, { opacity: 1, y: 0, duration: 0.45, ease: 'power2.out', force3D: true }, '-=0.3');
+    tl.to({}, { duration: 1.0 }); // hold on text
 
-    // PHASE 6: Broadcast hold (7.2–9.4s)
-    tl.to({}, { duration: 2.2 });
+    // PHASE 6: Player card sweeps in over text (7.3–9.0s)
+    tl.to(textReveal, { opacity: 0, duration: 0.3, ease: 'power1.in', force3D: true });
+    tl.to(playerCard, { opacity: 1, y: 0, duration: 0.55, ease: 'power3.out', force3D: true }, '-=0.15');
+    if (playerDets) tl.to(playerDets, { opacity: 1, y: 0, duration: 0.4, ease: 'power2.out', force3D: true }, '-=0.25');
+    if (playerName) tl.to(playerName, { opacity: 1, y: 0, duration: 0.4, ease: 'power2.out', force3D: true }, '-=0.3');
+    if (pickInfo)   tl.to(pickInfo,   { opacity: 1, y: 0, duration: 0.4, ease: 'power2.out', force3D: true }, '-=0.3');
+
+    // PHASE 7: Broadcast hold (9.0–10.5s)
+    tl.to({}, { duration: 1.5 });
 
     // PHASE 7: Exit (9.4–10.2s)
     tl.to(container, { opacity: 0, duration: 0.8, ease: 'power2.inOut', force3D: true });
@@ -213,35 +230,80 @@ export default function DraftPickAnimation({
         />
         <div className="relative z-10 flex flex-col items-center select-none">
           <div
-            className="gsap-draft-year font-black"
+            className="gsap-draft-ordinal font-black"
             style={{
-              fontSize: 'clamp(3rem, 7vw, 6rem)',
-              letterSpacing: '0.2em',
-              color: '#e0e0e0',
-              textShadow: '0 2px 12px rgba(0,0,0,0.9)',
-              willChange: 'transform, opacity',
-            }}
-          >
-            {year}
-          </div>
-          <div
-            className="gsap-draft-word font-black uppercase"
-            style={{
-              fontSize: 'clamp(6rem, 18vw, 14rem)',
-              letterSpacing: '0.08em',
+              fontSize: 'clamp(7rem, 18vw, 16rem)',
+              letterSpacing: '-0.02em',
               lineHeight: 0.9,
               color: c1,
-              textShadow: `0 4px 24px rgba(0,0,0,0.8)`,
+              textShadow: `0 4px 32px rgba(0,0,0,0.85)`,
               WebkitTextStroke: `2px ${c2}`,
               willChange: 'transform, opacity',
             }}
           >
-            DRAFT
+            {toOrdinal(pickNumber)}
+          </div>
+          <div
+            className="gsap-draft-overall font-black uppercase"
+            style={{
+              fontSize: 'clamp(1.75rem, 4vw, 3.5rem)',
+              letterSpacing: '0.25em',
+              color: '#d0d0d0',
+              textShadow: '0 2px 12px rgba(0,0,0,0.9)',
+              willChange: 'transform, opacity',
+            }}
+          >
+            Overall Pick
           </div>
         </div>
       </div>
 
-      {/* ── PHASE 5: Player card ── */}
+      {/* ── PHASE 5: Text reveal ── */}
+      <div
+        className="gsap-text-reveal absolute inset-0 flex flex-col items-center justify-center"
+        style={{ willChange: 'opacity' }}
+      >
+        <div
+          className="absolute inset-0"
+          style={{ background: `radial-gradient(ellipse at 50% 45%, ${c1}2a 0%, #0d0d0d 65%)` }}
+        />
+        <div className="relative z-10 text-center px-8 select-none">
+          <div
+            className="gsap-reveal-name font-black text-white uppercase leading-none"
+            style={{
+              fontSize: 'clamp(3rem, 8vw, 7rem)',
+              letterSpacing: '-0.01em',
+              textShadow: `0 4px 24px rgba(0,0,0,0.9), 0 0 60px ${c1}44`,
+              willChange: 'transform, opacity',
+            }}
+          >
+            {player.name}
+          </div>
+          <div
+            className="gsap-reveal-details mt-6 flex items-center justify-center gap-4 flex-wrap"
+            style={{ willChange: 'transform, opacity' }}
+          >
+            <span
+              className="inline-block font-black text-2xl px-5 py-1.5 rounded-lg"
+              style={{ background: c1, color: '#fff', boxShadow: '0 2px 10px rgba(0,0,0,0.4)' }}
+            >
+              {player.position}
+            </span>
+            {player.college && (
+              <span className="text-white/75 text-xl font-bold uppercase tracking-wider">
+                {player.college}
+              </span>
+            )}
+            {player.team && (
+              <span className="text-white/75 text-xl font-bold uppercase tracking-wider">
+                {player.team}
+              </span>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* ── PHASE 6: Player card ── */}
       <div
         className="gsap-player-card absolute inset-0 flex items-center justify-center"
         style={{ willChange: 'transform, opacity' }}

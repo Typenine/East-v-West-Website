@@ -235,8 +235,10 @@ export function useDraftData(basePollIntervalMs = 1000) {
     return () => clearInterval(t);
   }, []);
 
-  // Compute local remaining seconds by subtracting time elapsed since last server update
-  const elapsedSinceUpdate = Math.floor((Date.now() - lastUpdateMsRef.current) / 1000);
+  // Only count down locally when LIVE — paused/stopped clocks should stay frozen
+  const elapsedSinceUpdate = state.draft?.status === 'LIVE'
+    ? Math.floor((Date.now() - lastUpdateMsRef.current) / 1000)
+    : 0;
   const localRemainingSec = Math.max(0, (state.remainingSec ?? 0) - elapsedSinceUpdate);
 
   return {
