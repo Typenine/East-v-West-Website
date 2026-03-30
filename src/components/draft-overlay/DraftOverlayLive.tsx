@@ -536,6 +536,7 @@ export default function DraftOverlayLive() {
       {/* Full Pick Animation */}
       {showPickAnimation && lastPick && lastPick.playerName && (
         <DraftPickAnimation
+          key={`pick-animation-${lastPick.overall}`}
           player={{
             name: lastPick.playerName,
             position: lastPick.playerPos || 'N/A',
@@ -552,6 +553,7 @@ export default function DraftOverlayLive() {
           pickInRound={((lastPick.overall - 1) % 12) + 1}
           year={draft?.year || new Date().getFullYear()}
           onComplete={() => {
+            console.log('[DraftOverlayLive] Animation complete callback - hiding animation');
             setShowPickAnimation(false);
           }}
         />

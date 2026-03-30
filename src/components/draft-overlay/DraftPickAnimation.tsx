@@ -36,35 +36,39 @@ export default function DraftPickAnimation({
 }: DraftPickAnimationProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const timelineRef = useRef<gsap.core.Timeline | null>(null);
-  const animationStartedForPickRef = useRef<number | null>(null);
+  const hasStartedRef = useRef(false);
 
+  // Single effect that runs ONCE on mount - like the original working animation
   useEffect(() => {
-    if (!containerRef.current) return;
+    // Guard: only run once per component instance
+    if (hasStartedRef.current) return;
+    hasStartedRef.current = true;
 
-    // CRITICAL: Only start animation ONCE per pick number
-    // This prevents the animation from restarting on every parent re-render (polling)
-    if (animationStartedForPickRef.current === pickNumber) {
-      return; // Animation already running for this pick
+    const container = containerRef.current;
+    if (!container || !player || !fantasyTeam) {
+      console.error('[DraftPickAnimation] Missing container or props');
+      return;
     }
-    animationStartedForPickRef.current = pickNumber;
 
-    // Kill any existing timeline from a previous pick
+    console.log('[DraftPickAnimation] Starting animation for:', player.name);
+
+    // Kill any existing timeline
     if (timelineRef.current) {
       timelineRef.current.kill();
     }
 
-    // Create master timeline
-    const tl = gsap.timeline({
-      onComplete: () => {
-        if (onComplete) {
-          onComplete();
-        }
-      },
-    });
+    // Store onComplete in a ref to avoid stale closure
+    const handleComplete = () => {
+      console.log('[DraftPickAnimation] Animation completed');
+      onComplete?.();
+    };
 
+    // Create master timeline
+    const tl = gsap.timeline({ onComplete: handleComplete });
     timelineRef.current = tl;
 
-    // Set initial states
+    // Set initial states - using global selectors within this component's context
+    // This matches the original working implementation
     gsap.set('.gsap-team-intro', { opacity: 0, scale: 0.8 });
     gsap.set('.gsap-team-name-bg', { opacity: 0 });
     gsap.set('.gsap-transition-wipe', { scaleX: 0, transformOrigin: 'left' });
@@ -74,7 +78,7 @@ export default function DraftPickAnimation({
     gsap.set('.gsap-player-details', { opacity: 0, y: 20 });
     gsap.set('.gsap-pick-info', { opacity: 0, y: 20 });
 
-    // Animation sequence - matches original DraftAnimationGSAP.jsx timing (~9 seconds total)
+    // Animation sequence (~9 seconds total) - matching original timing
     tl
       // PHASE 1: Team intro (0-2.0s)
       .to('.gsap-team-intro', {
@@ -161,32 +165,34 @@ export default function DraftPickAnimation({
         ease: 'power2.out',
       }, '-=0.3')
       
-      // PHASE 6: Broadcast hold (6.5-8.5s) - clean hold for viewing
+      // PHASE 6: Broadcast hold (6.5-8.5s)
       .to({}, { duration: 2.0 })
       
-      // PHASE 7: Professional exit (8.5-9.5s)
-      .to(['.gsap-player-card'], {
+      // PHASE 7: Exit (8.5-9.5s)
+      .to('.gsap-player-card', {
         opacity: 0.8,
         scale: 1.02,
         duration: 0.4,
         ease: 'power2.out',
       })
-      .to(containerRef.current, {
+      .to(container, {
         opacity: 0,
         scale: 0.98,
         duration: 0.6,
         ease: 'power2.inOut',
       }, '-=0.2');
 
-    // Cleanup
+    // Cleanup on unmount
     return () => {
+      console.log('[DraftPickAnimation] Cleanup - killing timeline');
       if (timelineRef.current) {
         timelineRef.current.kill();
+        timelineRef.current = null;
       }
     };
-  // onComplete intentionally excluded to prevent animation restart glitch (matches original)
+  // Empty deps - run ONCE on mount only, like original
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [player, fantasyTeam, pickNumber, round, pickInRound, year]);
+  }, []);
 
   const teamLogo = getTeamLogoPath(fantasyTeam.name);
 
