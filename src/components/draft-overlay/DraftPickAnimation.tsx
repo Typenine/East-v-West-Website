@@ -45,94 +45,86 @@ export default function DraftPickAnimation({
     const container = containerRef.current;
     if (!container) return;
 
+    // Scoped DOM queries — guaranteed to find elements within this instance only
+    const teamIntro    = container.querySelector<HTMLElement>('.gsap-team-intro');
+    const teamNameBg   = container.querySelector<HTMLElement>('.gsap-team-name-bg');
+    const teamLogo     = container.querySelector<HTMLElement>('.gsap-team-logo');
+    const teamNameText = container.querySelector<HTMLElement>('.gsap-team-name-text');
+    const wipe         = container.querySelector<HTMLElement>('.gsap-transition-wipe');
+    const draftCard    = container.querySelector<HTMLElement>('.gsap-draft-card');
+    const draftYear    = container.querySelector<HTMLElement>('.gsap-draft-year');
+    const draftWord    = container.querySelector<HTMLElement>('.gsap-draft-word');
+    const playerCard   = container.querySelector<HTMLElement>('.gsap-player-card');
+    const playerDets   = container.querySelector<HTMLElement>('.gsap-player-details');
+    const playerName   = container.querySelector<HTMLElement>('.gsap-player-name');
+    const pickInfo     = container.querySelector<HTMLElement>('.gsap-pick-info');
+
+    if (!teamIntro || !wipe || !draftCard || !playerCard) {
+      console.error('[DraftPickAnimation] Missing critical DOM elements — aborting');
+      return;
+    }
+
+    console.log('[DraftPickAnimation] Starting for:', player.name);
+
     if (timelineRef.current) timelineRef.current.kill();
 
-    const tl = gsap.timeline({ onComplete: () => onComplete?.() });
+    // ── INITIAL STATES ───────────────────────────────────────────────────────
+    // Full-screen layers: opacity only (no scale — scaling viewport = slow repaint)
+    // Small elements: scale + opacity allowed (compositor handles them cheaply)
+    gsap.set(teamIntro,    { opacity: 0, force3D: true });
+    gsap.set(teamNameBg,   { opacity: 0, force3D: true });
+    gsap.set(teamNameText, { opacity: 0, y: 40, force3D: true });
+    if (teamLogo) gsap.set(teamLogo, { opacity: 0, scale: 0.8, force3D: true });
+    gsap.set(wipe,         { scaleX: 0, transformOrigin: 'left center', force3D: true });
+    gsap.set(draftCard,    { opacity: 0, force3D: true });
+    if (draftYear) gsap.set(draftYear, { opacity: 0, y: -28, force3D: true });
+    if (draftWord) gsap.set(draftWord, { opacity: 0, y: 28, force3D: true });
+    gsap.set(playerCard,   { opacity: 0, y: 32, force3D: true });
+    if (playerDets) gsap.set(playerDets, { opacity: 0, y: 20, force3D: true });
+    if (playerName) gsap.set(playerName, { opacity: 0, y: 20, force3D: true });
+    if (pickInfo)   gsap.set(pickInfo,   { opacity: 0, y: 20, force3D: true });
+
+    // ── TIMELINE (~10s total) ─────────────────────────────────────────────────
+    const tl = gsap.timeline({
+      onComplete: () => {
+        console.log('[DraftPickAnimation] Complete');
+        onComplete?.();
+      },
+    });
     timelineRef.current = tl;
 
-    // ── GPU LAYER PROMOTION ──────────────────────────────────────────────────
-    // Promote all animated elements to their own compositor layers up front.
-    // This prevents the browser from repainting the whole screen on each frame.
-    // We ONLY use opacity + translateY/translateX on full-screen layers (never
-    // scale), because scaling a viewport-sized element repaints every pixel.
-    gsap.set([
-      '.gsap-team-intro',
-      '.gsap-team-name-bg',
-      '.gsap-team-logo',
-      '.gsap-team-name-text',
-      '.gsap-transition-wipe',
-      '.gsap-draft-card',
-      '.gsap-draft-year',
-      '.gsap-draft-word',
-      '.gsap-player-card',
-      '.gsap-player-details',
-      '.gsap-player-name',
-      '.gsap-pick-info',
-    ], { force3D: true, willChange: 'transform, opacity' });
+    // PHASE 1: Team intro (0–2.5s)
+    tl.to(teamIntro,   { opacity: 1, duration: 0.5, ease: 'power2.out', force3D: true });
+    tl.to(teamNameBg,  { opacity: 1, duration: 0.7, ease: 'sine.inOut', force3D: true }, '-=0.2');
+    if (teamLogo) tl.to(teamLogo, { opacity: 0.35, scale: 1, duration: 0.8, ease: 'power2.out', force3D: true }, '-=0.5');
+    tl.to(teamNameText, { opacity: 1, y: 0, duration: 0.7, ease: 'power3.out', force3D: true }, '-=0.5');
+    tl.to({}, { duration: 0.9 }); // hold
 
-    // ── INITIAL STATES ───────────────────────────────────────────────────────
-    // Use translateY instead of scale on full-screen layers — GPU-cheap.
-    gsap.set('.gsap-team-intro',    { opacity: 0, y: 0 });
-    gsap.set('.gsap-team-name-bg',  { opacity: 0 });
-    gsap.set('.gsap-team-logo',     { opacity: 0, scale: 0.85 });
-    gsap.set('.gsap-team-name-text',{ opacity: 0, y: 40 });
-    gsap.set('.gsap-transition-wipe', { scaleX: 0, transformOrigin: 'left center' });
-    gsap.set('.gsap-draft-card',    { opacity: 0 });
-    gsap.set('.gsap-draft-year',    { opacity: 0, y: -30 });
-    gsap.set('.gsap-draft-word',    { opacity: 0, y: 30 });
-    gsap.set('.gsap-player-card',   { opacity: 0, y: 30 });
-    gsap.set('.gsap-player-details',{ opacity: 0, y: 24 });
-    gsap.set('.gsap-player-name',   { opacity: 0, y: 24 });
-    gsap.set('.gsap-pick-info',     { opacity: 0, y: 24 });
+    // PHASE 2: Color wipe clears team intro (2.5–3.1s)
+    tl.to(wipe,      { scaleX: 1, duration: 0.55, ease: 'power2.inOut', force3D: true });
+    tl.to(teamIntro, { opacity: 0, duration: 0.25, ease: 'power1.in', force3D: true }, '-=0.25');
 
-    // ── TIMELINE ─────────────────────────────────────────────────────────────
-    tl
-      // PHASE 1: Team intro — fade in background, then logo + name slide up (0–2.4s)
-      .to('.gsap-team-intro', { opacity: 1, duration: 0.5, ease: 'power2.out' })
-      .to('.gsap-team-name-bg', { opacity: 1, duration: 0.7, ease: 'sine.inOut' }, '-=0.2')
-      .to('.gsap-team-logo', {
-        opacity: 0.35, scale: 1, duration: 0.8, ease: 'power2.out',
-      }, '-=0.5')
-      .to('.gsap-team-name-text', {
-        opacity: 1, y: 0, duration: 0.7, ease: 'power3.out',
-      }, '-=0.5')
+    // PHASE 3: Draft card in as wipe retracts (3.1–5.1s)
+    tl.to(draftCard, { opacity: 1, duration: 0.4, ease: 'power2.out', force3D: true }, '-=0.1');
+    tl.to(wipe,      { scaleX: 0, transformOrigin: 'right center', duration: 0.5, ease: 'power2.inOut', force3D: true }, '-=0.3');
+    if (draftYear) tl.to(draftYear, { opacity: 1, y: 0, duration: 0.5,  ease: 'power2.out', force3D: true }, '-=0.2');
+    if (draftWord) tl.to(draftWord, { opacity: 1, y: 0, duration: 0.55, ease: 'power2.out', force3D: true }, '-=0.35');
+    tl.to({}, { duration: 1.1 }); // hold
 
-      // hold on team intro
-      .to({}, { duration: 0.9 })
+    // PHASE 4: Draft card out (5.1–5.5s)
+    tl.to(draftCard, { opacity: 0, duration: 0.4, ease: 'power2.in', force3D: true });
 
-      // PHASE 2: Color wipe sweeps across, clearing team intro (2.4–3.1s)
-      .to('.gsap-transition-wipe', {
-        scaleX: 1, duration: 0.55, ease: 'power2.inOut',
-      })
-      .to('.gsap-team-intro', {
-        opacity: 0, duration: 0.25, ease: 'power1.in',
-      }, '-=0.25')
+    // PHASE 5: Player card in (5.5–7.2s)
+    tl.to(playerCard, { opacity: 1, y: 0, duration: 0.55, ease: 'power3.out', force3D: true }, '-=0.1');
+    if (playerDets) tl.to(playerDets, { opacity: 1, y: 0, duration: 0.45, ease: 'power2.out', force3D: true }, '-=0.25');
+    if (playerName) tl.to(playerName, { opacity: 1, y: 0, duration: 0.45, ease: 'power2.out', force3D: true }, '-=0.3');
+    if (pickInfo)   tl.to(pickInfo,   { opacity: 1, y: 0, duration: 0.45, ease: 'power2.out', force3D: true }, '-=0.3');
 
-      // PHASE 3: Draft card fades in as wipe retracts (3.1–5.0s)
-      .to('.gsap-draft-card', { opacity: 1, duration: 0.4, ease: 'power2.out' }, '-=0.1')
-      .to('.gsap-transition-wipe', {
-        scaleX: 0, transformOrigin: 'right center', duration: 0.5, ease: 'power2.inOut',
-      }, '-=0.3')
-      .to('.gsap-draft-year', { opacity: 1, y: 0, duration: 0.5, ease: 'power2.out' }, '-=0.2')
-      .to('.gsap-draft-word', { opacity: 1, y: 0, duration: 0.55, ease: 'power2.out' }, '-=0.35')
+    // PHASE 6: Broadcast hold (7.2–9.4s)
+    tl.to({}, { duration: 2.2 });
 
-      // hold on draft card
-      .to({}, { duration: 1.1 })
-
-      // PHASE 4: Draft card fades out (5.0–5.4s)
-      .to('.gsap-draft-card', { opacity: 0, duration: 0.4, ease: 'power2.in' })
-
-      // PHASE 5: Player card rises in (5.4–7.0s)
-      .to('.gsap-player-card', { opacity: 1, y: 0, duration: 0.55, ease: 'power3.out' }, '-=0.1')
-      .to('.gsap-player-details', { opacity: 1, y: 0, duration: 0.45, ease: 'power2.out' }, '-=0.25')
-      .to('.gsap-player-name',    { opacity: 1, y: 0, duration: 0.45, ease: 'power2.out' }, '-=0.3')
-      .to('.gsap-pick-info',      { opacity: 1, y: 0, duration: 0.45, ease: 'power2.out' }, '-=0.3')
-
-      // PHASE 6: Broadcast hold (7.0–9.2s)
-      .to({}, { duration: 2.2 })
-
-      // PHASE 7: Clean exit — fade whole container (9.2–10.0s)
-      .to(container, { opacity: 0, duration: 0.8, ease: 'power2.inOut' });
+    // PHASE 7: Exit (9.4–10.2s)
+    tl.to(container, { opacity: 0, duration: 0.8, ease: 'power2.inOut', force3D: true });
 
     return () => {
       if (timelineRef.current) {
@@ -151,19 +143,21 @@ export default function DraftPickAnimation({
     <div
       ref={containerRef}
       className="fixed inset-0 z-[9999] pointer-events-none overflow-hidden"
-      style={{ backgroundColor: '#0a0a0a' }}
+      style={{ backgroundColor: '#0a0a0a', willChange: 'opacity' }}
     >
       {/* ── PHASE 1: Team Intro ── */}
-      <div className="gsap-team-intro absolute inset-0">
-        {/* Solid dark background with team color tint */}
+      <div
+        className="gsap-team-intro absolute inset-0"
+        style={{ willChange: 'opacity' }}
+      >
         <div
           className="absolute inset-0"
-          style={{
-            background: `radial-gradient(ellipse at 50% 50%, ${c1}22 0%, #0d0d0d 70%)`,
-          }}
+          style={{ background: `radial-gradient(ellipse at 50% 50%, ${c1}22 0%, #0d0d0d 70%)` }}
         />
-        {/* Repeating team-name watermark pattern */}
-        <div className="gsap-team-name-bg absolute inset-0">
+        <div
+          className="gsap-team-name-bg absolute inset-0"
+          style={{ willChange: 'opacity' }}
+        >
           <div
             className="absolute inset-0"
             style={{
@@ -172,17 +166,16 @@ export default function DraftPickAnimation({
             }}
           />
         </div>
-        {/* Team logo — centered, large, subtle */}
         <div className="absolute inset-0 flex items-center justify-center">
           {teamLogo && (
             <img
               src={teamLogo}
               alt=""
               className="gsap-team-logo w-80 h-80 object-contain"
+              style={{ willChange: 'transform, opacity' }}
             />
           )}
         </div>
-        {/* Team name — big, bold, slides up */}
         <div className="absolute inset-0 flex items-center justify-center">
           <div
             className="gsap-team-name-text text-center px-8 leading-none font-black text-white uppercase"
@@ -192,6 +185,7 @@ export default function DraftPickAnimation({
               letterSpacing: '0.12em',
               textShadow: `0 4px 24px rgba(0,0,0,0.95), 0 0 60px ${c1}55`,
               WebkitTextStroke: `3px ${c2}`,
+              willChange: 'transform, opacity',
             }}
           >
             {fantasyTeam.name}
@@ -202,25 +196,30 @@ export default function DraftPickAnimation({
       {/* ── PHASE 2: Color wipe ── */}
       <div
         className="gsap-transition-wipe absolute inset-0"
-        style={{ background: `linear-gradient(90deg, ${c1} 0%, ${c2} 100%)` }}
+        style={{
+          background: `linear-gradient(90deg, ${c1} 0%, ${c2} 100%)`,
+          willChange: 'transform',
+        }}
       />
 
       {/* ── PHASE 3: Draft card ── */}
-      <div className="gsap-draft-card absolute inset-0 flex flex-col items-center justify-center">
+      <div
+        className="gsap-draft-card absolute inset-0 flex flex-col items-center justify-center"
+        style={{ willChange: 'opacity' }}
+      >
         <div
           className="absolute inset-0"
-          style={{
-            background: `radial-gradient(ellipse at 50% 40%, ${c1}33 0%, #0d0d0d 65%)`,
-          }}
+          style={{ background: `radial-gradient(ellipse at 50% 40%, ${c1}33 0%, #0d0d0d 65%)` }}
         />
         <div className="relative z-10 flex flex-col items-center select-none">
           <div
-            className="gsap-draft-year font-black text-white"
+            className="gsap-draft-year font-black"
             style={{
               fontSize: 'clamp(3rem, 7vw, 6rem)',
               letterSpacing: '0.2em',
-              textShadow: `0 2px 16px rgba(0,0,0,0.9)`,
               color: '#e0e0e0',
+              textShadow: '0 2px 12px rgba(0,0,0,0.9)',
+              willChange: 'transform, opacity',
             }}
           >
             {year}
@@ -228,12 +227,13 @@ export default function DraftPickAnimation({
           <div
             className="gsap-draft-word font-black uppercase"
             style={{
-              fontSize: 'clamp(6rem, 18vw, 16rem)',
-              letterSpacing: '0.1em',
+              fontSize: 'clamp(6rem, 18vw, 14rem)',
+              letterSpacing: '0.08em',
               lineHeight: 0.9,
               color: c1,
-              textShadow: `0 4px 32px rgba(0,0,0,0.8), 0 0 80px ${c1}66`,
+              textShadow: `0 4px 24px rgba(0,0,0,0.8)`,
               WebkitTextStroke: `2px ${c2}`,
+              willChange: 'transform, opacity',
             }}
           >
             DRAFT
@@ -242,13 +242,14 @@ export default function DraftPickAnimation({
       </div>
 
       {/* ── PHASE 5: Player card ── */}
-      <div className="gsap-player-card absolute inset-0 flex items-center justify-center">
-        {/* Colored background behind card */}
+      <div
+        className="gsap-player-card absolute inset-0 flex items-center justify-center"
+        style={{ willChange: 'transform, opacity' }}
+      >
         <div
           className="absolute inset-0"
           style={{ background: `radial-gradient(ellipse at 50% 50%, ${c1}28 0%, #0d0d0d 70%)` }}
         />
-        {/* The card itself */}
         <div
           className="relative z-10 rounded-2xl overflow-hidden"
           style={{
@@ -258,10 +259,7 @@ export default function DraftPickAnimation({
           }}
         >
           <div className="flex items-stretch" style={{ minHeight: '420px' }}>
-            {/* Left accent bar */}
             <div className="w-3 flex-shrink-0" style={{ background: c2 }} />
-
-            {/* Logo column */}
             <div
               className="flex-shrink-0 flex items-center justify-center p-8"
               style={{ width: '220px', background: `${c1}88` }}
@@ -270,22 +268,18 @@ export default function DraftPickAnimation({
                 <img
                   src={teamLogo}
                   alt={fantasyTeam.name}
-                  className="w-40 h-40 object-contain drop-shadow-2xl"
+                  className="w-40 h-40 object-contain"
                 />
               )}
             </div>
-
-            {/* Content column */}
             <div className="flex-1 flex flex-col justify-center px-10 py-8">
-              {/* Position badge */}
-              <div className="gsap-player-details mb-5">
+              <div
+                className="gsap-player-details mb-5"
+                style={{ willChange: 'transform, opacity' }}
+              >
                 <span
                   className="inline-block font-black text-3xl px-6 py-2 rounded-lg"
-                  style={{
-                    background: '#fff',
-                    color: c1,
-                    boxShadow: '0 2px 12px rgba(0,0,0,0.3)',
-                  }}
+                  style={{ background: '#fff', color: c1, boxShadow: '0 2px 12px rgba(0,0,0,0.3)' }}
                 >
                   {player.position}
                 </span>
@@ -295,9 +289,10 @@ export default function DraftPickAnimation({
                   </span>
                 )}
               </div>
-
-              {/* Player name */}
-              <div className="gsap-player-name mb-6">
+              <div
+                className="gsap-player-name mb-6"
+                style={{ willChange: 'transform, opacity' }}
+              >
                 <h1
                   className="font-black text-white leading-none uppercase"
                   style={{
@@ -309,9 +304,10 @@ export default function DraftPickAnimation({
                   {player.name}
                 </h1>
               </div>
-
-              {/* Round / Pick / Overall */}
-              <div className="gsap-pick-info flex gap-8">
+              <div
+                className="gsap-pick-info flex gap-8"
+                style={{ willChange: 'transform, opacity' }}
+              >
                 {[
                   { label: 'ROUND', value: round },
                   { label: 'PICK', value: pickInRound },
