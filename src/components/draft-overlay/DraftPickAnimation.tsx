@@ -10,7 +10,7 @@ interface DraftPickAnimationProps {
   player: {
     name: string;
     position: string;
-    team?: string; // NFL team
+    team?: string;
     college?: string;
   };
   fantasyTeam: {
@@ -38,220 +38,160 @@ export default function DraftPickAnimation({
   const timelineRef = useRef<gsap.core.Timeline | null>(null);
   const hasStartedRef = useRef(false);
 
-  // Single effect that runs ONCE on mount - like the original working animation
   useEffect(() => {
-    // Guard: only run once per component instance
     if (hasStartedRef.current) return;
     hasStartedRef.current = true;
 
     const container = containerRef.current;
-    if (!container || !player || !fantasyTeam) {
-      console.error('[DraftPickAnimation] Missing container or props');
-      return;
-    }
+    if (!container) return;
 
-    console.log('[DraftPickAnimation] Starting animation for:', player.name);
+    if (timelineRef.current) timelineRef.current.kill();
 
-    // Kill any existing timeline
-    if (timelineRef.current) {
-      timelineRef.current.kill();
-    }
-
-    // Store onComplete in a ref to avoid stale closure
-    const handleComplete = () => {
-      console.log('[DraftPickAnimation] Animation completed');
-      onComplete?.();
-    };
-
-    // Create master timeline
-    const tl = gsap.timeline({ onComplete: handleComplete });
+    const tl = gsap.timeline({ onComplete: () => onComplete?.() });
     timelineRef.current = tl;
 
-    // Set initial states - using global selectors within this component's context
-    // This matches the original working implementation
-    gsap.set('.gsap-team-intro', { opacity: 0, scale: 0.8 });
-    gsap.set('.gsap-team-name-bg', { opacity: 0 });
-    gsap.set('.gsap-transition-wipe', { scaleX: 0, transformOrigin: 'left' });
-    gsap.set('.gsap-draft-card', { opacity: 0, scale: 0.9 });
-    gsap.set('.gsap-player-card', { opacity: 0, scale: 0.9 });
-    gsap.set('.gsap-player-name', { opacity: 0, y: 20 });
-    gsap.set('.gsap-player-details', { opacity: 0, y: 20 });
-    gsap.set('.gsap-pick-info', { opacity: 0, y: 20 });
+    // ── GPU LAYER PROMOTION ──────────────────────────────────────────────────
+    // Promote all animated elements to their own compositor layers up front.
+    // This prevents the browser from repainting the whole screen on each frame.
+    // We ONLY use opacity + translateY/translateX on full-screen layers (never
+    // scale), because scaling a viewport-sized element repaints every pixel.
+    gsap.set([
+      '.gsap-team-intro',
+      '.gsap-team-name-bg',
+      '.gsap-team-logo',
+      '.gsap-team-name-text',
+      '.gsap-transition-wipe',
+      '.gsap-draft-card',
+      '.gsap-draft-year',
+      '.gsap-draft-word',
+      '.gsap-player-card',
+      '.gsap-player-details',
+      '.gsap-player-name',
+      '.gsap-pick-info',
+    ], { force3D: true, willChange: 'transform, opacity' });
 
-    // Animation sequence (~9 seconds total) - matching original timing
+    // ── INITIAL STATES ───────────────────────────────────────────────────────
+    // Use translateY instead of scale on full-screen layers — GPU-cheap.
+    gsap.set('.gsap-team-intro',    { opacity: 0, y: 0 });
+    gsap.set('.gsap-team-name-bg',  { opacity: 0 });
+    gsap.set('.gsap-team-logo',     { opacity: 0, scale: 0.85 });
+    gsap.set('.gsap-team-name-text',{ opacity: 0, y: 40 });
+    gsap.set('.gsap-transition-wipe', { scaleX: 0, transformOrigin: 'left center' });
+    gsap.set('.gsap-draft-card',    { opacity: 0 });
+    gsap.set('.gsap-draft-year',    { opacity: 0, y: -30 });
+    gsap.set('.gsap-draft-word',    { opacity: 0, y: 30 });
+    gsap.set('.gsap-player-card',   { opacity: 0, y: 30 });
+    gsap.set('.gsap-player-details',{ opacity: 0, y: 24 });
+    gsap.set('.gsap-player-name',   { opacity: 0, y: 24 });
+    gsap.set('.gsap-pick-info',     { opacity: 0, y: 24 });
+
+    // ── TIMELINE ─────────────────────────────────────────────────────────────
     tl
-      // PHASE 1: Team intro (0-2.0s)
-      .to('.gsap-team-intro', {
-        opacity: 1,
-        scale: 1,
-        duration: 0.8,
-        ease: 'power2.out',
-      })
-      .to('.gsap-team-name-bg', {
-        opacity: 1,
-        duration: 0.8,
-        ease: 'sine.inOut',
-      }, '-=0.4')
-      .to('.gsap-team-intro', {
-        scale: 1.05,
-        duration: 1.2,
-        ease: 'sine.inOut',
-      }, '-=0.6')
-      
-      // PHASE 2: Transition wipe (2.0-2.6s)
-      .to('.gsap-transition-wipe', {
-        scaleX: 1,
-        duration: 0.6,
-        ease: 'power2.inOut',
-      }, '+=0.6')
-      .to('.gsap-team-intro', {
-        opacity: 0,
-        duration: 0.3,
-        ease: 'power2.in',
-      }, '-=0.3')
-      
-      // PHASE 3: Draft card reveal (2.6-4.6s)
-      .to('.gsap-draft-card', {
-        opacity: 1,
-        scale: 1,
-        duration: 0.8,
-        ease: 'back.out(1.7)',
-      }, '-=0.2')
-      .to('.gsap-transition-wipe', {
-        scaleX: 0,
-        transformOrigin: 'right',
-        duration: 0.6,
-        ease: 'power2.inOut',
-      }, '-=0.4')
-      
-      // Hold draft card
-      .to('.gsap-draft-card', {
-        scale: 1.02,
-        duration: 1.0,
-        ease: 'sine.inOut',
-      }, '+=0.4')
-      
-      // PHASE 4: Transition to player card (4.6-5.0s)
-      .to('.gsap-draft-card', {
-        opacity: 0,
-        scale: 0.95,
-        duration: 0.4,
-        ease: 'power2.in',
-      }, '+=0.2')
-      
-      // PHASE 5: Player card reveal (5.0-6.5s)
-      .to('.gsap-player-card', {
-        opacity: 1,
-        scale: 1,
-        duration: 0.6,
-        ease: 'back.out(1.7)',
-      }, '-=0.2')
-      .to('.gsap-player-name', {
-        opacity: 1,
-        y: 0,
-        duration: 0.5,
-        ease: 'power2.out',
-      }, '-=0.3')
-      .to('.gsap-player-details', {
-        opacity: 1,
-        y: 0,
-        duration: 0.5,
-        ease: 'power2.out',
-      }, '-=0.3')
-      .to('.gsap-pick-info', {
-        opacity: 1,
-        y: 0,
-        duration: 0.5,
-        ease: 'power2.out',
-      }, '-=0.3')
-      
-      // PHASE 6: Broadcast hold (6.5-8.5s)
-      .to({}, { duration: 2.0 })
-      
-      // PHASE 7: Exit (8.5-9.5s)
-      .to('.gsap-player-card', {
-        opacity: 0.8,
-        scale: 1.02,
-        duration: 0.4,
-        ease: 'power2.out',
-      })
-      .to(container, {
-        opacity: 0,
-        scale: 0.98,
-        duration: 0.6,
-        ease: 'power2.inOut',
-      }, '-=0.2');
+      // PHASE 1: Team intro — fade in background, then logo + name slide up (0–2.4s)
+      .to('.gsap-team-intro', { opacity: 1, duration: 0.5, ease: 'power2.out' })
+      .to('.gsap-team-name-bg', { opacity: 1, duration: 0.7, ease: 'sine.inOut' }, '-=0.2')
+      .to('.gsap-team-logo', {
+        opacity: 0.35, scale: 1, duration: 0.8, ease: 'power2.out',
+      }, '-=0.5')
+      .to('.gsap-team-name-text', {
+        opacity: 1, y: 0, duration: 0.7, ease: 'power3.out',
+      }, '-=0.5')
 
-    // Cleanup on unmount
+      // hold on team intro
+      .to({}, { duration: 0.9 })
+
+      // PHASE 2: Color wipe sweeps across, clearing team intro (2.4–3.1s)
+      .to('.gsap-transition-wipe', {
+        scaleX: 1, duration: 0.55, ease: 'power2.inOut',
+      })
+      .to('.gsap-team-intro', {
+        opacity: 0, duration: 0.25, ease: 'power1.in',
+      }, '-=0.25')
+
+      // PHASE 3: Draft card fades in as wipe retracts (3.1–5.0s)
+      .to('.gsap-draft-card', { opacity: 1, duration: 0.4, ease: 'power2.out' }, '-=0.1')
+      .to('.gsap-transition-wipe', {
+        scaleX: 0, transformOrigin: 'right center', duration: 0.5, ease: 'power2.inOut',
+      }, '-=0.3')
+      .to('.gsap-draft-year', { opacity: 1, y: 0, duration: 0.5, ease: 'power2.out' }, '-=0.2')
+      .to('.gsap-draft-word', { opacity: 1, y: 0, duration: 0.55, ease: 'power2.out' }, '-=0.35')
+
+      // hold on draft card
+      .to({}, { duration: 1.1 })
+
+      // PHASE 4: Draft card fades out (5.0–5.4s)
+      .to('.gsap-draft-card', { opacity: 0, duration: 0.4, ease: 'power2.in' })
+
+      // PHASE 5: Player card rises in (5.4–7.0s)
+      .to('.gsap-player-card', { opacity: 1, y: 0, duration: 0.55, ease: 'power3.out' }, '-=0.1')
+      .to('.gsap-player-details', { opacity: 1, y: 0, duration: 0.45, ease: 'power2.out' }, '-=0.25')
+      .to('.gsap-player-name',    { opacity: 1, y: 0, duration: 0.45, ease: 'power2.out' }, '-=0.3')
+      .to('.gsap-pick-info',      { opacity: 1, y: 0, duration: 0.45, ease: 'power2.out' }, '-=0.3')
+
+      // PHASE 6: Broadcast hold (7.0–9.2s)
+      .to({}, { duration: 2.2 })
+
+      // PHASE 7: Clean exit — fade whole container (9.2–10.0s)
+      .to(container, { opacity: 0, duration: 0.8, ease: 'power2.inOut' });
+
     return () => {
-      console.log('[DraftPickAnimation] Cleanup - killing timeline');
       if (timelineRef.current) {
         timelineRef.current.kill();
         timelineRef.current = null;
       }
     };
-  // Empty deps - run ONCE on mount only, like original
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const c1 = fantasyTeam.colors[0];
+  const c2 = fantasyTeam.colors[1] || fantasyTeam.colors[0];
   const teamLogo = getTeamLogoPath(fantasyTeam.name);
 
   return (
     <div
       ref={containerRef}
-      className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/95 pointer-events-none"
+      className="fixed inset-0 z-[9999] pointer-events-none overflow-hidden"
+      style={{ backgroundColor: '#0a0a0a' }}
     >
-      {/* PHASE 1: Team Intro */}
+      {/* ── PHASE 1: Team Intro ── */}
       <div className="gsap-team-intro absolute inset-0">
-        {/* Metallic background with team colors */}
+        {/* Solid dark background with team color tint */}
         <div
           className="absolute inset-0"
           style={{
-            background: `
-              linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 50%, #1a1a1a 100%),
-              radial-gradient(circle at 30% 30%, ${fantasyTeam.colors[0]}20 0%, transparent 50%),
-              radial-gradient(circle at 70% 70%, ${fantasyTeam.colors[1]}15 0%, transparent 50%)
-            `,
+            background: `radial-gradient(ellipse at 50% 50%, ${c1}22 0%, #0d0d0d 70%)`,
           }}
         />
-
-        {/* Animated team name pattern */}
-        <div className="gsap-team-name-bg absolute inset-0 opacity-0">
+        {/* Repeating team-name watermark pattern */}
+        <div className="gsap-team-name-bg absolute inset-0">
           <div
             className="absolute inset-0"
             style={{
-              backgroundImage: `url("data:image/svg+xml,%3Csvg width='300' height='150' xmlns='http://www.w3.org/2000/svg'%3E%3Ctext x='50%25' y='50%25' dominant-baseline='middle' text-anchor='middle' font-family='Arial Black' font-size='32' font-weight='900' fill='${encodeURIComponent(
-                (fantasyTeam.colors[1] || fantasyTeam.colors[0]).replace('#', '%23')
-              )}' fill-opacity='0.15' transform='rotate(-15 150 75)'%3E${encodeURIComponent(
-                fantasyTeam.name.toUpperCase()
-              )}%3C/text%3E%3C/svg%3E")`,
-              backgroundSize: '300px 150px',
-              backgroundRepeat: 'repeat',
+              backgroundImage: `url("data:image/svg+xml,%3Csvg width='320' height='160' xmlns='http://www.w3.org/2000/svg'%3E%3Ctext x='50%25' y='50%25' dominant-baseline='middle' text-anchor='middle' font-family='Arial Black,sans-serif' font-size='28' font-weight='900' fill='${encodeURIComponent(c2.replace('#', '%23'))}' fill-opacity='0.09' transform='rotate(-12 160 80)'%3E${encodeURIComponent(fantasyTeam.name.toUpperCase())}%3C%2Ftext%3E%3C%2Fsvg%3E")`,
+              backgroundSize: '320px 160px',
             }}
           />
         </div>
-
-        {/* Centered team logo */}
+        {/* Team logo — centered, large, subtle */}
         <div className="absolute inset-0 flex items-center justify-center">
           {teamLogo && (
             <img
               src={teamLogo}
-              alt={`${fantasyTeam.name} logo`}
-              className="w-96 h-96 object-contain opacity-30"
+              alt=""
+              className="gsap-team-logo w-80 h-80 object-contain"
             />
           )}
         </div>
-
-        {/* Large team name */}
+        {/* Team name — big, bold, slides up */}
         <div className="absolute inset-0 flex items-center justify-center">
           <div
-            className="text-9xl font-black text-white tracking-wider leading-none text-center px-8"
+            className="gsap-team-name-text text-center px-8 leading-none font-black text-white uppercase"
             style={{
               fontFamily: 'Impact, "Arial Black", sans-serif',
-              textShadow: '0 8px 16px rgba(0,0,0,0.9), 0 0 40px rgba(0,0,0,0.6)',
-              WebkitTextStroke: `4px ${fantasyTeam.colors[1] || fantasyTeam.colors[0]}`,
-              textTransform: 'uppercase',
-              letterSpacing: '0.15em',
+              fontSize: 'clamp(4rem, 10vw, 9rem)',
+              letterSpacing: '0.12em',
+              textShadow: `0 4px 24px rgba(0,0,0,0.95), 0 0 60px ${c1}55`,
+              WebkitTextStroke: `3px ${c2}`,
             }}
           >
             {fantasyTeam.name}
@@ -259,52 +199,41 @@ export default function DraftPickAnimation({
         </div>
       </div>
 
-      {/* PHASE 2: Transition wipe */}
+      {/* ── PHASE 2: Color wipe ── */}
       <div
         className="gsap-transition-wipe absolute inset-0"
-        style={{
-          background: `linear-gradient(90deg, ${fantasyTeam.colors[0]}, ${
-            fantasyTeam.colors[1] || fantasyTeam.colors[0]
-          })`,
-          transform: 'scaleX(0)',
-          transformOrigin: 'left',
-        }}
+        style={{ background: `linear-gradient(90deg, ${c1} 0%, ${c2} 100%)` }}
       />
 
-      {/* PHASE 3: Draft card */}
-      <div className="gsap-draft-card absolute inset-0 flex items-center justify-center">
+      {/* ── PHASE 3: Draft card ── */}
+      <div className="gsap-draft-card absolute inset-0 flex flex-col items-center justify-center">
         <div
           className="absolute inset-0"
           style={{
-            background: `
-              linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 50%, #1a1a1a 100%),
-              radial-gradient(circle at 30% 30%, ${fantasyTeam.colors[0]}20 0%, transparent 50%),
-              radial-gradient(circle at 70% 70%, ${fantasyTeam.colors[1]}15 0%, transparent 50%)
-            `,
+            background: `radial-gradient(ellipse at 50% 40%, ${c1}33 0%, #0d0d0d 65%)`,
           }}
         />
-
-        <div className="relative z-10 text-center">
+        <div className="relative z-10 flex flex-col items-center select-none">
           <div
-            className="text-9xl font-black tracking-wider mb-8"
+            className="gsap-draft-year font-black text-white"
             style={{
-              background: 'linear-gradient(145deg, #ffffff, #e0e0e0, #ffffff)',
-              WebkitBackgroundClip: 'text',
-              WebkitTextFillColor: 'transparent',
-              filter: 'drop-shadow(0 4px 8px rgba(0,0,0,0.8))',
+              fontSize: 'clamp(3rem, 7vw, 6rem)',
+              letterSpacing: '0.2em',
+              textShadow: `0 2px 16px rgba(0,0,0,0.9)`,
+              color: '#e0e0e0',
             }}
           >
             {year}
           </div>
           <div
-            className="text-[12rem] font-black tracking-wider"
+            className="gsap-draft-word font-black uppercase"
             style={{
-              background: `linear-gradient(145deg, ${fantasyTeam.colors[0]}, ${
-                fantasyTeam.colors[1] || fantasyTeam.colors[0]
-              }, ${fantasyTeam.colors[0]})`,
-              WebkitBackgroundClip: 'text',
-              WebkitTextFillColor: 'transparent',
-              filter: 'drop-shadow(0 6px 12px rgba(0,0,0,0.8))',
+              fontSize: 'clamp(6rem, 18vw, 16rem)',
+              letterSpacing: '0.1em',
+              lineHeight: 0.9,
+              color: c1,
+              textShadow: `0 4px 32px rgba(0,0,0,0.8), 0 0 80px ${c1}66`,
+              WebkitTextStroke: `2px ${c2}`,
             }}
           >
             DRAFT
@@ -312,93 +241,92 @@ export default function DraftPickAnimation({
         </div>
       </div>
 
-      {/* PHASE 5: Player card */}
+      {/* ── PHASE 5: Player card ── */}
       <div className="gsap-player-card absolute inset-0 flex items-center justify-center">
+        {/* Colored background behind card */}
         <div
-          className="w-[900px] h-[500px] rounded-2xl overflow-hidden shadow-2xl"
+          className="absolute inset-0"
+          style={{ background: `radial-gradient(ellipse at 50% 50%, ${c1}28 0%, #0d0d0d 70%)` }}
+        />
+        {/* The card itself */}
+        <div
+          className="relative z-10 rounded-2xl overflow-hidden"
           style={{
-            background: `linear-gradient(135deg, ${fantasyTeam.colors[0]}dd 0%, ${
-              fantasyTeam.colors[1] || fantasyTeam.colors[0]
-            }dd 100%)`,
+            width: 'min(900px, 90vw)',
+            background: `linear-gradient(135deg, ${c1}ee 0%, ${c2}ee 100%)`,
+            boxShadow: `0 24px 80px rgba(0,0,0,0.7), 0 0 60px ${c1}44`,
           }}
         >
-          {/* Player info section */}
-          <div className="h-full flex flex-col justify-center items-center p-12 relative">
-            {/* Team logo watermark */}
-            {teamLogo && (
-              <img
-                src={teamLogo}
-                alt=""
-                className="absolute top-8 right-8 w-32 h-32 object-contain opacity-20"
-              />
-            )}
+          <div className="flex items-stretch" style={{ minHeight: '420px' }}>
+            {/* Left accent bar */}
+            <div className="w-3 flex-shrink-0" style={{ background: c2 }} />
 
-            {/* Position badge */}
-            <div className="gsap-player-details mb-6">
-              <div
-                className="px-8 py-3 bg-white text-black font-black text-4xl rounded-lg inline-block"
-                style={{ boxShadow: '0 4px 12px rgba(0,0,0,0.3)' }}
-              >
-                {player.position}
-              </div>
-              {player.college && (
-                <div className="text-white text-2xl font-bold mt-3 opacity-90">
-                  {player.college.toUpperCase()}
-                </div>
+            {/* Logo column */}
+            <div
+              className="flex-shrink-0 flex items-center justify-center p-8"
+              style={{ width: '220px', background: `${c1}88` }}
+            >
+              {teamLogo && (
+                <img
+                  src={teamLogo}
+                  alt={fantasyTeam.name}
+                  className="w-40 h-40 object-contain drop-shadow-2xl"
+                />
               )}
             </div>
 
-            {/* Player name */}
-            <div className="gsap-player-name mb-8">
-              <h1
-                className="text-7xl font-black text-white leading-tight text-center"
-                style={{
-                  textShadow: '4px 4px 8px rgba(0,0,0,0.9)',
-                }}
-              >
-                {player.name.toUpperCase()}
-              </h1>
-              {player.team && (
-                <div className="text-white text-3xl font-bold mt-3 opacity-90">
-                  {player.team}
-                </div>
-              )}
-            </div>
+            {/* Content column */}
+            <div className="flex-1 flex flex-col justify-center px-10 py-8">
+              {/* Position badge */}
+              <div className="gsap-player-details mb-5">
+                <span
+                  className="inline-block font-black text-3xl px-6 py-2 rounded-lg"
+                  style={{
+                    background: '#fff',
+                    color: c1,
+                    boxShadow: '0 2px 12px rgba(0,0,0,0.3)',
+                  }}
+                >
+                  {player.position}
+                </span>
+                {(player.team || player.college) && (
+                  <span className="ml-4 text-white/80 text-xl font-bold uppercase tracking-wider">
+                    {player.team || player.college}
+                  </span>
+                )}
+              </div>
 
-            {/* Pick info */}
-            <div className="gsap-pick-info flex gap-12 justify-center">
-              <div className="text-center">
-                <div className="text-white text-2xl font-medium mb-2">ROUND</div>
-                <div
-                  className="text-7xl font-black text-white"
+              {/* Player name */}
+              <div className="gsap-player-name mb-6">
+                <h1
+                  className="font-black text-white leading-none uppercase"
                   style={{
-                    textShadow: '3px 3px 6px rgba(0,0,0,0.9)',
+                    fontSize: 'clamp(2.5rem, 5vw, 4.5rem)',
+                    textShadow: '0 3px 12px rgba(0,0,0,0.8)',
+                    letterSpacing: '-0.01em',
                   }}
                 >
-                  {round}
-                </div>
+                  {player.name}
+                </h1>
               </div>
-              <div className="text-center">
-                <div className="text-white text-2xl font-medium mb-2">PICK</div>
-                <div
-                  className="text-7xl font-black text-white"
-                  style={{
-                    textShadow: '3px 3px 6px rgba(0,0,0,0.9)',
-                  }}
-                >
-                  {pickInRound}
-                </div>
-              </div>
-              <div className="text-center">
-                <div className="text-white text-2xl font-medium mb-2">OVERALL</div>
-                <div
-                  className="text-7xl font-black text-white"
-                  style={{
-                    textShadow: '3px 3px 6px rgba(0,0,0,0.9)',
-                  }}
-                >
-                  {pickNumber}
-                </div>
+
+              {/* Round / Pick / Overall */}
+              <div className="gsap-pick-info flex gap-8">
+                {[
+                  { label: 'ROUND', value: round },
+                  { label: 'PICK', value: pickInRound },
+                  { label: 'OVERALL', value: pickNumber },
+                ].map(({ label, value }) => (
+                  <div key={label} className="text-center">
+                    <div className="text-white/70 text-sm font-bold tracking-widest mb-1">{label}</div>
+                    <div
+                      className="font-black text-white"
+                      style={{ fontSize: '3.5rem', textShadow: '0 2px 8px rgba(0,0,0,0.8)', lineHeight: 1 }}
+                    >
+                      {value}
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
           </div>
