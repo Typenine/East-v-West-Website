@@ -62,6 +62,7 @@ export default function DraftRoomPage() {
   const [adminTeamOverride, setAdminTeamOverride] = useState<string>('');
   const [teamRoster, setTeamRoster] = useState<RosterPlayer[]>([]);
   const [rosterLoading, setRosterLoading] = useState(false);
+  const [confirmPlayer, setConfirmPlayer] = useState<Avail | null>(null);
 
   const prevPendingRef = useRef<PendingPick>(null);
   const beepPlayedRef = useRef(false);
@@ -349,7 +350,6 @@ export default function DraftRoomPage() {
               <div className="absolute inset-0 flex flex-col items-center justify-center z-20" style={{ background: 'linear-gradient(135deg,rgba(0,0,0,0.92),rgba(30,10,0,0.96))' }}>
                 <div className="text-center px-4">
                   <div className="text-4xl font-black text-white tracking-widest uppercase animate-pulse">PICK IS IN</div>
-                  <div className="text-[10px] text-white/40 mt-2 uppercase tracking-widest">Clock paused — awaiting admin approval</div>
                 </div>
               </div>
             )}
@@ -450,7 +450,7 @@ export default function DraftRoomPage() {
                       </div>
                       <div className="flex gap-1 shrink-0">
                         {canPick && (
-                          <Button size="sm" variant="primary" disabled={submitting} onClick={() => submitPick(p)}>Pick</Button>
+                          <Button size="sm" variant="primary" disabled={submitting} onClick={() => setConfirmPlayer(p)}>Pick</Button>
                         )}
                         <Button
                           size="sm"
@@ -598,6 +598,47 @@ export default function DraftRoomPage() {
           <div className="h-4" />
         </div>
       </div>
+
+      {/* ── Pick Confirmation Modal ── */}
+      {confirmPlayer && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.75)' }} onClick={() => setConfirmPlayer(null)}>
+          <div className="w-full max-w-sm rounded-2xl overflow-hidden shadow-2xl" style={{ background: 'var(--card)' }} onClick={e => e.stopPropagation()}>
+            <div className="px-5 py-4 border-b border-[var(--border)]" style={{ background: 'linear-gradient(90deg,#be161e,#bf9944)' }}>
+              <div className="text-base font-black text-white uppercase tracking-wide">Confirm Selection</div>
+            </div>
+            <div className="px-5 py-5">
+              <div className="flex items-center gap-3 mb-4">
+                <span className="text-sm font-black px-2.5 py-1 rounded text-white" style={{ background: POS_COLORS[confirmPlayer.pos] || '#555' }}>
+                  {confirmPlayer.pos}
+                </span>
+                <div>
+                  <div className="text-lg font-black text-[var(--foreground)]">{confirmPlayer.name}</div>
+                  <div className="text-sm text-[var(--muted)]">{confirmPlayer.nfl}</div>
+                </div>
+              </div>
+              <p className="text-sm text-[var(--muted)] mb-5">Are you sure you want to select this player? This will be sent to the admin for approval.</p>
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  className="flex-1 py-2.5 rounded-lg text-sm font-bold border border-[var(--border)] text-[var(--muted)] hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
+                  onClick={() => setConfirmPlayer(null)}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={submitting}
+                  className="flex-1 py-2.5 rounded-lg text-sm font-black text-white transition-colors disabled:opacity-50"
+                  style={{ background: 'linear-gradient(90deg,#be161e,#bf9944)' }}
+                  onClick={() => { submitPick(confirmPlayer); setConfirmPlayer(null); }}
+                >
+                  {submitting ? 'Submitting…' : 'Yes, Draft Him'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
