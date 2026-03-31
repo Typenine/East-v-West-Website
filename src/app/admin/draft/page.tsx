@@ -32,96 +32,164 @@ type DraftOverview = {
   allSlots?: Array<{ overall: number; round: number; team: string }>;
 };
 
-function PickVideosCard({
-  draftId,
-  recentPicks,
-}: {
-  draftId: string;
-  recentPicks: Array<{ overall: number; round: number; team: string; playerName?: string | null }>;
-}) {
-  const [videos, setVideos] = useState<Record<number, string>>({});
-  const [editing, setEditing] = useState<Record<number, string>>({});
-  const [saving, setSaving] = useState<number | null>(null);
+function PlayerVideosCard() {
+  const [videos, setVideos] = useState<Array<{ playerId: string; videoUrl: string; playerName: string | null }>>([]);
+  const [editing, setEditing] = useState<Record<string, string>>({});
+  const [saving, setSaving] = useState<string | null>(null);
+  const [playerSearch, setPlayerSearch] = useState('');
+  const [searchResults, setSearchResults] = useState<Array<{ id: string; name: string; pos: string; nfl: string }>>([]);
+  const [selectedPlayer, setSelectedPlayer] = useState<{ id: string; name: string; pos: string; nfl: string } | null>(null);
+  const [newVideoUrl, setNewVideoUrl] = useState('');
+  const [savingNew, setSavingNew] = useState(false);
 
-  useEffect(() => {
-    async function load() {
-      try {
-        const res = await fetch(`/api/draft/pick-videos?draftId=${draftId}`, { cache: 'no-store' });
-        if (!res.ok) return;
-        const j = await res.json();
-        const map: Record<number, string> = {};
-        for (const v of (j.videos || [])) map[v.overall] = v.videoUrl;
-        setVideos(map);
-        setEditing(map);
-      } catch {}
-    }
-    load();
-  }, [draftId]);
-
-  async function save(overall: number) {
-    setSaving(overall);
+  async function loadVideos() {
     try {
-      const videoUrl = (editing[overall] || '').trim();
-      const pick = recentPicks.find(p => p.overall === overall);
-      if (videoUrl) {
-        await fetch('/api/draft/pick-videos', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ draftId, overall, videoUrl, playerName: pick?.playerName }),
-        });
-        setVideos(v => ({ ...v, [overall]: videoUrl }));
-      } else {
-        await fetch('/api/draft/pick-videos', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ draftId, overall, action: 'delete' }),
-        });
-        setVideos(v => { const n = { ...v }; delete n[overall]; return n; });
-      }
-    } catch {
-      alert('Save failed');
-    } finally {
-      setSaving(null);
-    }
+      const res = await fetch('/api/draft/player-videos', { cache: 'no-store' });
+      if (!res.ok) return;
+      const j = await res.json();
+      const vids: Array<{ playerId: string; videoUrl: string; playerName: string | null }> = j.videos || [];
+      setVideos(vids);
+      const map: Record<string, string> = {};
+      for (const v of vids) map[v.playerId] = v.videoUrl;
+      setEditing(map);
+    } catch {}
   }
 
-  const picks = [...recentPicks].reverse();
+  useEffect(() => { loadVideos(); }, []);
+
+  async function saveVideo(playerId: string, playerName: string | null) {
+    setSaving(playerId);
+    try {
+      const url = (editing[playerId] ?? '').trim();
+      if (url) {
+        await fetch('/api/draft/player-videos', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ playerId, videoUrl: url, playerName }),
+        });
+      } else {
+        await fetch('/api/draft/player-videos', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ playerId, action: 'delete' }),
+        });
+      }
+      await loadVideos();
+    } catch { alert('Save failed'); }
+    finally { setSaving(null); }
+  }
+
+  async function searchPlayers() {
+    try {
+      const res = await fetch('/api/draft', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ action: 'available', q: playerSearch, limit: 20 }),
+      });
+      const j = await res.json();
+      setSearchResults(j?.available || []);
+    } catch {}
+  }
+
+  async function addNewVideo() {
+    if (!selectedPlayer || !newVideoUrl.trim()) return;
+    setSavingNew(true);
+    try {
+      await fetch('/api/draft/player-videos', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ playerId: selectedPlayer.id, videoUrl: newVideoUrl.trim(), playerName: selectedPlayer.name }),
+      });
+      setSelectedPlayer(null);
+      setNewVideoUrl('');
+      setPlayerSearch('');
+      setSearchResults([]);
+      await loadVideos();
+    } catch { alert('Save failed'); }
+    finally { setSavingNew(false); }
+  }
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle>🎬 Pick Highlight Videos</CardTitle>
+        <CardTitle>🎬 Player Highlight Videos</CardTitle>
       </CardHeader>
       <CardContent>
         <p className="text-sm text-[var(--muted)] mb-4">
-          Paste a YouTube URL for any pick. The video will play after the pick animation, before the &quot;Now on the Clock&quot; animation.
+          Set a YouTube highlight video on a player&apos;s profile. When that player is drafted, the video plays after the pick animation and &ldquo;Now on the Clock&rdquo; animation.
         </p>
-        {picks.length === 0 ? (
-          <p className="text-[var(--muted)] text-sm">No picks yet.</p>
+
+        {/* Add / update a player video */}
+        <div className="mb-4 p-3 bg-zinc-800/50 rounded-lg space-y-2">
+          <Label className="block text-sm font-semibold">Add / Update Player Video</Label>
+          <div className="flex gap-2">
+            <Input
+              value={playerSearch}
+              onChange={e => setPlayerSearch(e.target.value)}
+              placeholder="Search player name…"
+              className="flex-1"
+              onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); searchPlayers(); } }}
+            />
+            <Button size="sm" onClick={searchPlayers}>Search</Button>
+          </div>
+          {searchResults.length > 0 && !selectedPlayer && (
+            <div className="max-h-36 overflow-auto border border-zinc-600 rounded bg-zinc-900">
+              {searchResults.map(p => (
+                <button
+                  key={p.id}
+                  type="button"
+                  className="w-full text-left px-3 py-1.5 text-sm hover:bg-zinc-700 flex items-center justify-between"
+                  onClick={() => { setSelectedPlayer(p); setSearchResults([]); }}
+                >
+                  <span className="font-medium">{p.name}</span>
+                  <span className="text-xs text-[var(--muted)] ml-2">{p.pos} · {p.nfl}</span>
+                </button>
+              ))}
+            </div>
+          )}
+          {selectedPlayer && (
+            <div className="flex items-center gap-2 text-sm">
+              <span className="font-semibold">{selectedPlayer.name}</span>
+              <span className="text-[var(--muted)]">{selectedPlayer.pos} · {selectedPlayer.nfl}</span>
+              <button type="button" className="text-[var(--muted)] hover:text-white ml-auto" onClick={() => setSelectedPlayer(null)}>✕ Clear</button>
+            </div>
+          )}
+          <div className="flex gap-2">
+            <Input
+              value={newVideoUrl}
+              onChange={e => setNewVideoUrl(e.target.value)}
+              placeholder="YouTube URL"
+              className="flex-1"
+              disabled={!selectedPlayer}
+            />
+            <Button size="sm" disabled={!selectedPlayer || !newVideoUrl.trim() || savingNew} onClick={addNewVideo}>
+              {savingNew ? '…' : 'Save'}
+            </Button>
+          </div>
+        </div>
+
+        {/* Existing player videos */}
+        {videos.length === 0 ? (
+          <p className="text-[var(--muted)] text-sm">No player videos set yet.</p>
         ) : (
           <div className="space-y-2">
-            {picks.map((p) => (
-              <div key={p.overall} className="flex items-center gap-2">
-                <div className="w-28 flex-shrink-0 text-sm font-semibold text-[var(--muted)]">
-                  #{p.overall} — R{p.round}
-                </div>
-                <div className="flex-1 text-xs text-[var(--muted)] truncate min-w-0 mr-1">
-                  {p.playerName || '—'}
-                </div>
+            <div className="text-xs font-semibold text-[var(--muted)] uppercase tracking-wide mb-1">Existing Videos</div>
+            {videos.map(v => (
+              <div key={v.playerId} className="flex items-center gap-2">
+                <div className="w-36 flex-shrink-0 text-sm truncate font-medium">{v.playerName || v.playerId}</div>
                 <input
                   type="text"
                   className="flex-1 min-w-0 px-2 py-1 text-sm bg-zinc-800 border border-zinc-600 rounded text-white placeholder-zinc-500"
-                  placeholder="YouTube URL (optional)"
-                  value={editing[p.overall] ?? ''}
-                  onChange={e => setEditing(v => ({ ...v, [p.overall]: e.target.value }))}
+                  value={editing[v.playerId] ?? v.videoUrl}
+                  onChange={e => setEditing(prev => ({ ...prev, [v.playerId]: e.target.value }))}
                 />
                 <Button
                   size="sm"
-                  variant={videos[p.overall] ? 'primary' : 'ghost'}
-                  disabled={saving === p.overall}
-                  onClick={() => save(p.overall)}
+                  variant={(editing[v.playerId] ?? v.videoUrl) !== v.videoUrl ? 'primary' : 'ghost'}
+                  disabled={saving === v.playerId}
+                  onClick={() => saveVideo(v.playerId, v.playerName)}
                 >
-                  {saving === p.overall ? '…' : videos[p.overall] ? '✓ Saved' : 'Set'}
+                  {saving === v.playerId ? '…' : 'Save'}
                 </Button>
               </div>
             ))}
@@ -150,6 +218,11 @@ export default function AdminDraftPage() {
   const [teamOrder, setTeamOrder] = useState<string[]>(TEAM_NAMES);
   const [playersInfo, setPlayersInfo] = useState<{ useCustom: boolean; count: number }>({ useCustom: false, count: 0 });
   const [orderLoaded, setOrderLoaded] = useState(false);
+  const [pendingPick, setPendingPick] = useState<{
+    id: string; overall: number; team: string; playerId: string;
+    playerName: string | null; playerPos: string | null; playerNfl: string | null; submittedAt: string;
+  } | null>(null);
+  const [approvingPick, setApprovingPick] = useState(false);
 
   // Convert mins:secs to total seconds
   const getTotalSeconds = () => Number(clockMins || 0) * 60 + Number(clockSecs || 0);
@@ -174,6 +247,7 @@ export default function AdminDraftPage() {
       const j = await res.json();
       setDraft(j?.draft || null);
       setRemainingSec(j?.remainingSec ?? null);
+      setPendingPick(j?.pendingPick ?? null);
       if (includeAvail) setAvail(j?.available || []);
     } catch {
       setError('Failed to load draft');
@@ -364,6 +438,60 @@ export default function AdminDraftPage() {
           </Link>
         </div>
       </div>
+
+      {/* Pending Pick Approval — floating panel */}
+      {pendingPick && (
+        <div
+          className="fixed bottom-6 right-6 z-[9999] w-80 rounded-xl border-2 border-yellow-400 bg-zinc-900 shadow-2xl p-4 animate-pulse"
+          style={{ boxShadow: '0 0 24px rgba(250,204,21,0.4)' }}
+        >
+          <div className="text-yellow-400 font-black text-sm uppercase tracking-widest mb-1">⏳ Pending Pick</div>
+          <div className="text-white font-bold text-lg leading-tight mb-0.5">
+            {pendingPick.playerName || pendingPick.playerId}
+          </div>
+          <div className="text-zinc-400 text-xs mb-1">
+            {[pendingPick.playerPos, pendingPick.playerNfl].filter(Boolean).join(' · ')}
+          </div>
+          <div className="text-zinc-300 text-sm mb-3">
+            <span className="font-semibold">{pendingPick.team}</span>
+            <span className="text-zinc-500 ml-2">Pick #{pendingPick.overall}</span>
+          </div>
+          <div className="flex gap-2">
+            <Button
+              variant="primary"
+              className="flex-1"
+              disabled={approvingPick}
+              onClick={async () => {
+                setApprovingPick(true);
+                try {
+                  const res = await fetch('/api/draft', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'approve_pick' }) });
+                  const j = await res.json();
+                  if (!j.ok) alert(j.error || 'Approve failed');
+                  else { setPendingPick(null); await load(true); }
+                } catch { alert('Approve failed'); }
+                finally { setApprovingPick(false); }
+              }}
+            >
+              {approvingPick ? '…' : '✓ Approve'}
+            </Button>
+            <Button
+              variant="ghost"
+              className="flex-1 border border-red-600 text-red-400 hover:bg-red-900/30"
+              disabled={approvingPick}
+              onClick={async () => {
+                setApprovingPick(true);
+                try {
+                  await fetch('/api/draft', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'reject_pick' }) });
+                  setPendingPick(null);
+                } catch { alert('Reject failed'); }
+                finally { setApprovingPick(false); }
+              }}
+            >
+              ✗ Reject
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* Live Overlay - Full Screen Display */}
       {draft && (
@@ -593,8 +721,8 @@ export default function AdminDraftPage() {
                   <p className="text-sm text-[var(--muted)] mb-4">
                     Select a team for each unpicked slot. Use this to handle trades or reorder picks.
                   </p>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                    {upcoming.map((pick) => {
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2 max-h-[600px] overflow-y-auto">
+                    {(draft.allSlots?.filter(s => s.overall >= draft.curOverall) || upcoming).map((pick) => {
                       const teamLogo = getTeamLogoPath(pick.team);
                       const teamColors = getTeamColors(pick.team);
                       return (
@@ -630,7 +758,7 @@ export default function AdminDraftPage() {
                                 } else {
                                   await load(true);
                                 }
-                              } catch (e) {
+                              } catch {
                                 alert('Failed to update slot');
                               } finally {
                                 setBusy(null);
@@ -651,10 +779,8 @@ export default function AdminDraftPage() {
               </Card>
             )}
 
-            {/* Pick Videos */}
-            {draft && (
-              <PickVideosCard draftId={draft.id} recentPicks={recent} />
-            )}
+            {/* Player Videos */}
+            <PlayerVideosCard />
 
             {/* Testing Tools */}
             {draft && draft.status !== 'COMPLETED' && (

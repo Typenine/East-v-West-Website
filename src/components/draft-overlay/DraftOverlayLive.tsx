@@ -23,7 +23,7 @@ const positionColors: Record<string, string> = {
 };
 
 // Ticker views - tradeInfo only shown if there's a trade, so we filter dynamically
-const baseTickerViews = ['bestAvailable', 'teamRecentPicks', 'teamRecord', 'draftCapital', 'draft2025', 'draft2024', 'draft2023'] as const;
+const baseTickerViews = ['bestAvailable', 'teamRecentPicks', 'teamRecord', 'draftCapital', 'draft2025', 'draft2024'] as const;
 type TickerView = typeof baseTickerViews[number] | 'tradeInfo';
 
 function getYoutubeEmbedUrl(url: string): string | null {
@@ -56,7 +56,7 @@ export default function DraftOverlayLive() {
     localRemainingSec,
   } = useDraftData(1000); // 1s during LIVE, auto-adjusts to 5s/10s for PAUSED/COMPLETED
 
-  // Animation state machine: pick → video → clock → idle
+  // Animation state machine: pick → clock → video → idle
   type AnimPhase = 'pick' | 'video' | 'clock' | null;
   const [animPhase, setAnimPhase] = useState<AnimPhase>(null);
   const animDataRef = useRef<{
@@ -65,27 +65,28 @@ export default function DraftOverlayLive() {
     overall: number;
     round: number;
     pickInRound: number;
+    videoUrl: string | null;
   } | null>(null);
 
-  // Pick videos: overall → videoUrl
-  const [pickVideos, setPickVideos] = useState<Record<number, string>>({});
+  // Player videos: playerId → videoUrl (ref only; no re-render needed)
+  const playerVideosRef = useRef<Record<string, string>>({});
   const clockRef = useRef<HTMLDivElement>(null);
   const lastAnimatedPickRef = useRef<number | null>(null);
 
-  // Load pick videos on mount and whenever draft changes
+  // Load player videos on mount
   useEffect(() => {
     async function loadVideos() {
       try {
-        const res = await fetch('/api/draft/pick-videos', { cache: 'no-store' });
+        const res = await fetch('/api/draft/player-videos', { cache: 'no-store' });
         if (!res.ok) return;
         const j = await res.json();
-        const map: Record<number, string> = {};
-        for (const v of (j.videos || [])) { map[v.overall] = v.videoUrl; }
-        setPickVideos(map);
+        const map: Record<string, string> = {};
+        for (const v of (j.videos || [])) { map[v.playerId] = v.videoUrl; }
+        playerVideosRef.current = map;
       } catch {}
     }
     loadVideos();
-    const t = setInterval(loadVideos, 30000);
+    const t = setInterval(loadVideos, 60000);
     return () => clearInterval(t);
   }, []);
 
@@ -96,7 +97,7 @@ export default function DraftOverlayLive() {
       try {
         const data = typeof e.data === 'string' ? JSON.parse(e.data) : e.data;
         if (data?.event === 'onStateChange' && data?.info === 0) {
-          setAnimPhase('clock');
+          setAnimPhase(null);
         }
       } catch {}
     };
@@ -122,6 +123,7 @@ export default function DraftOverlayLive() {
         overall: lastPick.overall,
         round: lastPick.round,
         pickInRound: ((lastPick.overall - 1) % 12) + 1,
+        videoUrl: playerVideosRef.current[lastPick.playerId] || null,
       };
       setAnimPhase('pick');
     }
@@ -159,10 +161,9 @@ export default function DraftOverlayLive() {
 
   // Historical draft data (keyed by canonical team name)
   const [historicalDrafts, setHistoricalDrafts] = useState<{
-    2023: Array<{ team: string; player: string; round: number; pick: number }> | null;
     2024: Array<{ team: string; player: string; round: number; pick: number }> | null;
     2025: Array<{ team: string; player: string; round: number; pick: number }> | null;
-  }>({ 2023: null, 2024: null, 2025: null });
+  }>({ 2024: null, 2025: null });
   
   // Determine if current pick was acquired via trade (for conditional ticker display)
   const currentPickTradeInfo = (() => {
@@ -225,17 +226,6 @@ export default function DraftOverlayLive() {
           });
         };
         
-        // Fetch 2023 draft
-        const league2023 = LEAGUE_IDS.PREVIOUS['2023'];
-        if (league2023) {
-          try {
-            const picks2023 = await fetchYearDraft(league2023);
-            setHistoricalDrafts(prev => ({ ...prev, 2023: picks2023 }));
-          } catch (e) {
-            console.error('Failed to fetch 2023 draft:', e);
-          }
-        }
-
         // Fetch 2024 draft
         const league2024 = LEAGUE_IDS.PREVIOUS['2024'];
         if (league2024) {
@@ -331,7 +321,8 @@ export default function DraftOverlayLive() {
     <div className="w-full h-full bg-gradient-to-b from-zinc-950 to-zinc-900 p-6 flex flex-col">
       {/* Draft Board Grid */}
       <div className="flex-1 mb-4 min-h-0">
-        <div className="grid grid-cols-5 gap-[2px] h-full bg-black/80 rounded-lg overflow-hidden">
+        <div 
+          className="grid grid-cols-5 gap-[2px] h-full bg-zinc-900/80 rounded-lg overflow-hidden">
           {/* Header Row */}
           <div className="text-center text-[11px] font-bold text-zinc-400 py-1 bg-zinc-900">Pick</div>
           {[1, 2, 3, 4].map(r => (
@@ -367,8 +358,8 @@ export default function DraftOverlayLive() {
                       isCurrentPick
                         ? 'ring-2 ring-yellow-400 bg-yellow-400/20'
                         : isPicked
-                        ? 'bg-zinc-800'
-                        : 'bg-zinc-900/50'
+                        ? 'bg-zinc-700'
+                        : 'bg-zinc-800'
                     }`}
                     style={{
                       borderLeft: isPicked && gridItem?.position ? `3px solid ${positionColors[gridItem.position] || '#666'}` : undefined,
@@ -377,7 +368,7 @@ export default function DraftOverlayLive() {
                     {/* Team logo on LEFT side - ALWAYS visible */}
                     <div className="flex-shrink-0 w-6 h-6 mr-1 flex items-center justify-center">
                       {teamLogo ? (
-                        <img src={teamLogo} alt="" className="w-full h-full object-contain opacity-40" />
+                        <img src={teamLogo} alt="" className="w-full h-full object-contain" />
                       ) : gridItem?.team ? (
                         <div className="text-[8px] font-bold text-zinc-500">
                           {gridItem.team.split(' ').map(w => w[0]).join('').slice(0, 3).toUpperCase()}
@@ -570,23 +561,6 @@ export default function DraftOverlayLive() {
             })() : <div className="text-white/60 text-sm">Loading...</div>}
           </div>
 
-          {/* 2023 Draft View */}
-          <div style={{ display: currentTickerView === 'draft2023' ? 'block' : 'none' }}>
-            <div className="text-white/80 text-xs font-semibold mb-1">2023 Draft</div>
-            {currentTeam && historicalDrafts[2023] ? (() => {
-              const teamPicks = historicalDrafts[2023].filter(p => p.team === currentTeam.name).slice(0, 3);
-              return teamPicks.length > 0 ? (
-                <div className="text-white text-sm">
-                  {teamPicks.map((p, i) => (
-                    <div key={i} className="truncate">
-                      {p.player} ({p.round}.{String(p.pick % 12 || 12).padStart(2, '0')})
-                    </div>
-                  ))}
-                </div>
-              ) : <div className="text-white/60 text-sm">No picks in 2023</div>;
-            })() : <div className="text-white/60 text-sm">Loading...</div>}
-          </div>
-
           {/* Trade Info View - only rendered when there's a trade (controlled by tickerViews array) */}
           {currentPickTradeInfo && (
             <div style={{ display: currentTickerView === 'tradeInfo' ? 'block' : 'none' }}>
@@ -619,16 +593,39 @@ export default function DraftOverlayLive() {
           round={animDataRef.current.round}
           pickInRound={animDataRef.current.pickInRound}
           onComplete={() => {
-            const hasVideo = !!(animDataRef.current && pickVideos[animDataRef.current.overall]);
-            setAnimPhase(hasVideo ? 'video' : 'clock');
+            // pick → clock (always), then clock → video (if player has one)
+            setAnimPhase('clock');
           }}
         />
       )}
 
-      {/* PHASE: Player highlight video */}
-      {animPhase === 'video' && animDataRef.current && (() => {
-        const videoUrl = pickVideos[animDataRef.current.overall];
-        if (!videoUrl) { return null; }
+      {/* PHASE: Now on the Clock animation */}
+      {animPhase === 'clock' && animDataRef.current?.nextTeamName && (() => {
+        const teamName = animDataRef.current!.nextTeamName!;
+        const colors = getTeamColors(teamName);
+        const curOverall = animDataRef.current!.overall + 1;
+        return (
+          <NowOnClockAnimation
+            key={`clock-animation-${animDataRef.current!.overall}`}
+            team={{
+              name: teamName,
+              colors: [colors.primary, colors.secondary, null],
+            }}
+            pickNumber={curOverall}
+            round={Math.floor((curOverall - 1) / 12) + 1}
+            pickInRound={((curOverall - 1) % 12) + 1}
+            onComplete={() => {
+              // After clock anim, play video if available
+              const hasVideo = !!(animDataRef.current?.videoUrl);
+              setAnimPhase(hasVideo ? 'video' : null);
+            }}
+          />
+        );
+      })()}
+
+      {/* PHASE: Player highlight video (after Now on Clock) */}
+      {animPhase === 'video' && animDataRef.current?.videoUrl && (() => {
+        const videoUrl = animDataRef.current!.videoUrl!;
         const isYt = videoUrl.includes('youtube.com') || videoUrl.includes('youtu.be');
         const embedUrl = isYt ? getYoutubeEmbedUrl(videoUrl) : null;
         return (
@@ -647,37 +644,17 @@ export default function DraftOverlayLive() {
                   autoPlay
                   controls
                   className="w-full rounded-xl"
-                  onEnded={() => setAnimPhase('clock')}
+                  onEnded={() => setAnimPhase(null)}
                 />
               )}
             </div>
             <button
               className="mt-6 px-8 py-3 bg-zinc-800 text-white font-bold rounded-lg hover:bg-zinc-700 transition-colors text-lg"
-              onClick={() => setAnimPhase('clock')}
+              onClick={() => setAnimPhase(null)}
             >
               Skip →
             </button>
           </div>
-        );
-      })()}
-
-      {/* PHASE: Now on the Clock animation */}
-      {animPhase === 'clock' && animDataRef.current?.nextTeamName && (() => {
-        const teamName = animDataRef.current!.nextTeamName!;
-        const colors = getTeamColors(teamName);
-        const curOverall = animDataRef.current!.overall + 1;
-        return (
-          <NowOnClockAnimation
-            key={`clock-animation-${animDataRef.current!.overall}`}
-            team={{
-              name: teamName,
-              colors: [colors.primary, colors.secondary, null],
-            }}
-            pickNumber={curOverall}
-            round={Math.floor((curOverall - 1) / 12) + 1}
-            pickInRound={((curOverall - 1) % 12) + 1}
-            onComplete={() => setAnimPhase(null)}
-          />
         );
       })()}
 

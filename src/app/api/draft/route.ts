@@ -12,7 +12,6 @@ import {
   pauseDraft,
   resumeDraft,
   setClockSeconds,
-  makePick,
   forcePick,
   undoLastPick,
   getTeamQueue,
@@ -23,6 +22,9 @@ import {
   setDraftPlayers,
   clearDraftPlayers,
   checkAndAutoPick,
+  submitPendingPick,
+  getPendingPick,
+  resolvePendingPick,
 } from '@/server/db/queries';
 import type { DraftOverview } from '@/server/db/queries';
 import { TEAM_NAMES } from '@/lib/constants/league';
@@ -67,7 +69,8 @@ export async function GET(req: NextRequest) {
       : overview.status === 'PAUSED' && overview.pausedRemainingSecs != null
       ? overview.pausedRemainingSecs
       : null;
-    const resp: { draft: DraftOverview; remainingSec: number | null; available?: Array<{ id: string; name: string; pos: string; nfl: string }>; usingCustom?: boolean } = { draft: overview, remainingSec };
+    const pendingPick = await getPendingPick(draftId);
+    const resp: { draft: DraftOverview; remainingSec: number | null; pendingPick?: typeof pendingPick; available?: Array<{ id: string; name: string; pos: string; nfl: string }>; usingCustom?: boolean } = { draft: overview, remainingSec, pendingPick: pendingPick ?? undefined };
     if (includeAvail) {
       const taken = new Set(await getDraftPickedPlayerIds(draftId));
       const useCustom = (await countDraftPlayers(draftId)) > 0;
@@ -110,7 +113,7 @@ export async function POST(req: NextRequest) {
     const id = typeof body.id === 'string' ? body.id : '';
 
     // Admin-only actions
-    if (['create','reset','delete','skip_pick','update_slot','start','pause','resume','set_clock','force_pick','undo','upload_players','clear_players','auto_pick'].includes(action)) {
+    if (['create','reset','delete','skip_pick','update_slot','start','pause','resume','set_clock','force_pick','undo','upload_players','clear_players','auto_pick','approve_pick','reject_pick'].includes(action)) {
       if (!isAdmin(req)) return bad('forbidden', 403);
       if (action === 'create') {
         const year = Number(body.year || new Date().getFullYear());
@@ -191,6 +194,20 @@ export async function POST(req: NextRequest) {
         const result = await checkAndAutoPick(draftId, true);
         return ok({ ok: result.picked, ...result });
       }
+      if (action === 'approve_pick') {
+        const pending = await getPendingPick(draftId);
+        if (!pending) return bad('no_pending_pick');
+        const res = await forcePick({ draftId, playerId: pending.playerId, playerName: pending.playerName, playerPos: pending.playerPos, playerNfl: pending.playerNfl, team: pending.team, madeBy: 'admin_approved' });
+        if (!res.ok) return bad(res.error || 'failed', 400);
+        await resolvePendingPick(pending.id, 'approved');
+        return ok({ ok: true });
+      }
+      if (action === 'reject_pick') {
+        const pending = await getPendingPick(draftId);
+        if (!pending) return bad('no_pending_pick');
+        await resolvePendingPick(pending.id, 'rejected');
+        return ok({ ok: true });
+      }
     }
 
     // Team actions
@@ -204,9 +221,24 @@ export async function POST(req: NextRequest) {
       const playerPos = typeof body.playerPos === 'string' ? body.playerPos : null;
       const playerNfl = typeof body.playerNfl === 'string' ? body.playerNfl : null;
       if (!playerId) return bad('playerId required');
-      const res = await makePick({ draftId, team: ident.team, playerId, playerName, playerPos, playerNfl, madeBy: ident.userId });
-      if (!res.ok) return bad(res.error || 'failed', 400);
-      return ok({ ok: true });
+      // Validate it's actually this team's turn
+      const overview = await getDraftOverview(draftId);
+      if (!overview) return bad('no_draft');
+      if (overview.status !== 'LIVE') return bad('draft_not_live');
+      if (overview.onClockTeam !== ident.team) return bad('not_your_turn');
+      // Check player not already taken
+      const takenIds = await getDraftPickedPlayerIds(draftId);
+      if (takenIds.includes(playerId)) return bad('player_already_picked');
+      // Submit as pending (awaiting admin approval)
+      await submitPendingPick(draftId, {
+        overall: overview.curOverall,
+        team: ident.team,
+        playerId,
+        playerName,
+        playerPos,
+        playerNfl,
+      });
+      return ok({ ok: true, pending: true });
     }
 
     if (action === 'queue_get') {

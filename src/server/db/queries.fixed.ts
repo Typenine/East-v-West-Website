@@ -307,17 +307,31 @@ export async function ensureDraftTables() {
   await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_draft_picks_draft ON draft_picks(draft_id)`);
   await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_draft_picks_player ON draft_picks(player_id)`);
   await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_draft_slots_team ON draft_slots(draft_id, team)`);
-  // Pick videos table
+  // Player videos table (player_id → video_url, global across drafts)
   await db.execute(sql`
-    CREATE TABLE IF NOT EXISTS draft_pick_videos (
-      draft_id uuid NOT NULL,
-      overall integer NOT NULL,
+    CREATE TABLE IF NOT EXISTS player_videos (
+      player_id varchar(64) NOT NULL PRIMARY KEY,
       video_url text NOT NULL,
       player_name varchar(255),
-      created_at timestamp NOT NULL DEFAULT now(),
-      PRIMARY KEY (draft_id, overall)
+      updated_at timestamp NOT NULL DEFAULT now()
     )
   `);
+  // Pending picks (user-submitted, awaiting admin approval)
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS draft_pending_picks (
+      id uuid NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
+      draft_id uuid NOT NULL,
+      overall integer NOT NULL,
+      team varchar(128) NOT NULL,
+      player_id varchar(64) NOT NULL,
+      player_name varchar(255),
+      player_pos varchar(16),
+      player_nfl varchar(16),
+      submitted_at timestamp NOT NULL DEFAULT now(),
+      status varchar(16) NOT NULL DEFAULT 'pending'
+    )
+  `);
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_pending_picks_draft ON draft_pending_picks(draft_id, status)`);
 }
 
 // Optional per-draft custom player pool (alternative to Sleeper dataset)
@@ -532,6 +546,70 @@ export async function getDraftOverview(draftId: string): Promise<DraftOverview |
     upcoming,
     allSlots,
   } as DraftOverview;
+}
+
+// ── Player Videos ─────────────────────────────────────────────────────────
+export async function getPlayerVideos(): Promise<Array<{ playerId: string; videoUrl: string; playerName: string | null }>> {
+  await ensureDraftTables();
+  const db = getDb();
+  const res = await db.execute(sql`SELECT player_id, video_url, player_name FROM player_videos ORDER BY player_id`);
+  const rows = (res as unknown as { rows?: Array<{ player_id: string; video_url: string; player_name: string | null }> }).rows || [];
+  return rows.map(r => ({ playerId: r.player_id, videoUrl: r.video_url, playerName: r.player_name || null }));
+}
+
+export async function setPlayerVideo(playerId: string, videoUrl: string, playerName?: string | null): Promise<void> {
+  await ensureDraftTables();
+  const db = getDb();
+  await db.execute(sql`
+    INSERT INTO player_videos (player_id, video_url, player_name, updated_at)
+    VALUES (${playerId}, ${videoUrl}, ${playerName ?? null}, now())
+    ON CONFLICT (player_id) DO UPDATE SET video_url = ${videoUrl}, player_name = COALESCE(${playerName ?? null}, player_videos.player_name), updated_at = now()
+  `);
+}
+
+export async function deletePlayerVideo(playerId: string): Promise<void> {
+  await ensureDraftTables();
+  const db = getDb();
+  await db.execute(sql`DELETE FROM player_videos WHERE player_id = ${playerId}`);
+}
+
+// ── Draft Pending Picks ─────────────────────────────────────────────────────
+export async function submitPendingPick(draftId: string, data: {
+  overall: number; team: string; playerId: string;
+  playerName?: string | null; playerPos?: string | null; playerNfl?: string | null;
+}): Promise<void> {
+  await ensureDraftTables();
+  const db = getDb();
+  // Clear any old pending for this draft first
+  await db.execute(sql`DELETE FROM draft_pending_picks WHERE draft_id = ${draftId}::uuid AND status = 'pending'`);
+  await db.execute(sql`
+    INSERT INTO draft_pending_picks (draft_id, overall, team, player_id, player_name, player_pos, player_nfl, status)
+    VALUES (${draftId}::uuid, ${data.overall}, ${data.team}, ${data.playerId},
+            ${data.playerName ?? null}, ${data.playerPos ?? null}, ${data.playerNfl ?? null}, 'pending')
+  `);
+}
+
+export async function getPendingPick(draftId: string): Promise<{
+  id: string; overall: number; team: string; playerId: string;
+  playerName: string | null; playerPos: string | null; playerNfl: string | null; submittedAt: string;
+} | null> {
+  await ensureDraftTables();
+  const db = getDb();
+  const res = await db.execute(sql`SELECT id::text, overall, team, player_id, player_name, player_pos, player_nfl, submitted_at FROM draft_pending_picks WHERE draft_id = ${draftId}::uuid AND status = 'pending' ORDER BY submitted_at DESC LIMIT 1`);
+  const row = (res as unknown as { rows?: Array<Record<string, unknown>> }).rows?.[0];
+  if (!row) return null;
+  return {
+    id: String(row.id), overall: Number(row.overall), team: String(row.team),
+    playerId: String(row.player_id), playerName: row.player_name as string | null,
+    playerPos: row.player_pos as string | null, playerNfl: row.player_nfl as string | null,
+    submittedAt: new Date(row.submitted_at as string).toISOString(),
+  };
+}
+
+export async function resolvePendingPick(pendingId: string, status: 'approved' | 'rejected'): Promise<void> {
+  await ensureDraftTables();
+  const db = getDb();
+  await db.execute(sql`UPDATE draft_pending_picks SET status = ${status} WHERE id = ${pendingId}::uuid`);
 }
 
 export async function startDraft(draftId: string) {
