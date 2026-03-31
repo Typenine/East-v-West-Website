@@ -197,6 +197,8 @@ export async function POST(req: NextRequest) {
       if (action === 'approve_pick') {
         const pending = await getPendingPick(draftId);
         if (!pending) return bad('no_pending_pick');
+        // Resume first so makePick sees LIVE status, then forcePick sets fresh clock for next pick
+        await resumeDraft(draftId);
         const res = await forcePick({ draftId, playerId: pending.playerId, playerName: pending.playerName, playerPos: pending.playerPos, playerNfl: pending.playerNfl, team: pending.team, madeBy: 'admin_approved' });
         if (!res.ok) return bad(res.error || 'failed', 400);
         await resolvePendingPick(pending.id, 'approved');
@@ -206,6 +208,8 @@ export async function POST(req: NextRequest) {
         const pending = await getPendingPick(draftId);
         if (!pending) return bad('no_pending_pick');
         await resolvePendingPick(pending.id, 'rejected');
+        // Restore the paused clock so picking team still has their remaining time
+        await resumeDraft(draftId);
         return ok({ ok: true });
       }
     }
@@ -233,7 +237,7 @@ export async function POST(req: NextRequest) {
       // Check player not already taken
       const takenIds = await getDraftPickedPlayerIds(draftId);
       if (takenIds.includes(playerId)) return bad('player_already_picked');
-      // Submit as pending (awaiting admin approval)
+      // Submit as pending (awaiting admin approval) and pause the clock
       await submitPendingPick(draftId, {
         overall: overview.curOverall,
         team: pickingTeam,
@@ -242,6 +246,7 @@ export async function POST(req: NextRequest) {
         playerPos,
         playerNfl,
       });
+      await pauseDraft(draftId);
       return ok({ ok: true, pending: true });
     }
 

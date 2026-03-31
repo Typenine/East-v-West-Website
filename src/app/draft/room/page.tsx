@@ -41,6 +41,7 @@ type PendingPick = {
 type MeResp = { authenticated: boolean; isAdmin?: boolean; claims?: { team?: string } };
 type Avail = { id: string; name: string; pos: string; nfl: string };
 type QueueItem = { id: string; name: string; pos: string; nfl: string };
+type RosterPlayer = { id: string; name: string; pos: string; nfl: string };
 
 export default function DraftRoomPage() {
   const [me, setMe] = useState<MeResp>({ authenticated: false });
@@ -59,6 +60,8 @@ export default function DraftRoomPage() {
   const [submittedPlayer, setSubmittedPlayer] = useState<Avail | null>(null);
   const [autoPickEnabled, setAutoPickEnabled] = useState(false);
   const [adminTeamOverride, setAdminTeamOverride] = useState<string>('');
+  const [teamRoster, setTeamRoster] = useState<RosterPlayer[]>([]);
+  const [rosterLoading, setRosterLoading] = useState(false);
 
   const prevPendingRef = useRef<PendingPick>(null);
   const beepPlayedRef = useRef(false);
@@ -168,6 +171,17 @@ export default function DraftRoomPage() {
     try { if (localStorage.getItem('evw_draft_autopick') === 'true') setAutoPickEnabled(true); } catch {}
   }, []);
 
+  // Fetch team roster from Sleeper when myTeam is known
+  useEffect(() => {
+    if (!myTeam) { setTeamRoster([]); return; }
+    setRosterLoading(true);
+    fetch(`/api/draft/team-roster?team=${encodeURIComponent(myTeam)}`)
+      .then(r => r.json())
+      .then(j => setTeamRoster((j?.players as RosterPlayer[]) || []))
+      .catch(() => setTeamRoster([]))
+      .finally(() => setRosterLoading(false));
+  }, [myTeam]);
+
   // Bootstrap
   useEffect(() => {
     fetch('/api/auth/me').then(r => r.json()).then((j: MeResp) => setMe(j)).catch(() => {});
@@ -236,10 +250,10 @@ export default function DraftRoomPage() {
   const isMyPickPending = pickStatus === 'pending' || (pendingPick?.team === myTeam);
 
   return (
-    <div className="h-screen flex flex-col overflow-hidden" style={{ background: 'var(--background)' }}>
+    <div className="flex flex-col" style={{ background: 'var(--background)' }}>
 
-      {/* ── Header ── */}
-      <div className="flex items-center justify-between px-4 py-2 shrink-0" style={{ background: 'linear-gradient(90deg,#be161e,#bf9944)', boxShadow: '0 2px 8px rgba(0,0,0,0.4)' }}>
+      {/* ── Header (sticky) ── */}
+      <div className="sticky top-0 z-50 flex items-center justify-between px-4 py-2" style={{ background: 'linear-gradient(90deg,#be161e,#bf9944)', boxShadow: '0 2px 8px rgba(0,0,0,0.4)' }}>
         <div className="flex items-center gap-3">
           {myTeam && myTeamColors && (
             <div className="w-8 h-8 rounded overflow-hidden bg-black/30">
@@ -261,15 +275,15 @@ export default function DraftRoomPage() {
         </div>
       </div>
 
-      {/* ── DRAFT BOARD (top ~40vh, always dark, scrollable) ── */}
-      <div className="shrink-0 border-b-2 border-zinc-700 flex flex-col" style={{ height: '40vh', background: '#0a0a0e' }}>
+      {/* ── DRAFT BOARD (full height, no internal scroll — whole page scrolls) ── */}
+      <div className="border-b-2 border-zinc-700" style={{ background: '#0a0a0e' }}>
         <div className="grid shrink-0 border-b border-zinc-800" style={{ gridTemplateColumns: `40px repeat(${rounds}, 1fr)`, background: '#111116' }}>
           <div className="text-center text-[10px] font-bold text-zinc-500 py-1.5">#</div>
           {Array.from({ length: rounds }, (_, i) => (
             <div key={i} className="text-center text-[10px] font-bold text-zinc-400 py-1.5 border-l border-zinc-800">Round {i + 1}</div>
           ))}
         </div>
-        <div className="flex-1 overflow-y-auto">
+        <div>
           {Array.from({ length: picksPerRound }, (_, pickIdx) => (
             <div key={pickIdx} className="grid border-b border-zinc-800/50 hover:bg-zinc-900/30" style={{ gridTemplateColumns: `40px repeat(${rounds}, 1fr)`, minHeight: '36px' }}>
               <div className={`flex items-center justify-center text-xs font-bold border-r border-zinc-800 ${draft && (draft.curOverall - 1) % picksPerRound === pickIdx && draft.status === 'LIVE' ? 'text-yellow-400 bg-yellow-400/10 animate-pulse' : 'text-zinc-600'}`}>
@@ -308,12 +322,12 @@ export default function DraftRoomPage() {
         </div>
       </div>
 
-      {/* ── TEAM SECTION (bottom, scrollable) ── */}
-      <div className="flex-1 overflow-y-auto">
+      {/* ── TEAM SECTION (below board, normal flow — whole page scrolls) ── */}
+      <div>
 
-        {/* On the Clock banner — sticky */}
+        {/* On the Clock banner */}
         {draft && draft.status !== 'NOT_STARTED' && (
-          <div className="sticky top-0 z-10 px-4 py-3" style={{ background: `linear-gradient(135deg, ${tc[0]}dd, ${tc[1]}cc)`, borderBottom: `2px solid ${tc[0]}80` }}>
+          <div className="relative px-4 py-3" style={{ background: `linear-gradient(135deg, ${tc[0]}dd, ${tc[1]}cc)`, borderBottom: `2px solid ${tc[0]}80` }}>
             <div className="flex items-center gap-3">
               <div className="w-12 h-12 shrink-0 rounded-lg overflow-hidden bg-black/40 flex items-center justify-center border border-white/20">
                 {onClockLogo ? <img src={onClockLogo} alt={onClock || ''} className="w-full h-full object-contain" /> : <span className="text-white/40 text-xl">?</span>}
@@ -329,6 +343,15 @@ export default function DraftRoomPage() {
             </div>
             {isMyTurn && !isMyPickPending && (
               <div className="mt-2 rounded-lg bg-emerald-600 text-white text-center font-black text-sm py-1.5 animate-pulse">🎯 YOUR TURN TO PICK!</div>
+            )}
+            {/* ── PICK IS IN overlay ── */}
+            {pendingPick && (
+              <div className="absolute inset-0 flex flex-col items-center justify-center z-20" style={{ background: 'linear-gradient(135deg,rgba(0,0,0,0.92),rgba(30,10,0,0.96))' }}>
+                <div className="text-center px-4">
+                  <div className="text-4xl font-black text-white tracking-widest uppercase animate-pulse">PICK IS IN</div>
+                  <div className="text-[10px] text-white/40 mt-2 uppercase tracking-widest">Clock paused — awaiting admin approval</div>
+                </div>
+              </div>
             )}
           </div>
         )}
@@ -496,16 +519,16 @@ export default function DraftRoomPage() {
             </div>
           )}
 
-          {/* ── My Roster ── */}
+          {/* ── My Draft Picks (this draft) ── */}
           {myTeam && draft && (() => {
             const myPicks = allPicks.filter(p => p.team === myTeam);
             return (
               <div className="rounded-lg border border-[var(--border)] overflow-hidden">
                 <div className="px-3 py-2 text-xs font-bold text-[var(--muted)] uppercase tracking-wide border-b border-[var(--border)]" style={{ background: 'var(--background)' }}>
-                  My Roster — {myTeam}
+                  My Draft Picks — {myTeam}
                 </div>
                 {myPicks.length === 0 ? (
-                  <div className="px-3 py-3 text-xs text-[var(--muted)]">No picks yet.</div>
+                  <div className="px-3 py-3 text-xs text-[var(--muted)]">No picks yet this draft.</div>
                 ) : (
                   <ul className="divide-y divide-[var(--border)]">
                     {myPicks.map(p => (
@@ -522,6 +545,32 @@ export default function DraftRoomPage() {
               </div>
             );
           })()}
+
+          {/* ── Team Roster (current Sleeper roster) ── */}
+          {myTeam && (
+            <div className="rounded-lg border border-[var(--border)] overflow-hidden">
+              <div className="px-3 py-2 text-xs font-bold text-[var(--muted)] uppercase tracking-wide border-b border-[var(--border)]" style={{ background: 'var(--background)' }}>
+                Current Roster — {myTeam}
+              </div>
+              {rosterLoading ? (
+                <div className="px-3 py-3 text-xs text-[var(--muted)]">Loading roster…</div>
+              ) : teamRoster.length === 0 ? (
+                <div className="px-3 py-3 text-xs text-[var(--muted)]">No roster data found.</div>
+              ) : (
+                <ul className="divide-y divide-[var(--border)]">
+                  {teamRoster.map(p => (
+                    <li key={p.id} className="flex items-center gap-2 px-3 py-2">
+                      <span className="shrink-0 text-[10px] font-black px-1.5 py-0.5 rounded text-white" style={{ background: POS_COLORS[p.pos] || '#555', minWidth: '30px', textAlign: 'center' }}>
+                        {p.pos || '?'}
+                      </span>
+                      <span className="flex-1 text-sm font-semibold text-[var(--foreground)] truncate">{p.name}</span>
+                      <span className="text-xs text-[var(--muted)] shrink-0">{p.nfl}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
 
           {/* ── My Upcoming Picks ── */}
           {myTeam && draft && (() => {
