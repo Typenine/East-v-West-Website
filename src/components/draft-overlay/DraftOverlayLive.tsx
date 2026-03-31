@@ -72,6 +72,8 @@ export default function DraftOverlayLive() {
   const playerVideosRef = useRef<Record<string, string>>({});
   const clockRef = useRef<HTMLDivElement>(null);
   const lastAnimatedPickRef = useRef<number | null>(null);
+  // Track whether YouTube video actually started playing before treating state=0 as ended
+  const videoHasPlayedRef = useRef(false);
 
   // Load player videos on mount
   useEffect(() => {
@@ -93,11 +95,13 @@ export default function DraftOverlayLive() {
   // YouTube postMessage listener to detect video end
   useEffect(() => {
     if (animPhase !== 'video') return;
+    videoHasPlayedRef.current = false; // reset for each new video phase
     const handler = (e: MessageEvent) => {
       try {
         const data = typeof e.data === 'string' ? JSON.parse(e.data) : e.data;
-        if (data?.event === 'onStateChange' && data?.info === 0) {
-          setAnimPhase(null);
+        if (data?.event === 'onStateChange') {
+          if (data?.info === 1) videoHasPlayedRef.current = true; // playing
+          if (data?.info === 0 && videoHasPlayedRef.current) setAnimPhase(null); // ended after playing
         }
       } catch {}
     };

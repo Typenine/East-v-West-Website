@@ -73,6 +73,7 @@ export async function GET(req: NextRequest) {
     const resp: { draft: DraftOverview; remainingSec: number | null; pendingPick?: typeof pendingPick; available?: Array<{ id: string; name: string; pos: string; nfl: string }>; usingCustom?: boolean } = { draft: overview, remainingSec, pendingPick: pendingPick ?? undefined };
     if (includeAvail) {
       const taken = new Set(await getDraftPickedPlayerIds(draftId));
+      if (pendingPick?.playerId) taken.add(pendingPick.playerId);
       const useCustom = (await countDraftPlayers(draftId)) > 0;
       resp.usingCustom = useCustom;
       const allowed = new Set(['QB','RB','WR','TE','K']);
@@ -281,6 +282,8 @@ export async function POST(req: NextRequest) {
       const draftId = id || (await getActiveOrLatestDraftId());
       if (!draftId) return ok({ available: [] });
       const taken = new Set(await getDraftPickedPlayerIds(draftId));
+      const pending = await getPendingPick(draftId);
+      if (pending?.playerId) taken.add(pending.playerId);
       const useCustom = (await countDraftPlayers(draftId)) > 0;
       const q = typeof body.q === 'string' ? body.q.trim().toLowerCase() : '';
       const pos = typeof body.pos === 'string' ? body.pos.trim().toUpperCase() : '';
