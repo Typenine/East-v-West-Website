@@ -8,6 +8,7 @@ import Select from '@/components/ui/Select';
 import Button from '@/components/ui/Button';
 import { getTeamLogoPath } from '@/lib/utils/team-utils';
 import { getTeamColors } from '@/lib/constants/team-colors';
+import { TEAM_NAMES } from '@/lib/constants/league';
 
 const POS_COLORS: Record<string, string> = {
   QB: '#C00000', RB: '#FFC000', WR: '#0070C0', TE: '#00B050', K: '#FF8C42',
@@ -36,7 +37,7 @@ type PendingPick = {
   playerName: string | null; playerPos: string | null; playerNfl: string | null;
 } | null;
 
-type MeResp = { authenticated: boolean; claims?: { team?: string } };
+type MeResp = { authenticated: boolean; isAdmin?: boolean; claims?: { team?: string } };
 type Avail = { id: string; name: string; pos: string; nfl: string };
 type QueueItem = { id: string; name: string; pos: string; nfl: string };
 
@@ -58,8 +59,10 @@ export default function DraftRoomPage() {
   const prevPendingRef = useRef<PendingPick>(null);
   const beepPlayedRef = useRef(false);
 
-  const myTeam = me?.claims?.team || null;
+  const [adminTeamOverride, setAdminTeamOverride] = useState<string>('');
+  const isAdmin = !!me?.isAdmin;
   const onClock = draft?.onClockTeam || null;
+  const myTeam = me?.claims?.team || (isAdmin ? (adminTeamOverride || onClock || null) : null);
   const isMyTurn = !!myTeam && !!onClock && myTeam === onClock;
 
   const formatTime = (sec: number) => {
@@ -228,6 +231,9 @@ export default function DraftRoomPage() {
           <span className="font-black text-white text-lg tracking-tight">
             Draft Room{myTeam ? ` — ${myTeam}` : ''}
           </span>
+          {isAdmin && (
+            <span className="text-xs bg-yellow-400 text-black font-bold px-2 py-0.5 rounded">ADMIN MODE</span>
+          )}
         </div>
         <div className="flex items-center gap-3">
           {draft && (
@@ -373,14 +379,34 @@ export default function DraftRoomPage() {
           )}
 
           {/* Not logged in / waiting */}
-          {!me.authenticated && !loading && (
+          {!me.authenticated && !isAdmin && !loading && (
             <div className="m-3 p-3 rounded-lg bg-zinc-800 text-[var(--muted)] text-sm shrink-0">
               Log in with your team credentials to make picks.
             </div>
           )}
+          {isAdmin && !me.authenticated && (
+            <div className="m-3 p-2 rounded-lg bg-yellow-400/10 border border-yellow-400/30 text-yellow-300 text-xs shrink-0 space-y-1.5">
+              <div className="font-bold">Admin mode — view as team:</div>
+              <select
+                value={adminTeamOverride}
+                onChange={e => setAdminTeamOverride(e.target.value)}
+                className="w-full px-2 py-1 rounded bg-zinc-900 border border-yellow-400/40 text-yellow-200 text-xs"
+              >
+                <option value="">{onClock ? `Auto (on clock: ${onClock})` : 'Auto (on clock)'}</option>
+                {TEAM_NAMES.map(t => (
+                  <option key={t} value={t}>{t}{t === onClock ? ' ⏰ ON CLOCK' : ''}</option>
+                ))}
+              </select>
+              {myTeam && (
+                <div className="text-yellow-300/70">
+                  {myTeam === onClock ? '✅ This team is on the clock — you can make a pick' : `Viewing as ${myTeam} — pick panel unlocks when it’s their turn`}
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Pick Panel — only when it's your turn and not pending */}
-          {isMyTurn && !isMyPickPending && me.authenticated && (
+          {isMyTurn && !isMyPickPending && (me.authenticated || isAdmin) && (
             <div className="p-3 border-b border-[var(--border)] shrink-0">
               <div className="text-xs font-bold text-[var(--muted)] uppercase tracking-wide mb-2">Make Your Pick</div>
               <div className="flex gap-2 mb-2">
@@ -427,7 +453,7 @@ export default function DraftRoomPage() {
           )}
 
           {/* Queue */}
-          {me.authenticated && (
+          {(me.authenticated || isAdmin) && (
             <div className="p-3 border-b border-[var(--border)] shrink-0">
               <div className="text-xs font-bold text-[var(--muted)] uppercase tracking-wide mb-2">My Queue</div>
               {queue.length === 0 ? (

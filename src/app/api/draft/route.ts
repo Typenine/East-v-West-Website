@@ -212,8 +212,9 @@ export async function POST(req: NextRequest) {
 
     // Team actions
     if (action === 'pick') {
-      const ident = await requireTeamUser();
-      if (!ident) return bad('auth_required', 401);
+      const adminOverride = isAdmin(req);
+      const ident = adminOverride ? null : await requireTeamUser();
+      if (!ident && !adminOverride) return bad('auth_required', 401);
       const draftId = id || (await getActiveOrLatestDraftId());
       if (!draftId) return bad('no_draft');
       const playerId = String(body.playerId || '').trim();
@@ -225,14 +226,17 @@ export async function POST(req: NextRequest) {
       const overview = await getDraftOverview(draftId);
       if (!overview) return bad('no_draft');
       if (overview.status !== 'LIVE') return bad('draft_not_live');
-      if (overview.onClockTeam !== ident.team) return bad('not_your_turn');
+      // Admin picks on behalf of whoever is on the clock
+      const pickingTeam = adminOverride ? (overview.onClockTeam || '') : ident!.team;
+      if (!adminOverride && overview.onClockTeam !== pickingTeam) return bad('not_your_turn');
+      if (!pickingTeam) return bad('no_team_on_clock');
       // Check player not already taken
       const takenIds = await getDraftPickedPlayerIds(draftId);
       if (takenIds.includes(playerId)) return bad('player_already_picked');
       // Submit as pending (awaiting admin approval)
       await submitPendingPick(draftId, {
         overall: overview.curOverall,
-        team: ident.team,
+        team: pickingTeam,
         playerId,
         playerName,
         playerPos,

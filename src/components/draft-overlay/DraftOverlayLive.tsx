@@ -116,8 +116,8 @@ export default function DraftOverlayLive() {
   useEffect(() => {
     if (isNewPick && lastPick && lastPick.overall !== lastAnimatedPickRef.current) {
       lastAnimatedPickRef.current = lastPick.overall;
-      // Capture state at this moment; nextTeams[0] is now on the clock after this pick
-      animDataRef.current = {
+      // Capture snapshot now; fill videoUrl after a fresh fetch so a just-uploaded video is never missed
+      const snapshot = {
         pick: lastPick,
         nextTeamName: nextTeams[0]?.name || null,
         overall: lastPick.overall,
@@ -125,7 +125,20 @@ export default function DraftOverlayLive() {
         pickInRound: ((lastPick.overall - 1) % 12) + 1,
         videoUrl: playerVideosRef.current[lastPick.playerId] || null,
       };
-      setAnimPhase('pick');
+      // Always do a fresh fetch before starting the animation
+      fetch('/api/draft/player-videos', { cache: 'no-store' })
+        .then(r => r.json())
+        .then(j => {
+          const freshMap: Record<string, string> = {};
+          for (const v of (j.videos || [])) { freshMap[v.playerId] = v.videoUrl; }
+          playerVideosRef.current = freshMap;
+          snapshot.videoUrl = freshMap[lastPick.playerId] || null;
+        })
+        .catch(() => {})
+        .finally(() => {
+          animDataRef.current = snapshot;
+          setAnimPhase('pick');
+        });
     }
   }, [isNewPick, lastPick, nextTeams]);
 
