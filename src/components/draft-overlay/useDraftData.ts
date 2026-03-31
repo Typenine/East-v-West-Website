@@ -181,10 +181,9 @@ export function useDraftData(basePollIntervalMs = 1000) {
       lastUpdateMsRef.current = Date.now();
 
       // Adjust polling based on draft status
-      // LIVE: 1s (fast updates during draft)
-      // PAUSED/NOT_STARTED: 5s (slower to conserve resources)
+      // LIVE/PAUSED/NOT_STARTED: 1s (PAUSED is transient during pick approval, needs fast detection)
       // COMPLETED: 10s (minimal polling)
-      const newPollInterval = draft?.status === 'LIVE' ? 1000 : draft?.status === 'COMPLETED' ? 10000 : 5000;
+      const newPollInterval = draft?.status === 'COMPLETED' ? 10000 : 1000;
       setPollInterval(newPollInterval);
 
       setState({
