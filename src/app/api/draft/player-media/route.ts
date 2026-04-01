@@ -40,8 +40,13 @@ export async function POST(req: NextRequest) {
   const safePid = playerId.replace(/[^a-zA-Z0-9\-_]/g, '_');
   const filename = `${safePid}-${Date.now()}.${ext}`;
   const uploadDir = path.join(process.cwd(), 'public', 'uploads', 'draft', mediaType);
-  await mkdir(uploadDir, { recursive: true });
-  await writeFile(path.join(uploadDir, filename), buffer);
+  try {
+    await mkdir(uploadDir, { recursive: true });
+    await writeFile(path.join(uploadDir, filename), buffer);
+  } catch (e) {
+    console.error('[player-media] File write failed:', e);
+    return bad(`File write error: ${(e as Error)?.message || 'unknown'}`, 500);
+  }
 
   const url = `/uploads/draft/${mediaType}/${filename}`;
 

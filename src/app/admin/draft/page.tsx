@@ -61,7 +61,7 @@ function PlayerMediaCard() {
       const res = await fetch('/api/draft', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ action: 'available', q: playerSearch, limit: 20 }),
+        body: JSON.stringify({ action: 'available', q: playerSearch, limit: 20, showAll: true }),
       });
       setSearchResults((await res.json())?.available || []);
     } catch {}
@@ -151,10 +151,10 @@ function PlayerMediaCard() {
                 <div className="max-h-40 overflow-auto border border-zinc-600 rounded bg-zinc-900">
                   {searchResults.map(p => (
                     <button key={p.id} type="button"
-                      className="w-full text-left px-3 py-1.5 text-sm hover:bg-zinc-700 flex items-center justify-between"
+                      className="w-full text-left px-3 py-1.5 text-sm hover:bg-zinc-700 flex items-center justify-between text-white"
                       onClick={() => { setSelectedPlayer(p); setSearchResults([]); }}>
                       <span className="font-medium">{p.name}</span>
-                      <span className="text-xs text-[var(--muted)] ml-2">{p.pos} · {p.nfl}</span>
+                      <span className="text-xs text-zinc-400 ml-2">{p.pos} · {p.nfl}</span>
                     </button>
                   ))}
                 </div>

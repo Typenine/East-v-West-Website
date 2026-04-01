@@ -71,6 +71,11 @@ export default function DraftRoomPage() {
   const submitPickRef = useRef<(player: Avail) => Promise<void>>(async () => {});
   const myTeamRef = useRef<string | null>(null);
   const isFirstSearch = useRef(true);
+  const prevCurOverallRef = useRef<number | null>(null);
+  const searchRef = useRef(search);
+  const posFilterRef = useRef(posFilter);
+  searchRef.current = search;
+  posFilterRef.current = posFilter;
 
   const isAdmin = !!me?.isAdmin;
   const onClock = draft?.onClockTeam || null;
@@ -110,6 +115,7 @@ export default function DraftRoomPage() {
       setPickStatus('pending');
       setSubmittedPlayer(player);
       setSearch('');
+      setAvail(prev => prev.filter(p => p.id !== player.id));
     } finally {
       setSubmitting(false);
     }
@@ -129,6 +135,16 @@ export default function DraftRoomPage() {
       setRemainingSec(newRemaining);
       setLocalRemaining(newRemaining);
       setLastFetchTime(Date.now());
+      // If a new pick was approved (curOverall advanced), silently refresh available players
+      const newCurOverall = newDraft?.curOverall ?? null;
+      if (newCurOverall !== null && prevCurOverallRef.current !== null && newCurOverall !== prevCurOverallRef.current) {
+        fetch('/api/draft', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ action: 'available', q: searchRef.current, pos: posFilterRef.current, limit: 50 }),
+        }).then(r => r.json()).then(j2 => setAvail((j2?.available as Avail[]) || [])).catch(() => {});
+      }
+      prevCurOverallRef.current = newCurOverall;
       const prevPending = prevPendingRef.current;
       if (prevPending && prevPending.team === myTeamRef.current && !newPending) {
         const picks: DraftPick[] = newDraft?.allPicks || newDraft?.recentPicks || [];

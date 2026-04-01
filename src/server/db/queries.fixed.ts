@@ -579,16 +579,13 @@ export async function setPlayerVideo(playerId: string, videoUrl: string, playerN
 }
 
 export async function setPlayerImage(playerId: string, imageUrl: string, playerName?: string | null): Promise<void> {
-  await ensureDraftTables();
+  await ensureDraftTables(); // ensures image_url column exists via ALTER TABLE IF NOT EXISTS
   const db = getDb();
-  // Ensure row exists first (without image_url in case column is still missing)
   await db.execute(sql`
-    INSERT INTO player_videos (player_id, video_url, player_name, updated_at)
-    VALUES (${playerId}, '', ${playerName ?? null}, now())
-    ON CONFLICT (player_id) DO UPDATE SET player_name = COALESCE(${playerName ?? null}, player_videos.player_name), updated_at = now()
+    INSERT INTO player_videos (player_id, video_url, image_url, player_name, updated_at)
+    VALUES (${playerId}, '', ${imageUrl}, ${playerName ?? null}, now())
+    ON CONFLICT (player_id) DO UPDATE SET image_url = ${imageUrl}, player_name = COALESCE(${playerName ?? null}, player_videos.player_name), updated_at = now()
   `);
-  // Now update image_url separately (will fail gracefully if column still missing)
-  await db.execute(sql`UPDATE player_videos SET image_url = ${imageUrl}, updated_at = now() WHERE player_id = ${playerId}`);
 }
 
 export async function deletePlayerVideo(playerId: string): Promise<void> {

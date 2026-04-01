@@ -154,6 +154,7 @@ export default function DraftOverlayLive() {
         videoUrl: playerVideosRef.current[lastPick.playerId]?.videoUrl || null,
         imageUrl: playerVideosRef.current[lastPick.playerId]?.imageUrl || null,
       };
+      console.log('[DraftOverlay] New pick detected:', lastPick.overall, 'playerName:', lastPick.playerName, 'playerId:', lastPick.playerId);
       // Fresh fetch with a hard 3-second timeout so a slow DB never delays the pick animation
       const ac = new AbortController();
       const fetchTimer = setTimeout(() => ac.abort(), 3000);
@@ -170,6 +171,7 @@ export default function DraftOverlayLive() {
         .finally(() => {
           clearTimeout(fetchTimer);
           animDataRef.current = snapshot;
+          console.log('[DraftOverlay] setAnimPhase(pick) — playerName:', snapshot.pick.playerName, 'videoUrl:', snapshot.videoUrl);
           setAnimPhase('pick');
         });
     }
@@ -662,11 +664,11 @@ export default function DraftOverlayLive() {
       </div>
 
       {/* PHASE: Pick animation */}
-      {animPhase === 'pick' && animDataRef.current && animDataRef.current.pick.playerName && (
+      {animPhase === 'pick' && animDataRef.current && (animDataRef.current.pick.playerName || animDataRef.current.pick.playerId) && (
         <DraftPickAnimation
           key={`pick-animation-${animDataRef.current.overall}`}
           player={{
-            name: animDataRef.current.pick.playerName,
+            name: animDataRef.current.pick.playerName || animDataRef.current.pick.playerId || 'Unknown Player',
             position: animDataRef.current.pick.playerPos || 'N/A',
             team: animDataRef.current.pick.playerNfl || undefined,
             college: undefined,

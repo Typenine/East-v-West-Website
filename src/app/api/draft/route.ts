@@ -281,9 +281,12 @@ export async function POST(req: NextRequest) {
     if (action === 'available') {
       const draftId = id || (await getActiveOrLatestDraftId());
       if (!draftId) return ok({ available: [] });
-      const taken = new Set(await getDraftPickedPlayerIds(draftId));
-      const pending = await getPendingPick(draftId);
-      if (pending?.playerId) taken.add(pending.playerId);
+      const showAll = Boolean(body.showAll);
+      const taken = showAll ? new Set<string>() : new Set(await getDraftPickedPlayerIds(draftId));
+      if (!showAll) {
+        const pending = await getPendingPick(draftId);
+        if (pending?.playerId) taken.add(pending.playerId);
+      }
       const useCustom = (await countDraftPlayers(draftId)) > 0;
       const q = typeof body.q === 'string' ? body.q.trim().toLowerCase() : '';
       const pos = typeof body.pos === 'string' ? body.pos.trim().toUpperCase() : '';
