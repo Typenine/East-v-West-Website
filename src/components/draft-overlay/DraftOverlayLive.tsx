@@ -154,8 +154,10 @@ export default function DraftOverlayLive() {
         videoUrl: playerVideosRef.current[lastPick.playerId]?.videoUrl || null,
         imageUrl: playerVideosRef.current[lastPick.playerId]?.imageUrl || null,
       };
-      // Always do a fresh fetch before starting the animation
-      fetch('/api/draft/player-videos', { cache: 'no-store' })
+      // Fresh fetch with a hard 3-second timeout so a slow DB never delays the pick animation
+      const ac = new AbortController();
+      const fetchTimer = setTimeout(() => ac.abort(), 3000);
+      fetch('/api/draft/player-videos', { cache: 'no-store', signal: ac.signal })
         .then(r => r.json())
         .then(j => {
           const freshMap: Record<string, { videoUrl: string | null; imageUrl: string | null }> = {};
@@ -166,6 +168,7 @@ export default function DraftOverlayLive() {
         })
         .catch(() => {})
         .finally(() => {
+          clearTimeout(fetchTimer);
           animDataRef.current = snapshot;
           setAnimPhase('pick');
         });

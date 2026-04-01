@@ -45,11 +45,16 @@ export async function POST(req: NextRequest) {
 
   const url = `/uploads/draft/${mediaType}/${filename}`;
 
-  await ensureDraftTables();
-  if (mediaType === 'video') {
-    await setPlayerVideo(playerId, url, playerName);
-  } else {
-    await setPlayerImage(playerId, url, playerName);
+  try {
+    await ensureDraftTables();
+    if (mediaType === 'video') {
+      await setPlayerVideo(playerId, url, playerName);
+    } else {
+      await setPlayerImage(playerId, url, playerName);
+    }
+  } catch (e) {
+    console.error('[player-media] DB save failed:', e);
+    return bad(`DB error: ${(e as Error)?.message || 'unknown'}`, 500);
   }
 
   return ok({ ok: true, url });

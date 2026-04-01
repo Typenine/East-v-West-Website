@@ -86,7 +86,11 @@ function PlayerMediaCard() {
         fd.append('file', videoFile); fd.append('type', 'video');
         fd.append('playerId', selectedPlayer.id); fd.append('playerName', selectedPlayer.name);
         const r = await fetch('/api/draft/player-media', { method: 'POST', body: fd });
-        if (!r.ok) { alert('Video upload failed'); }
+        if (!r.ok) {
+          const err = await r.json().catch(() => ({}));
+          alert(`Video upload failed: ${err?.error || r.status}`);
+          return;
+        }
         setVideoFile(null);
       }
       if (imageFile) {
@@ -95,7 +99,11 @@ function PlayerMediaCard() {
         fd.append('file', imageFile); fd.append('type', 'image');
         fd.append('playerId', selectedPlayer.id); fd.append('playerName', selectedPlayer.name);
         const r = await fetch('/api/draft/player-media', { method: 'POST', body: fd });
-        if (!r.ok) { alert('Image upload failed'); }
+        if (!r.ok) {
+          const err = await r.json().catch(() => ({}));
+          alert(`Image upload failed: ${err?.error || r.status}`);
+          return;
+        }
         setImageFile(null);
       }
       setSelectedPlayer(null); setPlayerSearch(''); setSearchResults([]);

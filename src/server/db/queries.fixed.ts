@@ -307,15 +307,17 @@ export async function ensureDraftTables() {
   await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_draft_picks_draft ON draft_picks(draft_id)`);
   await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_draft_picks_player ON draft_picks(player_id)`);
   await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_draft_slots_team ON draft_slots(draft_id, team)`);
-  // Player videos table (player_id → video_url, global across drafts)
+  // Player videos table (player_id → video_url + image_url, global across drafts)
   await db.execute(sql`
     CREATE TABLE IF NOT EXISTS player_videos (
       player_id varchar(64) NOT NULL PRIMARY KEY,
-      video_url text NOT NULL DEFAULT '',
+      video_url text DEFAULT '',
+      image_url text,
       player_name varchar(255),
       updated_at timestamp NOT NULL DEFAULT now()
     )
   `);
+  // Backfill for pre-existing tables that lack image_url or still have NOT NULL on video_url
   await db.execute(sql`ALTER TABLE player_videos ADD COLUMN IF NOT EXISTS image_url text`).catch(() => {});
   await db.execute(sql`ALTER TABLE player_videos ALTER COLUMN video_url DROP NOT NULL`).catch(() => {});
   // Pending picks (user-submitted, awaiting admin approval)
@@ -554,9 +556,16 @@ export async function getDraftOverview(draftId: string): Promise<DraftOverview |
 export async function getPlayerVideos(): Promise<Array<{ playerId: string; videoUrl: string | null; imageUrl: string | null; playerName: string | null }>> {
   await ensureDraftTables();
   const db = getDb();
-  const res = await db.execute(sql`SELECT player_id, video_url, image_url, player_name FROM player_videos ORDER BY player_id`);
-  const rows = (res as unknown as { rows?: Array<{ player_id: string; video_url: string | null; image_url: string | null; player_name: string | null }> }).rows || [];
-  return rows.map(r => ({ playerId: r.player_id, videoUrl: r.video_url || null, imageUrl: r.image_url || null, playerName: r.player_name || null }));
+  try {
+    const res = await db.execute(sql`SELECT player_id, video_url, image_url, player_name FROM player_videos ORDER BY player_id`);
+    const rows = (res as unknown as { rows?: Array<{ player_id: string; video_url: string | null; image_url: string | null; player_name: string | null }> }).rows || [];
+    return rows.map(r => ({ playerId: r.player_id, videoUrl: r.video_url || null, imageUrl: r.image_url || null, playerName: r.player_name || null }));
+  } catch {
+    // Fallback: image_url column may not yet exist on old DB instances
+    const res = await db.execute(sql`SELECT player_id, video_url, player_name FROM player_videos ORDER BY player_id`);
+    const rows = (res as unknown as { rows?: Array<{ player_id: string; video_url: string | null; player_name: string | null }> }).rows || [];
+    return rows.map(r => ({ playerId: r.player_id, videoUrl: r.video_url || null, imageUrl: null, playerName: r.player_name || null }));
+  }
 }
 
 export async function setPlayerVideo(playerId: string, videoUrl: string, playerName?: string | null): Promise<void> {
@@ -572,11 +581,14 @@ export async function setPlayerVideo(playerId: string, videoUrl: string, playerN
 export async function setPlayerImage(playerId: string, imageUrl: string, playerName?: string | null): Promise<void> {
   await ensureDraftTables();
   const db = getDb();
+  // Ensure row exists first (without image_url in case column is still missing)
   await db.execute(sql`
-    INSERT INTO player_videos (player_id, video_url, image_url, player_name, updated_at)
-    VALUES (${playerId}, '', ${imageUrl}, ${playerName ?? null}, now())
-    ON CONFLICT (player_id) DO UPDATE SET image_url = ${imageUrl}, player_name = COALESCE(${playerName ?? null}, player_videos.player_name), updated_at = now()
+    INSERT INTO player_videos (player_id, video_url, player_name, updated_at)
+    VALUES (${playerId}, '', ${playerName ?? null}, now())
+    ON CONFLICT (player_id) DO UPDATE SET player_name = COALESCE(${playerName ?? null}, player_videos.player_name), updated_at = now()
   `);
+  // Now update image_url separately (will fail gracefully if column still missing)
+  await db.execute(sql`UPDATE player_videos SET image_url = ${imageUrl}, updated_at = now() WHERE player_id = ${playerId}`);
 }
 
 export async function deletePlayerVideo(playerId: string): Promise<void> {
