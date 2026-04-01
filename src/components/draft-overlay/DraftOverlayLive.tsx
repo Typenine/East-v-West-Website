@@ -50,7 +50,6 @@ export default function DraftOverlayLive() {
     draftGrid,
     nextTeams,
     lastPick,
-    isNewPick,
     available,
     usingCustom,
     localRemainingSec,
@@ -74,6 +73,7 @@ export default function DraftOverlayLive() {
   const playerVideosRef = useRef<Record<string, { videoUrl: string | null; imageUrl: string | null }>>({});
   const clockRef = useRef<HTMLDivElement>(null);
   const lastAnimatedPickRef = useRef<number | null>(null);
+  const animInitializedRef = useRef(false);
   // Track whether YouTube video actually started playing before treating state=0 as ended
   const videoHasPlayedRef = useRef(false);
   // Ref for GSAP video container animation
@@ -141,42 +141,50 @@ export default function DraftOverlayLive() {
     return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
   };
 
-  // Trigger animation sequence on new pick
+  // Trigger animation sequence on new pick — driven by lastPick?.overall only (stable number)
   useEffect(() => {
-    if (isNewPick && lastPick && lastPick.overall !== lastAnimatedPickRef.current) {
-      lastAnimatedPickRef.current = lastPick.overall;
-      const snapshot = {
-        pick: lastPick,
-        nextTeamName: nextTeamsRef.current[0]?.name || null,
-        overall: lastPick.overall,
-        round: lastPick.round,
-        pickInRound: ((lastPick.overall - 1) % 12) + 1,
-        videoUrl: playerVideosRef.current[lastPick.playerId]?.videoUrl || null,
-        imageUrl: playerVideosRef.current[lastPick.playerId]?.imageUrl || null,
-      };
-      console.log('[DraftOverlay] New pick detected:', lastPick.overall, 'playerName:', lastPick.playerName, 'playerId:', lastPick.playerId);
-      // Fresh fetch with a hard 3-second timeout so a slow DB never delays the pick animation
-      const ac = new AbortController();
-      const fetchTimer = setTimeout(() => ac.abort(), 3000);
-      fetch('/api/draft/player-videos', { cache: 'no-store', signal: ac.signal })
-        .then(r => r.json())
-        .then(j => {
-          const freshMap: Record<string, { videoUrl: string | null; imageUrl: string | null }> = {};
-          for (const v of (j.videos || [])) { freshMap[v.playerId] = { videoUrl: v.videoUrl || null, imageUrl: v.imageUrl || null }; }
-          playerVideosRef.current = freshMap;
-          snapshot.videoUrl = freshMap[lastPick.playerId]?.videoUrl || null;
-          snapshot.imageUrl = freshMap[lastPick.playerId]?.imageUrl || null;
-        })
-        .catch(() => {})
-        .finally(() => {
-          clearTimeout(fetchTimer);
-          animDataRef.current = snapshot;
-          console.log('[DraftOverlay] setAnimPhase(pick) — playerName:', snapshot.pick.playerName, 'videoUrl:', snapshot.videoUrl);
-          setAnimPhase('pick');
-        });
+    if (!lastPick) {
+      // No picks yet — mark initialized so the very first pick triggers animation
+      if (!animInitializedRef.current) animInitializedRef.current = true;
+      return;
     }
+    if (!animInitializedRef.current) {
+      // First time we see picks after load — picks already existed, skip them
+      animInitializedRef.current = true;
+      lastAnimatedPickRef.current = lastPick.overall;
+      return;
+    }
+    if (lastPick.overall <= (lastAnimatedPickRef.current ?? -1)) return;
+    lastAnimatedPickRef.current = lastPick.overall;
+
+    const snapshot = {
+      pick: lastPick,
+      nextTeamName: nextTeamsRef.current[0]?.name || null,
+      overall: lastPick.overall,
+      round: lastPick.round,
+      pickInRound: ((lastPick.overall - 1) % 12) + 1,
+      videoUrl: playerVideosRef.current[lastPick.playerId]?.videoUrl || null,
+      imageUrl: playerVideosRef.current[lastPick.playerId]?.imageUrl || null,
+    };
+    const ac = new AbortController();
+    const fetchTimer = setTimeout(() => ac.abort(), 3000);
+    fetch('/api/draft/player-videos', { cache: 'no-store', signal: ac.signal })
+      .then(r => r.json())
+      .then(j => {
+        const freshMap: Record<string, { videoUrl: string | null; imageUrl: string | null }> = {};
+        for (const v of (j.videos || [])) { freshMap[v.playerId] = { videoUrl: v.videoUrl || null, imageUrl: v.imageUrl || null }; }
+        playerVideosRef.current = freshMap;
+        snapshot.videoUrl = freshMap[lastPick.playerId]?.videoUrl || null;
+        snapshot.imageUrl = freshMap[lastPick.playerId]?.imageUrl || null;
+      })
+      .catch(() => {})
+      .finally(() => {
+        clearTimeout(fetchTimer);
+        animDataRef.current = snapshot;
+        setAnimPhase('pick');
+      });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isNewPick, lastPick?.overall]);
+  }, [lastPick?.overall]);
 
   // Pulse clock when low time
   useEffect(() => {
