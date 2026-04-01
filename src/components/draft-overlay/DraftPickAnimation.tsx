@@ -138,8 +138,8 @@ export default function DraftPickAnimation({
     if (playerName) tl.to(playerName, { opacity: 1, y: 0, duration: 0.4, ease: 'power2.out', force3D: true }, '-=0.3');
     if (pickInfo)   tl.to(pickInfo,   { opacity: 1, y: 0, duration: 0.4, ease: 'power2.out', force3D: true }, '-=0.3');
 
-    // PHASE 7: Broadcast hold (9.0–10.5s)
-    tl.to({}, { duration: 1.5 });
+    // PHASE 7: Broadcast hold (9.0–12.0s)
+    tl.to({}, { duration: 3.0 });
 
     // PHASE 7: Exit (9.4–10.2s)
     tl.to(container, { opacity: 0, duration: 0.8, ease: 'power2.inOut', force3D: true });

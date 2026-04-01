@@ -12,6 +12,7 @@ import {
   pauseDraft,
   resumeDraft,
   setClockSeconds,
+  resetPickClock,
   forcePick,
   undoLastPick,
   getTeamQueue,
@@ -114,7 +115,7 @@ export async function POST(req: NextRequest) {
     const id = typeof body.id === 'string' ? body.id : '';
 
     // Admin-only actions
-    if (['create','reset','delete','skip_pick','update_slot','start','pause','resume','set_clock','force_pick','undo','upload_players','clear_players','auto_pick','approve_pick','reject_pick'].includes(action)) {
+    if (['create','reset','delete','skip_pick','update_slot','start','pause','resume','set_clock','reset_clock','force_pick','undo','upload_players','clear_players','auto_pick','approve_pick','reject_pick'].includes(action)) {
       if (!isAdmin(req)) return bad('forbidden', 403);
       if (action === 'create') {
         const year = Number(body.year || new Date().getFullYear());
@@ -161,6 +162,10 @@ export async function POST(req: NextRequest) {
       if (action === 'set_clock') {
         const seconds = Number(body.seconds || 60);
         await setClockSeconds(draftId, seconds);
+        return ok({ ok: true });
+      }
+      if (action === 'reset_clock') {
+        await resetPickClock(draftId);
         return ok({ ok: true });
       }
       if (action === 'force_pick') {

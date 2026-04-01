@@ -692,6 +692,17 @@ export async function resumeDraft(draftId: string) {
   return true;
 }
 
+export async function resetPickClock(draftId: string): Promise<void> {
+  const db = getDb();
+  await db.execute(sql`
+    UPDATE drafts
+    SET clock_started_at = now(),
+        deadline_ts = now() + (interval '1 second' * clock_seconds),
+        paused_remaining_secs = NULL
+    WHERE id = ${draftId}::uuid AND status = 'LIVE'
+  `);
+}
+
 export async function setClockSeconds(draftId: string, seconds: number) {
   const db = getDb();
   const s = Math.max(10, Math.min(24 * 60 * 60, seconds | 0));

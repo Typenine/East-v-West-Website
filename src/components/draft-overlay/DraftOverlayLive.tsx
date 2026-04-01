@@ -125,10 +125,19 @@ export default function DraftOverlayLive() {
 
   // Clock-phase fallback: if we enter 'clock' but have no nextTeamName the NowOnClockAnimation
   // won't mount and onComplete never fires — advance the phase immediately here instead.
+  // Also reset the pick clock to full time so the next team doesn't lose clock during animations.
   useEffect(() => {
-    if (animPhase === 'clock' && !animDataRef.current?.nextTeamName) {
-      const hasVideo = !!(animDataRef.current?.videoUrl);
-      setAnimPhase(hasVideo ? 'video' : null);
+    if (animPhase === 'clock') {
+      // Reset clock to full so next team gets their full allotment
+      fetch('/api/draft', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ action: 'reset_clock' }),
+      }).catch(() => {});
+      if (!animDataRef.current?.nextTeamName) {
+        const hasVideo = !!(animDataRef.current?.videoUrl);
+        setAnimPhase(hasVideo ? 'video' : null);
+      }
     }
   }, [animPhase]);
 
@@ -500,8 +509,8 @@ export default function DraftOverlayLive() {
         })()}
       </div>
 
-      {/* Bottom Bar: ClockBox + InfoBar */}
-      <div className="flex gap-4 items-stretch">
+      {/* Bottom Bar: ClockBox + InfoBar — fixed height so the draft grid above never jumps */}
+      <div className="flex gap-4 items-stretch h-[96px]">
         {/* ClockBox */}
         <div
           className="flex items-stretch shrink-0"
@@ -567,6 +576,7 @@ export default function DraftOverlayLive() {
           style={{
             background: teamColors[0],
             borderRadius: '4px',
+            height: '96px',
           }}
         >
           {/* Best Available View */}
