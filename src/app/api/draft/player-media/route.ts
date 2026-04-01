@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { putObjectBytes, publicUrl } from '@/server/storage/r2';
 import { ensureDraftTables, setPlayerVideo, setPlayerImage } from '@/server/db/queries';
 
 export const runtime = 'nodejs';
@@ -53,25 +52,16 @@ export async function POST(req: NextRequest) {
 
   if (!buffer || !mediaType || !playerId) return bad('file, type, playerId required');
   if (mediaType !== 'video' && mediaType !== 'image') return bad('type must be video or image');
-  if (buffer.length > 200 * 1024 * 1024) return bad('File too large (max 200 MB)');
+  const maxBytes = mediaType === 'image' ? 10 * 1024 * 1024 : 50 * 1024 * 1024;
+  if (buffer.length > maxBytes) return bad(`File too large (max ${mediaType === 'image' ? '10' : '50'} MB)`);
 
   const ext = (fileName.split('.').pop() || 'bin').toLowerCase().replace(/[^a-z0-9]/g, '');
-  const safePid = playerId.replace(/[^a-zA-Z0-9\-_]/g, '_');
-  const filename = `${safePid}-${Date.now()}.${ext}`;
-  const r2Key = `draft/${mediaType}/${filename}`;
   const mimeMap: Record<string, string> = {
     jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif', webp: 'image/webp',
     mp4: 'video/mp4', webm: 'video/webm', mov: 'video/quicktime', avi: 'video/x-msvideo',
   };
-  const contentType = mimeMap[ext] || 'application/octet-stream';
-  try {
-    await putObjectBytes({ key: r2Key, body: buffer, contentType });
-  } catch (e) {
-    return bad(`File upload error: ${(e as Error)?.message || 'unknown'}`, 500);
-  }
-
-  const url = publicUrl(r2Key);
-  if (!url) return bad('R2_PUBLIC_BASE env var is not set — cannot generate a public URL for the uploaded file', 500);
+  const contentType = mimeMap[ext] || (mediaType === 'image' ? 'image/jpeg' : 'video/mp4');
+  const url = `data:${contentType};base64,${buffer.toString('base64')}`;
 
   try {
     await ensureDraftTables();
