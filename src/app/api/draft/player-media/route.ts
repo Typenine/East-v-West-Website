@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { writeFile, mkdir } from 'fs/promises';
-import path from 'path';
+import { putObjectBytes, publicUrl } from '@/server/storage/r2';
 import { ensureDraftTables, setPlayerVideo, setPlayerImage } from '@/server/db/queries';
 
 export const runtime = 'nodejs';
@@ -59,15 +58,20 @@ export async function POST(req: NextRequest) {
   const ext = (fileName.split('.').pop() || 'bin').toLowerCase().replace(/[^a-z0-9]/g, '');
   const safePid = playerId.replace(/[^a-zA-Z0-9\-_]/g, '_');
   const filename = `${safePid}-${Date.now()}.${ext}`;
-  const uploadDir = path.join(process.cwd(), 'public', 'uploads', 'draft', mediaType);
+  const r2Key = `draft/${mediaType}/${filename}`;
+  const mimeMap: Record<string, string> = {
+    jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif', webp: 'image/webp',
+    mp4: 'video/mp4', webm: 'video/webm', mov: 'video/quicktime', avi: 'video/x-msvideo',
+  };
+  const contentType = mimeMap[ext] || 'application/octet-stream';
   try {
-    await mkdir(uploadDir, { recursive: true });
-    await writeFile(path.join(uploadDir, filename), buffer);
+    await putObjectBytes({ key: r2Key, body: buffer, contentType });
   } catch (e) {
-    return bad(`File write error: ${(e as Error)?.message || 'unknown'}`, 500);
+    return bad(`File upload error: ${(e as Error)?.message || 'unknown'}`, 500);
   }
 
-  const url = `/uploads/draft/${mediaType}/${filename}`;
+  const url = publicUrl(r2Key);
+  if (!url) return bad('R2_PUBLIC_BASE env var is not set — cannot generate a public URL for the uploaded file', 500);
 
   try {
     await ensureDraftTables();

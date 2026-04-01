@@ -150,19 +150,23 @@ export function useDraftData(basePollIntervalMs = 1000) {
         };
       }
 
-      // Next teams (up to 2)
+      // Check for new pick (computed first so nextTeams can filter against it)
+      const lastPick = draft?.recentPicks?.length ? draft.recentPicks[draft.recentPicks.length - 1] : null;
+
+      // Next teams (up to 2) — filter out the slot that was just picked so a DB race
+      // (poll arriving between pick INSERT and cur_overall UPDATE) never shows the wrong team
       const nextTeams: Array<Team & { logoPath: string | null }> = [];
       if (draft?.upcoming) {
-        for (const u of draft.upcoming.slice(0, 2)) {
+        const upcomingFiltered = lastPick
+          ? draft.upcoming.filter(u => u.overall > lastPick.overall)
+          : draft.upcoming;
+        for (const u of upcomingFiltered.slice(0, 2)) {
           const team = getTeamFromName(u.team);
           if (team) {
             nextTeams.push({ ...team, logoPath: getTeamLogoPath(u.team) });
           }
         }
       }
-
-      // Check for new pick
-      const lastPick = draft?.recentPicks?.length ? draft.recentPicks[draft.recentPicks.length - 1] : null;
       
       // On first load, initialize the ref without triggering animation
       let isNewPick = false;
