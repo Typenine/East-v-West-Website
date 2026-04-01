@@ -5,7 +5,7 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 function ok(data: unknown) { return new NextResponse(JSON.stringify(data), { status: 200, headers: { 'content-type': 'application/json' } }); }
-function bad(msg: string, status = 400) { return ok({ error: msg }); void status; }
+function bad(msg: string, status = 400) { return new NextResponse(JSON.stringify({ error: msg }), { status, headers: { 'content-type': 'application/json' } }); }
 
 function isAdmin(req: NextRequest): boolean {
   const secret = process.env.EVW_ADMIN_SECRET || '002023';

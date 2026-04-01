@@ -82,10 +82,17 @@ function PlayerMediaCard() {
       }
       if (videoFile) {
         setUploadProgress(`Uploading ${videoFile.name}…`);
-        const fd = new FormData();
-        fd.append('file', videoFile); fd.append('type', 'video');
-        fd.append('playerId', selectedPlayer.id); fd.append('playerName', selectedPlayer.name);
-        const r = await fetch('/api/draft/player-media', { method: 'POST', body: fd });
+        const base64 = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve((reader.result as string).split(',')[1] ?? '');
+          reader.onerror = reject;
+          reader.readAsDataURL(videoFile);
+        });
+        const r = await fetch('/api/draft/player-media', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ playerId: selectedPlayer.id, playerName: selectedPlayer.name, type: 'video', fileData: base64, fileName: videoFile.name }),
+        });
         if (!r.ok) {
           const err = await r.json().catch(() => ({}));
           alert(`Video upload failed: ${err?.error || r.status}`);
@@ -95,10 +102,17 @@ function PlayerMediaCard() {
       }
       if (imageFile) {
         setUploadProgress(`Uploading ${imageFile.name}…`);
-        const fd = new FormData();
-        fd.append('file', imageFile); fd.append('type', 'image');
-        fd.append('playerId', selectedPlayer.id); fd.append('playerName', selectedPlayer.name);
-        const r = await fetch('/api/draft/player-media', { method: 'POST', body: fd });
+        const base64 = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve((reader.result as string).split(',')[1] ?? '');
+          reader.onerror = reject;
+          reader.readAsDataURL(imageFile);
+        });
+        const r = await fetch('/api/draft/player-media', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ playerId: selectedPlayer.id, playerName: selectedPlayer.name, type: 'image', fileData: base64, fileName: imageFile.name }),
+        });
         if (!r.ok) {
           const err = await r.json().catch(() => ({}));
           alert(`Image upload failed: ${err?.error || r.status}`);

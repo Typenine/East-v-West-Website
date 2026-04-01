@@ -21,22 +21,42 @@ function bad(msg: string, status = 400) {
 export async function POST(req: NextRequest) {
   if (!isAdmin(req)) return bad('Unauthorized', 403);
 
-  const formData = await req.formData().catch(() => null);
-  if (!formData) return bad('Invalid form data');
+  // Support both JSON+base64 (preferred, avoids Next.js 15/Turbopack req.formData() issues)
+  // and legacy multipart FormData
+  const ct = req.headers.get('content-type') || '';
+  let buffer: Buffer;
+  let fileName: string;
+  let mediaType: string | null = null;
+  let playerId: string | null = null;
+  let playerName: string | null = null;
 
-  const file = formData.get('file') as File | null;
-  const mediaType = (formData.get('type') as string | null)?.toLowerCase();
-  const playerId = (formData.get('playerId') as string | null)?.trim();
-  const playerName = (formData.get('playerName') as string | null)?.trim() || null;
+  if (ct.includes('application/json')) {
+    const body = await req.json().catch(() => null);
+    if (!body) return bad('Invalid JSON body');
+    playerId = (typeof body.playerId === 'string' ? body.playerId : '').trim() || null;
+    playerName = (typeof body.playerName === 'string' ? body.playerName : '').trim() || null;
+    mediaType = (typeof body.type === 'string' ? body.type : '').toLowerCase() || null;
+    const fileData = typeof body.fileData === 'string' ? body.fileData : null;
+    fileName = typeof body.fileName === 'string' ? body.fileName : 'upload';
+    if (!fileData) return bad('fileData required');
+    try { buffer = Buffer.from(fileData, 'base64'); } catch { return bad('Invalid base64 fileData'); }
+  } else {
+    const formData = await req.formData().catch(() => null);
+    if (!formData) return bad('Invalid form data');
+    const file = formData.get('file') as File | null;
+    mediaType = (formData.get('type') as string | null)?.toLowerCase() ?? null;
+    playerId = (formData.get('playerId') as string | null)?.trim() ?? null;
+    playerName = (formData.get('playerName') as string | null)?.trim() || null;
+    if (!file) return bad('file required');
+    fileName = file.name;
+    buffer = Buffer.from(await file.arrayBuffer());
+  }
 
-  if (!file || !mediaType || !playerId) return bad('file, type, playerId required');
+  if (!buffer || !mediaType || !playerId) return bad('file, type, playerId required');
   if (mediaType !== 'video' && mediaType !== 'image') return bad('type must be video or image');
-  if (file.size > 200 * 1024 * 1024) return bad('File too large (max 200 MB)');
+  if (buffer.length > 200 * 1024 * 1024) return bad('File too large (max 200 MB)');
 
-  const bytes = await file.arrayBuffer();
-  const buffer = Buffer.from(bytes);
-
-  const ext = (file.name.split('.').pop() || 'bin').toLowerCase().replace(/[^a-z0-9]/g, '');
+  const ext = (fileName.split('.').pop() || 'bin').toLowerCase().replace(/[^a-z0-9]/g, '');
   const safePid = playerId.replace(/[^a-zA-Z0-9\-_]/g, '_');
   const filename = `${safePid}-${Date.now()}.${ext}`;
   const uploadDir = path.join(process.cwd(), 'public', 'uploads', 'draft', mediaType);
@@ -44,7 +64,6 @@ export async function POST(req: NextRequest) {
     await mkdir(uploadDir, { recursive: true });
     await writeFile(path.join(uploadDir, filename), buffer);
   } catch (e) {
-    console.error('[player-media] File write failed:', e);
     return bad(`File write error: ${(e as Error)?.message || 'unknown'}`, 500);
   }
 
@@ -58,7 +77,6 @@ export async function POST(req: NextRequest) {
       await setPlayerImage(playerId, url, playerName);
     }
   } catch (e) {
-    console.error('[player-media] DB save failed:', e);
     return bad(`DB error: ${(e as Error)?.message || 'unknown'}`, 500);
   }
 

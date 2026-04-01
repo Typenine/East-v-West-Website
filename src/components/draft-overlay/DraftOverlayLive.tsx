@@ -147,7 +147,7 @@ export default function DraftOverlayLive() {
       lastAnimatedPickRef.current = lastPick.overall;
       const snapshot = {
         pick: lastPick,
-        nextTeamName: nextTeams[0]?.name || null,
+        nextTeamName: nextTeamsRef.current[0]?.name || null,
         overall: lastPick.overall,
         round: lastPick.round,
         pickInRound: ((lastPick.overall - 1) % 12) + 1,
@@ -175,7 +175,8 @@ export default function DraftOverlayLive() {
           setAnimPhase('pick');
         });
     }
-  }, [isNewPick, lastPick, nextTeams]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isNewPick, lastPick?.overall]);
 
   // Pulse clock when low time
   useEffect(() => {
@@ -194,6 +195,8 @@ export default function DraftOverlayLive() {
   const pickInRound = (currentPickIndex % 12) + 1;
   const teamColors = currentTeam?.colors || ['#333', '#555', null];
   const teamLogo = currentTeam ? getTeamLogoPath(currentTeam.name) : null;
+  const nextTeamsRef = useRef(nextTeams);
+  nextTeamsRef.current = nextTeams;
   const prevDraftGridRef = useRef(draftGrid);
   
   // Ticker rotation state
