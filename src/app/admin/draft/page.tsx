@@ -32,171 +32,202 @@ type DraftOverview = {
   allSlots?: Array<{ overall: number; round: number; team: string }>;
 };
 
-function PlayerVideosCard() {
-  const [videos, setVideos] = useState<Array<{ playerId: string; videoUrl: string; playerName: string | null }>>([]);
-  const [editing, setEditing] = useState<Record<string, string>>({});
-  const [saving, setSaving] = useState<string | null>(null);
+function PlayerMediaCard() {
+  type MediaEntry = { playerId: string; videoUrl: string | null; imageUrl: string | null; playerName: string | null };
+  const [media, setMedia] = useState<MediaEntry[]>([]);
   const [playerSearch, setPlayerSearch] = useState('');
   const [searchResults, setSearchResults] = useState<Array<{ id: string; name: string; pos: string; nfl: string }>>([]);
   const [selectedPlayer, setSelectedPlayer] = useState<{ id: string; name: string; pos: string; nfl: string } | null>(null);
-  const [newVideoUrl, setNewVideoUrl] = useState('');
-  const [savingNew, setSavingNew] = useState(false);
+  const [videoUrl, setVideoUrl] = useState('');
+  const [videoFile, setVideoFile] = useState<File | null>(null);
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [uploadProgress, setUploadProgress] = useState<string | null>(null);
 
-  async function loadVideos() {
+  async function loadMedia() {
     try {
       const res = await fetch('/api/draft/player-videos', { cache: 'no-store' });
       if (!res.ok) return;
       const j = await res.json();
-      const vids: Array<{ playerId: string; videoUrl: string; playerName: string | null }> = j.videos || [];
-      setVideos(vids);
-      const map: Record<string, string> = {};
-      for (const v of vids) map[v.playerId] = v.videoUrl;
-      setEditing(map);
+      setMedia(j.videos || []);
     } catch {}
   }
-
-  useEffect(() => { loadVideos(); }, []);
-
-  async function saveVideo(playerId: string, playerName: string | null) {
-    setSaving(playerId);
-    try {
-      const url = (editing[playerId] ?? '').trim();
-      if (url) {
-        await fetch('/api/draft/player-videos', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ playerId, videoUrl: url, playerName }),
-        });
-      } else {
-        await fetch('/api/draft/player-videos', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ playerId, action: 'delete' }),
-        });
-      }
-      await loadVideos();
-    } catch { alert('Save failed'); }
-    finally { setSaving(null); }
-  }
+  useEffect(() => { loadMedia(); }, []);
 
   async function searchPlayers() {
+    if (!playerSearch.trim()) return;
     try {
       const res = await fetch('/api/draft', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ action: 'available', q: playerSearch, limit: 20 }),
       });
-      const j = await res.json();
-      setSearchResults(j?.available || []);
+      setSearchResults((await res.json())?.available || []);
     } catch {}
   }
 
-  async function addNewVideo() {
-    if (!selectedPlayer || !newVideoUrl.trim()) return;
-    setSavingNew(true);
+  async function saveMedia() {
+    if (!selectedPlayer) return;
+    setSaving(true);
+    try {
+      if (videoUrl.trim()) {
+        setUploadProgress('Saving video URL…');
+        await fetch('/api/draft/player-videos', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ playerId: selectedPlayer.id, videoUrl: videoUrl.trim(), playerName: selectedPlayer.name }),
+        });
+        setVideoUrl('');
+      }
+      if (videoFile) {
+        setUploadProgress(`Uploading ${videoFile.name}…`);
+        const fd = new FormData();
+        fd.append('file', videoFile); fd.append('type', 'video');
+        fd.append('playerId', selectedPlayer.id); fd.append('playerName', selectedPlayer.name);
+        const r = await fetch('/api/draft/player-media', { method: 'POST', body: fd });
+        if (!r.ok) { alert('Video upload failed'); }
+        setVideoFile(null);
+      }
+      if (imageFile) {
+        setUploadProgress(`Uploading ${imageFile.name}…`);
+        const fd = new FormData();
+        fd.append('file', imageFile); fd.append('type', 'image');
+        fd.append('playerId', selectedPlayer.id); fd.append('playerName', selectedPlayer.name);
+        const r = await fetch('/api/draft/player-media', { method: 'POST', body: fd });
+        if (!r.ok) { alert('Image upload failed'); }
+        setImageFile(null);
+      }
+      setSelectedPlayer(null); setPlayerSearch(''); setSearchResults([]);
+      await loadMedia();
+    } catch { alert('Save failed'); }
+    finally { setSaving(false); setUploadProgress(null); }
+  }
+
+  async function deleteEntry(playerId: string) {
+    if (!confirm('Remove all media for this player?')) return;
+    setDeletingId(playerId);
     try {
       await fetch('/api/draft/player-videos', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ playerId: selectedPlayer.id, videoUrl: newVideoUrl.trim(), playerName: selectedPlayer.name }),
+        body: JSON.stringify({ playerId, action: 'delete' }),
       });
-      setSelectedPlayer(null);
-      setNewVideoUrl('');
-      setPlayerSearch('');
-      setSearchResults([]);
-      await loadVideos();
-    } catch { alert('Save failed'); }
-    finally { setSavingNew(false); }
+      await loadMedia();
+    } catch { alert('Delete failed'); }
+    finally { setDeletingId(null); }
   }
 
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>🎬 Player Highlight Videos</CardTitle>
-      </CardHeader>
-      <CardContent>
-        <p className="text-sm text-[var(--muted)] mb-4">
-          Set a YouTube highlight video on a player&apos;s profile. When that player is drafted, the video plays after the pick animation and &ldquo;Now on the Clock&rdquo; animation.
-        </p>
+  const canSave = !!(selectedPlayer && (videoUrl.trim() || videoFile || imageFile));
 
-        {/* Add / update a player video */}
-        <div className="mb-4 p-3 bg-zinc-800/50 rounded-lg space-y-2">
-          <Label className="block text-sm font-semibold">Add / Update Player Video</Label>
-          <div className="flex gap-2">
-            <Input
-              value={playerSearch}
-              onChange={e => setPlayerSearch(e.target.value)}
-              placeholder="Search player name…"
-              className="flex-1"
-              onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); searchPlayers(); } }}
-            />
-            <Button size="sm" onClick={searchPlayers}>Search</Button>
+  return (
+    <div className="max-w-4xl space-y-6">
+      {/* Add/update panel */}
+      <Card>
+        <CardHeader><CardTitle>Add / Update Player Media</CardTitle></CardHeader>
+        <CardContent>
+          <p className="text-sm text-[var(--muted)] mb-4">
+            Attach a highlight video and/or player headshot to any player. The image appears on the draft pick card; the video plays after the animation sequence.
+          </p>
+          <div className="space-y-4">
+            {/* Player search */}
+            <div className="space-y-2">
+              <Label className="block text-sm font-semibold">1. Find Player</Label>
+              <div className="flex gap-2">
+                <Input value={playerSearch} onChange={e => setPlayerSearch(e.target.value)}
+                  placeholder="Search player name…" className="flex-1"
+                  onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); searchPlayers(); } }} />
+                <Button size="sm" onClick={searchPlayers}>Search</Button>
+              </div>
+              {searchResults.length > 0 && !selectedPlayer && (
+                <div className="max-h-40 overflow-auto border border-zinc-600 rounded bg-zinc-900">
+                  {searchResults.map(p => (
+                    <button key={p.id} type="button"
+                      className="w-full text-left px-3 py-1.5 text-sm hover:bg-zinc-700 flex items-center justify-between"
+                      onClick={() => { setSelectedPlayer(p); setSearchResults([]); }}>
+                      <span className="font-medium">{p.name}</span>
+                      <span className="text-xs text-[var(--muted)] ml-2">{p.pos} · {p.nfl}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+              {selectedPlayer && (
+                <div className="flex items-center gap-2 p-2 bg-zinc-700/50 rounded text-sm">
+                  <span className="font-semibold text-white">{selectedPlayer.name}</span>
+                  <span className="text-zinc-400">{selectedPlayer.pos} · {selectedPlayer.nfl}</span>
+                  <button type="button" className="ml-auto text-zinc-400 hover:text-white" onClick={() => { setSelectedPlayer(null); setVideoUrl(''); setVideoFile(null); setImageFile(null); }}>✕ Clear</button>
+                </div>
+              )}
+            </div>
+
+            {/* Video */}
+            <div className="space-y-2">
+              <Label className="block text-sm font-semibold">2. Video <span className="text-zinc-500 font-normal">(YouTube URL or local file)</span></Label>
+              <Input value={videoUrl} onChange={e => setVideoUrl(e.target.value)}
+                placeholder="https://youtube.com/watch?v=… or leave blank to use file" className="w-full" disabled={!selectedPlayer} />
+              <div className="flex items-center gap-3">
+                <span className="text-xs text-zinc-500">Or upload file:</span>
+                <input type="file" accept="video/*" disabled={!selectedPlayer}
+                  className="text-sm text-zinc-300 file:mr-2 file:py-1 file:px-2 file:rounded file:border-0 file:bg-zinc-700 file:text-white hover:file:bg-zinc-600"
+                  onChange={e => setVideoFile(e.target.files?.[0] || null)} />
+                {videoFile && <span className="text-xs text-green-400">{videoFile.name}</span>}
+              </div>
+            </div>
+
+            {/* Image */}
+            <div className="space-y-2">
+              <Label className="block text-sm font-semibold">3. Player Image <span className="text-zinc-500 font-normal">(headshot for draft card)</span></Label>
+              <div className="flex items-center gap-3">
+                <input type="file" accept="image/*" disabled={!selectedPlayer}
+                  className="text-sm text-zinc-300 file:mr-2 file:py-1 file:px-2 file:rounded file:border-0 file:bg-zinc-700 file:text-white hover:file:bg-zinc-600"
+                  onChange={e => setImageFile(e.target.files?.[0] || null)} />
+                {imageFile && <span className="text-xs text-green-400">{imageFile.name}</span>}
+              </div>
+            </div>
+
+            {uploadProgress && <p className="text-sm text-blue-400 animate-pulse">{uploadProgress}</p>}
+
+            <Button variant="primary" disabled={!canSave || saving} onClick={saveMedia} className="w-full sm:w-auto">
+              {saving ? 'Saving…' : 'Save Media'}
+            </Button>
           </div>
-          {searchResults.length > 0 && !selectedPlayer && (
-            <div className="max-h-36 overflow-auto border border-zinc-600 rounded bg-zinc-900">
-              {searchResults.map(p => (
-                <button
-                  key={p.id}
-                  type="button"
-                  className="w-full text-left px-3 py-1.5 text-sm hover:bg-zinc-700 flex items-center justify-between"
-                  onClick={() => { setSelectedPlayer(p); setSearchResults([]); }}
-                >
-                  <span className="font-medium">{p.name}</span>
-                  <span className="text-xs text-[var(--muted)] ml-2">{p.pos} · {p.nfl}</span>
-                </button>
+        </CardContent>
+      </Card>
+
+      {/* Existing media list */}
+      <Card>
+        <CardHeader><CardTitle>Existing Media ({media.length})</CardTitle></CardHeader>
+        <CardContent>
+          {media.length === 0 ? (
+            <p className="text-sm text-[var(--muted)]">No player media set yet.</p>
+          ) : (
+            <div className="space-y-2">
+              {media.map(m => (
+                <div key={m.playerId} className="flex items-center gap-3 p-2 bg-zinc-800/40 rounded">
+                  {m.imageUrl ? (
+                    <img src={m.imageUrl} alt={m.playerName || ''} className="w-10 h-12 object-cover rounded flex-shrink-0" style={{ objectPosition: 'top center' }} />
+                  ) : (
+                    <div className="w-10 h-12 bg-zinc-700 rounded flex-shrink-0 flex items-center justify-center text-zinc-500 text-xs">No img</div>
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <div className="font-semibold text-sm text-white truncate">{m.playerName || m.playerId}</div>
+                    <div className="text-xs text-zinc-400 space-x-2">
+                      {m.videoUrl && <span>🎬 {m.videoUrl.startsWith('/') ? 'local video' : m.videoUrl.length > 50 ? m.videoUrl.slice(0, 50) + '…' : m.videoUrl}</span>}
+                      {m.imageUrl && <span>🖼️ {m.imageUrl.startsWith('/') ? 'local image' : m.imageUrl.slice(0, 30) + '…'}</span>}
+                      {!m.videoUrl && !m.imageUrl && <span className="text-zinc-600">no media</span>}
+                    </div>
+                  </div>
+                  <Button size="sm" variant="ghost" className="text-red-400 hover:bg-red-900/30 flex-shrink-0"
+                    disabled={deletingId === m.playerId} onClick={() => deleteEntry(m.playerId)}>
+                    {deletingId === m.playerId ? '…' : '🗑️'}
+                  </Button>
+                </div>
               ))}
             </div>
           )}
-          {selectedPlayer && (
-            <div className="flex items-center gap-2 text-sm">
-              <span className="font-semibold">{selectedPlayer.name}</span>
-              <span className="text-[var(--muted)]">{selectedPlayer.pos} · {selectedPlayer.nfl}</span>
-              <button type="button" className="text-[var(--muted)] hover:text-white ml-auto" onClick={() => setSelectedPlayer(null)}>✕ Clear</button>
-            </div>
-          )}
-          <div className="flex gap-2">
-            <Input
-              value={newVideoUrl}
-              onChange={e => setNewVideoUrl(e.target.value)}
-              placeholder="YouTube URL"
-              className="flex-1"
-              disabled={!selectedPlayer}
-            />
-            <Button size="sm" disabled={!selectedPlayer || !newVideoUrl.trim() || savingNew} onClick={addNewVideo}>
-              {savingNew ? '…' : 'Save'}
-            </Button>
-          </div>
-        </div>
-
-        {/* Existing player videos */}
-        {videos.length === 0 ? (
-          <p className="text-[var(--muted)] text-sm">No player videos set yet.</p>
-        ) : (
-          <div className="space-y-2">
-            <div className="text-xs font-semibold text-[var(--muted)] uppercase tracking-wide mb-1">Existing Videos</div>
-            {videos.map(v => (
-              <div key={v.playerId} className="flex items-center gap-2">
-                <div className="w-36 flex-shrink-0 text-sm truncate font-medium">{v.playerName || v.playerId}</div>
-                <input
-                  type="text"
-                  className="flex-1 min-w-0 px-2 py-1 text-sm bg-zinc-800 border border-zinc-600 rounded text-white placeholder-zinc-500"
-                  value={editing[v.playerId] ?? v.videoUrl}
-                  onChange={e => setEditing(prev => ({ ...prev, [v.playerId]: e.target.value }))}
-                />
-                <Button
-                  size="sm"
-                  variant={(editing[v.playerId] ?? v.videoUrl) !== v.videoUrl ? 'primary' : 'ghost'}
-                  disabled={saving === v.playerId}
-                  onClick={() => saveVideo(v.playerId, v.playerName)}
-                >
-                  {saving === v.playerId ? '…' : 'Save'}
-                </Button>
-              </div>
-            ))}
-          </div>
-        )}
-      </CardContent>
-    </Card>
+        </CardContent>
+      </Card>
+    </div>
   );
 }
 
@@ -223,6 +254,7 @@ export default function AdminDraftPage() {
     playerName: string | null; playerPos: string | null; playerNfl: string | null; submittedAt: string;
   } | null>(null);
   const [approvingPick, setApprovingPick] = useState(false);
+  const [activeTab, setActiveTab] = useState<'draft' | 'media'>('draft');
 
   // Convert mins:secs to total seconds
   const getTotalSeconds = () => Number(clockMins || 0) * 60 + Number(clockSecs || 0);
@@ -495,17 +527,40 @@ export default function AdminDraftPage() {
 
       {/* Live Overlay - Full Screen Display */}
       {draft && (
-        <div className="mb-6 rounded-lg overflow-hidden border border-[var(--border)] bg-black" style={{ height: 'calc(100vh - 300px)', minHeight: '700px' }}>
+        <div className="mb-4 rounded-lg overflow-hidden border border-[var(--border)] bg-black" style={{ height: 'calc(100vh - 300px)', minHeight: '700px' }}>
           <DraftOverlayLive />
         </div>
       )}
 
-      {error && (
+      {/* Tab Navigation */}
+      <div className="flex gap-1 mb-6 border-b border-zinc-700">
+        {(['draft', 'media'] as const).map(tab => (
+          <button
+            key={tab}
+            type="button"
+            onClick={() => setActiveTab(tab)}
+            className={`px-5 py-2.5 text-sm font-semibold rounded-t-lg transition-colors -mb-px border-b-2 ${
+              activeTab === tab
+                ? 'border-[#bf9944] text-white bg-zinc-800'
+                : 'border-transparent text-zinc-400 hover:text-white hover:bg-zinc-800/50'
+            }`}
+          >
+            {tab === 'draft' ? '⚙️ Draft Control' : '🎬 Player Media'}
+          </button>
+        ))}
+      </div>
+
+      {error && activeTab === 'draft' && (
         <div className="mb-4 text-[var(--danger)] text-sm">{error}</div>
       )}
-      {!isAdmin ? (
-        <Card><CardContent><p className="text-[var(--muted)]">Admin mode required. Use the Admin login on /login.</p></CardContent></Card>
-      ) : (
+
+      {/* Media Tab */}
+      {activeTab === 'media' && isAdmin && <PlayerMediaCard />}
+
+      {activeTab === 'draft' && (
+        !isAdmin ? (
+          <Card><CardContent><p className="text-[var(--muted)]">Admin mode required. Use the Admin login on /login.</p></CardContent></Card>
+        ) : (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="lg:col-span-2 space-y-4">
             {/* Live Status Banner */}
@@ -779,8 +834,6 @@ export default function AdminDraftPage() {
               </Card>
             )}
 
-            {/* Player Videos */}
-            <PlayerVideosCard />
 
             {/* Testing Tools */}
             {draft && draft.status !== 'COMPLETED' && (
@@ -1014,6 +1067,7 @@ export default function AdminDraftPage() {
             </Card>
           </div>
         </div>
+        )
       )}
     </div>
   );

@@ -59,6 +59,7 @@ export default function DraftOverlayLive() {
   // Animation state machine: pick → clock → video → idle
   type AnimPhase = 'pick' | 'video' | 'clock' | null;
   const [animPhase, setAnimPhase] = useState<AnimPhase>(null);
+  const [videoExiting, setVideoExiting] = useState(false);
   const animDataRef = useRef<{
     pick: NonNullable<typeof lastPick>;
     nextTeamName: string | null;
@@ -66,24 +67,27 @@ export default function DraftOverlayLive() {
     round: number;
     pickInRound: number;
     videoUrl: string | null;
+    imageUrl: string | null;
   } | null>(null);
 
-  // Player videos: playerId → videoUrl (ref only; no re-render needed)
-  const playerVideosRef = useRef<Record<string, string>>({});
+  // Player media: playerId → { videoUrl, imageUrl } (ref only; no re-render needed)
+  const playerVideosRef = useRef<Record<string, { videoUrl: string | null; imageUrl: string | null }>>({});
   const clockRef = useRef<HTMLDivElement>(null);
   const lastAnimatedPickRef = useRef<number | null>(null);
   // Track whether YouTube video actually started playing before treating state=0 as ended
   const videoHasPlayedRef = useRef(false);
+  // Ref for GSAP video container animation
+  const videoContainerRef = useRef<HTMLDivElement>(null);
 
-  // Load player videos on mount
+  // Load player media (videos + images) on mount
   useEffect(() => {
     async function loadVideos() {
       try {
         const res = await fetch('/api/draft/player-videos', { cache: 'no-store' });
         if (!res.ok) return;
         const j = await res.json();
-        const map: Record<string, string> = {};
-        for (const v of (j.videos || [])) { map[v.playerId] = v.videoUrl; }
+        const map: Record<string, { videoUrl: string | null; imageUrl: string | null }> = {};
+        for (const v of (j.videos || [])) { map[v.playerId] = { videoUrl: v.videoUrl || null, imageUrl: v.imageUrl || null }; }
         playerVideosRef.current = map;
       } catch {}
     }
@@ -91,6 +95,16 @@ export default function DraftOverlayLive() {
     const t = setInterval(loadVideos, 60000);
     return () => clearInterval(t);
   }, []);
+
+  // Dismiss video with GSAP exit animation
+  function dismissVideo() {
+    if (!videoContainerRef.current) { setAnimPhase(null); return; }
+    setVideoExiting(true);
+    gsap.to(videoContainerRef.current, {
+      opacity: 0, scale: 0.96, duration: 0.35, ease: 'power2.in',
+      onComplete: () => { setAnimPhase(null); setVideoExiting(false); },
+    });
+  }
 
   // YouTube postMessage listener to detect video end
   useEffect(() => {
@@ -101,13 +115,24 @@ export default function DraftOverlayLive() {
         const data = typeof e.data === 'string' ? JSON.parse(e.data) : e.data;
         if (data?.event === 'onStateChange') {
           if (data?.info === 1) videoHasPlayedRef.current = true; // playing
-          if (data?.info === 0 && videoHasPlayedRef.current) setAnimPhase(null); // ended after playing
+          if (data?.info === 0 && videoHasPlayedRef.current) dismissVideo(); // ended after playing
         }
       } catch {}
     };
     window.addEventListener('message', handler);
     return () => window.removeEventListener('message', handler);
-  }, [animPhase]);
+  }, [animPhase]); // dismissVideo is stable (defined in component scope, refs only)
+
+  // GSAP entrance for video container
+  useEffect(() => {
+    if (animPhase === 'video' && videoContainerRef.current) {
+      gsap.fromTo(
+        videoContainerRef.current,
+        { opacity: 0, scale: 0.96 },
+        { opacity: 1, scale: 1, duration: 0.45, ease: 'power2.out' },
+      );
+    }
+  }, [animPhase]); // videoContainerRef is stable
 
   // Format time as MM:SS
   const formatTime = (sec: number) => {
@@ -120,23 +145,24 @@ export default function DraftOverlayLive() {
   useEffect(() => {
     if (isNewPick && lastPick && lastPick.overall !== lastAnimatedPickRef.current) {
       lastAnimatedPickRef.current = lastPick.overall;
-      // Capture snapshot now; fill videoUrl after a fresh fetch so a just-uploaded video is never missed
       const snapshot = {
         pick: lastPick,
         nextTeamName: nextTeams[0]?.name || null,
         overall: lastPick.overall,
         round: lastPick.round,
         pickInRound: ((lastPick.overall - 1) % 12) + 1,
-        videoUrl: playerVideosRef.current[lastPick.playerId] || null,
+        videoUrl: playerVideosRef.current[lastPick.playerId]?.videoUrl || null,
+        imageUrl: playerVideosRef.current[lastPick.playerId]?.imageUrl || null,
       };
       // Always do a fresh fetch before starting the animation
       fetch('/api/draft/player-videos', { cache: 'no-store' })
         .then(r => r.json())
         .then(j => {
-          const freshMap: Record<string, string> = {};
-          for (const v of (j.videos || [])) { freshMap[v.playerId] = v.videoUrl; }
+          const freshMap: Record<string, { videoUrl: string | null; imageUrl: string | null }> = {};
+          for (const v of (j.videos || [])) { freshMap[v.playerId] = { videoUrl: v.videoUrl || null, imageUrl: v.imageUrl || null }; }
           playerVideosRef.current = freshMap;
-          snapshot.videoUrl = freshMap[lastPick.playerId] || null;
+          snapshot.videoUrl = freshMap[lastPick.playerId]?.videoUrl || null;
+          snapshot.imageUrl = freshMap[lastPick.playerId]?.imageUrl || null;
         })
         .catch(() => {})
         .finally(() => {
@@ -337,7 +363,7 @@ export default function DraftOverlayLive() {
   return (
     <div className="w-full h-full bg-gradient-to-b from-zinc-950 to-zinc-900 p-6 flex flex-col">
       {/* Draft Board Grid */}
-      <div className="flex-1 mb-4 min-h-0">
+      <div className="flex-1 mb-4 min-h-0 relative">
         <div 
           className="grid grid-cols-5 gap-[2px] h-full bg-zinc-900/80 rounded-lg overflow-hidden">
           {/* Header Row */}
@@ -406,6 +432,47 @@ export default function DraftOverlayLive() {
             </React.Fragment>
           ))}
         </div>
+
+        {/* PHASE: Player highlight video — only covers draft board, info bar stays visible */}
+        {(animPhase === 'video' || videoExiting) && animDataRef.current?.videoUrl && (() => {
+          const videoUrl = animDataRef.current!.videoUrl!;
+          const isYt = videoUrl.includes('youtube.com') || videoUrl.includes('youtu.be');
+          const embedUrl = isYt ? getYoutubeEmbedUrl(videoUrl) : null;
+          return (
+            <div
+              ref={videoContainerRef}
+              className="absolute inset-0 z-20 bg-black flex flex-col items-center justify-center pointer-events-auto rounded-lg overflow-hidden"
+              style={{ willChange: 'transform, opacity' }}
+            >
+              <div className="w-full h-full flex flex-col items-center justify-center p-4">
+                {embedUrl ? (
+                  <iframe
+                    src={embedUrl}
+                    className="w-full flex-1 rounded-lg"
+                    allow="autoplay; fullscreen"
+                    allowFullScreen
+                    style={{ minHeight: 0 }}
+                  />
+                ) : (
+                  <video
+                    src={videoUrl}
+                    autoPlay
+                    controls
+                    className="w-full flex-1 rounded-lg"
+                    style={{ minHeight: 0, objectFit: 'contain' }}
+                    onEnded={dismissVideo}
+                  />
+                )}
+              </div>
+              <button
+                className="absolute bottom-3 right-3 px-4 py-1.5 bg-zinc-800/90 text-white text-sm font-bold rounded-lg hover:bg-zinc-700 transition-colors"
+                onClick={dismissVideo}
+              >
+                Skip →
+              </button>
+            </div>
+          );
+        })()}
       </div>
 
       {/* Bottom Bar: ClockBox + InfoBar */}
@@ -600,6 +667,7 @@ export default function DraftOverlayLive() {
             position: animDataRef.current.pick.playerPos || 'N/A',
             team: animDataRef.current.pick.playerNfl || undefined,
             college: undefined,
+            imageUrl: animDataRef.current.imageUrl || undefined,
           }}
           fantasyTeam={{
             name: animDataRef.current.pick.team,
@@ -640,40 +708,6 @@ export default function DraftOverlayLive() {
         );
       })()}
 
-      {/* PHASE: Player highlight video (after Now on Clock) */}
-      {animPhase === 'video' && animDataRef.current?.videoUrl && (() => {
-        const videoUrl = animDataRef.current!.videoUrl!;
-        const isYt = videoUrl.includes('youtube.com') || videoUrl.includes('youtu.be');
-        const embedUrl = isYt ? getYoutubeEmbedUrl(videoUrl) : null;
-        return (
-          <div className="fixed inset-0 z-[9999] bg-black flex flex-col items-center justify-center pointer-events-auto">
-            <div className="w-full max-w-5xl px-4">
-              {embedUrl ? (
-                <iframe
-                  src={embedUrl}
-                  className="w-full aspect-video rounded-xl"
-                  allow="autoplay; fullscreen"
-                  allowFullScreen
-                />
-              ) : (
-                <video
-                  src={videoUrl}
-                  autoPlay
-                  controls
-                  className="w-full rounded-xl"
-                  onEnded={() => setAnimPhase(null)}
-                />
-              )}
-            </div>
-            <button
-              className="mt-6 px-8 py-3 bg-zinc-800 text-white font-bold rounded-lg hover:bg-zinc-700 transition-colors text-lg"
-              onClick={() => setAnimPhase(null)}
-            >
-              Skip →
-            </button>
-          </div>
-        );
-      })()}
 
       {/* Status Bar */}
       <div className="fixed top-0 left-0 right-0 bg-zinc-900/95 border-b border-zinc-700 px-4 py-2 flex items-center justify-between" style={{ zIndex: 10040 }}>

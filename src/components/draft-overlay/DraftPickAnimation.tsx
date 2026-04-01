@@ -12,6 +12,7 @@ interface DraftPickAnimationProps {
     position: string;
     team?: string;
     college?: string;
+    imageUrl?: string;
   };
   fantasyTeam: {
     name: string;
@@ -323,16 +324,23 @@ export default function DraftPickAnimation({
           <div className="flex items-stretch" style={{ minHeight: '420px' }}>
             <div className="w-3 flex-shrink-0" style={{ background: c2 }} />
             <div
-              className="flex-shrink-0 flex items-center justify-center p-8"
+              className="flex-shrink-0 flex items-center justify-center overflow-hidden"
               style={{ width: '220px', background: `${c1}88` }}
             >
-              {teamLogo && (
+              {player.imageUrl ? (
+                <img
+                  src={player.imageUrl}
+                  alt={player.name}
+                  className="w-full h-full object-cover"
+                  style={{ objectPosition: 'top center' }}
+                />
+              ) : teamLogo ? (
                 <img
                   src={teamLogo}
                   alt={fantasyTeam.name}
                   className="w-40 h-40 object-contain"
                 />
-              )}
+              ) : null}
             </div>
             <div className="flex-1 flex flex-col justify-center px-10 py-8">
               <div

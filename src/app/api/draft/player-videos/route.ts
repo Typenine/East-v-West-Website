@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { ensureDraftTables, getPlayerVideos, setPlayerVideo, deletePlayerVideo } from '@/server/db/queries';
+import { ensureDraftTables, getPlayerVideos, setPlayerVideo, setPlayerImage, deletePlayerVideo } from '@/server/db/queries';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -28,7 +28,12 @@ export async function POST(req: NextRequest) {
     return ok({ ok: true });
   }
 
-  if (!body.videoUrl) return bad('videoUrl required');
+  if (body.imageUrl) {
+    await setPlayerImage(body.playerId, body.imageUrl, body.playerName ?? null);
+    return ok({ ok: true });
+  }
+
+  if (!body.videoUrl) return bad('videoUrl or imageUrl required');
   await setPlayerVideo(body.playerId, body.videoUrl, body.playerName ?? null);
   return ok({ ok: true });
 }
