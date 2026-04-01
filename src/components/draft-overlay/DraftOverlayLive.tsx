@@ -98,11 +98,11 @@ export default function DraftOverlayLive() {
 
   // Dismiss video with GSAP exit animation
   function dismissVideo() {
-    if (!videoContainerRef.current) { setAnimPhase(null); return; }
+    if (!videoContainerRef.current) { setAnimPhase(prev => prev === 'video' ? null : prev); return; }
     setVideoExiting(true);
     gsap.to(videoContainerRef.current, {
       opacity: 0, scale: 0.96, duration: 0.35, ease: 'power2.in',
-      onComplete: () => { setAnimPhase(null); setVideoExiting(false); },
+      onComplete: () => { setAnimPhase(prev => prev === 'video' ? null : prev); setVideoExiting(false); },
     });
   }
 
@@ -122,6 +122,15 @@ export default function DraftOverlayLive() {
     window.addEventListener('message', handler);
     return () => window.removeEventListener('message', handler);
   }, [animPhase]); // dismissVideo is stable (defined in component scope, refs only)
+
+  // Clock-phase fallback: if we enter 'clock' but have no nextTeamName the NowOnClockAnimation
+  // won't mount and onComplete never fires — advance the phase immediately here instead.
+  useEffect(() => {
+    if (animPhase === 'clock' && !animDataRef.current?.nextTeamName) {
+      const hasVideo = !!(animDataRef.current?.videoUrl);
+      setAnimPhase(hasVideo ? 'video' : null);
+    }
+  }, [animPhase]);
 
   // GSAP entrance for video container
   useEffect(() => {
