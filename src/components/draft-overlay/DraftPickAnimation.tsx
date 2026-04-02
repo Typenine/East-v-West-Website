@@ -41,11 +41,9 @@ export default function DraftPickAnimation({
 }: DraftPickAnimationProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const timelineRef = useRef<gsap.core.Timeline | null>(null);
-  const hasStartedRef = useRef(false);
 
   useEffect(() => {
-    if (hasStartedRef.current) return;
-    hasStartedRef.current = true;
+    if (timelineRef.current) return;
 
     const container = containerRef.current;
     if (!container) return;
@@ -73,8 +71,6 @@ export default function DraftPickAnimation({
     }
 
     console.log('[DraftPickAnimation] Starting for:', player.name);
-
-    if (timelineRef.current) timelineRef.current.kill();
 
     // ── INITIAL STATES ───────────────────────────────────────────────────────
     // Full-screen layers: opacity only (no scale — scaling viewport = slow repaint)
@@ -145,8 +141,9 @@ export default function DraftPickAnimation({
     tl.to(container, { opacity: 0, duration: 0.8, ease: 'power2.inOut', force3D: true });
 
     return () => {
-      if (timelineRef.current) {
-        timelineRef.current.kill();
+      const tl = timelineRef.current;
+      if (tl) {
+        tl.kill();
         timelineRef.current = null;
       }
     };

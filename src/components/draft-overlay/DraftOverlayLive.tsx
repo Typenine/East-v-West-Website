@@ -69,8 +69,8 @@ export default function DraftOverlayLive() {
     imageUrl: string | null;
   } | null>(null);
 
-  // Player media: playerId → { videoUrl, imageUrl } (ref only; no re-render needed)
-  const playerVideosRef = useRef<Record<string, { videoUrl: string | null; imageUrl: string | null }>>({});
+  // Player media: playerId → { videoUrl, hasImage } (ref only; no re-render needed)
+  const playerVideosRef = useRef<Record<string, { videoUrl: string | null; hasImage: boolean }>>({});
   const clockRef = useRef<HTMLDivElement>(null);
   const lastAnimatedPickRef = useRef<number | null>(null);
   const animInitializedRef = useRef(false);
@@ -86,8 +86,8 @@ export default function DraftOverlayLive() {
         const res = await fetch('/api/draft/player-videos', { cache: 'no-store' });
         if (!res.ok) return;
         const j = await res.json();
-        const map: Record<string, { videoUrl: string | null; imageUrl: string | null }> = {};
-        for (const v of (j.videos || [])) { map[v.playerId] = { videoUrl: v.videoUrl || null, imageUrl: v.imageUrl || null }; }
+        const map: Record<string, { videoUrl: string | null; hasImage: boolean }> = {};
+        for (const v of (j.videos || [])) { map[v.playerId] = { videoUrl: v.videoUrl || null, hasImage: !!v.imageUrl }; }
         playerVideosRef.current = map;
       } catch {}
     }
@@ -182,18 +182,22 @@ export default function DraftOverlayLive() {
       round: lastPick.round,
       pickInRound: ((lastPick.overall - 1) % 12) + 1,
       videoUrl: playerVideosRef.current[lastPick.playerId]?.videoUrl || null,
-      imageUrl: playerVideosRef.current[lastPick.playerId]?.imageUrl || null,
+      imageUrl: playerVideosRef.current[lastPick.playerId]?.hasImage
+        ? `/api/draft/player-image?playerId=${encodeURIComponent(lastPick.playerId)}`
+        : null,
     };
     const ac = new AbortController();
     const fetchTimer = setTimeout(() => ac.abort(), 3000);
     fetch('/api/draft/player-videos', { cache: 'no-store', signal: ac.signal })
       .then(r => r.json())
       .then(j => {
-        const freshMap: Record<string, { videoUrl: string | null; imageUrl: string | null }> = {};
-        for (const v of (j.videos || [])) { freshMap[v.playerId] = { videoUrl: v.videoUrl || null, imageUrl: v.imageUrl || null }; }
+        const freshMap: Record<string, { videoUrl: string | null; hasImage: boolean }> = {};
+        for (const v of (j.videos || [])) { freshMap[v.playerId] = { videoUrl: v.videoUrl || null, hasImage: !!v.imageUrl }; }
         playerVideosRef.current = freshMap;
         snapshot.videoUrl = freshMap[lastPick.playerId]?.videoUrl || null;
-        snapshot.imageUrl = freshMap[lastPick.playerId]?.imageUrl || null;
+        snapshot.imageUrl = freshMap[lastPick.playerId]?.hasImage
+          ? `/api/draft/player-image?playerId=${encodeURIComponent(lastPick.playerId)}`
+          : null;
       })
       .catch(() => {})
       .finally(() => {
