@@ -352,10 +352,16 @@ export default function DraftRoomPage() {
               <div className="w-12 h-12 shrink-0 rounded-lg overflow-hidden bg-black/40 flex items-center justify-center border border-white/20">
                 {onClockLogo ? <img src={onClockLogo} alt={onClock || ''} className="w-full h-full object-contain" /> : <span className="text-white/40 text-xl">?</span>}
               </div>
-              <div className="flex-1 min-w-0">
+              {/* Info section — PICK IS IN only covers this, leaving logo + timer visible */}
+              <div className="flex-1 min-w-0 relative">
                 <div className="text-[10px] font-bold text-white/60 uppercase tracking-widest">On The Clock</div>
                 <div className="font-black text-white text-base leading-tight truncate">{onClock || '—'}</div>
                 <div className="text-[10px] text-white/50">Pick #{draft.curOverall} · Rd {draft.upcoming?.[0]?.round || Math.ceil(draft.curOverall / picksPerRound)}</div>
+                {pendingPick && (
+                  <div className="absolute inset-0 flex items-center justify-center z-20 rounded" style={{ background: 'linear-gradient(135deg,rgba(0,0,0,0.92),rgba(30,10,0,0.96))' }}>
+                    <div className="text-lg font-black text-white tracking-widest uppercase animate-pulse">PICK IS IN</div>
+                  </div>
+                )}
               </div>
               <div className={`text-2xl font-mono font-black tabular-nums shrink-0 ${localRemaining !== null && localRemaining <= 10 ? 'text-red-400 animate-pulse' : 'text-white'}`}>
                 {localRemaining !== null ? formatTime(localRemaining) : '--:--'}
@@ -363,14 +369,6 @@ export default function DraftRoomPage() {
             </div>
             {isMyTurn && !isMyPickPending && (
               <div className="mt-2 rounded-lg bg-emerald-600 text-white text-center font-black text-sm py-1.5 animate-pulse">🎯 YOUR TURN TO PICK!</div>
-            )}
-            {/* ── PICK IS IN overlay ── */}
-            {pendingPick && (
-              <div className="absolute inset-0 flex flex-col items-center justify-center z-20" style={{ background: 'linear-gradient(135deg,rgba(0,0,0,0.92),rgba(30,10,0,0.96))' }}>
-                <div className="text-center px-4">
-                  <div className="text-4xl font-black text-white tracking-widest uppercase animate-pulse">PICK IS IN</div>
-                </div>
-              </div>
             )}
           </div>
         )}

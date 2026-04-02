@@ -518,7 +518,7 @@ export default function DraftOverlayLive() {
       </div>
 
       {/* Bottom Bar: ClockBox + InfoBar — fixed height so the draft grid above never jumps */}
-      <div className="flex gap-4 items-stretch h-[120px]">
+      <div className="flex gap-4 items-stretch h-[140px]">
         {/* ClockBox */}
         <div
           className="flex items-stretch shrink-0"
@@ -584,16 +584,13 @@ export default function DraftOverlayLive() {
           style={{
             background: teamColors[0],
             borderRadius: '4px',
-            height: '120px',
+            height: '140px',
           }}
         >
           {/* Pick Is In overlay — covers only the InfoBar, ClockBox stays visible */}
           {pendingPick && (
             <div className="absolute inset-0 flex flex-col items-center justify-center z-20 rounded-sm" style={{ background: 'linear-gradient(135deg,rgba(0,0,0,0.92),rgba(30,10,0,0.96))' }}>
               <div className="text-4xl font-black text-white tracking-widest uppercase animate-pulse">PICK IS IN</div>
-              <div className="text-white/60 text-sm mt-1 font-semibold">
-                {pendingPick.team} — {pendingPick.playerName || pendingPick.playerId}
-              </div>
             </div>
           )}
           {/* Best Available View */}
