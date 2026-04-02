@@ -175,7 +175,8 @@ export default function DraftOverlayLive() {
     if (lastPick.overall <= (lastAnimatedPickRef.current ?? -1)) return;
     lastAnimatedPickRef.current = lastPick.overall;
 
-    const snapshot = {
+    // Fire animation immediately using cached media data — don't wait for a fetch
+    animDataRef.current = {
       pick: lastPick,
       nextTeamName: nextTeamsRef.current[0]?.name || null,
       overall: lastPick.overall,
@@ -186,25 +187,20 @@ export default function DraftOverlayLive() {
         ? `/api/draft/player-image?playerId=${encodeURIComponent(lastPick.playerId)}`
         : null,
     };
+    setAnimPhase('pick');
+
+    // Background refresh — updates playerVideosRef for future picks only
     const ac = new AbortController();
-    const fetchTimer = setTimeout(() => ac.abort(), 3000);
+    const fetchTimer = setTimeout(() => ac.abort(), 5000);
     fetch('/api/draft/player-videos', { cache: 'no-store', signal: ac.signal })
       .then(r => r.json())
       .then(j => {
         const freshMap: Record<string, { videoUrl: string | null; hasImage: boolean }> = {};
         for (const v of (j.videos || [])) { freshMap[v.playerId] = { videoUrl: v.videoUrl || null, hasImage: !!v.imageUrl }; }
         playerVideosRef.current = freshMap;
-        snapshot.videoUrl = freshMap[lastPick.playerId]?.videoUrl || null;
-        snapshot.imageUrl = freshMap[lastPick.playerId]?.hasImage
-          ? `/api/draft/player-image?playerId=${encodeURIComponent(lastPick.playerId)}`
-          : null;
       })
       .catch(() => {})
-      .finally(() => {
-        clearTimeout(fetchTimer);
-        animDataRef.current = snapshot;
-        setAnimPhase('pick');
-      });
+      .finally(() => clearTimeout(fetchTimer));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lastPick?.overall]);
 
