@@ -537,6 +537,7 @@ export default function AdminDraftPage() {
                 try {
                   await fetch('/api/draft', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'reject_pick' }) });
                   setPendingPick(null);
+                  await load(true);
                 } catch { alert('Reject failed'); }
                 finally { setApprovingPick(false); }
               }}

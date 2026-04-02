@@ -152,6 +152,9 @@ export default function DraftRoomPage() {
           setPickStatus(null); setSubmittedPlayer(null);
         } else {
           setPickStatus('rejected');
+          // Rejected player was never committed — refresh available list so they reappear
+          fetch('/api/draft', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'available', q: searchRef.current, pos: posFilterRef.current, limit: 50 }) })
+            .then(r => r.json()).then(j2 => setAvail((j2?.available as Avail[]) || [])).catch(() => {});
         }
       }
       prevPendingRef.current = newPending;

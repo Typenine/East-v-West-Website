@@ -53,7 +53,13 @@ export default function DraftOverlayLive() {
     available,
     usingCustom,
     localRemainingSec,
-  } = useDraftData(1000); // 1s during LIVE, auto-adjusts to 5s/10s for PAUSED/COMPLETED
+    pendingPick,
+  } = useDraftData(1000);
+
+  const [isAdmin, setIsAdmin] = useState(false);
+  useEffect(() => {
+    fetch('/api/auth/me').then(r => r.json()).then((j) => setIsAdmin(Boolean(j?.isAdmin))).catch(() => {});
+  }, []); // 1s during LIVE, auto-adjusts to 5s/10s for PAUSED/COMPLETED
 
   // Animation state machine: pick → clock → video → idle
   type AnimPhase = 'pick' | 'video' | 'clock' | null;
@@ -498,19 +504,21 @@ export default function DraftOverlayLive() {
                   />
                 )}
               </div>
-              <button
-                className="absolute bottom-3 right-3 px-4 py-1.5 bg-zinc-800/90 text-white text-sm font-bold rounded-lg hover:bg-zinc-700 transition-colors"
-                onClick={dismissVideo}
-              >
-                Skip →
-              </button>
+              {isAdmin && (
+                <button
+                  className="absolute bottom-3 right-3 px-4 py-1.5 bg-zinc-800/90 text-white text-sm font-bold rounded-lg hover:bg-zinc-700 transition-colors"
+                  onClick={dismissVideo}
+                >
+                  Skip →
+                </button>
+              )}
             </div>
           );
         })()}
       </div>
 
       {/* Bottom Bar: ClockBox + InfoBar — fixed height so the draft grid above never jumps */}
-      <div className="flex gap-4 items-stretch h-[96px]">
+      <div className="flex gap-4 items-stretch h-[120px]">
         {/* ClockBox */}
         <div
           className="flex items-stretch shrink-0"
@@ -576,9 +584,18 @@ export default function DraftOverlayLive() {
           style={{
             background: teamColors[0],
             borderRadius: '4px',
-            height: '96px',
+            height: '120px',
           }}
         >
+          {/* Pick Is In overlay — covers only the InfoBar, ClockBox stays visible */}
+          {pendingPick && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center z-20 rounded-sm" style={{ background: 'linear-gradient(135deg,rgba(0,0,0,0.92),rgba(30,10,0,0.96))' }}>
+              <div className="text-4xl font-black text-white tracking-widest uppercase animate-pulse">PICK IS IN</div>
+              <div className="text-white/60 text-sm mt-1 font-semibold">
+                {pendingPick.team} — {pendingPick.playerName || pendingPick.playerId}
+              </div>
+            </div>
+          )}
           {/* Best Available View */}
           <div style={{ display: currentTickerView === 'bestAvailable' ? 'block' : 'none' }}>
             <div className="text-white/80 text-xs font-semibold mb-1">

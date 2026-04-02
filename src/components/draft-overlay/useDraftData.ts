@@ -68,6 +68,7 @@ export interface OverlayState {
   nextTeams: Array<Team & { logoPath: string | null }>;
   lastPick: DraftPick | null;
   isNewPick: boolean;
+  pendingPick: { id: string; overall: number; team: string; playerId: string; playerName: string | null; playerPos: string | null; playerNfl: string | null; } | null;
 }
 
 export function useDraftData(basePollIntervalMs = 1000) {
@@ -84,6 +85,7 @@ export function useDraftData(basePollIntervalMs = 1000) {
     nextTeams: [],
     lastPick: null,
     isNewPick: false,
+    pendingPick: null,
   });
 
   const lastOverallRef = useRef<number | null>(null);
@@ -100,6 +102,7 @@ export function useDraftData(basePollIntervalMs = 1000) {
       const remainingSec = json.remainingSec as number | null;
       const available = (json.available || []) as AvailablePlayer[];
       const usingCustom = Boolean(json.usingCustom);
+      const pendingPick = (json.pendingPick ?? null) as { id: string; overall: number; team: string; playerId: string; playerName: string | null; playerPos: string | null; playerNfl: string | null; } | null;
 
       // Compute derived values for overlay
       const onClockTeamName = draft?.onClockTeam || null;
@@ -203,6 +206,7 @@ export function useDraftData(basePollIntervalMs = 1000) {
         nextTeams,
         lastPick,
         isNewPick,
+        pendingPick,
       });
     } catch (err) {
       console.error('[useDraftData] fetch error:', err);
