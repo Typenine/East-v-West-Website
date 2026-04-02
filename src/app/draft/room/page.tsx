@@ -229,9 +229,13 @@ export default function DraftRoomPage() {
     return () => clearTimeout(t);
   }, [search, posFilter]);
 
-  // Countdown
+  // Countdown — only tick when LIVE; freeze display when PAUSED (e.g. pending pick approval)
   useEffect(() => {
     if (remainingSec === null) return;
+    if (draft?.status !== 'LIVE') {
+      setLocalRemaining(remainingSec);
+      return;
+    }
     const interval = setInterval(() => {
       const elapsed = Math.floor((Date.now() - lastFetchTime) / 1000);
       const newLocal = Math.max(0, remainingSec - elapsed);
@@ -241,7 +245,7 @@ export default function DraftRoomPage() {
       }
     }, 1000);
     return () => clearInterval(interval);
-  }, [remainingSec, lastFetchTime, isMyTurn, playBeep]);
+  }, [remainingSec, lastFetchTime, isMyTurn, playBeep, draft?.status]);
 
   // Auto-pick when clock expires
   useEffect(() => {
@@ -347,30 +351,40 @@ export default function DraftRoomPage() {
 
         {/* On the Clock banner */}
         {draft && draft.status !== 'NOT_STARTED' && (
-          <div className="relative px-4 py-3" style={{ background: `linear-gradient(135deg, ${tc[0]}dd, ${tc[1]}cc)`, borderBottom: `2px solid ${tc[0]}80` }}>
-            <div className="flex items-center gap-3">
-              <div className="w-12 h-12 shrink-0 rounded-lg overflow-hidden bg-black/40 flex items-center justify-center border border-white/20">
-                {onClockLogo ? <img src={onClockLogo} alt={onClock || ''} className="w-full h-full object-contain" /> : <span className="text-white/40 text-xl">?</span>}
+          pendingPick ? (
+            /* ── PICK IS IN: dark banner matching admin/presentation view ── */
+            <div className="flex items-center gap-3 px-4 py-3" style={{ background: 'linear-gradient(135deg,#111111,#1a0d00)', borderBottom: '2px solid #333' }}>
+              <div className="w-10 h-10 shrink-0 rounded-lg overflow-hidden bg-black/40 flex items-center justify-center border border-white/20">
+                {onClockLogo ? <img src={onClockLogo} alt={onClock || ''} className="w-full h-full object-contain" /> : <span className="text-white/40">?</span>}
               </div>
-              {/* Info section — PICK IS IN only covers this, leaving logo + timer visible */}
-              <div className="flex-1 min-w-0 relative">
-                <div className="text-[10px] font-bold text-white/60 uppercase tracking-widest">On The Clock</div>
-                <div className="font-black text-white text-base leading-tight truncate">{onClock || '—'}</div>
-                <div className="text-[10px] text-white/50">Pick #{draft.curOverall} · Rd {draft.upcoming?.[0]?.round || Math.ceil(draft.curOverall / picksPerRound)}</div>
-                {pendingPick && (
-                  <div className="absolute inset-0 flex items-center justify-center z-20 rounded" style={{ background: 'linear-gradient(135deg,rgba(0,0,0,0.92),rgba(30,10,0,0.96))' }}>
-                    <div className="text-lg font-black text-white tracking-widest uppercase animate-pulse">PICK IS IN</div>
-                  </div>
-                )}
+              <div className="flex-1 flex items-center justify-center">
+                <div className="text-2xl font-black text-white tracking-widest uppercase animate-pulse">PICK IS IN</div>
               </div>
-              <div className={`text-2xl font-mono font-black tabular-nums shrink-0 ${localRemaining !== null && localRemaining <= 10 ? 'text-red-400 animate-pulse' : 'text-white'}`}>
+              <div className="text-xl font-mono font-black tabular-nums shrink-0 text-white/50">
                 {localRemaining !== null ? formatTime(localRemaining) : '--:--'}
               </div>
             </div>
-            {isMyTurn && !isMyPickPending && (
-              <div className="mt-2 rounded-lg bg-emerald-600 text-white text-center font-black text-sm py-1.5 animate-pulse">🎯 YOUR TURN TO PICK!</div>
-            )}
-          </div>
+          ) : (
+            /* ── Normal on-clock banner ── */
+            <div className="relative px-4 py-3" style={{ background: `linear-gradient(135deg, ${tc[0]}dd, ${tc[1]}cc)`, borderBottom: `2px solid ${tc[0]}80` }}>
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 shrink-0 rounded-lg overflow-hidden bg-black/40 flex items-center justify-center border border-white/20">
+                  {onClockLogo ? <img src={onClockLogo} alt={onClock || ''} className="w-full h-full object-contain" /> : <span className="text-white/40 text-xl">?</span>}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="text-[10px] font-bold text-white/60 uppercase tracking-widest">On The Clock</div>
+                  <div className="font-black text-white text-base leading-tight truncate">{onClock || '—'}</div>
+                  <div className="text-[10px] text-white/50">Pick #{draft.curOverall} · Rd {draft.upcoming?.[0]?.round || Math.ceil(draft.curOverall / picksPerRound)}</div>
+                </div>
+                <div className={`text-2xl font-mono font-black tabular-nums shrink-0 ${localRemaining !== null && localRemaining <= 10 ? 'text-red-400 animate-pulse' : 'text-white'}`}>
+                  {localRemaining !== null ? formatTime(localRemaining) : '--:--'}
+                </div>
+              </div>
+              {isMyTurn && !isMyPickPending && (
+                <div className="mt-2 rounded-lg bg-emerald-600 text-white text-center font-black text-sm py-1.5 animate-pulse">🎯 YOUR TURN TO PICK!</div>
+              )}
+            </div>
+          )
         )}
 
         <div className="p-3 space-y-3">
