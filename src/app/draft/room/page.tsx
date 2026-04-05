@@ -89,6 +89,7 @@ export default function DraftRoomPage() {
   const animInitRef = useRef(false);
   const animDismissingRef = useRef(false);
   const animVideoContainerRef = useRef<HTMLDivElement>(null);
+  const animStartTimeRef = useRef<number>(0);
 
   const prevPendingRef = useRef<PendingPick>(null);
   const beepPlayedRef = useRef(false);
@@ -339,9 +340,30 @@ export default function DraftRoomPage() {
         ? `/api/draft/player-image?playerId=${encodeURIComponent(lastPick.playerId)}`
         : null,
     };
+    animStartTimeRef.current = Date.now();
     setAnimPhase('pick');
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draft?.recentPicks?.[draft?.recentPicks?.length - 1]?.overall]);
+
+  // Tab visibility — skip stale animation phases and repoll when tab becomes visible
+  useEffect(() => {
+    function handleVisibility() {
+      if (document.hidden) return;
+      // Repoll immediately to get fresh data
+      load(false);
+      // Skip animation if it has been running longer than ~35s total
+      setAnimPhase(prev => {
+        if (!prev) return prev;
+        const elapsed = Date.now() - animStartTimeRef.current;
+        if (elapsed > 35000) return null;
+        return prev;
+      });
+      // GSAP: disable lag-smoothing so resuming the tab doesn't rush animations
+      gsap.ticker.lagSmoothing(0);
+    }
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => document.removeEventListener('visibilitychange', handleVisibility);
+  }, []);
 
   // Phase safety timeouts
   useEffect(() => {
@@ -431,7 +453,7 @@ export default function DraftRoomPage() {
       </div>
 
       {/* ── DRAFT BOARD (full height, no internal scroll — whole page scrolls) ── */}
-      <div className="border-b-2 border-zinc-700" style={{ background: '#0a0a0e' }}>
+      <div className="relative border-b-2 border-zinc-700" style={{ background: '#0a0a0e' }}>
         <div className="grid shrink-0 border-b border-zinc-800" style={{ gridTemplateColumns: `40px repeat(${rounds}, 1fr)`, background: '#111116' }}>
           <div className="text-center text-[10px] font-bold text-zinc-500 py-1.5">#</div>
           {Array.from({ length: rounds }, (_, i) => (
@@ -475,6 +497,37 @@ export default function DraftRoomPage() {
             </div>
           ))}
         </div>
+
+        {/* ── Video overlay — absolute inside draftboard only (mirrors admin view) ── */}
+        {(animPhase === 'video' || videoExiting) && animDataRef.current?.videoUrl && (() => {
+          const videoUrl = animDataRef.current!.videoUrl!;
+          const isYt = videoUrl.includes('youtube.com') || videoUrl.includes('youtu.be');
+          const embedUrl = isYt ? getYoutubeEmbedUrl(videoUrl) : null;
+          return (
+            <div
+              ref={animVideoContainerRef}
+              className="absolute inset-0 z-20 bg-black flex flex-col items-center justify-center overflow-hidden transition-opacity duration-[350ms]"
+              style={{ opacity: videoExiting ? 0 : 1 }}
+            >
+              <div className="w-full h-full flex flex-col items-center justify-center p-4">
+                {embedUrl ? (
+                  <iframe
+                    src={embedUrl}
+                    className="w-full flex-1 rounded-lg"
+                    allow="autoplay; fullscreen"
+                    allowFullScreen
+                    style={{ minHeight: 0 }}
+                    onLoad={(e) => {
+                      try { (e.currentTarget as HTMLIFrameElement).contentWindow?.postMessage(JSON.stringify({ event: 'listening' }), '*'); } catch {}
+                    }}
+                  />
+                ) : (
+                  <video src={videoUrl} autoPlay controls className="w-full flex-1 rounded-lg" style={{ minHeight: 0, objectFit: 'contain' }} onEnded={dismissVideo} />
+                )}
+              </div>
+            </div>
+          );
+        })()}
       </div>
 
       {/* ── TEAM SECTION (below board, normal flow — whole page scrolls) ── */}
@@ -841,7 +894,7 @@ export default function DraftRoomPage() {
           </div>
         </div>
       )}
-      {/* ── Animation overlays — mirrors admin/presentation view, no admin controls ── */}
+      {/* ── Animation overlays (pick + clock) — full-screen, mirrors admin/presentation view ── */}
       {animPhase === 'pick' && animDataRef.current && (animDataRef.current.pick.playerName || animDataRef.current.pick.playerId) && (
         <DraftPickAnimation
           key={`room-pick-${animDataRef.current.overall}`}
@@ -876,35 +929,6 @@ export default function DraftRoomPage() {
             pickInRound={((curOverall - 1) % picksPerRound) + 1}
             onComplete={() => setAnimPhase(!!(animDataRef.current?.videoUrl) ? 'video' : null)}
           />
-        );
-      })()}
-      {(animPhase === 'video' || videoExiting) && animDataRef.current?.videoUrl && (() => {
-        const videoUrl = animDataRef.current!.videoUrl!;
-        const isYt = videoUrl.includes('youtube.com') || videoUrl.includes('youtu.be');
-        const embedUrl = isYt ? getYoutubeEmbedUrl(videoUrl) : null;
-        return (
-          <div
-            ref={animVideoContainerRef}
-            className="fixed inset-0 z-[9999] bg-black flex flex-col items-center justify-center overflow-hidden transition-opacity duration-[350ms]"
-            style={{ opacity: videoExiting ? 0 : 1 }}
-          >
-            <div className="w-full h-full flex flex-col items-center justify-center p-4">
-              {embedUrl ? (
-                <iframe
-                  src={embedUrl}
-                  className="w-full flex-1 rounded-lg"
-                  allow="autoplay; fullscreen"
-                  allowFullScreen
-                  style={{ minHeight: 0 }}
-                  onLoad={(e) => {
-                    try { (e.currentTarget as HTMLIFrameElement).contentWindow?.postMessage(JSON.stringify({ event: 'listening' }), '*'); } catch {}
-                  }}
-                />
-              ) : (
-                <video src={videoUrl} autoPlay controls className="w-full flex-1 rounded-lg" style={{ minHeight: 0, objectFit: 'contain' }} onEnded={dismissVideo} />
-              )}
-            </div>
-          </div>
         );
       })()}
     </div>

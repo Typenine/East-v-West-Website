@@ -86,6 +86,8 @@ export default function DraftOverlayLive() {
   const videoContainerRef = useRef<HTMLDivElement>(null);
   // Guard: prevent dismissVideo from firing more than once per video phase
   const dismissingRef = useRef(false);
+  // Track when animation sequence started (for stale-skip on tab re-focus)
+  const animStartTimeRef = useRef<number>(0);
 
   // Load player media (videos + images) on mount
   useEffect(() => {
@@ -130,6 +132,24 @@ export default function DraftOverlayLive() {
     window.addEventListener('message', handler);
     return () => window.removeEventListener('message', handler);
   }, [animPhase]);
+
+  // Tab visibility — skip stale animations and apply GSAP lag smoothing on re-focus
+  useEffect(() => {
+    function handleVisibility() {
+      if (document.hidden) return;
+      // GSAP: don't rush-replay missed frames
+      gsap.ticker.lagSmoothing(0);
+      // Skip animation if it has been running > 35s (should have long since finished)
+      setAnimPhase(prev => {
+        if (!prev || prev === 'video') return prev;
+        const elapsed = Date.now() - animStartTimeRef.current;
+        if (elapsed > 35000) return null;
+        return prev;
+      });
+    }
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => document.removeEventListener('visibilitychange', handleVisibility);
+  }, []);
 
   // Phase safety-net timeouts — prevents any phase from sticking if GSAP/onComplete fails
   useEffect(() => {
@@ -222,6 +242,7 @@ export default function DraftOverlayLive() {
     if (!w.__pickAudioAt || Date.now() - w.__pickAudioAt > 3000) {
       try { w.__pickAudioAt = Date.now(); new Audio('/assets/teams/audio/pickIsIn.mp3').play().catch(() => {}); } catch { /* ignored */ }
     }
+    animStartTimeRef.current = Date.now();
     setAnimPhase('pick');
 
     // Background refresh — updates playerVideosRef for future picks only
