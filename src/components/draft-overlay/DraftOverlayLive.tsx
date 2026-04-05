@@ -195,7 +195,10 @@ export default function DraftOverlayLive() {
         ? `/api/draft/player-image?playerId=${encodeURIComponent(lastPick.playerId)}`
         : null,
     };
-    try { new Audio('/assets/teams/audio/pickIsIn.mp3').play().catch(() => {}); } catch { /* ignored */ }
+    const w = window as Window & { __pickAudioAt?: number };
+    if (!w.__pickAudioAt || Date.now() - w.__pickAudioAt > 3000) {
+      try { w.__pickAudioAt = Date.now(); new Audio('/assets/teams/audio/pickIsIn.mp3').play().catch(() => {}); } catch { /* ignored */ }
+    }
     setAnimPhase('pick');
 
     // Background refresh — updates playerVideosRef for future picks only
