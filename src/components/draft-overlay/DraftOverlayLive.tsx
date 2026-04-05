@@ -193,6 +193,7 @@ export default function DraftOverlayLive() {
         ? `/api/draft/player-image?playerId=${encodeURIComponent(lastPick.playerId)}`
         : null,
     };
+    try { new Audio('/audio/pickisin.mp3').play(); } catch { /* autoplay blocked */ }
     setAnimPhase('pick');
 
     // Background refresh — updates playerVideosRef for future picks only
