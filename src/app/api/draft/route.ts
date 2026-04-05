@@ -17,6 +17,7 @@ import {
   undoLastPick,
   getTeamQueue,
   setTeamQueue,
+  removePlayerFromQueue,
   getDraftPickedPlayerIds,
   countDraftPlayers,
   getDraftPlayers,
@@ -208,6 +209,8 @@ export async function POST(req: NextRequest) {
         const res = await forcePick({ draftId, playerId: pending.playerId, playerName: pending.playerName, playerPos: pending.playerPos, playerNfl: pending.playerNfl, team: pending.team, madeBy: 'admin_approved' });
         if (!res.ok) return bad(res.error || 'failed', 400);
         await resolvePendingPick(pending.id, 'approved');
+        // Clean the approved player from the team's queue (handles offline team clients)
+        await removePlayerFromQueue(draftId, pending.team, pending.playerId);
         return ok({ ok: true });
       }
       if (action === 'reject_pick') {
@@ -257,29 +260,35 @@ export async function POST(req: NextRequest) {
     }
 
     if (action === 'queue_get') {
-      const ident = await requireTeamUser();
-      if (!ident) return bad('auth_required', 401);
+      const adminReq = isAdmin(req);
+      const ident = adminReq ? null : await requireTeamUser();
+      if (!ident && !adminReq) return bad('auth_required', 401);
       const draftId = id || (await getActiveOrLatestDraftId());
       if (!draftId) return bad('no_draft');
-      const team = ident.team;
+      // Admin can pass explicit team; regular user always uses their own team
+      const team = adminReq ? (typeof body.team === 'string' ? body.team : '') : ident!.team;
+      if (!team) return bad('no_team');
       const list = await getTeamQueue(draftId, team);
       return ok({ ok: true, queue: list });
     }
 
     if (action === 'queue_set') {
-      const ident = await requireTeamUser();
-      if (!ident) return bad('auth_required', 401);
+      const adminReq = isAdmin(req);
+      const ident = adminReq ? null : await requireTeamUser();
+      if (!ident && !adminReq) return bad('auth_required', 401);
       const draftId = id || (await getActiveOrLatestDraftId());
       if (!draftId) return bad('no_draft');
+      // Admin can pass explicit team; regular user always uses their own team
+      const team = adminReq ? (typeof body.team === 'string' ? body.team : '') : ident!.team;
+      if (!team) return bad('no_team');
       // Accept either array of player objects or array of IDs (for backwards compatibility)
       let players: Array<{ id: string; name?: string; pos?: string; nfl?: string }> = [];
       if (Array.isArray(body.players)) {
         players = body.players as Array<{ id: string; name?: string; pos?: string; nfl?: string }>;
       } else if (Array.isArray(body.playerIds)) {
-        // Legacy format: convert IDs to objects
-        players = (body.playerIds as string[]).map(id => ({ id }));
+        players = (body.playerIds as string[]).map(pid => ({ id: pid }));
       }
-      await setTeamQueue(draftId, ident.team, players);
+      await setTeamQueue(draftId, team, players);
       return ok({ ok: true });
     }
 

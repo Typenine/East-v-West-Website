@@ -776,6 +776,12 @@ export async function getTeamQueue(draftId: string, team: string): Promise<Queue
   return rows.map((r) => ({ id: r.player_id, name: r.player_name || r.player_id, pos: r.player_pos || '', nfl: r.player_nfl || '' }));
 }
 
+export async function removePlayerFromQueue(draftId: string, team: string, playerId: string): Promise<void> {
+  await ensureDraftTables();
+  const db = getDb();
+  await db.execute(sql`DELETE FROM draft_queues WHERE draft_id = ${draftId}::uuid AND team = ${team} AND player_id = ${playerId}`);
+}
+
 export async function setTeamQueue(draftId: string, team: string, players: Array<{ id: string; name?: string; pos?: string; nfl?: string }>) {
   await ensureDraftTables();
   const db = getDb();
@@ -816,16 +822,33 @@ export async function checkAndAutoPick(draftId: string, force = false): Promise<
   const takenRes = await db.execute(sql`SELECT player_id FROM draft_picks WHERE draft_id = ${draftId}::uuid`);
   const taken = new Set(((takenRes as unknown as { rows?: Array<{ player_id: string }> }).rows || []).map(r => r.player_id));
 
-  // Try queue first - now includes player info
+  // If there is already a pending pick waiting for admin approval, do not interfere
+  const existingPending = await getPendingPick(draftId);
+  if (existingPending) return { picked: false };
+
+  // Try queue first
   const queueRes = await db.execute(sql`SELECT player_id, player_name, player_pos, player_nfl FROM draft_queues WHERE draft_id = ${draftId}::uuid AND team = ${team} ORDER BY rank ASC`);
   const queue = ((queueRes as unknown as { rows?: Array<{ player_id: string; player_name?: string; player_pos?: string; player_nfl?: string }> }).rows || []);
   for (const qp of queue) {
     if (!taken.has(qp.player_id)) {
-      // Pick from queue with stored player info
-      const pickRes = await forcePick({ draftId, playerId: qp.player_id, playerName: qp.player_name || null, playerPos: qp.player_pos || null, playerNfl: qp.player_nfl || null, team, madeBy: 'auto' });
-      if (pickRes.ok) {
-        // Remove from queue
-        await db.execute(sql`DELETE FROM draft_queues WHERE draft_id = ${draftId}::uuid AND team = ${team} AND player_id = ${qp.player_id}`);
+      if (force) {
+        // Admin-forced: bypass approval, pick immediately
+        const pickRes = await forcePick({ draftId, playerId: qp.player_id, playerName: qp.player_name || null, playerPos: qp.player_pos || null, playerNfl: qp.player_nfl || null, team, madeBy: 'auto' });
+        if (pickRes.ok) {
+          await db.execute(sql`DELETE FROM draft_queues WHERE draft_id = ${draftId}::uuid AND team = ${team} AND player_id = ${qp.player_id}`);
+          return { picked: true, playerId: qp.player_id, playerName: qp.player_name || undefined };
+        }
+      } else {
+        // Clock expired: submit as pending pick so admin can approve
+        await submitPendingPick(draftId, {
+          overall: draft.cur_overall,
+          team,
+          playerId: qp.player_id,
+          playerName: qp.player_name || null,
+          playerPos: qp.player_pos || null,
+          playerNfl: qp.player_nfl || null,
+        });
+        await pauseDraft(draftId);
         return { picked: true, playerId: qp.player_id, playerName: qp.player_name || undefined };
       }
     }

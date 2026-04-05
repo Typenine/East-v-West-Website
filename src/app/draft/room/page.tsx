@@ -194,6 +194,30 @@ export default function DraftRoomPage() {
       }
       prevPendingRef.current = newPending;
       setPendingPick(newPending);
+      // Auto-remove the approved player from queue so it doesn't linger or re-trigger autopick
+      if (prevPending && prevPending.team === myTeamRef.current && !newPending) {
+        const wasApproved = (newDraft?.allPicks || newDraft?.recentPicks || []).some((p: DraftPick) => p.playerId === prevPending.playerId);
+        if (wasApproved && queueRef.current.some(q => q.id === prevPending.playerId)) {
+          const cleaned = queueRef.current.filter(q => q.id !== prevPending.playerId);
+          setQueue(cleaned);
+          queueRef.current = cleaned;
+          const qBody: Record<string, unknown> = { action: 'queue_set', players: cleaned };
+          if (myTeamRef.current) qBody.team = myTeamRef.current;
+          fetch('/api/draft', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(qBody) }).catch(() => {});
+        }
+      }
+      // Auto-remove any players from queue who have already been drafted
+      if (queueRef.current.length > 0) {
+        const pickedIds = new Set((newDraft?.allPicks || newDraft?.recentPicks || []).map((p: DraftPick) => p.playerId));
+        const filtered = queueRef.current.filter(q => !pickedIds.has(q.id));
+        if (filtered.length !== queueRef.current.length) {
+          setQueue(filtered);
+          queueRef.current = filtered;
+          const qBody: Record<string, unknown> = { action: 'queue_set', players: filtered };
+          if (myTeamRef.current) qBody.team = myTeamRef.current;
+          fetch('/api/draft', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(qBody) }).catch(() => {});
+        }
+      }
       if (newRemaining !== null && newRemaining > 10) beepPlayedRef.current = false;
       if (includeAvail) setAvail((j?.available as Avail[]) || []);
     } finally {
@@ -204,7 +228,9 @@ export default function DraftRoomPage() {
   const syncQueue = async (newQueue: QueueItem[]) => {
     setQueue(newQueue);
     queueRef.current = newQueue;
-    await fetch('/api/draft', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'queue_set', players: newQueue }) });
+    const body: Record<string, unknown> = { action: 'queue_set', players: newQueue };
+    if (isAdmin && myTeam) body.team = myTeam;
+    await fetch('/api/draft', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
   };
   const addToQueue = async (player: Avail) => {
     if (queue.some(q => q.id === player.id)) return;
@@ -221,10 +247,14 @@ export default function DraftRoomPage() {
     await syncQueue(nq);
   };
 
-  // Load auto-pick pref from localStorage
+  // Load auto-pick pref from localStorage — scoped per team so each team has its own setting
   useEffect(() => {
-    try { if (localStorage.getItem('evw_draft_autopick') === 'true') setAutoPickEnabled(true); } catch {}
-  }, []);
+    if (!myTeam) { setAutoPickEnabled(false); return; }
+    try {
+      const stored = localStorage.getItem(`evw_draft_autopick_${myTeam}`);
+      setAutoPickEnabled(stored === 'true');
+    } catch {}
+  }, [myTeam]);
 
   // Fetch team roster from Sleeper when myTeam is known
   useEffect(() => {
@@ -245,13 +275,15 @@ export default function DraftRoomPage() {
     return () => clearInterval(t);
   }, []);
 
-  // Load queue when authenticated
+  // Load queue when myTeam or admin status changes — scoped per team (admin passes team explicitly)
   useEffect(() => {
-    if (!me?.authenticated) return;
-    fetch('/api/draft', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'queue_get' }) })
+    if (!myTeam) { setQueue([]); queueRef.current = []; return; }
+    const body: Record<string, unknown> = { action: 'queue_get' };
+    if (isAdmin) body.team = myTeam;
+    fetch('/api/draft', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
       .then(r => r.json()).then(j => { const q = (j?.queue as QueueItem[]) || []; setQueue(q); queueRef.current = q; })
       .catch(() => {});
-  }, [me?.authenticated]);
+  }, [myTeam, isAdmin]);
 
   // Debounced player search — skip first render (initial avail comes from load(true))
   useEffect(() => {
@@ -282,7 +314,7 @@ export default function DraftRoomPage() {
     return () => clearInterval(interval);
   }, [remainingSec, lastFetchTime, isMyTurn, playBeep, draft?.status]);
 
-  // Auto-pick when clock expires
+  // Auto-pick when clock expires — silently tries queue players in order, no alert on failure
   useEffect(() => {
     const isMyPickPendingNow = pickStatus === 'pending' || (pendingPick?.team === myTeam);
     if (!isMyTurn || !autoPickEnabled || submitting || isMyPickPendingNow) {
@@ -291,8 +323,26 @@ export default function DraftRoomPage() {
     }
     if (localRemaining !== null && localRemaining <= 0 && !autoPickFiredRef.current && queueRef.current.length > 0) {
       autoPickFiredRef.current = true;
-      const top = queueRef.current[0];
-      submitPickRef.current({ id: top.id, name: top.name, pos: top.pos, nfl: top.nfl });
+      // Try queue players in order until one succeeds (skip already-drafted players silently)
+      (async () => {
+        for (const qp of queueRef.current) {
+          try {
+            const res = await fetch('/api/draft', {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ action: 'pick', playerId: qp.id, playerName: qp.name, playerPos: qp.pos, playerNfl: qp.nfl }),
+            });
+            const j = await res.json();
+            if (res.ok && !j?.error) {
+              setPickStatus('pending');
+              setSubmittedPlayer(qp);
+              break;
+            }
+            if (j?.error === 'player_already_picked') continue;
+            break; // other errors — stop trying
+          } catch { break; }
+        }
+      })();
     }
   }, [localRemaining, isMyTurn, autoPickEnabled, submitting, pickStatus, pendingPick, myTeam]);
 
@@ -738,7 +788,7 @@ export default function DraftRoomPage() {
                     onClick={() => {
                       const next = !autoPickEnabled;
                       setAutoPickEnabled(next);
-                      try { localStorage.setItem('evw_draft_autopick', String(next)); } catch {}
+                      try { localStorage.setItem(`evw_draft_autopick_${myTeam || 'default'}`, String(next)); } catch {}
                     }}
                   >
                     <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${autoPickEnabled ? 'translate-x-4' : 'translate-x-0.5'}`} />
