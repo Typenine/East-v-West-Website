@@ -313,8 +313,9 @@ export default function DraftRoomPage() {
   }, []);
 
   // Animation trigger — mirrors DraftOverlayLive
+  // recentPicks is ordered ASC (oldest first); .at(-1) gives the newest pick
   useEffect(() => {
-    const lastPick = draft?.recentPicks?.[0] || null;
+    const lastPick = draft?.recentPicks?.length ? draft.recentPicks[draft.recentPicks.length - 1] : null;
     if (!lastPick) {
       if (!animInitRef.current) animInitRef.current = true;
       animLastPickRef.current = null;
@@ -340,7 +341,7 @@ export default function DraftRoomPage() {
     };
     setAnimPhase('pick');
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [draft?.recentPicks?.[0]?.overall]);
+  }, [draft?.recentPicks?.[draft?.recentPicks?.length - 1]?.overall]);
 
   // Phase safety timeouts
   useEffect(() => {

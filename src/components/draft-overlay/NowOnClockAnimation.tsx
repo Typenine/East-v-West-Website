@@ -157,9 +157,9 @@ export default function NowOnClockAnimation({
         <div
           className="noc-pick-meta mt-8 flex gap-8 items-center px-10 py-4 rounded-2xl"
           style={{
-            background: `linear-gradient(135deg, rgba(0,0,0,0.82) 0%, ${c1}28 100%)`,
-            border: `1px solid ${c1}55`,
-            boxShadow: `0 4px 24px rgba(0,0,0,0.6), inset 0 1px 0 ${c1}22`,
+            background: `linear-gradient(135deg, rgba(0,0,0,0.94) 0%, ${c1}66 100%)`,
+            border: `2px solid ${c1}99`,
+            boxShadow: `0 4px 32px rgba(0,0,0,0.85), inset 0 1px 0 ${c1}44`,
             willChange: 'transform, opacity',
           }}
         >
