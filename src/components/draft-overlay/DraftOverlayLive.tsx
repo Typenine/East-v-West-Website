@@ -59,7 +59,9 @@ export default function DraftOverlayLive() {
   const [isAdmin, setIsAdmin] = useState(false);
   useEffect(() => {
     fetch('/api/auth/me').then(r => r.json()).then((j) => setIsAdmin(Boolean(j?.isAdmin))).catch(() => {});
-  }, []); // 1s during LIVE, auto-adjusts to 5s/10s for PAUSED/COMPLETED
+  }, []);
+
+  // 1s during LIVE, auto-adjusts to 5s/10s for PAUSED/COMPLETED
 
   // Animation state machine: pick → clock → video → idle
   type AnimPhase = 'pick' | 'video' | 'clock' | null;
@@ -193,7 +195,7 @@ export default function DraftOverlayLive() {
         ? `/api/draft/player-image?playerId=${encodeURIComponent(lastPick.playerId)}`
         : null,
     };
-    try { new Audio('/audio/pickisin.mp3').play(); } catch { /* autoplay blocked */ }
+    new Audio('/audio/pickisin.mp3').play().catch(() => {});
     setAnimPhase('pick');
 
     // Background refresh — updates playerVideosRef for future picks only

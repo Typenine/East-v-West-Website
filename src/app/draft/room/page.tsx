@@ -352,13 +352,22 @@ export default function DraftRoomPage() {
         {/* On the Clock banner */}
         {draft && draft.status !== 'NOT_STARTED' && (
           pendingPick ? (
-            /* ── PICK IS IN: dark banner matching admin/presentation view ── */
-            <div className="flex items-center gap-3 px-4 py-4" style={{ background: 'linear-gradient(135deg,rgba(0,0,0,0.92),rgba(30,10,0,0.96))', borderBottom: '2px solid #333', minHeight: '56px' }}>
-              <div className="w-8 h-8 shrink-0 rounded overflow-hidden bg-black/40 flex items-center justify-center border border-white/10">
-                {onClockLogo ? <img src={onClockLogo} alt={onClock || ''} className="w-full h-full object-contain" /> : <span className="text-white/40 text-sm">?</span>}
+            /* ── PICK IS IN: mirrors admin/presentation layout ── */
+            <div className="flex items-stretch" style={{ borderBottom: `2px solid ${tc[0]}80` }}>
+              {/* Left: ClockBox equivalent — logo + frozen timer, stays visible */}
+              <div className="flex items-center gap-3 px-4 py-3 shrink-0" style={{ background: 'linear-gradient(to bottom,#202020,#282828)', borderRight: '1px solid #333' }}>
+                <div className="w-10 h-10 rounded-lg overflow-hidden bg-black/40 flex items-center justify-center border border-white/20">
+                  {onClockLogo ? <img src={onClockLogo} alt={onClock || ''} className="w-full h-full object-contain" /> : <span className="text-white/40">?</span>}
+                </div>
+                <div className="text-xl font-mono font-black tabular-nums text-white">
+                  {localRemaining !== null ? formatTime(localRemaining) : '--:--'}
+                </div>
               </div>
-              <div className="flex-1 flex items-center justify-center">
-                <div className="text-4xl font-black text-white tracking-widest uppercase animate-pulse">PICK IS IN</div>
+              {/* Right: InfoBar equivalent — team color under PICK IS IN overlay */}
+              <div className="flex-1 relative flex items-center justify-center" style={{ background: tc[0], minHeight: '56px' }}>
+                <div className="absolute inset-0 flex items-center justify-center" style={{ background: 'linear-gradient(135deg,rgba(0,0,0,0.92),rgba(30,10,0,0.96))' }}>
+                  <div className="text-4xl font-black text-white tracking-widest uppercase animate-pulse">PICK IS IN</div>
+                </div>
               </div>
             </div>
           ) : (
