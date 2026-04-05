@@ -104,14 +104,10 @@ export default function DraftOverlayLive() {
     return () => clearInterval(t);
   }, []);
 
-  // Dismiss video with GSAP exit animation
+  // Dismiss video — CSS fade via videoExiting, setTimeout guarantees state reset
   function dismissVideo() {
-    if (!videoContainerRef.current) { setAnimPhase(prev => prev === 'video' ? null : prev); return; }
     setVideoExiting(true);
-    gsap.to(videoContainerRef.current, {
-      opacity: 0, scale: 0.96, duration: 0.35, ease: 'power2.in',
-      onComplete: () => { setAnimPhase(prev => prev === 'video' ? null : prev); setVideoExiting(false); },
-    });
+    setTimeout(() => { setAnimPhase(null); setVideoExiting(false); }, 350);
   }
 
   // YouTube postMessage listener to detect video end
@@ -123,7 +119,7 @@ export default function DraftOverlayLive() {
         const data = typeof e.data === 'string' ? JSON.parse(e.data) : e.data;
         if (data?.event === 'onStateChange') {
           if (data?.info === 1) videoHasPlayedRef.current = true; // playing
-          if (data?.info === 0 && videoHasPlayedRef.current) dismissVideo(); // ended after playing
+          if (data?.info === 0) dismissVideo(); // ended
         }
       } catch {}
     };
@@ -149,15 +145,19 @@ export default function DraftOverlayLive() {
     }
   }, [animPhase]);
 
-  // GSAP entrance for video container
+  // GSAP entrance for video container + safety-net max-duration timeout
   useEffect(() => {
-    if (animPhase === 'video' && videoContainerRef.current) {
+    if (animPhase !== 'video') return;
+    if (videoContainerRef.current) {
       gsap.fromTo(
         videoContainerRef.current,
         { opacity: 0, scale: 0.96 },
         { opacity: 1, scale: 1, duration: 0.45, ease: 'power2.out' },
       );
     }
+    // Safety net: auto-dismiss after 10 min if onEnded/postMessage never fires
+    const safetyTimer = setTimeout(dismissVideo, 10 * 60 * 1000);
+    return () => clearTimeout(safetyTimer);
   }, [animPhase]); // videoContainerRef is stable
 
   // Format time as MM:SS
@@ -487,8 +487,8 @@ export default function DraftOverlayLive() {
           return (
             <div
               ref={videoContainerRef}
-              className="absolute inset-0 z-20 bg-black flex flex-col items-center justify-center pointer-events-auto rounded-lg overflow-hidden"
-              style={{ willChange: 'transform, opacity' }}
+              className="absolute inset-0 z-20 bg-black flex flex-col items-center justify-center pointer-events-auto rounded-lg overflow-hidden transition-opacity duration-[350ms]"
+              style={{ opacity: videoExiting ? 0 : 1, willChange: 'opacity' }}
             >
               <div className="w-full h-full flex flex-col items-center justify-center p-4">
                 {embedUrl ? (
