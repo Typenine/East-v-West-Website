@@ -82,10 +82,10 @@ export default function DraftOverlayLive() {
   const clockRef = useRef<HTMLDivElement>(null);
   const lastAnimatedPickRef = useRef<number | null>(null);
   const animInitializedRef = useRef(false);
-  // Track whether YouTube video actually started playing before treating state=0 as ended
-  const videoHasPlayedRef = useRef(false);
   // Ref for GSAP video container animation
   const videoContainerRef = useRef<HTMLDivElement>(null);
+  // Guard: prevent dismissVideo from firing more than once per video phase
+  const dismissingRef = useRef(false);
 
   // Load player media (videos + images) on mount
   useEffect(() => {
@@ -106,26 +106,30 @@ export default function DraftOverlayLive() {
 
   // Dismiss video — CSS fade via videoExiting, setTimeout guarantees state reset
   function dismissVideo() {
+    if (dismissingRef.current) return;
+    dismissingRef.current = true;
+    if (videoContainerRef.current) gsap.killTweensOf(videoContainerRef.current);
     setVideoExiting(true);
-    setTimeout(() => { setAnimPhase(null); setVideoExiting(false); }, 350);
+    setTimeout(() => { setAnimPhase(null); setVideoExiting(false); dismissingRef.current = false; }, 350);
   }
 
   // YouTube postMessage listener to detect video end
+  // Handles both old format {event:'onStateChange',info:0} and new {event:'infoDelivery',info:{playerState:0}}
   useEffect(() => {
     if (animPhase !== 'video') return;
-    videoHasPlayedRef.current = false; // reset for each new video phase
     const handler = (e: MessageEvent) => {
       try {
         const data = typeof e.data === 'string' ? JSON.parse(e.data) : e.data;
-        if (data?.event === 'onStateChange') {
-          if (data?.info === 1) videoHasPlayedRef.current = true; // playing
-          if (data?.info === 0) dismissVideo(); // ended
-        }
+        const ytState =
+          data?.event === 'onStateChange' ? data?.info :
+          data?.event === 'infoDelivery' && typeof data?.info?.playerState === 'number' ? data.info.playerState :
+          undefined;
+        if (ytState === 0) dismissVideo();
       } catch {}
     };
     window.addEventListener('message', handler);
     return () => window.removeEventListener('message', handler);
-  }, [animPhase]); // dismissVideo is stable (defined in component scope, refs only)
+  }, [animPhase]);
 
   // Clock-phase fallback: if we enter 'clock' but have no nextTeamName the NowOnClockAnimation
   // won't mount and onComplete never fires — advance the phase immediately here instead.
@@ -148,6 +152,7 @@ export default function DraftOverlayLive() {
   // GSAP entrance for video container + safety-net max-duration timeout
   useEffect(() => {
     if (animPhase !== 'video') return;
+    dismissingRef.current = false; // reset guard for each new video phase
     if (videoContainerRef.current) {
       gsap.fromTo(
         videoContainerRef.current,
@@ -498,6 +503,13 @@ export default function DraftOverlayLive() {
                     allow="autoplay; fullscreen"
                     allowFullScreen
                     style={{ minHeight: 0 }}
+                    onLoad={(e) => {
+                      try {
+                        (e.currentTarget as HTMLIFrameElement).contentWindow?.postMessage(
+                          JSON.stringify({ event: 'listening' }), '*'
+                        );
+                      } catch { /* cross-origin — ignored */ }
+                    }}
                   />
                 ) : (
                   <video
