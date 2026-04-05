@@ -352,20 +352,54 @@ export default function DraftRoomPage() {
         {/* On the Clock banner */}
         {draft && draft.status !== 'NOT_STARTED' && (
           pendingPick ? (
-            /* ── PICK IS IN: mirrors admin/presentation layout ── */
-            <div className="flex items-stretch" style={{ borderBottom: `2px solid ${tc[0]}80` }}>
-              {/* Left: ClockBox equivalent — logo + frozen timer, stays visible */}
-              <div className="flex items-center gap-3 px-4 py-3 shrink-0" style={{ background: 'linear-gradient(to bottom,#202020,#282828)', borderRight: '1px solid #333' }}>
-                <div className="w-10 h-10 rounded-lg overflow-hidden bg-black/40 flex items-center justify-center border border-white/20">
-                  {onClockLogo ? <img src={onClockLogo} alt={onClock || ''} className="w-full h-full object-contain" /> : <span className="text-white/40">?</span>}
-                </div>
-                <div className="text-xl font-mono font-black tabular-nums text-white">
-                  {localRemaining !== null ? formatTime(localRemaining) : '--:--'}
-                </div>
-              </div>
-              {/* Right: InfoBar equivalent — team color under PICK IS IN overlay */}
-              <div className="flex-1 relative flex items-center justify-center" style={{ background: tc[0], minHeight: '56px' }}>
-                <div className="absolute inset-0 flex items-center justify-center" style={{ background: 'linear-gradient(135deg,rgba(0,0,0,0.92),rgba(30,10,0,0.96))' }}>
+            /* ── PICK IS IN: exact mirror of admin ClockBox + InfoBar ── */
+            <div className="flex gap-4 items-stretch h-[140px]">
+              {/* ClockBox — identical styles to DraftOverlayLive */}
+              {(() => {
+                const pendingOverall = pendingPick!.overall;
+                const roundNum = Math.ceil(pendingOverall / picksPerRound);
+                const pickNum = ((pendingOverall - 1) % picksPerRound) + 1;
+                const abbrev = (onClock || '---').split(' ').map((w: string) => w[0]).join('').slice(0, 3).toUpperCase();
+                const nextUp = (draft?.upcoming || []).filter((u: DraftSlot) => u.overall > pendingOverall).slice(0, 2);
+                return (
+                  <div className="flex items-stretch shrink-0" style={{ width: '340px', background: 'linear-gradient(to bottom,#202020,#282828)', borderRadius: '4px', border: '1px solid #333' }}>
+                    {/* Abbrev + round/pick */}
+                    <div className="flex flex-col justify-center p-2 w-28">
+                      <div className="px-2 py-1 rounded text-center font-black text-xl text-white" style={{ background: `linear-gradient(135deg,${tc[0]}cc 0%,${tc[0]}cc 50%,${tc[1]}cc 50%,${tc[1]}cc 100%)`, border: '2px solid #a4c810', boxShadow: '0 0 10px rgba(196,255,0,0.4)' }}>
+                        {abbrev}
+                      </div>
+                      <div className="text-white text-sm mt-1 text-center">
+                        <span className="font-bold">RD</span> {roundNum} <span className="font-bold">PK</span> {pickNum}
+                      </div>
+                    </div>
+                    {/* Timer */}
+                    <div className="flex-1 flex items-center justify-center">
+                      <div className="text-4xl font-bold font-mono" style={{ color: '#a4c810', textShadow: '0 0 10px rgba(196,255,0,0.4)' }}>
+                        {localRemaining !== null ? formatTime(localRemaining) : '--:--'}
+                      </div>
+                    </div>
+                    {/* NEXT + team logo */}
+                    <div className="flex items-center gap-2 p-2">
+                      <div className="flex flex-col items-center gap-1">
+                        <span className="text-[10px] text-zinc-400">NEXT</span>
+                        <div className="flex gap-1">
+                          {nextUp.map((t: DraftSlot, i: number) => (
+                            <div key={i} className="w-6 h-6 bg-zinc-600 rounded overflow-hidden">
+                              <img src={getTeamLogoPath(t.team)} alt={t.team} className="w-full h-full object-contain" />
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="w-16 h-16 bg-zinc-700 rounded overflow-hidden border-2 border-[#a4c810]" style={{ boxShadow: '0 0 8px rgba(196,255,0,0.4)' }}>
+                        {onClockLogo && <img src={onClockLogo} alt={onClock || ''} className="w-full h-full object-contain" />}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+              {/* InfoBar — identical styles to DraftOverlayLive */}
+              <div className="flex-1 overflow-hidden relative" style={{ background: tc[0], borderRadius: '4px', height: '140px' }}>
+                <div className="absolute inset-0 flex items-center justify-center z-20 rounded-sm" style={{ background: 'linear-gradient(135deg,rgba(0,0,0,0.92),rgba(30,10,0,0.96))' }}>
                   <div className="text-4xl font-black text-white tracking-widest uppercase animate-pulse">PICK IS IN</div>
                 </div>
               </div>
