@@ -155,26 +155,34 @@ export default function NowOnClockAnimation({
 
         {/* Pick meta */}
         <div
-          className="noc-pick-meta mt-8 flex gap-8 items-center"
-          style={{ willChange: 'transform, opacity' }}
+          className="noc-pick-meta mt-8 flex gap-8 items-center px-10 py-4 rounded-2xl"
+          style={{
+            background: `linear-gradient(135deg, rgba(0,0,0,0.82) 0%, ${c1}28 100%)`,
+            border: `1px solid ${c1}55`,
+            boxShadow: `0 4px 24px rgba(0,0,0,0.6), inset 0 1px 0 ${c1}22`,
+            willChange: 'transform, opacity',
+          }}
         >
           {[
             { label: 'ROUND', value: round },
             { label: 'PICK', value: pickInRound },
             { label: 'OVERALL', value: pickNumber },
-          ].map(({ label, value }) => (
-            <div key={label} className="text-center">
-              <div className="text-white/60 text-xs font-bold tracking-widest mb-1">{label}</div>
-              <div
-                className="font-black text-white"
-                style={{
-                  fontSize: '2.8rem',
-                  lineHeight: 1,
-                  textShadow: '0 2px 8px rgba(0,0,0,0.8)',
-                  color: c1,
-                }}
-              >
-                {value}
+          ].map(({ label, value }, i) => (
+            <div key={label} className="text-center flex items-center gap-8">
+              {i > 0 && <div className="w-px h-10 self-stretch" style={{ background: `${c1}44` }} />}
+              <div>
+                <div className="text-white/60 text-xs font-bold tracking-widest mb-1">{label}</div>
+                <div
+                  className="font-black"
+                  style={{
+                    fontSize: '2.8rem',
+                    lineHeight: 1,
+                    textShadow: `0 2px 12px rgba(0,0,0,0.9), 0 0 20px ${c1}88`,
+                    color: c1,
+                  }}
+                >
+                  {value}
+                </div>
               </div>
             </div>
           ))}

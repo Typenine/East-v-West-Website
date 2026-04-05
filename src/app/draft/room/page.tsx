@@ -8,8 +8,21 @@ import Button from '@/components/ui/Button';
 import { getTeamLogoPath } from '@/lib/utils/team-utils';
 import { getTeamColors } from '@/lib/constants/team-colors';
 import { TEAM_NAMES } from '@/lib/constants/league';
+import DraftPickAnimation from '@/components/draft-overlay/DraftPickAnimation';
+import NowOnClockAnimation from '@/components/draft-overlay/NowOnClockAnimation';
+import { gsap } from 'gsap';
 
 const POSITIONS = ['QB', 'RB', 'WR', 'TE', 'K'];
+
+function getYoutubeEmbedUrl(url: string): string | null {
+  try {
+    let videoId: string | null = null;
+    if (url.includes('youtu.be/')) videoId = url.split('youtu.be/')[1]?.split(/[?&]/)[0] || null;
+    else if (url.includes('youtube.com')) { const u = new URL(url); videoId = u.searchParams.get('v') || u.pathname.split('/').pop() || null; }
+    if (!videoId) return null;
+    return `https://www.youtube.com/embed/${videoId}?autoplay=1&rel=0&modestbranding=1&enablejsapi=1`;
+  } catch { return null; }
+}
 
 const POS_COLORS: Record<string, string> = {
   QB: '#C00000', RB: '#FFC000', WR: '#0070C0', TE: '#00B050', K: '#FF8C42',
@@ -64,6 +77,19 @@ export default function DraftRoomPage() {
   const [rosterLoading, setRosterLoading] = useState(false);
   const [confirmPlayer, setConfirmPlayer] = useState<Avail | null>(null);
 
+  // Animation phase state — mirrors DraftOverlayLive (display only, no admin controls)
+  const [animPhase, setAnimPhase] = useState<'pick' | 'clock' | 'video' | null>(null);
+  const [videoExiting, setVideoExiting] = useState(false);
+  const animDataRef = useRef<{
+    pick: DraftPick; nextTeamName: string | null; overall: number;
+    round: number; pickInRound: number; videoUrl: string | null; imageUrl: string | null;
+  } | null>(null);
+  const animPlayerVideosRef = useRef<Record<string, { videoUrl: string | null; hasImage: boolean }>>({});
+  const animLastPickRef = useRef<number | null>(null);
+  const animInitRef = useRef(false);
+  const animDismissingRef = useRef(false);
+  const animVideoContainerRef = useRef<HTMLDivElement>(null);
+
   const prevPendingRef = useRef<PendingPick>(null);
   const beepPlayedRef = useRef(false);
   const autoPickFiredRef = useRef(false);
@@ -82,6 +108,14 @@ export default function DraftRoomPage() {
   const myTeam = me?.claims?.team || (isAdmin ? (adminTeamOverride || onClock || null) : null);
   const isMyTurn = !!myTeam && !!onClock && myTeam === onClock;
   myTeamRef.current = myTeam;
+
+  function dismissVideo() {
+    if (animDismissingRef.current) return;
+    animDismissingRef.current = true;
+    if (animVideoContainerRef.current) gsap.killTweensOf(animVideoContainerRef.current);
+    setVideoExiting(true);
+    setTimeout(() => { setAnimPhase(null); setVideoExiting(false); animDismissingRef.current = false; }, 350);
+  }
 
   const formatTime = (sec: number) => {
     const m = Math.floor(sec / 60);
@@ -260,6 +294,102 @@ export default function DraftRoomPage() {
       submitPickRef.current({ id: top.id, name: top.name, pos: top.pos, nfl: top.nfl });
     }
   }, [localRemaining, isMyTurn, autoPickEnabled, submitting, pickStatus, pendingPick, myTeam]);
+
+  // Load player media for animations
+  useEffect(() => {
+    async function loadVideos() {
+      try {
+        const res = await fetch('/api/draft/player-videos', { cache: 'no-store' });
+        if (!res.ok) return;
+        const j = await res.json();
+        const map: Record<string, { videoUrl: string | null; hasImage: boolean }> = {};
+        for (const v of (j.videos || [])) { map[v.playerId] = { videoUrl: v.videoUrl || null, hasImage: !!v.imageUrl }; }
+        animPlayerVideosRef.current = map;
+      } catch {}
+    }
+    loadVideos();
+    const t = setInterval(loadVideos, 60000);
+    return () => clearInterval(t);
+  }, []);
+
+  // Animation trigger — mirrors DraftOverlayLive
+  useEffect(() => {
+    const lastPick = draft?.recentPicks?.[0] || null;
+    if (!lastPick) {
+      if (!animInitRef.current) animInitRef.current = true;
+      animLastPickRef.current = null;
+      return;
+    }
+    if (!animInitRef.current) {
+      animInitRef.current = true;
+      animLastPickRef.current = lastPick.overall;
+      return;
+    }
+    if (lastPick.overall <= (animLastPickRef.current ?? -1)) return;
+    animLastPickRef.current = lastPick.overall;
+    animDataRef.current = {
+      pick: lastPick,
+      nextTeamName: draft?.upcoming?.[0]?.team || null,
+      overall: lastPick.overall,
+      round: lastPick.round,
+      pickInRound: ((lastPick.overall - 1) % picksPerRound) + 1,
+      videoUrl: animPlayerVideosRef.current[lastPick.playerId]?.videoUrl || null,
+      imageUrl: animPlayerVideosRef.current[lastPick.playerId]?.hasImage
+        ? `/api/draft/player-image?playerId=${encodeURIComponent(lastPick.playerId)}`
+        : null,
+    };
+    setAnimPhase('pick');
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draft?.recentPicks?.[0]?.overall]);
+
+  // Phase safety timeouts
+  useEffect(() => {
+    if (animPhase === 'pick') {
+      const t = setTimeout(() => setAnimPhase('clock'), 20000);
+      return () => clearTimeout(t);
+    }
+    if (animPhase === 'clock') {
+      const t = setTimeout(() => { setAnimPhase(!!(animDataRef.current?.videoUrl) ? 'video' : null); }, 15000);
+      return () => clearTimeout(t);
+    }
+  }, [animPhase]);
+
+  // Clock fallback when no nextTeamName
+  useEffect(() => {
+    if (animPhase === 'clock' && !animDataRef.current?.nextTeamName) {
+      setAnimPhase(!!(animDataRef.current?.videoUrl) ? 'video' : null);
+    }
+  }, [animPhase]);
+
+  // YouTube postMessage handler
+  useEffect(() => {
+    if (animPhase !== 'video') return;
+    const handler = (e: MessageEvent) => {
+      try {
+        const data = typeof e.data === 'string' ? JSON.parse(e.data) : e.data;
+        const ytState =
+          data?.event === 'onStateChange' ? data?.info :
+          data?.event === 'infoDelivery' && typeof data?.info?.playerState === 'number' ? data.info.playerState :
+          undefined;
+        if (ytState === 0) dismissVideo();
+      } catch {}
+    };
+    window.addEventListener('message', handler);
+    return () => window.removeEventListener('message', handler);
+  }, [animPhase]);
+
+  // GSAP entrance + safety timeout for video
+  useEffect(() => {
+    if (animPhase !== 'video') return;
+    animDismissingRef.current = false;
+    if (animVideoContainerRef.current) {
+      gsap.fromTo(animVideoContainerRef.current,
+        { opacity: 0, scale: 0.96 },
+        { opacity: 1, scale: 1, duration: 0.45, ease: 'power2.out' });
+    }
+    const safetyTimer = setTimeout(dismissVideo, 10 * 60 * 1000);
+    return () => clearTimeout(safetyTimer);
+  }, [animPhase]);
 
   // Derived display values
   const onClockColors = onClock ? getTeamColors(onClock) : null;
@@ -710,6 +840,72 @@ export default function DraftRoomPage() {
           </div>
         </div>
       )}
+      {/* ── Animation overlays — mirrors admin/presentation view, no admin controls ── */}
+      {animPhase === 'pick' && animDataRef.current && (animDataRef.current.pick.playerName || animDataRef.current.pick.playerId) && (
+        <DraftPickAnimation
+          key={`room-pick-${animDataRef.current.overall}`}
+          player={{
+            name: animDataRef.current.pick.playerName || animDataRef.current.pick.playerId || 'Unknown',
+            position: animDataRef.current.pick.playerPos || 'N/A',
+            team: animDataRef.current.pick.playerNfl || undefined,
+            college: undefined,
+            imageUrl: animDataRef.current.imageUrl || undefined,
+          }}
+          fantasyTeam={{
+            name: animDataRef.current.pick.team,
+            colors: [getTeamColors(animDataRef.current.pick.team).primary, getTeamColors(animDataRef.current.pick.team).secondary, null],
+            logoPath: getTeamLogoPath(animDataRef.current.pick.team),
+          }}
+          pickNumber={animDataRef.current.overall}
+          round={animDataRef.current.round}
+          pickInRound={animDataRef.current.pickInRound}
+          onComplete={() => setAnimPhase('clock')}
+        />
+      )}
+      {animPhase === 'clock' && animDataRef.current?.nextTeamName && (() => {
+        const teamName = animDataRef.current!.nextTeamName!;
+        const colors = getTeamColors(teamName);
+        const curOverall = animDataRef.current!.overall + 1;
+        return (
+          <NowOnClockAnimation
+            key={`room-clock-${animDataRef.current!.overall}`}
+            team={{ name: teamName, colors: [colors.primary, colors.secondary, null] }}
+            pickNumber={curOverall}
+            round={Math.floor((curOverall - 1) / picksPerRound) + 1}
+            pickInRound={((curOverall - 1) % picksPerRound) + 1}
+            onComplete={() => setAnimPhase(!!(animDataRef.current?.videoUrl) ? 'video' : null)}
+          />
+        );
+      })()}
+      {(animPhase === 'video' || videoExiting) && animDataRef.current?.videoUrl && (() => {
+        const videoUrl = animDataRef.current!.videoUrl!;
+        const isYt = videoUrl.includes('youtube.com') || videoUrl.includes('youtu.be');
+        const embedUrl = isYt ? getYoutubeEmbedUrl(videoUrl) : null;
+        return (
+          <div
+            ref={animVideoContainerRef}
+            className="fixed inset-0 z-[9999] bg-black flex flex-col items-center justify-center overflow-hidden transition-opacity duration-[350ms]"
+            style={{ opacity: videoExiting ? 0 : 1 }}
+          >
+            <div className="w-full h-full flex flex-col items-center justify-center p-4">
+              {embedUrl ? (
+                <iframe
+                  src={embedUrl}
+                  className="w-full flex-1 rounded-lg"
+                  allow="autoplay; fullscreen"
+                  allowFullScreen
+                  style={{ minHeight: 0 }}
+                  onLoad={(e) => {
+                    try { (e.currentTarget as HTMLIFrameElement).contentWindow?.postMessage(JSON.stringify({ event: 'listening' }), '*'); } catch {}
+                  }}
+                />
+              ) : (
+                <video src={videoUrl} autoPlay controls className="w-full flex-1 rounded-lg" style={{ minHeight: 0, objectFit: 'contain' }} onEnded={dismissVideo} />
+              )}
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

@@ -131,6 +131,23 @@ export default function DraftOverlayLive() {
     return () => window.removeEventListener('message', handler);
   }, [animPhase]);
 
+  // Phase safety-net timeouts — prevents any phase from sticking if GSAP/onComplete fails
+  useEffect(() => {
+    if (animPhase === 'pick') {
+      // Pick animation is ~8s; 20s gives generous headroom before forcing advance
+      const t = setTimeout(() => setAnimPhase('clock'), 20000);
+      return () => clearTimeout(t);
+    }
+    if (animPhase === 'clock') {
+      // Clock animation is ~5s; 15s gives generous headroom before forcing advance
+      const t = setTimeout(() => {
+        const hasVideo = !!(animDataRef.current?.videoUrl);
+        setAnimPhase(hasVideo ? 'video' : null);
+      }, 15000);
+      return () => clearTimeout(t);
+    }
+  }, [animPhase]);
+
   // Clock-phase fallback: if we enter 'clock' but have no nextTeamName the NowOnClockAnimation
   // won't mount and onComplete never fires — advance the phase immediately here instead.
   // Also reset the pick clock to full time so the next team doesn't lose clock during animations.
@@ -175,8 +192,9 @@ export default function DraftOverlayLive() {
   // Trigger animation sequence on new pick — driven by lastPick?.overall only (stable number)
   useEffect(() => {
     if (!lastPick) {
-      // No picks yet — mark initialized so the very first pick triggers animation
+      // No picks yet (or draft was reset) — ensure next pick triggers animation
       if (!animInitializedRef.current) animInitializedRef.current = true;
+      lastAnimatedPickRef.current = null; // reset so first pick after reset fires animation
       return;
     }
     if (!animInitializedRef.current) {
