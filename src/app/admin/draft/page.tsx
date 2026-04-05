@@ -516,6 +516,7 @@ export default function AdminDraftPage() {
               className="flex-1"
               disabled={approvingPick}
               onClick={async () => {
+                try { new Audio('/assets/teams/audio/pickIsIn.mp3').play().catch(() => {}); } catch { /* ignored */ }
                 setApprovingPick(true);
                 try {
                   const res = await fetch('/api/draft', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'approve_pick' }) });
