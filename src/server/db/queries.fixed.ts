@@ -317,6 +317,8 @@ export async function ensureDraftTables() {
   await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_draft_picks_draft ON draft_picks(draft_id)`);
   await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_draft_picks_player ON draft_picks(player_id)`);
   await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_draft_slots_team ON draft_slots(draft_id, team)`);
+  await db.execute(sql`ALTER TABLE draft_slots ADD COLUMN IF NOT EXISTS original_team varchar(255)`).catch(() => {});
+  await db.execute(sql`UPDATE draft_slots SET original_team = team WHERE original_team IS NULL`).catch(() => {});
   // Player videos table (player_id → video_url + image_url, global across drafts)
   await db.execute(sql`
     CREATE TABLE IF NOT EXISTS player_videos (
@@ -476,17 +478,36 @@ export async function countDraftPlayers(draftId: string): Promise<number> {
   return c | 0;
 }
 
+export async function resetDraftTrades(draftId: string) {
+  const db = getDb();
+  // 1. Restore all current-draft pick slots to original owners (undo traded picks)
+  await db.execute(sql`UPDATE draft_slots SET team = original_team WHERE draft_id = ${draftId}::uuid AND original_team IS NOT NULL`);
+  // 2. Delete all trade records and assets
+  await db.execute(sql`DELETE FROM draft_trade_assets WHERE trade_id IN (SELECT id FROM draft_trades WHERE draft_id = ${draftId}::uuid)`);
+  await db.execute(sql`DELETE FROM draft_trades WHERE draft_id = ${draftId}::uuid`);
+  // 3. Clear roster snapshots so next get_assets re-snapshots from Sleeper (original owners)
+  await db.execute(sql`DELETE FROM draft_roster_snapshots WHERE draft_id = ${draftId}::uuid`);
+  // 4. Clear future picks (traded future picks are removed; re-snapshotted from source on next access)
+  await db.execute(sql`DELETE FROM draft_future_picks WHERE draft_id = ${draftId}::uuid`);
+  // 5. Clear any pending trade animation
+  await db.execute(sql`UPDATE drafts SET pending_trade_animation = NULL WHERE id = ${draftId}::uuid`);
+  return { ok: true };
+}
+
 export async function resetDraft(draftId: string) {
   const db = getDb();
   // Clear all picks, queues, and trade data but KEEP draft structure (slots remain)
   await db.execute(sql`DELETE FROM draft_picks WHERE draft_id = ${draftId}::uuid`);
   await db.execute(sql`DELETE FROM draft_queues WHERE draft_id = ${draftId}::uuid`);
+  await db.execute(sql`DELETE FROM draft_pending_picks WHERE draft_id = ${draftId}::uuid`);
   // Clear trade system data
   await db.execute(sql`DELETE FROM draft_trade_assets WHERE trade_id IN (SELECT id FROM draft_trades WHERE draft_id = ${draftId}::uuid)`);
   await db.execute(sql`DELETE FROM draft_trades WHERE draft_id = ${draftId}::uuid`);
   await db.execute(sql`DELETE FROM draft_roster_snapshots WHERE draft_id = ${draftId}::uuid`);
   await db.execute(sql`DELETE FROM draft_future_picks WHERE draft_id = ${draftId}::uuid`);
-  // Reset draft to NOT_STARTED with cur_overall = 1
+  // Restore all draft slots to their original owners (undo any traded picks)
+  await db.execute(sql`UPDATE draft_slots SET team = original_team WHERE draft_id = ${draftId}::uuid AND original_team IS NOT NULL`);
+  // Reset draft to NOT_STARTED with cur_overall = 1, clear any pending animation
   await db.execute(sql`
     UPDATE drafts 
     SET status = 'NOT_STARTED',
@@ -494,7 +515,8 @@ export async function resetDraft(draftId: string) {
         clock_started_at = NULL,
         deadline_ts = NULL,
         started_at = NULL,
-        completed_at = NULL
+        completed_at = NULL,
+        pending_trade_animation = NULL
     WHERE id = ${draftId}::uuid
   `);
   return { ok: true };
@@ -564,8 +586,8 @@ export async function createDraftWithOrder(params: {
       const pickInRound = i + 1;
       const team = order[i];
       await db.execute(sql`
-        INSERT INTO draft_slots (draft_id, overall, round, pick_in_round, team)
-        VALUES (${id}::uuid, ${overall}, ${r}, ${pickInRound}, ${team})
+        INSERT INTO draft_slots (draft_id, overall, round, pick_in_round, team, original_team)
+        VALUES (${id}::uuid, ${overall}, ${r}, ${pickInRound}, ${team}, ${team})
         ON CONFLICT (draft_id, overall) DO NOTHING
       `);
       overall += 1;

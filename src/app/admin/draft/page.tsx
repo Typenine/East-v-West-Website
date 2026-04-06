@@ -992,15 +992,28 @@ export default function AdminDraftPage() {
                         <Button variant="ghost" size="sm">👥 Team View →</Button>
                       </a>
                       <Button 
+                        disabled={busy==='reset_trades'} 
+                        variant="ghost" 
+                        size="sm"
+                        onClick={async () => {
+                          if (!confirm('RESET ALL TRADES? This will:\n• Return all traded picks to their original owners\n• Return all traded players to their original teams\n• Delete all trade records\n\nDraft picks already made are NOT affected.')) return;
+                          await onAdmin('reset_trades');
+                          await load(true);
+                        }}
+                        title="Undo all trades: restore picks and players to original owners"
+                      >
+                        🔁 Reset Trades
+                      </Button>
+                      <Button 
                         disabled={busy==='reset'} 
                         variant="ghost" 
                         size="sm"
                         onClick={async () => {
-                          if (!confirm('RESET draft to Round 1? This will clear all picks but keep the draft order.')) return;
+                          if (!confirm('RESET ENTIRE DRAFT? This will:\n• Clear all picks\n• Undo all trades (picks and players back to original owners)\n• Delete all trade records\n• Return to Round 1\n\nDraft order is kept.')) return;
                           await onAdmin('reset');
                           await load(true);
                         }}
-                        title="Clear all picks but keep draft order"
+                        title="Clear all picks, undo all trades, return to Round 1"
                       >
                         🔄 Reset Draft
                       </Button>

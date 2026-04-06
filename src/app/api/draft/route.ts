@@ -4,6 +4,7 @@ import {
   ensureDraftTables,
   createDraftWithOrder,
   resetDraft,
+  resetDraftTrades,
   deleteDraft,
   skipPick,
   updateDraftSlot,
@@ -119,7 +120,7 @@ export async function POST(req: NextRequest) {
     const id = typeof body.id === 'string' ? body.id : '';
 
     // Admin-only actions
-    if (['create','reset','delete','skip_pick','update_slot','start','pause','resume','set_clock','reset_clock','force_pick','undo','upload_players','clear_players','auto_pick','approve_pick','reject_pick','update_branding'].includes(action)) {
+    if (['create','reset','reset_trades','delete','skip_pick','update_slot','start','pause','resume','set_clock','reset_clock','force_pick','undo','upload_players','clear_players','auto_pick','approve_pick','reject_pick','update_branding'].includes(action)) {
       if (!isAdmin(req)) return bad('forbidden', 403);
       if (action === 'create') {
         const year = Number(body.year || new Date().getFullYear());
@@ -138,6 +139,12 @@ export async function POST(req: NextRequest) {
         const draftId = id || (await getActiveOrLatestDraftId());
         if (!draftId) return bad('no_draft');
         await resetDraft(draftId);
+        return ok({ ok: true });
+      }
+      if (action === 'reset_trades') {
+        const draftId = id || (await getActiveOrLatestDraftId());
+        if (!draftId) return bad('no_draft');
+        await resetDraftTrades(draftId);
         return ok({ ok: true });
       }
       if (action === 'delete') {

@@ -630,8 +630,8 @@ export default function DraftRoomPage() {
         {myTeam && draft && (
           <button
             onClick={() => { setTradeOpen(true); setTradeNotif(false); }}
-            className="w-full flex items-center justify-between px-4 py-3 transition-all"
-            style={{ background: `linear-gradient(90deg, ${eventColor1}33, ${eventColor1}18)`, borderBottom: `2px solid ${eventColor1}66` }}
+            className="w-full flex items-center justify-between px-4 py-3 transition-all hover:brightness-110"
+            style={{ background: `linear-gradient(90deg, ${eventColor1}22 0%, #1a1a2a 100%)`, borderLeft: `4px solid ${eventColor1}`, borderBottom: `1px solid ${eventColor1}55` }}
           >
             <div className="flex items-center gap-3">
               <span className="text-2xl">🤝</span>
