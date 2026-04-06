@@ -291,9 +291,9 @@ export default function AdminDraftPage() {
 
   // Convert mins:secs to total seconds
   async function loadPendingTrades() {
-    if (!draft) return;
     try {
-      const res = await fetch(`/api/draft/trade?action=get_admin_pending&draftId=${draft.id}`, { cache: 'no-store' });
+      const res = await fetch('/api/draft/trade?action=get_admin_pending', { cache: 'no-store' });
+      if (!res.ok) return;
       const data = await res.json();
       setPendingTrades((data.trades as AdminTrade[]) || []);
     } catch {}

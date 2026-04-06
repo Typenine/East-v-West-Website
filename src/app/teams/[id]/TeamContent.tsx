@@ -117,6 +117,7 @@ export default function TeamContent() {
   type DraftFuturePick = { id: string; ownerTeam: string; originalTeam: string; year: number; round: number };
   const [draftAssets, setDraftAssets] = useState<{ rosterPlayers: DraftRosterPlayer[]; currentPicks: DraftCurrentPick[]; futurePicks: DraftFuturePick[] } | null>(null);
   const [draftAssetsLoading, setDraftAssetsLoading] = useState(false);
+  const [draftRosterSort, setDraftRosterSort] = useState<'pos' | 'pick'>('pick');
 
   // News state
   const [news, setNews] = useState<RosterNewsItem[]>([]);
@@ -1325,9 +1326,27 @@ export default function TeamContent() {
                         {/* Players on roster (drafted or traded) */}
                         {draftAssets.rosterPlayers.length > 0 && (
                           <div>
-                            <div className="text-xs font-bold text-[var(--muted)] uppercase tracking-wide mb-2">Roster Players</div>
+                            <div className="flex items-center justify-between mb-2">
+                              <div className="text-xs font-bold text-[var(--muted)] uppercase tracking-wide">Roster Players</div>
+                              <div className="flex gap-1">
+                                {(['pick','pos'] as const).map(s => (
+                                  <button key={s} type="button" onClick={() => setDraftRosterSort(s)}
+                                    className="text-[10px] font-bold px-2 py-0.5 rounded-full border transition-colors"
+                                    style={draftRosterSort === s
+                                      ? { background: teamColors.primary, color: '#fff', borderColor: 'transparent' }
+                                      : { background: 'transparent', color: 'var(--muted)', borderColor: 'var(--border)' }}
+                                  >{s === 'pick' ? 'Pick Order' : 'By Position'}</button>
+                                ))}
+                              </div>
+                            </div>
                             <div className="space-y-1">
-                              {draftAssets.rosterPlayers.map(p => (
+                              {[...(draftAssets.rosterPlayers)].sort((a, b) => {
+                                if (draftRosterSort === 'pos') {
+                                  const order: Record<string, number> = { QB: 0, RB: 1, WR: 2, TE: 3, K: 4 };
+                                  return (order[a.playerPos || ''] ?? 9) - (order[b.playerPos || ''] ?? 9) || (a.playerName || '').localeCompare(b.playerName || '');
+                                }
+                                return 0;
+                              }).map(p => (
                                 <div key={p.playerId} className="flex items-center gap-2 text-sm py-1 border-b border-[var(--border)]" style={{ borderLeft: `3px solid ${teamColors.primary}`, paddingLeft: '0.5rem' }}>
                                   {p.playerPos && <span className="text-[10px] font-black px-1.5 py-0.5 rounded text-white" style={{ background: {QB:'#ef4444',RB:'#22c55e',WR:'#3b82f6',TE:'#f97316',K:'#a855f7'}[p.playerPos] || '#555' }}>{p.playerPos}</span>}
                                   <span className="font-medium">{p.playerName || p.playerId}</span>

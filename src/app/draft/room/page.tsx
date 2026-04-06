@@ -626,29 +626,6 @@ export default function DraftRoomPage() {
 
       {/* ── TEAM SECTION (below board, normal flow — whole page scrolls) ── */}
       <div>
-        {/* Prominent Trade Banner */}
-        {myTeam && draft && (
-          <button
-            onClick={() => { setTradeOpen(true); setTradeNotif(false); }}
-            className="w-full flex items-center justify-between px-4 py-3 transition-all hover:brightness-110"
-            style={{ background: `linear-gradient(90deg, ${eventColor1}22 0%, #1a1a2a 100%)`, borderLeft: `4px solid ${eventColor1}`, borderBottom: `1px solid ${eventColor1}55` }}
-          >
-            <div className="flex items-center gap-3">
-              <span className="text-2xl">🤝</span>
-              <div className="text-left">
-                <div className="font-black text-white text-sm leading-tight">Trade Center</div>
-                <div className="text-xs" style={{ color: eventColor1 }}>Propose, accept, or view trades</div>
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              {tradeInboxCount > 0 && (
-                <span className="w-5 h-5 rounded-full text-[10px] font-black text-black flex items-center justify-center animate-pulse" style={{ background: eventColor1 }}>{tradeInboxCount}</span>
-              )}
-              <span className="text-white/40 text-lg">›</span>
-            </div>
-          </button>
-        )}
-
         {/* On the Clock banner */}
         {draft && draft.status !== 'NOT_STARTED' && (
           pendingPick ? (
@@ -708,26 +685,58 @@ export default function DraftRoomPage() {
               </div>
             </div>
           ) : (
-            /* ── Normal on-clock banner ── */
-            <div className="relative px-4 py-3" style={{ background: `linear-gradient(135deg, ${tc[0]}dd, ${tc[1]}cc)`, borderBottom: `2px solid ${tc[0]}80`, borderTop: eventColor1 !== '#a4c810' ? `3px solid ${eventColor1}` : undefined }}>
-              <div className="flex items-center gap-3">
-                <div className="w-12 h-12 shrink-0 rounded-lg overflow-hidden bg-black/40 flex items-center justify-center border border-white/20">
-                  {onClockLogo ? <img src={onClockLogo} alt={onClock || ''} className="w-full h-full object-contain" /> : <span className="text-white/40 text-xl">?</span>}
+            /* ── Compact on-clock strip ── */
+            <div
+              className="flex items-center gap-2 px-3 py-2"
+              style={{ borderLeft: `4px solid ${tc[0]}`, borderBottom: '1px solid rgba(255,255,255,0.08)', background: 'rgba(0,0,0,0.35)' }}
+            >
+              {onClockLogo && (
+                <div className="w-7 h-7 shrink-0 rounded overflow-hidden bg-black/40">
+                  <img src={onClockLogo} alt={onClock || ''} className="w-full h-full object-contain" />
                 </div>
-                <div className="flex-1 min-w-0">
-                  <div className="text-[10px] font-bold text-white/60 uppercase tracking-widest">On The Clock</div>
-                  <div className="font-black text-white text-base leading-tight truncate">{onClock || '—'}</div>
-                  <div className="text-[10px] text-white/50">Pick #{draft.curOverall} · Rd {draft.upcoming?.[0]?.round || Math.ceil(draft.curOverall / picksPerRound)}</div>
-                </div>
-                <div className={`text-2xl font-mono font-black tabular-nums shrink-0 ${localRemaining !== null && localRemaining <= 10 ? 'text-red-400 animate-pulse' : 'text-white'}`}>
-                  {localRemaining !== null ? formatTime(localRemaining) : '--:--'}
-                </div>
+              )}
+              <div className="flex-1 min-w-0">
+                <span className="text-[10px] font-bold uppercase tracking-widest" style={{ color: tc[0] }}>On Clock · </span>
+                <span className="font-black text-white text-xs">{onClock || '—'}</span>
+                <span className="text-zinc-500 text-[10px] ml-1">Pick #{draft.curOverall} Rd {draft.upcoming?.[0]?.round || Math.ceil(draft.curOverall / picksPerRound)}</span>
+              </div>
+              <div className={`text-sm font-mono font-black tabular-nums shrink-0 ${localRemaining !== null && localRemaining <= 10 ? 'text-red-400 animate-pulse' : 'text-white/70'}`}>
+                {localRemaining !== null ? formatTime(localRemaining) : '--:--'}
               </div>
               {isMyTurn && !isMyPickPending && (
-                <div className="mt-2 rounded-lg bg-emerald-600 text-white text-center font-black text-sm py-1.5 animate-pulse">🎯 YOUR TURN TO PICK!</div>
+                <span className="text-[10px] font-black text-emerald-400 animate-pulse ml-1">🎯 YOUR TURN!</span>
               )}
             </div>
           )
+        )}
+
+        {/* Prominent Trade Banner — below the on-clock strip */}
+        {myTeam && draft && (
+          <button
+            onClick={() => { setTradeOpen(true); setTradeNotif(false); }}
+            className="w-full flex items-center justify-between px-4 py-3 transition-all hover:brightness-110"
+            style={{
+              background: myTeamColors
+                ? `linear-gradient(90deg, ${myTeamColors.primary}44 0%, #111118 100%)`
+                : `linear-gradient(90deg, ${eventColor1}22 0%, #111118 100%)`,
+              borderLeft: `4px solid ${myTeamColors?.primary || eventColor1}`,
+              borderBottom: `1px solid ${myTeamColors?.secondary || eventColor1}44`,
+            }}
+          >
+            <div className="flex items-center gap-3">
+              {myTeam && <div className="w-8 h-8 shrink-0 rounded overflow-hidden bg-black/30"><img src={getTeamLogoPath(myTeam)} alt={myTeam} className="w-full h-full object-contain" /></div>}
+              <div className="text-left">
+                <div className="font-black text-white text-sm leading-tight">Trade Center</div>
+                <div className="text-xs text-white/50">Propose, accept, or view trades</div>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              {tradeInboxCount > 0 && (
+                <span className="w-5 h-5 rounded-full text-[10px] font-black text-black flex items-center justify-center animate-pulse" style={{ background: myTeamColors?.primary || eventColor1 }}>{tradeInboxCount}</span>
+              )}
+              <span className="text-white/40 text-lg">›</span>
+            </div>
+          </button>
         )}
 
         <div className="p-3 space-y-3">

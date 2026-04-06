@@ -2065,14 +2065,20 @@ export async function createDraftTrade(params: {
   return tradeId;
 }
 
+function parseJsonbArray(v: unknown): string[] {
+  if (Array.isArray(v)) return v as string[];
+  if (typeof v === 'string') { try { const p = JSON.parse(v); return Array.isArray(p) ? p : []; } catch { return []; } }
+  return [];
+}
+
 function mapTradeRow(r: Record<string, unknown>, assets: TradeAsset[]): DraftTrade {
   return {
     id: String(r.id),
     draftId: String(r.draft_id),
     status: r.status as TradeStatus,
     proposedBy: String(r.proposed_by),
-    teams: (r.teams as string[]) || [],
-    acceptedBy: (r.accepted_by as string[]) || [],
+    teams: parseJsonbArray(r.teams),
+    acceptedBy: parseJsonbArray(r.accepted_by),
     counterOf: (r.counter_of as string | null) ?? null,
     notes: (r.notes as string | null) ?? null,
     proposedAt: r.proposed_at ? new Date(r.proposed_at as string).toISOString() : '',
