@@ -303,7 +303,12 @@ export default function DraftOverlayLive() {
   const [draftOrderData, setDraftOrderData] = useState<{
     roundsData: Array<{ round: number; picks: Array<{ ownerTeam: string }> }>;
     transfers: Array<{ round: number; fromTeam: string; toTeam: string; summary?: string }>;
+    slotOrder?: Array<{ team: string; record: { wins: number; losses: number; fpts: number; fptsAgainst?: number } }>;
   } | null>(null);
+
+  const [currentTickerView, setCurrentTickerView] = useState<TickerView>('bestAvailable');
+  const cycleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const prevDraftGridRef = useRef<typeof draftGrid>(draftGrid);
 
   // Historical draft data (keyed by canonical team name)
   const [historicalDrafts, setHistoricalDrafts] = useState<{
