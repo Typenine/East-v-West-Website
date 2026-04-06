@@ -347,6 +347,7 @@ export default function DraftTradeCenter({
   const [counterOfId, setCounterOfId] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [submitMsg, setSubmitMsg] = useState('');
+  const [tradeSent, setTradeSent] = useState(false);
 
   // Team logos pre-computed
   const allTeamLogos = Object.fromEntries(allTeams.map(t => [t, getTeamLogoPath(t)]));
@@ -446,10 +447,10 @@ export default function DraftTradeCenter({
       });
       const data = await res.json();
       if (data.ok) {
-        setSubmitMsg('Trade offer sent!');
         setSelectedAssets([]); setNotes(''); setCounterOfId(null); setPartnerTeams([]);
         await fetchTrades();
-        setTimeout(() => { setSubmitMsg(''); setTab('sent'); }, 1200);
+        setTradeSent(true);
+        setTimeout(() => { setTradeSent(false); setTab('sent'); }, 3000);
       } else { setSubmitMsg(data.error || 'Failed to submit.'); }
     } catch { setSubmitMsg('Network error.'); }
     finally { setSubmitting(false); }
@@ -474,6 +475,19 @@ export default function DraftTradeCenter({
 
   return (
     <div className="fixed inset-0 z-[200] flex flex-col" style={{ background: 'rgba(0,0,0,0.92)', backdropFilter: 'blur(4px)' }}>
+
+      {/* Trade Sent success overlay */}
+      {tradeSent && (
+        <div className="absolute inset-0 z-50 flex flex-col items-center justify-center" style={{ background: 'rgba(0,0,0,0.92)' }}>
+          <div className="text-7xl mb-6 animate-bounce">🤝</div>
+          <div className="text-4xl font-black text-white mb-2">Trade Offer Sent!</div>
+          <div className="text-zinc-400 text-lg mb-6">All partners will be notified to accept or counter.</div>
+          <div className="flex items-center gap-2 text-sm" style={{ color: ec1 }}>
+            <span className="animate-spin inline-block">⟳</span>
+            <span>Redirecting to Sent tab…</span>
+          </div>
+        </div>
+      )}
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-800" style={{ background: '#0f0f12' }}>
         <div className="flex items-center gap-3">

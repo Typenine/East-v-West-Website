@@ -82,6 +82,11 @@ export default function DraftRoomPage() {
   const [teamRoster, setTeamRoster] = useState<RosterPlayer[]>([]);
   const [rosterLoading, setRosterLoading] = useState(false);
   const [confirmPlayer, setConfirmPlayer] = useState<Avail | null>(null);
+  const [tradeInboxCount, setTradeInboxCount] = useState(0);
+  const [tradeNotif, setTradeNotif] = useState(false);
+  const prevTradeInboxCountRef = useRef(0);
+  const tradeOpenRef = useRef(false);
+  tradeOpenRef.current = tradeOpen;
 
   // Animation phase state — mirrors DraftOverlayLive (display only, no admin controls)
   const [animPhase, setAnimPhase] = useState<'pick' | 'clock' | 'video' | null>(null);
@@ -457,6 +462,28 @@ export default function DraftRoomPage() {
     return () => window.removeEventListener('message', handler);
   }, [animPhase]);
 
+  // Poll for incoming trade offers every 15s
+  useEffect(() => {
+    if (!myTeam || !draft?.id) return;
+    const poll = async () => {
+      try {
+        const res = await fetch(`/api/draft/trade?action=get_team&team=${encodeURIComponent(myTeam)}&draftId=${draft.id}`, { cache: 'no-store' });
+        if (!res.ok) return;
+        const data = await res.json();
+        const trades = (data.trades || []) as Array<{ status: string; teams: string[]; acceptedBy: string[] }>;
+        const count = trades.filter(t => t.status === 'pending' && t.teams.includes(myTeam) && !t.acceptedBy.includes(myTeam)).length;
+        setTradeInboxCount(count);
+        if (count > prevTradeInboxCountRef.current && !tradeOpenRef.current) {
+          setTradeNotif(true);
+        }
+        prevTradeInboxCountRef.current = count;
+      } catch {}
+    };
+    poll();
+    const id = setInterval(poll, 15000);
+    return () => clearInterval(id);
+  }, [myTeam, draft?.id]);
+
   // GSAP entrance + safety timeout for video
   useEffect(() => {
     if (animPhase !== 'video') return;
@@ -599,6 +626,28 @@ export default function DraftRoomPage() {
 
       {/* ── TEAM SECTION (below board, normal flow — whole page scrolls) ── */}
       <div>
+        {/* Prominent Trade Banner */}
+        {myTeam && draft && (
+          <button
+            onClick={() => { setTradeOpen(true); setTradeNotif(false); }}
+            className="w-full flex items-center justify-between px-4 py-3 transition-all"
+            style={{ background: `linear-gradient(90deg, ${eventColor1}33, ${eventColor1}18)`, borderBottom: `2px solid ${eventColor1}66` }}
+          >
+            <div className="flex items-center gap-3">
+              <span className="text-2xl">🤝</span>
+              <div className="text-left">
+                <div className="font-black text-white text-sm leading-tight">Trade Center</div>
+                <div className="text-xs" style={{ color: eventColor1 }}>Propose, accept, or view trades</div>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              {tradeInboxCount > 0 && (
+                <span className="w-5 h-5 rounded-full text-[10px] font-black text-black flex items-center justify-center animate-pulse" style={{ background: eventColor1 }}>{tradeInboxCount}</span>
+              )}
+              <span className="text-white/40 text-lg">›</span>
+            </div>
+          </button>
+        )}
 
         {/* On the Clock banner */}
         {draft && draft.status !== 'NOT_STARTED' && (
@@ -1005,6 +1054,23 @@ export default function DraftRoomPage() {
           />
         );
       })()}
+
+      {/* Trade offer notification popup */}
+      {tradeNotif && !tradeOpen && (
+        <div
+          className="fixed bottom-6 right-6 z-[9999] w-72 rounded-xl border-2 bg-zinc-900 shadow-2xl p-4 cursor-pointer"
+          style={{ borderColor: eventColor1, boxShadow: `0 0 24px ${eventColor1}55` }}
+          onClick={() => { setTradeNotif(false); setTradeOpen(true); }}
+        >
+          <div className="font-black text-sm uppercase tracking-widest mb-1" style={{ color: eventColor1 }}>🤝 Trade Offer!</div>
+          <div className="text-white text-sm mb-1">You have {tradeInboxCount} pending trade offer{tradeInboxCount !== 1 ? 's' : ''}.</div>
+          <div className="text-xs text-zinc-400">Tap to open Trade Center →</div>
+          <button
+            onClick={e => { e.stopPropagation(); setTradeNotif(false); }}
+            className="absolute top-2 right-2 text-zinc-500 hover:text-white text-lg w-6 h-6 flex items-center justify-center"
+          >×</button>
+        </div>
+      )}
 
       {/* Trade Center modal */}
       {tradeOpen && myTeam && draft && (

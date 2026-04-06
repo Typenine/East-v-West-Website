@@ -16,6 +16,7 @@ import {
   type TradeAssetType,
 } from '@/server/db/queries.fixed';
 import { requireTeamUser } from '@/lib/server/session';
+import { snapshotDraftRosters, snapshotDraftFuturePicks } from '@/server/draft-snapshot';
 
 function isAdmin(req: NextRequest): boolean {
   try {
@@ -46,6 +47,11 @@ export async function GET(req: NextRequest) {
   if (action === 'get_assets') {
     const team = url.searchParams.get('team') || '';
     if (!team) return bad('team required');
+    // Ensure snapshot is populated (idempotent — no-op if already done)
+    await Promise.all([
+      snapshotDraftRosters(draftId).catch(() => {}),
+      snapshotDraftFuturePicks(draftId).catch(() => {}),
+    ]);
     const [rosterPlayers, futurePicks, overview] = await Promise.all([
       getRosterSnapshot(draftId, team),
       getFuturePicks(draftId, team),

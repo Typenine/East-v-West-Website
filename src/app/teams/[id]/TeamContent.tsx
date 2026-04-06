@@ -111,6 +111,13 @@ export default function TeamContent() {
     highestScore: 0,
     lowestScore: 999
   });
+  // Draft assets (current draft picks + future picks)
+  type DraftRosterPlayer = { playerId: string; playerName: string | null; playerPos: string | null; playerNfl: string | null; acquiredVia?: string };
+  type DraftCurrentPick = { overall: number; round: number; team: string };
+  type DraftFuturePick = { id: string; ownerTeam: string; originalTeam: string; year: number; round: number };
+  const [draftAssets, setDraftAssets] = useState<{ rosterPlayers: DraftRosterPlayer[]; currentPicks: DraftCurrentPick[]; futurePicks: DraftFuturePick[] } | null>(null);
+  const [draftAssetsLoading, setDraftAssetsLoading] = useState(false);
+
   // News state
   const [news, setNews] = useState<RosterNewsItem[]>([]);
   const [newsLoading, setNewsLoading] = useState(false);
@@ -725,6 +732,17 @@ export default function TeamContent() {
     fetchTeamData();
   }, [rosterId, selectedYear]);
 
+  // Fetch draft assets whenever teamName resolves
+  useEffect(() => {
+    if (!teamName || teamName === 'Unknown Team') return;
+    setDraftAssetsLoading(true);
+    fetch(`/api/draft/trade?action=get_assets&team=${encodeURIComponent(teamName)}`, { cache: 'no-store' })
+      .then(r => r.ok ? r.json() : null)
+      .then(data => { if (data) setDraftAssets(data); })
+      .catch(() => {})
+      .finally(() => setDraftAssetsLoading(false));
+  }, [teamName]);
+
   // Fetch roster-based news via /api/roster-news
   useEffect(() => {
     const load = async () => {
@@ -1290,6 +1308,72 @@ export default function TeamContent() {
             id: 'roster',
             label: 'Roster',
             content: (
+              <>
+              {/* Draft Assets card — shown whenever draft data is available */}
+              {(draftAssetsLoading || (draftAssets && (draftAssets.rosterPlayers.length > 0 || draftAssets.currentPicks.length > 0 || draftAssets.futurePicks.length > 0))) && (
+                <Card style={{ borderTop: `4px solid ${teamColors.primary}`, marginBottom: '1rem' }}>
+                  <CardHeader>
+                    <div className="rounded-md" style={{ backgroundImage: `linear-gradient(90deg, ${teamColors.primary} 0%, ${teamColors.secondary} 100%)`, color: '#ffffff', padding: '0.35rem 0.6rem' }}>
+                      <CardTitle>Draft Day Assets</CardTitle>
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    {draftAssetsLoading ? (
+                      <LoadingState message="Loading draft assets…" />
+                    ) : draftAssets ? (
+                      <div className="space-y-4">
+                        {/* Players on roster (drafted or traded) */}
+                        {draftAssets.rosterPlayers.length > 0 && (
+                          <div>
+                            <div className="text-xs font-bold text-[var(--muted)] uppercase tracking-wide mb-2">Roster Players</div>
+                            <div className="space-y-1">
+                              {draftAssets.rosterPlayers.map(p => (
+                                <div key={p.playerId} className="flex items-center gap-2 text-sm py-1 border-b border-[var(--border)]" style={{ borderLeft: `3px solid ${teamColors.primary}`, paddingLeft: '0.5rem' }}>
+                                  {p.playerPos && <span className="text-[10px] font-black px-1.5 py-0.5 rounded text-white" style={{ background: {QB:'#ef4444',RB:'#22c55e',WR:'#3b82f6',TE:'#f97316',K:'#a855f7'}[p.playerPos] || '#555' }}>{p.playerPos}</span>}
+                                  <span className="font-medium">{p.playerName || p.playerId}</span>
+                                  {p.playerNfl && <span className="text-[var(--muted)] text-xs">{p.playerNfl}</span>}
+                                  {p.acquiredVia === 'trade' && <span className="ml-auto text-xs text-sky-500 font-bold">via trade</span>}
+                                  {p.acquiredVia === 'drafted' && <span className="ml-auto text-xs text-emerald-500 font-bold">drafted</span>}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        {/* Current draft picks */}
+                        {draftAssets.currentPicks.length > 0 && (
+                          <div>
+                            <div className="text-xs font-bold text-[var(--muted)] uppercase tracking-wide mb-2">Remaining Picks (This Draft)</div>
+                            <div className="flex flex-wrap gap-2">
+                              {draftAssets.currentPicks.map(pk => (
+                                <div key={pk.overall} className="flex items-center gap-1.5 bg-yellow-400/10 border border-yellow-400/30 rounded-full px-3 py-1 text-xs">
+                                  <span className="text-yellow-500 font-black">⦿</span>
+                                  <span className="font-bold">Pick #{pk.overall}</span>
+                                  <span className="text-[var(--muted)]">Rd {pk.round}</span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        {/* Future picks */}
+                        {draftAssets.futurePicks.length > 0 && (
+                          <div>
+                            <div className="text-xs font-bold text-[var(--muted)] uppercase tracking-wide mb-2">Future Picks</div>
+                            <div className="flex flex-wrap gap-2">
+                              {draftAssets.futurePicks.map(fp => (
+                                <div key={fp.id} className="flex items-center gap-1.5 bg-sky-400/10 border border-sky-400/30 rounded-full px-3 py-1 text-xs">
+                                  <span className="text-sky-500 font-black">◈</span>
+                                  <span className="font-bold">{fp.year} Rd {fp.round}</span>
+                                  {fp.originalTeam !== fp.ownerTeam && <span className="text-[var(--muted)]">({fp.originalTeam.split(' ').pop()})</span>}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ) : null}
+                  </CardContent>
+                </Card>
+              )}
               <Card style={{ borderTop: `4px solid ${teamColors.primary}` }}>
                 <CardHeader>
                   <div
@@ -1395,6 +1479,7 @@ export default function TeamContent() {
                   )}
                 </CardContent>
               </Card>
+              </>
             ),
           },
           {

@@ -64,13 +64,15 @@ export default function DraftTradeAnimation({ teams, assets, eventLogoUrl, event
   const alertRef = useRef<HTMLDivElement>(null);
   const teamsRowRef = useRef<HTMLDivElement>(null);
   const assetsCardRef = useRef<HTMLDivElement>(null);
+  const onCompleteRef = useRef(onComplete);
+  onCompleteRef.current = onComplete;
   const ec1 = eventColor1 || '#a4c810';
 
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
 
-    const tl = gsap.timeline({ onComplete: onComplete ?? (() => {}) });
+    const tl = gsap.timeline({ onComplete: () => onCompleteRef.current?.() });
 
     // ── Phase 1: Event logo featured moment (1.5s) ──
     tl.fromTo(logoPhaseRef.current,
@@ -107,7 +109,7 @@ export default function DraftTradeAnimation({ teams, assets, eventLogoUrl, event
     tl.to(container, { opacity: 0, duration: 0.6, ease: 'power2.inOut' });
 
     return () => { tl.kill(); };
-  }, [onComplete]);
+  }, []);
 
   // Group assets by fromTeam
   const byFromTeam: Record<string, TradeAnimAsset[]> = {};
