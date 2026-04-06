@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { snapshotDraftRosters, snapshotDraftFuturePicks } from '@/server/draft-snapshot';
 import {
   ensureDraftTables,
   createDraftWithOrder,
@@ -28,6 +29,7 @@ import {
   submitPendingPick,
   getPendingPick,
   resolvePendingPick,
+  addPlayerToRosterSnapshot,
 } from '@/server/db/queries';
 import type { DraftOverview } from '@/server/db/queries';
 import { TEAM_NAMES } from '@/lib/constants/league';
@@ -158,7 +160,13 @@ export async function POST(req: NextRequest) {
         if (!result.ok) return bad(result.error || 'failed', 400);
         return ok({ ok: true });
       }
-      if (action === 'start') { await startDraft(draftId); return ok({ ok: true }); }
+      if (action === 'start') {
+        await startDraft(draftId);
+        // Fire-and-forget roster + future pick snapshots (idempotent — skip if already done)
+        snapshotDraftRosters(draftId).catch(console.error);
+        snapshotDraftFuturePicks(draftId).catch(console.error);
+        return ok({ ok: true });
+      }
       if (action === 'pause') { await pauseDraft(draftId); return ok({ ok: true }); }
       if (action === 'resume') { await resumeDraft(draftId); return ok({ ok: true }); }
       if (action === 'set_clock') {
@@ -218,6 +226,13 @@ export async function POST(req: NextRequest) {
         const res = await forcePick({ draftId, playerId: pending.playerId, playerName: pending.playerName, playerPos: pending.playerPos, playerNfl: pending.playerNfl, team: pending.team, madeBy: 'admin_approved' });
         if (!res.ok) return bad(res.error || 'failed', 400);
         await resolvePendingPick(pending.id, 'approved');
+        // Add drafted player to roster snapshot so they can be traded
+        addPlayerToRosterSnapshot(draftId, pending.team, {
+          playerId: pending.playerId,
+          playerName: pending.playerName,
+          playerPos: pending.playerPos,
+          playerNfl: null,
+        }, 'drafted').catch(() => {});
         // Clean the approved player from the team's queue (handles offline team clients)
         await removePlayerFromQueue(draftId, pending.team, pending.playerId);
         return ok({ ok: true });

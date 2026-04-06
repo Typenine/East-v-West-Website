@@ -280,13 +280,43 @@ export default function AdminDraftPage() {
     playerName: string | null; playerPos: string | null; playerNfl: string | null; submittedAt: string;
   } | null>(null);
   const [approvingPick, setApprovingPick] = useState(false);
-  const [activeTab, setActiveTab] = useState<'draft' | 'media' | 'branding'>('draft');
+  const [activeTab, setActiveTab] = useState<'draft' | 'media' | 'branding' | 'trades'>('draft');
+  type AdminTrade = { id: string; draftId: string; status: string; proposedBy: string; teams: string[]; acceptedBy: string[]; notes?: string | null; proposedAt: string; updatedAt: string; assets: Array<{ id: string; fromTeam: string; toTeam: string; assetType: string; playerId?: string | null; playerName?: string | null; playerPos?: string | null; pickOverall?: number | null; pickYear?: number | null; pickRound?: number | null; pickOriginalTeam?: string | null }> };
+  const [pendingTrades, setPendingTrades] = useState<AdminTrade[]>([]);
+  const [tradesLoading, setTradesLoading] = useState(false);
+  const [tradeAction, setTradeAction] = useState<string | null>(null);
   const [brandingForm, setBrandingForm] = useState({ eventName: '', eventColor1: '#a4c810', eventColor2: '#ffffff', eventLogoUrl: '' });
   const [brandingLogoFile, setBrandingLogoFile] = useState<File | null>(null);
   const [brandingLogoPreview, setBrandingLogoPreview] = useState<string | null>(null);
   const [savingBranding, setSavingBranding] = useState(false);
 
   // Convert mins:secs to total seconds
+  async function loadPendingTrades() {
+    if (!draft) return;
+    setTradesLoading(true);
+    try {
+      const res = await fetch(`/api/draft/trade?action=get_admin_pending&draftId=${draft.id}`, { cache: 'no-store' });
+      const data = await res.json();
+      setPendingTrades((data.trades as AdminTrade[]) || []);
+    } catch {}
+    finally { setTradesLoading(false); }
+  }
+
+  async function handleTradeDecision(tradeId: string, decision: 'approve' | 'reject_admin') {
+    if (!draft) return;
+    setTradeAction(tradeId + decision);
+    try {
+      await fetch('/api/draft/trade', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: decision, draftId: draft.id, tradeId }),
+      });
+      await loadPendingTrades();
+      await load();
+    } catch {}
+    finally { setTradeAction(null); }
+  }
+
   const getTotalSeconds = () => Number(clockMins || 0) * 60 + Number(clockSecs || 0);
   
   // Format seconds as MM:SS
@@ -614,18 +644,21 @@ export default function AdminDraftPage() {
 
       {/* Tab Navigation */}
       <div className="flex gap-1 mb-6 border-b border-zinc-700">
-        {(['draft', 'media', 'branding'] as const).map(tab => (
+        {(['draft', 'media', 'branding', 'trades'] as const).map(tab => (
           <button
             key={tab}
             type="button"
-            onClick={() => setActiveTab(tab)}
-            className={`px-5 py-2.5 text-sm font-semibold rounded-t-lg transition-colors -mb-px border-b-2 ${
+            onClick={() => { setActiveTab(tab); if (tab === 'trades') loadPendingTrades(); }}
+            className={`px-5 py-2.5 text-sm font-semibold rounded-t-lg transition-colors -mb-px border-b-2 relative ${
               activeTab === tab
                 ? 'border-[#bf9944] text-white bg-zinc-800'
                 : 'border-transparent text-zinc-400 hover:text-white hover:bg-zinc-800/50'
             }`}
           >
-            {tab === 'draft' ? '⚙️ Draft Control' : tab === 'media' ? '🎬 Player Media' : '🎨 Event Branding'}
+            {tab === 'draft' ? '⚙️ Draft Control' : tab === 'media' ? '🎬 Player Media' : tab === 'branding' ? '🎨 Event Branding' : '🤝 Trades'}
+            {tab === 'trades' && pendingTrades.length > 0 && (
+              <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-red-500 text-white text-[9px] font-black flex items-center justify-center">{pendingTrades.length}</span>
+            )}
           </button>
         ))}
       </div>
@@ -751,6 +784,105 @@ export default function AdminDraftPage() {
               </CardContent>
             </Card>
           )}
+        </div>
+      )}
+
+      {/* Trades Tab */}
+      {activeTab === 'trades' && isAdmin && (
+        <div className="space-y-4 max-w-3xl">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-lg font-black text-white">Trade Approvals</h2>
+              <p className="text-zinc-400 text-sm">Trades where all parties have accepted — awaiting commissioner approval.</p>
+            </div>
+            <button onClick={loadPendingTrades} disabled={tradesLoading}
+              className="text-xs font-bold px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 transition-colors disabled:opacity-50">
+              {tradesLoading ? 'Loading…' : '↺ Refresh'}
+            </button>
+          </div>
+
+          {!draft && <Card><CardContent><p className="text-zinc-400 text-sm">No active draft.</p></CardContent></Card>}
+
+          {draft && !tradesLoading && pendingTrades.length === 0 && (
+            <Card>
+              <CardContent className="py-10 text-center">
+                <div className="text-4xl mb-3">🤝</div>
+                <div className="text-zinc-400 font-bold">No trades awaiting approval</div>
+                <div className="text-zinc-600 text-sm mt-1">Trades appear here once all parties accept</div>
+              </CardContent>
+            </Card>
+          )}
+
+          {pendingTrades.map(trade => {
+            const byFromTeam: Record<string, typeof trade.assets> = {};
+            for (const a of trade.assets) {
+              if (!byFromTeam[a.fromTeam]) byFromTeam[a.fromTeam] = [];
+              byFromTeam[a.fromTeam].push(a);
+            }
+            const isActing = tradeAction !== null;
+            return (
+              <Card key={trade.id} className="border-blue-500/30" style={{ boxShadow: '0 0 12px rgba(59,130,246,0.15)' }}>
+                <CardContent className="p-4 space-y-3">
+                  {/* Teams involved */}
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {trade.teams.map(t => (
+                      <div key={t} className="flex items-center gap-1.5 bg-zinc-800 rounded-full px-2.5 py-1">
+                        <img src={getTeamLogoPath(t)} alt={t} className="w-5 h-5 object-contain" />
+                        <span className="text-white text-xs font-bold">{t}</span>
+                      </div>
+                    ))}
+                    <span className="ml-auto text-[11px] text-zinc-500">{new Date(trade.proposedAt).toLocaleString()}</span>
+                  </div>
+
+                  {/* Asset breakdown */}
+                  <div className="space-y-2 border-t border-zinc-800 pt-2">
+                    {Object.entries(byFromTeam).map(([from, assets]) => (
+                      <div key={from}>
+                        <div className="text-[11px] font-bold text-zinc-400 mb-1">{from} sends:</div>
+                        <div className="pl-3 space-y-0.5">
+                          {assets.map(a => (
+                            <div key={a.id} className="flex items-center gap-1.5 text-xs">
+                              {a.assetType === 'player' && (
+                                <>
+                                  {a.playerPos && <span className="font-black px-1 py-0.5 rounded text-white text-[10px]" style={{ background: { QB:'#ef4444', RB:'#22c55e', WR:'#3b82f6', TE:'#f97316', K:'#a855f7', DEF:'#6b7280' }[a.playerPos] || '#555' }}>{a.playerPos}</span>}
+                                  <span className="text-white">{a.playerName || a.playerId}</span>
+                                </>
+                              )}
+                              {a.assetType === 'current_pick' && <><span className="text-yellow-400 font-black">⦿</span><span className="text-white">Pick #{a.pickOverall} (Rd {a.pickRound})</span></>}
+                              {a.assetType === 'future_pick' && <><span className="text-sky-400 font-black">◈</span><span className="text-white">{a.pickYear} Rd {a.pickRound}{a.pickOriginalTeam && a.pickOriginalTeam !== from ? ` (${a.pickOriginalTeam})` : ''}</span></>}
+                              <span className="text-zinc-500">→ {a.toTeam}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {trade.notes && (
+                    <div className="text-[11px] text-zinc-400 italic border-t border-zinc-800 pt-2">&ldquo;{trade.notes}&rdquo;</div>
+                  )}
+
+                  {/* Actions */}
+                  <div className="flex gap-3 border-t border-zinc-800 pt-3">
+                    <button
+                      onClick={() => handleTradeDecision(trade.id, 'approve')}
+                      disabled={isActing}
+                      className="flex-1 py-2 rounded-lg font-black text-sm bg-emerald-500 hover:bg-emerald-400 text-white transition-colors disabled:opacity-50"
+                    >
+                      {tradeAction === trade.id + 'approve' ? 'Approving…' : '✓ Approve Trade'}
+                    </button>
+                    <button
+                      onClick={() => handleTradeDecision(trade.id, 'reject_admin')}
+                      disabled={isActing}
+                      className="flex-1 py-2 rounded-lg font-black text-sm bg-red-700 hover:bg-red-600 text-white transition-colors disabled:opacity-50"
+                    >
+                      {tradeAction === trade.id + 'reject_admin' ? 'Rejecting…' : '✗ Reject'}
+                    </button>
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })}
         </div>
       )}
 

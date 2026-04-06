@@ -44,6 +44,7 @@ interface DraftOverview {
   eventLogoUrl?: string | null;
   eventColor1?: string | null;
   eventColor2?: string | null;
+  pendingTradeAnimation?: { teams: string[]; assets: Array<{ fromTeam: string; toTeam: string; assetType: string; playerName?: string | null; playerPos?: string | null; pickOverall?: number | null; pickYear?: number | null; pickRound?: number | null; pickOriginalTeam?: string | null }> } | null;
   recentPicks: DraftPick[];
   allPicks?: DraftPick[];
   upcoming: UpcomingPick[];
@@ -73,6 +74,7 @@ export interface OverlayState {
   lastPick: DraftPick | null;
   isNewPick: boolean;
   pendingPick: { id: string; overall: number; team: string; playerId: string; playerName: string | null; playerPos: string | null; playerNfl: string | null; } | null;
+  pendingTradeAnimation: DraftOverview['pendingTradeAnimation'];
 }
 
 export function useDraftData(basePollIntervalMs = 1000) {
@@ -90,6 +92,7 @@ export function useDraftData(basePollIntervalMs = 1000) {
     lastPick: null,
     isNewPick: false,
     pendingPick: null,
+    pendingTradeAnimation: null,
   });
 
   const lastOverallRef = useRef<number | null>(null);
@@ -211,6 +214,7 @@ export function useDraftData(basePollIntervalMs = 1000) {
         lastPick,
         isNewPick,
         pendingPick,
+        pendingTradeAnimation: draft?.pendingTradeAnimation ?? null,
       });
     } catch (err) {
       console.error('[useDraftData] fetch error:', err);

@@ -9,6 +9,7 @@ import { getTeamLogoPath } from '@/lib/utils/team-utils';
 import { getTeamColors } from '@/lib/constants/team-colors';
 import DraftPickAnimation from './DraftPickAnimation';
 import NowOnClockAnimation from './NowOnClockAnimation';
+import DraftTradeAnimation, { type TradeAnimAsset } from './DraftTradeAnimation';
 import { getLeagueDrafts, getDraftPicks, getTeamsData, getAllPlayersCached } from '@/lib/utils/sleeper-api';
 import { LEAGUE_IDS } from '@/lib/constants/league';
 
@@ -54,6 +55,7 @@ export default function DraftOverlayLive() {
     usingCustom,
     localRemainingSec,
     pendingPick,
+    pendingTradeAnimation,
   } = useDraftData(1000);
 
   // Event branding — fall back to lime-green defaults when not configured
@@ -72,6 +74,9 @@ export default function DraftOverlayLive() {
   // Animation state machine: pick → clock → video → idle
   type AnimPhase = 'pick' | 'video' | 'clock' | null;
   const [animPhase, setAnimPhase] = useState<AnimPhase>(null);
+  // Trade animation state (independent of pick animation pipeline)
+  const [tradeAnimData, setTradeAnimData] = useState<{ teams: string[]; assets: TradeAnimAsset[] } | null>(null);
+  const tradeAnimSeenIdRef = useRef<string | null>(null);
   const [videoExiting, setVideoExiting] = useState(false);
   const animDataRef = useRef<{
     pick: NonNullable<typeof lastPick>;
@@ -90,10 +95,22 @@ export default function DraftOverlayLive() {
   const animInitializedRef = useRef(false);
   // Ref for GSAP video container animation
   const videoContainerRef = useRef<HTMLDivElement>(null);
+  // Stable ref to nextTeams so animation closure always sees latest value
+  const nextTeamsRef = useRef(nextTeams);
+  nextTeamsRef.current = nextTeams;
   // Guard: prevent dismissVideo from firing more than once per video phase
   const dismissingRef = useRef(false);
   // Track when animation sequence started (for stale-skip on tab re-focus)
   const animStartTimeRef = useRef<number>(0);
+
+  // Detect pending trade animation from DB trigger
+  useEffect(() => {
+    if (!pendingTradeAnimation) return;
+    const animKey = JSON.stringify(pendingTradeAnimation.teams) + pendingTradeAnimation.assets.length;
+    if (tradeAnimSeenIdRef.current === animKey) return;
+    tradeAnimSeenIdRef.current = animKey;
+    setTradeAnimData(pendingTradeAnimation as { teams: string[]; assets: TradeAnimAsset[] });
+  }, [pendingTradeAnimation]);
 
   // Load player media (videos + images) on mount
   useEffect(() => {
@@ -283,17 +300,7 @@ export default function DraftOverlayLive() {
   const pickInRound = (currentPickIndex % 12) + 1;
   const teamColors = currentTeam?.colors || ['#333', '#555', null];
   const teamLogo = currentTeam ? getTeamLogoPath(currentTeam.name) : null;
-  const nextTeamsRef = useRef(nextTeams);
-  nextTeamsRef.current = nextTeams;
-  const prevDraftGridRef = useRef(draftGrid);
-  
-  // Ticker rotation state
-  const [currentTickerView, setCurrentTickerView] = useState<TickerView>(baseTickerViews[0]);
-  const cycleTimerRef = useRef<NodeJS.Timeout | null>(null);
-  
-  // Draft order data from website
   const [draftOrderData, setDraftOrderData] = useState<{
-    slotOrder: Array<{ slot: number; team: string; record: { wins: number; losses: number; fpts: number; fptsAgainst?: number } }>;
     roundsData: Array<{ round: number; picks: Array<{ ownerTeam: string }> }>;
     transfers: Array<{ round: number; fromTeam: string; toTeam: string; summary?: string }>;
   } | null>(null);
@@ -850,6 +857,31 @@ export default function DraftOverlayLive() {
         );
       })()}
 
+      {/* PHASE: Trade animation (full-screen, independent of pick pipeline) */}
+      {tradeAnimData && (
+        <DraftTradeAnimation
+          key={`trade-${tradeAnimSeenIdRef.current}`}
+          teams={tradeAnimData.teams}
+          assets={tradeAnimData.assets}
+          eventLogoUrl={eventLogoUrl}
+          eventColor1={eventColor1}
+          onComplete={() => {
+            setTradeAnimData(null);
+            // Resume the draft clock after trade animation
+            fetch('/api/draft', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ action: 'resume' }),
+            }).catch(() => {});
+            // Clear animation trigger in DB
+            fetch('/api/draft/trade', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ action: 'clear_trade_animation', draftId: draft?.id }),
+            }).catch(() => {});
+          }}
+        />
+      )}
 
       {/* Status Bar */}
       <div className="fixed top-0 left-0 right-0 bg-zinc-900/95 border-b border-zinc-700 px-4 py-2 flex items-center justify-between" style={{ zIndex: 10040 }}>

@@ -10,6 +10,7 @@ import { getTeamColors } from '@/lib/constants/team-colors';
 import { TEAM_NAMES } from '@/lib/constants/league';
 import DraftPickAnimation from '@/components/draft-overlay/DraftPickAnimation';
 import NowOnClockAnimation from '@/components/draft-overlay/NowOnClockAnimation';
+import DraftTradeCenter from '@/components/draft-overlay/DraftTradeCenter';
 import { gsap } from 'gsap';
 
 const POSITIONS = ['QB', 'RB', 'WR', 'TE', 'K'];
@@ -77,6 +78,7 @@ export default function DraftRoomPage() {
   const [submittedPlayer, setSubmittedPlayer] = useState<Avail | null>(null);
   const [autoPickEnabled, setAutoPickEnabled] = useState(false);
   const [adminTeamOverride, setAdminTeamOverride] = useState<string>('');
+  const [tradeOpen, setTradeOpen] = useState(false);
   const [teamRoster, setTeamRoster] = useState<RosterPlayer[]>([]);
   const [rosterLoading, setRosterLoading] = useState(false);
   const [confirmPlayer, setConfirmPlayer] = useState<Avail | null>(null);
@@ -503,6 +505,15 @@ export default function DraftRoomPage() {
             <span className={`text-xs font-bold px-2 py-0.5 rounded ${draft.status === 'LIVE' ? 'bg-emerald-500 text-white' : draft.status === 'PAUSED' ? 'bg-yellow-400 text-black' : 'bg-zinc-600 text-white'}`}>
               {draft.status}
             </span>
+          )}
+          {myTeam && draft?.status === 'LIVE' && (
+            <button
+              onClick={() => setTradeOpen(true)}
+              className="text-xs font-bold px-3 py-1.5 rounded-lg transition-colors"
+              style={{ background: eventColor1, color: '#000' }}
+            >
+              🤝 Trade
+            </button>
           )}
           <span className="text-white/70 text-xs">{draft ? `${draft.year} Draft` : 'No active draft'}</span>
         </div>
@@ -994,6 +1005,17 @@ export default function DraftRoomPage() {
           />
         );
       })()}
+
+      {/* Trade Center modal */}
+      {tradeOpen && myTeam && draft && (
+        <DraftTradeCenter
+          myTeam={myTeam}
+          allTeams={TEAM_NAMES}
+          draftId={draft.id}
+          eventColor1={eventColor1}
+          onClose={() => setTradeOpen(false)}
+        />
+      )}
     </div>
   );
 }

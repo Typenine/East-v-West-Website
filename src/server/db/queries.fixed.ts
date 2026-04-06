@@ -233,6 +233,7 @@ export type DraftOverview = {
   eventLogoUrl?: string | null;
   eventColor1?: string | null;
   eventColor2?: string | null;
+  pendingTradeAnimation?: { teams: string[]; assets: TradeAsset[] } | null;
   recentPicks: Array<{ overall: number; round: number; team: string; playerId: string; playerName?: string | null; playerPos?: string | null; playerNfl?: string | null; madeAt: string }>;
   allPicks: Array<{ overall: number; round: number; team: string; playerId: string; playerName?: string | null; playerPos?: string | null; playerNfl?: string | null; madeAt: string }>;
   upcoming: Array<{ overall: number; round: number; team: string }>;
@@ -345,6 +346,64 @@ export async function ensureDraftTables() {
     )
   `);
   await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_pending_picks_draft ON draft_pending_picks(draft_id, status)`);
+  // Trade system tables
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS draft_roster_snapshots (
+      draft_id uuid NOT NULL,
+      team varchar(255) NOT NULL,
+      player_id varchar(64) NOT NULL,
+      player_name varchar(255),
+      player_pos varchar(8),
+      player_nfl varchar(8),
+      acquired_via varchar(16) NOT NULL DEFAULT 'sleeper',
+      PRIMARY KEY (draft_id, team, player_id)
+    )
+  `);
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS draft_future_picks (
+      id uuid NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
+      draft_id uuid NOT NULL,
+      owner_team varchar(255) NOT NULL,
+      original_team varchar(255) NOT NULL,
+      year integer NOT NULL,
+      round integer NOT NULL
+    )
+  `);
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_draft_future_picks ON draft_future_picks(draft_id, owner_team)`);
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS draft_trades (
+      id uuid NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
+      draft_id uuid NOT NULL,
+      status varchar(16) NOT NULL DEFAULT 'pending',
+      proposed_by varchar(255) NOT NULL,
+      teams jsonb NOT NULL,
+      accepted_by jsonb NOT NULL DEFAULT '[]',
+      counter_of uuid NULL,
+      notes text NULL,
+      proposed_at timestamp NOT NULL DEFAULT now(),
+      updated_at timestamp NOT NULL DEFAULT now()
+    )
+  `);
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_draft_trades ON draft_trades(draft_id, status)`);
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS draft_trade_assets (
+      id uuid NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
+      trade_id uuid NOT NULL,
+      from_team varchar(255) NOT NULL,
+      to_team varchar(255) NOT NULL,
+      asset_type varchar(16) NOT NULL,
+      player_id varchar(64) NULL,
+      player_name varchar(255) NULL,
+      player_pos varchar(8) NULL,
+      pick_overall integer NULL,
+      pick_year integer NULL,
+      pick_round integer NULL,
+      pick_original_team varchar(255) NULL
+    )
+  `);
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_draft_trade_assets ON draft_trade_assets(trade_id)`);
+  // Migration: pending trade animation trigger column
+  await db.execute(sql`ALTER TABLE drafts ADD COLUMN IF NOT EXISTS pending_trade_animation jsonb NULL`).catch(() => {});
 }
 
 // Optional per-draft custom player pool (alternative to Sleeper dataset)
@@ -419,9 +478,14 @@ export async function countDraftPlayers(draftId: string): Promise<number> {
 
 export async function resetDraft(draftId: string) {
   const db = getDb();
-  // Clear all picks and queues but KEEP draft structure (slots remain)
+  // Clear all picks, queues, and trade data but KEEP draft structure (slots remain)
   await db.execute(sql`DELETE FROM draft_picks WHERE draft_id = ${draftId}::uuid`);
   await db.execute(sql`DELETE FROM draft_queues WHERE draft_id = ${draftId}::uuid`);
+  // Clear trade system data
+  await db.execute(sql`DELETE FROM draft_trade_assets WHERE trade_id IN (SELECT id FROM draft_trades WHERE draft_id = ${draftId}::uuid)`);
+  await db.execute(sql`DELETE FROM draft_trades WHERE draft_id = ${draftId}::uuid`);
+  await db.execute(sql`DELETE FROM draft_roster_snapshots WHERE draft_id = ${draftId}::uuid`);
+  await db.execute(sql`DELETE FROM draft_future_picks WHERE draft_id = ${draftId}::uuid`);
   // Reset draft to NOT_STARTED with cur_overall = 1
   await db.execute(sql`
     UPDATE drafts 
@@ -524,7 +588,7 @@ export async function getActiveOrLatestDraftId(): Promise<string | null> {
 export async function getDraftOverview(draftId: string): Promise<DraftOverview | null> {
   await ensureDraftTables();
   const db = getDb();
-  const headRes = await db.execute(sql`SELECT id::text AS id, year, rounds, clock_seconds, status, created_at, started_at, completed_at, cur_overall, clock_started_at, deadline_ts, paused_remaining_secs, event_name, event_logo_url, event_color_1, event_color_2 FROM drafts WHERE id = ${draftId}::uuid LIMIT 1`);
+  const headRes = await db.execute(sql`SELECT id::text AS id, year, rounds, clock_seconds, status, created_at, started_at, completed_at, cur_overall, clock_started_at, deadline_ts, paused_remaining_secs, event_name, event_logo_url, event_color_1, event_color_2, pending_trade_animation FROM drafts WHERE id = ${draftId}::uuid LIMIT 1`);
   const head = (headRes as unknown as { rows?: Array<Record<string, unknown>> }).rows?.[0];
   if (!head) return null;
   const curOverall = Number(head.cur_overall || 1);
@@ -558,6 +622,7 @@ export async function getDraftOverview(draftId: string): Promise<DraftOverview |
     eventLogoUrl: (head.event_logo_url as string | null) ?? null,
     eventColor1: (head.event_color_1 as string | null) ?? null,
     eventColor2: (head.event_color_2 as string | null) ?? null,
+    pendingTradeAnimation: (head.pending_trade_animation as { teams: string[]; assets: TradeAsset[] } | null) ?? null,
     recentPicks,
     allPicks,
     upcoming,
@@ -1819,4 +1884,308 @@ export async function clearAllPendingTradeBlockEvents() {
     .update(tradeBlockEvents)
     .set({ sentAt: new Date() })
     .where(isNull(tradeBlockEvents.sentAt));
+}
+
+// ===== Draft Trade System =====
+
+export type TradeStatus = 'pending' | 'accepted' | 'rejected' | 'countered' | 'approved' | 'cancelled';
+export type TradeAssetType = 'player' | 'current_pick' | 'future_pick';
+
+export type TradeAsset = {
+  id: string;
+  tradeId: string;
+  fromTeam: string;
+  toTeam: string;
+  assetType: TradeAssetType;
+  playerId?: string | null;
+  playerName?: string | null;
+  playerPos?: string | null;
+  pickOverall?: number | null;
+  pickYear?: number | null;
+  pickRound?: number | null;
+  pickOriginalTeam?: string | null;
+};
+
+export type DraftTrade = {
+  id: string;
+  draftId: string;
+  status: TradeStatus;
+  proposedBy: string;
+  teams: string[];
+  acceptedBy: string[];
+  counterOf?: string | null;
+  notes?: string | null;
+  proposedAt: string;
+  updatedAt: string;
+  assets: TradeAsset[];
+};
+
+export type DraftRosterPlayer = {
+  playerId: string;
+  playerName: string | null;
+  playerPos: string | null;
+  playerNfl: string | null;
+  acquiredVia: string;
+};
+
+export type DraftFuturePick = {
+  id: string;
+  draftId: string;
+  ownerTeam: string;
+  originalTeam: string;
+  year: number;
+  round: number;
+};
+
+// Roster snapshot helpers
+export async function bulkInsertRosterSnapshot(draftId: string, team: string, players: Array<{ playerId: string; playerName?: string | null; playerPos?: string | null; playerNfl?: string | null }>, acquiredVia = 'sleeper') {
+  await ensureDraftTables();
+  const db = getDb();
+  for (const p of players) {
+    await db.execute(sql`
+      INSERT INTO draft_roster_snapshots (draft_id, team, player_id, player_name, player_pos, player_nfl, acquired_via)
+      VALUES (${draftId}::uuid, ${team}, ${p.playerId}, ${p.playerName ?? null}, ${p.playerPos ?? null}, ${p.playerNfl ?? null}, ${acquiredVia})
+      ON CONFLICT (draft_id, team, player_id) DO NOTHING
+    `);
+  }
+}
+
+export async function addPlayerToRosterSnapshot(draftId: string, team: string, player: { playerId: string; playerName?: string | null; playerPos?: string | null; playerNfl?: string | null }, acquiredVia = 'draft_pick') {
+  await ensureDraftTables();
+  const db = getDb();
+  await db.execute(sql`
+    INSERT INTO draft_roster_snapshots (draft_id, team, player_id, player_name, player_pos, player_nfl, acquired_via)
+    VALUES (${draftId}::uuid, ${team}, ${player.playerId}, ${player.playerName ?? null}, ${player.playerPos ?? null}, ${player.playerNfl ?? null}, ${acquiredVia})
+    ON CONFLICT (draft_id, team, player_id) DO NOTHING
+  `);
+}
+
+export async function movePlayerInSnapshot(draftId: string, playerId: string, fromTeam: string, toTeam: string) {
+  const db = getDb();
+  await db.execute(sql`
+    UPDATE draft_roster_snapshots
+    SET team = ${toTeam}, acquired_via = 'trade'
+    WHERE draft_id = ${draftId}::uuid AND player_id = ${playerId} AND team = ${fromTeam}
+  `);
+}
+
+export async function getRosterSnapshot(draftId: string, team: string): Promise<DraftRosterPlayer[]> {
+  await ensureDraftTables();
+  const db = getDb();
+  const res = await db.execute(sql`SELECT player_id, player_name, player_pos, player_nfl, acquired_via FROM draft_roster_snapshots WHERE draft_id = ${draftId}::uuid AND team = ${team} ORDER BY player_pos, player_name`);
+  const rows = (res as unknown as { rows?: Array<{ player_id: string; player_name: string | null; player_pos: string | null; player_nfl: string | null; acquired_via: string }> }).rows || [];
+  return rows.map(r => ({ playerId: r.player_id, playerName: r.player_name, playerPos: r.player_pos, playerNfl: r.player_nfl, acquiredVia: r.acquired_via }));
+}
+
+export async function hasRosterSnapshot(draftId: string): Promise<boolean> {
+  const db = getDb();
+  const res = await db.execute(sql`SELECT 1 FROM draft_roster_snapshots WHERE draft_id = ${draftId}::uuid LIMIT 1`);
+  return ((res as unknown as { rows?: unknown[] }).rows?.length ?? 0) > 0;
+}
+
+// Future picks helpers
+export async function bulkInsertFuturePicks(draftId: string, picks: Array<{ ownerTeam: string; originalTeam: string; year: number; round: number }>) {
+  await ensureDraftTables();
+  const db = getDb();
+  for (const p of picks) {
+    await db.execute(sql`
+      INSERT INTO draft_future_picks (draft_id, owner_team, original_team, year, round)
+      VALUES (${draftId}::uuid, ${p.ownerTeam}, ${p.originalTeam}, ${p.year}, ${p.round})
+    `);
+  }
+}
+
+export async function getFuturePicks(draftId: string, ownerTeam?: string): Promise<DraftFuturePick[]> {
+  await ensureDraftTables();
+  const db = getDb();
+  const res = ownerTeam
+    ? await db.execute(sql`SELECT id::text AS id, draft_id::text AS draft_id, owner_team, original_team, year, round FROM draft_future_picks WHERE draft_id = ${draftId}::uuid AND owner_team = ${ownerTeam} ORDER BY year, round`)
+    : await db.execute(sql`SELECT id::text AS id, draft_id::text AS draft_id, owner_team, original_team, year, round FROM draft_future_picks WHERE draft_id = ${draftId}::uuid ORDER BY owner_team, year, round`);
+  const rows = (res as unknown as { rows?: Array<{ id: string; draft_id: string; owner_team: string; original_team: string; year: number; round: number }> }).rows || [];
+  return rows.map(r => ({ id: r.id, draftId: r.draft_id, ownerTeam: r.owner_team, originalTeam: r.original_team, year: r.year, round: r.round }));
+}
+
+export async function moveFuturePick(pickId: string, toTeam: string) {
+  const db = getDb();
+  await db.execute(sql`UPDATE draft_future_picks SET owner_team = ${toTeam} WHERE id = ${pickId}::uuid`);
+}
+
+export async function hasFuturePickSnapshot(draftId: string): Promise<boolean> {
+  const db = getDb();
+  const res = await db.execute(sql`SELECT 1 FROM draft_future_picks WHERE draft_id = ${draftId}::uuid LIMIT 1`);
+  return ((res as unknown as { rows?: unknown[] }).rows?.length ?? 0) > 0;
+}
+
+// Trade CRUD
+export async function createDraftTrade(params: {
+  draftId: string;
+  proposedBy: string;
+  teams: string[];
+  assets: Array<{ fromTeam: string; toTeam: string; assetType: TradeAssetType; playerId?: string | null; playerName?: string | null; playerPos?: string | null; pickOverall?: number | null; pickYear?: number | null; pickRound?: number | null; pickOriginalTeam?: string | null }>;
+  counterOf?: string | null;
+  notes?: string | null;
+}): Promise<string> {
+  await ensureDraftTables();
+  const db = getDb();
+  const tradeId = randomUUID();
+  const teamsJson = JSON.stringify(params.teams);
+  const acceptedByJson = JSON.stringify([params.proposedBy]);
+  await db.execute(sql`
+    INSERT INTO draft_trades (id, draft_id, status, proposed_by, teams, accepted_by, counter_of, notes)
+    VALUES (${tradeId}::uuid, ${params.draftId}::uuid, 'pending', ${params.proposedBy}, ${teamsJson}::jsonb, ${acceptedByJson}::jsonb, ${params.counterOf ? sql`${params.counterOf}::uuid` : sql`NULL`}, ${params.notes ?? null})
+  `);
+  for (const a of params.assets) {
+    await db.execute(sql`
+      INSERT INTO draft_trade_assets (trade_id, from_team, to_team, asset_type, player_id, player_name, player_pos, pick_overall, pick_year, pick_round, pick_original_team)
+      VALUES (${tradeId}::uuid, ${a.fromTeam}, ${a.toTeam}, ${a.assetType}, ${a.playerId ?? null}, ${a.playerName ?? null}, ${a.playerPos ?? null}, ${a.pickOverall ?? null}, ${a.pickYear ?? null}, ${a.pickRound ?? null}, ${a.pickOriginalTeam ?? null})
+    `);
+  }
+  return tradeId;
+}
+
+function mapTradeRow(r: Record<string, unknown>, assets: TradeAsset[]): DraftTrade {
+  return {
+    id: String(r.id),
+    draftId: String(r.draft_id),
+    status: r.status as TradeStatus,
+    proposedBy: String(r.proposed_by),
+    teams: (r.teams as string[]) || [],
+    acceptedBy: (r.accepted_by as string[]) || [],
+    counterOf: (r.counter_of as string | null) ?? null,
+    notes: (r.notes as string | null) ?? null,
+    proposedAt: r.proposed_at ? new Date(r.proposed_at as string).toISOString() : '',
+    updatedAt: r.updated_at ? new Date(r.updated_at as string).toISOString() : '',
+    assets,
+  };
+}
+
+function mapAssetRow(r: Record<string, unknown>): TradeAsset {
+  return {
+    id: String(r.id),
+    tradeId: String(r.trade_id),
+    fromTeam: String(r.from_team),
+    toTeam: String(r.to_team),
+    assetType: r.asset_type as TradeAssetType,
+    playerId: (r.player_id as string | null) ?? null,
+    playerName: (r.player_name as string | null) ?? null,
+    playerPos: (r.player_pos as string | null) ?? null,
+    pickOverall: r.pick_overall != null ? Number(r.pick_overall) : null,
+    pickYear: r.pick_year != null ? Number(r.pick_year) : null,
+    pickRound: r.pick_round != null ? Number(r.pick_round) : null,
+    pickOriginalTeam: (r.pick_original_team as string | null) ?? null,
+  };
+}
+
+async function fetchAssetsForTrades(db: ReturnType<typeof getDb>, tradeIds: string[]): Promise<Map<string, TradeAsset[]>> {
+  if (tradeIds.length === 0) return new Map();
+  const list = tradeIds.map(id => `'${id}'::uuid`).join(',');
+  const res = await db.execute(sql`SELECT id::text AS id, trade_id::text AS trade_id, from_team, to_team, asset_type, player_id, player_name, player_pos, pick_overall, pick_year, pick_round, pick_original_team FROM draft_trade_assets WHERE trade_id = ANY(ARRAY[${sql.raw(list)}])`);
+  const rows = (res as unknown as { rows?: Array<Record<string, unknown>> }).rows || [];
+  const map = new Map<string, TradeAsset[]>();
+  for (const r of rows) {
+    const tid = String(r.trade_id);
+    if (!map.has(tid)) map.set(tid, []);
+    map.get(tid)!.push(mapAssetRow(r));
+  }
+  return map;
+}
+
+export async function getDraftTradesForTeam(draftId: string, team: string): Promise<DraftTrade[]> {
+  await ensureDraftTables();
+  const db = getDb();
+  const res = await db.execute(sql`
+    SELECT id::text AS id, draft_id::text AS draft_id, status, proposed_by, teams, accepted_by, counter_of::text AS counter_of, notes, proposed_at, updated_at
+    FROM draft_trades
+    WHERE draft_id = ${draftId}::uuid AND teams @> ${JSON.stringify([team])}::jsonb
+    ORDER BY proposed_at DESC
+  `);
+  const rows = (res as unknown as { rows?: Array<Record<string, unknown>> }).rows || [];
+  const ids = rows.map(r => String(r.id));
+  const assetsMap = await fetchAssetsForTrades(db, ids);
+  return rows.map(r => mapTradeRow(r, assetsMap.get(String(r.id)) || []));
+}
+
+export async function getAdminPendingTrades(draftId: string): Promise<DraftTrade[]> {
+  await ensureDraftTables();
+  const db = getDb();
+  const res = await db.execute(sql`
+    SELECT id::text AS id, draft_id::text AS draft_id, status, proposed_by, teams, accepted_by, counter_of::text AS counter_of, notes, proposed_at, updated_at
+    FROM draft_trades
+    WHERE draft_id = ${draftId}::uuid AND status = 'accepted'
+    ORDER BY updated_at ASC
+  `);
+  const rows = (res as unknown as { rows?: Array<Record<string, unknown>> }).rows || [];
+  const ids = rows.map(r => String(r.id));
+  const assetsMap = await fetchAssetsForTrades(db, ids);
+  return rows.map(r => mapTradeRow(r, assetsMap.get(String(r.id)) || []));
+}
+
+export async function getDraftTradeById(tradeId: string): Promise<DraftTrade | null> {
+  await ensureDraftTables();
+  const db = getDb();
+  const res = await db.execute(sql`
+    SELECT id::text AS id, draft_id::text AS draft_id, status, proposed_by, teams, accepted_by, counter_of::text AS counter_of, notes, proposed_at, updated_at
+    FROM draft_trades WHERE id = ${tradeId}::uuid LIMIT 1
+  `);
+  const row = (res as unknown as { rows?: Array<Record<string, unknown>> }).rows?.[0];
+  if (!row) return null;
+  const assetsMap = await fetchAssetsForTrades(db, [String(row.id)]);
+  return mapTradeRow(row, assetsMap.get(String(row.id)) || []);
+}
+
+export async function updateTradeStatus(tradeId: string, status: TradeStatus) {
+  const db = getDb();
+  await db.execute(sql`UPDATE draft_trades SET status = ${status}, updated_at = now() WHERE id = ${tradeId}::uuid`);
+}
+
+export async function addTradeAcceptance(tradeId: string, team: string): Promise<{ allAccepted: boolean; trade: DraftTrade | null }> {
+  const db = getDb();
+  await db.execute(sql`
+    UPDATE draft_trades
+    SET accepted_by = (accepted_by || ${JSON.stringify([team])}::jsonb) - 'null',
+        updated_at = now()
+    WHERE id = ${tradeId}::uuid AND NOT (accepted_by @> ${JSON.stringify([team])}::jsonb)
+  `);
+  const trade = await getDraftTradeById(tradeId);
+  if (!trade) return { allAccepted: false, trade: null };
+  const allAccepted = trade.teams.every(t => trade.acceptedBy.includes(t));
+  if (allAccepted) {
+    await updateTradeStatus(tradeId, 'accepted');
+    trade.status = 'accepted';
+  }
+  return { allAccepted, trade };
+}
+
+export async function approveDraftTrade(tradeId: string): Promise<DraftTrade | null> {
+  await ensureDraftTables();
+  const db = getDb();
+  const trade = await getDraftTradeById(tradeId);
+  if (!trade || trade.status !== 'accepted') return null;
+  // Execute asset swaps
+  for (const asset of trade.assets) {
+    if (asset.assetType === 'player' && asset.playerId) {
+      await movePlayerInSnapshot(trade.draftId, asset.playerId, asset.fromTeam, asset.toTeam);
+    } else if (asset.assetType === 'current_pick' && asset.pickOverall != null) {
+      await db.execute(sql`UPDATE draft_slots SET team = ${asset.toTeam} WHERE draft_id = ${trade.draftId}::uuid AND overall = ${asset.pickOverall}`);
+    } else if (asset.assetType === 'future_pick' && asset.pickYear != null && asset.pickRound != null && asset.pickOriginalTeam) {
+      await db.execute(sql`UPDATE draft_future_picks SET owner_team = ${asset.toTeam} WHERE draft_id = ${trade.draftId}::uuid AND owner_team = ${asset.fromTeam} AND year = ${asset.pickYear} AND round = ${asset.pickRound} AND original_team = ${asset.pickOriginalTeam}`);
+    }
+  }
+  await updateTradeStatus(tradeId, 'approved');
+  // Set pending animation trigger for overlay
+  const animPayload = JSON.stringify({
+    teams: trade.teams,
+    assets: trade.assets.map(a => ({
+      fromTeam: a.fromTeam, toTeam: a.toTeam, assetType: a.assetType,
+      playerName: a.playerName, playerPos: a.playerPos,
+      pickOverall: a.pickOverall, pickYear: a.pickYear, pickRound: a.pickRound, pickOriginalTeam: a.pickOriginalTeam,
+    })),
+  });
+  await db.execute(sql`UPDATE drafts SET pending_trade_animation = ${animPayload}::jsonb WHERE id = ${trade.draftId}::uuid`);
+  return getDraftTradeById(tradeId);
+}
+
+export async function clearTradeAnimation(draftId: string): Promise<void> {
+  const db = getDb();
+  await db.execute(sql`UPDATE drafts SET pending_trade_animation = NULL WHERE id = ${draftId}::uuid`);
 }

@@ -87,7 +87,7 @@ type LoadNextDraftArgs = {
   nameMap?: Map<number, string>;
 };
 
-async function loadDraftOwnershipForSeason(args: LoadNextDraftArgs & { season: number }): Promise<NextDraftOwnership | null> {
+export async function loadDraftOwnershipForSeason(args: LoadNextDraftArgs & { season: number }): Promise<NextDraftOwnership | null> {
   const league = args.league ?? (await getLeague(args.leagueId).catch(() => null));
   const rosters = args.rosters ?? (await getLeagueRosters(args.leagueId).catch(() => []));
   const nameMap = args.nameMap ?? (await getRosterIdToTeamNameMap(args.leagueId).catch(() => new Map<number, string>()));
