@@ -463,9 +463,16 @@ export default function DraftOverlayLive() {
         <div 
           className="grid grid-cols-5 gap-[2px] h-full bg-zinc-900/80 rounded-lg overflow-hidden">
           {/* Header Row */}
-          <div className="text-center text-[11px] font-bold text-zinc-400 py-1 bg-zinc-900">Pick</div>
+          <div
+            className="text-center text-[11px] font-bold text-zinc-400 py-1 bg-zinc-900"
+            style={{ borderBottom: `2px solid ${eventColor1}` }}
+          >Pick</div>
           {[1, 2, 3, 4].map(r => (
-            <div key={r} className="text-center text-[11px] font-bold text-zinc-400 py-1 bg-zinc-900">Round {r}</div>
+            <div
+              key={r}
+              className="text-center text-[11px] font-bold text-zinc-400 py-1 bg-zinc-900"
+              style={{ borderBottom: `2px solid ${eventColor1}` }}
+            >Round {r}</div>
           ))}
           
           {/* Pick Rows */}
@@ -621,8 +628,8 @@ export default function DraftOverlayLive() {
             </div>
           </div>
 
-          {/* Center: Timer */}
-          <div className="flex-1 flex items-center justify-center">
+          {/* Center: Timer + Event Logo */}
+          <div className="flex-1 flex flex-col items-center justify-center gap-1">
             <div
               ref={clockRef}
               className={`text-4xl font-bold font-mono ${localRemainingSec <= 10 ? 'text-red-500' : ''}`}
@@ -630,6 +637,14 @@ export default function DraftOverlayLive() {
             >
               {formatTime(localRemainingSec)}
             </div>
+            {eventLogoUrl && (
+              <img
+                src={eventLogoUrl}
+                alt=""
+                className="object-contain"
+                style={{ width: '28px', height: '28px', opacity: 0.75 }}
+              />
+            )}
           </div>
 
           {/* Right: Next Up + Team Logo */}
@@ -662,13 +677,6 @@ export default function DraftOverlayLive() {
             height: '140px',
           }}
         >
-          {/* Event logo badge — top-right corner of the info bar */}
-          {eventLogoUrl && (
-            <div className="absolute top-1.5 right-2 z-10 pointer-events-none">
-              <img src={eventLogoUrl} alt="" className="w-9 h-9 object-contain" style={{ opacity: 0.45 }} />
-            </div>
-          )}
-
           {/* Pick Is In overlay — covers only the InfoBar, ClockBox stays visible */}
           {pendingPick && (
             <div className="absolute inset-0 flex flex-col items-center justify-center z-20 rounded-sm" style={{ background: 'linear-gradient(135deg,rgba(0,0,0,0.92),rgba(30,10,0,0.96))' }}>

@@ -106,6 +106,13 @@ export default function DraftPickAnimation({
     });
     timelineRef.current = tl;
 
+    // PHASE 0: Featured event logo moment — opens the sequence before team intro
+    if (eventLogoFeat) {
+      tl.to(eventLogoFeat, { opacity: 1, scale: 1, duration: 0.55, ease: 'back.out(1.4)', force3D: true });
+      tl.to({}, { duration: 1.3 }); // hold
+      tl.to(eventLogoFeat, { opacity: 0, duration: 0.35, ease: 'power2.in', force3D: true });
+    }
+
     // PHASE 1: Team intro (0–2.5s)
     tl.to(teamIntro,   { opacity: 1, duration: 0.5, ease: 'power2.out', force3D: true });
     tl.to(teamNameBg,  { opacity: 1, duration: 0.7, ease: 'sine.inOut', force3D: true }, '-=0.2');
@@ -126,15 +133,6 @@ export default function DraftPickAnimation({
 
     // PHASE 4: Ordinal card out
     tl.to(draftCard, { opacity: 0, duration: 0.35, ease: 'power2.in', force3D: true });
-
-    // PHASE 4b: Event logo featured moment — scales in, holds, then fades as player name arrives
-    if (eventLogoFeat) {
-      tl.to(eventLogoFeat, { opacity: 1, scale: 1, duration: 0.55, ease: 'back.out(1.4)', force3D: true });
-      tl.to({}, { duration: 1.3 }); // hold
-      tl.to(eventLogoFeat, { opacity: 0, duration: 0.35, ease: 'power2.in', force3D: true });
-    } else {
-      tl.to({}, { duration: 0 }); // no gap when no logo
-    }
 
     // PHASE 5: Text reveal — name + details before card (5.5–7.3s)
     tl.to(textReveal,   { opacity: 1, duration: 0.4,  ease: 'power2.out', force3D: true }, '-=0.1');
