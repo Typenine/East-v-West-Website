@@ -23,6 +23,7 @@ interface DraftPickAnimationProps {
   round: number;
   pickInRound: number;
   onComplete?: () => void;
+  eventLogoUrl?: string | null;
 }
 
 function toOrdinal(n: number): string {
@@ -38,6 +39,7 @@ export default function DraftPickAnimation({
   round,
   pickInRound,
   onComplete,
+  eventLogoUrl,
 }: DraftPickAnimationProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const timelineRef = useRef<gsap.core.Timeline | null>(null);
@@ -60,15 +62,19 @@ export default function DraftPickAnimation({
     const textReveal    = container.querySelector<HTMLElement>('.gsap-text-reveal');
     const revealName    = container.querySelector<HTMLElement>('.gsap-reveal-name');
     const revealDetails = container.querySelector<HTMLElement>('.gsap-reveal-details');
-    const playerCard   = container.querySelector<HTMLElement>('.gsap-player-card');
-    const playerDets   = container.querySelector<HTMLElement>('.gsap-player-details');
-    const playerName   = container.querySelector<HTMLElement>('.gsap-player-name');
-    const pickInfo     = container.querySelector<HTMLElement>('.gsap-pick-info');
+    const playerCard      = container.querySelector<HTMLElement>('.gsap-player-card');
+    const playerDets      = container.querySelector<HTMLElement>('.gsap-player-details');
+    const playerName      = container.querySelector<HTMLElement>('.gsap-player-name');
+    const pickInfo        = container.querySelector<HTMLElement>('.gsap-pick-info');
+    const eventLogoFeat   = container.querySelector<HTMLElement>('.gsap-event-logo-feat');
+    const eventLogoCorner = container.querySelector<HTMLElement>('.gsap-event-logo-corner');
 
     if (!teamIntro || !wipe || !draftCard || !textReveal || !playerCard) {
       console.error('[DraftPickAnimation] Missing critical DOM elements — aborting');
       return;
     }
+    if (eventLogoFeat)   gsap.set(eventLogoFeat,   { opacity: 0, scale: 0.7, force3D: true });
+    if (eventLogoCorner) gsap.set(eventLogoCorner, { opacity: 0, force3D: true });
 
     console.log('[DraftPickAnimation] Starting for:', player.name);
 
@@ -121,6 +127,15 @@ export default function DraftPickAnimation({
     // PHASE 4: Ordinal card out
     tl.to(draftCard, { opacity: 0, duration: 0.35, ease: 'power2.in', force3D: true });
 
+    // PHASE 4b: Event logo featured moment — scales in, holds, then fades as player name arrives
+    if (eventLogoFeat) {
+      tl.to(eventLogoFeat, { opacity: 1, scale: 1, duration: 0.55, ease: 'back.out(1.4)', force3D: true });
+      tl.to({}, { duration: 1.3 }); // hold
+      tl.to(eventLogoFeat, { opacity: 0, duration: 0.35, ease: 'power2.in', force3D: true });
+    } else {
+      tl.to({}, { duration: 0 }); // no gap when no logo
+    }
+
     // PHASE 5: Text reveal — name + details before card (5.5–7.3s)
     tl.to(textReveal,   { opacity: 1, duration: 0.4,  ease: 'power2.out', force3D: true }, '-=0.1');
     if (revealName)    tl.to(revealName,    { opacity: 1, y: 0, duration: 0.55, ease: 'power3.out', force3D: true }, '-=0.25');
@@ -130,14 +145,16 @@ export default function DraftPickAnimation({
     // PHASE 6: Player card sweeps in over text (7.3–9.0s)
     tl.to(textReveal, { opacity: 0, duration: 0.3, ease: 'power1.in', force3D: true });
     tl.to(playerCard, { opacity: 1, y: 0, duration: 0.55, ease: 'power3.out', force3D: true }, '-=0.15');
-    if (playerDets) tl.to(playerDets, { opacity: 1, y: 0, duration: 0.4, ease: 'power2.out', force3D: true }, '-=0.25');
-    if (playerName) tl.to(playerName, { opacity: 1, y: 0, duration: 0.4, ease: 'power2.out', force3D: true }, '-=0.3');
-    if (pickInfo)   tl.to(pickInfo,   { opacity: 1, y: 0, duration: 0.4, ease: 'power2.out', force3D: true }, '-=0.3');
+    if (playerDets)      tl.to(playerDets,      { opacity: 1, y: 0, duration: 0.4, ease: 'power2.out', force3D: true }, '-=0.25');
+    if (playerName)      tl.to(playerName,      { opacity: 1, y: 0, duration: 0.4, ease: 'power2.out', force3D: true }, '-=0.3');
+    if (pickInfo)        tl.to(pickInfo,        { opacity: 1, y: 0, duration: 0.4, ease: 'power2.out', force3D: true }, '-=0.3');
+    // Corner watermark fades in on the broadcast hold frame
+    if (eventLogoCorner) tl.to(eventLogoCorner, { opacity: 0.55, duration: 0.5, ease: 'power2.out', force3D: true }, '-=0.2');
 
     // PHASE 7: Broadcast hold (9.0–12.0s)
     tl.to({}, { duration: 3.0 });
 
-    // PHASE 7: Exit (9.4–10.2s)
+    // PHASE 8: Exit
     tl.to(container, { opacity: 0, duration: 0.8, ease: 'power2.inOut', force3D: true });
 
     return () => {
@@ -255,6 +272,21 @@ export default function DraftPickAnimation({
           </div>
         </div>
       </div>
+
+      {/* ── PHASE 4b: Featured event logo moment ── */}
+      {eventLogoUrl && (
+        <div
+          className="gsap-event-logo-feat absolute inset-0 flex items-center justify-center pointer-events-none"
+          style={{ willChange: 'transform, opacity' }}
+        >
+          <img
+            src={eventLogoUrl}
+            alt=""
+            className="object-contain"
+            style={{ width: 'clamp(140px, 22vw, 200px)', height: 'clamp(140px, 22vw, 200px)' }}
+          />
+        </div>
+      )}
 
       {/* ── PHASE 5: Text reveal ── */}
       <div
@@ -395,6 +427,16 @@ export default function DraftPickAnimation({
           </div>
         </div>
       </div>
+
+      {/* ── Corner watermark: event logo on player card phase ── */}
+      {eventLogoUrl && (
+        <img
+          src={eventLogoUrl}
+          alt=""
+          className="gsap-event-logo-corner absolute bottom-6 right-8 object-contain pointer-events-none"
+          style={{ width: '56px', height: '56px', willChange: 'opacity' }}
+        />
+      )}
     </div>
   );
 }

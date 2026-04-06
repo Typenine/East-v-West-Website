@@ -40,6 +40,10 @@ interface DraftOverview {
   onClockTeam?: string | null;
   clockStartedAt?: string | null;
   deadlineTs?: string | null;
+  eventName?: string | null;
+  eventLogoUrl?: string | null;
+  eventColor1?: string | null;
+  eventColor2?: string | null;
   recentPicks: DraftPick[];
   allPicks?: DraftPick[];
   upcoming: UpcomingPick[];

@@ -229,6 +229,10 @@ export type DraftOverview = {
   clockStartedAt?: string | null;
   deadlineTs?: string | null;
   pausedRemainingSecs?: number | null;
+  eventName?: string | null;
+  eventLogoUrl?: string | null;
+  eventColor1?: string | null;
+  eventColor2?: string | null;
   recentPicks: Array<{ overall: number; round: number; team: string; playerId: string; playerName?: string | null; playerPos?: string | null; playerNfl?: string | null; madeAt: string }>;
   allPicks: Array<{ overall: number; round: number; team: string; playerId: string; playerName?: string | null; playerPos?: string | null; playerNfl?: string | null; madeAt: string }>;
   upcoming: Array<{ overall: number; round: number; team: string }>;
@@ -255,6 +259,11 @@ export async function ensureDraftTables() {
   `);
   // Migration: add paused_remaining_secs if missing
   await db.execute(sql`ALTER TABLE drafts ADD COLUMN IF NOT EXISTS paused_remaining_secs integer NULL`).catch(() => {});
+  // Migration: add event branding columns
+  await db.execute(sql`ALTER TABLE drafts ADD COLUMN IF NOT EXISTS event_name varchar(255)`).catch(() => {});
+  await db.execute(sql`ALTER TABLE drafts ADD COLUMN IF NOT EXISTS event_logo_url text`).catch(() => {});
+  await db.execute(sql`ALTER TABLE drafts ADD COLUMN IF NOT EXISTS event_color_1 varchar(16)`).catch(() => {});
+  await db.execute(sql`ALTER TABLE drafts ADD COLUMN IF NOT EXISTS event_color_2 varchar(16)`).catch(() => {});
   await db.execute(sql`
     CREATE TABLE IF NOT EXISTS draft_slots (
       draft_id uuid NOT NULL,
@@ -515,7 +524,7 @@ export async function getActiveOrLatestDraftId(): Promise<string | null> {
 export async function getDraftOverview(draftId: string): Promise<DraftOverview | null> {
   await ensureDraftTables();
   const db = getDb();
-  const headRes = await db.execute(sql`SELECT id::text AS id, year, rounds, clock_seconds, status, created_at, started_at, completed_at, cur_overall, clock_started_at, deadline_ts, paused_remaining_secs FROM drafts WHERE id = ${draftId}::uuid LIMIT 1`);
+  const headRes = await db.execute(sql`SELECT id::text AS id, year, rounds, clock_seconds, status, created_at, started_at, completed_at, cur_overall, clock_started_at, deadline_ts, paused_remaining_secs, event_name, event_logo_url, event_color_1, event_color_2 FROM drafts WHERE id = ${draftId}::uuid LIMIT 1`);
   const head = (headRes as unknown as { rows?: Array<Record<string, unknown>> }).rows?.[0];
   if (!head) return null;
   const curOverall = Number(head.cur_overall || 1);
@@ -545,6 +554,10 @@ export async function getDraftOverview(draftId: string): Promise<DraftOverview |
     clockStartedAt: head.clock_started_at ? new Date(head.clock_started_at as string).toISOString() : null,
     deadlineTs: head.deadline_ts ? new Date(head.deadline_ts as string).toISOString() : null,
     pausedRemainingSecs: head.paused_remaining_secs != null ? Number(head.paused_remaining_secs) : null,
+    eventName: (head.event_name as string | null) ?? null,
+    eventLogoUrl: (head.event_logo_url as string | null) ?? null,
+    eventColor1: (head.event_color_1 as string | null) ?? null,
+    eventColor2: (head.event_color_2 as string | null) ?? null,
     recentPicks,
     allPicks,
     upcoming,
@@ -553,6 +566,24 @@ export async function getDraftOverview(draftId: string): Promise<DraftOverview |
 }
 
 // ── Player Videos ─────────────────────────────────────────────────────────
+export async function updateDraftBranding(draftId: string, branding: {
+  eventName?: string | null;
+  eventLogoUrl?: string | null;
+  eventColor1?: string | null;
+  eventColor2?: string | null;
+}): Promise<void> {
+  await ensureDraftTables();
+  const db = getDb();
+  await db.execute(sql`
+    UPDATE drafts
+    SET event_name = ${branding.eventName ?? null},
+        event_logo_url = ${branding.eventLogoUrl ?? null},
+        event_color_1 = ${branding.eventColor1 ?? null},
+        event_color_2 = ${branding.eventColor2 ?? null}
+    WHERE id = ${draftId}::uuid
+  `);
+}
+
 export async function getPlayerVideos(): Promise<Array<{ playerId: string; videoUrl: string | null; imageUrl: string | null; playerName: string | null }>> {
   await ensureDraftTables();
   const db = getDb();

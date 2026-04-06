@@ -56,6 +56,12 @@ export default function DraftOverlayLive() {
     pendingPick,
   } = useDraftData(1000);
 
+  // Event branding — fall back to lime-green defaults when not configured
+  const eventColor1 = draft?.eventColor1 || '#a4c810';
+  const eventLogoUrl = draft?.eventLogoUrl || null;
+  // Build a CSS rgba glow from the event primary color
+  const eventGlow = `0 0 10px ${eventColor1}66`;
+
   const [isAdmin, setIsAdmin] = useState(false);
   useEffect(() => {
     fetch('/api/auth/me').then(r => r.json()).then((j) => setIsAdmin(Boolean(j?.isAdmin))).catch(() => {});
@@ -523,6 +529,18 @@ export default function DraftOverlayLive() {
           ))}
         </div>
 
+        {/* Event logo watermark — centered on the draft board at low opacity */}
+        {eventLogoUrl && (
+          <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-[1]">
+            <img
+              src={eventLogoUrl}
+              alt=""
+              className="w-48 h-48 object-contain"
+              style={{ opacity: 0.10 }}
+            />
+          </div>
+        )}
+
         {/* PHASE: Player highlight video — only covers draft board, info bar stays visible */}
         {(animPhase === 'video' || videoExiting) && animDataRef.current?.videoUrl && (() => {
           const videoUrl = animDataRef.current!.videoUrl!;
@@ -592,8 +610,8 @@ export default function DraftOverlayLive() {
               className="px-2 py-1 rounded text-center font-black text-xl text-white"
               style={{
                 background: `linear-gradient(135deg, ${teamColors[0]}cc 0%, ${teamColors[0]}cc 50%, ${teamColors[1]}cc 50%, ${teamColors[1]}cc 100%)`,
-                border: '2px solid #a4c810',
-                boxShadow: '0 0 10px rgba(196, 255, 0, 0.4)',
+                border: `2px solid ${eventColor1}`,
+                boxShadow: eventGlow,
               }}
             >
               {currentTeam?.abbrev || '---'}
@@ -607,8 +625,8 @@ export default function DraftOverlayLive() {
           <div className="flex-1 flex items-center justify-center">
             <div
               ref={clockRef}
-              className={`text-4xl font-bold font-mono ${localRemainingSec <= 10 ? 'text-red-500' : 'text-[#a4c810]'}`}
-              style={{ textShadow: '0 0 10px rgba(196, 255, 0, 0.4)' }}
+              className={`text-4xl font-bold font-mono ${localRemainingSec <= 10 ? 'text-red-500' : ''}`}
+              style={{ color: localRemainingSec <= 10 ? undefined : eventColor1, textShadow: eventGlow }}
             >
               {formatTime(localRemainingSec)}
             </div>
@@ -627,8 +645,8 @@ export default function DraftOverlayLive() {
               </div>
             </div>
             <div
-              className="w-16 h-16 bg-zinc-700 rounded overflow-hidden border-2 border-[#a4c810]"
-              style={{ boxShadow: '0 0 8px rgba(196, 255, 0, 0.4)' }}
+              className="w-16 h-16 bg-zinc-700 rounded overflow-hidden border-2"
+              style={{ borderColor: eventColor1, boxShadow: eventGlow }}
             >
               {teamLogo && <img src={teamLogo} alt={currentTeam?.name || ''} className="w-full h-full object-contain" />}
             </div>
@@ -644,6 +662,13 @@ export default function DraftOverlayLive() {
             height: '140px',
           }}
         >
+          {/* Event logo badge — top-right corner of the info bar */}
+          {eventLogoUrl && (
+            <div className="absolute top-1.5 right-2 z-10 pointer-events-none">
+              <img src={eventLogoUrl} alt="" className="w-9 h-9 object-contain" style={{ opacity: 0.45 }} />
+            </div>
+          )}
+
           {/* Pick Is In overlay — covers only the InfoBar, ClockBox stays visible */}
           {pendingPick && (
             <div className="absolute inset-0 flex flex-col items-center justify-center z-20 rounded-sm" style={{ background: 'linear-gradient(135deg,rgba(0,0,0,0.92),rgba(30,10,0,0.96))' }}>
@@ -783,6 +808,7 @@ export default function DraftOverlayLive() {
           pickNumber={animDataRef.current.overall}
           round={animDataRef.current.round}
           pickInRound={animDataRef.current.pickInRound}
+          eventLogoUrl={eventLogoUrl}
           onComplete={() => {
             // pick → clock (always), then clock → video (if player has one)
             setAnimPhase('clock');
@@ -805,6 +831,8 @@ export default function DraftOverlayLive() {
             pickNumber={curOverall}
             round={Math.floor((curOverall - 1) / 12) + 1}
             pickInRound={((curOverall - 1) % 12) + 1}
+            eventLogoUrl={eventLogoUrl}
+            eventColor1={eventColor1}
             onComplete={() => {
               // After clock anim, play video if available
               const hasVideo = !!(animDataRef.current?.videoUrl);

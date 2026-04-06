@@ -782,7 +782,7 @@ export default function DraftRoomPage() {
                 </div>
                 {/* Auto-pick toggle */}
                 <label className="flex items-center gap-2 cursor-pointer select-none">
-                  <span className="text-xs text-[var(--muted)]">Auto-pick</span>
+                  <span className="text-xs text-[var(--muted)]">Instant auto-pick</span>
                   <div
                     className={`relative w-9 h-5 rounded-full transition-colors ${autoPickEnabled ? 'bg-emerald-500' : 'bg-zinc-400 dark:bg-zinc-600'}`}
                     onClick={() => {
@@ -795,11 +795,12 @@ export default function DraftRoomPage() {
                   </div>
                 </label>
               </div>
-              {autoPickEnabled && (
-                <div className="px-3 py-1.5 text-xs font-medium text-emerald-700 dark:text-emerald-400 border-b border-[var(--border)]" style={{ background: 'rgba(16,185,129,0.07)' }}>
-                  ✓ Auto-picks your #1 queued player when time expires (admin approves)
-                </div>
-              )}
+              <div className="px-3 py-1.5 text-xs text-[var(--muted)] border-b border-[var(--border)]">
+                {autoPickEnabled
+                  ? <span className="font-medium text-emerald-700 dark:text-emerald-400">✓ Instant — top queued player submitted to admin the moment time expires</span>
+                  : <span>Your top queued player is always sent to admin when time expires (within ~3s)</span>
+                }
+              </div>
               {queue.length === 0 ? (
                 <div className="px-3 py-3 text-xs text-[var(--muted)]">Queue is empty — add players using the +Q button above.</div>
               ) : (

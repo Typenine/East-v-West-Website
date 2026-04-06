@@ -15,6 +15,8 @@ interface NowOnClockAnimationProps {
   round: number;
   pickInRound: number;
   onComplete?: () => void;
+  eventLogoUrl?: string | null;
+  eventColor1?: string | null;
 }
 
 export default function NowOnClockAnimation({
@@ -23,6 +25,8 @@ export default function NowOnClockAnimation({
   round,
   pickInRound,
   onComplete,
+  eventLogoUrl,
+  eventColor1,
 }: NowOnClockAnimationProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const timelineRef = useRef<gsap.core.Timeline | null>(null);
@@ -41,6 +45,7 @@ export default function NowOnClockAnimation({
     const logo      = container.querySelector<HTMLElement>('.noc-logo');
     const teamName  = container.querySelector<HTMLElement>('.noc-team-name');
     const pickMeta  = container.querySelector<HTMLElement>('.noc-pick-meta');
+    const eventBadge = container.querySelector<HTMLElement>('.noc-event-badge');
 
     if (!bg || !stripe || !label) {
       console.error('[NowOnClockAnimation] Missing critical elements');
@@ -52,9 +57,10 @@ export default function NowOnClockAnimation({
     gsap.set(bg,       { opacity: 0, force3D: true });
     gsap.set(stripe,   { scaleX: 0, transformOrigin: 'left center', force3D: true });
     gsap.set(label,    { opacity: 0, y: -30, force3D: true });
-    if (logo)     gsap.set(logo,     { opacity: 0, scale: 0.7, force3D: true });
-    if (teamName) gsap.set(teamName, { opacity: 0, x: -40, force3D: true });
-    if (pickMeta) gsap.set(pickMeta, { opacity: 0, y: 20, force3D: true });
+    if (logo)       gsap.set(logo,       { opacity: 0, scale: 0.7, force3D: true });
+    if (teamName)   gsap.set(teamName,   { opacity: 0, x: -40, force3D: true });
+    if (pickMeta)   gsap.set(pickMeta,   { opacity: 0, y: 20, force3D: true });
+    if (eventBadge) gsap.set(eventBadge, { opacity: 0, scale: 0.8, force3D: true });
 
     const tl = gsap.timeline({
       onComplete: () => {
@@ -76,6 +82,8 @@ export default function NowOnClockAnimation({
     if (teamName) tl.to(teamName, { opacity: 1, x: 0, duration: 0.5, ease: 'power3.out', force3D: true }, '-=0.35');
     // Pick meta fades up
     if (pickMeta) tl.to(pickMeta, { opacity: 1, y: 0, duration: 0.4, ease: 'power2.out', force3D: true }, '-=0.3');
+    // Event badge pops in alongside pick meta
+    if (eventBadge) tl.to(eventBadge, { opacity: 0.85, scale: 1, duration: 0.45, ease: 'back.out(1.4)', force3D: true }, '-=0.35');
     // Hold
     tl.to({}, { duration: 3.5 });
     // Fade out
@@ -92,6 +100,7 @@ export default function NowOnClockAnimation({
 
   const c1 = team.colors[0];
   const c2 = team.colors[1] || team.colors[0];
+  const ec1 = eventColor1 || null;
   const logo = getTeamLogoPath(team.name);
 
   return (
@@ -99,10 +108,12 @@ export default function NowOnClockAnimation({
       ref={containerRef}
       className="fixed inset-0 z-[9999] pointer-events-none overflow-hidden"
     >
-      {/* Background */}
+      {/* Background — subtle event color tint blended with team colors */}
       <div
         className="noc-bg absolute inset-0"
-        style={{ background: `linear-gradient(135deg, #0a0a0a 0%, ${c1}22 60%, ${c2}18 100%)` }}
+        style={{ background: ec1
+          ? `linear-gradient(135deg, #0a0a0a 0%, ${c1}22 45%, ${ec1}0d 75%, ${c2}18 100%)`
+          : `linear-gradient(135deg, #0a0a0a 0%, ${c1}22 60%, ${c2}18 100%)` }}
       />
 
       {/* Diagonal color stripe */}
@@ -152,6 +163,16 @@ export default function NowOnClockAnimation({
             {team.name}
           </div>
         </div>
+
+        {/* Event logo badge — bottom-right corner */}
+        {eventLogoUrl && (
+          <img
+            src={eventLogoUrl}
+            alt=""
+            className="noc-event-badge absolute bottom-8 right-10 w-16 h-16 object-contain pointer-events-none"
+            style={{ willChange: 'transform, opacity' }}
+          />
+        )}
 
         {/* Pick meta */}
         <div

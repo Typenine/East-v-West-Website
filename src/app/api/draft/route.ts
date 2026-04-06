@@ -18,6 +18,7 @@ import {
   getTeamQueue,
   setTeamQueue,
   removePlayerFromQueue,
+  updateDraftBranding,
   getDraftPickedPlayerIds,
   countDraftPlayers,
   getDraftPlayers,
@@ -116,7 +117,7 @@ export async function POST(req: NextRequest) {
     const id = typeof body.id === 'string' ? body.id : '';
 
     // Admin-only actions
-    if (['create','reset','delete','skip_pick','update_slot','start','pause','resume','set_clock','reset_clock','force_pick','undo','upload_players','clear_players','auto_pick','approve_pick','reject_pick'].includes(action)) {
+    if (['create','reset','delete','skip_pick','update_slot','start','pause','resume','set_clock','reset_clock','force_pick','undo','upload_players','clear_players','auto_pick','approve_pick','reject_pick','update_branding'].includes(action)) {
       if (!isAdmin(req)) return bad('forbidden', 403);
       if (action === 'create') {
         const year = Number(body.year || new Date().getFullYear());
@@ -183,6 +184,14 @@ export async function POST(req: NextRequest) {
       if (action === 'undo') {
         const r = await undoLastPick(draftId);
         if (!r.ok) return bad(r.error || 'failed');
+        return ok({ ok: true });
+      }
+      if (action === 'update_branding') {
+        const eventName = typeof body.eventName === 'string' ? body.eventName : null;
+        const eventLogoUrl = typeof body.eventLogoUrl === 'string' ? body.eventLogoUrl : null;
+        const eventColor1 = typeof body.eventColor1 === 'string' ? body.eventColor1 : null;
+        const eventColor2 = typeof body.eventColor2 === 'string' ? body.eventColor2 : null;
+        await updateDraftBranding(draftId, { eventName, eventLogoUrl, eventColor1, eventColor2 });
         return ok({ ok: true });
       }
       if (action === 'upload_players') {

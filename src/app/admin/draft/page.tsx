@@ -26,6 +26,10 @@ type DraftOverview = {
   onClockTeam?: string | null;
   clockStartedAt?: string | null;
   deadlineTs?: string | null;
+  eventName?: string | null;
+  eventLogoUrl?: string | null;
+  eventColor1?: string | null;
+  eventColor2?: string | null;
   recentPicks: Array<{ overall: number; round: number; team: string; playerId: string; playerName?: string | null; playerPos?: string | null; playerNfl?: string | null; madeAt: string }>;
   allPicks?: Array<{ overall: number; round: number; team: string; playerId: string; playerName?: string | null; playerPos?: string | null; playerNfl?: string | null; madeAt: string }>;
   upcoming: Array<{ overall: number; round: number; team: string }>;
@@ -276,7 +280,11 @@ export default function AdminDraftPage() {
     playerName: string | null; playerPos: string | null; playerNfl: string | null; submittedAt: string;
   } | null>(null);
   const [approvingPick, setApprovingPick] = useState(false);
-  const [activeTab, setActiveTab] = useState<'draft' | 'media'>('draft');
+  const [activeTab, setActiveTab] = useState<'draft' | 'media' | 'branding'>('draft');
+  const [brandingForm, setBrandingForm] = useState({ eventName: '', eventColor1: '#a4c810', eventColor2: '#ffffff', eventLogoUrl: '' });
+  const [brandingLogoFile, setBrandingLogoFile] = useState<File | null>(null);
+  const [brandingLogoPreview, setBrandingLogoPreview] = useState<string | null>(null);
+  const [savingBranding, setSavingBranding] = useState(false);
 
   // Convert mins:secs to total seconds
   const getTotalSeconds = () => Number(clockMins || 0) * 60 + Number(clockSecs || 0);
@@ -299,9 +307,21 @@ export default function AdminDraftPage() {
       const res = await fetch(url, { cache: 'no-store' });
       if (!res.ok) throw new Error('failed');
       const j = await res.json();
-      setDraft(j?.draft || null);
+      const newDraft = j?.draft || null;
+      setDraft(newDraft);
       setRemainingSec(j?.remainingSec ?? null);
       setPendingPick(j?.pendingPick ?? null);
+      if (newDraft) {
+        setBrandingForm(prev => ({
+          eventName: newDraft.eventName ?? prev.eventName,
+          eventColor1: newDraft.eventColor1 ?? prev.eventColor1,
+          eventColor2: newDraft.eventColor2 ?? prev.eventColor2,
+          eventLogoUrl: newDraft.eventLogoUrl ?? prev.eventLogoUrl,
+        }));
+        if (newDraft.eventLogoUrl && !brandingLogoPreview) {
+          setBrandingLogoPreview(newDraft.eventLogoUrl);
+        }
+      }
       if (includeAvail) setAvail(j?.available || []);
     } catch {
       setError('Failed to load draft');
@@ -315,6 +335,42 @@ export default function AdminDraftPage() {
     const t = setInterval(() => load(false), 3000);
     return () => clearInterval(t);
   }, []);
+
+  async function saveBranding() {
+    if (!draft) return;
+    setSavingBranding(true);
+    try {
+      let logoUrl = brandingForm.eventLogoUrl;
+      if (brandingLogoFile) {
+        logoUrl = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = e => resolve(e.target?.result as string);
+          reader.onerror = reject;
+          reader.readAsDataURL(brandingLogoFile);
+        });
+      }
+      const res = await fetch('/api/draft', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          action: 'update_branding',
+          id: draft.id,
+          eventName: brandingForm.eventName || null,
+          eventLogoUrl: logoUrl || null,
+          eventColor1: brandingForm.eventColor1 || null,
+          eventColor2: brandingForm.eventColor2 || null,
+        }),
+      });
+      const j = await res.json();
+      if (!res.ok || j?.error) throw new Error(j?.error || 'failed');
+      setBrandingLogoFile(null);
+      await load(false);
+    } catch (e) {
+      alert((e as Error).message || 'Save failed');
+    } finally {
+      setSavingBranding(false);
+    }
+  }
 
   async function refreshPlayersInfo() {
     try {
@@ -558,7 +614,7 @@ export default function AdminDraftPage() {
 
       {/* Tab Navigation */}
       <div className="flex gap-1 mb-6 border-b border-zinc-700">
-        {(['draft', 'media'] as const).map(tab => (
+        {(['draft', 'media', 'branding'] as const).map(tab => (
           <button
             key={tab}
             type="button"
@@ -569,7 +625,7 @@ export default function AdminDraftPage() {
                 : 'border-transparent text-zinc-400 hover:text-white hover:bg-zinc-800/50'
             }`}
           >
-            {tab === 'draft' ? '⚙️ Draft Control' : '🎬 Player Media'}
+            {tab === 'draft' ? '⚙️ Draft Control' : tab === 'media' ? '🎬 Player Media' : '🎨 Event Branding'}
           </button>
         ))}
       </div>
@@ -580,6 +636,123 @@ export default function AdminDraftPage() {
 
       {/* Media Tab */}
       {activeTab === 'media' && isAdmin && <PlayerMediaCard />}
+
+      {/* Branding Tab */}
+      {activeTab === 'branding' && isAdmin && (
+        <div className="max-w-xl space-y-6">
+          {!draft && (
+            <Card><CardContent><p className="text-[var(--muted)] text-sm">Create a draft first before setting event branding.</p></CardContent></Card>
+          )}
+          {draft && (
+            <Card>
+              <CardHeader><CardTitle>Event Branding</CardTitle></CardHeader>
+              <CardContent className="space-y-5">
+                {/* Event Name */}
+                <div>
+                  <Label className="mb-1 block">Event Name</Label>
+                  <Input
+                    placeholder="e.g. Pittsburgh 2026 Draft"
+                    value={brandingForm.eventName}
+                    onChange={e => setBrandingForm(f => ({ ...f, eventName: e.target.value }))}
+                  />
+                </div>
+
+                {/* Logo Upload */}
+                <div>
+                  <Label className="mb-1 block">Event Logo</Label>
+                  <div className="flex items-start gap-4">
+                    <div className="flex-1">
+                      <input
+                        type="file"
+                        accept="image/png,image/jpeg,image/webp,image/gif"
+                        className="text-sm text-zinc-300 file:mr-2 file:py-1 file:px-3 file:rounded file:border-0 file:bg-zinc-700 file:text-white hover:file:bg-zinc-600 w-full"
+                        onChange={e => {
+                          const file = e.target.files?.[0] || null;
+                          setBrandingLogoFile(file);
+                          if (file) {
+                            const reader = new FileReader();
+                            reader.onload = ev => setBrandingLogoPreview(ev.target?.result as string);
+                            reader.readAsDataURL(file);
+                          }
+                        }}
+                      />
+                      <p className="text-xs text-zinc-500 mt-1">PNG recommended. File is stored as base64 in the database.</p>
+                    </div>
+                    {(brandingLogoPreview || brandingForm.eventLogoUrl) && (
+                      <div className="w-20 h-20 rounded-lg overflow-hidden border border-zinc-600 bg-zinc-900 flex items-center justify-center flex-shrink-0">
+                        <img
+                          src={brandingLogoPreview || brandingForm.eventLogoUrl}
+                          alt="Event logo preview"
+                          className="w-full h-full object-contain p-1"
+                        />
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Colors */}
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label className="mb-1 block">Primary Color</Label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="color"
+                        value={brandingForm.eventColor1}
+                        onChange={e => setBrandingForm(f => ({ ...f, eventColor1: e.target.value }))}
+                        className="w-10 h-10 rounded cursor-pointer border border-zinc-600 bg-transparent p-0.5"
+                      />
+                      <Input
+                        value={brandingForm.eventColor1}
+                        onChange={e => setBrandingForm(f => ({ ...f, eventColor1: e.target.value }))}
+                        className="font-mono text-sm uppercase"
+                        maxLength={7}
+                        placeholder="#FFB612"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <Label className="mb-1 block">Secondary Color</Label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="color"
+                        value={brandingForm.eventColor2}
+                        onChange={e => setBrandingForm(f => ({ ...f, eventColor2: e.target.value }))}
+                        className="w-10 h-10 rounded cursor-pointer border border-zinc-600 bg-transparent p-0.5"
+                      />
+                      <Input
+                        value={brandingForm.eventColor2}
+                        onChange={e => setBrandingForm(f => ({ ...f, eventColor2: e.target.value }))}
+                        className="font-mono text-sm uppercase"
+                        maxLength={7}
+                        placeholder="#000000"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Live Color Preview */}
+                <div
+                  className="rounded-lg p-4 flex items-center gap-4 border border-zinc-700"
+                  style={{ background: `linear-gradient(135deg, ${brandingForm.eventColor1}22 0%, ${brandingForm.eventColor2}22 100%)` }}
+                >
+                  <div className="flex gap-2">
+                    <div className="w-8 h-8 rounded-full border-2 border-white/20" style={{ background: brandingForm.eventColor1 }} title="Primary" />
+                    <div className="w-8 h-8 rounded-full border-2 border-white/20" style={{ background: brandingForm.eventColor2 }} title="Secondary" />
+                  </div>
+                  <div>
+                    <div className="text-sm font-bold text-white">{brandingForm.eventName || 'Event Name'}</div>
+                    <div className="text-xs text-zinc-400">Clock timer & board will use these colors</div>
+                  </div>
+                </div>
+
+                <Button variant="primary" disabled={savingBranding} onClick={saveBranding} className="w-full sm:w-auto">
+                  {savingBranding ? 'Saving…' : 'Save Branding'}
+                </Button>
+              </CardContent>
+            </Card>
+          )}
+        </div>
+      )}
 
       {activeTab === 'draft' && (
         !isAdmin ? (
