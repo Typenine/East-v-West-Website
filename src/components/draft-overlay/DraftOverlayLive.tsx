@@ -611,8 +611,8 @@ export default function DraftOverlayLive() {
             border: '1px solid #333',
           }}
         >
-          {/* Left: Team Abbrev (top) + Event Logo (bottom) */}
-          <div className="flex flex-col justify-between items-center p-2 w-28">
+          {/* Left: Team Abbrev + Event Logo, centered together */}
+          <div className="flex flex-col justify-center items-center gap-3 p-2 w-28">
             <div
               className="px-2 py-1 rounded text-center font-black text-xl text-white w-full"
               style={{
@@ -623,20 +623,18 @@ export default function DraftOverlayLive() {
             >
               {currentTeam?.abbrev || '---'}
             </div>
-            {eventLogoUrl ? (
+            {eventLogoUrl && (
               <img
                 src={eventLogoUrl}
                 alt=""
                 className="object-contain"
-                style={{ width: '52px', height: '52px', opacity: 0.85 }}
+                style={{ width: '44px', height: '44px', opacity: 0.85 }}
               />
-            ) : (
-              <div className="h-[52px]" />
             )}
           </div>
 
-          {/* Center: Timer (top) + RD/PK (bottom) */}
-          <div className="flex-1 flex flex-col items-center justify-between py-3">
+          {/* Center: Timer + RD/PK as a tight centered pair */}
+          <div className="flex-1 flex flex-col items-center justify-center gap-1">
             <div
               ref={clockRef}
               className={`text-4xl font-bold font-mono ${localRemainingSec <= 10 ? 'text-red-500' : ''}`}
@@ -649,23 +647,23 @@ export default function DraftOverlayLive() {
             </div>
           </div>
 
-          {/* Right: Next Up + Team Logo */}
-          <div className="flex items-center gap-2 p-2">
-            <div className="flex flex-col items-center gap-1">
-              <span className="text-[10px] text-zinc-400">NEXT</span>
+          {/* Right: On-clock logo (top) + NEXT with small logos (bottom) */}
+          <div className="flex flex-col items-center justify-center gap-2 p-2">
+            <div
+              className="w-14 h-14 bg-zinc-700 rounded overflow-hidden border-2 shrink-0"
+              style={{ borderColor: eventColor1, boxShadow: eventGlow }}
+            >
+              {teamLogo && <img src={teamLogo} alt={currentTeam?.name || ''} className="w-full h-full object-contain" />}
+            </div>
+            <div className="flex flex-col items-center gap-0.5">
+              <span className="text-[9px] text-zinc-400 uppercase tracking-wide">Next</span>
               <div className="flex gap-1">
                 {nextTeams.slice(0, 2).map((t, i) => (
-                  <div key={i} className="w-6 h-6 bg-zinc-600 rounded overflow-hidden">
+                  <div key={i} className="w-5 h-5 bg-zinc-600 rounded overflow-hidden">
                     {t.logoPath && <img src={t.logoPath} alt={t.name} className="w-full h-full object-contain" />}
                   </div>
                 ))}
               </div>
-            </div>
-            <div
-              className="w-16 h-16 bg-zinc-700 rounded overflow-hidden border-2"
-              style={{ borderColor: eventColor1, boxShadow: eventGlow }}
-            >
-              {teamLogo && <img src={teamLogo} alt={currentTeam?.name || ''} className="w-full h-full object-contain" />}
             </div>
           </div>
         </div>
