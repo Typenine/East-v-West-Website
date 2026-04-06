@@ -611,10 +611,10 @@ export default function DraftOverlayLive() {
             border: '1px solid #333',
           }}
         >
-          {/* Left: Team Abbrev + Round/Pick */}
-          <div className="flex flex-col justify-center p-2 w-28">
+          {/* Left: Team Abbrev (top) + Event Logo (bottom) */}
+          <div className="flex flex-col justify-between items-center p-2 w-28">
             <div
-              className="px-2 py-1 rounded text-center font-black text-xl text-white"
+              className="px-2 py-1 rounded text-center font-black text-xl text-white w-full"
               style={{
                 background: `linear-gradient(135deg, ${teamColors[0]}cc 0%, ${teamColors[0]}cc 50%, ${teamColors[1]}cc 50%, ${teamColors[1]}cc 100%)`,
                 border: `2px solid ${eventColor1}`,
@@ -623,13 +623,20 @@ export default function DraftOverlayLive() {
             >
               {currentTeam?.abbrev || '---'}
             </div>
-            <div className="text-white text-sm mt-1 text-center">
-              <span className="font-bold">RD</span> {roundNumber} <span className="font-bold">PK</span> {pickInRound}
-            </div>
+            {eventLogoUrl ? (
+              <img
+                src={eventLogoUrl}
+                alt=""
+                className="object-contain"
+                style={{ width: '52px', height: '52px', opacity: 0.85 }}
+              />
+            ) : (
+              <div className="h-[52px]" />
+            )}
           </div>
 
-          {/* Center: Timer + Event Logo */}
-          <div className="flex-1 flex flex-col items-center justify-center gap-1">
+          {/* Center: Timer (top) + RD/PK (bottom) */}
+          <div className="flex-1 flex flex-col items-center justify-between py-3">
             <div
               ref={clockRef}
               className={`text-4xl font-bold font-mono ${localRemainingSec <= 10 ? 'text-red-500' : ''}`}
@@ -637,14 +644,9 @@ export default function DraftOverlayLive() {
             >
               {formatTime(localRemainingSec)}
             </div>
-            {eventLogoUrl && (
-              <img
-                src={eventLogoUrl}
-                alt=""
-                className="object-contain"
-                style={{ width: '28px', height: '28px', opacity: 0.75 }}
-              />
-            )}
+            <div className="text-white text-sm text-center">
+              <span className="font-bold">RD</span> {roundNumber} <span className="font-bold">PK</span> {pickInRound}
+            </div>
           </div>
 
           {/* Right: Next Up + Team Logo */}

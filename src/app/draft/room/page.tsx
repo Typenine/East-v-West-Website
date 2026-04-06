@@ -40,6 +40,10 @@ type DraftOverview = {
   curOverall: number;
   onClockTeam?: string | null;
   deadlineTs?: string | null;
+  eventName?: string | null;
+  eventLogoUrl?: string | null;
+  eventColor1?: string | null;
+  eventColor2?: string | null;
   recentPicks: DraftPick[];
   allPicks?: DraftPick[];
   upcoming: DraftSlot[];
@@ -475,6 +479,8 @@ export default function DraftRoomPage() {
   const picksPerRound = Math.ceil(allSlots.length / Math.max(rounds, 1)) || 12;
   const myTeamColors = myTeam ? getTeamColors(myTeam) : null;
   const isMyPickPending = pickStatus === 'pending' || (pendingPick?.team === myTeam);
+  const eventColor1 = draft?.eventColor1 || '#a4c810';
+  const eventLogoUrl = draft?.eventLogoUrl || null;
 
   return (
     <div className="flex flex-col" style={{ background: 'var(--background)' }}>
@@ -505,9 +511,9 @@ export default function DraftRoomPage() {
       {/* ── DRAFT BOARD (full height, no internal scroll — whole page scrolls) ── */}
       <div className="relative border-b-2 border-zinc-700" style={{ background: '#0a0a0e' }}>
         <div className="grid shrink-0 border-b border-zinc-800" style={{ gridTemplateColumns: `40px repeat(${rounds}, 1fr)`, background: '#111116' }}>
-          <div className="text-center text-[10px] font-bold text-zinc-500 py-1.5">#</div>
+          <div className="text-center text-[10px] font-bold text-zinc-500 py-1.5" style={{ borderBottom: `2px solid ${eventColor1}` }}>#</div>
           {Array.from({ length: rounds }, (_, i) => (
-            <div key={i} className="text-center text-[10px] font-bold text-zinc-400 py-1.5 border-l border-zinc-800">Round {i + 1}</div>
+            <div key={i} className="text-center text-[10px] font-bold text-zinc-400 py-1.5 border-l border-zinc-800" style={{ borderBottom: `2px solid ${eventColor1}` }}>Round {i + 1}</div>
           ))}
         </div>
         <div>
@@ -597,19 +603,22 @@ export default function DraftRoomPage() {
                 const nextUp = (draft?.upcoming || []).filter((u: DraftSlot) => u.overall > pendingOverall).slice(0, 2);
                 return (
                   <div className="flex items-stretch shrink-0" style={{ width: '340px', background: 'linear-gradient(to bottom,#202020,#282828)', borderRadius: '4px', border: '1px solid #333' }}>
-                    {/* Abbrev + round/pick */}
-                    <div className="flex flex-col justify-center p-2 w-28">
-                      <div className="px-2 py-1 rounded text-center font-black text-xl text-white" style={{ background: `linear-gradient(135deg,${tc[0]}cc 0%,${tc[0]}cc 50%,${tc[1]}cc 50%,${tc[1]}cc 100%)`, border: '2px solid #a4c810', boxShadow: '0 0 10px rgba(196,255,0,0.4)' }}>
+                    {/* Left: Abbrev (top) + event logo (bottom) */}
+                    <div className="flex flex-col justify-between items-center p-2 w-28">
+                      <div className="px-2 py-1 rounded text-center font-black text-xl text-white w-full" style={{ background: `linear-gradient(135deg,${tc[0]}cc 0%,${tc[0]}cc 50%,${tc[1]}cc 50%,${tc[1]}cc 100%)`, border: `2px solid ${eventColor1}`, boxShadow: `0 0 10px ${eventColor1}66` }}>
                         {abbrev}
                       </div>
-                      <div className="text-white text-sm mt-1 text-center">
-                        <span className="font-bold">RD</span> {roundNum} <span className="font-bold">PK</span> {pickNum}
-                      </div>
+                      {eventLogoUrl ? (
+                        <img src={eventLogoUrl} alt="" className="object-contain" style={{ width: '52px', height: '52px', opacity: 0.85 }} />
+                      ) : <div className="h-[52px]" />}
                     </div>
-                    {/* Timer */}
-                    <div className="flex-1 flex items-center justify-center">
-                      <div className="text-4xl font-bold font-mono" style={{ color: '#a4c810', textShadow: '0 0 10px rgba(196,255,0,0.4)' }}>
+                    {/* Center: Timer (top) + RD/PK (bottom) */}
+                    <div className="flex-1 flex flex-col items-center justify-between py-3">
+                      <div className="text-4xl font-bold font-mono" style={{ color: localRemaining !== null && localRemaining <= 10 ? '#ef4444' : eventColor1, textShadow: `0 0 10px ${eventColor1}66` }}>
                         {localRemaining !== null ? formatTime(localRemaining) : '--:--'}
+                      </div>
+                      <div className="text-white text-sm text-center">
+                        <span className="font-bold">RD</span> {roundNum} <span className="font-bold">PK</span> {pickNum}
                       </div>
                     </div>
                     {/* NEXT + team logo */}
@@ -624,7 +633,7 @@ export default function DraftRoomPage() {
                           ))}
                         </div>
                       </div>
-                      <div className="w-16 h-16 bg-zinc-700 rounded overflow-hidden border-2 border-[#a4c810]" style={{ boxShadow: '0 0 8px rgba(196,255,0,0.4)' }}>
+                      <div className="w-16 h-16 bg-zinc-700 rounded overflow-hidden border-2" style={{ borderColor: eventColor1, boxShadow: `0 0 8px ${eventColor1}66` }}>
                         {onClockLogo && <img src={onClockLogo} alt={onClock || ''} className="w-full h-full object-contain" />}
                       </div>
                     </div>
@@ -640,7 +649,7 @@ export default function DraftRoomPage() {
             </div>
           ) : (
             /* ── Normal on-clock banner ── */
-            <div className="relative px-4 py-3" style={{ background: `linear-gradient(135deg, ${tc[0]}dd, ${tc[1]}cc)`, borderBottom: `2px solid ${tc[0]}80` }}>
+            <div className="relative px-4 py-3" style={{ background: `linear-gradient(135deg, ${tc[0]}dd, ${tc[1]}cc)`, borderBottom: `2px solid ${tc[0]}80`, borderTop: eventColor1 !== '#a4c810' ? `3px solid ${eventColor1}` : undefined }}>
               <div className="flex items-center gap-3">
                 <div className="w-12 h-12 shrink-0 rounded-lg overflow-hidden bg-black/40 flex items-center justify-center border border-white/20">
                   {onClockLogo ? <img src={onClockLogo} alt={onClock || ''} className="w-full h-full object-contain" /> : <span className="text-white/40 text-xl">?</span>}
@@ -964,6 +973,7 @@ export default function DraftRoomPage() {
           pickNumber={animDataRef.current.overall}
           round={animDataRef.current.round}
           pickInRound={animDataRef.current.pickInRound}
+          eventLogoUrl={draft?.eventLogoUrl}
           onComplete={() => setAnimPhase('clock')}
         />
       )}
@@ -978,6 +988,8 @@ export default function DraftRoomPage() {
             pickNumber={curOverall}
             round={Math.floor((curOverall - 1) / picksPerRound) + 1}
             pickInRound={((curOverall - 1) % picksPerRound) + 1}
+            eventLogoUrl={draft?.eventLogoUrl}
+            eventColor1={draft?.eventColor1}
             onComplete={() => setAnimPhase(!!(animDataRef.current?.videoUrl) ? 'video' : null)}
           />
         );
