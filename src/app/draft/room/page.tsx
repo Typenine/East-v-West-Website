@@ -506,7 +506,7 @@ export default function DraftRoomPage() {
               {draft.status}
             </span>
           )}
-          {myTeam && draft?.status === 'LIVE' && (
+          {myTeam && draft && (
             <button
               onClick={() => setTradeOpen(true)}
               className="text-xs font-bold px-3 py-1.5 rounded-lg transition-colors"
