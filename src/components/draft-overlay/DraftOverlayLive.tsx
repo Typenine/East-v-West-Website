@@ -642,15 +642,15 @@ export default function DraftOverlayLive() {
             >
               {formatTime(localRemainingSec)}
             </div>
-            <div className="text-white text-sm text-center">
-              <span className="font-bold">RD</span> {roundNumber} <span className="font-bold">PK</span> {pickInRound}
+            <div className="text-sm text-center font-bold" style={{ color: eventColor1 }}>
+              RD {roundNumber} &nbsp; PK {pickInRound}
             </div>
           </div>
 
           {/* Right: On-clock logo (top) + NEXT with small logos (bottom) */}
           <div className="flex flex-col items-center justify-center gap-2 p-2">
             <div
-              className="w-14 h-14 bg-zinc-700 rounded overflow-hidden border-2 shrink-0"
+              className="w-16 h-16 bg-zinc-700 rounded overflow-hidden border-2 shrink-0"
               style={{ borderColor: eventColor1, boxShadow: eventGlow }}
             >
               {teamLogo && <img src={teamLogo} alt={currentTeam?.name || ''} className="w-full h-full object-contain" />}
@@ -659,7 +659,7 @@ export default function DraftOverlayLive() {
               <span className="text-[9px] text-zinc-400 uppercase tracking-wide">Next</span>
               <div className="flex gap-1">
                 {nextTeams.slice(0, 2).map((t, i) => (
-                  <div key={i} className="w-5 h-5 bg-zinc-600 rounded overflow-hidden">
+                  <div key={i} className="w-7 h-7 bg-zinc-600 rounded overflow-hidden">
                     {t.logoPath && <img src={t.logoPath} alt={t.name} className="w-full h-full object-contain" />}
                   </div>
                 ))}

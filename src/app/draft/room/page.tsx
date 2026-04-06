@@ -617,20 +617,20 @@ export default function DraftRoomPage() {
                       <div className="text-4xl font-bold font-mono" style={{ color: localRemaining !== null && localRemaining <= 10 ? '#ef4444' : eventColor1, textShadow: `0 0 10px ${eventColor1}66` }}>
                         {localRemaining !== null ? formatTime(localRemaining) : '--:--'}
                       </div>
-                      <div className="text-white text-sm text-center">
-                        <span className="font-bold">RD</span> {roundNum} <span className="font-bold">PK</span> {pickNum}
+                      <div className="text-sm text-center font-bold" style={{ color: eventColor1 }}>
+                        RD {roundNum} &nbsp; PK {pickNum}
                       </div>
                     </div>
                     {/* Right: On-clock logo (top) + NEXT small logos (bottom) */}
                     <div className="flex flex-col items-center justify-center gap-2 p-2">
-                      <div className="w-14 h-14 bg-zinc-700 rounded overflow-hidden border-2 shrink-0" style={{ borderColor: eventColor1, boxShadow: `0 0 8px ${eventColor1}66` }}>
+                      <div className="w-16 h-16 bg-zinc-700 rounded overflow-hidden border-2 shrink-0" style={{ borderColor: eventColor1, boxShadow: `0 0 8px ${eventColor1}66` }}>
                         {onClockLogo && <img src={onClockLogo} alt={onClock || ''} className="w-full h-full object-contain" />}
                       </div>
                       <div className="flex flex-col items-center gap-0.5">
                         <span className="text-[9px] text-zinc-400 uppercase tracking-wide">Next</span>
                         <div className="flex gap-1">
                           {nextUp.map((t: DraftSlot, i: number) => (
-                            <div key={i} className="w-5 h-5 bg-zinc-600 rounded overflow-hidden">
+                            <div key={i} className="w-7 h-7 bg-zinc-600 rounded overflow-hidden">
                               <img src={getTeamLogoPath(t.team)} alt={t.team} className="w-full h-full object-contain" />
                             </div>
                           ))}
