@@ -78,6 +78,7 @@ export default function DraftRoomPage() {
   const [submittedPlayer, setSubmittedPlayer] = useState<Avail | null>(null);
   const [autoPickEnabled, setAutoPickEnabled] = useState(false);
   const [adminTeamOverride, setAdminTeamOverride] = useState<string>('');
+  const [rosterSort, setRosterSort] = useState<'pos' | 'name'>('pos');
   const [tradeOpen, setTradeOpen] = useState(false);
   const [teamRoster, setTeamRoster] = useState<RosterPlayer[]>([]);
   const [rosterLoading, setRosterLoading] = useState(false);
@@ -626,115 +627,84 @@ export default function DraftRoomPage() {
 
       {/* ── TEAM SECTION (below board, normal flow — whole page scrolls) ── */}
       <div>
-        {/* On the Clock banner */}
-        {draft && draft.status !== 'NOT_STARTED' && (
-          pendingPick ? (
-            /* ── PICK IS IN: exact mirror of admin ClockBox + InfoBar ── */
-            <div className="flex gap-4 items-stretch h-[140px]">
-              {/* ClockBox — identical styles to DraftOverlayLive */}
-              {(() => {
-                const pendingOverall = pendingPick!.overall;
-                const roundNum = Math.ceil(pendingOverall / picksPerRound);
-                const pickNum = ((pendingOverall - 1) % picksPerRound) + 1;
-                const abbrev = (onClock || '---').split(' ').map((w: string) => w[0]).join('').slice(0, 3).toUpperCase();
-                const nextUp = (draft?.upcoming || []).filter((u: DraftSlot) => u.overall > pendingOverall).slice(0, 2);
-                return (
-                  <div className="flex items-stretch shrink-0" style={{ width: '340px', background: 'linear-gradient(to bottom,#202020,#282828)', borderRadius: '4px', border: '1px solid #333' }}>
-                    {/* Left: Abbrev + event logo, centered together */}
-                    <div className="flex flex-col justify-center items-center gap-3 p-2 w-28">
-                      <div className="px-2 py-1 rounded text-center font-black text-xl text-white w-full" style={{ background: `linear-gradient(135deg,${tc[0]}cc 0%,${tc[0]}cc 50%,${tc[1]}cc 50%,${tc[1]}cc 100%)`, border: `2px solid ${eventColor1}`, boxShadow: `0 0 10px ${eventColor1}66` }}>
-                        {abbrev}
-                      </div>
-                      {eventLogoUrl && (
-                        <img src={eventLogoUrl} alt="" className="object-contain" style={{ width: '44px', height: '44px', opacity: 0.85 }} />
-                      )}
-                    </div>
-                    {/* Center: Timer + RD/PK as tight centered pair */}
-                    <div className="flex-1 flex flex-col items-center justify-center gap-1">
-                      <div className="text-4xl font-bold font-mono" style={{ color: localRemaining !== null && localRemaining <= 10 ? '#ef4444' : eventColor1, textShadow: `0 0 10px ${eventColor1}66` }}>
-                        {localRemaining !== null ? formatTime(localRemaining) : '--:--'}
-                      </div>
-                      <div className="text-sm text-center font-bold" style={{ color: eventColor1 }}>
-                        RD {roundNum} &nbsp; PK {pickNum}
-                      </div>
-                    </div>
-                    {/* Right: On-clock logo (top) + NEXT small logos (bottom) */}
-                    <div className="flex flex-col items-center justify-center gap-2 p-2">
-                      <div className="w-16 h-16 bg-zinc-700 rounded overflow-hidden border-2 shrink-0" style={{ borderColor: eventColor1, boxShadow: `0 0 8px ${eventColor1}66` }}>
-                        {onClockLogo && <img src={onClockLogo} alt={onClock || ''} className="w-full h-full object-contain" />}
-                      </div>
-                      <div className="flex flex-col items-center gap-0.5">
-                        <span className="text-[9px] text-zinc-400 uppercase tracking-wide">Next</span>
-                        <div className="flex gap-1">
-                          {nextUp.map((t: DraftSlot, i: number) => (
-                            <div key={i} className="w-7 h-7 bg-zinc-600 rounded overflow-hidden">
-                              <img src={getTeamLogoPath(t.team)} alt={t.team} className="w-full h-full object-contain" />
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
+        {/* ── Clock Box + Info Bar (always shown when draft is live) ── */}
+        {draft && draft.status !== 'NOT_STARTED' && (() => {
+          const overall = pendingPick?.overall ?? draft.curOverall;
+          const roundNum = Math.ceil(overall / picksPerRound);
+          const pickNum = ((overall - 1) % picksPerRound) + 1;
+          const abbrev = (onClock || '---').split(' ').map((w: string) => w[0]).join('').slice(0, 3).toUpperCase();
+          const nextUp = (draft?.upcoming || []).filter((u: DraftSlot) => u.overall > overall).slice(0, 2);
+          return (
+            <div className="flex gap-0 items-stretch" style={{ minHeight: '100px', borderBottom: `2px solid ${eventColor1}33` }}>
+              {/* ClockBox */}
+              <div className="flex items-stretch shrink-0" style={{ width: '220px', background: 'linear-gradient(to bottom,#202020,#282828)', borderRight: '1px solid #333' }}>
+                <div className="flex flex-col justify-center items-center gap-1 p-2 w-20">
+                  <div className="px-1 py-0.5 rounded text-center font-black text-base text-white w-full" style={{ background: `linear-gradient(135deg,${tc[0]}cc 0%,${tc[0]}cc 50%,${tc[1]}cc 50%,${tc[1]}cc 100%)`, border: `2px solid ${eventColor1}`, boxShadow: `0 0 8px ${eventColor1}55` }}>
+                    {abbrev}
                   </div>
-                );
-              })()}
-              {/* InfoBar — identical styles to DraftOverlayLive */}
-              <div className="flex-1 overflow-hidden relative" style={{ background: tc[0], borderRadius: '4px', height: '140px' }}>
-                <div className="absolute inset-0 flex items-center justify-center z-20 rounded-sm" style={{ background: 'linear-gradient(135deg,rgba(0,0,0,0.92),rgba(30,10,0,0.96))' }}>
-                  <div className="text-4xl font-black text-white tracking-widest uppercase animate-pulse">PICK IS IN</div>
+                  {eventLogoUrl && <img src={eventLogoUrl} alt="" className="object-contain" style={{ width: '32px', height: '32px', opacity: 0.8 }} />}
+                </div>
+                <div className="flex-1 flex flex-col items-center justify-center gap-0.5">
+                  <div className="text-3xl font-bold font-mono" style={{ color: localRemaining !== null && localRemaining <= 10 ? '#ef4444' : eventColor1 }}>
+                    {localRemaining !== null ? formatTime(localRemaining) : '--:--'}
+                  </div>
+                  <div className="text-xs text-center font-bold" style={{ color: eventColor1 }}>RD {roundNum} · PK {pickNum}</div>
+                </div>
+                <div className="flex flex-col items-center justify-center gap-1 p-1">
+                  <div className="w-10 h-10 bg-zinc-700 rounded overflow-hidden border-2" style={{ borderColor: eventColor1 }}>
+                    {onClockLogo && <img src={onClockLogo} alt={onClock || ''} className="w-full h-full object-contain" />}
+                  </div>
+                  <div className="flex gap-0.5">
+                    {nextUp.map((t: DraftSlot, i: number) => (
+                      <div key={i} className="w-5 h-5 bg-zinc-600 rounded overflow-hidden">
+                        <img src={getTeamLogoPath(t.team)} alt={t.team} className="w-full h-full object-contain" />
+                      </div>
+                    ))}
+                  </div>
                 </div>
               </div>
-            </div>
-          ) : (
-            /* ── Compact on-clock strip ── */
-            <div
-              className="flex items-center gap-2 px-3 py-2"
-              style={{ borderLeft: `4px solid ${tc[0]}`, borderBottom: '1px solid rgba(255,255,255,0.08)', background: 'rgba(0,0,0,0.35)' }}
-            >
-              {onClockLogo && (
-                <div className="w-7 h-7 shrink-0 rounded overflow-hidden bg-black/40">
-                  <img src={onClockLogo} alt={onClock || ''} className="w-full h-full object-contain" />
-                </div>
-              )}
-              <div className="flex-1 min-w-0">
-                <span className="text-[10px] font-bold uppercase tracking-widest" style={{ color: tc[0] }}>On Clock · </span>
-                <span className="font-black text-white text-xs">{onClock || '—'}</span>
-                <span className="text-zinc-500 text-[10px] ml-1">Pick #{draft.curOverall} Rd {draft.upcoming?.[0]?.round || Math.ceil(draft.curOverall / picksPerRound)}</span>
+              {/* InfoBar */}
+              <div className="flex-1 overflow-hidden relative" style={{ background: `linear-gradient(135deg, ${tc[0]}dd, ${tc[1]}cc)` }}>
+                {pendingPick ? (
+                  <div className="absolute inset-0 flex items-center justify-center" style={{ background: 'linear-gradient(135deg,rgba(0,0,0,0.88),rgba(20,5,0,0.94))' }}>
+                    <div className="text-2xl font-black text-white tracking-widest uppercase animate-pulse">PICK IS IN</div>
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-center justify-center h-full px-3 py-2">
+                    <div className="text-[9px] font-bold text-white/50 uppercase tracking-widest">On The Clock</div>
+                    <div className="font-black text-white text-lg leading-tight text-center">{onClock || '—'}</div>
+                    {isMyTurn && !isMyPickPending && (
+                      <div className="mt-1 text-xs font-black text-emerald-400 animate-pulse">🎯 YOUR TURN TO PICK!</div>
+                    )}
+                  </div>
+                )}
               </div>
-              <div className={`text-sm font-mono font-black tabular-nums shrink-0 ${localRemaining !== null && localRemaining <= 10 ? 'text-red-400 animate-pulse' : 'text-white/70'}`}>
-                {localRemaining !== null ? formatTime(localRemaining) : '--:--'}
-              </div>
-              {isMyTurn && !isMyPickPending && (
-                <span className="text-[10px] font-black text-emerald-400 animate-pulse ml-1">🎯 YOUR TURN!</span>
-              )}
             </div>
-          )
-        )}
+          );
+        })()}
 
-        {/* Prominent Trade Banner — below the on-clock strip */}
-        {myTeam && draft && (
+        {/* Trade Center Banner — uses team's solid primary color */}
+        {myTeam && draft && myTeamColors && (
           <button
             onClick={() => { setTradeOpen(true); setTradeNotif(false); }}
             className="w-full flex items-center justify-between px-4 py-3 transition-all hover:brightness-110"
             style={{
-              background: myTeamColors
-                ? `linear-gradient(90deg, ${myTeamColors.primary}44 0%, #111118 100%)`
-                : `linear-gradient(90deg, ${eventColor1}22 0%, #111118 100%)`,
-              borderLeft: `4px solid ${myTeamColors?.primary || eventColor1}`,
-              borderBottom: `1px solid ${myTeamColors?.secondary || eventColor1}44`,
+              background: `linear-gradient(90deg, ${myTeamColors.primary} 0%, ${myTeamColors.secondary}cc 100%)`,
+              borderBottom: `2px solid ${myTeamColors.secondary}`,
             }}
           >
             <div className="flex items-center gap-3">
-              {myTeam && <div className="w-8 h-8 shrink-0 rounded overflow-hidden bg-black/30"><img src={getTeamLogoPath(myTeam)} alt={myTeam} className="w-full h-full object-contain" /></div>}
+              <div className="w-8 h-8 shrink-0 rounded overflow-hidden bg-black/30"><img src={getTeamLogoPath(myTeam)} alt={myTeam} className="w-full h-full object-contain" /></div>
               <div className="text-left">
-                <div className="font-black text-white text-sm leading-tight">Trade Center</div>
-                <div className="text-xs text-white/50">Propose, accept, or view trades</div>
+                <div className="font-black text-white text-sm leading-tight drop-shadow">Trade Center</div>
+                <div className="text-xs text-white/80 drop-shadow">Propose, accept, or view trades</div>
               </div>
             </div>
             <div className="flex items-center gap-2">
               {tradeInboxCount > 0 && (
-                <span className="w-5 h-5 rounded-full text-[10px] font-black text-black flex items-center justify-center animate-pulse" style={{ background: myTeamColors?.primary || eventColor1 }}>{tradeInboxCount}</span>
+                <span className="w-6 h-6 rounded-full text-[11px] font-black flex items-center justify-center animate-pulse" style={{ background: '#fff', color: myTeamColors.primary }}>{tradeInboxCount}</span>
               )}
-              <span className="text-white/40 text-lg">›</span>
+              <span className="text-white/70 text-lg font-bold">›</span>
             </div>
           </button>
         )}
@@ -933,8 +903,18 @@ export default function DraftRoomPage() {
           {/* ── Team Roster (current Sleeper roster) ── */}
           {myTeam && (
             <div className="rounded-lg border border-[var(--border)] overflow-hidden">
-              <div className="px-3 py-2 text-xs font-bold text-[var(--muted)] uppercase tracking-wide border-b border-[var(--border)]" style={{ background: 'var(--background)' }}>
-                Current Roster — {myTeam}
+              <div className="flex items-center justify-between px-3 py-2 border-b border-[var(--border)]" style={{ background: 'var(--background)' }}>
+                <span className="text-xs font-bold text-[var(--muted)] uppercase tracking-wide">Current Roster — {myTeam}</span>
+                <div className="flex gap-1">
+                  {(['pos', 'name'] as const).map(s => (
+                    <button key={s} type="button" onClick={() => setRosterSort(s)}
+                      className="text-[10px] font-bold px-2 py-0.5 rounded-full border transition-colors"
+                      style={rosterSort === s
+                        ? { background: myTeamColors?.primary || '#555', color: '#fff', borderColor: 'transparent' }
+                        : { background: 'transparent', color: 'var(--muted)', borderColor: 'var(--border)' }}
+                    >{s === 'pos' ? 'By Position' : 'A–Z'}</button>
+                  ))}
+                </div>
               </div>
               {rosterLoading ? (
                 <div className="px-3 py-3 text-xs text-[var(--muted)]">Loading roster…</div>
@@ -942,7 +922,13 @@ export default function DraftRoomPage() {
                 <div className="px-3 py-3 text-xs text-[var(--muted)]">No roster data found.</div>
               ) : (
                 <ul className="divide-y divide-[var(--border)]">
-                  {teamRoster.map(p => (
+                  {[...teamRoster].sort((a, b) => {
+                    if (rosterSort === 'pos') {
+                      const order: Record<string, number> = { QB: 0, RB: 1, WR: 2, TE: 3, K: 4 };
+                      return (order[a.pos] ?? 9) - (order[b.pos] ?? 9) || a.name.localeCompare(b.name);
+                    }
+                    return a.name.localeCompare(b.name);
+                  }).map(p => (
                     <li key={p.id} className="flex items-center gap-2 px-3 py-2">
                       <span className="shrink-0 text-[10px] font-black px-1.5 py-0.5 rounded text-white" style={{ background: POS_COLORS[p.pos] || '#555', minWidth: '30px', textAlign: 'center' }}>
                         {p.pos || '?'}

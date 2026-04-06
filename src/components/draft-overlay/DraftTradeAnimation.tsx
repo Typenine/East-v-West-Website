@@ -121,12 +121,12 @@ export default function DraftTradeAnimation({ teams, assets, eventLogoUrl, event
   return (
     <div
       ref={containerRef}
-      className="absolute inset-0 z-50 flex items-center justify-center pointer-events-none"
-      style={{ background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(3px)' }}
+      className="fixed inset-0 flex items-center justify-center pointer-events-none"
+      style={{ zIndex: 2000, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)' }}
     >
-      {/* Compact centered card */}
-      <div className="relative w-full max-w-lg mx-4 rounded-2xl border border-white/10 overflow-hidden shadow-2xl"
-        style={{ background: 'rgba(10,10,18,0.97)', boxShadow: `0 0 40px ${ec1}44` }}
+      {/* Compact centered card — max-h so it never overflows the viewport */}
+      <div className="relative w-full max-w-md mx-4 rounded-2xl border border-white/10 overflow-hidden shadow-2xl"
+        style={{ background: 'rgba(10,10,18,0.97)', boxShadow: `0 0 40px ${ec1}55`, maxHeight: '80vh', overflowY: 'auto' }}
       >
         {/* Phase 1: Event Logo — centred inside the card */}
         <div
