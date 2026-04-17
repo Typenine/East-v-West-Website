@@ -11,6 +11,7 @@ import { TEAM_NAMES } from '@/lib/constants/league';
 import DraftPickAnimation from '@/components/draft-overlay/DraftPickAnimation';
 import NowOnClockAnimation from '@/components/draft-overlay/NowOnClockAnimation';
 import DraftTradeCenter from '@/components/draft-overlay/DraftTradeCenter';
+import DraftTradeAnimation, { type TradeAnimAsset } from '@/components/draft-overlay/DraftTradeAnimation';
 import { gsap } from 'gsap';
 
 const POSITIONS = ['QB', 'RB', 'WR', 'TE', 'K'];
@@ -49,6 +50,7 @@ type DraftOverview = {
   allPicks?: DraftPick[];
   upcoming: DraftSlot[];
   allSlots?: DraftSlot[];
+  pendingTradeAnimation?: { teams: string[]; assets: TradeAnimAsset[] } | null;
 };
 
 type PendingPick = {
@@ -78,7 +80,9 @@ export default function DraftRoomPage() {
   const [submittedPlayer, setSubmittedPlayer] = useState<Avail | null>(null);
   const [autoPickEnabled, setAutoPickEnabled] = useState(false);
   const [adminTeamOverride, setAdminTeamOverride] = useState<string>('');
-  const [rosterSort, setRosterSort] = useState<'pos' | 'name'>('pos');
+  const [rosterPosFilter, setRosterPosFilter] = useState<string>('ALL');
+  const [tradeAnimData, setTradeAnimData] = useState<{ teams: string[]; assets: TradeAnimAsset[] } | null>(null);
+  const tradeAnimSeenIdRef = useRef<string | null>(null);
   const [tradeOpen, setTradeOpen] = useState(false);
   const [teamRoster, setTeamRoster] = useState<RosterPlayer[]>([]);
   const [rosterLoading, setRosterLoading] = useState(false);
@@ -183,6 +187,14 @@ export default function DraftRoomPage() {
       setLocalRemaining(newRemaining);
       setLastFetchTime(Date.now());
       // If a new pick was approved (curOverall advanced), silently refresh available players
+      // Detect pending trade animation
+      if (newDraft?.pendingTradeAnimation) {
+        const animKey = JSON.stringify(newDraft.pendingTradeAnimation.teams);
+        if (tradeAnimSeenIdRef.current !== animKey) {
+          tradeAnimSeenIdRef.current = animKey;
+          setTradeAnimData(newDraft.pendingTradeAnimation);
+        }
+      }
       const newCurOverall = newDraft?.curOverall ?? null;
       if (newCurOverall !== null && prevCurOverallRef.current !== null && newCurOverall !== prevCurOverallRef.current) {
         fetch('/api/draft', {
@@ -906,13 +918,13 @@ export default function DraftRoomPage() {
               <div className="flex items-center justify-between px-3 py-2 border-b border-[var(--border)]" style={{ background: 'var(--background)' }}>
                 <span className="text-xs font-bold text-[var(--muted)] uppercase tracking-wide">Current Roster — {myTeam}</span>
                 <div className="flex gap-1">
-                  {(['pos', 'name'] as const).map(s => (
-                    <button key={s} type="button" onClick={() => setRosterSort(s)}
+                  {(['ALL', 'QB', 'RB', 'WR', 'TE', 'K'] as const).map(p => (
+                    <button key={p} type="button" onClick={() => setRosterPosFilter(p)}
                       className="text-[10px] font-bold px-2 py-0.5 rounded-full border transition-colors"
-                      style={rosterSort === s
-                        ? { background: myTeamColors?.primary || '#555', color: '#fff', borderColor: 'transparent' }
+                      style={rosterPosFilter === p
+                        ? { background: p === 'ALL' ? (myTeamColors?.primary || '#555') : (POS_COLORS[p] || '#555'), color: '#fff', borderColor: 'transparent' }
                         : { background: 'transparent', color: 'var(--muted)', borderColor: 'var(--border)' }}
-                    >{s === 'pos' ? 'By Position' : 'A–Z'}</button>
+                    >{p}</button>
                   ))}
                 </div>
               </div>
@@ -922,13 +934,13 @@ export default function DraftRoomPage() {
                 <div className="px-3 py-3 text-xs text-[var(--muted)]">No roster data found.</div>
               ) : (
                 <ul className="divide-y divide-[var(--border)]">
-                  {[...teamRoster].sort((a, b) => {
-                    if (rosterSort === 'pos') {
+                  {[...teamRoster]
+                    .filter(p => rosterPosFilter === 'ALL' || p.pos === rosterPosFilter)
+                    .sort((a, b) => {
                       const order: Record<string, number> = { QB: 0, RB: 1, WR: 2, TE: 3, K: 4 };
                       return (order[a.pos] ?? 9) - (order[b.pos] ?? 9) || a.name.localeCompare(b.name);
-                    }
-                    return a.name.localeCompare(b.name);
-                  }).map(p => (
+                    })
+                    .map(p => (
                     <li key={p.id} className="flex items-center gap-2 px-3 py-2">
                       <span className="shrink-0 text-[10px] font-black px-1.5 py-0.5 rounded text-white" style={{ background: POS_COLORS[p.pos] || '#555', minWidth: '30px', textAlign: 'center' }}>
                         {p.pos || '?'}
@@ -1049,6 +1061,27 @@ export default function DraftRoomPage() {
           />
         );
       })()}
+
+      {/* Trade animation — mirrors broadcast overlay */}
+      {tradeAnimData && (
+        <DraftTradeAnimation
+          key={`room-trade-${tradeAnimSeenIdRef.current}`}
+          teams={tradeAnimData.teams}
+          assets={tradeAnimData.assets}
+          eventLogoUrl={draft?.eventLogoUrl}
+          eventColor1={draft?.eventColor1}
+          onComplete={() => {
+            setTradeAnimData(null);
+            if (draft?.id) {
+              fetch('/api/draft/trade', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'clear_trade_animation', draftId: draft.id }),
+              }).catch(() => {});
+            }
+          }}
+        />
+      )}
 
       {/* Trade offer notification popup */}
       {tradeNotif && !tradeOpen && (

@@ -652,6 +652,36 @@ export async function getDraftOverview(draftId: string): Promise<DraftOverview |
   } as DraftOverview;
 }
 
+// ── Draft Order ───────────────────────────────────────────────────────────
+export async function setDraftOrder(draftId: string, teams: string[]): Promise<void> {
+  await ensureDraftTables();
+  const db = getDb();
+  const n = teams.length;
+  if (n === 0) return;
+
+  // Get current status and all slots
+  const statusRes = await db.execute(sql`SELECT status FROM drafts WHERE id = ${draftId}::uuid LIMIT 1`);
+  const status = ((statusRes as unknown as { rows?: Array<{ status: string }> }).rows?.[0]?.status) || 'NOT_STARTED';
+  const slotsRes = await db.execute(sql`SELECT overall, round FROM draft_slots WHERE draft_id = ${draftId}::uuid ORDER BY overall ASC`);
+  const slots = (slotsRes as unknown as { rows?: Array<{ overall: number; round: number }> }).rows || [];
+
+  for (const slot of slots) {
+    const overall = Number(slot.overall);
+    const round = Number(slot.round);
+    const pickInRound = ((overall - 1) % n) + 1; // 1-indexed within round
+    const isEvenRound = round % 2 === 0;
+    const teamIdx = isEvenRound ? (n - pickInRound) : (pickInRound - 1);
+    const newTeam = teams[Math.max(0, Math.min(n - 1, teamIdx))];
+    if (status === 'NOT_STARTED') {
+      // Pre-draft: update both current owner and original
+      await db.execute(sql`UPDATE draft_slots SET team = ${newTeam}, original_team = ${newTeam} WHERE draft_id = ${draftId}::uuid AND overall = ${overall}`);
+    } else {
+      // Mid-draft: only update original_team (affects future resets, not live picks)
+      await db.execute(sql`UPDATE draft_slots SET original_team = ${newTeam} WHERE draft_id = ${draftId}::uuid AND overall = ${overall}`);
+    }
+  }
+}
+
 // ── Player Videos ─────────────────────────────────────────────────────────
 export async function updateDraftBranding(draftId: string, branding: {
   eventName?: string | null;
