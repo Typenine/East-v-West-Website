@@ -95,6 +95,7 @@ export default function DraftRoomPage() {
     newClockTeam?: string | null;
   } | null>(null);
   const tradeAnimSeenIdRef = useRef<string | null>(null);
+  const preTradeClockTeamRef = useRef<string | null>(null);
   const [tradeOpen, setTradeOpen] = useState(false);
   const [teamRoster, setTeamRoster] = useState<RosterPlayer[]>([]);
   const [rosterLoading, setRosterLoading] = useState(false);
@@ -204,6 +205,7 @@ export default function DraftRoomPage() {
         const animKey = JSON.stringify(newDraft.pendingTradeAnimation.teams);
         if (tradeAnimSeenIdRef.current !== animKey) {
           tradeAnimSeenIdRef.current = animKey;
+          preTradeClockTeamRef.current = newDraft.onClockTeam ?? null;
           setTradeAnimData(newDraft.pendingTradeAnimation);
         }
       }
@@ -1093,14 +1095,15 @@ export default function DraftRoomPage() {
                 body: JSON.stringify({ action: 'resume' }),
               }).catch(() => {});
             }
-            // Trigger "Now on the Clock" animation if the on-clock team changed due to pick trade
-            if (captured?.triggerPickAnimation && captured?.newClockTeam) {
+            // Trigger "Now on the Clock" animation if the on-clock team changed due to a traded pick
+            const currentClockTeam = draft?.onClockTeam ?? null;
+            if (currentClockTeam && currentClockTeam !== preTradeClockTeamRef.current) {
               const curOv = draft?.curOverall ?? 1;
               const allSlotsNow = draft?.allSlots || [];
               const ppr = Math.ceil(allSlotsNow.length / Math.max(draft?.rounds || 4, 1)) || 12;
               animDataRef.current = {
-                pick: { overall: curOv, team: captured.newClockTeam, playerId: '', playerName: null, playerPos: null, round: Math.ceil(curOv / ppr), pickInRound: ((curOv - 1) % ppr) + 1, madeAt: '' } as unknown as DraftPick,
-                nextTeamName: captured.newClockTeam,
+                pick: { overall: curOv, team: currentClockTeam, playerId: '', playerName: null, playerPos: null, round: Math.ceil(curOv / ppr), pickInRound: ((curOv - 1) % ppr) + 1, madeAt: '' } as unknown as DraftPick,
+                nextTeamName: currentClockTeam,
                 overall: curOv - 1,
                 round: Math.ceil(curOv / ppr),
                 pickInRound: ((curOv - 1) % ppr) + 1,

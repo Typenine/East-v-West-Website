@@ -29,59 +29,44 @@ interface DraftTradeAnimationProps {
 
 const POS_COLORS: Record<string, string> = { QB:'#ef4444', RB:'#22c55e', WR:'#3b82f6', TE:'#f97316', K:'#a855f7', DEF:'#6b7280' };
 
-function AssetLine({ asset, ec1 }: { asset: TradeAnimAsset; ec1: string }) {
-  const toColors = getTeamColors(asset.toTeam);
+function AcquiredAsset({ asset, ec1 }: { asset: TradeAnimAsset; ec1: string }) {
   const fromColors = getTeamColors(asset.fromTeam);
-  const toLogo = getTeamLogoPath(asset.toTeam);
   const fromLogo = getTeamLogoPath(asset.fromTeam);
 
-  const mainLabel =
+  const name =
     asset.assetType === 'player' ? (asset.playerName || '—') :
     asset.assetType === 'current_pick' ? `Pick #${asset.pickOverall}` :
-    `${asset.pickYear} Round ${asset.pickRound}`;
+    `${asset.pickYear} Rd ${asset.pickRound}`;
 
-  const subLabel =
-    asset.assetType === 'current_pick' ? `Round ${asset.pickRound}` :
+  const sub =
     asset.assetType === 'future_pick' && asset.pickOriginalTeam && asset.pickOriginalTeam !== asset.fromTeam
       ? `via ${asset.pickOriginalTeam}` : null;
 
   return (
-    <div className="rounded-xl overflow-hidden" style={{
-      border: `2px solid ${toColors.primary}77`,
-      background: 'rgba(255,255,255,0.03)',
+    <div className="flex items-start gap-3 rounded-xl px-4 py-3" style={{
+      background: 'rgba(0,0,0,0.35)',
+      border: '1px solid rgba(255,255,255,0.1)',
     }}>
-      {/* Asset identity */}
-      <div className="flex items-center gap-3 px-5 py-4">
-        {asset.assetType === 'player' && asset.playerPos && (
-          <span className="font-black px-3 py-1.5 rounded-lg text-white flex-shrink-0"
-            style={{ background: POS_COLORS[asset.playerPos] || '#555', fontSize: 'clamp(0.85rem,1.4vw,1.05rem)', minWidth:'46px', textAlign:'center' }}>
-            {asset.playerPos}
-          </span>
-        )}
-        {asset.assetType === 'current_pick' && (
-          <span className="font-black flex-shrink-0" style={{ color: ec1, fontSize: 'clamp(1.4rem,2.5vw,1.8rem)' }}>⦿</span>
-        )}
-        {asset.assetType === 'future_pick' && (
-          <span className="font-black flex-shrink-0 text-sky-400" style={{ fontSize: 'clamp(1.4rem,2.5vw,1.8rem)' }}>◈</span>
-        )}
-        <div className="flex-1 min-w-0">
-          <div className="font-black text-white truncate" style={{ fontSize: 'clamp(1.1rem,2.2vw,1.55rem)', letterSpacing:'0.01em' }}>{mainLabel}</div>
-          {subLabel && <div className="text-white/45 font-semibold mt-0.5" style={{ fontSize:'clamp(0.75rem,1.2vw,0.9rem)' }}>{subLabel}</div>}
+      {asset.assetType === 'player' && asset.playerPos && (
+        <span className="font-black px-2.5 py-1 rounded flex-shrink-0 text-white"
+          style={{ background: POS_COLORS[asset.playerPos] || '#555', fontSize: 'clamp(0.8rem,1.4vw,1rem)', minWidth:'42px', textAlign:'center', lineHeight:'1.4' }}>
+          {asset.playerPos}
+        </span>
+      )}
+      {asset.assetType === 'current_pick' && (
+        <span className="font-black flex-shrink-0" style={{ color: ec1, fontSize: 'clamp(1.5rem,2.2vw,1.8rem)', lineHeight: 1 }}>⦿</span>
+      )}
+      {asset.assetType === 'future_pick' && (
+        <span className="font-black flex-shrink-0 text-sky-400" style={{ fontSize: 'clamp(1.5rem,2.2vw,1.8rem)', lineHeight: 1 }}>◈</span>
+      )}
+      <div className="flex-1">
+        <div className="font-black text-white" style={{ fontSize: 'clamp(1rem,2vw,1.4rem)', lineHeight: 1.25, overflowWrap: 'break-word', wordBreak: 'break-word' }}>{name}</div>
+        {sub && <div className="text-white/50 font-semibold mt-0.5" style={{ fontSize: 'clamp(0.7rem,1.1vw,0.85rem)' }}>{sub}</div>}
+        {/* From team note */}
+        <div className="flex items-center gap-1.5 mt-1.5">
+          <img src={fromLogo} alt={asset.fromTeam} className="object-contain flex-shrink-0" style={{ width: '14px', height: '14px', opacity: 0.7 }} />
+          <span className="font-semibold" style={{ color: fromColors.primary, fontSize: 'clamp(0.65rem,1vw,0.78rem)', opacity: 0.85 }}>from {asset.fromTeam}</span>
         </div>
-        {/* From team chip */}
-        <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg flex-shrink-0" style={{ background: fromColors.primary + '33', border: `1px solid ${fromColors.primary}55` }}>
-          <img src={fromLogo} alt={asset.fromTeam} className="object-contain" style={{ width:'16px', height:'16px' }} />
-          <span className="text-white/70 font-bold" style={{ fontSize:'clamp(0.65rem,1vw,0.78rem)' }}>{asset.fromTeam}</span>
-        </div>
-      </div>
-      {/* Receiving team — bold colored band */}
-      <div className="flex items-center gap-3 px-5 py-3" style={{
-        background: `linear-gradient(90deg, ${toColors.primary}bb 0%, ${toColors.primary}55 50%, ${toColors.primary}22 100%)`,
-        borderTop: `2px solid ${toColors.primary}`,
-      }}>
-        <span className="text-white/70 text-xs font-black uppercase tracking-widest flex-shrink-0">GOES TO</span>
-        <img src={toLogo} alt={asset.toTeam} className="object-contain flex-shrink-0" style={{ width:'30px', height:'30px' }} />
-        <span className="font-black text-white" style={{ fontSize:'clamp(0.95rem,1.9vw,1.3rem)', letterSpacing:'0.04em' }}>{asset.toTeam}</span>
       </div>
     </div>
   );
@@ -247,60 +232,65 @@ export default function DraftTradeAnimation({ teams, assets, eventLogoUrl, event
         </div>
       </div>
 
-      {/* ── PHASE 3: Trade Details Card ─────────────────────────────────── */}
-      <div className="gtrade-details absolute inset-0 flex items-center justify-center px-6" style={{ willChange: 'opacity, visibility' }}>
-        {/* Diagonal team-color bg */}
-        <div className="absolute inset-0" style={{
-          background: `linear-gradient(135deg, ${c1.primary}44 0%, #080810 40%, #080810 60%, ${c2.primary}44 100%)`,
-        }} />
-        <div className="absolute inset-0" style={{ background: `radial-gradient(ellipse at 50% 50%, ${ec1}12 0%, transparent 70%)` }} />
+      {/* ── PHASE 3: Trade Details ─ Split-panel ACQUIRES view ─────────────── */}
+      <div className="gtrade-details absolute inset-0 overflow-hidden" style={{ willChange: 'opacity, visibility' }}>
+        <div className="gtrade-card absolute inset-0 flex flex-col" style={{ willChange: 'transform, opacity' }}>
 
-        <div
-          className="gtrade-card relative z-10 rounded-2xl overflow-hidden w-full"
-          style={{
-            maxWidth: 'min(1000px, 94vw)',
-            background: `linear-gradient(160deg, ${c1.primary}22 0%, #0e0e1a 30%, #0e0e1a 70%, ${c2.primary}22 100%)`,
-            border: `2px solid ${ec1}66`,
-            boxShadow: `0 30px 90px rgba(0,0,0,0.9), 0 0 80px ${ec1}22, inset 0 1px 0 rgba(255,255,255,0.06)`,
-            willChange: 'transform, opacity',
-          }}
-        >
-          {/* Card header — full-width gradient bar */}
-          <div className="flex items-center gap-5 px-8 py-6" style={{
-            background: `linear-gradient(90deg, ${c1.primary}cc 0%, ${ec1}aa 50%, ${c2.primary}cc 100%)`,
-            borderBottom: `3px solid ${ec1}`,
-          }}>
+          {/* Top bar */}
+          <div className="flex items-center justify-center gap-4 flex-shrink-0 px-6 py-4"
+            style={{ background: `linear-gradient(90deg, ${c1.primary}cc 0%, ${ec1}99 50%, ${c2.primary}cc 100%)`, borderBottom: `3px solid ${ec1}` }}>
             {eventLogoUrl && (
-              <img src={eventLogoUrl} alt="" className="object-contain flex-shrink-0 drop-shadow-lg"
-                style={{ width: '52px', height: '52px' }} />
+              <img src={eventLogoUrl} alt="" className="object-contain flex-shrink-0"
+                style={{ width: 'clamp(28px,4vw,44px)', height: 'clamp(28px,4vw,44px)' }} />
             )}
-            <div className="flex-1">
-              <div className="font-black uppercase" style={{ fontSize: 'clamp(1.6rem, 3.5vw, 2.4rem)', color: '#fff', letterSpacing: '0.12em', textShadow: '0 2px 12px rgba(0,0,0,0.8)' }}>
-                TRADE ALERT
-              </div>
-              <div className="text-white/70 font-bold tracking-wider mt-0.5" style={{ fontSize: 'clamp(0.8rem, 1.5vw, 1rem)' }}>{teams.join(' ↔ ')}</div>
-            </div>
-            <div className="flex items-center gap-3 flex-shrink-0">
-              {teams.map(t => {
-                const tc = getTeamColors(t);
-                return (
-                  <div key={t} className="flex items-center gap-2 px-3 py-2 rounded-xl" style={{ background: 'rgba(0,0,0,0.4)', border: `2px solid ${tc.primary}88` }}>
-                    <img src={getTeamLogoPath(t)} alt={t} className="object-contain" style={{ width: '28px', height: '28px' }} />
-                    <span className="text-white font-black" style={{ fontSize: 'clamp(0.75rem, 1.2vw, 0.9rem)' }}>{t}</span>
-                  </div>
-                );
-              })}
-            </div>
+            <span className="font-black uppercase text-white tracking-widest"
+              style={{ fontSize: 'clamp(1rem,2.5vw,1.6rem)', textShadow: '0 2px 12px rgba(0,0,0,0.7)' }}>TRADE COMPLETE</span>
           </div>
 
-          {/* Asset cards — flat, each card shows from→to explicitly */}
-          <div className="px-6 pb-6 pt-4" style={{
-            display: 'grid',
-            gridTemplateColumns: assets.length > 3 ? 'repeat(2, 1fr)' : '1fr',
-            gap: 'clamp(8px, 1.2vw, 14px)',
-          }}>
-            {assets.map((a, i) => <AssetLine key={i} asset={a} ec1={ec1} />)}
+          {/* Split panels */}
+          <div className="flex flex-1 overflow-hidden">
+            {[team1, team2].map((t, idx) => {
+              const tc = getTeamColors(t);
+              const tLogo = getTeamLogoPath(t);
+              const acquired = assets.filter(a => a.toTeam === t);
+              return (
+                <div key={t} className="flex-1 flex flex-col overflow-hidden" style={{
+                  background: `linear-gradient(170deg, ${tc.primary}88 0%, ${tc.primary}33 35%, rgba(8,8,16,0.95) 70%)`,
+                  borderRight: idx === 0 ? `2px solid ${ec1}44` : 'none',
+                  position: 'relative',
+                }}>
+                  {/* Watermark logo */}
+                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none" style={{ opacity: 0.06 }}>
+                    <img src={tLogo} alt="" className="object-contain" style={{ width: '85%', height: '85%' }} />
+                  </div>
+                  {/* Team header */}
+                  <div className="relative z-10 flex flex-col items-center gap-3 px-6 pt-6 pb-4">
+                    <div className="rounded-2xl overflow-hidden flex-shrink-0 border-4"
+                      style={{ width: 'clamp(70px,10vw,120px)', height: 'clamp(70px,10vw,120px)', borderColor: tc.primary, background: tc.primary + '33' }}>
+                      <img src={tLogo} alt={t} className="w-full h-full object-contain" />
+                    </div>
+                    <div className="text-center">
+                      <div className="font-black text-white uppercase leading-none"
+                        style={{ fontSize: 'clamp(1.1rem,2.8vw,2rem)', letterSpacing: '0.06em', textShadow: '0 2px 16px rgba(0,0,0,0.9)' }}>{t}</div>
+                      <div className="font-black uppercase tracking-widest mt-1"
+                        style={{ color: tc.primary, fontSize: 'clamp(0.65rem,1.1vw,0.85rem)' }}>ACQUIRES</div>
+                    </div>
+                  </div>
+                  {/* Divider */}
+                  <div className="mx-6 flex-shrink-0" style={{ height: '2px', background: `linear-gradient(90deg, transparent, ${tc.primary}88, transparent)` }} />
+                  {/* Asset list */}
+                  <div className="relative z-10 flex-1 overflow-y-auto px-5 py-4 space-y-3" style={{ scrollbarWidth: 'none' }}>
+                    {acquired.length === 0 ? (
+                      <div className="text-white/25 text-sm text-center font-semibold pt-4">— nothing —</div>
+                    ) : (
+                      acquired.map((a, i) => <AcquiredAsset key={i} asset={a} ec1={ec1} />)
+                    )}
+                  </div>
+                </div>
+              );
+            })}
           </div>
+
         </div>
       </div>
 
