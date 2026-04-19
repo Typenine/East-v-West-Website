@@ -683,19 +683,23 @@ export async function setDraftOrder(draftId: string, teams: string[]): Promise<v
 }
 
 // ── Draft Slot Assignment (per-slot, any team, any round) ─────────────────
-export async function setDraftSlots(draftId: string, slots: Array<{ overall: number; team: string }>): Promise<void> {
+export async function setDraftSlots(
+  draftId: string,
+  slots: Array<{ overall: number; team: string }>,
+  setAsDefault = false
+): Promise<void> {
   await ensureDraftTables();
   const db = getDb();
   if (slots.length === 0) return;
-  const statusRes = await db.execute(sql`SELECT status FROM drafts WHERE id = ${draftId}::uuid LIMIT 1`);
-  const status = ((statusRes as unknown as { rows?: Array<{ status: string }> }).rows?.[0]?.status) || 'NOT_STARTED';
   for (const slot of slots) {
     const overall = Number(slot.overall);
     const team = String(slot.team);
-    if (status === 'NOT_STARTED') {
+    if (setAsDefault) {
+      // Update live owner AND reset default
       await db.execute(sql`UPDATE draft_slots SET team = ${team}, original_team = ${team} WHERE draft_id = ${draftId}::uuid AND overall = ${overall}`);
     } else {
-      await db.execute(sql`UPDATE draft_slots SET original_team = ${team} WHERE draft_id = ${draftId}::uuid AND overall = ${overall}`);
+      // Update live owner only — no effect on reset
+      await db.execute(sql`UPDATE draft_slots SET team = ${team} WHERE draft_id = ${draftId}::uuid AND overall = ${overall}`);
     }
   }
 }
@@ -2232,7 +2236,10 @@ export async function addTradeAcceptance(tradeId: string, team: string): Promise
   return { allAccepted, trade };
 }
 
-export async function approveDraftTrade(tradeId: string): Promise<DraftTrade | null> {
+export async function approveDraftTrade(
+  tradeId: string,
+  opts: { resumeAfterAnimation?: boolean; triggerPickAnimation?: boolean; newClockTeam?: string | null } = {}
+): Promise<DraftTrade | null> {
   await ensureDraftTables();
   const db = getDb();
   const trade = await getDraftTradeById(tradeId);
@@ -2256,6 +2263,9 @@ export async function approveDraftTrade(tradeId: string): Promise<DraftTrade | n
       playerName: a.playerName, playerPos: a.playerPos,
       pickOverall: a.pickOverall, pickYear: a.pickYear, pickRound: a.pickRound, pickOriginalTeam: a.pickOriginalTeam,
     })),
+    resumeAfterAnimation: opts.resumeAfterAnimation ?? false,
+    triggerPickAnimation: opts.triggerPickAnimation ?? false,
+    newClockTeam: opts.newClockTeam ?? null,
   });
   await db.execute(sql`UPDATE drafts SET pending_trade_animation = ${animPayload}::jsonb WHERE id = ${trade.draftId}::uuid`);
   return getDraftTradeById(tradeId);

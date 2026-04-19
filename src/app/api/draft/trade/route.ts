@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server';
 import {
   getActiveOrLatestDraftId,
   getDraftOverview,
+  resumeDraft,
   getDraftTradesForTeam,
   getAdminPendingTrades,
   getDraftTradeById,
@@ -168,9 +169,23 @@ export async function POST(req: NextRequest) {
     const trade = await getDraftTradeById(tradeId);
     if (!trade || trade.draftId !== draftId) return bad('trade not found');
     if (trade.status !== 'accepted') return bad('trade must be accepted before approval');
-    // Pause the draft clock during animation
+    // Check current draft state so we know whether to resume after animation
+    const overview = await getDraftOverview(draftId);
+    const wasLive = overview?.status === 'LIVE';
+    const curOverall = overview?.curOverall ?? null;
+    // Detect if the current on-clock pick is being traded — triggers pick animation after
+    const tradedPickAsset = curOverall != null
+      ? trade.assets.find(a => a.assetType === 'current_pick' && a.pickOverall === curOverall)
+      : null;
+    const triggerPickAnimation = !!tradedPickAsset;
+    const newClockTeam = tradedPickAsset?.toTeam ?? null;
+    // Pause draft clock for the duration of the animation
     await pauseDraft(draftId);
-    const approved = await approveDraftTrade(tradeId);
+    const approved = await approveDraftTrade(tradeId, {
+      resumeAfterAnimation: wasLive,
+      triggerPickAnimation,
+      newClockTeam,
+    });
     if (!approved) return bad('trade approval failed');
     return ok({ ok: true, trade: approved });
   }

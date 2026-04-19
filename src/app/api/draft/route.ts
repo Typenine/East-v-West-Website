@@ -163,7 +163,8 @@ export async function POST(req: NextRequest) {
         if (!draftId) return bad('no_draft');
         const slots = body.slots as Array<{ overall: number; team: string }>;
         if (!Array.isArray(slots) || slots.length === 0) return bad('slots array required');
-        await setDraftSlots(draftId, slots);
+        const setAsDefault = Boolean(body.setAsDefault);
+        await setDraftSlots(draftId, slots, setAsDefault);
         return ok({ ok: true });
       }
       if (action === 'delete') {

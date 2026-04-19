@@ -30,40 +30,59 @@ interface DraftTradeAnimationProps {
 const POS_COLORS: Record<string, string> = { QB:'#ef4444', RB:'#22c55e', WR:'#3b82f6', TE:'#f97316', K:'#a855f7', DEF:'#6b7280' };
 
 function AssetLine({ asset, ec1 }: { asset: TradeAnimAsset; ec1: string }) {
-  if (asset.assetType === 'player') {
-    return (
-      <div className="flex items-center gap-3 py-2.5">
-        {asset.playerPos && (
-          <span className="font-black px-2 py-1 rounded text-white min-w-[40px] text-center" style={{ background: POS_COLORS[asset.playerPos] || '#555', fontSize: '0.85rem' }}>
+  const toColors = getTeamColors(asset.toTeam);
+  const fromColors = getTeamColors(asset.fromTeam);
+  const toLogo = getTeamLogoPath(asset.toTeam);
+  const fromLogo = getTeamLogoPath(asset.fromTeam);
+
+  const mainLabel =
+    asset.assetType === 'player' ? (asset.playerName || '—') :
+    asset.assetType === 'current_pick' ? `Pick #${asset.pickOverall}` :
+    `${asset.pickYear} Round ${asset.pickRound}`;
+
+  const subLabel =
+    asset.assetType === 'current_pick' ? `Round ${asset.pickRound}` :
+    asset.assetType === 'future_pick' && asset.pickOriginalTeam && asset.pickOriginalTeam !== asset.fromTeam
+      ? `via ${asset.pickOriginalTeam}` : null;
+
+  return (
+    <div className="rounded-xl overflow-hidden" style={{
+      border: `2px solid ${toColors.primary}77`,
+      background: 'rgba(255,255,255,0.03)',
+    }}>
+      {/* Asset identity */}
+      <div className="flex items-center gap-3 px-5 py-4">
+        {asset.assetType === 'player' && asset.playerPos && (
+          <span className="font-black px-3 py-1.5 rounded-lg text-white flex-shrink-0"
+            style={{ background: POS_COLORS[asset.playerPos] || '#555', fontSize: 'clamp(0.85rem,1.4vw,1.05rem)', minWidth:'46px', textAlign:'center' }}>
             {asset.playerPos}
           </span>
         )}
-        <span className="text-white font-bold flex-1" style={{ fontSize: '1.1rem' }}>{asset.playerName || '—'}</span>
-        <span className="text-white/50 text-sm font-semibold">→ {asset.toTeam}</span>
-      </div>
-    );
-  }
-  if (asset.assetType === 'current_pick') {
-    return (
-      <div className="flex items-center gap-3 py-2.5">
-        <span className="font-black text-2xl" style={{ color: ec1 }}>⦿</span>
-        <span className="text-white font-bold flex-1" style={{ fontSize: '1.1rem' }}>
-          Pick #{asset.pickOverall} <span className="text-white/50 font-normal text-base">· Round {asset.pickRound}</span>
-        </span>
-        <span className="text-white/50 text-sm font-semibold">→ {asset.toTeam}</span>
-      </div>
-    );
-  }
-  return (
-    <div className="flex items-center gap-3 py-2.5">
-      <span className="font-black text-2xl text-sky-400">◈</span>
-      <span className="text-white font-bold flex-1" style={{ fontSize: '1.1rem' }}>
-        {asset.pickYear} Round {asset.pickRound}
-        {asset.pickOriginalTeam && asset.pickOriginalTeam !== asset.fromTeam && (
-          <span className="text-white/50 font-normal text-base"> via {asset.pickOriginalTeam}</span>
+        {asset.assetType === 'current_pick' && (
+          <span className="font-black flex-shrink-0" style={{ color: ec1, fontSize: 'clamp(1.4rem,2.5vw,1.8rem)' }}>⦿</span>
         )}
-      </span>
-      <span className="text-white/50 text-sm font-semibold">→ {asset.toTeam}</span>
+        {asset.assetType === 'future_pick' && (
+          <span className="font-black flex-shrink-0 text-sky-400" style={{ fontSize: 'clamp(1.4rem,2.5vw,1.8rem)' }}>◈</span>
+        )}
+        <div className="flex-1 min-w-0">
+          <div className="font-black text-white truncate" style={{ fontSize: 'clamp(1.1rem,2.2vw,1.55rem)', letterSpacing:'0.01em' }}>{mainLabel}</div>
+          {subLabel && <div className="text-white/45 font-semibold mt-0.5" style={{ fontSize:'clamp(0.75rem,1.2vw,0.9rem)' }}>{subLabel}</div>}
+        </div>
+        {/* From team chip */}
+        <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg flex-shrink-0" style={{ background: fromColors.primary + '33', border: `1px solid ${fromColors.primary}55` }}>
+          <img src={fromLogo} alt={asset.fromTeam} className="object-contain" style={{ width:'16px', height:'16px' }} />
+          <span className="text-white/70 font-bold" style={{ fontSize:'clamp(0.65rem,1vw,0.78rem)' }}>{asset.fromTeam}</span>
+        </div>
+      </div>
+      {/* Receiving team — bold colored band */}
+      <div className="flex items-center gap-3 px-5 py-3" style={{
+        background: `linear-gradient(90deg, ${toColors.primary}bb 0%, ${toColors.primary}55 50%, ${toColors.primary}22 100%)`,
+        borderTop: `2px solid ${toColors.primary}`,
+      }}>
+        <span className="text-white/70 text-xs font-black uppercase tracking-widest flex-shrink-0">GOES TO</span>
+        <img src={toLogo} alt={asset.toTeam} className="object-contain flex-shrink-0" style={{ width:'30px', height:'30px' }} />
+        <span className="font-black text-white" style={{ fontSize:'clamp(0.95rem,1.9vw,1.3rem)', letterSpacing:'0.04em' }}>{asset.toTeam}</span>
+      </div>
     </div>
   );
 }
@@ -105,39 +124,31 @@ export default function DraftTradeAnimation({ teams, assets, eventLogoUrl, event
     const tl = gsap.timeline({ onComplete: () => onCompleteRef.current?.(), defaults: { ease: 'power2.out' } });
     timelineRef.current = tl;
 
-    // ── Phase 0: Event Logo ──────────────────────────────────────────────────
+    // ── Phase 0: Event Logo — 2.3s total ────────────────────────────────────
     tl.to(logoPhase, { autoAlpha: 1, duration: 0.55 })
-      .to(logoPhase, { autoAlpha: 0, duration: 0.4, ease: 'power2.in' }, '+=1.3');
+      .to(logoPhase, { autoAlpha: 0, duration: 0.4, ease: 'power2.in' }, '+=1.35');
 
-    // ── Phase 1: TRADE ALERT ─────────────────────────────────────────────────
+    // ── Phase 1: TRADE ALERT — 6.0s total ───────────────────────────────────
     tl.to(alertPhase, { autoAlpha: 1, duration: 0.4 })
       .to(alertText,  { autoAlpha: 1, yPercent: 0, scale: 1, duration: 0.6, ease: 'back.out(1.6)' }, '<0.1')
       .to(alertLine,  { scaleX: 1, duration: 0.5, ease: 'power2.inOut' }, '<0.2')
-      .to(alertPhase, { autoAlpha: 0, duration: 0.4, ease: 'power2.in' }, '+=1.6');
+      .to(alertPhase, { autoAlpha: 0, duration: 0.4, ease: 'power2.in' }, '+=4.8');
 
-    // ── Phase 2: Teams Split Screen ──────────────────────────────────────────
+    // ── Phase 2: Teams Split Screen — 5.0s total ────────────────────────────
     tl.to(teamsPhase,  { autoAlpha: 1, duration: 0.3 })
       .to(team1Panel,  { xPercent: 0, duration: 0.55, ease: 'power3.out' }, '<0.05')
       .to(team2Panel,  { xPercent: 0, duration: 0.55, ease: 'power3.out' }, '<')
       .to(tradeIcon,   { autoAlpha: 1, scale: 1, duration: 0.4, ease: 'back.out(1.5)' }, '<0.2')
-      .to(teamsPhase,  { autoAlpha: 0, duration: 0.45, ease: 'power2.in' }, '+=2.2');
+      .to(teamsPhase,  { autoAlpha: 0, duration: 0.45, ease: 'power2.in' }, '+=3.9');
 
-    // ── Phase 3: Trade Details (hold 10s) ────────────────────────────────────
+    // ── Phase 3: Trade Details — 20.4s hold ─────────────────────────────────
     tl.to(detailsPhase, { autoAlpha: 1, duration: 0.5 })
       .to(detailsCard,  { autoAlpha: 1, yPercent: 0, duration: 0.6, ease: 'power3.out' }, '<0.1')
-      .to(container,    { autoAlpha: 0, duration: 0.8, ease: 'power2.inOut' }, '+=10.0');
+      .to(container,    { autoAlpha: 0, duration: 0.8, ease: 'power2.inOut' }, '+=20.4');
 
     return () => { timelineRef.current?.kill(); timelineRef.current = null; };
   }, []);
 
-  // Group assets by fromTeam
-  const byFromTeam: Record<string, TradeAnimAsset[]> = {};
-  for (const a of assets) {
-    if (!byFromTeam[a.fromTeam]) byFromTeam[a.fromTeam] = [];
-    byFromTeam[a.fromTeam].push(a);
-  }
-
-  const fromTeamList = Object.keys(byFromTeam);
   const team1 = teams[0] || '';
   const team2 = teams[1] || teams[0] || '';
   const c1 = getTeamColors(team1);
@@ -282,35 +293,13 @@ export default function DraftTradeAnimation({ teams, assets, eventLogoUrl, event
             </div>
           </div>
 
-          {/* Asset sections */}
-          <div className={fromTeamList.length > 1 ? 'grid grid-cols-2' : ''}>
-            {fromTeamList.map((from, idx) => {
-              const fromAssets = byFromTeam[from];
-              const tc = getTeamColors(from);
-              const logo = getTeamLogoPath(from);
-              return (
-                <div key={from} className="flex flex-col"
-                  style={fromTeamList.length > 1 && idx === 0 ? { borderRight: `1px solid ${ec1}33` } : {}}>
-                  {/* Team banner */}
-                  <div className="flex items-center gap-4 px-7 py-4" style={{
-                    background: `linear-gradient(90deg, ${tc.primary}55 0%, ${tc.primary}22 60%, transparent 100%)`,
-                    borderBottom: `2px solid ${tc.primary}66`,
-                  }}>
-                    <div className="w-14 h-14 rounded-xl overflow-hidden flex-shrink-0 border-2" style={{ borderColor: tc.primary, background: tc.primary + '33' }}>
-                      <img src={logo} alt={from} className="w-full h-full object-contain" />
-                    </div>
-                    <div>
-                      <div className="font-black text-white uppercase" style={{ fontSize: 'clamp(1.1rem, 2.2vw, 1.6rem)', letterSpacing: '0.05em' }}>{from}</div>
-                      <div className="font-black uppercase tracking-widest" style={{ color: tc.primary, fontSize: 'clamp(0.65rem, 1vw, 0.8rem)' }}>SENDS</div>
-                    </div>
-                  </div>
-                  {/* Assets */}
-                  <div className="px-7 py-3 divide-y" style={{ borderColor: 'rgba(255,255,255,0.07)' }}>
-                    {fromAssets.map((a, i) => <AssetLine key={i} asset={a} ec1={ec1} />)}
-                  </div>
-                </div>
-              );
-            })}
+          {/* Asset cards — flat, each card shows from→to explicitly */}
+          <div className="px-6 pb-6 pt-4" style={{
+            display: 'grid',
+            gridTemplateColumns: assets.length > 3 ? 'repeat(2, 1fr)' : '1fr',
+            gap: 'clamp(8px, 1.2vw, 14px)',
+          }}>
+            {assets.map((a, i) => <AssetLine key={i} asset={a} ec1={ec1} />)}
           </div>
         </div>
       </div>

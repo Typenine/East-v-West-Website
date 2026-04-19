@@ -807,7 +807,7 @@ export default function AdminDraftPage() {
                 </div>
 
                 {/* Save bar */}
-                <div className="flex items-center gap-3">
+                <div className="flex flex-wrap items-center gap-3">
                   <Button
                     disabled={orderSaving || Object.keys(slotAssignments).length === 0}
                     variant="primary"
@@ -819,17 +819,35 @@ export default function AdminDraftPage() {
                         const res = await fetch('/api/draft', {
                           method: 'POST',
                           headers: { 'content-type': 'application/json' },
-                          body: JSON.stringify({ action: 'set_draft_slots', slots }),
+                          body: JSON.stringify({ action: 'set_draft_slots', slots, setAsDefault: false }),
                         });
-                        if (res.ok) {
-                          setOrderSaved(true);
-                          await load();
-                        } else { alert('Failed to save'); }
-                      } catch { alert('Error saving'); }
+                        if (res.ok) { setOrderSaved(true); await load(); }
+                        else { alert('Failed to apply'); }
+                      } catch { alert('Error'); }
                       finally { setOrderSaving(false); }
                     }}
                   >
-                    {orderSaving ? '⏳ Saving…' : '💾 Save All Rounds'}
+                    {orderSaving ? '⏳ Saving…' : '✅ Apply Now'}
+                  </Button>
+                  <Button
+                    disabled={orderSaving || Object.keys(slotAssignments).length === 0}
+                    onClick={async () => {
+                      setOrderSaving(true);
+                      setOrderSaved(false);
+                      try {
+                        const slots = Object.entries(slotAssignments).map(([overall, team]) => ({ overall: Number(overall), team }));
+                        const res = await fetch('/api/draft', {
+                          method: 'POST',
+                          headers: { 'content-type': 'application/json' },
+                          body: JSON.stringify({ action: 'set_draft_slots', slots, setAsDefault: true }),
+                        });
+                        if (res.ok) { setOrderSaved(true); await load(); }
+                        else { alert('Failed to save'); }
+                      } catch { alert('Error'); }
+                      finally { setOrderSaving(false); }
+                    }}
+                  >
+                    {orderSaving ? '⏳ Saving…' : '💾 Apply + Set as Default'}
                   </Button>
                   <button type="button" className="text-sm text-zinc-400 hover:text-white transition-colors"
                     onClick={() => {
@@ -838,7 +856,7 @@ export default function AdminDraftPage() {
                       setSlotAssignments(init);
                       setOrderSaved(false);
                     }}
-                  >↺ Reset all rounds to current</button>
+                  >↺ Reset all to current</button>
                   {orderSaved && <span className="text-emerald-400 text-sm font-bold">✓ Saved!</span>}
                 </div>
               </>

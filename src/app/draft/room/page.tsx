@@ -50,7 +50,13 @@ type DraftOverview = {
   allPicks?: DraftPick[];
   upcoming: DraftSlot[];
   allSlots?: DraftSlot[];
-  pendingTradeAnimation?: { teams: string[]; assets: TradeAnimAsset[] } | null;
+  pendingTradeAnimation?: {
+    teams: string[];
+    assets: TradeAnimAsset[];
+    resumeAfterAnimation?: boolean;
+    triggerPickAnimation?: boolean;
+    newClockTeam?: string | null;
+  } | null;
 };
 
 type PendingPick = {
@@ -81,7 +87,13 @@ export default function DraftRoomPage() {
   const [autoPickEnabled, setAutoPickEnabled] = useState(false);
   const [adminTeamOverride, setAdminTeamOverride] = useState<string>('');
   const [rosterPosFilter, setRosterPosFilter] = useState<string>('ALL');
-  const [tradeAnimData, setTradeAnimData] = useState<{ teams: string[]; assets: TradeAnimAsset[] } | null>(null);
+  const [tradeAnimData, setTradeAnimData] = useState<{
+    teams: string[];
+    assets: TradeAnimAsset[];
+    resumeAfterAnimation?: boolean;
+    triggerPickAnimation?: boolean;
+    newClockTeam?: string | null;
+  } | null>(null);
   const tradeAnimSeenIdRef = useRef<string | null>(null);
   const [tradeOpen, setTradeOpen] = useState(false);
   const [teamRoster, setTeamRoster] = useState<RosterPlayer[]>([]);
@@ -1071,7 +1083,33 @@ export default function DraftRoomPage() {
           eventLogoUrl={draft?.eventLogoUrl}
           eventColor1={draft?.eventColor1}
           onComplete={() => {
+            const captured = tradeAnimData;
             setTradeAnimData(null);
+            // Resume draft clock if it was paused for this animation
+            if (captured?.resumeAfterAnimation && draft?.id) {
+              fetch('/api/draft', {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ action: 'resume' }),
+              }).catch(() => {});
+            }
+            // Trigger "Now on the Clock" animation if the on-clock team changed due to pick trade
+            if (captured?.triggerPickAnimation && captured?.newClockTeam) {
+              const curOv = draft?.curOverall ?? 1;
+              const allSlotsNow = draft?.allSlots || [];
+              const ppr = Math.ceil(allSlotsNow.length / Math.max(draft?.rounds || 4, 1)) || 12;
+              animDataRef.current = {
+                pick: { overall: curOv, team: captured.newClockTeam, playerId: '', playerName: null, playerPos: null, round: Math.ceil(curOv / ppr), pickInRound: ((curOv - 1) % ppr) + 1, madeAt: '' } as unknown as DraftPick,
+                nextTeamName: captured.newClockTeam,
+                overall: curOv - 1,
+                round: Math.ceil(curOv / ppr),
+                pickInRound: ((curOv - 1) % ppr) + 1,
+                videoUrl: null,
+                imageUrl: null,
+              };
+              setAnimPhase('clock');
+            }
+            // Clear animation flag from DB
             if (draft?.id) {
               fetch('/api/draft/trade', {
                 method: 'POST',
