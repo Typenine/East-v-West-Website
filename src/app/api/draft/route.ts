@@ -6,6 +6,7 @@ import {
   resetDraft,
   resetDraftTrades,
   setDraftOrder,
+  setDraftSlots,
   deleteDraft,
   skipPick,
   updateDraftSlot,
@@ -121,7 +122,7 @@ export async function POST(req: NextRequest) {
     const id = typeof body.id === 'string' ? body.id : '';
 
     // Admin-only actions
-    const adminOnlyActions = ['create', 'delete', 'start', 'pause', 'resume', 'set_clock', 'reset_clock', 'force_pick', 'undo', 'skip_pick', 'approve_pick', 'reject_pick', 'auto_pick', 'reset', 'reset_trades', 'set_draft_order', 'set_players', 'clear_players', 'update_branding'];
+    const adminOnlyActions = ['create', 'delete', 'start', 'pause', 'resume', 'set_clock', 'reset_clock', 'force_pick', 'undo', 'skip_pick', 'approve_pick', 'reject_pick', 'auto_pick', 'reset', 'reset_trades', 'set_draft_order', 'set_draft_slots', 'set_players', 'clear_players', 'update_branding'];
     if (adminOnlyActions.includes(action)) {
       if (!isAdmin(req)) return bad('forbidden', 403);
       if (action === 'create') {
@@ -155,6 +156,14 @@ export async function POST(req: NextRequest) {
         const teams = body.teams as string[];
         if (!Array.isArray(teams) || teams.length === 0) return bad('teams array required');
         await setDraftOrder(draftId, teams);
+        return ok({ ok: true });
+      }
+      if (action === 'set_draft_slots') {
+        const draftId = id || (await getActiveOrLatestDraftId());
+        if (!draftId) return bad('no_draft');
+        const slots = body.slots as Array<{ overall: number; team: string }>;
+        if (!Array.isArray(slots) || slots.length === 0) return bad('slots array required');
+        await setDraftSlots(draftId, slots);
         return ok({ ok: true });
       }
       if (action === 'delete') {

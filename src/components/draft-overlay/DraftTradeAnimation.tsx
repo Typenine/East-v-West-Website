@@ -80,61 +80,54 @@ export default function DraftTradeAnimation({ teams, assets, eventLogoUrl, event
     const container = containerRef.current;
     if (!container) return;
 
-    const logoPhase   = container.querySelector<HTMLElement>('.gtrade-logo');
-    const alertPhase  = container.querySelector<HTMLElement>('.gtrade-alert');
-    const alertText   = container.querySelector<HTMLElement>('.gtrade-alert-text');
-    const alertLine   = container.querySelector<HTMLElement>('.gtrade-alert-line');
-    const teamsPhase  = container.querySelector<HTMLElement>('.gtrade-teams');
-    const team1Panel  = container.querySelector<HTMLElement>('.gtrade-team1');
-    const team2Panel  = container.querySelector<HTMLElement>('.gtrade-team2');
-    const tradeIcon   = container.querySelector<HTMLElement>('.gtrade-icon');
+    const logoPhase    = container.querySelector<HTMLElement>('.gtrade-logo');
+    const alertPhase   = container.querySelector<HTMLElement>('.gtrade-alert');
+    const alertText    = container.querySelector<HTMLElement>('.gtrade-alert-text');
+    const alertLine    = container.querySelector<HTMLElement>('.gtrade-alert-line');
+    const teamsPhase   = container.querySelector<HTMLElement>('.gtrade-teams');
+    const team1Panel   = container.querySelector<HTMLElement>('.gtrade-team1');
+    const team2Panel   = container.querySelector<HTMLElement>('.gtrade-team2');
+    const tradeIcon    = container.querySelector<HTMLElement>('.gtrade-icon');
     const detailsPhase = container.querySelector<HTMLElement>('.gtrade-details');
     const detailsCard  = container.querySelector<HTMLElement>('.gtrade-card');
 
     if (!logoPhase || !alertPhase || !teamsPhase || !detailsPhase) return;
 
-    // ── Initial states ──────────────────────────────────────────────────────
-    gsap.set([logoPhase, alertPhase, teamsPhase, detailsPhase], { opacity: 0, force3D: true });
-    if (alertText)  gsap.set(alertText,  { opacity: 0, y: 60, scale: 0.8, force3D: true });
-    if (alertLine)  gsap.set(alertLine,  { scaleX: 0, transformOrigin: 'center', force3D: true });
-    if (team1Panel) gsap.set(team1Panel, { x: '-100%', force3D: true });
-    if (team2Panel) gsap.set(team2Panel, { x: '100%',  force3D: true });
-    if (tradeIcon)  gsap.set(tradeIcon,  { opacity: 0, scale: 0, force3D: true });
-    if (detailsCard) gsap.set(detailsCard, { opacity: 0, y: 60, force3D: true });
+    // ── Initial states (autoAlpha manages visibility to avoid paint cost) ───
+    gsap.set([logoPhase, alertPhase, teamsPhase, detailsPhase], { autoAlpha: 0 });
+    gsap.set(alertText,   { autoAlpha: 0, yPercent: 15, scale: 0.85 });
+    gsap.set(alertLine,   { scaleX: 0, transformOrigin: 'center center' });
+    gsap.set(team1Panel,  { xPercent: -100 });
+    gsap.set(team2Panel,  { xPercent: 100 });
+    gsap.set(tradeIcon,   { autoAlpha: 0, scale: 0 });
+    gsap.set(detailsCard, { autoAlpha: 0, yPercent: 4 });
 
-    const tl = gsap.timeline({ onComplete: () => onCompleteRef.current?.() });
+    const tl = gsap.timeline({ onComplete: () => onCompleteRef.current?.(), defaults: { ease: 'power2.out' } });
     timelineRef.current = tl;
 
-    // ── Phase 0: Event Logo (0 – 2.5s) ──────────────────────────────────────
-    tl.to(logoPhase, { opacity: 1, duration: 0.6, ease: 'power2.out', force3D: true });
-    tl.to({}, { duration: 1.3 });
-    tl.to(logoPhase, { opacity: 0, duration: 0.4, ease: 'power2.in', force3D: true });
+    // ── Phase 0: Event Logo ──────────────────────────────────────────────────
+    tl.to(logoPhase, { autoAlpha: 1, duration: 0.55 })
+      .to(logoPhase, { autoAlpha: 0, duration: 0.4, ease: 'power2.in' }, '+=1.3');
 
-    // ── Phase 1: TRADE ALERT (2.5 – 5.5s) ──────────────────────────────────
-    tl.to(alertPhase, { opacity: 1, duration: 0.4, ease: 'power2.out', force3D: true });
-    if (alertText) tl.to(alertText, { opacity: 1, y: 0, scale: 1, duration: 0.65, ease: 'back.out(1.7)', force3D: true }, '-=0.2');
-    if (alertLine) tl.to(alertLine, { scaleX: 1, duration: 0.55, ease: 'power2.inOut', force3D: true }, '-=0.3');
-    tl.to({}, { duration: 1.5 });
-    tl.to(alertPhase, { opacity: 0, duration: 0.4, ease: 'power2.in', force3D: true });
+    // ── Phase 1: TRADE ALERT ─────────────────────────────────────────────────
+    tl.to(alertPhase, { autoAlpha: 1, duration: 0.4 })
+      .to(alertText,  { autoAlpha: 1, yPercent: 0, scale: 1, duration: 0.6, ease: 'back.out(1.6)' }, '<0.1')
+      .to(alertLine,  { scaleX: 1, duration: 0.5, ease: 'power2.inOut' }, '<0.2')
+      .to(alertPhase, { autoAlpha: 0, duration: 0.4, ease: 'power2.in' }, '+=1.6');
 
-    // ── Phase 2: Teams Split Screen (5.5 – 9s) ──────────────────────────────
-    tl.to(teamsPhase, { opacity: 1, duration: 0.3, ease: 'power2.out', force3D: true });
-    if (team1Panel) tl.to(team1Panel, { x: '0%', duration: 0.6, ease: 'power3.out', force3D: true }, '-=0.15');
-    if (team2Panel) tl.to(team2Panel, { x: '0%', duration: 0.6, ease: 'power3.out', force3D: true }, '-=0.55');
-    if (tradeIcon)  tl.to(tradeIcon,  { opacity: 1, scale: 1, duration: 0.45, ease: 'back.out(1.5)', force3D: true }, '-=0.3');
-    tl.to({}, { duration: 2.0 });
-    tl.to(teamsPhase, { opacity: 0, duration: 0.45, ease: 'power2.in', force3D: true });
+    // ── Phase 2: Teams Split Screen ──────────────────────────────────────────
+    tl.to(teamsPhase,  { autoAlpha: 1, duration: 0.3 })
+      .to(team1Panel,  { xPercent: 0, duration: 0.55, ease: 'power3.out' }, '<0.05')
+      .to(team2Panel,  { xPercent: 0, duration: 0.55, ease: 'power3.out' }, '<')
+      .to(tradeIcon,   { autoAlpha: 1, scale: 1, duration: 0.4, ease: 'back.out(1.5)' }, '<0.2')
+      .to(teamsPhase,  { autoAlpha: 0, duration: 0.45, ease: 'power2.in' }, '+=2.2');
 
-    // ── Phase 3: Trade Details Card (9 – 16s) ───────────────────────────────
-    tl.to(detailsPhase, { opacity: 1, duration: 0.45, ease: 'power2.out', force3D: true });
-    if (detailsCard) tl.to(detailsCard, { opacity: 1, y: 0, duration: 0.65, ease: 'power3.out', force3D: true }, '-=0.25');
-    tl.to({}, { duration: 6.0 });
-
-    // ── Exit ─────────────────────────────────────────────────────────────────
-    tl.to(container, { opacity: 0, duration: 0.8, ease: 'power2.inOut', force3D: true });
+    // ── Phase 3: Trade Details (hold 10s) ────────────────────────────────────
+    tl.to(detailsPhase, { autoAlpha: 1, duration: 0.5 })
+      .to(detailsCard,  { autoAlpha: 1, yPercent: 0, duration: 0.6, ease: 'power3.out' }, '<0.1')
+      .to(container,    { autoAlpha: 0, duration: 0.8, ease: 'power2.inOut' }, '+=10.0');
 
     return () => { timelineRef.current?.kill(); timelineRef.current = null; };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Group assets by fromTeam
@@ -144,6 +137,7 @@ export default function DraftTradeAnimation({ teams, assets, eventLogoUrl, event
     byFromTeam[a.fromTeam].push(a);
   }
 
+  const fromTeamList = Object.keys(byFromTeam);
   const team1 = teams[0] || '';
   const team2 = teams[1] || teams[0] || '';
   const c1 = getTeamColors(team1);
@@ -155,11 +149,11 @@ export default function DraftTradeAnimation({ teams, assets, eventLogoUrl, event
     <div
       ref={containerRef}
       className="fixed inset-0 pointer-events-none overflow-hidden"
-      style={{ zIndex: 9999, backgroundColor: '#080810', willChange: 'opacity' }}
+      style={{ zIndex: 9999, backgroundColor: '#080810' }}
     >
 
       {/* ── PHASE 0: Event Logo ─────────────────────────────────────────── */}
-      <div className="gtrade-logo absolute inset-0 flex items-center justify-center">
+      <div className="gtrade-logo absolute inset-0 flex items-center justify-center" style={{ willChange: 'opacity, visibility' }}>
         <div className="absolute inset-0" style={{ background: `radial-gradient(ellipse at 50% 50%, ${ec1}22 0%, #080810 70%)` }} />
         {eventLogoUrl ? (
           <img src={eventLogoUrl} alt="" className="relative z-10 object-contain"
@@ -172,7 +166,7 @@ export default function DraftTradeAnimation({ teams, assets, eventLogoUrl, event
       </div>
 
       {/* ── PHASE 1: TRADE ALERT ────────────────────────────────────────── */}
-      <div className="gtrade-alert absolute inset-0 flex flex-col items-center justify-center gap-6">
+      <div className="gtrade-alert absolute inset-0 flex flex-col items-center justify-center gap-6" style={{ willChange: 'opacity, visibility' }}>
         <div className="absolute inset-0" style={{ background: `radial-gradient(ellipse at 50% 45%, ${ec1}30 0%, #080810 60%)` }} />
         <div className="relative z-10 flex flex-col items-center gap-6">
           {eventLogoUrl && (
@@ -187,23 +181,23 @@ export default function DraftTradeAnimation({ teams, assets, eventLogoUrl, event
               textShadow: `0 0 80px ${ec1}77, 0 4px 20px rgba(0,0,0,0.9)`,
               WebkitTextStroke: `2px ${ec1}99`,
               letterSpacing: '0.08em',
+              willChange: 'transform, opacity',
             }}
           >
             TRADE<br />ALERT
           </div>
           <div
             className="gtrade-alert-line rounded-full"
-            style={{ width: 'clamp(200px, 30vw, 360px)', height: '3px', background: `linear-gradient(90deg, transparent, ${ec1}, transparent)`, transformOrigin: 'center' }}
+            style={{ width: 'clamp(200px, 30vw, 360px)', height: '3px', background: `linear-gradient(90deg, transparent, ${ec1}, transparent)`, willChange: 'transform' }}
           />
         </div>
       </div>
 
       {/* ── PHASE 2: Teams Split Screen ─────────────────────────────────── */}
-      <div className="gtrade-teams absolute inset-0 overflow-hidden">
-        {/* Left team */}
+      <div className="gtrade-teams absolute inset-0 overflow-hidden" style={{ willChange: 'opacity, visibility' }}>
         <div
           className="gtrade-team1 absolute inset-y-0 left-0 flex flex-col items-center justify-center gap-6 overflow-hidden"
-          style={{ width: '50%', background: `linear-gradient(160deg, ${c1.primary}ff 0%, ${c1.secondary}dd 100%)` }}
+          style={{ width: '50%', background: `linear-gradient(160deg, ${c1.primary}ff 0%, ${c1.secondary}dd 100%)`, willChange: 'transform' }}
         >
           <div className="absolute inset-0 opacity-10 flex items-center justify-center">
             <img src={logo1} alt="" className="object-contain" style={{ width: '90%', height: '90%' }} />
@@ -215,10 +209,9 @@ export default function DraftTradeAnimation({ teams, assets, eventLogoUrl, event
             {team1}
           </div>
         </div>
-        {/* Right team */}
         <div
           className="gtrade-team2 absolute inset-y-0 right-0 flex flex-col items-center justify-center gap-6 overflow-hidden"
-          style={{ width: '50%', background: `linear-gradient(200deg, ${c2.primary}ff 0%, ${c2.secondary}dd 100%)` }}
+          style={{ width: '50%', background: `linear-gradient(200deg, ${c2.primary}ff 0%, ${c2.secondary}dd 100%)`, willChange: 'transform' }}
         >
           <div className="absolute inset-0 opacity-10 flex items-center justify-center">
             <img src={logo2} alt="" className="object-contain" style={{ width: '90%', height: '90%' }} />
@@ -230,8 +223,7 @@ export default function DraftTradeAnimation({ teams, assets, eventLogoUrl, event
             {team2}
           </div>
         </div>
-        {/* Center trade icon */}
-        <div className="gtrade-icon absolute inset-0 flex items-center justify-center" style={{ zIndex: 10 }}>
+        <div className="gtrade-icon absolute inset-0 flex items-center justify-center" style={{ zIndex: 10, willChange: 'transform, opacity' }}>
           <div className="flex items-center justify-center rounded-full font-black"
             style={{
               width: 'clamp(60px, 8vw, 90px)', height: 'clamp(60px, 8vw, 90px)',
@@ -245,57 +237,75 @@ export default function DraftTradeAnimation({ teams, assets, eventLogoUrl, event
       </div>
 
       {/* ── PHASE 3: Trade Details Card ─────────────────────────────────── */}
-      <div className="gtrade-details absolute inset-0 flex items-center justify-center px-8">
-        <div className="absolute inset-0" style={{ background: `radial-gradient(ellipse at 50% 45%, ${ec1}18 0%, #080810 65%)` }} />
+      <div className="gtrade-details absolute inset-0 flex items-center justify-center px-6" style={{ willChange: 'opacity, visibility' }}>
+        {/* Diagonal team-color bg */}
+        <div className="absolute inset-0" style={{
+          background: `linear-gradient(135deg, ${c1.primary}44 0%, #080810 40%, #080810 60%, ${c2.primary}44 100%)`,
+        }} />
+        <div className="absolute inset-0" style={{ background: `radial-gradient(ellipse at 50% 50%, ${ec1}12 0%, transparent 70%)` }} />
+
         <div
-          className="gtrade-card relative z-10 rounded-2xl overflow-hidden"
+          className="gtrade-card relative z-10 rounded-2xl overflow-hidden w-full"
           style={{
-            width: 'min(960px, 92vw)',
-            background: 'linear-gradient(135deg, #14141e 0%, #1a1a2c 100%)',
-            border: `2px solid ${ec1}55`,
-            boxShadow: `0 24px 80px rgba(0,0,0,0.85), 0 0 70px ${ec1}33`,
+            maxWidth: 'min(1000px, 94vw)',
+            background: `linear-gradient(160deg, ${c1.primary}22 0%, #0e0e1a 30%, #0e0e1a 70%, ${c2.primary}22 100%)`,
+            border: `2px solid ${ec1}66`,
+            boxShadow: `0 30px 90px rgba(0,0,0,0.9), 0 0 80px ${ec1}22, inset 0 1px 0 rgba(255,255,255,0.06)`,
+            willChange: 'transform, opacity',
           }}
         >
-          {/* Card header */}
-          <div className="flex items-center gap-5 px-8 py-5 border-b-2" style={{ background: `linear-gradient(90deg, ${ec1}28 0%, transparent 100%)`, borderColor: `${ec1}44` }}>
-            {eventLogoUrl && <img src={eventLogoUrl} alt="" className="object-contain flex-shrink-0" style={{ width: '48px', height: '48px', opacity: 0.95 }} />}
-            <div>
-              <div className="font-black uppercase tracking-widest" style={{ fontSize: 'clamp(1.4rem, 3vw, 2rem)', color: ec1, letterSpacing: '0.15em' }}>
+          {/* Card header — full-width gradient bar */}
+          <div className="flex items-center gap-5 px-8 py-6" style={{
+            background: `linear-gradient(90deg, ${c1.primary}cc 0%, ${ec1}aa 50%, ${c2.primary}cc 100%)`,
+            borderBottom: `3px solid ${ec1}`,
+          }}>
+            {eventLogoUrl && (
+              <img src={eventLogoUrl} alt="" className="object-contain flex-shrink-0 drop-shadow-lg"
+                style={{ width: '52px', height: '52px' }} />
+            )}
+            <div className="flex-1">
+              <div className="font-black uppercase" style={{ fontSize: 'clamp(1.6rem, 3.5vw, 2.4rem)', color: '#fff', letterSpacing: '0.12em', textShadow: '0 2px 12px rgba(0,0,0,0.8)' }}>
                 TRADE ALERT
               </div>
-              <div className="text-white/45 font-bold tracking-wider text-sm mt-0.5">{teams.join(' ↔ ')}</div>
+              <div className="text-white/70 font-bold tracking-wider mt-0.5" style={{ fontSize: 'clamp(0.8rem, 1.5vw, 1rem)' }}>{teams.join(' ↔ ')}</div>
             </div>
-            {/* Team logo chips */}
-            <div className="ml-auto flex items-center gap-3">
+            <div className="flex items-center gap-3 flex-shrink-0">
               {teams.map(t => {
                 const tc = getTeamColors(t);
                 return (
-                  <div key={t} className="flex items-center gap-2 px-3 py-1.5 rounded-xl" style={{ background: `linear-gradient(135deg, ${tc.primary}cc, ${tc.secondary}aa)` }}>
-                    <img src={getTeamLogoPath(t)} alt={t} className="object-contain" style={{ width: '24px', height: '24px' }} />
-                    <span className="text-white font-black text-sm hidden sm:block">{t}</span>
+                  <div key={t} className="flex items-center gap-2 px-3 py-2 rounded-xl" style={{ background: 'rgba(0,0,0,0.4)', border: `2px solid ${tc.primary}88` }}>
+                    <img src={getTeamLogoPath(t)} alt={t} className="object-contain" style={{ width: '28px', height: '28px' }} />
+                    <span className="text-white font-black" style={{ fontSize: 'clamp(0.75rem, 1.2vw, 0.9rem)' }}>{t}</span>
                   </div>
                 );
               })}
             </div>
           </div>
+
           {/* Asset sections */}
-          <div>
-            {Object.entries(byFromTeam).map(([from, fromAssets], idx) => {
+          <div className={fromTeamList.length > 1 ? 'grid grid-cols-2' : ''}>
+            {fromTeamList.map((from, idx) => {
+              const fromAssets = byFromTeam[from];
               const tc = getTeamColors(from);
               const logo = getTeamLogoPath(from);
               return (
-                <div key={from} className="px-8 py-5" style={idx > 0 ? { borderTop: `1px solid ${ec1}22` } : {}}>
-                  <div className="flex items-center gap-4 mb-3">
-                    <div className="w-12 h-12 rounded-xl overflow-hidden flex-shrink-0 border-2" style={{ borderColor: tc.primary + 'aa', background: tc.primary + '22' }}>
+                <div key={from} className="flex flex-col"
+                  style={fromTeamList.length > 1 && idx === 0 ? { borderRight: `1px solid ${ec1}33` } : {}}>
+                  {/* Team banner */}
+                  <div className="flex items-center gap-4 px-7 py-4" style={{
+                    background: `linear-gradient(90deg, ${tc.primary}55 0%, ${tc.primary}22 60%, transparent 100%)`,
+                    borderBottom: `2px solid ${tc.primary}66`,
+                  }}>
+                    <div className="w-14 h-14 rounded-xl overflow-hidden flex-shrink-0 border-2" style={{ borderColor: tc.primary, background: tc.primary + '33' }}>
                       <img src={logo} alt={from} className="w-full h-full object-contain" />
                     </div>
                     <div>
-                      <div className="font-black text-white uppercase tracking-wider" style={{ fontSize: '1.15rem' }}>{from}</div>
-                      <div className="text-xs font-black uppercase tracking-widest mt-0.5" style={{ color: tc.primary }}>SENDS</div>
+                      <div className="font-black text-white uppercase" style={{ fontSize: 'clamp(1.1rem, 2.2vw, 1.6rem)', letterSpacing: '0.05em' }}>{from}</div>
+                      <div className="font-black uppercase tracking-widest" style={{ color: tc.primary, fontSize: 'clamp(0.65rem, 1vw, 0.8rem)' }}>SENDS</div>
                     </div>
-                    <div className="ml-4 flex-1 h-px" style={{ background: `linear-gradient(90deg, ${tc.primary}66, transparent)`, maxWidth: '160px' }} />
                   </div>
-                  <div className="pl-16 divide-y" style={{ borderColor: 'rgba(255,255,255,0.06)' }}>
+                  {/* Assets */}
+                  <div className="px-7 py-3 divide-y" style={{ borderColor: 'rgba(255,255,255,0.07)' }}>
                     {fromAssets.map((a, i) => <AssetLine key={i} asset={a} ec1={ec1} />)}
                   </div>
                 </div>

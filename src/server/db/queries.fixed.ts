@@ -682,6 +682,24 @@ export async function setDraftOrder(draftId: string, teams: string[]): Promise<v
   }
 }
 
+// ── Draft Slot Assignment (per-slot, any team, any round) ─────────────────
+export async function setDraftSlots(draftId: string, slots: Array<{ overall: number; team: string }>): Promise<void> {
+  await ensureDraftTables();
+  const db = getDb();
+  if (slots.length === 0) return;
+  const statusRes = await db.execute(sql`SELECT status FROM drafts WHERE id = ${draftId}::uuid LIMIT 1`);
+  const status = ((statusRes as unknown as { rows?: Array<{ status: string }> }).rows?.[0]?.status) || 'NOT_STARTED';
+  for (const slot of slots) {
+    const overall = Number(slot.overall);
+    const team = String(slot.team);
+    if (status === 'NOT_STARTED') {
+      await db.execute(sql`UPDATE draft_slots SET team = ${team}, original_team = ${team} WHERE draft_id = ${draftId}::uuid AND overall = ${overall}`);
+    } else {
+      await db.execute(sql`UPDATE draft_slots SET original_team = ${team} WHERE draft_id = ${draftId}::uuid AND overall = ${overall}`);
+    }
+  }
+}
+
 // ── Player Videos ─────────────────────────────────────────────────────────
 export async function updateDraftBranding(draftId: string, branding: {
   eventName?: string | null;

@@ -1,4 +1,5 @@
 'use client';
+/* eslint-disable @next/next/no-img-element */
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
@@ -281,9 +282,10 @@ export default function AdminDraftPage() {
   } | null>(null);
   const [approvingPick, setApprovingPick] = useState(false);
   const [activeTab, setActiveTab] = useState<'draft' | 'media' | 'branding' | 'order'>('draft');
-  const [orderTeams, setOrderTeams] = useState<string[]>([]);
+  const [slotAssignments, setSlotAssignments] = useState<Record<number, string>>({});
   const [orderSaving, setOrderSaving] = useState(false);
   const [orderSaved, setOrderSaved] = useState(false);
+  const [orderRound, setOrderRound] = useState(1);
   type AdminTrade = { id: string; draftId: string; status: string; proposedBy: string; teams: string[]; acceptedBy: string[]; notes?: string | null; proposedAt: string; updatedAt: string; assets: Array<{ id: string; fromTeam: string; toTeam: string; assetType: string; playerId?: string | null; playerName?: string | null; playerPos?: string | null; pickOverall?: number | null; pickYear?: number | null; pickRound?: number | null; pickOriginalTeam?: string | null }> };
   const [pendingTrades, setPendingTrades] = useState<AdminTrade[]>([]);
   const [tradeAction, setTradeAction] = useState<string | null>(null);
@@ -706,11 +708,11 @@ export default function AdminDraftPage() {
             type="button"
             onClick={() => {
               setActiveTab(tab);
-              if (tab === 'order' && draft && orderTeams.length === 0) {
-                // Populate from current round 1 slots
-                const round1 = (draft.allSlots || []).filter((s: { round: number }) => s.round === 1).sort((a: { overall: number }, b: { overall: number }) => a.overall - b.overall).map((s: { team: string }) => s.team);
-                if (round1.length > 0) setOrderTeams(round1);
-                else setOrderTeams(TEAM_NAMES.slice());
+              if (tab === 'order' && draft && Object.keys(slotAssignments).length === 0) {
+                const init: Record<number, string> = {};
+                for (const s of (draft.allSlots || [])) init[s.overall] = s.team;
+                setSlotAssignments(init);
+                setOrderRound(1);
               }
             }}
             className={`px-5 py-2.5 text-sm font-semibold rounded-t-lg transition-colors -mb-px border-b-2 relative ${
@@ -730,100 +732,118 @@ export default function AdminDraftPage() {
 
       {/* Draft Order Tab */}
       {activeTab === 'order' && isAdmin && (
-        <div className="max-w-lg space-y-4">
+        <div className="space-y-4" style={{ maxWidth: '800px' }}>
           {!draft ? (
             <Card><CardContent><p className="text-[var(--muted)] text-sm">Create a draft first before setting draft order.</p></CardContent></Card>
-          ) : (
-            <Card>
-              <CardHeader>
-                <CardTitle>Draft Order</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <p className="text-sm text-zinc-400">
-                  Drag teams up/down to set the round 1 draft order. Snake draft rounds are calculated automatically.
-                  {draft.status === 'NOT_STARTED'
-                    ? ' Draft has not started — saving will update the live order immediately.'
-                    : ' Draft is in progress — saving will only affect future resets (not current live picks).'}
-                </p>
-                <div className="space-y-1">
-                  {orderTeams.map((team, idx) => {
-                    const colors = getTeamColors(team);
-                    return (
-                      <div key={team} className="flex items-center gap-3 rounded-lg px-3 py-2 border border-zinc-700" style={{ background: 'rgba(255,255,255,0.03)' }}>
-                        <span className="text-zinc-500 font-mono text-sm w-6 text-right">{idx + 1}.</span>
-                        <div className="w-7 h-7 rounded overflow-hidden flex-shrink-0 border" style={{ borderColor: colors.primary + '66' }}>
-                          <img src={getTeamLogoPath(team)} alt={team} className="w-full h-full object-contain" style={{ background: colors.primary + '22' }} />
-                        </div>
-                        <span className="flex-1 text-sm font-bold text-white">{team}</span>
-                        <div className="flex gap-1">
-                          <button
-                            type="button"
-                            disabled={idx === 0}
-                            onClick={() => {
-                              const next = [...orderTeams];
-                              [next[idx - 1], next[idx]] = [next[idx], next[idx - 1]];
-                              setOrderTeams(next);
-                              setOrderSaved(false);
-                            }}
-                            className="w-7 h-7 flex items-center justify-center rounded text-zinc-400 hover:text-white hover:bg-zinc-700 disabled:opacity-25 transition-colors text-base"
-                          >▲</button>
-                          <button
-                            type="button"
-                            disabled={idx === orderTeams.length - 1}
-                            onClick={() => {
-                              const next = [...orderTeams];
-                              [next[idx], next[idx + 1]] = [next[idx + 1], next[idx]];
-                              setOrderTeams(next);
-                              setOrderSaved(false);
-                            }}
-                            className="w-7 h-7 flex items-center justify-center rounded text-zinc-400 hover:text-white hover:bg-zinc-700 disabled:opacity-25 transition-colors text-base"
-                          >▼</button>
-                        </div>
-                      </div>
-                    );
-                  })}
+          ) : (() => {
+            const allSlots = (draft.allSlots || []).slice().sort((a: { overall: number }, b: { overall: number }) => a.overall - b.overall);
+            const rounds = [...new Set(allSlots.map((s: { round: number }) => s.round))].sort((a, b) => a - b);
+            const slotsForRound = (r: number) => allSlots.filter((s: { round: number }) => s.round === r);
+            return (
+              <>
+                <div className="rounded-lg border border-zinc-700 p-4" style={{ background: 'rgba(255,255,255,0.02)' }}>
+                  <p className="text-sm text-zinc-400">
+                    Set the team assigned to each pick slot. Each slot has its own dropdown — teams can hold multiple picks or none in a round.
+                    {draft.status === 'NOT_STARTED'
+                      ? <span className="text-emerald-400 font-semibold"> Draft not started — changes apply immediately.</span>
+                      : <span className="text-amber-400 font-semibold"> Draft in progress — changes only affect future resets.</span>}
+                  </p>
                 </div>
-                <div className="flex items-center gap-3 pt-2">
+
+                {/* Round tabs */}
+                <div className="flex gap-1 border-b border-zinc-700 pb-0">
+                  {rounds.map(r => (
+                    <button key={r} type="button" onClick={() => setOrderRound(r)}
+                      className={`px-4 py-2 text-sm font-bold rounded-t-lg border-b-2 transition-colors ${
+                        orderRound === r ? 'border-[#bf9944] text-white bg-zinc-800' : 'border-transparent text-zinc-400 hover:text-white'
+                      }`}>
+                      Round {r}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Slots for selected round */}
+                <div className="rounded-lg border border-zinc-700 overflow-hidden">
+                  <div className="px-4 py-2 border-b border-zinc-700 flex items-center justify-between" style={{ background: 'rgba(255,255,255,0.03)' }}>
+                    <span className="text-xs font-bold text-zinc-400 uppercase tracking-wide">Round {orderRound} — {slotsForRound(orderRound).length} picks</span>
+                    <button type="button" className="text-xs text-zinc-500 hover:text-white transition-colors"
+                      onClick={() => {
+                        const fresh: Record<number, string> = { ...slotAssignments };
+                        for (const s of slotsForRound(orderRound)) fresh[s.overall] = s.team;
+                        setSlotAssignments(fresh);
+                        setOrderSaved(false);
+                      }}
+                    >↺ Reset round to current</button>
+                  </div>
+                  <div className="divide-y divide-zinc-800">
+                    {slotsForRound(orderRound).map((slot: { overall: number; round: number; team: string }) => {
+                      const assigned = slotAssignments[slot.overall] ?? slot.team;
+                      const tc = getTeamColors(assigned);
+                      return (
+                        <div key={slot.overall} className="flex items-center gap-4 px-4 py-2.5">
+                          <div className="flex items-center gap-2 w-24 flex-shrink-0">
+                            <span className="text-zinc-500 font-mono text-xs w-8 text-right">#{slot.overall}</span>
+                            <span className="text-xs text-zinc-600">Rd {slot.round}</span>
+                          </div>
+                          <div className="w-6 h-6 rounded overflow-hidden flex-shrink-0 border" style={{ borderColor: tc.primary + '88', background: tc.primary + '22' }}>
+                            <img src={getTeamLogoPath(assigned)} alt={assigned} className="w-full h-full object-contain" />
+                          </div>
+                          <select
+                            value={assigned}
+                            onChange={e => {
+                              setSlotAssignments(prev => ({ ...prev, [slot.overall]: e.target.value }));
+                              setOrderSaved(false);
+                            }}
+                            className="flex-1 rounded-lg border border-zinc-600 bg-zinc-800 text-white text-sm px-3 py-1.5 font-semibold focus:outline-none focus:border-[#bf9944] transition-colors"
+                          >
+                            {TEAM_NAMES.map(t => (
+                              <option key={t} value={t}>{t}</option>
+                            ))}
+                          </select>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Save bar */}
+                <div className="flex items-center gap-3">
                   <Button
-                    disabled={orderSaving || orderTeams.length === 0}
+                    disabled={orderSaving || Object.keys(slotAssignments).length === 0}
                     variant="primary"
                     onClick={async () => {
                       setOrderSaving(true);
                       setOrderSaved(false);
                       try {
+                        const slots = Object.entries(slotAssignments).map(([overall, team]) => ({ overall: Number(overall), team }));
                         const res = await fetch('/api/draft', {
                           method: 'POST',
                           headers: { 'content-type': 'application/json' },
-                          body: JSON.stringify({ action: 'set_draft_order', teams: orderTeams }),
+                          body: JSON.stringify({ action: 'set_draft_slots', slots }),
                         });
                         if (res.ok) {
                           setOrderSaved(true);
                           await load();
-                        } else {
-                          alert('Failed to save order');
-                        }
-                      } catch { alert('Error saving order'); }
+                        } else { alert('Failed to save'); }
+                      } catch { alert('Error saving'); }
                       finally { setOrderSaving(false); }
                     }}
                   >
-                    {orderSaving ? '⏳ Saving…' : '💾 Save as Default Order'}
+                    {orderSaving ? '⏳ Saving…' : '💾 Save All Rounds'}
                   </Button>
-                  <button
-                    type="button"
-                    className="text-sm text-zinc-400 hover:text-white transition-colors"
+                  <button type="button" className="text-sm text-zinc-400 hover:text-white transition-colors"
                     onClick={() => {
-                      const round1 = (draft.allSlots || []).filter((s: { round: number }) => s.round === 1).sort((a: { overall: number }, b: { overall: number }) => a.overall - b.overall).map((s: { team: string }) => s.team);
-                      setOrderTeams(round1.length > 0 ? round1 : TEAM_NAMES.slice());
+                      const init: Record<number, string> = {};
+                      for (const s of allSlots) init[s.overall] = s.team;
+                      setSlotAssignments(init);
                       setOrderSaved(false);
                     }}
-                  >
-                    ↺ Reset to current
-                  </button>
+                  >↺ Reset all rounds to current</button>
                   {orderSaved && <span className="text-emerald-400 text-sm font-bold">✓ Saved!</span>}
                 </div>
-              </CardContent>
-            </Card>
-          )}
+              </>
+            );
+          })()}
         </div>
       )}
 
