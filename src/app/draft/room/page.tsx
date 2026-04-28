@@ -12,6 +12,7 @@ import DraftPickAnimation from '@/components/draft-overlay/DraftPickAnimation';
 import NowOnClockAnimation from '@/components/draft-overlay/NowOnClockAnimation';
 import DraftTradeCenter from '@/components/draft-overlay/DraftTradeCenter';
 import DraftTradeAnimation, { type TradeAnimAsset } from '@/components/draft-overlay/DraftTradeAnimation';
+import DraftInfoBarTicker from '@/components/draft-overlay/DraftInfoBarTicker';
 import { gsap } from 'gsap';
 
 const POSITIONS = ['QB', 'RB', 'WR', 'TE', 'K'];
@@ -690,12 +691,14 @@ export default function DraftRoomPage() {
                 </div>
               </div>
               {/* InfoBar */}
-              <div className="flex-1 overflow-hidden relative" style={{ background: `linear-gradient(135deg, ${tc[0]}dd, ${tc[1]}cc)` }}>
-                {pendingPick ? (
-                  <div className="absolute inset-0 flex items-center justify-center" style={{ background: 'linear-gradient(135deg,rgba(0,0,0,0.88),rgba(20,5,0,0.94))' }}>
-                    <div className="text-2xl font-black text-white tracking-widest uppercase animate-pulse">PICK IS IN</div>
-                  </div>
-                ) : null}
+              <div className="flex-1 p-2 overflow-hidden relative" style={{ background: `linear-gradient(135deg, ${tc[0]}dd, ${tc[1]}cc)` }}>
+                <DraftInfoBarTicker
+                  onClockTeam={onClock}
+                  available={avail}
+                  recentPicks={draft?.recentPicks}
+                  curOverall={draft?.curOverall}
+                  pendingPick={!!pendingPick}
+                />
               </div>
             </div>
           );

@@ -10,8 +10,7 @@ import { getTeamColors } from '@/lib/constants/team-colors';
 import DraftPickAnimation from './DraftPickAnimation';
 import NowOnClockAnimation from './NowOnClockAnimation';
 import DraftTradeAnimation, { type TradeAnimAsset } from './DraftTradeAnimation';
-import { getLeagueDrafts, getDraftPicks, getTeamsData, getAllPlayersCached } from '@/lib/utils/sleeper-api';
-import { LEAGUE_IDS } from '@/lib/constants/league';
+import DraftInfoBarTicker from './DraftInfoBarTicker';
 
 // Position colors for player cards
 const positionColors: Record<string, string> = {
@@ -23,9 +22,6 @@ const positionColors: Record<string, string> = {
   'K': '#FF8C42',
 };
 
-// Ticker views - tradeInfo only shown if there's a trade, so we filter dynamically
-const baseTickerViews = ['bestAvailable', 'teamRecentPicks', 'teamRecord', 'draftCapital', 'draft2025', 'draft2024'] as const;
-type TickerView = typeof baseTickerViews[number] | 'tradeInfo';
 
 function getYoutubeEmbedUrl(url: string): string | null {
   try {
@@ -300,137 +296,9 @@ export default function DraftOverlayLive() {
   const pickInRound = (currentPickIndex % 12) + 1;
   const teamColors = currentTeam?.colors || ['#333', '#555', null];
   const teamLogo = currentTeam ? getTeamLogoPath(currentTeam.name) : null;
-  const [draftOrderData, setDraftOrderData] = useState<{
-    roundsData: Array<{ round: number; picks: Array<{ ownerTeam: string }> }>;
-    transfers: Array<{ round: number; fromTeam: string; toTeam: string; summary?: string }>;
-    slotOrder?: Array<{ team: string; record: { wins: number; losses: number; fpts: number; fptsAgainst?: number } }>;
-  } | null>(null);
-
-  const [currentTickerView, setCurrentTickerView] = useState<TickerView>('bestAvailable');
-  const cycleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const prevDraftGridRef = useRef<typeof draftGrid>(draftGrid);
 
-  // Historical draft data (keyed by canonical team name)
-  const [historicalDrafts, setHistoricalDrafts] = useState<{
-    2024: Array<{ team: string; player: string; round: number; pick: number }> | null;
-    2025: Array<{ team: string; player: string; round: number; pick: number }> | null;
-  }>({ 2024: null, 2025: null });
-  
-  // Determine if current pick was acquired via trade (for conditional ticker display)
-  const currentPickTradeInfo = (() => {
-    if (!currentTeam || !draftOrderData?.transfers || !draft?.curOverall) return null;
-    const currentRound = Math.floor((draft.curOverall - 1) / 12) + 1;
-    return draftOrderData.transfers.find(t => 
-      t.round === currentRound && t.toTeam === currentTeam.name
-    ) || null;
-  })();
-  
-  // Build dynamic ticker views - only include tradeInfo if there's a trade
-  const tickerViews: TickerView[] = currentPickTradeInfo 
-    ? [...baseTickerViews, 'tradeInfo']
-    : [...baseTickerViews];
 
-  // Fetch draft order data from website for ticker context
-  useEffect(() => {
-    async function fetchDraftOrder() {
-      try {
-        const res = await fetch('/api/draft/next-order', { cache: 'no-store' });
-        if (res.ok) {
-          const data = await res.json();
-          setDraftOrderData(data);
-        }
-      } catch (err) {
-        console.error('Failed to fetch draft order data:', err);
-      }
-    }
-    
-    fetchDraftOrder();
-  }, []);
-
-  // Fetch historical draft data (2023, 2024, 2025) from Sleeper using getTeamsData for proper team name mapping
-  useEffect(() => {
-    async function fetchHistoricalDrafts() {
-      try {
-        const players = await getAllPlayersCached();
-        
-        // Helper to fetch draft for a given year/league
-        const fetchYearDraft = async (leagueId: string): Promise<Array<{ team: string; player: string; round: number; pick: number }>> => {
-          const [drafts, teams] = await Promise.all([
-            getLeagueDrafts(leagueId),
-            getTeamsData(leagueId)
-          ]);
-          
-          if (drafts.length === 0) return [];
-          
-          // Build roster ID → canonical team name map
-          const rosterIdToTeam = new Map(teams.map(t => [t.rosterId, t.teamName]));
-          
-          const draftPicks = await getDraftPicks(drafts[0].draft_id);
-          return draftPicks.map(p => {
-            const player = players[p.player_id];
-            return {
-              team: rosterIdToTeam.get(p.roster_id) || `Roster ${p.roster_id}`,
-              player: (player?.first_name && player?.last_name) ? `${player.first_name} ${player.last_name}` : p.player_id,
-              round: p.round,
-              pick: p.pick_no
-            };
-          });
-        };
-        
-        // Fetch 2024 draft
-        const league2024 = LEAGUE_IDS.PREVIOUS['2024'];
-        if (league2024) {
-          try {
-            const picks2024 = await fetchYearDraft(league2024);
-            setHistoricalDrafts(prev => ({ ...prev, 2024: picks2024 }));
-          } catch (e) {
-            console.error('Failed to fetch 2024 draft:', e);
-          }
-        }
-        
-        // Fetch 2025 draft (current year)
-        const league2025 = LEAGUE_IDS.CURRENT;
-        if (league2025) {
-          try {
-            const picks2025 = await fetchYearDraft(league2025);
-            setHistoricalDrafts(prev => ({ ...prev, 2025: picks2025 }));
-          } catch (e) {
-            console.error('Failed to fetch 2025 draft:', e);
-          }
-        }
-      } catch (err) {
-        console.error('Failed to fetch historical drafts:', err);
-      }
-    }
-    
-    fetchHistoricalDrafts();
-  }, []);
-
-  // Keep tickerViews in a ref to avoid stale closures in the interval
-  const tickerViewsRef = useRef(tickerViews);
-  tickerViewsRef.current = tickerViews;
-
-  // Ticker rotation - cycle every 10 seconds
-  useEffect(() => {
-    const startCycle = () => {
-      if (cycleTimerRef.current) clearTimeout(cycleTimerRef.current);
-      cycleTimerRef.current = setTimeout(() => {
-        setCurrentTickerView(prev => {
-          const views = tickerViewsRef.current;
-          const index = views.indexOf(prev);
-          // If current view not in list (e.g., tradeInfo removed), reset to first
-          if (index === -1) return views[0];
-          return views[(index + 1) % views.length];
-        });
-        startCycle();
-      }, 10000);
-    };
-    
-    startCycle();
-    return () => {
-      if (cycleTimerRef.current) clearTimeout(cycleTimerRef.current);
-    };
-  }, []);
   
   // Animate new picks appearing in the draft board
   useEffect(() => {
@@ -689,123 +557,14 @@ export default function DraftOverlayLive() {
             height: '140px',
           }}
         >
-          {/* Pick Is In overlay — covers only the InfoBar, ClockBox stays visible */}
-          {pendingPick && (
-            <div className="absolute inset-0 flex flex-col items-center justify-center z-20 rounded-sm" style={{ background: 'linear-gradient(135deg,rgba(0,0,0,0.92),rgba(30,10,0,0.96))' }}>
-              <div className="text-4xl font-black text-white tracking-widest uppercase animate-pulse">PICK IS IN</div>
-            </div>
-          )}
-          {/* Best Available View */}
-          <div style={{ display: currentTickerView === 'bestAvailable' ? 'block' : 'none' }}>
-            <div className="text-white/80 text-xs font-semibold mb-1">
-              Best Available{usingCustom ? ' (Custom)' : ''}
-            </div>
-            <div className="grid grid-cols-5 gap-1">
-              {available.slice(0, 10).map((p, i) => (
-                <div key={p.id} className="bg-black/30 rounded px-1 py-[2px] text-[10px]">
-                  <div className="font-semibold text-white truncate">{i + 1}. {p.name}</div>
-                  <div className="text-white/60 truncate">{p.pos} - {p.nfl || '-'}</div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Team Recent Picks View - only shows picks made by current team */}
-          <div style={{ display: currentTickerView === 'teamRecentPicks' ? 'block' : 'none' }}>
-            <div className="text-white/80 text-xs font-semibold mb-1">{currentTeam?.name || 'Team'} Picks This Draft</div>
-            {currentTeam && draft?.recentPicks ? (() => {
-              const teamPicks = draft.recentPicks.filter(p => p.team === currentTeam.name).slice(-6).reverse();
-              return teamPicks.length > 0 ? (
-                <div className="grid grid-cols-2 gap-1">
-                  {teamPicks.map((p) => (
-                    <div key={p.overall} className="bg-black/30 rounded px-1 py-[2px] text-[10px]">
-                      <div className="font-semibold text-white truncate">#{p.overall}: {p.playerName || p.playerId}</div>
-                      <div className="text-white/60 truncate">R{p.round} Pk{((p.overall - 1) % 12) + 1}</div>
-                    </div>
-                  ))}
-                </div>
-              ) : <div className="text-white/60 text-sm">No picks yet this draft</div>;
-            })() : <div className="text-white/60 text-sm">Loading...</div>}
-          </div>
-
-          {/* Team Record View */}
-          <div style={{ display: currentTickerView === 'teamRecord' ? 'block' : 'none' }}>
-            <div className="text-white/80 text-xs font-semibold mb-1">2024 Season</div>
-            {currentTeam && draftOrderData?.slotOrder ? (() => {
-              const teamData = draftOrderData.slotOrder.find(s => s.team === currentTeam.name);
-              return teamData ? (
-                <div className="text-white text-lg font-bold">
-                  {teamData.record.wins}-{teamData.record.losses} • {Math.round(teamData.record.fpts)} PF • {Math.round(teamData.record.fptsAgainst || 0)} PA
-                </div>
-              ) : <div className="text-white/60 text-sm">Record not available</div>;
-            })() : <div className="text-white/60 text-sm">Loading...</div>}
-          </div>
-
-          {/* Draft Capital View */}
-          <div style={{ display: currentTickerView === 'draftCapital' ? 'block' : 'none' }}>
-            <div className="text-white/80 text-xs font-semibold mb-1">Draft Capital</div>
-            {currentTeam && draftOrderData?.roundsData ? (() => {
-              const teamPicks: string[] = [];
-              draftOrderData.roundsData.forEach(rd => {
-                rd.picks.forEach((p, idx) => {
-                  if (p.ownerTeam === currentTeam.name) {
-                    teamPicks.push(`${rd.round}.${String(idx + 1).padStart(2, '0')}`);
-                  }
-                });
-              });
-              return teamPicks.length > 0 ? (
-                <div className="text-white text-sm">
-                  <div className="font-bold mb-1">{teamPicks.length} total pick{teamPicks.length > 1 ? 's' : ''}</div>
-                  <div className="text-white/80">{teamPicks.join(', ')}</div>
-                </div>
-              ) : <div className="text-white text-sm font-bold">This is their only pick</div>;
-            })() : <div className="text-white/60 text-sm">Loading...</div>}
-          </div>
-
-          {/* 2025 Draft View (Current Year) */}
-          <div style={{ display: currentTickerView === 'draft2025' ? 'block' : 'none' }}>
-            <div className="text-white/80 text-xs font-semibold mb-1">2025 Draft</div>
-            {currentTeam && historicalDrafts[2025] ? (() => {
-              const teamPicks = historicalDrafts[2025].filter(p => p.team === currentTeam.name).slice(0, 4);
-              return teamPicks.length > 0 ? (
-                <div className="text-white text-sm">
-                  {teamPicks.map((p, i) => (
-                    <div key={i} className="truncate">
-                      {p.player} ({p.round}.{String(p.pick % 12 || 12).padStart(2, '0')})
-                    </div>
-                  ))}
-                </div>
-              ) : <div className="text-white/60 text-sm">No picks yet in 2025</div>;
-            })() : <div className="text-white/60 text-sm">Loading...</div>}
-          </div>
-
-          {/* 2024 Draft View */}
-          <div style={{ display: currentTickerView === 'draft2024' ? 'block' : 'none' }}>
-            <div className="text-white/80 text-xs font-semibold mb-1">2024 Draft</div>
-            {currentTeam && historicalDrafts[2024] ? (() => {
-              const teamPicks = historicalDrafts[2024].filter(p => p.team === currentTeam.name).slice(0, 3);
-              return teamPicks.length > 0 ? (
-                <div className="text-white text-sm">
-                  {teamPicks.map((p, i) => (
-                    <div key={i} className="truncate">
-                      {p.player} ({p.round}.{String(p.pick % 12 || 12).padStart(2, '0')})
-                    </div>
-                  ))}
-                </div>
-              ) : <div className="text-white/60 text-sm">No picks in 2024</div>;
-            })() : <div className="text-white/60 text-sm">Loading...</div>}
-          </div>
-
-          {/* Trade Info View - only rendered when there's a trade (controlled by tickerViews array) */}
-          {currentPickTradeInfo && (
-            <div style={{ display: currentTickerView === 'tradeInfo' ? 'block' : 'none' }}>
-              <div className="text-white/80 text-xs font-semibold mb-1">Pick Acquired Via Trade</div>
-              <div className="text-white text-sm">
-                <div className="font-bold mb-1">From {currentPickTradeInfo.fromTeam}</div>
-                {currentPickTradeInfo.summary && <div className="text-white/70 text-xs truncate">{currentPickTradeInfo.summary}</div>}
-              </div>
-            </div>
-          )}
+          <DraftInfoBarTicker
+            onClockTeam={currentTeam?.name ?? null}
+            available={available}
+            recentPicks={draft?.recentPicks}
+            curOverall={draft?.curOverall}
+            usingCustom={usingCustom}
+            pendingPick={!!pendingPick}
+          />
         </div>
       </div>
 
