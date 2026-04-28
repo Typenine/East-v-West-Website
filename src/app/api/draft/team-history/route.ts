@@ -1,0 +1,156 @@
+import { NextRequest } from 'next/server';
+import {
+  getTeamsData,
+  getLeaguePlayoffBracketsWithScores,
+  type SleeperBracketGameWithScore,
+} from '@/lib/utils/sleeper-api';
+import { LEAGUE_IDS } from '@/lib/constants/league';
+import { canonicalizeTeamName } from '@/lib/server/user-identity';
+
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+
+interface SeasonResult {
+  season: string;
+  wins: number;
+  losses: number;
+  fpts: number;
+  playoffResult: string;       // e.g. "Champion", "Runner-Up", "Lost in Semis", "Lost in Quarters", "Did not qualify"
+  playoffOpponent?: string;    // opponent in the elimination game
+  winScore?: number;           // team's score in that game
+  oppScore?: number;           // opponent's score in that game
+  madePlayoffs: boolean;
+}
+
+const SEASONS: Array<{ label: string; leagueId: string }> = [
+  { label: '2025', leagueId: LEAGUE_IDS.CURRENT },
+  { label: '2024', leagueId: LEAGUE_IDS.PREVIOUS['2024'] },
+  { label: '2023', leagueId: LEAGUE_IDS.PREVIOUS['2023'] },
+];
+
+const ROUND_NAMES: Record<number, string> = {
+  1: 'Quarterfinals',
+  2: 'Semifinals',
+  3: 'Finals',
+};
+
+async function getSeasonResult(
+  teamName: string,
+  leagueId: string,
+  season: string
+): Promise<SeasonResult | null> {
+  try {
+    const [teams, { winners }] = await Promise.all([
+      getTeamsData(leagueId).catch(() => []),
+      getLeaguePlayoffBracketsWithScores(leagueId).catch(() => ({ winners: [] as SleeperBracketGameWithScore[], losers: [] as SleeperBracketGameWithScore[] })),
+    ]);
+
+    const canon = canonicalizeTeamName(teamName);
+    const teamData = teams.find(t => canonicalizeTeamName(t.teamName) === canon);
+    if (!teamData) return null;
+
+    const myRosterId = teamData.rosterId;
+
+    // Build roster ID → team name map from this season's teams
+    const rIdToName = new Map(teams.map(t => [t.rosterId, t.teamName]));
+
+    // Check if team made playoffs
+    const playoffRosterIds = new Set<number>();
+    for (const g of winners) {
+      if (g.t1 != null) playoffRosterIds.add(g.t1);
+      if (g.t2 != null) playoffRosterIds.add(g.t2);
+    }
+    const madePlayoffs = playoffRosterIds.has(myRosterId);
+
+    if (!madePlayoffs) {
+      return {
+        season,
+        wins: teamData.wins,
+        losses: teamData.losses,
+        fpts: teamData.fpts,
+        playoffResult: 'Did not qualify',
+        madePlayoffs: false,
+      };
+    }
+
+    // Determine max round (championship round)
+    const maxRound = winners.reduce((m, g) => Math.max(m, g.r ?? 0), 0);
+
+    // Find all games this team played in
+    const myGames = winners
+      .filter(g => g.t1 === myRosterId || g.t2 === myRosterId)
+      .sort((a, b) => (a.r ?? 0) - (b.r ?? 0));
+
+    // Find the last game they played (highest round)
+    const lastGame = myGames[myGames.length - 1];
+    if (!lastGame) {
+      return {
+        season, wins: teamData.wins, losses: teamData.losses, fpts: teamData.fpts,
+        playoffResult: 'Made playoffs', madePlayoffs: true,
+      };
+    }
+
+    const lastRound = lastGame.r ?? 0;
+    const won = lastGame.w === myRosterId;
+    const oppRosterId = lastGame.t1 === myRosterId ? lastGame.t2 : lastGame.t1;
+    const oppName = oppRosterId != null ? (rIdToName.get(oppRosterId) ?? `Roster ${oppRosterId}`) : undefined;
+
+    // Attach score if available
+    let winScore: number | undefined;
+    let oppScore: number | undefined;
+    if (lastGame.t1_points != null && lastGame.t2_points != null) {
+      if (lastGame.t1 === myRosterId) {
+        winScore = lastGame.t1_points;
+        oppScore = lastGame.t2_points;
+      } else {
+        winScore = lastGame.t2_points;
+        oppScore = lastGame.t1_points;
+      }
+    }
+
+    let playoffResult: string;
+    if (lastRound === maxRound && won) {
+      playoffResult = 'Champion 🏆';
+    } else if (lastRound === maxRound && !won) {
+      playoffResult = 'Runner-Up';
+    } else {
+      const roundName = ROUND_NAMES[lastRound] ?? `Round ${lastRound}`;
+      playoffResult = `Lost in ${roundName}`;
+    }
+
+    return {
+      season,
+      wins: teamData.wins,
+      losses: teamData.losses,
+      fpts: teamData.fpts,
+      playoffResult,
+      playoffOpponent: oppName,
+      winScore: winScore != null ? Math.round(winScore * 10) / 10 : undefined,
+      oppScore: oppScore != null ? Math.round(oppScore * 10) / 10 : undefined,
+      madePlayoffs: true,
+    };
+  } catch {
+    return null;
+  }
+}
+
+export async function GET(req: NextRequest) {
+  const url = new URL(req.url);
+  const team = url.searchParams.get('team') || '';
+  if (!team) return Response.json({ error: 'team required' }, { status: 400 });
+
+  try {
+    const results = await Promise.all(
+      SEASONS.map(s => getSeasonResult(team, s.leagueId, s.label))
+    );
+
+    const seasons = results.filter((r): r is SeasonResult => r !== null);
+
+    return Response.json(
+      { team, seasons },
+      { headers: { 'Cache-Control': 's-maxage=3600, stale-while-revalidate=86400' } }
+    );
+  } catch (e) {
+    return Response.json({ error: String(e) }, { status: 500 });
+  }
+}

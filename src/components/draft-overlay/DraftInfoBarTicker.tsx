@@ -4,11 +4,18 @@ import React, { useEffect, useRef, useState } from 'react';
 import { getLeagueDrafts, getDraftPicks, getTeamsData, getAllPlayersCached } from '@/lib/utils/sleeper-api';
 import { LEAGUE_IDS } from '@/lib/constants/league';
 
-const baseTickerViews = ['bestAvailable', 'teamRecentPicks', 'teamRecord', 'draftCapital', 'draft2025', 'draft2024'] as const;
-type TickerView = typeof baseTickerViews[number] | 'tradeInfo';
+const BASE_VIEWS = ['bestAvailable', 'recentPicksAll', 'teamRecord', 'draftCapital', 'topScorers', 'seasonHistory', 'draft2025', 'draft2024'] as const;
+type TickerView = typeof BASE_VIEWS[number] | 'teamRecentPicks' | 'tradeInfo';
 
 export interface TickerPlayer { id: string; name: string; pos: string; nfl?: string | null; }
 export interface TickerPick { overall: number; team: string; playerName?: string | null; playerId: string; round?: number; }
+
+interface TopScorer { id: string; name: string; pos: string; pts: number; }
+interface SeasonResult {
+  season: string; wins: number; losses: number; fpts: number;
+  playoffResult: string; playoffOpponent?: string;
+  winScore?: number; oppScore?: number; madePlayoffs: boolean;
+}
 
 interface Props {
   onClockTeam: string | null;
@@ -22,15 +29,28 @@ interface Props {
 export default function DraftInfoBarTicker({ onClockTeam, available, recentPicks, curOverall, usingCustom, pendingPick }: Props) {
   const [currentTickerView, setCurrentTickerView] = useState<TickerView>('bestAvailable');
   const cycleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Draft order / record data (fetched once)
   const [draftOrderData, setDraftOrderData] = useState<{
     roundsData: Array<{ round: number; picks: Array<{ ownerTeam: string }> }>;
     transfers: Array<{ round: number; fromTeam: string; toTeam: string; summary?: string }>;
     slotOrder?: Array<{ team: string; record: { wins: number; losses: number; fpts: number; fptsAgainst?: number } }>;
   } | null>(null);
+
+  // Historical Sleeper draft data (fetched once)
   const [historicalDrafts, setHistoricalDrafts] = useState<{
     2024: Array<{ team: string; player: string; round: number; pick: number }> | null;
     2025: Array<{ team: string; player: string; round: number; pick: number }> | null;
   }>({ 2024: null, 2025: null });
+
+  // Per-team data (refetched when onClockTeam changes)
+  const [topScorers, setTopScorers] = useState<TopScorer[] | null>(null);
+  const [seasonHistory, setSeasonHistory] = useState<SeasonResult[] | null>(null);
+  const lastFetchedTeamRef = useRef<string | null>(null);
+
+  // Build dynamic rotation: insert teamRecentPicks only if team has ≥1 pick AND not pick #1
+  const teamPicksThisDraft = (recentPicks || []).filter(p => p.team === onClockTeam);
+  const showTeamPicks = teamPicksThisDraft.length > 0 && (curOverall ?? 1) > 1;
 
   const currentPickTradeInfo = (() => {
     if (!onClockTeam || !draftOrderData?.transfers || !curOverall) return null;
@@ -38,7 +58,11 @@ export default function DraftInfoBarTicker({ onClockTeam, available, recentPicks
     return draftOrderData.transfers.find(t => t.round === currentRound && t.toTeam === onClockTeam) || null;
   })();
 
-  const tickerViews: TickerView[] = currentPickTradeInfo ? [...baseTickerViews, 'tradeInfo'] : [...baseTickerViews];
+  const tickerViews: TickerView[] = [
+    ...BASE_VIEWS,
+    ...(showTeamPicks ? ['teamRecentPicks' as TickerView] : []),
+    ...(currentPickTradeInfo ? ['tradeInfo' as TickerView] : []),
+  ];
   const tickerViewsRef = useRef(tickerViews);
   tickerViewsRef.current = tickerViews;
 
@@ -60,7 +84,7 @@ export default function DraftInfoBarTicker({ onClockTeam, available, recentPicks
     return () => { if (cycleTimerRef.current) clearTimeout(cycleTimerRef.current); };
   }, []);
 
-  // Fetch draft order / record data
+  // Fetch draft order / record (once)
   useEffect(() => {
     fetch('/api/draft/next-order', { cache: 'no-store' })
       .then(r => r.ok ? r.json() : null)
@@ -68,7 +92,7 @@ export default function DraftInfoBarTicker({ onClockTeam, available, recentPicks
       .catch(() => {});
   }, []);
 
-  // Fetch historical Sleeper draft data
+  // Fetch historical Sleeper draft picks (once)
   useEffect(() => {
     async function run() {
       try {
@@ -96,8 +120,25 @@ export default function DraftInfoBarTicker({ onClockTeam, available, recentPicks
     run();
   }, []);
 
-  const teamRecentPicks = (recentPicks || []).filter(p => p.team === onClockTeam).slice(-6).reverse();
+  // Fetch top scorers + season history when on-clock team changes
+  useEffect(() => {
+    if (!onClockTeam || onClockTeam === lastFetchedTeamRef.current) return;
+    lastFetchedTeamRef.current = onClockTeam;
+    setTopScorers(null);
+    setSeasonHistory(null);
+    const enc = encodeURIComponent(onClockTeam);
+    fetch(`/api/draft/team-season-stats?team=${enc}`)
+      .then(r => r.ok ? r.json() : null)
+      .then(data => { if (data?.players) setTopScorers(data.players); })
+      .catch(() => {});
+    fetch(`/api/draft/team-history?team=${enc}`)
+      .then(r => r.ok ? r.json() : null)
+      .then(data => { if (data?.seasons) setSeasonHistory(data.seasons); })
+      .catch(() => {});
+  }, [onClockTeam]);
+
   const teamRecord = draftOrderData?.slotOrder?.find(s => s.team === onClockTeam);
+  const allRecentPicks = (recentPicks || []).slice().reverse().slice(0, 6);
 
   if (pendingPick) {
     return (
@@ -122,27 +163,43 @@ export default function DraftInfoBarTicker({ onClockTeam, available, recentPicks
         </div>
       </div>
 
-      {/* Team Recent Picks */}
-      <div style={{ display: currentTickerView === 'teamRecentPicks' ? 'block' : 'none' }}>
-        <div className="text-white/80 text-xs font-semibold mb-1">{onClockTeam || 'Team'} Picks This Draft</div>
-        {teamRecentPicks.length > 0 ? (
+      {/* All-team Recent Picks */}
+      <div style={{ display: currentTickerView === 'recentPicksAll' ? 'block' : 'none' }}>
+        <div className="text-white/80 text-xs font-semibold mb-1">Recent Picks</div>
+        {allRecentPicks.length > 0 ? (
+          <div className="space-y-[2px]">
+            {allRecentPicks.map(p => (
+              <div key={p.overall} className="flex items-center gap-1.5 text-[10px]">
+                <span className="text-white/50 w-5 text-right shrink-0">#{p.overall}</span>
+                <span className="font-semibold text-white truncate flex-1">{p.playerName || p.playerId}</span>
+                <span className="text-white/60 shrink-0">{p.team}</span>
+              </div>
+            ))}
+          </div>
+        ) : <div className="text-white/60 text-sm">No picks yet</div>}
+      </div>
+
+      {/* Team Picks This Draft (conditional — only shown when team has ≥1 pick) */}
+      {showTeamPicks && (
+        <div style={{ display: currentTickerView === 'teamRecentPicks' ? 'block' : 'none' }}>
+          <div className="text-white/80 text-xs font-semibold mb-1">{onClockTeam} Picks This Draft</div>
           <div className="grid grid-cols-2 gap-1">
-            {teamRecentPicks.map(p => (
+            {teamPicksThisDraft.slice().reverse().slice(0, 6).map(p => (
               <div key={p.overall} className="bg-black/30 rounded px-1 py-[2px] text-[10px]">
                 <div className="font-semibold text-white truncate">#{p.overall}: {p.playerName || p.playerId}</div>
                 <div className="text-white/60 truncate">R{p.round} Pk{((p.overall - 1) % 12) + 1}</div>
               </div>
             ))}
           </div>
-        ) : <div className="text-white/60 text-sm">No picks yet this draft</div>}
-      </div>
+        </div>
+      )}
 
-      {/* Team Record */}
+      {/* Team Record (last season) */}
       <div style={{ display: currentTickerView === 'teamRecord' ? 'block' : 'none' }}>
-        <div className="text-white/80 text-xs font-semibold mb-1">2024 Season</div>
+        <div className="text-white/80 text-xs font-semibold mb-1">2025 Season Record</div>
         {teamRecord ? (
           <div className="text-white text-lg font-bold">
-            {teamRecord.record.wins}-{teamRecord.record.losses} • {Math.round(teamRecord.record.fpts)} PF • {Math.round(teamRecord.record.fptsAgainst || 0)} PA
+            {teamRecord.record.wins}-{teamRecord.record.losses} &bull; {Math.round(teamRecord.record.fpts)} PF &bull; {Math.round(teamRecord.record.fptsAgainst || 0)} PA
           </div>
         ) : <div className="text-white/60 text-sm">{draftOrderData ? 'Record not available' : 'Loading...'}</div>}
       </div>
@@ -164,6 +221,49 @@ export default function DraftInfoBarTicker({ onClockTeam, available, recentPicks
             </div>
           ) : <div className="text-white text-sm font-bold">This is their only pick</div>;
         })() : <div className="text-white/60 text-sm">Loading...</div>}
+      </div>
+
+      {/* Top 5 Scorers — 2025 season */}
+      <div style={{ display: currentTickerView === 'topScorers' ? 'block' : 'none' }}>
+        <div className="text-white/80 text-xs font-semibold mb-1">Top Scorers — 2025 Season</div>
+        {topScorers ? (
+          topScorers.length > 0 ? (
+            <div className="space-y-[2px]">
+              {topScorers.map((p, i) => (
+                <div key={p.id} className="flex items-center gap-1.5 text-[10px]">
+                  <span className="text-white/50 w-4 shrink-0">{i + 1}.</span>
+                  <span className="font-semibold text-white truncate flex-1">{p.name}</span>
+                  <span className="text-white/60 shrink-0">{p.pos}</span>
+                  <span className="font-bold text-white shrink-0">{p.pts} pts</span>
+                </div>
+              ))}
+            </div>
+          ) : <div className="text-white/60 text-sm">No data available</div>
+        ) : <div className="text-white/60 text-sm">Loading...</div>}
+      </div>
+
+      {/* Season History — last 3 seasons */}
+      <div style={{ display: currentTickerView === 'seasonHistory' ? 'block' : 'none' }}>
+        <div className="text-white/80 text-xs font-semibold mb-1">Season History</div>
+        {seasonHistory ? (
+          seasonHistory.length > 0 ? (
+            <div className="space-y-[3px]">
+              {seasonHistory.map(s => (
+                <div key={s.season} className="text-[10px]">
+                  <span className="text-white/50 font-semibold mr-1.5">{s.season}</span>
+                  <span className="font-bold text-white mr-1.5">{s.wins}-{s.losses}</span>
+                  <span className="text-white/70">{s.playoffResult}</span>
+                  {s.playoffOpponent && (
+                    <span className="text-white/50">
+                      {' '}vs {s.playoffOpponent}
+                      {s.winScore != null && s.oppScore != null && ` (${s.winScore}–${s.oppScore})`}
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
+          ) : <div className="text-white/60 text-sm">No history available</div>
+        ) : <div className="text-white/60 text-sm">Loading...</div>}
       </div>
 
       {/* 2025 Draft */}
