@@ -695,15 +695,7 @@ export default function DraftRoomPage() {
                   <div className="absolute inset-0 flex items-center justify-center" style={{ background: 'linear-gradient(135deg,rgba(0,0,0,0.88),rgba(20,5,0,0.94))' }}>
                     <div className="text-2xl font-black text-white tracking-widest uppercase animate-pulse">PICK IS IN</div>
                   </div>
-                ) : (
-                  <div className="flex flex-col items-center justify-center h-full px-3 py-2">
-                    <div className="text-[9px] font-bold text-white/50 uppercase tracking-widest">On The Clock</div>
-                    <div className="font-black text-white text-lg leading-tight text-center">{onClock || '—'}</div>
-                    {isMyTurn && !isMyPickPending && (
-                      <div className="mt-1 text-xs font-black text-emerald-400 animate-pulse">🎯 YOUR TURN TO PICK!</div>
-                    )}
-                  </div>
-                )}
+                ) : null}
               </div>
             </div>
           );

@@ -44,8 +44,8 @@ function AcquiredAsset({ asset, ec1 }: { asset: TradeAnimAsset; ec1: string }) {
 
   return (
     <div className="flex items-start gap-3 rounded-xl px-4 py-3" style={{
-      background: 'rgba(0,0,0,0.35)',
-      border: '1px solid rgba(255,255,255,0.1)',
+      background: 'rgba(0,0,0,0.45)',
+      border: '1px solid rgba(255,255,255,0.2)',
     }}>
       {asset.assetType === 'player' && asset.playerPos && (
         <span className="font-black px-2.5 py-1 rounded flex-shrink-0 text-white"
@@ -65,7 +65,7 @@ function AcquiredAsset({ asset, ec1 }: { asset: TradeAnimAsset; ec1: string }) {
         {/* From team note */}
         <div className="flex items-center gap-1.5 mt-1.5">
           <img src={fromLogo} alt={asset.fromTeam} className="object-contain flex-shrink-0" style={{ width: '14px', height: '14px', opacity: 0.7 }} />
-          <span className="font-semibold" style={{ color: fromColors.primary, fontSize: 'clamp(0.65rem,1vw,0.78rem)', opacity: 0.85 }}>from {asset.fromTeam}</span>
+          <span className="font-semibold" style={{ color: fromColors.primary, fontSize: 'clamp(0.65rem,1vw,0.78rem)' }}>from {asset.fromTeam}</span>
         </div>
       </div>
     </div>
@@ -255,12 +255,12 @@ export default function DraftTradeAnimation({ teams, assets, eventLogoUrl, event
               const acquired = assets.filter(a => a.toTeam === t);
               return (
                 <div key={t} className="flex-1 flex flex-col overflow-hidden" style={{
-                  background: `linear-gradient(170deg, ${tc.primary}88 0%, ${tc.primary}33 35%, rgba(8,8,16,0.95) 70%)`,
+                  background: `linear-gradient(170deg, ${tc.primary}dd 0%, ${tc.primary}88 40%, rgba(8,8,16,0.88) 100%)`,
                   borderRight: idx === 0 ? `2px solid ${ec1}44` : 'none',
                   position: 'relative',
                 }}>
                   {/* Watermark logo */}
-                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none" style={{ opacity: 0.06 }}>
+                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none" style={{ opacity: 0.12 }}>
                     <img src={tLogo} alt="" className="object-contain" style={{ width: '85%', height: '85%' }} />
                   </div>
                   {/* Team header */}
