@@ -164,9 +164,9 @@ export default function DraftInfoBarTicker({ onClockTeam, available, recentPicks
         <div className="text-[11px] font-black text-white/90 uppercase tracking-wider mb-2 text-center">Best Available{usingCustom ? ' · Custom' : ''}</div>
         <div className="grid grid-cols-5 gap-1">
           {available.slice(0, 10).map((p, i) => (
-            <div key={p.id} className="bg-black/30 rounded px-1.5 py-1">
-              <div className="text-[10px] font-semibold text-white leading-tight">{i + 1}. {abbrevName(p.name)}</div>
-              <div className="text-[9px] text-white/55 leading-tight">{p.pos}{p.nfl ? ` · ${p.nfl}` : ''}</div>
+            <div key={p.id} className="bg-black/30 rounded px-1.5 py-1.5">
+              <div className="text-[13px] font-semibold text-white leading-tight">{i + 1}. {abbrevName(p.name)}</div>
+              <div className="text-[11px] text-white/55 leading-tight">{p.pos}{p.nfl ? ` · ${p.nfl}` : ''}</div>
             </div>
           ))}
         </div>
@@ -178,16 +178,16 @@ export default function DraftInfoBarTicker({ onClockTeam, available, recentPicks
         {allRecentPicks.length > 0 ? (
           <div className="grid grid-cols-3 gap-1">
             {allRecentPicks.map(p => (
-              <div key={p.overall} className="bg-black/30 rounded px-1.5 py-1">
-                <div className="text-[10px] font-semibold text-white leading-tight">
+              <div key={p.overall} className="bg-black/30 rounded px-1.5 py-1.5">
+                <div className="text-[13px] font-semibold text-white leading-tight">
                   <span className="text-white/45 mr-1">#{p.overall}</span>{abbrevName(p.playerName) || p.playerId}
                 </div>
-                <div className="text-[9px] text-white/55 leading-tight">{p.playerPos ? `${p.playerPos} · ` : ''}{p.team}</div>
+                <div className="text-[11px] text-white/55 leading-tight">{p.playerPos ? `${p.playerPos} · ` : ''}{p.team}</div>
               </div>
             ))}
           </div>
         ) : (
-          <div className="bg-black/30 rounded px-1.5 py-1 text-[10px] text-white/50">No picks yet</div>
+          <div className="bg-black/30 rounded px-1.5 py-1.5 text-[11px] text-white/50">No picks yet</div>
         )}
       </div>
 
@@ -197,9 +197,9 @@ export default function DraftInfoBarTicker({ onClockTeam, available, recentPicks
           <div className="text-[11px] font-black text-white/90 uppercase tracking-wider mb-2 text-center">{onClockTeam} · Picks This Draft</div>
           <div className="grid grid-cols-3 gap-1">
             {teamPicksThisDraft.slice().reverse().slice(0, 6).map(p => (
-              <div key={p.overall} className="bg-black/30 rounded px-1.5 py-1">
-                <div className="text-[10px] font-semibold text-white leading-tight">{abbrevName(p.playerName) || p.playerId}</div>
-                <div className="text-[9px] text-white/55 leading-tight">{p.playerPos ? `${p.playerPos} · ` : ''}#{p.overall} · R{p.round} Pk{((p.overall - 1) % 12) + 1}</div>
+              <div key={p.overall} className="bg-black/30 rounded px-1.5 py-1.5">
+                <div className="text-[13px] font-semibold text-white leading-tight">{abbrevName(p.playerName) || p.playerId}</div>
+                <div className="text-[11px] text-white/55 leading-tight">{p.playerPos ? `${p.playerPos} · ` : ''}#{p.overall} · R{p.round} Pk{((p.overall - 1) % 12) + 1}</div>
               </div>
             ))}
           </div>
@@ -217,14 +217,14 @@ export default function DraftInfoBarTicker({ onClockTeam, available, recentPicks
               { val: Math.round(teamRecord.record.fpts),              lbl: 'Pts For' },
               { val: Math.round(teamRecord.record.fptsAgainst || 0),  lbl: 'Pts Agn' },
             ].map(({ val, lbl }) => (
-              <div key={lbl} className="bg-black/30 rounded px-1.5 py-1 text-center">
-                <div className="text-[13px] font-black text-white leading-tight">{val}</div>
-                <div className="text-[8px] font-semibold text-white/50 uppercase tracking-wide leading-tight">{lbl}</div>
+              <div key={lbl} className="bg-black/30 rounded px-1.5 py-1.5 text-center">
+                <div className="text-[18px] font-black text-white leading-tight">{val}</div>
+                <div className="text-[10px] font-semibold text-white/50 uppercase tracking-wide leading-tight">{lbl}</div>
               </div>
             ))}
           </div>
         ) : (
-          <div className="bg-black/30 rounded px-1.5 py-1 text-[10px] text-white/50">
+          <div className="bg-black/30 rounded px-1.5 py-1.5 text-[11px] text-white/50">
             {draftOrderData ? 'Record not available' : 'Loading...'}
           </div>
         )}
@@ -242,19 +242,19 @@ export default function DraftInfoBarTicker({ onClockTeam, available, recentPicks
           });
           return (
             <div className="flex flex-wrap gap-1 items-start">
-              <div className="bg-black/30 rounded px-1.5 py-1">
-                <div className="text-[13px] font-black text-white leading-tight">{teamPicks.length || 1}</div>
-                <div className="text-[8px] font-semibold text-white/50 uppercase tracking-wide leading-tight">Picks</div>
+              <div className="bg-black/30 rounded px-1.5 py-1.5">
+                <div className="text-[18px] font-black text-white leading-tight">{teamPicks.length || 1}</div>
+                <div className="text-[10px] font-semibold text-white/50 uppercase tracking-wide leading-tight">Picks</div>
               </div>
               {teamPicks.map(slot => (
-                <div key={slot} className="bg-black/30 rounded px-1.5 py-1 text-center">
-                  <div className="text-[11px] font-bold text-white leading-tight">{slot}</div>
+                <div key={slot} className="bg-black/30 rounded px-1.5 py-1.5 text-center">
+                  <div className="text-[13px] font-bold text-white leading-tight">{slot}</div>
                 </div>
               ))}
             </div>
           );
         })() : (
-          <div className="bg-black/30 rounded px-1.5 py-1 text-[10px] text-white/50">Loading...</div>
+          <div className="bg-black/30 rounded px-1.5 py-1.5 text-[11px] text-white/50">Loading...</div>
         )}
       </div>
 
@@ -265,17 +265,17 @@ export default function DraftInfoBarTicker({ onClockTeam, available, recentPicks
           topScorers.length > 0 ? (
             <div className="grid grid-cols-5 gap-1">
               {topScorers.map((p, i) => (
-                <div key={p.id} className="bg-black/30 rounded px-1.5 py-1">
-                  <div className="text-[10px] font-semibold text-white leading-tight">{i + 1}. {abbrevName(p.name)}</div>
-                  <div className="text-[9px] text-white/55 leading-tight">{p.pos} · {p.pts}pts</div>
+                <div key={p.id} className="bg-black/30 rounded px-1.5 py-1.5">
+                  <div className="text-[13px] font-semibold text-white leading-tight">{i + 1}. {abbrevName(p.name)}</div>
+                  <div className="text-[11px] text-white/55 leading-tight">{p.pos} · {p.pts}pts</div>
                 </div>
               ))}
             </div>
           ) : (
-            <div className="bg-black/30 rounded px-1.5 py-1 text-[10px] text-white/50">No data available</div>
+            <div className="bg-black/30 rounded px-1.5 py-1.5 text-[11px] text-white/50">No data available</div>
           )
         ) : (
-          <div className="bg-black/30 rounded px-1.5 py-1 text-[10px] text-white/50">Loading...</div>
+          <div className="bg-black/30 rounded px-1.5 py-1.5 text-[11px] text-white/50">Loading...</div>
         )}
       </div>
 
@@ -286,12 +286,12 @@ export default function DraftInfoBarTicker({ onClockTeam, available, recentPicks
           seasonHistory.length > 0 ? (
             <div className="grid grid-cols-3 gap-1">
               {seasonHistory.map(s => (
-                <div key={s.season} className="bg-black/30 rounded px-1.5 py-1">
-                  <div className="text-[9px] font-bold text-white/50 uppercase tracking-wide leading-tight mb-0.5">{s.season}</div>
-                  <div className="text-[12px] font-black text-white leading-tight">{s.wins}–{s.losses}</div>
-                  <div className="text-[9px] font-semibold text-white/80 truncate leading-tight">{s.playoffResult}</div>
+                <div key={s.season} className="bg-black/30 rounded px-1.5 py-1.5">
+                  <div className="text-[10px] font-bold text-white/50 uppercase tracking-wide leading-tight mb-0.5">{s.season}</div>
+                  <div className="text-[16px] font-black text-white leading-tight">{s.wins}–{s.losses}</div>
+                  <div className="text-[11px] font-semibold text-white/80 truncate leading-tight">{s.playoffResult}</div>
                   {s.playoffOpponent && (
-                    <div className="text-[9px] text-white/50 truncate leading-tight">
+                    <div className="text-[11px] text-white/50 truncate leading-tight">
                       vs {s.playoffOpponent}{s.winScore != null && s.oppScore != null ? ` ${s.winScore}–${s.oppScore}` : ''}
                     </div>
                   )}
@@ -299,10 +299,10 @@ export default function DraftInfoBarTicker({ onClockTeam, available, recentPicks
               ))}
             </div>
           ) : (
-            <div className="bg-black/30 rounded px-1.5 py-1 text-[10px] text-white/50">No history available</div>
+            <div className="bg-black/30 rounded px-1.5 py-1.5 text-[11px] text-white/50">No history available</div>
           )
         ) : (
-          <div className="bg-black/30 rounded px-1.5 py-1 text-[10px] text-white/50">Loading...</div>
+          <div className="bg-black/30 rounded px-1.5 py-1.5 text-[11px] text-white/50">Loading...</div>
         )}
       </div>
 
@@ -314,17 +314,17 @@ export default function DraftInfoBarTicker({ onClockTeam, available, recentPicks
           return picks.length > 0 ? (
             <div className="grid grid-cols-5 gap-1">
               {picks.map((p, i) => (
-                <div key={i} className="bg-black/30 rounded px-1.5 py-1">
-                  <div className="text-[10px] font-semibold text-white leading-tight">{abbrevName(p.player)}</div>
-                  <div className="text-[9px] text-white/55 leading-tight">{p.pos ? `${p.pos} · ` : ''}{p.round}.{String(p.pick % 12 || 12).padStart(2, '0')}</div>
+                <div key={i} className="bg-black/30 rounded px-1.5 py-1.5">
+                  <div className="text-[13px] font-semibold text-white leading-tight">{abbrevName(p.player)}</div>
+                  <div className="text-[11px] text-white/55 leading-tight">{p.pos ? `${p.pos} · ` : ''}{p.round}.{String(p.pick % 12 || 12).padStart(2, '0')}</div>
                 </div>
               ))}
             </div>
           ) : (
-            <div className="bg-black/30 rounded px-1.5 py-1 text-[10px] text-white/50">No picks in 2025</div>
+            <div className="bg-black/30 rounded px-1.5 py-1.5 text-[11px] text-white/50">No picks in 2025</div>
           );
         })() : (
-          <div className="bg-black/30 rounded px-1.5 py-1 text-[10px] text-white/50">Loading...</div>
+          <div className="bg-black/30 rounded px-1.5 py-1.5 text-[11px] text-white/50">Loading...</div>
         )}
       </div>
 
@@ -336,17 +336,17 @@ export default function DraftInfoBarTicker({ onClockTeam, available, recentPicks
           return picks.length > 0 ? (
             <div className="grid grid-cols-5 gap-1">
               {picks.map((p, i) => (
-                <div key={i} className="bg-black/30 rounded px-1.5 py-1">
-                  <div className="text-[10px] font-semibold text-white leading-tight">{abbrevName(p.player)}</div>
-                  <div className="text-[9px] text-white/55 leading-tight">{p.pos ? `${p.pos} · ` : ''}{p.round}.{String(p.pick % 12 || 12).padStart(2, '0')}</div>
+                <div key={i} className="bg-black/30 rounded px-1.5 py-1.5">
+                  <div className="text-[13px] font-semibold text-white leading-tight">{abbrevName(p.player)}</div>
+                  <div className="text-[11px] text-white/55 leading-tight">{p.pos ? `${p.pos} · ` : ''}{p.round}.{String(p.pick % 12 || 12).padStart(2, '0')}</div>
                 </div>
               ))}
             </div>
           ) : (
-            <div className="bg-black/30 rounded px-1.5 py-1 text-[10px] text-white/50">No picks in 2024</div>
+            <div className="bg-black/30 rounded px-1.5 py-1.5 text-[11px] text-white/50">No picks in 2024</div>
           );
         })() : (
-          <div className="bg-black/30 rounded px-1.5 py-1 text-[10px] text-white/50">Loading...</div>
+          <div className="bg-black/30 rounded px-1.5 py-1.5 text-[11px] text-white/50">Loading...</div>
         )}
       </div>
 
@@ -355,14 +355,14 @@ export default function DraftInfoBarTicker({ onClockTeam, available, recentPicks
         <div style={{ display: currentTickerView === 'tradeInfo' ? 'block' : 'none' }}>
           <div className="text-[11px] font-black text-white/90 uppercase tracking-wider mb-2 text-center">Pick Acquired via Trade</div>
           <div className="grid grid-cols-2 gap-1">
-            <div className="bg-black/30 rounded px-1.5 py-1">
-              <div className="text-[9px] text-white/50 leading-tight uppercase tracking-wide">From</div>
-              <div className="text-[11px] font-bold text-white truncate leading-tight">{currentPickTradeInfo.fromTeam}</div>
+            <div className="bg-black/30 rounded px-1.5 py-1.5">
+              <div className="text-[10px] text-white/50 leading-tight uppercase tracking-wide">From</div>
+              <div className="text-[13px] font-bold text-white truncate leading-tight">{currentPickTradeInfo.fromTeam}</div>
             </div>
             {currentPickTradeInfo.summary && (
-              <div className="bg-black/30 rounded px-1.5 py-1">
-                <div className="text-[9px] text-white/50 leading-tight uppercase tracking-wide">Details</div>
-                <div className="text-[10px] text-white/80 truncate leading-tight">{currentPickTradeInfo.summary}</div>
+              <div className="bg-black/30 rounded px-1.5 py-1.5">
+                <div className="text-[10px] text-white/50 leading-tight uppercase tracking-wide">Details</div>
+                <div className="text-[11px] text-white/80 truncate leading-tight">{currentPickTradeInfo.summary}</div>
               </div>
             )}
           </div>
