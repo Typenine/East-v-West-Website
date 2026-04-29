@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { loadNextDraftOwnership } from '@/lib/server/trade-assets';
-import { getTeamsData, getLeagueWinnersBracket, type SleeperBracketGame, derivePodiumFromWinnersBracketByYear } from '@/lib/utils/sleeper-api';
+import { getTeamsData, getLeagueWinnersBracket, getRegularSeasonRecords, type SleeperBracketGame, derivePodiumFromWinnersBracketByYear } from '@/lib/utils/sleeper-api';
 import { LEAGUE_IDS } from '@/lib/constants/league';
 import { fetchTradeById, Trade } from '@/lib/utils/trades';
 
@@ -12,7 +12,12 @@ export async function GET() {
     }
 
     const leagueId = LEAGUE_IDS.CURRENT;
-    const teams = await getTeamsData(leagueId);
+    const rawTeams = await getTeamsData(leagueId);
+    // Override wins/losses with regular-season-only counts (Sleeper roster totals include consolation games)
+    const regularRecords = await getRegularSeasonRecords(leagueId).catch(() => null);
+    const teams = regularRecords
+      ? rawTeams.map((t) => { const r = regularRecords.get(t.rosterId); return r ? { ...t, wins: r.wins, losses: r.losses, ties: r.ties } : t; })
+      : rawTeams;
     const teamByRosterId = new Map(teams.map((t) => [t.rosterId, t] as const));
 
     // Comparator: worse regular-season standing first

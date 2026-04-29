@@ -59,8 +59,19 @@ function bad(msg: string, status = 400) { return ok({ error: msg }, status); }
 
 export async function GET(req: NextRequest) {
   try {
-    await ensureDraftTables();
     const url = new URL(req.url);
+    // player_info — returns college + details for a Sleeper player (no DB access needed)
+    const action = url.searchParams.get('action');
+    if (action === 'player_info') {
+      const playerId = url.searchParams.get('playerId') || '';
+      if (!playerId) return ok({ college: null });
+      const players = await getAllPlayersCached();
+      const p = players[playerId];
+      if (!p) return ok({ college: null });
+      return ok({ college: p.college || null, name: `${p.first_name} ${p.last_name}`.trim(), pos: p.position, nfl: p.team });
+    }
+
+    await ensureDraftTables();
     const id = url.searchParams.get('id');
     const includeAvail = url.searchParams.get('include') === 'available';
     const draftId = id || (await getActiveOrLatestDraftId());

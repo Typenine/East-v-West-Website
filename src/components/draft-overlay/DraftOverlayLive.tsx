@@ -11,6 +11,7 @@ import DraftPickAnimation from './DraftPickAnimation';
 import NowOnClockAnimation from './NowOnClockAnimation';
 import DraftTradeAnimation, { type TradeAnimAsset } from './DraftTradeAnimation';
 import DraftInfoBarTicker from './DraftInfoBarTicker';
+import RoundRecapOverlay from './RoundRecapOverlay';
 
 // Position colors for player cards
 const positionColors: Record<string, string> = {
@@ -98,6 +99,10 @@ export default function DraftOverlayLive() {
   const dismissingRef = useRef(false);
   // Track when animation sequence started (for stale-skip on tab re-focus)
   const animStartTimeRef = useRef<number>(0);
+  // College for current pick animation (fetched from Sleeper player cache)
+  const [pickAnimCollege, setPickAnimCollege] = useState<string | undefined>(undefined);
+  // Pending grid cell wipe: recorded when pick fires, executed when animPhase → null
+  const pendingGridAnimRef = useRef<{ idx: number; team: string } | null>(null);
 
   // Detect pending trade animation from DB trigger
   useEffect(() => {
@@ -257,12 +262,25 @@ export default function DraftOverlayLive() {
         ? `/api/draft/player-image?playerId=${encodeURIComponent(lastPick.playerId)}`
         : null,
     };
+    setPickAnimCollege(undefined);
     const w = window as Window & { __pickAudioAt?: number };
     if (!w.__pickAudioAt || Date.now() - w.__pickAudioAt > 3000) {
       try { w.__pickAudioAt = Date.now(); new Audio('/assets/teams/audio/pickIsIn.mp3').play().catch(() => {}); } catch { /* ignored */ }
     }
     animStartTimeRef.current = Date.now();
     setAnimPhase('pick');
+
+    // Record which grid cell needs the wipe animation (fires after animPhase → null)
+    // draftGrid is 0-indexed; overall pick 1 = index 0
+    const gridIdx = lastPick.overall - 1;
+    if (gridIdx >= 0 && gridIdx < draftGrid.length) pendingGridAnimRef.current = { idx: gridIdx, team: lastPick.team };
+
+    // Background: fetch college from Sleeper player cache
+    const playerId = lastPick.playerId;
+    fetch(`/api/draft?action=player_info&playerId=${encodeURIComponent(playerId)}`, { cache: 'no-store' })
+      .then(r => r.json())
+      .then(data => { if (data.college) setPickAnimCollege(data.college); })
+      .catch(() => {});
 
     // Background refresh — updates playerVideosRef for future picks only
     const ac = new AbortController();
@@ -296,45 +314,42 @@ export default function DraftOverlayLive() {
   const pickInRound = (currentPickIndex % 12) + 1;
   const teamColors = currentTeam?.colors || ['#333', '#555', null];
   const teamLogo = currentTeam ? getTeamLogoPath(currentTeam.name) : null;
-  const prevDraftGridRef = useRef<typeof draftGrid>(draftGrid);
+
+  // Round recap: show after all animations complete when round_end_pause is true
+  const showRoundRecap = draft?.roundEndPause === true && animPhase === null && !tradeAnimData;
+  const completedRound = draft && draft.allPicks && draft.allPicks.length > 0
+    ? draft.allPicks[draft.allPicks.length - 1].round
+    : 0;
+  const nextRoundNumber = completedRound + 1;
+  const roundRecapPicks = draft?.allPicks?.filter(p => p.round === completedRound) || [];
+
+  function handleStartNextRound() {
+    fetch('/api/draft', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ action: 'resume' }),
+    }).catch(() => {});
+  }
 
 
   
-  // Animate new picks appearing in the draft board
+  // Execute grid cell wipe animation when animPhase returns to null (after pick + clock anims complete)
   useEffect(() => {
-    const prevGrid = prevDraftGridRef.current;
-    const newPicks: number[] = [];
-    
-    // Find newly filled cells
-    draftGrid.forEach((pick, idx) => {
-      if (pick && !prevGrid[idx]) {
-        newPicks.push(idx);
-      }
-    });
-
-    // Animate each new pick cell
-    if (newPicks.length > 0) {
-      newPicks.forEach((idx, i) => {
-        const cell = document.querySelector(`[data-grid-idx="${idx}"]`);
-        if (cell) {
-          gsap.fromTo(
-            cell,
-            { opacity: 0, scale: 0.8, backgroundColor: '#fbbf24' },
-            {
-              opacity: 1,
-              scale: 1,
-              backgroundColor: '#27272a',
-              duration: 0.6,
-              delay: i * 0.1,
-              ease: 'back.out(1.7)',
-            }
-          );
-        }
-      });
-    }
-
-    prevDraftGridRef.current = draftGrid;
-  }, [draftGrid]);
+    if (animPhase !== null) return;
+    const pending = pendingGridAnimRef.current;
+    if (!pending) return;
+    pendingGridAnimRef.current = null;
+    const cell = document.querySelector(`[data-grid-idx="${pending.idx}"]`) as HTMLElement | null;
+    if (!cell) return;
+    const teamColor = getTeamColors(pending.team).primary || '#888';
+    const overlay = document.createElement('div');
+    overlay.style.cssText = `position:absolute;inset:0;background:${teamColor};transform:scaleX(0);transform-origin:left center;z-index:10;pointer-events:none;`;
+    cell.appendChild(overlay);
+    const tl = gsap.timeline({ onComplete: () => overlay.remove() });
+    tl.to(overlay, { scaleX: 1, duration: 0.3, ease: 'power2.inOut' });
+    tl.to({}, { duration: 0.18 });
+    tl.to(overlay, { scaleX: 0, transformOrigin: 'right center', duration: 0.25, ease: 'power2.in' });
+  }, [animPhase]);
 
   return (
     <div className="w-full h-full bg-gradient-to-b from-zinc-950 to-zinc-900 p-6 flex flex-col">
@@ -576,7 +591,7 @@ export default function DraftOverlayLive() {
             name: animDataRef.current.pick.playerName || animDataRef.current.pick.playerId || 'Unknown Player',
             position: animDataRef.current.pick.playerPos || 'N/A',
             team: animDataRef.current.pick.playerNfl || undefined,
-            college: undefined,
+            college: pickAnimCollege,
             imageUrl: animDataRef.current.imageUrl || undefined,
           }}
           fantasyTeam={{
@@ -620,6 +635,21 @@ export default function DraftOverlayLive() {
           />
         );
       })()}
+
+      {/* PHASE: Round recap overlay — shown between rounds while admin starts next */}
+      {showRoundRecap && draft && (
+        <RoundRecapOverlay
+          key={`round-recap-${completedRound}`}
+          roundNumber={completedRound}
+          nextRound={nextRoundNumber}
+          picks={roundRecapPicks}
+          draftId={draft.id}
+          isAdmin={isAdmin}
+          eventLogoUrl={eventLogoUrl}
+          eventColor1={eventColor1}
+          onStartNextRound={handleStartNextRound}
+        />
+      )}
 
       {/* PHASE: Trade animation (full-screen, independent of pick pipeline) */}
       {tradeAnimData && (

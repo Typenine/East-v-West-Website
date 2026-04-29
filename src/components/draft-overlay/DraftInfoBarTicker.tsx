@@ -28,7 +28,7 @@ interface Props {
 
 function abbrevName(name: string | null | undefined): string {
   if (!name) return '';
-  if (name.length <= 13) return name;
+  if (name.length <= 20) return name;
   const parts = name.trim().split(' ');
   if (parts.length < 2) return name;
   return `${parts[0][0]}. ${parts.slice(1).join(' ')}`;
@@ -176,7 +176,7 @@ export default function DraftInfoBarTicker({ onClockTeam, available, recentPicks
   }, [onClockTeam]);
 
   const teamRecord = draftOrderData?.slotOrder?.find(s => s.team === onClockTeam);
-  const allRecentPicks = (recentPicks || []).slice().reverse().slice(0, 6);
+  const allRecentPicks = (recentPicks || []).slice(-6);
 
   if (pendingPick) {
     return (

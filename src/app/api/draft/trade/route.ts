@@ -2,9 +2,9 @@ import { NextRequest } from 'next/server';
 import {
   getActiveOrLatestDraftId,
   getDraftOverview,
-  resumeDraft,
   getDraftTradesForTeam,
   getAdminPendingTrades,
+  getAllApprovedTrades,
   getDraftTradeById,
   createDraftTrade,
   addTradeAcceptance,
@@ -84,6 +84,12 @@ export async function GET(req: NextRequest) {
     const team = teamParam || (await requireTeamUser().catch(() => null))?.team || '';
     if (!team) return bad('team required');
     const trades = await getDraftTradesForTeam(draftId, team);
+    return ok({ trades });
+  }
+
+  // list_approved — all approved trades for this draft (used by round recap overlay)
+  if (action === 'list_approved') {
+    const trades = await getAllApprovedTrades(draftId);
     return ok({ trades });
   }
 

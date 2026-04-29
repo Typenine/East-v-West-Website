@@ -229,6 +229,7 @@ export type DraftOverview = {
   clockStartedAt?: string | null;
   deadlineTs?: string | null;
   pausedRemainingSecs?: number | null;
+  roundEndPause?: boolean | null;
   eventName?: string | null;
   eventLogoUrl?: string | null;
   eventColor1?: string | null;
@@ -259,6 +260,7 @@ export async function ensureDraftTables() {
       clock_started_at timestamp NULL,
       deadline_ts timestamp NULL,
       paused_remaining_secs integer NULL,
+      round_end_pause boolean NOT NULL DEFAULT false,
       event_name varchar(255),
       event_logo_url text,
       event_color_1 varchar(16),
@@ -268,6 +270,8 @@ export async function ensureDraftTables() {
   `);
   // Migration: add paused_remaining_secs if missing
   await db.execute(sql`ALTER TABLE drafts ADD COLUMN IF NOT EXISTS paused_remaining_secs integer NULL`).catch(() => {});
+  // Migration: add round_end_pause flag
+  await db.execute(sql`ALTER TABLE drafts ADD COLUMN IF NOT EXISTS round_end_pause boolean NOT NULL DEFAULT false`).catch(() => {});
   // Migration: add event branding columns
   await db.execute(sql`ALTER TABLE drafts ADD COLUMN IF NOT EXISTS event_name varchar(255)`).catch(() => {});
   await db.execute(sql`ALTER TABLE drafts ADD COLUMN IF NOT EXISTS event_logo_url text`).catch(() => {});
@@ -563,8 +567,10 @@ export async function skipPick(draftId: string) {
   const res = await db.execute(sql`
     UPDATE drafts 
     SET cur_overall = cur_overall + 1,
+        status = 'LIVE',
         clock_started_at = NOW(),
-        deadline_ts = NOW() + (clock_seconds || interval '1 second')
+        deadline_ts = NOW() + (interval '1 second' * clock_seconds),
+        round_end_pause = false
     WHERE id = ${draftId}::uuid
     RETURNING cur_overall
   `);
@@ -636,7 +642,7 @@ export async function getActiveOrLatestDraftId(): Promise<string | null> {
 export async function getDraftOverview(draftId: string): Promise<DraftOverview | null> {
   await ensureDraftTables();
   const db = getDb();
-  const headRes = await db.execute(sql`SELECT id::text AS id, year, rounds, clock_seconds, status, created_at, started_at, completed_at, cur_overall, clock_started_at, deadline_ts, paused_remaining_secs, event_name, event_logo_url, event_color_1, event_color_2, pending_trade_animation FROM drafts WHERE id = ${draftId}::uuid LIMIT 1`);
+  const headRes = await db.execute(sql`SELECT id::text AS id, year, rounds, clock_seconds, status, created_at, started_at, completed_at, cur_overall, clock_started_at, deadline_ts, paused_remaining_secs, round_end_pause, event_name, event_logo_url, event_color_1, event_color_2, pending_trade_animation FROM drafts WHERE id = ${draftId}::uuid LIMIT 1`);
   const head = (headRes as unknown as { rows?: Array<Record<string, unknown>> }).rows?.[0];
   if (!head) return null;
   const curOverall = Number(head.cur_overall || 1);
@@ -666,6 +672,7 @@ export async function getDraftOverview(draftId: string): Promise<DraftOverview |
     clockStartedAt: head.clock_started_at ? new Date(head.clock_started_at as string).toISOString() : null,
     deadlineTs: head.deadline_ts ? new Date(head.deadline_ts as string).toISOString() : null,
     pausedRemainingSecs: head.paused_remaining_secs != null ? Number(head.paused_remaining_secs) : null,
+    roundEndPause: Boolean(head.round_end_pause),
     eventName: (head.event_name as string | null) ?? null,
     eventLogoUrl: (head.event_logo_url as string | null) ?? null,
     eventColor1: (head.event_color_1 as string | null) ?? null,
@@ -882,7 +889,8 @@ export async function resumeDraft(draftId: string) {
     SET status = 'LIVE',
         clock_started_at = now(),
         deadline_ts = now() + (interval '1 second' * ${secs}),
-        paused_remaining_secs = NULL
+        paused_remaining_secs = NULL,
+        round_end_pause = false
     WHERE id = ${draftId}::uuid
   `);
   return true;
@@ -923,16 +931,23 @@ export async function makePick(params: { draftId: string; team: string; playerId
     VALUES (${pickId}::uuid, ${params.draftId}::uuid, ${slot.overall}, ${slot.round}, ${slot.team}, ${params.playerId}, ${params.playerName || null}, ${params.playerPos || null}, ${params.playerNfl || null}, ${params.madeBy})
   `);
   const nextRes = await db.execute(sql`
-    SELECT s.overall FROM draft_slots s
+    SELECT s.overall, s.round FROM draft_slots s
     WHERE s.draft_id = ${params.draftId}::uuid AND s.overall > ${slot.overall}
       AND NOT EXISTS (SELECT 1 FROM draft_picks p WHERE p.draft_id = s.draft_id AND p.overall = s.overall)
     ORDER BY s.overall ASC LIMIT 1
   `);
-  const next = (nextRes as unknown as { rows?: Array<{ overall: number }> }).rows?.[0]?.overall as number | undefined;
+  const nextRow = (nextRes as unknown as { rows?: Array<{ overall: number; round: number }> }).rows?.[0];
+  const next = nextRow?.overall as number | undefined;
   if (typeof next === 'number') {
     const clkRes = await db.execute(sql`SELECT clock_seconds FROM drafts WHERE id = ${params.draftId}::uuid LIMIT 1`);
     const secs = (clkRes as unknown as { rows?: Array<{ clock_seconds: number }> }).rows?.[0]?.clock_seconds || 60;
-    await db.execute(sql`UPDATE drafts SET cur_overall = ${next}, clock_started_at = now(), deadline_ts = now() + (interval '1 second' * ${secs}) WHERE id = ${params.draftId}::uuid`);
+    const isEndOfRound = nextRow!.round > slot.round;
+    if (isEndOfRound) {
+      // Pause at round boundary — admin must start next round
+      await db.execute(sql`UPDATE drafts SET cur_overall = ${next}, status = 'PAUSED', round_end_pause = true, paused_remaining_secs = ${secs}, clock_started_at = NULL, deadline_ts = NULL WHERE id = ${params.draftId}::uuid`);
+    } else {
+      await db.execute(sql`UPDATE drafts SET cur_overall = ${next}, clock_started_at = now(), deadline_ts = now() + (interval '1 second' * ${secs}), round_end_pause = false WHERE id = ${params.draftId}::uuid`);
+    }
   } else {
     await db.execute(sql`UPDATE drafts SET status = 'COMPLETED', completed_at = now(), cur_overall = ${slot.overall} WHERE id = ${params.draftId}::uuid`);
   }
@@ -1053,14 +1068,14 @@ export async function checkAndAutoPick(draftId: string, force = false): Promise<
   // Try custom player pool (sorted by rank)
   await ensureDraftPlayersTable();
   const customRes = await db.execute(sql`
-    SELECT player_id, name FROM draft_players
+    SELECT player_id, name, pos, nfl FROM draft_players
     WHERE draft_id = ${draftId}::uuid
     ORDER BY COALESCE(rank, 999999) ASC, name ASC
   `);
-  const customPlayers = (customRes as unknown as { rows?: Array<{ player_id: string; name: string }> }).rows || [];
+  const customPlayers = (customRes as unknown as { rows?: Array<{ player_id: string; name: string; pos?: string | null; nfl?: string | null }> }).rows || [];
   for (const p of customPlayers) {
     if (!taken.has(p.player_id)) {
-      const pickRes = await forcePick({ draftId, playerId: p.player_id, playerName: p.name, team, madeBy: 'auto' });
+      const pickRes = await forcePick({ draftId, playerId: p.player_id, playerName: p.name, playerPos: p.pos || null, playerNfl: p.nfl || null, team, madeBy: 'auto' });
       if (pickRes.ok) return { picked: true, playerId: p.player_id, playerName: p.name };
     }
   }
@@ -2204,6 +2219,21 @@ export async function getDraftTradesForTeam(draftId: string, team: string): Prom
     FROM draft_trades
     WHERE draft_id = ${draftId}::uuid AND teams @> ${JSON.stringify([team])}::jsonb
     ORDER BY proposed_at DESC
+  `);
+  const rows = (res as unknown as { rows?: Array<Record<string, unknown>> }).rows || [];
+  const ids = rows.map(r => String(r.id));
+  const assetsMap = await fetchAssetsForTrades(db, ids);
+  return rows.map(r => mapTradeRow(r, assetsMap.get(String(r.id)) || []));
+}
+
+export async function getAllApprovedTrades(draftId: string): Promise<DraftTrade[]> {
+  await ensureDraftTables();
+  const db = getDb();
+  const res = await db.execute(sql`
+    SELECT id::text AS id, draft_id::text AS draft_id, status, proposed_by, teams, accepted_by, counter_of::text AS counter_of, notes, proposed_at, updated_at
+    FROM draft_trades
+    WHERE draft_id = ${draftId}::uuid AND status = 'approved'
+    ORDER BY updated_at ASC
   `);
   const rows = (res as unknown as { rows?: Array<Record<string, unknown>> }).rows || [];
   const ids = rows.map(r => String(r.id));

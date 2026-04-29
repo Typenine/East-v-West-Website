@@ -31,6 +31,7 @@ type DraftOverview = {
   eventLogoUrl?: string | null;
   eventColor1?: string | null;
   eventColor2?: string | null;
+  roundEndPause?: boolean | null;
   recentPicks: Array<{ overall: number; round: number; team: string; playerId: string; playerName?: string | null; playerPos?: string | null; playerNfl?: string | null; madeAt: string }>;
   allPicks?: Array<{ overall: number; round: number; team: string; playerId: string; playerName?: string | null; playerPos?: string | null; playerNfl?: string | null; madeAt: string }>;
   upcoming: Array<{ overall: number; round: number; team: string }>;
@@ -1153,7 +1154,16 @@ export default function AdminDraftPage() {
                       {draft.status === 'LIVE' && (
                         <Button disabled={busy==='pause'} variant="ghost" onClick={() => onAdmin('pause')}>⏸️ Pause</Button>
                       )}
-                      {draft.status === 'PAUSED' && (
+                      {draft.status === 'PAUSED' && draft.roundEndPause && (() => {
+                        const completedRound = (draft.allPicks ?? draft.recentPicks).slice(-1)[0]?.round ?? 1;
+                        const nextRound = completedRound + 1;
+                        return (
+                          <Button disabled={busy==='resume'} variant="primary" onClick={() => onAdmin('resume')}>
+                            ▶️ Start Round {nextRound}
+                          </Button>
+                        );
+                      })()}
+                      {draft.status === 'PAUSED' && !draft.roundEndPause && (
                         <Button disabled={busy==='resume'} variant="primary" onClick={() => onAdmin('resume')}>▶️ Resume</Button>
                       )}
                       <Button disabled={busy==='undo'} variant="ghost" onClick={() => onAdmin('undo')}>↩️ Undo Last Pick</Button>

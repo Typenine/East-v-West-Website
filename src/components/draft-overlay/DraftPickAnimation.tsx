@@ -380,9 +380,14 @@ export default function DraftPickAnimation({
                 >
                   {player.position}
                 </span>
-                {(player.team || player.college) && (
+                {player.college && (
                   <span className="ml-4 text-white/80 text-xl font-bold uppercase tracking-wider">
-                    {player.team || player.college}
+                    {player.college}
+                  </span>
+                )}
+                {player.team && (
+                  <span className="ml-4 text-white/80 text-xl font-bold uppercase tracking-wider">
+                    {player.team}
                   </span>
                 )}
               </div>

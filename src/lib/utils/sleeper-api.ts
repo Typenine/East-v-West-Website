@@ -1394,8 +1394,65 @@ export interface SleeperPlayer {
   depth_chart_position?: string | null;
   starting_status?: string | null;
   years_exp: number;
+  college?: string | null;
   // Sleeper includes rookie_year for many players; used to identify ROY by season
   rookie_year?: string | number;
+}
+
+/**
+ * Counts wins/losses/ties from regular-season-only weekly matchups (excludes playoff weeks).
+ * Returns a Map of rosterId -> { wins, losses, ties, fpts }.
+ */
+export async function getRegularSeasonRecords(
+  leagueId: string,
+  options?: SleeperFetchOptions
+): Promise<Map<number, { wins: number; losses: number; ties: number; fpts: number }>> {
+  const league = await getLeague(leagueId, options).catch(
+    () => null as { settings?: { playoff_week_start?: number; playoff_start_week?: number } } | null
+  );
+  const settings = (league?.settings || {}) as { playoff_week_start?: number; playoff_start_week?: number };
+  const startWeek = Number(settings.playoff_week_start ?? settings.playoff_start_week ?? 15);
+  const regularLastWeek = Math.max(1, startWeek - 1);
+
+  const rosters = await getLeagueRosters(leagueId, options);
+  const records = new Map<number, { wins: number; losses: number; ties: number; fpts: number }>();
+  for (const r of rosters) records.set(r.roster_id, { wins: 0, losses: 0, ties: 0, fpts: 0 });
+
+  const weekPromises = Array.from({ length: regularLastWeek }, (_, i) => i + 1).map((w) =>
+    getLeagueMatchups(leagueId, w, options).catch(() => [] as SleeperMatchup[])
+  );
+  const allWeekMatchups = await Promise.all(weekPromises);
+
+  for (const weekMatchups of allWeekMatchups) {
+    const byMatchup = new Map<number, SleeperMatchup[]>();
+    for (const m of weekMatchups) {
+      if (!m.matchup_id) continue;
+      const arr = byMatchup.get(m.matchup_id) || [];
+      arr.push(m);
+      byMatchup.set(m.matchup_id, arr);
+    }
+    for (const [, pair] of byMatchup) {
+      if (pair.length !== 2) continue;
+      const [a, b] = pair;
+      const apts = a.custom_points ?? a.points ?? 0;
+      const bpts = b.custom_points ?? b.points ?? 0;
+      const recA = records.get(a.roster_id);
+      const recB = records.get(b.roster_id);
+      if (recA) recA.fpts += apts;
+      if (recB) recB.fpts += bpts;
+      if (apts > bpts) {
+        if (recA) recA.wins++;
+        if (recB) recB.losses++;
+      } else if (bpts > apts) {
+        if (recB) recB.wins++;
+        if (recA) recA.losses++;
+      } else {
+        if (recA) recA.ties++;
+        if (recB) recB.ties++;
+      }
+    }
+  }
+  return records;
 }
 
 export interface TeamData {
