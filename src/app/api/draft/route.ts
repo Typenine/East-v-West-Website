@@ -84,11 +84,11 @@ export async function GET(req: NextRequest) {
       if (pendingPick?.playerId) taken.add(pendingPick.playerId);
       const useCustom = (await countDraftPlayers(draftId)) > 0;
       resp.usingCustom = useCustom;
-      const allowed = new Set(['QB','RB','WR','TE','K']);
+      const allowed = new Set(['QB','RB','WR','TE','K','FB','RB/FB']);
       if (useCustom) {
         const rows = await getDraftPlayers(draftId);
         const avail = rows
-          .filter((r) => allowed.has((r.pos || '').toUpperCase()) && !taken.has(r.player_id))
+          .filter((r) => !taken.has(r.player_id))
           .sort((a, b) => {
             const ra = a.rank == null ? Number.POSITIVE_INFINITY : a.rank;
             const rb = b.rank == null ? Number.POSITIVE_INFINITY : b.rank;
@@ -122,7 +122,7 @@ export async function POST(req: NextRequest) {
     const id = typeof body.id === 'string' ? body.id : '';
 
     // Admin-only actions
-    const adminOnlyActions = ['create', 'delete', 'start', 'pause', 'resume', 'set_clock', 'reset_clock', 'force_pick', 'undo', 'skip_pick', 'approve_pick', 'reject_pick', 'auto_pick', 'reset', 'reset_trades', 'set_draft_order', 'set_draft_slots', 'set_players', 'clear_players', 'update_branding'];
+    const adminOnlyActions = ['create', 'delete', 'start', 'pause', 'resume', 'set_clock', 'reset_clock', 'force_pick', 'undo', 'skip_pick', 'approve_pick', 'reject_pick', 'auto_pick', 'reset', 'reset_trades', 'set_draft_order', 'set_draft_slots', 'upload_players', 'clear_players', 'update_branding'];
     if (adminOnlyActions.includes(action)) {
       if (!isAdmin(req)) return bad('forbidden', 403);
       if (action === 'create') {

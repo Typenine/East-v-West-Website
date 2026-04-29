@@ -1474,10 +1474,10 @@ export default function AdminDraftPage() {
                   </div>
                   <div>
                     <Label className="mb-1 block">Upload CSV or JSON</Label>
-                    <Input type="file" accept=".csv,.json" onChange={(e) => onUploadPlayers(e.target.files)} />
+                    <Input id="player-pool-upload" type="file" accept=".csv,.json" className="hidden" onChange={(e) => onUploadPlayers(e.target.files)} />
                   </div>
                   <div className="flex gap-2">
-                    <Button disabled={busy==='upload_players'} onClick={() => { /* file input triggers upload */ }}>Upload</Button>
+                    <Button disabled={busy==='upload_players'} onClick={() => (document.getElementById('player-pool-upload') as HTMLInputElement | null)?.click()}>Upload</Button>
                     <Button variant="ghost" disabled={!playersInfo.useCustom || busy==='clear_players'} onClick={onClearPlayers}>Clear Custom Players</Button>
                     <Button variant="ghost" onClick={() => {
                       const header = 'id,name,pos,nfl,rank\n';

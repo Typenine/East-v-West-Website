@@ -417,7 +417,7 @@ export async function ensureDraftPlayersTable() {
       player_id varchar(64) NOT NULL,
       name varchar(255) NOT NULL,
       pos varchar(16) NOT NULL,
-      nfl varchar(16),
+      nfl varchar(255),
       rank integer,
       meta jsonb,
       PRIMARY KEY (draft_id, player_id)
@@ -425,6 +425,7 @@ export async function ensureDraftPlayersTable() {
   `);
   // Backfill safety for older tables
   await db.execute(sql`ALTER TABLE draft_players ADD COLUMN IF NOT EXISTS rank integer`);
+  await db.execute(sql`ALTER TABLE draft_players ALTER COLUMN nfl TYPE varchar(255)`);
   await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_draft_players_draft ON draft_players(draft_id)`);
 }
 
@@ -442,7 +443,7 @@ export async function setDraftPlayers(
     const name = String(p.name || '').trim();
     const pos = String(p.pos || '').trim().toUpperCase();
     if (!id || !name || !pos) continue;
-    const nfl = (p.nfl ? String(p.nfl).toUpperCase() : null) as string | null;
+    const nfl = (p.nfl ? String(p.nfl).trim() : null) as string | null;
     const rank = p.rank == null ? null : Number(p.rank);
     await db.execute(sql`
       INSERT INTO draft_players (draft_id, player_id, name, pos, nfl, rank, meta)
