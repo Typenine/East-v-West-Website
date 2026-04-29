@@ -89,21 +89,20 @@ export default function DraftTradeAnimation({ teams, assets, eventLogoUrl, event
     const alertText    = container.querySelector<HTMLElement>('.gtrade-alert-text');
     const alertLine    = container.querySelector<HTMLElement>('.gtrade-alert-line');
     const teamsPhase   = container.querySelector<HTMLElement>('.gtrade-teams');
-    const team1Panel   = container.querySelector<HTMLElement>('.gtrade-team1');
-    const team2Panel   = container.querySelector<HTMLElement>('.gtrade-team2');
+    const teamPanels   = Array.from(container.querySelectorAll<HTMLElement>('.gtrade-team-panel'));
     const tradeIcon    = container.querySelector<HTMLElement>('.gtrade-icon');
     const detailsPhase = container.querySelector<HTMLElement>('.gtrade-details');
     const detailsCard  = container.querySelector<HTMLElement>('.gtrade-card');
 
     if (!logoPhase || !alertPhase || !teamsPhase || !detailsPhase) return;
 
-    // ── Initial states (autoAlpha manages visibility to avoid paint cost) ───
+    // ── Initial states ───────────────────────────────────────────────────────
     gsap.set([logoPhase, alertPhase, teamsPhase, detailsPhase], { autoAlpha: 0 });
-    gsap.set(alertText,   { autoAlpha: 0, yPercent: 15, scale: 0.85 });
-    gsap.set(alertLine,   { scaleX: 0, transformOrigin: 'center center' });
-    gsap.set(team1Panel,  { xPercent: -100 });
-    gsap.set(team2Panel,  { xPercent: 100 });
-    gsap.set(tradeIcon,   { autoAlpha: 0, scale: 0 });
+    gsap.set(alertText,  { autoAlpha: 0, yPercent: 15, scale: 0.85 });
+    gsap.set(alertLine,  { scaleX: 0, transformOrigin: 'center center' });
+    // Alternate panels slide from left/right
+    teamPanels.forEach((p, i) => gsap.set(p, { xPercent: i % 2 === 0 ? -100 : 100 }));
+    if (tradeIcon) gsap.set(tradeIcon, { autoAlpha: 0, scale: 0 });
     gsap.set(detailsCard, { autoAlpha: 0, yPercent: 4 });
 
     const tl = gsap.timeline({ onComplete: () => onCompleteRef.current?.(), defaults: { ease: 'power2.out' } });
@@ -120,11 +119,14 @@ export default function DraftTradeAnimation({ teams, assets, eventLogoUrl, event
       .to(alertPhase, { autoAlpha: 0, duration: 0.4, ease: 'power2.in' }, '+=4.8');
 
     // ── Phase 2: Teams Split Screen — 5.0s total ────────────────────────────
-    tl.to(teamsPhase,  { autoAlpha: 1, duration: 0.3 })
-      .to(team1Panel,  { xPercent: 0, duration: 0.55, ease: 'power3.out' }, '<0.05')
-      .to(team2Panel,  { xPercent: 0, duration: 0.55, ease: 'power3.out' }, '<')
-      .to(tradeIcon,   { autoAlpha: 1, scale: 1, duration: 0.4, ease: 'back.out(1.5)' }, '<0.2')
-      .to(teamsPhase,  { autoAlpha: 0, duration: 0.45, ease: 'power2.in' }, '+=3.9');
+    tl.to(teamsPhase, { autoAlpha: 1, duration: 0.3 });
+    teamPanels.forEach((p, i) => {
+      tl.to(p, { xPercent: 0, duration: 0.55, ease: 'power3.out' }, i === 0 ? '<0.05' : '<');
+    });
+    if (tradeIcon && teams.length === 2) {
+      tl.to(tradeIcon, { autoAlpha: 1, scale: 1, duration: 0.4, ease: 'back.out(1.5)' }, '<0.2');
+    }
+    tl.to(teamsPhase, { autoAlpha: 0, duration: 0.45, ease: 'power2.in' }, '+=3.9');
 
     // ── Phase 3: Trade Details — 20.4s hold ─────────────────────────────────
     tl.to(detailsPhase, { autoAlpha: 1, duration: 0.5 })
@@ -132,14 +134,17 @@ export default function DraftTradeAnimation({ teams, assets, eventLogoUrl, event
       .to(container,    { autoAlpha: 0, duration: 0.8, ease: 'power2.inOut' }, '+=20.4');
 
     return () => { timelineRef.current?.kill(); timelineRef.current = null; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const team1 = teams[0] || '';
-  const team2 = teams[1] || teams[0] || '';
-  const c1 = getTeamColors(team1);
-  const c2 = getTeamColors(team2);
-  const logo1 = getTeamLogoPath(team1);
-  const logo2 = getTeamLogoPath(team2);
+  const c1 = getTeamColors(teams[0] || '');
+  const c2 = getTeamColors(teams[teams.length - 1] || '');
+  const topBarGradient = teams.length >= 3
+    ? `linear-gradient(90deg, ${teams.map((t, i) => {
+        const pct = Math.round((i / (teams.length - 1)) * 100);
+        return i % 2 === 0 ? `${getTeamColors(t).primary}cc ${pct}%` : `${ec1}99 ${pct}%`;
+      }).join(', ')})`
+    : `linear-gradient(90deg, ${c1.primary}cc 0%, ${ec1}99 50%, ${c2.primary}cc 100%)`;
 
   return (
     <div
@@ -191,45 +196,48 @@ export default function DraftTradeAnimation({ teams, assets, eventLogoUrl, event
 
       {/* ── PHASE 2: Teams Split Screen ─────────────────────────────────── */}
       <div className="gtrade-teams absolute inset-0 overflow-hidden" style={{ willChange: 'opacity, visibility' }}>
-        <div
-          className="gtrade-team1 absolute inset-y-0 left-0 flex flex-col items-center justify-center gap-6 overflow-hidden"
-          style={{ width: '50%', background: `linear-gradient(160deg, ${c1.primary}ff 0%, ${c1.secondary}dd 100%)`, willChange: 'transform' }}
-        >
-          <div className="absolute inset-0 opacity-10 flex items-center justify-center">
-            <img src={logo1} alt="" className="object-contain" style={{ width: '90%', height: '90%' }} />
+        {teams.map((t, idx) => {
+          const tc = getTeamColors(t);
+          const tLogo = getTeamLogoPath(t);
+          const panelWidth = `${100 / teams.length}%`;
+          const panelLeft = `${(idx / teams.length) * 100}%`;
+          const angle = idx % 2 === 0 ? 160 : 200;
+          return (
+            <div key={t}
+              className="gtrade-team-panel absolute inset-y-0 flex flex-col items-center justify-center gap-6 overflow-hidden"
+              style={{
+                width: panelWidth, left: panelLeft,
+                background: `linear-gradient(${angle}deg, ${tc.primary}ff 0%, ${tc.secondary}dd 100%)`,
+                willChange: 'transform',
+                borderRight: idx < teams.length - 1 ? `2px solid rgba(0,0,0,0.4)` : 'none',
+              }}
+            >
+              <div className="absolute inset-0 opacity-10 flex items-center justify-center">
+                <img src={tLogo} alt="" className="object-contain" style={{ width: '90%', height: '90%' }} />
+              </div>
+              <img src={tLogo} alt={t} className="relative z-10 object-contain drop-shadow-2xl"
+                style={{ width: 'clamp(80px, 12vw, 180px)', height: 'clamp(80px, 12vw, 180px)' }} />
+              <div className="relative z-10 font-black text-white text-center uppercase leading-tight px-4"
+                style={{ fontSize: 'clamp(1.1rem, 3vw, 2.8rem)', textShadow: '0 3px 20px rgba(0,0,0,0.9)', letterSpacing: '0.04em' }}>
+                {t}
+              </div>
+            </div>
+          );
+        })}
+        {/* Center icon — only for 2-team trades */}
+        {teams.length === 2 && (
+          <div className="gtrade-icon absolute inset-0 flex items-center justify-center" style={{ zIndex: 10, willChange: 'transform, opacity' }}>
+            <div className="flex items-center justify-center rounded-full font-black"
+              style={{
+                width: 'clamp(60px, 8vw, 90px)', height: 'clamp(60px, 8vw, 90px)',
+                background: '#080810', border: `4px solid ${ec1}`,
+                color: ec1, fontSize: 'clamp(1.4rem, 3vw, 2.2rem)',
+                boxShadow: `0 0 40px ${ec1}88`,
+              }}>
+              ⟷
+            </div>
           </div>
-          <img src={logo1} alt={team1} className="relative z-10 object-contain drop-shadow-2xl"
-            style={{ width: 'clamp(100px, 16vw, 220px)', height: 'clamp(100px, 16vw, 220px)' }} />
-          <div className="relative z-10 font-black text-white text-center uppercase leading-tight px-6"
-            style={{ fontSize: 'clamp(1.6rem, 4vw, 3.5rem)', textShadow: '0 3px 20px rgba(0,0,0,0.9)', letterSpacing: '0.04em' }}>
-            {team1}
-          </div>
-        </div>
-        <div
-          className="gtrade-team2 absolute inset-y-0 right-0 flex flex-col items-center justify-center gap-6 overflow-hidden"
-          style={{ width: '50%', background: `linear-gradient(200deg, ${c2.primary}ff 0%, ${c2.secondary}dd 100%)`, willChange: 'transform' }}
-        >
-          <div className="absolute inset-0 opacity-10 flex items-center justify-center">
-            <img src={logo2} alt="" className="object-contain" style={{ width: '90%', height: '90%' }} />
-          </div>
-          <img src={logo2} alt={team2} className="relative z-10 object-contain drop-shadow-2xl"
-            style={{ width: 'clamp(100px, 16vw, 220px)', height: 'clamp(100px, 16vw, 220px)' }} />
-          <div className="relative z-10 font-black text-white text-center uppercase leading-tight px-6"
-            style={{ fontSize: 'clamp(1.6rem, 4vw, 3.5rem)', textShadow: '0 3px 20px rgba(0,0,0,0.9)', letterSpacing: '0.04em' }}>
-            {team2}
-          </div>
-        </div>
-        <div className="gtrade-icon absolute inset-0 flex items-center justify-center" style={{ zIndex: 10, willChange: 'transform, opacity' }}>
-          <div className="flex items-center justify-center rounded-full font-black"
-            style={{
-              width: 'clamp(60px, 8vw, 90px)', height: 'clamp(60px, 8vw, 90px)',
-              background: '#080810', border: `4px solid ${ec1}`,
-              color: ec1, fontSize: 'clamp(1.4rem, 3vw, 2.2rem)',
-              boxShadow: `0 0 40px ${ec1}88`,
-            }}>
-            ⟷
-          </div>
-        </div>
+        )}
       </div>
 
       {/* ── PHASE 3: Trade Details ─ Split-panel ACQUIRES view ─────────────── */}
@@ -238,7 +246,7 @@ export default function DraftTradeAnimation({ teams, assets, eventLogoUrl, event
 
           {/* Top bar */}
           <div className="flex items-center justify-center gap-4 flex-shrink-0 px-6 py-4"
-            style={{ background: `linear-gradient(90deg, ${c1.primary}cc 0%, ${ec1}99 50%, ${c2.primary}cc 100%)`, borderBottom: `3px solid ${ec1}` }}>
+            style={{ background: topBarGradient, borderBottom: `3px solid ${ec1}` }}>
             {eventLogoUrl && (
               <img src={eventLogoUrl} alt="" className="object-contain flex-shrink-0"
                 style={{ width: 'clamp(28px,4vw,44px)', height: 'clamp(28px,4vw,44px)' }} />
@@ -247,16 +255,16 @@ export default function DraftTradeAnimation({ teams, assets, eventLogoUrl, event
               style={{ fontSize: 'clamp(1rem,2.5vw,1.6rem)', textShadow: '0 2px 12px rgba(0,0,0,0.7)' }}>TRADE COMPLETE</span>
           </div>
 
-          {/* Split panels */}
+          {/* Split panels — one per team */}
           <div className="flex flex-1 overflow-hidden">
-            {[team1, team2].map((t, idx) => {
+            {teams.map((t, idx) => {
               const tc = getTeamColors(t);
               const tLogo = getTeamLogoPath(t);
               const acquired = assets.filter(a => a.toTeam === t);
               return (
                 <div key={t} className="flex-1 flex flex-col overflow-hidden" style={{
                   background: `linear-gradient(170deg, ${tc.primary}dd 0%, ${tc.primary}88 40%, rgba(8,8,16,0.88) 100%)`,
-                  borderRight: idx === 0 ? `2px solid ${ec1}44` : 'none',
+                  borderRight: idx < teams.length - 1 ? `2px solid ${ec1}44` : 'none',
                   position: 'relative',
                 }}>
                   {/* Watermark logo */}

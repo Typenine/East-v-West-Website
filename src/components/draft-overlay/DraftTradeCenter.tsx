@@ -1,4 +1,5 @@
 'use client';
+/* eslint-disable @next/next/no-img-element */
 import { useState, useEffect, useCallback } from 'react';
 import { getTeamLogoPath } from '@/lib/utils/team-utils';
 import { getTeamColors } from '@/lib/constants/team-colors';
@@ -104,15 +105,23 @@ function TradeSummary({ teams, assets, myTeam, allTeamLogos }: { teams: string[]
 
 // ── TeamAssetPicker ─────────────────────────────────────────────────────────
 function TeamAssetPicker({
-  team, assets, selectedAssets, otherTeams, onToggle, disabled
+  team, assets, selectedAssets, otherTeams, onToggle, onSetToTeam, disabled
 }: {
   team: string; assets: TeamAssets; selectedAssets: SelectedAsset[];
-  otherTeams: string[]; onToggle: (a: SelectedAsset) => void; disabled?: boolean;
+  otherTeams: string[]; onToggle: (a: SelectedAsset) => void;
+  onSetToTeam?: (assetKey: string, fromTeam: string, newToTeam: string) => void;
+  disabled?: boolean;
 }) {
-  const [toTeam, setToTeam] = useState(otherTeams[0] || '');
+  const defaultToTeam = otherTeams[0] || '';
   const colors = getTeamColors(team);
   const logo = getTeamLogoPath(team);
   const [tab, setTab] = useState<'players' | 'picks'>('players');
+
+  const getToTeam = (id: string) => selectedAssets.find(a =>
+    (a.kind === 'player' && a.player.playerId === id && a.fromTeam === team) ||
+    (a.kind === 'current_pick' && String(a.pick.overall) === id && a.fromTeam === team) ||
+    (a.kind === 'future_pick' && a.fp.id === id && a.fromTeam === team)
+  )?.toTeam ?? defaultToTeam;
 
   const isSelected = (id: string) => selectedAssets.some(a =>
     (a.kind === 'player' && a.player.playerId === id && a.fromTeam === team) ||
@@ -126,15 +135,7 @@ function TeamAssetPicker({
         <img src={logo} alt={team} className="w-7 h-7 object-contain" />
         <span className="text-white font-black text-sm flex-1 truncate">{team}</span>
         {otherTeams.length > 1 && (
-          <div className="flex items-center gap-1">
-            <span className="text-white/60 text-xs">→</span>
-            <select
-              value={toTeam} onChange={e => setToTeam(e.target.value)}
-              className="text-xs bg-black/40 text-white border border-white/20 rounded px-1 py-0.5"
-            >
-              {otherTeams.map(t => <option key={t} value={t}>{t}</option>)}
-            </select>
-          </div>
+          <span className="text-white/40 text-[10px] italic">select → dest per asset</span>
         )}
       </div>
 
@@ -155,12 +156,20 @@ function TeamAssetPicker({
               const sel = isSelected(p.playerId);
               return (
                 <button key={p.playerId} disabled={disabled}
-                  onClick={() => onToggle({ kind: 'player', fromTeam: team, toTeam: otherTeams.length === 1 ? otherTeams[0] : toTeam, player: p })}
+                  onClick={() => !sel && onToggle({ kind: 'player', fromTeam: team, toTeam: defaultToTeam, player: p })}
                   className={`w-full flex items-center gap-2 px-2 py-1.5 rounded text-left transition-colors ${sel ? 'bg-yellow-400/20 border border-yellow-400/40' : 'hover:bg-zinc-800'}`}>
-                  <span className="text-[10px] font-black px-1 py-0.5 rounded text-white shrink-0" style={{ background: POS_COLORS[p.playerPos || ''] || '#555' }}>{p.playerPos || '?'}</span>
+                  <button type="button" disabled={disabled} onClick={e => { e.stopPropagation(); if (sel) onToggle({ kind: 'player', fromTeam: team, toTeam: getToTeam(p.playerId), player: p }); }}
+                    className="shrink-0 text-[10px] font-black px-1 py-0.5 rounded text-white" style={{ background: POS_COLORS[p.playerPos || ''] || '#555' }}>{p.playerPos || '?'}</button>
                   <span className="text-white text-xs font-medium truncate">{p.playerName || p.playerId}</span>
                   {p.playerNfl && <span className="text-zinc-500 text-[10px] shrink-0">{p.playerNfl}</span>}
-                  {sel && <span className="ml-auto text-yellow-400 font-bold text-xs shrink-0">✓</span>}
+                  {sel && otherTeams.length === 1 && <span className="ml-auto text-yellow-400 font-bold text-xs shrink-0">✓</span>}
+                  {sel && otherTeams.length > 1 && (
+                    <select value={getToTeam(p.playerId)} onClick={e => e.stopPropagation()}
+                      onChange={e => { e.stopPropagation(); onSetToTeam?.(p.playerId, team, e.target.value); }}
+                      className="ml-auto text-[10px] bg-zinc-900 text-white border border-yellow-400/50 rounded px-1 py-0.5 shrink-0">
+                      {otherTeams.map(t => <option key={t} value={t}>→ {t}</option>)}
+                    </select>
+                  )}
                 </button>
               );
             })
@@ -174,12 +183,19 @@ function TeamAssetPicker({
                   const sel = isSelected(String(pk.overall));
                   return (
                     <button key={pk.overall} disabled={disabled}
-                      onClick={() => onToggle({ kind: 'current_pick', fromTeam: team, toTeam: otherTeams.length === 1 ? otherTeams[0] : toTeam, pick: pk })}
+                      onClick={() => onToggle({ kind: 'current_pick', fromTeam: team, toTeam: sel ? getToTeam(String(pk.overall)) : defaultToTeam, pick: pk })}
                       className={`w-full flex items-center gap-2 px-2 py-1.5 rounded text-left transition-colors ${sel ? 'bg-yellow-400/20 border border-yellow-400/40' : 'hover:bg-zinc-800'}`}>
                       <span className="text-yellow-400 font-black text-sm">⦿</span>
                       <span className="text-white text-xs font-medium">Pick #{pk.overall}</span>
                       <span className="text-zinc-500 text-[10px]">Round {pk.round}</span>
-                      {sel && <span className="ml-auto text-yellow-400 font-bold text-xs">✓</span>}
+                      {sel && otherTeams.length === 1 && <span className="ml-auto text-yellow-400 font-bold text-xs">✓</span>}
+                      {sel && otherTeams.length > 1 && (
+                        <select value={getToTeam(String(pk.overall))} onClick={e => e.stopPropagation()}
+                          onChange={e => { e.stopPropagation(); onSetToTeam?.(String(pk.overall), team, e.target.value); }}
+                          className="ml-auto text-[10px] bg-zinc-900 text-white border border-yellow-400/50 rounded px-1 py-0.5 shrink-0">
+                          {otherTeams.map(t => <option key={t} value={t}>→ {t}</option>)}
+                        </select>
+                      )}
                     </button>
                   );
                 })}
@@ -192,12 +208,19 @@ function TeamAssetPicker({
                   const sel = isSelected(fp.id);
                   return (
                     <button key={fp.id} disabled={disabled}
-                      onClick={() => onToggle({ kind: 'future_pick', fromTeam: team, toTeam: otherTeams.length === 1 ? otherTeams[0] : toTeam, fp })}
+                      onClick={() => onToggle({ kind: 'future_pick', fromTeam: team, toTeam: sel ? getToTeam(fp.id) : defaultToTeam, fp })}
                       className={`w-full flex items-center gap-2 px-2 py-1.5 rounded text-left transition-colors ${sel ? 'bg-yellow-400/20 border border-yellow-400/40' : 'hover:bg-zinc-800'}`}>
                       <span className="text-sky-400 font-black text-sm">◈</span>
                       <span className="text-white text-xs font-medium">{fp.year} Round {fp.round}</span>
                       {fp.originalTeam !== fp.ownerTeam && <span className="text-zinc-500 text-[10px]">via {fp.originalTeam}</span>}
-                      {sel && <span className="ml-auto text-yellow-400 font-bold text-xs">✓</span>}
+                      {sel && otherTeams.length === 1 && <span className="ml-auto text-yellow-400 font-bold text-xs">✓</span>}
+                      {sel && otherTeams.length > 1 && (
+                        <select value={getToTeam(fp.id)} onClick={e => e.stopPropagation()}
+                          onChange={e => { e.stopPropagation(); onSetToTeam?.(fp.id, team, e.target.value); }}
+                          className="ml-auto text-[10px] bg-zinc-900 text-white border border-yellow-400/50 rounded px-1 py-0.5 shrink-0">
+                          {otherTeams.map(t => <option key={t} value={t}>→ {t}</option>)}
+                        </select>
+                      )}
                     </button>
                   );
                 })}
@@ -398,6 +421,16 @@ export default function DraftTradeCenter({
   useEffect(() => { fetchAssets(myTeam); }, [myTeam, fetchAssets]);
 
   // Toggle asset
+  function handleSetToTeam(assetKey: string, fromTeam: string, newToTeam: string) {
+    setSelectedAssets(prev => prev.map(a => {
+      const key = a.kind === 'player' ? a.player.playerId
+                 : a.kind === 'current_pick' ? String(a.pick.overall)
+                 : a.fp.id;
+      if (key === assetKey && a.fromTeam === fromTeam) return { ...a, toTeam: newToTeam };
+      return a;
+    }));
+  }
+
   function toggleAsset(a: SelectedAsset) {
     const key = a.kind === 'player' ? a.player.playerId : a.kind === 'current_pick' ? String(a.pick.overall) : a.fp.id;
     setSelectedAssets(prev => {
@@ -582,7 +615,7 @@ export default function DraftTradeCenter({
                     <div key={team} className="rounded-xl border border-zinc-700 p-4 text-center text-zinc-500 text-xs">Loading assets…</div>
                   ) : (
                     <TeamAssetPicker key={team} team={team} assets={assets} selectedAssets={selectedAssets}
-                      otherTeams={others} onToggle={toggleAsset} disabled={submitting} />
+                      otherTeams={others} onToggle={toggleAsset} onSetToTeam={handleSetToTeam} disabled={submitting} />
                   );
                 })}
               </div>
