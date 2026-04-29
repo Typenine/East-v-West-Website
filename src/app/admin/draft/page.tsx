@@ -494,11 +494,11 @@ export default function AdminDraftPage() {
               if (typeof v === 'string' && v.trim() !== '' && !Number.isNaN(Number(v))) return Number(v);
               return undefined;
             };
-            const id = (getStr('id') || getStr('player_id')).trim();
-            const name = (getStr('name') || `${getStr('first_name')} ${getStr('last_name')}`).trim();
+            const id = (getStr('id') || getStr('player_id') || getStr('overall_pick') || getStr('pick')).trim();
+            const name = (getStr('name') || getStr('player') || `${getStr('first_name')} ${getStr('last_name')}`).trim();
             const pos = (getStr('pos') || getStr('position')).trim().toUpperCase();
-            const nfl = (getStr('nfl') || getStr('team'));
-            const rank = getNum('rank');
+            const nfl = (getStr('nfl') || getStr('team') || getStr('nfl_team'));
+            const rank = getNum('rank') ?? getNum('overall_pick') ?? getNum('pick');
             return rank != null ? { id, name, pos, nfl, rank } : { id, name, pos, nfl };
           })
           .filter((p) => p.id && p.name && p.pos);
@@ -511,13 +511,13 @@ export default function AdminDraftPage() {
       .split(',')
       .map((h) => h.trim().toLowerCase());
     const idx = (k: string) => headers.indexOf(k);
-    const idIdx = idx('id') >= 0 ? idx('id') : idx('player_id');
-    const nameIdx = idx('name');
+    const idIdx = idx('id') >= 0 ? idx('id') : idx('player_id') >= 0 ? idx('player_id') : idx('overall_pick') >= 0 ? idx('overall_pick') : idx('pick');
+    const nameIdx = idx('name') >= 0 ? idx('name') : idx('player');
     const firstIdx = idx('first_name');
     const lastIdx = idx('last_name');
     const posIdx = idx('pos') >= 0 ? idx('pos') : idx('position');
-    const nflIdx = idx('nfl') >= 0 ? idx('nfl') : idx('team');
-    const rankIdx = idx('rank') >= 0 ? idx('rank') : -1;
+    const nflIdx = idx('nfl') >= 0 ? idx('nfl') : idx('team') >= 0 ? idx('team') : idx('nfl_team');
+    const rankIdx = idx('rank') >= 0 ? idx('rank') : idx('overall_pick') >= 0 ? idx('overall_pick') : idx('pick') >= 0 ? idx('pick') : -1;
     const out: Array<{ id: string; name: string; pos: string; nfl?: string | null; rank?: number }> = [];
     for (const line of lines) {
       if (!line.trim()) continue;
@@ -1468,7 +1468,7 @@ export default function AdminDraftPage() {
                   <div className="text-xs text-[var(--muted)]">
                     <p className="mb-2">Accepted formats:</p>
                     <ul className="list-disc pl-5 space-y-1">
-                      <li>CSV with header: <strong>id,name,pos,nfl,rank</strong> (nfl and rank optional). Synonyms allowed: <em>player_id</em> for id, <em>first_name,last_name</em> for name, <em>position</em> for pos, <em>team</em> for nfl.</li>
+                      <li>CSV with header: <strong>id,name,pos,nfl,rank</strong> (nfl and rank optional). Synonyms: <em>player_id / overall_pick / pick</em> for id; <em>player / first_name+last_name</em> for name; <em>position</em> for pos; <em>team / nfl_team</em> for nfl; <em>overall_pick / pick</em> also used as rank.</li>
                       <li>JSON array of objects with keys: <strong>id</strong>, <strong>name</strong> (or <em>first_name</em> + <em>last_name</em>), <strong>pos</strong>, optional <strong>nfl</strong>, optional <strong>rank</strong>.</li>
                     </ul>
                   </div>
