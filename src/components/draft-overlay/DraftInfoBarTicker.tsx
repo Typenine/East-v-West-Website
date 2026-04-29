@@ -152,12 +152,12 @@ export default function DraftInfoBarTicker({ onClockTeam, available, recentPicks
     <>
       {/* Best Available */}
       <div style={{ display: currentTickerView === 'bestAvailable' ? 'block' : 'none' }}>
-        <div className="text-white/80 text-xs font-semibold mb-1">Best Available{usingCustom ? ' (Custom)' : ''}</div>
+        <div className="text-[9px] font-bold text-white/50 uppercase tracking-widest mb-1.5">Best Available{usingCustom ? ' · Custom' : ''}</div>
         <div className="grid grid-cols-5 gap-1">
           {available.slice(0, 10).map((p, i) => (
-            <div key={p.id} className="bg-black/30 rounded px-1 py-[2px] text-[10px]">
-              <div className="font-semibold text-white truncate">{i + 1}. {p.name}</div>
-              <div className="text-white/60 truncate">{p.pos} - {p.nfl || '-'}</div>
+            <div key={p.id} className="bg-black/30 rounded px-1.5 py-1">
+              <div className="text-[10px] font-semibold text-white truncate leading-tight">{i + 1}. {p.name}</div>
+              <div className="text-[9px] text-white/55 truncate leading-tight">{p.pos}{p.nfl ? ` · ${p.nfl}` : ''}</div>
             </div>
           ))}
         </div>
@@ -165,48 +165,65 @@ export default function DraftInfoBarTicker({ onClockTeam, available, recentPicks
 
       {/* All-team Recent Picks */}
       <div style={{ display: currentTickerView === 'recentPicksAll' ? 'block' : 'none' }}>
-        <div className="text-white/80 text-xs font-semibold mb-1">Recent Picks</div>
+        <div className="text-[9px] font-bold text-white/50 uppercase tracking-widest mb-1.5">Recent Picks</div>
         {allRecentPicks.length > 0 ? (
-          <div className="space-y-[2px]">
+          <div className="grid grid-cols-3 gap-1">
             {allRecentPicks.map(p => (
-              <div key={p.overall} className="flex items-center gap-1.5 text-[10px]">
-                <span className="text-white/50 w-5 text-right shrink-0">#{p.overall}</span>
-                <span className="font-semibold text-white truncate flex-1">{p.playerName || p.playerId}</span>
-                <span className="text-white/60 shrink-0">{p.team}</span>
+              <div key={p.overall} className="bg-black/30 rounded px-1.5 py-1">
+                <div className="text-[10px] font-semibold text-white truncate leading-tight">
+                  <span className="text-white/45 mr-1">#{p.overall}</span>{p.playerName || p.playerId}
+                </div>
+                <div className="text-[9px] text-white/55 truncate leading-tight">{p.team}</div>
               </div>
             ))}
           </div>
-        ) : <div className="text-white/60 text-sm">No picks yet</div>}
+        ) : (
+          <div className="bg-black/30 rounded px-1.5 py-1 text-[10px] text-white/50">No picks yet</div>
+        )}
       </div>
 
-      {/* Team Picks This Draft (conditional — only shown when team has ≥1 pick) */}
+      {/* Team Picks This Draft (conditional) */}
       {showTeamPicks && (
         <div style={{ display: currentTickerView === 'teamRecentPicks' ? 'block' : 'none' }}>
-          <div className="text-white/80 text-xs font-semibold mb-1">{onClockTeam} Picks This Draft</div>
-          <div className="grid grid-cols-2 gap-1">
+          <div className="text-[9px] font-bold text-white/50 uppercase tracking-widest mb-1.5">{onClockTeam} · Picks This Draft</div>
+          <div className="grid grid-cols-3 gap-1">
             {teamPicksThisDraft.slice().reverse().slice(0, 6).map(p => (
-              <div key={p.overall} className="bg-black/30 rounded px-1 py-[2px] text-[10px]">
-                <div className="font-semibold text-white truncate">#{p.overall}: {p.playerName || p.playerId}</div>
-                <div className="text-white/60 truncate">R{p.round} Pk{((p.overall - 1) % 12) + 1}</div>
+              <div key={p.overall} className="bg-black/30 rounded px-1.5 py-1">
+                <div className="text-[10px] font-semibold text-white truncate leading-tight">{p.playerName || p.playerId}</div>
+                <div className="text-[9px] text-white/55 truncate leading-tight">#{p.overall} · R{p.round} Pk{((p.overall - 1) % 12) + 1}</div>
               </div>
             ))}
           </div>
         </div>
       )}
 
-      {/* Team Record (last season) */}
+      {/* Team Record */}
       <div style={{ display: currentTickerView === 'teamRecord' ? 'block' : 'none' }}>
-        <div className="text-white/80 text-xs font-semibold mb-1">2025 Season Record</div>
+        <div className="text-[9px] font-bold text-white/50 uppercase tracking-widest mb-1.5">2025 Season Record</div>
         {teamRecord ? (
-          <div className="text-white text-lg font-bold">
-            {teamRecord.record.wins}-{teamRecord.record.losses} &bull; {Math.round(teamRecord.record.fpts)} PF &bull; {Math.round(teamRecord.record.fptsAgainst || 0)} PA
+          <div className="grid grid-cols-4 gap-1">
+            {[
+              { val: teamRecord.record.wins,                          lbl: 'Wins' },
+              { val: teamRecord.record.losses,                        lbl: 'Losses' },
+              { val: Math.round(teamRecord.record.fpts),              lbl: 'Pts For' },
+              { val: Math.round(teamRecord.record.fptsAgainst || 0),  lbl: 'Pts Agn' },
+            ].map(({ val, lbl }) => (
+              <div key={lbl} className="bg-black/30 rounded px-1.5 py-1 text-center">
+                <div className="text-[13px] font-black text-white leading-tight">{val}</div>
+                <div className="text-[8px] font-semibold text-white/50 uppercase tracking-wide leading-tight">{lbl}</div>
+              </div>
+            ))}
           </div>
-        ) : <div className="text-white/60 text-sm">{draftOrderData ? 'Record not available' : 'Loading...'}</div>}
+        ) : (
+          <div className="bg-black/30 rounded px-1.5 py-1 text-[10px] text-white/50">
+            {draftOrderData ? 'Record not available' : 'Loading...'}
+          </div>
+        )}
       </div>
 
       {/* Draft Capital */}
       <div style={{ display: currentTickerView === 'draftCapital' ? 'block' : 'none' }}>
-        <div className="text-white/80 text-xs font-semibold mb-1">Draft Capital</div>
+        <div className="text-[9px] font-bold text-white/50 uppercase tracking-widest mb-1.5">Draft Capital</div>
         {draftOrderData?.roundsData ? (() => {
           const teamPicks: string[] = [];
           draftOrderData.roundsData.forEach(rd => {
@@ -214,91 +231,131 @@ export default function DraftInfoBarTicker({ onClockTeam, available, recentPicks
               if (p.ownerTeam === onClockTeam) teamPicks.push(`${rd.round}.${String(idx + 1).padStart(2, '0')}`);
             });
           });
-          return teamPicks.length > 0 ? (
-            <div className="text-white text-sm">
-              <div className="font-bold mb-1">{teamPicks.length} total pick{teamPicks.length !== 1 ? 's' : ''}</div>
-              <div className="text-white/80">{teamPicks.join(', ')}</div>
+          return (
+            <div className="flex flex-wrap gap-1 items-start">
+              <div className="bg-black/30 rounded px-1.5 py-1">
+                <div className="text-[13px] font-black text-white leading-tight">{teamPicks.length || 1}</div>
+                <div className="text-[8px] font-semibold text-white/50 uppercase tracking-wide leading-tight">Picks</div>
+              </div>
+              {teamPicks.map(slot => (
+                <div key={slot} className="bg-black/30 rounded px-1.5 py-1 text-center">
+                  <div className="text-[11px] font-bold text-white leading-tight">{slot}</div>
+                </div>
+              ))}
             </div>
-          ) : <div className="text-white text-sm font-bold">This is their only pick</div>;
-        })() : <div className="text-white/60 text-sm">Loading...</div>}
+          );
+        })() : (
+          <div className="bg-black/30 rounded px-1.5 py-1 text-[10px] text-white/50">Loading...</div>
+        )}
       </div>
 
       {/* Top 5 Scorers — 2025 season */}
       <div style={{ display: currentTickerView === 'topScorers' ? 'block' : 'none' }}>
-        <div className="text-white/80 text-xs font-semibold mb-1">Top Scorers — 2025 Season</div>
+        <div className="text-[9px] font-bold text-white/50 uppercase tracking-widest mb-1.5">Top Scorers · 2025 Season</div>
         {topScorers ? (
           topScorers.length > 0 ? (
-            <div className="space-y-[2px]">
+            <div className="grid grid-cols-5 gap-1">
               {topScorers.map((p, i) => (
-                <div key={p.id} className="flex items-center gap-1.5 text-[10px]">
-                  <span className="text-white/50 w-4 shrink-0">{i + 1}.</span>
-                  <span className="font-semibold text-white truncate flex-1">{p.name}</span>
-                  <span className="text-white/60 shrink-0">{p.pos}</span>
-                  <span className="font-bold text-white shrink-0">{p.pts} pts</span>
+                <div key={p.id} className="bg-black/30 rounded px-1.5 py-1">
+                  <div className="text-[10px] font-semibold text-white truncate leading-tight">{i + 1}. {p.name}</div>
+                  <div className="text-[9px] text-white/55 truncate leading-tight">{p.pos} · {p.pts}pts</div>
                 </div>
               ))}
             </div>
-          ) : <div className="text-white/60 text-sm">No data available</div>
-        ) : <div className="text-white/60 text-sm">Loading...</div>}
+          ) : (
+            <div className="bg-black/30 rounded px-1.5 py-1 text-[10px] text-white/50">No data available</div>
+          )
+        ) : (
+          <div className="bg-black/30 rounded px-1.5 py-1 text-[10px] text-white/50">Loading...</div>
+        )}
       </div>
 
       {/* Season History — last 3 seasons */}
       <div style={{ display: currentTickerView === 'seasonHistory' ? 'block' : 'none' }}>
-        <div className="text-white/80 text-xs font-semibold mb-1">Season History</div>
+        <div className="text-[9px] font-bold text-white/50 uppercase tracking-widest mb-1.5">Season History</div>
         {seasonHistory ? (
           seasonHistory.length > 0 ? (
-            <div className="space-y-[3px]">
+            <div className="grid grid-cols-3 gap-1">
               {seasonHistory.map(s => (
-                <div key={s.season} className="text-[10px]">
-                  <span className="text-white/50 font-semibold mr-1.5">{s.season}</span>
-                  <span className="font-bold text-white mr-1.5">{s.wins}-{s.losses}</span>
-                  <span className="text-white/70">{s.playoffResult}</span>
+                <div key={s.season} className="bg-black/30 rounded px-1.5 py-1">
+                  <div className="text-[9px] font-bold text-white/50 uppercase tracking-wide leading-tight mb-0.5">{s.season}</div>
+                  <div className="text-[12px] font-black text-white leading-tight">{s.wins}–{s.losses}</div>
+                  <div className="text-[9px] font-semibold text-white/80 truncate leading-tight">{s.playoffResult}</div>
                   {s.playoffOpponent && (
-                    <span className="text-white/50">
-                      {' '}vs {s.playoffOpponent}
-                      {s.winScore != null && s.oppScore != null && ` (${s.winScore}–${s.oppScore})`}
-                    </span>
+                    <div className="text-[9px] text-white/50 truncate leading-tight">
+                      vs {s.playoffOpponent}{s.winScore != null && s.oppScore != null ? ` ${s.winScore}–${s.oppScore}` : ''}
+                    </div>
                   )}
                 </div>
               ))}
             </div>
-          ) : <div className="text-white/60 text-sm">No history available</div>
-        ) : <div className="text-white/60 text-sm">Loading...</div>}
+          ) : (
+            <div className="bg-black/30 rounded px-1.5 py-1 text-[10px] text-white/50">No history available</div>
+          )
+        ) : (
+          <div className="bg-black/30 rounded px-1.5 py-1 text-[10px] text-white/50">Loading...</div>
+        )}
       </div>
 
       {/* 2025 Draft */}
       <div style={{ display: currentTickerView === 'draft2025' ? 'block' : 'none' }}>
-        <div className="text-white/80 text-xs font-semibold mb-1">2025 Draft</div>
+        <div className="text-[9px] font-bold text-white/50 uppercase tracking-widest mb-1.5">2025 Draft Picks</div>
         {historicalDrafts[2025] ? (() => {
-          const picks = historicalDrafts[2025]!.filter(p => p.team === onClockTeam).slice(0, 4);
+          const picks = historicalDrafts[2025]!.filter(p => p.team === onClockTeam).slice(0, 5);
           return picks.length > 0 ? (
-            <div className="text-white text-sm">
-              {picks.map((p, i) => <div key={i} className="truncate">{p.player} ({p.round}.{String(p.pick % 12 || 12).padStart(2, '0')})</div>)}
+            <div className="grid grid-cols-5 gap-1">
+              {picks.map((p, i) => (
+                <div key={i} className="bg-black/30 rounded px-1.5 py-1">
+                  <div className="text-[10px] font-semibold text-white truncate leading-tight">{p.player}</div>
+                  <div className="text-[9px] text-white/55 truncate leading-tight">{p.round}.{String(p.pick % 12 || 12).padStart(2, '0')}</div>
+                </div>
+              ))}
             </div>
-          ) : <div className="text-white/60 text-sm">No picks in 2025</div>;
-        })() : <div className="text-white/60 text-sm">Loading...</div>}
+          ) : (
+            <div className="bg-black/30 rounded px-1.5 py-1 text-[10px] text-white/50">No picks in 2025</div>
+          );
+        })() : (
+          <div className="bg-black/30 rounded px-1.5 py-1 text-[10px] text-white/50">Loading...</div>
+        )}
       </div>
 
       {/* 2024 Draft */}
       <div style={{ display: currentTickerView === 'draft2024' ? 'block' : 'none' }}>
-        <div className="text-white/80 text-xs font-semibold mb-1">2024 Draft</div>
+        <div className="text-[9px] font-bold text-white/50 uppercase tracking-widest mb-1.5">2024 Draft Picks</div>
         {historicalDrafts[2024] ? (() => {
-          const picks = historicalDrafts[2024]!.filter(p => p.team === onClockTeam).slice(0, 3);
+          const picks = historicalDrafts[2024]!.filter(p => p.team === onClockTeam).slice(0, 5);
           return picks.length > 0 ? (
-            <div className="text-white text-sm">
-              {picks.map((p, i) => <div key={i} className="truncate">{p.player} ({p.round}.{String(p.pick % 12 || 12).padStart(2, '0')})</div>)}
+            <div className="grid grid-cols-5 gap-1">
+              {picks.map((p, i) => (
+                <div key={i} className="bg-black/30 rounded px-1.5 py-1">
+                  <div className="text-[10px] font-semibold text-white truncate leading-tight">{p.player}</div>
+                  <div className="text-[9px] text-white/55 truncate leading-tight">{p.round}.{String(p.pick % 12 || 12).padStart(2, '0')}</div>
+                </div>
+              ))}
             </div>
-          ) : <div className="text-white/60 text-sm">No picks in 2024</div>;
-        })() : <div className="text-white/60 text-sm">Loading...</div>}
+          ) : (
+            <div className="bg-black/30 rounded px-1.5 py-1 text-[10px] text-white/50">No picks in 2024</div>
+          );
+        })() : (
+          <div className="bg-black/30 rounded px-1.5 py-1 text-[10px] text-white/50">Loading...</div>
+        )}
       </div>
 
-      {/* Trade Info (only when pick was acquired via trade) */}
+      {/* Trade Info */}
       {currentPickTradeInfo && (
         <div style={{ display: currentTickerView === 'tradeInfo' ? 'block' : 'none' }}>
-          <div className="text-white/80 text-xs font-semibold mb-1">Pick Acquired Via Trade</div>
-          <div className="text-white text-sm">
-            <div className="font-bold mb-1">From {currentPickTradeInfo.fromTeam}</div>
-            {currentPickTradeInfo.summary && <div className="text-white/70 text-xs truncate">{currentPickTradeInfo.summary}</div>}
+          <div className="text-[9px] font-bold text-white/50 uppercase tracking-widest mb-1.5">Pick Acquired via Trade</div>
+          <div className="grid grid-cols-2 gap-1">
+            <div className="bg-black/30 rounded px-1.5 py-1">
+              <div className="text-[9px] text-white/50 leading-tight uppercase tracking-wide">From</div>
+              <div className="text-[11px] font-bold text-white truncate leading-tight">{currentPickTradeInfo.fromTeam}</div>
+            </div>
+            {currentPickTradeInfo.summary && (
+              <div className="bg-black/30 rounded px-1.5 py-1">
+                <div className="text-[9px] text-white/50 leading-tight uppercase tracking-wide">Details</div>
+                <div className="text-[10px] text-white/80 truncate leading-tight">{currentPickTradeInfo.summary}</div>
+              </div>
+            )}
           </div>
         </div>
       )}
