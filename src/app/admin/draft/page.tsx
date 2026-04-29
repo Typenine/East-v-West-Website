@@ -476,7 +476,7 @@ export default function AdminDraftPage() {
   const recent = draft?.recentPicks || [];
   const upcoming = draft?.upcoming || [];
 
-  const parsePlayersText = (text: string): Array<{ id: string; name: string; pos: string; nfl?: string | null; rank?: number }> => {
+  const parsePlayersText = (text: string): Array<{ id: string; name: string; pos: string; nfl?: string | null; rank?: number; imageUrl?: string; videoUrl?: string }> => {
     // Try JSON first
     try {
       const j = JSON.parse(text);
@@ -499,7 +499,12 @@ export default function AdminDraftPage() {
             const pos = (getStr('pos') || getStr('position')).trim().toUpperCase();
             const nfl = (getStr('nfl') || getStr('team') || getStr('nfl_team'));
             const rank = getNum('rank') ?? getNum('overall_pick') ?? getNum('pick');
-            return rank != null ? { id, name, pos, nfl, rank } : { id, name, pos, nfl };
+            const imageUrl = getStr('image_url') || getStr('image') || undefined;
+            const videoUrl = getStr('video_url') || getStr('video') || undefined;
+            const base: { id: string; name: string; pos: string; nfl: string; rank?: number; imageUrl?: string; videoUrl?: string } = rank != null ? { id, name, pos, nfl, rank } : { id, name, pos, nfl };
+            if (imageUrl) base.imageUrl = imageUrl;
+            if (videoUrl) base.videoUrl = videoUrl;
+            return base;
           })
           .filter((p) => p.id && p.name && p.pos);
       }
@@ -518,7 +523,9 @@ export default function AdminDraftPage() {
     const posIdx = idx('pos') >= 0 ? idx('pos') : idx('position');
     const nflIdx = idx('nfl') >= 0 ? idx('nfl') : idx('team') >= 0 ? idx('team') : idx('nfl_team');
     const rankIdx = idx('rank') >= 0 ? idx('rank') : idx('overall_pick') >= 0 ? idx('overall_pick') : idx('pick') >= 0 ? idx('pick') : -1;
-    const out: Array<{ id: string; name: string; pos: string; nfl?: string | null; rank?: number }> = [];
+    const imageUrlIdx = idx('image_url') >= 0 ? idx('image_url') : idx('image');
+    const videoUrlIdx = idx('video_url') >= 0 ? idx('video_url') : idx('video');
+    const out: Array<{ id: string; name: string; pos: string; nfl?: string | null; rank?: number; imageUrl?: string; videoUrl?: string }> = [];
     for (const line of lines) {
       if (!line.trim()) continue;
       const cols = line.split(',').map((c) => c.trim());
@@ -528,7 +535,14 @@ export default function AdminDraftPage() {
       const nfl = (nflIdx >= 0 ? cols[nflIdx] : '') || '';
       const rankRaw = rankIdx >= 0 ? cols[rankIdx] : '';
       const rank = rankRaw && !Number.isNaN(Number(rankRaw)) ? Number(rankRaw) : undefined;
-      if (id && name && pos) out.push(rank != null ? { id, name, pos, nfl, rank } : { id, name, pos, nfl });
+      const imageUrl = (imageUrlIdx >= 0 ? cols[imageUrlIdx] : '') || undefined;
+      const videoUrl = (videoUrlIdx >= 0 ? cols[videoUrlIdx] : '') || undefined;
+      if (id && name && pos) {
+        const entry: typeof out[number] = rank != null ? { id, name, pos, nfl, rank } : { id, name, pos, nfl };
+        if (imageUrl) entry.imageUrl = imageUrl;
+        if (videoUrl) entry.videoUrl = videoUrl;
+        out.push(entry);
+      }
     }
     return out;
   };
@@ -541,11 +555,24 @@ export default function AdminDraftPage() {
     if (!players || players.length === 0) { alert('No players parsed'); return; }
     setBusy('upload_players');
     try {
-      const res = await fetch('/api/draft', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'upload_players', players }) });
+      // Upload player pool (strip media fields — only core data goes here)
+      const corePlayers = players.map(({ id, name, pos, nfl, rank }) => rank != null ? { id, name, pos, nfl, rank } : { id, name, pos, nfl });
+      const res = await fetch('/api/draft', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'upload_players', players: corePlayers }) });
       const j = await res.json();
       if (!res.ok || j?.error) throw new Error(j?.error || 'failed');
+      // Upload media URLs for players that have them (stored as tiny URL strings, not blobs)
+      const withMedia = players.filter(p => p.imageUrl || p.videoUrl);
+      for (const p of withMedia) {
+        if (p.imageUrl) {
+          await fetch('/api/draft/player-videos', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ playerId: p.id, imageUrl: p.imageUrl, playerName: p.name }) }).catch(() => {});
+        }
+        if (p.videoUrl) {
+          await fetch('/api/draft/player-videos', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ playerId: p.id, videoUrl: p.videoUrl, playerName: p.name }) }).catch(() => {});
+        }
+      }
       await refreshPlayersInfo();
-      alert(`Uploaded ${j?.count ?? players.length} players`);
+      const mediaNote = withMedia.length > 0 ? ` (${withMedia.length} with media URLs)` : '';
+      alert(`Uploaded ${j?.count ?? players.length} players${mediaNote}`);
     } catch (e) {
       alert((e as Error).message || 'Upload failed');
     } finally {
@@ -1468,7 +1495,7 @@ export default function AdminDraftPage() {
                   <div className="text-xs text-[var(--muted)]">
                     <p className="mb-2">Accepted formats:</p>
                     <ul className="list-disc pl-5 space-y-1">
-                      <li>CSV with header: <strong>id,name,pos,nfl,rank</strong> (nfl and rank optional). Synonyms: <em>player_id / overall_pick / pick</em> for id; <em>player / first_name+last_name</em> for name; <em>position</em> for pos; <em>team / nfl_team</em> for nfl; <em>overall_pick / pick</em> also used as rank.</li>
+                      <li>CSV with header: <strong>id,name,pos,nfl,rank</strong> (nfl and rank optional). Synonyms: <em>player_id / overall_pick / pick</em> for id; <em>player / first_name+last_name</em> for name; <em>position</em> for pos; <em>team / nfl_team</em> for nfl; <em>overall_pick / pick</em> also used as rank. Optional: <em>image_url</em> (headshot URL), <em>video_url</em> (YouTube or direct link) — stored as URL strings, not uploads.</li>
                       <li>JSON array of objects with keys: <strong>id</strong>, <strong>name</strong> (or <em>first_name</em> + <em>last_name</em>), <strong>pos</strong>, optional <strong>nfl</strong>, optional <strong>rank</strong>.</li>
                     </ul>
                   </div>

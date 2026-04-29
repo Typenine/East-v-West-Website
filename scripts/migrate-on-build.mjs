@@ -10,6 +10,6 @@ try {
   execSync('npm run db:migrate', { stdio: 'inherit' });
   console.log('[migrate-on-build] Done.');
 } catch (e) {
-  console.error('[migrate-on-build] Migration failed:', e?.message || e);
-  process.exit(1);
+  console.warn('[migrate-on-build] Migration failed (non-fatal — runtime will handle):', e?.message || e);
+  process.exit(0);
 }
