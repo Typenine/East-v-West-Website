@@ -109,10 +109,27 @@ async function getSeasonResult(
     }
 
     let playoffResult: string;
-    if (lastRound === maxRound && won) {
-      playoffResult = 'Champion 🏆';
-    } else if (lastRound === maxRound && !won) {
-      playoffResult = 'Runner-Up';
+    if (lastRound === maxRound) {
+      // Distinguish championship from consolation (3rd-place) game.
+      // The championship game has both participants coming from winning their semi-final.
+      // If there's only one game at maxRound it must be the championship.
+      const finalRoundGames = winners.filter(g => (g.r ?? 0) === maxRound && g.t1 != null && g.t2 != null);
+      let isChampionshipGame = true;
+      if (finalRoundGames.length > 1) {
+        const semiRound = maxRound - 1;
+        const semiWinners = new Set<number>(
+          winners
+            .filter(g => (g.r ?? 0) === semiRound && g.w != null)
+            .map(g => g.w as number)
+        );
+        isChampionshipGame = semiWinners.size === 0
+          || (semiWinners.has(lastGame.t1 as number) && semiWinners.has(lastGame.t2 as number));
+      }
+      if (isChampionshipGame) {
+        playoffResult = won ? 'Champion 🏆' : 'Runner-Up';
+      } else {
+        playoffResult = won ? '3rd Place 🥉' : '4th Place';
+      }
     } else {
       const roundName = ROUND_NAMES[lastRound] ?? `Round ${lastRound}`;
       playoffResult = `Lost in ${roundName}`;

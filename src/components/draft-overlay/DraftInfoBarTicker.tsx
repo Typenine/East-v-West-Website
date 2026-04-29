@@ -51,6 +51,9 @@ export default function DraftInfoBarTicker({ onClockTeam, available, recentPicks
     2025: Array<{ team: string; player: string; pos: string; round: number; pick: number }> | null;
   }>({ 2024: null, 2025: null });
 
+  // In-draft approved current_pick trades (refetched when onClockTeam changes)
+  const [approvedPickTrades, setApprovedPickTrades] = useState<Array<{ fromTeam: string; toTeam: string; pickOverall: number }>>([]);
+
   // Per-team data (refetched when onClockTeam changes)
   const [topScorers, setTopScorers] = useState<TopScorer[] | null>(null);
   const [seasonHistory, setSeasonHistory] = useState<SeasonResult[] | null>(null);
@@ -61,7 +64,12 @@ export default function DraftInfoBarTicker({ onClockTeam, available, recentPicks
   const showTeamPicks = teamPicksThisDraft.length > 0 && (curOverall ?? 1) > 1;
 
   const currentPickTradeInfo = (() => {
-    if (!onClockTeam || !draftOrderData?.transfers || !curOverall) return null;
+    if (!onClockTeam || !curOverall) return null;
+    // Check in-draft trades first (trades made during the draft via DraftTradeCenter)
+    const inDraftTrade = approvedPickTrades.find(a => a.pickOverall === curOverall && a.toTeam === onClockTeam);
+    if (inDraftTrade) return { round: Math.floor((curOverall - 1) / 12) + 1, fromTeam: inDraftTrade.fromTeam, toTeam: inDraftTrade.toTeam };
+    // Fall back to pre-draft pick ownership transfers (Sleeper trade history)
+    if (!draftOrderData?.transfers) return null;
     const currentRound = Math.floor((curOverall - 1) / 12) + 1;
     return draftOrderData.transfers.find(t => t.round === currentRound && t.toTeam === onClockTeam) || null;
   })();
@@ -128,6 +136,27 @@ export default function DraftInfoBarTicker({ onClockTeam, available, recentPicks
     }
     run();
   }, []);
+
+  // Fetch in-draft approved current_pick trades (re-runs on every clock team change)
+  useEffect(() => {
+    if (!onClockTeam) return;
+    fetch(`/api/draft/trade?action=get_team&team=${encodeURIComponent(onClockTeam)}`)
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (!data?.trades) return;
+        const picks: Array<{ fromTeam: string; toTeam: string; pickOverall: number }> = [];
+        for (const t of data.trades as Array<{ status: string; assets: Array<{ assetType: string; fromTeam: string; toTeam: string; pickOverall?: number | null }> }>) {
+          if (t.status !== 'approved') continue;
+          for (const a of t.assets) {
+            if (a.assetType === 'current_pick' && a.pickOverall != null) {
+              picks.push({ fromTeam: a.fromTeam, toTeam: a.toTeam, pickOverall: a.pickOverall });
+            }
+          }
+        }
+        setApprovedPickTrades(picks);
+      })
+      .catch(() => {});
+  }, [onClockTeam]);
 
   // Fetch top scorers + season history when on-clock team changes
   useEffect(() => {

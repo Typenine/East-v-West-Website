@@ -7,6 +7,7 @@ import {
   bulkInsertFuturePicks,
   hasRosterSnapshot,
   hasFuturePickSnapshot,
+  getRosterSnapshot,
 } from './db/queries.fixed';
 import { canonicalizeTeamName } from '@/lib/server/user-identity';
 
@@ -39,6 +40,40 @@ export async function snapshotDraftRosters(draftId: string): Promise<void> {
     if (players.length > 0) {
       await bulkInsertRosterSnapshot(draftId, teamName, players, 'sleeper');
     }
+  }
+}
+
+/**
+ * Snapshot a single team's roster from Sleeper if they have no data yet.
+ * Safe to call even after the global snapshot has run — fills gaps caused by
+ * name-mapping misses or empty rosters at initial snapshot time.
+ */
+export async function snapshotTeamRosterIfMissing(draftId: string, teamName: string): Promise<void> {
+  const existing = await getRosterSnapshot(draftId, teamName);
+  if (existing.length > 0) return;
+
+  const leagueId = LEAGUE_IDS.CURRENT;
+  const [rosters, nameMap, allPlayers] = await Promise.all([
+    getLeagueRosters(leagueId).catch(() => []),
+    getRosterIdToTeamNameMap(leagueId).catch(() => new Map<number, string>()),
+    getAllPlayersCached().catch(() => ({} as Record<string, { first_name?: string; last_name?: string; position?: string; team?: string }>)),
+  ]);
+
+  for (const roster of rosters) {
+    const rTeamName = nameMap.get(roster.roster_id);
+    if (!rTeamName) continue;
+    if (canonicalizeTeamName(rTeamName) !== canonicalizeTeamName(teamName)) continue;
+
+    const playerIds: string[] = Array.isArray(roster.players) ? (roster.players as string[]).filter(Boolean) : [];
+    const players = playerIds.map(id => {
+      const p = allPlayers[id];
+      const name = p ? [p.first_name, p.last_name].filter(Boolean).join(' ') || id : id;
+      return { playerId: id, playerName: name, playerPos: p?.position || null, playerNfl: p?.team || null };
+    });
+    if (players.length > 0) {
+      await bulkInsertRosterSnapshot(draftId, teamName, players, 'sleeper');
+    }
+    break;
   }
 }
 

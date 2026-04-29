@@ -17,7 +17,7 @@ import {
   type TradeAssetType,
 } from '@/server/db/queries.fixed';
 import { requireTeamUser } from '@/lib/server/session';
-import { snapshotDraftRosters, snapshotDraftFuturePicks } from '@/server/draft-snapshot';
+import { snapshotDraftRosters, snapshotDraftFuturePicks, snapshotTeamRosterIfMissing } from '@/server/draft-snapshot';
 
 function isAdmin(req: NextRequest): boolean {
   try {
@@ -53,11 +53,16 @@ export async function GET(req: NextRequest) {
       snapshotDraftRosters(draftId).catch(() => {}),
       snapshotDraftFuturePicks(draftId).catch(() => {}),
     ]);
-    const [rosterPlayers, futurePicks, overview] = await Promise.all([
-      getRosterSnapshot(draftId, team),
+    const [futurePicks, overview] = await Promise.all([
       getFuturePicks(draftId, team),
       getDraftOverview(draftId),
     ]);
+    let rosterPlayers = await getRosterSnapshot(draftId, team);
+    // If this team was missed in the global snapshot (name-map gap), fill it now
+    if (rosterPlayers.length === 0) {
+      await snapshotTeamRosterIfMissing(draftId, team).catch(() => {});
+      rosterPlayers = await getRosterSnapshot(draftId, team);
+    }
     // Current draft picks owned by this team (not yet made)
     const allSlots = overview?.allSlots || [];
     const allPicksMade = new Set((overview?.allPicks || []).map(p => p.overall));
