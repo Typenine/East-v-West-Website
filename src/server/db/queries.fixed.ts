@@ -240,7 +240,10 @@ export type DraftOverview = {
   allSlots: Array<{ overall: number; round: number; team: string }>;
 };
 
+let _tablesEnsured = false;
+
 export async function ensureDraftTables() {
+  if (_tablesEnsured) return;
   const db = getDb();
   await db.execute(sql`
     CREATE TABLE IF NOT EXISTS drafts (
@@ -255,7 +258,12 @@ export async function ensureDraftTables() {
       cur_overall integer NOT NULL DEFAULT 1,
       clock_started_at timestamp NULL,
       deadline_ts timestamp NULL,
-      paused_remaining_secs integer NULL
+      paused_remaining_secs integer NULL,
+      event_name varchar(255),
+      event_logo_url text,
+      event_color_1 varchar(16),
+      event_color_2 varchar(16),
+      pending_trade_animation jsonb NULL
     )
   `);
   // Migration: add paused_remaining_secs if missing
@@ -284,19 +292,16 @@ export async function ensureDraftTables() {
       team varchar(255) NOT NULL,
       player_id varchar(64) NOT NULL,
       player_name varchar(255),
-      player_pos varchar(8),
-      player_nfl varchar(8),
+      player_pos varchar(16),
+      player_nfl varchar(64),
       made_by varchar(255) NOT NULL,
       made_at timestamp NOT NULL DEFAULT now()
     )
   `);
   // Add columns if they don't exist (migration)
-  await db.execute(sql`
-    ALTER TABLE draft_picks ADD COLUMN IF NOT EXISTS player_pos varchar(8)
-  `).catch(() => {}); // Ignore if already exists
-  await db.execute(sql`
-    ALTER TABLE draft_picks ADD COLUMN IF NOT EXISTS player_nfl varchar(8)
-  `).catch(() => {}); // Ignore if already exists
+  await db.execute(sql`ALTER TABLE draft_picks ADD COLUMN IF NOT EXISTS player_pos varchar(16)`).catch(() => {});
+  await db.execute(sql`ALTER TABLE draft_picks ADD COLUMN IF NOT EXISTS player_nfl varchar(64)`).catch(() => {});
+  await db.execute(sql`ALTER TABLE draft_picks ALTER COLUMN player_nfl TYPE varchar(64)`).catch(() => {}); // Ignore if already exists
   await db.execute(sql`
     CREATE TABLE IF NOT EXISTS draft_queues (
       draft_id uuid NOT NULL,
@@ -304,19 +309,20 @@ export async function ensureDraftTables() {
       rank integer NOT NULL,
       player_id varchar(64) NOT NULL,
       player_name varchar(255),
-      player_pos varchar(8),
-      player_nfl varchar(8),
+      player_pos varchar(16),
+      player_nfl varchar(64),
       created_at timestamp NOT NULL DEFAULT now(),
       PRIMARY KEY (draft_id, team, rank)
     )
   `);
   // Add columns if they don't exist (migration for existing tables)
   await db.execute(sql`ALTER TABLE draft_queues ADD COLUMN IF NOT EXISTS player_name varchar(255)`).catch(() => {});
-  await db.execute(sql`ALTER TABLE draft_queues ADD COLUMN IF NOT EXISTS player_pos varchar(8)`).catch(() => {});
-  await db.execute(sql`ALTER TABLE draft_queues ADD COLUMN IF NOT EXISTS player_nfl varchar(8)`).catch(() => {});
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_draft_picks_draft ON draft_picks(draft_id)`);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_draft_picks_player ON draft_picks(player_id)`);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_draft_slots_team ON draft_slots(draft_id, team)`);
+  await db.execute(sql`ALTER TABLE draft_queues ADD COLUMN IF NOT EXISTS player_pos varchar(16)`).catch(() => {});
+  await db.execute(sql`ALTER TABLE draft_queues ADD COLUMN IF NOT EXISTS player_nfl varchar(64)`).catch(() => {});
+  await db.execute(sql`ALTER TABLE draft_queues ALTER COLUMN player_nfl TYPE varchar(64)`).catch(() => {});
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_draft_picks_draft ON draft_picks(draft_id)`).catch(() => {});
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_draft_picks_player ON draft_picks(player_id)`).catch(() => {});
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_draft_slots_team ON draft_slots(draft_id, team)`).catch(() => {});
   await db.execute(sql`ALTER TABLE draft_slots ADD COLUMN IF NOT EXISTS original_team varchar(255)`).catch(() => {});
   await db.execute(sql`UPDATE draft_slots SET original_team = team WHERE original_team IS NULL`).catch(() => {});
   // Player videos table (player_id → video_url + image_url, global across drafts)
@@ -347,7 +353,7 @@ export async function ensureDraftTables() {
       status varchar(16) NOT NULL DEFAULT 'pending'
     )
   `);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_pending_picks_draft ON draft_pending_picks(draft_id, status)`);
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_pending_picks_draft ON draft_pending_picks(draft_id, status)`).catch(() => {});
   // Trade system tables
   await db.execute(sql`
     CREATE TABLE IF NOT EXISTS draft_roster_snapshots (
@@ -355,8 +361,8 @@ export async function ensureDraftTables() {
       team varchar(255) NOT NULL,
       player_id varchar(64) NOT NULL,
       player_name varchar(255),
-      player_pos varchar(8),
-      player_nfl varchar(8),
+      player_pos varchar(16),
+      player_nfl varchar(64),
       acquired_via varchar(16) NOT NULL DEFAULT 'sleeper',
       PRIMARY KEY (draft_id, team, player_id)
     )
@@ -371,7 +377,7 @@ export async function ensureDraftTables() {
       round integer NOT NULL
     )
   `);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_draft_future_picks ON draft_future_picks(draft_id, owner_team)`);
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_draft_future_picks ON draft_future_picks(draft_id, owner_team)`).catch(() => {});
   await db.execute(sql`
     CREATE TABLE IF NOT EXISTS draft_trades (
       id uuid NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
@@ -386,7 +392,7 @@ export async function ensureDraftTables() {
       updated_at timestamp NOT NULL DEFAULT now()
     )
   `);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_draft_trades ON draft_trades(draft_id, status)`);
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_draft_trades ON draft_trades(draft_id, status)`).catch(() => {});
   await db.execute(sql`
     CREATE TABLE IF NOT EXISTS draft_trade_assets (
       id uuid NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
@@ -403,9 +409,22 @@ export async function ensureDraftTables() {
       pick_original_team varchar(255) NULL
     )
   `);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_draft_trade_assets ON draft_trade_assets(trade_id)`);
-  // Migration: pending trade animation trigger column
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_draft_trade_assets ON draft_trade_assets(trade_id)`).catch(() => {});
+  // Pick videos: per-draft, per-pick video urls (used by overlay)
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS draft_pick_videos (
+      draft_id uuid NOT NULL,
+      overall integer NOT NULL,
+      video_url text NOT NULL,
+      player_name varchar(255),
+      PRIMARY KEY (draft_id, overall)
+    )
+  `).catch(() => {});
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_draft_pick_videos_draft ON draft_pick_videos(draft_id)`).catch(() => {});
+  // Migrations for existing tables (idempotent, errors silenced)
   await db.execute(sql`ALTER TABLE drafts ADD COLUMN IF NOT EXISTS pending_trade_animation jsonb NULL`).catch(() => {});
+  await db.execute(sql`ALTER TABLE draft_roster_snapshots ALTER COLUMN player_nfl TYPE varchar(64)`).catch(() => {});
+  _tablesEnsured = true;
 }
 
 // Optional per-draft custom player pool (alternative to Sleeper dataset)
@@ -424,9 +443,9 @@ export async function ensureDraftPlayersTable() {
     )
   `);
   // Backfill safety for older tables
-  await db.execute(sql`ALTER TABLE draft_players ADD COLUMN IF NOT EXISTS rank integer`);
-  await db.execute(sql`ALTER TABLE draft_players ALTER COLUMN nfl TYPE varchar(255)`);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_draft_players_draft ON draft_players(draft_id)`);
+  await db.execute(sql`ALTER TABLE draft_players ADD COLUMN IF NOT EXISTS rank integer`).catch(() => {});
+  await db.execute(sql`ALTER TABLE draft_players ALTER COLUMN nfl TYPE varchar(255)`).catch(() => {});
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_draft_players_draft ON draft_players(draft_id)`).catch(() => {});
 }
 
 export type DraftPlayerRow = { player_id: string; name: string; pos: string; nfl: string | null; rank: number | null };
@@ -527,6 +546,12 @@ export async function deleteDraft(draftId: string) {
   const db = getDb();
   await db.execute(sql`DELETE FROM draft_picks WHERE draft_id = ${draftId}::uuid`);
   await db.execute(sql`DELETE FROM draft_queues WHERE draft_id = ${draftId}::uuid`);
+  await db.execute(sql`DELETE FROM draft_pending_picks WHERE draft_id = ${draftId}::uuid`);
+  await db.execute(sql`DELETE FROM draft_trade_assets WHERE trade_id IN (SELECT id FROM draft_trades WHERE draft_id = ${draftId}::uuid)`).catch(() => {});
+  await db.execute(sql`DELETE FROM draft_trades WHERE draft_id = ${draftId}::uuid`).catch(() => {});
+  await db.execute(sql`DELETE FROM draft_roster_snapshots WHERE draft_id = ${draftId}::uuid`).catch(() => {});
+  await db.execute(sql`DELETE FROM draft_future_picks WHERE draft_id = ${draftId}::uuid`).catch(() => {});
+  await db.execute(sql`DELETE FROM draft_pick_videos WHERE draft_id = ${draftId}::uuid`).catch(() => {});
   await db.execute(sql`DELETE FROM draft_slots WHERE draft_id = ${draftId}::uuid`);
   await db.execute(sql`DELETE FROM draft_players WHERE draft_id = ${draftId}::uuid`);
   await db.execute(sql`DELETE FROM drafts WHERE id = ${draftId}::uuid`);

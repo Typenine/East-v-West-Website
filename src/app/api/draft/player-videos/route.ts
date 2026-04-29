@@ -13,27 +13,37 @@ function isAdmin(req: NextRequest): boolean {
 }
 
 export async function GET() {
-  await ensureDraftTables();
-  const videos = await getPlayerVideos();
-  return ok({ videos });
+  try {
+    await ensureDraftTables();
+    const videos = await getPlayerVideos();
+    return ok({ videos });
+  } catch (e) {
+    console.error('GET /api/draft/player-videos failed', e);
+    return ok({ videos: [] });
+  }
 }
 
 export async function POST(req: NextRequest) {
   if (!isAdmin(req)) return bad('Unauthorized', 403);
-  const body = await req.json().catch(() => null);
-  if (!body?.playerId) return bad('playerId required');
+  try {
+    const body = await req.json().catch(() => null);
+    if (!body?.playerId) return bad('playerId required');
 
-  if (body.action === 'delete') {
-    await deletePlayerVideo(body.playerId);
+    if (body.action === 'delete') {
+      await deletePlayerVideo(body.playerId);
+      return ok({ ok: true });
+    }
+
+    if (body.imageUrl) {
+      await setPlayerImage(body.playerId, body.imageUrl, body.playerName ?? null);
+      return ok({ ok: true });
+    }
+
+    if (!body.videoUrl) return bad('videoUrl or imageUrl required');
+    await setPlayerVideo(body.playerId, body.videoUrl, body.playerName ?? null);
     return ok({ ok: true });
+  } catch (e) {
+    console.error('POST /api/draft/player-videos failed', e);
+    return bad('internal error', 500);
   }
-
-  if (body.imageUrl) {
-    await setPlayerImage(body.playerId, body.imageUrl, body.playerName ?? null);
-    return ok({ ok: true });
-  }
-
-  if (!body.videoUrl) return bad('videoUrl or imageUrl required');
-  await setPlayerVideo(body.playerId, body.videoUrl, body.playerName ?? null);
-  return ok({ ok: true });
 }

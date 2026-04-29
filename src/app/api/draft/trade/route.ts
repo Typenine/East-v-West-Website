@@ -37,6 +37,7 @@ function bad(msg: string, status = 400) {
 }
 
 export async function GET(req: NextRequest) {
+  try {
   const url = new URL(req.url);
   const action = url.searchParams.get('action') || 'get_team';
   const draftIdParam = url.searchParams.get('draftId') || '';
@@ -87,9 +88,14 @@ export async function GET(req: NextRequest) {
   }
 
   return bad('unknown action');
+  } catch (e) {
+    console.error('GET /api/draft/trade failed', e);
+    return bad('internal error', 500);
+  }
 }
 
 export async function POST(req: NextRequest) {
+  try {
   const body = await req.json().catch(() => ({})) as Record<string, unknown>;
   const action = typeof body.action === 'string' ? body.action : '';
   const draftIdParam = typeof body.draftId === 'string' ? body.draftId : '';
@@ -213,4 +219,8 @@ export async function POST(req: NextRequest) {
   }
 
   return bad('unknown action');
+  } catch (e) {
+    console.error('POST /api/draft/trade failed', e);
+    return bad('internal error', 500);
+  }
 }

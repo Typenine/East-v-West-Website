@@ -355,9 +355,9 @@ export async function POST(req: NextRequest) {
       const useCustom = (await countDraftPlayers(draftId)) > 0;
       const q = typeof body.q === 'string' ? body.q.trim().toLowerCase() : '';
       const pos = typeof body.pos === 'string' ? body.pos.trim().toUpperCase() : '';
-      const allowed = new Set(['QB','RB','WR','TE','K']);
+      const allowed = new Set(['QB','RB','WR','TE','K','FB','RB/FB']);
       if (useCustom) {
-        let list = (await getDraftPlayers(draftId)).filter((r) => allowed.has((r.pos || '').toUpperCase()) && !taken.has(r.player_id));
+        let list = (await getDraftPlayers(draftId)).filter((r) => !taken.has(r.player_id));
         if (pos) list = list.filter((r) => (r.pos || '').toUpperCase() === pos);
         if (q) list = list.filter((r) => r.name.toLowerCase().includes(q));
         list.sort((a, b) => {
