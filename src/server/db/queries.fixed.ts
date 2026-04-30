@@ -771,6 +771,69 @@ export async function getPlayerVideos(): Promise<Array<{ playerId: string; video
   }
 }
 
+export async function getPlayerMediaSummaries(): Promise<Array<{ playerId: string; playerName: string | null; hasImage: boolean; hasVideo: boolean; videoUrl: string | null }>> {
+  await ensureDraftTables();
+  const db = getDb();
+  try {
+    const res = await db.execute(sql`
+      SELECT
+        player_id,
+        player_name,
+        (image_url IS NOT NULL AND image_url <> '') AS has_image,
+        (video_url IS NOT NULL AND video_url <> '') AS has_video,
+        CASE WHEN video_url IS NOT NULL AND video_url NOT LIKE 'data:%' THEN video_url ELSE NULL END AS safe_video_url
+      FROM player_videos
+      ORDER BY player_id
+    `);
+    type SummaryRow = { player_id: string; player_name: string | null; has_image: boolean | number | string; has_video: boolean | number | string; safe_video_url: string | null };
+    const rows = (res as unknown as { rows?: SummaryRow[] }).rows || [];
+    return rows.map(r => ({
+      playerId: r.player_id,
+      playerName: r.player_name || null,
+      hasImage: r.has_image === true || r.has_image === 1 || r.has_image === 't' || r.has_image === 'true',
+      hasVideo: r.has_video === true || r.has_video === 1 || r.has_video === 't' || r.has_video === 'true',
+      videoUrl: typeof r.safe_video_url === 'string' && r.safe_video_url ? r.safe_video_url : null,
+    }));
+  } catch {
+    // Fallback: image_url column may not yet exist on old DB instances
+    const res = await db.execute(sql`
+      SELECT
+        player_id,
+        player_name,
+        (video_url IS NOT NULL AND video_url <> '') AS has_video,
+        CASE WHEN video_url IS NOT NULL AND video_url NOT LIKE 'data:%' THEN video_url ELSE NULL END AS safe_video_url
+      FROM player_videos
+      ORDER BY player_id
+    `);
+    type FallbackRow = { player_id: string; player_name: string | null; has_video: boolean | number | string; safe_video_url: string | null };
+    const rows = (res as unknown as { rows?: FallbackRow[] }).rows || [];
+    return rows.map(r => ({
+      playerId: r.player_id,
+      playerName: r.player_name || null,
+      hasImage: false,
+      hasVideo: r.has_video === true || r.has_video === 1 || r.has_video === 't' || r.has_video === 'true',
+      videoUrl: typeof r.safe_video_url === 'string' && r.safe_video_url ? r.safe_video_url : null,
+    }));
+  }
+}
+
+export async function getPlayerMediaById(playerId: string): Promise<{ playerId: string; videoUrl: string | null; imageUrl: string | null; playerName: string | null } | null> {
+  await ensureDraftTables();
+  const db = getDb();
+  try {
+    const res = await db.execute(sql`SELECT player_id, video_url, image_url, player_name FROM player_videos WHERE player_id = ${playerId} LIMIT 1`);
+    const row = (res as unknown as { rows?: Array<{ player_id: string; video_url: string | null; image_url: string | null; player_name: string | null }> }).rows?.[0];
+    if (!row) return null;
+    return { playerId: row.player_id, videoUrl: row.video_url || null, imageUrl: row.image_url || null, playerName: row.player_name || null };
+  } catch {
+    // Fallback: image_url column may not yet exist on old DB instances
+    const res = await db.execute(sql`SELECT player_id, video_url, player_name FROM player_videos WHERE player_id = ${playerId} LIMIT 1`);
+    const row = (res as unknown as { rows?: Array<{ player_id: string; video_url: string | null; player_name: string | null }> }).rows?.[0];
+    if (!row) return null;
+    return { playerId: row.player_id, videoUrl: row.video_url || null, imageUrl: null, playerName: row.player_name || null };
+  }
+}
+
 export async function setPlayerVideo(playerId: string, videoUrl: string, playerName?: string | null): Promise<void> {
   await ensureDraftTables();
   const db = getDb();

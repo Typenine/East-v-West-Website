@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getPlayerVideos } from '@/server/db/queries';
+import { getPlayerMediaById } from '@/server/db/queries';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -9,8 +9,7 @@ export async function GET(req: NextRequest) {
   if (!playerId) return new NextResponse(null, { status: 404 });
 
   try {
-    const videos = await getPlayerVideos();
-    const entry = videos.find(v => v.playerId === playerId);
+    const entry = await getPlayerMediaById(playerId);
     if (!entry?.imageUrl) return new NextResponse(null, { status: 404 });
 
     const imageUrl = entry.imageUrl;

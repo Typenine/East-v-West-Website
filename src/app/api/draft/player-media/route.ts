@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { ensureDraftTables, setPlayerVideo, setPlayerImage } from '@/server/db/queries';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -9,9 +8,6 @@ function isAdmin(req: NextRequest): boolean {
   return req.cookies.get('evw_admin')?.value === secret;
 }
 
-function ok(data: unknown) {
-  return new NextResponse(JSON.stringify(data), { status: 200, headers: { 'content-type': 'application/json' } });
-}
 function bad(msg: string, status = 400) {
   return new NextResponse(JSON.stringify({ error: msg }), { status, headers: { 'content-type': 'application/json' } });
 }
@@ -26,13 +22,12 @@ export async function POST(req: NextRequest) {
   let fileName: string;
   let mediaType: string | null = null;
   let playerId: string | null = null;
-  let playerName: string | null = null;
 
   if (ct.includes('application/json')) {
     const body = await req.json().catch(() => null);
     if (!body) return bad('Invalid JSON body');
     playerId = (typeof body.playerId === 'string' ? body.playerId : '').trim() || null;
-    playerName = (typeof body.playerName === 'string' ? body.playerName : '').trim() || null;
+    void (typeof body.playerName === 'string' ? body.playerName : ''); // parsed but not stored
     mediaType = (typeof body.type === 'string' ? body.type : '').toLowerCase() || null;
     const fileData = typeof body.fileData === 'string' ? body.fileData : null;
     fileName = typeof body.fileName === 'string' ? body.fileName : 'upload';
@@ -44,7 +39,7 @@ export async function POST(req: NextRequest) {
     const file = formData.get('file') as File | null;
     mediaType = (formData.get('type') as string | null)?.toLowerCase() ?? null;
     playerId = (formData.get('playerId') as string | null)?.trim() ?? null;
-    playerName = (formData.get('playerName') as string | null)?.trim() || null;
+    void (formData.get('playerName') as string | null); // parsed but not stored
     if (!file) return bad('file required');
     fileName = file.name;
     buffer = Buffer.from(await file.arrayBuffer());
@@ -55,24 +50,14 @@ export async function POST(req: NextRequest) {
   const maxBytes = mediaType === 'image' ? 10 * 1024 * 1024 : 50 * 1024 * 1024;
   if (buffer.length > maxBytes) return bad(`File too large (max ${mediaType === 'image' ? '10' : '50'} MB)`);
 
-  const ext = (fileName.split('.').pop() || 'bin').toLowerCase().replace(/[^a-z0-9]/g, '');
-  const mimeMap: Record<string, string> = {
-    jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif', webp: 'image/webp',
-    mp4: 'video/mp4', webm: 'video/webm', mov: 'video/quicktime', avi: 'video/x-msvideo',
-  };
-  const contentType = mimeMap[ext] || (mediaType === 'image' ? 'image/jpeg' : 'video/mp4');
-  const url = `data:${contentType};base64,${buffer.toString('base64')}`;
-
-  try {
-    await ensureDraftTables();
-    if (mediaType === 'video') {
-      await setPlayerVideo(playerId, url, playerName);
-    } else {
-      await setPlayerImage(playerId, url, playerName);
-    }
-  } catch (e) {
-    return bad(`DB error: ${(e as Error)?.message || 'unknown'}`, 500);
-  }
-
-  return ok({ ok: true, url });
+  // Reject direct file uploads: storing raw files as base64 data URLs in Neon causes
+  // excessive network transfer on every poll. Upload the file to an external host (e.g.
+  // Cloudflare R2, YouTube, or any public URL) and save the URL via
+  // POST /api/draft/player-videos instead.
+  void buffer; void fileName; // parsed above for validation; not used for storage
+  return bad(
+    'Direct file uploads to Neon are disabled to prevent excessive database transfer. ' +
+    'Please host the file externally and submit its URL via POST /api/draft/player-videos.',
+    400,
+  );
 }

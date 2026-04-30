@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { ensureDraftTables, getPlayerVideos, setPlayerVideo, setPlayerImage, deletePlayerVideo } from '@/server/db/queries';
+import { ensureDraftTables, getPlayerMediaSummaries, setPlayerVideo, setPlayerImage, deletePlayerVideo } from '@/server/db/queries';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -15,7 +15,10 @@ function isAdmin(req: NextRequest): boolean {
 export async function GET() {
   try {
     await ensureDraftTables();
-    const videos = await getPlayerVideos();
+    // getPlayerMediaSummaries() uses DB-side boolean expressions and CASE/LIKE guards so
+    // image_url and video_url full text values are never selected — no base64 data crosses
+    // the Neon wire even when stored media is large.
+    const videos = await getPlayerMediaSummaries();
     return ok({ videos });
   } catch (e) {
     console.error('GET /api/draft/player-videos failed', e);
@@ -35,11 +38,17 @@ export async function POST(req: NextRequest) {
     }
 
     if (body.imageUrl) {
+      if (typeof body.imageUrl === 'string' && body.imageUrl.startsWith('data:')) {
+        return bad('data: URLs are not allowed. Host the image externally and submit its URL.');
+      }
       await setPlayerImage(body.playerId, body.imageUrl, body.playerName ?? null);
       return ok({ ok: true });
     }
 
     if (!body.videoUrl) return bad('videoUrl or imageUrl required');
+    if (typeof body.videoUrl === 'string' && body.videoUrl.startsWith('data:')) {
+      return bad('data: URLs are not allowed. Host the video externally and submit its URL.');
+    }
     await setPlayerVideo(body.playerId, body.videoUrl, body.playerName ?? null);
     return ok({ ok: true });
   } catch (e) {
