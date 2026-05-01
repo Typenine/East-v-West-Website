@@ -1,5 +1,5 @@
 import { LEAGUE_IDS } from '@/lib/constants/league';
-import { getLeague, getLeagueRosters, getRosterIdToTeamNameMap } from '@/lib/utils/sleeper-api';
+import { getLeague, getLeagueRosters, getRosterIdToTeamNameMap, getLeagueTransactionsAllWeeks } from '@/lib/utils/sleeper-api';
 import { getObjectText } from '@/server/storage/r2';
 import { canonicalizeTeamName } from '@/lib/server/user-identity';
 import { getCurrentPhase } from '@/lib/utils/phase-resolver';
@@ -123,10 +123,33 @@ export async function loadDraftOwnershipForSeason(args: LoadNextDraftArgs & { se
     }
   } catch {}
 
-  
 
-  // Intentionally skip fetching Sleeper weekly transactions for speed. Ownership is determined
-  // by traded_picks plus manual overrides. History will include manual-trade events only.
+  // Fetch Sleeper league transactions to build pick transfer history for all traded picks
+  try {
+    const allTxs = await getLeagueTransactionsAllWeeks(args.leagueId, { forceFresh: true }).catch(() => []);
+    for (const tx of allTxs) {
+      if (tx.type !== 'trade' || tx.status !== 'complete') continue;
+      for (const pick of (tx.draft_picks || [])) {
+        if (String(pick.season) !== targetSeasonStr) continue;
+        const key = `${Number(pick.roster_id)}-${Number(pick.round)}`;
+        const fromRosterId = Number(pick.previous_owner_id);
+        const toRosterId = Number(pick.owner_id);
+        const fromTeam = nameMap.get(fromRosterId) || `Roster ${fromRosterId}`;
+        const toTeam = nameMap.get(toRosterId) || `Roster ${toRosterId}`;
+        const event: DraftPickTransferEvent = {
+          tradeId: tx.transaction_id,
+          timestamp: tx.status_updated,
+          fromRosterId,
+          toRosterId,
+          fromTeam,
+          toTeam,
+        };
+        const arr = historyMap.get(key) || [];
+        arr.push(event);
+        historyMap.set(key, arr);
+      }
+    }
+  } catch {}
 
   // Apply manual trades last so overrides win and appear in history
   try {

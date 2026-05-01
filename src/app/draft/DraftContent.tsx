@@ -1111,18 +1111,32 @@ function DraftOrderView() {
                 <ul className="divide-y divide-[var(--border)]">
                   {round.picks.map((p) => {
                     const style = getTeamColorStyle(p.ownerTeam);
-                    return (
-                      <li key={`${round.round}-${p.slot}`} className="flex items-center gap-3 px-3 py-2" style={{ backgroundColor: (style.backgroundColor as string) + '11' }}>
+                    const latestTradeId = p.history && p.history.length > 0
+                      ? p.history[p.history.length - 1].tradeId
+                      : null;
+                    const inner = (
+                      <>
                         <div className="text-xs font-semibold w-8 shrink-0 text-[var(--muted)]">#{p.slot}</div>
                         <div className="w-9 h-9 rounded-full flex items-center justify-center overflow-hidden shrink-0" style={style}>
                           <Image src={getTeamLogoPath(p.ownerTeam)} alt={p.ownerTeam} width={24} height={24} className="object-contain" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
                         </div>
-                        <div className="min-w-0">
+                        <div className="min-w-0 flex-1">
                           <div className="text-sm font-medium truncate text-[var(--text)]">{p.ownerTeam}</div>
                           {p.originalTeam && p.originalTeam !== p.ownerTeam && (
                             <div className="text-xs text-[var(--muted)] truncate">from {p.originalTeam}</div>
                           )}
                         </div>
+                      </>
+                    );
+                    return (
+                      <li key={`${round.round}-${p.slot}`} className="flex items-center px-3 py-2" style={{ backgroundColor: (style.backgroundColor as string) + '11' }}>
+                        {latestTradeId ? (
+                          <Link href={`/trades/${latestTradeId}`} className="flex items-center gap-3 w-full hover:opacity-75 transition-opacity cursor-pointer">
+                            {inner}
+                          </Link>
+                        ) : (
+                          <div className="flex items-center gap-3 w-full">{inner}</div>
+                        )}
                       </li>
                     );
                   })}
