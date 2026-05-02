@@ -1,7 +1,7 @@
 import { TEAM_NAMES } from '@/lib/constants/league';
 import { getUserIdForTeam } from '@/lib/server/user-identity';
 import { readUserDoc, TradeAsset, TradeWants } from '@/lib/server/user-store';
-import { getTeamAssets } from '@/lib/server/trade-assets';
+import { loadTradeBlockLeagueContext, teamAssetsFromContext } from '@/lib/server/trade-assets';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -11,13 +11,15 @@ export async function GET() {
     const rows: Array<{ team: string; tradeBlock: TradeAsset[]; tradeWants: TradeWants | null; updatedAt: string | null }>
       = [];
 
+    const tradeCtx = await loadTradeBlockLeagueContext();
+
     for (const team of TEAM_NAMES) {
       try {
         const userId = getUserIdForTeam(team);
         const doc = await readUserDoc(userId, team);
         let tradeBlock = Array.isArray(doc.tradeBlock) ? doc.tradeBlock : [];
         try {
-          const assets = await getTeamAssets(team);
+          const assets = teamAssetsFromContext(team, tradeCtx);
           const playerSet = new Set<string>(assets.players);
           const ownedYearRound = new Set<string>(assets.picks.map((p) => `${p.year}-${p.round}`));
           const filtered: TradeAsset[] = [];

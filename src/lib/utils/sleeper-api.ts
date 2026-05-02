@@ -2280,16 +2280,18 @@ export async function getLeagueTrades(leagueId: string, options?: SleeperFetchOp
  */
 export async function getAllLeagueTrades(options?: SleeperFetchOptions): Promise<Record<string, SleeperTransaction[]>> {
   try {
-    const tradesByYear: Record<string, SleeperTransaction[]> = {};
-    
-    // Build a map of year -> leagueId across current and previous seasons
     const yearToLeague = await buildYearToLeagueMapUnique(options);
-    // Process each league year
-    for (const [year, leagueId] of Object.entries(yearToLeague)) {
-      const trades = await getLeagueTrades(leagueId, options);
+    const pairs = await Promise.all(
+      Object.entries(yearToLeague).map(async ([year, leagueId]) => {
+        if (!leagueId) return [year, [] as SleeperTransaction[]] as const;
+        const trades = await getLeagueTrades(leagueId, options);
+        return [year, trades] as const;
+      })
+    );
+    const tradesByYear: Record<string, SleeperTransaction[]> = {};
+    for (const [year, trades] of pairs) {
       tradesByYear[year] = trades;
     }
-    
     return tradesByYear;
   } catch (error) {
     console.error('Error fetching all league trades:', error);

@@ -17,76 +17,6 @@ export type TeamAssets = {
   faab: number;
 };
 
-export async function getTeamAssets(team: string): Promise<TeamAssets> {
-  const leagueId = LEAGUE_IDS.CURRENT;
-  const league = await getLeague(leagueId).catch(() => null);
-  const rosters = await getLeagueRosters(leagueId).catch(() => []);
-  const nameMap = await getRosterIdToTeamNameMap(leagueId).catch(() => new Map<number, string>());
-
-  const canon = canonicalizeTeamName(team);
-  const phase = getCurrentPhase();
-
-  // Find roster for this team by owner mapping via team name heuristic
-  let rosterPlayers: string[] = [];
-  let waiverBudgetUsed = 0;
-
-  if (rosters && rosters.length > 0) {
-    const match = rosters.find((r) => nameMap.get(r.roster_id) === canon);
-    if (match) {
-      rosterPlayers = Array.isArray(match.players) ? match.players.filter(Boolean) : [];
-      // Only count waiver budget used if we're in-season
-      // During offseason/pre-season, reset to full budget
-      const inSeason = phase === 'regular_season' || phase === 'playoffs';
-      if (inSeason) {
-        const used = Number((match.settings as unknown as { waiver_budget_used?: number })?.waiver_budget_used ?? 0);
-        waiverBudgetUsed = Number.isFinite(used) ? used : 0;
-      } else {
-        waiverBudgetUsed = 0; // Full budget available in offseason
-      }
-    }
-  }
-
-  const picks: Array<{ year: number; round: number; originalTeam: string }> = [];
-  const seenPickKeys = new Set<string>();
-  const baseSeason = Number((league as unknown as { season?: string })?.season ?? new Date().getFullYear()) + 1;
-  const seasons = phase === 'post_championship_pre_draft'
-    ? [baseSeason, baseSeason + 1, baseSeason + 2]
-    : [baseSeason + 1, baseSeason + 2];
-
-  const ownerships = await Promise.all(
-    seasons.map((season) => loadDraftOwnershipForSeason({ leagueId, league, rosters, nameMap, season }))
-  );
-
-  if (rosters.length > 0) {
-    const teamRoster = rosters.find((r) => nameMap.get(r.roster_id) === canon);
-    if (teamRoster) {
-      for (const ownership of ownerships) {
-        if (!ownership) continue;
-        for (const [key, value] of Object.entries(ownership.ownership)) {
-          if (value.ownerRosterId !== teamRoster.roster_id) continue;
-          const [origRosterIdStr, roundStr] = key.split('-');
-          const round = Number(roundStr);
-          if (!Number.isFinite(round)) continue;
-          const originalTeam =
-            ownership.rosterIdToTeam[origRosterIdStr] ||
-            nameMap.get(Number(origRosterIdStr)) ||
-            canon;
-          const pickKey = `${ownership.season}-${round}-${originalTeam}`;
-          if (seenPickKeys.has(pickKey)) continue;
-          seenPickKeys.add(pickKey);
-          picks.push({ year: ownership.season, round, originalTeam });
-        }
-      }
-    }
-  }
-
-  // FAAB available estimation
-  const leagueWaiverBudget = Number(((league?.settings as unknown as { waiver_budget?: number })?.waiver_budget) ?? 100);
-  const faabAvail = Math.max(0, leagueWaiverBudget - waiverBudgetUsed);
-
-  return { players: rosterPlayers, picks, faab: faabAvail };
-}
-
 type LoadNextDraftArgs = {
   leagueId: string;
   league?: Awaited<ReturnType<typeof getLeague>> | null;
@@ -327,6 +257,91 @@ export type NextDraftOwnership = {
   ownership: Record<string, { ownerRosterId: number; history: DraftPickTransferEvent[] }>;
   tradeSummaries: Record<string, string>;
 };
+
+/** Shared league + future-pick ownership loaded once for trade block aggregation. */
+export type TradeBlockLeagueContext = {
+  leagueId: string;
+  league: Awaited<ReturnType<typeof getLeague>> | null;
+  rosters: Awaited<ReturnType<typeof getLeagueRosters>>;
+  nameMap: Map<number, string>;
+  phase: ReturnType<typeof getCurrentPhase>;
+  seasons: number[];
+  ownerships: Array<NextDraftOwnership | null>;
+};
+
+export async function loadTradeBlockLeagueContext(): Promise<TradeBlockLeagueContext> {
+  const leagueId = LEAGUE_IDS.CURRENT;
+  const league = await getLeague(leagueId).catch(() => null);
+  const rosters = await getLeagueRosters(leagueId).catch(() => []);
+  const nameMap = await getRosterIdToTeamNameMap(leagueId).catch(() => new Map<number, string>());
+  const phase = getCurrentPhase();
+  const baseSeason = Number((league as unknown as { season?: string })?.season ?? new Date().getFullYear()) + 1;
+  const seasons = phase === 'post_championship_pre_draft'
+    ? [baseSeason, baseSeason + 1, baseSeason + 2]
+    : [baseSeason + 1, baseSeason + 2];
+  const ownerships = await Promise.all(
+    seasons.map((season) => loadDraftOwnershipForSeason({ leagueId, league, rosters, nameMap, season }))
+  );
+  return { leagueId, league, rosters, nameMap, phase, seasons, ownerships };
+}
+
+export function teamAssetsFromContext(team: string, ctx: TradeBlockLeagueContext): TeamAssets {
+  const canon = canonicalizeTeamName(team);
+  const { league, rosters, nameMap, phase, ownerships } = ctx;
+
+  let rosterPlayers: string[] = [];
+  let waiverBudgetUsed = 0;
+
+  if (rosters && rosters.length > 0) {
+    const match = rosters.find((r) => nameMap.get(r.roster_id) === canon);
+    if (match) {
+      rosterPlayers = Array.isArray(match.players) ? match.players.filter(Boolean) : [];
+      const inSeason = phase === 'regular_season' || phase === 'playoffs';
+      if (inSeason) {
+        const used = Number((match.settings as unknown as { waiver_budget_used?: number })?.waiver_budget_used ?? 0);
+        waiverBudgetUsed = Number.isFinite(used) ? used : 0;
+      } else {
+        waiverBudgetUsed = 0;
+      }
+    }
+  }
+
+  const picks: Array<{ year: number; round: number; originalTeam: string }> = [];
+  const seenPickKeys = new Set<string>();
+
+  if (rosters.length > 0) {
+    const teamRoster = rosters.find((r) => nameMap.get(r.roster_id) === canon);
+    if (teamRoster) {
+      for (const ownership of ownerships) {
+        if (!ownership) continue;
+        for (const [key, value] of Object.entries(ownership.ownership)) {
+          if (value.ownerRosterId !== teamRoster.roster_id) continue;
+          const [origRosterIdStr, roundStr] = key.split('-');
+          const round = Number(roundStr);
+          if (!Number.isFinite(round)) continue;
+          const originalTeam =
+            ownership.rosterIdToTeam[origRosterIdStr] ||
+            nameMap.get(Number(origRosterIdStr)) ||
+            canon;
+          const pickKey = `${ownership.season}-${round}-${originalTeam}`;
+          if (seenPickKeys.has(pickKey)) continue;
+          seenPickKeys.add(pickKey);
+          picks.push({ year: ownership.season, round, originalTeam });
+        }
+      }
+    }
+  }
+
+  const leagueWaiverBudget = Number(((league?.settings as unknown as { waiver_budget?: number })?.waiver_budget) ?? 100);
+  const faabAvail = Math.max(0, leagueWaiverBudget - waiverBudgetUsed);
+
+  return { players: rosterPlayers, picks, faab: faabAvail };
+}
+
+export async function getTeamAssets(team: string): Promise<TeamAssets> {
+  const ctx = await loadTradeBlockLeagueContext();
+  return teamAssetsFromContext(team, ctx);
+}
 
 export async function loadNextDraftOwnership(args: LoadNextDraftArgs): Promise<NextDraftOwnership | null> {
   const league = args.league ?? (await getLeague(args.leagueId).catch(() => null));

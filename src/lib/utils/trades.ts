@@ -1,5 +1,5 @@
 import { LEAGUE_IDS } from '@/lib/constants/league';
-import { SleeperTransaction, SleeperDraftPick, getLeagueTrades, getLeagueRosters, getAllPlayers, getRosterIdToTeamNameMap, getLeagueDrafts, getDraftById, getDraftPicks, getAllLeagueTrades, buildYearToLeagueMapUnique } from '@/lib/utils/sleeper-api';
+import { SleeperTransaction, SleeperDraftPick, SleeperRoster, getLeagueTrades, getLeagueRosters, getAllPlayers, getRosterIdToTeamNameMap, getLeagueDrafts, getDraftById, getDraftPicks, getAllLeagueTrades, buildYearToLeagueMapUnique } from '@/lib/utils/sleeper-api';
 
 // Define trade types
 export type TradeAsset = {
@@ -36,25 +36,44 @@ export type TradeAsset = {
  */
 export const fetchTradesAllTime = async (): Promise<Trade[]> => {
   try {
-    const trades: Trade[] = [];
     const transactionsByYear = await getAllLeagueTrades();
 
     // Map year -> leagueId like sleeper-api does internally
     const yearToLeague = await buildYearToLeagueMapUnique();
 
-    for (const [year, txns] of Object.entries(transactionsByYear)) {
-      const leagueId = yearToLeague[year];
-      if (!leagueId) continue;
-      for (const transaction of txns) {
-        if (tradesCache[transaction.transaction_id]) {
-          trades.push(tradesCache[transaction.transaction_id]);
-          continue;
-        }
-        const trade = await convertSleeperTradeToTrade(transaction, leagueId, year);
-        tradesCache[transaction.transaction_id] = trade;
-        trades.push(trade);
+    const ctxByLeague = new Map<string, TradeLeagueContext>();
+    async function ctxFor(leagueId: string): Promise<TradeLeagueContext> {
+      let c = ctxByLeague.get(leagueId);
+      if (!c) {
+        c = await loadTradeLeagueContext(leagueId);
+        ctxByLeague.set(leagueId, c);
       }
+      return c;
     }
+
+    if (!playersCache) {
+      playersCache = await getAllPlayers();
+    }
+
+    const yearChunks = await Promise.all(
+      Object.entries(transactionsByYear).map(async ([year, txns]) => {
+        const leagueId = yearToLeague[year];
+        if (!leagueId) return [] as Trade[];
+        const ctx = await ctxFor(leagueId);
+        return Promise.all(
+          txns.map(async (transaction) => {
+            if (tradesCache[transaction.transaction_id]) {
+              return tradesCache[transaction.transaction_id];
+            }
+            const trade = await convertSleeperTradeToTrade(transaction, leagueId, year, ctx);
+            tradesCache[transaction.transaction_id] = trade;
+            return trade;
+          })
+        );
+      })
+    );
+
+    const trades = yearChunks.flat();
 
     // Merge manual trades (all years)
     const manual = await fetchManualTrades({ all: true });
@@ -204,6 +223,18 @@ async function getDraftContext(leagueId: string, season: string): Promise<DraftC
 
 type BecameInfo = { name?: string; position?: string; team?: string; pickInRound?: number; playerId?: string; draftSlot?: number };
 
+type TradeLeagueContext = {
+  rosterIdToTeam: Map<number, string>;
+  rosterMap: Map<number, SleeperRoster>;
+};
+
+async function loadTradeLeagueContext(leagueId: string): Promise<TradeLeagueContext> {
+  const rosterIdToTeam = await getRosterIdToTeamNameMap(leagueId);
+  const rosters = await getLeagueRosters(leagueId);
+  const rosterMap = new Map(rosters.map((r) => [r.roster_id, r] as const));
+  return { rosterIdToTeam, rosterMap };
+}
+
 async function resolvePickBecame(season: string, round: number, originalRosterId: number): Promise<BecameInfo | undefined> {
   const seasonLeagueId = getLeagueIdForSeason(season);
   if (!seasonLeagueId) return undefined;
@@ -264,11 +295,14 @@ async function convertSleeperTradeToTrade(
   transaction: SleeperTransaction,
   leagueId: string,
   seasonHint?: string,
+  preloaded?: TradeLeagueContext,
 ): Promise<Trade> {
-  // Build rosterId -> canonical team name map for the league
-  const rosterIdToTeam = await getRosterIdToTeamNameMap(leagueId);
-  const rosters = await getLeagueRosters(leagueId);
-  const rosterMap = new Map(rosters.map(r => [r.roster_id, r]));
+  const rosterIdToTeam = preloaded
+    ? preloaded.rosterIdToTeam
+    : await getRosterIdToTeamNameMap(leagueId);
+  const rosterMap = preloaded
+    ? preloaded.rosterMap
+    : new Map((await getLeagueRosters(leagueId)).map((r) => [r.roster_id, r] as const));
 
   // Resolve canonical names in transaction order
   const teamNames = transaction.roster_ids.map((rosterId) => {
@@ -626,25 +660,24 @@ export const fetchTradesByYear = async (year: string): Promise<Trade[]> => {
       return [];
     }
     
-    // Fetch trades from Sleeper API
     const sleeperTrades = await getLeagueTrades(leagueId);
-    
-    // Convert Sleeper trades to our format
-    const trades: Trade[] = [];
-    
-    for (const transaction of sleeperTrades) {
-      // Skip if we've already processed this trade
-      if (tradesCache[transaction.transaction_id]) {
-        trades.push(tradesCache[transaction.transaction_id]);
-        continue;
-      }
-      
-      // Convert and cache the trade
-      const trade = await convertSleeperTradeToTrade(transaction, leagueId, year);
-      tradesCache[transaction.transaction_id] = trade;
-      trades.push(trade);
+    const ctx = await loadTradeLeagueContext(leagueId);
+
+    if (!playersCache) {
+      playersCache = await getAllPlayers();
     }
-    
+
+    const trades = await Promise.all(
+      sleeperTrades.map(async (transaction) => {
+        if (tradesCache[transaction.transaction_id]) {
+          return tradesCache[transaction.transaction_id];
+        }
+        const trade = await convertSleeperTradeToTrade(transaction, leagueId, year, ctx);
+        tradesCache[transaction.transaction_id] = trade;
+        return trade;
+      })
+    );
+
     // Merge manual trades for this year
     const manual = await fetchManualTrades({ year });
     if (manual.length) {

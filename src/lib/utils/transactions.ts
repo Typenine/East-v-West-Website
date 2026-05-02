@@ -38,56 +38,60 @@ export function listAllSeasons(): string[] {
 
 export async function buildTransactionLedger(arg?: { season?: string }): Promise<LeagueTransaction[]> {
   const players = await getAllPlayersCached().catch(() => ({} as Record<string, SleeperPlayer>));
-  const out: LeagueTransaction[] = [];
 
   const yearToLeague = await buildYearToLeagueMapUnique();
 
   const entries = Object.entries(yearToLeague).filter(([season]) => !arg?.season || arg.season === season);
 
-  for (const [season, leagueId] of entries) {
-    if (!leagueId) continue;
-    const transactions = await getLeagueTransactionsAllWeeks(leagueId).catch(() => [] as SleeperTransaction[]);
-    const rosterNameMap = await getRosterIdToTeamNameMap(leagueId).catch(() => new Map<number, string>());
+  const partials = await Promise.all(
+    entries.map(async ([season, leagueId]) => {
+      if (!leagueId) return [] as LeagueTransaction[];
+      const transactions = await getLeagueTransactionsAllWeeks(leagueId).catch(() => [] as SleeperTransaction[]);
+      const rosterNameMap = await getRosterIdToTeamNameMap(leagueId).catch(() => new Map<number, string>());
+      const chunk: LeagueTransaction[] = [];
 
-    for (const txn of transactions) {
-      if (!txn || txn.status !== "complete") continue;
-      if (txn.type !== "waiver" && txn.type !== "free_agent") continue;
+      for (const txn of transactions) {
+        if (!txn || txn.status !== "complete") continue;
+        if (txn.type !== "waiver" && txn.type !== "free_agent") continue;
 
-      const week = Number(txn.leg ?? 0) || 0;
-      const created = Number(txn.created ?? 0) || 0;
+        const week = Number(txn.leg ?? 0) || 0;
+        const created = Number(txn.created ?? 0) || 0;
 
-      const addsEntries = Object.entries(txn.adds || {});
-      if (addsEntries.length === 0) continue;
+        const addsEntries = Object.entries(txn.adds || {});
+        if (addsEntries.length === 0) continue;
 
-      const dropsEntries = Object.entries(txn.drops || {});
+        const dropsEntries = Object.entries(txn.drops || {});
 
-      for (const [playerId, rosterId] of addsEntries) {
-        const teamName = rosterNameMap.get(rosterId) || `Roster ${rosterId}`;
-        const addedPlayer = players[playerId];
-        const added = [buildPlayerRecord(playerId, addedPlayer)];
-        const dropped = dropsEntries
-          .filter(([, dropRosterId]) => dropRosterId === rosterId)
-          .map(([pid]) => buildPlayerRecord(pid, players[pid]));
+        for (const [playerId, rosterId] of addsEntries) {
+          const teamName = rosterNameMap.get(rosterId) || `Roster ${rosterId}`;
+          const addedPlayer = players[playerId];
+          const added = [buildPlayerRecord(playerId, addedPlayer)];
+          const dropped = dropsEntries
+            .filter(([, dropRosterId]) => dropRosterId === rosterId)
+            .map(([pid]) => buildPlayerRecord(pid, players[pid]));
 
-        const faab = resolveWaiverBid(txn, rosterId);
+          const faab = resolveWaiverBid(txn, rosterId);
 
-        out.push({
-          id: txn.transaction_id,
-          type: txn.type,
-          season,
-          week,
-          created,
-          team: teamName,
-          rosterId,
-          added,
-          dropped,
-          faab,
-          metadata: txn.metadata || undefined,
-        });
+          chunk.push({
+            id: txn.transaction_id,
+            type: txn.type,
+            season,
+            week,
+            created,
+            team: teamName,
+            rosterId,
+            added,
+            dropped,
+            faab,
+            metadata: txn.metadata || undefined,
+          });
+        }
       }
-    }
-  }
+      return chunk;
+    })
+  );
 
+  const out = partials.flat();
   out.sort((a, b) => b.created - a.created);
   return out;
 }
