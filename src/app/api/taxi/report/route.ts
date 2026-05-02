@@ -56,7 +56,7 @@ export async function GET() {
         const msgParts: string[] = [];
         const nonCompliant = !res.compliant;
         for (const v of res.violations) {
-          if (v.code === 'too_many_on_taxi') msgParts.push('>3 players on taxi');
+          if (v.code === 'too_many_on_taxi') msgParts.push('>4 players on taxi');
           else if (v.code === 'too_many_qbs') msgParts.push('2+ QBs on taxi (limit 1)');
           else if (v.code === 'invalid_intake') msgParts.push('Taxi intake must be FA/Trade/Draft');
           else if (v.code === 'roster_inconsistent') msgParts.push('Taxi conflicts with starters/IR');
