@@ -81,6 +81,8 @@ export default function Navbar() {
   const [changeMsg, setChangeMsg] = useState<string | null>(null);
   const [changeLoading, setChangeLoading] = useState(false);
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
+  const [desktopMenuOpen, setDesktopMenuOpen] = useState<string | null>(null);
+  const desktopMenuRef = useRef<HTMLDivElement | null>(null);
   const accountMenuRef = useRef<HTMLDivElement | null>(null);
   const currentPinRef = useRef<HTMLInputElement | null>(null);
   const newPinRef = useRef<HTMLInputElement | null>(null);
@@ -171,9 +173,22 @@ export default function Navbar() {
       if (!accountMenuRef.current.contains(e.target as Node)) {
         setAccountMenuOpen(false);
       }
+      if (desktopMenuRef.current && !desktopMenuRef.current.contains(e.target as Node)) {
+        setDesktopMenuOpen(null);
+      }
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setDesktopMenuOpen(null);
+        setAccountMenuOpen(false);
+      }
     };
     document.addEventListener('mousedown', onDocClick);
-    return () => document.removeEventListener('mousedown', onDocClick);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', onDocClick);
+      document.removeEventListener('keydown', onKeyDown);
+    };
   }, []);
 
   const handleLogout = async () => {
@@ -202,10 +217,11 @@ export default function Navbar() {
               </Link>
             </div>
             <div className="hidden md:block">
-              <div className="ml-10 flex items-center gap-1">
+              <div className="ml-10 flex items-center gap-1" ref={desktopMenuRef}>
                 {USER_NAV_CONFIG.map((item) => {
                   const itemActive = isNavItemActive(item, pathname, currentQuery);
                   const hasChildren = Boolean(item.children && item.children.length > 0);
+                  const menuOpen = desktopMenuOpen === item.id;
 
                   if (!hasChildren && item.href) {
                     return (
@@ -229,12 +245,20 @@ export default function Navbar() {
                         size="sm"
                         className="inline-flex items-center gap-1"
                         aria-haspopup="menu"
+                        aria-expanded={menuOpen}
+                        aria-controls={`desktop-menu-${item.id}`}
+                        onClick={() => setDesktopMenuOpen((open) => open === item.id ? null : item.id)}
+                        onMouseEnter={() => setDesktopMenuOpen(item.id)}
+                        onFocus={() => setDesktopMenuOpen(item.id)}
                       >
                         {item.label}
                         <span className="text-xs">▾</span>
                       </Button>
 
-                      <div className="absolute left-0 top-full z-50 invisible opacity-0 pointer-events-none group-hover:visible group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity duration-150">
+                      <div
+                        id={`desktop-menu-${item.id}`}
+                        className={`absolute left-0 top-full z-50 transition-opacity duration-150 ${menuOpen ? 'visible opacity-100 pointer-events-auto' : 'invisible opacity-0 pointer-events-none'}`}
+                      >
                         <div className="min-w-[220px] evw-surface border border-[var(--border)] rounded-md shadow-lg p-1">
                           {(() => {
                             const bestChild = findBestActive(item.children || [], pathname, currentQuery);
@@ -250,6 +274,7 @@ export default function Navbar() {
                                     key={child.id}
                                     href={child.href || '#'}
                                     className={`block rounded px-2 py-1.5 text-sm ${childBranchActive ? 'bg-[var(--surface-strong)] text-[var(--text)] font-medium' : 'hover:bg-[var(--surface-strong)] text-[var(--text)]'}`}
+                                    onClick={() => setDesktopMenuOpen(null)}
                                   >
                                     {child.label}
                                   </Link>
@@ -261,6 +286,7 @@ export default function Navbar() {
                                   <Link
                                     href={child.href || '#'}
                                     className={`flex items-center justify-between rounded px-2 py-1.5 text-sm ${childBranchActive ? 'bg-[var(--surface-strong)] text-[var(--text)] font-medium' : 'hover:bg-[var(--surface-strong)] text-[var(--text)]'}`}
+                                    onClick={() => setDesktopMenuOpen(null)}
                                   >
                                     <span>{child.label}</span>
                                     <span aria-hidden="true">▸</span>
@@ -275,6 +301,7 @@ export default function Navbar() {
                                             key={grand.id}
                                             href={grand.href || '#'}
                                             className={`block rounded px-2 py-1.5 text-sm ${grandActive ? 'bg-[var(--surface-strong)] text-[var(--text)] font-medium' : 'hover:bg-[var(--surface-strong)] text-[var(--text)]'}`}
+                                            onClick={() => setDesktopMenuOpen(null)}
                                           >
                                             {grand.label}
                                           </Link>
@@ -423,7 +450,6 @@ export default function Navbar() {
       <div
         className={`${mobileMenuOpen ? 'block' : 'hidden'} md:hidden relative z-40`}
         id="mobile-menu"
-        role="menu"
         aria-labelledby="mobile-menu-button"
       >
         <div className="px-2 pt-2 pb-3 space-y-1 sm:px-3">

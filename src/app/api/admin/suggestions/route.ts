@@ -1,18 +1,15 @@
 import { NextRequest } from 'next/server';
 import { updateSuggestionStatus, deleteSuggestion, setSuggestionSponsor, setSuggestionVague, setSuggestionVoteTag, setSuggestionProposer, setSuggestionTitle } from '@/server/db/queries';
 import { canonicalizeTeamName } from '@/lib/server/user-identity';
+import { isAdminCookieValue } from '@/lib/auth/admin';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-function getSecret(): string {
-  return process.env.EVW_ADMIN_SECRET || '002023';
-}
-
 function isAdmin(req: NextRequest): boolean {
   try {
     const cookie = req.cookies.get('evw_admin')?.value;
-    return cookie === getSecret();
+    return isAdminCookieValue(cookie);
   } catch {
     return false;
   }

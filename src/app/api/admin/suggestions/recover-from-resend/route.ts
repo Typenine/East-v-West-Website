@@ -1,18 +1,18 @@
 import { NextRequest } from 'next/server';
 import { Suggestion } from '@/app/api/suggestions/route';
+import { getConfiguredAdminSecret, isAdminCookieValue } from '@/lib/auth/admin';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 function isAdmin(req: NextRequest): boolean {
-  const adminSecret = process.env.EVW_ADMIN_SECRET || '002023';
+  const adminSecret = getConfiguredAdminSecret();
+  if (!adminSecret) return false;
   const auth = req.headers.get('authorization');
   if (auth && auth.startsWith('Bearer ')) return auth.slice('Bearer '.length) === adminSecret;
   const hdr = req.headers.get('x-admin-key');
   if (hdr && hdr === adminSecret) return true;
-  const cookie = req.cookies.get('evw_admin')?.value;
-  if (cookie && cookie === adminSecret) return true;
-  return false;
+  return isAdminCookieValue(req.cookies.get('evw_admin')?.value);
 }
 
 function getResendKey(req: NextRequest): string | undefined {
@@ -100,7 +100,7 @@ export async function GET(req: NextRequest) {
   try {
     const url = new URL(req.url);
     const key = url.searchParams.get('key') || '';
-    const adminSecret = process.env.EVW_ADMIN_SECRET || '002023';
+    const adminSecret = getConfiguredAdminSecret();
     if (!key || key !== adminSecret) return Response.json({ error: 'forbidden' }, { status: 403 });
 
     // Same flow as POST

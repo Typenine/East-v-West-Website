@@ -6,6 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { LEAGUE_IDS } from '@/lib/constants/league';
+import { getConfiguredAdminSecret, isAdminCookieValue } from '@/lib/auth/admin';
 import { 
   generateNewsletter,
   buildH2HContext,
@@ -450,19 +451,16 @@ When creating the preseason preview:
 
 // ============ Auth Helper ============
 
-function getSecret(): string {
-  return process.env.EVW_ADMIN_SECRET || '002023';
-}
-
 async function isAdmin(req?: NextRequest): Promise<boolean> {
   const cookieStore = await cookies();
   const adminCookie = cookieStore.get('evw_admin');
-  const secret = getSecret();
+  const secret = getConfiguredAdminSecret();
+  if (!secret) return false;
   // Allow header or query param for cron invocations
   const headerSecret = req?.headers.get('x-admin-secret');
   const urlSecret = req ? new URL(req.url).searchParams.get('secret') : null;
   return (
-    adminCookie?.value === secret ||
+    isAdminCookieValue(adminCookie?.value) ||
     headerSecret === secret ||
     urlSecret === secret
   );

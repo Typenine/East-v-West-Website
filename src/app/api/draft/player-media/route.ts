@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { isAdminCookieValue } from '@/lib/auth/admin';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 function isAdmin(req: NextRequest): boolean {
-  const secret = process.env.EVW_ADMIN_SECRET || '002023';
-  return req.cookies.get('evw_admin')?.value === secret;
+  return isAdminCookieValue(req.cookies.get('evw_admin')?.value);
 }
 
 function bad(msg: string, status = 400) {
