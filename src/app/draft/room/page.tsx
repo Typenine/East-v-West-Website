@@ -393,7 +393,7 @@ export default function DraftRoomPage() {
         if (!res.ok) return;
         const j = await res.json();
         const map: Record<string, { videoUrl: string | null; hasImage: boolean }> = {};
-        for (const v of (j.videos || [])) { map[v.playerId] = { videoUrl: v.videoUrl || null, hasImage: !!v.imageUrl }; }
+        for (const v of (j.videos || [])) { map[v.playerId] = { videoUrl: v.videoUrl || null, hasImage: !!v.hasImage }; }
         animPlayerVideosRef.current = map;
       } catch {}
     }

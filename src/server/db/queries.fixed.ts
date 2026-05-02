@@ -771,6 +771,12 @@ export async function getPlayerVideos(): Promise<Array<{ playerId: string; video
   }
 }
 
+function assertNoDataUrl(value: string, fieldLabel: string): void {
+  if (value.trimStart().toLowerCase().startsWith('data:')) {
+    throw new Error(`${fieldLabel}: data: URLs are not allowed. Host media externally and store a normal URL/path.`);
+  }
+}
+
 export async function getPlayerMediaSummaries(): Promise<Array<{ playerId: string; playerName: string | null; hasImage: boolean; hasVideo: boolean; videoUrl: string | null }>> {
   await ensureDraftTables();
   const db = getDb();
@@ -779,8 +785,8 @@ export async function getPlayerMediaSummaries(): Promise<Array<{ playerId: strin
       SELECT
         player_id,
         player_name,
-        (image_url IS NOT NULL AND image_url <> '') AS has_image,
-        (video_url IS NOT NULL AND video_url <> '') AS has_video,
+        (image_url IS NOT NULL AND image_url <> '' AND image_url NOT LIKE 'data:%') AS has_image,
+        (video_url IS NOT NULL AND video_url <> '' AND video_url NOT LIKE 'data:%') AS has_video,
         CASE WHEN video_url IS NOT NULL AND video_url NOT LIKE 'data:%' THEN video_url ELSE NULL END AS safe_video_url
       FROM player_videos
       ORDER BY player_id
@@ -800,7 +806,7 @@ export async function getPlayerMediaSummaries(): Promise<Array<{ playerId: strin
       SELECT
         player_id,
         player_name,
-        (video_url IS NOT NULL AND video_url <> '') AS has_video,
+        (video_url IS NOT NULL AND video_url <> '' AND video_url NOT LIKE 'data:%') AS has_video,
         CASE WHEN video_url IS NOT NULL AND video_url NOT LIKE 'data:%' THEN video_url ELSE NULL END AS safe_video_url
       FROM player_videos
       ORDER BY player_id
@@ -835,6 +841,7 @@ export async function getPlayerMediaById(playerId: string): Promise<{ playerId: 
 }
 
 export async function setPlayerVideo(playerId: string, videoUrl: string, playerName?: string | null): Promise<void> {
+  assertNoDataUrl(videoUrl, 'videoUrl');
   await ensureDraftTables();
   const db = getDb();
   await db.execute(sql`
@@ -845,6 +852,7 @@ export async function setPlayerVideo(playerId: string, videoUrl: string, playerN
 }
 
 export async function setPlayerImage(playerId: string, imageUrl: string, playerName?: string | null): Promise<void> {
+  assertNoDataUrl(imageUrl, 'imageUrl');
   await ensureDraftTables(); // ensures image_url column exists via ALTER TABLE IF NOT EXISTS
   const db = getDb();
   await db.execute(sql`

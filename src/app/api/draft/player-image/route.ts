@@ -12,7 +12,7 @@ export async function GET(req: NextRequest) {
     const entry = await getPlayerMediaById(playerId);
     if (!entry?.imageUrl) return new NextResponse(null, { status: 404 });
 
-    const imageUrl = entry.imageUrl;
+    const imageUrl = entry.imageUrl.trim();
 
     if (imageUrl.startsWith('data:')) {
       const commaIdx = imageUrl.indexOf(',');
@@ -30,7 +30,15 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    return NextResponse.redirect(imageUrl);
+    if (imageUrl.startsWith('/')) {
+      return NextResponse.redirect(new URL(imageUrl, req.nextUrl.origin));
+    }
+
+    if (imageUrl.startsWith('http://') || imageUrl.startsWith('https://')) {
+      return NextResponse.redirect(imageUrl);
+    }
+
+    return new NextResponse(null, { status: 404 });
   } catch {
     return new NextResponse(null, { status: 500 });
   }

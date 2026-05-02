@@ -39,14 +39,13 @@ type DraftOverview = {
 };
 
 function PlayerMediaCard() {
-  type MediaEntry = { playerId: string; videoUrl: string | null; imageUrl: string | null; playerName: string | null };
+  type MediaEntry = { playerId: string; playerName: string | null; hasImage: boolean; hasVideo: boolean; videoUrl: string | null };
   const [media, setMedia] = useState<MediaEntry[]>([]);
   const [playerSearch, setPlayerSearch] = useState('');
   const [searchResults, setSearchResults] = useState<Array<{ id: string; name: string; pos: string; nfl: string }>>([]);
   const [selectedPlayer, setSelectedPlayer] = useState<{ id: string; name: string; pos: string; nfl: string } | null>(null);
   const [videoUrl, setVideoUrl] = useState('');
-  const [videoFile, setVideoFile] = useState<File | null>(null);
-  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [imageUrl, setImageUrl] = useState('');
   const [saving, setSaving] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [uploadProgress, setUploadProgress] = useState<string | null>(null);
@@ -77,54 +76,41 @@ function PlayerMediaCard() {
     if (!selectedPlayer) return;
     setSaving(true);
     try {
+      if (imageUrl.trim() && imageUrl.trim().toLowerCase().startsWith('data:')) {
+        alert('data: URLs are not allowed. Use a hosted URL or app path.');
+        return;
+      }
+      if (videoUrl.trim() && videoUrl.trim().toLowerCase().startsWith('data:')) {
+        alert('data: URLs are not allowed. Use a hosted URL.');
+        return;
+      }
       if (videoUrl.trim()) {
         setUploadProgress('Saving video URL…');
-        await fetch('/api/draft/player-videos', {
+        const r = await fetch('/api/draft/player-videos', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ playerId: selectedPlayer.id, videoUrl: videoUrl.trim(), playerName: selectedPlayer.name }),
         });
+        if (!r.ok) {
+          const err = await r.json().catch(() => ({}));
+          alert(`Video URL save failed: ${err?.error || r.status}`);
+          return;
+        }
         setVideoUrl('');
       }
-      if (videoFile) {
-        setUploadProgress(`Uploading ${videoFile.name}…`);
-        const base64 = await new Promise<string>((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = () => resolve((reader.result as string).split(',')[1] ?? '');
-          reader.onerror = reject;
-          reader.readAsDataURL(videoFile);
-        });
-        const r = await fetch('/api/draft/player-media', {
+      if (imageUrl.trim()) {
+        setUploadProgress('Saving image URL/path…');
+        const r = await fetch('/api/draft/player-videos', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ playerId: selectedPlayer.id, playerName: selectedPlayer.name, type: 'video', fileData: base64, fileName: videoFile.name }),
+          body: JSON.stringify({ playerId: selectedPlayer.id, imageUrl: imageUrl.trim(), playerName: selectedPlayer.name }),
         });
         if (!r.ok) {
           const err = await r.json().catch(() => ({}));
-          alert(`Video upload failed: ${err?.error || r.status}`);
+          alert(`Image URL save failed: ${err?.error || r.status}`);
           return;
         }
-        setVideoFile(null);
-      }
-      if (imageFile) {
-        setUploadProgress(`Uploading ${imageFile.name}…`);
-        const base64 = await new Promise<string>((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = () => resolve((reader.result as string).split(',')[1] ?? '');
-          reader.onerror = reject;
-          reader.readAsDataURL(imageFile);
-        });
-        const r = await fetch('/api/draft/player-media', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ playerId: selectedPlayer.id, playerName: selectedPlayer.name, type: 'image', fileData: base64, fileName: imageFile.name }),
-        });
-        if (!r.ok) {
-          const err = await r.json().catch(() => ({}));
-          alert(`Image upload failed: ${err?.error || r.status}`);
-          return;
-        }
-        setImageFile(null);
+        setImageUrl('');
       }
       setSelectedPlayer(null); setPlayerSearch(''); setSearchResults([]);
       await loadMedia();
@@ -146,7 +132,7 @@ function PlayerMediaCard() {
     finally { setDeletingId(null); }
   }
 
-  const canSave = !!(selectedPlayer && (videoUrl.trim() || videoFile || imageFile));
+  const canSave = !!(selectedPlayer && (videoUrl.trim() || imageUrl.trim()));
 
   return (
     <div className="max-w-4xl space-y-6">
@@ -183,34 +169,25 @@ function PlayerMediaCard() {
                 <div className="flex items-center gap-2 p-2 bg-zinc-700/50 rounded text-sm">
                   <span className="font-semibold text-white">{selectedPlayer.name}</span>
                   <span className="text-zinc-400">{selectedPlayer.pos} · {selectedPlayer.nfl}</span>
-                  <button type="button" className="ml-auto text-zinc-400 hover:text-white" onClick={() => { setSelectedPlayer(null); setVideoUrl(''); setVideoFile(null); setImageFile(null); }}>✕ Clear</button>
+                  <button type="button" className="ml-auto text-zinc-400 hover:text-white" onClick={() => { setSelectedPlayer(null); setVideoUrl(''); setImageUrl(''); }}>✕ Clear</button>
                 </div>
               )}
             </div>
 
             {/* Video */}
             <div className="space-y-2">
-              <Label className="block text-sm font-semibold">2. Video <span className="text-zinc-500 font-normal">(YouTube URL or local file)</span></Label>
+              <Label className="block text-sm font-semibold">2. Video <span className="text-zinc-500 font-normal">(hosted URL only)</span></Label>
               <Input value={videoUrl} onChange={e => setVideoUrl(e.target.value)}
-                placeholder="https://youtube.com/watch?v=… or leave blank to use file" className="w-full" disabled={!selectedPlayer} />
-              <div className="flex items-center gap-3">
-                <span className="text-xs text-zinc-500">Or upload file:</span>
-                <input type="file" accept="video/*" disabled={!selectedPlayer}
-                  className="text-sm text-zinc-300 file:mr-2 file:py-1 file:px-2 file:rounded file:border-0 file:bg-zinc-700 file:text-white hover:file:bg-zinc-600"
-                  onChange={e => setVideoFile(e.target.files?.[0] || null)} />
-                {videoFile && <span className="text-xs text-green-400">{videoFile.name}</span>}
-              </div>
+                placeholder="https://youtube.com/watch?v=… or another hosted URL" className="w-full" disabled={!selectedPlayer} />
+              <p className="text-xs text-zinc-500">Direct file uploads to Neon are disabled. Use a hosted URL.</p>
             </div>
 
             {/* Image */}
             <div className="space-y-2">
-              <Label className="block text-sm font-semibold">3. Player Image <span className="text-zinc-500 font-normal">(headshot for draft card)</span></Label>
-              <div className="flex items-center gap-3">
-                <input type="file" accept="image/*" disabled={!selectedPlayer}
-                  className="text-sm text-zinc-300 file:mr-2 file:py-1 file:px-2 file:rounded file:border-0 file:bg-zinc-700 file:text-white hover:file:bg-zinc-600"
-                  onChange={e => setImageFile(e.target.files?.[0] || null)} />
-                {imageFile && <span className="text-xs text-green-400">{imageFile.name}</span>}
-              </div>
+              <Label className="block text-sm font-semibold">3. Player Image <span className="text-zinc-500 font-normal">(URL or app path)</span></Label>
+              <Input value={imageUrl} onChange={e => setImageUrl(e.target.value)}
+                placeholder="https://... or /player-images/cam-ward.webp" className="w-full" disabled={!selectedPlayer} />
+              <p className="text-xs text-zinc-500">`data:` URLs are blocked. Use a normal URL/path only.</p>
             </div>
 
             {uploadProgress && <p className="text-sm text-blue-400 animate-pulse">{uploadProgress}</p>}
@@ -232,17 +209,17 @@ function PlayerMediaCard() {
             <div className="space-y-2">
               {media.map(m => (
                 <div key={m.playerId} className="flex items-center gap-3 p-2 bg-zinc-800/40 rounded">
-                  {m.imageUrl ? (
-                    <img src={m.imageUrl} alt={m.playerName || ''} className="w-10 h-12 object-cover rounded flex-shrink-0" style={{ objectPosition: 'top center' }} />
+                  {m.hasImage ? (
+                    <img src={`/api/draft/player-image?playerId=${encodeURIComponent(m.playerId)}`} alt={m.playerName || ''} className="w-10 h-12 object-cover rounded flex-shrink-0" style={{ objectPosition: 'top center' }} />
                   ) : (
                     <div className="w-10 h-12 bg-zinc-700 rounded flex-shrink-0 flex items-center justify-center text-zinc-500 text-xs">No img</div>
                   )}
                   <div className="flex-1 min-w-0">
                     <div className="font-semibold text-sm text-white truncate">{m.playerName || m.playerId}</div>
                     <div className="text-xs text-zinc-400 space-x-2">
-                      {m.videoUrl && <span>🎬 {m.videoUrl.startsWith('/') ? 'local video' : m.videoUrl.length > 50 ? m.videoUrl.slice(0, 50) + '…' : m.videoUrl}</span>}
-                      {m.imageUrl && <span>🖼️ {m.imageUrl.startsWith('/') ? 'local image' : m.imageUrl.slice(0, 30) + '…'}</span>}
-                      {!m.videoUrl && !m.imageUrl && <span className="text-zinc-600">no media</span>}
+                      {m.hasVideo && m.videoUrl && <span>🎬 {m.videoUrl.startsWith('/') ? 'local video' : m.videoUrl.length > 50 ? m.videoUrl.slice(0, 50) + '…' : m.videoUrl}</span>}
+                      {m.hasImage && <span>🖼️ headshot via `/api/draft/player-image`</span>}
+                      {!m.hasVideo && !m.hasImage && <span className="text-zinc-600">no media</span>}
                     </div>
                   </div>
                   <Button size="sm" variant="ghost" className="text-red-400 hover:bg-red-900/30 flex-shrink-0"
