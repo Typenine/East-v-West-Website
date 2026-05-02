@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server';
 import { presignPut, presignGet, publicUrl } from '@/server/storage/r2';
+import { isAdminCookieValue } from '@/lib/auth/admin';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -23,6 +24,10 @@ function makeKey(hint?: string, extHint?: string) {
 
 export async function POST(req: NextRequest) {
   try {
+    if (!isAdminCookieValue(req.cookies.get('evw_admin')?.value)) {
+      return Response.json({ error: 'forbidden' }, { status: 403 });
+    }
+
     requireEnv('R2_ACCOUNT_ID');
     requireEnv('R2_ACCESS_KEY_ID');
     requireEnv('R2_SECRET_ACCESS_KEY');

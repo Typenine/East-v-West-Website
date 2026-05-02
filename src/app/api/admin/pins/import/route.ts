@@ -1,18 +1,18 @@
 import { NextRequest } from 'next/server';
 import { writeTeamPinWithResult } from '@/lib/server/pins';
+import { getConfiguredAdminSecret, isAdminCookieValue } from '@/lib/auth/admin';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 function isAdmin(req: NextRequest): boolean {
-  const adminSecret = process.env.EVW_ADMIN_SECRET || '002023';
+  const adminSecret = getConfiguredAdminSecret();
+  if (!adminSecret) return false;
   const auth = req.headers.get('authorization');
   if (auth && auth.startsWith('Bearer ')) return auth.slice('Bearer '.length) === adminSecret;
   const hdr = req.headers.get('x-admin-key');
   if (hdr && hdr === adminSecret) return true;
-  const cookie = req.cookies.get('evw_admin')?.value;
-  if (cookie && cookie === adminSecret) return true;
-  return false;
+  return isAdminCookieValue(req.cookies.get('evw_admin')?.value);
 }
 
 export async function POST(req: NextRequest) {

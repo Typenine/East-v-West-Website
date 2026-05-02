@@ -1,9 +1,11 @@
 import { getNFLState, getLeagueMatchups, getTeamsData, getAllPlayersCached, getLeagueRosters } from '@/lib/utils/sleeper-api';
 import { LEAGUE_IDS } from '@/lib/constants/league';
 import { getObjectText, putObjectText } from '@/server/storage/r2';
+import { isCronAuthorized } from '@/lib/server/cron-auth';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+export const maxDuration = 60;
 
 function getLeagueIdByYear(year: string): string | null {
   const prev = (LEAGUE_IDS.PREVIOUS as Record<string, string | undefined>)[year];
@@ -14,7 +16,11 @@ function getLeagueIdByYear(year: string): string | null {
 
 type Matchup = { roster_id?: number; matchup_id?: number; starters?: string[]; players?: string[]; points?: number; custom_points?: number };
 
-export async function GET() {
+export async function GET(req: Request) {
+  if (!isCronAuthorized(req)) {
+    return Response.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
   try {
     const state = await getNFLState();
     const season = String(state.season || new Date().getFullYear());
