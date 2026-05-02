@@ -10,14 +10,24 @@ export function Tabs({
   initialId,
   activeId,
   onChange,
+  /** When true, avoid mounting all tab panels up front. */
+  lazyPanels = false,
+  /** With lazy panels, keep mounted content after first visit to preserve state. */
+  lazyMode = "unmount-inactive",
 }: {
   tabs: Tab[];
   initialId?: string;
   activeId?: string;
   onChange?: (id: string) => void;
+  lazyPanels?: boolean;
+  lazyMode?: "unmount-inactive" | "mount-once";
 }) {
   const fallbackId = useMemo(() => tabs[0]?.id, [tabs]);
   const [internalActive, setInternalActive] = useState(initialId ?? fallbackId);
+  const [visited, setVisited] = useState<Record<string, boolean>>(() => {
+    const first = initialId ?? fallbackId;
+    return first ? { [first]: true } : {};
+  });
 
   useEffect(() => {
     if (activeId !== undefined) return;
@@ -25,6 +35,11 @@ export function Tabs({
   }, [activeId, initialId, fallbackId]);
 
   const active = activeId ?? internalActive;
+
+  useEffect(() => {
+    if (!active || !lazyPanels || lazyMode !== "mount-once") return;
+    setVisited((prev) => (prev[active] ? prev : { ...prev, [active]: true }));
+  }, [active, lazyPanels, lazyMode]);
 
   const setActive = (id: string) => {
     if (activeId === undefined) setInternalActive(id);
@@ -63,7 +78,7 @@ export function Tabs({
             aria-labelledby={`tab-${t.id}`}
             hidden={active !== t.id}
           >
-            {t.content}
+            {!lazyPanels || active === t.id || (lazyMode === "mount-once" && visited[t.id]) ? t.content : null}
           </div>
         ))}
       </div>

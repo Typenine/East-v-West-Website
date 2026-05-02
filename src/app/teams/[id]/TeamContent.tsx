@@ -100,6 +100,8 @@ export default function TeamContent() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedYear, setSelectedYear] = useState(yearParam);
+  /** Main team page tab — default roster for faster load (news/taxi/records fetch deferred until visited). */
+  const [mainTab, setMainTab] = useState('roster');
   const [allTimeStats, setAllTimeStats] = useState({
     wins: 0,
     losses: 0,
@@ -156,12 +158,12 @@ export default function TeamContent() {
     violations: TaxiViolation[];
   };
   const [taxi, setTaxi] = useState<TaxiValidateResult | null>(null);
-  const [taxiLoading, setTaxiLoading] = useState(true);
+  const [taxiLoading, setTaxiLoading] = useState(false);
   const [taxiError, setTaxiError] = useState<string | null>(null);
 
-  // Load taxi analysis whenever season or team changes
+  // Load taxi analysis when Lineup tab is active (avoids extra API work on initial roster view)
   useEffect(() => {
-    if (!rosterId || !selectedYear) return;
+    if (!rosterId || !selectedYear || mainTab !== 'lineup') return;
     let mounted = true;
     (async () => {
       try {
@@ -181,7 +183,7 @@ export default function TeamContent() {
       }
     })();
     return () => { mounted = false; };
-  }, [rosterId, selectedYear]);
+  }, [rosterId, selectedYear, mainTab]);
 
   const visibleWeeklyResults = useMemo(() => {
     return (weeklyResults || []).filter((r) => r.week < playoffStartWeek || r.played);
@@ -336,8 +338,9 @@ export default function TeamContent() {
     loadPlayerWeekly(modalSeason, playerModal.playerId);
   }, [playerModalOpen, playerModal, modalSeason, loadPlayerWeekly]);
 
-  // Populate Records: multi-season aggregation with roster reconstruction
+  // Populate Records: multi-season aggregation with roster reconstruction (only when Records tab is open)
   useEffect(() => {
+    if (mainTab !== 'records') return;
     (async () => {
       if (!team) return;
       try {
@@ -506,7 +509,7 @@ export default function TeamContent() {
         setRecordsLoading(false);
       }
     })();
-  }, [team, players, selectedYear, POSITIONS, emptyCareer, emptySeason]);
+  }, [team, players, selectedYear, POSITIONS, emptyCareer, emptySeason, mainTab]);
 
   // Sorting state for roster table
   type SortKey = 'name' | 'position' | 'team' | 'gp' | 'totalPPR' | 'ppg';
@@ -744,8 +747,10 @@ export default function TeamContent() {
       .finally(() => setDraftAssetsLoading(false));
   }, [teamName]);
 
-  // Fetch roster-based news via /api/roster-news
+  // Fetch roster-based news when News is open, or on-demand for player modal.
   useEffect(() => {
+    const shouldFetchFromModal = !!selectedPlayerId && news.length === 0 && !newsLoading;
+    if (mainTab !== 'news' && !shouldFetchFromModal) return;
     const load = async () => {
       if (!team || !team.players || team.players.length === 0) return;
       try {
@@ -765,7 +770,7 @@ export default function TeamContent() {
       }
     };
     load();
-  }, [team, newsWindowHours]);
+  }, [team, newsWindowHours, mainTab, selectedPlayerId, news.length, newsLoading]);
   
   // Group news by matched player for better readability
   const newsGrouped = useMemo(() => {
@@ -924,6 +929,11 @@ export default function TeamContent() {
       
       <div style={tabsAccentVars}>
       <Tabs
+        activeId={mainTab}
+        onChange={setMainTab}
+        initialId="roster"
+        lazyPanels
+        lazyMode="mount-once"
         tabs={[
           {
             id: 'news',
