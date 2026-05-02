@@ -46,6 +46,7 @@ function PlayerMediaCard() {
   const [selectedPlayer, setSelectedPlayer] = useState<{ id: string; name: string; pos: string; nfl: string } | null>(null);
   const [videoUrl, setVideoUrl] = useState('');
   const [imageUrl, setImageUrl] = useState('');
+  const [imagePreviewStatus, setImagePreviewStatus] = useState<'idle' | 'ok' | 'error'>('idle');
   const [saving, setSaving] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [uploadProgress, setUploadProgress] = useState<string | null>(null);
@@ -80,6 +81,10 @@ function PlayerMediaCard() {
         alert('data: URLs are not allowed. Use a hosted URL or app path.');
         return;
       }
+      if (imageUrl.trim() && !imageUrl.trim().startsWith('/') && !/^https?:\/\//i.test(imageUrl.trim())) {
+        alert('Image must be a root-relative path like /player-images/name.png or an http(s) URL.');
+        return;
+      }
       if (videoUrl.trim() && videoUrl.trim().toLowerCase().startsWith('data:')) {
         alert('data: URLs are not allowed. Use a hosted URL.');
         return;
@@ -111,6 +116,7 @@ function PlayerMediaCard() {
           return;
         }
         setImageUrl('');
+        setImagePreviewStatus('idle');
       }
       setSelectedPlayer(null); setPlayerSearch(''); setSearchResults([]);
       await loadMedia();
@@ -169,7 +175,7 @@ function PlayerMediaCard() {
                 <div className="flex items-center gap-2 p-2 bg-zinc-700/50 rounded text-sm">
                   <span className="font-semibold text-white">{selectedPlayer.name}</span>
                   <span className="text-zinc-400">{selectedPlayer.pos} · {selectedPlayer.nfl}</span>
-                  <button type="button" className="ml-auto text-zinc-400 hover:text-white" onClick={() => { setSelectedPlayer(null); setVideoUrl(''); setImageUrl(''); }}>✕ Clear</button>
+                  <button type="button" className="ml-auto text-zinc-400 hover:text-white" onClick={() => { setSelectedPlayer(null); setVideoUrl(''); setImageUrl(''); setImagePreviewStatus('idle'); }}>✕ Clear</button>
                 </div>
               )}
             </div>
@@ -185,9 +191,45 @@ function PlayerMediaCard() {
             {/* Image */}
             <div className="space-y-2">
               <Label className="block text-sm font-semibold">3. Player Image <span className="text-zinc-500 font-normal">(URL or app path)</span></Label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="file"
+                  accept=".png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp"
+                  disabled={!selectedPlayer}
+                  className="text-sm text-zinc-300 file:mr-2 file:py-1 file:px-2 file:rounded file:border-0 file:bg-zinc-700 file:text-white hover:file:bg-zinc-600"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    const name = file.name.toLowerCase();
+                    if (!(/\.(png|jpe?g|webp)$/i.test(name))) {
+                      alert('Use png, jpg, jpeg, or webp images.');
+                      return;
+                    }
+                    setImageUrl(`/player-images/${encodeURIComponent(file.name)}`);
+                    setImagePreviewStatus('idle');
+                  }}
+                />
+              </div>
               <Input value={imageUrl} onChange={e => setImageUrl(e.target.value)}
                 placeholder="https://... or /player-images/cam-ward.webp" className="w-full" disabled={!selectedPlayer} />
-              <p className="text-xs text-zinc-500">`data:` URLs are blocked. Use a normal URL/path only.</p>
+              <p className="text-xs text-zinc-500">If you add files to the repo, place them in `public/player-images/`. Selecting a file above only fills the path; it does not upload to Neon.</p>
+              <p className="text-xs text-zinc-500">`data:` URLs are blocked. Use png/jpg/jpeg/webp URLs or paths only.</p>
+              {imageUrl.trim() ? (
+                <div className="flex items-center gap-3">
+                  <img
+                    src={imageUrl}
+                    alt="Image preview"
+                    className="w-16 h-20 object-cover rounded border border-zinc-700"
+                    onLoad={() => setImagePreviewStatus('ok')}
+                    onError={() => setImagePreviewStatus('error')}
+                  />
+                  <div className="text-xs">
+                    <div className="text-zinc-300 break-all">{imageUrl}</div>
+                    {imagePreviewStatus === 'ok' && <div className="text-emerald-400">Preview loaded.</div>}
+                    {imagePreviewStatus === 'error' && <div className="text-red-400">Preview failed. Verify the file exists under `public/player-images/` and the filename/path matches exactly.</div>}
+                  </div>
+                </div>
+              ) : null}
             </div>
 
             {uploadProgress && <p className="text-sm text-blue-400 animate-pulse">{uploadProgress}</p>}
