@@ -275,12 +275,14 @@ export default function DraftOverlayLive() {
     const gridIdx = lastPick.overall - 1;
     if (gridIdx >= 0 && gridIdx < draftGrid.length) pendingGridAnimRef.current = { idx: gridIdx, team: lastPick.team };
 
-    // Background: fetch college from Sleeper player cache
-    const playerId = lastPick.playerId;
-    fetch(`/api/draft?action=player_info&playerId=${encodeURIComponent(playerId)}`, { cache: 'no-store' })
-      .then(r => r.json())
-      .then(data => { if (data.college) setPickAnimCollege(data.college); })
-      .catch(() => {});
+    // Background: fetch college from Sleeper player cache (only for Sleeper players, not custom)
+    if (!usingCustom) {
+      const playerId = lastPick.playerId;
+      fetch(`/api/draft?action=player_info&playerId=${encodeURIComponent(playerId)}`, { cache: 'no-store' })
+        .then(r => r.json())
+        .then(data => { if (data.college) setPickAnimCollege(data.college); })
+        .catch(() => {});
+    }
 
     // Background refresh — updates playerVideosRef for future picks only
     const ac = new AbortController();
@@ -345,10 +347,10 @@ export default function DraftOverlayLive() {
     const overlay = document.createElement('div');
     overlay.style.cssText = `position:absolute;inset:0;background:${teamColor};transform:scaleX(0);transform-origin:left center;z-index:10;pointer-events:none;`;
     cell.appendChild(overlay);
-    const tl = gsap.timeline({ onComplete: () => overlay.remove() });
-    tl.to(overlay, { scaleX: 1, duration: 0.3, ease: 'power2.inOut' });
-    tl.to({}, { duration: 0.18 });
-    tl.to(overlay, { scaleX: 0, transformOrigin: 'right center', duration: 0.25, ease: 'power2.in' });
+    const tl = gsap.timeline({ delay: 0.8, onComplete: () => overlay.remove() });
+    tl.to(overlay, { scaleX: 1, duration: 0.55, ease: 'power2.inOut' });
+    tl.to({}, { duration: 0.45 });
+    tl.to(overlay, { scaleX: 0, transformOrigin: 'right center', duration: 0.45, ease: 'power2.in' });
   }, [animPhase]);
 
   return (

@@ -2,19 +2,21 @@ import { NextResponse } from 'next/server';
 import { loadNextDraftOwnership } from '@/lib/server/trade-assets';
 import { getTeamsData, getLeagueWinnersBracket, getRegularSeasonRecords, type SleeperBracketGame, derivePodiumFromWinnersBracketByYear } from '@/lib/utils/sleeper-api';
 import { LEAGUE_IDS } from '@/lib/constants/league';
-import { fetchTradeById, Trade } from '@/lib/utils/trades';
 
 export async function GET() {
   try {
-    const ownership = await loadNextDraftOwnership({ leagueId: LEAGUE_IDS.CURRENT });
+    const leagueId = LEAGUE_IDS.CURRENT;
+    const [ownership, rawTeams, regularRecords] = await Promise.all([
+      loadNextDraftOwnership({ leagueId }),
+      getTeamsData(leagueId),
+      getRegularSeasonRecords(leagueId).catch(() => null),
+    ]);
     if (!ownership) {
       return NextResponse.json({ error: 'ownership_unavailable' }, { status: 503 });
     }
 
-    const leagueId = LEAGUE_IDS.CURRENT;
-    const rawTeams = await getTeamsData(leagueId);
+    const tradeSummaries = ownership.tradeSummaries ?? {};
     // Override wins/losses with regular-season-only counts (Sleeper roster totals include consolation games)
-    const regularRecords = await getRegularSeasonRecords(leagueId).catch(() => null);
     const teams = regularRecords
       ? rawTeams.map((t) => { const r = regularRecords.get(t.rosterId); return r ? { ...t, wins: r.wins, losses: r.losses, ties: r.ties } : t; })
       : rawTeams;
@@ -192,6 +194,9 @@ export async function GET() {
         const originalTeam = ownership.rosterIdToTeam[String(slotInfo.rosterId)]
           ?? teamByRosterId.get(slotInfo.rosterId)?.teamName
           ?? `Roster ${slotInfo.rosterId}`;
+        const hist = entry?.history ?? [];
+        const latestEv = hist.length ? hist[hist.length - 1] : null;
+        const latestTradeId = latestEv?.tradeId;
         return {
           slot: slotInfo.slot,
           round,
@@ -199,7 +204,10 @@ export async function GET() {
           ownerTeam,
           originalRosterId: slotInfo.rosterId,
           ownerRosterId,
-          history: entry?.history ?? [],
+          history: hist,
+          ...(latestTradeId && tradeSummaries[latestTradeId]
+            ? { tradeSummary: tradeSummaries[latestTradeId] }
+            : {}),
         };
       });
       return { round, picks };
@@ -295,6 +303,7 @@ export async function GET() {
         ?? teamByRosterId.get(entry.ownerRosterId)?.teamName
         ?? `Roster ${entry.ownerRosterId}`;
       for (const history of entry.history) {
+        const s = tradeSummaries[history.tradeId];
         transfers.push({
           round,
           slot,
@@ -304,38 +313,12 @@ export async function GET() {
           toTeam: history.toTeam,
           originalTeam,
           ownerTeam,
+          ...(s ? { summary: s } : {}),
         });
       }
     }
 
     transfers.sort((a, b) => b.timestamp - a.timestamp);
-
-    // Attach trade summaries for context
-    const uniqueIds = Array.from(new Set(transfers.map((t) => t.tradeId))).filter(Boolean).slice(0, 30);
-    const tradeMap = new Map<string, Trade | null>();
-    await Promise.all(uniqueIds.map(async (id) => {
-      try {
-        const tr = await fetchTradeById(id);
-        tradeMap.set(id, tr);
-      } catch {
-        tradeMap.set(id, null);
-      }
-    }));
-
-    function summarizeTrade(tr: Trade | null | undefined): string | undefined {
-      if (!tr) return undefined;
-      const parts: string[] = [];
-      for (const team of tr.teams) {
-        const labels = (team.assets || []).map((a) => a.name).slice(0, 4);
-        const more = (team.assets || []).length > 4 ? '…' : '';
-        parts.push(`${team.name} received: ${labels.join(', ')}${more}`);
-      }
-      return parts.join(' | ');
-    }
-    for (const t of transfers) {
-      const tr = tradeMap.get(t.tradeId);
-      t.summary = summarizeTrade(tr);
-    }
 
     return NextResponse.json({
       season: ownership.season,

@@ -300,7 +300,14 @@ export async function POST(req: NextRequest) {
       // Validate it's actually this team's turn
       const overview = await getDraftOverview(draftId);
       if (!overview) return bad('no_draft');
-      if (overview.status !== 'LIVE') return bad('draft_not_live');
+      if (overview.status !== 'LIVE' && overview.status !== 'PAUSED') return bad('draft_not_live');
+      if (overview.status === 'PAUSED') {
+        // Don't allow a new pick if one is already waiting for admin approval
+        const alreadyPending = await getPendingPick(draftId);
+        if (alreadyPending) return bad('pick_already_pending');
+        // Also block during round-end pause — admin must start the next round first
+        if (overview.roundEndPause) return bad('round_end_pause');
+      }
       // Admin picks on behalf of whoever is on the clock
       const pickingTeam = adminOverride ? (overview.onClockTeam || '') : ident!.team;
       if (!adminOverride && overview.onClockTeam !== pickingTeam) return bad('not_your_turn');

@@ -343,16 +343,16 @@ export default function DraftPickAnimation({
         <div
           className="relative z-10 rounded-2xl overflow-hidden"
           style={{
-            width: 'min(900px, 90vw)',
+            width: 'min(1100px, 96vw)',
             background: `linear-gradient(135deg, ${c1}ee 0%, ${c2}ee 100%)`,
             boxShadow: `0 24px 80px rgba(0,0,0,0.7), 0 0 60px ${c1}44`,
           }}
         >
-          <div className="flex items-stretch" style={{ minHeight: '420px' }}>
+          <div className="flex items-stretch" style={{ minHeight: '500px' }}>
             <div className="w-3 flex-shrink-0" style={{ background: c2 }} />
             <div
               className="flex-shrink-0 flex items-center justify-center overflow-hidden"
-              style={{ width: '220px', background: `${c1}88` }}
+              style={{ width: '280px', background: `${c1}88` }}
             >
               {player.imageUrl ? (
                 <img
@@ -398,7 +398,7 @@ export default function DraftPickAnimation({
                 <h1
                   className="font-black text-white leading-none uppercase"
                   style={{
-                    fontSize: 'clamp(2.5rem, 5vw, 4.5rem)',
+                    fontSize: 'clamp(2.8rem, 5.5vw, 5.5rem)',
                     textShadow: '0 3px 12px rgba(0,0,0,0.8)',
                     letterSpacing: '-0.01em',
                   }}
@@ -419,7 +419,7 @@ export default function DraftPickAnimation({
                     <div className="text-white/70 text-sm font-bold tracking-widest mb-1">{label}</div>
                     <div
                       className="font-black text-white"
-                      style={{ fontSize: '3.5rem', textShadow: '0 2px 8px rgba(0,0,0,0.8)', lineHeight: 1 }}
+                      style={{ fontSize: '4rem', textShadow: '0 2px 8px rgba(0,0,0,0.8)', lineHeight: 1 }}
                     >
                       {value}
                     </div>

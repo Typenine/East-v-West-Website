@@ -1,5 +1,12 @@
 import { LEAGUE_IDS } from '@/lib/constants/league';
-import { getLeague, getLeagueRosters, getRosterIdToTeamNameMap, getLeagueTransactionsAllWeeks } from '@/lib/utils/sleeper-api';
+import {
+  getLeague,
+  getLeagueRosters,
+  getRosterIdToTeamNameMap,
+  getLeagueTransactionsAllWeeks,
+  getAllPlayersCached,
+  type SleeperTransaction,
+} from '@/lib/utils/sleeper-api';
 import { getObjectText } from '@/server/storage/r2';
 import { canonicalizeTeamName } from '@/lib/server/user-identity';
 import { getCurrentPhase } from '@/lib/utils/phase-resolver';
@@ -100,6 +107,13 @@ export async function loadDraftOwnershipForSeason(args: LoadNextDraftArgs & { se
 
   const baseOwners: Map<string, number> = new Map();
   const historyMap: Map<string, DraftPickTransferEvent[]> = new Map();
+  const tradeSummaries: Record<string, string> = {};
+
+  function pickOrdinal(n: number): string {
+    const s = ['th', 'st', 'nd', 'rd'];
+    const v = n % 100;
+    return n + (s[(v - 20) % 10] || s[v] || s[0]);
+  }
 
   for (const r of rosters) {
     for (let rd = 1; rd <= rounds; rd++) {
@@ -125,8 +139,9 @@ export async function loadDraftOwnershipForSeason(args: LoadNextDraftArgs & { se
 
 
   // Fetch Sleeper league transactions to build pick transfer history for all traded picks
+  let allTxs: SleeperTransaction[] = [];
   try {
-    const allTxs = await getLeagueTransactionsAllWeeks(args.leagueId, { forceFresh: true }).catch(() => []);
+    allTxs = await getLeagueTransactionsAllWeeks(args.leagueId, { forceFresh: true }).catch(() => []);
     for (const tx of allTxs) {
       if (tx.type !== 'trade' || tx.status !== 'complete') continue;
       for (const pick of (tx.draft_picks || [])) {
@@ -147,6 +162,52 @@ export async function loadDraftOwnershipForSeason(args: LoadNextDraftArgs & { se
         const arr = historyMap.get(key) || [];
         arr.push(event);
         historyMap.set(key, arr);
+      }
+    }
+  } catch {}
+
+  try {
+    if (allTxs.length) {
+      const playersById = await getAllPlayersCached();
+      const rosterMap = new Map(rosters.map((r) => [r.roster_id, r] as const));
+      const teamNameForRoster = (rid: number) =>
+        nameMap.get(rid) || rosterMap.get(rid)?.metadata?.team_name || `Roster ${rid}`;
+
+      for (const tx of allTxs) {
+        if (tx.type !== 'trade' || tx.status !== 'complete') continue;
+        const rosterIds = tx.roster_ids || [];
+        if (!rosterIds.length) continue;
+        const parts: string[] = [];
+        for (const rosterId of rosterIds) {
+          const labels: string[] = [];
+          if (tx.adds) {
+            for (const [playerId, receivingRosterId] of Object.entries(tx.adds)) {
+              if (receivingRosterId !== rosterId) continue;
+              const pl = playersById[playerId];
+              labels.push(pl?.first_name && pl?.last_name ? `${pl.first_name} ${pl.last_name}` : playerId);
+            }
+          }
+          if (tx.draft_picks) {
+            for (const pick of tx.draft_picks) {
+              if (pick.owner_id !== rosterId || pick.previous_owner_id === rosterId) continue;
+              const orig = teamNameForRoster(pick.roster_id);
+              labels.push(`${pick.season} ${pickOrdinal(pick.round)} (orig ${orig})`);
+            }
+          }
+          if (tx.waiver_budget) {
+            for (const b of tx.waiver_budget) {
+              if (b.receiver === rosterId) {
+                labels.push(`$${Number(b.amount ?? 0) || 0} FAAB`);
+              }
+            }
+          }
+          const slice = labels.slice(0, 4);
+          const more = labels.length > 4 ? '…' : '';
+          if (slice.length || more) {
+            parts.push(`${teamNameForRoster(rosterId)} received: ${slice.join(', ')}${more}`);
+          }
+        }
+        if (parts.length) tradeSummaries[tx.transaction_id] = parts.join(' | ');
       }
     }
   } catch {}
@@ -177,9 +238,19 @@ export async function loadDraftOwnershipForSeason(args: LoadNextDraftArgs & { se
         }
         return null;
       };
+      function summarizeManualTradeTeams(teams: ManualTradeTeam[]): string {
+        const parts = (teams || []).map((team) => {
+          const labels = (team.assets || []).map((a) => a.name).filter(Boolean).slice(0, 4);
+          const more = (team.assets || []).length > 4 ? '…' : '';
+          return `${team.name} received: ${labels.join(', ')}${more}`;
+        });
+        return parts.join(' | ');
+      }
+
       for (const mt of trades) {
         if (mt.active === false) continue;
         if (mt.status !== 'completed') continue;
+        tradeSummaries[mt.id] = summarizeManualTradeTeams(mt.teams || []);
         const timestamp = tsFromDate(mt.date);
         for (const team of (mt.teams || [])) {
           const toRosterId = findRosterIdByTeam(team.name);
@@ -235,6 +306,7 @@ export async function loadDraftOwnershipForSeason(args: LoadNextDraftArgs & { se
     rosterCount: rosters.length,
     rosterIdToTeam,
     ownership,
+    tradeSummaries,
   };
 }
 
@@ -253,6 +325,7 @@ export type NextDraftOwnership = {
   rosterCount: number;
   rosterIdToTeam: Record<string, string>;
   ownership: Record<string, { ownerRosterId: number; history: DraftPickTransferEvent[] }>;
+  tradeSummaries: Record<string, string>;
 };
 
 export async function loadNextDraftOwnership(args: LoadNextDraftArgs): Promise<NextDraftOwnership | null> {

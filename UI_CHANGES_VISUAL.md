@@ -3,6 +3,7 @@
 ## Admin UI - New Ballot Toggle Button
 
 ### Before (Without Ballot Override):
+
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │ Admin • Suggestions Votes                                    │
@@ -23,6 +24,7 @@
 ```
 
 ### After (With Ballot Override):
+
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │ Admin • Suggestions Votes                                    │
@@ -43,6 +45,7 @@
 ```
 
 ### After Clicking "Add to Ballot" (Button turns blue):
+
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │ Admin • Suggestions Votes                                    │
@@ -66,6 +69,7 @@
 ## Public UI - Ballot Queue Changes
 
 ### Before (Only endorsement-based):
+
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │ 🗳️ Ballot Queue                                              │
@@ -87,6 +91,7 @@
 ```
 
 ### After (With forced suggestions):
+
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │ 🗳️ Ballot Queue                                              │
@@ -115,6 +120,7 @@
 ## Button States Visual
 
 ### Normal State (Not Forced):
+
 ```
 ┌─────────────────────┐
 │ 🗳️ Add to Ballot    │  ← Gray border, normal text
@@ -122,6 +128,7 @@
 ```
 
 ### Forced State (Active):
+
 ```
 ┌─────────────────────┐
 │ 🗳️ Remove from Ballot│  ← Blue background, white text
@@ -130,6 +137,7 @@
 ```
 
 ### Disabled State (While Saving):
+
 ```
 ┌─────────────────────┐
 │ 🗳️ Add to Ballot    │  ← Grayed out, not clickable
@@ -140,6 +148,7 @@
 ## Interaction Flow
 
 ### Force Add Flow:
+
 ```
 1. Admin clicks "🗳️ Add to Ballot"
    ↓
@@ -155,6 +164,7 @@
 ```
 
 ### Force Remove Flow:
+
 ```
 1. Admin clicks "🗳️ Remove from Ballot" (blue button)
    ↓
@@ -172,6 +182,7 @@
 ## Edge Cases Handled
 
 ### Case 1: Finalized Suggestion
+
 ```
 Suggestion has ballotForced = true
 Suggestion has voteTag = "vote_passed"
@@ -181,6 +192,7 @@ Reason: Finalized suggestions excluded regardless of force
 ```
 
 ### Case 2: Vague Suggestion
+
 ```
 Suggestion has ballotForced = true
 Suggestion has vague = true
@@ -190,6 +202,7 @@ Reason: Vague suggestions need clarification first
 ```
 
 ### Case 3: Both Forced and Eligible
+
 ```
 Suggestion has ballotForced = true
 Suggestion has 4 endorsements (>= 3)
@@ -202,6 +215,7 @@ Note: If admin removes force, still appears (has endorsements)
 ## Discord Behavior
 
 ### Scenario 1: Admin Forces to Ballot
+
 ```
 Initial state: 0 endorsements
 Admin action: Clicks "🗳️ Add to Ballot"
@@ -211,6 +225,7 @@ Ballot Queue: ✅ Shows suggestion
 ```
 
 ### Scenario 2: Endorsement Threshold Reached
+
 ```
 Initial state: 2 endorsements
 User action: Adds 3rd endorsement
@@ -221,6 +236,7 @@ Ballot Queue: ✅ Shows suggestion
 ```
 
 ### Scenario 3: Admin Forces, Then Threshold Reached
+
 ```
 Step 1: Admin forces (0 endorsements)
   → Discord: ❌ No webhook
@@ -234,21 +250,26 @@ Step 2: Users add 3 endorsements
 ## CSS Classes Used
 
 ### Button Base:
+
 ```css
 text-sm px-3 py-1 rounded border
 ```
 
 ### Normal State:
+
 ```css
 border-[var(--border)]
 ```
 
 ### Forced State:
+
 ```css
 bg-blue-600 text-white border-blue-600
 ```
 
 ### Disabled State:
+
 ```css
 disabled={busy === s.id}
 ```
+

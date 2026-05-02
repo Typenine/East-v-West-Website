@@ -21,6 +21,7 @@ import Input from '@/components/ui/Input';
 import Textarea from '@/components/ui/Textarea';
 import { Table, THead, TBody, Tr, Th, Td } from '@/components/ui/Table';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { Dialog, DialogBackdrop, DialogPanel, DialogTitle } from '@headlessui/react';
 
 // Draft data types
 type TeamHaul = {
@@ -1060,14 +1061,22 @@ export default function DraftContent() {
   );
 }
 
+type DraftOrderTradeModal = {
+  tradeId: string;
+  title: string;
+  summary?: string;
+  history: Array<{ tradeId: string; timestamp: number; fromTeam: string; toTeam: string }>;
+};
+
 function DraftOrderView() {
+  const [tradeModal, setTradeModal] = useState<DraftOrderTradeModal | null>(null);
   const [data, setData] = useState<{
     season: number;
     rounds: number;
     rosterCount: number;
     generatedAt?: string;
     slotOrder: Array<{ slot: number; rosterId: number; team: string; record: { wins: number; losses: number; ties: number; fpts: number; fptsAgainst: number } }>;
-    roundsData: Array<{ round: number; picks: Array<{ slot: number; round: number; originalTeam: string; ownerTeam: string; originalRosterId: number; ownerRosterId: number; history: Array<{ tradeId: string; timestamp: number; fromTeam: string; toTeam: string }> }> }>;
+    roundsData: Array<{ round: number; picks: Array<{ slot: number; round: number; originalTeam: string; ownerTeam: string; originalRosterId: number; ownerRosterId: number; history: Array<{ tradeId: string; timestamp: number; fromTeam: string; toTeam: string }>; tradeSummary?: string }> }>;
     summary: { factoids: string[]; picksPerTeam: Array<{ team: string; overall: number; firstTwo: number }>; leaders: { mostOverall: { team: string; count: number } | null; mostFirstTwo: { team: string; count: number } | null } };
     transfers: Array<{ round: number; slot: number | null; tradeId: string; timestamp: number; fromTeam: string; toTeam: string; originalTeam: string; ownerTeam: string; summary?: string }>;
   } | null>(null);
@@ -1099,6 +1108,56 @@ function DraftOrderView() {
 
   return (
     <div className="space-y-6">
+      <Dialog open={tradeModal !== null} onClose={() => setTradeModal(null)} className="relative z-[200]">
+        <DialogBackdrop
+          transition
+          className="fixed inset-0 bg-black/60 z-[200] data-closed:opacity-0 data-enter:duration-200 data-enter:ease-out data-leave:duration-150 data-leave:ease-in"
+        />
+        <div className="fixed inset-0 z-[201] flex min-h-full items-center justify-center p-4 pointer-events-none">
+          <DialogPanel
+            transition
+            className="pointer-events-auto w-full max-w-lg rounded-lg border border-[var(--border)] evw-surface shadow-xl p-5 data-closed:opacity-0 data-closed:scale-95 data-enter:duration-200 data-enter:ease-out data-leave:duration-150 data-leave:ease-in"
+          >
+            {tradeModal ? (
+              <>
+                <DialogTitle className="text-lg font-semibold text-[var(--text)] pr-8">
+                  {tradeModal.title}
+                </DialogTitle>
+                <div className="mt-3 space-y-3 text-sm text-[var(--text)]">
+                  {tradeModal.summary ? (
+                    <p className="leading-relaxed">{tradeModal.summary}</p>
+                  ) : (
+                    <p className="text-[var(--muted)]">No full trade summary available for this transaction.</p>
+                  )}
+                  <div>
+                    <div className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)] mb-1.5">Transfer chain</div>
+                    <ul className="space-y-1.5 text-sm border border-[var(--border)] rounded-md p-3 bg-[var(--surface)]/50">
+                      {tradeModal.history.map((h, i) => (
+                        <li key={`${h.tradeId}-${h.timestamp}-${i}`} className="flex flex-col gap-0.5">
+                          <span>{h.fromTeam} → {h.toTeam}</span>
+                          <span className="text-xs text-[var(--muted)]">{new Date(h.timestamp).toLocaleString()}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                </div>
+                <div className="mt-5 flex flex-wrap gap-2 justify-end">
+                  <Button type="button" variant="secondary" onClick={() => setTradeModal(null)}>
+                    Close
+                  </Button>
+                  <Link
+                    href={`/trades/${tradeModal.tradeId}`}
+                    className="btn btn-primary text-sm px-3 py-1.5 inline-flex items-center justify-center"
+                  >
+                    Open full trade page
+                  </Link>
+                </div>
+              </>
+            ) : null}
+          </DialogPanel>
+        </div>
+      </Dialog>
+
       <Card>
         <CardHeader>
           <CardTitle>Projected Draft Order • {data.season}</CardTitle>
@@ -1131,9 +1190,18 @@ function DraftOrderView() {
                     return (
                       <li key={`${round.round}-${p.slot}`} className="flex items-center px-3 py-2" style={{ backgroundColor: (style.backgroundColor as string) + '11' }}>
                         {latestTradeId ? (
-                          <Link href={`/trades/${latestTradeId}`} className="flex items-center gap-3 w-full hover:opacity-75 transition-opacity cursor-pointer">
+                          <button
+                            type="button"
+                            className="flex items-center gap-3 w-full text-left hover:opacity-75 transition-opacity cursor-pointer rounded-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus)]"
+                            onClick={() => setTradeModal({
+                              tradeId: latestTradeId,
+                              title: `Pick trade — Round ${round.round}, Slot ${p.slot}`,
+                              summary: p.tradeSummary,
+                              history: p.history,
+                            })}
+                          >
                             {inner}
-                          </Link>
+                          </button>
                         ) : (
                           <div className="flex items-center gap-3 w-full">{inner}</div>
                         )}
@@ -1183,7 +1251,19 @@ function DraftOrderView() {
                     <span className="mx-1">→</span>
                     <span>{t.toTeam}</span>
                     <span className="text-[var(--muted)]"> (now {t.ownerTeam})</span>
-                    <a href={`/trades/${t.tradeId}`} className="ml-2 text-[var(--accent-strong)] hover:underline" aria-label={`View trade ${t.tradeId}`}>Details</a>
+                    <button
+                      type="button"
+                      className="ml-2 text-[var(--accent-strong)] hover:underline"
+                      aria-label={`Trade details ${t.tradeId}`}
+                      onClick={() => setTradeModal({
+                        tradeId: t.tradeId,
+                        title: `Pick transfer — R${t.round}${typeof t.slot === 'number' ? `, S${t.slot}` : ''}`,
+                        summary: t.summary,
+                        history: [{ tradeId: t.tradeId, timestamp: t.timestamp, fromTeam: t.fromTeam, toTeam: t.toTeam }],
+                      })}
+                    >
+                      Details
+                    </button>
                   </div>
                   {t.summary ? (
                     <div className="mt-1 text-xs text-[var(--muted)]">{t.summary}</div>
