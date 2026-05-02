@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getKV } from '@/lib/server/kv';
+import { getConfiguredAdminSecret } from '@/lib/auth/admin';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 function okKey(key: string | null): boolean {
-  const primary = process.env.EVW_ADMIN_SECRET || '002023';
-  const fallback = process.env.EVW_ADMIN_SECRET_FALLBACK || '002023';
+  const primary = getConfiguredAdminSecret();
+  const fallback = process.env.EVW_ADMIN_SECRET_FALLBACK?.trim() || null;
   if (!key) return false;
   return key === primary || key === fallback;
 }

@@ -18,11 +18,12 @@ import {
 } from '@/server/db/queries.fixed';
 import { requireTeamUser } from '@/lib/server/session';
 import { snapshotDraftRosters, snapshotDraftFuturePicks, snapshotTeamRosterIfMissing } from '@/server/draft-snapshot';
+import { isAdminCookieValue } from '@/lib/auth/admin';
 
 function isAdmin(req: NextRequest): boolean {
   try {
     const cookie = req.cookies.get('evw_admin')?.value;
-    return cookie === (process.env.EVW_ADMIN_SECRET || '002023');
+    return isAdminCookieValue(cookie);
   } catch { return false; }
 }
 
@@ -81,8 +82,11 @@ export async function GET(req: NextRequest) {
   // get_team — trades involving myTeam
   if (action === 'get_team') {
     const teamParam = url.searchParams.get('team');
-    const team = teamParam || (await requireTeamUser().catch(() => null))?.team || '';
-    if (!team) return bad('team required');
+    const adminReq = isAdmin(req);
+    const ident = adminReq ? null : await requireTeamUser().catch(() => null);
+    if (teamParam && !adminReq && teamParam !== ident?.team) return bad('forbidden', 403);
+    const team = (adminReq ? teamParam : ident?.team) || '';
+    if (!team) return bad('auth_required', 401);
     const trades = await getDraftTradesForTeam(draftId, team);
     return ok({ trades });
   }
@@ -116,7 +120,9 @@ export async function POST(req: NextRequest) {
   // propose — create a new trade offer
   if (action === 'propose') {
     if (!myTeam && !adminReq) return bad('not authenticated', 401);
-    const proposingTeam = (typeof body.proposedBy === 'string' ? body.proposedBy : myTeam) || '';
+    const requestedProposer = typeof body.proposedBy === 'string' ? body.proposedBy : '';
+    if (requestedProposer && !adminReq && requestedProposer !== myTeam) return bad('forbidden', 403);
+    const proposingTeam = (adminReq ? requestedProposer : myTeam) || '';
     if (!proposingTeam) return bad('proposedBy required');
     const teams = Array.isArray(body.teams) ? (body.teams as string[]) : [];
     if (teams.length < 2 || teams.length > 3) return bad('2 or 3 teams required');
@@ -141,7 +147,9 @@ export async function POST(req: NextRequest) {
 
   // accept
   if (action === 'accept') {
-    const team = (typeof body.team === 'string' ? body.team : myTeam) || '';
+    const requestedTeam = typeof body.team === 'string' ? body.team : '';
+    if (requestedTeam && !adminReq && requestedTeam !== myTeam) return bad('forbidden', 403);
+    const team = (adminReq ? requestedTeam : myTeam) || '';
     const tradeId = typeof body.tradeId === 'string' ? body.tradeId : '';
     if (!team || !tradeId) return bad('team and tradeId required');
     const trade = await getDraftTradeById(tradeId);
@@ -154,7 +162,9 @@ export async function POST(req: NextRequest) {
 
   // reject
   if (action === 'reject') {
-    const team = (typeof body.team === 'string' ? body.team : myTeam) || '';
+    const requestedTeam = typeof body.team === 'string' ? body.team : '';
+    if (requestedTeam && !adminReq && requestedTeam !== myTeam) return bad('forbidden', 403);
+    const team = (adminReq ? requestedTeam : myTeam) || '';
     const tradeId = typeof body.tradeId === 'string' ? body.tradeId : '';
     if (!team || !tradeId) return bad('team and tradeId required');
     const trade = await getDraftTradeById(tradeId);
@@ -167,7 +177,9 @@ export async function POST(req: NextRequest) {
 
   // cancel — proposing team withdraws offer
   if (action === 'cancel') {
-    const team = (typeof body.team === 'string' ? body.team : myTeam) || '';
+    const requestedTeam = typeof body.team === 'string' ? body.team : '';
+    if (requestedTeam && !adminReq && requestedTeam !== myTeam) return bad('forbidden', 403);
+    const team = (adminReq ? requestedTeam : myTeam) || '';
     const tradeId = typeof body.tradeId === 'string' ? body.tradeId : '';
     if (!team || !tradeId) return bad('team and tradeId required');
     const trade = await getDraftTradeById(tradeId);

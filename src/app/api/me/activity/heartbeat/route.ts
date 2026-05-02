@@ -1,13 +1,10 @@
 import { cookies } from 'next/headers';
 import { requireTeamUser } from '@/lib/server/session';
 import { putObjectText } from '@/server/storage/r2';
+import { isAdminCookieValue } from '@/lib/auth/admin';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-
-function getAdminSecret(): string {
-  return process.env.EVW_ADMIN_SECRET || '002023';
-}
 
 export async function POST() {
   try {
@@ -22,7 +19,7 @@ export async function POST() {
       try {
         const jar = await cookies();
         const admin = jar.get('evw_admin')?.value;
-        if (admin && admin === getAdminSecret()) {
+        if (isAdminCookieValue(admin)) {
           team = 'ADMIN';
           userId = 'admin';
         }

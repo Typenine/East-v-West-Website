@@ -41,7 +41,10 @@ export function verifySession(token: string): Record<string, unknown> | null {
   if (parts.length !== 2) return null;
   const [data, sig] = parts;
   const expected = createHmac('sha256', secret).update(data).digest('base64url');
-  const ok = timingSafeEqual(Buffer.from(sig), Buffer.from(expected));
+  const sigBuf = Buffer.from(sig);
+  const expectedBuf = Buffer.from(expected);
+  if (sigBuf.length !== expectedBuf.length) return null;
+  const ok = timingSafeEqual(sigBuf, expectedBuf);
   if (!ok) return null;
   try {
     const json = JSON.parse(Buffer.from(data, 'base64url').toString('utf8')) as Record<string, unknown>;

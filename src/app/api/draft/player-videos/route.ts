@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { ensureDraftTables, getPlayerMediaSummaries, setPlayerVideo, setPlayerImage, deletePlayerVideo } from '@/server/db/queries';
+import { isAdminCookieValue } from '@/lib/auth/admin';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -8,8 +9,7 @@ function ok(data: unknown) { return new NextResponse(JSON.stringify(data), { sta
 function bad(msg: string, status = 400) { return new NextResponse(JSON.stringify({ error: msg }), { status, headers: { 'content-type': 'application/json' } }); }
 
 function isAdmin(req: NextRequest): boolean {
-  const secret = process.env.EVW_ADMIN_SECRET || '002023';
-  return req.cookies.get('evw_admin')?.value === secret;
+  return isAdminCookieValue(req.cookies.get('evw_admin')?.value);
 }
 
 export async function GET() {

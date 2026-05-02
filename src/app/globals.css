@@ -46,6 +46,7 @@
 html[data-theme="dark"] {
   --bg: #0B1020;
   --surface: #111727;
+  --surface-strong: #182033;
   --border: #1E2637;
   --text: #E9EDF5;
   --muted: #9AA5B1;
@@ -57,6 +58,7 @@ html[data-theme="dark"] {
 html[data-theme="light"] {
   --bg: #fcfcfc;
   --surface: #ffffff;
+  --surface-strong: #F2F4F8;
   --border: #E6E8F0;
   --text: #0B1020;
   --muted: #475467;

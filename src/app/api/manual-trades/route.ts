@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getObjectText, putObjectText } from '@/server/storage/r2';
+import { getConfiguredAdminSecret, isAdminCookieValue } from '@/lib/auth/admin';
 
 // In-memory fallback (dev/local only)
 let memoryStore: { trades: ManualTrade[]; ts: number } = { trades: [], ts: 0 };
@@ -53,16 +54,15 @@ async function saveAll(trades: ManualTrade[]) {
 }
 
 function isAdmin(req: NextRequest): boolean {
-  const adminSecret = process.env.EVW_ADMIN_SECRET || '002023';
+  const adminSecret = getConfiguredAdminSecret();
+  if (!adminSecret) return false;
   const auth = req.headers.get('authorization');
   if (auth && auth.startsWith('Bearer ')) {
     return auth.slice('Bearer '.length) === adminSecret;
   }
   const hdr = req.headers.get('x-admin-key');
   if (hdr && hdr === adminSecret) return true;
-  const cookie = req.cookies.get('evw_admin')?.value;
-  if (cookie && cookie === adminSecret) return true;
-  return false;
+  return isAdminCookieValue(req.cookies.get('evw_admin')?.value);
 }
 
 function canonicalizeStatus(raw: unknown): ('completed' | 'pending' | 'vetoed') | null {

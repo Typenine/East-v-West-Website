@@ -605,7 +605,7 @@ export default function AdminDraftPage() {
             <Button variant="ghost" size="sm">← Draft Page</Button>
           </Link>
           <Link href="/draft/room">
-            <Button variant="ghost" size="sm">� Draft Room</Button>
+            <Button variant="ghost" size="sm">Draft Room</Button>
           </Link>
         </div>
       </div>

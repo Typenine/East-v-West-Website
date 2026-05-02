@@ -1,10 +1,15 @@
 import { getNFLState } from '@/lib/utils/sleeper-api';
 import { prunePriorSeasonsKeepOfficial } from '@/server/db/queries';
+import { isCronAuthorized } from '@/lib/server/cron-auth';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-export async function GET() {
+export async function GET(req: Request) {
+  if (!isCronAuthorized(req)) {
+    return Response.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
   try {
     let seasonNum = new Date().getFullYear();
     try {

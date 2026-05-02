@@ -2,6 +2,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
+import "@xyflow/react/dist/style.css";
 import type { TradeGraph, GraphNode as EVWGraphNode } from "@/lib/utils/trade-graph";
 import {
   ReactFlow,

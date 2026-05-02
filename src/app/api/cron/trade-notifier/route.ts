@@ -10,10 +10,11 @@
  * - SITE_URL: Base URL for links in embeds
  */
 
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/server/db/client';
 import { discordNotifications } from '@/server/db/schema';
 import { eq, and } from 'drizzle-orm';
+import { isCronAuthorized } from '@/lib/server/cron-auth';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -183,7 +184,11 @@ async function markAsPosted(db: ReturnType<typeof getDb>, transactionId: string,
   }
 }
 
-export async function GET() {
+export async function GET(req: NextRequest) {
+  if (!isCronAuthorized(req)) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
   const leagueId = process.env.SLEEPER_LEAGUE_ID;
   const webhookUrl = process.env.DISCORD_TRADES_WEBHOOK_URL;
   const siteUrl = process.env.SITE_URL || 'https://eastvswest.football';

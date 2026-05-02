@@ -40,7 +40,8 @@ export default function ThemeToggle() {
       size="sm"
       onClick={toggle}
       aria-label={label}
-      aria-pressed={theme === "dark"}
+      role="switch"
+      aria-checked={theme === "light"}
       title={label}
     >
       {theme === "light" ? (

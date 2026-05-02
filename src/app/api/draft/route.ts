@@ -38,17 +38,15 @@ import type { DraftOverview } from '@/server/db/queries';
 import { TEAM_NAMES } from '@/lib/constants/league';
 import { requireTeamUser } from '@/lib/server/session';
 import { getAllPlayersCached, type SleeperPlayer } from '@/lib/utils/sleeper-api';
+import { isAdminCookieValue } from '@/lib/auth/admin';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-function getAdminSecret(): string {
-  return process.env.EVW_ADMIN_SECRET || '002023';
-}
 function isAdmin(req: NextRequest): boolean {
   try {
     const cookie = req.cookies.get('evw_admin')?.value;
-    return cookie === getAdminSecret();
+    return isAdminCookieValue(cookie);
   } catch {
     return false;
   }
