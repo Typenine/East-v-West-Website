@@ -195,6 +195,13 @@ export async function GET() {
           ?? teamByRosterId.get(slotInfo.rosterId)?.teamName
           ?? `Roster ${slotInfo.rosterId}`;
         const hist = entry?.history ?? [];
+        const historyWithSummaries = hist.map((h) => ({
+          tradeId: h.tradeId,
+          timestamp: h.timestamp,
+          fromTeam: h.fromTeam,
+          toTeam: h.toTeam,
+          ...(tradeSummaries[h.tradeId] ? { summary: tradeSummaries[h.tradeId] } : {}),
+        }));
         const latestEv = hist.length ? hist[hist.length - 1] : null;
         const latestTradeId = latestEv?.tradeId;
         return {
@@ -204,7 +211,7 @@ export async function GET() {
           ownerTeam,
           originalRosterId: slotInfo.rosterId,
           ownerRosterId,
-          history: hist,
+          history: historyWithSummaries,
           ...(latestTradeId && tradeSummaries[latestTradeId]
             ? { tradeSummary: tradeSummaries[latestTradeId] }
             : {}),

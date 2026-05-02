@@ -16,12 +16,12 @@ import Label from '@/components/ui/Label';
 import Select from '@/components/ui/Select';
 import Button from '@/components/ui/Button';
 import { getTeamColors, getTeamColorStyle, getTeamLogoPath } from '@/lib/utils/team-utils';
-import { HomeIcon, TvIcon, FireIcon, MoonIcon, BookOpenIcon } from '@heroicons/react/24/outline';
+import { HomeIcon, TvIcon, FireIcon, MoonIcon, BookOpenIcon, ChevronDownIcon } from '@heroicons/react/24/outline';
 import Input from '@/components/ui/Input';
 import Textarea from '@/components/ui/Textarea';
 import { Table, THead, TBody, Tr, Th, Td } from '@/components/ui/Table';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Dialog, DialogBackdrop, DialogPanel, DialogTitle } from '@headlessui/react';
+import { Dialog, DialogBackdrop, DialogPanel, DialogTitle, Disclosure, DisclosureButton, DisclosurePanel } from '@headlessui/react';
 
 // Draft data types
 type TeamHaul = {
@@ -1061,12 +1061,111 @@ export default function DraftContent() {
   );
 }
 
+type DraftOrderHistoryHop = {
+  tradeId: string;
+  timestamp: number;
+  fromTeam: string;
+  toTeam: string;
+  summary?: string;
+};
+
 type DraftOrderTradeModal = {
   tradeId: string;
   title: string;
   summary?: string;
-  history: Array<{ tradeId: string; timestamp: number; fromTeam: string; toTeam: string }>;
+  history: DraftOrderHistoryHop[];
 };
+
+const TRADE_SUMMARY_RECEIVED = ' received: ';
+
+function parseTradeSummarySides(summary: string | undefined): Array<{ team: string; items: string[] }> | null {
+  if (!summary?.trim()) return null;
+  const parts = summary.split(/\s*\|\s*/).map((s) => s.trim()).filter(Boolean);
+  const sides: Array<{ team: string; items: string[] }> = [];
+  for (const part of parts) {
+    const idx = part.indexOf(TRADE_SUMMARY_RECEIVED);
+    if (idx === -1) continue;
+    const teamName = part.slice(0, idx).trim();
+    const itemsRaw = part.slice(idx + TRADE_SUMMARY_RECEIVED.length).trim();
+    if (!teamName) continue;
+    const items = itemsRaw.split(',').map((s) => s.trim()).filter(Boolean);
+    sides.push({ team: teamName, items });
+  }
+  return sides.length ? sides : null;
+}
+
+function tintFromTeamStyle(style: ReturnType<typeof getTeamColorStyle>): string | undefined {
+  const c = style.backgroundColor;
+  return typeof c === 'string' ? `${c}14` : undefined;
+}
+
+function TradeBreakdown({ summary }: { summary: string | undefined }) {
+  const sides = parseTradeSummarySides(summary);
+  if (!summary?.trim()) {
+    return <p className="text-sm text-[var(--muted)]">No summary for this trade.</p>;
+  }
+  if (!sides) {
+    return <p className="text-sm text-[var(--muted)] leading-relaxed whitespace-pre-wrap">{summary}</p>;
+  }
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+      {sides.map((side, sideIdx) => {
+        const style = getTeamColorStyle(side.team);
+        const tint = tintFromTeamStyle(style);
+        return (
+          <div
+            key={`${side.team}-${sideIdx}`}
+            className="rounded-lg border border-[var(--border)] p-3"
+            style={tint ? { backgroundColor: tint } : undefined}
+          >
+            <div className="flex items-center gap-2 min-w-0 mb-2">
+              <div className="w-9 h-9 rounded-full flex items-center justify-center overflow-hidden shrink-0 border border-[var(--border)]/50" style={style}>
+                <Image
+                  src={getTeamLogoPath(side.team)}
+                  alt=""
+                  width={28}
+                  height={28}
+                  className="object-contain"
+                  onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                />
+              </div>
+              <span className="font-semibold text-[var(--text)] truncate">{side.team}</span>
+            </div>
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-[var(--muted)] mb-1">Received</p>
+            <ul className="list-disc pl-4 space-y-1 text-sm text-[var(--text)]">
+              {side.items.map((item, i) => (
+                <li key={i}>{item}</li>
+              ))}
+            </ul>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function TeamHopChip({ team }: { team: string }) {
+  const style = getTeamColorStyle(team);
+  const tint = tintFromTeamStyle(style);
+  return (
+    <span
+      className="inline-flex items-center gap-1.5 min-w-0 max-w-[45%] rounded-full border border-[var(--border)]/60 pl-0.5 pr-2 py-0.5"
+      style={tint ? { backgroundColor: tint } : undefined}
+    >
+      <span className="w-7 h-7 rounded-full flex items-center justify-center overflow-hidden shrink-0" style={style}>
+        <Image
+          src={getTeamLogoPath(team)}
+          alt=""
+          width={22}
+          height={22}
+          className="object-contain"
+          onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+        />
+      </span>
+      <span className="text-xs font-medium text-[var(--text)] truncate">{team}</span>
+    </span>
+  );
+}
 
 function DraftOrderView() {
   const [tradeModal, setTradeModal] = useState<DraftOrderTradeModal | null>(null);
@@ -1076,7 +1175,7 @@ function DraftOrderView() {
     rosterCount: number;
     generatedAt?: string;
     slotOrder: Array<{ slot: number; rosterId: number; team: string; record: { wins: number; losses: number; ties: number; fpts: number; fptsAgainst: number } }>;
-    roundsData: Array<{ round: number; picks: Array<{ slot: number; round: number; originalTeam: string; ownerTeam: string; originalRosterId: number; ownerRosterId: number; history: Array<{ tradeId: string; timestamp: number; fromTeam: string; toTeam: string }>; tradeSummary?: string }> }>;
+    roundsData: Array<{ round: number; picks: Array<{ slot: number; round: number; originalTeam: string; ownerTeam: string; originalRosterId: number; ownerRosterId: number; history: DraftOrderHistoryHop[]; tradeSummary?: string }> }>;
     summary: { factoids: string[]; picksPerTeam: Array<{ team: string; overall: number; firstTwo: number }>; leaders: { mostOverall: { team: string; count: number } | null; mostFirstTwo: { team: string; count: number } | null } };
     transfers: Array<{ round: number; slot: number | null; tradeId: string; timestamp: number; fromTeam: string; toTeam: string; originalTeam: string; ownerTeam: string; summary?: string }>;
   } | null>(null);
@@ -1116,26 +1215,53 @@ function DraftOrderView() {
         <div className="fixed inset-0 z-[201] flex min-h-full items-center justify-center p-4 pointer-events-none">
           <DialogPanel
             transition
-            className="pointer-events-auto w-full max-w-lg rounded-lg border border-[var(--border)] evw-surface shadow-xl p-5 data-closed:opacity-0 data-closed:scale-95 data-enter:duration-200 data-enter:ease-out data-leave:duration-150 data-leave:ease-in"
+            className="pointer-events-auto w-full max-w-2xl rounded-lg border border-[var(--border)] evw-surface shadow-xl p-5 max-h-[90vh] overflow-y-auto data-closed:opacity-0 data-closed:scale-95 data-enter:duration-200 data-enter:ease-out data-leave:duration-150 data-leave:ease-in"
           >
             {tradeModal ? (
               <>
                 <DialogTitle className="text-lg font-semibold text-[var(--text)] pr-8">
                   {tradeModal.title}
                 </DialogTitle>
-                <div className="mt-3 space-y-3 text-sm text-[var(--text)]">
-                  {tradeModal.summary ? (
-                    <p className="leading-relaxed">{tradeModal.summary}</p>
-                  ) : (
-                    <p className="text-[var(--muted)]">No full trade summary available for this transaction.</p>
-                  )}
+                <div className="mt-4 space-y-5 text-sm text-[var(--text)]">
                   <div>
-                    <div className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)] mb-1.5">Transfer chain</div>
-                    <ul className="space-y-1.5 text-sm border border-[var(--border)] rounded-md p-3 bg-[var(--surface)]/50">
+                    <div className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)] mb-2">Who got what</div>
+                    {tradeModal.summary ? (
+                      <TradeBreakdown summary={tradeModal.summary} />
+                    ) : (
+                      <p className="text-[var(--muted)]">No full trade summary available for the latest transaction on this pick.</p>
+                    )}
+                  </div>
+                  <div>
+                    <div className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)] mb-2">Transfer chain</div>
+                    <p className="text-xs text-[var(--muted)] mb-2">Click a step to see that trade. Order is earliest → latest.</p>
+                    <ul className="rounded-lg border border-[var(--border)] overflow-hidden bg-[var(--surface)]/40 divide-y divide-[var(--border)]">
                       {tradeModal.history.map((h, i) => (
-                        <li key={`${h.tradeId}-${h.timestamp}-${i}`} className="flex flex-col gap-0.5">
-                          <span>{h.fromTeam} → {h.toTeam}</span>
-                          <span className="text-xs text-[var(--muted)]">{new Date(h.timestamp).toLocaleString()}</span>
+                        <li key={`${h.tradeId}-${h.timestamp}-${i}`} className="list-none">
+                          <Disclosure as="div" defaultOpen={false} className="group">
+                            <DisclosureButton className="flex w-full items-center gap-2 px-3 py-2.5 text-left hover:bg-[var(--surface)]/70 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--focus)]">
+                              <div className="flex flex-1 items-center justify-center gap-1.5 sm:gap-2 min-w-0">
+                                <TeamHopChip team={h.fromTeam} />
+                                <span className="text-[var(--muted)] shrink-0 text-xs" aria-hidden="true">→</span>
+                                <TeamHopChip team={h.toTeam} />
+                              </div>
+                              <ChevronDownIcon className="h-4 w-4 shrink-0 text-[var(--muted)] transition duration-200 group-data-[open]:rotate-180" />
+                            </DisclosureButton>
+                            <DisclosurePanel
+                              transition
+                              className="border-t border-[var(--border)] bg-black/20 px-3 py-3 data-closed:opacity-0 data-enter:duration-150 data-enter:ease-out data-leave:duration-100 data-leave:ease-in"
+                            >
+                              <p className="text-[10px] font-semibold uppercase tracking-wide text-[var(--muted)] mb-2">
+                                This trade · {new Date(h.timestamp).toLocaleString()}
+                              </p>
+                              {h.summary ? (
+                                <TradeBreakdown summary={h.summary} />
+                              ) : (
+                                <p className="text-sm text-[var(--muted)]">
+                                  Summary not available for this transaction.
+                                </p>
+                              )}
+                            </DisclosurePanel>
+                          </Disclosure>
                         </li>
                       ))}
                     </ul>
@@ -1259,7 +1385,13 @@ function DraftOrderView() {
                         tradeId: t.tradeId,
                         title: `Pick transfer — R${t.round}${typeof t.slot === 'number' ? `, S${t.slot}` : ''}`,
                         summary: t.summary,
-                        history: [{ tradeId: t.tradeId, timestamp: t.timestamp, fromTeam: t.fromTeam, toTeam: t.toTeam }],
+                        history: [{
+                          tradeId: t.tradeId,
+                          timestamp: t.timestamp,
+                          fromTeam: t.fromTeam,
+                          toTeam: t.toTeam,
+                          ...(t.summary ? { summary: t.summary } : {}),
+                        }],
                       })}
                     >
                       Details
