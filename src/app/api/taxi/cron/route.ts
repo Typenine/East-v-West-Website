@@ -1,7 +1,7 @@
-import { getNFLState, getTeamsData } from '@/lib/utils/sleeper-api';
+import { getNFLState, getTeamsData, getLeagueRosters, getAllPlayersCached } from '@/lib/utils/sleeper-api';
 import { LEAGUE_IDS, TEAM_NAMES } from '@/lib/constants/league';
-import { validateTaxiForRoster } from '@/lib/server/taxi-validator';
-import { writeTaxiSnapshot } from '@/server/db/queries.fixed';
+import { validateTaxiForRoster, type Violation } from '@/lib/server/taxi-validator';
+import { getTaxiObservation, setTaxiObservation, writeTaxiSnapshot } from '@/server/db/queries.fixed';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -27,26 +27,94 @@ function pickRunType(day: string, hour: number, minute: number): 'wed_warn' | 't
   return null;
 }
 
+function isAuthorized(req: Request) {
+  const configuredSecrets = [
+    process.env.TAXI_CRON_SECRET,
+    process.env.CRON_SECRET,
+  ].filter((value): value is string => Boolean(value));
+  if (configuredSecrets.length === 0) return false;
+
+  const headerSecret = req.headers.get('x-cron-secret');
+  const authHeader = req.headers.get('authorization') || '';
+  const bearerSecret = authHeader.toLowerCase().startsWith('bearer ')
+    ? authHeader.slice('bearer '.length).trim()
+    : null;
+
+  return [headerSecret, bearerSecret].some((incoming) => incoming ? configuredSecrets.includes(incoming) : false);
+}
+
+async function updateTaxiObservation(teamName: string, taxiIds: string[], now: Date) {
+  const existing = await getTaxiObservation(teamName).catch(() => null as (null | { players?: Record<string, { firstSeen: string; lastSeen: string; seenCount: number }> }));
+  const players = (existing?.players as Record<string, { firstSeen: string; lastSeen: string; seenCount: number }> | undefined) || {};
+  const nowIso = now.toISOString();
+
+  for (const playerId of taxiIds) {
+    const previous = players[playerId];
+    players[playerId] = previous
+      ? { firstSeen: previous.firstSeen, lastSeen: nowIso, seenCount: (previous.seenCount || 0) + 1 }
+      : { firstSeen: nowIso, lastSeen: nowIso, seenCount: 1 };
+  }
+
+  await setTaxiObservation(teamName, { updatedAt: now, players }).catch(() => null);
+}
+
+async function runTrackingSnapshot(params: {
+  season: number;
+  week: number;
+  now: Date;
+  leagueId: string;
+  teams: Array<{ teamName: string; rosterId: number }>;
+  logContext: Record<string, unknown>;
+}) {
+  const rosters = await getLeagueRosters(params.leagueId).catch((err) => {
+    console.error('[taxi-cron] Failed to load rosters for tracking snapshot', { ...params.logContext, error: String(err) });
+    return [] as Array<{ roster_id: number; taxi?: string[] }>;
+  });
+  const playersMeta = await getAllPlayersCached().catch(() => ({} as Record<string, { position?: string | null }>));
+
+  let processed = 0;
+  let violations = 0;
+  const teamResults: Array<{ team: string; compliant: boolean; violationCount: number }> = [];
+
+  for (const team of params.teams) {
+    const roster = rosters.find((row) => row.roster_id === team.rosterId);
+    const taxiIds = Array.isArray(roster?.taxi) ? roster.taxi.filter(Boolean) : [];
+    const teamViolations: Violation[] = [];
+
+    if (taxiIds.length > 4) {
+      teamViolations.push({ code: 'too_many_on_taxi', detail: `${taxiIds.length} players on taxi (max 4)` });
+    }
+
+    const qbIds = taxiIds.filter((playerId) => (playersMeta[playerId]?.position || '').toUpperCase() === 'QB');
+    if (qbIds.length > 1) {
+      teamViolations.push({ code: 'too_many_qbs', detail: `${qbIds.length} QBs on taxi (max 1)`, players: qbIds });
+    }
+
+    await updateTaxiObservation(team.teamName, taxiIds, params.now);
+
+    processed++;
+    if (teamViolations.length > 0) violations++;
+    teamResults.push({ team: team.teamName, compliant: teamViolations.length === 0, violationCount: teamViolations.length });
+  }
+
+  return { processed, teamsWithViolations: violations, teamResults };
+}
+
 async function handle(req: Request) {
   const startTime = Date.now();
   const logContext: Record<string, unknown> = { timestamp: new Date().toISOString() };
   
   try {
-    // Require cron secret for authorization via header
-    const envSecret = process.env.CRON_SECRET;
-    const incomingSecret = req.headers.get('x-cron-secret');
-    if (!envSecret || !incomingSecret || incomingSecret !== envSecret) {
+    // Require cron secret for authorization via header. Support both GitHub and Vercel cron styles.
+    if (!isAuthorized(req)) {
       console.error('[taxi-cron] Unauthorized access attempt', logContext);
       return Response.json({ ok: false, error: 'unauthorized' }, { status: 401 });
     }
     const { day, hour, minute, now } = nowInET();
     const runType = pickRunType(day, hour, minute);
-    if (!runType) {
-      console.log('[taxi-cron] Skipped - not in run window', { ...logContext, et: { day, hour, minute } });
-      return Response.json({ ok: true, skipped: 'not_window', et: { day, hour, minute } });
-    }
+    const trackingOnly = !runType;
     
-    console.log('[taxi-cron] Starting taxi validation run', { ...logContext, runType, et: { day, hour, minute } });
+    console.log('[taxi-cron] Starting taxi run', { ...logContext, runType: runType || 'admin_rerun', trackingOnly, et: { day, hour, minute } });
 
     const st = await getNFLState().catch((err) => {
       console.warn('[taxi-cron] Failed to get NFL state, using fallback', { ...logContext, error: String(err) });
@@ -72,6 +140,33 @@ async function handle(req: Request) {
       console.warn('[taxi-cron] Using fallback team names (teams data unavailable)', { ...logContext, teamCount: TEAM_NAMES.length });
     } else {
       console.log('[taxi-cron] Loaded teams data', { ...logContext, teamCount: teams.length });
+    }
+
+    if (trackingOnly) {
+      const tracking = await runTrackingSnapshot({
+        season,
+        week,
+        now,
+        leagueId,
+        teams: teamEntries,
+        logContext,
+      });
+      const duration = Date.now() - startTime;
+      const summary = {
+        ok: true,
+        runType: 'admin_rerun' as const,
+        trackingOnly: true,
+        season,
+        week,
+        processed: tracking.processed,
+        teamsWithViolations: tracking.teamsWithViolations,
+        durationMs: duration,
+        leagueId,
+        usedFallback
+      };
+
+      console.log('[taxi-cron] Tracking snapshot completed successfully', { ...logContext, ...summary, teamResults: tracking.teamResults });
+      return Response.json(summary);
     }
 
     let processed = 0;
