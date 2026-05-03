@@ -268,7 +268,12 @@ export const newsletters = pgTable('newsletters', {
 }));
 
 // Discord notification dedupe - tracks which events have been posted to Discord
-export const discordNotificationTypeEnum = pgEnum('discord_notification_type', ['trade_accepted', 'trade_complete', 'newsletter_published']);
+export const discordNotificationTypeEnum = pgEnum('discord_notification_type', [
+  'trade_accepted',
+  'trade_pending',
+  'trade_complete',
+  'newsletter_published',
+]);
 
 export const discordNotifications = pgTable('discord_notifications', {
   id: uuid('id').primaryKey().defaultRandom(),

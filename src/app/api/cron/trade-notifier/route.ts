@@ -1,9 +1,14 @@
 /**
  * Trade Notifier Cron Endpoint
  * Polls Sleeper for new trades and posts to Discord when first observed
- * 
+ *
  * Trigger: Vercel Cron every 5 minutes OR manual GET request
- * 
+ *
+ * Sleeper API note: public docs (docs.sleeper.com) only illustrate trades with `"status": "complete"`.
+ * They do not enumerate other transaction statuses. This route logs a per-run `tradeStatusBreakdown`
+ * in the JSON response so you can see which `status` values your league actually returns during
+ * pending review / processing.
+ *
  * Requirements:
  * - SLEEPER_LEAGUE_ID: The league to monitor
  * - DISCORD_TRADES_WEBHOOK_URL: Discord webhook for trade notifications
@@ -22,6 +27,19 @@ export const maxDuration = 60;
 
 const SLEEPER_API = 'https://api.sleeper.app/v1';
 
+/** Sleeper leaves non-final trades in the feed with status !== complete (e.g. pending review). */
+const SKIP_TRADE_STATUSES = new Set([
+  'failed',
+  'canceled',
+  'cancelled',
+  'vetoed',
+  'expired',
+  'denied',
+  'rejected',
+]);
+
+type TradeNotifType = 'trade_pending' | 'trade_complete';
+
 interface SleeperTransaction {
   transaction_id: string;
   type: string;
@@ -35,6 +53,11 @@ interface SleeperTransaction {
     roster_id: number;
     previous_owner_id: number;
     owner_id: number;
+  }>;
+  waiver_budget?: Array<{
+    sender: number;
+    receiver: number;
+    amount: number;
   }>;
   created: number;
   leg: number;
@@ -120,59 +143,315 @@ function formatDraftPick(pick: NonNullable<SleeperTransaction['draft_picks']>[0]
   return `${pick.season} ${round}${suffix} Round Pick`;
 }
 
-async function postToDiscord(webhookUrl: string, embed: Record<string, unknown>): Promise<boolean> {
+function hashString(s: string): number {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
+  return Math.abs(h);
+}
+
+function formatOxford(names: string[]): string {
+  if (names.length === 0) return '';
+  if (names.length === 1) return names[0];
+  if (names.length === 2) return `${names[0]} and ${names[1]}`;
+  return `${names.slice(0, -1).join(', ')}, and ${names[names.length - 1]}`;
+}
+
+function firstAddPlayerLabel(
+  adds: Record<string, number> | undefined,
+  players: Record<string, SleeperPlayer>
+): string | null {
+  if (!adds) return null;
+  const pid = Object.keys(adds)[0];
+  if (!pid) return null;
+  const p = players[pid];
+  if (!p) return null;
+  return p.full_name || `${p.first_name || ''} ${p.last_name || ''}`.trim() || null;
+}
+
+function buildPendingRumorEmbed(
+  trade: SleeperTransaction,
+  players: Record<string, SleeperPlayer>,
+  rosterNameMap: Map<number, string>,
+  siteUrl: string
+): Record<string, unknown> {
+  const teamNames = [...trade.roster_ids]
+    .sort((a, b) => a - b)
+    .map((id) => rosterNameMap.get(id) || `Roster ${id}`);
+  const teamsOxford = formatOxford(teamNames);
+  const h = hashString(trade.transaction_id);
+  const titlePool = [
+    'Sources: Active discussions',
+    "I'm told talks are real",
+    'Monitoring trade chatter',
+    'Buzz: framework in the works',
+    'League notes: deal picking up steam',
+  ];
+  const title = titlePool[h % titlePool.length];
+  const playerHint = firstAddPlayerLabel(trade.adds, players);
+
+  let description: string;
+  if (playerHint && teamNames.length >= 2) {
+    const bodies = [
+      `**Sources:** **${playerHint}** is a name to watch — **${teamsOxford}** have been in discussions on a potential move. Nothing finalized; still working through it.`,
+      `I'm told **${teamsOxford}** have been discussing a framework that includes **${playerHint}** among the pieces. Fluid — not official until it hits the transaction log.`,
+      `Hearing there's traction on a deal involving **${playerHint}** with **${teamsOxford}** in the mix. Conversations ongoing per sources — could pick up quickly, could stall.`,
+      `**Sources:** **${teamsOxford}** are in advanced talks and **${playerHint}**'s name has come up. No paperwork yet — treat as **developing**.`,
+    ];
+    description = bodies[h % bodies.length];
+  } else {
+    const bodies = [
+      `**Sources:** **${teamsOxford}** are deep in talks on a multi-party framework. If it clears, compensation will post once it's official on the wire.`,
+      `I'm told **${teamsOxford}** are getting close on something. Still **pending** — league hasn't filed it to the transaction log yet.`,
+      `Monitoring: **${teamsOxford}** have been engaged in serious discussions. Nothing done until it's processed — but the chatter is loud enough to flag.`,
+      `Hearing **${teamsOxford}** are working through the final hurdles. **Developing** — more when (if) it becomes official.`,
+    ];
+    description = bodies[h % bodies.length];
+  }
+
+  const tradeDate = new Date(trade.created);
+  return {
+    title,
+    description,
+    color: 0x5865f2,
+    timestamp: tradeDate.toISOString(),
+    footer: {
+      text: `Week ${trade.leg} · Developing · Not on transaction log yet`,
+    },
+    url: `${siteUrl}/transactions`,
+  };
+}
+
+function buildTeamAssetDetails(
+  trade: SleeperTransaction,
+  players: Record<string, SleeperPlayer>,
+  rosterNameMap: Map<number, string>
+): Record<number, { gets: string[]; gives: string[] }> {
+  const teamDetails: Record<number, { gets: string[]; gives: string[] }> = {};
+  for (const rosterId of trade.roster_ids) {
+    teamDetails[rosterId] = { gets: [], gives: [] };
+  }
+
+  if (trade.adds) {
+    for (const [playerId, rosterIdVal] of Object.entries(trade.adds)) {
+      const rosterId = rosterIdVal as number;
+      const playerName = formatPlayerName(playerId, players);
+      if (teamDetails[rosterId]) {
+        teamDetails[rosterId].gets.push(playerName);
+      }
+    }
+  }
+  if (trade.drops) {
+    for (const [playerId, rosterIdVal] of Object.entries(trade.drops)) {
+      const rosterId = rosterIdVal as number;
+      const playerName = formatPlayerName(playerId, players);
+      if (teamDetails[rosterId]) {
+        teamDetails[rosterId].gives.push(playerName);
+      }
+    }
+  }
+
+  if (trade.draft_picks) {
+    for (const pick of trade.draft_picks) {
+      const pickStr = formatDraftPick(pick);
+      if (teamDetails[pick.owner_id]) {
+        teamDetails[pick.owner_id].gets.push(pickStr);
+      }
+      if (teamDetails[pick.previous_owner_id]) {
+        teamDetails[pick.previous_owner_id].gives.push(pickStr);
+      }
+    }
+  }
+
+  if (trade.waiver_budget && trade.waiver_budget.length > 0) {
+    for (const row of trade.waiver_budget) {
+      const senderName = rosterNameMap.get(row.sender) || `Roster ${row.sender}`;
+      const receiverName = rosterNameMap.get(row.receiver) || `Roster ${row.receiver}`;
+      const amt = row.amount;
+      if (teamDetails[row.sender]) {
+        teamDetails[row.sender].gives.push(`$${amt} FAAB → ${receiverName}`);
+      }
+      if (teamDetails[row.receiver]) {
+        teamDetails[row.receiver].gets.push(`$${amt} FAAB from ${senderName}`);
+      }
+    }
+  }
+
+  return teamDetails;
+}
+
+function buildCompleteTradeEmbed(
+  trade: SleeperTransaction,
+  teamDetails: Record<number, { gets: string[]; gives: string[] }>,
+  rosterNameMap: Map<number, string>,
+  siteUrl: string,
+  opts?: { priorRumorJumpUrl?: string | null }
+): Record<string, unknown> {
+  const sortedRosterIds = Object.keys(teamDetails)
+    .map((k) => parseInt(k, 10))
+    .sort((a, b) => a - b);
+  const teamNames = sortedRosterIds.map((id) => rosterNameMap.get(id) || `Roster ${id}`);
+  const h = hashString(trade.transaction_id);
+  const jump = opts?.priorRumorJumpUrl?.trim();
+  const followLead = jump
+    ? `**Update:** Following [the earlier report](${jump}), this is now **official** on the league transaction log.\n\n`
+    : '';
+
+  let title: string;
+  let description: string;
+  if (teamNames.length === 2) {
+    title = 'TRADE';
+    const intros = [
+      `${followLead}**${teamNames[0]}** and **${teamNames[1]}** have agreed to a trade. **Filed** — full compensation below.`,
+      `${followLead}Trade is **in**: **${teamNames[0]}** and **${teamNames[1]}**. Here's the compensation as it posted.`,
+    ];
+    description = intros[h % intros.length];
+  } else if (teamNames.length >= 3) {
+    const ox = formatOxford(teamNames);
+    title = teamNames.length === 3 ? 'THREE-TEAM TRADE' : 'MULTI-TEAM TRADE';
+    const intros = [
+      `${followLead}**Sources:** **${ox}** are part of a larger swap now **complete** on the wire. Compensation update:`,
+      `${followLead}Bigger deal **filed**: **${ox}**. Full trade breakdown below.`,
+    ];
+    description = intros[h % intros.length];
+  } else {
+    title = 'TRADE';
+    description = `${followLead}Deal is **complete** on the league transaction log. Compensation update below.`;
+  }
+
+  const fields: Array<{ name: string; value: string; inline?: boolean }> = [];
+  for (const rosterId of sortedRosterIds) {
+    const details = teamDetails[rosterId];
+    const teamName = rosterNameMap.get(rosterId) || `Roster ${rosterId}`;
+    const gets = details.gets.length > 0 ? details.gets.join('\n') : '—';
+    const gives = details.gives.length > 0 ? details.gives.join('\n') : '—';
+    fields.push({
+      name: `${teamName} · acquires`,
+      value: gets,
+      inline: true,
+    });
+    fields.push({
+      name: `${teamName} · sends`,
+      value: gives,
+      inline: true,
+    });
+    fields.push({ name: '\u200B', value: '\u200B', inline: true });
+  }
+
+  const tradeDate = new Date(trade.created);
+  return {
+    title,
+    description,
+    color: 0x1d9bf0,
+    fields,
+    timestamp: tradeDate.toISOString(),
+    footer: {
+      text: `Week ${trade.leg} · Per league transaction log`,
+    },
+    url: `${siteUrl}/transactions`,
+  };
+}
+
+function webhookExecuteUrlWithWait(webhookUrl: string): string {
   try {
-    const res = await fetch(webhookUrl, {
+    const u = new URL(webhookUrl);
+    u.searchParams.set('wait', 'true');
+    return u.toString();
+  } catch {
+    return webhookUrl.includes('?') ? `${webhookUrl}&wait=true` : `${webhookUrl}?wait=true`;
+  }
+}
+
+type DiscordWebhookPostResult = {
+  ok: boolean;
+  messageId?: string;
+  channelId?: string;
+  guildId?: string;
+};
+
+function parseDiscordMessageIds(body: unknown): Pick<DiscordWebhookPostResult, 'messageId' | 'channelId' | 'guildId'> {
+  if (!body || typeof body !== 'object') return {};
+  const o = body as Record<string, unknown>;
+  const id = typeof o.id === 'string' ? o.id : undefined;
+  const channelId = typeof o.channel_id === 'string' ? o.channel_id : undefined;
+  const guildId = typeof o.guild_id === 'string' ? o.guild_id : undefined;
+  return { messageId: id, channelId, guildId };
+}
+
+function discordJumpUrl(guildId: string | undefined, channelId: string | undefined, messageId: string | undefined): string | null {
+  if (!guildId || !channelId || !messageId) return null;
+  return `https://discord.com/channels/${guildId}/${channelId}/${messageId}`;
+}
+
+async function postDiscordWebhookPayload(
+  webhookUrl: string,
+  payload: Record<string, unknown>
+): Promise<DiscordWebhookPostResult> {
+  const url = webhookExecuteUrlWithWait(webhookUrl);
+  try {
+    const res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        embeds: [embed],
-        allowed_mentions: { parse: [] },
-      }),
+      body: JSON.stringify(payload),
     });
-    
+
     if (res.status === 429) {
       const data = await res.json().catch(() => ({}));
       const retryAfter = data.retry_after || 5;
       console.log(`[TradeNotifier] Rate limited, waiting ${retryAfter}s...`);
-      await new Promise(resolve => setTimeout(resolve, retryAfter * 1000));
-      // Retry once
-      const retry = await fetch(webhookUrl, {
+      await new Promise((resolve) => setTimeout(resolve, retryAfter * 1000));
+      const retry = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          embeds: [embed],
-          allowed_mentions: { parse: [] },
-        }),
+        body: JSON.stringify(payload),
       });
-      return retry.ok;
+      if (!retry.ok) {
+        const t = await retry.text().catch(() => '');
+        console.error('[TradeNotifier] Discord retry failed:', retry.status, t);
+        return { ok: false };
+      }
+      const retryJson = await retry.json().catch(() => null);
+      const ids = parseDiscordMessageIds(retryJson);
+      return { ok: true, ...ids };
     }
-    
-    return res.ok;
+
+    if (!res.ok) {
+      const t = await res.text().catch(() => '');
+      console.error('[TradeNotifier] Discord post failed:', res.status, t);
+      return { ok: false };
+    }
+
+    const json = await res.json().catch(() => null);
+    const ids = parseDiscordMessageIds(json);
+    return { ok: true, ...ids };
   } catch (err) {
     console.error('[TradeNotifier] Discord post failed:', err);
-    return false;
+    return { ok: false };
   }
 }
 
-async function checkAlreadyPosted(db: ReturnType<typeof getDb>, transactionId: string, type: 'trade_accepted' | 'trade_complete'): Promise<boolean> {
+async function checkAlreadyPosted(
+  db: ReturnType<typeof getDb>,
+  transactionId: string,
+  type: TradeNotifType
+): Promise<boolean> {
   try {
     const existing = await db
       .select()
       .from(discordNotifications)
-      .where(and(
-        eq(discordNotifications.notificationType, type),
-        eq(discordNotifications.dedupeKey, transactionId)
-      ))
+      .where(and(eq(discordNotifications.notificationType, type), eq(discordNotifications.dedupeKey, transactionId)))
       .limit(1);
     return existing.length > 0;
   } catch {
-    // Table might not exist yet - treat as not posted
     return false;
   }
 }
 
-async function markAsPosted(db: ReturnType<typeof getDb>, transactionId: string, type: 'trade_accepted' | 'trade_complete', meta: Record<string, unknown>): Promise<void> {
+async function markAsPosted(
+  db: ReturnType<typeof getDb>,
+  transactionId: string,
+  type: TradeNotifType,
+  meta: Record<string, unknown>
+): Promise<void> {
   try {
     await db.insert(discordNotifications).values({
       notificationType: type,
@@ -184,6 +463,24 @@ async function markAsPosted(db: ReturnType<typeof getDb>, transactionId: string,
   }
 }
 
+async function getPendingRumorJumpUrl(db: ReturnType<typeof getDb>, transactionId: string): Promise<string | null> {
+  try {
+    const rows = await db
+      .select({ meta: discordNotifications.meta })
+      .from(discordNotifications)
+      .where(
+        and(eq(discordNotifications.notificationType, 'trade_pending'), eq(discordNotifications.dedupeKey, transactionId))
+      )
+      .limit(1);
+    const meta = rows[0]?.meta;
+    if (!meta || typeof meta !== 'object') return null;
+    const j = (meta as Record<string, unknown>).discordRumorJumpUrl;
+    return typeof j === 'string' && j.length > 0 ? j : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function GET(req: NextRequest) {
   if (!isCronAuthorized(req)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -192,20 +489,19 @@ export async function GET(req: NextRequest) {
   const leagueId = process.env.SLEEPER_LEAGUE_ID;
   const webhookUrl = process.env.DISCORD_TRADES_WEBHOOK_URL;
   const siteUrl = process.env.SITE_URL || 'https://eastvswest.football';
-  
+
   if (!leagueId) {
     return NextResponse.json({ error: 'SLEEPER_LEAGUE_ID not configured' }, { status: 500 });
   }
-  
+
   if (!webhookUrl) {
     return NextResponse.json({ error: 'DISCORD_TRADES_WEBHOOK_URL not configured' }, { status: 500 });
   }
-  
+
   try {
     const db = getDb();
     const state = await fetchSleeperState();
-    
-    // Fetch transactions from current leg and previous leg (to catch week transitions)
+
     const [currentTxns, prevTxns, users, rosters, players] = await Promise.all([
       fetchTransactions(leagueId, state.leg),
       state.leg > 1 ? fetchTransactions(leagueId, state.leg - 1) : Promise.resolve([]),
@@ -213,125 +509,111 @@ export async function GET(req: NextRequest) {
       fetchRosters(leagueId),
       fetchPlayers(),
     ]);
-    
+
     const allTxns = [...currentTxns, ...prevTxns];
-    const trades = allTxns.filter(t => t.type === 'trade');
-    
-    if (trades.length === 0) {
-      return NextResponse.json({ message: 'No trades found', checked: allTxns.length });
+    const trades = allTxns.filter((t) => t.type === 'trade');
+
+    const tradeStatusBreakdown: Record<string, number> = {};
+    for (const t of trades) {
+      const key = (t.status && String(t.status).trim()) || 'unknown';
+      tradeStatusBreakdown[key] = (tradeStatusBreakdown[key] ?? 0) + 1;
     }
-    
+
+    if (trades.length === 0) {
+      return NextResponse.json({
+        message: 'No trades found',
+        checked: allTxns.length,
+        tradeStatusBreakdown: {},
+        sleeperDocsNote:
+          'Sleeper public API docs only show trade status "complete" in examples; use tradeStatusBreakdown when trades exist to see live values.',
+      });
+    }
+
     const rosterNameMap = buildRosterNameMap(users, rosters);
     const posted: string[] = [];
     const skipped: string[] = [];
-    
+
     for (const trade of trades) {
       const txnId = trade.transaction_id;
-      const isComplete = trade.status === 'complete';
-      const notifType = isComplete ? 'trade_complete' : 'trade_accepted';
-      
-      // Check if already posted
-      const alreadyPosted = await checkAlreadyPosted(db, txnId, notifType);
-      if (alreadyPosted) {
+      const statusNorm = (trade.status || '').toLowerCase();
+
+      if (SKIP_TRADE_STATUSES.has(statusNorm)) {
         skipped.push(txnId);
         continue;
       }
-      
-      // Build trade details by team
-      const teamDetails: Record<number, { gets: string[]; gives: string[] }> = {};
-      for (const rosterId of trade.roster_ids) {
-        teamDetails[rosterId] = { gets: [], gives: [] };
-      }
-      
-      // Process player adds/drops
-      if (trade.adds) {
-        for (const [playerId, rosterIdVal] of Object.entries(trade.adds)) {
-          const rosterId = rosterIdVal as number;
-          const playerName = formatPlayerName(playerId, players);
-          if (teamDetails[rosterId]) {
-            teamDetails[rosterId].gets.push(playerName);
-          }
+
+      const isComplete = statusNorm === 'complete';
+
+      if (isComplete) {
+        const alreadyPosted = await checkAlreadyPosted(db, txnId, 'trade_complete');
+        if (alreadyPosted) {
+          skipped.push(txnId);
+          continue;
         }
-      }
-      if (trade.drops) {
-        for (const [playerId, rosterIdVal] of Object.entries(trade.drops)) {
-          const rosterId = rosterIdVal as number;
-          const playerName = formatPlayerName(playerId, players);
-          if (teamDetails[rosterId]) {
-            teamDetails[rosterId].gives.push(playerName);
-          }
-        }
-      }
-      
-      // Process draft picks
-      if (trade.draft_picks) {
-        for (const pick of trade.draft_picks) {
-          const pickStr = formatDraftPick(pick);
-          if (teamDetails[pick.owner_id]) {
-            teamDetails[pick.owner_id].gets.push(pickStr);
-          }
-          if (teamDetails[pick.previous_owner_id]) {
-            teamDetails[pick.previous_owner_id].gives.push(pickStr);
-          }
-        }
-      }
-      
-      // Build embed fields
-      const fields: Array<{ name: string; value: string; inline?: boolean }> = [];
-      for (const [rosterIdStr, details] of Object.entries(teamDetails)) {
-        const rosterId = parseInt(rosterIdStr, 10);
-        const teamName = rosterNameMap.get(rosterId) || `Roster ${rosterId}`;
-        const gets = details.gets.length > 0 ? details.gets.join('\n') : 'Nothing';
-        const gives = details.gives.length > 0 ? details.gives.join('\n') : 'Nothing';
-        fields.push({
-          name: `📥 ${teamName} receives`,
-          value: gets,
-          inline: true,
+        const priorJump = await getPendingRumorJumpUrl(db, txnId);
+        const teamDetails = buildTeamAssetDetails(trade, players, rosterNameMap);
+        const embed = buildCompleteTradeEmbed(trade, teamDetails, rosterNameMap, siteUrl, {
+          priorRumorJumpUrl: priorJump,
         });
-        fields.push({
-          name: `📤 ${teamName} sends`,
-          value: gives,
-          inline: true,
+        const postResult = await postDiscordWebhookPayload(webhookUrl, {
+          embeds: [embed],
+          allowed_mentions: { parse: [] },
         });
-        // Add spacer for layout
-        fields.push({ name: '\u200B', value: '\u200B', inline: true });
+        if (postResult.ok) {
+          await markAsPosted(db, txnId, 'trade_complete', {
+            roster_ids: trade.roster_ids,
+            leg: trade.leg,
+            status: trade.status,
+            hadPriorRumorJumpUrl: !!priorJump,
+          });
+          posted.push(txnId);
+          console.log(`[TradeNotifier] Posted trade_complete for ${txnId}`);
+        } else {
+          console.error(`[TradeNotifier] Failed to post trade_complete for ${txnId}`);
+        }
+        continue;
       }
-      
-      const tradeDate = new Date(trade.created);
-      const embed = {
-        title: isComplete ? '✅ Trade Completed' : '🔔 Trade Accepted',
-        description: `A trade has been ${isComplete ? 'completed' : 'accepted'} in the league!`,
-        color: isComplete ? 0x00ff00 : 0xffaa00,
-        fields,
-        timestamp: tradeDate.toISOString(),
-        footer: {
-          text: `Week ${trade.leg} • View all trades`,
-        },
-        url: `${siteUrl}/transactions`,
-      };
-      
-      const success = await postToDiscord(webhookUrl, embed);
-      if (success) {
-        await markAsPosted(db, txnId, notifType, {
+
+      // Non-final trade: one-time "rumor" ping (no full compensation sheet).
+      const pendingPosted = await checkAlreadyPosted(db, txnId, 'trade_pending');
+      if (pendingPosted) {
+        skipped.push(txnId);
+        continue;
+      }
+
+      const embed = buildPendingRumorEmbed(trade, players, rosterNameMap, siteUrl);
+      const postResult = await postDiscordWebhookPayload(webhookUrl, {
+        embeds: [embed],
+        allowed_mentions: { parse: [] },
+      });
+      if (postResult.ok) {
+        const jump = discordJumpUrl(postResult.guildId, postResult.channelId, postResult.messageId);
+        await markAsPosted(db, txnId, 'trade_pending', {
           roster_ids: trade.roster_ids,
           leg: trade.leg,
           status: trade.status,
+          discordMessageId: postResult.messageId,
+          discordChannelId: postResult.channelId,
+          discordGuildId: postResult.guildId,
+          ...(jump ? { discordRumorJumpUrl: jump } : {}),
         });
-        posted.push(txnId);
-        console.log(`[TradeNotifier] Posted ${notifType} for ${txnId}`);
+        posted.push(`${txnId}:pending`);
+        console.log(`[TradeNotifier] Posted trade_pending for ${txnId} (status=${trade.status})`);
       } else {
-        console.error(`[TradeNotifier] Failed to post ${notifType} for ${txnId}`);
+        console.error(`[TradeNotifier] Failed to post trade_pending for ${txnId}`);
       }
     }
-    
+
     return NextResponse.json({
       message: 'Trade check complete',
       trades: trades.length,
       posted: posted.length,
       skipped: skipped.length,
       postedIds: posted,
+      tradeStatusBreakdown,
+      sleeperDocsNote:
+        'Sleeper public API docs only show trade status "complete" in examples; tradeStatusBreakdown reflects what this league returned this run.',
     });
-    
   } catch (err) {
     console.error('[TradeNotifier] Error:', err);
     return NextResponse.json({ error: 'Internal error', details: String(err) }, { status: 500 });

@@ -43,6 +43,7 @@ function PlayerMediaCard() {
   const [media, setMedia] = useState<MediaEntry[]>([]);
   const [playerSearch, setPlayerSearch] = useState('');
   const [searchResults, setSearchResults] = useState<Array<{ id: string; name: string; pos: string; nfl: string }>>([]);
+  const [searchingPlayers, setSearchingPlayers] = useState(false);
   const [selectedPlayer, setSelectedPlayer] = useState<{ id: string; name: string; pos: string; nfl: string } | null>(null);
   const [videoUrl, setVideoUrl] = useState('');
   const [imageUrl, setImageUrl] = useState('');
@@ -62,7 +63,11 @@ function PlayerMediaCard() {
   useEffect(() => { loadMedia(); }, []);
 
   async function searchPlayers() {
-    if (!playerSearch.trim()) return;
+    if (!playerSearch.trim()) {
+      setSearchResults([]);
+      return;
+    }
+    setSearchingPlayers(true);
     try {
       const res = await fetch('/api/draft', {
         method: 'POST',
@@ -70,8 +75,27 @@ function PlayerMediaCard() {
         body: JSON.stringify({ action: 'available', q: playerSearch, limit: 20, showAll: true }),
       });
       setSearchResults((await res.json())?.available || []);
-    } catch {}
+    } catch {
+      setSearchResults([]);
+    } finally {
+      setSearchingPlayers(false);
+    }
   }
+
+  // Typeahead suggestions: fetch while typing (debounced), no auto-select.
+  useEffect(() => {
+    if (selectedPlayer) return;
+    const q = playerSearch.trim();
+    if (q.length < 2) {
+      setSearchResults([]);
+      return;
+    }
+    const t = setTimeout(() => {
+      searchPlayers();
+    }, 250);
+    return () => clearTimeout(t);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [playerSearch, selectedPlayer]);
 
   async function saveMedia() {
     if (!selectedPlayer) return;
@@ -159,6 +183,9 @@ function PlayerMediaCard() {
                   onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); searchPlayers(); } }} />
                 <Button size="sm" onClick={searchPlayers}>Search</Button>
               </div>
+              {searchingPlayers && !selectedPlayer && (
+                <div className="text-xs text-zinc-400">Searching...</div>
+              )}
               {searchResults.length > 0 && !selectedPlayer && (
                 <div className="max-h-40 overflow-auto border border-zinc-600 rounded bg-zinc-900">
                   {searchResults.map(p => (
