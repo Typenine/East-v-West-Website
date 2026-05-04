@@ -20,6 +20,7 @@ import { getDb } from '@/server/db/client';
 import { discordNotifications } from '@/server/db/schema';
 import { eq, and } from 'drizzle-orm';
 import { isCronAuthorized } from '@/lib/server/cron-auth';
+import { CURRENT_SEASON } from '@/lib/constants/league';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -519,7 +520,8 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const leagueId = process.env.SLEEPER_LEAGUE_ID;
+  const seasonScopedLeagueId = process.env[`SLEEPER_LEAGUE_ID_${CURRENT_SEASON}`];
+  const leagueId = process.env.SLEEPER_LEAGUE_ID || seasonScopedLeagueId;
   const webhookUrl = process.env.DISCORD_TRADES_WEBHOOK_URL;
   const siteUrl = process.env.SITE_URL || 'https://eastvswest.football';
 

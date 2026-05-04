@@ -1,4 +1,4 @@
-import { LEAGUE_IDS } from "@/lib/constants/league";
+import { CURRENT_SEASON, LEAGUE_IDS } from "@/lib/constants/league";
 import {
   getRosterIdToTeamNameMap,
   getLeagueTransactionsAllWeeks,
@@ -33,7 +33,7 @@ export type TransactionsSummary = {
 };
 
 export function listAllSeasons(): string[] {
-  const uniq = new Set<string>(['2025', ...Object.keys(LEAGUE_IDS.PREVIOUS || {})]);
+  const uniq = new Set<string>([CURRENT_SEASON, ...Object.keys(LEAGUE_IDS.PREVIOUS || {})]);
   const seasons = Array.from(uniq);
   // Latest first
   return seasons.sort((a, b) => b.localeCompare(a));

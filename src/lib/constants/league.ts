@@ -2,12 +2,21 @@
 
 // Sleeper League IDs
 export const LEAGUE_IDS = {
-  CURRENT: '1205237529570193408', // 2025
+  CURRENT: '1312872384503484416', // 2026
   PREVIOUS: {
+    '2025': '1205237529570193408',
     '2024': '1116504942988107776',
     '2023': '991521604930772992',
   }
 };
+
+export const CURRENT_SEASON = '2026';
+
+export function getLeagueIdForSeason(season: string): string | null {
+  if (season === CURRENT_SEASON) return LEAGUE_IDS.CURRENT;
+  const prev = LEAGUE_IDS.PREVIOUS[season as keyof typeof LEAGUE_IDS.PREVIOUS];
+  return prev || null;
+}
 
 // Canon Team Names - use these everywhere, never display Sleeper usernames or real names
 export const TEAM_NAMES = [

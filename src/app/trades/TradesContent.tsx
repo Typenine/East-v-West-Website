@@ -4,7 +4,7 @@
 import Link from 'next/link';
 import Image from 'next/image';
 import { useSearchParams, useRouter } from 'next/navigation';
-import { LEAGUE_IDS } from '@/lib/constants/league';
+import { CURRENT_SEASON, LEAGUE_IDS, getLeagueIdForSeason } from '@/lib/constants/league';
 import { getTeamsData, TeamData } from '@/lib/utils/sleeper-api';
 import { Trade, fetchTradesByYear, fetchTradesAllTime } from '@/lib/utils/trades';
 import ErrorState from '@/components/ui/error-state';
@@ -113,11 +113,13 @@ function TradesContent() {
   const [refreshKey, setRefreshKey] = useState(0);
   const [isAdmin, setIsAdmin] = useState(false);
   const [tab, setTab] = useState<'feed' | 'block'>('feed');
+  const seasonOptions = [CURRENT_SEASON, ...Object.keys(LEAGUE_IDS.PREVIOUS || {})]
+    .sort((a, b) => b.localeCompare(a));
 
   // Helper: map selected year to leagueId
   const getLeagueIdForYear = (year: string) => {
-    if (year === '2025' || year === 'all') return LEAGUE_IDS.CURRENT;
-    return LEAGUE_IDS.PREVIOUS[year as keyof typeof LEAGUE_IDS.PREVIOUS];
+    if (year === 'all') return LEAGUE_IDS.CURRENT;
+    return getLeagueIdForSeason(year);
   };
 
   // Update URL with current filter parameters
@@ -353,9 +355,9 @@ function TradesContent() {
                 onChange={(e) => setSelectedYear(e.target.value)}
               >
                 <option value="all">All Time</option>
-                <option value="2025">2025 Season</option>
-                <option value="2024">2024 Season</option>
-                <option value="2023">2023 Season</option>
+                {seasonOptions.map((season) => (
+                  <option key={season} value={season}>{season} Season</option>
+                ))}
               </Select>
             </div>
 

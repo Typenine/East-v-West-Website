@@ -1,4 +1,4 @@
-import { LEAGUE_IDS } from '@/lib/constants/league';
+import { CURRENT_SEASON, LEAGUE_IDS, getLeagueIdForSeason as getLeagueIdForSeasonFromConstants } from '@/lib/constants/league';
 import { SleeperTransaction, SleeperDraftPick, SleeperRoster, getLeagueTrades, getLeagueRosters, getAllPlayers, getRosterIdToTeamNameMap, getLeagueDrafts, getDraftById, getDraftPicks, getAllLeagueTrades, buildYearToLeagueMapUnique } from '@/lib/utils/sleeper-api';
 
 // Define trade types
@@ -166,9 +166,7 @@ type DraftContext = {
 const draftContextCache: Map<string, Map<string, DraftContext>> = new Map(); // leagueId -> season -> ctx
 
 function getLeagueIdForSeason(season: string): string | null {
-  if (season === '2025') return LEAGUE_IDS.CURRENT;
-  const prev = LEAGUE_IDS.PREVIOUS[season as keyof typeof LEAGUE_IDS.PREVIOUS];
-  return prev || null;
+  return getLeagueIdForSeasonFromConstants(season);
 }
 
 async function getDraftContext(leagueId: string, season: string): Promise<DraftContext | null> {
@@ -652,9 +650,7 @@ const tradesCache: Record<string, Trade> = {};
 export const fetchTradesByYear = async (year: string): Promise<Trade[]> => {
   try {
     // Map the provided year to the correct league ID
-    const leagueId = year === '2025'
-      ? LEAGUE_IDS.CURRENT
-      : LEAGUE_IDS.PREVIOUS[year as keyof typeof LEAGUE_IDS.PREVIOUS];
+    const leagueId = getLeagueIdForSeasonFromConstants(year);
     if (!leagueId) {
       console.error(`No league ID found for year ${year}`);
       return [];
@@ -747,12 +743,10 @@ export const buildTradeTrees = async (): Promise<TradeTreeNode[]> => {
     // Fetch all trades from all years
     const allTrades: Trade[] = [];
     
-    for (const [yearKey, leagueId] of Object.entries(LEAGUE_IDS)) {
-      if (typeof leagueId === 'string') {
-        // Fetch trades for this year
-        const yearTrades = await fetchTradesByYear(yearKey);
-        allTrades.push(...yearTrades);
-      }
+    const years = [CURRENT_SEASON, ...Object.keys(LEAGUE_IDS.PREVIOUS || {})];
+    for (const yearKey of years) {
+      const yearTrades = await fetchTradesByYear(yearKey);
+      allTrades.push(...yearTrades);
     }
     
     // For now, we don't have related trades information from the Sleeper API
