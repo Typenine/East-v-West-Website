@@ -1,13 +1,23 @@
 import { NextResponse } from 'next/server';
-import { loadNextDraftOwnership } from '@/lib/server/trade-assets';
+import { loadDraftOwnershipForSeason, loadNextDraftOwnership } from '@/lib/server/trade-assets';
 import { getTeamsData, getLeagueWinnersBracket, getRegularSeasonRecords, type SleeperBracketGame, derivePodiumFromWinnersBracketByYear } from '@/lib/utils/sleeper-api';
-import { LEAGUE_IDS } from '@/lib/constants/league';
+import { CURRENT_SEASON, LEAGUE_IDS } from '@/lib/constants/league';
 
-export async function GET() {
+export async function GET(req: Request) {
   try {
     const leagueId = LEAGUE_IDS.CURRENT;
+    const url = new URL(req.url);
+    const seasonParam = url.searchParams.get('season');
+    const defaultSeason = Number(CURRENT_SEASON);
+    const parsedSeason = seasonParam ? Number(seasonParam) : Number.NaN;
+    const targetSeason = Number.isFinite(parsedSeason) ? parsedSeason : defaultSeason;
+    const draftOwnershipPromise =
+      targetSeason === defaultSeason
+        ? loadDraftOwnershipForSeason({ leagueId, season: targetSeason })
+        : loadNextDraftOwnership({ leagueId });
+
     const [ownership, rawTeams, regularRecords] = await Promise.all([
-      loadNextDraftOwnership({ leagueId }),
+      draftOwnershipPromise,
       getTeamsData(leagueId),
       getRegularSeasonRecords(leagueId).catch(() => null),
     ]);

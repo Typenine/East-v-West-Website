@@ -99,6 +99,12 @@ async function fetchTransactions(leagueId: string, leg: number): Promise<Sleeper
   return res.json();
 }
 
+async function fetchAllTransactionLegs(leagueId: string): Promise<SleeperTransaction[]> {
+  const legs = Array.from({ length: 19 }, (_, i) => i); // 0..18 (offseason + regular weeks)
+  const byLeg = await Promise.all(legs.map((leg) => fetchTransactions(leagueId, leg).catch(() => [])));
+  return byLeg.flat();
+}
+
 async function fetchUsers(leagueId: string): Promise<SleeperUser[]> {
   const res = await fetch(`${SLEEPER_API}/league/${leagueId}/users`, { cache: 'no-store' });
   if (!res.ok) return [];
@@ -537,15 +543,20 @@ export async function GET(req: NextRequest) {
     const db = getDb();
     const state = await fetchSleeperState();
 
-    const [currentTxns, prevTxns, users, rosters, players] = await Promise.all([
-      fetchTransactions(leagueId, state.leg),
-      state.leg > 1 ? fetchTransactions(leagueId, state.leg - 1) : Promise.resolve([]),
+    const [allTxnsRaw, users, rosters, players] = await Promise.all([
+      fetchAllTransactionLegs(leagueId),
       fetchUsers(leagueId),
       fetchRosters(leagueId),
       fetchPlayers(),
     ]);
 
-    const allTxns = [...currentTxns, ...prevTxns];
+    // Deduplicate by transaction id in case Sleeper surfaces overlap across legs.
+    const txById = new Map<string, SleeperTransaction>();
+    for (const tx of allTxnsRaw) {
+      if (!tx || !tx.transaction_id) continue;
+      txById.set(String(tx.transaction_id), tx);
+    }
+    const allTxns = Array.from(txById.values());
     const trades = allTxns.filter((t) => t.type === 'trade');
 
     const tradeStatusBreakdown: Record<string, number> = {};
@@ -649,6 +660,7 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({
       message: 'Trade check complete',
+      nflLeg: state.leg,
       trades: trades.length,
       posted: posted.length,
       skipped: skipped.length,

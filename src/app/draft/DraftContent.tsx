@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import CountdownTimer from '@/components/ui/countdown-timer';
-import { IMPORTANT_DATES, LEAGUE_IDS } from '@/lib/constants/league';
+import { CURRENT_SEASON, IMPORTANT_DATES, LEAGUE_IDS } from '@/lib/constants/league';
 import EmptyState from '@/components/ui/empty-state';
 import LoadingState from '@/components/ui/loading-state';
 import ErrorState from '@/components/ui/error-state';
@@ -1169,6 +1169,7 @@ function TeamHopChip({ team }: { team: string }) {
 
 function DraftOrderView() {
   const [refreshNonce, setRefreshNonce] = useState(0);
+  const [orderSeason, setOrderSeason] = useState<number>(Number(CURRENT_SEASON));
   const [tradeModal, setTradeModal] = useState<DraftOrderTradeModal | null>(null);
   const [data, setData] = useState<{
     season: number;
@@ -1189,7 +1190,7 @@ function DraftOrderView() {
       try {
         setLoading(true);
         setError(null);
-        const res = await fetch('/api/draft/next-order', { cache: 'no-store' });
+        const res = await fetch(`/api/draft/next-order?season=${orderSeason}`, { cache: 'no-store' });
         const j = await res.json();
         if (!res.ok) throw new Error(j?.error || 'Failed to load draft order');
         if (!cancelled) setData(j);
@@ -1200,7 +1201,7 @@ function DraftOrderView() {
       }
     })();
     return () => { cancelled = true; };
-  }, [refreshNonce]);
+  }, [refreshNonce, orderSeason]);
 
   useEffect(() => {
     const onVis = () => {
@@ -1218,6 +1219,18 @@ function DraftOrderView() {
   return (
     <div className="space-y-6">
       <div className="flex justify-end">
+        <div className="flex items-center gap-2 mr-3">
+          <Label htmlFor="draft-order-season" className="text-sm text-[var(--muted)]">Season</Label>
+          <Select
+            id="draft-order-season"
+            value={String(orderSeason)}
+            onChange={(e) => setOrderSeason(Number(e.target.value))}
+            className="w-[150px]"
+          >
+            <option value={CURRENT_SEASON}>{CURRENT_SEASON} Draft</option>
+            <option value={String(Number(CURRENT_SEASON) + 1)}>{Number(CURRENT_SEASON) + 1} Draft</option>
+          </Select>
+        </div>
         <Button
           type="button"
           variant="secondary"
