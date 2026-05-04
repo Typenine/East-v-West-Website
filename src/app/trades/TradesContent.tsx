@@ -213,10 +213,18 @@ function TradesContent() {
         }
 
         setLoading(true);
+        const leagueId = getLeagueIdForYear(selectedYear);
+        if (!leagueId) {
+          setTrades([]);
+          setTeams([]);
+          setError(null);
+          setLoading(false);
+          return;
+        }
         const tradesPromise = selectedYear === 'all' ? fetchTradesAllTime() : fetchTradesByYear(selectedYear);
         const [yearTrades, teamList] = await Promise.all([
           tradesPromise,
-          getTeamsData(getLeagueIdForYear(selectedYear))
+          getTeamsData(leagueId)
         ]);
         setTrades(yearTrades);
         setTeams(teamList);
