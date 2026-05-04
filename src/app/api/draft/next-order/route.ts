@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { loadDraftOwnershipForSeason } from '@/lib/server/trade-assets';
+import type { NextDraftOwnership } from '@/lib/server/trade-assets';
 import { getTeamsData, getLeagueWinnersBracket, getRegularSeasonRecords, type SleeperBracketGame, derivePodiumFromWinnersBracketByYear } from '@/lib/utils/sleeper-api';
 import { CURRENT_SEASON, LEAGUE_IDS, getLeagueIdForSeason } from '@/lib/constants/league';
 
@@ -15,10 +16,54 @@ export async function GET(req: Request) {
     // Keep slot order tied to prior-season standings, but read tradable pick ownership
     // for the active draft year from the current league context when needed.
     const ownershipLeagueId = targetSeason === defaultSeason ? LEAGUE_IDS.CURRENT : standingsLeagueId;
-    const draftOwnershipPromise = loadDraftOwnershipForSeason({ leagueId: ownershipLeagueId, season: targetSeason });
+    const [ownershipFromStandingsLeague, ownershipFromActiveLeague] = await Promise.all([
+      loadDraftOwnershipForSeason({ leagueId: standingsLeagueId, season: targetSeason }),
+      ownershipLeagueId !== standingsLeagueId
+        ? loadDraftOwnershipForSeason({ leagueId: ownershipLeagueId, season: targetSeason })
+        : Promise.resolve(null),
+    ]);
 
-    const [ownership, rawTeams, regularRecords] = await Promise.all([
-      draftOwnershipPromise,
+    const ownership =
+      ownershipFromStandingsLeague && ownershipFromActiveLeague
+        ? {
+            ...ownershipFromStandingsLeague,
+            rosterIdToTeam: {
+              ...ownershipFromStandingsLeague.rosterIdToTeam,
+              ...ownershipFromActiveLeague.rosterIdToTeam,
+            },
+            ownership: (() => {
+              const merged: NextDraftOwnership['ownership'] = {};
+              const keys = new Set([
+                ...Object.keys(ownershipFromStandingsLeague.ownership),
+                ...Object.keys(ownershipFromActiveLeague.ownership),
+              ]);
+              for (const key of keys) {
+                const a: NextDraftOwnership['ownership'][string] | undefined = ownershipFromStandingsLeague.ownership[key];
+                const b: NextDraftOwnership['ownership'][string] | undefined = ownershipFromActiveLeague.ownership[key];
+                const ownerRosterId = b?.ownerRosterId ?? a?.ownerRosterId;
+                if (ownerRosterId == null) continue;
+                const hist: NextDraftOwnership['ownership'][string]['history'] = [...(a?.history ?? []), ...(b?.history ?? [])];
+                hist.sort((x, y) => x.timestamp - y.timestamp);
+                const deduped: NextDraftOwnership['ownership'][string]['history'] = [];
+                const seen = new Set<string>();
+                for (const h of hist) {
+                  const k = `${h.tradeId}|${h.timestamp}|${h.fromRosterId}|${h.toRosterId}`;
+                  if (seen.has(k)) continue;
+                  seen.add(k);
+                  deduped.push(h);
+                }
+                merged[key] = { ownerRosterId, history: deduped };
+              }
+              return merged;
+            })(),
+            tradeSummaries: {
+              ...ownershipFromStandingsLeague.tradeSummaries,
+              ...ownershipFromActiveLeague.tradeSummaries,
+            },
+          }
+        : (ownershipFromActiveLeague || ownershipFromStandingsLeague);
+
+    const [rawTeams, regularRecords] = await Promise.all([
       getTeamsData(standingsLeagueId),
       getRegularSeasonRecords(standingsLeagueId).catch(() => null),
     ]);
