@@ -41,7 +41,7 @@ export default function DraftInfoBarTicker({ onClockTeam, available, recentPicks
   // Draft order / record data (fetched once)
   const [draftOrderData, setDraftOrderData] = useState<{
     roundsData: Array<{ round: number; picks: Array<{ ownerTeam: string }> }>;
-    transfers: Array<{ round: number; fromTeam: string; toTeam: string; summary?: string }>;
+    transfers: Array<{ round: number; slot: number | null; fromTeam: string; toTeam: string; originalTeam: string; ownerTeam: string; summary?: string }>;
     slotOrder?: Array<{ team: string; record: { wins: number; losses: number; fpts: number; fptsAgainst?: number } }>;
   } | null>(null);
 
@@ -71,6 +71,11 @@ export default function DraftInfoBarTicker({ onClockTeam, available, recentPicks
     // Fall back to pre-draft pick ownership transfers (Sleeper trade history)
     if (!draftOrderData?.transfers) return null;
     const currentRound = Math.floor((curOverall - 1) / 12) + 1;
+    // Use ownerTeam (final current owner) for matching — more reliable than toTeam which
+    // only matches the last direct recipient and can miss multi-hop trades
+    const byOwner = draftOrderData.transfers.filter(t => t.round === currentRound && t.ownerTeam === onClockTeam);
+    if (byOwner.length > 0) return byOwner[0]; // already sorted newest-first
+    // Fallback: direct toTeam match
     return draftOrderData.transfers.find(t => t.round === currentRound && t.toTeam === onClockTeam) || null;
   })();
 
@@ -385,15 +390,29 @@ export default function DraftInfoBarTicker({ onClockTeam, available, recentPicks
           <div className="text-[11px] font-black text-white/90 uppercase tracking-wider mb-2 text-center">Pick Acquired via Trade</div>
           <div className="grid grid-cols-2 gap-1">
             <div className="bg-black/30 rounded px-1.5 py-1.5">
-              <div className="text-[10px] text-white/50 leading-tight uppercase tracking-wide">From</div>
+              <div className="text-[10px] text-white/50 leading-tight uppercase tracking-wide">Traded From</div>
               <div className="text-[13px] font-bold text-white truncate leading-tight">{currentPickTradeInfo.fromTeam}</div>
             </div>
-            {currentPickTradeInfo.summary && (
-              <div className="bg-black/30 rounded px-1.5 py-1.5">
-                <div className="text-[10px] text-white/50 leading-tight uppercase tracking-wide">Details</div>
-                <div className="text-[11px] text-white/80 truncate leading-tight">{currentPickTradeInfo.summary}</div>
-              </div>
-            )}
+            {(() => {
+              const full = currentPickTradeInfo as { originalTeam?: string; summary?: string };
+              if (full.originalTeam && full.originalTeam !== currentPickTradeInfo.fromTeam) {
+                return (
+                  <div className="bg-black/30 rounded px-1.5 py-1.5">
+                    <div className="text-[10px] text-white/50 leading-tight uppercase tracking-wide">Original Slot</div>
+                    <div className="text-[11px] font-semibold text-white/80 truncate leading-tight">{full.originalTeam}</div>
+                  </div>
+                );
+              }
+              if (full.summary) {
+                return (
+                  <div className="bg-black/30 rounded px-1.5 py-1.5">
+                    <div className="text-[10px] text-white/50 leading-tight uppercase tracking-wide">Details</div>
+                    <div className="text-[11px] text-white/80 truncate leading-tight">{full.summary}</div>
+                  </div>
+                );
+              }
+              return null;
+            })()}
           </div>
         </div>
       )}

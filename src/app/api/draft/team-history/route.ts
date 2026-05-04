@@ -35,7 +35,7 @@ const ROUND_NAMES: Record<number, string> = {
 };
 
 async function getSeasonResult(
-  teamName: string,
+  ownerId: string,
   leagueId: string,
   season: string
 ): Promise<SeasonResult | null> {
@@ -45,8 +45,8 @@ async function getSeasonResult(
       getLeaguePlayoffBracketsWithScores(leagueId).catch(() => ({ winners: [] as SleeperBracketGameWithScore[], losers: [] as SleeperBracketGameWithScore[] })),
     ]);
 
-    const canon = canonicalizeTeamName(teamName);
-    const teamData = teams.find(t => canonicalizeTeamName(t.teamName) === canon);
+    // Match by owner ID to correctly track a team across seasons (team names can differ year to year)
+    const teamData = teams.find(t => t.ownerId === ownerId);
     if (!teamData) return null;
 
     const myRosterId = teamData.rosterId;
@@ -157,8 +157,15 @@ export async function GET(req: NextRequest) {
   if (!team) return Response.json({ error: 'team required' }, { status: 400 });
 
   try {
+    // Resolve owner ID from the current season so we can match the same person across past seasons
+    const currentTeams = await getTeamsData(LEAGUE_IDS.CURRENT).catch(() => []);
+    const canon = canonicalizeTeamName(team);
+    const currentEntry = currentTeams.find(t => canonicalizeTeamName(t.teamName) === canon);
+    if (!currentEntry) return Response.json({ team, seasons: [] });
+    const ownerId = currentEntry.ownerId;
+
     const results = await Promise.all(
-      SEASONS.map(s => getSeasonResult(team, s.leagueId, s.label))
+      SEASONS.map(s => getSeasonResult(ownerId, s.leagueId, s.label))
     );
 
     const seasons = results.filter((r): r is SeasonResult => r !== null);

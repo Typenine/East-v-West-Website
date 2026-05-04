@@ -981,7 +981,13 @@ export async function resetPickClock(draftId: string): Promise<void> {
 export async function setClockSeconds(draftId: string, seconds: number) {
   const db = getDb();
   const s = Math.max(10, Math.min(24 * 60 * 60, seconds | 0));
-  await db.execute(sql`UPDATE drafts SET clock_seconds = ${s} WHERE id = ${draftId}::uuid`);
+  // When paused, also update paused_remaining_secs so the new time takes effect immediately on resume
+  await db.execute(sql`
+    UPDATE drafts
+    SET clock_seconds = ${s},
+        paused_remaining_secs = CASE WHEN status = 'PAUSED' THEN ${s} ELSE paused_remaining_secs END
+    WHERE id = ${draftId}::uuid
+  `);
   return true;
 }
 
