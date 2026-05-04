@@ -54,7 +54,12 @@ export async function buildTransactionLedger(arg?: { season?: string }): Promise
       const chunk: LeagueTransaction[] = [];
 
       for (const txn of transactions) {
-        if (!txn || txn.status !== "complete") continue;
+        if (!txn) continue;
+        const statusNorm = String((txn as unknown as { status?: unknown }).status ?? "")
+          .trim()
+          .toLowerCase();
+        const isFinal = statusNorm === "complete" || statusNorm === "completed";
+        if (!isFinal) continue;
 
         if (txn.type === "waiver" || txn.type === "free_agent") {
           const week = Number(txn.leg ?? 0) || 0;

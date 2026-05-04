@@ -2269,7 +2269,11 @@ export async function getLeagueTrades(leagueId: string, options?: SleeperFetchOp
     const allTransactions = weeklyTransactions.flat();
     // Only include completed trades
     return allTransactions.filter(
-      (transaction) => transaction.type === 'trade' && transaction.status === 'complete'
+      (transaction) => {
+        if (!transaction || transaction.type !== 'trade') return false;
+        const statusNorm = String((transaction as unknown as { status?: unknown }).status ?? '').trim().toLowerCase();
+        return statusNorm === 'complete' || statusNorm === 'completed';
+      }
     );
   } catch (error) {
     console.error('Error fetching league trades:', error);

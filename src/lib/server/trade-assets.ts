@@ -73,7 +73,9 @@ export async function loadDraftOwnershipForSeason(args: LoadNextDraftArgs & { se
   try {
     allTxs = await getLeagueTransactionsAllWeeks(args.leagueId, { forceFresh: true }).catch(() => []);
     for (const tx of allTxs) {
-      if (tx.type !== 'trade' || tx.status !== 'complete') continue;
+      const statusNorm = String((tx as unknown as { status?: unknown }).status ?? '').trim().toLowerCase();
+      const isFinal = statusNorm === 'complete' || statusNorm === 'completed';
+      if (tx.type !== 'trade' || !isFinal) continue;
       for (const pick of (tx.draft_picks || [])) {
         if (String(pick.season) !== targetSeasonStr) continue;
         const key = `${Number(pick.roster_id)}-${Number(pick.round)}`;
@@ -100,7 +102,9 @@ export async function loadDraftOwnershipForSeason(args: LoadNextDraftArgs & { se
   try {
     const pickEvents: Array<{ ts: number; key: string; ownerRosterId: number }> = [];
     for (const tx of allTxs) {
-      if (tx.type !== 'trade' || tx.status !== 'complete') continue;
+      const statusNorm = String((tx as unknown as { status?: unknown }).status ?? '').trim().toLowerCase();
+      const isFinal = statusNorm === 'complete' || statusNorm === 'completed';
+      if (tx.type !== 'trade' || !isFinal) continue;
       const ts = Number(tx.status_updated) || Number(tx.created) || 0;
       for (const pick of tx.draft_picks || []) {
         if (String(pick.season) !== targetSeasonStr) continue;
@@ -124,7 +128,9 @@ export async function loadDraftOwnershipForSeason(args: LoadNextDraftArgs & { se
         nameMap.get(rid) || rosterMap.get(rid)?.metadata?.team_name || `Roster ${rid}`;
 
       for (const tx of allTxs) {
-        if (tx.type !== 'trade' || tx.status !== 'complete') continue;
+        const statusNorm = String((tx as unknown as { status?: unknown }).status ?? '').trim().toLowerCase();
+        const isFinal = statusNorm === 'complete' || statusNorm === 'completed';
+        if (tx.type !== 'trade' || !isFinal) continue;
         const rosterIds = tx.roster_ids || [];
         if (!rosterIds.length) continue;
         const parts: string[] = [];
