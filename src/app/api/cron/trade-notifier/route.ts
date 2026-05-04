@@ -43,7 +43,8 @@ type TradeNotifType = 'trade_pending' | 'trade_complete';
 interface SleeperTransaction {
   transaction_id: string;
   type: string;
-  status: string;
+  /** Sleeper usually sends "complete"; normalize at runtime (string vs rare edge cases). */
+  status?: string | number | null;
   roster_ids: number[];
   adds?: Record<string, number>;
   drops?: Record<string, number>;
@@ -141,6 +142,16 @@ function formatDraftPick(pick: NonNullable<SleeperTransaction['draft_picks']>[0]
   const round = pick.round;
   const suffix = round === 1 ? 'st' : round === 2 ? 'nd' : round === 3 ? 'rd' : 'th';
   return `${pick.season} ${round}${suffix} Round Pick`;
+}
+
+function normalizeSleeperTxnStatus(raw: unknown): string {
+  if (raw == null) return '';
+  return String(raw).trim().toLowerCase();
+}
+
+/** Treat as finalized trade (full compensation post). */
+function isCompleteTradeStatus(s: string): boolean {
+  return s === 'complete' || s === 'completed';
 }
 
 function hashString(s: string): number {
@@ -352,12 +363,13 @@ function buildCompleteTradeEmbed(
 }
 
 function webhookExecuteUrlWithWait(webhookUrl: string): string {
+  const trimmed = webhookUrl.trim();
   try {
-    const u = new URL(webhookUrl);
+    const u = new URL(trimmed);
     u.searchParams.set('wait', 'true');
     return u.toString();
   } catch {
-    return webhookUrl.includes('?') ? `${webhookUrl}&wait=true` : `${webhookUrl}?wait=true`;
+    return trimmed.includes('?') ? `${trimmed}&wait=true` : `${trimmed}?wait=true`;
   }
 }
 
@@ -368,13 +380,22 @@ type DiscordWebhookPostResult = {
   guildId?: string;
 };
 
+function discordSnowflakeString(v: unknown): string | undefined {
+  if (v == null) return undefined;
+  if (typeof v === 'string' && v.length > 0) return v;
+  // Prefer string from Discord API; numeric snowflakes can lose precision in JS.
+  if (typeof v === 'number' && Number.isFinite(v)) return String(Math.trunc(v));
+  return undefined;
+}
+
 function parseDiscordMessageIds(body: unknown): Pick<DiscordWebhookPostResult, 'messageId' | 'channelId' | 'guildId'> {
   if (!body || typeof body !== 'object') return {};
   const o = body as Record<string, unknown>;
-  const id = typeof o.id === 'string' ? o.id : undefined;
-  const channelId = typeof o.channel_id === 'string' ? o.channel_id : undefined;
-  const guildId = typeof o.guild_id === 'string' ? o.guild_id : undefined;
-  return { messageId: id, channelId, guildId };
+  return {
+    messageId: discordSnowflakeString(o.id),
+    channelId: discordSnowflakeString(o.channel_id),
+    guildId: discordSnowflakeString(o.guild_id),
+  };
 }
 
 function discordJumpUrl(guildId: string | undefined, channelId: string | undefined, messageId: string | undefined): string | null {
@@ -382,36 +403,44 @@ function discordJumpUrl(guildId: string | undefined, channelId: string | undefin
   return `https://discord.com/channels/${guildId}/${channelId}/${messageId}`;
 }
 
+/**
+ * Posts to Discord. Completed-trade posts omit `wait` (Discord returns 204 + empty body — same as pre-change behavior).
+ * Pending rumors use `wait=true` so we can capture message IDs for the follow-up jump link.
+ */
 async function postDiscordWebhookPayload(
   webhookUrl: string,
-  payload: Record<string, unknown>
+  payload: Record<string, unknown>,
+  opts?: { waitForMessageBody?: boolean }
 ): Promise<DiscordWebhookPostResult> {
-  const url = webhookExecuteUrlWithWait(webhookUrl);
-  try {
-    const res = await fetch(url, {
+  const waitForMessageBody = opts?.waitForMessageBody === true;
+  const url = waitForMessageBody ? webhookExecuteUrlWithWait(webhookUrl) : webhookUrl.trim();
+
+  const doFetch = () =>
+    fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
+
+  try {
+    const res = await doFetch();
 
     if (res.status === 429) {
       const data = await res.json().catch(() => ({}));
       const retryAfter = data.retry_after || 5;
       console.log(`[TradeNotifier] Rate limited, waiting ${retryAfter}s...`);
       await new Promise((resolve) => setTimeout(resolve, retryAfter * 1000));
-      const retry = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
+      const retry = await doFetch();
       if (!retry.ok) {
         const t = await retry.text().catch(() => '');
         console.error('[TradeNotifier] Discord retry failed:', retry.status, t);
         return { ok: false };
       }
+      if (!waitForMessageBody || retry.status === 204) {
+        return { ok: true };
+      }
       const retryJson = await retry.json().catch(() => null);
-      const ids = parseDiscordMessageIds(retryJson);
-      return { ok: true, ...ids };
+      return { ok: true, ...parseDiscordMessageIds(retryJson) };
     }
 
     if (!res.ok) {
@@ -420,9 +449,13 @@ async function postDiscordWebhookPayload(
       return { ok: false };
     }
 
+    // Default webhook execute (no wait): 204 No Content — do not call res.json().
+    if (!waitForMessageBody || res.status === 204) {
+      return { ok: true };
+    }
+
     const json = await res.json().catch(() => null);
-    const ids = parseDiscordMessageIds(json);
-    return { ok: true, ...ids };
+    return { ok: true, ...parseDiscordMessageIds(json) };
   } catch (err) {
     console.error('[TradeNotifier] Discord post failed:', err);
     return { ok: false };
@@ -515,7 +548,7 @@ export async function GET(req: NextRequest) {
 
     const tradeStatusBreakdown: Record<string, number> = {};
     for (const t of trades) {
-      const key = (t.status && String(t.status).trim()) || 'unknown';
+      const key = normalizeSleeperTxnStatus(t.status) || 'unknown';
       tradeStatusBreakdown[key] = (tradeStatusBreakdown[key] ?? 0) + 1;
     }
 
@@ -534,15 +567,15 @@ export async function GET(req: NextRequest) {
     const skipped: string[] = [];
 
     for (const trade of trades) {
-      const txnId = trade.transaction_id;
-      const statusNorm = (trade.status || '').toLowerCase();
+      const txnId = String(trade.transaction_id);
+      const statusNorm = normalizeSleeperTxnStatus(trade.status);
 
       if (SKIP_TRADE_STATUSES.has(statusNorm)) {
         skipped.push(txnId);
         continue;
       }
 
-      const isComplete = statusNorm === 'complete';
+      const isComplete = isCompleteTradeStatus(statusNorm);
 
       if (isComplete) {
         const alreadyPosted = await checkAlreadyPosted(db, txnId, 'trade_complete');
@@ -555,10 +588,14 @@ export async function GET(req: NextRequest) {
         const embed = buildCompleteTradeEmbed(trade, teamDetails, rosterNameMap, siteUrl, {
           priorRumorJumpUrl: priorJump,
         });
-        const postResult = await postDiscordWebhookPayload(webhookUrl, {
-          embeds: [embed],
-          allowed_mentions: { parse: [] },
-        });
+        const postResult = await postDiscordWebhookPayload(
+          webhookUrl,
+          {
+            embeds: [embed],
+            allowed_mentions: { parse: [] },
+          },
+          { waitForMessageBody: false }
+        );
         if (postResult.ok) {
           await markAsPosted(db, txnId, 'trade_complete', {
             roster_ids: trade.roster_ids,
@@ -582,10 +619,14 @@ export async function GET(req: NextRequest) {
       }
 
       const embed = buildPendingRumorEmbed(trade, players, rosterNameMap, siteUrl);
-      const postResult = await postDiscordWebhookPayload(webhookUrl, {
-        embeds: [embed],
-        allowed_mentions: { parse: [] },
-      });
+      const postResult = await postDiscordWebhookPayload(
+        webhookUrl,
+        {
+          embeds: [embed],
+          allowed_mentions: { parse: [] },
+        },
+        { waitForMessageBody: true }
+      );
       if (postResult.ok) {
         const jump = discordJumpUrl(postResult.guildId, postResult.channelId, postResult.messageId);
         await markAsPosted(db, txnId, 'trade_pending', {
