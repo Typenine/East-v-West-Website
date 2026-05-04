@@ -43,7 +43,7 @@ function AcquiredAsset({ asset, ec1 }: { asset: TradeAnimAsset; ec1: string }) {
       ? `via ${asset.pickOriginalTeam}` : null;
 
   return (
-    <div className="flex items-start gap-3 rounded-xl px-4 py-3" style={{
+    <div className="gtrade-asset-row flex items-start gap-3 rounded-xl px-4 py-3" style={{
       background: 'rgba(0,0,0,0.45)',
       border: '1px solid rgba(255,255,255,0.2)',
     }}>
@@ -93,6 +93,7 @@ export default function DraftTradeAnimation({ teams, assets, eventLogoUrl, event
     const tradeIcon    = container.querySelector<HTMLElement>('.gtrade-icon');
     const detailsPhase = container.querySelector<HTMLElement>('.gtrade-details');
     const detailsCard  = container.querySelector<HTMLElement>('.gtrade-card');
+    const assetRows    = container.querySelectorAll<HTMLElement>('.gtrade-asset-row');
 
     if (!logoPhase || !alertPhase || !teamsPhase || !detailsPhase) return;
 
@@ -104,6 +105,7 @@ export default function DraftTradeAnimation({ teams, assets, eventLogoUrl, event
     teamPanels.forEach((p, i) => gsap.set(p, { xPercent: i % 2 === 0 ? -100 : 100 }));
     if (tradeIcon) gsap.set(tradeIcon, { autoAlpha: 0, scale: 0 });
     gsap.set(detailsCard, { autoAlpha: 0, yPercent: 4 });
+    assetRows.forEach((row) => gsap.set(row, { autoAlpha: 0, x: 18 }));
 
     const tl = gsap.timeline({ onComplete: () => onCompleteRef.current?.(), defaults: { ease: 'power2.out' } });
     timelineRef.current = tl;
@@ -130,8 +132,11 @@ export default function DraftTradeAnimation({ teams, assets, eventLogoUrl, event
 
     // ── Phase 3: Trade Details — 20.4s hold ─────────────────────────────────
     tl.to(detailsPhase, { autoAlpha: 1, duration: 0.5 })
-      .to(detailsCard,  { autoAlpha: 1, yPercent: 0, duration: 0.6, ease: 'power3.out' }, '<0.1')
-      .to(container,    { autoAlpha: 0, duration: 0.8, ease: 'power2.inOut' }, '+=20.4');
+      .to(detailsCard,  { autoAlpha: 1, yPercent: 0, duration: 0.62, ease: 'power3.out' }, '<0.1');
+    if (assetRows.length) {
+      tl.to(assetRows, { autoAlpha: 1, x: 0, duration: 0.4, stagger: 0.055, ease: 'power2.out' }, '-=0.35');
+    }
+    tl.to(container, { autoAlpha: 0, duration: 0.8, ease: 'power2.inOut' }, '+=20.4');
 
     return () => { timelineRef.current?.kill(); timelineRef.current = null; };
   // eslint-disable-next-line react-hooks/exhaustive-deps

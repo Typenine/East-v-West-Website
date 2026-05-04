@@ -358,6 +358,7 @@ export async function ensureDraftTables() {
     )
   `);
   await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_pending_picks_draft ON draft_pending_picks(draft_id, status)`).catch(() => {});
+  await db.execute(sql`ALTER TABLE draft_pending_picks ALTER COLUMN player_nfl TYPE varchar(255)`).catch(() => {});
   // Trade system tables
   await db.execute(sql`
     CREATE TABLE IF NOT EXISTS draft_roster_snapshots (
@@ -452,7 +453,7 @@ export async function ensureDraftPlayersTable() {
   await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_draft_players_draft ON draft_players(draft_id)`).catch(() => {});
 }
 
-export type DraftPlayerRow = { player_id: string; name: string; pos: string; nfl: string | null; rank: number | null };
+export type DraftPlayerRow = { player_id: string; name: string; pos: string; nfl: string | null; rank: number | null; meta: unknown | null };
 
 export async function setDraftPlayers(
   draftId: string,
@@ -487,7 +488,7 @@ export async function clearDraftPlayers(draftId: string) {
 export async function getDraftPlayers(draftId: string): Promise<DraftPlayerRow[]> {
   await ensureDraftPlayersTable();
   const db = getDb();
-  const res = await db.execute(sql`SELECT player_id, name, pos, nfl, rank FROM draft_players WHERE draft_id = ${draftId}::uuid`);
+  const res = await db.execute(sql`SELECT player_id, name, pos, nfl, rank, meta FROM draft_players WHERE draft_id = ${draftId}::uuid`);
   const rows = (res as unknown as { rows?: Array<DraftPlayerRow> }).rows || [];
   return rows;
 }
@@ -875,12 +876,15 @@ export async function submitPendingPick(draftId: string, data: {
 }): Promise<void> {
   await ensureDraftTables();
   const db = getDb();
+  const nfl = data.playerNfl != null && String(data.playerNfl).length > 255
+    ? String(data.playerNfl).slice(0, 255)
+    : (data.playerNfl ?? null);
   // Clear any old pending for this draft first
   await db.execute(sql`DELETE FROM draft_pending_picks WHERE draft_id = ${draftId}::uuid AND status = 'pending'`);
   await db.execute(sql`
     INSERT INTO draft_pending_picks (draft_id, overall, team, player_id, player_name, player_pos, player_nfl, status)
     VALUES (${draftId}::uuid, ${data.overall}, ${data.team}, ${data.playerId},
-            ${data.playerName ?? null}, ${data.playerPos ?? null}, ${data.playerNfl ?? null}, 'pending')
+            ${data.playerName ?? null}, ${data.playerPos ?? null}, ${nfl}, 'pending')
   `);
 }
 

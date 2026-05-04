@@ -36,7 +36,7 @@ export type TradeAsset = {
  */
 export const fetchTradesAllTime = async (): Promise<Trade[]> => {
   try {
-    const transactionsByYear = await getAllLeagueTrades();
+    const transactionsByYear = await getAllLeagueTrades({ forceFresh: true });
 
     // Map year -> leagueId like sleeper-api does internally
     const yearToLeague = await buildYearToLeagueMapUnique();
@@ -660,7 +660,7 @@ export const fetchTradesByYear = async (year: string): Promise<Trade[]> => {
       return [];
     }
     
-    const sleeperTrades = await getLeagueTrades(leagueId);
+    const sleeperTrades = await getLeagueTrades(leagueId, { forceFresh: true });
     const ctx = await loadTradeLeagueContext(leagueId);
 
     if (!playersCache) {
@@ -722,7 +722,7 @@ export const fetchTradeById = async (id: string): Promise<Trade | null> => {
     const yearToLeague = await buildYearToLeagueMapUnique();
 
     for (const leagueId of Object.values(yearToLeague)) {
-      const sleeperTrades = await getLeagueTrades(leagueId);
+      const sleeperTrades = await getLeagueTrades(leagueId, { forceFresh: true });
       const transaction = sleeperTrades.find(t => t.transaction_id === id);
       if (transaction) {
         const trade = await convertSleeperTradeToTrade(transaction, leagueId);

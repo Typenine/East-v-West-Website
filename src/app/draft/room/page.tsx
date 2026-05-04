@@ -13,6 +13,11 @@ import NowOnClockAnimation from '@/components/draft-overlay/NowOnClockAnimation'
 import DraftTradeCenter from '@/components/draft-overlay/DraftTradeCenter';
 import DraftTradeAnimation, { type TradeAnimAsset } from '@/components/draft-overlay/DraftTradeAnimation';
 import DraftInfoBarTicker from '@/components/draft-overlay/DraftInfoBarTicker';
+import {
+  draftPicksPerRound,
+  DRAFT_ANIM_CLOCK_PHASE_MAX_MS,
+  DRAFT_ANIM_PICK_PHASE_MAX_MS,
+} from '@/components/draft-overlay/draft-display-utils';
 import { gsap } from 'gsap';
 
 const POSITIONS = ['QB', 'RB', 'WR', 'TE', 'K'];
@@ -66,7 +71,7 @@ type PendingPick = {
 } | null;
 
 type MeResp = { authenticated: boolean; isAdmin?: boolean; claims?: { team?: string } };
-type Avail = { id: string; name: string; pos: string; nfl: string };
+type Avail = { id: string; name: string; pos: string; nfl: string; college?: string | null };
 type QueueItem = { id: string; name: string; pos: string; nfl: string };
 type RosterPlayer = { id: string; name: string; pos: string; nfl: string };
 
@@ -101,6 +106,10 @@ export default function DraftRoomPage() {
   const [teamRoster, setTeamRoster] = useState<RosterPlayer[]>([]);
   const [rosterLoading, setRosterLoading] = useState(false);
   const [confirmPlayer, setConfirmPlayer] = useState<Avail | null>(null);
+  const [teamPanelTab, setTeamPanelTab] = useState<'pick' | 'queue' | 'roster'>('pick');
+  const [pickAnimCollege, setPickAnimCollege] = useState<string | undefined>(undefined);
+  const usingCustomPoolRef = useRef(false);
+  const [usingCustomPool, setUsingCustomPool] = useState(false);
   const [tradeInboxCount, setTradeInboxCount] = useState(0);
   const [tradeNotif, setTradeNotif] = useState(false);
   const prevTradeInboxCountRef = useRef(0);
@@ -176,7 +185,13 @@ export default function DraftRoomPage() {
         body: JSON.stringify({ action: 'pick', playerId: player.id, playerName: player.name, playerPos: player.pos, playerNfl: player.nfl }),
       });
       const j = await res.json();
-      if (!res.ok || j?.error) { alert(j?.error || 'Pick failed'); return; }
+      if (!res.ok || j?.error) {
+        const msg = j?.error === 'pick_submit_failed'
+          ? 'Could not submit pick (server error). Please try again or contact the commissioner.'
+          : (j?.error || 'Pick failed');
+        alert(msg);
+        return;
+      }
       setPickStatus('pending');
       setSubmittedPlayer(player);
       setSearch('');
@@ -258,7 +273,12 @@ export default function DraftRoomPage() {
         }
       }
       if (newRemaining !== null && newRemaining > 10) beepPlayedRef.current = false;
-      if (includeAvail) setAvail((j?.available as Avail[]) || []);
+      if (includeAvail) {
+        setAvail((j?.available as Avail[]) || []);
+        const uc = Boolean(j?.usingCustom);
+        usingCustomPoolRef.current = uc;
+        setUsingCustomPool(uc);
+      }
     } finally {
       setLoading(false);
     }
@@ -430,7 +450,18 @@ export default function DraftRoomPage() {
         : null,
     };
     animStartTimeRef.current = Date.now();
+    setPickAnimCollege(undefined);
     setAnimPhase('pick');
+    const pid = lastPick.playerId;
+    if (usingCustomPoolRef.current) {
+      const fromList = avail.find(a => a.id === pid);
+      if (fromList?.college) setPickAnimCollege(fromList.college);
+    } else {
+      fetch(`/api/draft?action=player_info&playerId=${encodeURIComponent(pid)}`, { cache: 'no-store' })
+        .then(r => r.json())
+        .then(data => { if (data?.college) setPickAnimCollege(data.college); })
+        .catch(() => {});
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draft?.recentPicks?.[draft?.recentPicks?.length - 1]?.overall]);
 
@@ -457,11 +488,11 @@ export default function DraftRoomPage() {
   // Phase safety timeouts
   useEffect(() => {
     if (animPhase === 'pick') {
-      const t = setTimeout(() => setAnimPhase('clock'), 20000);
+      const t = setTimeout(() => setAnimPhase('clock'), DRAFT_ANIM_PICK_PHASE_MAX_MS);
       return () => clearTimeout(t);
     }
     if (animPhase === 'clock') {
-      const t = setTimeout(() => { setAnimPhase(!!(animDataRef.current?.videoUrl) ? 'video' : null); }, 15000);
+      const t = setTimeout(() => { setAnimPhase(!!(animDataRef.current?.videoUrl) ? 'video' : null); }, DRAFT_ANIM_CLOCK_PHASE_MAX_MS);
       return () => clearTimeout(t);
     }
   }, [animPhase]);
@@ -533,7 +564,7 @@ export default function DraftRoomPage() {
   const allPicks = draft?.allPicks || draft?.recentPicks || [];
   const pickedByOverall = new Map(allPicks.map(p => [p.overall, p]));
   const rounds = draft?.rounds || 4;
-  const picksPerRound = Math.ceil(allSlots.length / Math.max(rounds, 1)) || 12;
+  const picksPerRound = draftPicksPerRound(draft);
   const myTeamColors = myTeam ? getTeamColors(myTeam) : null;
   const isMyPickPending = pickStatus === 'pending' || (pendingPick?.team === myTeam);
   const eventColor1 = draft?.eventColor1 || '#a4c810';
@@ -698,6 +729,7 @@ export default function DraftRoomPage() {
                   recentPicks={draft?.recentPicks}
                   curOverall={draft?.curOverall}
                   pendingPick={!!pendingPick}
+                  usingCustom={usingCustomPool}
                 />
               </div>
             </div>
@@ -773,218 +805,258 @@ export default function DraftRoomPage() {
             </div>
           )}
 
-          {/* ── Player Search & Browse (always visible when logged in) ── */}
+          {/* ── Team panel: pick / queue / roster (board grid unchanged above) ── */}
           {(me.authenticated || isAdmin) && (
-            <div className="rounded-lg border border-[var(--border)] overflow-hidden">
-              {/* Search header */}
-              <div className="px-3 pt-3 pb-2 border-b border-[var(--border)]" style={{ background: 'var(--background)' }}>
-                <div className="text-xs font-bold text-[var(--muted)] uppercase tracking-wide mb-2">
-                  {isMyTurn && !isMyPickPending ? '🎯 Make Your Pick' : 'Browse Players'}
-                </div>
-                {/* Position filter pills */}
-                <div className="flex gap-1.5 flex-wrap mb-2">
-                  {(['', ...POSITIONS] as string[]).map(pos => {
-                    const active = posFilter === pos;
-                    return (
-                      <button
-                        key={pos || 'all'}
-                        type="button"
-                        onClick={() => setPosFilter(pos)}
-                        className="px-2.5 py-0.5 rounded-full text-xs font-bold border transition-colors"
-                        style={active ? { background: pos ? POS_COLORS[pos] : '#555', color: '#fff', borderColor: 'transparent' } : { background: 'transparent', color: 'var(--muted)', borderColor: 'var(--border)' }}
-                      >
-                        {pos || 'All'}
-                      </button>
-                    );
-                  })}
-                </div>
-                {/* Search input */}
-                <Input
-                  value={search}
-                  onChange={e => setSearch(e.target.value)}
-                  placeholder="Search player name…"
-                  className="w-full"
-                />
-              </div>
-              {/* Player list */}
-              <div className="max-h-64 overflow-y-auto divide-y divide-[var(--border)]">
-                {avail.length === 0 ? (
-                  <div className="px-3 py-4 text-center text-xs text-[var(--muted)]">{loading ? 'Loading…' : 'No results — try a search or change position filter.'}</div>
-                ) : avail.map(p => {
-                  const inQueue = queue.some(q => q.id === p.id);
-                  const canPick = isMyTurn && !isMyPickPending;
-                  return (
-                    <div key={p.id} className="flex items-center gap-2 px-3 py-2 hover:bg-zinc-100 dark:hover:bg-zinc-800/50">
-                      <span className="shrink-0 text-[10px] font-black px-1.5 py-0.5 rounded text-white" style={{ background: POS_COLORS[p.pos] || '#555', minWidth: '30px', textAlign: 'center' }}>
-                        {p.pos}
-                      </span>
-                      <div className="flex-1 min-w-0">
-                        <div className="text-sm font-semibold text-[var(--foreground)] truncate">{p.name}</div>
-                        <div className="text-xs text-[var(--muted)]">{p.nfl}</div>
-                      </div>
-                      <div className="flex gap-1 shrink-0">
-                        {canPick && (
-                          <Button size="sm" variant="primary" disabled={submitting} onClick={() => setConfirmPlayer(p)}>Pick</Button>
-                        )}
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => inQueue ? removeFromQueue(p.id) : addToQueue(p)}
-                          title={inQueue ? 'Remove from queue' : 'Add to queue'}
-                        >
-                          {inQueue ? '−Q' : '+Q'}
-                        </Button>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
-          {/* ── Queue ── */}
-          {(me.authenticated || isAdmin) && (
-            <div className="rounded-lg border border-[var(--border)] overflow-hidden">
-              <div className="flex items-center justify-between px-3 py-2 border-b border-[var(--border)]" style={{ background: 'var(--background)' }}>
-                <div className="text-xs font-bold text-[var(--muted)] uppercase tracking-wide">
-                  My Queue {queue.length > 0 && <span className="text-[var(--foreground)]">({queue.length})</span>}
-                </div>
-                {/* Auto-pick toggle */}
-                <label className="flex items-center gap-2 cursor-pointer select-none">
-                  <span className="text-xs text-[var(--muted)]">Instant auto-pick</span>
+            <div
+              className="rounded-xl overflow-hidden border-2 shadow-md"
+              style={{
+                borderColor: myTeamColors?.secondary ?? 'var(--border)',
+                background: myTeamColors
+                  ? `linear-gradient(180deg, ${myTeamColors.primary}18, var(--background))`
+                  : 'var(--background)',
+              }}
+            >
+              {myTeam && (
+                <div className="flex items-center gap-3 px-3 py-2.5 border-b border-[var(--border)]/80">
                   <div
-                    className={`relative w-9 h-5 rounded-full transition-colors ${autoPickEnabled ? 'bg-emerald-500' : 'bg-zinc-400 dark:bg-zinc-600'}`}
-                    onClick={() => {
-                      const next = !autoPickEnabled;
-                      setAutoPickEnabled(next);
-                      try { localStorage.setItem(`evw_draft_autopick_${myTeam || 'default'}`, String(next)); } catch {}
-                    }}
+                    className="w-11 h-11 shrink-0 rounded-lg overflow-hidden border-2 bg-black/40 flex items-center justify-center"
+                    style={{ borderColor: myTeamColors?.secondary ?? 'var(--border)' }}
                   >
-                    <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${autoPickEnabled ? 'translate-x-4' : 'translate-x-0.5'}`} />
+                    <img src={getTeamLogoPath(myTeam)} alt="" className="w-full h-full object-contain" />
                   </div>
-                </label>
+                  <div className="min-w-0 flex-1">
+                    <div className="font-black text-sm text-[var(--foreground)] break-words leading-tight">{myTeam}</div>
+                    <div className="text-[10px] font-bold uppercase tracking-wide text-[var(--muted)]">Pick · Queue · Roster</div>
+                  </div>
+                </div>
+              )}
+              <div className="flex gap-1 px-2 py-2 border-b border-[var(--border)] bg-black/5 dark:bg-white/5">
+                {(['pick', 'queue', 'roster'] as const).map(tab => (
+                  <button
+                    key={tab}
+                    type="button"
+                    onClick={() => setTeamPanelTab(tab)}
+                    className="flex-1 py-2 rounded-lg text-[11px] font-black uppercase tracking-wide transition-colors"
+                    style={
+                      teamPanelTab === tab
+                        ? { background: myTeamColors?.primary ?? '#be161e', color: '#fff', boxShadow: `0 0 0 1px ${myTeamColors?.secondary ?? 'transparent'}` }
+                        : { background: 'transparent', color: 'var(--muted)' }
+                    }
+                  >
+                    {tab === 'pick' ? 'Pick' : tab === 'queue' ? `Queue${queue.length ? ` (${queue.length})` : ''}` : 'Roster'}
+                  </button>
+                ))}
               </div>
-              <div className="px-3 py-1.5 text-xs text-[var(--muted)] border-b border-[var(--border)]">
-                {autoPickEnabled
-                  ? <span className="font-medium text-emerald-700 dark:text-emerald-400">✓ Instant — top queued player submitted to admin the moment time expires</span>
-                  : <span>Your top queued player is always sent to admin when time expires (within ~3s)</span>
-                }
-              </div>
-              {queue.length === 0 ? (
-                <div className="px-3 py-3 text-xs text-[var(--muted)]">Queue is empty — add players using the +Q button above.</div>
-              ) : (
-                <ul className="divide-y divide-[var(--border)]">
-                  {queue.map((q, idx) => (
-                    <li key={q.id} className={`flex items-center gap-2 px-3 py-2 ${idx === 0 && autoPickEnabled ? 'bg-emerald-50 dark:bg-emerald-900/20' : ''}`}>
-                      <span className="text-xs font-bold text-[var(--muted)] w-4 shrink-0 tabular-nums">{idx + 1}</span>
-                      <span className="shrink-0 text-[10px] font-black px-1.5 py-0.5 rounded text-white" style={{ background: POS_COLORS[q.pos] || '#555', minWidth: '30px', textAlign: 'center' }}>
-                        {q.pos}
-                      </span>
-                      <span className="flex-1 text-sm font-semibold text-[var(--foreground)] truncate">{q.name}</span>
-                      {idx === 0 && autoPickEnabled && <span className="text-[10px] font-black text-emerald-600 dark:text-emerald-400 shrink-0 uppercase">AUTO</span>}
-                      <div className="flex shrink-0">
-                        <button type="button" disabled={idx === 0} onClick={() => moveInQueue(q.id, 'up')} className="w-6 h-6 flex items-center justify-center text-[var(--muted)] hover:text-[var(--foreground)] disabled:opacity-20 text-xs rounded hover:bg-zinc-200 dark:hover:bg-zinc-700">↑</button>
-                        <button type="button" disabled={idx === queue.length - 1} onClick={() => moveInQueue(q.id, 'down')} className="w-6 h-6 flex items-center justify-center text-[var(--muted)] hover:text-[var(--foreground)] disabled:opacity-20 text-xs rounded hover:bg-zinc-200 dark:hover:bg-zinc-700">↓</button>
-                        <button type="button" onClick={() => removeFromQueue(q.id)} className="w-6 h-6 flex items-center justify-center text-[var(--muted)] hover:text-red-500 text-xs rounded hover:bg-zinc-200 dark:hover:bg-zinc-700">×</button>
+              <div className="p-3 space-y-3">
+                {teamPanelTab === 'pick' && (
+                  <div className="rounded-lg border border-[var(--border)] overflow-hidden bg-[var(--background)]">
+                    <div className="px-3 pt-3 pb-2 border-b border-[var(--border)]">
+                      <div className="text-xs font-bold text-[var(--muted)] uppercase tracking-wide mb-2">
+                        {isMyTurn && !isMyPickPending ? 'Make your pick' : 'Browse players'}
                       </div>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          )}
-
-          {/* ── My Draft Picks (this draft) ── */}
-          {myTeam && draft && (() => {
-            const myPicks = allPicks.filter(p => p.team === myTeam);
-            return (
-              <div className="rounded-lg border border-[var(--border)] overflow-hidden">
-                <div className="px-3 py-2 text-xs font-bold text-[var(--muted)] uppercase tracking-wide border-b border-[var(--border)]" style={{ background: 'var(--background)' }}>
-                  My Draft Picks — {myTeam}
-                </div>
-                {myPicks.length === 0 ? (
-                  <div className="px-3 py-3 text-xs text-[var(--muted)]">No picks yet this draft.</div>
-                ) : (
-                  <ul className="divide-y divide-[var(--border)]">
-                    {myPicks.map(p => (
-                      <li key={p.overall} className="flex items-center gap-2 px-3 py-2">
-                        <span className="shrink-0 text-[10px] font-black px-1.5 py-0.5 rounded text-white" style={{ background: POS_COLORS[p.playerPos || ''] || '#555', minWidth: '30px', textAlign: 'center' }}>
-                          {p.playerPos || '?'}
-                        </span>
-                        <span className="flex-1 text-sm font-semibold text-[var(--foreground)] truncate">{p.playerName || p.playerId}</span>
-                        <span className="text-xs text-[var(--muted)] shrink-0">R{p.round}.{((p.overall - 1) % picksPerRound) + 1}</span>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            );
-          })()}
-
-          {/* ── Team Roster (current Sleeper roster) ── */}
-          {myTeam && (
-            <div className="rounded-lg border border-[var(--border)] overflow-hidden">
-              <div className="flex items-center justify-between px-3 py-2 border-b border-[var(--border)]" style={{ background: 'var(--background)' }}>
-                <span className="text-xs font-bold text-[var(--muted)] uppercase tracking-wide">Current Roster — {myTeam}</span>
-                <div className="flex gap-1">
-                  {(['ALL', 'QB', 'RB', 'WR', 'TE', 'K'] as const).map(p => (
-                    <button key={p} type="button" onClick={() => setRosterPosFilter(p)}
-                      className="text-[10px] font-bold px-2 py-0.5 rounded-full border transition-colors"
-                      style={rosterPosFilter === p
-                        ? { background: p === 'ALL' ? (myTeamColors?.primary || '#555') : (POS_COLORS[p] || '#555'), color: '#fff', borderColor: 'transparent' }
-                        : { background: 'transparent', color: 'var(--muted)', borderColor: 'var(--border)' }}
-                    >{p}</button>
-                  ))}
-                </div>
-              </div>
-              {rosterLoading ? (
-                <div className="px-3 py-3 text-xs text-[var(--muted)]">Loading roster…</div>
-              ) : teamRoster.length === 0 ? (
-                <div className="px-3 py-3 text-xs text-[var(--muted)]">No roster data found.</div>
-              ) : (
-                <ul className="divide-y divide-[var(--border)]">
-                  {[...teamRoster]
-                    .filter(p => rosterPosFilter === 'ALL' || p.pos === rosterPosFilter)
-                    .sort((a, b) => {
-                      const order: Record<string, number> = { QB: 0, RB: 1, WR: 2, TE: 3, K: 4 };
-                      return (order[a.pos] ?? 9) - (order[b.pos] ?? 9) || a.name.localeCompare(b.name);
-                    })
-                    .map(p => (
-                    <li key={p.id} className="flex items-center gap-2 px-3 py-2">
-                      <span className="shrink-0 text-[10px] font-black px-1.5 py-0.5 rounded text-white" style={{ background: POS_COLORS[p.pos] || '#555', minWidth: '30px', textAlign: 'center' }}>
-                        {p.pos || '?'}
-                      </span>
-                      <span className="flex-1 text-sm font-semibold text-[var(--foreground)] truncate">{p.name}</span>
-                      <span className="text-xs text-[var(--muted)] shrink-0">{p.nfl}</span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          )}
-
-          {/* ── My Upcoming Picks ── */}
-          {myTeam && draft && (() => {
-            const myUp = allSlots.filter(s => s.team === myTeam && s.overall >= draft.curOverall);
-            return (
-              <div className="rounded-lg border border-[var(--border)] overflow-hidden">
-                <div className="px-3 py-2 text-xs font-bold text-[var(--muted)] uppercase tracking-wide border-b border-[var(--border)]" style={{ background: 'var(--background)' }}>
-                  My Upcoming Picks
-                </div>
-                {myUp.length === 0 ? (
-                  <div className="px-3 py-3 text-xs text-[var(--muted)]">No more picks.</div>
-                ) : (
-                  <div className="flex flex-wrap gap-2 p-3">
-                    {myUp.map(u => (
-                      <span key={u.overall} className="text-xs px-2.5 py-1 rounded-lg font-semibold border" style={{ color: 'var(--foreground)', borderColor: 'var(--border)', background: 'var(--background)' }}>
-                        Pick #{u.overall} · R{u.round}
-                      </span>
-                    ))}
+                      <div className="flex gap-1.5 flex-wrap mb-2">
+                        {(['', ...POSITIONS] as string[]).map(pos => {
+                          const active = posFilter === pos;
+                          return (
+                            <button
+                              key={pos || 'all'}
+                              type="button"
+                              onClick={() => setPosFilter(pos)}
+                              className="px-2.5 py-0.5 rounded-full text-xs font-bold border transition-colors"
+                              style={active ? { background: pos ? POS_COLORS[pos] : '#555', color: '#fff', borderColor: 'transparent' } : { background: 'transparent', color: 'var(--muted)', borderColor: 'var(--border)' }}
+                            >
+                              {pos || 'All'}
+                            </button>
+                          );
+                        })}
+                      </div>
+                      <Input
+                        value={search}
+                        onChange={e => setSearch(e.target.value)}
+                        placeholder="Search player name…"
+                        className="w-full"
+                      />
+                    </div>
+                    <div className="max-h-72 overflow-y-auto divide-y divide-[var(--border)]">
+                      {avail.length === 0 ? (
+                        <div className="px-3 py-4 text-center text-xs text-[var(--muted)]">{loading ? 'Loading…' : 'No results — try a search or change position filter.'}</div>
+                      ) : avail.map(p => {
+                        const inQueue = queue.some(q => q.id === p.id);
+                        const canPick = isMyTurn && !isMyPickPending;
+                        return (
+                          <div key={p.id} className="flex items-start gap-2 px-3 py-2 hover:bg-zinc-100 dark:hover:bg-zinc-800/50">
+                            <span className="shrink-0 text-[10px] font-black px-1.5 py-0.5 rounded text-white mt-0.5" style={{ background: POS_COLORS[p.pos] || '#555', minWidth: '30px', textAlign: 'center' }}>
+                              {p.pos}
+                            </span>
+                            <div className="flex-1 min-w-0">
+                              <div className="text-sm font-semibold text-[var(--foreground)] break-words leading-snug">{p.name}</div>
+                              <div className="text-xs text-[var(--muted)]">{p.nfl}</div>
+                            </div>
+                            <div className="flex gap-1 shrink-0 self-center">
+                              {canPick && (
+                                <Button size="sm" variant="primary" disabled={submitting} onClick={() => setConfirmPlayer(p)}>Pick</Button>
+                              )}
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => inQueue ? removeFromQueue(p.id) : addToQueue(p)}
+                                title={inQueue ? 'Remove from queue' : 'Add to queue'}
+                              >
+                                {inQueue ? '−Q' : '+Q'}
+                              </Button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
                 )}
+
+                {teamPanelTab === 'queue' && (
+                  <div className="rounded-lg border border-[var(--border)] overflow-hidden bg-[var(--background)]">
+                    <div className="flex items-center justify-between px-3 py-2 border-b border-[var(--border)]">
+                      <div className="text-xs font-bold text-[var(--muted)] uppercase tracking-wide">
+                        My queue {queue.length > 0 && <span className="text-[var(--foreground)]">({queue.length})</span>}
+                      </div>
+                      <label className="flex items-center gap-2 cursor-pointer select-none">
+                        <span className="text-xs text-[var(--muted)]">Instant auto-pick</span>
+                        <div
+                          className={`relative w-9 h-5 rounded-full transition-colors ${autoPickEnabled ? 'bg-emerald-500' : 'bg-zinc-400 dark:bg-zinc-600'}`}
+                          onClick={() => {
+                            const next = !autoPickEnabled;
+                            setAutoPickEnabled(next);
+                            try { localStorage.setItem(`evw_draft_autopick_${myTeam || 'default'}`, String(next)); } catch {}
+                          }}
+                        >
+                          <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${autoPickEnabled ? 'translate-x-4' : 'translate-x-0.5'}`} />
+                        </div>
+                      </label>
+                    </div>
+                    <div className="px-3 py-1.5 text-xs text-[var(--muted)] border-b border-[var(--border)]">
+                      {autoPickEnabled
+                        ? <span className="font-medium text-emerald-700 dark:text-emerald-400">Instant — top queued player submitted when time expires</span>
+                        : <span>Top queued player is sent to admin when time expires (within ~3s)</span>}
+                    </div>
+                    {queue.length === 0 ? (
+                      <div className="px-3 py-3 text-xs text-[var(--muted)]">Queue is empty — use +Q on the Pick tab.</div>
+                    ) : (
+                      <ul className="divide-y divide-[var(--border)]">
+                        {queue.map((q, idx) => (
+                          <li key={q.id} className={`flex items-start gap-2 px-3 py-2 ${idx === 0 && autoPickEnabled ? 'bg-emerald-50 dark:bg-emerald-900/20' : ''}`}>
+                            <span className="text-xs font-bold text-[var(--muted)] w-4 shrink-0 tabular-nums pt-0.5">{idx + 1}</span>
+                            <span className="shrink-0 text-[10px] font-black px-1.5 py-0.5 rounded text-white mt-0.5" style={{ background: POS_COLORS[q.pos] || '#555', minWidth: '30px', textAlign: 'center' }}>
+                              {q.pos}
+                            </span>
+                            <span className="flex-1 min-w-0 text-sm font-semibold text-[var(--foreground)] break-words leading-snug">{q.name}</span>
+                            {idx === 0 && autoPickEnabled && <span className="text-[10px] font-black text-emerald-600 dark:text-emerald-400 shrink-0 uppercase pt-0.5">AUTO</span>}
+                            <div className="flex shrink-0 self-center">
+                              <button type="button" disabled={idx === 0} onClick={() => moveInQueue(q.id, 'up')} className="w-6 h-6 flex items-center justify-center text-[var(--muted)] hover:text-[var(--foreground)] disabled:opacity-20 text-xs rounded hover:bg-zinc-200 dark:hover:bg-zinc-700">↑</button>
+                              <button type="button" disabled={idx === queue.length - 1} onClick={() => moveInQueue(q.id, 'down')} className="w-6 h-6 flex items-center justify-center text-[var(--muted)] hover:text-[var(--foreground)] disabled:opacity-20 text-xs rounded hover:bg-zinc-200 dark:hover:bg-zinc-700">↓</button>
+                              <button type="button" onClick={() => removeFromQueue(q.id)} className="w-6 h-6 flex items-center justify-center text-[var(--muted)] hover:text-red-500 text-xs rounded hover:bg-zinc-200 dark:hover:bg-zinc-700">×</button>
+                            </div>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                )}
+
+                {teamPanelTab === 'roster' && (
+                  <>
+                    {myTeam && draft && (() => {
+                      const myPicks = allPicks.filter(p => p.team === myTeam);
+                      return (
+                        <div className="rounded-lg border border-[var(--border)] overflow-hidden bg-[var(--background)]">
+                          <div className="px-3 py-2 text-xs font-bold text-[var(--muted)] uppercase tracking-wide border-b border-[var(--border)]">
+                            My draft picks — {myTeam}
+                          </div>
+                          {myPicks.length === 0 ? (
+                            <div className="px-3 py-3 text-xs text-[var(--muted)]">No picks yet this draft.</div>
+                          ) : (
+                            <ul className="divide-y divide-[var(--border)]">
+                              {myPicks.map(p => (
+                                <li key={p.overall} className="flex items-start gap-2 px-3 py-2">
+                                  <span className="shrink-0 text-[10px] font-black px-1.5 py-0.5 rounded text-white mt-0.5" style={{ background: POS_COLORS[p.playerPos || ''] || '#555', minWidth: '30px', textAlign: 'center' }}>
+                                    {p.playerPos || '?'}
+                                  </span>
+                                  <span className="flex-1 min-w-0 text-sm font-semibold text-[var(--foreground)] break-words leading-snug">{p.playerName || p.playerId}</span>
+                                  <span className="text-xs text-[var(--muted)] shrink-0 pt-0.5">R{p.round}.{((p.overall - 1) % picksPerRound) + 1}</span>
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                        </div>
+                      );
+                    })()}
+                    {myTeam && draft && (() => {
+                      const myUp = allSlots.filter(s => s.team === myTeam && s.overall >= draft.curOverall);
+                      return (
+                        <div className="rounded-lg border border-[var(--border)] overflow-hidden bg-[var(--background)]">
+                          <div className="px-3 py-2 text-xs font-bold text-[var(--muted)] uppercase tracking-wide border-b border-[var(--border)]">
+                            My upcoming picks
+                          </div>
+                          {myUp.length === 0 ? (
+                            <div className="px-3 py-3 text-xs text-[var(--muted)]">No more picks.</div>
+                          ) : (
+                            <div className="flex flex-wrap gap-2 p-3">
+                              {myUp.map(u => (
+                                <span key={u.overall} className="text-xs px-2.5 py-1 rounded-lg font-semibold border" style={{ color: 'var(--foreground)', borderColor: 'var(--border)', background: 'var(--background)' }}>
+                                  Pick #{u.overall} · R{u.round}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
+                    {myTeam && (
+                      <div className="rounded-lg border border-[var(--border)] overflow-hidden bg-[var(--background)]">
+                        <div className="flex items-center justify-between px-3 py-2 border-b border-[var(--border)]">
+                          <span className="text-xs font-bold text-[var(--muted)] uppercase tracking-wide min-w-0 break-words">Current roster — {myTeam}</span>
+                          <div className="flex gap-1 shrink-0 flex-wrap justify-end">
+                            {(['ALL', 'QB', 'RB', 'WR', 'TE', 'K'] as const).map(p => (
+                              <button key={p} type="button" onClick={() => setRosterPosFilter(p)}
+                                className="text-[10px] font-bold px-2 py-0.5 rounded-full border transition-colors"
+                                style={rosterPosFilter === p
+                                  ? { background: p === 'ALL' ? (myTeamColors?.primary || '#555') : (POS_COLORS[p] || '#555'), color: '#fff', borderColor: 'transparent' }
+                                  : { background: 'transparent', color: 'var(--muted)', borderColor: 'var(--border)' }}
+                              >{p}</button>
+                            ))}
+                          </div>
+                        </div>
+                        {rosterLoading ? (
+                          <div className="px-3 py-3 text-xs text-[var(--muted)]">Loading roster…</div>
+                        ) : teamRoster.length === 0 ? (
+                          <div className="px-3 py-3 text-xs text-[var(--muted)]">No roster data found.</div>
+                        ) : (
+                          <ul className="divide-y divide-[var(--border)]">
+                            {[...teamRoster]
+                              .filter(p => rosterPosFilter === 'ALL' || p.pos === rosterPosFilter)
+                              .sort((a, b) => {
+                                const order: Record<string, number> = { QB: 0, RB: 1, WR: 2, TE: 3, K: 4 };
+                                return (order[a.pos] ?? 9) - (order[b.pos] ?? 9) || a.name.localeCompare(b.name);
+                              })
+                              .map(p => (
+                                <li key={p.id} className="flex items-start gap-2 px-3 py-2">
+                                  <span className="shrink-0 text-[10px] font-black px-1.5 py-0.5 rounded text-white mt-0.5" style={{ background: POS_COLORS[p.pos] || '#555', minWidth: '30px', textAlign: 'center' }}>
+                                    {p.pos || '?'}
+                                  </span>
+                                  <span className="flex-1 min-w-0 text-sm font-semibold text-[var(--foreground)] break-words leading-snug">{p.name}</span>
+                                  <span className="text-xs text-[var(--muted)] shrink-0 pt-0.5">{p.nfl}</span>
+                                </li>
+                              ))}
+                          </ul>
+                        )}
+                      </div>
+                    )}
+                    {!myTeam && (
+                      <div className="text-xs text-[var(--muted)] px-1 py-2">Select a team (log in or use admin view-as) to see roster and your picks.</div>
+                    )}
+                  </>
+                )}
               </div>
-            );
-          })()}
+            </div>
+          )}
 
           <div className="h-4" />
         </div>
@@ -1038,7 +1110,7 @@ export default function DraftRoomPage() {
             name: animDataRef.current.pick.playerName || animDataRef.current.pick.playerId || 'Unknown',
             position: animDataRef.current.pick.playerPos || 'N/A',
             team: animDataRef.current.pick.playerNfl || undefined,
-            college: undefined,
+            college: pickAnimCollege,
             imageUrl: animDataRef.current.imageUrl || undefined,
           }}
           fantasyTeam={{
@@ -1064,6 +1136,8 @@ export default function DraftRoomPage() {
             pickNumber={curOverall}
             round={Math.floor((curOverall - 1) / picksPerRound) + 1}
             pickInRound={((curOverall - 1) % picksPerRound) + 1}
+            eventName={draft?.eventName}
+            eventYear={draft?.year}
             eventLogoUrl={draft?.eventLogoUrl}
             eventColor1={draft?.eventColor1}
             onComplete={() => setAnimPhase(!!(animDataRef.current?.videoUrl) ? 'video' : null)}
@@ -1094,8 +1168,7 @@ export default function DraftRoomPage() {
             const currentClockTeam = draft?.onClockTeam ?? null;
             if (currentClockTeam && currentClockTeam !== preTradeClockTeamRef.current) {
               const curOv = draft?.curOverall ?? 1;
-              const allSlotsNow = draft?.allSlots || [];
-              const ppr = Math.ceil(allSlotsNow.length / Math.max(draft?.rounds || 4, 1)) || 12;
+              const ppr = draftPicksPerRound(draft);
               animDataRef.current = {
                 pick: { overall: curOv, team: currentClockTeam, playerId: '', playerName: null, playerPos: null, round: Math.ceil(curOv / ppr), pickInRound: ((curOv - 1) % ppr) + 1, madeAt: '' } as unknown as DraftPick,
                 nextTeamName: currentClockTeam,

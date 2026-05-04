@@ -17,6 +17,14 @@ export default function GroupedByTeam({ data }: { data: LeagueTransaction[] }) {
   // Group by team
   const byTeam = new Map<string, LeagueTransaction[]>();
   for (const txn of data) {
+    if (txn.type === "trade") {
+      for (const tn of txn.teamsInvolved) {
+        const arr = byTeam.get(tn) || [];
+        arr.push(txn);
+        byTeam.set(tn, arr);
+      }
+      continue;
+    }
     const key = txn.team || `Roster ${txn.rosterId}`;
     const arr = byTeam.get(key) || [];
     arr.push(txn);

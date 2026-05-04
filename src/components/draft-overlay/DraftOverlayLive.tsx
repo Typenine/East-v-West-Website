@@ -12,6 +12,11 @@ import NowOnClockAnimation from './NowOnClockAnimation';
 import DraftTradeAnimation, { type TradeAnimAsset } from './DraftTradeAnimation';
 import DraftInfoBarTicker from './DraftInfoBarTicker';
 import RoundRecapOverlay from './RoundRecapOverlay';
+import {
+  draftPicksPerRound,
+  DRAFT_ANIM_CLOCK_PHASE_MAX_MS,
+  DRAFT_ANIM_PICK_PHASE_MAX_MS,
+} from './draft-display-utils';
 
 // Position colors for player cards
 const positionColors: Record<string, string> = {
@@ -54,6 +59,8 @@ export default function DraftOverlayLive() {
     pendingPick,
     pendingTradeAnimation,
   } = useDraftData(1000);
+
+  const picksPerRound = draftPicksPerRound(draft);
 
   // Event branding — fall back to lime-green defaults when not configured
   const eventColor1 = draft?.eventColor1 || '#a4c810';
@@ -178,16 +185,14 @@ export default function DraftOverlayLive() {
   // Phase safety-net timeouts — prevents any phase from sticking if GSAP/onComplete fails
   useEffect(() => {
     if (animPhase === 'pick') {
-      // Pick animation is ~8s; 20s gives generous headroom before forcing advance
-      const t = setTimeout(() => setAnimPhase('clock'), 20000);
+      const t = setTimeout(() => setAnimPhase('clock'), DRAFT_ANIM_PICK_PHASE_MAX_MS);
       return () => clearTimeout(t);
     }
     if (animPhase === 'clock') {
-      // Clock animation is ~5s; 15s gives generous headroom before forcing advance
       const t = setTimeout(() => {
         const hasVideo = !!(animDataRef.current?.videoUrl);
         setAnimPhase(hasVideo ? 'video' : null);
-      }, 15000);
+      }, DRAFT_ANIM_CLOCK_PHASE_MAX_MS);
       return () => clearTimeout(t);
     }
   }, [animPhase]);
@@ -251,12 +256,13 @@ export default function DraftOverlayLive() {
     lastAnimatedPickRef.current = lastPick.overall;
 
     // Fire animation immediately using cached media data — don't wait for a fetch
+    const ppr = draftPicksPerRound(draft);
     animDataRef.current = {
       pick: lastPick,
       nextTeamName: nextTeamsRef.current[0]?.name || null,
       overall: lastPick.overall,
       round: lastPick.round,
-      pickInRound: ((lastPick.overall - 1) % 12) + 1,
+      pickInRound: ((lastPick.overall - 1) % ppr) + 1,
       videoUrl: playerVideosRef.current[lastPick.playerId]?.videoUrl || null,
       imageUrl: playerVideosRef.current[lastPick.playerId]?.hasImage
         ? `/api/draft/player-image?playerId=${encodeURIComponent(lastPick.playerId)}`
@@ -297,7 +303,7 @@ export default function DraftOverlayLive() {
       .catch(() => {})
       .finally(() => clearTimeout(fetchTimer));
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lastPick?.overall]);
+  }, [lastPick?.overall, draft?.allSlots, draft?.rounds]);
 
   // Pulse clock when low time
   useEffect(() => {
@@ -312,8 +318,8 @@ export default function DraftOverlayLive() {
     }
   }, [localRemainingSec]);
 
-  const roundNumber = Math.floor(currentPickIndex / 12) + 1;
-  const pickInRound = (currentPickIndex % 12) + 1;
+  const roundNumber = Math.floor(currentPickIndex / picksPerRound) + 1;
+  const pickInRound = (currentPickIndex % picksPerRound) + 1;
   const teamColors = currentTeam?.colors || ['#333', '#555', null];
   const teamLogo = currentTeam ? getTeamLogoPath(currentTeam.name) : null;
 
@@ -625,8 +631,10 @@ export default function DraftOverlayLive() {
               colors: [colors.primary, colors.secondary, null],
             }}
             pickNumber={curOverall}
-            round={Math.floor((curOverall - 1) / 12) + 1}
-            pickInRound={((curOverall - 1) % 12) + 1}
+            round={Math.floor((curOverall - 1) / picksPerRound) + 1}
+            pickInRound={((curOverall - 1) % picksPerRound) + 1}
+            eventName={draft?.eventName}
+            eventYear={draft?.year}
             eventLogoUrl={eventLogoUrl}
             eventColor1={eventColor1}
             onComplete={() => {
@@ -682,7 +690,9 @@ export default function DraftOverlayLive() {
       {/* Status Bar */}
       <div className="fixed top-0 left-0 right-0 bg-zinc-900/95 border-b border-zinc-700 px-4 py-2 flex items-center justify-between" style={{ zIndex: 10040 }}>
         <div className="text-lg font-bold text-white">
-          East v West Draft {draft?.year ?? new Date().getFullYear()}
+          {draft?.eventName?.trim()
+            ? `${draft.eventName.trim()} · ${draft.year}`
+            : `East v West Draft ${draft?.year ?? new Date().getFullYear()}`}
         </div>
         <div className="text-sm text-zinc-400">
           Overall #{draft?.curOverall ?? 1} • {draft?.status ?? 'NOT_STARTED'}

@@ -26,12 +26,13 @@ interface Props {
   pendingPick: boolean;
 }
 
-function abbrevName(name: string | null | undefined): string {
-  if (!name) return '';
-  if (name.length <= 20) return name;
-  const parts = name.trim().split(' ');
-  if (parts.length < 2) return name;
-  return `${parts[0][0]}. ${parts.slice(1).join(' ')}`;
+/** Smaller type for long names — full string always shown (no abbreviation). */
+function tickerNameFontSize(name: string | null | undefined): string {
+  const n = name?.length ?? 0;
+  if (n > 32) return '10px';
+  if (n > 24) return '11px';
+  if (n > 18) return '12px';
+  return '13px';
 }
 
 export default function DraftInfoBarTicker({ onClockTeam, available, recentPicks, curOverall, usingCustom, pendingPick }: Props) {
@@ -174,7 +175,7 @@ export default function DraftInfoBarTicker({ onClockTeam, available, recentPicks
       .then(r => r.ok ? r.json() : null)
       .then(data => { if (data?.players) setTopScorers(data.players); })
       .catch(() => {});
-    fetch(`/api/draft/team-history?team=${enc}`)
+    fetch(`/api/draft/team-history?team=${enc}&_=${Date.now()}`, { cache: 'no-store' })
       .then(r => r.ok ? r.json() : null)
       .then(data => { if (data?.seasons) setSeasonHistory(data.seasons); })
       .catch(() => {});
@@ -199,7 +200,7 @@ export default function DraftInfoBarTicker({ onClockTeam, available, recentPicks
         <div className="grid grid-cols-5 gap-1">
           {available.slice(0, 10).map((p, i) => (
             <div key={p.id} className="bg-black/30 rounded px-1.5 py-1.5">
-              <div className="text-[13px] font-semibold text-white leading-tight">{i + 1}. {abbrevName(p.name)}</div>
+              <div className="font-semibold text-white leading-tight break-words" style={{ fontSize: tickerNameFontSize(p.name) }}>{i + 1}. {p.name}</div>
               <div className="text-[11px] text-white/55 leading-tight">{p.pos}{p.nfl ? ` · ${p.nfl}` : ''}</div>
             </div>
           ))}
@@ -214,7 +215,7 @@ export default function DraftInfoBarTicker({ onClockTeam, available, recentPicks
             {allRecentPicks.map(p => (
               <div key={p.overall} className="bg-black/30 rounded px-1.5 py-1.5">
                 <div className="text-[13px] font-semibold text-white leading-tight">
-                  <span className="text-white/45 mr-1">#{p.overall}</span>{abbrevName(p.playerName) || p.playerId}
+                  <span className="text-white/45 mr-1">#{p.overall}</span><span className="break-words" style={{ fontSize: tickerNameFontSize(p.playerName || p.playerId) }}>{p.playerName || p.playerId}</span>
                 </div>
                 <div className="text-[11px] text-white/55 leading-tight">{p.playerPos ? `${p.playerPos} · ` : ''}{p.team}</div>
               </div>
@@ -232,7 +233,7 @@ export default function DraftInfoBarTicker({ onClockTeam, available, recentPicks
           <div className="grid grid-cols-3 gap-1">
             {teamPicksThisDraft.slice().reverse().slice(0, 6).map(p => (
               <div key={p.overall} className="bg-black/30 rounded px-1.5 py-1.5">
-                <div className="text-[13px] font-semibold text-white leading-tight">{abbrevName(p.playerName) || p.playerId}</div>
+                <div className="font-semibold text-white leading-tight break-words" style={{ fontSize: tickerNameFontSize(p.playerName || p.playerId) }}>{p.playerName || p.playerId}</div>
                 <div className="text-[11px] text-white/55 leading-tight">{p.playerPos ? `${p.playerPos} · ` : ''}#{p.overall} · R{p.round} Pk{((p.overall - 1) % 12) + 1}</div>
               </div>
             ))}
@@ -300,7 +301,7 @@ export default function DraftInfoBarTicker({ onClockTeam, available, recentPicks
             <div className="grid grid-cols-5 gap-1">
               {topScorers.map((p, i) => (
                 <div key={p.id} className="bg-black/30 rounded px-1.5 py-1.5">
-                  <div className="text-[13px] font-semibold text-white leading-tight">{i + 1}. {abbrevName(p.name)}</div>
+                  <div className="font-semibold text-white leading-tight break-words" style={{ fontSize: tickerNameFontSize(p.name) }}>{i + 1}. {p.name}</div>
                   <div className="text-[11px] text-white/55 leading-tight">{p.pos} · {p.pts}pts</div>
                 </div>
               ))}
@@ -349,7 +350,7 @@ export default function DraftInfoBarTicker({ onClockTeam, available, recentPicks
             <div className="grid grid-cols-5 gap-1">
               {picks.map((p, i) => (
                 <div key={i} className="bg-black/30 rounded px-1.5 py-1.5">
-                  <div className="text-[13px] font-semibold text-white leading-tight">{abbrevName(p.player)}</div>
+                  <div className="font-semibold text-white leading-tight break-words" style={{ fontSize: tickerNameFontSize(p.player) }}>{p.player}</div>
                   <div className="text-[11px] text-white/55 leading-tight">{p.pos ? `${p.pos} · ` : ''}{p.round}.{String(p.pick % 12 || 12).padStart(2, '0')}</div>
                 </div>
               ))}
@@ -371,7 +372,7 @@ export default function DraftInfoBarTicker({ onClockTeam, available, recentPicks
             <div className="grid grid-cols-5 gap-1">
               {picks.map((p, i) => (
                 <div key={i} className="bg-black/30 rounded px-1.5 py-1.5">
-                  <div className="text-[13px] font-semibold text-white leading-tight">{abbrevName(p.player)}</div>
+                  <div className="font-semibold text-white leading-tight break-words" style={{ fontSize: tickerNameFontSize(p.player) }}>{p.player}</div>
                   <div className="text-[11px] text-white/55 leading-tight">{p.pos ? `${p.pos} · ` : ''}{p.round}.{String(p.pick % 12 || 12).padStart(2, '0')}</div>
                 </div>
               ))}

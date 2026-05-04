@@ -2228,7 +2228,10 @@ export async function getTeamH2HRecords(leagueId: string, rosterId: number, opti
 export async function getLeagueTransactions(leagueId: string, week?: number, options?: SleeperFetchOptions): Promise<SleeperTransaction[]> {
   try {
     const weekParam = week !== undefined ? `/${week}` : '';
-    return await sleeperFetchJson<SleeperTransaction[]>(`${SLEEPER_API_BASE}/league/${leagueId}/transactions${weekParam}`, undefined, options);
+    const bust = options?.forceFresh ? `?t=${Date.now()}` : '';
+    const url = `${SLEEPER_API_BASE}/league/${leagueId}/transactions${weekParam}${bust}`;
+    const init: RequestInit = options?.forceFresh ? { cache: 'no-store' } : {};
+    return await sleeperFetchJson<SleeperTransaction[]>(url, init, options);
   } catch (error) {
     console.error('Error fetching league transactions:', error);
     throw error;

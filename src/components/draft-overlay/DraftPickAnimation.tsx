@@ -32,6 +32,22 @@ function toOrdinal(n: number): string {
   return n + (s[(v - 20) % 10] || s[v] || s[0]);
 }
 
+/** Shrink fluid type for long names without ellipsis (full name stays on screen, may wrap). */
+function pickAnimPlayerNameFontSize(name: string): string {
+  const len = name.length;
+  if (len > 28) return 'clamp(1rem, 2.2vw + 0.55rem, 2rem)';
+  if (len > 22) return 'clamp(1.2rem, 2.8vw + 0.55rem, 2.65rem)';
+  if (len > 16) return 'clamp(1.5rem, 3.5vw + 0.45rem, 3.4rem)';
+  return 'clamp(2rem, 4.5vw + 0.35rem, 5.5rem)';
+}
+
+function pickAnimFantasyTeamNameFontSize(name: string): string {
+  const len = name.length;
+  if (len > 18) return 'clamp(1.75rem, 4vw, 4.5rem)';
+  if (len > 12) return 'clamp(2.5rem, 6vw, 6.5rem)';
+  return 'clamp(4rem, 10vw, 9rem)';
+}
+
 export default function DraftPickAnimation({
   player,
   fantasyTeam,
@@ -66,6 +82,7 @@ export default function DraftPickAnimation({
     const playerDets      = container.querySelector<HTMLElement>('.gsap-player-details');
     const playerName      = container.querySelector<HTMLElement>('.gsap-player-name');
     const pickInfo        = container.querySelector<HTMLElement>('.gsap-pick-info');
+    const pickStats       = pickInfo ? pickInfo.querySelectorAll<HTMLElement>('.gsap-pick-stat') : [];
     const eventLogoFeat   = container.querySelector<HTMLElement>('.gsap-event-logo-feat');
     const eventLogoCorner = container.querySelector<HTMLElement>('.gsap-event-logo-corner');
 
@@ -75,8 +92,6 @@ export default function DraftPickAnimation({
     }
     if (eventLogoFeat)   gsap.set(eventLogoFeat,   { opacity: 0, scale: 0.7, force3D: true });
     if (eventLogoCorner) gsap.set(eventLogoCorner, { opacity: 0, force3D: true });
-
-    console.log('[DraftPickAnimation] Starting for:', player.name);
 
     // ── INITIAL STATES ───────────────────────────────────────────────────────
     // Full-screen layers: opacity only (no scale — scaling viewport = slow repaint)
@@ -96,11 +111,11 @@ export default function DraftPickAnimation({
     if (playerDets) gsap.set(playerDets, { opacity: 0, y: 20, force3D: true });
     if (playerName) gsap.set(playerName, { opacity: 0, y: 20, force3D: true });
     if (pickInfo)   gsap.set(pickInfo,   { opacity: 0, y: 20, force3D: true });
+    pickStats.forEach((el) => gsap.set(el, { opacity: 0, y: 14, force3D: true }));
 
     // ── TIMELINE (~10s total) ─────────────────────────────────────────────────
     const tl = gsap.timeline({
       onComplete: () => {
-        console.log('[DraftPickAnimation] Complete');
         onComplete?.();
       },
     });
@@ -144,8 +159,13 @@ export default function DraftPickAnimation({
     tl.to(textReveal, { opacity: 0, duration: 0.3, ease: 'power1.in', force3D: true });
     tl.to(playerCard, { opacity: 1, y: 0, duration: 0.55, ease: 'power3.out', force3D: true }, '-=0.15');
     if (playerDets)      tl.to(playerDets,      { opacity: 1, y: 0, duration: 0.4, ease: 'power2.out', force3D: true }, '-=0.25');
-    if (playerName)      tl.to(playerName,      { opacity: 1, y: 0, duration: 0.4, ease: 'power2.out', force3D: true }, '-=0.3');
-    if (pickInfo)        tl.to(pickInfo,        { opacity: 1, y: 0, duration: 0.4, ease: 'power2.out', force3D: true }, '-=0.3');
+    if (playerName)      tl.to(playerName,      { opacity: 1, y: 0, duration: 0.42, ease: 'power3.out', force3D: true }, '-=0.28');
+    if (pickInfo) {
+      tl.to(pickInfo, { opacity: 1, y: 0, duration: 0.38, ease: 'power2.out', force3D: true }, '-=0.28');
+      if (pickStats.length) {
+        tl.to(pickStats, { opacity: 1, y: 0, duration: 0.36, stagger: 0.07, ease: 'power2.out', force3D: true }, '-=0.22');
+      }
+    }
     // Corner watermark fades in on the broadcast hold frame
     if (eventLogoCorner) tl.to(eventLogoCorner, { opacity: 0.55, duration: 0.5, ease: 'power2.out', force3D: true }, '-=0.2');
 
@@ -208,11 +228,11 @@ export default function DraftPickAnimation({
         </div>
         <div className="absolute inset-0 flex items-center justify-center">
           <div
-            className="gsap-team-name-text text-center px-8 leading-none font-black text-white uppercase"
+            className="gsap-team-name-text text-center px-6 sm:px-8 leading-tight font-black text-white uppercase max-w-[min(96vw,1200px)] mx-auto break-words hyphens-auto"
             style={{
               fontFamily: 'Impact, "Arial Black", sans-serif',
-              fontSize: 'clamp(4rem, 10vw, 9rem)',
-              letterSpacing: '0.12em',
+              fontSize: pickAnimFantasyTeamNameFontSize(fantasyTeam.name),
+              letterSpacing: '0.08em',
               textShadow: `0 4px 24px rgba(0,0,0,0.95), 0 0 60px ${c1}55`,
               WebkitTextStroke: `3px ${c2}`,
               willChange: 'transform, opacity',
@@ -295,11 +315,11 @@ export default function DraftPickAnimation({
           className="absolute inset-0"
           style={{ background: `radial-gradient(ellipse at 50% 45%, ${c1}2a 0%, #0d0d0d 65%)` }}
         />
-        <div className="relative z-10 text-center px-8 select-none">
+        <div className="relative z-10 text-center px-4 sm:px-8 select-none max-w-[min(96vw,1400px)] mx-auto">
           <div
-            className="gsap-reveal-name font-black text-white uppercase leading-none"
+            className="gsap-reveal-name font-black text-white uppercase leading-tight break-words"
             style={{
-              fontSize: 'clamp(3rem, 8vw, 7rem)',
+              fontSize: pickAnimPlayerNameFontSize(player.name),
               letterSpacing: '-0.01em',
               textShadow: `0 4px 24px rgba(0,0,0,0.9), 0 0 60px ${c1}44`,
               willChange: 'transform, opacity',
@@ -308,22 +328,22 @@ export default function DraftPickAnimation({
             {player.name}
           </div>
           <div
-            className="gsap-reveal-details mt-6 flex items-center justify-center gap-4 flex-wrap"
+            className="gsap-reveal-details mt-5 sm:mt-6 flex items-center justify-center gap-3 sm:gap-4 flex-wrap px-1"
             style={{ willChange: 'transform, opacity' }}
           >
             <span
-              className="inline-block font-black text-2xl px-5 py-1.5 rounded-lg"
+              className="inline-block font-black text-xl sm:text-2xl px-4 sm:px-5 py-1.5 rounded-lg shrink-0"
               style={{ background: c1, color: '#fff', boxShadow: '0 2px 10px rgba(0,0,0,0.4)' }}
             >
               {player.position}
             </span>
             {player.college && (
-              <span className="text-white/75 text-xl font-bold uppercase tracking-wider">
+              <span className="text-white/75 text-base sm:text-lg font-bold uppercase tracking-wider max-w-[min(90vw,720px)] break-words leading-snug">
                 {player.college}
               </span>
             )}
             {player.team && (
-              <span className="text-white/75 text-xl font-bold uppercase tracking-wider">
+              <span className="text-white/75 text-base sm:text-lg font-bold uppercase tracking-wider max-w-[min(90vw,480px)] break-words leading-snug">
                 {player.team}
               </span>
             )}
@@ -369,36 +389,36 @@ export default function DraftPickAnimation({
                 />
               ) : null}
             </div>
-            <div className="flex-1 flex flex-col justify-center px-10 py-8">
+            <div className="flex-1 flex flex-col justify-center px-5 sm:px-10 py-6 sm:py-8 min-w-0">
               <div
-                className="gsap-player-details mb-5"
+                className="gsap-player-details mb-4 sm:mb-5 flex flex-wrap items-center gap-x-4 gap-y-2"
                 style={{ willChange: 'transform, opacity' }}
               >
                 <span
-                  className="inline-block font-black text-3xl px-6 py-2 rounded-lg"
+                  className="inline-block font-black text-2xl sm:text-3xl px-4 sm:px-6 py-2 rounded-lg shrink-0"
                   style={{ background: '#fff', color: c1, boxShadow: '0 2px 12px rgba(0,0,0,0.3)' }}
                 >
                   {player.position}
                 </span>
                 {player.college && (
-                  <span className="ml-4 text-white/80 text-xl font-bold uppercase tracking-wider">
+                  <span className="text-white/80 text-base sm:text-lg font-bold uppercase tracking-wider break-words leading-snug max-w-full">
                     {player.college}
                   </span>
                 )}
                 {player.team && (
-                  <span className="ml-4 text-white/80 text-xl font-bold uppercase tracking-wider">
+                  <span className="text-white/80 text-base sm:text-lg font-bold uppercase tracking-wider break-words leading-snug max-w-full">
                     {player.team}
                   </span>
                 )}
               </div>
               <div
-                className="gsap-player-name mb-6"
+                className="gsap-player-name mb-5 sm:mb-6 max-w-full"
                 style={{ willChange: 'transform, opacity' }}
               >
                 <h1
-                  className="font-black text-white leading-none uppercase"
+                  className="font-black text-white leading-tight uppercase break-words"
                   style={{
-                    fontSize: 'clamp(2.8rem, 5.5vw, 5.5rem)',
+                    fontSize: pickAnimPlayerNameFontSize(player.name),
                     textShadow: '0 3px 12px rgba(0,0,0,0.8)',
                     letterSpacing: '-0.01em',
                   }}
@@ -415,7 +435,7 @@ export default function DraftPickAnimation({
                   { label: 'PICK', value: pickInRound },
                   { label: 'OVERALL', value: pickNumber },
                 ].map(({ label, value }) => (
-                  <div key={label} className="text-center">
+                  <div key={label} className="gsap-pick-stat text-center">
                     <div className="text-white/70 text-sm font-bold tracking-widest mb-1">{label}</div>
                     <div
                       className="font-black text-white"

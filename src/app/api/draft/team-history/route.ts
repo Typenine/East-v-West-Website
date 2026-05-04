@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server';
 import {
   getTeamsData,
   getLeaguePlayoffBracketsWithScores,
+  getRegularSeasonRecords,
   type SleeperBracketGameWithScore,
 } from '@/lib/utils/sleeper-api';
 import { LEAGUE_IDS } from '@/lib/constants/league';
@@ -40,9 +41,10 @@ async function getSeasonResult(
   season: string
 ): Promise<SeasonResult | null> {
   try {
-    const [teams, { winners }] = await Promise.all([
-      getTeamsData(leagueId).catch(() => []),
+    const [teams, { winners }, regMap] = await Promise.all([
+      getTeamsData(leagueId, { forceFresh: true }).catch(() => []),
       getLeaguePlayoffBracketsWithScores(leagueId).catch(() => ({ winners: [] as SleeperBracketGameWithScore[], losers: [] as SleeperBracketGameWithScore[] })),
+      getRegularSeasonRecords(leagueId, { forceFresh: true }).catch(() => null as Map<number, { wins: number; losses: number; ties: number; fpts: number }> | null),
     ]);
 
     // Match by owner ID to correctly track a team across seasons (team names can differ year to year)
@@ -50,6 +52,11 @@ async function getSeasonResult(
     if (!teamData) return null;
 
     const myRosterId = teamData.rosterId;
+    const reg = regMap?.get(myRosterId);
+    const wins = reg?.wins ?? teamData.wins;
+    const losses = reg?.losses ?? teamData.losses;
+    const ties = reg?.ties ?? teamData.ties;
+    const regFpts = reg?.fpts;
 
     // Build roster ID → team name map from this season's teams
     const rIdToName = new Map(teams.map(t => [t.rosterId, t.teamName]));
@@ -65,9 +72,9 @@ async function getSeasonResult(
     if (!madePlayoffs) {
       return {
         season,
-        wins: teamData.wins,
-        losses: teamData.losses,
-        fpts: teamData.fpts,
+        wins,
+        losses,
+        fpts: regFpts != null ? regFpts : teamData.fpts,
         playoffResult: 'Did not qualify',
         madePlayoffs: false,
       };
@@ -85,7 +92,7 @@ async function getSeasonResult(
     const lastGame = myGames[myGames.length - 1];
     if (!lastGame) {
       return {
-        season, wins: teamData.wins, losses: teamData.losses, fpts: teamData.fpts,
+        season, wins, losses, fpts: regFpts != null ? regFpts : teamData.fpts,
         playoffResult: 'Made playoffs', madePlayoffs: true,
       };
     }
@@ -137,9 +144,9 @@ async function getSeasonResult(
 
     return {
       season,
-      wins: teamData.wins,
-      losses: teamData.losses,
-      fpts: teamData.fpts,
+      wins,
+      losses,
+      fpts: regFpts != null ? regFpts : teamData.fpts,
       playoffResult,
       playoffOpponent: oppName,
       winScore: winScore != null ? Math.round(winScore * 10) / 10 : undefined,
@@ -172,7 +179,7 @@ export async function GET(req: NextRequest) {
 
     return Response.json(
       { team, seasons },
-      { headers: { 'Cache-Control': 's-maxage=3600, stale-while-revalidate=86400' } }
+      { headers: { 'Cache-Control': 'private, max-age=120, stale-while-revalidate=300' } }
     );
   } catch (e) {
     return Response.json({ error: String(e) }, { status: 500 });

@@ -37,6 +37,7 @@ import {
 import type { DraftOverview } from '@/server/db/queries';
 import { TEAM_NAMES } from '@/lib/constants/league';
 import { requireTeamUser } from '@/lib/server/session';
+import { canonicalizeTeamName } from '@/lib/server/user-identity';
 import { getAllPlayersCached, type SleeperPlayer } from '@/lib/utils/sleeper-api';
 import { isAdminCookieValue } from '@/lib/auth/admin';
 
@@ -87,7 +88,7 @@ export async function GET(req: NextRequest) {
       ? overview.pausedRemainingSecs
       : null;
     const pendingPick = await getPendingPick(draftId);
-    const resp: { draft: DraftOverview; remainingSec: number | null; pendingPick?: typeof pendingPick; available?: Array<{ id: string; name: string; pos: string; nfl: string }>; usingCustom?: boolean } = { draft: overview, remainingSec, pendingPick: pendingPick ?? undefined };
+    const resp: { draft: DraftOverview; remainingSec: number | null; pendingPick?: typeof pendingPick; available?: Array<{ id: string; name: string; pos: string; nfl: string; college?: string | null }>; usingCustom?: boolean } = { draft: overview, remainingSec, pendingPick: pendingPick ?? undefined };
     if (includeAvail) {
       const taken = new Set(await getDraftPickedPlayerIds(draftId));
       if (pendingPick?.playerId) taken.add(pendingPick.playerId);
@@ -104,7 +105,15 @@ export async function GET(req: NextRequest) {
             if (ra !== rb) return ra - rb;
             return a.name.localeCompare(b.name);
           });
-        resp.available = avail.slice(0, 500).map((r) => ({ id: r.player_id, name: r.name, pos: r.pos, nfl: r.nfl || '' }));
+        resp.available = avail.slice(0, 500).map((r) => {
+          let college: string | null = null;
+          if (r.meta && typeof r.meta === 'object') {
+            const m = r.meta as Record<string, unknown>;
+            const c = m.college ?? m.school;
+            if (typeof c === 'string' && c.trim()) college = c.trim();
+          }
+          return { id: r.player_id, name: r.name, pos: r.pos, nfl: r.nfl || '', college };
+        });
       } else {
         const players = await getAllPlayersCached();
         const avail = Object.values(players).filter((p: SleeperPlayer) => {
@@ -113,7 +122,13 @@ export async function GET(req: NextRequest) {
         })
         .sort((a, b) => `${a.first_name} ${a.last_name}`.localeCompare(`${b.first_name} ${b.last_name}`))
         .slice(0, 500);
-        resp.available = avail.map((p) => ({ id: p.player_id, name: `${p.first_name} ${p.last_name}`.trim(), pos: p.position, nfl: p.team }));
+        resp.available = avail.map((p) => ({
+          id: p.player_id,
+          name: `${p.first_name} ${p.last_name}`.trim(),
+          pos: p.position,
+          nfl: p.team,
+          college: p.college || null,
+        }));
       }
     }
     return ok(resp);
@@ -306,9 +321,12 @@ export async function POST(req: NextRequest) {
         // Also block during round-end pause — admin must start the next round first
         if (overview.roundEndPause) return bad('round_end_pause');
       }
-      // Admin picks on behalf of whoever is on the clock
-      const pickingTeam = adminOverride ? (overview.onClockTeam || '') : ident!.team;
-      if (!adminOverride && overview.onClockTeam !== pickingTeam) return bad('not_your_turn');
+      // Admin picks on behalf of whoever is on the clock (canonical names so session matches DB team labels)
+      const onClockCanon = canonicalizeTeamName(overview.onClockTeam || '');
+      const pickingTeam = adminOverride
+        ? canonicalizeTeamName(overview.onClockTeam || '')
+        : canonicalizeTeamName(ident!.team);
+      if (!adminOverride && onClockCanon !== pickingTeam) return bad('not_your_turn');
       if (!pickingTeam) return bad('no_team_on_clock');
       // Check player not already taken
       const takenIds = await getDraftPickedPlayerIds(draftId);
@@ -383,7 +401,17 @@ export async function POST(req: NextRequest) {
           return a.name.localeCompare(b.name);
         });
         const limit = Math.max(1, Math.min(200, Number(body.limit || 50)));
-        return ok({ available: list.slice(0, limit).map((r) => ({ id: r.player_id, name: r.name, pos: r.pos, nfl: r.nfl || '' })) });
+        return ok({
+          available: list.slice(0, limit).map((r) => {
+            let college: string | null = null;
+            if (r.meta && typeof r.meta === 'object') {
+              const m = r.meta as Record<string, unknown>;
+              const c = m.college ?? m.school;
+              if (typeof c === 'string' && c.trim()) college = c.trim();
+            }
+            return { id: r.player_id, name: r.name, pos: r.pos, nfl: r.nfl || '', college };
+          }),
+        });
       } else {
         const players = await getAllPlayersCached();
         let list = Object.values(players).filter((p: SleeperPlayer) => allowed.has((p.position || '').toUpperCase()) && !taken.has(p.player_id));
@@ -391,7 +419,15 @@ export async function POST(req: NextRequest) {
         if (q) list = list.filter((p) => `${p.first_name} ${p.last_name}`.toLowerCase().includes(q));
         list.sort((a, b) => `${a.first_name} ${a.last_name}`.localeCompare(`${b.first_name} ${b.last_name}`));
         const limit = Math.max(1, Math.min(200, Number(body.limit || 50)));
-        return ok({ available: list.slice(0, limit).map((p) => ({ id: p.player_id, name: `${p.first_name} ${p.last_name}`.trim(), pos: p.position, nfl: p.team })) });
+        return ok({
+          available: list.slice(0, limit).map((p) => ({
+            id: p.player_id,
+            name: `${p.first_name} ${p.last_name}`.trim(),
+            pos: p.position,
+            nfl: p.team,
+            college: p.college || null,
+          })),
+        });
       }
     }
 
@@ -405,6 +441,6 @@ export async function POST(req: NextRequest) {
     return bad('unknown_action');
   } catch (e) {
     console.error('POST /api/draft failed', e);
-    return bad('failed');
+    return bad('pick_submit_failed');
   }
 }

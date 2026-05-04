@@ -87,7 +87,7 @@ export default async function TransactionsPage({
     ledger = [];
   }
   const seasons = allSeasons;
-  const teams = Array.from(new Set(ledger.map((t) => t.team))).sort();
+  const teams = Array.from(new Set(ledger.flatMap((t) => t.teamsInvolved))).sort();
   const positions = Array.from(
     new Set(
       ledger.flatMap((t) => [
@@ -104,7 +104,7 @@ export default async function TransactionsPage({
   let filtered = ledger;
   const seasonFilter = season && season !== "all" ? season : undefined;
   if (seasonFilter) filtered = filtered.filter((t) => t.season === seasonFilter);
-  if (team) filtered = filtered.filter((t) => t.team === team);
+  if (team) filtered = filtered.filter((t) => t.teamsInvolved.includes(team));
   const week = weekStr && weekStr !== "all" ? Number(weekStr) : undefined;
   if (week && !Number.isNaN(week)) filtered = filtered.filter((t) => (t.week || 0) === week);
   const pos = position && position !== "all" ? position : undefined;
@@ -123,7 +123,7 @@ export default async function TransactionsPage({
 
   return (
     <div className="container mx-auto px-4 py-8">
-      <SectionHeader title="Transactions" subtitle="Waiver and free agent history across seasons" />
+      <SectionHeader title="Transactions" subtitle="Waivers, free agents, and completed trades across seasons" />
       <Suspense fallback={null}>
         <TransactionsViewTabs />
       </Suspense>

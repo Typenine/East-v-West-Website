@@ -54,12 +54,19 @@ export default function GroupedByYear({ data }: { data: LeagueTransaction[] }) {
                 </thead>
                 <tbody>
                   {items.map((txn) => {
-                    const colors = getTeamColors(txn.team);
+                    const accent = txn.teamsInvolved[0] || txn.team;
+                    const colors = getTeamColors(accent);
                     return (
-                    <tr key={`${txn.id}-${txn.rosterId}`} className="border-t border-[var(--border)] border-l-4" style={{ borderLeftColor: colors.primary }}>
+                    <tr key={`${txn.id}-${txn.type}-${txn.rosterId}`} className="border-t border-[var(--border)] border-l-4" style={{ borderLeftColor: colors.primary }}>
                       <td className="px-4 py-3 whitespace-nowrap">{formatDate(txn.created)}</td>
                       <td className="px-4 py-3 whitespace-nowrap">{txn.week > 0 ? `W${txn.week}` : "—"}</td>
-                      <td className="px-4 py-3 font-medium"><TeamBadge team={txn.team} size="lg" /></td>
+                      <td className="px-4 py-3 font-medium">
+                        {txn.type === "trade" ? (
+                          <span className="text-sm leading-snug break-words max-w-[min(280px,40vw)] inline-block">{txn.team}</span>
+                        ) : (
+                          <TeamBadge team={txn.team} size="lg" />
+                        )}
+                      </td>
                       <td className="px-4 py-3">
                         <ul className="space-y-1">
                           {txn.added.map((player) => (

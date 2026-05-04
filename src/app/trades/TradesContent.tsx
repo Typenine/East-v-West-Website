@@ -20,8 +20,8 @@ import { Button } from '@/components/ui/Button';
  import Skeleton from '@/components/ui/Skeleton';
 
  // Page-level cache config
- const CACHE_KEY = 'trades_page_cache_v1';
- const CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
+ const CACHE_KEY = 'trades_page_cache_v2';
+ const CACHE_TTL_MS = 60 * 1000; // 1 minute — keep list close to Sleeper without hammering API
  const BUST_KEY = 'EVW_TRADES_CACHE_BUST';
 
  type CacheEntry = { trades: Trade[]; teams: TeamData[]; ts: number };
@@ -157,6 +157,16 @@ function TradesContent() {
     };
     window.addEventListener('storage', onStorage);
     return () => window.removeEventListener('storage', onStorage);
+  }, []);
+
+  // Refetch when user returns to the tab so new Sleeper trades appear quickly
+  useEffect(() => {
+    const onVis = () => {
+      if (document.hidden) return;
+      setRefreshKey((k) => k + 1);
+    };
+    document.addEventListener('visibilitychange', onVis);
+    return () => document.removeEventListener('visibilitychange', onVis);
   }, []);
 
   // Fetch trades when year changes (with cache)

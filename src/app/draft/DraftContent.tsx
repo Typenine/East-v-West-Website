@@ -1162,12 +1162,13 @@ function TeamHopChip({ team }: { team: string }) {
           onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
         />
       </span>
-      <span className="text-xs font-medium text-[var(--text)] truncate">{team}</span>
+      <span className="text-xs font-medium text-[var(--text)] break-words leading-tight max-w-[min(200px,45vw)]">{team}</span>
     </span>
   );
 }
 
 function DraftOrderView() {
+  const [refreshNonce, setRefreshNonce] = useState(0);
   const [tradeModal, setTradeModal] = useState<DraftOrderTradeModal | null>(null);
   const [data, setData] = useState<{
     season: number;
@@ -1199,14 +1200,33 @@ function DraftOrderView() {
       }
     })();
     return () => { cancelled = true; };
+  }, [refreshNonce]);
+
+  useEffect(() => {
+    const onVis = () => {
+      if (document.hidden) return;
+      setRefreshNonce((n) => n + 1);
+    };
+    document.addEventListener('visibilitychange', onVis);
+    return () => document.removeEventListener('visibilitychange', onVis);
   }, []);
 
-  if (loading) return <LoadingState message="Loading draft order..." />;
-  if (error) return <ErrorState message={error} />;
+  if (loading && !data) return <LoadingState message="Loading draft order..." />;
+  if (error && !data) return <ErrorState message={error} />;
   if (!data) return <EmptyState title="No data" message="Draft order is not available yet." />;
 
   return (
     <div className="space-y-6">
+      <div className="flex justify-end">
+        <Button
+          type="button"
+          variant="secondary"
+          disabled={loading}
+          onClick={() => setRefreshNonce((n) => n + 1)}
+        >
+          {loading ? 'Refreshing…' : 'Refresh from Sleeper'}
+        </Button>
+      </div>
       <Dialog open={tradeModal !== null} onClose={() => setTradeModal(null)} className="relative z-[200]">
         <DialogBackdrop
           transition

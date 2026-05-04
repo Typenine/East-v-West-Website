@@ -38,6 +38,7 @@ export default function TransactionsTable({
             <HeaderCell label="Date" active={sortKey === "created"} direction={direction} />
             <HeaderCell label="Season" active={sortKey === "season"} direction={direction} />
             <HeaderCell label="Week" active={sortKey === "week"} direction={direction} />
+            <th className="px-4 py-3">Type</th>
             <th className="px-4 py-3">Team</th>
             <th className="px-4 py-3">Added</th>
             <th className="px-4 py-3">Dropped</th>
@@ -46,17 +47,30 @@ export default function TransactionsTable({
         </thead>
         <tbody>
           {data.map((txn) => {
-            const colors = getTeamColors(txn.team);
+            const accentTeam = txn.teamsInvolved[0] || txn.team;
+            const colors = getTeamColors(accentTeam);
+            const typeLabel = txn.type === "trade" ? "Trade" : txn.type === "waiver" ? "Waiver" : "FA";
             return (
             <tr
-              key={`${txn.id}-${txn.rosterId}`}
+              key={`${txn.id}-${txn.type}-${txn.rosterId}`}
               className="border-t border-[var(--border)] border-l-4"
               style={{ borderLeftColor: colors.primary }}
             >
               <td className="px-4 py-3 whitespace-nowrap">{formatDate(txn.created)}</td>
               <td className="px-4 py-3 whitespace-nowrap">{txn.season}</td>
               <td className="px-4 py-3 whitespace-nowrap">{txn.week > 0 ? `W${txn.week}` : "—"}</td>
-              <td className="px-4 py-3 font-medium"><TeamBadge team={txn.team} size="lg" /></td>
+              <td className="px-4 py-3">
+                <span className="inline-block rounded px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide bg-[var(--surface-2)] border border-[var(--border)]">
+                  {typeLabel}
+                </span>
+              </td>
+              <td className="px-4 py-3 font-medium">
+                {txn.type === "trade" ? (
+                  <span className="text-sm leading-snug break-words max-w-[min(280px,40vw)] inline-block">{txn.team}</span>
+                ) : (
+                  <TeamBadge team={txn.team} size="lg" />
+                )}
+              </td>
               <td className="px-4 py-3">
                 <ul className="space-y-1">
                   {txn.added.map((player) => (
@@ -85,7 +99,8 @@ export default function TransactionsTable({
               </td>
               <td className="px-4 py-3 text-right font-semibold">{txn.faab > 0 ? `$${txn.faab}` : "—"}</td>
             </tr>
-          );})}
+          );
+          })}
         </tbody>
       </table>
     </div>

@@ -345,7 +345,7 @@ export async function GET() {
         },
       },
       transfers,
-    }, { headers: { 'Cache-Control': 's-maxage=30, stale-while-revalidate=60' } });
+    }, { headers: { 'Cache-Control': 'private, no-store, max-age=0' } });
   } catch (error) {
     console.error('Failed to build draft order data', error);
     return NextResponse.json({ error: 'server_error' }, { status: 500 });

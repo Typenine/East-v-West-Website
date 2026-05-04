@@ -96,6 +96,26 @@ export async function loadDraftOwnershipForSeason(args: LoadNextDraftArgs & { se
     }
   } catch {}
 
+  // Final owner per pick from completed trades (authoritative when traded_picks API lags txs)
+  try {
+    const pickEvents: Array<{ ts: number; key: string; ownerRosterId: number }> = [];
+    for (const tx of allTxs) {
+      if (tx.type !== 'trade' || tx.status !== 'complete') continue;
+      const ts = Number(tx.status_updated) || Number(tx.created) || 0;
+      for (const pick of tx.draft_picks || []) {
+        if (String(pick.season) !== targetSeasonStr) continue;
+        const key = `${Number(pick.roster_id)}-${Number(pick.round)}`;
+        const oid = Number(pick.owner_id);
+        if (!Number.isFinite(oid)) continue;
+        pickEvents.push({ ts, key, ownerRosterId: oid });
+      }
+    }
+    pickEvents.sort((a, b) => a.ts - b.ts);
+    for (const ev of pickEvents) {
+      baseOwners.set(ev.key, ev.ownerRosterId);
+    }
+  } catch {}
+
   try {
     if (allTxs.length) {
       const playersById = await getAllPlayersCached();

@@ -15,8 +15,37 @@ interface NowOnClockAnimationProps {
   round: number;
   pickInRound: number;
   onComplete?: () => void;
+  /** Draft branding from DB (e.g. city / event title). Shown in subline with year when set. */
+  eventName?: string | null;
+  /** Draft year — paired with eventName for sublines like "Pittsburgh 2026". */
+  eventYear?: number | null;
   eventLogoUrl?: string | null;
   eventColor1?: string | null;
+}
+
+const HOLD_SEC = 7;
+
+/** Fluid type for long franchise names — full name visible, wraps instead of clipping. */
+function nocTeamNameFontSize(name: string): string {
+  const len = name.length;
+  if (len > 26) return 'clamp(1.15rem, 2.8vw + 0.4rem, 2.35rem)';
+  if (len > 18) return 'clamp(1.45rem, 3.6vw + 0.35rem, 3.1rem)';
+  if (len > 12) return 'clamp(1.75rem, 4.2vw + 0.3rem, 3.75rem)';
+  return 'clamp(2rem, 5vw + 0.25rem, 4.5rem)';
+}
+
+/** Subline: prefer draft branding; otherwise overall pick # (this animation’s pickNumber is upcoming overall). */
+function buildSubline(
+  eventName: string | null | undefined,
+  eventYear: number | null | undefined,
+  overallPick: number,
+): string {
+  const name = eventName?.trim() || '';
+  const year = eventYear != null && Number.isFinite(eventYear) ? Math.trunc(eventYear) : null;
+  if (name && year != null) return `Next selection · ${name} ${year}`;
+  if (name) return `Next selection · ${name}`;
+  if (year != null) return `Next selection · ${year} draft`;
+  return `Next selection · Pick #${overallPick}`;
 }
 
 export default function NowOnClockAnimation({
@@ -25,12 +54,16 @@ export default function NowOnClockAnimation({
   round,
   pickInRound,
   onComplete,
+  eventName,
+  eventYear,
   eventLogoUrl,
   eventColor1,
 }: NowOnClockAnimationProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const timelineRef = useRef<gsap.core.Timeline | null>(null);
   const hasStartedRef = useRef(false);
+  const onCompleteRef = useRef(onComplete);
+  onCompleteRef.current = onComplete;
 
   useEffect(() => {
     if (hasStartedRef.current) return;
@@ -39,174 +72,278 @@ export default function NowOnClockAnimation({
     const container = containerRef.current;
     if (!container) return;
 
-    const bg        = container.querySelector<HTMLElement>('.noc-bg');
-    const stripe    = container.querySelector<HTMLElement>('.noc-stripe');
-    const label     = container.querySelector<HTMLElement>('.noc-label');
-    const logo      = container.querySelector<HTMLElement>('.noc-logo');
-    const teamName  = container.querySelector<HTMLElement>('.noc-team-name');
-    const pickMeta  = container.querySelector<HTMLElement>('.noc-pick-meta');
-    const eventBadge = container.querySelector<HTMLElement>('.noc-event-badge');
+    const ambient = container.querySelector<HTMLElement>('.noc-ambient');
+    const ltWrap = container.querySelector<HTMLElement>('.noc-lt-wrap');
+    const accent = container.querySelector<HTMLElement>('.noc-accent');
+    const liveDot = container.querySelector<HTMLElement>('.noc-live-dot');
+    const liveLabel = container.querySelector<HTMLElement>('.noc-live-label');
+    const headline = container.querySelector<HTMLElement>('.noc-headline');
+    const subline = container.querySelector<HTMLElement>('.noc-subline');
+    const logoFrame = container.querySelector<HTMLElement>('.noc-logo-frame');
+    const logoImg = container.querySelector<HTMLElement>('.noc-logo-img');
+    const teamName = container.querySelector<HTMLElement>('.noc-team-name');
+    const chyron = container.querySelector<HTMLElement>('.noc-chyron');
+    const shine = container.querySelector<HTMLElement>('.noc-shine');
+    const metaCols = container.querySelectorAll<HTMLElement>('.noc-meta-col');
+    const draftBrandLogo = container.querySelector<HTMLElement>('.noc-draft-logo');
 
-    if (!bg || !stripe || !label) {
-      console.error('[NowOnClockAnimation] Missing critical elements');
-      return;
-    }
+    if (!ambient || !ltWrap || !accent || !headline || !chyron) return;
 
-    console.log('[NowOnClockAnimation] Starting for:', team.name);
-
-    gsap.set(bg,       { opacity: 0, force3D: true });
-    gsap.set(stripe,   { scaleX: 0, transformOrigin: 'left center', force3D: true });
-    gsap.set(label,    { opacity: 0, y: -30, force3D: true });
-    if (logo)       gsap.set(logo,       { opacity: 0, scale: 0.7, force3D: true });
-    if (teamName)   gsap.set(teamName,   { opacity: 0, x: -40, force3D: true });
-    if (pickMeta)   gsap.set(pickMeta,   { opacity: 0, y: 20, force3D: true });
-    if (eventBadge) gsap.set(eventBadge, { opacity: 0, scale: 0.8, force3D: true });
+    gsap.set(ambient, { opacity: 0 });
+    gsap.set(ltWrap, { yPercent: 100, opacity: 1 });
+    gsap.set(accent, { scaleY: 0, transformOrigin: '50% 100%' });
+    gsap.set([liveDot, liveLabel], { opacity: 0, x: -12 });
+    gsap.set(headline, { opacity: 0, y: 18 });
+    if (subline) gsap.set(subline, { opacity: 0 });
+    if (logoFrame) gsap.set(logoFrame, { opacity: 0, scale: 0.92 });
+    if (logoImg) gsap.set(logoImg, { opacity: 0, scale: 0.88 });
+    if (teamName) gsap.set(teamName, { opacity: 0, y: 14 });
+    gsap.set(chyron, { opacity: 0, y: 10 });
+    if (shine) gsap.set(shine, { xPercent: -120, opacity: 0.9 });
+    metaCols.forEach((el) => gsap.set(el, { opacity: 0, y: 12 }));
+    if (draftBrandLogo) gsap.set(draftBrandLogo, { opacity: 0, scale: 0.88 });
 
     const tl = gsap.timeline({
       onComplete: () => {
-        console.log('[NowOnClockAnimation] Complete');
-        onComplete?.();
+        onCompleteRef.current?.();
       },
     });
     timelineRef.current = tl;
 
-    // Background pulse in
-    tl.to(bg, { opacity: 1, duration: 0.4, ease: 'power2.out', force3D: true });
-    // Stripe sweeps across
-    tl.to(stripe, { scaleX: 1, duration: 0.5, ease: 'power2.inOut', force3D: true }, '-=0.1');
-    // "NOW ON THE CLOCK" label drops in
-    tl.to(label, { opacity: 1, y: 0, duration: 0.45, ease: 'power3.out', force3D: true }, '-=0.2');
-    // Logo pops in
-    if (logo) tl.to(logo, { opacity: 1, scale: 1, duration: 0.55, ease: 'back.out(1.4)', force3D: true }, '-=0.2');
-    // Team name slides in
-    if (teamName) tl.to(teamName, { opacity: 1, x: 0, duration: 0.5, ease: 'power3.out', force3D: true }, '-=0.35');
-    // Pick meta fades up
-    if (pickMeta) tl.to(pickMeta, { opacity: 1, y: 0, duration: 0.4, ease: 'power2.out', force3D: true }, '-=0.3');
-    // Event badge pops in alongside pick meta
-    if (eventBadge) tl.to(eventBadge, { opacity: 0.85, scale: 1, duration: 0.45, ease: 'back.out(1.4)', force3D: true }, '-=0.35');
-    // Hold
-    tl.to({}, { duration: 3.5 });
-    // Fade out
-    tl.to(container, { opacity: 0, duration: 0.7, ease: 'power2.inOut', force3D: true });
+    tl.to(ambient, { opacity: 1, duration: 0.35, ease: 'power2.out' });
+    tl.to(ltWrap, { yPercent: 0, duration: 0.72, ease: 'power3.out' }, '-=0.08');
+    tl.to(accent, { scaleY: 1, duration: 0.55, ease: 'power2.inOut' }, '-=0.5');
+    tl.to([liveDot, liveLabel], { opacity: 1, x: 0, duration: 0.4, stagger: 0.06, ease: 'power2.out' }, '-=0.25');
+    if (draftBrandLogo) {
+      tl.to(draftBrandLogo, { opacity: 1, scale: 1, duration: 0.48, ease: 'back.out(1.25)' }, '-=0.2');
+    }
+    tl.to(headline, { opacity: 1, y: 0, duration: 0.5, ease: 'power3.out' }, draftBrandLogo ? '-=0.35' : '-=0.2');
+    if (subline) tl.to(subline, { opacity: 1, duration: 0.35, ease: 'power2.out' }, '-=0.25');
+    if (logoFrame) tl.to(logoFrame, { opacity: 1, scale: 1, duration: 0.5, ease: 'back.out(1.35)' }, '-=0.2');
+    if (logoImg) tl.to(logoImg, { opacity: 1, scale: 1, duration: 0.45, ease: 'power2.out' }, '-=0.35');
+    if (teamName) tl.to(teamName, { opacity: 1, y: 0, duration: 0.5, ease: 'power3.out' }, '-=0.35');
+    tl.to(chyron, { opacity: 1, y: 0, duration: 0.45, ease: 'power2.out' }, '-=0.2');
+    tl.to(metaCols, { opacity: 1, y: 0, duration: 0.4, stagger: 0.07, ease: 'power2.out' }, '-=0.25');
+
+    if (shine) {
+      tl.to(shine, { xPercent: 140, duration: 1.15, ease: 'power2.inOut' }, '-=0.5');
+    }
+
+    let livePulse: gsap.core.Tween | null = null;
+    tl.add(() => {
+      if (liveDot) {
+        gsap.set(liveDot, { opacity: 1 });
+        livePulse = gsap.to(liveDot, {
+          opacity: 0.35,
+          duration: 0.55,
+          ease: 'sine.inOut',
+          repeat: -1,
+          yoyo: true,
+        });
+      }
+    });
+
+    tl.to({}, { duration: HOLD_SEC });
+
+    tl.add(() => {
+      livePulse?.kill();
+      livePulse = null;
+    });
+
+    tl.to(container, { opacity: 0, duration: 0.85, ease: 'power2.inOut' });
 
     return () => {
-      if (timelineRef.current) {
-        timelineRef.current.kill();
-        timelineRef.current = null;
-      }
+      livePulse?.kill();
+      timelineRef.current?.kill();
+      timelineRef.current = null;
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const c1 = team.colors[0];
   const c2 = team.colors[1] || team.colors[0];
-  const ec1 = eventColor1 || null;
+  const ec = eventColor1 || c1;
   const logo = getTeamLogoPath(team.name);
+  const barTopLine = `linear-gradient(90deg, transparent 0%, ${ec} 15%, ${ec} 85%, transparent 100%)`;
+  const sublineText = buildSubline(eventName, eventYear, pickNumber);
 
   return (
     <div
       ref={containerRef}
       className="fixed inset-0 z-[9999] pointer-events-none overflow-hidden"
+      style={{ background: '#020203' }}
     >
-      {/* Background — subtle event color tint blended with team colors */}
+      {/* Upper field — vignette + faint grid (broadcast booth) */}
       <div
-        className="noc-bg absolute inset-0"
-        style={{ background: ec1
-          ? `linear-gradient(135deg, #0a0a0a 0%, ${c1}22 45%, ${ec1}0d 75%, ${c2}18 100%)`
-          : `linear-gradient(135deg, #0a0a0a 0%, ${c1}22 60%, ${c2}18 100%)` }}
-      />
-
-      {/* Diagonal color stripe */}
-      <div
-        className="noc-stripe absolute inset-0"
+        className="noc-ambient absolute inset-0"
         style={{
-          background: `linear-gradient(100deg, ${c1} 0%, ${c2} 100%)`,
-          clipPath: 'polygon(0 35%, 100% 20%, 100% 55%, 0 70%)',
+          background: `
+            radial-gradient(ellipse 85% 65% at 50% 35%, ${c1}14 0%, transparent 55%),
+            linear-gradient(180deg, #0a0b10 0%, #050508 45%, #020203 100%)
+          `,
+          boxShadow: `inset 0 -120px 100px -40px rgba(0,0,0,0.85)`,
+        }}
+      />
+      <div
+        className="pointer-events-none absolute inset-0 opacity-[0.07]"
+        style={{
+          backgroundImage: `linear-gradient(rgba(255,255,255,0.35) 1px, transparent 1px)`,
+          backgroundSize: '100% 4px',
         }}
       />
 
-      {/* Content */}
-      <div className="absolute inset-0 flex flex-col items-center justify-center select-none">
-        {/* NOW ON THE CLOCK label */}
+      {/* Lower third — slides up */}
+      <div
+        className="noc-lt-wrap absolute left-0 right-0 bottom-0 flex"
+        style={{
+          minHeight: 'min(34vh, 320px)',
+          maxHeight: '42vh',
+        }}
+      >
         <div
-          className="noc-label font-black uppercase tracking-[0.35em] text-white mb-8"
+          className="noc-accent shrink-0 w-2 sm:w-3 self-stretch"
           style={{
-            fontSize: 'clamp(1.2rem, 3vw, 2.2rem)',
-            textShadow: '0 2px 12px rgba(0,0,0,0.9)',
-            letterSpacing: '0.35em',
-            willChange: 'transform, opacity',
+            background: `linear-gradient(180deg, ${c1} 0%, ${c2} 100%)`,
+            boxShadow: `4px 0 24px ${c1}55`,
+          }}
+        />
+
+        <div
+          className="flex-1 flex flex-col min-w-0 relative"
+          style={{
+            background: `linear-gradient(180deg, rgba(12,13,20,0.97) 0%, rgba(6,7,11,0.99) 100%)`,
+            boxShadow: `0 -12px 48px rgba(0,0,0,0.75), inset 0 1px 0 rgba(255,255,255,0.06)`,
           }}
         >
-          Now on the Clock
-        </div>
-
-        {/* Logo + Team name row */}
-        <div className="flex items-center gap-8">
-          {logo && (
-            <img
-              src={logo}
-              alt={team.name}
-              className="noc-logo w-36 h-36 object-contain drop-shadow-2xl"
-              style={{ willChange: 'transform, opacity' }}
-            />
-          )}
+          {/* Top accent (broadcast bar) */}
           <div
-            className="noc-team-name font-black text-white uppercase leading-none"
-            style={{
-              fontSize: 'clamp(3.5rem, 8vw, 7rem)',
-              textShadow: `0 4px 32px rgba(0,0,0,0.9), 0 0 60px ${c1}55`,
-              WebkitTextStroke: `2px ${c2}`,
-              letterSpacing: '-0.02em',
-              willChange: 'transform, opacity',
-            }}
-          >
-            {team.name}
-          </div>
-        </div>
-
-        {/* Event logo badge — bottom-right corner */}
-        {eventLogoUrl && (
-          <img
-            src={eventLogoUrl}
-            alt=""
-            className="noc-event-badge absolute bottom-8 right-10 w-16 h-16 object-contain pointer-events-none"
-            style={{ willChange: 'transform, opacity' }}
+            className="absolute top-0 left-0 right-0 h-0.5 pointer-events-none opacity-90"
+            style={{ background: barTopLine }}
           />
-        )}
+          <div
+            className="absolute top-0.5 left-0 right-0 h-px pointer-events-none"
+            style={{ background: `linear-gradient(90deg, transparent, ${ec}66, transparent)` }}
+          />
 
-        {/* Pick meta */}
-        <div
-          className="noc-pick-meta mt-8 flex gap-8 items-center px-10 py-4 rounded-2xl"
-          style={{
-            background: `linear-gradient(135deg, rgba(0,0,0,0.78) 0%, ${c1}cc 100%)`,
-            border: `2px solid ${c1}`,
-            boxShadow: `0 4px 32px rgba(0,0,0,0.85), 0 0 24px ${c1}55, inset 0 1px 0 rgba(255,255,255,0.12)`,
-            willChange: 'transform, opacity',
-          }}
-        >
-          {[
-            { label: 'ROUND', value: round },
-            { label: 'PICK', value: pickInRound },
-            { label: 'OVERALL', value: pickNumber },
-          ].map(({ label, value }, i) => (
-            <div key={label} className="text-center flex items-center gap-8">
-              {i > 0 && <div className="w-px h-10 self-stretch" style={{ background: `${c1}44` }} />}
-              <div>
-                <div className="text-white/60 text-xs font-bold tracking-widest mb-1">{label}</div>
-                <div
-                  className="font-black"
+          <div className="flex-1 flex flex-col justify-end px-4 sm:px-8 pb-5 pt-6 min-w-0 gap-4">
+            {/* LIVE + headline row */}
+            <div className="flex flex-wrap items-center gap-3 sm:gap-5">
+              <div className="flex items-center gap-2 shrink-0">
+                <span
+                  className="noc-live-dot w-2.5 h-2.5 rounded-full shrink-0"
+                  style={{ background: '#f43f5e', boxShadow: '0 0 12px #f43f5e' }}
+                />
+                <span
+                  className="noc-live-label font-black uppercase tracking-[0.2em] text-white/95"
+                  style={{ fontSize: 'clamp(0.65rem, 1.1vw, 0.8rem)' }}
+                >
+                  Live
+                </span>
+              </div>
+              <div className="h-4 w-px bg-white/15 shrink-0 hidden sm:block" />
+              {eventLogoUrl ? (
+                <img
+                  src={eventLogoUrl}
+                  alt=""
+                  className="noc-draft-logo object-contain shrink-0 drop-shadow-lg"
                   style={{
-                    fontSize: '2.8rem',
-                    lineHeight: 1,
-                    textShadow: `0 2px 12px rgba(0,0,0,0.9), 0 0 20px ${c1}88`,
-                    color: c1,
+                    width: 'clamp(40px, 7vw, 56px)',
+                    height: 'clamp(40px, 7vw, 56px)',
+                  }}
+                />
+              ) : null}
+              <h1
+                className="noc-headline font-black uppercase tracking-[0.12em] text-white leading-none"
+                style={{
+                  fontSize: 'clamp(1.35rem, 3.2vw, 2.4rem)',
+                  textShadow: `0 2px 24px rgba(0,0,0,0.95), 0 0 40px ${ec}33`,
+                }}
+              >
+                On the clock
+              </h1>
+            </div>
+
+            <p
+              className="noc-subline text-white/50 font-semibold uppercase tracking-widest max-w-[min(96vw,900px)] break-words leading-snug"
+              style={{ fontSize: 'clamp(0.6rem, 1vw, 0.72rem)' }}
+            >
+              {sublineText}
+            </p>
+
+            {/* Logo + team lockup */}
+            <div className="flex flex-col sm:flex-row sm:items-end gap-4 sm:gap-8 min-w-0">
+              {logo && (
+                <div
+                  className="noc-logo-frame rounded-xl overflow-hidden shrink-0 border-2 flex items-center justify-center"
+                  style={{
+                    width: 'clamp(88px, 14vw, 132px)',
+                    height: 'clamp(88px, 14vw, 132px)',
+                    borderColor: c2,
+                    background: `linear-gradient(145deg, ${c1}33 0%, rgba(0,0,0,0.5) 100%)`,
+                    boxShadow: `0 8px 32px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.08) inset`,
                   }}
                 >
-                  {value}
+                  <img
+                    src={logo}
+                    alt=""
+                    className="noc-logo-img object-contain w-[82%] h-[82%] drop-shadow-lg"
+                  />
                 </div>
+              )}
+              <div
+                className="noc-team-name font-black text-white uppercase min-w-0 max-w-full break-words leading-tight"
+                style={{
+                  fontSize: nocTeamNameFontSize(team.name),
+                  textShadow: `0 3px 28px rgba(0,0,0,0.95), 0 0 48px ${c1}44`,
+                  WebkitTextStroke: `1px ${c2}99`,
+                }}
+              >
+                {team.name}
               </div>
             </div>
-          ))}
+
+            {/* Chyron strip */}
+            <div
+              className="noc-chyron relative rounded-lg overflow-hidden"
+              style={{
+                background: `linear-gradient(90deg, rgba(0,0,0,0.55) 0%, ${c1}22 50%, rgba(0,0,0,0.55) 100%)`,
+                border: `1px solid ${c1}55`,
+              }}
+            >
+              <div
+                className="noc-shine pointer-events-none absolute inset-y-0 w-1/3 z-10"
+                style={{
+                  background: `linear-gradient(90deg, transparent, rgba(255,255,255,0.22), transparent)`,
+                }}
+              />
+              <div className="relative z-20 flex flex-wrap justify-between sm:justify-start gap-y-3 gap-x-6 sm:gap-x-12 px-4 py-3 sm:px-6 sm:py-3.5">
+                {[
+                  { label: 'Round', value: round },
+                  { label: 'Pick', value: pickInRound },
+                  { label: 'Overall', value: pickNumber },
+                ].map(({ label, value }) => (
+                  <div key={label} className="noc-meta-col flex items-baseline gap-3">
+                    <span
+                      className="font-bold uppercase tracking-widest text-white/45 shrink-0"
+                      style={{ fontSize: 'clamp(0.58rem, 0.95vw, 0.7rem)' }}
+                    >
+                      {label}
+                    </span>
+                    <span
+                      className="font-black tabular-nums text-white"
+                      style={{
+                        fontSize: 'clamp(1.75rem, 4vw, 2.75rem)',
+                        lineHeight: 1,
+                        textShadow: `0 0 24px ${c1}99`,
+                        color: '#fff',
+                      }}
+                    >
+                      {value}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
