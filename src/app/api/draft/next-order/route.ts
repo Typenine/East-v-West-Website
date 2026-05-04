@@ -11,13 +11,16 @@ export async function GET(req: Request) {
     const parsedSeason = seasonParam ? Number(seasonParam) : Number.NaN;
     const targetSeason = Number.isFinite(parsedSeason) ? parsedSeason : defaultSeason;
     const sourceLeagueSeason = String(targetSeason - 1);
-    const leagueId = getLeagueIdForSeason(sourceLeagueSeason) || LEAGUE_IDS.CURRENT;
-    const draftOwnershipPromise = loadDraftOwnershipForSeason({ leagueId, season: targetSeason });
+    const standingsLeagueId = getLeagueIdForSeason(sourceLeagueSeason) || LEAGUE_IDS.CURRENT;
+    // Keep slot order tied to prior-season standings, but read tradable pick ownership
+    // for the active draft year from the current league context when needed.
+    const ownershipLeagueId = targetSeason === defaultSeason ? LEAGUE_IDS.CURRENT : standingsLeagueId;
+    const draftOwnershipPromise = loadDraftOwnershipForSeason({ leagueId: ownershipLeagueId, season: targetSeason });
 
     const [ownership, rawTeams, regularRecords] = await Promise.all([
       draftOwnershipPromise,
-      getTeamsData(leagueId),
-      getRegularSeasonRecords(leagueId).catch(() => null),
+      getTeamsData(standingsLeagueId),
+      getRegularSeasonRecords(standingsLeagueId).catch(() => null),
     ]);
     if (!ownership) {
       return NextResponse.json({ error: 'ownership_unavailable' }, { status: 503 });
@@ -42,7 +45,7 @@ export async function GET(req: Request) {
     // Use winners bracket to determine playoff participants and finalists
     let slotOrder: Array<{ slot: number; rosterId: number; team: string; record: { wins: number; losses: number; ties: number; fpts: number; fptsAgainst: number } }> = [];
     try {
-      const winners: SleeperBracketGame[] = await getLeagueWinnersBracket(leagueId, { forceFresh: true }).catch(() => []);
+      const winners: SleeperBracketGame[] = await getLeagueWinnersBracket(standingsLeagueId, { forceFresh: true }).catch(() => []);
       const participantIds = new Set<number>();
       for (const g of winners) {
         if (g.t1 != null) participantIds.add(g.t1);
