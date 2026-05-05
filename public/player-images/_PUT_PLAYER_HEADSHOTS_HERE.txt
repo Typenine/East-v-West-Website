@@ -1,0 +1,6 @@
+Player draft headshots (pick animation cards) go in THIS folder.
+
+On disk (from repo root): east-v-west/public/player-images/
+In the app URL: /player-images/filename.webp
+
+You can delete this .txt file anytime. Keep template.svg if you like a visual reminder, or remove it.

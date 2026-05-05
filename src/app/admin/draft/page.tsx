@@ -368,7 +368,7 @@ function PlayerMediaCard() {
               </div>
               <Input value={imageUrl} onChange={e => setImageUrl(e.target.value)}
                 placeholder="https://... or /player-images/cam-ward.webp" className="w-full" disabled={!selectedPlayer} />
-              <p className="text-xs text-zinc-500">File upload saves into `public/player-images/` in this project (works on a normal dev machine; production hosts like Vercel are read-only—commit the image to git, deploy, then save the `/player-images/...` path). You can also paste an https image URL.</p>
+              <p className="text-xs text-zinc-500">Put files in <span className="font-mono text-zinc-400">east-v-west/public/player-images/</span> (same as URL <span className="font-mono text-zinc-400">/player-images/…</span>). A <span className="font-mono text-zinc-400">template.svg</span> lives there so you know you’re in the right folder. Uploads save here locally; on Vercel, commit images to git and deploy. You can also paste an https image URL.</p>
               <p className="text-xs text-zinc-500">`data:` URLs are blocked for pasted URLs. Use png/jpg/jpeg/webp.</p>
               {imageUrl.trim() ? (
                 <div className="flex items-center gap-3">

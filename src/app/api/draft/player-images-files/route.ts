@@ -6,7 +6,7 @@ import { isAdminCookieValue } from '@/lib/auth/admin';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-const IMAGE_EXT = /\.(png|jpe?g|webp|gif)$/i;
+const IMAGE_EXT = /\.(png|jpe?g|webp|gif|svg)$/i;
 
 function isAdmin(req: NextRequest): boolean {
   return isAdminCookieValue(req.cookies.get('evw_admin')?.value);
