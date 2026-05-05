@@ -469,6 +469,10 @@ export default function AdminDraftPage() {
   const [brandingLogoFile, setBrandingLogoFile] = useState<File | null>(null);
   const [brandingLogoPreview, setBrandingLogoPreview] = useState<string | null>(null);
   const [savingBranding, setSavingBranding] = useState(false);
+  type PoolSummary = { id: string; label: string; playerCount: number; updatedAt: string };
+  const [playerPoolsList, setPlayerPoolsList] = useState<PoolSummary[]>([]);
+  const [selectedPoolId, setSelectedPoolId] = useState('');
+  const [newPoolLabel, setNewPoolLabel] = useState('');
 
   // Convert mins:secs to total seconds
   async function loadPendingTrades() {
@@ -508,6 +512,53 @@ export default function AdminDraftPage() {
     fetch('/api/admin-login').then(r => r.json()).then(j => setIsAdmin(Boolean(j?.isAdmin))).catch(() => setIsAdmin(false));
   }, []);
 
+  async function loadAdminWorkspace() {
+    if (!isAdmin) return;
+    try {
+      const res = await fetch('/api/draft', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ action: 'admin_workspace' }),
+      });
+      if (!res.ok) return;
+      const j = await res.json();
+      setPlayerPoolsList(Array.isArray(j.pools) ? j.pools : []);
+    } catch { /* ignore */ }
+  }
+
+  useEffect(() => {
+    if (!isAdmin) return;
+    void loadAdminWorkspace();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAdmin, draft?.id]);
+
+  useEffect(() => {
+    if (!isAdmin || draft) return;
+    (async () => {
+      try {
+        const res = await fetch('/api/draft', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ action: 'admin_workspace' }),
+        });
+        if (!res.ok) return;
+        const j = await res.json();
+        const w = j.workspace;
+        if (!w) return;
+        setBrandingForm(prev => ({
+          eventName: w.eventName ?? prev.eventName,
+          eventColor1: w.eventColor1 ?? prev.eventColor1,
+          eventColor2: w.eventColor2 ?? prev.eventColor2,
+          eventLogoUrl: w.eventLogoUrl ?? prev.eventLogoUrl,
+        }));
+        if (w.eventLogoUrl && !brandingLogoPreview) {
+          setBrandingLogoPreview(w.eventLogoUrl);
+        }
+      } catch { /* ignore */ }
+    })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAdmin, draft, draft?.id]);
+
   async function load(includeAvail = false, showSpinner = false) {
     try {
       if (showSpinner) setLoading(true);
@@ -546,7 +597,6 @@ export default function AdminDraftPage() {
   }, []);
 
   async function saveBranding() {
-    if (!draft) return;
     setSavingBranding(true);
     try {
       let logoUrl = brandingForm.eventLogoUrl;
@@ -563,7 +613,7 @@ export default function AdminDraftPage() {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           action: 'update_branding',
-          id: draft.id,
+          ...(draft ? { id: draft.id } : {}),
           eventName: brandingForm.eventName || null,
           eventLogoUrl: logoUrl || null,
           eventColor1: brandingForm.eventColor1 || null,
@@ -733,9 +783,23 @@ export default function AdminDraftPage() {
     try {
       // Upload player pool (strip media fields — only core data goes here)
       const corePlayers = players.map(({ id, name, pos, nfl, rank }) => rank != null ? { id, name, pos, nfl, rank } : { id, name, pos, nfl });
-      const res = await fetch('/api/draft', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'upload_players', players: corePlayers }) });
+      const res = await fetch('/api/draft', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          action: 'upload_players',
+          ...(draft ? { id: draft.id } : {}),
+          ...(selectedPoolId ? { poolId: selectedPoolId } : {}),
+          ...(!selectedPoolId && newPoolLabel.trim() ? { poolLabel: newPoolLabel.trim() } : {}),
+          players: corePlayers,
+        }),
+      });
       const j = await res.json();
       if (!res.ok || j?.error) throw new Error(j?.error || 'failed');
+      if (typeof j?.poolId === 'string') {
+        setSelectedPoolId(j.poolId);
+        await loadAdminWorkspace();
+      }
       // Upload media URLs for players that have them (stored as tiny URL strings, not blobs)
       const withMedia = players.filter(p => p.imageUrl || p.videoUrl);
       for (const p of withMedia) {
@@ -1072,13 +1136,12 @@ export default function AdminDraftPage() {
       {activeTab === 'branding' && isAdmin && (
         <div className="space-y-10">
           <div className="max-w-xl space-y-6">
-          {!draft && (
-            <Card><CardContent><p className="text-[var(--muted)] text-sm">Create a draft first before setting event branding.</p></CardContent></Card>
-          )}
-          {draft && (
             <Card>
               <CardHeader><CardTitle>Event Branding</CardTitle></CardHeader>
               <CardContent className="space-y-5">
+                {!draft && (
+                  <p className="text-[var(--muted)] text-sm">Branding is saved for the site. It applies automatically when you create the next draft.</p>
+                )}
                 {/* Event Name */}
                 <div>
                   <Label className="mb-1 block">Event Name</Label>
@@ -1182,7 +1245,6 @@ export default function AdminDraftPage() {
                 </Button>
               </CardContent>
             </Card>
-          )}
           </div>
 
           <div className="border-t border-zinc-700 pt-8">
@@ -1684,6 +1746,81 @@ export default function AdminDraftPage() {
               <CardContent>
                 <div className="space-y-3">
                   <p className="text-sm">{playersInfo.useCustom ? `Using custom list (${playersInfo.count} players)` : 'Using Sleeper player pool'}</p>
+                  {!draft && (
+                    <p className="text-xs text-amber-400/90">No active draft — upload saves a reusable pool for next time. After you create a draft, use &quot;Apply saved pool&quot; or upload again to attach it.</p>
+                  )}
+                  <div>
+                    <Label className="mb-1 block">Saved pool</Label>
+                    <Select
+                      value={selectedPoolId}
+                      onChange={(e) => setSelectedPoolId(e.target.value)}
+                    >
+                      <option value="">New pool on upload…</option>
+                      {playerPoolsList.map((p) => (
+                        <option key={p.id} value={p.id}>{p.label} — {p.playerCount} players</option>
+                      ))}
+                    </Select>
+                  </div>
+                  {!selectedPoolId && (
+                    <div>
+                      <Label className="mb-1 block">New pool name (optional)</Label>
+                      <Input value={newPoolLabel} onChange={(e) => setNewPoolLabel(e.target.value)} placeholder="e.g. Rookie draft 2026" />
+                    </div>
+                  )}
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      disabled={!draft || !selectedPoolId || busy !== null}
+                      onClick={async () => {
+                        if (!draft || !selectedPoolId) return;
+                        setBusy('apply_player_pool');
+                        try {
+                          const res = await fetch('/api/draft', {
+                            method: 'POST',
+                            headers: { 'content-type': 'application/json' },
+                            body: JSON.stringify({ action: 'apply_player_pool', id: draft.id, poolId: selectedPoolId }),
+                          });
+                          const j = await res.json();
+                          if (!res.ok || j?.error) throw new Error(j?.error || 'failed');
+                          await refreshPlayersInfo();
+                          await load(true);
+                          alert(`Applied ${j.count ?? ''} players to draft`);
+                        } catch (e) {
+                          alert((e as Error).message || 'Apply failed');
+                        } finally {
+                          setBusy(null);
+                        }
+                      }}
+                    >Apply saved pool to draft</Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="text-red-400 border border-red-800 hover:bg-red-950/40"
+                      disabled={!selectedPoolId || busy !== null}
+                      onClick={async () => {
+                        if (!selectedPoolId || !confirm('Delete this saved player pool from the library?')) return;
+                        setBusy('delete_player_pool');
+                        try {
+                          const res = await fetch('/api/draft', {
+                            method: 'POST',
+                            headers: { 'content-type': 'application/json' },
+                            body: JSON.stringify({ action: 'delete_player_pool', poolId: selectedPoolId }),
+                          });
+                          const j = await res.json();
+                          if (!res.ok || j?.error) throw new Error(j?.error || 'failed');
+                          setSelectedPoolId('');
+                          await loadAdminWorkspace();
+                        } catch (e) {
+                          alert((e as Error).message || 'Delete failed');
+                        } finally {
+                          setBusy(null);
+                        }
+                      }}
+                    >Delete saved pool</Button>
+                  </div>
                   <div className="text-xs text-[var(--muted)]">
                     <p className="mb-2">Accepted formats:</p>
                     <ul className="list-disc pl-5 space-y-1">

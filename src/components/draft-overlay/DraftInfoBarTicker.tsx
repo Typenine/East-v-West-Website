@@ -18,6 +18,10 @@ interface SeasonResult {
 }
 
 interface Props {
+  /** When set, in-draft trades resolve for this draft (required for correct trade ticker). */
+  draftId?: string | null;
+  /** League size; defaults to 12 if omitted. */
+  picksPerRound?: number;
   onClockTeam: string | null;
   available: TickerPlayer[];
   recentPicks?: TickerPick[];
@@ -35,7 +39,8 @@ function tickerNameFontSize(name: string | null | undefined): string {
   return '13px';
 }
 
-export default function DraftInfoBarTicker({ onClockTeam, available, recentPicks, curOverall, usingCustom, pendingPick }: Props) {
+export default function DraftInfoBarTicker({ draftId, picksPerRound = 12, onClockTeam, available, recentPicks, curOverall, usingCustom, pendingPick }: Props) {
+  const teamsPerRound = Math.max(1, picksPerRound | 0);
   const [currentTickerView, setCurrentTickerView] = useState<TickerView>('bestAvailable');
   const cycleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -65,13 +70,13 @@ export default function DraftInfoBarTicker({ onClockTeam, available, recentPicks
   const showTeamPicks = teamPicksThisDraft.length > 0 && (curOverall ?? 1) > 1;
 
   const currentPickTradeInfo = (() => {
-    if (!onClockTeam || !curOverall) return null;
+    if (!onClockTeam || curOverall == null) return null;
     // Check in-draft trades first (trades made during the draft via DraftTradeCenter)
     const inDraftTrade = approvedPickTrades.find(a => a.pickOverall === curOverall && a.toTeam === onClockTeam);
-    if (inDraftTrade) return { round: Math.floor((curOverall - 1) / 12) + 1, fromTeam: inDraftTrade.fromTeam, toTeam: inDraftTrade.toTeam };
+    if (inDraftTrade) return { round: Math.floor((curOverall - 1) / teamsPerRound) + 1, fromTeam: inDraftTrade.fromTeam, toTeam: inDraftTrade.toTeam };
     // Fall back to pre-draft pick ownership transfers (Sleeper trade history)
     if (!draftOrderData?.transfers) return null;
-    const currentRound = Math.floor((curOverall - 1) / 12) + 1;
+    const currentRound = Math.floor((curOverall - 1) / teamsPerRound) + 1;
     // Use ownerTeam (final current owner) for matching — more reliable than toTeam which
     // only matches the last direct recipient and can miss multi-hop trades
     const byOwner = draftOrderData.transfers.filter(t => t.round === currentRound && t.ownerTeam === onClockTeam);
@@ -234,7 +239,7 @@ export default function DraftInfoBarTicker({ onClockTeam, available, recentPicks
             {teamPicksThisDraft.slice().reverse().slice(0, 6).map(p => (
               <div key={p.overall} className="bg-black/30 rounded px-1.5 py-1.5">
                 <div className="font-semibold text-white leading-tight break-words" style={{ fontSize: tickerNameFontSize(p.playerName || p.playerId) }}>{p.playerName || p.playerId}</div>
-                <div className="text-[11px] text-white/55 leading-tight">{p.playerPos ? `${p.playerPos} · ` : ''}#{p.overall} · R{p.round} Pk{((p.overall - 1) % 12) + 1}</div>
+                <div className="text-[11px] text-white/55 leading-tight">{p.playerPos ? `${p.playerPos} · ` : ''}#{p.overall} · R{p.round ?? Math.floor((p.overall - 1) / teamsPerRound) + 1} Pk{((p.overall - 1) % teamsPerRound) + 1}</div>
               </div>
             ))}
           </div>
@@ -351,7 +356,7 @@ export default function DraftInfoBarTicker({ onClockTeam, available, recentPicks
               {picks.map((p, i) => (
                 <div key={i} className="bg-black/30 rounded px-1.5 py-1.5">
                   <div className="font-semibold text-white leading-tight break-words" style={{ fontSize: tickerNameFontSize(p.player) }}>{p.player}</div>
-                  <div className="text-[11px] text-white/55 leading-tight">{p.pos ? `${p.pos} · ` : ''}{p.round}.{String(p.pick % 12 || 12).padStart(2, '0')}</div>
+                  <div className="text-[11px] text-white/55 leading-tight">{p.pos ? `${p.pos} · ` : ''}{p.round}.{String(p.pick % teamsPerRound || teamsPerRound).padStart(2, '0')}</div>
                 </div>
               ))}
             </div>
@@ -373,7 +378,7 @@ export default function DraftInfoBarTicker({ onClockTeam, available, recentPicks
               {picks.map((p, i) => (
                 <div key={i} className="bg-black/30 rounded px-1.5 py-1.5">
                   <div className="font-semibold text-white leading-tight break-words" style={{ fontSize: tickerNameFontSize(p.player) }}>{p.player}</div>
-                  <div className="text-[11px] text-white/55 leading-tight">{p.pos ? `${p.pos} · ` : ''}{p.round}.{String(p.pick % 12 || 12).padStart(2, '0')}</div>
+                  <div className="text-[11px] text-white/55 leading-tight">{p.pos ? `${p.pos} · ` : ''}{p.round}.{String(p.pick % teamsPerRound || teamsPerRound).padStart(2, '0')}</div>
                 </div>
               ))}
             </div>

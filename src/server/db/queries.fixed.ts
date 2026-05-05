@@ -426,6 +426,39 @@ export async function ensureDraftTables() {
     )
   `).catch(() => {});
   await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_draft_pick_videos_draft ON draft_pick_videos(draft_id)`).catch(() => {});
+  // Workspace defaults (branding + default player pool) — survives draft deletion
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS draft_workspace (
+      id varchar(32) PRIMARY KEY,
+      event_name varchar(255),
+      event_logo_url text,
+      event_color_1 varchar(16),
+      event_color_2 varchar(16),
+      default_player_pool_id uuid NULL
+    )
+  `).catch(() => {});
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS draft_player_pools (
+      id uuid PRIMARY KEY,
+      label varchar(255) NOT NULL DEFAULT 'Saved pool',
+      created_at timestamp NOT NULL DEFAULT now(),
+      updated_at timestamp NOT NULL DEFAULT now()
+    )
+  `).catch(() => {});
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS draft_player_pool_rows (
+      pool_id uuid NOT NULL,
+      player_id varchar(64) NOT NULL,
+      name varchar(255) NOT NULL,
+      pos varchar(16) NOT NULL,
+      nfl varchar(255),
+      rank integer,
+      meta jsonb,
+      PRIMARY KEY (pool_id, player_id)
+    )
+  `).catch(() => {});
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_draft_player_pool_rows_pool ON draft_player_pool_rows(pool_id)`).catch(() => {});
+  await db.execute(sql`INSERT INTO draft_workspace (id) VALUES ('default') ON CONFLICT (id) DO NOTHING`).catch(() => {});
   // Migrations for existing tables (idempotent, errors silenced)
   await db.execute(sql`ALTER TABLE drafts ADD COLUMN IF NOT EXISTS pending_trade_animation jsonb NULL`).catch(() => {});
   await db.execute(sql`ALTER TABLE draft_roster_snapshots ALTER COLUMN player_nfl TYPE varchar(64)`).catch(() => {});
@@ -483,6 +516,173 @@ export async function clearDraftPlayers(draftId: string) {
   const db = getDb();
   await db.execute(sql`DELETE FROM draft_players WHERE draft_id = ${draftId}::uuid`);
   return true as const;
+}
+
+// ── Draft workspace (branding + saved pools; not tied to a single draft row) ──
+
+export type DraftWorkspaceRow = {
+  eventName: string | null;
+  eventLogoUrl: string | null;
+  eventColor1: string | null;
+  eventColor2: string | null;
+  defaultPlayerPoolId: string | null;
+};
+
+export async function saveDraftWorkspaceBranding(branding: {
+  eventName?: string | null;
+  eventLogoUrl?: string | null;
+  eventColor1?: string | null;
+  eventColor2?: string | null;
+}): Promise<void> {
+  await ensureDraftTables();
+  const db = getDb();
+  await db.execute(sql`
+    INSERT INTO draft_workspace (id, event_name, event_logo_url, event_color_1, event_color_2)
+    VALUES (
+      'default',
+      ${branding.eventName ?? null},
+      ${branding.eventLogoUrl ?? null},
+      ${branding.eventColor1 ?? null},
+      ${branding.eventColor2 ?? null}
+    )
+    ON CONFLICT (id) DO UPDATE SET
+      event_name = EXCLUDED.event_name,
+      event_logo_url = EXCLUDED.event_logo_url,
+      event_color_1 = EXCLUDED.event_color_1,
+      event_color_2 = EXCLUDED.event_color_2
+  `);
+}
+
+export async function getDraftWorkspace(): Promise<DraftWorkspaceRow | null> {
+  await ensureDraftTables();
+  const db = getDb();
+  const res = await db.execute(sql`
+    SELECT event_name, event_logo_url, event_color_1, event_color_2, default_player_pool_id
+    FROM draft_workspace WHERE id = 'default' LIMIT 1
+  `);
+  const row = (res as unknown as { rows?: Array<Record<string, unknown>> }).rows?.[0];
+  if (!row) return null;
+  return {
+    eventName: (row.event_name as string) || null,
+    eventLogoUrl: (row.event_logo_url as string) || null,
+    eventColor1: (row.event_color_1 as string) || null,
+    eventColor2: (row.event_color_2 as string) || null,
+    defaultPlayerPoolId: row.default_player_pool_id ? String(row.default_player_pool_id) : null,
+  };
+}
+
+export async function setDraftWorkspaceDefaultPool(poolId: string | null): Promise<void> {
+  await ensureDraftTables();
+  const db = getDb();
+  if (poolId) {
+    await db.execute(sql`UPDATE draft_workspace SET default_player_pool_id = ${poolId}::uuid WHERE id = 'default'`);
+  } else {
+    await db.execute(sql`UPDATE draft_workspace SET default_player_pool_id = NULL WHERE id = 'default'`);
+  }
+}
+
+export type DraftPlayerPoolSummary = { id: string; label: string; playerCount: number; updatedAt: string };
+
+export async function listPlayerPools(): Promise<DraftPlayerPoolSummary[]> {
+  await ensureDraftTables();
+  const db = getDb();
+  const res = await db.execute(sql`
+    SELECT p.id, p.label, p.updated_at, COUNT(r.player_id)::int AS c
+    FROM draft_player_pools p
+    LEFT JOIN draft_player_pool_rows r ON r.pool_id = p.id
+    GROUP BY p.id, p.label, p.updated_at
+    ORDER BY p.updated_at DESC
+  `);
+  type R = { id: string; label: string; updated_at: Date | string; c: number | string };
+  const rows = (res as unknown as { rows?: R[] }).rows || [];
+  return rows.map((r) => ({
+    id: String(r.id),
+    label: r.label,
+    playerCount: typeof r.c === 'number' ? r.c : Number(r.c || 0),
+    updatedAt: r.updated_at instanceof Date ? r.updated_at.toISOString() : String(r.updated_at),
+  }));
+}
+
+export async function createPlayerPool(label: string): Promise<string> {
+  await ensureDraftTables();
+  const db = getDb();
+  const id = randomUUID();
+  await db.execute(sql`INSERT INTO draft_player_pools (id, label) VALUES (${id}::uuid, ${label})`);
+  return id;
+}
+
+export async function replacePlayerPoolRows(
+  poolId: string,
+  players: Array<{ id: string; name: string; pos: string; nfl?: string | null; rank?: number | null; meta?: unknown }>
+): Promise<void> {
+  await ensureDraftTables();
+  const db = getDb();
+  await db.execute(sql`DELETE FROM draft_player_pool_rows WHERE pool_id = ${poolId}::uuid`);
+  for (const p of players) {
+    const pid = String(p.id || '').trim();
+    const name = String(p.name || '').trim();
+    const pos = String(p.pos || '').trim().toUpperCase();
+    if (!pid || !name || !pos) continue;
+    const nfl = (p.nfl ? String(p.nfl).trim() : null) as string | null;
+    const rank = p.rank == null ? null : Number(p.rank);
+    await db.execute(sql`
+      INSERT INTO draft_player_pool_rows (pool_id, player_id, name, pos, nfl, rank, meta)
+      VALUES (${poolId}::uuid, ${pid}, ${name}, ${pos}, ${nfl}, ${rank}, ${p.meta ?? null})
+      ON CONFLICT (pool_id, player_id) DO UPDATE SET
+        name = EXCLUDED.name, pos = EXCLUDED.pos, nfl = EXCLUDED.nfl, rank = EXCLUDED.rank, meta = EXCLUDED.meta
+    `);
+  }
+  await db.execute(sql`UPDATE draft_player_pools SET updated_at = now() WHERE id = ${poolId}::uuid`);
+}
+
+export async function deletePlayerPool(poolId: string): Promise<void> {
+  await ensureDraftTables();
+  const db = getDb();
+  await db.execute(sql`DELETE FROM draft_player_pool_rows WHERE pool_id = ${poolId}::uuid`);
+  await db.execute(sql`DELETE FROM draft_player_pools WHERE id = ${poolId}::uuid`);
+  await db.execute(sql`
+    UPDATE draft_workspace SET default_player_pool_id = NULL
+    WHERE id = 'default' AND default_player_pool_id = ${poolId}::uuid
+  `);
+}
+
+export async function getPlayerPoolRows(poolId: string): Promise<DraftPlayerRow[]> {
+  await ensureDraftTables();
+  const db = getDb();
+  const res = await db.execute(sql`
+    SELECT player_id, name, pos, nfl, rank, meta FROM draft_player_pool_rows WHERE pool_id = ${poolId}::uuid
+  `);
+  const rows = (res as unknown as { rows?: DraftPlayerRow[] }).rows || [];
+  return rows;
+}
+
+export async function copyPlayerPoolToDraft(poolId: string, draftId: string): Promise<void> {
+  const rows = await getPlayerPoolRows(poolId);
+  await setDraftPlayers(
+    draftId,
+    rows.map((r) => ({
+      id: r.player_id,
+      name: r.name,
+      pos: r.pos,
+      nfl: r.nfl,
+      rank: r.rank,
+      meta: r.meta,
+    }))
+  );
+}
+
+export async function seedDraftFromWorkspace(draftId: string): Promise<void> {
+  const w = await getDraftWorkspace();
+  if (!w) return;
+  await updateDraftBranding(draftId, {
+    eventName: w.eventName,
+    eventLogoUrl: w.eventLogoUrl,
+    eventColor1: w.eventColor1,
+    eventColor2: w.eventColor2,
+  });
+  if (w.defaultPlayerPoolId) {
+    await copyPlayerPoolToDraft(w.defaultPlayerPoolId, draftId);
+  }
 }
 
 export async function getDraftPlayers(draftId: string): Promise<DraftPlayerRow[]> {
@@ -549,6 +749,50 @@ export async function resetDraft(draftId: string) {
 
 export async function deleteDraft(draftId: string) {
   const db = getDb();
+  await ensureDraftTables();
+  // Keep event branding and custom player pool in workspace so the next draft can reuse them
+  try {
+    const snap = await db.execute(sql`
+      SELECT event_name, event_logo_url, event_color_1, event_color_2
+      FROM drafts WHERE id = ${draftId}::uuid LIMIT 1
+    `);
+    const row = (snap as unknown as { rows?: Array<Record<string, unknown>> }).rows?.[0];
+    if (row) {
+      await saveDraftWorkspaceBranding({
+        eventName: (row.event_name as string) || null,
+        eventLogoUrl: (row.event_logo_url as string) || null,
+        eventColor1: (row.event_color_1 as string) || null,
+        eventColor2: (row.event_color_2 as string) || null,
+      });
+    }
+  } catch (e) {
+    console.error('deleteDraft: workspace branding snapshot', e);
+  }
+  try {
+    await ensureDraftPlayersTable();
+    if ((await countDraftPlayers(draftId)) > 0) {
+      const dRows = await getDraftPlayers(draftId);
+      const w = await getDraftWorkspace();
+      let poolId = w?.defaultPlayerPoolId || null;
+      if (!poolId) {
+        poolId = await createPlayerPool('Player pool');
+        await setDraftWorkspaceDefaultPool(poolId);
+      }
+      await replacePlayerPoolRows(
+        poolId,
+        dRows.map((r) => ({
+          id: r.player_id,
+          name: r.name,
+          pos: r.pos,
+          nfl: r.nfl,
+          rank: r.rank,
+          meta: r.meta,
+        }))
+      );
+    }
+  } catch (e) {
+    console.error('deleteDraft: player pool snapshot', e);
+  }
   await db.execute(sql`DELETE FROM draft_picks WHERE draft_id = ${draftId}::uuid`);
   await db.execute(sql`DELETE FROM draft_queues WHERE draft_id = ${draftId}::uuid`);
   await db.execute(sql`DELETE FROM draft_pending_picks WHERE draft_id = ${draftId}::uuid`);
@@ -755,6 +999,7 @@ export async function updateDraftBranding(draftId: string, branding: {
         event_color_2 = ${branding.eventColor2 ?? null}
     WHERE id = ${draftId}::uuid
   `);
+  await saveDraftWorkspaceBranding(branding);
 }
 
 export async function getPlayerVideos(): Promise<Array<{ playerId: string; videoUrl: string | null; imageUrl: string | null; playerName: string | null }>> {

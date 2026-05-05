@@ -43,9 +43,11 @@ function pickAnimPlayerNameFontSize(name: string): string {
 
 function pickAnimFantasyTeamNameFontSize(name: string): string {
   const len = name.length;
-  if (len > 18) return 'clamp(1.75rem, 4vw, 4.5rem)';
-  if (len > 12) return 'clamp(2.5rem, 6vw, 6.5rem)';
-  return 'clamp(4rem, 10vw, 9rem)';
+  // Keep caps modest — WebKit text stroke adds invisible overflow that clips inside overflow-hidden roots.
+  if (len > 22) return 'clamp(1rem, 2.8vw + 0.4rem, 2.5rem)';
+  if (len > 16) return 'clamp(1.2rem, 3.5vw + 0.45rem, 3.25rem)';
+  if (len > 10) return 'clamp(1.5rem, 4.5vw + 0.5rem, 4rem)';
+  return 'clamp(1.85rem, 5.5vw + 0.55rem, 5rem)';
 }
 
 export default function DraftPickAnimation({
@@ -226,15 +228,20 @@ export default function DraftPickAnimation({
             />
           )}
         </div>
-        <div className="absolute inset-0 flex items-center justify-center">
+        <div className="absolute inset-0 flex items-center justify-center px-4 sm:px-10">
           <div
-            className="gsap-team-name-text text-center px-6 sm:px-8 leading-tight font-black text-white uppercase max-w-[min(96vw,1200px)] mx-auto break-words hyphens-auto"
+            className="gsap-team-name-text text-center font-black text-white uppercase max-w-[min(94vw,1100px)] mx-auto break-words hyphens-auto"
             style={{
               fontFamily: 'Impact, "Arial Black", sans-serif',
               fontSize: pickAnimFantasyTeamNameFontSize(fantasyTeam.name),
-              letterSpacing: '0.08em',
+              letterSpacing: '0.06em',
+              lineHeight: 1.08,
+              padding: '0.12em 0.28em',
+              boxDecorationBreak: 'clone',
+              WebkitBoxDecorationBreak: 'clone',
               textShadow: `0 4px 24px rgba(0,0,0,0.95), 0 0 60px ${c1}55`,
-              WebkitTextStroke: `3px ${c2}`,
+              WebkitTextStroke: `min(0.06em, 2.5px) ${c2}`,
+              paintOrder: 'stroke fill',
               willChange: 'transform, opacity',
             }}
           >
@@ -368,26 +375,31 @@ export default function DraftPickAnimation({
             boxShadow: `0 24px 80px rgba(0,0,0,0.7), 0 0 60px ${c1}44`,
           }}
         >
-          <div className="flex items-stretch" style={{ minHeight: '500px' }}>
+          <div className="flex items-stretch" style={{ minHeight: 'min(520px, 72vh)' }}>
             <div className="w-3 flex-shrink-0" style={{ background: c2 }} />
             <div
-              className="flex-shrink-0 flex items-center justify-center overflow-hidden"
-              style={{ width: '280px', background: `${c1}88` }}
+              className="flex-shrink-0 flex items-center justify-center py-3 pl-2 pr-1 sm:py-4"
+              style={{ width: 'min(400px, 38vw)', background: `${c1}88` }}
             >
-              {player.imageUrl ? (
-                <img
-                  src={player.imageUrl}
-                  alt={player.name}
-                  className="w-full h-full object-cover"
-                  style={{ objectPosition: 'top center' }}
-                />
-              ) : teamLogo ? (
-                <img
-                  src={teamLogo}
-                  alt={fantasyTeam.name}
-                  className="w-40 h-40 object-contain"
-                />
-              ) : null}
+              <div
+                className="w-full max-h-[min(520px,72vh)]"
+                style={{ aspectRatio: '4 / 5' }}
+              >
+                {player.imageUrl ? (
+                  <img
+                    src={player.imageUrl}
+                    alt={player.name}
+                    className="w-full h-full object-contain"
+                    style={{ objectPosition: 'center top' }}
+                  />
+                ) : teamLogo ? (
+                  <img
+                    src={teamLogo}
+                    alt={fantasyTeam.name}
+                    className="w-full h-full max-w-[200px] max-h-[200px] m-auto object-contain"
+                  />
+                ) : null}
+              </div>
             </div>
             <div className="flex-1 flex flex-col justify-center px-5 sm:px-10 py-6 sm:py-8 min-w-0">
               <div

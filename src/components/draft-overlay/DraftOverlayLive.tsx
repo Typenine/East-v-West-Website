@@ -578,6 +578,8 @@ export default function DraftOverlayLive() {
           }}
         >
           <DraftInfoBarTicker
+            draftId={draft?.id ?? null}
+            picksPerRound={picksPerRound}
             onClockTeam={currentTeam?.name ?? null}
             available={available}
             recentPicks={draft?.recentPicks}

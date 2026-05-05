@@ -740,6 +740,8 @@ export default function DraftRoomPage() {
               {/* InfoBar — on-the-clock animation overlays only this strip */}
               <div className="flex-1 p-2 overflow-hidden relative" style={{ background: `linear-gradient(135deg, ${tc[0]}dd, ${tc[1]}cc)` }}>
                 <DraftInfoBarTicker
+                  draftId={draft?.id ?? null}
+                  picksPerRound={picksPerRound}
                   onClockTeam={onClock}
                   available={avail}
                   recentPicks={draft?.recentPicks}

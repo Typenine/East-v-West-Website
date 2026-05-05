@@ -23,6 +23,15 @@ import {
   setTeamQueue,
   removePlayerFromQueue,
   updateDraftBranding,
+  saveDraftWorkspaceBranding,
+  seedDraftFromWorkspace,
+  getDraftWorkspace,
+  listPlayerPools,
+  createPlayerPool,
+  replacePlayerPoolRows,
+  deletePlayerPool,
+  copyPlayerPoolToDraft,
+  setDraftWorkspaceDefaultPool,
   getDraftPickedPlayerIds,
   countDraftPlayers,
   getDraftPlayers,
@@ -146,9 +155,75 @@ export async function POST(req: NextRequest) {
     const id = typeof body.id === 'string' ? body.id : '';
 
     // Admin-only actions
-    const adminOnlyActions = ['create', 'delete', 'start', 'pause', 'resume', 'set_clock', 'reset_clock', 'force_pick', 'undo', 'skip_pick', 'approve_pick', 'reject_pick', 'auto_pick', 'reset', 'reset_trades', 'set_draft_order', 'set_draft_slots', 'upload_players', 'clear_players', 'update_branding'];
+    const adminOnlyActions = ['create', 'delete', 'start', 'pause', 'resume', 'set_clock', 'reset_clock', 'force_pick', 'undo', 'skip_pick', 'approve_pick', 'reject_pick', 'auto_pick', 'reset', 'reset_trades', 'set_draft_order', 'set_draft_slots', 'upload_players', 'clear_players', 'update_branding', 'admin_workspace', 'delete_player_pool', 'apply_player_pool'];
     if (adminOnlyActions.includes(action)) {
       if (!isAdmin(req)) return bad('forbidden', 403);
+      if (action === 'admin_workspace') {
+        const [workspace, pools] = await Promise.all([getDraftWorkspace(), listPlayerPools()]);
+        return ok({ workspace, pools });
+      }
+      if (action === 'delete_player_pool') {
+        const poolId = typeof body.poolId === 'string' ? body.poolId.trim() : '';
+        if (!poolId) return bad('poolId required');
+        await deletePlayerPool(poolId);
+        return ok({ ok: true });
+      }
+      if (action === 'upload_players') {
+        const arr = Array.isArray(body.players)
+          ? (body.players as Array<{ id: string; name: string; pos: string; nfl?: string | null; rank?: number | null; meta?: unknown }>)
+          : [];
+        if (arr.length === 0) return bad('players required');
+        let poolId = typeof body.poolId === 'string' && body.poolId.trim() ? body.poolId.trim() : '';
+        const poolLabel = typeof body.poolLabel === 'string' ? body.poolLabel.trim() : '';
+        if (!poolId) {
+          poolId = await createPlayerPool(poolLabel || `Pool ${new Date().toISOString().slice(0, 10)}`);
+        }
+        await replacePlayerPoolRows(poolId, arr.map((p) => ({
+          id: p.id,
+          name: p.name,
+          pos: p.pos,
+          nfl: p.nfl ?? null,
+          rank: p.rank ?? null,
+          meta: p.meta,
+        })));
+        await setDraftWorkspaceDefaultPool(poolId);
+        const draftIdForUpload = (typeof body.id === 'string' && body.id) ? body.id : (await getActiveOrLatestDraftId());
+        if (draftIdForUpload) {
+          await setDraftPlayers(draftIdForUpload, arr.map((p) => ({
+            id: p.id,
+            name: p.name,
+            pos: p.pos,
+            nfl: p.nfl ?? null,
+            rank: p.rank ?? null,
+            meta: p.meta,
+          })));
+        }
+        const count = draftIdForUpload ? await countDraftPlayers(draftIdForUpload) : arr.length;
+        return ok({ ok: true, count, poolId });
+      }
+      if (action === 'update_branding') {
+        const eventName = typeof body.eventName === 'string' ? body.eventName : null;
+        const eventLogoUrl = typeof body.eventLogoUrl === 'string' ? body.eventLogoUrl : null;
+        const eventColor1 = typeof body.eventColor1 === 'string' ? body.eventColor1 : null;
+        const eventColor2 = typeof body.eventColor2 === 'string' ? body.eventColor2 : null;
+        const draftIdBr = typeof body.id === 'string' && body.id ? body.id : '';
+        if (!draftIdBr) {
+          await saveDraftWorkspaceBranding({ eventName, eventLogoUrl, eventColor1, eventColor2 });
+          return ok({ ok: true });
+        }
+        await updateDraftBranding(draftIdBr, { eventName, eventLogoUrl, eventColor1, eventColor2 });
+        return ok({ ok: true });
+      }
+      if (action === 'apply_player_pool') {
+        const poolId = typeof body.poolId === 'string' ? body.poolId.trim() : '';
+        if (!poolId) return bad('poolId required');
+        const draftIdApply = (typeof body.id === 'string' && body.id) ? body.id : (await getActiveOrLatestDraftId());
+        if (!draftIdApply) return bad('no_draft');
+        await copyPlayerPoolToDraft(poolId, draftIdApply);
+        await setDraftWorkspaceDefaultPool(poolId);
+        const count = await countDraftPlayers(draftIdApply);
+        return ok({ ok: true, count });
+      }
       if (action === 'create') {
         const year = Number(body.year || new Date().getFullYear());
         const rounds = Number(body.rounds || 4);
@@ -159,6 +234,7 @@ export async function POST(req: NextRequest) {
           ? body.roundOrders as Record<number, string[]> 
           : undefined;
         const result = await createDraftWithOrder({ year, rounds, teams, clockSeconds, roundOrders });
+        await seedDraftFromWorkspace(result.id);
         const draft = await getDraftOverview(result.id);
         return ok({ ok: true, id: result.id, draft });
       }
@@ -244,21 +320,6 @@ export async function POST(req: NextRequest) {
         const r = await undoLastPick(draftId);
         if (!r.ok) return bad(r.error || 'failed');
         return ok({ ok: true });
-      }
-      if (action === 'update_branding') {
-        const eventName = typeof body.eventName === 'string' ? body.eventName : null;
-        const eventLogoUrl = typeof body.eventLogoUrl === 'string' ? body.eventLogoUrl : null;
-        const eventColor1 = typeof body.eventColor1 === 'string' ? body.eventColor1 : null;
-        const eventColor2 = typeof body.eventColor2 === 'string' ? body.eventColor2 : null;
-        await updateDraftBranding(draftId, { eventName, eventLogoUrl, eventColor1, eventColor2 });
-        return ok({ ok: true });
-      }
-      if (action === 'upload_players') {
-        const arr = Array.isArray(body.players) ? (body.players as Array<{ id: string; name: string; pos: string; nfl?: string | null }>) : [];
-        if (arr.length === 0) return bad('players required');
-        await setDraftPlayers(draftId, arr);
-        const count = await countDraftPlayers(draftId);
-        return ok({ ok: true, count });
       }
       if (action === 'clear_players') {
         await clearDraftPlayers(draftId);
