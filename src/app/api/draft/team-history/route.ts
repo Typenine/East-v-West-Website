@@ -168,7 +168,9 @@ export async function GET(req: NextRequest) {
 
   try {
     // Resolve owner ID from the current season so we can match the same person across past seasons
-    const currentTeams = await getTeamsData(LEAGUE_IDS.CURRENT).catch(() => []);
+    const currentLeagueId = getLeagueIdForSeason(CURRENT_SEASON);
+    if (!currentLeagueId) return Response.json({ team, seasons: [] });
+    const currentTeams = await getTeamsData(currentLeagueId).catch(() => []);
     const canon = canonicalizeTeamName(team);
     const currentEntry = currentTeams.find(t => canonicalizeTeamName(t.teamName) === canon);
     if (!currentEntry) return Response.json({ team, seasons: [] });
