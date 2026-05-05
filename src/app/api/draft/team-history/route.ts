@@ -5,7 +5,7 @@ import {
   getRegularSeasonRecords,
   type SleeperBracketGameWithScore,
 } from '@/lib/utils/sleeper-api';
-import { LEAGUE_IDS } from '@/lib/constants/league';
+import { CURRENT_SEASON, getLeagueIdForSeason } from '@/lib/constants/league';
 import { canonicalizeTeamName } from '@/lib/server/user-identity';
 
 export const runtime = 'nodejs';
@@ -23,11 +23,14 @@ interface SeasonResult {
   madePlayoffs: boolean;
 }
 
-const SEASONS: Array<{ label: string; leagueId: string }> = [
-  { label: '2025', leagueId: LEAGUE_IDS.CURRENT },
-  { label: '2024', leagueId: LEAGUE_IDS.PREVIOUS['2024'] },
-  { label: '2023', leagueId: LEAGUE_IDS.PREVIOUS['2023'] },
-];
+const COMPLETED_SEASON = Number(CURRENT_SEASON) - 1;
+const SEASONS: Array<{ label: string; leagueId: string }> = [0, 1, 2]
+  .map((offset) => {
+    const season = String(COMPLETED_SEASON - offset);
+    const leagueId = getLeagueIdForSeason(season);
+    return leagueId ? { label: season, leagueId } : null;
+  })
+  .filter((entry): entry is { label: string; leagueId: string } => Boolean(entry));
 
 const ROUND_NAMES: Record<number, string> = {
   1: 'Quarterfinals',

@@ -2,7 +2,7 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import { getLeagueDrafts, getDraftPicks, getTeamsData, getAllPlayersCached } from '@/lib/utils/sleeper-api';
-import { LEAGUE_IDS } from '@/lib/constants/league';
+import { CURRENT_SEASON, getLeagueIdForSeason } from '@/lib/constants/league';
 
 const BASE_VIEWS = ['bestAvailable', 'recentPicksAll', 'teamRecord', 'draftCapital', 'topScorers', 'seasonHistory', 'draft2025', 'draft2024'] as const;
 type TickerView = typeof BASE_VIEWS[number] | 'teamRecentPicks' | 'tradeInfo';
@@ -51,11 +51,16 @@ export default function DraftInfoBarTicker({ draftId, picksPerRound = 12, onCloc
     slotOrder?: Array<{ team: string; record: { wins: number; losses: number; fpts: number; fptsAgainst?: number } }>;
   } | null>(null);
 
+  const completedSeason = Number(CURRENT_SEASON) - 1;
+  const priorSeason = completedSeason - 1;
+
   // Historical Sleeper draft data (fetched once)
-  const [historicalDrafts, setHistoricalDrafts] = useState<{
-    2024: Array<{ team: string; player: string; pos: string; round: number; pick: number }> | null;
-    2025: Array<{ team: string; player: string; pos: string; round: number; pick: number }> | null;
-  }>({ 2024: null, 2025: null });
+  const [historicalDrafts, setHistoricalDrafts] = useState<
+    Record<number, Array<{ team: string; player: string; pos: string; round: number; pick: number }> | null>
+  >({
+    [completedSeason]: null,
+    [priorSeason]: null,
+  });
 
   // In-draft approved current_pick trades (refetched when onClockTeam changes)
   const [approvedPickTrades, setApprovedPickTrades] = useState<Array<{ fromTeam: string; toTeam: string; pickOverall: number }>>([]);
@@ -77,12 +82,19 @@ export default function DraftInfoBarTicker({ draftId, picksPerRound = 12, onCloc
     // Fall back to pre-draft pick ownership transfers (Sleeper trade history)
     if (!draftOrderData?.transfers) return null;
     const currentRound = Math.floor((curOverall - 1) / teamsPerRound) + 1;
+    const currentSlot = ((curOverall - 1) % teamsPerRound) + 1;
     // Use ownerTeam (final current owner) for matching — more reliable than toTeam which
     // only matches the last direct recipient and can miss multi-hop trades
-    const byOwner = draftOrderData.transfers.filter(t => t.round === currentRound && t.ownerTeam === onClockTeam);
+    const byOwner = draftOrderData.transfers.filter(
+      t => t.round === currentRound && t.slot === currentSlot && t.ownerTeam === onClockTeam
+    );
     if (byOwner.length > 0) return byOwner[0]; // already sorted newest-first
     // Fallback: direct toTeam match
-    return draftOrderData.transfers.find(t => t.round === currentRound && t.toTeam === onClockTeam) || null;
+    return (
+      draftOrderData.transfers.find(
+        t => t.round === currentRound && t.slot === currentSlot && t.toTeam === onClockTeam
+      ) || null
+    );
   })();
 
   const tickerViews: TickerView[] = [
@@ -139,14 +151,24 @@ export default function DraftInfoBarTicker({ draftId, picksPerRound = 12, onCloc
             };
           });
         };
-        const l24 = (LEAGUE_IDS.PREVIOUS as Record<string, string> | undefined)?.['2024'];
-        if (l24) { try { const p = await fetchYear(l24); setHistoricalDrafts(prev => ({ ...prev, 2024: p })); } catch {} }
-        const l25 = LEAGUE_IDS.CURRENT;
-        if (l25) { try { const p = await fetchYear(l25); setHistoricalDrafts(prev => ({ ...prev, 2025: p })); } catch {} }
+        const leagueCompleted = getLeagueIdForSeason(String(completedSeason));
+        if (leagueCompleted) {
+          try {
+            const p = await fetchYear(leagueCompleted);
+            setHistoricalDrafts(prev => ({ ...prev, [completedSeason]: p }));
+          } catch {}
+        }
+        const leaguePrior = getLeagueIdForSeason(String(priorSeason));
+        if (leaguePrior) {
+          try {
+            const p = await fetchYear(leaguePrior);
+            setHistoricalDrafts(prev => ({ ...prev, [priorSeason]: p }));
+          } catch {}
+        }
       } catch {}
     }
     run();
-  }, []);
+  }, [completedSeason, priorSeason]);
 
   // Fetch in-draft approved current_pick trades (re-runs on every clock team change)
   useEffect(() => {
@@ -248,7 +270,7 @@ export default function DraftInfoBarTicker({ draftId, picksPerRound = 12, onCloc
 
       {/* Team Record */}
       <div style={{ display: currentTickerView === 'teamRecord' ? 'block' : 'none' }}>
-        <div className="text-[11px] font-black text-white/90 uppercase tracking-wider mb-2 text-center">2025 Season Record</div>
+        <div className="text-[11px] font-black text-white/90 uppercase tracking-wider mb-2 text-center">{completedSeason} Season Record</div>
         {teamRecord ? (
           <div className="grid grid-cols-4 gap-1">
             {[
@@ -298,9 +320,9 @@ export default function DraftInfoBarTicker({ draftId, picksPerRound = 12, onCloc
         )}
       </div>
 
-      {/* Top 5 Scorers — 2025 season */}
+      {/* Top 5 Scorers — most recent completed season */}
       <div style={{ display: currentTickerView === 'topScorers' ? 'block' : 'none' }}>
-        <div className="text-[11px] font-black text-white/90 uppercase tracking-wider mb-2 text-center">Top Scorers · 2025 Season</div>
+        <div className="text-[11px] font-black text-white/90 uppercase tracking-wider mb-2 text-center">Top Scorers · {completedSeason} Season</div>
         {topScorers ? (
           topScorers.length > 0 ? (
             <div className="grid grid-cols-5 gap-1">
@@ -346,11 +368,11 @@ export default function DraftInfoBarTicker({ draftId, picksPerRound = 12, onCloc
         )}
       </div>
 
-      {/* 2025 Draft */}
+      {/* Most recent completed-season draft */}
       <div style={{ display: currentTickerView === 'draft2025' ? 'block' : 'none' }}>
-        <div className="text-[11px] font-black text-white/90 uppercase tracking-wider mb-2 text-center">2025 Draft Picks</div>
-        {historicalDrafts[2025] ? (() => {
-          const picks = historicalDrafts[2025]!.filter(p => p.team === onClockTeam).slice(0, 5);
+        <div className="text-[11px] font-black text-white/90 uppercase tracking-wider mb-2 text-center">{completedSeason} Draft Picks</div>
+        {historicalDrafts[completedSeason] ? (() => {
+          const picks = historicalDrafts[completedSeason]!.filter(p => p.team === onClockTeam).slice(0, 5);
           return picks.length > 0 ? (
             <div className="grid grid-cols-5 gap-1">
               {picks.map((p, i) => (
@@ -361,18 +383,18 @@ export default function DraftInfoBarTicker({ draftId, picksPerRound = 12, onCloc
               ))}
             </div>
           ) : (
-            <div className="bg-black/30 rounded px-1.5 py-1.5 text-[11px] text-white/50">No picks in 2025</div>
+            <div className="bg-black/30 rounded px-1.5 py-1.5 text-[11px] text-white/50">No picks in {completedSeason}</div>
           );
         })() : (
           <div className="bg-black/30 rounded px-1.5 py-1.5 text-[11px] text-white/50">Loading...</div>
         )}
       </div>
 
-      {/* 2024 Draft */}
+      {/* Prior-season draft */}
       <div style={{ display: currentTickerView === 'draft2024' ? 'block' : 'none' }}>
-        <div className="text-[11px] font-black text-white/90 uppercase tracking-wider mb-2 text-center">2024 Draft Picks</div>
-        {historicalDrafts[2024] ? (() => {
-          const picks = historicalDrafts[2024]!.filter(p => p.team === onClockTeam).slice(0, 5);
+        <div className="text-[11px] font-black text-white/90 uppercase tracking-wider mb-2 text-center">{priorSeason} Draft Picks</div>
+        {historicalDrafts[priorSeason] ? (() => {
+          const picks = historicalDrafts[priorSeason]!.filter(p => p.team === onClockTeam).slice(0, 5);
           return picks.length > 0 ? (
             <div className="grid grid-cols-5 gap-1">
               {picks.map((p, i) => (
@@ -383,7 +405,7 @@ export default function DraftInfoBarTicker({ draftId, picksPerRound = 12, onCloc
               ))}
             </div>
           ) : (
-            <div className="bg-black/30 rounded px-1.5 py-1.5 text-[11px] text-white/50">No picks in 2024</div>
+            <div className="bg-black/30 rounded px-1.5 py-1.5 text-[11px] text-white/50">No picks in {priorSeason}</div>
           );
         })() : (
           <div className="bg-black/30 rounded px-1.5 py-1.5 text-[11px] text-white/50">Loading...</div>

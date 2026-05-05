@@ -7,7 +7,7 @@ import {
   type SleeperRoster,
   type SleeperPlayer,
 } from '@/lib/utils/sleeper-api';
-import { LEAGUE_IDS } from '@/lib/constants/league';
+import { CURRENT_SEASON, getLeagueIdForSeason } from '@/lib/constants/league';
 import { canonicalizeTeamName } from '@/lib/server/user-identity';
 
 export const runtime = 'nodejs';
@@ -19,19 +19,21 @@ export async function GET(req: NextRequest) {
   if (!team) return Response.json({ error: 'team required' }, { status: 400 });
 
   try {
-    // LEAGUE_IDS.CURRENT is the 2025 season — the most recent complete season before the 2026 draft
-    const leagueId = LEAGUE_IDS.CURRENT;
+    // Use the most recent completed season (during 2026 draft, this is 2025).
+    const completedSeason = String(Number(CURRENT_SEASON) - 1);
+    const leagueId = getLeagueIdForSeason(completedSeason);
+    if (!leagueId) return Response.json({ season: completedSeason, players: [] });
 
     const [rosters, nameMap, allPlayers, seasonTotals] = await Promise.all([
       getLeagueRosters(leagueId).catch(() => [] as SleeperRoster[]),
       getRosterIdToTeamNameMap(leagueId).catch(() => new Map<number, string>()),
       getAllPlayersCached().catch(() => ({} as Record<string, SleeperPlayer>)),
-      computeSeasonTotalsCustomScoring('2025', leagueId, 14).catch(() => ({} as Record<string, number>)),
+      computeSeasonTotalsCustomScoring(completedSeason, leagueId, 14).catch(() => ({} as Record<string, number>)),
     ]);
 
     const canon = canonicalizeTeamName(team);
-    const roster = rosters.find((r: SleeperRoster) => nameMap.get(r.roster_id) === canon);
-    if (!roster) return Response.json({ season: '2025', players: [] });
+    const roster = rosters.find((r: SleeperRoster) => canonicalizeTeamName(nameMap.get(r.roster_id) || '') === canon);
+    if (!roster) return Response.json({ season: completedSeason, players: [] });
 
     const playerIds: string[] = Array.isArray(roster.players)
       ? (roster.players as string[]).filter(Boolean)
@@ -56,7 +58,7 @@ export async function GET(req: NextRequest) {
       .slice(0, 5);
 
     return Response.json(
-      { season: '2025', players: scored },
+      { season: completedSeason, players: scored },
       { headers: { 'Cache-Control': 's-maxage=3600, stale-while-revalidate=86400' } }
     );
   } catch (e) {
