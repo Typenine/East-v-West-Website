@@ -99,6 +99,10 @@ export default function DraftOverlayLive() {
   const lastAnimatedPickRef = useRef<number | null>(null);
   const animInitializedRef = useRef(false);
   const clockPhaseFinishedRef = useRef(false);
+  /** After on-the-clock intro ends (→ idle), drive 1s hold + pulse + team-primary digits until first tick below full. */
+  const prevAnimPhaseForClockHudRef = useRef<AnimPhase | null>(null);
+  const [postIntroClockSeq, setPostIntroClockSeq] = useState(0);
+  const [clockHudTeamPrimary, setClockHudTeamPrimary] = useState(false);
   // Ref for GSAP video container animation
   const videoContainerRef = useRef<HTMLDivElement>(null);
   // Stable ref to nextTeams so animation closure always sees latest value
@@ -321,8 +325,52 @@ export default function DraftOverlayLive() {
   const displayRemainingSec =
     animPhase === 'clock' && draft?.status === 'LIVE' ? fullClockSec : localRemainingSec;
 
+  useEffect(() => {
+    const prev = prevAnimPhaseForClockHudRef.current;
+    prevAnimPhaseForClockHudRef.current = animPhase;
+    if (prev === 'clock' && animPhase === null) {
+      setClockHudTeamPrimary(false);
+      setPostIntroClockSeq((n) => n + 1);
+    }
+  }, [animPhase]);
+
+  useEffect(() => {
+    if (postIntroClockSeq === 0) return;
+    const el = clockRef.current;
+    let tween: gsap.core.Tween | null = null;
+    const t1 = setTimeout(() => {
+      setClockHudTeamPrimary(true);
+      if (el) {
+        tween = gsap.fromTo(
+          el,
+          { scale: 1 },
+          {
+            scale: 1.08,
+            duration: 0.28,
+            yoyo: true,
+            repeat: 3,
+            ease: 'power2.inOut',
+            onComplete: () => {
+              if (el) gsap.set(el, { clearProps: 'scale' });
+            },
+          },
+        );
+      }
+    }, 1000);
+    return () => {
+      clearTimeout(t1);
+      tween?.kill();
+      if (el) gsap.killTweensOf(el);
+    };
+  }, [postIntroClockSeq]);
+
+  useEffect(() => {
+    if (displayRemainingSec < fullClockSec) setClockHudTeamPrimary(false);
+  }, [displayRemainingSec, fullClockSec]);
+
   // Pulse clock when low time (not while intro holds the clock at full)
   useEffect(() => {
+    if (animPhase === 'clock') return;
     if (clockRef.current && displayRemainingSec <= 10 && displayRemainingSec > 0) {
       gsap.to(clockRef.current, {
         scale: 1.05,
@@ -332,9 +380,14 @@ export default function DraftOverlayLive() {
         ease: 'power1.inOut',
       });
     }
-  }, [displayRemainingSec]);
+  }, [displayRemainingSec, animPhase]);
   const teamColors = currentTeam?.colors || ['#333', '#555', null];
   const teamLogo = currentTeam ? getTeamLogoPath(currentTeam.name) : null;
+
+  const clockDigitColor =
+    displayRemainingSec <= 10 ? '#ef4444'
+    : clockHudTeamPrimary && displayRemainingSec >= fullClockSec ? teamColors[0]
+    : eventColor1;
 
   // Round recap: show after all animations complete when round_end_pause is true
   const showRoundRecap = draft?.roundEndPause === true && animPhase === null && !tradeAnimData;
@@ -554,7 +607,7 @@ export default function DraftOverlayLive() {
             <div
               ref={clockRef}
               className={`text-4xl font-bold font-mono ${displayRemainingSec <= 10 ? 'text-red-500' : ''}`}
-              style={{ color: displayRemainingSec <= 10 ? undefined : eventColor1, textShadow: eventGlow }}
+              style={{ color: clockDigitColor, textShadow: displayRemainingSec <= 10 ? undefined : eventGlow }}
             >
               {formatTime(displayRemainingSec)}
             </div>

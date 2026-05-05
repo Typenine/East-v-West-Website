@@ -2,7 +2,7 @@
 
 /* eslint-disable @next/next/no-img-element */
 
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useLayoutEffect, useRef } from 'react';
 import { gsap } from 'gsap';
 import { getTeamLogoPath } from '@/lib/utils/team-utils';
 
@@ -77,6 +77,7 @@ export default function NowOnClockAnimation({
   layout = 'broadcast',
 }: NowOnClockAnimationProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const surgeLayerRef = useRef<HTMLDivElement>(null);
   const timelineRef = useRef<gsap.core.Timeline | null>(null);
   const hasStartedRef = useRef(false);
   const onCompleteRef = useRef(onComplete);
@@ -240,6 +241,20 @@ export default function NowOnClockAnimation({
   const barTopLine = `linear-gradient(90deg, transparent 0%, ${ec} 15%, ${ec} 85%, transparent 100%)`;
   const sublineText = buildSubline(eventName, eventYear, pickNumber);
 
+  useLayoutEffect(() => {
+    if (layout !== 'infoBar' || !surgeLayerRef.current) return;
+    const el = surgeLayerRef.current;
+    gsap.killTweensOf(el);
+    const tween = gsap.fromTo(
+      el,
+      { xPercent: -80 },
+      { xPercent: 180, duration: 3.6, ease: 'none', repeat: -1 },
+    );
+    return () => {
+      tween.kill();
+    };
+  }, [layout, c1, team.name]);
+
   if (layout === 'infoBar') {
     return (
       <div
@@ -247,20 +262,29 @@ export default function NowOnClockAnimation({
         className="absolute inset-0 z-[30] flex flex-row pointer-events-none overflow-hidden rounded"
       >
         <div
-          className="noc-ib-root flex flex-row w-full h-full min-h-0"
+          className="noc-ib-root relative flex flex-row w-full h-full min-h-0 bg-black overflow-hidden"
           style={{
-            background: `linear-gradient(180deg, rgba(12,13,20,0.98) 0%, rgba(6,7,11,0.99) 100%)`,
-            boxShadow: `inset 0 1px 0 rgba(255,255,255,0.06)`,
+            boxShadow: `inset 0 1px 0 rgba(255,255,255,0.05)`,
           }}
         >
+          {/* Primary color surge across black banner */}
           <div
-            className="noc-ib-accent shrink-0 w-2 sm:w-2.5 self-stretch"
+            ref={surgeLayerRef}
+            className="pointer-events-none absolute inset-y-0 left-0 w-[min(72%,420px)] z-0 opacity-[0.38]"
+            aria-hidden
             style={{
-              background: `linear-gradient(180deg, ${c1} 0%, ${c2} 100%)`,
-              boxShadow: `2px 0 18px ${c1}44`,
+              background: `linear-gradient(90deg, transparent 0%, ${c1}00 8%, ${c1}bb 45%, ${c1}ff 50%, ${c1}bb 55%, ${c1}00 92%, transparent 100%)`,
+              filter: 'blur(0.75px)',
             }}
           />
-          <div className="flex-1 flex flex-col justify-center min-w-0 px-3 sm:px-4 py-2 gap-1">
+          <div
+            className="noc-ib-accent shrink-0 w-2 sm:w-2.5 self-stretch relative z-[1]"
+            style={{
+              background: `linear-gradient(180deg, ${c2} 0%, ${c2}dd 45%, #0a0a0a 100%)`,
+              boxShadow: `2px 0 14px ${c2}66`,
+            }}
+          />
+          <div className="flex-1 flex flex-col justify-center min-w-0 px-3 sm:px-4 py-2 gap-1 relative z-[2]">
             <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
               <span
                 className="noc-ib-live w-3 h-3 sm:w-3.5 sm:h-3.5 rounded-full shrink-0"
@@ -285,11 +309,11 @@ export default function NowOnClockAnimation({
               </span>
               {logo ? (
                 <div
-                  className="noc-ib-logo-wrap rounded-lg overflow-hidden border-2 border-white/20 shrink-0 flex items-center justify-center"
+                  className="noc-ib-logo-wrap rounded-lg overflow-hidden border-2 border-white/15 shrink-0 flex items-center justify-center"
                   style={{
                     width: 'clamp(44px, 10vw, 64px)',
                     height: 'clamp(44px, 10vw, 64px)',
-                    background: `linear-gradient(145deg, ${c1}44 0%, rgba(0,0,0,0.35) 100%)`,
+                    background: `linear-gradient(145deg, ${c1}33 0%, #0d0d0d 100%)`,
                   }}
                 >
                   <img src={logo} alt="" className="noc-ib-logo object-contain w-[82%] h-[82%]" />
@@ -304,15 +328,20 @@ export default function NowOnClockAnimation({
               >
                 {team.name}
               </span>
-              <span
-                className="noc-ib-meta text-white/95 font-black tabular-nums shrink-0 border-2 border-white/15 rounded-md px-2 py-1 sm:px-2.5 sm:py-1.5"
-                style={{ fontSize: 'clamp(0.7rem, 1.55vw + 0.35rem, 0.95rem)' }}
-              >
-                R{round} · P{pickInRound} · #{pickNumber}
+              <span className="noc-ib-meta flex flex-col items-end sm:flex-row sm:items-baseline gap-0.5 sm:gap-2 shrink-0 font-black leading-none tabular-nums">
+                <span style={{ color: ec, fontSize: 'clamp(0.72rem, 1.65vw + 0.35rem, 1rem)' }}>
+                  Round {round}
+                </span>
+                <span style={{ color: c1, fontSize: 'clamp(0.78rem, 1.75vw + 0.38rem, 1.08rem)' }}>
+                  Pick {pickInRound}
+                </span>
+                <span className="text-white/35 font-bold text-[clamp(0.58rem,1.2vw,0.72rem)] mt-0.5 sm:mt-0 sm:ml-1">
+                  #{pickNumber}
+                </span>
               </span>
             </div>
             <p
-              className="noc-ib-sub text-white/50 font-bold uppercase tracking-wider leading-snug line-clamp-2 sm:line-clamp-1"
+              className="noc-ib-sub text-white/45 font-bold uppercase tracking-wider leading-snug line-clamp-2 sm:line-clamp-1"
               style={{ fontSize: 'clamp(0.62rem, 1.35vw + 0.3rem, 0.82rem)' }}
             >
               {sublineText}

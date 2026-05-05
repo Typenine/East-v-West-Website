@@ -131,6 +131,10 @@ export default function DraftRoomPage() {
   const animStartTimeRef = useRef<number>(0);
   const clockPhaseFinishedRef = useRef(false);
   const finishClockIntroAfterAnimRef = useRef<() => Promise<void>>(async () => {});
+  const roomClockRef = useRef<HTMLDivElement>(null);
+  const prevAnimPhaseForClockHudRoomRef = useRef<'pick' | 'clock' | 'video' | null>(null);
+  const [postIntroClockRoomSeq, setPostIntroClockRoomSeq] = useState(0);
+  const [clockHudRoomTeamPrimary, setClockHudRoomTeamPrimary] = useState(false);
 
   const prevPendingRef = useRef<PendingPick>(null);
   const beepPlayedRef = useRef(false);
@@ -613,8 +617,71 @@ export default function DraftRoomPage() {
   const eventColor1 = draft?.eventColor1 || '#a4c810';
   const eventLogoUrl = draft?.eventLogoUrl || null;
   const fullClockSecRoom = draft?.clockSeconds ?? 600;
-  const clockHudSec =
+  const displayRemainingSecRoom =
     animPhase === 'clock' && draft?.status === 'LIVE' ? fullClockSecRoom : localRemaining;
+
+  useEffect(() => {
+    const prev = prevAnimPhaseForClockHudRoomRef.current;
+    prevAnimPhaseForClockHudRoomRef.current = animPhase;
+    if (prev === 'clock' && animPhase === null) {
+      setClockHudRoomTeamPrimary(false);
+      setPostIntroClockRoomSeq((n) => n + 1);
+    }
+  }, [animPhase]);
+
+  useEffect(() => {
+    if (postIntroClockRoomSeq === 0) return;
+    const el = roomClockRef.current;
+    let tween: gsap.core.Tween | null = null;
+    const t1 = setTimeout(() => {
+      setClockHudRoomTeamPrimary(true);
+      if (el) {
+        tween = gsap.fromTo(
+          el,
+          { scale: 1 },
+          {
+            scale: 1.08,
+            duration: 0.28,
+            yoyo: true,
+            repeat: 3,
+            ease: 'power2.inOut',
+            onComplete: () => {
+              if (el) gsap.set(el, { clearProps: 'scale' });
+            },
+          },
+        );
+      }
+    }, 1000);
+    return () => {
+      clearTimeout(t1);
+      tween?.kill();
+      if (el) gsap.killTweensOf(el);
+    };
+  }, [postIntroClockRoomSeq]);
+
+  useEffect(() => {
+    if (displayRemainingSecRoom === null) return;
+    if (displayRemainingSecRoom < fullClockSecRoom) setClockHudRoomTeamPrimary(false);
+  }, [displayRemainingSecRoom, fullClockSecRoom]);
+
+  useEffect(() => {
+    if (animPhase === 'clock') return;
+    if (roomClockRef.current && displayRemainingSecRoom !== null && displayRemainingSecRoom <= 10 && displayRemainingSecRoom > 0) {
+      gsap.to(roomClockRef.current, {
+        scale: 1.05,
+        duration: 0.3,
+        yoyo: true,
+        repeat: 1,
+        ease: 'power1.inOut',
+      });
+    }
+  }, [displayRemainingSecRoom, animPhase]);
+
+  const roomClockDigitColor =
+    displayRemainingSecRoom === null ? eventColor1
+    : displayRemainingSecRoom <= 10 ? '#ef4444'
+    : clockHudRoomTeamPrimary && displayRemainingSecRoom >= fullClockSecRoom ? tc[0]
+    : eventColor1;
 
   return (
     <div className="flex flex-col" style={{ background: 'var(--background)' }}>
@@ -750,18 +817,22 @@ export default function DraftRoomPage() {
                   {eventLogoUrl && <img src={eventLogoUrl} alt="" className="object-contain" style={{ width: '32px', height: '32px', opacity: 0.8 }} />}
                 </div>
                 <div className="flex-1 flex flex-col items-center justify-center gap-0.5">
-                  <div className="text-3xl font-bold font-mono" style={{ color: clockHudSec !== null && clockHudSec <= 10 ? '#ef4444' : eventColor1 }}>
-                    {clockHudSec !== null ? formatTime(clockHudSec) : '--:--'}
+                  <div
+                    ref={roomClockRef}
+                    className={`text-3xl font-bold font-mono ${displayRemainingSecRoom !== null && displayRemainingSecRoom <= 10 ? 'text-red-500' : ''}`}
+                    style={{ color: roomClockDigitColor }}
+                  >
+                    {displayRemainingSecRoom !== null ? formatTime(displayRemainingSecRoom) : '--:--'}
                   </div>
                   <div className="text-xs text-center font-bold" style={{ color: eventColor1 }}>RD {roundNum} · PK {pickNum}</div>
                 </div>
                 <div className="flex flex-col items-center justify-center gap-1 p-1">
-                  <div className="w-10 h-10 bg-zinc-700 rounded overflow-hidden border-2" style={{ borderColor: eventColor1 }}>
+                  <div className="w-14 h-14 bg-zinc-700 rounded overflow-hidden border-2" style={{ borderColor: eventColor1 }}>
                     {onClockLogo && <img src={onClockLogo} alt={onClock || ''} className="w-full h-full object-contain" />}
                   </div>
                   <div className="flex gap-0.5">
                     {nextUp.map((t: DraftSlot, i: number) => (
-                      <div key={i} className="w-5 h-5 bg-zinc-600 rounded overflow-hidden">
+                      <div key={i} className="w-7 h-7 bg-zinc-600 rounded overflow-hidden">
                         <img src={getTeamLogoPath(t.team)} alt={t.team} className="w-full h-full object-contain" />
                       </div>
                     ))}
