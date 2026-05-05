@@ -32,13 +32,28 @@ function toOrdinal(n: number): string {
   return n + (s[(v - 20) % 10] || s[v] || s[0]);
 }
 
-/** Shrink fluid type for long names without ellipsis (full name stays on screen, may wrap). */
+/** Full-bleed text reveal — lots of horizontal space. */
 function pickAnimPlayerNameFontSize(name: string): string {
   const len = name.length;
   if (len > 28) return 'clamp(1rem, 2.2vw + 0.55rem, 2rem)';
   if (len > 22) return 'clamp(1.2rem, 2.8vw + 0.55rem, 2.65rem)';
-  if (len > 16) return 'clamp(1.5rem, 3.5vw + 0.45rem, 3.4rem)';
+  // 15–22 chars (e.g. "Fernando Mendoza") — avoid oversized type on wrap
+  if (len > 14) return 'clamp(1.35rem, 3.2vw + 0.5rem, 3.35rem)';
+  if (len > 10) return 'clamp(1.55rem, 3.8vw + 0.45rem, 4.1rem)';
   return 'clamp(2rem, 4.5vw + 0.35rem, 5.5rem)';
+}
+
+/**
+ * Player card name column shares width with the headshot and sits inside a rounded,
+ * overflow-hidden card — keep a lower cap so two-line names are not clipped.
+ */
+function pickAnimPlayerNameFontSizeCard(name: string): string {
+  const len = name.length;
+  if (len > 26) return 'clamp(0.95rem, 1.85vw + 0.55rem, 1.85rem)';
+  if (len > 20) return 'clamp(1.05rem, 2.05vw + 0.6rem, 2.1rem)';
+  if (len > 14) return 'clamp(1.15rem, 2.35vw + 0.65rem, 2.45rem)';
+  if (len > 10) return 'clamp(1.25rem, 2.65vw + 0.65rem, 2.85rem)';
+  return 'clamp(1.35rem, 3vw + 0.7rem, 3.25rem)';
 }
 
 function pickAnimFantasyTeamNameFontSize(name: string): string {
@@ -375,7 +390,7 @@ export default function DraftPickAnimation({
             boxShadow: `0 24px 80px rgba(0,0,0,0.7), 0 0 60px ${c1}44`,
           }}
         >
-          <div className="flex items-stretch" style={{ minHeight: 'min(520px, 72vh)' }}>
+          <div className="flex items-stretch" style={{ minHeight: 'min(560px, 76vh)' }}>
             <div className="w-3 flex-shrink-0" style={{ background: c2 }} />
             <div
               className="flex-shrink-0 flex items-center justify-center py-3 pl-2 pr-1 sm:py-4"
@@ -424,22 +439,23 @@ export default function DraftPickAnimation({
                 )}
               </div>
               <div
-                className="gsap-player-name mb-5 sm:mb-6 max-w-full"
+                className="gsap-player-name mb-4 sm:mb-5 max-w-full min-w-0"
                 style={{ willChange: 'transform, opacity' }}
               >
                 <h1
-                  className="font-black text-white leading-tight uppercase break-words"
+                  className="font-black text-white uppercase break-words [overflow-wrap:anywhere]"
                   style={{
-                    fontSize: pickAnimPlayerNameFontSize(player.name),
+                    fontSize: pickAnimPlayerNameFontSizeCard(player.name),
+                    lineHeight: 1.12,
                     textShadow: '0 3px 12px rgba(0,0,0,0.8)',
-                    letterSpacing: '-0.01em',
+                    letterSpacing: '0.02em',
                   }}
                 >
                   {player.name}
                 </h1>
               </div>
               <div
-                className="gsap-pick-info flex gap-8"
+                className="gsap-pick-info flex flex-wrap gap-x-6 gap-y-3 sm:gap-8"
                 style={{ willChange: 'transform, opacity' }}
               >
                 {[
