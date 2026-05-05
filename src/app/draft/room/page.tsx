@@ -129,6 +129,8 @@ export default function DraftRoomPage() {
   const animDismissingRef = useRef(false);
   const animVideoContainerRef = useRef<HTMLDivElement>(null);
   const animStartTimeRef = useRef<number>(0);
+  const clockPhaseFinishedRef = useRef(false);
+  const finishClockIntroAfterAnimRef = useRef<() => Promise<void>>(async () => {});
 
   const prevPendingRef = useRef<PendingPick>(null);
   const beepPlayedRef = useRef(false);
@@ -202,9 +204,9 @@ export default function DraftRoomPage() {
   }, []);
   submitPickRef.current = submitPick;
 
-  async function load(includeAvail = false) {
+  async function load(includeAvail = false, silent = false) {
     try {
-      setLoading(true);
+      if (!silent) setLoading(true);
       const url = includeAvail ? '/api/draft?include=available' : '/api/draft';
       const res = await fetch(url, { cache: 'no-store' });
       const j = await res.json();
@@ -284,6 +286,20 @@ export default function DraftRoomPage() {
     }
   }
 
+  finishClockIntroAfterAnimRef.current = async () => {
+    if (clockPhaseFinishedRef.current) return;
+    clockPhaseFinishedRef.current = true;
+    try {
+      await fetch('/api/draft', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ action: 'reset_clock' }),
+      });
+      await load(false, true);
+    } catch { /* ignore */ }
+    setAnimPhase(!!(animDataRef.current?.videoUrl) ? 'video' : null);
+  };
+
   const syncQueue = async (newQueue: QueueItem[]) => {
     setQueue(newQueue);
     queueRef.current = newQueue;
@@ -330,7 +346,7 @@ export default function DraftRoomPage() {
   useEffect(() => {
     fetch('/api/auth/me').then(r => r.json()).then((j: MeResp) => setMe(j)).catch(() => {});
     load(true);
-    const t = setInterval(() => load(false), 3000);
+    const t = setInterval(() => load(false, true), 3000);
     return () => clearInterval(t);
   }, []);
 
@@ -366,17 +382,24 @@ export default function DraftRoomPage() {
       const elapsed = Math.floor((Date.now() - lastFetchTime) / 1000);
       const newLocal = Math.max(0, remainingSec - elapsed);
       setLocalRemaining(newLocal);
-      if (newLocal <= 10 && newLocal > 0 && !beepPlayedRef.current && isMyTurn) {
+      if (
+        animPhase !== 'clock' &&
+        animPhase !== 'pick' &&
+        newLocal <= 10 &&
+        newLocal > 0 &&
+        !beepPlayedRef.current &&
+        isMyTurn
+      ) {
         beepPlayedRef.current = true; playBeep();
       }
     }, 1000);
     return () => clearInterval(interval);
-  }, [remainingSec, lastFetchTime, isMyTurn, playBeep, draft?.status]);
+  }, [remainingSec, lastFetchTime, isMyTurn, playBeep, draft?.status, animPhase]);
 
   // Auto-pick when clock expires — silently tries queue players in order, no alert on failure
   useEffect(() => {
     const isMyPickPendingNow = pickStatus === 'pending' || (pendingPick?.team === myTeam);
-    if (!isMyTurn || !autoPickEnabled || submitting || isMyPickPendingNow) {
+    if (!isMyTurn || !autoPickEnabled || submitting || isMyPickPendingNow || animPhase === 'clock' || animPhase === 'pick') {
       autoPickFiredRef.current = false;
       return;
     }
@@ -403,7 +426,7 @@ export default function DraftRoomPage() {
         }
       })();
     }
-  }, [localRemaining, isMyTurn, autoPickEnabled, submitting, pickStatus, pendingPick, myTeam]);
+  }, [localRemaining, isMyTurn, autoPickEnabled, submitting, pickStatus, pendingPick, myTeam, animPhase]);
 
   // Load player media for animations
   useEffect(() => {
@@ -500,6 +523,10 @@ export default function DraftRoomPage() {
     return () => document.removeEventListener('visibilitychange', handleVisibility);
   }, []);
 
+  useEffect(() => {
+    if (animPhase === 'clock') clockPhaseFinishedRef.current = false;
+  }, [animPhase]);
+
   // Phase safety timeouts
   useEffect(() => {
     if (animPhase === 'pick') {
@@ -507,15 +534,16 @@ export default function DraftRoomPage() {
       return () => clearTimeout(t);
     }
     if (animPhase === 'clock') {
-      const t = setTimeout(() => { setAnimPhase(!!(animDataRef.current?.videoUrl) ? 'video' : null); }, DRAFT_ANIM_CLOCK_PHASE_MAX_MS);
+      const t = setTimeout(() => { void finishClockIntroAfterAnimRef.current(); }, DRAFT_ANIM_CLOCK_PHASE_MAX_MS);
       return () => clearTimeout(t);
     }
   }, [animPhase]);
 
-  // Clock fallback when no nextTeamName
+  // No nextTeamName — skip intro overlay; still reset clock + advance
   useEffect(() => {
-    if (animPhase === 'clock' && !animDataRef.current?.nextTeamName) {
-      setAnimPhase(!!(animDataRef.current?.videoUrl) ? 'video' : null);
+    if (animPhase !== 'clock') return;
+    if (!animDataRef.current?.nextTeamName) {
+      void finishClockIntroAfterAnimRef.current();
     }
   }, [animPhase]);
 
@@ -584,6 +612,9 @@ export default function DraftRoomPage() {
   const isMyPickPending = pickStatus === 'pending' || (pendingPick?.team === myTeam);
   const eventColor1 = draft?.eventColor1 || '#a4c810';
   const eventLogoUrl = draft?.eventLogoUrl || null;
+  const fullClockSecRoom = draft?.clockSeconds ?? 600;
+  const clockHudSec =
+    animPhase === 'clock' && draft?.status === 'LIVE' ? fullClockSecRoom : localRemaining;
 
   return (
     <div className="flex flex-col" style={{ background: 'var(--background)' }}>
@@ -709,7 +740,7 @@ export default function DraftRoomPage() {
           const abbrev = (onClock || '---').split(' ').map((w: string) => w[0]).join('').slice(0, 3).toUpperCase();
           const nextUp = (draft?.upcoming || []).filter((u: DraftSlot) => u.overall > overall).slice(0, 2);
           return (
-            <div className="flex gap-0 items-stretch" style={{ minHeight: '100px', borderBottom: `2px solid ${eventColor1}33` }}>
+            <div className="relative flex gap-0 items-stretch" style={{ minHeight: '184px', borderBottom: `2px solid ${eventColor1}33` }}>
               {/* ClockBox */}
               <div className="flex items-stretch shrink-0" style={{ width: '220px', background: 'linear-gradient(to bottom,#202020,#282828)', borderRight: '1px solid #333' }}>
                 <div className="flex flex-col justify-center items-center gap-1 p-2 w-20">
@@ -719,8 +750,8 @@ export default function DraftRoomPage() {
                   {eventLogoUrl && <img src={eventLogoUrl} alt="" className="object-contain" style={{ width: '32px', height: '32px', opacity: 0.8 }} />}
                 </div>
                 <div className="flex-1 flex flex-col items-center justify-center gap-0.5">
-                  <div className="text-3xl font-bold font-mono" style={{ color: localRemaining !== null && localRemaining <= 10 ? '#ef4444' : eventColor1 }}>
-                    {localRemaining !== null ? formatTime(localRemaining) : '--:--'}
+                  <div className="text-3xl font-bold font-mono" style={{ color: clockHudSec !== null && clockHudSec <= 10 ? '#ef4444' : eventColor1 }}>
+                    {clockHudSec !== null ? formatTime(clockHudSec) : '--:--'}
                   </div>
                   <div className="text-xs text-center font-bold" style={{ color: eventColor1 }}>RD {roundNum} · PK {pickNum}</div>
                 </div>
@@ -737,7 +768,7 @@ export default function DraftRoomPage() {
                   </div>
                 </div>
               </div>
-              {/* InfoBar — on-the-clock animation overlays only this strip */}
+              {/* InfoBar — ticker; on-the-clock overlay is sibling (covers clock + bar) */}
               <div className="flex-1 p-2 overflow-hidden relative" style={{ background: `linear-gradient(135deg, ${tc[0]}dd, ${tc[1]}cc)` }}>
                 <DraftInfoBarTicker
                   draftId={draft?.id ?? null}
@@ -749,28 +780,28 @@ export default function DraftRoomPage() {
                   pendingPick={!!pendingPick}
                   usingCustom={usingCustomPool}
                 />
-                {animPhase === 'clock' && animDataRef.current?.nextTeamName && (() => {
-                  const teamName = animDataRef.current!.nextTeamName!;
-                  const colors = getTeamColors(teamName);
-                  const curOverall = animDataRef.current!.overall + 1;
-                  const ppr = picksPerRound;
-                  return (
-                    <NowOnClockAnimation
-                      key={`room-clock-${animDataRef.current!.overall}`}
-                      layout="infoBar"
-                      team={{ name: teamName, colors: [colors.primary, colors.secondary, null] }}
-                      pickNumber={curOverall}
-                      round={Math.floor((curOverall - 1) / ppr) + 1}
-                      pickInRound={((curOverall - 1) % ppr) + 1}
-                      eventName={draft?.eventName}
-                      eventYear={draft?.year}
-                      eventLogoUrl={draft?.eventLogoUrl}
-                      eventColor1={draft?.eventColor1}
-                      onComplete={() => setAnimPhase(!!(animDataRef.current?.videoUrl) ? 'video' : null)}
-                    />
-                  );
-                })()}
               </div>
+              {animPhase === 'clock' && animDataRef.current?.nextTeamName && (() => {
+                const teamName = animDataRef.current!.nextTeamName!;
+                const colors = getTeamColors(teamName);
+                const curOverall = animDataRef.current!.overall + 1;
+                const ppr = picksPerRound;
+                return (
+                  <NowOnClockAnimation
+                    key={`room-clock-${animDataRef.current!.overall}`}
+                    layout="infoBar"
+                    team={{ name: teamName, colors: [colors.primary, colors.secondary, null] }}
+                    pickNumber={curOverall}
+                    round={Math.floor((curOverall - 1) / ppr) + 1}
+                    pickInRound={((curOverall - 1) % ppr) + 1}
+                    eventName={draft?.eventName}
+                    eventYear={draft?.year}
+                    eventLogoUrl={draft?.eventLogoUrl}
+                    eventColor1={draft?.eventColor1}
+                    onComplete={() => { void finishClockIntroAfterAnimRef.current(); }}
+                  />
+                );
+              })()}
             </div>
           );
         })()}

@@ -2,7 +2,7 @@
 
 /* eslint-disable @next/next/no-img-element -- Using <img> for GSAP animations and dynamic team logos that need direct DOM access */
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { gsap } from 'gsap';
 import { useDraftData } from './useDraftData';
 import { getTeamLogoPath } from '@/lib/utils/team-utils';
@@ -58,6 +58,7 @@ export default function DraftOverlayLive() {
     localRemainingSec,
     pendingPick,
     pendingTradeAnimation,
+    refetch,
   } = useDraftData(1000);
 
   const picksPerRound = draftPicksPerRound(draft);
@@ -97,6 +98,7 @@ export default function DraftOverlayLive() {
   const clockRef = useRef<HTMLDivElement>(null);
   const lastAnimatedPickRef = useRef<number | null>(null);
   const animInitializedRef = useRef(false);
+  const clockPhaseFinishedRef = useRef(false);
   // Ref for GSAP video container animation
   const videoContainerRef = useRef<HTMLDivElement>(null);
   // Stable ref to nextTeams so animation closure always sees latest value
@@ -182,6 +184,27 @@ export default function DraftOverlayLive() {
     return () => document.removeEventListener('visibilitychange', handleVisibility);
   }, []);
 
+  const finishClockIntroPhase = useCallback(async () => {
+    if (clockPhaseFinishedRef.current) return;
+    clockPhaseFinishedRef.current = true;
+    try {
+      await fetch('/api/draft', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ action: 'reset_clock' }),
+      });
+      await refetch();
+    } catch {
+      /* still advance phase */
+    }
+    const hasVideo = !!(animDataRef.current?.videoUrl);
+    setAnimPhase(hasVideo ? 'video' : null);
+  }, [refetch]);
+
+  useEffect(() => {
+    if (animPhase === 'clock') clockPhaseFinishedRef.current = false;
+  }, [animPhase]);
+
   // Phase safety-net timeouts — prevents any phase from sticking if GSAP/onComplete fails
   useEffect(() => {
     if (animPhase === 'pick') {
@@ -190,30 +213,19 @@ export default function DraftOverlayLive() {
     }
     if (animPhase === 'clock') {
       const t = setTimeout(() => {
-        const hasVideo = !!(animDataRef.current?.videoUrl);
-        setAnimPhase(hasVideo ? 'video' : null);
+        void finishClockIntroPhase();
       }, DRAFT_ANIM_CLOCK_PHASE_MAX_MS);
       return () => clearTimeout(t);
     }
-  }, [animPhase]);
+  }, [animPhase, finishClockIntroPhase]);
 
-  // Clock-phase fallback: if we enter 'clock' but have no nextTeamName the NowOnClockAnimation
-  // won't mount and onComplete never fires — advance the phase immediately here instead.
-  // Also reset the pick clock to full time so the next team doesn't lose clock during animations.
+  // No nextTeamName — skip animation; still reset clock + advance when entering clock phase
   useEffect(() => {
-    if (animPhase === 'clock') {
-      // Reset clock to full so next team gets their full allotment
-      fetch('/api/draft', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ action: 'reset_clock' }),
-      }).catch(() => {});
-      if (!animDataRef.current?.nextTeamName) {
-        const hasVideo = !!(animDataRef.current?.videoUrl);
-        setAnimPhase(hasVideo ? 'video' : null);
-      }
+    if (animPhase !== 'clock') return;
+    if (!animDataRef.current?.nextTeamName) {
+      void finishClockIntroPhase();
     }
-  }, [animPhase]);
+  }, [animPhase, finishClockIntroPhase]);
 
   // GSAP entrance for video container + safety-net max-duration timeout
   useEffect(() => {
@@ -302,9 +314,16 @@ export default function DraftOverlayLive() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lastPick?.overall, draft?.allSlots, draft?.rounds]);
 
-  // Pulse clock when low time
+  const roundNumber = Math.floor(currentPickIndex / picksPerRound) + 1;
+  const pickInRound = (currentPickIndex % picksPerRound) + 1;
+  const fullClockSec = draft?.clockSeconds ?? 600;
+  /** During on-the-clock intro, hold HUD at full allotment; real countdown starts after intro + reset_clock. */
+  const displayRemainingSec =
+    animPhase === 'clock' && draft?.status === 'LIVE' ? fullClockSec : localRemainingSec;
+
+  // Pulse clock when low time (not while intro holds the clock at full)
   useEffect(() => {
-    if (clockRef.current && localRemainingSec <= 10 && localRemainingSec > 0) {
+    if (clockRef.current && displayRemainingSec <= 10 && displayRemainingSec > 0) {
       gsap.to(clockRef.current, {
         scale: 1.05,
         duration: 0.3,
@@ -313,10 +332,7 @@ export default function DraftOverlayLive() {
         ease: 'power1.inOut',
       });
     }
-  }, [localRemainingSec]);
-
-  const roundNumber = Math.floor(currentPickIndex / picksPerRound) + 1;
-  const pickInRound = (currentPickIndex % picksPerRound) + 1;
+  }, [displayRemainingSec]);
   const teamColors = currentTeam?.colors || ['#333', '#555', null];
   const teamLogo = currentTeam ? getTeamLogoPath(currentTeam.name) : null;
 
@@ -499,8 +515,8 @@ export default function DraftOverlayLive() {
         })()}
       </div>
 
-      {/* Bottom Bar: ClockBox + InfoBar — fixed height so the draft grid above never jumps */}
-      <div className="flex gap-4 items-stretch h-[140px]">
+      {/* Bottom Bar: ClockBox + InfoBar — on-the-clock animation overlays both */}
+      <div className="relative flex gap-4 items-stretch h-[184px] rounded-[4px]">
         {/* ClockBox */}
         <div
           className="flex items-stretch shrink-0"
@@ -537,10 +553,10 @@ export default function DraftOverlayLive() {
           <div className="flex-1 flex flex-col items-center justify-center gap-1">
             <div
               ref={clockRef}
-              className={`text-4xl font-bold font-mono ${localRemainingSec <= 10 ? 'text-red-500' : ''}`}
-              style={{ color: localRemainingSec <= 10 ? undefined : eventColor1, textShadow: eventGlow }}
+              className={`text-4xl font-bold font-mono ${displayRemainingSec <= 10 ? 'text-red-500' : ''}`}
+              style={{ color: displayRemainingSec <= 10 ? undefined : eventColor1, textShadow: eventGlow }}
             >
-              {formatTime(localRemainingSec)}
+              {formatTime(displayRemainingSec)}
             </div>
             <div className="text-sm text-center font-bold" style={{ color: eventColor1 }}>
               RD {roundNumber} &nbsp; PK {pickInRound}
@@ -568,13 +584,13 @@ export default function DraftOverlayLive() {
           </div>
         </div>
 
-        {/* InfoBar: Rotating Ticker + on-the-clock animation (animation only covers this bar) */}
+        {/* InfoBar: rotating ticker (on-the-clock overlay is sibling, covers full bottom bar) */}
         <div
           className="flex-1 p-2 overflow-hidden relative"
           style={{
             background: teamColors[0],
             borderRadius: '4px',
-            height: '140px',
+            height: '184px',
           }}
         >
           <DraftInfoBarTicker
@@ -587,33 +603,32 @@ export default function DraftOverlayLive() {
             usingCustom={usingCustom}
             pendingPick={!!pendingPick}
           />
-          {animPhase === 'clock' && animDataRef.current?.nextTeamName && (() => {
-            const teamName = animDataRef.current!.nextTeamName!;
-            const colors = getTeamColors(teamName);
-            const curOverall = animDataRef.current!.overall + 1;
-            return (
-              <NowOnClockAnimation
-                key={`clock-animation-${animDataRef.current!.overall}`}
-                layout="infoBar"
-                team={{
-                  name: teamName,
-                  colors: [colors.primary, colors.secondary, null],
-                }}
-                pickNumber={curOverall}
-                round={Math.floor((curOverall - 1) / picksPerRound) + 1}
-                pickInRound={((curOverall - 1) % picksPerRound) + 1}
-                eventName={draft?.eventName}
-                eventYear={draft?.year}
-                eventLogoUrl={eventLogoUrl}
-                eventColor1={eventColor1}
-                onComplete={() => {
-                  const hasVideo = !!(animDataRef.current?.videoUrl);
-                  setAnimPhase(hasVideo ? 'video' : null);
-                }}
-              />
-            );
-          })()}
         </div>
+        {animPhase === 'clock' && animDataRef.current?.nextTeamName && (() => {
+          const teamName = animDataRef.current!.nextTeamName!;
+          const colors = getTeamColors(teamName);
+          const curOverall = animDataRef.current!.overall + 1;
+          return (
+            <NowOnClockAnimation
+              key={`clock-animation-${animDataRef.current!.overall}`}
+              layout="infoBar"
+              team={{
+                name: teamName,
+                colors: [colors.primary, colors.secondary, null],
+              }}
+              pickNumber={curOverall}
+              round={Math.floor((curOverall - 1) / picksPerRound) + 1}
+              pickInRound={((curOverall - 1) % picksPerRound) + 1}
+              eventName={draft?.eventName}
+              eventYear={draft?.year}
+              eventLogoUrl={eventLogoUrl}
+              eventColor1={eventColor1}
+              onComplete={() => {
+                void finishClockIntroPhase();
+              }}
+            />
+          );
+        })()}
       </div>
 
       {/* PHASE: Pick animation */}

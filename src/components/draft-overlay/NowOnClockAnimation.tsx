@@ -40,6 +40,16 @@ function nocTeamNameFontSize(name: string): string {
   return 'clamp(2rem, 5vw + 0.25rem, 4.5rem)';
 }
 
+/** Info bar row: large type but capped so two lines + subline fit ~180px strip. */
+function nocInfoBarTeamNameFontSize(name: string): string {
+  const len = name.length;
+  if (len > 26) return 'clamp(1rem, 2.5vw + 0.45rem, 1.5rem)';
+  if (len > 20) return 'clamp(1.15rem, 2.85vw + 0.45rem, 1.7rem)';
+  if (len > 14) return 'clamp(1.3rem, 3.2vw + 0.45rem, 1.95rem)';
+  if (len > 10) return 'clamp(1.45rem, 3.6vw + 0.4rem, 2.2rem)';
+  return 'clamp(1.6rem, 4vw + 0.4rem, 2.45rem)';
+}
+
 /** Subline: prefer draft branding; otherwise overall pick # (this animation’s pickNumber is upcoming overall). */
 function buildSubline(
   eventName: string | null | undefined,
@@ -244,53 +254,67 @@ export default function NowOnClockAnimation({
           }}
         >
           <div
-            className="noc-ib-accent shrink-0 w-1.5 sm:w-2 self-stretch"
+            className="noc-ib-accent shrink-0 w-2 sm:w-2.5 self-stretch"
             style={{
               background: `linear-gradient(180deg, ${c1} 0%, ${c2} 100%)`,
               boxShadow: `2px 0 18px ${c1}44`,
             }}
           />
-          <div className="flex-1 flex flex-col justify-center min-w-0 px-2 sm:px-3 py-1.5 gap-0.5">
-            <div className="flex items-center gap-2 sm:gap-2.5 min-w-0">
+          <div className="flex-1 flex flex-col justify-center min-w-0 px-3 sm:px-4 py-2 gap-1">
+            <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
               <span
-                className="noc-ib-live w-2 h-2 rounded-full shrink-0"
-                style={{ background: '#f43f5e', boxShadow: '0 0 10px #f43f5e' }}
+                className="noc-ib-live w-3 h-3 sm:w-3.5 sm:h-3.5 rounded-full shrink-0"
+                style={{ background: '#f43f5e', boxShadow: '0 0 14px #f43f5e' }}
               />
               {eventLogoUrl ? (
                 <img
                   src={eventLogoUrl}
                   alt=""
-                  className="noc-ib-brand w-7 h-7 sm:w-8 sm:h-8 object-contain shrink-0 drop-shadow-md"
+                  className="noc-ib-brand object-contain shrink-0 drop-shadow-lg"
+                  style={{
+                    width: 'clamp(40px, 9vw, 56px)',
+                    height: 'clamp(40px, 9vw, 56px)',
+                  }}
                 />
               ) : null}
               <span
                 className="noc-ib-headline font-black text-white uppercase tracking-tight shrink-0 leading-none"
-                style={{ fontSize: 'clamp(0.7rem, 1.8vw, 0.95rem)' }}
+                style={{ fontSize: 'clamp(0.95rem, 2.6vw + 0.4rem, 1.55rem)' }}
               >
                 On the clock
               </span>
               {logo ? (
                 <div
-                  className="noc-ib-logo-wrap w-8 h-8 sm:w-9 sm:h-9 rounded-md overflow-hidden border border-white/15 shrink-0 flex items-center justify-center"
-                  style={{ background: `linear-gradient(145deg, ${c1}44 0%, rgba(0,0,0,0.35) 100%)` }}
+                  className="noc-ib-logo-wrap rounded-lg overflow-hidden border-2 border-white/20 shrink-0 flex items-center justify-center"
+                  style={{
+                    width: 'clamp(44px, 10vw, 64px)',
+                    height: 'clamp(44px, 10vw, 64px)',
+                    background: `linear-gradient(145deg, ${c1}44 0%, rgba(0,0,0,0.35) 100%)`,
+                  }}
                 >
-                  <img src={logo} alt="" className="noc-ib-logo object-contain w-[80%] h-[80%]" />
+                  <img src={logo} alt="" className="noc-ib-logo object-contain w-[82%] h-[82%]" />
                 </div>
               ) : null}
               <span
-                className="noc-ib-team font-black text-white uppercase truncate min-w-0 flex-1 leading-tight"
+                className="noc-ib-team font-black text-white uppercase min-w-0 flex-1 leading-[1.08] break-words [overflow-wrap:anywhere]"
                 style={{
-                  fontSize: 'clamp(0.68rem, 1.9vw, 1.05rem)',
-                  textShadow: `0 0 14px ${c1}55`,
+                  fontSize: nocInfoBarTeamNameFontSize(team.name),
+                  textShadow: `0 0 18px ${c1}55`,
                 }}
               >
                 {team.name}
               </span>
-              <span className="noc-ib-meta text-white/95 font-bold tabular-nums shrink-0 text-[9px] sm:text-[10px] border border-white/10 rounded px-1.5 py-0.5">
+              <span
+                className="noc-ib-meta text-white/95 font-black tabular-nums shrink-0 border-2 border-white/15 rounded-md px-2 py-1 sm:px-2.5 sm:py-1.5"
+                style={{ fontSize: 'clamp(0.7rem, 1.55vw + 0.35rem, 0.95rem)' }}
+              >
                 R{round} · P{pickInRound} · #{pickNumber}
               </span>
             </div>
-            <p className="noc-ib-sub text-white/45 text-[8px] sm:text-[9px] font-semibold uppercase tracking-wider truncate">
+            <p
+              className="noc-ib-sub text-white/50 font-bold uppercase tracking-wider leading-snug line-clamp-2 sm:line-clamp-1"
+              style={{ fontSize: 'clamp(0.62rem, 1.35vw + 0.3rem, 0.82rem)' }}
+            >
               {sublineText}
             </p>
           </div>
