@@ -1,18 +1,11 @@
 import { getNFLState, getLeagueMatchups, getTeamsData, getAllPlayersCached, getLeagueRosters } from '@/lib/utils/sleeper-api';
-import { LEAGUE_IDS } from '@/lib/constants/league';
+import { getLeagueIdForSeason } from '@/lib/constants/league';
 import { getObjectText, putObjectText } from '@/server/storage/r2';
 import { isCronAuthorized } from '@/lib/server/cron-auth';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
-
-function getLeagueIdByYear(year: string): string | null {
-  const prev = (LEAGUE_IDS.PREVIOUS as Record<string, string | undefined>)[year];
-  if (prev) return prev;
-  // Fallback: treat any non-previous year as current season
-  return LEAGUE_IDS.CURRENT || null;
-}
 
 type Matchup = { roster_id?: number; matchup_id?: number; starters?: string[]; players?: string[]; points?: number; custom_points?: number };
 
@@ -24,7 +17,7 @@ export async function GET(req: Request) {
   try {
     const state = await getNFLState();
     const season = String(state.season || new Date().getFullYear());
-    const leagueId = getLeagueIdByYear(season);
+    const leagueId = getLeagueIdForSeason(season);
     if (!leagueId) return Response.json({ error: 'no_league' }, { status: 400 });
 
     // Determine last completed week using matchups with any points recorded

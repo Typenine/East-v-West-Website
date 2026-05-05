@@ -1,16 +1,10 @@
 import { NextRequest } from 'next/server';
-import { LEAGUE_IDS } from '@/lib/constants/league';
+import { getLeagueIdForSeason } from '@/lib/constants/league';
 import { getTeamsData, getLeagueMatchups, getAllPlayersCached, getLeagueRosters } from '@/lib/utils/sleeper-api';
 import { getObjectText, putObjectText } from '@/server/storage/r2';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-
-function getLeagueIdByYear(year: string): string | null {
-  if (year === '2025') return LEAGUE_IDS.CURRENT;
-  const prev = (LEAGUE_IDS.PREVIOUS as Record<string, string | undefined>)[year];
-  return prev || null;
-}
 
 export async function GET(req: NextRequest) {
   const url = new URL(req.url);
@@ -36,7 +30,7 @@ export async function POST(req: NextRequest) {
     const body = (raw || {}) as Record<string, unknown>;
     const year = String((body.year as string | number | undefined) ?? '2025');
     const week = Number((body.week as string | number | undefined) ?? 1);
-    const leagueId = getLeagueIdByYear(year);
+    const leagueId = getLeagueIdForSeason(year);
     if (!leagueId || !Number.isFinite(week) || week <= 0) return Response.json({ error: 'bad_request' }, { status: 400 });
 
     const [teams, matchups, players, rosters] = await Promise.all([

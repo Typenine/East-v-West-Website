@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState, useCallback } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { getTeamLogoPath, getTeamColorStyle, getTeamColors } from '@/lib/utils/team-utils';
-import { CHAMPIONS, LEAGUE_IDS } from '@/lib/constants/league';
+import { CHAMPIONS, LEAGUE_IDS, getLeagueIdForSeason } from '@/lib/constants/league';
 import LoadingState from '@/components/ui/loading-state';
 import ErrorState from '@/components/ui/error-state';
 import Card, { CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
@@ -206,7 +206,7 @@ export default function HistoryContent() {
             thirdPlace: (derived?.thirdPlace ?? base?.thirdPlace ?? 'TBD') as string,
           };
           // Load team stats for that season to show record/PF lines
-          const leagueId = y === '2025' ? LEAGUE_IDS.CURRENT : (LEAGUE_IDS.PREVIOUS as Record<string, string | undefined>)[y];
+          const leagueId = getLeagueIdForSeason(y);
           if (leagueId) {
             try {
               const teams = await getTeamsData(leagueId, { signal: ac.signal, timeoutMs: DEFAULT_TIMEOUT });
@@ -255,9 +255,7 @@ export default function HistoryContent() {
       try {
         setBracketLoading(true);
         setBracketError(null);
-        const leagueId = bracketYear === '2025'
-          ? LEAGUE_IDS.CURRENT
-          : LEAGUE_IDS.PREVIOUS[bracketYear as keyof typeof LEAGUE_IDS.PREVIOUS];
+        const leagueId = getLeagueIdForSeason(bracketYear);
         if (!leagueId) {
           throw new Error(`No league ID configured for year ${bracketYear}`);
         }
@@ -318,8 +316,10 @@ export default function HistoryContent() {
         const needWeeklyHighs = activeTab === 'franchises';
         const needSplitRecords = activeTab === 'leaderboards' || activeTab === 'franchises';
         const needTopWeeks = activeTab === 'leaderboards';
+        const league2025 = getLeagueIdForSeason('2025');
+        if (!league2025) throw new Error('No league ID configured for 2025');
         const [teams2025, teams2024, teams2023, wh2025, wh2024, wh2023, splits, topReg, topPO, topAll] = await Promise.all([
-          getTeamsData(LEAGUE_IDS.CURRENT, optsFresh),
+          getTeamsData(league2025, optsFresh),
           getTeamsData(LEAGUE_IDS.PREVIOUS['2024'], optsCached),
           getTeamsData(LEAGUE_IDS.PREVIOUS['2023'], optsCached),
           // Weekly highs by season -> aggregate to tally (aligns exactly with table logic)
@@ -420,7 +420,8 @@ export default function HistoryContent() {
         const previousYears: string[] = ['2025', '2024', '2023'];
         const leagueIdsByYear: Record<string, string> = {};
         for (const y of previousYears) {
-          leagueIdsByYear[y] = y === '2025' ? LEAGUE_IDS.CURRENT : LEAGUE_IDS.PREVIOUS[y as keyof typeof LEAGUE_IDS.PREVIOUS];
+          const lid = getLeagueIdForSeason(y);
+          if (lid) leagueIdsByYear[y] = lid;
         }
 
         // Build rosterId -> ownerId mapping per year for bracket lookups
@@ -525,8 +526,8 @@ export default function HistoryContent() {
         setAwardsError(null);
         const opts = { signal: ac.signal, timeoutMs: AWARDS_TIMEOUT } as const;
         const candidates: Array<{ season: string; lid: string }> = [];
-        // 2025 (current)
-        if (LEAGUE_IDS.CURRENT) candidates.push({ season: '2025', lid: LEAGUE_IDS.CURRENT });
+        const lid2025 = getLeagueIdForSeason('2025');
+        if (lid2025) candidates.push({ season: '2025', lid: lid2025 });
         // 2024 & 2023
         if (LEAGUE_IDS.PREVIOUS?.['2024']) candidates.push({ season: '2024', lid: LEAGUE_IDS.PREVIOUS['2024'] });
         if (LEAGUE_IDS.PREVIOUS?.['2023']) candidates.push({ season: '2023', lid: LEAGUE_IDS.PREVIOUS['2023'] });

@@ -21,7 +21,7 @@ import {
   TeamTopWeek,
   getLeague,
 } from '@/lib/utils/sleeper-api';
-import { LEAGUE_IDS } from '@/lib/constants/league';
+import { LEAGUE_IDS, getLeagueIdForSeason } from '@/lib/constants/league';
 import { getTeamLogoPath, getTeamColorStyle, getTeamColors, resolveCanonicalTeamName } from '@/lib/utils/team-utils';
 import LoadingState from '@/components/ui/loading-state';
 import ErrorState from '@/components/ui/error-state';
@@ -289,7 +289,7 @@ export default function TeamContent() {
     try {
       setModalLoading(true);
       setModalError(null);
-      const leagueId = (season === '2025') ? LEAGUE_IDS.CURRENT : LEAGUE_IDS.PREVIOUS[season as keyof typeof LEAGUE_IDS.PREVIOUS];
+      const leagueId = getLeagueIdForSeason(season);
       if (!leagueId) {
         setModalWeeks([]);
         setModalError('No league for this season');
@@ -373,7 +373,7 @@ export default function TeamContent() {
         }
 
         for (const season of seasons) {
-          const leagueId = (season === '2025') ? LEAGUE_IDS.CURRENT : LEAGUE_IDS.PREVIOUS[season as keyof typeof LEAGUE_IDS.PREVIOUS];
+          const leagueId = getLeagueIdForSeason(season);
           if (!leagueId) continue;
           const teams = await getTeamsData(leagueId);
           const seasonTeam = teams.find(t => t.teamName === canonicalName) || teams.find(t => t.ownerId === team.ownerId);
@@ -611,7 +611,7 @@ export default function TeamContent() {
     if (modalFantasyCache[season]) return;
     (async () => {
       try {
-        const leagueForSeason = getLeagueIdForYear(season);
+        const leagueForSeason = getLeagueIdForSeason(season);
         if (!leagueForSeason) {
           setModalFantasyCache((prev) => ({ ...prev, [season]: { totalPPR: 0, gp: 0, ppg: 0 } }));
           return;
@@ -646,19 +646,16 @@ export default function TeamContent() {
     })();
   }, [selectedPlayerId, modalYear, modalRealCache]);
   
-  // Get the league ID for the selected year
-  const getLeagueIdForYear = (year: string) => {
-    if (year === '2025') return LEAGUE_IDS.CURRENT;
-    return LEAGUE_IDS.PREVIOUS[year as keyof typeof LEAGUE_IDS.PREVIOUS];
-  };
-  
   useEffect(() => {
     async function fetchTeamData() {
       try {
         setLoading(true);
         
         // Get the league ID for the selected year
-        const leagueId = getLeagueIdForYear(selectedYear);
+        const leagueId = getLeagueIdForSeason(selectedYear);
+        if (!leagueId) {
+          throw new Error('No league configured for this season');
+        }
         
         // Fetch teams data for the selected year
         const teamsData = await getTeamsData(leagueId);
@@ -830,7 +827,8 @@ export default function TeamContent() {
             // Re-fetch team data
             (async () => {
               try {
-                const leagueId = getLeagueIdForYear(selectedYear);
+                const leagueId = getLeagueIdForSeason(selectedYear);
+                if (!leagueId) throw new Error('No league configured for this season');
                 // eslint-disable-next-line @typescript-eslint/no-unused-vars
                 const teamsData = await getTeamsData(leagueId);
                 // Process team data would go here...

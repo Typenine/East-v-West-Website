@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import CountdownTimer from '@/components/ui/countdown-timer';
-import { CURRENT_SEASON, IMPORTANT_DATES, LEAGUE_IDS } from '@/lib/constants/league';
+import { CURRENT_SEASON, IMPORTANT_DATES, LEAGUE_IDS, getLeagueIdForSeason } from '@/lib/constants/league';
 import EmptyState from '@/components/ui/empty-state';
 import LoadingState from '@/components/ui/loading-state';
 import ErrorState from '@/components/ui/error-state';
@@ -57,8 +57,11 @@ type SleeperDraftSettings = {
 export default function DraftContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [selectedYear, setSelectedYear] = useState('2025');
-  const years = useMemo(() => ['2025', ...Object.keys(LEAGUE_IDS.PREVIOUS)].sort((a, b) => parseInt(b) - parseInt(a)), []);
+  const years = useMemo(
+    () => [...Object.keys(LEAGUE_IDS.PREVIOUS)].sort((a, b) => parseInt(b, 10) - parseInt(a, 10)),
+    [],
+  );
+  const [selectedYear, setSelectedYear] = useState(() => years[0] ?? '2025');
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -389,14 +392,13 @@ export default function DraftContent() {
   };
 
   useEffect(() => {
-    const leagueId = selectedYear === '2025' 
-      ? LEAGUE_IDS.CURRENT 
-      : LEAGUE_IDS.PREVIOUS[selectedYear as keyof typeof LEAGUE_IDS.PREVIOUS];
+    const leagueId = getLeagueIdForSeason(selectedYear);
 
     if (!leagueId) {
       setDraftsByYear(prev => ({ ...prev, [selectedYear]: null }));
       return;
     }
+    const resolvedLeagueId = leagueId;
 
     if (loadedYearsRef.current.has(selectedYear)) return;
     loadedYearsRef.current.add(selectedYear);
@@ -407,8 +409,8 @@ export default function DraftContent() {
         setLoading(true);
         setError(null);
         const [drafts, teams] = await Promise.all([
-          getLeagueDrafts(leagueId),
-          getTeamsData(leagueId),
+          getLeagueDrafts(resolvedLeagueId),
+          getTeamsData(resolvedLeagueId),
         ]);
 
         if (!playersRef.current) {

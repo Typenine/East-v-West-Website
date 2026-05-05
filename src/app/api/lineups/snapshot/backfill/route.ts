@@ -1,15 +1,9 @@
-import { LEAGUE_IDS } from '@/lib/constants/league';
+import { getLeagueIdForSeason } from '@/lib/constants/league';
 import { getTeamsData, getLeagueMatchups, getAllPlayersCached } from '@/lib/utils/sleeper-api';
 import { getObjectText, putObjectText } from '@/server/storage/r2';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-
-function getLeagueIdByYear(year: string): string | null {
-  if (year === '2025') return LEAGUE_IDS.CURRENT;
-  const prev = (LEAGUE_IDS.PREVIOUS as Record<string, string | undefined>)[year];
-  return prev || null;
-}
 
 type Matchup = { roster_id: number; starters?: string[]; players?: string[]; points?: number; custom_points?: number; matchup_id?: number };
 
@@ -17,7 +11,7 @@ export async function GET(req: Request) {
   const url = new URL(req.url);
   const year = url.searchParams.get('year') || '2025';
   const overwrite = (url.searchParams.get('overwrite') || 'false').toLowerCase() === 'true';
-  const leagueId = getLeagueIdByYear(year);
+  const leagueId = getLeagueIdForSeason(year);
   if (!leagueId) return Response.json({ error: 'bad_request' }, { status: 400 });
 
   try {

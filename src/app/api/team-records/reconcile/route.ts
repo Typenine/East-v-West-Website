@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { LEAGUE_IDS } from '@/lib/constants/league';
+import { CURRENT_SEASON, LEAGUE_IDS, getLeagueIdForSeason } from '@/lib/constants/league';
 import {
   getAllPlayers,
   getLeagueMatchups,
@@ -28,7 +28,7 @@ export async function GET(req: NextRequest) {
     const prevYears = Object.keys(LEAGUE_IDS.PREVIOUS || {});
     const seasons = (includeSeasonsParam
       ? includeSeasonsParam.split(',').map(s => s.trim()).filter(Boolean)
-      : Array.from(new Set(['2025', ...prevYears]))).sort();
+      : Array.from(new Set([CURRENT_SEASON, ...prevYears]))).sort();
 
     // Resolve playerId by name if needed
     let playerId = playerIdParam.trim();
@@ -61,9 +61,7 @@ export async function GET(req: NextRequest) {
     };
     const rows: Row[] = [];
     for (const season of seasons) {
-      const leagueId = (season === '2025')
-        ? LEAGUE_IDS.CURRENT
-        : (LEAGUE_IDS.PREVIOUS as Record<string, string>)[season];
+      const leagueId = getLeagueIdForSeason(season);
       if (!leagueId) continue;
 
       const teams = await getTeamsData(leagueId);

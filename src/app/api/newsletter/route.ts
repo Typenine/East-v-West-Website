@@ -5,7 +5,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
-import { LEAGUE_IDS } from '@/lib/constants/league';
+import { getLeagueIdForSeason } from '@/lib/constants/league';
 import { getConfiguredAdminSecret, isAdminCookieValue } from '@/lib/auth/admin';
 import { 
   generateNewsletter,
@@ -564,13 +564,8 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Get league ID for the season
-    let leagueId: string;
-    if (season === '2025') {
-      leagueId = LEAGUE_IDS.CURRENT;
-    } else if (season === '2024' || season === '2023') {
-      leagueId = LEAGUE_IDS.PREVIOUS[season];
-    } else {
+    const leagueId = getLeagueIdForSeason(String(season));
+    if (!leagueId) {
       return NextResponse.json({
         success: false,
         error: `No league ID found for season ${season}`,

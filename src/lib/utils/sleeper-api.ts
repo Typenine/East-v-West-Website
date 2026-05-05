@@ -5,7 +5,7 @@
  * using the provided league IDs.
  */
 
-import { LEAGUE_IDS, CHAMPIONS } from '../constants/league';
+import { LEAGUE_IDS, CHAMPIONS, getLeagueIdForSeason } from '../constants/league';
 import { resolveCanonicalTeamName } from '../utils/team-utils';
 
 // Base URL for Sleeper API
@@ -1928,7 +1928,7 @@ export async function derivePodiumFromWinnersBracketByYear(
   options?: SleeperFetchOptions
 ): Promise<{ champion: string | null; runnerUp: string | null; thirdPlace: string | null } | null> {
   try {
-    const leagueId = year === '2025' ? LEAGUE_IDS.CURRENT : LEAGUE_IDS.PREVIOUS[year as keyof typeof LEAGUE_IDS.PREVIOUS];
+    const leagueId = getLeagueIdForSeason(year);
     if (!leagueId) return null;
 
     const [games, rosterIdToName] = await Promise.all([

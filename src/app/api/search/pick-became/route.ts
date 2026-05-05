@@ -1,12 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { LEAGUE_IDS } from '@/lib/constants/league';
+import { getLeagueIdForSeason } from '@/lib/constants/league';
 import { getLeagueDrafts, getDraftById, getDraftPicks, getLeagueRosters, getAllPlayers, getRosterIdToTeamNameMap } from '@/lib/utils/sleeper-api';
-
-function getLeagueIdForSeason(season: string): string | null {
-  if (season === '2025') return LEAGUE_IDS.CURRENT;
-  const prev = LEAGUE_IDS.PREVIOUS[season as keyof typeof LEAGUE_IDS.PREVIOUS];
-  return prev || null;
-}
 
 export async function GET(req: NextRequest) {
   try {
