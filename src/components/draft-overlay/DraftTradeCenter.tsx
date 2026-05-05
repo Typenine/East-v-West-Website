@@ -346,9 +346,20 @@ function TradeCard({ trade, myTeam, onAccept, onReject, onCounter, onCancel, all
 
 // ── Main Component ──────────────────────────────────────────────────────────
 export default function DraftTradeCenter({
-  myTeam, allTeams, draftId, eventColor1, onClose,
+  myTeam,
+  allTeams,
+  draftId,
+  eventColor1,
+  onClose,
+  embedded = false,
 }: {
-  myTeam: string; allTeams: string[]; draftId: string; eventColor1?: string; onClose: () => void;
+  myTeam: string;
+  allTeams: string[];
+  draftId: string;
+  eventColor1?: string;
+  onClose: () => void;
+  /** When true, renders inline (e.g. draft room tab) instead of a full-screen modal overlay. */
+  embedded?: boolean;
 }) {
   const ec1 = eventColor1 || '#a4c810';
 
@@ -507,7 +518,14 @@ export default function DraftTradeCenter({
   const availablePartners = allTeams.filter(t => t !== myTeam && !partnerTeams.includes(t));
 
   return (
-    <div className="fixed inset-0 z-[200] flex flex-col" style={{ background: 'rgba(0,0,0,0.92)', backdropFilter: 'blur(4px)' }}>
+    <div
+      className={
+        embedded
+          ? 'flex flex-col flex-1 min-h-0 max-h-[min(560px,72vh)] rounded-xl overflow-hidden border border-zinc-700 bg-[#0a0a0c]'
+          : 'fixed inset-0 z-[200] flex flex-col'
+      }
+      style={embedded ? undefined : { background: 'rgba(0,0,0,0.92)', backdropFilter: 'blur(4px)' }}
+    >
 
       {/* Trade Sent success overlay */}
       {tradeSent && (
@@ -527,7 +545,9 @@ export default function DraftTradeCenter({
           <span className="text-lg font-black text-white tracking-tight">Trade Center</span>
           <span className="text-xs text-zinc-400">— {myTeam}</span>
         </div>
-        <button onClick={onClose} className="text-zinc-400 hover:text-white text-2xl font-bold w-8 h-8 flex items-center justify-center rounded-lg hover:bg-zinc-800 transition-colors">×</button>
+        {!embedded && (
+          <button type="button" onClick={onClose} className="text-zinc-400 hover:text-white text-2xl font-bold w-8 h-8 flex items-center justify-center rounded-lg hover:bg-zinc-800 transition-colors">×</button>
+        )}
       </div>
 
       {/* Tabs */}

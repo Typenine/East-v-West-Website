@@ -51,6 +51,36 @@ function PlayerMediaCard() {
   const [saving, setSaving] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [uploadProgress, setUploadProgress] = useState<string | null>(null);
+  /** Root-relative paths /player-images/... found on disk */
+  const [projectImages, setProjectImages] = useState<string[]>([]);
+
+  async function loadProjectImages() {
+    try {
+      const res = await fetch('/api/draft/player-images-files', { cache: 'no-store' });
+      if (!res.ok) return;
+      const j = await res.json();
+      setProjectImages(Array.isArray(j.paths) ? j.paths : []);
+    } catch {
+      setProjectImages([]);
+    }
+  }
+
+  function fileToBase64(file: File): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const fr = new FileReader();
+      fr.onload = () => {
+        const r = fr.result;
+        if (typeof r !== 'string') {
+          reject(new Error('read'));
+          return;
+        }
+        const i = r.indexOf(',');
+        resolve(i >= 0 ? r.slice(i + 1) : r);
+      };
+      fr.onerror = () => reject(fr.error);
+      fr.readAsDataURL(file);
+    });
+  }
 
   async function loadMedia() {
     try {
@@ -60,7 +90,10 @@ function PlayerMediaCard() {
       setMedia(j.videos || []);
     } catch {}
   }
-  useEffect(() => { loadMedia(); }, []);
+  useEffect(() => {
+    loadMedia();
+    loadProjectImages();
+  }, []);
 
   async function searchPlayers() {
     if (!playerSearch.trim()) {
@@ -144,6 +177,7 @@ function PlayerMediaCard() {
       }
       setSelectedPlayer(null); setPlayerSearch(''); setSearchResults([]);
       await loadMedia();
+      await loadProjectImages();
     } catch { alert('Save failed'); }
     finally { setSaving(false); setUploadProgress(null); }
   }
@@ -209,38 +243,133 @@ function PlayerMediaCard() {
 
             {/* Video */}
             <div className="space-y-2">
-              <Label className="block text-sm font-semibold">2. Video <span className="text-zinc-500 font-normal">(hosted URL only)</span></Label>
+              <Label className="block text-sm font-semibold">2. Video <span className="text-zinc-500 font-normal">(YouTube / URL, or upload)</span></Label>
               <Input value={videoUrl} onChange={e => setVideoUrl(e.target.value)}
                 placeholder="https://youtube.com/watch?v=… or another hosted URL" className="w-full" disabled={!selectedPlayer} />
-              <p className="text-xs text-zinc-500">Direct file uploads to Neon are disabled. Use a hosted URL.</p>
+              <div className="flex items-center gap-2 flex-wrap">
+                <input
+                  type="file"
+                  accept=".mp4,.webm,.mov,video/mp4,video/webm,video/quicktime"
+                  disabled={!selectedPlayer || saving}
+                  className="text-sm text-zinc-300 file:mr-2 file:py-1 file:px-2 file:rounded file:border-0 file:bg-zinc-700 file:text-white hover:file:bg-zinc-600"
+                  onChange={async (e) => {
+                    const file = e.target.files?.[0];
+                    e.target.value = '';
+                    if (!file || !selectedPlayer) return;
+                    const name = file.name.toLowerCase();
+                    if (!(/\.(mp4|webm|mov)$/i.test(name))) {
+                      alert('Use mp4, webm, or mov for uploaded highlight clips.');
+                      return;
+                    }
+                    setSaving(true);
+                    setUploadProgress('Saving video under public/player-videos…');
+                    try {
+                      const fileData = await fileToBase64(file);
+                      const r = await fetch('/api/draft/player-media', {
+                        method: 'POST',
+                        headers: { 'content-type': 'application/json' },
+                        body: JSON.stringify({
+                          playerId: selectedPlayer.id,
+                          playerName: selectedPlayer.name,
+                          type: 'video',
+                          fileName: file.name,
+                          fileData,
+                        }),
+                      });
+                      const j = await r.json().catch(() => ({}));
+                      if (!r.ok) {
+                        alert(typeof j?.error === 'string' ? j.error : `Save failed (${r.status}).`);
+                        return;
+                      }
+                      setVideoUrl('');
+                      await loadMedia();
+                    } catch {
+                      alert('Upload failed.');
+                    } finally {
+                      setSaving(false);
+                      setUploadProgress(null);
+                    }
+                  }}
+                />
+              </div>
+              <p className="text-xs text-zinc-500">Paste a YouTube URL above, or upload a clip (writes to `public/player-videos/` locally; on Vercel add the file to the repo instead).</p>
             </div>
 
             {/* Image */}
             <div className="space-y-2">
-              <Label className="block text-sm font-semibold">3. Player Image <span className="text-zinc-500 font-normal">(URL or app path)</span></Label>
-              <div className="flex items-center gap-2">
+              <Label className="block text-sm font-semibold">3. Player Image <span className="text-zinc-500 font-normal">(pick from project, upload, URL, or path)</span></Label>
+              <div className="space-y-1">
+                <Label className="block text-xs text-zinc-500">Files in `public/player-images/`</Label>
+                <select
+                  value={imageUrl && projectImages.includes(imageUrl) ? imageUrl : ''}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    if (v) {
+                      setImageUrl(v);
+                      setImagePreviewStatus('idle');
+                    }
+                  }}
+                  disabled={!selectedPlayer}
+                  className="w-full rounded-md border border-zinc-600 bg-zinc-900 px-3 py-2 text-sm text-white disabled:opacity-50"
+                >
+                  <option value="">{projectImages.length === 0 ? 'No image files in folder (add some or deploy)' : 'Choose an existing file…'}</option>
+                  {projectImages.map((p) => (
+                    <option key={p} value={p}>{p.replace(/^\/player-images\//, '')}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex items-center gap-2 flex-wrap">
                 <input
                   type="file"
                   accept=".png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp"
-                  disabled={!selectedPlayer}
+                  disabled={!selectedPlayer || saving}
                   className="text-sm text-zinc-300 file:mr-2 file:py-1 file:px-2 file:rounded file:border-0 file:bg-zinc-700 file:text-white hover:file:bg-zinc-600"
-                  onChange={(e) => {
+                  onChange={async (e) => {
                     const file = e.target.files?.[0];
-                    if (!file) return;
+                    e.target.value = '';
+                    if (!file || !selectedPlayer) return;
                     const name = file.name.toLowerCase();
                     if (!(/\.(png|jpe?g|webp)$/i.test(name))) {
                       alert('Use png, jpg, jpeg, or webp images.');
                       return;
                     }
-                    setImageUrl(`/player-images/${encodeURIComponent(file.name)}`);
-                    setImagePreviewStatus('idle');
+                    setSaving(true);
+                    setUploadProgress('Saving image under public/player-images…');
+                    try {
+                      const fileData = await fileToBase64(file);
+                      const r = await fetch('/api/draft/player-media', {
+                        method: 'POST',
+                        headers: { 'content-type': 'application/json' },
+                        body: JSON.stringify({
+                          playerId: selectedPlayer.id,
+                          playerName: selectedPlayer.name,
+                          type: 'image',
+                          fileName: file.name,
+                          fileData,
+                        }),
+                      });
+                      const j = await r.json().catch(() => ({}));
+                      if (!r.ok) {
+                        alert(typeof j?.error === 'string' ? j.error : `Save failed (${r.status}). Add the file under public/player-images/ in git or paste an image URL below.`);
+                        return;
+                      }
+                      setImageUrl('');
+                      setImagePreviewStatus('idle');
+                      await loadMedia();
+                      await loadProjectImages();
+                    } catch {
+                      alert('Upload failed.');
+                    } finally {
+                      setSaving(false);
+                      setUploadProgress(null);
+                    }
                   }}
                 />
               </div>
               <Input value={imageUrl} onChange={e => setImageUrl(e.target.value)}
                 placeholder="https://... or /player-images/cam-ward.webp" className="w-full" disabled={!selectedPlayer} />
-              <p className="text-xs text-zinc-500">If you add files to the repo, place them in `public/player-images/`. Selecting a file above only fills the path; it does not upload to Neon.</p>
-              <p className="text-xs text-zinc-500">`data:` URLs are blocked. Use png/jpg/jpeg/webp URLs or paths only.</p>
+              <p className="text-xs text-zinc-500">File upload saves into `public/player-images/` in this project (works on a normal dev machine; production hosts like Vercel are read-only—commit the image to git, deploy, then save the `/player-images/...` path). You can also paste an https image URL.</p>
+              <p className="text-xs text-zinc-500">`data:` URLs are blocked for pasted URLs. Use png/jpg/jpeg/webp.</p>
               {imageUrl.trim() ? (
                 <div className="flex items-center gap-3">
                   <img
@@ -328,7 +457,7 @@ export default function AdminDraftPage() {
     playerName: string | null; playerPos: string | null; playerNfl: string | null; submittedAt: string;
   } | null>(null);
   const [approvingPick, setApprovingPick] = useState(false);
-  const [activeTab, setActiveTab] = useState<'draft' | 'media' | 'branding' | 'order'>('draft');
+  const [activeTab, setActiveTab] = useState<'draft' | 'branding' | 'order'>('draft');
   const [slotAssignments, setSlotAssignments] = useState<Record<number, string>>({});
   const [orderSaving, setOrderSaving] = useState(false);
   const [orderSaved, setOrderSaved] = useState(false);
@@ -776,7 +905,7 @@ export default function AdminDraftPage() {
 
       {/* Tab Navigation */}
       <div className="flex gap-1 mb-6 border-b border-zinc-700">
-        {(['draft', 'order', 'media', 'branding'] as const).map(tab => (
+        {(['draft', 'order', 'branding'] as const).map(tab => (
           <button
             key={tab}
             type="button"
@@ -795,7 +924,7 @@ export default function AdminDraftPage() {
                 : 'border-transparent text-zinc-400 hover:text-white hover:bg-zinc-800/50'
             }`}
           >
-            {tab === 'draft' ? '⚙️ Draft Control' : tab === 'order' ? '📋 Draft Order' : tab === 'media' ? '🎬 Player Media' : '🎨 Event Branding'}
+            {tab === 'draft' ? '⚙️ Draft Control' : tab === 'order' ? '📋 Draft Order' : '🎨 Branding & player media'}
           </button>
         ))}
       </div>
@@ -939,12 +1068,10 @@ export default function AdminDraftPage() {
         </div>
       )}
 
-      {/* Media Tab */}
-      {activeTab === 'media' && isAdmin && <PlayerMediaCard />}
-
-      {/* Branding Tab */}
+      {/* Branding Tab — event look + pick animations (player headshots / videos) */}
       {activeTab === 'branding' && isAdmin && (
-        <div className="max-w-xl space-y-6">
+        <div className="space-y-10">
+          <div className="max-w-xl space-y-6">
           {!draft && (
             <Card><CardContent><p className="text-[var(--muted)] text-sm">Create a draft first before setting event branding.</p></CardContent></Card>
           )}
@@ -1056,6 +1183,15 @@ export default function AdminDraftPage() {
               </CardContent>
             </Card>
           )}
+          </div>
+
+          <div className="border-t border-zinc-700 pt-8">
+            <p className="text-sm text-zinc-400 mb-4 max-w-4xl">
+              <span className="font-semibold text-zinc-300">Player pick animations</span>
+              {' — '}Headshots and highlight videos for the draft overlay (shown after each pick). Does not require the draft to be live.
+            </p>
+            <PlayerMediaCard />
+          </div>
         </div>
       )}
 

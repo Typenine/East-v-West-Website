@@ -255,53 +255,50 @@ export default function DraftOverlayLive() {
     if (lastPick.overall <= (lastAnimatedPickRef.current ?? -1)) return;
     lastAnimatedPickRef.current = lastPick.overall;
 
-    // Fire animation immediately using cached media data — don't wait for a fetch
-    const ppr = draftPicksPerRound(draft);
-    animDataRef.current = {
-      pick: lastPick,
-      nextTeamName: nextTeamsRef.current[0]?.name || null,
-      overall: lastPick.overall,
-      round: lastPick.round,
-      pickInRound: ((lastPick.overall - 1) % ppr) + 1,
-      videoUrl: playerVideosRef.current[lastPick.playerId]?.videoUrl || null,
-      imageUrl: playerVideosRef.current[lastPick.playerId]?.hasImage
-        ? `/api/draft/player-image?playerId=${encodeURIComponent(lastPick.playerId)}`
-        : null,
-    };
-    setPickAnimCollege(undefined);
-    const w = window as Window & { __pickAudioAt?: number };
-    if (!w.__pickAudioAt || Date.now() - w.__pickAudioAt > 3000) {
-      try { w.__pickAudioAt = Date.now(); new Audio('/assets/teams/audio/pickIsIn.mp3').play().catch(() => {}); } catch { /* ignored */ }
-    }
-    animStartTimeRef.current = Date.now();
-    setAnimPhase('pick');
+    void (async () => {
+      try {
+        const res = await fetch('/api/draft/player-videos', { cache: 'no-store' });
+        if (res.ok) {
+          const j = await res.json();
+          const freshMap: Record<string, { videoUrl: string | null; hasImage: boolean }> = {};
+          for (const v of (j.videos || [])) {
+            freshMap[v.playerId] = { videoUrl: v.videoUrl || null, hasImage: !!v.hasImage };
+          }
+          playerVideosRef.current = freshMap;
+        }
+      } catch { /* use cached ref */ }
 
-    // Record which grid cell needs the wipe animation (fires after animPhase → null)
-    // draftGrid is 0-indexed; overall pick 1 = index 0
-    const gridIdx = lastPick.overall - 1;
-    if (gridIdx >= 0 && gridIdx < draftGrid.length) pendingGridAnimRef.current = { idx: gridIdx, team: lastPick.team };
+      const ppr = draftPicksPerRound(draft);
+      animDataRef.current = {
+        pick: lastPick,
+        nextTeamName: nextTeamsRef.current[0]?.name || null,
+        overall: lastPick.overall,
+        round: lastPick.round,
+        pickInRound: ((lastPick.overall - 1) % ppr) + 1,
+        videoUrl: playerVideosRef.current[lastPick.playerId]?.videoUrl || null,
+        imageUrl: playerVideosRef.current[lastPick.playerId]?.hasImage
+          ? `/api/draft/player-image?playerId=${encodeURIComponent(lastPick.playerId)}`
+          : null,
+      };
+      setPickAnimCollege(undefined);
+      const w = window as Window & { __pickAudioAt?: number };
+      if (!w.__pickAudioAt || Date.now() - w.__pickAudioAt > 3000) {
+        try { w.__pickAudioAt = Date.now(); new Audio('/assets/teams/audio/pickIsIn.mp3').play().catch(() => {}); } catch { /* ignored */ }
+      }
+      animStartTimeRef.current = Date.now();
+      setAnimPhase('pick');
 
-    // Background: fetch college from Sleeper player cache (only for Sleeper players, not custom)
-    if (!usingCustom) {
-      const playerId = lastPick.playerId;
-      fetch(`/api/draft?action=player_info&playerId=${encodeURIComponent(playerId)}`, { cache: 'no-store' })
-        .then(r => r.json())
-        .then(data => { if (data.college) setPickAnimCollege(data.college); })
-        .catch(() => {});
-    }
+      const gridIdx = lastPick.overall - 1;
+      if (gridIdx >= 0 && gridIdx < draftGrid.length) pendingGridAnimRef.current = { idx: gridIdx, team: lastPick.team };
 
-    // Background refresh — updates playerVideosRef for future picks only
-    const ac = new AbortController();
-    const fetchTimer = setTimeout(() => ac.abort(), 5000);
-    fetch('/api/draft/player-videos', { cache: 'no-store', signal: ac.signal })
-      .then(r => r.json())
-      .then(j => {
-        const freshMap: Record<string, { videoUrl: string | null; hasImage: boolean }> = {};
-        for (const v of (j.videos || [])) { freshMap[v.playerId] = { videoUrl: v.videoUrl || null, hasImage: !!v.hasImage }; }
-        playerVideosRef.current = freshMap;
-      })
-      .catch(() => {})
-      .finally(() => clearTimeout(fetchTimer));
+      if (!usingCustom) {
+        const playerId = lastPick.playerId;
+        fetch(`/api/draft?action=player_info&playerId=${encodeURIComponent(playerId)}`, { cache: 'no-store' })
+          .then(r => r.json())
+          .then(data => { if (data.college) setPickAnimCollege(data.college); })
+          .catch(() => {});
+      }
+    })();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lastPick?.overall, draft?.allSlots, draft?.rounds]);
 
@@ -571,7 +568,7 @@ export default function DraftOverlayLive() {
           </div>
         </div>
 
-        {/* InfoBar: Rotating Ticker */}
+        {/* InfoBar: Rotating Ticker + on-the-clock animation (animation only covers this bar) */}
         <div
           className="flex-1 p-2 overflow-hidden relative"
           style={{
@@ -588,6 +585,32 @@ export default function DraftOverlayLive() {
             usingCustom={usingCustom}
             pendingPick={!!pendingPick}
           />
+          {animPhase === 'clock' && animDataRef.current?.nextTeamName && (() => {
+            const teamName = animDataRef.current!.nextTeamName!;
+            const colors = getTeamColors(teamName);
+            const curOverall = animDataRef.current!.overall + 1;
+            return (
+              <NowOnClockAnimation
+                key={`clock-animation-${animDataRef.current!.overall}`}
+                layout="infoBar"
+                team={{
+                  name: teamName,
+                  colors: [colors.primary, colors.secondary, null],
+                }}
+                pickNumber={curOverall}
+                round={Math.floor((curOverall - 1) / picksPerRound) + 1}
+                pickInRound={((curOverall - 1) % picksPerRound) + 1}
+                eventName={draft?.eventName}
+                eventYear={draft?.year}
+                eventLogoUrl={eventLogoUrl}
+                eventColor1={eventColor1}
+                onComplete={() => {
+                  const hasVideo = !!(animDataRef.current?.videoUrl);
+                  setAnimPhase(hasVideo ? 'video' : null);
+                }}
+              />
+            );
+          })()}
         </div>
       </div>
 
@@ -617,34 +640,6 @@ export default function DraftOverlayLive() {
           }}
         />
       )}
-
-      {/* PHASE: Now on the Clock animation */}
-      {animPhase === 'clock' && animDataRef.current?.nextTeamName && (() => {
-        const teamName = animDataRef.current!.nextTeamName!;
-        const colors = getTeamColors(teamName);
-        const curOverall = animDataRef.current!.overall + 1;
-        return (
-          <NowOnClockAnimation
-            key={`clock-animation-${animDataRef.current!.overall}`}
-            team={{
-              name: teamName,
-              colors: [colors.primary, colors.secondary, null],
-            }}
-            pickNumber={curOverall}
-            round={Math.floor((curOverall - 1) / picksPerRound) + 1}
-            pickInRound={((curOverall - 1) % picksPerRound) + 1}
-            eventName={draft?.eventName}
-            eventYear={draft?.year}
-            eventLogoUrl={eventLogoUrl}
-            eventColor1={eventColor1}
-            onComplete={() => {
-              // After clock anim, play video if available
-              const hasVideo = !!(animDataRef.current?.videoUrl);
-              setAnimPhase(hasVideo ? 'video' : null);
-            }}
-          />
-        );
-      })()}
 
       {/* PHASE: Round recap overlay — shown between rounds while admin starts next */}
       {showRoundRecap && draft && (

@@ -19,6 +19,7 @@ import {
   DRAFT_ANIM_PICK_PHASE_MAX_MS,
 } from '@/components/draft-overlay/draft-display-utils';
 import { gsap } from 'gsap';
+import { QueueListIcon } from '@heroicons/react/24/outline';
 
 const POSITIONS = ['QB', 'RB', 'WR', 'TE', 'K'];
 
@@ -102,19 +103,18 @@ export default function DraftRoomPage() {
   } | null>(null);
   const tradeAnimSeenIdRef = useRef<string | null>(null);
   const preTradeClockTeamRef = useRef<string | null>(null);
-  const [tradeOpen, setTradeOpen] = useState(false);
   const [teamRoster, setTeamRoster] = useState<RosterPlayer[]>([]);
   const [rosterLoading, setRosterLoading] = useState(false);
   const [confirmPlayer, setConfirmPlayer] = useState<Avail | null>(null);
-  const [teamPanelTab, setTeamPanelTab] = useState<'pick' | 'queue' | 'roster'>('pick');
+  const [teamPanelTab, setTeamPanelTab] = useState<'pick' | 'queue' | 'roster' | 'trade'>('pick');
   const [pickAnimCollege, setPickAnimCollege] = useState<string | undefined>(undefined);
   const usingCustomPoolRef = useRef(false);
   const [usingCustomPool, setUsingCustomPool] = useState(false);
   const [tradeInboxCount, setTradeInboxCount] = useState(0);
   const [tradeNotif, setTradeNotif] = useState(false);
   const prevTradeInboxCountRef = useRef(0);
-  const tradeOpenRef = useRef(false);
-  tradeOpenRef.current = tradeOpen;
+  const tradeTabVisibleRef = useRef(false);
+  tradeTabVisibleRef.current = teamPanelTab === 'trade';
 
   // Animation phase state — mirrors DraftOverlayLive (display only, no admin controls)
   const [animPhase, setAnimPhase] = useState<'pick' | 'clock' | 'video' | null>(null);
@@ -438,30 +438,45 @@ export default function DraftRoomPage() {
     }
     if (lastPick.overall <= (animLastPickRef.current ?? -1)) return;
     animLastPickRef.current = lastPick.overall;
-    animDataRef.current = {
-      pick: lastPick,
-      nextTeamName: draft?.upcoming?.[0]?.team || null,
-      overall: lastPick.overall,
-      round: lastPick.round,
-      pickInRound: ((lastPick.overall - 1) % picksPerRound) + 1,
-      videoUrl: animPlayerVideosRef.current[lastPick.playerId]?.videoUrl || null,
-      imageUrl: animPlayerVideosRef.current[lastPick.playerId]?.hasImage
-        ? `/api/draft/player-image?playerId=${encodeURIComponent(lastPick.playerId)}`
-        : null,
-    };
-    animStartTimeRef.current = Date.now();
-    setPickAnimCollege(undefined);
-    setAnimPhase('pick');
-    const pid = lastPick.playerId;
-    if (usingCustomPoolRef.current) {
-      const fromList = avail.find(a => a.id === pid);
-      if (fromList?.college) setPickAnimCollege(fromList.college);
-    } else {
-      fetch(`/api/draft?action=player_info&playerId=${encodeURIComponent(pid)}`, { cache: 'no-store' })
-        .then(r => r.json())
-        .then(data => { if (data?.college) setPickAnimCollege(data.college); })
-        .catch(() => {});
-    }
+
+    void (async () => {
+      try {
+        const res = await fetch('/api/draft/player-videos', { cache: 'no-store' });
+        if (res.ok) {
+          const j = await res.json();
+          const map: Record<string, { videoUrl: string | null; hasImage: boolean }> = {};
+          for (const v of (j.videos || [])) {
+            map[v.playerId] = { videoUrl: v.videoUrl || null, hasImage: !!v.hasImage };
+          }
+          animPlayerVideosRef.current = map;
+        }
+      } catch { /* use cached ref */ }
+
+      animDataRef.current = {
+        pick: lastPick,
+        nextTeamName: draft?.upcoming?.[0]?.team || null,
+        overall: lastPick.overall,
+        round: lastPick.round,
+        pickInRound: ((lastPick.overall - 1) % picksPerRound) + 1,
+        videoUrl: animPlayerVideosRef.current[lastPick.playerId]?.videoUrl || null,
+        imageUrl: animPlayerVideosRef.current[lastPick.playerId]?.hasImage
+          ? `/api/draft/player-image?playerId=${encodeURIComponent(lastPick.playerId)}`
+          : null,
+      };
+      animStartTimeRef.current = Date.now();
+      setPickAnimCollege(undefined);
+      setAnimPhase('pick');
+      const pid = lastPick.playerId;
+      if (usingCustomPoolRef.current) {
+        const fromList = avail.find(a => a.id === pid);
+        if (fromList?.college) setPickAnimCollege(fromList.college);
+      } else {
+        fetch(`/api/draft?action=player_info&playerId=${encodeURIComponent(pid)}`, { cache: 'no-store' })
+          .then(r => r.json())
+          .then(data => { if (data?.college) setPickAnimCollege(data.college); })
+          .catch(() => {});
+      }
+    })();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draft?.recentPicks?.[draft?.recentPicks?.length - 1]?.overall]);
 
@@ -532,7 +547,7 @@ export default function DraftRoomPage() {
         const trades = (data.trades || []) as Array<{ status: string; teams: string[]; acceptedBy: string[] }>;
         const count = trades.filter(t => t.status === 'pending' && t.teams.includes(myTeam) && !t.acceptedBy.includes(myTeam)).length;
         setTradeInboxCount(count);
-        if (count > prevTradeInboxCountRef.current && !tradeOpenRef.current) {
+        if (count > prevTradeInboxCountRef.current && !tradeTabVisibleRef.current) {
           setTradeNotif(true);
         }
         prevTradeInboxCountRef.current = count;
@@ -594,7 +609,8 @@ export default function DraftRoomPage() {
           )}
           {myTeam && draft && (
             <button
-              onClick={() => setTradeOpen(true)}
+              type="button"
+              onClick={() => setTeamPanelTab('trade')}
               className="text-xs font-bold px-3 py-1.5 rounded-lg transition-colors"
               style={{ background: eventColor1, color: '#000' }}
             >
@@ -721,7 +737,7 @@ export default function DraftRoomPage() {
                   </div>
                 </div>
               </div>
-              {/* InfoBar */}
+              {/* InfoBar — on-the-clock animation overlays only this strip */}
               <div className="flex-1 p-2 overflow-hidden relative" style={{ background: `linear-gradient(135deg, ${tc[0]}dd, ${tc[1]}cc)` }}>
                 <DraftInfoBarTicker
                   onClockTeam={onClock}
@@ -731,36 +747,31 @@ export default function DraftRoomPage() {
                   pendingPick={!!pendingPick}
                   usingCustom={usingCustomPool}
                 />
+                {animPhase === 'clock' && animDataRef.current?.nextTeamName && (() => {
+                  const teamName = animDataRef.current!.nextTeamName!;
+                  const colors = getTeamColors(teamName);
+                  const curOverall = animDataRef.current!.overall + 1;
+                  const ppr = picksPerRound;
+                  return (
+                    <NowOnClockAnimation
+                      key={`room-clock-${animDataRef.current!.overall}`}
+                      layout="infoBar"
+                      team={{ name: teamName, colors: [colors.primary, colors.secondary, null] }}
+                      pickNumber={curOverall}
+                      round={Math.floor((curOverall - 1) / ppr) + 1}
+                      pickInRound={((curOverall - 1) % ppr) + 1}
+                      eventName={draft?.eventName}
+                      eventYear={draft?.year}
+                      eventLogoUrl={draft?.eventLogoUrl}
+                      eventColor1={draft?.eventColor1}
+                      onComplete={() => setAnimPhase(!!(animDataRef.current?.videoUrl) ? 'video' : null)}
+                    />
+                  );
+                })()}
               </div>
             </div>
           );
         })()}
-
-        {/* Trade Center Banner — uses team's solid primary color */}
-        {myTeam && draft && myTeamColors && (
-          <button
-            onClick={() => { setTradeOpen(true); setTradeNotif(false); }}
-            className="w-full flex items-center justify-between px-4 py-3 transition-all hover:brightness-110"
-            style={{
-              background: `linear-gradient(90deg, ${myTeamColors.primary} 0%, ${myTeamColors.secondary}cc 100%)`,
-              borderBottom: `2px solid ${myTeamColors.secondary}`,
-            }}
-          >
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 shrink-0 rounded overflow-hidden bg-black/30"><img src={getTeamLogoPath(myTeam)} alt={myTeam} className="w-full h-full object-contain" /></div>
-              <div className="text-left">
-                <div className="font-black text-white text-sm leading-tight drop-shadow">Trade Center</div>
-                <div className="text-xs text-white/80 drop-shadow">Propose, accept, or view trades</div>
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              {tradeInboxCount > 0 && (
-                <span className="w-6 h-6 rounded-full text-[11px] font-black flex items-center justify-center animate-pulse" style={{ background: '#fff', color: myTeamColors.primary }}>{tradeInboxCount}</span>
-              )}
-              <span className="text-white/70 text-lg font-bold">›</span>
-            </div>
-          </button>
-        )}
 
         <div className="p-3 space-y-3">
 
@@ -808,7 +819,7 @@ export default function DraftRoomPage() {
           {/* ── Team panel: pick / queue / roster (board grid unchanged above) ── */}
           {(me.authenticated || isAdmin) && (
             <div
-              className="rounded-xl overflow-hidden border-2 shadow-md"
+              className="rounded-xl overflow-hidden border-2 shadow-md flex flex-col min-h-0"
               style={{
                 borderColor: myTeamColors?.secondary ?? 'var(--border)',
                 background: myTeamColors
@@ -826,28 +837,34 @@ export default function DraftRoomPage() {
                   </div>
                   <div className="min-w-0 flex-1">
                     <div className="font-black text-sm text-[var(--foreground)] break-words leading-tight">{myTeam}</div>
-                    <div className="text-[10px] font-bold uppercase tracking-wide text-[var(--muted)]">Pick · Queue · Roster</div>
+                    <div className="text-[10px] font-bold uppercase tracking-wide text-[var(--muted)]">Pick · Queue · Roster · Trade</div>
                   </div>
                 </div>
               )}
-              <div className="flex gap-1 px-2 py-2 border-b border-[var(--border)] bg-black/5 dark:bg-white/5">
-                {(['pick', 'queue', 'roster'] as const).map(tab => (
+              <div className="flex gap-1 px-2 py-2 border-b border-[var(--border)] bg-black/5 dark:bg-white/5 flex-wrap">
+                {(['pick', 'queue', 'roster', 'trade'] as const).map(tab => (
                   <button
                     key={tab}
                     type="button"
-                    onClick={() => setTeamPanelTab(tab)}
-                    className="flex-1 py-2 rounded-lg text-[11px] font-black uppercase tracking-wide transition-colors"
+                    onClick={() => { setTeamPanelTab(tab); if (tab === 'trade') setTradeNotif(false); }}
+                    className="flex-1 min-w-[4.5rem] py-2 rounded-lg text-[11px] font-black uppercase tracking-wide transition-colors"
                     style={
                       teamPanelTab === tab
                         ? { background: myTeamColors?.primary ?? '#be161e', color: '#fff', boxShadow: `0 0 0 1px ${myTeamColors?.secondary ?? 'transparent'}` }
                         : { background: 'transparent', color: 'var(--muted)' }
                     }
                   >
-                    {tab === 'pick' ? 'Pick' : tab === 'queue' ? `Queue${queue.length ? ` (${queue.length})` : ''}` : 'Roster'}
+                    {tab === 'pick'
+                      ? 'Pick'
+                      : tab === 'queue'
+                        ? `Queue${queue.length ? ` (${queue.length})` : ''}`
+                        : tab === 'trade'
+                          ? `Trade${tradeInboxCount > 0 ? ` (${tradeInboxCount})` : ''}`
+                          : 'Roster'}
                   </button>
                 ))}
               </div>
-              <div className="p-3 space-y-3">
+              <div className={`p-3 space-y-3 flex-1 flex flex-col min-h-0 ${teamPanelTab === 'trade' ? 'min-h-[340px]' : ''}`}>
                 {teamPanelTab === 'pick' && (
                   <div className="rounded-lg border border-[var(--border)] overflow-hidden bg-[var(--background)]">
                     <div className="px-3 pt-3 pb-2 border-b border-[var(--border)]">
@@ -892,18 +909,52 @@ export default function DraftRoomPage() {
                               <div className="text-sm font-semibold text-[var(--foreground)] break-words leading-snug">{p.name}</div>
                               <div className="text-xs text-[var(--muted)]">{p.nfl}</div>
                             </div>
-                            <div className="flex gap-1 shrink-0 self-center">
-                              {canPick && (
+                            <div className="flex gap-1.5 shrink-0 self-center items-center">
+                              {canPick && myTeamColors && (
+                                <button
+                                  type="button"
+                                  disabled={submitting}
+                                  onClick={() => setConfirmPlayer(p)}
+                                  className="px-2.5 py-1 rounded-lg text-[11px] font-black uppercase tracking-wide text-white shadow-sm disabled:opacity-50 transition-transform active:scale-[0.98]"
+                                  style={{
+                                    background: `linear-gradient(135deg, ${myTeamColors.primary} 0%, ${myTeamColors.secondary} 100%)`,
+                                    boxShadow: `0 0 0 1px ${myTeamColors.secondary}66`,
+                                  }}
+                                >
+                                  Pick
+                                </button>
+                              )}
+                              {canPick && !myTeamColors && (
                                 <Button size="sm" variant="primary" disabled={submitting} onClick={() => setConfirmPlayer(p)}>Pick</Button>
                               )}
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                onClick={() => inQueue ? removeFromQueue(p.id) : addToQueue(p)}
-                                title={inQueue ? 'Remove from queue' : 'Add to queue'}
+                              <button
+                                type="button"
+                                onClick={() => (inQueue ? removeFromQueue(p.id) : addToQueue(p))}
+                                title={inQueue ? 'Remove from queue' : 'Add to draft queue'}
+                                className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-bold border transition-colors"
+                                style={
+                                  inQueue
+                                    ? {
+                                        borderColor: 'var(--border)',
+                                        color: 'var(--muted)',
+                                        background: 'transparent',
+                                      }
+                                    : myTeamColors
+                                      ? {
+                                          borderColor: `${myTeamColors.secondary}aa`,
+                                          color: myTeamColors.primary,
+                                          background: `${myTeamColors.primary}12`,
+                                        }
+                                      : {
+                                          borderColor: 'var(--border)',
+                                          color: 'var(--foreground)',
+                                          background: 'transparent',
+                                        }
+                                }
                               >
-                                {inQueue ? '−Q' : '+Q'}
-                              </Button>
+                                <QueueListIcon className="w-3.5 h-3.5 shrink-0 opacity-90" aria-hidden />
+                                {inQueue ? 'Queued' : 'Queue'}
+                              </button>
                             </div>
                           </div>
                         );
@@ -938,7 +989,7 @@ export default function DraftRoomPage() {
                         : <span>Top queued player is sent to admin when time expires (within ~3s)</span>}
                     </div>
                     {queue.length === 0 ? (
-                      <div className="px-3 py-3 text-xs text-[var(--muted)]">Queue is empty — use +Q on the Pick tab.</div>
+                      <div className="px-3 py-3 text-xs text-[var(--muted)]">Queue is empty — use <span className="font-semibold text-[var(--foreground)]">Queue</span> on the Pick tab.</div>
                     ) : (
                       <ul className="divide-y divide-[var(--border)]">
                         {queue.map((q, idx) => (
@@ -1054,6 +1105,19 @@ export default function DraftRoomPage() {
                     )}
                   </>
                 )}
+
+                {teamPanelTab === 'trade' && myTeam && draft && (
+                  <div className="flex-1 flex flex-col min-h-0 -mx-1">
+                    <DraftTradeCenter
+                      embedded
+                      myTeam={myTeam}
+                      allTeams={TEAM_NAMES}
+                      draftId={draft.id}
+                      eventColor1={eventColor1}
+                      onClose={() => setTeamPanelTab('pick')}
+                    />
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -1066,7 +1130,14 @@ export default function DraftRoomPage() {
       {confirmPlayer && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.75)' }} onClick={() => setConfirmPlayer(null)}>
           <div className="w-full max-w-sm rounded-2xl overflow-hidden shadow-2xl" style={{ background: '#18181b' }} onClick={e => e.stopPropagation()}>
-            <div className="px-5 py-4" style={{ background: 'linear-gradient(90deg,#be161e,#bf9944)' }}>
+            <div
+              className="px-5 py-4"
+              style={{
+                background: myTeamColors
+                  ? `linear-gradient(90deg, ${myTeamColors.primary}, ${myTeamColors.secondary})`
+                  : 'linear-gradient(90deg,#be161e,#bf9944)',
+              }}
+            >
               <div className="text-base font-black text-white uppercase tracking-wide">Confirm Selection</div>
             </div>
             <div className="px-5 py-5">
@@ -1092,7 +1163,11 @@ export default function DraftRoomPage() {
                   type="button"
                   disabled={submitting}
                   className="flex-1 py-2.5 rounded-lg text-sm font-black text-white transition-colors disabled:opacity-50"
-                  style={{ background: 'linear-gradient(90deg,#be161e,#bf9944)' }}
+                  style={{
+                    background: myTeamColors
+                      ? `linear-gradient(90deg, ${myTeamColors.primary}, ${myTeamColors.secondary})`
+                      : 'linear-gradient(90deg,#be161e,#bf9944)',
+                  }}
                   onClick={() => { submitPick(confirmPlayer); setConfirmPlayer(null); }}
                 >
                   {submitting ? 'Submitting…' : 'Yes, Draft Him'}
@@ -1125,26 +1200,6 @@ export default function DraftRoomPage() {
           onComplete={() => setAnimPhase('clock')}
         />
       )}
-      {animPhase === 'clock' && animDataRef.current?.nextTeamName && (() => {
-        const teamName = animDataRef.current!.nextTeamName!;
-        const colors = getTeamColors(teamName);
-        const curOverall = animDataRef.current!.overall + 1;
-        return (
-          <NowOnClockAnimation
-            key={`room-clock-${animDataRef.current!.overall}`}
-            team={{ name: teamName, colors: [colors.primary, colors.secondary, null] }}
-            pickNumber={curOverall}
-            round={Math.floor((curOverall - 1) / picksPerRound) + 1}
-            pickInRound={((curOverall - 1) % picksPerRound) + 1}
-            eventName={draft?.eventName}
-            eventYear={draft?.year}
-            eventLogoUrl={draft?.eventLogoUrl}
-            eventColor1={draft?.eventColor1}
-            onComplete={() => setAnimPhase(!!(animDataRef.current?.videoUrl) ? 'video' : null)}
-          />
-        );
-      })()}
-
       {/* Trade animation — mirrors broadcast overlay */}
       {tradeAnimData && (
         <DraftTradeAnimation
@@ -1193,11 +1248,11 @@ export default function DraftRoomPage() {
       )}
 
       {/* Trade offer notification popup */}
-      {tradeNotif && !tradeOpen && (
+      {tradeNotif && teamPanelTab !== 'trade' && (
         <div
           className="fixed bottom-6 right-6 z-[9999] w-72 rounded-xl border-2 bg-zinc-900 shadow-2xl p-4 cursor-pointer"
           style={{ borderColor: eventColor1, boxShadow: `0 0 24px ${eventColor1}55` }}
-          onClick={() => { setTradeNotif(false); setTradeOpen(true); }}
+          onClick={() => { setTradeNotif(false); setTeamPanelTab('trade'); }}
         >
           <div className="font-black text-sm uppercase tracking-widest mb-1" style={{ color: eventColor1 }}>🤝 Trade Offer!</div>
           <div className="text-white text-sm mb-1">You have {tradeInboxCount} pending trade offer{tradeInboxCount !== 1 ? 's' : ''}.</div>
@@ -1209,16 +1264,6 @@ export default function DraftRoomPage() {
         </div>
       )}
 
-      {/* Trade Center modal */}
-      {tradeOpen && myTeam && draft && (
-        <DraftTradeCenter
-          myTeam={myTeam}
-          allTeams={TEAM_NAMES}
-          draftId={draft.id}
-          eventColor1={eventColor1}
-          onClose={() => setTradeOpen(false)}
-        />
-      )}
     </div>
   );
 }

@@ -21,9 +21,15 @@ interface NowOnClockAnimationProps {
   eventYear?: number | null;
   eventLogoUrl?: string | null;
   eventColor1?: string | null;
+  /**
+   * `infoBar` — only fills the draft info bar region so the board/grid stays visible.
+   * `broadcast` — full-screen lower-third (legacy / room fallback).
+   */
+  layout?: 'broadcast' | 'infoBar';
 }
 
 const HOLD_SEC = 7;
+const HOLD_INFOBAR_SEC = 5;
 
 /** Fluid type for long franchise names — full name visible, wraps instead of clipping. */
 function nocTeamNameFontSize(name: string): string {
@@ -58,6 +64,7 @@ export default function NowOnClockAnimation({
   eventYear,
   eventLogoUrl,
   eventColor1,
+  layout = 'broadcast',
 }: NowOnClockAnimationProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const timelineRef = useRef<gsap.core.Timeline | null>(null);
@@ -71,6 +78,63 @@ export default function NowOnClockAnimation({
 
     const container = containerRef.current;
     if (!container) return;
+
+    if (layout === 'infoBar') {
+      const root = container.querySelector<HTMLElement>('.noc-ib-root');
+      if (!root) return;
+
+      const brand = container.querySelector<HTMLElement>('.noc-ib-brand');
+      const headline = container.querySelector<HTMLElement>('.noc-ib-headline');
+      const logoW = container.querySelector<HTMLElement>('.noc-ib-logo-wrap');
+      const teamE = container.querySelector<HTMLElement>('.noc-ib-team');
+      const meta = container.querySelector<HTMLElement>('.noc-ib-meta');
+      const sub = container.querySelector<HTMLElement>('.noc-ib-sub');
+      const live = container.querySelector<HTMLElement>('.noc-ib-live');
+
+      gsap.set(root, { opacity: 0, y: 14 });
+      const mainBits = [live, brand, headline, logoW, teamE, meta].filter(Boolean) as HTMLElement[];
+      gsap.set(mainBits, { opacity: 0, y: 8 });
+      if (sub) gsap.set(sub, { opacity: 0, y: 8 });
+
+      const tl = gsap.timeline({
+        onComplete: () => {
+          onCompleteRef.current?.();
+        },
+      });
+      timelineRef.current = tl;
+
+      tl.to(root, { opacity: 1, y: 0, duration: 0.38, ease: 'power2.out' });
+      tl.to(mainBits, { opacity: 1, y: 0, duration: 0.42, stagger: 0.045, ease: 'power2.out' }, '-=0.12');
+      if (sub) tl.to(sub, { opacity: 1, y: 0, duration: 0.28, ease: 'power2.out' }, '-=0.22');
+
+      let livePulse: gsap.core.Tween | null = null;
+      tl.add(() => {
+        if (live) {
+          livePulse = gsap.to(live, {
+            opacity: 0.35,
+            duration: 0.5,
+            ease: 'sine.inOut',
+            repeat: -1,
+            yoyo: true,
+          });
+        }
+      });
+
+      tl.to({}, { duration: HOLD_INFOBAR_SEC });
+
+      tl.add(() => {
+        livePulse?.kill();
+        livePulse = null;
+      });
+
+      tl.to(container, { opacity: 0, duration: 0.55, ease: 'power2.inOut' });
+
+      return () => {
+        livePulse?.kill();
+        timelineRef.current?.kill();
+        timelineRef.current = null;
+      };
+    }
 
     const ambient = container.querySelector<HTMLElement>('.noc-ambient');
     const ltWrap = container.querySelector<HTMLElement>('.noc-lt-wrap');
@@ -157,7 +221,7 @@ export default function NowOnClockAnimation({
       timelineRef.current?.kill();
       timelineRef.current = null;
     };
-  }, []);
+  }, [layout]);
 
   const c1 = team.colors[0];
   const c2 = team.colors[1] || team.colors[0];
@@ -165,6 +229,75 @@ export default function NowOnClockAnimation({
   const logo = getTeamLogoPath(team.name);
   const barTopLine = `linear-gradient(90deg, transparent 0%, ${ec} 15%, ${ec} 85%, transparent 100%)`;
   const sublineText = buildSubline(eventName, eventYear, pickNumber);
+
+  if (layout === 'infoBar') {
+    return (
+      <div
+        ref={containerRef}
+        className="absolute inset-0 z-[30] flex flex-row pointer-events-none overflow-hidden rounded"
+      >
+        <div
+          className="noc-ib-root flex flex-row w-full h-full min-h-0"
+          style={{
+            background: `linear-gradient(180deg, rgba(12,13,20,0.98) 0%, rgba(6,7,11,0.99) 100%)`,
+            boxShadow: `inset 0 1px 0 rgba(255,255,255,0.06)`,
+          }}
+        >
+          <div
+            className="noc-ib-accent shrink-0 w-1.5 sm:w-2 self-stretch"
+            style={{
+              background: `linear-gradient(180deg, ${c1} 0%, ${c2} 100%)`,
+              boxShadow: `2px 0 18px ${c1}44`,
+            }}
+          />
+          <div className="flex-1 flex flex-col justify-center min-w-0 px-2 sm:px-3 py-1.5 gap-0.5">
+            <div className="flex items-center gap-2 sm:gap-2.5 min-w-0">
+              <span
+                className="noc-ib-live w-2 h-2 rounded-full shrink-0"
+                style={{ background: '#f43f5e', boxShadow: '0 0 10px #f43f5e' }}
+              />
+              {eventLogoUrl ? (
+                <img
+                  src={eventLogoUrl}
+                  alt=""
+                  className="noc-ib-brand w-7 h-7 sm:w-8 sm:h-8 object-contain shrink-0 drop-shadow-md"
+                />
+              ) : null}
+              <span
+                className="noc-ib-headline font-black text-white uppercase tracking-tight shrink-0 leading-none"
+                style={{ fontSize: 'clamp(0.7rem, 1.8vw, 0.95rem)' }}
+              >
+                On the clock
+              </span>
+              {logo ? (
+                <div
+                  className="noc-ib-logo-wrap w-8 h-8 sm:w-9 sm:h-9 rounded-md overflow-hidden border border-white/15 shrink-0 flex items-center justify-center"
+                  style={{ background: `linear-gradient(145deg, ${c1}44 0%, rgba(0,0,0,0.35) 100%)` }}
+                >
+                  <img src={logo} alt="" className="noc-ib-logo object-contain w-[80%] h-[80%]" />
+                </div>
+              ) : null}
+              <span
+                className="noc-ib-team font-black text-white uppercase truncate min-w-0 flex-1 leading-tight"
+                style={{
+                  fontSize: 'clamp(0.68rem, 1.9vw, 1.05rem)',
+                  textShadow: `0 0 14px ${c1}55`,
+                }}
+              >
+                {team.name}
+              </span>
+              <span className="noc-ib-meta text-white/95 font-bold tabular-nums shrink-0 text-[9px] sm:text-[10px] border border-white/10 rounded px-1.5 py-0.5">
+                R{round} · P{pickInRound} · #{pickNumber}
+              </span>
+            </div>
+            <p className="noc-ib-sub text-white/45 text-[8px] sm:text-[9px] font-semibold uppercase tracking-wider truncate">
+              {sublineText}
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div
