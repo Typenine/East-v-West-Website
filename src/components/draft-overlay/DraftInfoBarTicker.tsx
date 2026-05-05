@@ -12,9 +12,8 @@ export interface TickerPick { overall: number; team: string; playerName?: string
 
 interface TopScorer { id: string; name: string; pos: string; pts: number; }
 interface SeasonResult {
-  season: string; wins: number; losses: number; fpts: number;
-  playoffResult: string; playoffOpponent?: string;
-  winScore?: number; oppScore?: number; madePlayoffs: boolean;
+  season: string; wins: number; losses: number; ties: number; fpts: number; fptsAgainst: number;
+  recordRank: number; fptsRank: number; fptsAgainstRank: number;
 }
 
 interface Props {
@@ -39,7 +38,7 @@ function tickerNameFontSize(name: string | null | undefined): string {
   return '13px';
 }
 
-export default function DraftInfoBarTicker({ draftId, picksPerRound = 12, onClockTeam, available, recentPicks, curOverall, usingCustom, pendingPick }: Props) {
+export default function DraftInfoBarTicker({ picksPerRound = 12, onClockTeam, available, recentPicks, curOverall, pendingPick }: Props) {
   const teamsPerRound = Math.max(1, picksPerRound | 0);
   const [currentTickerView, setCurrentTickerView] = useState<TickerView>('bestAvailable');
   const cycleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -223,7 +222,7 @@ export default function DraftInfoBarTicker({ draftId, picksPerRound = 12, onCloc
     <>
       {/* Best Available */}
       <div style={{ display: currentTickerView === 'bestAvailable' ? 'block' : 'none' }}>
-        <div className="text-[11px] font-black text-white/90 uppercase tracking-wider mb-2 text-center">Best Available{usingCustom ? ' · Custom' : ''}</div>
+        <div className="text-[11px] font-black text-white/90 uppercase tracking-wider mb-2 text-center">Best Available</div>
         <div className="grid grid-cols-5 gap-1">
           {available.slice(0, 10).map((p, i) => (
             <div key={p.id} className="bg-black/30 rounded px-1.5 py-1.5">
@@ -351,12 +350,9 @@ export default function DraftInfoBarTicker({ draftId, picksPerRound = 12, onCloc
                 <div key={s.season} className="bg-black/30 rounded px-1.5 py-1.5">
                   <div className="text-[10px] font-bold text-white/50 uppercase tracking-wide leading-tight mb-0.5">{s.season}</div>
                   <div className="text-[16px] font-black text-white leading-tight">{s.wins}–{s.losses}</div>
-                  <div className="text-[11px] font-semibold text-white/80 truncate leading-tight">{s.playoffResult}</div>
-                  {s.playoffOpponent && (
-                    <div className="text-[11px] text-white/50 truncate leading-tight">
-                      vs {s.playoffOpponent}{s.winScore != null && s.oppScore != null ? ` ${s.winScore}–${s.oppScore}` : ''}
-                    </div>
-                  )}
+                  <div className="text-[10px] text-white/70 leading-tight">Standings rank: #{s.recordRank}</div>
+                  <div className="text-[10px] text-white/60 leading-tight">PF: {s.fpts} (#{s.fptsRank})</div>
+                  <div className="text-[10px] text-white/60 leading-tight">PA: {s.fptsAgainst} (#{s.fptsAgainstRank})</div>
                 </div>
               ))}
             </div>

@@ -805,7 +805,9 @@ export default function DraftRoomPage() {
           const roundNum = Math.ceil(overall / picksPerRound);
           const pickNum = ((overall - 1) % picksPerRound) + 1;
           const abbrev = (onClock || '---').split(' ').map((w: string) => w[0]).join('').slice(0, 3).toUpperCase();
-          const nextUp = (draft?.upcoming || []).filter((u: DraftSlot) => u.overall > overall).slice(0, 2);
+          const nextUp = (draft?.upcoming || [])
+            .filter((u: DraftSlot) => u.overall > draft.curOverall && u.team !== onClock)
+            .slice(0, 2);
           return (
             <div className="relative flex gap-0 items-stretch" style={{ minHeight: '184px', borderBottom: `2px solid ${eventColor1}33` }}>
               {/* ClockBox */}

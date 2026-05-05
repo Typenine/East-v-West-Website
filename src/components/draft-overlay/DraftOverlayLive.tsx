@@ -383,6 +383,7 @@ export default function DraftOverlayLive() {
   }, [displayRemainingSec, animPhase]);
   const teamColors = currentTeam?.colors || ['#333', '#555', null];
   const teamLogo = currentTeam ? getTeamLogoPath(currentTeam.name) : null;
+  const nextTeamsForClock = nextTeams.filter((t) => t.name !== currentTeam?.name).slice(0, 2);
 
   const clockDigitColor =
     displayRemainingSec <= 10 ? '#ef4444'
@@ -627,7 +628,7 @@ export default function DraftOverlayLive() {
             <div className="flex flex-col items-center gap-0.5">
               <span className="text-[9px] text-zinc-400 uppercase tracking-wide">Next</span>
               <div className="flex gap-1">
-                {nextTeams.slice(0, 2).map((t, i) => (
+                {nextTeamsForClock.map((t, i) => (
                   <div key={i} className="w-7 h-7 bg-zinc-600 rounded overflow-hidden">
                     {t.logoPath && <img src={t.logoPath} alt={t.name} className="w-full h-full object-contain" />}
                   </div>
