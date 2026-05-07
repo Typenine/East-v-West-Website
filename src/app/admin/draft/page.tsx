@@ -435,12 +435,19 @@ function PlayerMediaCard() {
 }
 
 export default function AdminDraftPage() {
+  type ConfirmIntent = {
+    action: 'undo' | 'skip_pick' | 'reset_trades' | 'reset' | 'delete';
+    title: string;
+    message: string;
+  };
   const isDev = process.env.NODE_ENV !== 'production';
   const [isAdmin, setIsAdmin] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [draft, setDraft] = useState<DraftOverview | null>(null);
   const [remainingSec, setRemainingSec] = useState<number | null>(null);
+  const [localRemainingSec, setLocalRemainingSec] = useState<number | null>(null);
+  const [lastFetchTime, setLastFetchTime] = useState<number>(Date.now());
   const [clockMins, setClockMins] = useState('10');
   const [clockSecs, setClockSecs] = useState('0');
   const [form, setForm] = useState({ year: new Date().getFullYear().toString(), rounds: '4' });
@@ -473,6 +480,7 @@ export default function AdminDraftPage() {
   const [playerPoolsList, setPlayerPoolsList] = useState<PoolSummary[]>([]);
   const [selectedPoolId, setSelectedPoolId] = useState('');
   const [newPoolLabel, setNewPoolLabel] = useState('');
+  const [confirmIntent, setConfirmIntent] = useState<ConfirmIntent | null>(null);
   const metricsStartAtRef = useRef<number>(Date.now());
   const [netMetrics, setNetMetrics] = useState({
     requestCount: 0,
@@ -614,7 +622,10 @@ export default function AdminDraftPage() {
       }
       const newDraft = j?.draft || null;
       setDraft(newDraft);
-      setRemainingSec(j?.remainingSec ?? null);
+      const nextRemaining = j?.remainingSec ?? null;
+      setRemainingSec(nextRemaining);
+      setLocalRemainingSec(nextRemaining);
+      setLastFetchTime(Date.now());
       setPendingPick(j?.pendingPick ?? null);
       if (newDraft) {
         setBrandingForm(prev => ({
@@ -669,6 +680,22 @@ export default function AdminDraftPage() {
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draft?.status]);
+
+  useEffect(() => {
+    if (remainingSec == null) {
+      setLocalRemainingSec(null);
+      return;
+    }
+    if (draft?.status !== 'LIVE') {
+      setLocalRemainingSec(remainingSec);
+      return;
+    }
+    const t = setInterval(() => {
+      const elapsed = Math.floor((Date.now() - lastFetchTime) / 1000);
+      setLocalRemainingSec(Math.max(0, remainingSec - elapsed));
+    }, 1000);
+    return () => clearInterval(t);
+  }, [remainingSec, draft?.status, lastFetchTime]);
 
   async function saveBranding() {
     setSavingBranding(true);
@@ -765,6 +792,14 @@ export default function AdminDraftPage() {
     } finally {
       setBusy(null);
     }
+  };
+
+  const openConfirm = (intent: ConfirmIntent) => setConfirmIntent(intent);
+  const runConfirmedAction = async () => {
+    if (!confirmIntent) return;
+    const { action } = confirmIntent;
+    setConfirmIntent(null);
+    await onAdmin(action);
   };
 
   const recent = draft?.recentPicks || [];
@@ -1340,7 +1375,7 @@ export default function AdminDraftPage() {
                   </div>
                   <div className="text-right">
                     <div className={`text-3xl font-mono font-bold ${remainingSec !== null && remainingSec <= 10 ? 'text-red-500' : ''}`}>
-                      {remainingSec !== null ? formatTime(remainingSec) : '--:--'}
+                      {localRemainingSec !== null ? formatTime(localRemainingSec) : '--:--'}
                     </div>
                     <div className="text-sm text-[var(--muted)]">
                       Pick #{draft.curOverall} • Round {draft.upcoming?.[0]?.round || Math.ceil(draft.curOverall / TEAM_NAMES.length)}
@@ -1472,8 +1507,27 @@ export default function AdminDraftPage() {
                       {draft.status === 'PAUSED' && !draft.roundEndPause && (
                         <Button disabled={busy==='resume'} variant="primary" onClick={() => onAdmin('resume')}>▶️ Resume</Button>
                       )}
-                      <Button disabled={busy==='undo'} variant="ghost" onClick={() => onAdmin('undo')}>↩️ Undo Last Pick</Button>
-                      <Button disabled={busy==='skip_pick'} variant="ghost" onClick={() => onAdmin('skip_pick')} title="Skip current pick and advance to next">
+                      <Button
+                        disabled={busy==='undo'}
+                        variant="ghost"
+                        onClick={() => openConfirm({
+                          action: 'undo',
+                          title: 'Undo Last Pick?',
+                          message: 'This will remove the most recent pick and move the clock back to that pick.',
+                        })}
+                      >
+                        ↩️ Undo Last Pick
+                      </Button>
+                      <Button
+                        disabled={busy==='skip_pick'}
+                        variant="ghost"
+                        onClick={() => openConfirm({
+                          action: 'skip_pick',
+                          title: 'Skip Current Pick?',
+                          message: 'This will skip the team currently on the clock and advance to the next pick.',
+                        })}
+                        title="Skip current pick and advance to next"
+                      >
                         ⏭️ Skip Pick
                       </Button>
                       <Button disabled={busy==='auto_pick'} variant="ghost" onClick={() => onAdmin('auto_pick')} title="Force auto-pick using queue or highest-ranked player">
@@ -1486,11 +1540,11 @@ export default function AdminDraftPage() {
                         disabled={busy==='reset_trades'} 
                         variant="ghost" 
                         size="sm"
-                        onClick={async () => {
-                          if (!confirm('RESET ALL TRADES? This will:\n• Return all traded picks to their original owners\n• Return all traded players to their original teams\n• Delete all trade records\n\nDraft picks already made are NOT affected.')) return;
-                          await onAdmin('reset_trades');
-                          await load(true);
-                        }}
+                        onClick={() => openConfirm({
+                          action: 'reset_trades',
+                          title: 'Reset All Trades?',
+                          message: 'This will return traded picks/players to original owners and delete trade records. Draft picks already made are not affected.',
+                        })}
                         title="Undo all trades: restore picks and players to original owners"
                       >
                         🔁 Reset Trades
@@ -1499,11 +1553,11 @@ export default function AdminDraftPage() {
                         disabled={busy==='reset'} 
                         variant="ghost" 
                         size="sm"
-                        onClick={async () => {
-                          if (!confirm('RESET ENTIRE DRAFT? This will:\n• Clear all picks\n• Undo all trades (picks and players back to original owners)\n• Delete all trade records\n• Return to Round 1\n\nDraft order is kept.')) return;
-                          await onAdmin('reset');
-                          await load(true);
-                        }}
+                        onClick={() => openConfirm({
+                          action: 'reset',
+                          title: 'Reset Entire Draft?',
+                          message: 'This clears all picks, undoes all trades, deletes trade records, and returns to Round 1. Draft order is kept.',
+                        })}
                         title="Clear all picks, undo all trades, return to Round 1"
                       >
                         🔄 Reset Draft
@@ -1512,11 +1566,11 @@ export default function AdminDraftPage() {
                         disabled={busy==='delete'} 
                         variant="danger" 
                         size="sm"
-                        onClick={async () => {
-                          if (!confirm('DELETE this entire draft? This cannot be undone!')) return;
-                          await onAdmin('delete');
-                          await load(true);
-                        }}
+                        onClick={() => openConfirm({
+                          action: 'delete',
+                          title: 'Delete Draft?',
+                          message: 'This permanently deletes the entire draft and cannot be undone.',
+                        })}
                       >
                         🗑️ Delete Draft
                       </Button>
@@ -1944,6 +1998,32 @@ export default function AdminDraftPage() {
             <div>Approx req/min: <span className="font-bold">{(netMetrics.requestCount / Math.max(1 / 60, (Date.now() - metricsStartAtRef.current) / 60000)).toFixed(1)}</span></div>
             <div>Approx KB/req: <span className="font-bold">{(netMetrics.totalBytes / Math.max(1, netMetrics.requestCount) / 1024).toFixed(1)}</span></div>
             <div>Last revision: <span className="font-bold">{netMetrics.lastRevision}</span></div>
+          </div>
+        </div>
+      )}
+
+      {confirmIntent && (
+        <div className="fixed inset-0 z-[300] bg-black/70 flex items-center justify-center p-4">
+          <div className="w-full max-w-md rounded-xl border border-zinc-700 bg-zinc-900 shadow-2xl">
+            <div className="px-4 py-3 border-b border-zinc-800">
+              <h3 className="text-base font-black text-white">{confirmIntent.title}</h3>
+            </div>
+            <div className="px-4 py-4 text-sm text-zinc-300">
+              {confirmIntent.message}
+            </div>
+            <div className="px-4 py-3 border-t border-zinc-800 flex justify-end gap-2">
+              <Button variant="ghost" size="sm" onClick={() => setConfirmIntent(null)}>
+                Cancel
+              </Button>
+              <Button
+                variant={confirmIntent.action === 'delete' ? 'danger' : 'primary'}
+                size="sm"
+                disabled={busy === confirmIntent.action}
+                onClick={runConfirmedAction}
+              >
+                {busy === confirmIntent.action ? 'Working…' : 'Confirm'}
+              </Button>
+            </div>
           </div>
         </div>
       )}

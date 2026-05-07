@@ -270,6 +270,8 @@ export default function DraftOverlayLive() {
     }
     if (lastPick.overall <= (lastAnimatedPickRef.current ?? -1)) return;
     lastAnimatedPickRef.current = lastPick.overall;
+    // If this tab was hidden when the event happened, don't replay it on return.
+    if (document.hidden) return;
 
     void (async () => {
       try {
@@ -578,30 +580,20 @@ export default function DraftOverlayLive() {
         <div
           className="flex items-stretch shrink-0"
           style={{
-            width: '340px',
+            width: '380px',
             background: 'linear-gradient(to bottom, #202020, #282828)',
             borderRadius: '4px',
             border: '1px solid #333',
           }}
         >
-          {/* Left: Team Abbrev + Event Logo, centered together */}
-          <div className="flex flex-col justify-center items-center gap-3 p-2 w-28">
-            <div
-              className="px-2 py-1 rounded text-center font-black text-xl text-white w-full"
-              style={{
-                background: `linear-gradient(135deg, ${teamColors[0]}cc 0%, ${teamColors[0]}cc 50%, ${teamColors[1]}cc 50%, ${teamColors[1]}cc 100%)`,
-                border: `2px solid ${eventColor1}`,
-                boxShadow: eventGlow,
-              }}
-            >
-              {currentTeam?.abbrev || '---'}
-            </div>
+          {/* Left: Event logo */}
+          <div className="flex flex-col justify-center items-center p-2 w-28">
             {eventLogoUrl && (
               <img
                 src={eventLogoUrl}
                 alt=""
                 className="object-contain"
-                style={{ width: '44px', height: '44px', opacity: 0.85 }}
+                style={{ width: '108px', height: '108px', opacity: 0.94 }}
               />
             )}
           </div>
@@ -623,16 +615,16 @@ export default function DraftOverlayLive() {
           {/* Right: On-clock logo (top) + NEXT with small logos (bottom) */}
           <div className="flex flex-col items-center justify-center gap-2 p-2">
             <div
-              className="w-16 h-16 bg-zinc-700 rounded overflow-hidden border-2 shrink-0"
+              className="w-24 h-24 bg-zinc-700 rounded overflow-hidden border-2 shrink-0"
               style={{ borderColor: eventColor1, boxShadow: eventGlow }}
             >
               {teamLogo && <img src={teamLogo} alt={currentTeam?.name || ''} className="w-full h-full object-contain" />}
             </div>
             <div className="flex flex-col items-center gap-0.5">
               <span className="text-[9px] text-zinc-400 uppercase tracking-wide">Next</span>
-              <div className="flex gap-1">
+              <div className="flex gap-1.5">
                 {nextTeamsForClock.map((t, i) => (
-                  <div key={i} className="w-7 h-7 bg-zinc-600 rounded overflow-hidden">
+                  <div key={i} className="w-9 h-9 bg-zinc-600 rounded overflow-hidden">
                     {t.logoPath && <img src={t.logoPath} alt={t.name} className="w-full h-full object-contain" />}
                   </div>
                 ))}

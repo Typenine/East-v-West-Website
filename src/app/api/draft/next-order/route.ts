@@ -6,6 +6,9 @@ import { CURRENT_SEASON, LEAGUE_IDS, getLeagueIdForSeason } from '@/lib/constant
 
 export async function GET(req: Request) {
   try {
+    const normalizeTeam = (name: string | undefined): string =>
+      String(name ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
+
     const url = new URL(req.url);
     const seasonParam = url.searchParams.get('season');
     const defaultSeason = Number(CURRENT_SEASON);
@@ -32,14 +35,56 @@ export async function GET(req: Request) {
               ...ownershipFromActiveLeague.rosterIdToTeam,
             },
             ownership: (() => {
+              const standingsRosterByTeam = new Map<string, number>();
+              for (const [rid, team] of Object.entries(ownershipFromStandingsLeague.rosterIdToTeam)) {
+                const rosterId = Number(rid);
+                if (!Number.isFinite(rosterId)) continue;
+                const norm = normalizeTeam(team);
+                if (!norm) continue;
+                standingsRosterByTeam.set(norm, rosterId);
+              }
+
+              const remapActiveRosterIdToStandings = (activeRosterId: number): number => {
+                const team = ownershipFromActiveLeague.rosterIdToTeam[String(activeRosterId)];
+                const norm = normalizeTeam(team);
+                if (!norm) return activeRosterId;
+                return standingsRosterByTeam.get(norm) ?? activeRosterId;
+              };
+
+              const remappedActiveOwnership: NextDraftOwnership['ownership'] = {};
+              for (const [key, value] of Object.entries(ownershipFromActiveLeague.ownership)) {
+                const [origRosterStr, roundStr] = key.split('-');
+                const origRosterId = Number(origRosterStr);
+                const round = Number(roundStr);
+                if (!Number.isFinite(origRosterId) || !Number.isFinite(round)) continue;
+                const remappedOrigRosterId = remapActiveRosterIdToStandings(origRosterId);
+                const remappedKey = `${remappedOrigRosterId}-${round}`;
+                const remappedOwner = remapActiveRosterIdToStandings(value.ownerRosterId);
+                const remappedHistory = (value.history || []).map((h) => ({
+                  ...h,
+                  fromRosterId: remapActiveRosterIdToStandings(h.fromRosterId),
+                  toRosterId: remapActiveRosterIdToStandings(h.toRosterId),
+                }));
+                const existing = remappedActiveOwnership[remappedKey];
+                remappedActiveOwnership[remappedKey] = existing
+                  ? {
+                      ownerRosterId: remappedOwner,
+                      history: [...existing.history, ...remappedHistory],
+                    }
+                  : {
+                      ownerRosterId: remappedOwner,
+                      history: remappedHistory,
+                    };
+              }
+
               const merged: NextDraftOwnership['ownership'] = {};
               const keys = new Set([
                 ...Object.keys(ownershipFromStandingsLeague.ownership),
-                ...Object.keys(ownershipFromActiveLeague.ownership),
+                ...Object.keys(remappedActiveOwnership),
               ]);
               for (const key of keys) {
                 const a: NextDraftOwnership['ownership'][string] | undefined = ownershipFromStandingsLeague.ownership[key];
-                const b: NextDraftOwnership['ownership'][string] | undefined = ownershipFromActiveLeague.ownership[key];
+                const b: NextDraftOwnership['ownership'][string] | undefined = remappedActiveOwnership[key];
                 const ownerRosterId = b?.ownerRosterId ?? a?.ownerRosterId;
                 if (ownerRosterId == null) continue;
                 const hist: NextDraftOwnership['ownership'][string]['history'] = [...(a?.history ?? []), ...(b?.history ?? [])];

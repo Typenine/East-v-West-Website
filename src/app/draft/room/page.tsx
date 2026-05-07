@@ -490,6 +490,8 @@ export default function DraftRoomPage() {
     }
     if (lastPick.overall <= (animLastPickRef.current ?? -1)) return;
     animLastPickRef.current = lastPick.overall;
+    // If this tab was hidden when the event happened, don't replay it on return.
+    if (document.hidden) return;
 
     void (async () => {
       try {
@@ -829,19 +831,15 @@ export default function DraftRoomPage() {
           const overall = pendingPick?.overall ?? draft.curOverall;
           const roundNum = Math.ceil(overall / picksPerRound);
           const pickNum = ((overall - 1) % picksPerRound) + 1;
-          const abbrev = (onClock || '---').split(' ').map((w: string) => w[0]).join('').slice(0, 3).toUpperCase();
           const nextUp = (allSlots || [])
             .filter((u: DraftSlot) => u.overall > overall && u.team !== onClock)
             .slice(0, 2);
           return (
             <div className="relative flex gap-0 items-stretch" style={{ minHeight: '184px', borderBottom: `2px solid ${eventColor1}33` }}>
               {/* ClockBox */}
-              <div className="flex items-stretch shrink-0" style={{ width: '220px', background: 'linear-gradient(to bottom,#202020,#282828)', borderRight: '1px solid #333' }}>
-                <div className="flex flex-col justify-center items-center gap-1 p-2 w-20">
-                  <div className="px-1 py-0.5 rounded text-center font-black text-base text-white w-full" style={{ background: `linear-gradient(135deg,${tc[0]}cc 0%,${tc[0]}cc 50%,${tc[1]}cc 50%,${tc[1]}cc 100%)`, border: `2px solid ${eventColor1}`, boxShadow: `0 0 8px ${eventColor1}55` }}>
-                    {abbrev}
-                  </div>
-                  {eventLogoUrl && <img src={eventLogoUrl} alt="" className="object-contain" style={{ width: '32px', height: '32px', opacity: 0.8 }} />}
+              <div className="flex items-stretch shrink-0" style={{ width: '380px', background: 'linear-gradient(to bottom,#202020,#282828)', borderRadius: '4px', border: '1px solid #333' }}>
+                <div className="flex flex-col justify-center items-center p-2 w-28">
+                  {eventLogoUrl && <img src={eventLogoUrl} alt="" className="object-contain" style={{ width: '88px', height: '88px', opacity: 0.94 }} />}
                 </div>
                 <div className="flex-1 flex flex-col items-center justify-center gap-0.5">
                   <div
@@ -853,16 +851,19 @@ export default function DraftRoomPage() {
                   </div>
                   <div className="text-xs text-center font-bold" style={{ color: eventColor1 }}>RD {roundNum} · PK {pickNum}</div>
                 </div>
-                <div className="flex flex-col items-center justify-center gap-1 p-1">
-                  <div className="w-14 h-14 bg-zinc-700 rounded overflow-hidden border-2" style={{ borderColor: eventColor1 }}>
+                <div className="flex flex-col items-center justify-center gap-2 p-2">
+                  <div className="w-24 h-24 bg-zinc-700 rounded overflow-hidden border-2 shrink-0" style={{ borderColor: eventColor1, boxShadow: `0 0 10px ${eventColor1}66` }}>
                     {onClockLogo && <img src={onClockLogo} alt={onClock || ''} className="w-full h-full object-contain" />}
                   </div>
-                  <div className="flex gap-0.5">
+                  <div className="flex flex-col items-center gap-0.5">
+                    <span className="text-[9px] text-zinc-400 uppercase tracking-wide">Next</span>
+                    <div className="flex gap-1.5">
                     {nextUp.map((t: DraftSlot, i: number) => (
-                      <div key={i} className="w-7 h-7 bg-zinc-600 rounded overflow-hidden">
+                      <div key={i} className="w-9 h-9 bg-zinc-600 rounded overflow-hidden">
                         <img src={getTeamLogoPath(t.team)} alt={t.team} className="w-full h-full object-contain" />
                       </div>
                     ))}
+                    </div>
                   </div>
                 </div>
               </div>
@@ -870,7 +871,7 @@ export default function DraftRoomPage() {
               <div
                 className="shrink-0 self-stretch"
                 style={{
-                  width: '7px',
+                  width: '8px',
                   background: `linear-gradient(180deg, ${tc[1]} 0%, ${tc[1]}dd 55%, #0b0b0b 100%)`,
                   boxShadow: `0 0 10px ${tc[1]}66`,
                 }}
