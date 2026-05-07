@@ -1,7 +1,9 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* other config options */
+  outputFileTracingIncludes: {
+    '/api/team-prospect-draftboard/scouting': ['./prospect-draftboard/public/scouting-reports.json'],
+  },
 };
 
 export default nextConfig;
