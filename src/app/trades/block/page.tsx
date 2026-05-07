@@ -34,6 +34,16 @@ type MeTradeBlock = { tradeBlock: TradeAsset[]; tradeWants?: TradeWants };
 type AuthMe = { authenticated: boolean; claims?: Record<string, unknown> };
 
 const WANT_POSITIONS = ['QB','RB','WR','TE','K','DEF','1st','2nd','3rd'];
+const POS_COLORS: Record<string, string> = {
+  QB: '#ef4444',
+  RB: '#facc15',
+  WR: '#3b82f6',
+  TE: '#22c55e',
+  DEF: '#a855f7',
+  '1st': '#f97316',
+  '2nd': '#f97316',
+  '3rd': '#f97316',
+};
 
 export default function TradeBlockPage() {
   const [rows, setRows] = useState<TeamRow[]>([]);
@@ -222,7 +232,9 @@ export default function TradeBlockPage() {
                     const s1 = getTeamColorStyle(row.team);
                     const primaryBg = s1.backgroundColor as string;
                     const primaryFg = s1.color as string;
-                    const secondaryBg = getTeamColorStyle(row.team, 'secondary').backgroundColor as string;
+                    const s2 = getTeamColorStyle(row.team, 'secondary');
+                    const secondaryBg = s2.backgroundColor as string;
+                    const secondaryFg = s2.color as string;
                     return (
                       <li key={row.team} className="border border-[var(--border)] rounded-[var(--radius-card)] p-4" style={{ borderLeftColor: secondaryBg, borderLeftWidth: 4, borderLeftStyle: 'solid' }}>
                         <div className="rounded-t-[var(--radius-card)] -mx-4 -mt-4 px-4 py-2 mb-3" style={{ backgroundColor: primaryBg, color: primaryFg, borderTopColor: secondaryBg, borderTopWidth: 4, borderTopStyle: 'solid' }}>
@@ -242,7 +254,16 @@ export default function TradeBlockPage() {
                             {row.tradeWants.positions && row.tradeWants.positions.length > 0 && (
                               <div className="flex flex-wrap gap-2">
                                 {row.tradeWants.positions.map((p) => (
-                                  <span key={p} className="text-xs px-2 py-0.5 rounded-full border" style={{ borderColor: primaryFg, color: primaryFg }}>
+                                  <span
+                                    key={p}
+                                    className="text-xs px-2 py-0.5 rounded-full border font-semibold"
+                                    style={{
+                                      borderColor: 'rgba(255,255,255,0.9)',
+                                      boxShadow: '0 0 0 1px rgba(0,0,0,0.7), 0 1px 2px rgba(0,0,0,0.5)',
+                                      color: '#ffffff',
+                                      backgroundColor: POS_COLORS[p] || '#6b7280',
+                                    }}
+                                  >
                                     {p}
                                   </span>
                                 ))}
@@ -276,33 +297,59 @@ export default function TradeBlockPage() {
                             <div className="mt-2 mb-1 text-xs uppercase tracking-wide" style={{ color: primaryBg }}>
                               On the Block
                             </div>
-                            <ul className="space-y-1">
+                            <ul className="space-y-2">
                               {row.tradeBlock.map((a, idx) => (
-                                <li key={idx} className="flex items-center justify-between">
+                                <li
+                                  key={idx}
+                                  className="rounded-lg px-3 py-2 border"
+                                  style={{
+                                    backgroundColor: secondaryBg,
+                                    color: secondaryFg,
+                                    borderColor: primaryBg,
+                                  }}
+                                >
                                   {a.type === 'player' ? (
-                                    <span>
-                                      {playerNames[a.playerId]?.position ? `${playerNames[a.playerId].position} - ` : ''}
-                                      {playerNames[a.playerId]?.name || a.playerId}
-                                      {playerNames[a.playerId]?.team ? ` (${playerNames[a.playerId].team})` : ''}
+                                    <span className="flex items-center gap-2 flex-wrap">
+                                      {playerNames[a.playerId]?.position && (
+                                        <span
+                                          className="inline-flex items-center justify-center text-[10px] w-6 h-6 rounded-full border font-semibold"
+                                          style={{
+                                            borderColor: 'rgba(255,255,255,0.9)',
+                                            boxShadow: '0 0 0 1px rgba(0,0,0,0.7), 0 1px 2px rgba(0,0,0,0.5)',
+                                            color: '#ffffff',
+                                            backgroundColor: POS_COLORS[playerNames[a.playerId].position || ''] || '#6b7280',
+                                          }}
+                                        >
+                                          {playerNames[a.playerId].position}
+                                        </span>
+                                      )}
+                                      <span className="font-semibold">
+                                        {playerNames[a.playerId]?.name || a.playerId}
+                                      </span>
+                                      {playerNames[a.playerId]?.team ? (
+                                        <span className="text-xs" style={{ opacity: 0.9 }}>
+                                          ({playerNames[a.playerId].team})
+                                        </span>
+                                      ) : null}
                                     </span>
                                   ) : a.type === 'pick' ? (
-                                    <span>
-                                      <span className="inline-flex items-center text-[10px] px-1.5 py-0.5 rounded-full border mr-1" style={{ borderColor: primaryBg, color: primaryBg }}>
+                                    <span className="flex items-center gap-1.5 flex-wrap">
+                                      <span className="inline-flex items-center text-[10px] px-1.5 py-0.5 rounded-full border mr-1" style={{ borderColor: secondaryFg, color: secondaryFg }}>
                                         {a.year}
                                       </span>
-                                      <span className="inline-flex items-center text-[10px] px-1.5 py-0.5 rounded-full border mr-1" style={{ borderColor: primaryBg, color: primaryBg }}>
+                                      <span className="inline-flex items-center text-[10px] px-1.5 py-0.5 rounded-full border mr-1" style={{ borderColor: secondaryFg, color: secondaryFg }}>
                                         R{a.round}
                                       </span>
                                       {a.originalTeam && a.originalTeam !== row.team ? (
-                                        <span className="text-xs text-[var(--muted)]"> (originally {a.originalTeam})</span>
+                                        <span className="text-xs" style={{ opacity: 0.9 }}> (originally {a.originalTeam})</span>
                                       ) : null}
                                     </span>
                                   ) : (
-                                    <span>
-                                      <span className="inline-flex items-center text-[10px] px-1.5 py-0.5 rounded-full border mr-1" style={{ borderColor: primaryBg, color: primaryBg }}>
+                                    <span className="flex items-center gap-1.5 flex-wrap">
+                                      <span className="inline-flex items-center text-[10px] px-1.5 py-0.5 rounded-full border mr-1" style={{ borderColor: secondaryFg, color: secondaryFg }}>
                                         FAAB
                                       </span>
-                                      {typeof a.amount === 'number' ? `$${a.amount}` : ''}
+                                      <span className="font-semibold">{typeof a.amount === 'number' ? `$${a.amount}` : ''}</span>
                                     </span>
                                   )}
                                 </li>
@@ -342,7 +389,19 @@ export default function TradeBlockPage() {
                           <label key={pid} className="flex items-center gap-2 text-sm">
                             <input type="checkbox" checked={!!selPlayers[pid]} onChange={(e) => setSelPlayers((s) => ({ ...s, [pid]: e.target.checked }))} />
                             <span>
-                              {playerNames[pid]?.position ? `${playerNames[pid].position} - ` : ''}
+                              {playerNames[pid]?.position && (
+                                <span
+                                  className="inline-flex items-center justify-center text-[10px] w-6 h-6 rounded-full border font-semibold mr-2 align-middle"
+                                  style={{
+                                    borderColor: 'rgba(255,255,255,0.9)',
+                                    boxShadow: '0 0 0 1px rgba(0,0,0,0.7), 0 1px 2px rgba(0,0,0,0.5)',
+                                    color: '#ffffff',
+                                    backgroundColor: POS_COLORS[playerNames[pid].position || ''] || '#6b7280',
+                                  }}
+                                >
+                                  {playerNames[pid].position}
+                                </span>
+                              )}
                               {playerNames[pid]?.name || pid}
                               {playerNames[pid]?.team ? ` (${playerNames[pid].team})` : ''}
                             </span>
@@ -456,7 +515,17 @@ export default function TradeBlockPage() {
                       {WANT_POSITIONS.map((p) => (
                         <label key={p} className="flex items-center gap-2 text-sm">
                           <input type="checkbox" checked={!!wantsPos[p]} onChange={(e) => setWantsPos((s) => ({ ...s, [p]: e.target.checked }))} />
-                          <span>{p}</span>
+                          <span
+                            className="inline-flex items-center justify-center text-[10px] min-w-[2.2rem] h-6 px-2 rounded-full border font-semibold"
+                            style={{
+                              borderColor: 'rgba(255,255,255,0.9)',
+                              boxShadow: '0 0 0 1px rgba(0,0,0,0.7), 0 1px 2px rgba(0,0,0,0.5)',
+                              color: '#ffffff',
+                              backgroundColor: POS_COLORS[p] || '#6b7280',
+                            }}
+                          >
+                            {p}
+                          </span>
                         </label>
                       ))}
                     </div>

@@ -482,6 +482,9 @@ export default function DraftContent() {
           setDraftsByYear(prev => ({ ...prev, [selectedYear]: null }));
         }
       } finally {
+        // If this load was cancelled (tab/view change or rapid year switch),
+        // allow a clean retry next time this year is selected.
+        if (cancelled) loadedYearsRef.current.delete(selectedYear);
         if (!cancelled) setLoading(false);
       }
     }

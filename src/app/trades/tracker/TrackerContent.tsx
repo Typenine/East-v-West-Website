@@ -2,43 +2,16 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import NextDynamic from 'next/dynamic';
-import type { GraphNode as EVWGraphNode, GraphEdge as EVWGraphEdge, TradeGraph as EVWTradeGraph } from '@/lib/utils/trade-graph';
+import type { GraphNode as EVWGraphNode, TradeGraph as EVWTradeGraph } from '@/lib/utils/trade-graph';
 import SectionHeader from '@/components/ui/SectionHeader';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
 import LoadingState from '@/components/ui/loading-state';
 import ErrorState from '@/components/ui/error-state';
 import Label from '@/components/ui/Label';
 import { Button } from '@/components/ui/Button';
+import TradeTreeReport from '@/components/trade-tree/TradeTreeReport';
 
 export const dynamic = 'force-dynamic';
-
-// Dynamically load the React Flow-based canvas on the client only
-const TradeTreeCanvas = NextDynamic(() => import('@/components/trade-tree/TradeTreeCanvas'), { ssr: false });
-
-// Build a consistent color per tradeId (distinct hex hues)
-function buildTradeColorMap(edges: EVWGraphEdge[]): Map<string, string> {
-  const ids = Array.from(new Set(edges.filter(e => e.kind === 'traded' && e.tradeId).map(e => e.tradeId as string)));
-  const map = new Map<string, string>();
-  const hash = (s: string) => {
-    let h = 0;
-    for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
-    return Math.abs(h);
-  };
-  const hslToHex = (h: number, s: number, l: number) => {
-    s /= 100; l /= 100;
-    const k = (n: number) => (n + h / 30) % 12;
-    const a = s * Math.min(l, 1 - l);
-    const f = (n: number) => l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
-    const toHex = (x: number) => Math.round(255 * x).toString(16).padStart(2, '0');
-    return `#${toHex(f(0))}${toHex(f(8))}${toHex(f(4))}`;
-  };
-  ids.forEach((id, idx) => {
-    const hue = (hash(id) + idx * 47) % 360;
-    map.set(id, hslToHex(hue, 70, 45));
-  });
-  return map;
-}
 
 function TradeTrackerContent() {
   const searchParams = useSearchParams();
@@ -91,6 +64,11 @@ function TradeTrackerContent() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [view, setView] = useState<'graph' | 'list'>(() => (typeof window !== 'undefined' && window.innerWidth < 768 ? 'list' : 'graph'));
+  const rootNodeLabel = useMemo(() => {
+    if (!graph) return null;
+    const rootId = rootType === 'player' ? `player:${playerId}` : `pick:${season}-${round}-${slot}`;
+    return graph.nodes.find((n) => n.id === rootId)?.label ?? null;
+  }, [graph, rootType, playerId, season, round, slot]);
 
   const fetchGraph = useCallback(async () => {
     setError(null);
@@ -161,7 +139,7 @@ function TradeTrackerContent() {
         <CardContent>
           <div className="text-sm text-[var(--muted)]">
             {rootType === 'player' ? (
-              <div>Player ID: <code>{playerId || '—'}</code></div>
+              <div>Player: <code>{rootNodeLabel || playerId || '—'}</code></div>
             ) : (
               <div>Pick: <code>{season || '—'} R{round || '—'} S{slot || '—'}</code></div>
             )}
@@ -195,7 +173,7 @@ function TradeTrackerContent() {
             <CardTitle>Trade Tree</CardTitle>
             <div className="flex items-center gap-2">
               <Button size="sm" variant={view === 'list' ? 'primary' : 'secondary'} onClick={() => setView('list')}>List</Button>
-              <Button size="sm" variant={view === 'graph' ? 'primary' : 'secondary'} onClick={() => setView('graph')}>Graph</Button>
+              <Button size="sm" variant={view === 'graph' ? 'primary' : 'secondary'} onClick={() => setView('graph')}>Tree</Button>
             </div>
           </div>
         </CardHeader>
@@ -204,40 +182,9 @@ function TradeTrackerContent() {
           {error && <ErrorState message={error} retry={fetchGraph} />}
           {!loading && !error && graph && view === 'graph' && (
             <div>
-              <div className="mb-3 text-sm text-[var(--muted)]">
-                Nodes: {graph.nodes.length} • Edges: {graph.edges.length}
-              </div>
-              {/* Legend hidden on mobile for clarity */}
-              <div className="hidden sm:block">
-                {(() => {
-                  const colorMap = buildTradeColorMap(graph.edges);
-                  type TradeNode = Extract<EVWGraphNode, { type: 'trade' }>;
-                  const tradeNodes = graph.nodes.filter((n): n is TradeNode => n.type === 'trade');
-                  const byId = new Map(tradeNodes.map((t) => [t.tradeId, t]));
-                  const entries = Array.from(colorMap.keys()).map((tid) => {
-                    const tn = byId.get(tid);
-                    return tn ? { id: tid, date: tn.date, teams: tn.teams || [], color: colorMap.get(tid)! } : null;
-                  }).filter(Boolean) as Array<{ id: string; date: string; teams: string[]; color: string }>;
-                  entries.sort((a, b) => a.date.localeCompare(b.date));
-                  return entries.length ? (
-                    <div className="mb-3">
-                      <h3 className="text-sm font-medium mb-1">Trades in view</h3>
-                      <ul className="space-y-1 text-sm">
-                        {entries.map((e) => (
-                          <li key={e.id} className="flex items-center gap-2" title={`${e.teams.join(' ↔ ')} (${e.date})`}>
-                            <span className="inline-block w-8 align-middle" style={{ backgroundColor: e.color, height: 3 }} />
-                            <span className="truncate">{e.teams.join(' ↔ ')} ({e.date})</span>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  ) : null;
-                })()}
-              </div>
-              <TradeTreeCanvas
+              <TradeTreeReport
                 graph={graph}
                 rootId={rootType === 'player' ? `player:${playerId}` : `pick:${season}-${round}-${slot}`}
-                height={640}
                 onNodeClick={(n: EVWGraphNode) => {
                   if (n.type === 'player') {
                     const id = n.playerId;
@@ -247,13 +194,6 @@ function TradeTrackerContent() {
                   }
                 }}
               />
-              <div className="mt-2 text-xs text-[var(--muted)] hidden sm:block">
-                Legend: <span className="inline-block w-3 h-3 bg-accent-soft border border-accent align-middle mr-1"/> Player •
-                <span className="inline-block w-3 h-3 bg-green-100 border border-green-400 align-middle mx-1"/> Pick •
-                <span className="inline-block w-3 h-3 evw-surface border border-[var(--border)] align-middle mx-1"/> Trade •
-                <span className="inline-block border-t-2 border-[var(--border)] align-middle mx-1 w-6"/> traded •
-                <span className="inline-block border-t-2 border-dashed border-[var(--border)] align-middle mx-1 w-6"/> became
-              </div>
             </div>
           )}
           {!loading && !error && graph && view === 'list' && (

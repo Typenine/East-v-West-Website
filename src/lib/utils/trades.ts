@@ -62,11 +62,12 @@ export const fetchTradesAllTime = async (): Promise<Trade[]> => {
         const ctx = await ctxFor(leagueId);
         return Promise.all(
           txns.map(async (transaction) => {
-            if (tradesCache[transaction.transaction_id]) {
-              return tradesCache[transaction.transaction_id];
+            const cacheKey = cacheKeyForTxn(transaction.transaction_id);
+            if (tradesCache[cacheKey]) {
+              return tradesCache[cacheKey];
             }
             const trade = await convertSleeperTradeToTrade(transaction, leagueId, year, ctx);
-            tradesCache[transaction.transaction_id] = trade;
+            tradesCache[cacheKey] = trade;
             return trade;
           })
         );
@@ -347,9 +348,18 @@ async function convertSleeperTradeToTrade(
     // Process draft picks received by this team
     if (transaction.draft_picks) {
       const picksReceived = transaction.draft_picks
-        .filter(pick => pick.owner_id === rosterId && pick.previous_owner_id !== rosterId);
+        .filter((pick) => {
+          const ownerId = Number((pick as { owner_id?: number | string }).owner_id);
+          const prevOwnerId = Number((pick as { previous_owner_id?: number | string }).previous_owner_id);
+          const thisRoster = Number(rosterId);
+          if (!Number.isFinite(ownerId) || !Number.isFinite(thisRoster)) return false;
+          // A received pick is any pick whose post-trade owner is this roster
+          // and whose previous owner differs (strictly by numeric value).
+          return ownerId === thisRoster && prevOwnerId !== thisRoster;
+        });
       for (const pick of picksReceived) {
-        const originalOwnerName = rosterIdToTeam.get(pick.roster_id) || (rosterMap.get(pick.roster_id)?.metadata?.team_name ?? `Roster ${pick.roster_id}`);
+        const originalRosterId = Number((pick as { roster_id?: number | string }).roster_id);
+        const originalOwnerName = rosterIdToTeam.get(originalRosterId) || (rosterMap.get(originalRosterId)?.metadata?.team_name ?? `Roster ${originalRosterId}`);
         let became: string | undefined = undefined;
         let becamePosition: string | undefined = undefined;
         let becameTeam: string | undefined = undefined;
@@ -357,7 +367,7 @@ async function convertSleeperTradeToTrade(
         let becamePlayerId: string | undefined = undefined;
         let draftSlot: number | undefined = undefined;
         try {
-          const info = await resolvePickBecame(pick.season, pick.round, pick.roster_id);
+          const info = await resolvePickBecame(String(pick.season), Number(pick.round), originalRosterId);
           if (info) {
             became = info.name;
             becamePosition = info.position;
@@ -439,6 +449,8 @@ function getOrdinal(n: number): string {
 
 // Cache for converted trades
 const tradesCache: Record<string, Trade> = {};
+const TRADES_CACHE_VERSION = 'v2';
+const cacheKeyForTxn = (txnId: string) => `${TRADES_CACHE_VERSION}:${txnId}`;
 
 /* Sample trades removed - replaced with real Sleeper API data */
 /*
@@ -665,11 +677,12 @@ export const fetchTradesByYear = async (year: string): Promise<Trade[]> => {
 
     const trades = await Promise.all(
       sleeperTrades.map(async (transaction) => {
-        if (tradesCache[transaction.transaction_id]) {
-          return tradesCache[transaction.transaction_id];
+        const cacheKey = cacheKeyForTxn(transaction.transaction_id);
+        if (tradesCache[cacheKey]) {
+          return tradesCache[cacheKey];
         }
         const trade = await convertSleeperTradeToTrade(transaction, leagueId, year, ctx);
-        tradesCache[transaction.transaction_id] = trade;
+        tradesCache[cacheKey] = trade;
         return trade;
       })
     );
@@ -709,8 +722,9 @@ export const fetchTradeById = async (id: string): Promise<Trade | null> => {
     }
     
     // Check if the trade is already in the cache
-    if (tradesCache[id]) {
-      return tradesCache[id];
+    const byIdKey = cacheKeyForTxn(id);
+    if (tradesCache[byIdKey]) {
+      return tradesCache[byIdKey];
     }
     
     // If not in cache, we need to fetch all trades and find it
@@ -722,7 +736,7 @@ export const fetchTradeById = async (id: string): Promise<Trade | null> => {
       const transaction = sleeperTrades.find(t => t.transaction_id === id);
       if (transaction) {
         const trade = await convertSleeperTradeToTrade(transaction, leagueId);
-        tradesCache[id] = trade;
+        tradesCache[cacheKeyForTxn(id)] = trade;
         return trade;
       }
     }

@@ -25,6 +25,52 @@ export type RootSelector =
   | { type: 'player'; playerId: string }
   | { type: 'pick'; season: string; round: number; slot: number };
 
+function slugPart(value: string | undefined): string {
+  if (!value) return '';
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 40);
+}
+
+function buildPickNodeId(input: {
+  season: string;
+  round: number;
+  slot?: number;
+  pickInRound?: number;
+  originalOwnerName?: string;
+  name?: string;
+}): { id: string; slotValue: number } {
+  const explicitSlot = Number.isFinite(input.slot as number) ? (input.slot as number) : undefined;
+  if (typeof explicitSlot === 'number') {
+    return { id: `pick:${input.season}-${input.round}-${explicitSlot}`, slotValue: explicitSlot };
+  }
+  const pir = Number.isFinite(input.pickInRound as number) ? (input.pickInRound as number) : undefined;
+  if (typeof pir === 'number') {
+    return { id: `pick:${input.season}-${input.round}-pir-${pir}`, slotValue: pir };
+  }
+  const owner = slugPart(input.originalOwnerName);
+  if (owner) {
+    return { id: `pick:${input.season}-${input.round}-owner-${owner}`, slotValue: -1 };
+  }
+  const name = slugPart(input.name);
+  if (name) {
+    return { id: `pick:${input.season}-${input.round}-name-${name}`, slotValue: -1 };
+  }
+  return { id: `pick:${input.season}-${input.round}-unknown`, slotValue: -1 };
+}
+
+function fallbackPickNodeId(params: {
+  tradeId: string;
+  teamIndex: number;
+  assetIndex: number;
+  name?: string;
+}): string {
+  const safeName = slugPart(params.name) || "pick";
+  return `pick:fallback:${params.tradeId}:${params.teamIndex}:${params.assetIndex}:${safeName}`;
+}
+
 // Build a full trade graph from the provided trades
 export function buildTradeGraph(trades: Trade[]): TradeGraph {
   const nodesById = new Map<string, GraphNode>();
@@ -56,18 +102,51 @@ export function buildTradeGraph(trades: Trade[]): TradeGraph {
             edgeIds.add(edgeId);
           }
         } else if (asset.type === 'pick') {
-          const season = asset.year;
-          const round = asset.round;
-          const slot = asset.draftSlot ?? asset.pickInRound; // prefer stable draftSlot
+          const season = String(asset.year ?? asset.pick?.season ?? '');
+          const round = Number(asset.round ?? asset.pick?.round);
+          const slot = Number.isFinite(Number(asset.draftSlot ?? asset.pickInRound))
+            ? Number(asset.draftSlot ?? asset.pickInRound)
+            : undefined; // prefer stable draftSlot
           const pickInRound = asset.pickInRound;
           const becameName = (asset.became as string | undefined) || undefined;
-          const originalOwnerName = asset.originalOwner as string | undefined;
-          if (!season || typeof round !== 'number' || !Number.isFinite(slot as number)) return;
-          const pickNodeId = `pick:${season}-${round}-${slot as number}`;
-          const pickLabel = asset.name || `${season} R${round}${typeof pickInRound === 'number' ? ` #${pickInRound}` : ` S${slot as number}`}`;
+          const originalOwnerName = (asset.originalOwner as string | undefined) || asset.pick?.originalOwner;
+          const hasStructuredPick = Boolean(season) && Number.isFinite(round);
+          const pickLabel = asset.name || (hasStructuredPick
+            ? `${season} R${round}${typeof pickInRound === 'number' ? ` #${pickInRound}` : (typeof slot === 'number' ? ` S${slot}` : '')}`
+            : 'Draft Pick');
+          const pickNodeId = hasStructuredPick
+            ? buildPickNodeId({
+                season,
+                round,
+                slot,
+                pickInRound,
+                originalOwnerName,
+                name: asset.name,
+              }).id
+            : fallbackPickNodeId({ tradeId: trade.id, teamIndex, assetIndex, name: asset.name });
+          const slotValue = hasStructuredPick
+            ? buildPickNodeId({
+                season,
+                round,
+                slot,
+                pickInRound,
+                originalOwnerName,
+                name: asset.name,
+              }).slotValue
+            : -1;
           const existing = nodesById.get(pickNodeId);
           if (!existing) {
-            nodesById.set(pickNodeId, { id: pickNodeId, type: 'pick', label: pickLabel, season, round, slot: slot as number, pickInRound, becameName, originalOwnerName });
+            nodesById.set(pickNodeId, {
+              id: pickNodeId,
+              type: 'pick',
+              label: pickLabel,
+              season: hasStructuredPick ? season : 'unknown',
+              round: hasStructuredPick ? round : 0,
+              slot: slotValue,
+              pickInRound,
+              becameName,
+              originalOwnerName
+            });
           } else if (existing && existing.type === 'pick') {
             // Enrich existing pick node if missing fields
             nodesById.set(pickNodeId, {
@@ -90,7 +169,7 @@ export function buildTradeGraph(trades: Trade[]): TradeGraph {
           if (becamePlayerId) {
             const playerNodeId = `player:${becamePlayerId}`;
             ensureNode({ id: playerNodeId, type: 'player', label: becameLabel || becamePlayerId, playerId: becamePlayerId });
-            const becameEdgeId = `became:${season}-${round}-${slot as number}:${becamePlayerId}`;
+            const becameEdgeId = `became:${pickNodeId}:${becamePlayerId}`;
             if (!edgeIds.has(becameEdgeId)) {
               edges.push({ id: becameEdgeId, from: pickNodeId, to: playerNodeId, kind: 'became' });
               edgeIds.add(becameEdgeId);

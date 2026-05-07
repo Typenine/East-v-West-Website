@@ -311,6 +311,7 @@ function JunctionNode() {
 }
 
 const nodeTypes = { asset: AssetNode, band: BandNode, junction: JunctionNode } as const;
+const SIMPLE_TREE = true;
 
 export default function TradeTreeCanvas({ graph, height = 640, onNodeClick }: TradeTreeCanvasProps) {
   const rfRef = useRef<ReactFlowInstance | null>(null);
@@ -521,9 +522,9 @@ export default function TradeTreeCanvas({ graph, height = 640, onNodeClick }: Tr
         labels[bandId] = `From ${b.otherTeams} • ${b.date}`;
         const bandStrokeColor = BRACKET_RED;
 
-        // Add bracket-style connectors for assets acquired in this band
+        // Add connectors for assets acquired in this band
         const inAssets: EVWGraphNode[] = b.assets;
-        if (inAssets.length) {
+        if (inAssets.length && !SIMPLE_TREE) {
           // Build preview labels for collapsed state
           bandData.preview = inAssets.map((n) => labelFor(n));
           // Create a hidden junction node slightly above the band header center
@@ -631,13 +632,23 @@ export default function TradeTreeCanvas({ graph, height = 640, onNodeClick }: Tr
             });
             if (!clonesByAsset.has(n.id)) clonesByAsset.set(n.id, []);
             clonesByAsset.get(n.id)!.push(cloneId);
+            if (SIMPLE_TREE) {
+              rfEdges.push({
+                id: `band:${bandId}->${cloneId}`,
+                source: bandId,
+                target: cloneId,
+                type: 'step',
+                style: { stroke: 'var(--muted)', strokeWidth: 2.5, strokeLinecap: 'round', strokeLinejoin: 'round' },
+                markerEnd: { type: MarkerType.ArrowClosed, color: 'var(--muted)' },
+              });
+            }
             const busY = y - 8;
             const assetTopY = y - 4;
             const rowIndex = row;
             if (!rowsAnchors[rowIndex]) rowsAnchors[rowIndex] = { busY, assetTopY, xs: [] };
             rowsAnchors[rowIndex].xs.push(x + NODE_W / 2);
           });
-          if (rowsAnchors.length) {
+          if (rowsAnchors.length && !SIMPLE_TREE) {
             bandData.bus = { rows: rowsAnchors, color: bandStrokeColor, busW: dims.stack ? 4 : 5, dropW: dims.stack ? 2 : 3 };
           }
         }
@@ -666,26 +677,28 @@ export default function TradeTreeCanvas({ graph, height = 640, onNodeClick }: Tr
       }
     });
 
-    // Continuity edges across trades for the same asset (dotted to next trade)
-    for (const [assetId, cloneIds] of clonesByAsset.entries()) {
-      if (!cloneIds || cloneIds.length < 2) continue;
-      const items = cloneIds.map((cid) => {
-        const parts = cid.split(':'); // asset:<id>:band:<tradeId>:<side>
-        const tradeId = parts[3];
-        const t = tradeById.get(tradeId);
-        return { cid, tradeId, date: t?.date || '9999-99-99' };
-      }).sort((a, b) => a.date.localeCompare(b.date));
-      for (let i = 0; i < items.length - 1; i++) {
-        const a = items[i];
-        const b = items[i + 1];
-        rfEdges.push({
-          id: `flow:${assetId}:${a.cid}:${b.cid}`,
-          source: a.cid,
-          target: b.cid,
-          type: 'bezier',
-          style: { stroke: 'var(--muted)', strokeWidth: 2, strokeDasharray: '4 4', strokeLinecap: 'round', strokeLinejoin: 'round', opacity: 0.9 },
-          markerEnd: { type: MarkerType.ArrowClosed, color: 'var(--muted)' },
-        });
+    if (!SIMPLE_TREE) {
+      // Continuity edges across trades for the same asset (dotted to next trade)
+      for (const [assetId, cloneIds] of clonesByAsset.entries()) {
+        if (!cloneIds || cloneIds.length < 2) continue;
+        const items = cloneIds.map((cid) => {
+          const parts = cid.split(':'); // asset:<id>:band:<tradeId>:<side>
+          const tradeId = parts[3];
+          const t = tradeById.get(tradeId);
+          return { cid, tradeId, date: t?.date || '9999-99-99' };
+        }).sort((a, b) => a.date.localeCompare(b.date));
+        for (let i = 0; i < items.length - 1; i++) {
+          const a = items[i];
+          const b = items[i + 1];
+          rfEdges.push({
+            id: `flow:${assetId}:${a.cid}:${b.cid}`,
+            source: a.cid,
+            target: b.cid,
+            type: 'bezier',
+            style: { stroke: 'var(--muted)', strokeWidth: 2, strokeDasharray: '4 4', strokeLinecap: 'round', strokeLinejoin: 'round', opacity: 0.9 },
+            markerEnd: { type: MarkerType.ArrowClosed, color: 'var(--muted)' },
+          });
+        }
       }
     }
 
@@ -850,19 +863,22 @@ export default function TradeTreeCanvas({ graph, height = 640, onNodeClick }: Tr
         fitView
         proOptions={{ hideAttribution: true }}
       >
-        <MiniMap
-          pannable
-          zoomable
-          className="evw-surface border rounded shadow opacity-60 hover:opacity-100 transition-opacity hidden sm:block"
-          maskColor="color-mix(in srgb, var(--text) 8%, transparent)"
-          nodeStrokeColor={() => 'var(--border)'}
-          nodeColor={() => 'color-mix(in srgb, var(--text) 12%, transparent)'}
-        />
-        <Controls position="bottom-right" className="evw-surface border rounded shadow hidden sm:block" />
+        {!SIMPLE_TREE && (
+          <MiniMap
+            pannable
+            zoomable
+            className="evw-surface border rounded shadow opacity-60 hover:opacity-100 transition-opacity hidden sm:block"
+            maskColor="color-mix(in srgb, var(--text) 8%, transparent)"
+            nodeStrokeColor={() => 'var(--border)'}
+            nodeColor={() => 'color-mix(in srgb, var(--text) 12%, transparent)'}
+          />
+        )}
+        {!SIMPLE_TREE && <Controls position="bottom-right" className="evw-surface border rounded shadow hidden sm:block" />}
         <Background variant="lines" gap={32} color="var(--border)" />
       </ReactFlow>
 
       {/* Floating Legend / Key */}
+      {!SIMPLE_TREE && (
       <Card className="absolute top-2 right-2 p-0 text-xs w-72 max-h-[60%] overflow-auto hidden sm:block">
         <CardHeader className="px-2 py-2 border-b border-[var(--border)]">
           <div className="flex items-center justify-between">
@@ -1055,6 +1071,7 @@ export default function TradeTreeCanvas({ graph, height = 640, onNodeClick }: Tr
           <div className="text-[10px] text-[var(--muted)]">Hover or select to trace path; click a node for details; scroll to zoom, drag to pan. Long-press nodes on touch.</div>
         </CardContent>
       </Card>
+      )}
 
       {/* Mobile-only quick Reset button since Controls/Legend are hidden */}
       <div className="sm:hidden absolute right-2 bottom-2 z-10">
@@ -1084,9 +1101,7 @@ export default function TradeTreeCanvas({ graph, height = 640, onNodeClick }: Tr
           <CardContent className="space-y-1 text-sm">
             <div><span className="text-[var(--muted)]">Type:</span> {selected.type}</div>
             <div><span className="text-[var(--muted)]">Label:</span> {labelFor(selected)}</div>
-            {selected.type === 'player' && (
-              <div><span className="text-[var(--muted)]">Player ID:</span> {selected.playerId}</div>
-            )}
+            {selected.type === 'player' && null}
             {selected.type === 'pick' && (
               <div>
                 <div><span className="text-[var(--muted)]">Pick:</span> {selected.season} R{selected.round} S{selected.slot}</div>
@@ -1123,9 +1138,7 @@ export default function TradeTreeCanvas({ graph, height = 640, onNodeClick }: Tr
           <CardContent className="space-y-1 text-sm">
             <div><span className="text-[var(--muted)]">Type:</span> {selected.type}</div>
             <div><span className="text-[var(--muted)]">Label:</span> {labelFor(selected)}</div>
-            {selected.type === 'player' && (
-              <div><span className="text-[var(--muted)]">Player ID:</span> {selected.playerId}</div>
-            )}
+            {selected.type === 'player' && null}
             {selected.type === 'pick' && (
               <div>
                 <div><span className="text-[var(--muted)]">Pick:</span> {selected.season} R{selected.round} S{selected.slot}</div>
