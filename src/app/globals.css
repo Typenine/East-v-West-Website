@@ -91,6 +91,25 @@ body::before {
   filter: saturate(120%);
 }
 
+@keyframes homeAuroraDrift {
+  0% { transform: translate3d(0, 0, 0) scale(1); }
+  50% { transform: translate3d(0, -1.2%, 0) scale(1.02); }
+  100% { transform: translate3d(0, 0.8%, 0) scale(1.01); }
+}
+
+.home-aurora-motion {
+  animation: homeAuroraDrift 26s ease-in-out infinite alternate;
+  transform-origin: 50% 18%;
+  will-change: transform;
+}
+
+/* Homepage-only surface depth tuning */
+.home-page .evw-surface {
+  background-color: color-mix(in srgb, var(--surface) 88%, transparent);
+  border-color: color-mix(in srgb, var(--border) 82%, transparent);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.24), 0 0 0 1px rgba(255,255,255,0.02) inset;
+}
+
 /* Utilities tailored to tokens */
 .evw-surface {
   background-color: var(--surface);

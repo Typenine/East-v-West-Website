@@ -8,9 +8,10 @@ interface CountdownTimerProps {
   targetDate: Date;
   title: string;
   className?: string;
+  emphasis?: boolean;
 }
 
-export default function CountdownTimer({ targetDate, title, className = '' }: CountdownTimerProps) {
+export default function CountdownTimer({ targetDate, title, className = '', emphasis = false }: CountdownTimerProps) {
   const [timeRemaining, setTimeRemaining] = useState(getTimeRemaining(targetDate));
   const [isClient, setIsClient] = useState(false);
   
@@ -28,7 +29,7 @@ export default function CountdownTimer({ targetDate, title, className = '' }: Co
     return (
       <Card className={className}>
         <CardHeader>
-          <CardTitle>{title}</CardTitle>
+          <CardTitle className={emphasis ? 'text-[1.05rem] sm:text-[1.12rem] font-bold' : ''}>{title}</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="text-center text-[var(--muted)]">Loading...</div>
@@ -42,7 +43,7 @@ export default function CountdownTimer({ targetDate, title, className = '' }: Co
     return (
       <Card className={className}>
         <CardHeader>
-          <CardTitle>{title}</CardTitle>
+          <CardTitle className={emphasis ? 'text-[1.05rem] sm:text-[1.12rem] font-bold' : ''}>{title}</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="text-center text-2xl font-bold">Started!</div>
@@ -54,25 +55,25 @@ export default function CountdownTimer({ targetDate, title, className = '' }: Co
   return (
     <Card className={className}>
       <CardHeader>
-        <CardTitle>{title}</CardTitle>
+        <CardTitle className={emphasis ? 'text-[1.05rem] sm:text-[1.12rem] font-bold' : ''}>{title}</CardTitle>
       </CardHeader>
       <CardContent>
-        <div className="grid grid-cols-4 gap-3 text-center">
+        <div className={`grid grid-cols-4 text-center ${emphasis ? 'gap-2 sm:gap-3' : 'gap-3'}`}>
           <div className="flex flex-col">
-            <span className="text-3xl font-bold tabular-nums">{timeRemaining.days}</span>
-            <span className="text-xs text-[var(--muted)] uppercase tracking-wide">Days</span>
+            <span className={`${emphasis ? 'text-4xl sm:text-5xl font-extrabold' : 'text-3xl font-bold'} tabular-nums`}>{timeRemaining.days}</span>
+            <span className={`${emphasis ? 'text-[11px] sm:text-xs tracking-wider' : 'text-xs tracking-wide'} text-[var(--muted)] uppercase`}>Days</span>
           </div>
           <div className="flex flex-col">
-            <span className="text-3xl font-bold tabular-nums">{timeRemaining.hours}</span>
-            <span className="text-xs text-[var(--muted)] uppercase tracking-wide">Hours</span>
+            <span className={`${emphasis ? 'text-4xl sm:text-5xl font-extrabold' : 'text-3xl font-bold'} tabular-nums`}>{timeRemaining.hours}</span>
+            <span className={`${emphasis ? 'text-[11px] sm:text-xs tracking-wider' : 'text-xs tracking-wide'} text-[var(--muted)] uppercase`}>Hours</span>
           </div>
           <div className="flex flex-col">
-            <span className="text-3xl font-bold tabular-nums">{timeRemaining.minutes}</span>
-            <span className="text-xs text-[var(--muted)] uppercase tracking-wide">Minutes</span>
+            <span className={`${emphasis ? 'text-4xl sm:text-5xl font-extrabold' : 'text-3xl font-bold'} tabular-nums`}>{timeRemaining.minutes}</span>
+            <span className={`${emphasis ? 'text-[11px] sm:text-xs tracking-wider' : 'text-xs tracking-wide'} text-[var(--muted)] uppercase`}>Minutes</span>
           </div>
           <div className="flex flex-col">
-            <span className="text-3xl font-bold tabular-nums">{timeRemaining.seconds}</span>
-            <span className="text-xs text-[var(--muted)] uppercase tracking-wide">Seconds</span>
+            <span className={`${emphasis ? 'text-4xl sm:text-5xl font-extrabold' : 'text-3xl font-bold'} tabular-nums`}>{timeRemaining.seconds}</span>
+            <span className={`${emphasis ? 'text-[11px] sm:text-xs tracking-wider' : 'text-xs tracking-wide'} text-[var(--muted)] uppercase`}>Seconds</span>
           </div>
         </div>
       </CardContent>

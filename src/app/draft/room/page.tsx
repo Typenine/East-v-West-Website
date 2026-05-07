@@ -350,8 +350,23 @@ export default function DraftRoomPage() {
   useEffect(() => {
     fetch('/api/auth/me').then(r => r.json()).then((j: MeResp) => setMe(j)).catch(() => {});
     load(true);
-    const t = setInterval(() => load(false, true), 3000);
-    return () => clearInterval(t);
+    let t: ReturnType<typeof setInterval>;
+    const jitter = () => Math.floor(Math.random() * 400);
+    const start = () => {
+      const ms = (document.hidden ? 10000 : 3000) + jitter();
+      t = setInterval(() => load(false, true), ms);
+    };
+    const onVis = () => {
+      clearInterval(t);
+      load(false, true);
+      start();
+    };
+    start();
+    document.addEventListener('visibilitychange', onVis);
+    return () => {
+      clearInterval(t);
+      document.removeEventListener('visibilitychange', onVis);
+    };
   }, []);
 
   // Load queue when myTeam or admin status changes — scoped per team (admin passes team explicitly)
@@ -841,6 +856,15 @@ export default function DraftRoomPage() {
                   </div>
                 </div>
               </div>
+              {/* Team secondary-color divider strip between clock + info bar */}
+              <div
+                className="shrink-0 self-stretch"
+                style={{
+                  width: '7px',
+                  background: `linear-gradient(180deg, ${tc[1]} 0%, ${tc[1]}dd 55%, #0b0b0b 100%)`,
+                  boxShadow: `0 0 10px ${tc[1]}66`,
+                }}
+              />
               {/* InfoBar — ticker; on-the-clock overlay is sibling (covers clock + bar) */}
               <div className="flex-1 p-2 overflow-hidden relative" style={{ background: `linear-gradient(135deg, ${tc[0]}dd, ${tc[1]}cc)` }}>
                 <DraftInfoBarTicker

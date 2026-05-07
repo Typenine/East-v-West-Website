@@ -62,8 +62,44 @@ function isAdmin(req: NextRequest): boolean {
   }
 }
 
-function ok(data: unknown, status = 200) { return new NextResponse(JSON.stringify(data), { status, headers: { 'content-type': 'application/json' } }); }
+function ok(data: unknown, status = 200, metricLabel?: string) {
+  const payload = JSON.stringify(data);
+  if (metricLabel && (process.env.DRAFT_METRICS === '1' || process.env.NODE_ENV !== 'production')) {
+    const bytes = Buffer.byteLength(payload, 'utf8');
+    // Local transfer measurement helper; safe in production (logs only when enabled).
+    console.info(`[draft-metrics] ${metricLabel} bytes=${bytes}`);
+  }
+  return new NextResponse(payload, { status, headers: { 'content-type': 'application/json' } });
+}
 function bad(msg: string, status = 400) { return ok({ error: msg }, status); }
+
+function isDataUrl(value: string | null | undefined): boolean {
+  return typeof value === 'string' && value.trimStart().toLowerCase().startsWith('data:');
+}
+
+function sanitizeLogoForResponse(value: string | null | undefined): string | null {
+  if (!value) return null;
+  return isDataUrl(value) ? null : value;
+}
+
+function buildDraftRevision(
+  overview: DraftOverview,
+  pendingPick: Awaited<ReturnType<typeof getPendingPick>> | null
+): string {
+  const tradeSig = overview.pendingTradeAnimation
+    ? `${overview.pendingTradeAnimation.teams.join('|')}:${overview.pendingTradeAnimation.assets.length}`
+    : '';
+  return [
+    overview.id,
+    overview.status,
+    overview.curOverall,
+    overview.onClockTeam ?? '',
+    overview.deadlineTs ?? '',
+    pendingPick?.id ?? '',
+    tradeSig,
+    overview.roundEndPause ? 1 : 0,
+  ].join('|');
+}
 
 export async function GET(req: NextRequest) {
   try {
@@ -76,12 +112,13 @@ export async function GET(req: NextRequest) {
       const players = await getAllPlayersCached();
       const p = players[playerId];
       if (!p) return ok({ college: null });
-      return ok({ college: p.college || null, name: `${p.first_name} ${p.last_name}`.trim(), pos: p.position, nfl: p.team });
+      return ok({ college: p.college || null, name: `${p.first_name} ${p.last_name}`.trim(), pos: p.position, nfl: p.team }, 200, 'GET action=player_info');
     }
 
     await ensureDraftTables();
     const id = url.searchParams.get('id');
     const includeAvail = url.searchParams.get('include') === 'available';
+    const mode = url.searchParams.get('mode');
     const draftId = id || (await getActiveOrLatestDraftId());
     if (!draftId) return ok({ draft: null });
     // Check for auto-pick on clock expiry before returning overview
@@ -97,7 +134,42 @@ export async function GET(req: NextRequest) {
       ? overview.pausedRemainingSecs
       : null;
     const pendingPick = await getPendingPick(draftId);
-    const resp: { draft: DraftOverview; remainingSec: number | null; pendingPick?: typeof pendingPick; available?: Array<{ id: string; name: string; pos: string; nfl: string; college?: string | null }>; usingCustom?: boolean } = { draft: overview, remainingSec, pendingPick: pendingPick ?? undefined };
+    const revision = buildDraftRevision(overview, pendingPick);
+
+    if (mode === 'live') {
+      return ok(
+        {
+          live: {
+            id: overview.id,
+            year: overview.year,
+            rounds: overview.rounds,
+            clockSeconds: overview.clockSeconds,
+            status: overview.status,
+            curOverall: overview.curOverall,
+            onClockTeam: overview.onClockTeam ?? null,
+            deadlineTs: overview.deadlineTs ?? null,
+            eventName: overview.eventName ?? null,
+            eventLogoUrl: sanitizeLogoForResponse(overview.eventLogoUrl),
+            eventColor1: overview.eventColor1 ?? null,
+            eventColor2: overview.eventColor2 ?? null,
+            pausedRemainingSecs: overview.pausedRemainingSecs ?? null,
+            pendingTradeAnimation: overview.pendingTradeAnimation ?? null,
+            roundEndPause: overview.roundEndPause ?? null,
+          },
+          remainingSec,
+          pendingPick: pendingPick ?? undefined,
+          revision,
+        },
+        200,
+        'GET mode=live'
+      );
+    }
+
+    const sanitizedOverview = {
+      ...overview,
+      eventLogoUrl: sanitizeLogoForResponse(overview.eventLogoUrl),
+    };
+    const resp: { draft: DraftOverview; remainingSec: number | null; pendingPick?: typeof pendingPick; available?: Array<{ id: string; name: string; pos: string; nfl: string; college?: string | null }>; usingCustom?: boolean; revision: string } = { draft: sanitizedOverview, remainingSec, pendingPick: pendingPick ?? undefined, revision };
     if (includeAvail) {
       const taken = new Set(await getDraftPickedPlayerIds(draftId));
       if (pendingPick?.playerId) taken.add(pendingPick.playerId);
@@ -140,7 +212,7 @@ export async function GET(req: NextRequest) {
         }));
       }
     }
-    return ok(resp);
+    return ok(resp, 200, `GET includeAvail=${includeAvail ? 1 : 0}`);
   } catch (e) {
     console.error('GET /api/draft failed', e);
     return bad('failed');
@@ -206,6 +278,9 @@ export async function POST(req: NextRequest) {
         const eventLogoUrl = typeof body.eventLogoUrl === 'string' ? body.eventLogoUrl : null;
         const eventColor1 = typeof body.eventColor1 === 'string' ? body.eventColor1 : null;
         const eventColor2 = typeof body.eventColor2 === 'string' ? body.eventColor2 : null;
+        if (isDataUrl(eventLogoUrl)) {
+          return bad('Direct logo file/base64 uploads are disabled. Use a project path like /draft-logos/2026-draft-logo.png or an https URL.', 400);
+        }
         const draftIdBr = typeof body.id === 'string' && body.id ? body.id : '';
         if (!draftIdBr) {
           await saveDraftWorkspaceBranding({ eventName, eventLogoUrl, eventColor1, eventColor2 });

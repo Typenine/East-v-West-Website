@@ -1,7 +1,7 @@
 'use client';
 /* eslint-disable @next/next/no-img-element */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import SectionHeader from '@/components/ui/SectionHeader';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
@@ -435,6 +435,7 @@ function PlayerMediaCard() {
 }
 
 export default function AdminDraftPage() {
+  const isDev = process.env.NODE_ENV !== 'production';
   const [isAdmin, setIsAdmin] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -466,13 +467,44 @@ export default function AdminDraftPage() {
   const [pendingTrades, setPendingTrades] = useState<AdminTrade[]>([]);
   const [tradeAction, setTradeAction] = useState<string | null>(null);
   const [brandingForm, setBrandingForm] = useState({ eventName: '', eventColor1: '#a4c810', eventColor2: '#ffffff', eventLogoUrl: '' });
-  const [brandingLogoFile, setBrandingLogoFile] = useState<File | null>(null);
   const [brandingLogoPreview, setBrandingLogoPreview] = useState<string | null>(null);
   const [savingBranding, setSavingBranding] = useState(false);
   type PoolSummary = { id: string; label: string; playerCount: number; updatedAt: string };
   const [playerPoolsList, setPlayerPoolsList] = useState<PoolSummary[]>([]);
   const [selectedPoolId, setSelectedPoolId] = useState('');
   const [newPoolLabel, setNewPoolLabel] = useState('');
+  const metricsStartAtRef = useRef<number>(Date.now());
+  const [netMetrics, setNetMetrics] = useState({
+    requestCount: 0,
+    totalBytes: 0,
+    draftPollCount: 0,
+    availCount: 0,
+    tradePollCount: 0,
+    lastRevision: '-',
+  });
+
+  function recordNetMetric(params: { bytes: number; isDraftPoll?: boolean; includeAvail?: boolean; isTradePoll?: boolean; revision?: string | null }) {
+    setNetMetrics(prev => ({
+      requestCount: prev.requestCount + 1,
+      totalBytes: prev.totalBytes + Math.max(0, params.bytes),
+      draftPollCount: prev.draftPollCount + (params.isDraftPoll ? 1 : 0),
+      availCount: prev.availCount + (params.includeAvail ? 1 : 0),
+      tradePollCount: prev.tradePollCount + (params.isTradePoll ? 1 : 0),
+      lastRevision: params.revision ?? prev.lastRevision,
+    }));
+  }
+
+  function resetNetMetrics() {
+    metricsStartAtRef.current = Date.now();
+    setNetMetrics({
+      requestCount: 0,
+      totalBytes: 0,
+      draftPollCount: 0,
+      availCount: 0,
+      tradePollCount: 0,
+      lastRevision: '-',
+    });
+  }
 
   // Convert mins:secs to total seconds
   async function loadPendingTrades() {
@@ -480,6 +512,12 @@ export default function AdminDraftPage() {
       const res = await fetch('/api/draft/trade?action=get_admin_pending', { cache: 'no-store' });
       if (!res.ok) return;
       const data = await res.json();
+      if (isDev) {
+        recordNetMetric({
+          bytes: JSON.stringify(data).length,
+          isTradePoll: true,
+        });
+      }
       setPendingTrades((data.trades as AdminTrade[]) || []);
     } catch {}
   }
@@ -566,6 +604,14 @@ export default function AdminDraftPage() {
       const res = await fetch(url, { cache: 'no-store' });
       if (!res.ok) throw new Error('failed');
       const j = await res.json();
+      if (isDev) {
+        recordNetMetric({
+          bytes: JSON.stringify(j).length,
+          isDraftPoll: true,
+          includeAvail,
+          revision: typeof j?.revision === 'string' ? j.revision : null,
+        });
+      }
       const newDraft = j?.draft || null;
       setDraft(newDraft);
       setRemainingSec(j?.remainingSec ?? null);
@@ -591,22 +637,33 @@ export default function AdminDraftPage() {
 
   useEffect(() => {
     load(true, true);
-    const t = setInterval(() => { load(false); loadPendingTrades(); }, 3000);
-    return () => clearInterval(t);
+    let t: ReturnType<typeof setInterval>;
+    const jitter = () => Math.floor(Math.random() * 400);
+    const start = () => {
+      const ms = (document.hidden ? 10000 : 3000) + jitter();
+      t = setInterval(() => { load(false); loadPendingTrades(); }, ms);
+    };
+    const onVis = () => {
+      clearInterval(t);
+      load(false);
+      loadPendingTrades();
+      start();
+    };
+    start();
+    document.addEventListener('visibilitychange', onVis);
+    return () => {
+      clearInterval(t);
+      document.removeEventListener('visibilitychange', onVis);
+    };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function saveBranding() {
     setSavingBranding(true);
     try {
-      let logoUrl = brandingForm.eventLogoUrl;
-      if (brandingLogoFile) {
-        logoUrl = await new Promise<string>((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = e => resolve(e.target?.result as string);
-          reader.onerror = reject;
-          reader.readAsDataURL(brandingLogoFile);
-        });
+      const logoUrl = (brandingForm.eventLogoUrl || '').trim();
+      if (logoUrl && logoUrl.trimStart().toLowerCase().startsWith('data:')) {
+        throw new Error('Direct logo file/base64 uploads are disabled. Use /draft-logos/... or an https URL.');
       }
       const res = await fetch('/api/draft', {
         method: 'POST',
@@ -622,7 +679,6 @@ export default function AdminDraftPage() {
       });
       const j = await res.json();
       if (!res.ok || j?.error) throw new Error(j?.error || 'failed');
-      setBrandingLogoFile(null);
       await load(false);
     } catch (e) {
       alert((e as Error).message || 'Save failed');
@@ -848,7 +904,6 @@ export default function AdminDraftPage() {
           </Link>
         </div>
       </div>
-
       {/* Pending Pick Approval — floating panel */}
       {pendingPick && (
         <div
@@ -1152,26 +1207,21 @@ export default function AdminDraftPage() {
                   />
                 </div>
 
-                {/* Logo Upload */}
+                {/* Logo URL / path */}
                 <div>
                   <Label className="mb-1 block">Event Logo</Label>
                   <div className="flex items-start gap-4">
                     <div className="flex-1">
-                      <input
-                        type="file"
-                        accept="image/png,image/jpeg,image/webp,image/gif"
-                        className="text-sm text-zinc-300 file:mr-2 file:py-1 file:px-3 file:rounded file:border-0 file:bg-zinc-700 file:text-white hover:file:bg-zinc-600 w-full"
+                      <Input
+                        placeholder="/draft-logos/2026-draft-logo.png or https://..."
+                        value={brandingForm.eventLogoUrl}
                         onChange={e => {
-                          const file = e.target.files?.[0] || null;
-                          setBrandingLogoFile(file);
-                          if (file) {
-                            const reader = new FileReader();
-                            reader.onload = ev => setBrandingLogoPreview(ev.target?.result as string);
-                            reader.readAsDataURL(file);
-                          }
+                          const v = e.target.value;
+                          setBrandingForm(f => ({ ...f, eventLogoUrl: v }));
+                          setBrandingLogoPreview(v.trim() || null);
                         }}
                       />
-                      <p className="text-xs text-zinc-500 mt-1">PNG recommended. File is stored as base64 in the database.</p>
+                      <p className="text-xs text-zinc-500 mt-1">Use a project path (e.g. <span className="font-mono text-zinc-400">/draft-logos/2026-draft-logo.png</span>) or an <span className="font-mono text-zinc-400">https://</span> URL. <span className="text-amber-300">data:</span> URLs are blocked.</p>
                     </div>
                     {(brandingLogoPreview || brandingForm.eventLogoUrl) && (
                       <div className="w-20 h-20 rounded-lg overflow-hidden border border-zinc-600 bg-zinc-900 flex items-center justify-center flex-shrink-0">
@@ -1865,6 +1915,25 @@ export default function AdminDraftPage() {
           </div>
         </div>
         )
+      )}
+
+      {isDev && (
+        <div className="mt-6 rounded-lg border border-cyan-400/30 bg-cyan-950/20 px-4 py-3 text-xs text-cyan-100">
+          <div className="flex items-center justify-between gap-3">
+            <div className="font-semibold tracking-wide uppercase">Dev Poll Metrics (this tab)</div>
+            <Button variant="ghost" size="sm" onClick={resetNetMetrics}>Reset</Button>
+          </div>
+          <div className="mt-2 grid grid-cols-2 md:grid-cols-4 gap-2">
+            <div>Requests: <span className="font-bold">{netMetrics.requestCount}</span></div>
+            <div>Draft polls: <span className="font-bold">{netMetrics.draftPollCount}</span></div>
+            <div>Avail fetches: <span className="font-bold">{netMetrics.availCount}</span></div>
+            <div>Trade polls: <span className="font-bold">{netMetrics.tradePollCount}</span></div>
+            <div>Approx MB: <span className="font-bold">{(netMetrics.totalBytes / (1024 * 1024)).toFixed(2)}</span></div>
+            <div>Approx req/min: <span className="font-bold">{(netMetrics.requestCount / Math.max(1 / 60, (Date.now() - metricsStartAtRef.current) / 60000)).toFixed(1)}</span></div>
+            <div>Approx KB/req: <span className="font-bold">{(netMetrics.totalBytes / Math.max(1, netMetrics.requestCount) / 1024).toFixed(1)}</span></div>
+            <div>Last revision: <span className="font-bold">{netMetrics.lastRevision}</span></div>
+          </div>
+        </div>
       )}
     </div>
   );

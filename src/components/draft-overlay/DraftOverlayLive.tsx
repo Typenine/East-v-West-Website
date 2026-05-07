@@ -573,7 +573,7 @@ export default function DraftOverlayLive() {
       </div>
 
       {/* Bottom Bar: ClockBox + InfoBar — on-the-clock animation overlays both */}
-      <div className="relative flex gap-4 items-stretch h-[184px] rounded-[4px]">
+      <div className="relative flex gap-0 items-stretch h-[184px] rounded-[4px]">
         {/* ClockBox */}
         <div
           className="flex items-stretch shrink-0"
@@ -640,6 +640,16 @@ export default function DraftOverlayLive() {
             </div>
           </div>
         </div>
+
+        {/* Team secondary-color divider strip between clock + info bar */}
+        <div
+          className="shrink-0 self-stretch"
+          style={{
+            width: '8px',
+            background: `linear-gradient(180deg, ${teamColors[1]} 0%, ${teamColors[1]}dd 55%, #0b0b0b 100%)`,
+            boxShadow: `0 0 10px ${teamColors[1]}66`,
+          }}
+        />
 
         {/* InfoBar: rotating ticker (on-the-clock overlay is sibling, covers full bottom bar) */}
         <div

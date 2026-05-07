@@ -52,6 +52,24 @@ interface DraftOverview {
   allSlots?: Array<{ overall: number; round: number; team: string }>;
 }
 
+interface DraftLiveState {
+  id: string;
+  year: number;
+  rounds: number;
+  clockSeconds: number;
+  status: 'NOT_STARTED' | 'LIVE' | 'PAUSED' | 'COMPLETED';
+  curOverall: number;
+  onClockTeam?: string | null;
+  deadlineTs?: string | null;
+  eventName?: string | null;
+  eventLogoUrl?: string | null;
+  eventColor1?: string | null;
+  eventColor2?: string | null;
+  pausedRemainingSecs?: number | null;
+  pendingTradeAnimation?: DraftOverview['pendingTradeAnimation'];
+  roundEndPause?: boolean | null;
+}
+
 interface AvailablePlayer {
   id: string;
   name: string;
@@ -99,126 +117,126 @@ export function useDraftData(basePollIntervalMs = 1000) {
   const lastOverallRef = useRef<number | null>(null);
   const lastUpdateMsRef = useRef<number>(Date.now());
   const [pollInterval, setPollInterval] = useState(basePollIntervalMs);
+  const revisionRef = useRef<string | null>(null);
 
-  const fetchDraft = useCallback(async () => {
+  const hydrateFromFull = useCallback((json: {
+    draft: DraftOverview | null;
+    remainingSec: number | null;
+    pendingPick?: OverlayState['pendingPick'];
+    available?: AvailablePlayer[];
+    usingCustom?: boolean;
+    revision?: string;
+  }) => {
+    const draft = json.draft as DraftOverview | null;
+    const remainingSec = json.remainingSec as number | null;
+    const pendingPick = (json.pendingPick ?? null) as OverlayState['pendingPick'];
+
+    if (json.revision) revisionRef.current = json.revision;
+
+    // Compute derived values for overlay
+    const onClockTeamName = draft?.onClockTeam || null;
+    const currentTeam = onClockTeamName ? getTeamFromName(onClockTeamName) : null;
+    const currentPickIndex = draft ? draft.curOverall - 1 : 0;
+    const timerSeconds = remainingSec ?? 0;
+
+    const draftOrder: string[] = [];
+    if (draft?.upcoming) {
+      for (const u of draft.upcoming) draftOrder.push(u.team);
+    }
+
+    const slotTeamMap: Record<number, string> = {};
+    if (draft?.allSlots) {
+      for (const s of draft.allSlots) slotTeamMap[s.overall - 1] = s.team;
+    } else if (draft?.upcoming) {
+      for (const u of draft.upcoming) slotTeamMap[u.overall - 1] = u.team;
+    }
+
+    const draftGrid: Array<{ player: string | null; position: string | null; team: string }> = [];
+    const picksToUse = draft?.allPicks ?? draft?.recentPicks ?? [];
+    for (let i = 0; i < 48; i++) {
+      const pick = picksToUse.find(p => p.overall - 1 === i);
+      const teamName = pick?.team || slotTeamMap[i] || '';
+      draftGrid[i] = {
+        player: pick ? (pick.playerName || pick.playerId) : null,
+        position: pick ? (pick.playerPos || 'N/A') : null,
+        team: teamName,
+      };
+    }
+
+    const lastPick = draft?.recentPicks?.length ? draft.recentPicks[draft.recentPicks.length - 1] : null;
+    const nextTeams: Array<Team & { logoPath: string | null }> = [];
+    if (draft?.upcoming) {
+      const upcomingFiltered = lastPick ? draft.upcoming.filter(u => u.overall > lastPick.overall) : draft.upcoming;
+      for (const u of upcomingFiltered.slice(0, 2)) {
+        const team = getTeamFromName(u.team);
+        if (team) nextTeams.push({ ...team, logoPath: getTeamLogoPath(u.team) });
+      }
+    }
+
+    let isNewPick = false;
+    if (lastPick) {
+      if (lastOverallRef.current === null) {
+        lastOverallRef.current = lastPick.overall;
+        isNewPick = false;
+      } else if (lastPick.overall !== lastOverallRef.current) {
+        lastOverallRef.current = lastPick.overall;
+        isNewPick = true;
+      }
+    }
+
+    lastUpdateMsRef.current = Date.now();
+    const newPollInterval = draft?.status === 'COMPLETED' ? 10000 : 1000;
+    setPollInterval(newPollInterval);
+
+    setState((prev) => ({
+      ...prev,
+      draft,
+      remainingSec,
+      ...(Array.isArray(json.available) ? { available: json.available } : {}),
+      ...(typeof json.usingCustom === 'boolean' ? { usingCustom: json.usingCustom } : {}),
+      currentTeam,
+      currentPickIndex,
+      timerSeconds,
+      draftOrder,
+      draftGrid,
+      nextTeams,
+      lastPick,
+      isNewPick,
+      pendingPick,
+      pendingTradeAnimation: draft?.pendingTradeAnimation ?? null,
+    }));
+  }, []);
+
+  const fetchFullDraft = useCallback(async (includeAvailable = false) => {
+    try {
+      const res = await fetch(includeAvailable ? '/api/draft?include=available' : '/api/draft', { cache: 'no-store' });
+      if (!res.ok) return;
+      const json = await res.json();
+      hydrateFromFull({
+        draft: (json.draft ?? null) as DraftOverview | null,
+        remainingSec: (json.remainingSec ?? null) as number | null,
+        pendingPick: (json.pendingPick ?? null) as OverlayState['pendingPick'],
+        available: includeAvailable ? ((json.available || []) as AvailablePlayer[]) : undefined,
+        usingCustom: includeAvailable ? Boolean(json.usingCustom) : undefined,
+        revision: typeof json.revision === 'string' ? json.revision : undefined,
+      });
+    } catch (err) {
+      console.error('[useDraftData] fetch error:', err);
+    }
+  }, [hydrateFromFull]);
+
+  const fetchAvailable = useCallback(async () => {
     try {
       const res = await fetch('/api/draft?include=available', { cache: 'no-store' });
       if (!res.ok) return;
       const json = await res.json();
-      
-      const draft = json.draft as DraftOverview | null;
-      const remainingSec = json.remainingSec as number | null;
-      const available = (json.available || []) as AvailablePlayer[];
-      const usingCustom = Boolean(json.usingCustom);
-      const pendingPick = (json.pendingPick ?? null) as { id: string; overall: number; team: string; playerId: string; playerName: string | null; playerPos: string | null; playerNfl: string | null; } | null;
-
-      // Compute derived values for overlay
-      const onClockTeamName = draft?.onClockTeam || null;
-      const currentTeam = onClockTeamName ? getTeamFromName(onClockTeamName) : null;
-      
-      // Current pick index (0-based)
-      const currentPickIndex = draft ? draft.curOverall - 1 : 0;
-      
-      // Timer in seconds
-      const timerSeconds = remainingSec ?? 0;
-
-      // Build draft order from upcoming picks (team names)
-      const draftOrder: string[] = [];
-      if (draft?.upcoming) {
-        for (const u of draft.upcoming) {
-          draftOrder.push(u.team);
-        }
-      }
-
-      // Build slot-to-team map from ALL slots (not just upcoming) for full grid team logos
-      const slotTeamMap: Record<number, string> = {};
-      if (draft?.allSlots) {
-        for (const s of draft.allSlots) {
-          slotTeamMap[s.overall - 1] = s.team;
-        }
-      } else if (draft?.upcoming) {
-        // Fallback to upcoming if allSlots not available
-        for (const u of draft.upcoming) {
-          slotTeamMap[u.overall - 1] = u.team;
-        }
-      }
-      
-      // Build draft grid with team ownership for ALL cells
-      // Use allPicks (all picks made) instead of recentPicks (last 10) for full grid display
-      const draftGrid: Array<{ player: string | null; position: string | null; team: string }> = [];
-      const picksToUse = draft?.allPicks ?? draft?.recentPicks ?? [];
-      for (let i = 0; i < 48; i++) {
-        // Find if this pick has been made
-        const pick = picksToUse.find(p => p.overall - 1 === i);
-        
-        // Every cell gets team ownership (from pick or from slot map)
-        const teamName = pick?.team || slotTeamMap[i] || '';
-        
-        draftGrid[i] = {
-          player: pick ? (pick.playerName || pick.playerId) : null,
-          position: pick ? (pick.playerPos || 'N/A') : null,
-          team: teamName,
-        };
-      }
-
-      // Check for new pick (computed first so nextTeams can filter against it)
-      const lastPick = draft?.recentPicks?.length ? draft.recentPicks[draft.recentPicks.length - 1] : null;
-
-      // Next teams (up to 2) — filter out the slot that was just picked so a DB race
-      // (poll arriving between pick INSERT and cur_overall UPDATE) never shows the wrong team
-      const nextTeams: Array<Team & { logoPath: string | null }> = [];
-      if (draft?.upcoming) {
-        const upcomingFiltered = lastPick
-          ? draft.upcoming.filter(u => u.overall > lastPick.overall)
-          : draft.upcoming;
-        for (const u of upcomingFiltered.slice(0, 2)) {
-          const team = getTeamFromName(u.team);
-          if (team) {
-            nextTeams.push({ ...team, logoPath: getTeamLogoPath(u.team) });
-          }
-        }
-      }
-      
-      // On first load, initialize the ref without triggering animation
-      let isNewPick = false;
-      if (lastPick) {
-        if (lastOverallRef.current === null) {
-          // First load - don't trigger animation for existing picks
-          lastOverallRef.current = lastPick.overall;
-          isNewPick = false;
-        } else if (lastPick.overall !== lastOverallRef.current) {
-          // New pick detected
-          lastOverallRef.current = lastPick.overall;
-          isNewPick = true;
-        }
-      }
-
-      lastUpdateMsRef.current = Date.now();
-
-      // Adjust polling based on draft status
-      // LIVE/PAUSED/NOT_STARTED: 1s (PAUSED is transient during pick approval, needs fast detection)
-      // COMPLETED: 10s (minimal polling)
-      const newPollInterval = draft?.status === 'COMPLETED' ? 10000 : 1000;
-      setPollInterval(newPollInterval);
-
-      setState({
-        draft,
-        remainingSec,
-        available,
-        usingCustom,
-        currentTeam,
-        currentPickIndex,
-        timerSeconds,
-        draftOrder,
-        draftGrid,
-        nextTeams,
-        lastPick,
-        isNewPick,
-        pendingPick,
-        pendingTradeAnimation: draft?.pendingTradeAnimation ?? null,
-      });
+      setState((prev) => ({
+        ...prev,
+        available: (json.available || []) as AvailablePlayer[],
+        usingCustom: Boolean(json.usingCustom),
+      }));
     } catch (err) {
-      console.error('[useDraftData] fetch error:', err);
+      console.error('[useDraftData] available fetch error:', err);
     }
   }, []);
 
@@ -226,23 +244,78 @@ export function useDraftData(basePollIntervalMs = 1000) {
   const pollIntervalRef = useRef(pollInterval);
   pollIntervalRef.current = pollInterval;
 
-  // Initial fetch and polling with dynamic interval
+  const fetchLive = useCallback(async () => {
+    try {
+      const res = await fetch('/api/draft?mode=live', { cache: 'no-store' });
+      if (!res.ok) return;
+      const json = await res.json();
+      const live = (json.live ?? null) as DraftLiveState | null;
+      const remainingSec = (json.remainingSec ?? null) as number | null;
+      const pendingPick = (json.pendingPick ?? null) as OverlayState['pendingPick'];
+      const revision = typeof json.revision === 'string' ? json.revision : null;
+
+      if (!live) {
+        setState((prev) => ({ ...prev, draft: null, remainingSec: null, pendingPick: null }));
+        return;
+      }
+
+      lastUpdateMsRef.current = Date.now();
+      setState((prev) => ({
+        ...prev,
+        draft: prev.draft ? { ...prev.draft, ...live } : ({ ...live, recentPicks: [], upcoming: [], allPicks: [], allSlots: [] } as DraftOverview),
+        remainingSec,
+        pendingPick,
+        pendingTradeAnimation: live.pendingTradeAnimation ?? null,
+      }));
+
+      if (revision && revision !== revisionRef.current) {
+        revisionRef.current = revision;
+        await fetchFullDraft(false);
+        await fetchAvailable();
+      }
+    } catch (err) {
+      console.error('[useDraftData] live fetch error:', err);
+    }
+  }, [fetchAvailable, fetchFullDraft]);
+
+  // Initial load: hydrate full state once.
   useEffect(() => {
-    fetchDraft();
+    void fetchFullDraft(true);
+  }, [fetchFullDraft]);
+
+  // Polling loop, visibility-aware.
+  useEffect(() => {
     let intervalId: ReturnType<typeof setInterval>;
-    
+    const jitter = () => Math.floor(Math.random() * 450);
+
     const startPolling = () => {
+      const intervalMs = (document.hidden ? 10000 : pollIntervalRef.current) + jitter();
       intervalId = setInterval(() => {
-        fetchDraft();
-        // Check if interval changed and restart if needed
+        void fetchLive();
         clearInterval(intervalId);
         startPolling();
-      }, pollIntervalRef.current);
+      }, intervalMs);
     };
-    
+
     startPolling();
-    return () => clearInterval(intervalId);
-  }, [fetchDraft]);
+    const onVis = () => {
+      clearInterval(intervalId);
+      void fetchLive();
+      if (!document.hidden) void fetchAvailable();
+      startPolling();
+    };
+    document.addEventListener('visibilitychange', onVis);
+    return () => {
+      clearInterval(intervalId);
+      document.removeEventListener('visibilitychange', onVis);
+    };
+  }, [fetchLive, fetchAvailable]);
+
+  // Refresh available list when a new pick is detected (the only time it materially changes).
+  useEffect(() => {
+    if (!state.lastPick?.overall) return;
+    void fetchAvailable();
+  }, [state.lastPick?.overall, fetchAvailable]);
 
   // Local countdown timer - tick every second to update display
   const [, setTick] = useState(0);
@@ -260,7 +333,7 @@ export function useDraftData(basePollIntervalMs = 1000) {
   return {
     ...state,
     localRemainingSec,
-    refetch: fetchDraft,
+    refetch: fetchFullDraft,
   };
 }
 

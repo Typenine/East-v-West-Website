@@ -475,8 +475,31 @@ export default async function Home({ searchParams }: { searchParams?: Promise<Re
     if (c2 && c2.meetings > 0 && c2.wins.total === 0) h2hHighlightKeys.push(key(b, a));
   }
   return (
-    <div className="container mx-auto px-4 py-8">
-      <div className="flex flex-col items-center gap-4 mb-8">
+    <div className="home-page relative overflow-hidden">
+      {/* Home-only background treatment (kept local to this page). */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0 z-0 home-aurora-motion"
+        style={{
+          background: `
+            radial-gradient(1400px 760px at 7% -15%, rgba(37,99,235,0.38) 0%, rgba(37,99,235,0) 62%),
+            radial-gradient(1200px 680px at 93% -8%, rgba(56,189,248,0.28) 0%, rgba(56,189,248,0) 64%),
+            radial-gradient(1400px 980px at 50% 115%, rgba(99,102,241,0.24) 0%, rgba(99,102,241,0) 70%),
+            linear-gradient(180deg, rgba(10,18,40,0.18) 0%, rgba(8,14,30,0.12) 45%, rgba(6,10,24,0.16) 100%)
+          `,
+          filter: 'saturate(125%)',
+        }}
+      />
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0 z-0 opacity-[0.14]"
+        style={{
+          backgroundImage: 'linear-gradient(rgba(255,255,255,0.26) 1px, transparent 1px)',
+          backgroundSize: '100% 4px',
+        }}
+      />
+      <div className="container mx-auto px-4 sm:px-5 py-6 sm:py-8 relative z-10">
+      <div className="flex flex-col items-center gap-4 mb-6 sm:mb-8">
         <Image
           src="/assets/teams/East v West Logos/Official East v. West Logo.png"
           alt="East v. West League Logo"
@@ -489,26 +512,29 @@ export default async function Home({ searchParams }: { searchParams?: Promise<Re
       </div>
       
       {/* Countdowns Section */}
-      <section className="mb-12">
+      <section className="mb-10 sm:mb-12">
         <SectionHeader title="Key dates" />
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {isRegularSeason ? (
             <>
-              <CountdownTimer 
+              <CountdownTimer
                 targetDate={IMPORTANT_DATES.TRADE_DEADLINE} 
                 title="Trade deadline in"
+                emphasis
               />
               <CountdownTimer 
                 targetDate={IMPORTANT_DATES.PLAYOFFS_START} 
                 title="Playoffs start in"
+                emphasis
               />
             </>
           ) : (
             <>
-              <CountdownTimer targetDate={offPrimaryDate} title={offPrimaryTitle} />
+              <CountdownTimer targetDate={offPrimaryDate} title={offPrimaryTitle} emphasis />
               <CountdownTimer 
                 targetDate={IMPORTANT_DATES.NEXT_DRAFT} 
                 title="Next draft in"
+                emphasis
               />
             </>
           )}
@@ -519,7 +545,7 @@ export default async function Home({ searchParams }: { searchParams?: Promise<Re
       <TaxiBanner initial={taxiFlags} />
 
       {/* Current Week Preview */}
-      <section className="mb-12">
+      <section className="mb-10 sm:mb-12">
         {isRegularSeason ? (
           <>
             <SectionHeader title={`Week ${selectedWeek} matchups`} />
@@ -1105,7 +1131,7 @@ export default async function Home({ searchParams }: { searchParams?: Promise<Re
       </section>
       
       {/* Head-to-Head (All-time) */}
-      <section className="mb-12">
+      <section className="mb-10 sm:mb-12">
         <SectionHeader title="Head-to-head (All-time)" subtitle="* = no regular-season wins yet; blue = playing this week" />
         <Card className="mt-4">
           <CardContent>
@@ -1163,6 +1189,7 @@ export default async function Home({ searchParams }: { searchParams?: Promise<Re
           </LinkButton>
         </div>
       </section>
+      </div>
     </div>
   );
 }

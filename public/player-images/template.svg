@@ -10,7 +10,7 @@
   <text x="240" y="220" text-anchor="middle" fill="#a4c810" font-family="system-ui, Segoe UI, sans-serif" font-size="22" font-weight="700">Correct folder</text>
   <text x="240" y="258" text-anchor="middle" fill="#e2e8f0" font-family="system-ui, Segoe UI, sans-serif" font-size="15" font-weight="600">public/player-images/</text>
   <text x="240" y="310" text-anchor="middle" fill="#94a3b8" font-family="system-ui, Segoe UI, sans-serif" font-size="14">Add PNG, JPG, or WebP headshots here,</text>
-  <text x="240" y="336" text-anchor="middle" fill="#94a3b8" font-family="system-ui, Segoe UI, sans-serif" font-size="14">then pick them in Admin ’ Draft ’ Branding &amp; player media.</text>
+  <text x="240" y="336" text-anchor="middle" fill="#94a3b8" font-family="system-ui, Segoe UI, sans-serif" font-size="14">then pick them in Admin ï¿½ Draft ï¿½ Branding &amp; player media.</text>
   <text x="240" y="390" text-anchor="middle" fill="#64748b" font-family="ui-monospace, monospace" font-size="12">Repo path: east-v-west/public/player-images/</text>
   <text x="240" y="418" text-anchor="middle" fill="#64748b" font-family="ui-monospace, monospace" font-size="12">URL path: /player-images/your-file.webp</text>
 </svg>
