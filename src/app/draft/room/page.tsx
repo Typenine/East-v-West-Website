@@ -800,13 +800,13 @@ export default function DraftRoomPage() {
       {/* ── TEAM SECTION (below board, normal flow — whole page scrolls) ── */}
       <div>
         {/* ── Clock Box + Info Bar (always shown when draft is live) ── */}
-        {draft && draft.status !== 'NOT_STARTED' && (() => {
+        {draft && (() => {
           const overall = pendingPick?.overall ?? draft.curOverall;
           const roundNum = Math.ceil(overall / picksPerRound);
           const pickNum = ((overall - 1) % picksPerRound) + 1;
           const abbrev = (onClock || '---').split(' ').map((w: string) => w[0]).join('').slice(0, 3).toUpperCase();
-          const nextUp = (draft?.upcoming || [])
-            .filter((u: DraftSlot) => u.overall > draft.curOverall && u.team !== onClock)
+          const nextUp = (allSlots || [])
+            .filter((u: DraftSlot) => u.overall > overall && u.team !== onClock)
             .slice(0, 2);
           return (
             <div className="relative flex gap-0 items-stretch" style={{ minHeight: '184px', borderBottom: `2px solid ${eventColor1}33` }}>

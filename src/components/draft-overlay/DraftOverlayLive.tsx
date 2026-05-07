@@ -383,7 +383,10 @@ export default function DraftOverlayLive() {
   }, [displayRemainingSec, animPhase]);
   const teamColors = currentTeam?.colors || ['#333', '#555', null];
   const teamLogo = currentTeam ? getTeamLogoPath(currentTeam.name) : null;
-  const nextTeamsForClock = nextTeams.filter((t) => t.name !== currentTeam?.name).slice(0, 2);
+  const nextTeamsForClock = (draft?.upcoming || [])
+    .filter((u) => u.team && u.team !== currentTeam?.name)
+    .slice(0, 2)
+    .map((u) => ({ name: u.team, logoPath: getTeamLogoPath(u.team) }));
 
   const clockDigitColor =
     displayRemainingSec <= 10 ? '#ef4444'
