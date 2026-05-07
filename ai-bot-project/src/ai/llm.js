@@ -1,12 +1,17 @@
-import fetch from 'node-fetch';
-export async function genWithLLM(prompt, maxTokens=220) {
-  const res = await fetch('http://127.0.0.1:11434/api/generate', {
-    method: 'POST',
-    headers: { 'Content-Type':'application/json' },
-    body: JSON.stringify({ model: 'llama3.1:8b', prompt, options: { num_predict: maxTokens } })
+import { GoogleGenerativeAI } from '@google/generative-ai';
+
+let client = null;
+function getClient() {
+  if (!client) client = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+  return client;
+}
+
+export async function genWithLLM(systemPrompt, userPrompt, maxTokens = 200) {
+  const model = getClient().getGenerativeModel({
+    model: 'gemini-2.5-flash',
+    systemInstruction: systemPrompt,
+    generationConfig: { maxOutputTokens: maxTokens, temperature: 0.9 }
   });
-  const chunks = (await res.text()).trim().split('\n');
-  let out = '';
-  for (const line of chunks) { try { out += JSON.parse(line).response || ''; } catch {} }
-  return out.trim();
+  const result = await model.generateContent(userPrompt);
+  return result.response.text().trim();
 }

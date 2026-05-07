@@ -196,7 +196,7 @@ function scoreTrade(ev, cfg) {
   let score = Math.round(score01 * 100);
 
   if (assets >= 6 || picks >= 2) score = Math.max(score, cfg.trade.blockbuster_floor);
-  if (assets <= 2 && picks === 0) score = Math.min(score, cfg.trade.lateral_cap);
+  else if (assets <= 2 && picks === 0) score = Math.min(score, cfg.trade.lateral_cap);
 
   const why = [];
   if (picks >= 2)      why.push('multiple picks involved');

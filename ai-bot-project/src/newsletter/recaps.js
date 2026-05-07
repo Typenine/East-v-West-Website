@@ -1,5 +1,8 @@
 // src/newsletter/recaps.js
 // Opinion-first, narrative recaps with varied phrasing.
+import { genWithLLM } from '../ai/llm.js';
+import { getProfile } from '../personality/sliders.js';
+import fs from 'fs-extra';
 
 function cap(s) { return String(s || '').replace(/\s+/g, ' ').trim().replace(/^([a-z])/, m => m.toUpperCase()); }
 const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
@@ -107,6 +110,79 @@ function analystTake(w, l, margin, metW, metL, anaCap, actW) {
   return [start, stability, trendLine, actLine, verdict].filter(Boolean).join(' ');
 }
 
+// ------- LLM support -------
+let _personas = null;
+async function loadPersonas() {
+  if (_personas) return _personas;
+  const [ent, ana] = await Promise.all([
+    fs.readJson('config/personas/entertainer.json').catch(() => ({})),
+    fs.readJson('config/personas/analyst.json').catch(() => ({}))
+  ]);
+  _personas = { entertainer: ent, analyst: ana };
+  return _personas;
+}
+
+function buildSystemPrompt(botName, profile, persona) {
+  const rhetoric = persona.rhetoric || {};
+  const stance = persona.stance || {};
+  const openers = (rhetoric.openers || []).join('", "');
+  const closers = (rhetoric.closers || []).join('", "');
+
+  if (botName === 'entertainer') {
+    return `You are the Entertainer, a fantasy football analyst. Writing profile: sarcasm ${profile.sarcasm}/10, snark ${profile.snark}/10, excitability ${profile.excitability}/10, depth ${profile.depth}/10. Pacing: bursty. Risk bias: ${stance.riskBias || 'pro-ceiling'}. You rarely concede (${Math.round((stance.concedeRate || 0.15) * 100)}% concede rate).
+
+Write a 2-3 sentence matchup recap. Lead with a strong opinion on the result. Reference the outcome type and any narrative context provided (never cite raw scores). End with a punchy verdict. Typical openers: "${openers}". Typical closers: "${closers}".
+
+Reply with only the recap text.`;
+  }
+
+  return `You are the Analyst, a fantasy football analyst. Writing profile: depth ${profile.depth}/10, sarcasm ${profile.sarcasm}/10, excitability ${profile.excitability}/10. Pacing: measured. Risk bias: ${stance.riskBias || 'floor-weighted'}. You frequently acknowledge uncertainty (${Math.round((stance.concedeRate || 0.45) * 100)}% concede rate).
+
+Write a 2-4 sentence matchup recap. Lead with a stability or trend observation. Reference scoring consistency, form vs. baseline, and process. End with a sustainable outlook. Typical openers: "${openers}". Typical closers: "${closers}".
+
+Reply with only the recap text.`;
+}
+
+function buildMatchupUserPrompt(p, tagsBundle, memBot) {
+  const w = p?.winner?.name || 'Winner';
+  const l = p?.loser?.name  || 'Loser';
+  const margin = Number(p?.margin || 0);
+  const { label } = marginLabel(margin);
+
+  const tagsW  = tagsOf(tagsBundle, w);
+  const tagsL  = tagsOf(tagsBundle, l);
+  const metW   = metOf(tagsBundle, w);
+  const metL   = metOf(tagsBundle, l);
+  const actW   = actOf(tagsBundle, w);
+  const capW   = getCap(memBot, w);
+  const capL   = getCap(memBot, l);
+
+  const trendW  = trendWord(metW.last3_avg, metW.season_avg) || 'on pace';
+  const trendL  = trendWord(metL.last3_avg, metL.season_avg) || 'on pace';
+  const stabW   = stabilityWord(metW.stdev) || 'consistent';
+  const stabL   = stabilityWord(metL.stdev) || 'consistent';
+  const actNote = activityHook(actW) || 'no notable moves';
+
+  return [
+    `Matchup: ${w} def. ${l} (${label})`,
+    ``,
+    `Winner (${w}):`,
+    `- Tags: ${tagsW.length ? tagsW.join(', ') : 'none'}`,
+    `- Recent form vs season: ${trendW}`,
+    `- Scoring consistency: ${stabW}`,
+    `- Activity this week: ${actNote}`,
+    `- Memory: trust ${capW.trust >= 0 ? '+' : ''}${capW.trust}, frustration ${capW.frustration}, mood: ${capW.mood}`,
+    ``,
+    `Loser (${l}):`,
+    `- Tags: ${tagsL.length ? tagsL.join(', ') : 'none'}`,
+    `- Recent form vs season: ${trendL}`,
+    `- Scoring consistency: ${stabL}`,
+    `- Memory: trust ${capL.trust >= 0 ? '+' : ''}${capL.trust}, frustration ${capL.frustration}, mood: ${capL.mood}`,
+    ``,
+    `Write your recap now.`
+  ].join('\n');
+}
+
 // ------- public -------
 export function buildDeepRecaps(pairs = [], tagsBundle, memEntertainer, memAnalyst) {
   return pairs.map(p => {
@@ -131,4 +207,38 @@ export function buildDeepRecaps(pairs = [], tagsBundle, memEntertainer, memAnaly
       bot2: analystTake(w, l, margin, metW, metL, aCapW, actW)
     };
   });
+}
+
+export async function buildLLMRecaps(pairs = [], tagsBundle, memEntertainer, memAnalyst) {
+  const fallback = buildDeepRecaps(pairs, tagsBundle, memEntertainer, memAnalyst);
+
+  let entSystem, anaSystem;
+  try {
+    const [personas, entProfile, anaProfile] = await Promise.all([
+      loadPersonas(),
+      getProfile('entertainer', 'MatchupRecaps'),
+      getProfile('analyst', 'MatchupRecaps')
+    ]);
+    entSystem = buildSystemPrompt('entertainer', entProfile, personas.entertainer);
+    anaSystem = buildSystemPrompt('analyst', anaProfile, personas.analyst);
+  } catch {
+    return fallback;
+  }
+
+  const results = await Promise.allSettled(
+    pairs.map(async (p, i) => {
+      const [entRes, anaRes] = await Promise.allSettled([
+        genWithLLM(entSystem, buildMatchupUserPrompt(p, tagsBundle, memEntertainer), 200),
+        genWithLLM(anaSystem, buildMatchupUserPrompt(p, tagsBundle, memAnalyst), 200)
+      ]);
+      return {
+        matchup_id: p.matchup_id,
+        header: fallback[i].header,
+        bot1: entRes.status === 'fulfilled' ? entRes.value : fallback[i].bot1,
+        bot2: anaRes.status === 'fulfilled' ? anaRes.value : fallback[i].bot2
+      };
+    })
+  );
+
+  return results.map((r, i) => r.status === 'fulfilled' ? r.value : fallback[i]);
 }

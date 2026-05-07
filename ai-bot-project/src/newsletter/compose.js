@@ -1,7 +1,7 @@
 // src/newsletter/compose.js
 import { getProfile } from '../personality/sliders.js';
 import { openerFor, makeBlurt } from '../personality/variability.js';
-import { buildDeepRecaps } from './recaps.js';
+import { buildLLMRecaps } from './recaps.js';
 import { analyzeTradeEvent } from '../analysis/trade_analyzer.js';
 import { humanizeTradeWriteups } from './voice.js';
 
@@ -42,7 +42,7 @@ export async function composeNewsletter({
 
   const intro = await buildIntro(week, pairs, events);
   const blurtData = { bot1: makeBlurt('entertainer', memEntertainer?.summaryMood), bot2: makeBlurt('analyst', memAnalyst?.summaryMood) };
-  const recaps = buildDeepRecaps(pairs, tagsBundle, memEntertainer, memAnalyst);
+  const recaps = await buildLLMRecaps(pairs, tagsBundle, memEntertainer, memAnalyst);
 
   const waiverItems = events
     .filter(e => e.type === 'waiver' || (e.type === 'fa_add' && e.relevance_score >= 40))
@@ -56,7 +56,7 @@ export async function composeNewsletter({
       return ({
         event_id: e.event_id,
         coverage_level: e.coverage_level,
-        reasons: e.reasons || [],
+        reasons: e.reasons || e.why || [],
         bot1: `${e.team} bags ${player} — ${flavor}; if the role sticks, this plays.`,
         bot2: `${e.team} adds ${player}; process checks out. Track usage and snaps.`
       });
@@ -68,7 +68,7 @@ export async function composeNewsletter({
       const item = {
         event_id: e.event_id,
         coverage_level: e.coverage_level,
-        reasons: e.reasons || [],
+        reasons: e.reasons || e.why || [],
         context: e.details?.headline ? `${e.parties?.join(' ↔ ')}: ${e.details.headline}` : e.parties?.join(' ↔ ') || 'Trade',
         teams: e.details?.by_team || null,
         analysis: analyzeTradeEvent(e, posCounts, tagsBundle, memEntertainer, memAnalyst, { players, dynasty: dynastyConfig, season, rosterPlayersByTeam })

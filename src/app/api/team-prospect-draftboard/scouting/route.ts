@@ -1,13 +1,19 @@
+import { promises as fs } from 'fs';
+import path from 'path';
 import { NextResponse } from 'next/server';
-import scoutingReports from '../../../../../prospect-draftboard/public/scouting-reports.json';
 
 export const runtime = 'nodejs';
 
 export async function GET() {
   try {
-    return NextResponse.json(scoutingReports, {
+    const scoutingPath = path.join(process.cwd(), 'public', 'scouting-reports.json');
+    const raw = await fs.readFile(scoutingPath, 'utf8');
+    return new NextResponse(raw, {
       status: 200,
-      headers: { 'Cache-Control': 'no-store' },
+      headers: {
+        'Content-Type': 'application/json; charset=utf-8',
+        'Cache-Control': 'no-store',
+      },
     });
   } catch (error) {
     console.error('Failed to load scouting reports json', error);

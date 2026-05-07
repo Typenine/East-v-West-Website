@@ -25,7 +25,7 @@ function sectionCallbacks(cb) {
     const label = (x.team1 && x.team2)
       ? `${esc(x.team1)} vs ${esc(x.team2)}${x.matchup_id ? ` (#${esc(x.matchup_id)})` : ''}`
       : `Matchup #${esc(x.matchup_id)}`;
-    return `<li style="margin:4px 0;">${label} — Entertainer: ${esc(x.entertainer_pick || '—')} · Analyst: ${esc(x.analyst_pick || '—')}</li>`;
+    return `<li style="margin:4px 0;">${label} — Entertainer: ${esc(x.entertainer_pick || x.bot1_pick || '—')} · Analyst: ${esc(x.analyst_pick || x.bot2_pick || '—')}</li>`;
   }).join('');
   const trades = (cb.trade_grades || []).slice(0,6).map(t =>
     `<li style="margin:4px 0;">${esc(t.team)} — Grade ${esc(t.grade)}</li>`
