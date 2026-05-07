@@ -14,7 +14,7 @@ export const HISTORY_TAB_IDS = [
   'records',
 ] as const;
 
-export const DRAFT_VIEW_IDS = ['next', '2027', 'past'] as const;
+export const DRAFT_VIEW_IDS = ['next', '2027', 'past', 'team-prospect-draftboard'] as const;
 export const DRAFT_NEXT_TAB_IDS = ['airbnb', 'travel', 'order'] as const;
 
 export const USER_NAV_CONFIG: UserNavItem[] = [
@@ -56,6 +56,7 @@ export const USER_NAV_CONFIG: UserNavItem[] = [
       },
       { id: 'draft.2027', label: '2027 Draft', href: '/draft?view=2027' },
       { id: 'draft.past', label: 'Previous Drafts', href: '/draft?view=past' },
+      { id: 'draft.team-prospect-draftboard', label: 'Team Prospect Draftboard', href: '/draft?view=team-prospect-draftboard' },
     ],
   },
   {

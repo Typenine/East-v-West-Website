@@ -22,6 +22,7 @@ import Textarea from '@/components/ui/Textarea';
 import { Table, THead, TBody, Tr, Th, Td } from '@/components/ui/Table';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Dialog, DialogBackdrop, DialogPanel, DialogTitle, Disclosure, DisclosureButton, DisclosurePanel } from '@headlessui/react';
+import TeamProspectDraftboard from '@/components/draft/TeamProspectDraftboard';
 
 // Draft data types
 type TeamHaul = {
@@ -73,7 +74,9 @@ export default function DraftContent() {
 
   const outerTabParam = searchParams?.get('view') || '';
   const nextTabParam = searchParams?.get('next') || '';
-  const activeOuterTab = outerTabParam === 'next' || outerTabParam === '2027' || outerTabParam === 'past' ? outerTabParam : 'next';
+  const activeOuterTab = outerTabParam === 'next' || outerTabParam === '2027' || outerTabParam === 'past' || outerTabParam === 'team-prospect-draftboard'
+    ? outerTabParam
+    : 'next';
   const activeNextTab = nextTabParam === 'airbnb' || nextTabParam === 'travel' || nextTabParam === 'order' ? nextTabParam : 'airbnb';
 
   const replaceDraftQuery = useCallback((updates: Record<string, string | null>) => {
@@ -1015,6 +1018,13 @@ export default function DraftContent() {
                     )}
                   </CardContent>
                 </Card>
+              ),
+            },
+            {
+              id: 'team-prospect-draftboard',
+              label: 'Team Prospect Draftboard',
+              content: (
+                <TeamProspectDraftboard />
               ),
             },
           ]}
