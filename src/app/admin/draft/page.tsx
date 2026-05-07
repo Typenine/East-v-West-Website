@@ -635,12 +635,24 @@ export default function AdminDraftPage() {
     }
   }
 
+  function getDraftPollMs(status: DraftOverview['status'] | null | undefined): number {
+    if (status === 'LIVE') return 3000;
+    if (status === 'PAUSED' || status === 'NOT_STARTED') return 8000;
+    if (status === 'COMPLETED') return 12000;
+    return 5000;
+  }
+
   useEffect(() => {
     load(true, true);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    load(false);
     let t: ReturnType<typeof setInterval>;
     const jitter = () => Math.floor(Math.random() * 400);
     const start = () => {
-      const ms = (document.hidden ? 10000 : 3000) + jitter();
+      const ms = (document.hidden ? 10000 : getDraftPollMs(draft?.status)) + jitter();
       t = setInterval(() => { load(false); loadPendingTrades(); }, ms);
     };
     const onVis = () => {
@@ -656,7 +668,7 @@ export default function AdminDraftPage() {
       document.removeEventListener('visibilitychange', onVis);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [draft?.status]);
 
   async function saveBranding() {
     setSavingBranding(true);

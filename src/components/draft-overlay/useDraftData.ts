@@ -185,7 +185,11 @@ export function useDraftData(basePollIntervalMs = 1000) {
     }
 
     lastUpdateMsRef.current = Date.now();
-    const newPollInterval = draft?.status === 'COMPLETED' ? 10000 : 1000;
+    const newPollInterval =
+      draft?.status === 'LIVE' ? 1000 :
+      draft?.status === 'PAUSED' || draft?.status === 'NOT_STARTED' ? 5000 :
+      draft?.status === 'COMPLETED' ? 10000 :
+      3000;
     setPollInterval(newPollInterval);
 
     setState((prev) => ({

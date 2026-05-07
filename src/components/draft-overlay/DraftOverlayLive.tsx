@@ -287,7 +287,7 @@ export default function DraftOverlayLive() {
       const ppr = draftPicksPerRound(draft);
       animDataRef.current = {
         pick: lastPick,
-        nextTeamName: nextTeamsRef.current[0]?.name || null,
+        nextTeamName: nextTeamsRef.current[0]?.name || draft?.onClockTeam || null,
         overall: lastPick.overall,
         round: lastPick.round,
         pickInRound: ((lastPick.overall - 1) % ppr) + 1,

@@ -128,11 +128,14 @@ export async function GET(req: NextRequest) {
     // Compute clock remaining
     const now = Date.now();
     const dl = overview.deadlineTs ? Date.parse(overview.deadlineTs) : 0;
-    const remainingSec = overview.status === 'LIVE' && dl > now
+    const rawRemainingSec = overview.status === 'LIVE' && dl > now
       ? Math.max(0, Math.floor((dl - now) / 1000))
       : overview.status === 'PAUSED' && overview.pausedRemainingSecs != null
       ? overview.pausedRemainingSecs
       : null;
+    const remainingSec = rawRemainingSec == null
+      ? null
+      : Math.min(rawRemainingSec, Math.max(1, Number(overview.clockSeconds || 1)));
     const pendingPick = await getPendingPick(draftId);
     const revision = buildDraftRevision(overview, pendingPick);
 

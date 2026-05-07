@@ -182,6 +182,13 @@ export default function DraftRoomPage() {
     } catch { /* not supported */ }
   }, []);
 
+  function getDraftPollMs(status: DraftOverview['status'] | null | undefined): number {
+    if (status === 'LIVE') return 3000;
+    if (status === 'PAUSED' || status === 'NOT_STARTED') return 8000;
+    if (status === 'COMPLETED') return 12000;
+    return 5000;
+  }
+
   const submitPick = useCallback(async (player: Avail) => {
     setSubmitting(true);
     try {
@@ -350,10 +357,13 @@ export default function DraftRoomPage() {
   useEffect(() => {
     fetch('/api/auth/me').then(r => r.json()).then((j: MeResp) => setMe(j)).catch(() => {});
     load(true);
+  }, []);
+
+  useEffect(() => {
     let t: ReturnType<typeof setInterval>;
     const jitter = () => Math.floor(Math.random() * 400);
     const start = () => {
-      const ms = (document.hidden ? 10000 : 3000) + jitter();
+      const ms = (document.hidden ? 10000 : getDraftPollMs(draft?.status)) + jitter();
       t = setInterval(() => load(false, true), ms);
     };
     const onVis = () => {
@@ -367,7 +377,7 @@ export default function DraftRoomPage() {
       clearInterval(t);
       document.removeEventListener('visibilitychange', onVis);
     };
-  }, []);
+  }, [draft?.status]);
 
   // Load queue when myTeam or admin status changes — scoped per team (admin passes team explicitly)
   useEffect(() => {
@@ -496,7 +506,7 @@ export default function DraftRoomPage() {
 
       animDataRef.current = {
         pick: lastPick,
-        nextTeamName: draft?.upcoming?.[0]?.team || null,
+        nextTeamName: draft?.onClockTeam || draft?.upcoming?.[0]?.team || null,
         overall: lastPick.overall,
         round: lastPick.round,
         pickInRound: ((lastPick.overall - 1) % picksPerRound) + 1,

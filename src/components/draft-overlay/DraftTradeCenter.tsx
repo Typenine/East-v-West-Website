@@ -1,6 +1,6 @@
 'use client';
 /* eslint-disable @next/next/no-img-element */
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { getTeamLogoPath } from '@/lib/utils/team-utils';
 import { getTeamColors } from '@/lib/constants/team-colors';
 
@@ -373,6 +373,7 @@ export default function DraftTradeCenter({
   // Team assets cache
   const [assetsCache, setAssetsCache] = useState<Record<string, TeamAssets>>({});
   const [loadingAssets, setLoadingAssets] = useState<Record<string, boolean>>({});
+  const approvedTradeCountRef = useRef(0);
 
   // Propose state
   const [partnerTeams, setPartnerTeams] = useState<string[]>([]);
@@ -391,7 +392,14 @@ export default function DraftTradeCenter({
     try {
       const res = await fetch(`/api/draft/trade?action=get_team&team=${encodeURIComponent(myTeam)}&draftId=${draftId}`);
       const data = await res.json();
-      setTrades((data.trades as DraftTrade[]) || []);
+      const nextTrades = (data.trades as DraftTrade[]) || [];
+      setTrades(nextTrades);
+      const approvedCount = nextTrades.filter((t) => t.status === 'approved').length;
+      if (approvedCount !== approvedTradeCountRef.current) {
+        approvedTradeCountRef.current = approvedCount;
+        // Invalidate cached team assets after newly approved trades so newly acquired players/picks show.
+        setAssetsCache({});
+      }
     } catch {}
     finally { setLoadingTrades(false); }
   }, [myTeam, draftId]);
