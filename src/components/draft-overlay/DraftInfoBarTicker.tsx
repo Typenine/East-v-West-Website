@@ -16,6 +16,69 @@ interface SeasonResult {
   recordRank: number; fptsRank: number; fptsAgainstRank: number;
 }
 
+const CANONICAL_SEASON_RESULTS: Record<string, Partial<Record<'2023' | '2024' | '2025', string>>> = {
+  'Belltown Raptors': {
+    '2023': 'Did not make playoffs',
+    '2024': 'Champion (Double Trouble 138.76 - 127.24)',
+    '2025': 'Fourth Place (Mt. Lebanon Cake Eaters 101.58 - 125.88)',
+  },
+  'Belleview Badgers': {
+    '2023': 'Lost 1st Round (Detroit Dawgs 120.02 - 141.98)',
+    '2024': 'Third Place (Detroit Dawgs 163.92 - 129.86)',
+    '2025': 'Lost 1st Round (Belltown Raptors 133.52 - 145.10)',
+  },
+  'Red Pandas': {
+    '2023': 'Did not make playoffs',
+    '2024': 'Did not make playoffs',
+    '2025': 'Did not make playoffs',
+  },
+  'Double Trouble': {
+    '2023': 'Champion (Elemental Heroes 185.88 - 85.78)',
+    '2024': 'Runner-up (Belltown Raptors 127.24 - 138.76)',
+    '2025': 'Runner-up (BeerNeverBrokeMyHeart 85.78 - 109.28)',
+  },
+  'Mt. Lebanon Cake Eaters': {
+    '2023': 'Lost 1st Round (BeerNeverBrokeMyHeart 92.88 - 118.76)',
+    '2024': 'Lost 1st Round (Belltown Raptors 109.40 - 149.10)',
+    '2025': 'Third Place (Belltown Raptors 125.88 - 101.88)',
+  },
+  'Elemental Heroes': {
+    '2023': 'Runner-up (Double Trouble 85.78 - 185.88)',
+    '2024': 'Lost 1st Round (Detroit Dawgs 126.42 - 200.78)',
+    '2025': 'Lost 1st Round (BeerNeverBrokeMyHeart 142.68 - 209.10)',
+  },
+  'bop pop': {
+    '2023': 'Lost 1st Round (Double Trouble 119.18 - 144.76)',
+    '2024': 'Lost 1st Round (Double Trouble 109.64 - 234.06)',
+    '2025': 'Lost 1st Round (Mt. Lebanon Cake Eaters 107.24 - 110.06)',
+  },
+  'Bimg Bamg Boomg': {
+    '2023': 'Did not make playoffs',
+    '2024': 'Did not make playoffs',
+    '2025': 'Lost 1st Round (Double Trouble 123.50 - 188.82)',
+  },
+  'Detroit Dawgs': {
+    '2023': 'Third Place (BeerNeverBrokeMyHeart 160.36 - 99.32)',
+    '2024': 'Fourth Place (Belleview Badgers 129.86 - 163.92)',
+    '2025': 'Did not make playoffs',
+  },
+  'The Lone Ginger': {
+    '2023': 'Did not make playoffs',
+    '2024': 'Did not make playoffs',
+    '2025': 'Did not make playoffs',
+  },
+  'Minshew\'s Maniacs': {
+    '2023': 'Lost 1st Round',
+    '2024': 'Did not make playoffs',
+    '2025': 'Did not make playoffs',
+  },
+  'BeerNeverBrokeMyHeart': {
+    '2023': 'Fourth Place (Detroit Dawgs 99.32 - 160.36)',
+    '2024': 'Lost 1st Round (Belleview Badgers 112.38 - 129.92)',
+    '2025': 'Champion (Double Trouble 109.28 - 85.78)',
+  },
+};
+
 interface Props {
   /** When set, in-draft trades resolve for this draft (required for correct trade ticker). */
   draftId?: string | null;
@@ -353,6 +416,11 @@ export default function DraftInfoBarTicker({ picksPerRound = 12, onClockTeam, av
                   <div className="text-[10px] text-white/70 leading-tight">Standings rank: #{s.recordRank}</div>
                   <div className="text-[10px] text-white/60 leading-tight">PF: {s.fpts} (#{s.fptsRank})</div>
                   <div className="text-[10px] text-white/60 leading-tight">PA: {s.fptsAgainst} (#{s.fptsAgainstRank})</div>
+                  {onClockTeam && (
+                    <div className="text-[10px] text-white/80 leading-tight mt-0.5 truncate">
+                      {CANONICAL_SEASON_RESULTS[onClockTeam]?.[s.season as '2023' | '2024' | '2025'] || ''}
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
