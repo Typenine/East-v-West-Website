@@ -176,14 +176,22 @@ export async function generateWithGroq(options: GroqGenerateOptions): Promise<Gr
         top_p: topP,
       };
     try {
-      const response = await fetch(GROQ_API_URL, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${apiKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(body),
-      });
+      const abort = new AbortController();
+      const abortTimer = setTimeout(() => abort.abort(), 40000); // 40s hard timeout per call
+      let response: Response;
+      try {
+        response = await fetch(GROQ_API_URL, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${apiKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(body),
+          signal: abort.signal,
+        });
+      } finally {
+        clearTimeout(abortTimer);
+      }
 
       if (!response.ok) {
         const errorText = await response.text();
