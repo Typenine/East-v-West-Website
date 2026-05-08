@@ -32,7 +32,7 @@ type RLState = {
   lastCallTime: number;
 };
 
-let rlState: RLState = { callsThisMinute: 0, minuteStart: Date.now(), lastCallTime: 0 };
+const rlState: RLState = { callsThisMinute: 0, minuteStart: Date.now(), lastCallTime: 0 };
 
 function resetIfNeeded() {
   if (Date.now() - rlState.minuteStart > 60000) {
@@ -99,6 +99,8 @@ const SAFETY_SETTINGS = [
   { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH },
 ];
 
+const CALL_TIMEOUT_MS = 40000; // 40s hard timeout per API call — fail fast if Gemini hangs
+
 async function generateWithGemini(options: {
   systemPrompt: string;
   userPrompt: string;
@@ -111,11 +113,13 @@ async function generateWithGemini(options: {
 
   await acquireSlot();
   try {
-    const maxRetries = 5;
+    const maxRetries = 3;
     let lastError: Error | null = null;
 
     for (let attempt = 0; attempt < maxRetries; attempt++) {
       await waitForRateLimit();
+
+      console.log(`[Gemini] Call attempt ${attempt + 1}/${maxRetries}`);
 
       try {
         const client = getClient();
@@ -125,14 +129,18 @@ async function generateWithGemini(options: {
           systemInstruction: systemPrompt,
         });
 
-        const result = await model.generateContent({
-          contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
-          generationConfig: {
-            temperature,
-            maxOutputTokens: maxTokens,
-            topP,
-          },
-        });
+        // Race against a hard timeout so a hung API call doesn't block forever
+        const timeoutPromise = new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error(`Gemini call timed out after ${CALL_TIMEOUT_MS / 1000}s`)), CALL_TIMEOUT_MS)
+        );
+
+        const result = await Promise.race([
+          model.generateContent({
+            contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
+            generationConfig: { temperature, maxOutputTokens: maxTokens, topP },
+          }),
+          timeoutPromise,
+        ]);
 
         recordCall();
 
@@ -152,21 +160,24 @@ async function generateWithGemini(options: {
         const msg = lastError.message.toLowerCase();
 
         if (msg.includes('429') || msg.includes('rate limit') || msg.includes('quota')) {
-          const waitTime = 90000 + attempt * 30000;
-          console.log(`[Gemini] Rate limited, attempt ${attempt + 1}/${maxRetries}, waiting ${Math.round(waitTime / 1000)}s...`);
+          // Wait for the remainder of the current minute + a small buffer, not 90s
+          const elapsed = Date.now() - rlState.minuteStart;
+          const waitTime = Math.max(10000, 65000 - elapsed);
+          console.log(`[Gemini] Rate limited (attempt ${attempt + 1}), waiting ${Math.round(waitTime / 1000)}s...`);
           await sleep(waitTime);
           rlState.callsThisMinute = 0;
           rlState.minuteStart = Date.now();
           continue;
         }
 
-        if (msg.includes('500') || msg.includes('503') || msg.includes('server')) {
-          console.log(`[Gemini] Server error, attempt ${attempt + 1}/${maxRetries}, retrying...`);
-          await sleep(5000 * (attempt + 1));
+        if (msg.includes('500') || msg.includes('503') || msg.includes('server') || msg.includes('timed out')) {
+          const waitTime = 5000 * (attempt + 1);
+          console.log(`[Gemini] Transient error (attempt ${attempt + 1}), retrying in ${waitTime / 1000}s...`);
+          await sleep(waitTime);
           continue;
         }
 
-        // Non-retryable error
+        // Non-retryable — bubble up immediately
         throw lastError;
       }
     }

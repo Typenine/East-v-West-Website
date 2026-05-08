@@ -148,50 +148,40 @@ function AdminNewsletterPageInner() {
     setResult(null);
     setProgress({ percent: 0, stage: 'Starting...', elapsed: 0 });
 
-    // Track elapsed time and estimate progress based on typical generation time (~180s)
+    // ~50 LLM calls × (5s delay + 2s response) = ~8-10 min for a full regular episode
     const startTime = Date.now();
-    const ESTIMATED_TOTAL_MS = 180000; // 3 minutes estimated
-    
-    // Progress stages with approximate timing
+    const ESTIMATED_TOTAL_MS = 540000; // 9 minutes — honest estimate
+
+    // Stages keyed by elapsed ms — progress is purely time-based, not real server state
     const stages = [
-      { percent: 5, stage: '📡 Fetching Sleeper data...', time: 3000 },
-      { percent: 10, stage: '📊 Building context...', time: 8000 },
-      { percent: 15, stage: '🧠 Loading bot memory...', time: 12000 },
-      { percent: 20, stage: '✍️ Generating intro...', time: 20000 },
-      { percent: 30, stage: '🏈 Processing matchups (1/6)...', time: 35000 },
-      { percent: 40, stage: '🏈 Processing matchups (2/6)...', time: 55000 },
-      { percent: 50, stage: '🏈 Processing matchups (3/6)...', time: 75000 },
-      { percent: 60, stage: '🏈 Processing matchups (4/6)...', time: 95000 },
-      { percent: 70, stage: '🏈 Processing matchups (5/6)...', time: 115000 },
-      { percent: 75, stage: '🏈 Processing matchups (6/6)...', time: 130000 },
-      { percent: 80, stage: '📈 Building power rankings...', time: 145000 },
-      { percent: 85, stage: '🔮 Generating forecasts...', time: 155000 },
-      { percent: 90, stage: '📝 Finalizing sections...', time: 165000 },
-      { percent: 95, stage: '🎨 Rendering HTML...', time: 175000 },
+      { percent: 3,  stage: '📡 Fetching Sleeper data...',         time: 0 },
+      { percent: 8,  stage: '📊 Building context & memory...',      time: 10000 },
+      { percent: 12, stage: '✍️ Generating intro...',               time: 25000 },
+      { percent: 22, stage: '🏈 Writing matchup recaps (1–2)...',   time: 70000 },
+      { percent: 35, stage: '🏈 Writing matchup recaps (3–4)...',   time: 150000 },
+      { percent: 50, stage: '🏈 Writing matchup recaps (5–6)...',   time: 230000 },
+      { percent: 62, stage: '📈 Building power rankings...',        time: 310000 },
+      { percent: 72, stage: '💸 Processing trades & waivers...',    time: 370000 },
+      { percent: 82, stage: '🔮 Generating forecasts...',           time: 430000 },
+      { percent: 90, stage: '📝 Wrapping up final sections...',     time: 490000 },
+      { percent: 94, stage: '🎨 Rendering HTML...',                 time: 530000 },
     ];
 
     const progressInterval = setInterval(() => {
       const elapsed = Date.now() - startTime;
       const elapsedSec = Math.floor(elapsed / 1000);
-      
-      // Find current stage based on elapsed time
+
       let currentStage = stages[0];
       for (const stage of stages) {
-        if (elapsed >= stage.time) {
-          currentStage = stage;
-        }
+        if (elapsed >= stage.time) currentStage = stage;
       }
-      
-      // Estimate percent (cap at 95% until complete)
-      const estimatedPercent = Math.min(95, Math.floor((elapsed / ESTIMATED_TOTAL_MS) * 100));
+
+      // Interpolate smoothly between stage checkpoints, cap at 94% until done
+      const estimatedPercent = Math.min(94, Math.floor((elapsed / ESTIMATED_TOTAL_MS) * 100));
       const percent = Math.max(currentStage.percent, estimatedPercent);
-      
-      setProgress({
-        percent,
-        stage: currentStage.stage,
-        elapsed: elapsedSec,
-      });
-    }, 500);
+
+      setProgress({ percent, stage: currentStage.stage, elapsed: elapsedSec });
+    }, 1000);
 
     try {
       const week = needsWeek ? (parseInt(weekInput, 10) || currentWeek) : 0;
@@ -479,7 +469,7 @@ function AdminNewsletterPageInner() {
                   </div>
                   <div className="flex justify-between text-xs text-[var(--muted)]">
                     <span>0%</span>
-                    <span>Estimated: ~3 minutes</span>
+                    <span>Estimated: ~8–10 minutes</span>
                     <span>100%</span>
                   </div>
                 </div>
@@ -490,9 +480,10 @@ function AdminNewsletterPageInner() {
                 </div>
 
                 <div className="mt-4 p-3 bg-blue-900/20 border border-blue-800 rounded text-xs text-blue-300">
-                  💡 <strong>Why so long?</strong> To preserve nuanced dialogue where bots actually respond to each other, 
-                  we make multiple LLM calls per matchup with delays to stay within free API limits. 
-                  This gives you real personality and back-and-forth, not generic commentary.
+                  💡 <strong>Why so long?</strong> A full newsletter makes ~50 individual AI calls —
+                  two bot perspectives per matchup, plus rankings, trades, waivers, and forecasts.
+                  Gemini&apos;s free tier allows 12 calls/minute, so generation takes 8–10 minutes.
+                  It won&apos;t timeout — just let it run.
                 </div>
               </div>
             ) : result ? (
