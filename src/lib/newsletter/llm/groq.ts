@@ -1,7 +1,11 @@
 /**
  * Groq LLM Client
- * Server-only wrapper for Groq API with rate limiting and retry logic
+ * Server-only wrapper — now routes generation through the cascade (Gemini → Groq → Cerebras → OpenRouter).
+ * All existing exports are preserved for backward compatibility.
  */
+
+import { generateWithCascade, resetCascadeMetrics, getCascadeMetricsSummary } from './cascade';
+export { resetCascadeMetrics, getCascadeMetricsSummary };
 
 // ============ Types ============
 
@@ -52,16 +56,19 @@ function getRLState(key: string): RLState {
 }
 
 const RATE_LIMITS = {
-  maxCallsPerMinute: 15, // Very conservative - stay well under 30 limit
-  maxTokensPerMinute: 4500, // Stay well under 6000 limit
-  minDelayBetweenCalls: 6000, // 6 seconds between calls - guaranteed safe for free tier
-  // Note: Longer delays are acceptable since newsletter generation can take time
-  // Auto-generation during season has 36+ hours, preview can take several minutes
+  maxCallsPerMinute: 4,
+  maxTokensPerMinute: 5500,
+  minDelayBetweenCalls: 16000, // 16s — at ~3000t/call this keeps us under 6000 TPM/min
 };
+
+// Groq free tier: 6000 TPM total (input + output combined per minute).
+// With system prompt ~700t + context we cap completion at 800t to keep total manageable.
+const MAX_COMPLETION_TOKENS = 800;
 
 // ============ Concurrency Gate (Semaphore) ============
 
-const MAX_CONCURRENCY = Math.max(1, parseInt(process.env.NEWSLETTER_MAX_CONCURRENCY || '2', 10) || 2);
+// Must be 1 — concurrent calls double-spend the TPM budget and both get rate-limited
+const MAX_CONCURRENCY = 1;
 let _inFlight = 0;
 const _waitQueue: Array<() => void> = [];
 
@@ -172,7 +179,7 @@ export async function generateWithGroq(options: GroqGenerateOptions): Promise<Gr
         model: candidateModel,
         messages,
         temperature,
-        max_tokens: maxTokens,
+        max_tokens: Math.min(maxTokens, MAX_COMPLETION_TOKENS),
         top_p: topP,
       };
     try {
@@ -525,17 +532,16 @@ ${constraints ? `CONSTRAINTS:\n${constraints}\n` : ''}
 Write your section now. Be concise but engaging. Do not include section headers - just the content.
 Remember to use your signature style and voice. Make it feel like YOU wrote this.`;
 
-  const response = await generateWithGroq({
-    messages: [
-      { role: 'system', content: systemPrompt },
-      { role: 'user', content: userPrompt },
-    ],
+  const resp = await generateWithCascade({
+    systemPrompt,
+    userPrompt,
     temperature: config.temperature,
     maxTokens,
+    topP: 0.9,
     validate,
   });
 
-  return response.content.trim();
+  return resp.content;
 }
 
 // ============ Staged Generation Support ============
@@ -551,6 +557,7 @@ export interface StagedGenerationState {
   currentSection: string | null;
   error: string | null;
   generatedContent: Record<string, { entertainer: string; analyst: string }>;
+  providerMetrics: Record<string, number>;
 }
 
 export function createStagedState(season: number, week: number): StagedGenerationState {
@@ -565,6 +572,7 @@ export function createStagedState(season: number, week: number): StagedGeneratio
     currentSection: null,
     error: null,
     generatedContent: {},
+    providerMetrics: {},
   };
 }
 
