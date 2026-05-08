@@ -702,6 +702,9 @@ export interface CallbacksSection {
     team2?: string;
     entertainer_pick?: string;
     analyst_pick?: string;
+    /** Graded after the game is played — true if pick matched the actual winner */
+    entertainer_correct?: boolean;
+    analyst_correct?: boolean;
   }>;
   trade_grades: Array<{ team: string; grade: string }>;
 }

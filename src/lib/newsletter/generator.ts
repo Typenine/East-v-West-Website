@@ -3,7 +3,7 @@
  * High-level function that orchestrates the entire newsletter generation process
  */
 
-import type { Newsletter, BotMemory, ForecastData, CallbacksSection } from './types';
+import type { Newsletter, BotMemory, ForecastData, CallbacksSection, WeeklyHotTake } from './types';
 import { buildDerived } from './derive';
 import { createEnhancedMemory, ensureEnhancedTeams, updateEnhancedMemoryAfterWeek, upgradeToEnhancedMemory } from './memory';
 import { isEnhancedMemory } from './types';
@@ -104,6 +104,8 @@ export interface GenerateNewsletterInput {
   }>;
   // Optional: callbacks section built from previous newsletter's forecast picks
   lastCallbacks?: import('./types').CallbacksSection | null;
+  // Optional: raw previous newsletter for hot takes + spotlight extraction
+  previousNewsletter?: { newsletter: { sections: Array<{ type: string; data: unknown }> } } | null;
 }
 
 export interface GenerateNewsletterResult {
@@ -240,6 +242,46 @@ export async function generateNewsletter(
     records,
   };
 
+  // 8a. Grade lastCallbacks predictions against this week's actual results
+  let gradedCallbacks: CallbacksSection | null = input.lastCallbacks ?? null;
+  if (gradedCallbacks && derived.matchup_pairs.length > 0) {
+    const gradedPicks = gradedCallbacks.forecast_picks.map(pick => {
+      const result = derived.matchup_pairs.find(mp =>
+        (mp.winner.name === pick.team1 || mp.winner.name === pick.team2 ||
+         mp.loser.name === pick.team1 || mp.loser.name === pick.team2)
+      );
+      if (!result) return pick;
+      return {
+        ...pick,
+        entertainer_correct: pick.entertainer_pick ? pick.entertainer_pick === result.winner.name : undefined,
+        analyst_correct: pick.analyst_pick ? pick.analyst_pick === result.winner.name : undefined,
+      };
+    });
+    gradedCallbacks = { ...gradedCallbacks, forecast_picks: gradedPicks };
+    const entW = gradedPicks.filter(p => p.entertainer_correct === true).length;
+    const anaW = gradedPicks.filter(p => p.analyst_correct === true).length;
+    console.log(`[Generator] Graded callbacks: Entertainer ${entW}/${gradedPicks.length}, Analyst ${anaW}/${gradedPicks.length}`);
+  }
+
+  // 8b. Extract previousHotTakes and spotlight_team from lastCallbacks newsletter for compose
+  // These come from the RAW (pre-grading) input, since they're from the *previous* newsletter
+  const rawPreviousNewsletter = (input as unknown as Record<string, unknown>).previousNewsletter as { newsletter: { sections: Array<{ type: string; data: unknown }> } } | undefined;
+  let previousHotTakes: WeeklyHotTake[] = [];
+  let prevSpotlightTeam = '';
+  if (rawPreviousNewsletter?.newsletter?.sections) {
+    const hotTakesSection = rawPreviousNewsletter.newsletter.sections.find(s => s.type === 'HotTakes');
+    if (hotTakesSection) {
+      previousHotTakes = (hotTakesSection.data as WeeklyHotTake[]).filter(ht => ht.bot && ht.take);
+    }
+    const spotlightSection = rawPreviousNewsletter.newsletter.sections.find(s => s.type === 'SpotlightTeam');
+    if (spotlightSection) {
+      prevSpotlightTeam = (spotlightSection.data as { teamName?: string })?.teamName || '';
+    }
+  }
+  if (gradedCallbacks && prevSpotlightTeam) {
+    gradedCallbacks = { ...gradedCallbacks, spotlight_team: prevSpotlightTeam };
+  }
+
   // 8. Compose the newsletter (with error recovery)
   // Convert previous predictions to the format expected by compose
   const formattedPreviousPredictions = input.previousPredictions?.map(p => ({
@@ -264,10 +306,11 @@ export async function generateNewsletter(
       memEntertainer,
       memAnalyst,
       forecast: forecastWithRecords,
-      lastCallbacks: input.lastCallbacks ?? null,
+      lastCallbacks: gradedCallbacks,
       enhancedContext: input.enhancedContext,
       h2hData: input.enhancedContext?.h2hData,
       previousPredictions: formattedPreviousPredictions,
+      previousHotTakes: previousHotTakes.length > 0 ? previousHotTakes : undefined,
     }, qualityReport);
 
     // 9. Render to HTML

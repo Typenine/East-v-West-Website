@@ -617,6 +617,16 @@ export async function updateStagedNewsletter(
 ): Promise<void> {
   const db = getDb();
 
+  // Ensure the row exists before updating — safe to call without a prior createStagedNewsletter
+  const existing = await db
+    .select({ id: newsletterStaged.id })
+    .from(newsletterStaged)
+    .where(and(eq(newsletterStaged.season, season), eq(newsletterStaged.week, week)))
+    .limit(1);
+  if (!existing.length) {
+    await db.insert(newsletterStaged).values({ season, week, status: 'pending' }).catch(() => {});
+  }
+
   const setData: Record<string, unknown> = {};
   
   if (updates.status !== undefined) {

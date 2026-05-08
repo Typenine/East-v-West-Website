@@ -105,3 +105,14 @@ CREATE TABLE IF NOT EXISTS newsletter_staged (
 
 CREATE INDEX IF NOT EXISTS newsletter_staged_season_week_idx ON newsletter_staged(season, week);
 CREATE UNIQUE INDEX IF NOT EXISTS newsletter_staged_season_week_unique ON newsletter_staged(season, week);
+
+-- Relationship memory — cross-bot shared state (debate pushbacks, recurring themes, prediction lead)
+CREATE TABLE IF NOT EXISTS relationship_memory (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  season INTEGER NOT NULL UNIQUE,
+  updated_at TIMESTAMPTZ DEFAULT NOW() NOT NULL,
+  prediction_records JSONB DEFAULT '{"entertainer":{"w":0,"l":0},"analyst":{"w":0,"l":0}}' NOT NULL,
+  pushbacks JSONB DEFAULT '[]' NOT NULL,
+  themes JSONB DEFAULT '{"entertainer_tendencies":[],"analyst_tendencies":[],"persistent_disagreements":[]}' NOT NULL,
+  dynamic JSONB DEFAULT '{"entertainer_lead_in_predictions":0,"total_pushbacks":0,"last_pushback_week":null,"agreements_this_season":0}' NOT NULL
+);

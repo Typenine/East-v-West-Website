@@ -26,6 +26,9 @@ import type {
   PowerRankingsSection,
   SeasonPreviewSection,
   WeeklyHotTake,
+  BlurtSection,
+  RelationshipMemory,
+  PushbackRecord,
 } from './types';
 import { isEnhancedMemory } from './types';
 import { generateSection } from './llm/groq';
@@ -36,7 +39,7 @@ import {
   type LLMFeaturesInput,
   type LLMFeaturesOutput,
 } from './llm-features';
-import { getPartnerDynamicsContext, recordBotInteraction, getPersonalityContext, evolvePersonality, updateEmotionalState, updatePlayerRelationship, detectObsessions, fadeObsessions, getObsessionContext, decayEmotionalState } from './memory';
+import { getPartnerDynamicsContext, recordBotInteraction, getPersonalityContext, evolvePersonality, updateEmotionalState, updatePlayerRelationship, detectObsessions, fadeObsessions, getObsessionContext, decayEmotionalState, getPlayerRelationshipContext } from './memory';
 import { recordHotTake } from './enhanced-context';
 import { makeBlurt } from './personality';
 
@@ -1085,7 +1088,8 @@ async function buildRecaps(
   memAnalyst: BotMemory,
   week: number,
   enhancedContext: string = '',
-  qualityReport?: { usedFallbacks: string[] }
+  qualityReport?: { usedFallbacks: string[] },
+  pushbackCollector?: PushbackRecord[]
 ): Promise<RecapItem[]> {
   if (pairs.length === 0) return [];
 
@@ -1164,6 +1168,18 @@ LOSER: ${p.loser.name}
 
 MARGIN OF VICTORY: ${p.margin.toFixed(1)} points`;
 
+    // Player relationship context for both bots — how they feel about the key performers
+    const matchupPlayerNames = [
+      ...(p.winner.topPlayers || []).map(pl => pl.name),
+      ...(p.loser.topPlayers || []).map(pl => pl.name),
+    ].filter(Boolean);
+    const entertainerPlayerCtx = getPlayerRelationshipContext(
+      memEntertainer as unknown as import('./types').BotMemory, matchupPlayerNames
+    );
+    const analystPlayerCtx = getPlayerRelationshipContext(
+      memAnalyst as unknown as import('./types').BotMemory, matchupPlayerNames
+    );
+
     // Entertainer gets their personal history with these teams + partner dynamics + personality
     const entertainerMatchupContext = `${baseMatchupContext}
 
@@ -1174,6 +1190,7 @@ ${entertainerLoserMemory || `You don't have strong feelings about ${p.loser.name
 ${entertainerState}
 ${entertainerPartnerContext}
 ${entertainerPersonalityContext}
+${entertainerPlayerCtx ? `\nYOUR HISTORY WITH KEY PLAYERS:\n${entertainerPlayerCtx}` : ''}
 
 USE YOUR HISTORY: If you've been high on a team and they won, feel vindicated. If you've been down on them and they won, acknowledge you might have been wrong. If a team you trusted let you down, express that disappointment. Your feelings about teams should color how you talk about this result.
 
@@ -1195,6 +1212,7 @@ ${analystLoserMemory || `No strong historical data on ${p.loser.name} yet.`}
 ${analystState}
 ${analystPartnerContext}
 ${analystPersonalityContext}
+${analystPlayerCtx ? `\nYOUR HISTORY WITH KEY PLAYERS:\n${analystPlayerCtx}` : ''}
 
 IMPORTANT RULES:
 1. Write ONLY about ${p.winner.name} and ${p.loser.name}. Do not mention other teams.
@@ -1556,28 +1574,60 @@ ${starterBot === 'analyst' ? 'Note: The Analyst will speak first — write your 
       if (entertainerTake) dialogue.push({ speaker: 'entertainer', text: entertainerTake });
     }
 
-    // Optional rebuttal for high-stakes games when Analyst pushes back on the Entertainer
-    if ((isChampionship || interestLevel === 'very high') && entertainerTake && analystTake) {
-      const analystPushesBack =
+    // Optional rebuttal + pushback recording for any game (not just high-stakes)
+    {
+      const analystPushesBack = !!(entertainerTake && analystTake && (
         analystTake.toLowerCase().includes('disagree') ||
         analystTake.toLowerCase().includes('actually') ||
         analystTake.toLowerCase().includes('however') ||
         analystTake.toLowerCase().includes('but ') ||
         analystTake.toLowerCase().includes('not so fast') ||
-        analystTake.toLowerCase().includes("i don't think");
+        analystTake.toLowerCase().includes("i don't think")
+      ));
 
       if (analystPushesBack) {
-        const rebuttalRaw = await generateSection({
-          persona: 'entertainer',
-          sectionType: `${bracketInfo} Rebuttal`,
-          context: `${seasonalContext}\n${entertainerMatchupContext}`,
-          constraints: `The Analyst just responded: "${analystTake}"\n\nCome back in 1-2 sentences. Stand your ground confidently — this is healthy disagreement. Write "ENTERTAINER: [your words]".`,
-          maxTokens: 80,
-        }).catch(() => null);
+        // Rebuttal call for high-stakes games
+        if (isChampionship || interestLevel === 'very high' || interestLevel === 'moderate') {
+          const rebuttalRaw = await generateSection({
+            persona: 'entertainer',
+            sectionType: `${bracketInfo} Rebuttal`,
+            context: `${seasonalContext}\n${entertainerMatchupContext}`,
+            constraints: `The Analyst just responded: "${analystTake}"\n\nCome back in 1-2 sentences. Stand your ground confidently — this is healthy disagreement. Write "ENTERTAINER: [your words]".`,
+            maxTokens: 80,
+          }).catch(() => null);
 
-        if (rebuttalRaw) {
-          const rebuttal = parseRaw(rebuttalRaw, 'entertainer');
-          if (rebuttal) dialogue.push({ speaker: 'entertainer', text: rebuttal });
+          if (rebuttalRaw) {
+            const rebuttal = parseRaw(rebuttalRaw, 'entertainer');
+            if (rebuttal) dialogue.push({ speaker: 'entertainer', text: rebuttal });
+          }
+        }
+
+        // Record pushback to collector — who championed the actual winner?
+        const entChampioned = (entertainerVindicated && !analystVindicated) ||
+          (!entertainerVindicated && !analystVindicated && Math.random() > 0.5);
+        const outcome: PushbackRecord['outcome'] = entChampioned
+          ? 'entertainer_championed_winner'
+          : 'analyst_championed_winner';
+
+        pushbackCollector?.push({
+          week,
+          matchup_id: String(p.matchup_id ?? bracketInfo),
+          winner_name: p.winner.name,
+          entertainer_stance: entertainerTake.slice(0, 200),
+          analyst_stance: analystTake.slice(0, 200),
+          outcome,
+          recorded_at: new Date().toISOString(),
+        });
+
+        // Apply debate outcome to bot personalities (applyDebateOutcome equivalent)
+        const memEntE = isEnhancedMemory(memEntertainer) ? memEntertainer : null;
+        const memAnaE = isEnhancedMemory(memAnalyst) ? memAnalyst : null;
+        if (entChampioned) {
+          if (memEntE) evolvePersonality(memEntE, { type: 'vindicated', intensity: 3, context: 'Won debate', week });
+          if (memAnaE) evolvePersonality(memAnaE, { type: 'humbled', intensity: 2, context: 'Lost debate', week });
+        } else {
+          if (memAnaE) evolvePersonality(memAnaE, { type: 'vindicated', intensity: 3, context: 'Won debate', week });
+          if (memEntE) evolvePersonality(memEntE, { type: 'humbled', intensity: 2, context: 'Lost debate', week });
         }
       }
     }
@@ -1897,7 +1947,48 @@ async function buildBlurt(
     }).then(r => r.trim().replace(/^(?:analyst|the analyst)[:\s]+/i, '').replace(/^["']|["']$/g, '') || null).catch(() => null),
   ]);
 
-  return { bot1: bot1 || null, bot2: bot2 || null };
+  const validBlurtMoods = ['Focused', 'Fired Up', 'Deflated'] as const;
+  type BlurtMood = typeof validBlurtMoods[number];
+  const toBlurtMood = (m: string | undefined): BlurtMood =>
+    (validBlurtMoods as readonly string[]).includes(m ?? '') ? m as BlurtMood : 'Focused';
+  return {
+    bot1: bot1 || makeBlurt('entertainer', toBlurtMood(memEntertainer.summaryMood)),
+    bot2: bot2 || makeBlurt('analyst', toBlurtMood(memAnalyst.summaryMood)),
+  };
+}
+
+// ============ Theme Inference ============
+
+async function inferThemesIfReady(rel: RelationshipMemory): Promise<void> {
+  if (rel.pushbacks.length < 5) return;
+  const recentPushbacks = rel.pushbacks.slice(-10);
+  const pbLog = recentPushbacks.map((pb, i) =>
+    `${i + 1}. Wk${pb.week} – ${pb.winner_name}: E="${pb.entertainer_stance}" A="${pb.analyst_stance}" → ${pb.outcome}`
+  ).join('\n');
+
+  try {
+    const response = await generateSection({
+      persona: 'analyst',
+      sectionType: 'ThemeInference',
+      context: pbLog,
+      constraints: `Analyze these ${recentPushbacks.length} bot debate records. Respond with ONLY this JSON (no markdown):
+{"entertainer_tendencies":["tendency1","tendency2"],"analyst_tendencies":["tendency1","tendency2"],"persistent_disagreements":["topic1"]}
+Each array: 2-3 strings under 60 chars each.`,
+      maxTokens: 180,
+    });
+    const cleaned = response.trim().replace(/^```json?\n?|\n?```$/g, '');
+    const parsed = JSON.parse(cleaned) as {
+      entertainer_tendencies?: string[];
+      analyst_tendencies?: string[];
+      persistent_disagreements?: string[];
+    };
+    if (Array.isArray(parsed.entertainer_tendencies)) rel.themes.entertainer_tendencies = parsed.entertainer_tendencies.slice(0, 3);
+    if (Array.isArray(parsed.analyst_tendencies)) rel.themes.analyst_tendencies = parsed.analyst_tendencies.slice(0, 3);
+    if (Array.isArray(parsed.persistent_disagreements)) rel.themes.persistent_disagreements = parsed.persistent_disagreements.slice(0, 3);
+    console.log(`[Compose] inferThemesIfReady: updated themes from ${recentPushbacks.length} pushbacks`);
+  } catch {
+    // Non-critical; themes are enrichment only
+  }
 }
 
 // ============ Main Compose Function ============
@@ -1918,6 +2009,7 @@ export interface ComposeNewsletterInput {
   h2hData?: Record<string, Record<string, { wins: number; losses: number }>>;
   previousPredictions?: Array<{ week: number; pick: string; actual: string; correct: boolean }>;
   previousHotTakes?: WeeklyHotTake[];
+  relationshipMemory?: RelationshipMemory | null;
 }
 
 export async function composeNewsletter(input: ComposeNewsletterInput, qualityReport?: { usedFallbacks: string[] }): Promise<Newsletter> {
@@ -1935,6 +2027,7 @@ export async function composeNewsletter(input: ComposeNewsletterInput, qualityRe
     h2hData,
     previousPredictions,
     previousHotTakes,
+    relationshipMemory,
   } = input;
 
   // Get episode configuration for section filtering
@@ -2012,6 +2105,9 @@ export async function composeNewsletter(input: ComposeNewsletterInput, qualityRe
     bot2: 'The data will guide us. See you next week.',
   };
 
+  // Collect pushbacks from all matchup debates so they can be applied to RelationshipMemory after
+  const pushbackCollector: PushbackRecord[] = [];
+
   // Build all sections using LLM (run in parallel where possible)
   // Each section is wrapped in error recovery to prevent one failure from killing the whole newsletter
   const [intro, waiverItems, tradeItems, spotlight, finalWord, recaps, blurt] = await Promise.all([
@@ -2020,11 +2116,22 @@ export async function composeNewsletter(input: ComposeNewsletterInput, qualityRe
     excludeSections.has('Trades') ? Promise.resolve([]) : safeSection('Trades', () => buildTradeItems(events), []),
     excludeSections.has('SpotlightTeam') ? Promise.resolve(null) : safeSection('Spotlight', () => buildSpotlight(pairs, memEntertainer, memAnalyst, fullEnhancedContext), null),
     safeSection('FinalWord', () => buildFinalWord(week, episodeType), fallbackFinalWord),
-    excludeSections.has('MatchupRecaps') ? Promise.resolve([]) : safeSection('Recaps', () => buildRecaps(pairs, memEntertainer, memAnalyst, week, fullEnhancedContext, qualityReport), []),
+    excludeSections.has('MatchupRecaps') ? Promise.resolve([]) : safeSection('Recaps', () => buildRecaps(pairs, memEntertainer, memAnalyst, week, fullEnhancedContext, qualityReport, pushbackCollector), []),
     excludeSections.has('Blurt') ? Promise.resolve({ bot1: null, bot2: null } as BlurtSection) : safeSection('Blurt', () => buildBlurt(week, memEntertainer, memAnalyst, fullEnhancedContext), { bot1: null, bot2: null } as BlurtSection),
   ]);
 
   console.log(`[Compose] Core sections generated via LLM (with error recovery)`);
+
+  // Apply collected pushbacks to RelationshipMemory and infer themes
+  if (pushbackCollector.length > 0 && relationshipMemory) {
+    for (const pb of pushbackCollector) {
+      relationshipMemory.pushbacks.push(pb);
+      relationshipMemory.dynamic.total_pushbacks++;
+      relationshipMemory.dynamic.last_pushback_week = pb.week;
+    }
+    await inferThemesIfReady(relationshipMemory);
+    console.log(`[Compose] Applied ${pushbackCollector.length} pushbacks to RelationshipMemory`);
+  }
 
   // Generate all new LLM-powered features (debates, hot takes, awards, etc.)
   let llmFeatures: LLMFeaturesOutput | null = null;
@@ -2103,19 +2210,6 @@ export async function composeNewsletter(input: ComposeNewsletterInput, qualityRe
   const sections: NewsletterSection[] = [
     { type: 'Intro', data: intro },
   ];
-
-  // Blurt section — quick hot takes driven by each bot's current summaryMood
-  if (!excludeSections.has('Blurt')) {
-    const validBlurtMoods = ['Focused', 'Fired Up', 'Deflated'] as const;
-    type ValidBlurtMood = typeof validBlurtMoods[number];
-    const toBlurtMood = (m: string | undefined): ValidBlurtMood | undefined =>
-      (validBlurtMoods as readonly string[]).includes(m ?? '') ? m as ValidBlurtMood : undefined;
-    const blurt1 = makeBlurt('entertainer', toBlurtMood(memEntertainer.summaryMood));
-    const blurt2 = makeBlurt('analyst', toBlurtMood(memAnalyst.summaryMood));
-    if (blurt1 || blurt2) {
-      sections.push({ type: 'Blurt', data: { bot1: blurt1 ?? '', bot2: blurt2 ?? '' } });
-    }
-  }
 
   // Build WEEKLY power rankings for regular episodes (each bot ranks all 12 teams)
   // This is different from preseason rankings - it reflects current season performance

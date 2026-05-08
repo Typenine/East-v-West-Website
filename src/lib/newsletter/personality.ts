@@ -75,17 +75,47 @@ export function openerFor(section: string, bot: BotName, profile: StyleProfile, 
 
 export type SummaryMood = 'Focused' | 'Fired Up' | 'Deflated';
 
-export function makeBlurt(bot: BotName, summaryMood: SummaryMood | undefined): string | null {
-  if (bot === 'entertainer') {
-    if (summaryMood === 'Fired Up') return 'This league finally has a pulse. Keep the chaos coming.';
-    if (summaryMood === 'Deflated') return 'I need a palate cleanser. Somebody trade something spicy.';
-    return null; // Focused → no blurt
-  }
-  
-  // analyst
-  if (summaryMood === 'Fired Up') return 'Trends are stabilizing; small edges matter more this week.';
-  if (summaryMood === 'Deflated') return 'Variance spiked. Tighten risk and play the floor where it counts.';
-  return null;
+const BLURTS: Record<BotName, Record<string, string[]>> = {
+  entertainer: {
+    'Fired Up': [
+      "This league finally has a pulse. Keep the chaos coming.",
+      "Someone's about to go on a run. I can feel it.",
+      "Fantasy gods are watching. Make your moves count.",
+    ],
+    'Deflated': [
+      "I need a palate cleanser. Somebody trade something spicy.",
+      "This week drained me. Somebody do something interesting.",
+      "The vibes are off. Time to shake up the waiver wire.",
+    ],
+    'Focused': [
+      "Eyes forward. The standings are tightening and every point matters.",
+      "No noise this week — just results. Show me what you've got.",
+      "The cream is rising. We're finding out who's real.",
+    ],
+  },
+  analyst: {
+    'Fired Up': [
+      "Trends are stabilizing; small edges matter more this week.",
+      "The signal is clear this week — follow the data.",
+      "Efficiency metrics are separating the contenders now.",
+    ],
+    'Deflated': [
+      "Variance spiked. Tighten risk and play the floor where it counts.",
+      "High-variance week. Regression incoming for several squads.",
+      "The numbers don't lie, but they can surprise. Stay disciplined.",
+    ],
+    'Focused': [
+      "The standings reflect skill more than luck at this point.",
+      "Projection models are converging. The picture is getting clearer.",
+      "Mid-season data is the most reliable signal. Trust the trends.",
+    ],
+  },
+};
+
+export function makeBlurt(bot: BotName, summaryMood: SummaryMood | undefined): string {
+  const mood = summaryMood ?? 'Focused';
+  const pool = BLURTS[bot][mood] ?? BLURTS[bot]['Focused'];
+  return pool[Math.floor(Date.now() / 10000) % pool.length];
 }
 
 // ============ Tone Selection ============

@@ -738,6 +738,7 @@ export async function POST(request: NextRequest) {
       pendingPicks: existingPendingPicks,
       enhancedContext,
       lastCallbacks, // Previous week's forecast picks for the Callbacks section
+      previousNewsletter: previousNewsletter as { newsletter: { sections: Array<{ type: string; data: unknown }> } } | null,
       previousPredictions, // Pass previous predictions for narrative callbacks
     });
 

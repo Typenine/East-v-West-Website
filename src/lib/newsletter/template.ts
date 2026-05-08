@@ -199,24 +199,47 @@ function sectionIntro(d: IntroSection, week: number, episodeType?: string, episo
 
 function sectionCallbacks(cb: CallbacksSection | null): string {
   if (!cb) return '';
-  
+
+  const hasGrades = (cb.forecast_picks || []).some(x => x.entertainer_correct !== undefined || x.analyst_correct !== undefined);
+
   const picks = (cb.forecast_picks || []).map(x => {
     const label = (x.team1 && x.team2)
       ? `${esc(x.team1)} vs ${esc(x.team2)}`
       : `Matchup #${esc(x.matchup_id)}`;
-    return `<div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #e5e7eb;">
+
+    const entGrade = x.entertainer_correct !== undefined
+      ? (x.entertainer_correct ? `<span style="color:#16a34a;font-weight:600;">✓</span>` : `<span style="color:#dc2626;font-weight:600;">✗</span>`)
+      : '';
+    const anaGrade = x.analyst_correct !== undefined
+      ? (x.analyst_correct ? `<span style="color:#16a34a;font-weight:600;">✓</span>` : `<span style="color:#dc2626;font-weight:600;">✗</span>`)
+      : '';
+
+    return `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid #e5e7eb;">
       <span style="font-weight:500;">${label}</span>
-      <span style="color:#6b7280;">🎭 ${esc(x.entertainer_pick || '—')} · 📊 ${esc(x.analyst_pick || '—')}</span>
+      <span style="color:#6b7280;font-size:14px;">🎭 ${esc(x.entertainer_pick || '—')}${entGrade} · 📊 ${esc(x.analyst_pick || '—')}${anaGrade}</span>
     </div>`;
   }).join('');
+
+  // Tally scores if graded
+  const gradeSummary = hasGrades ? (() => {
+    const entW = (cb.forecast_picks || []).filter(x => x.entertainer_correct === true).length;
+    const entL = (cb.forecast_picks || []).filter(x => x.entertainer_correct === false).length;
+    const anaW = (cb.forecast_picks || []).filter(x => x.analyst_correct === true).length;
+    const anaL = (cb.forecast_picks || []).filter(x => x.analyst_correct === false).length;
+    return `<div style="display:flex;gap:24px;margin-top:12px;padding-top:12px;border-top:2px solid #e5e7eb;font-size:13px;">
+      <span>🎭 Entertainer: <strong style="color:${entW >= entL ? '#16a34a' : '#dc2626'}">${entW}-${entL}</strong></span>
+      <span>📊 Analyst: <strong style="color:${anaW >= anaL ? '#16a34a' : '#dc2626'}">${anaW}-${anaL}</strong></span>
+    </div>`;
+  })() : '';
 
   return `
   <article>
     ${sectionHeader('LOOKING BACK', 'How did our predictions hold up?')}
     <div style="background:#f9fafb;border-radius:12px;padding:20px;margin-bottom:24px;">
       <div style="font-size:12px;color:#6b7280;margin-bottom:12px;">Last week: ${esc(cb.saved_at || '')}</div>
-      ${cb.spotlight_team ? `<div style="margin-bottom:16px;"><strong>Spotlight Team:</strong> ${esc(cb.spotlight_team)}</div>` : ''}
+      ${cb.spotlight_team ? `<div style="margin-bottom:16px;"><strong>Last week's spotlight:</strong> ${esc(cb.spotlight_team)}</div>` : ''}
       ${picks || '<div style="color:#6b7280;">No predictions to review.</div>'}
+      ${gradeSummary}
     </div>
   </article>`;
 }
