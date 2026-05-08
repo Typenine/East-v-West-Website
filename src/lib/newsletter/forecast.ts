@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Forecast Module
  * Generates LLM-powered predictions for upcoming matchups from both bot perspectives
  * Uses comprehensive league data for intelligent forecasting
@@ -6,7 +6,7 @@
 
 import type { UpcomingPair, MatchupPair, BotMemory, ForecastData, ForecastPick } from './types';
 import { isEnhancedMemory } from './types';
-import { generateSection } from './llm/groq';
+import { generateSection } from './llm/gemini';
 import { recordPrediction } from './enhanced-context';
 
 // ============ Forecast Generation ============

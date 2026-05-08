@@ -1,4 +1,4 @@
-/**
+﻿/**
  * LLM-Powered Features Module
  * Additional LLM integrations for richer newsletter content:
  * - Bot Debates (when they disagree)
@@ -24,7 +24,7 @@ import type {
   ForecastPick,
   TradeItem,
 } from './types';
-import { generateSection } from './llm/groq';
+import { generateSection } from './llm/gemini';
 
 // ============ 1. Bot Debates ============
 

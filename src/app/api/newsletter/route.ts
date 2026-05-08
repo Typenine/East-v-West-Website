@@ -593,7 +593,7 @@ export async function POST(request: NextRequest) {
       loadRelationshipMemory(seasonNum),
     ]);
 
-    const { leagueName: leagueNameFromIngest, users, rosters, matchups, nextMatchups, transactions, playerMap: allPlayers, injuries: rawInjuries } = ingestData;
+    const { leagueName: leagueNameFromIngest, users, rosters, matchups, nextMatchups, transactions, playerMap: allPlayers, injuries: rawInjuries, draftData } = ingestData;
 
     console.log(`Loaded bot memory - Entertainer: ${existingMemoryEntertainer ? 'found' : 'new'}, Analyst: ${existingMemoryAnalyst ? 'found' : 'new'}`);
     console.log(`[Newsletter] Player cache loaded: ${Object.keys(allPlayers).length} players, ${rawInjuries.length} injuries`);
@@ -741,6 +741,7 @@ export async function POST(request: NextRequest) {
       previousNewsletter: previousNewsletter as { newsletter: { sections: Array<{ type: string; data: unknown }> } } | null,
       previousPredictions, // Pass previous predictions for narrative callbacks
       existingRelationshipMemory: relationshipMem,
+      draftData: draftData ?? null,
     });
 
     const generatedAt = new Date().toISOString();

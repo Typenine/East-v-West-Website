@@ -4,6 +4,7 @@
  */
 
 import type { Newsletter, BotMemory, ForecastData, CallbacksSection, WeeklyHotTake, RelationshipMemory } from './types';
+import type { LeagueDraftData } from './sleeper-ingest';
 import { buildDerived } from './derive';
 import { createEnhancedMemory, ensureEnhancedTeams, updateEnhancedMemoryAfterWeek, upgradeToEnhancedMemory, addInsideJoke } from './memory';
 import { isEnhancedMemory } from './types';
@@ -109,6 +110,8 @@ export interface GenerateNewsletterInput {
   previousNewsletter?: { newsletter: { sections: Array<{ type: string; data: unknown }> } } | null;
   // Optional: cross-bot relationship memory for debate tracking and theme inference
   existingRelationshipMemory?: RelationshipMemory | null;
+  // Optional: draft data for draft-episode newsletters
+  draftData?: LeagueDraftData | null;
 }
 
 export interface GenerateNewsletterResult {
@@ -184,6 +187,32 @@ export async function generateNewsletter(
     teamNames = users.map(u => u.metadata?.team_name || u.display_name || u.username || `User ${u.user_id}`);
   }
   const uniqueTeamNames = Array.from(new Set(teamNames));
+
+  // Build roster_id → team name map for resolving draft data
+  const rosterIdToTeamName = new Map<number, string>();
+  for (const roster of rosters) {
+    const user = users.find(u => u.user_id === roster.owner_id);
+    const teamName = user?.metadata?.team_name || user?.display_name || user?.username || `Roster ${roster.roster_id}`;
+    rosterIdToTeamName.set(roster.roster_id, teamName);
+  }
+
+  // Resolve draft data: replace "RosterId:N" placeholders with actual team names
+  let resolvedDraftData = input.draftData ?? null;
+  if (resolvedDraftData) {
+    const resolvedOrder = resolvedDraftData.draftOrder.map(entry => {
+      const match = entry.match(/^RosterId:(\d+)$/);
+      if (match) {
+        const rosterId = parseInt(match[1], 10);
+        return rosterIdToTeamName.get(rosterId) || entry;
+      }
+      return entry;
+    });
+    const resolvedPicks = resolvedDraftData.picks.map(pick => {
+      const teamName = rosterIdToTeamName.get(pick.roster_id) || pick.teamName || `Roster ${pick.roster_id}`;
+      return { ...pick, teamName };
+    });
+    resolvedDraftData = { ...resolvedDraftData, draftOrder: resolvedOrder, picks: resolvedPicks };
+  }
 
   // 3. Initialize or load memory - always use enhanced memory
   // If existing memory lacks enhanced fields, upgrade it in-place
@@ -415,6 +444,7 @@ export async function generateNewsletter(
       previousPredictions: formattedPreviousPredictions,
       previousHotTakes: previousHotTakes.length > 0 ? previousHotTakes : undefined,
       relationshipMemory: relationshipMem,
+      draftData: resolvedDraftData,
     }, qualityReport);
 
     // 9. Render to HTML

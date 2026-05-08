@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Compose Module
  * Assembles all newsletter sections into a complete newsletter object
  * Uses Groq LLM for natural language generation
@@ -29,9 +29,12 @@ import type {
   BlurtSection,
   RelationshipMemory,
   PushbackRecord,
+  DraftPreviewSection,
+  DraftGradesSection,
 } from './types';
+import type { LeagueDraftData } from './sleeper-ingest';
 import { isEnhancedMemory } from './types';
-import { generateSection } from './llm/groq';
+import { generateSection } from './llm/gemini';
 import { buildStaticLeagueContext } from './league-knowledge';
 import { getEpisodeConfig } from './episodes';
 import {
@@ -303,16 +306,16 @@ Your current mood: ${memEntertainer.summaryMood || 'Neutral'}`;
       persona: 'entertainer',
       sectionType: 'Intro',
       context,
-      constraints: 'Write 2-4 sentences. Set the tone for the newsletter. Be energetic and opinionated.',
-      maxTokens: 200,
+      constraints: 'Write 3-4 rich paragraphs. Set the tone with big personality — reference the week\'s top storylines, drop a bold take or two, and make the reader feel the energy. Be colorful and opinionated.',
+      maxTokens: 600,
       episodeType,
     }),
     generateSection({
       persona: 'analyst',
       sectionType: 'Intro',
       context: context.replace(memEntertainer.summaryMood || 'Neutral', memAnalyst.summaryMood || 'Neutral'),
-      constraints: 'Write 2-3 sentences. Provide a measured overview. Reference key stats.',
-      maxTokens: 150,
+      constraints: 'Write 3-4 substantial paragraphs. Provide analytical depth — reference specific stats, trends, and the week\'s biggest storylines. Give your honest assessment with data to back it up.',
+      maxTokens: 500,
       episodeType,
     }),
   ]);
@@ -354,16 +357,16 @@ Your mood heading into the new season: ${memEntertainer.summaryMood || 'Excited'
       persona: 'entertainer',
       sectionType: 'Preseason Preview Intro',
       context,
-      constraints: 'Write 3-4 sentences welcoming everyone to the new season. Build hype! Make a bold prediction or two. This is the PRESEASON - no games have been played yet.',
-      maxTokens: 250,
+      constraints: 'Write 4-5 paragraphs welcoming everyone to the new season. Build massive hype — who are the contenders, who are the pretenders, what storylines should we watch? Drop multiple bold predictions. This is the PRESEASON - no games have been played yet, so speculate freely.',
+      maxTokens: 700,
       episodeType: 'preseason',
     }),
     generateSection({
       persona: 'analyst',
       sectionType: 'Preseason Preview Intro',
       context: context.replace(memEntertainer.summaryMood || 'Excited', memAnalyst.summaryMood || 'Analytical'),
-      constraints: 'Write 2-3 sentences setting up the season analytically. Reference roster construction, offseason moves, or key players to watch. This is the PRESEASON - no games have been played yet.',
-      maxTokens: 200,
+      constraints: 'Write 4-5 paragraphs setting up the season analytically. Dig into roster construction, offseason moves, historical patterns, and key players to watch. Give a thorough analytical preview with real depth.',
+      maxTokens: 600,
       episodeType: 'preseason',
     }),
   ]);
@@ -403,15 +406,15 @@ Your mood heading into the draft: ${memEntertainer.summaryMood || 'Excited'}`;
       persona: 'entertainer',
       sectionType: 'Pre-Draft Preview Intro',
       context,
-      constraints: 'Write 3-4 sentences building hype for the draft. Who should we be watching? Any hot takes on prospects?',
-      maxTokens: 250,
+      constraints: 'Write 4-5 paragraphs building hype for the draft. Who are the top prospects you\'re most excited about? Which teams have draft capital to make moves? Drop your hot takes on who will rise and fall. Make it feel like draft day hype.',
+      maxTokens: 700,
     }),
     generateSection({
       persona: 'analyst',
       sectionType: 'Pre-Draft Preview Intro',
       context: context.replace(memEntertainer.summaryMood || 'Excited', memAnalyst.summaryMood || 'Analytical'),
-      constraints: 'Write 2-3 sentences analyzing the draft landscape. Reference draft capital, team needs, or prospect tiers.',
-      maxTokens: 200,
+      constraints: 'Write 4-5 paragraphs analyzing the draft landscape in depth. Cover: draft capital by team, positional depth in this class, team needs, value tiers, and analytical framework for making picks. Be thorough and data-driven.',
+      maxTokens: 600,
     }),
   ]);
 
@@ -450,15 +453,15 @@ Your mood after the draft: ${memEntertainer.summaryMood || 'Opinionated'}`;
       persona: 'entertainer',
       sectionType: 'Post-Draft Grades Intro',
       context,
-      constraints: 'Write 3-4 sentences reacting to the draft. Who won? Who lost? Any shocking picks?',
-      maxTokens: 250,
+      constraints: 'Write 4-5 paragraphs reacting to the full draft. Give your visceral takes — who absolutely won the draft, who got robbed, which picks made you gasp. Be opinionated and dramatic. Grade the overall class.',
+      maxTokens: 700,
     }),
     generateSection({
       persona: 'analyst',
       sectionType: 'Post-Draft Grades Intro',
       context: context.replace(memEntertainer.summaryMood || 'Opinionated', memAnalyst.summaryMood || 'Analytical'),
-      constraints: 'Write 2-3 sentences with initial draft analysis. Reference value, fit, or process.',
-      maxTokens: 200,
+      constraints: 'Write 4-5 paragraphs of analytical post-draft assessment. Cover: which teams addressed their biggest needs, which reached vs got value, the overall depth of the class, and long-term dynasty implications of key picks.',
+      maxTokens: 600,
     }),
   ]);
 
@@ -491,15 +494,15 @@ Your mood during the offseason: ${memEntertainer.summaryMood || 'Restless'}`;
       persona: 'entertainer',
       sectionType: 'Offseason Update Intro',
       context,
-      constraints: 'Write 2-3 sentences about the offseason. Any moves happening? What should we be watching?',
-      maxTokens: 200,
+      constraints: 'Write 3-4 paragraphs about the offseason. Cover the biggest moves, the most interesting storylines developing, what you\'re most excited/worried about. Keep the reader engaged even though there are no games.',
+      maxTokens: 500,
     }),
     generateSection({
       persona: 'analyst',
       sectionType: 'Offseason Update Intro',
       context: context.replace(memEntertainer.summaryMood || 'Restless', memAnalyst.summaryMood || 'Patient'),
-      constraints: 'Write 2-3 sentences with offseason analysis. Reference roster moves or upcoming events.',
-      maxTokens: 200,
+      constraints: 'Write 3-4 paragraphs of analytical offseason coverage. Reference roster moves, their impact on team trajectories, and what to watch heading into the next season.',
+      maxTokens: 500,
     }),
   ]);
 
@@ -535,15 +538,15 @@ Consider: all-time records, championship history, recent trends, roster quality,
       persona: 'entertainer',
       sectionType: 'Power Rankings Intro',
       context,
-      constraints: 'Write 2-3 sentences introducing your preseason power rankings. Be bold and opinionated about who you think will dominate.',
-      maxTokens: 150,
+      constraints: 'Write 3-4 sentences introducing your preseason power rankings. Be bold and opinionated about who you think will dominate and who will disappoint.',
+      maxTokens: 300,
     }),
     generateSection({
       persona: 'analyst',
       sectionType: 'Power Rankings Intro',
       context,
-      constraints: 'Write 2-3 sentences introducing your preseason power rankings. Reference historical data and roster analysis.',
-      maxTokens: 150,
+      constraints: 'Write 3-4 sentences introducing your preseason power rankings. Reference historical data, win rates, and roster analysis.',
+      maxTokens: 300,
     }),
   ]);
 
@@ -552,8 +555,8 @@ Consider: all-time records, championship history, recent trends, roster quality,
     persona: 'analyst',
     sectionType: 'Power Rankings List',
     context: `${context}\n\nGenerate a numbered list of all 12 teams ranked 1-12 with a brief reason for each ranking. Format: "1. TeamName - reason"`,
-    constraints: 'List all 12 teams ranked 1-12. One line per team with brief reasoning. Base on historical performance and roster strength.',
-    maxTokens: 500,
+    constraints: 'List all 12 teams ranked 1-12. Format: "RANK. TeamName — reason (2-3 sentences)". Give real analysis for each rank.',
+    maxTokens: 1200,
   });
 
   // Parse rankings response
@@ -642,10 +645,10 @@ ${entertainerTeamOpinions.length > 0 ? entertainerTeamOpinions.join('\n') : 'No 
 
 Generate YOUR power rankings 1-12. Be opinionated! If you think a team is overrated, say so.
 If you're high on a team others doubt, rank them up. Let your personality show.`,
-    constraints: `Format each line as: "RANK. TeamName - [your hot take reason]"
-Example: "1. Double Trouble - They're the real deal and I've been saying it all year"
-Rank all 12 teams. Be bold, be dramatic, have opinions.`,
-    maxTokens: 600,
+    constraints: `Format each line as: "RANK. TeamName - [your hot take reason — 2-3 sentences of analysis]"
+Example: "1. Double Trouble - They're the real deal and I've been saying it all year. Their offense is clicking and nobody can stop them. Championship material."
+Rank all 12 teams. Be bold, dramatic, and give real analysis for each.`,
+    maxTokens: 1200,
   });
 
   // Generate analyst's rankings
@@ -659,10 +662,10 @@ ${analystTeamOpinions.length > 0 ? analystTeamOpinions.join('\n') : 'Building da
 
 Generate YOUR power rankings 1-12. Base it on the numbers but don't be afraid to have takes.
 If the data says a team is good despite their record, rank them accordingly.`,
-    constraints: `Format each line as: "RANK. TeamName - [analytical reason]"
-Example: "1. Double Trouble - Best points-per-game average and favorable schedule ahead"
-Rank all 12 teams. Be measured but have opinions.`,
-    maxTokens: 600,
+    constraints: `Format each line as: "RANK. TeamName - [analytical reason — 2-3 sentences]"
+Example: "1. Double Trouble - Best points-per-game average in the league and a favorable schedule ahead. Their roster depth is unmatched and they've shown consistency all season."
+Rank all 12 teams. Provide substantive analytical reasoning for each.`,
+    maxTokens: 1200,
   });
 
   // Parse both rankings
@@ -707,15 +710,15 @@ Rank all 12 teams. Be measured but have opinions.`,
       persona: 'entertainer',
       sectionType: 'Power Rankings Intro',
       context,
-      constraints: 'Write 1-2 sentences introducing your Week ' + week + ' power rankings. Be bold about who impressed or disappointed you.',
-      maxTokens: 100,
+      constraints: 'Write 2-3 sentences introducing your Week ' + week + ' power rankings. Be bold about who impressed or disappointed you this week.',
+      maxTokens: 300,
     }),
     generateSection({
       persona: 'analyst',
       sectionType: 'Power Rankings Intro',
       context,
-      constraints: 'Write 1-2 sentences introducing your Week ' + week + ' power rankings. Reference key trends or data points.',
-      maxTokens: 100,
+      constraints: 'Write 2-3 sentences introducing your Week ' + week + ' power rankings. Reference key trends, data points, and what moved teams up or down.',
+      maxTokens: 300,
     }),
   ]);
 
@@ -752,50 +755,50 @@ Think like a fantasy analyst doing a season preview:
       persona: 'analyst',
       sectionType: 'Season Preview - Contenders',
       context,
-      constraints: 'List 3 championship contenders with brief reasons. Format: "TeamName: reason"',
-      maxTokens: 200,
+      constraints: 'List 3 championship contenders with detailed reasons. Format: "TeamName: 2-3 sentence analysis of why they\'re a title contender"',
+      maxTokens: 500,
     }),
     generateSection({
       persona: 'entertainer',
       sectionType: 'Season Preview - Sleepers',
       context,
-      constraints: 'List 2-3 sleeper teams that could surprise. Format: "TeamName: reason"',
-      maxTokens: 150,
+      constraints: 'List 2-3 sleeper teams that could surprise. Format: "TeamName: 2-3 sentence explanation of the sleeper case"',
+      maxTokens: 400,
     }),
     generateSection({
       persona: 'analyst',
       sectionType: 'Season Preview - Bust Candidates',
       context,
-      constraints: 'List 2 teams that might disappoint expectations. Format: "TeamName: reason"',
+      constraints: 'List 2 teams that might disappoint expectations. Format: "TeamName: 2-3 sentence breakdown of the bust case and what could go wrong"',
+      maxTokens: 400,
+    }),
+    generateSection({
+      persona: 'entertainer',
+      sectionType: 'Bold Predictions',
+      context,
+      constraints: 'Give 3 bold/hot take predictions for the season. Be spicy, controversial, and specific. 2-3 sentences per prediction.',
+      maxTokens: 500,
+    }),
+    generateSection({
+      persona: 'analyst',
+      sectionType: 'Bold Predictions',
+      context,
+      constraints: 'Give 3 analytical predictions for the season based on data, trends, and historical patterns. 2-3 sentences per prediction with reasoning.',
+      maxTokens: 500,
+    }),
+    generateSection({
+      persona: 'entertainer',
+      sectionType: 'Championship Pick',
+      context,
+      constraints: 'Pick your championship winner in 2-3 sentences. Be supremely confident and explain why.',
       maxTokens: 150,
     }),
     generateSection({
-      persona: 'entertainer',
-      sectionType: 'Bold Predictions',
-      context,
-      constraints: 'Give 3 bold/hot take predictions for the season. Be spicy and controversial.',
-      maxTokens: 200,
-    }),
-    generateSection({
-      persona: 'analyst',
-      sectionType: 'Bold Predictions',
-      context,
-      constraints: 'Give 3 analytical predictions for the season based on data and trends.',
-      maxTokens: 200,
-    }),
-    generateSection({
-      persona: 'entertainer',
-      sectionType: 'Championship Pick',
-      context,
-      constraints: 'Pick your championship winner in one sentence. Be confident!',
-      maxTokens: 50,
-    }),
-    generateSection({
       persona: 'analyst',
       sectionType: 'Championship Pick',
       context,
-      constraints: 'Pick your championship winner in one sentence with brief reasoning.',
-      maxTokens: 50,
+      constraints: 'Pick your championship winner in 2-3 sentences with analytical reasoning behind your choice.',
+      maxTokens: 150,
     }),
   ]);
 
@@ -850,15 +853,15 @@ async function buildWaiverItems(events: DerivedData['events_scored']): Promise<W
       persona: 'entertainer',
       sectionType: 'Waivers',
       context: `Waiver wire moves this week:\n${waiverContext}`,
-      constraints: `Give a brief hot take on each move. One sentence per move. Be spicy about the good pickups and skeptical about the bad ones.`,
-      maxTokens: 300,
+      constraints: `React to each waiver move with 2-3 sentences. Be spicy about the great pickups, skeptical about the questionable ones. Give your personality-driven take on what it means for that team.`,
+      maxTokens: 600,
     }),
     generateSection({
       persona: 'analyst',
       sectionType: 'Waivers',
       context: `Waiver wire moves this week:\n${waiverContext}`,
-      constraints: `Analyze each move briefly. One sentence per move. Focus on role, usage, and upside.`,
-      maxTokens: 300,
+      constraints: `Analyze each move with 2-3 sentences. Cover role, usage projection, upside, and what it means for the team's roster construction.`,
+      maxTokens: 600,
     }),
   ]);
 
@@ -933,15 +936,15 @@ Evaluate this trade FROM ${party.toUpperCase()}'S PERSPECTIVE ONLY.`;
           persona: 'entertainer',
           sectionType: 'Trade Grade',
           context: sideContext,
-          constraints: `Grade this trade for ${party} specifically (A+ to F). Did THEY win or lose? 2 sentences max. Include your letter grade.`,
-          maxTokens: 100,
+          constraints: `Grade this trade for ${party} specifically (A+ to F). Did THEY win or lose? Write 3-4 sentences with personality — was this a heist, a fair deal, or a robbery? Include your letter grade.`,
+          maxTokens: 300,
         }),
         generateSection({
           persona: 'analyst',
           sectionType: 'Trade Grade',
           context: sideContext,
-          constraints: `Grade this trade for ${party} specifically (A+ to F). Evaluate value received vs given from their perspective. 2 sentences. Include letter grade.`,
-          maxTokens: 100,
+          constraints: `Grade this trade for ${party} specifically (A+ to F). Evaluate value received vs given from their perspective. Write 3-4 sentences analyzing short-term vs long-term implications, value, and fit. Include letter grade.`,
+          maxTokens: 300,
         }),
       ]);
 
@@ -1014,15 +1017,15 @@ ${enhancedContext}`;
       persona: 'entertainer',
       sectionType: 'Spotlight',
       context,
-      constraints: 'Hype up or roast this team based on their performance. 2-3 sentences. Be memorable.',
-      maxTokens: 150,
+      constraints: 'Write 3-4 paragraphs spotlighting this team\'s performance. Hype them up or give them tough love. Talk about what made this week special, which players came through, and what it means for their season. Be vivid and memorable.',
+      maxTokens: 500,
     }),
     generateSection({
       persona: 'analyst',
       sectionType: 'Spotlight',
       context: context.replace(memEntertainer.teams[spotlightPair.winner.name]?.mood || 'Neutral', memAnalyst.teams[spotlightPair.winner.name]?.mood || 'Neutral'),
-      constraints: 'Analyze what made this performance notable. Is it sustainable? 2-3 sentences.',
-      maxTokens: 150,
+      constraints: 'Write 3-4 paragraphs analytically dissecting this performance. What made it special statistically? Is it sustainable or regression bait? What does it mean for their playoff trajectory? Reference specific numbers.',
+      maxTokens: 500,
     }),
   ]);
 
@@ -1038,28 +1041,28 @@ async function buildFinalWord(week: number, episodeType: string = 'regular'): Pr
   switch (episodeType) {
     case 'preseason':
       context = 'The season is about to begin. Sign off the preseason preview with excitement for what\'s to come.';
-      entertainerConstraint = 'One punchy sentence about the upcoming season. Build hype! Make a bold prediction.';
-      analystConstraint = 'One measured closing thought about the season ahead. Reference what to watch.';
+      entertainerConstraint = '2-3 sentences closing out the season preview. Build maximum hype, drop your biggest bold prediction, and leave the audience desperate for Week 1 to start.';
+      analystConstraint = '2-3 sentences of measured analytical closing thoughts. What are the 2-3 most important things to watch as the season unfolds?';
       break;
     case 'pre_draft':
       context = 'The rookie draft is coming up. Sign off the pre-draft preview with anticipation.';
-      entertainerConstraint = 'One punchy sentence about the upcoming draft. Who should we be watching?';
-      analystConstraint = 'One measured closing thought about draft strategy or prospects.';
+      entertainerConstraint = '2-3 sentences to close out the draft preview. Build the hype, name the player you\'re most excited about, and leave the audience fired up.';
+      analystConstraint = '2-3 sentences of analytical closing thoughts. What\'s the key strategic takeaway heading into draft day?';
       break;
     case 'post_draft':
       context = 'The rookie draft is complete. Sign off the draft grades with final thoughts.';
-      entertainerConstraint = 'One punchy sentence about the draft results. Any winners or losers to call out?';
-      analystConstraint = 'One measured closing thought about the draft class or team improvements.';
+      entertainerConstraint = '2-3 sentences closing out the draft recap. Who was the biggest winner? What\'s your lasting impression of this class?';
+      analystConstraint = '2-3 sentences of analytical final thoughts. What does this draft mean for the competitive landscape going forward?';
       break;
     case 'offseason':
       context = 'It\'s the offseason. Sign off with thoughts on what\'s next.';
-      entertainerConstraint = 'One punchy sentence about the offseason. What should we be watching?';
-      analystConstraint = 'One measured closing thought about offseason moves or upcoming events.';
+      entertainerConstraint = '2-3 sentences closing out the offseason update. What are you most looking forward to? Leave the audience engaged.';
+      analystConstraint = '2-3 sentences of measured offseason analysis. What are the biggest open questions heading into the season?';
       break;
     default:
       context = `Week ${week} is in the books. Sign off the newsletter with a memorable closing thought.`;
-      entertainerConstraint = 'One punchy sentence to close the show. Make it memorable. Tease next week.';
-      analystConstraint = 'One measured closing thought. Keep it brief and professional.';
+      entertainerConstraint = '2-3 sentences to close the show. Make it memorable, tease what to watch next week, and leave on a high note.';
+      analystConstraint = '2-3 sentences of measured closing analysis. Reference the biggest takeaway from this week and what it means going forward.';
   }
 
   const [bot1, bot2] = await Promise.all([
@@ -1068,14 +1071,14 @@ async function buildFinalWord(week: number, episodeType: string = 'regular'): Pr
       sectionType: 'Final Word',
       context,
       constraints: entertainerConstraint,
-      maxTokens: 60,
+      maxTokens: 200,
     }),
     generateSection({
       persona: 'analyst',
       sectionType: 'Final Word',
       context,
       constraints: analystConstraint,
-      maxTokens: 60,
+      maxTokens: 200,
     }),
   ]);
 
@@ -1492,12 +1495,12 @@ ${starterBot === 'entertainer' ? 'Entertainer speaks first.' : 'Analyst speaks f
 BEGIN:`;
 
     // Token budgets per bot (each gets their own call now)
-    const entertainerTokens = isChampionship ? 400 :
-                              interestLevel === 'very high' ? 300 :
-                              interestLevel === 'moderate' ? 200 : 125;
-    const analystTokens = isChampionship ? 400 :
-                          interestLevel === 'very high' ? 300 :
-                          interestLevel === 'moderate' ? 200 : 125;
+    const entertainerTokens = isChampionship ? 800 :
+                              interestLevel === 'very high' ? 600 :
+                              interestLevel === 'moderate' ? 400 : 250;
+    const analystTokens = isChampionship ? 800 :
+                          interestLevel === 'very high' ? 600 :
+                          interestLevel === 'moderate' ? 400 : 250;
 
     // SEQUENTIAL GENERATION: Entertainer speaks first, Analyst sees Entertainer's output
     // This ensures the Analyst can genuinely respond to what the Entertainer said
@@ -1592,8 +1595,8 @@ ${starterBot === 'analyst' ? 'Note: The Analyst will speak first — write your 
             persona: 'entertainer',
             sectionType: `${bracketInfo} Rebuttal`,
             context: `${seasonalContext}\n${entertainerMatchupContext}`,
-            constraints: `The Analyst just responded: "${analystTake}"\n\nCome back in 1-2 sentences. Stand your ground confidently — this is healthy disagreement. Write "ENTERTAINER: [your words]".`,
-            maxTokens: 80,
+            constraints: `The Analyst just responded: "${analystTake}"\n\nCome back in 2-3 sentences. Stand your ground with confidence and fire — this is healthy disagreement. Push back specifically on what they said. Write "ENTERTAINER: [your words]".`,
+            maxTokens: 250,
           }).catch(() => null);
 
           if (rebuttalRaw) {
@@ -1958,15 +1961,15 @@ async function buildBlurt(
       persona: 'entertainer',
       sectionType: 'Blurt',
       context: ctxSnippet + (entPersonality ? `\n${entPersonality}` : ''),
-      constraints: `Week ${week}. Give ONE punchy aside — something on your mind, a hot observation, a player or team you can't stop thinking about. 1-2 sentences. No speaker label, just your words.`,
-      maxTokens: 60,
+      constraints: `Week ${week}. One sharp aside — something burning on your mind, a hot observation, a player or team you can't stop thinking about. 2-3 sentences max. No speaker label, just your words.`,
+      maxTokens: 150,
     }).then(r => r.trim().replace(/^(?:entertainer|the entertainer)[:\s]+/i, '').replace(/^["']|["']$/g, '') || null).catch(() => null),
     generateSection({
       persona: 'analyst',
       sectionType: 'Blurt',
       context: ctxSnippet + (anaPersonality ? `\n${anaPersonality}` : ''),
-      constraints: `Week ${week}. Give ONE sharp analytical observation that doesn't fit anywhere else — a data point, a trend, a number that surprised you. 1-2 sentences. No speaker label, just your words.`,
-      maxTokens: 60,
+      constraints: `Week ${week}. One sharp analytical observation that doesn't fit anywhere else — a data point, a trend, a number that surprised you. 2-3 sentences max. No speaker label, just your words.`,
+      maxTokens: 150,
     }).then(r => r.trim().replace(/^(?:analyst|the analyst)[:\s]+/i, '').replace(/^["']|["']$/g, '') || null).catch(() => null),
   ]);
 
@@ -1977,6 +1980,330 @@ async function buildBlurt(
   return {
     bot1: bot1 || makeBlurt('entertainer', toBlurtMood(memEntertainer.summaryMood)),
     bot2: bot2 || makeBlurt('analyst', toBlurtMood(memAnalyst.summaryMood)),
+  };
+}
+
+// ============ Draft Section Builders ============
+
+/**
+ * Build the pre-draft preview section.
+ * Uses actual Sleeper draft order + Groq's NFL draft knowledge for prospect analysis.
+ */
+async function buildDraftPreview(
+  draftData: LeagueDraftData | null,
+  memEntertainer: BotMemory,
+  memAnalyst: BotMemory,
+  season: number,
+  enhancedContext: string,
+): Promise<DraftPreviewSection> {
+  const leagueKnowledge = buildStaticLeagueContext();
+
+  // Build draft order context string
+  let draftOrderContext = '';
+  if (draftData?.draftOrder && draftData.draftOrder.length > 0) {
+    draftOrderContext = `\nDRAFT ORDER (${season} Rookie Draft):\n`;
+    draftData.draftOrder.forEach((team, idx) => {
+      draftOrderContext += `Pick ${idx + 1}: ${team}\n`;
+    });
+    draftOrderContext += `\nDraft type: ${draftData.type}, ${draftData.totalRounds} rounds, ${draftData.totalTeams} teams`;
+  } else {
+    draftOrderContext = '\nDraft order has not been set yet.';
+  }
+
+  const context = `${leagueKnowledge}
+
+---
+
+PRE-DRAFT PREVIEW — ${season} ROOKIE DRAFT
+
+You are covering the East v. West fantasy football league's upcoming rookie draft.
+This is a DYNASTY league — rookies are the lifeblood of long-term success.
+
+${draftOrderContext}
+
+${enhancedContext}
+
+NFL DRAFT CONTEXT (${season}):
+Use your knowledge of the ${season} NFL Draft class to identify:
+- Top overall prospects by ADP and consensus rankings
+- Deep positions in this class (RB, WR, TE, QB depth)
+- Sleeper/late-round values
+- Players who will be immediately relevant in fantasy
+
+Match prospects to teams: which teams have early picks and need certain positions?
+Which teams in the middle rounds can still find value?`;
+
+  // Generate top prospects list
+  const prospectsRaw = await generateSection({
+    persona: 'analyst',
+    sectionType: 'Draft Preview - Top Prospects',
+    context,
+    constraints: `List the top 10 NFL rookie prospects for the ${season} draft class. For each:
+Format: "NAME (POS, NFL TEAM) — 2-3 sentence analysis of dynasty value and landing spot"
+Base this on consensus ADP rankings and your knowledge of the draft class.
+Focus on dynasty fantasy value, not just NFL value.`,
+    maxTokens: 1200,
+  });
+
+  // Generate team needs
+  const teamNeedsRaw = await generateSection({
+    persona: 'analyst',
+    sectionType: 'Draft Preview - Team Needs',
+    context,
+    constraints: `Analyze each team's draft needs based on their draft slot and roster construction.
+${draftData?.draftOrder.length ? `Teams picking early: ${draftData.draftOrder.slice(0, 4).join(', ')}` : ''}
+For each team, identify: 1-2 key positional needs, their draft strategy (BPA vs need), and what a "home run" pick looks like.
+Format: "TEAM (Pick N): needs [positions], strategy: [description]"`,
+    maxTokens: 800,
+  });
+
+  // Generate mock draft
+  const mockDraftRaw = await generateSection({
+    persona: 'entertainer',
+    sectionType: 'Draft Preview - Mock Draft',
+    context: context + '\n\n' + prospectsRaw,
+    constraints: `Create a mock draft for the first round (${draftData?.totalTeams ?? 12} picks).
+Show who each team SHOULD take based on their needs and what prospects will be available.
+Format each pick: "Pick N — TEAM: PLAYER NAME (POS) — one sentence on why this is the move"
+Be specific about players and why each pick makes sense for that team.`,
+    maxTokens: 1000,
+  });
+
+  // Generate bot previews (the narrative intros)
+  const [bot1_preview, bot2_preview] = await Promise.all([
+    generateSection({
+      persona: 'entertainer',
+      sectionType: 'Draft Preview - Entertainer Preview',
+      context,
+      constraints: `Write 3-4 paragraphs of draft preview commentary. Who are you most excited about? Which teams are set up to win this draft? Any bold takes on prospects falling or rising? Build hype for draft day. Be entertaining and opinionated.`,
+      maxTokens: 700,
+    }),
+    generateSection({
+      persona: 'analyst',
+      sectionType: 'Draft Preview - Analyst Preview',
+      context,
+      constraints: `Write 3-4 paragraphs of analytical draft preview. Cover: the overall depth of this class, key value tiers, which teams have the best draft capital, and what it would take for each team to have a successful draft. Be thorough and data-focused.`,
+      maxTokens: 700,
+    }),
+  ]);
+
+  // Parse top prospects
+  const topProspects = prospectsRaw
+    .split('\n')
+    .filter(l => l.trim() && /^[A-Z]/.test(l.trim()))
+    .slice(0, 10)
+    .map(line => {
+      const match = line.match(/^([^(]+)\(([^,)]+)[^)]*\)\s*[—–-]\s*(.+)/);
+      return {
+        name: match ? match[1].trim() : line.split('(')[0].trim(),
+        position: match ? match[2].trim() : 'FLEX',
+        analysis: match ? match[3].trim() : line.trim(),
+      };
+    });
+
+  // Build draft order array
+  const draftOrder = (draftData?.draftOrder ?? []).map((team, idx) => ({
+    pick: idx + 1,
+    team,
+  }));
+
+  // Parse team needs (simplified)
+  const teamNeeds = teamNeedsRaw
+    .split('\n')
+    .filter(l => l.trim() && l.includes(':'))
+    .slice(0, 12)
+    .map(line => {
+      const teamMatch = line.match(/^([^(]+)\(Pick \d+\):\s*(.+)/);
+      const team = teamMatch ? teamMatch[1].trim() : line.split(':')[0].trim();
+      const rest = teamMatch ? teamMatch[2] : line.split(':').slice(1).join(':');
+      const needsMatch = rest.match(/needs?\s+([^,]+)/i);
+      const strategyMatch = rest.match(/strategy:\s*(.+)/i);
+      return {
+        team,
+        needs: needsMatch ? [needsMatch[1].trim()] : ['RB', 'WR'],
+        strategy: strategyMatch ? strategyMatch[1].trim() : rest.trim(),
+      };
+    });
+
+  // Parse mock draft picks
+  const mockDraft = mockDraftRaw
+    .split('\n')
+    .filter(l => l.trim() && /Pick \d+/.test(l))
+    .slice(0, draftData?.totalTeams ?? 12)
+    .map(line => {
+      const pickMatch = line.match(/Pick (\d+)\s*[—–-]\s*([^:]+):\s*([^(]+)\(([^)]+)\)\s*[—–-]?\s*(.*)/);
+      if (pickMatch) {
+        return {
+          pick: parseInt(pickMatch[1]),
+          team: pickMatch[2].trim(),
+          player: pickMatch[3].trim(),
+          analysis: pickMatch[5].trim() || `Strong fit for ${pickMatch[2].trim()}`,
+        };
+      }
+      return null;
+    })
+    .filter((p): p is NonNullable<typeof p> => p !== null);
+
+  return {
+    draftOrder,
+    topProspects: topProspects.length > 0 ? topProspects : [
+      { name: 'Top Rookie WR', position: 'WR', analysis: 'Expected to go early in dynasty drafts.' },
+      { name: 'Top Rookie RB', position: 'RB', analysis: 'High-upside runner in a great situation.' },
+    ],
+    teamNeeds: teamNeeds.length > 0 ? teamNeeds : [],
+    mockDraft: mockDraft.length > 0 ? mockDraft : undefined,
+    bot1_preview,
+    bot2_preview,
+  };
+}
+
+/**
+ * Build the post-draft grades section.
+ * Uses actual picks from Sleeper + LLM analysis.
+ */
+async function buildDraftGrades(
+  draftData: LeagueDraftData | null,
+  memEntertainer: BotMemory,
+  memAnalyst: BotMemory,
+  season: number,
+  enhancedContext: string,
+): Promise<DraftGradesSection> {
+  const leagueKnowledge = buildStaticLeagueContext();
+
+  // Build picks context by team
+  type PickEntry = NonNullable<LeagueDraftData['picks']>[number];
+  const picksByTeam = new Map<string, PickEntry[]>();
+  if (draftData?.picks) {
+    for (const pick of draftData.picks) {
+      const team = pick.teamName || `Roster ${pick.roster_id}`;
+      if (!picksByTeam.has(team)) picksByTeam.set(team, []);
+      picksByTeam.get(team)!.push(pick);
+    }
+  }
+
+  // Build picks context string for LLM
+  const picksContext = Array.from(picksByTeam.entries()).map(([team, picks]) => {
+    const picksList = picks
+      .sort((a, b) => a.pick_no - b.pick_no)
+      .map(p => `  Round ${p.round}, Pick ${p.pick_no}: ${p.playerName} (${p.position}, ${p.nflTeam || 'NFL'})`)
+      .join('\n');
+    return `${team}:\n${picksList}`;
+  }).join('\n\n');
+
+  const context = `${leagueKnowledge}
+
+---
+
+POST-DRAFT GRADES — ${season} ROOKIE DRAFT
+
+The draft is complete. Here are all the picks:
+
+${picksContext || 'Draft picks not yet available.'}
+
+${enhancedContext}
+
+Grade each team's draft from A+ to F based on:
+- Value at each pick (did they reach or get value?)
+- Addressing team needs
+- Overall haul quality
+- Dynasty upside of their picks`;
+
+  // Generate grades for all teams in parallel
+  const teamList = Array.from(picksByTeam.keys());
+
+  const gradePromises = teamList.map(async (team) => {
+    const teamPicks = picksByTeam.get(team) || [];
+    const picksText = teamPicks
+      .sort((a, b) => a.pick_no - b.pick_no)
+      .map(p => `Round ${p.round}: ${p.playerName} (${p.position})`)
+      .join(', ');
+
+    const teamContext = `${context}\n\nGRADING: ${team}\nTheir picks: ${picksText}`;
+
+    const [bot1_analysis, bot2_analysis] = await Promise.all([
+      generateSection({
+        persona: 'entertainer',
+        sectionType: `Draft Grade - ${team}`,
+        context: teamContext,
+        constraints: `Grade ${team}'s draft (A+ to F). Write 2-3 sentences with your personality-driven reaction. Start with the letter grade. Were they the biggest winner? Did they whiff? Be opinionated.`,
+        maxTokens: 300,
+      }),
+      generateSection({
+        persona: 'analyst',
+        sectionType: `Draft Grade - ${team}`,
+        context: teamContext,
+        constraints: `Grade ${team}'s draft (A+ to F). Write 2-3 sentences of analytical assessment. Cover: value at each pick, needs addressed, and dynasty trajectory. Start with the letter grade.`,
+        maxTokens: 300,
+      }),
+    ]);
+
+    const gradeMatch = (bot1_analysis + bot2_analysis).match(/\b([A-F][+-]?)\b/);
+    const grade = gradeMatch ? gradeMatch[1].toUpperCase() : 'B';
+
+    return {
+      team,
+      picks: teamPicks.map(p => ({
+        round: p.round,
+        pick: p.pick_no,
+        player: p.playerName,
+        position: p.position,
+      })),
+      grade,
+      bot1_analysis,
+      bot2_analysis,
+    };
+  });
+
+  const grades = await Promise.all(gradePromises);
+
+  // Generate overall summaries and awards
+  const [bot1_summary, bot2_summary, awardsRaw] = await Promise.all([
+    generateSection({
+      persona: 'entertainer',
+      sectionType: 'Draft Grades - Overall Summary',
+      context,
+      constraints: 'Write 3-4 paragraphs summarizing the entire draft. Who were the biggest winners and losers? What was your favorite pick of the draft? Any sleepers you think will be superstars? Be entertaining and definitive.',
+      maxTokens: 600,
+    }),
+    generateSection({
+      persona: 'analyst',
+      sectionType: 'Draft Grades - Overall Summary',
+      context,
+      constraints: 'Write 3-4 paragraphs of analytical draft summary. Cover: the overall depth of the class, which teams improved their dynasty trajectories most, best value picks, and the long-term competitive landscape after this draft.',
+      maxTokens: 600,
+    }),
+    generateSection({
+      persona: 'analyst',
+      sectionType: 'Draft Grades - Awards',
+      context,
+      constraints: `Identify:
+1. BEST PICK: "TeamName - PlayerName - reason (1-2 sentences)"
+2. WORST PICK: "TeamName - PlayerName - reason (1-2 sentences)"
+3. STEAL OF THE DRAFT: "TeamName - PlayerName - reason (1-2 sentences)"
+Format exactly as shown.`,
+      maxTokens: 400,
+    }),
+  ]);
+
+  // Parse awards
+  const parseAward = (text: string, keyword: string): { team: string; player: string; reason: string } => {
+    const lines = text.split('\n');
+    const line = lines.find(l => l.toUpperCase().includes(keyword)) || '';
+    const match = line.match(/([^-]+)\s*-\s*([^-]+)\s*-\s*(.+)/);
+    return {
+      team: match ? match[1].trim().replace(/^\d+\.\s*(?:BEST|WORST|STEAL[^:]*)?:?\s*/i, '') : 'TBD',
+      player: match ? match[2].trim() : 'TBD',
+      reason: match ? match[3].trim() : 'Exceptional value and fit.',
+    };
+  };
+
+  return {
+    grades,
+    bestPick: parseAward(awardsRaw, 'BEST'),
+    worstPick: parseAward(awardsRaw, 'WORST'),
+    stealOfTheDraft: parseAward(awardsRaw, 'STEAL'),
+    bot1_summary,
+    bot2_summary,
   };
 }
 
@@ -2033,6 +2360,8 @@ export interface ComposeNewsletterInput {
   previousPredictions?: Array<{ week: number; pick: string; actual: string; correct: boolean }>;
   previousHotTakes?: WeeklyHotTake[];
   relationshipMemory?: RelationshipMemory | null;
+  /** Resolved draft data (roster IDs already resolved to team names) */
+  draftData?: LeagueDraftData | null;
 }
 
 export async function composeNewsletter(input: ComposeNewsletterInput, qualityReport?: { usedFallbacks: string[] }): Promise<Newsletter> {
@@ -2051,6 +2380,7 @@ export async function composeNewsletter(input: ComposeNewsletterInput, qualityRe
     previousPredictions,
     previousHotTakes,
     relationshipMemory,
+    draftData,
   } = input;
 
   // Get episode configuration for section filtering
@@ -2302,6 +2632,33 @@ export async function composeNewsletter(input: ComposeNewsletterInput, qualityRe
     if (powerRankings) sections.push({ type: 'PowerRankings', data: powerRankings });
     if (seasonPreview) sections.push({ type: 'SeasonPreview', data: seasonPreview });
     console.log(`[Compose] Preseason sections built (with error recovery)`);
+  }
+
+  // Build draft-specific sections
+  if (episodeType === 'pre_draft') {
+    console.log(`[Compose] Building pre-draft preview sections...`);
+    const draftPreview = await safeSection(
+      'DraftPreview',
+      () => buildDraftPreview(draftData ?? null, memEntertainer, memAnalyst, season, fullEnhancedContext),
+      null
+    );
+    if (draftPreview) {
+      sections.push({ type: 'DraftPreview', data: draftPreview });
+    }
+    console.log(`[Compose] Pre-draft sections built`);
+  }
+
+  if (episodeType === 'post_draft') {
+    console.log(`[Compose] Building post-draft grades sections...`);
+    const draftGrades = await safeSection(
+      'DraftGrades',
+      () => buildDraftGrades(draftData ?? null, memEntertainer, memAnalyst, season, fullEnhancedContext),
+      null
+    );
+    if (draftGrades) {
+      sections.push({ type: 'DraftGrades', data: draftGrades });
+    }
+    console.log(`[Compose] Post-draft sections built`);
   }
 
   if (lastCallbacks && !excludeSections.has('Callbacks')) {

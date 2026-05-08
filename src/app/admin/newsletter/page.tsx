@@ -79,6 +79,7 @@ function AdminNewsletterPageInner() {
   const [currentWeek, setCurrentWeek] = useState<number | null>(null);
   const [seasonType, setSeasonType] = useState('off');
   const [weekInput, setWeekInput] = useState('17'); // Default to last week
+  const [seasonInput, setSeasonInput] = useState('2025'); // User-editable season override
   const [episodeType, setEpisodeType] = useState<string>('regular'); // Episode type selector
   const [forceRegenerate, setForceRegenerate] = useState(false);
   const [previewMode, setPreviewMode] = useState(true); // Default to preview for safety
@@ -107,7 +108,11 @@ function AdminNewsletterPageInner() {
     fetch('https://api.sleeper.app/v1/state/nfl')
       .then(r => r.json())
       .then(state => {
-        setCurrentSeason(state.season || '2025');
+        const detectedSeason = state.season || '2025';
+        setCurrentSeason(detectedSeason);
+        // Default season input to the PREVIOUS season for testing (current season has no game data yet)
+        // Only set if user hasn't already typed something different
+        setSeasonInput(prev => prev === '2025' ? (parseInt(detectedSeason) - 1).toString() : prev);
         setSeasonType(state.season_type || 'off');
         
         // During season, use current week; offseason, fetch last published
@@ -196,10 +201,10 @@ function AdminNewsletterPageInner() {
         credentials: 'include', // Include cookies for admin auth
         body: JSON.stringify({
           week,
-          season: currentSeason,
-          episodeType, // Include episode type for special episodes
+          season: seasonInput,
+          episodeType,
           forceRegenerate,
-          preview: previewMode, // Don't save to DB in preview mode
+          preview: previewMode,
         }),
       });
 
@@ -284,6 +289,23 @@ function AdminNewsletterPageInner() {
                     `Week ${currentWeek}`
                   )}
                 </div>
+              </div>
+
+              <div>
+                <Label className="mb-1 block">Season Year</Label>
+                <Input
+                  type="number"
+                  min={2020}
+                  max={2030}
+                  value={seasonInput}
+                  onChange={(e) => setSeasonInput(e.target.value)}
+                  placeholder={currentSeason}
+                />
+                {seasonInput !== currentSeason && (
+                  <p className="text-xs text-amber-400 mt-1">
+                    ⚠️ Using season {seasonInput} for testing (current NFL season is {currentSeason})
+                  </p>
+                )}
               </div>
 
               <div>
@@ -406,9 +428,9 @@ function AdminNewsletterPageInner() {
                 <Button
                   onClick={async () => {
                     const week = parseInt(weekInput, 10) || currentWeek;
-                    if (!confirm(`Delete newsletter for Season ${currentSeason} Week ${week}? This cannot be undone.`)) return;
+                    if (!confirm(`Delete newsletter for Season ${seasonInput} Week ${week}? This cannot be undone.`)) return;
                     try {
-                      const res = await fetch(`/api/newsletter?week=${week}&season=${currentSeason}`, { method: 'DELETE' });
+                      const res = await fetch(`/api/newsletter?week=${week}&season=${seasonInput}`, { method: 'DELETE' });
                       const data = await res.json();
                       setResult(data);
                     } catch (err) {
