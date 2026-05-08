@@ -1517,7 +1517,7 @@ ${starterBot === 'analyst' ? 'Note: The Analyst will speak first — write your 
       context: `${seasonalContext}\n${entertainerMatchupContext}`,
       constraints: entertainerOnlyPrompt,
       maxTokens: entertainerTokens,
-    });
+    }).catch(() => '');
 
     // Analyst explicitly responds to the Entertainer's actual words
     // Strip any speaker labels from entertainerRaw before injecting
@@ -1545,7 +1545,7 @@ ${starterBot === 'analyst' ? 'Note: The Analyst will speak first — write your 
       context: `${seasonalContext}\n${analystMatchupContext}`,
       constraints: analystConstraints,
       maxTokens: analystTokens,
-    });
+    }).catch(() => '');
 
     // Parse each bot's output directly — no interleaving needed since they're separate calls
     const parseRaw = (raw: string, speaker: 'entertainer' | 'analyst'): string => {

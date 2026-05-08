@@ -82,11 +82,7 @@ function isHardError(msg: string): boolean {
   const m = msg.toLowerCase();
   return (
     m.includes('401') ||
-    m.includes('unauthorized') ||
-    m.includes('404') ||
-    m.includes('model not found') ||
-    m.includes('timed out') ||
-    m.includes('timeout')
+    m.includes('unauthorized')
   );
 }
 
