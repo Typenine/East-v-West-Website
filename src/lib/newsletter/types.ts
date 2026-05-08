@@ -1003,6 +1003,55 @@ export interface Newsletter {
   };
 }
 
+// ============ Bot-to-Bot Relationship Memory ============
+
+/**
+ * A single recorded instance where the Analyst pushed back on the Entertainer.
+ * Outcome is resolved at recording time from trust-delta comparison.
+ */
+export interface PushbackRecord {
+  week: number;
+  matchup_id: string;
+  winner_name: string;
+  entertainer_stance: string; // truncated to 140 chars
+  analyst_stance: string;     // truncated to 140 chars
+  outcome: 'entertainer_championed_winner' | 'analyst_championed_winner';
+  recorded_at: string;        // ISO timestamp
+}
+
+/**
+ * Shared cross-bot relationship memory.
+ * Tracks prediction records, on-record disagreements, recurring themes,
+ * and dynamic counters for the current season.
+ * Persisted separately from per-bot BotMemory.
+ */
+export interface RelationshipMemory {
+  season: string;
+  updated_at: string;
+  prediction_records: {
+    entertainer: { w: number; l: number };
+    analyst: { w: number; l: number };
+  };
+  pushbacks: PushbackRecord[];
+  themes: {
+    entertainer_tendencies: string[];    // inferred from pushback log
+    analyst_tendencies: string[];
+    persistent_disagreements: string[];
+  };
+  dynamic: {
+    entertainer_lead_in_predictions: number; // entNet - anaNet (can be negative)
+    total_pushbacks: number;
+    last_pushback_week: number | null;
+    agreements_this_season: number;
+  };
+}
+
+/** Debate win/loss record tallied from pushback outcomes */
+export interface DebateRecord {
+  entertainer: { w: number; l: number };
+  analyst: { w: number; l: number };
+}
+
 // ============ Config Types ============
 
 export interface RelevanceConfig {

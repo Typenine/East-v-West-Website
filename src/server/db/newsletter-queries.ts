@@ -11,8 +11,9 @@ import {
   pendingPicks,
   newsletters,
   newsletterStaged,
+  relationshipMemory,
 } from './schema';
-import type { BotMemory, BotName } from '@/lib/newsletter/types';
+import type { BotMemory, BotName, RelationshipMemory } from '@/lib/newsletter/types';
 
 // ============ Bot Memory ============
 
@@ -689,4 +690,64 @@ export async function initializeSeasonMemory(
 
   await saveBotMemory(bot, season, newMemory);
   return newMemory;
+}
+
+// ============ Relationship Memory ============
+
+function freshRelationshipMemory(season: number): RelationshipMemory {
+  return {
+    season: String(season),
+    updated_at: new Date().toISOString(),
+    prediction_records: { entertainer: { w: 0, l: 0 }, analyst: { w: 0, l: 0 } },
+    pushbacks: [],
+    themes: { entertainer_tendencies: [], analyst_tendencies: [], persistent_disagreements: [] },
+    dynamic: { entertainer_lead_in_predictions: 0, total_pushbacks: 0, last_pushback_week: null, agreements_this_season: 0 },
+  };
+}
+
+export async function loadRelationshipMemory(season: number): Promise<RelationshipMemory> {
+  const db = getDb();
+  try {
+    const rows = await db
+      .select()
+      .from(relationshipMemory)
+      .where(eq(relationshipMemory.season, season))
+      .limit(1);
+    if (!rows.length) return freshRelationshipMemory(season);
+    const row = rows[0];
+    return {
+      season: String(season),
+      updated_at: row.updatedAt.toISOString(),
+      prediction_records: (row.predictionRecords as RelationshipMemory['prediction_records']) ?? { entertainer: { w: 0, l: 0 }, analyst: { w: 0, l: 0 } },
+      pushbacks: (row.pushbacks as RelationshipMemory['pushbacks']) ?? [],
+      themes: (row.themes as RelationshipMemory['themes']) ?? { entertainer_tendencies: [], analyst_tendencies: [], persistent_disagreements: [] },
+      dynamic: (row.dynamic as RelationshipMemory['dynamic']) ?? { entertainer_lead_in_predictions: 0, total_pushbacks: 0, last_pushback_week: null, agreements_this_season: 0 },
+    };
+  } catch {
+    return freshRelationshipMemory(season);
+  }
+}
+
+export async function saveRelationshipMemory(season: number, memory: RelationshipMemory): Promise<void> {
+  const db = getDb();
+  const existing = await db
+    .select({ id: relationshipMemory.id })
+    .from(relationshipMemory)
+    .where(eq(relationshipMemory.season, season))
+    .limit(1);
+
+  const values = {
+    season,
+    updatedAt: new Date(),
+    predictionRecords: memory.prediction_records,
+    pushbacks: memory.pushbacks,
+    themes: memory.themes,
+    dynamic: memory.dynamic,
+  };
+
+  if (existing.length) {
+    await db.update(relationshipMemory).set(values).where(eq(relationshipMemory.season, season));
+  } else {
+    await db.insert(relationshipMemory).values(values);
+  }
 }

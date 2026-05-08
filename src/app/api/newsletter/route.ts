@@ -21,6 +21,7 @@ import {
   buildTransactionsContext,
   getLeagueRulesContext,
   setPlayerNameCache,
+  scanForUnresolvedPlayerIds,
   fetchAllExternalData,
   buildExternalDataContext,
   type EnhancedContextData,
@@ -40,7 +41,11 @@ import {
   deleteNewsletter,
   loadPreviousNewsletter,
   extractPredictionsFromNewsletter,
+  updateStagedNewsletter,
+  loadRelationshipMemory,
+  saveRelationshipMemory,
 } from '@/server/db/newsletter-queries';
+import { fetchNewsletterData } from '@/lib/newsletter';
 import { getHeadToHeadAllTime } from '@/lib/utils/headtohead';
 import { fetchTradesAllTime } from '@/lib/utils/trades';
 import { postToDiscordWebhook, buildNewsletterEmbed } from '@/lib/utils/discord';
@@ -572,48 +577,54 @@ export async function POST(request: NextRequest) {
       }, { status: 400 });
     }
 
-    // Fetch all required data from Sleeper
+    // Mark generation as in-progress in the staged tracker (best-effort)
+    void updateStagedNewsletter(seasonNum, week, { status: 'in_progress' }).catch(() => {});
+
+    // Fetch all required data from Sleeper via single-call ingest layer
     console.log(`Generating newsletter for Season ${season} Week ${week}...`);
 
-    const [league, users, rosters, matchups, nextMatchups, transactions] = await Promise.all([
-      getLeague(leagueId),
-      getUsers(leagueId),
-      getRosters(leagueId),
-      getMatchups(leagueId, week),
-      getMatchups(leagueId, week + 1).catch(() => []),
-      getTransactions(leagueId, week),
-    ]);
-
-    // Load existing memory state from database (PERSISTENT!)
-    const [existingMemoryEntertainer, existingMemoryAnalyst, existingRecords, existingPendingPicks, previousNewsletter] = await Promise.all([
+    const [ingestData, existingMemoryEntertainer, existingMemoryAnalyst, existingRecords, existingPendingPicks, previousNewsletter, relationshipMem] = await Promise.all([
+      fetchNewsletterData(leagueId, week), // fetches league/users/rosters/matchups/transactions/players/injuries + seeds player cache
       loadBotMemory('entertainer', seasonNum),
       loadBotMemory('analyst', seasonNum),
       loadForecastRecords(seasonNum),
-      loadPendingPicks(seasonNum, week), // Load picks made for THIS week to grade
-      loadPreviousNewsletter(seasonNum, week), // Load previous newsletter for callbacks
+      loadPendingPicks(seasonNum, week),
+      loadPreviousNewsletter(seasonNum, week),
+      loadRelationshipMemory(seasonNum),
     ]);
 
+    const { leagueName: leagueNameFromIngest, users, rosters, matchups, nextMatchups, transactions, playerMap: allPlayers, injuries: rawInjuries } = ingestData;
+
     console.log(`Loaded bot memory - Entertainer: ${existingMemoryEntertainer ? 'found' : 'new'}, Analyst: ${existingMemoryAnalyst ? 'found' : 'new'}`);
-    
+    console.log(`[Newsletter] Player cache loaded: ${Object.keys(allPlayers).length} players, ${rawInjuries.length} injuries`);
+
     // Extract predictions from previous newsletter for grading/callbacks
     const previousPredictions = previousNewsletter ? extractPredictionsFromNewsletter(previousNewsletter) : [];
     if (previousPredictions.length > 0) {
       console.log(`[Newsletter] Found ${previousPredictions.length} predictions from previous newsletter to reference`);
     }
 
-    // Load player name cache for resolving player IDs to names in waivers/trades
-    console.log('[Newsletter] Loading player name cache and injury data...');
-    const [allPlayers, injuryData] = await Promise.all([
-      getAllPlayersCached(12 * 60 * 60 * 1000), // 12 hour cache
-      getSleeperInjuriesCached().catch(() => []), // Graceful fallback if injuries fail
-    ]);
-    setPlayerNameCache(allPlayers);
-    console.log(`[Newsletter] Player cache loaded: ${Object.keys(allPlayers).length} players, ${injuryData.length} injuries`);
+    // Build CallbacksSection from previous newsletter's Forecast picks so compose can render it
+    const lastCallbacks = previousNewsletter && previousPredictions.length > 0
+      ? {
+          saved_at: previousNewsletter.generatedAt,
+          spotlight_team: '',
+          forecast_picks: previousPredictions.map(p => ({
+            matchup_id: p.matchupId,
+            team1: p.team1,
+            team2: p.team2,
+            entertainer_pick: p.entertainerPick,
+            analyst_pick: p.analystPick,
+          })),
+          trade_grades: [],
+        }
+      : null;
 
-    // Build best-effort map from playerId -> fantasy team (using current league rosters)
+    // Build playerId -> fantasy team map for injury context
     const userNameById = new Map<string, string>();
     for (const u of users) {
-      const display = u?.metadata?.team_name || u.display_name || u.username || `User ${u.user_id}`;
+      const meta = (u as unknown as { metadata?: { team_name?: string } }).metadata;
+      const display = meta?.team_name || u.display_name || u.username || `User ${u.user_id}`;
       userNameById.set(u.user_id, display);
     }
     const rosterNameById = new Map<number, string>();
@@ -628,22 +639,17 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Format injuries for LLM context - look up player names from cache and map to fantasy team
-    const formattedInjuries = injuryData
+    // Convert ingest injuries to the format expected by downstream context builders
+    const formattedInjuries = rawInjuries
       .filter(inj => inj.status && inj.status !== 'Healthy' && inj.status !== 'Active')
-      .slice(0, 30) // Limit to top 30 injuries to avoid context bloat
-      .map(inj => {
-        const player = allPlayers[inj.player_id];
-        const fantasyTeam = playerToFantasyTeam.get(inj.player_id) || 'FA';
-        return {
-          playerId: inj.player_id,
-          playerName: player ? `${player.first_name} ${player.last_name}` : `Player ${inj.player_id}`,
-          team: player?.team || 'FA',
-          status: inj.status || 'Unknown',
-          fantasyTeam,
-        };
-      })
-      .filter(inj => inj.playerName !== `Player ${inj.playerId}`); // Only include players we can identify
+      .slice(0, 30)
+      .map(inj => ({
+        playerId: inj.playerId,
+        playerName: inj.playerName,
+        team: inj.nflTeam,
+        status: inj.status,
+        fantasyTeam: playerToFantasyTeam.get(inj.playerId) || 'FA',
+      }));
 
     // Fetch comprehensive league data from all sources (records, H2H, trades, etc.)
     console.log('[Newsletter] Fetching comprehensive league data...');
@@ -684,8 +690,25 @@ export async function POST(request: NextRequest) {
       const externalDataString = buildExternalDataContext(externalData);
       console.log(`[Newsletter] External data: ${externalData.news.length} news, ${externalData.injuries.length} injuries, ${externalData.trending.length} trending`);
       
-      // Combine ALL context: rules + comprehensive data + current standings + transactions + external data + enhanced context
-      enhancedContext.enhancedContextString = `${rulesString}\n\n${comprehensiveContextString}\n\n${currentStandingsString}\n\n${transactionsString}\n\n${externalDataString}\n\n${enhancedContext.enhancedContextString || ''}`;
+      // Build relationship memory context (cross-bot debate history and tendencies)
+      const relMemContext = (() => {
+        const pred = relationshipMem.prediction_records;
+        const dynamic = relationshipMem.dynamic;
+        const themes = relationshipMem.themes;
+        const lines = [
+          `=== BOT RELATIONSHIP MEMORY ===`,
+          `Season prediction records — Entertainer: ${pred.entertainer.w}W-${pred.entertainer.l}L, Analyst: ${pred.analyst.w}W-${pred.analyst.l}L`,
+          dynamic.total_pushbacks > 0 ? `Total disagreements this season: ${dynamic.total_pushbacks}${dynamic.last_pushback_week ? ` (last: Week ${dynamic.last_pushback_week})` : ''}` : '',
+          dynamic.agreements_this_season > 0 ? `Agreements this season: ${dynamic.agreements_this_season}` : '',
+          themes.entertainer_tendencies.length > 0 ? `Entertainer tendencies: ${themes.entertainer_tendencies.join('; ')}` : '',
+          themes.analyst_tendencies.length > 0 ? `Analyst tendencies: ${themes.analyst_tendencies.join('; ')}` : '',
+          themes.persistent_disagreements.length > 0 ? `Recurring disagreements: ${themes.persistent_disagreements.join('; ')}` : '',
+        ].filter(Boolean);
+        return lines.length > 1 ? lines.join('\n') : '';
+      })();
+
+      // Combine ALL context: rules + comprehensive data + current standings + transactions + external data + relationship memory + enhanced context
+      enhancedContext.enhancedContextString = `${rulesString}\n\n${comprehensiveContextString}\n\n${currentStandingsString}\n\n${transactionsString}\n\n${externalDataString}\n\n${relMemContext ? relMemContext + '\n\n' : ''}${enhancedContext.enhancedContextString || ''}`;
       // Add injuries to enhanced context
       enhancedContext.injuries = formattedInjuries;
       console.log(`Enhanced context: standings=${enhancedContext.standings?.length || 0} teams, byes=${enhancedContext.byeTeams?.length || 0} NFL teams`);
@@ -695,7 +718,7 @@ export async function POST(request: NextRequest) {
     // Generate the newsletter
     // Memory is ALWAYS persisted even if compose partially fails (composeFailed flag)
     const result = await generateNewsletter({
-      leagueName: league.name || 'East v. West',
+      leagueName: leagueNameFromIngest || 'East v. West',
       leagueId,
       season: seasonNum,
       week,
@@ -704,12 +727,17 @@ export async function POST(request: NextRequest) {
       rosters,
       matchups,
       nextMatchups,
-      transactions,
+      transactions: transactions.map(t => ({
+        ...t,
+        adds: t.adds ?? undefined,
+        drops: t.drops ?? undefined,
+      })),
       existingMemoryEntertainer,
       existingMemoryAnalyst,
       existingRecords,
       pendingPicks: existingPendingPicks,
       enhancedContext,
+      lastCallbacks, // Previous week's forecast picks for the Callbacks section
       previousPredictions, // Pass previous predictions for narrative callbacks
     });
 
@@ -726,6 +754,7 @@ export async function POST(request: NextRequest) {
           saveBotMemory('analyst', seasonNum, result.memoryAnalyst),
           saveForecastRecords(seasonNum, result.records),
           savePendingPicks(seasonNum, result.pendingPicks),
+          saveRelationshipMemory(seasonNum, relationshipMem),
         ]);
         console.log(`[Newsletter] Bot memory persisted - Entertainer: ${result.memoryEntertainer.summaryMood}, Analyst: ${result.memoryAnalyst.summaryMood}`);
       } else {
@@ -777,8 +806,17 @@ export async function POST(request: NextRequest) {
       });
     }
 
+    // Quality gate: scan for unresolved Sleeper player IDs before publishing
+    const playerIdWarnings = scanForUnresolvedPlayerIds(result.html);
+    if (playerIdWarnings.length > 0) {
+      console.warn(`[Newsletter] Quality gate: ${playerIdWarnings.length} unresolved player ID(s) found in HTML:`, playerIdWarnings);
+    }
+
     // Save newsletter to database (memory was already persisted above)
-    await saveNewsletter(seasonNum, week, league.name || 'East v. West', result.newsletter as { meta: { leagueName: string; week: number; date: string; season: number }; sections: Array<{ type: string; data: unknown }> }, result.html);
+    await saveNewsletter(seasonNum, week, leagueNameFromIngest || 'East v. West', result.newsletter as { meta: { leagueName: string; week: number; date: string; season: number }; sections: Array<{ type: string; data: unknown }> }, result.html);
+
+    // Mark staged generation as completed (best-effort)
+    void updateStagedNewsletter(seasonNum, week, { status: 'completed' }).catch(() => {});
 
     console.log(`Newsletter generated and saved for Season ${season} Week ${week}${result.composeFailed ? ' (with fallback content)' : ''}`);
 
@@ -850,6 +888,17 @@ export async function POST(request: NextRequest) {
 
   } catch (error) {
     console.error('Newsletter generation error:', error);
+    // Mark staged generation as failed (best-effort — we may not have seasonNum/week in scope yet)
+    try {
+      const body2 = await request.json().catch(() => ({})) as { week?: number; season?: string };
+      const state2 = await getSleeperState().catch(() => ({ season: String(new Date().getFullYear()), week: 1 }));
+      const s2 = parseInt(body2.season || state2.season, 10);
+      const w2 = body2.week || state2.week;
+      void updateStagedNewsletter(s2, w2, {
+        status: 'failed',
+        error: error instanceof Error ? error.message : 'Unknown error',
+      }).catch(() => {});
+    } catch { /* best-effort */ }
     return NextResponse.json({
       success: false,
       error: 'Failed to generate newsletter',

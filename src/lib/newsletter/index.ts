@@ -100,6 +100,9 @@ export {
 // Generator
 export { generateNewsletter, type GenerateNewsletterInput, type GenerateNewsletterResult } from './generator';
 
+// Sleeper Ingest (newsletter-specific data layer)
+export { fetchNewsletterData, type NewsletterIngestData } from './sleeper-ingest';
+
 // Episodes and Season Management
 export {
   LEAGUE_CALENDAR,

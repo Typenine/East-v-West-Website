@@ -3,7 +3,7 @@
  * High-level function that orchestrates the entire newsletter generation process
  */
 
-import type { Newsletter, BotMemory, ForecastData } from './types';
+import type { Newsletter, BotMemory, ForecastData, CallbacksSection } from './types';
 import { buildDerived } from './derive';
 import { createEnhancedMemory, ensureEnhancedTeams, updateEnhancedMemoryAfterWeek, upgradeToEnhancedMemory } from './memory';
 import { isEnhancedMemory } from './types';
@@ -102,6 +102,8 @@ export interface GenerateNewsletterInput {
     entertainerPick: string;
     analystPick: string;
   }>;
+  // Optional: callbacks section built from previous newsletter's forecast picks
+  lastCallbacks?: import('./types').CallbacksSection | null;
 }
 
 export interface GenerateNewsletterResult {
@@ -147,6 +149,7 @@ export async function generateNewsletter(
     existingRecords,
     pendingPicks,
   } = input;
+  const lastCallbacks = input.lastCallbacks ?? null;
 
   // Get playoff start week (default 15)
   const playoffStartWeek = input.playoffStartWeek || 15;
@@ -261,7 +264,7 @@ export async function generateNewsletter(
       memEntertainer,
       memAnalyst,
       forecast: forecastWithRecords,
-      lastCallbacks: null, // Callbacks are built from previousPredictions in compose
+      lastCallbacks: input.lastCallbacks ?? null,
       enhancedContext: input.enhancedContext,
       h2hData: input.enhancedContext?.h2hData,
       previousPredictions: formattedPreviousPredictions,

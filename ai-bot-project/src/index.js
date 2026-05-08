@@ -11,13 +11,16 @@ import { buildDerived } from './derive/derive.js';
 import { composeNewsletter } from './newsletter/compose.js';
 import { renderHtml } from './newsletter/template.js';
 
-import { loadMemory, saveMemory, ensureTeams, updateMemoryAfterWeek } from './memory/memory.js';
+import { loadMemory, saveMemory, ensureTeams, updateMemoryAfterWeek, applyDebateOutcome } from './memory/memory.js';
 import { makeForecast } from './forecast/forecast.js';
 import { scoreEvents } from './relevance/relevance.js';
 import { getPlayersMap } from './ingest/players.js';
 import { makeTagsBundle } from './tags/tags.js';
 
 import { loadCallbacks, saveCallbacks, buildCallbacksFromIssue } from './memory/callbacks.js';
+import { loadRelationship, saveRelationship, updatePredictionLead } from './memory/relationship.js';
+import { loadPlayerMemory, savePlayerMemory, updatePlayerMemory } from './memory/player_memory.js';
+import { genWithLLM } from './ai/llm.js';
 
 const OUT_DIR = process.env.OUT_DIR || 'out';
 const LEAGUE_ID = process.env.LEAGUE_ID;
@@ -81,6 +84,25 @@ function gradePending(pending, matchup_pairs, records) {
   }
 }
 
+async function inferThemesIfReady(rel, prevCount) {
+  const current = rel.pushbacks.length;
+  if (current < 3 || current === prevCount) return;
+  try {
+    const log = rel.pushbacks.slice(-10).map(pb =>
+      `Week ${pb.week}: Entertainer: "${pb.entertainer_stance}" | Analyst: "${pb.analyst_stance}" | Outcome: ${pb.outcome}`
+    ).join('\n');
+    const raw = await genWithLLM(
+      'You analyze fantasy football AI personality debates. Return a JSON object with three string arrays: entertainer_tendencies, analyst_tendencies, persistent_disagreements. Each: 1-3 short phrases, max 8 words each. Reply with only the JSON object.',
+      log,
+      200
+    );
+    const parsed = JSON.parse(raw.replace(/```json\n?/g, '').replace(/```/g, '').trim());
+    if (parsed.entertainer_tendencies)   rel.themes.entertainer_tendencies   = parsed.entertainer_tendencies.slice(0, 3);
+    if (parsed.analyst_tendencies)       rel.themes.analyst_tendencies       = parsed.analyst_tendencies.slice(0, 3);
+    if (parsed.persistent_disagreements) rel.themes.persistent_disagreements = parsed.persistent_disagreements.slice(0, 3);
+  } catch { /* theme inference is best-effort */ }
+}
+
 async function main() {
   try {
     const state = await getState();
@@ -120,6 +142,10 @@ async function main() {
     const resolvePlayer = (pid) => players?.[pid] || { name: `Player ${String(pid).slice(0,6)}`, pos: '' };
     derived.events_scored = scoreEvents({ transactions, rosterIdToName, userIdToName, resolvePlayer });
 
+    // player memory — ingest high-relevance events for bot system prompts
+    const playerMemory = await loadPlayerMemory(snapshot.meta.season);
+    updatePlayerMemory(playerMemory, derived.events_scored, week);
+
     // team position counts (QB/RB/WR/TE) and roster ids for talent index
     const posCounts = {};
     const rosterPlayersByTeam = {};
@@ -145,7 +171,9 @@ async function main() {
     // forecast grading + new pending
     const records = await loadRecords();
     const pending = await loadPending();
+    const relationship = await loadRelationship(snapshot.meta.season);
     if (pending?.week === week) { gradePending(pending, derived.matchup_pairs, records); await saveRecords(records); }
+    updatePredictionLead(relationship, records.entertainer, records.analyst);
     const { forecast, pending: newPending } = makeForecast({
       upcoming_pairs: derived.upcoming_pairs || [],
       last_pairs: derived.matchup_pairs || [],
@@ -164,6 +192,8 @@ async function main() {
     // callbacks (load last week)
     const lastCallbacks = await loadCallbacks(week);
 
+    const pushbackCountBefore = relationship.pushbacks.length;
+
     // compose + render
     const newsletter = await composeNewsletter({
       leagueName: league?.name || 'Your League',
@@ -178,7 +208,9 @@ async function main() {
       dynastyConfig: await fs.readJson('config/dynasty.json').catch(() => ({})),
       season: Number(state?.season || new Date().getFullYear()),
       rosterPlayersByTeam,
-      lastCallbacks
+      lastCallbacks,
+      relationship,
+      playerMemory
     });
     const html = renderHtml(newsletter);
 
@@ -195,8 +227,22 @@ async function main() {
     const cbObj = buildCallbacksFromIssue({ week, forecast, tradesAnalysis, spotlightTeam });
     await saveCallbacks(week, cbObj);
 
+    // Apply debate outcomes to per-bot memory for pushbacks recorded this run
+    const newPushbacks = relationship.pushbacks.slice(pushbackCountBefore);
+    for (const pb of newPushbacks) {
+      if (pb.winner_name) {
+        applyDebateOutcome(memEntertainer, pb.winner_name, pb.outcome === 'entertainer_championed_winner');
+        applyDebateOutcome(memAnalyst,     pb.winner_name, pb.outcome === 'analyst_championed_winner');
+      }
+    }
+
+    // Infer recurring themes from pushback log when enough data exists
+    await inferThemesIfReady(relationship, pushbackCountBefore);
+
     await saveMemory('entertainer', memEntertainer);
     await saveMemory('analyst', memAnalyst);
+    await saveRelationship(relationship);
+    await savePlayerMemory(playerMemory);
 
     console.log(`✅ Newsletter saved: ${full}`);
   } catch (err) {

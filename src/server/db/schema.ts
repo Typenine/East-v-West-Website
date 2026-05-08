@@ -267,6 +267,37 @@ export const newsletters = pgTable('newsletters', {
   seasonWeekIdx: index('newsletters_season_week_idx').on(t.season, t.week),
 }));
 
+// Relationship memory — cross-bot shared state: debate pushbacks, themes, prediction lead
+export const relationshipMemory = pgTable('relationship_memory', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  season: integer('season').notNull().unique(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  // Prediction W-L records for each bot
+  predictionRecords: jsonb('prediction_records')
+    .$type<{ entertainer: { w: number; l: number }; analyst: { w: number; l: number } }>()
+    .default({ entertainer: { w: 0, l: 0 }, analyst: { w: 0, l: 0 } })
+    .notNull(),
+  // Full pushback log
+  pushbacks: jsonb('pushbacks')
+    .$type<Array<{
+      week: number; matchup_id: string; winner_name: string;
+      entertainer_stance: string; analyst_stance: string;
+      outcome: string; recorded_at: string;
+    }>>()
+    .default([])
+    .notNull(),
+  // Inferred recurring themes
+  themes: jsonb('themes')
+    .$type<{ entertainer_tendencies: string[]; analyst_tendencies: string[]; persistent_disagreements: string[] }>()
+    .default({ entertainer_tendencies: [], analyst_tendencies: [], persistent_disagreements: [] })
+    .notNull(),
+  // Dynamic state
+  dynamic: jsonb('dynamic')
+    .$type<{ entertainer_lead_in_predictions: number; total_pushbacks: number; last_pushback_week: number | null; agreements_this_season: number }>()
+    .default({ entertainer_lead_in_predictions: 0, total_pushbacks: 0, last_pushback_week: null, agreements_this_season: 0 })
+    .notNull(),
+});
+
 // Discord notification dedupe - tracks which events have been posted to Discord
 export const discordNotificationTypeEnum = pgEnum('discord_notification_type', [
   'trade_accepted',

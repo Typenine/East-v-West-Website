@@ -54,12 +54,24 @@ function sectionBlurt(d) {
 
 function sectionRecaps(list) {
   if (!list?.length) return `${h2('Matchup Recaps')}<div style="color:#334155;">No games found.</div>`;
-  const rows = list.map(x => `
+  const rows = list.map(x => {
+    const analystLine = x.rebuttal
+      ? `<div style="margin:6px 0 0 18px;padding-left:10px;border-left:3px solid #94a3b8;color:#334155;font-size:13px;"><strong>Analyst:</strong> ${esc(x.bot2)}</div>`
+      : `<div style="margin:4px 0 0;"><strong>Analyst:</strong> ${esc(x.bot2)}</div>`;
+    const rebuttalLine = x.rebuttal
+      ? `<div style="margin:4px 0 0 18px;font-style:italic;color:#dc2626;font-size:13px;"><strong>Entertainer:</strong> ${esc(x.rebuttal)}</div>`
+      : '';
+    return `
     <tr>
-      <td style="padding:8px 10px;border-bottom:1px solid #e5e7eb;">#${esc(x.matchup_id)}</td>
-      <td style="padding:8px 10px;border-bottom:1px solid #e5e7eb;"><strong>Entertainer:</strong> ${esc(x.bot1)}</td>
-      <td style="padding:8px 10px;border-bottom:1px solid #e5e7eb;"><strong>Analyst:</strong> ${esc(x.bot2)}</td>
-    </tr>`).join('');
+      <td style="padding:8px 10px;border-bottom:1px solid #e5e7eb;vertical-align:top;white-space:nowrap;color:#64748b;font-size:13px;">#${esc(x.matchup_id)}</td>
+      <td style="padding:8px 10px;border-bottom:1px solid #e5e7eb;">
+        <div style="font-weight:600;font-size:13px;color:#0f172a;margin-bottom:2px;">${esc(x.header || '')}</div>
+        <div><strong>Entertainer:</strong> ${esc(x.bot1)}</div>
+        ${analystLine}
+        ${rebuttalLine}
+      </td>
+    </tr>`;
+  }).join('');
   return `
   ${h2('Matchup Recaps')}
   <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;">

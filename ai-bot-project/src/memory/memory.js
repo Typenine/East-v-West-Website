@@ -57,6 +57,22 @@ function recomputeSummaryMood(mem) {
   mem.summaryMood = avg > 5 ? 'Fired Up' : avg < -5 ? 'Deflated' : 'Focused';
 }
 
+// Called after a debate is resolved. championed=true if this bot backed the winner.
+// Applies a trust/frustration bump beyond the normal weekly update.
+export function applyDebateOutcome(mem, teamName, championed) {
+  const t = mem.teams?.[teamName];
+  if (!t) return;
+  if (championed) {
+    t.trust       = CLAMP((t.trust       ?? 0) + 3,  -50, 50);
+    t.frustration = CLAMP((t.frustration ?? 0) - 1,    0, 50);
+  } else {
+    t.trust       = CLAMP((t.trust       ?? 0) - 1,  -50, 50);
+    t.frustration = CLAMP((t.frustration ?? 0) + 2,    0, 50);
+  }
+  recomputeTeamMood(t);
+  recomputeSummaryMood(mem);
+}
+
 /**
  * Update memory after a week using derived data.
  * - Winners gain trust; losers gain frustration (scaled by margin).

@@ -2,6 +2,8 @@
 // Opinion-first, narrative recaps with varied phrasing.
 import { genWithLLM } from '../ai/llm.js';
 import { getProfile } from '../personality/sliders.js';
+import { detectPushback, recordPushback, getDebateRecord } from '../memory/relationship.js';
+import { getRecentTakesForPrompt } from '../memory/player_memory.js';
 import fs from 'fs-extra';
 
 function cap(s) { return String(s || '').replace(/\s+/g, ' ').trim().replace(/^([a-z])/, m => m.toUpperCase()); }
@@ -52,7 +54,7 @@ function activityHook(act) {
   return null;
 }
 
-// ------- lines -------
+// ------- template fallback lines -------
 function entertainerTake(w, l, margin, tagsW, tagsL, metW, actW, entCap, losCap) {
   const { label, verbs } = marginLabel(margin);
   const lead = `${w} ${pick(verbs)} ${l} in a ${label}.`;
@@ -66,12 +68,11 @@ function entertainerTake(w, l, margin, tagsW, tagsL, metW, actW, entCap, losCap)
   if (actNote) hooks.push(cap(actNote));
   if (trend)   hooks.push(cap(trend));
 
-  // pick at most 2 hooks to avoid rambling
   const reasons = hooks.slice(0, 2).join('. ');
 
   const t = trustDelta(entCap);
   const verdict =
-    t >= 10 ? pick([`I’m buying ${w}.`, `Stamp it: I’m in.`]) :
+    t >= 10 ? pick([`I'm buying ${w}.`, `Stamp it: I'm in.`]) :
     t <= -8 ? pick([`Still not sold.`, `Prove it again.`]) :
               pick([`Convince me next week.`, `Keep it coming.`]);
 
@@ -104,7 +105,7 @@ function analystTake(w, l, margin, metW, metL, anaCap, actW) {
   const t = trustDelta(anaCap);
   const verdict =
     t >= 10 ? pick([`Sustainable if usage holds.`, `Bankable if they stay healthy.`]) :
-    t <= -8 ? pick([`Don’t overreact.`, `Caution on signal vs noise.`]) :
+    t <= -8 ? pick([`Don't overreact.`, `Caution on signal vs noise.`]) :
               pick([`Small step, not a leap.`, `Tentative thumbs-up.`]);
 
   return [start, stability, trendLine, actLine, verdict].filter(Boolean).join(' ');
@@ -122,28 +123,76 @@ async function loadPersonas() {
   return _personas;
 }
 
-function buildSystemPrompt(botName, profile, persona) {
-  const rhetoric = persona.rhetoric || {};
-  const stance = persona.stance || {};
-  const openers = (rhetoric.openers || []).join('", "');
-  const closers = (rhetoric.closers || []).join('", "');
+// Build the relationship section appended to each bot's system prompt.
+function buildRelationshipContext(botName, rel) {
+  if (!rel) return '';
+  const entRec = rel.prediction_records?.entertainer || { w: 0, l: 0 };
+  const anaRec = rel.prediction_records?.analyst     || { w: 0, l: 0 };
+  const totalGames = entRec.w + entRec.l;
+  const pushbacks  = rel.dynamic?.total_pushbacks || 0;
+  if (totalGames === 0 && pushbacks === 0) return '';
+
+  const lead          = rel.dynamic?.entertainer_lead_in_predictions || 0;
+  const lastPbWeek    = rel.dynamic?.last_pushback_week;
+  const entThemes     = (rel.themes?.entertainer_tendencies    || []).slice(0, 2).join(', ');
+  const anaThemes     = (rel.themes?.analyst_tendencies        || []).slice(0, 2).join(', ');
+  const flashpoints   = (rel.themes?.persistent_disagreements  || []).slice(0, 2).join(', ');
+  const debate        = getDebateRecord(rel);
 
   if (botName === 'entertainer') {
-    return `You are the Entertainer, a fantasy football analyst. Writing profile: sarcasm ${profile.sarcasm}/10, snark ${profile.snark}/10, excitability ${profile.excitability}/10, depth ${profile.depth}/10. Pacing: bursty. Risk bias: ${stance.riskBias || 'pro-ceiling'}. You rarely concede (${Math.round((stance.concedeRate || 0.15) * 100)}% concede rate).
+    const leadStr   = lead > 0 ? `up ${lead}` : lead < 0 ? `down ${Math.abs(lead)}` : 'tied';
+    const debateStr = (debate.entertainer.w + debate.entertainer.l) > 0
+      ? `Debate record (pushback outcomes): ${debate.entertainer.w}W-${debate.entertainer.l}L.`
+      : '';
+    return '\n\nYour relationship with the Analyst this season: ' + [
+      `Prediction record: ${entRec.w}-${entRec.l} (${leadStr} vs their ${anaRec.w}-${anaRec.l}).`,
+      debateStr,
+      pushbacks ? `You've had ${pushbacks} on-record disagreement${pushbacks > 1 ? 's' : ''}${lastPbWeek ? `, most recently week ${lastPbWeek}` : ''}.` : '',
+      entThemes   ? `Your tendencies: ${entThemes}.`            : '',
+      anaThemes   ? `Their tendencies: ${anaThemes}.`           : '',
+      flashpoints ? `Recurring flashpoints: ${flashpoints}.`    : ''
+    ].filter(Boolean).join(' ');
+  }
+
+  const leadStr   = lead > 0 ? `trailing by ${lead}` : lead < 0 ? `ahead by ${Math.abs(lead)}` : 'tied';
+  const debateStr = (debate.analyst.w + debate.analyst.l) > 0
+    ? `Debate record (pushback outcomes): ${debate.analyst.w}W-${debate.analyst.l}L.`
+    : '';
+  return '\n\nYour relationship with the Entertainer this season: ' + [
+    `Prediction record: ${anaRec.w}-${anaRec.l} (${leadStr} vs their ${entRec.w}-${entRec.l}).`,
+    debateStr,
+    pushbacks ? `You've pushed back ${pushbacks} time${pushbacks > 1 ? 's' : ''}${lastPbWeek ? `, most recently week ${lastPbWeek}` : ''}.` : '',
+    anaThemes   ? `Your tendencies: ${anaThemes}.`              : '',
+    entThemes   ? `Their tendencies: ${entThemes}.`             : '',
+    flashpoints ? `Recurring flashpoints: ${flashpoints}.`      : ''
+  ].filter(Boolean).join(' ');
+}
+
+function buildSystemPrompt(botName, profile, persona, rel, playerMemory = null) {
+  const rhetoric      = persona.rhetoric || {};
+  const stance        = persona.stance   || {};
+  const openers       = (rhetoric.openers || []).join('", "');
+  const closers       = (rhetoric.closers || []).join('", "');
+  const relContext    = buildRelationshipContext(botName, rel);
+  const playerContext = getRecentTakesForPrompt(playerMemory, 5);
+
+  if (botName === 'entertainer') {
+    return `You are the Entertainer, a fantasy football analyst. Writing profile: sarcasm ${profile.sarcasm}/10, snark ${profile.snark}/10, excitability ${profile.excitability}/10, depth ${profile.depth}/10. Pacing: bursty. Risk bias: ${stance.riskBias || 'pro-ceiling'}. You rarely concede (${Math.round((stance.concedeRate || 0.15) * 100)}% concede rate).${relContext}${playerContext}
 
 Write a 2-3 sentence matchup recap. Lead with a strong opinion on the result. Reference the outcome type and any narrative context provided (never cite raw scores). End with a punchy verdict. Typical openers: "${openers}". Typical closers: "${closers}".
 
 Reply with only the recap text.`;
   }
 
-  return `You are the Analyst, a fantasy football analyst. Writing profile: depth ${profile.depth}/10, sarcasm ${profile.sarcasm}/10, excitability ${profile.excitability}/10. Pacing: measured. Risk bias: ${stance.riskBias || 'floor-weighted'}. You frequently acknowledge uncertainty (${Math.round((stance.concedeRate || 0.45) * 100)}% concede rate).
+  return `You are the Analyst, a fantasy football analyst. Writing profile: depth ${profile.depth}/10, sarcasm ${profile.sarcasm}/10, excitability ${profile.excitability}/10. Pacing: measured. Risk bias: ${stance.riskBias || 'floor-weighted'}. You frequently acknowledge uncertainty (${Math.round((stance.concedeRate || 0.45) * 100)}% concede rate).${relContext}${playerContext}
 
 Write a 2-4 sentence matchup recap. Lead with a stability or trend observation. Reference scoring consistency, form vs. baseline, and process. End with a sustainable outlook. Typical openers: "${openers}". Typical closers: "${closers}".
 
 Reply with only the recap text.`;
 }
 
-function buildMatchupUserPrompt(p, tagsBundle, memBot) {
+// Shared matchup context lines (no closing instruction — callers append their own).
+function buildMatchupContextLines(p, tagsBundle, memBot) {
   const w = p?.winner?.name || 'Winner';
   const l = p?.loser?.name  || 'Loser';
   const margin = Number(p?.margin || 0);
@@ -177,9 +226,24 @@ function buildMatchupUserPrompt(p, tagsBundle, memBot) {
     `- Tags: ${tagsL.length ? tagsL.join(', ') : 'none'}`,
     `- Recent form vs season: ${trendL}`,
     `- Scoring consistency: ${stabL}`,
-    `- Memory: trust ${capL.trust >= 0 ? '+' : ''}${capL.trust}, frustration ${capL.frustration}, mood: ${capL.mood}`,
+    `- Memory: trust ${capL.trust >= 0 ? '+' : ''}${capL.trust}, frustration ${capL.frustration}, mood: ${capL.mood}`
+  ];
+}
+
+// Entertainer prompt — no prior context.
+function buildMatchupUserPrompt(p, tagsBundle, memBot) {
+  return [...buildMatchupContextLines(p, tagsBundle, memBot), ``, `Write your recap now.`].join('\n');
+}
+
+// Analyst prompt — receives Entertainer's take and may engage with it.
+function buildMatchupUserPromptWithEntContext(p, tagsBundle, memBot, entertainerTake) {
+  return [
+    ...buildMatchupContextLines(p, tagsBundle, memBot),
     ``,
-    `Write your recap now.`
+    `The Entertainer just wrote:`,
+    `"${entertainerTake}"`,
+    ``,
+    `You may engage directly — agree, push back, or build on their take. Write your recap now.`
   ].join('\n');
 }
 
@@ -209,7 +273,9 @@ export function buildDeepRecaps(pairs = [], tagsBundle, memEntertainer, memAnaly
   });
 }
 
-export async function buildLLMRecaps(pairs = [], tagsBundle, memEntertainer, memAnalyst) {
+// Sequential: Entertainer runs first, Analyst receives Entertainer's output before responding.
+// relationship is mutated in-place with any detected pushbacks — caller is responsible for saving it.
+export async function buildLLMRecaps(pairs = [], tagsBundle, memEntertainer, memAnalyst, relationship = null, week = null, playerMemory = null) {
   const fallback = buildDeepRecaps(pairs, tagsBundle, memEntertainer, memAnalyst);
 
   let entSystem, anaSystem;
@@ -219,23 +285,53 @@ export async function buildLLMRecaps(pairs = [], tagsBundle, memEntertainer, mem
       getProfile('entertainer', 'MatchupRecaps'),
       getProfile('analyst', 'MatchupRecaps')
     ]);
-    entSystem = buildSystemPrompt('entertainer', entProfile, personas.entertainer);
-    anaSystem = buildSystemPrompt('analyst', anaProfile, personas.analyst);
+    entSystem = buildSystemPrompt('entertainer', entProfile, personas.entertainer, relationship, playerMemory);
+    anaSystem = buildSystemPrompt('analyst',     anaProfile, personas.analyst,     relationship, playerMemory);
   } catch {
     return fallback;
   }
 
   const results = await Promise.allSettled(
     pairs.map(async (p, i) => {
-      const [entRes, anaRes] = await Promise.allSettled([
-        genWithLLM(entSystem, buildMatchupUserPrompt(p, tagsBundle, memEntertainer), 200),
-        genWithLLM(anaSystem, buildMatchupUserPrompt(p, tagsBundle, memAnalyst), 200)
-      ]);
+      const winnerName = p?.winner?.name || '';
+
+      // 1. Entertainer goes first — no prior context.
+      const bot1 = await genWithLLM(entSystem, buildMatchupUserPrompt(p, tagsBundle, memEntertainer), 200)
+        .catch(() => null);
+
+      // 2. Analyst sees Entertainer's output before writing. Falls back to blind prompt if Entertainer failed.
+      const anaPrompt = bot1
+        ? buildMatchupUserPromptWithEntContext(p, tagsBundle, memAnalyst, bot1)
+        : buildMatchupUserPrompt(p, tagsBundle, memAnalyst);
+
+      const bot2 = await genWithLLM(anaSystem, anaPrompt, 220)
+        .catch(() => null);
+
+      // 3. Detect pushback, record with outcome, then get Entertainer rebuttal.
+      let rebuttal = null;
+      if (relationship && week != null && bot1 && bot2 && detectPushback(bot1, bot2)) {
+        const entCapW = getCap(memEntertainer, winnerName);
+        const anaCapW = getCap(memAnalyst, winnerName);
+        const entChampionedWinner = trustDelta(entCapW) >= trustDelta(anaCapW);
+        recordPushback(relationship, week, p.matchup_id, bot1, bot2, winnerName, entChampionedWinner);
+
+        const rebuttalPrompt = [
+          ...buildMatchupContextLines(p, tagsBundle, memEntertainer),
+          ``,
+          `You said: "${bot1}"`,
+          `The Analyst pushed back: "${bot2}"`,
+          ``,
+          `Give a one-sentence rebuttal. Sharp and confident.`
+        ].join('\n');
+        rebuttal = await genWithLLM(entSystem, rebuttalPrompt, 80).catch(() => null);
+      }
+
       return {
         matchup_id: p.matchup_id,
         header: fallback[i].header,
-        bot1: entRes.status === 'fulfilled' ? entRes.value : fallback[i].bot1,
-        bot2: anaRes.status === 'fulfilled' ? anaRes.value : fallback[i].bot2
+        bot1: bot1 ?? fallback[i].bot1,
+        bot2: bot2 ?? fallback[i].bot2,
+        ...(rebuttal ? { rebuttal } : {})
       };
     })
   );

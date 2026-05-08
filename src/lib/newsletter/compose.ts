@@ -38,6 +38,7 @@ import {
 } from './llm-features';
 import { getPartnerDynamicsContext, recordBotInteraction, getPersonalityContext, evolvePersonality, updateEmotionalState, updatePlayerRelationship, detectObsessions, fadeObsessions, getObsessionContext, decayEmotionalState } from './memory';
 import { recordHotTake } from './enhanced-context';
+import { makeBlurt } from './personality';
 
 // Helper to get episode config with type safety
 function getEpisodeConfigForType(episodeType: string, week: number, season: number) {
@@ -1184,7 +1185,22 @@ IMPORTANT RULES:
 5. If you have callbacks or inside jokes with your co-host, use them naturally when relevant.
 6. Let your current emotional state and personality traits influence HOW you say things.`;
 
-    // Note: Analyst context is included directly in fullDialoguePrompt below
+    // Build analyst context — mirrors entertainerMatchupContext structure for sequential generation
+    const analystMatchupContext = `${baseMatchupContext}
+
+YOUR HISTORY WITH THESE TEAMS:
+${analystWinnerMemory || `No strong historical data on ${p.winner.name} yet.`}
+${analystLoserMemory || `No strong historical data on ${p.loser.name} yet.`}
+
+${analystState}
+${analystPartnerContext}
+${analystPersonalityContext}
+
+IMPORTANT RULES:
+1. Write ONLY about ${p.winner.name} and ${p.loser.name}. Do not mention other teams.
+2. Reference the TOP PERFORMERS listed above — actual players who scored.
+3. Bring your analytical perspective but keep it conversational.
+4. Do NOT fabricate statistics — only use numbers from the context provided.`;
 
     const isChampionship = isChampionshipWeek && bracketInfo.includes('Championship');
     
@@ -1457,69 +1473,131 @@ ${starterBot === 'entertainer' ? 'Entertainer speaks first.' : 'Analyst speaks f
 
 BEGIN:`;
 
-    // GENEROUS token budget - let them talk
-    // Championship/high interest: 800 tokens (can support 8+ turns)
-    // Moderate: 500 tokens (4-5 turns)
-    // Low: 300 tokens (2-3 turns)
-    const tokenBudget = isChampionship ? 800 : 
-                        interestLevel === 'very high' ? 600 :
-                        interestLevel === 'moderate' ? 400 : 250;
-    
-    const fullDialogue = await generateSection({
-      persona: starterBot,
-      sectionType: `${bracketInfo} Dialogue`,
+    // Token budgets per bot (each gets their own call now)
+    const entertainerTokens = isChampionship ? 400 :
+                              interestLevel === 'very high' ? 300 :
+                              interestLevel === 'moderate' ? 200 : 125;
+    const analystTokens = isChampionship ? 400 :
+                          interestLevel === 'very high' ? 300 :
+                          interestLevel === 'moderate' ? 200 : 125;
+
+    // SEQUENTIAL GENERATION: Entertainer speaks first, Analyst sees Entertainer's output
+    // This ensures the Analyst can genuinely respond to what the Entertainer said
+
+    const entertainerOnlyPrompt = `${fullDialoguePrompt}
+
+IMPORTANT: You are ONLY generating the ENTERTAINER's lines right now.
+Write only lines starting with "ENTERTAINER:". Do not write any "ANALYST:" lines.
+${starterBot === 'analyst' ? 'Note: The Analyst will speak first — write your ENTERTAINER response to an expected analyst opener about this game.' : ''}`;
+
+    const entertainerRaw = await generateSection({
+      persona: 'entertainer',
+      sectionType: `${bracketInfo} Entertainer`,
       context: `${seasonalContext}\n${entertainerMatchupContext}`,
-      constraints: fullDialoguePrompt,
-      maxTokens: tokenBudget,
+      constraints: entertainerOnlyPrompt,
+      maxTokens: entertainerTokens,
     });
-    
-    // Parse the dialogue response - handle various LLM output formats
-    const lines = fullDialogue.trim().split('\n').filter(line => line.trim());
-    console.log(`[Dialogue] Raw response has ${lines.length} lines for ${p.winner.name} vs ${p.loser.name}, interest=${interestLevel}`);
-    
-    for (const line of lines) {
-      // Clean up common LLM formatting artifacts
-      const cleanLine = line
-        .replace(/^\*\*/, '')
-        .replace(/\*\*$/, '')
-        .replace(/^\[/, '')
-        .replace(/\]/, '')
-        .replace(/^[-•]\s*/, '')
-        .trim();
-      
-      // Flexible regex patterns
-      const entertainerMatch = cleanLine.match(/^(?:the\s+)?entertainer[:\s]+(.+)/i);
-      const analystMatch = cleanLine.match(/^(?:the\s+)?analyst[:\s]+(.+)/i);
-      
-      if (entertainerMatch) {
-        const text = entertainerMatch[1].replace(/^\*\*/, '').replace(/\*\*$/, '').replace(/^["']/, '').replace(/["']$/, '').trim();
-        if (text) dialogue.push({ speaker: 'entertainer', text });
-      } else if (analystMatch) {
-        const text = analystMatch[1].replace(/^\*\*/, '').replace(/\*\*$/, '').replace(/^["']/, '').replace(/["']$/, '').trim();
-        if (text) dialogue.push({ speaker: 'analyst', text });
+
+    // Analyst explicitly responds to the Entertainer's actual words
+    // Strip any speaker labels from entertainerRaw before injecting
+    const entertainerSaid = entertainerRaw.trim()
+      .split('\n')
+      .filter(l => l.trim())
+      .map(l => l.replace(/^(?:entertainer|the entertainer)[:\s]+/i, '').trim())
+      .join(' ')
+      .replace(/^["']|["']$/g, '');
+
+    const analystConstraints = [
+      `The Entertainer just said about this game: "${entertainerSaid}"`,
+      ``,
+      `Respond in 2-3 sentences using your analytical perspective.`,
+      `React to what they said — agree where the data supports it, push back where it doesn't.`,
+      analystBurned ? `Your analysis didn't hold up here. Acknowledge it briefly, then explain what the numbers missed.` : '',
+      analystVindicated ? `The data was right on this one. Mention it naturally.` : '',
+      isChampionship ? `This is the Championship — your response matters, be substantive.` : '',
+      `Write only "ANALYST: [your words]" — one line, no other formatting.`,
+    ].filter(Boolean).join('\n');
+
+    const analystRaw = await generateSection({
+      persona: 'analyst',
+      sectionType: `${bracketInfo} Analyst`,
+      context: `${seasonalContext}\n${analystMatchupContext}`,
+      constraints: analystConstraints,
+      maxTokens: analystTokens,
+    });
+
+    // Parse each bot's output directly — no interleaving needed since they're separate calls
+    const parseRaw = (raw: string, speaker: 'entertainer' | 'analyst'): string => {
+      const label = speaker === 'entertainer' ? /^(?:entertainer|the entertainer)[:\s]+/i : /^(?:analyst|the analyst)[:\s]+/i;
+      return raw.trim()
+        .split('\n')
+        .filter(l => l.trim())
+        .map(l => l.replace(/^\*\*/, '').replace(/\*\*$/, '').replace(/^\[|\]$/g, '').replace(/^[-•]\s*/, '').trim())
+        .filter(l => {
+          // For entertainer lines: accept lines with ENTERTAINER: label OR no label at all
+          // For analyst lines: accept lines with ANALYST: label OR no label at all
+          // Reject lines labeled for the OTHER speaker
+          const oppositeLabel = speaker === 'entertainer' ? /^(?:analyst|the analyst)[:\s]+/i : /^(?:entertainer|the entertainer)[:\s]+/i;
+          return !oppositeLabel.test(l);
+        })
+        .map(l => l.replace(label, '').replace(/^["']|["']$/g, '').trim())
+        .filter(l => l.length > 10) // Skip very short fragments
+        .join(' ');
+    };
+
+    const entertainerTake = parseRaw(entertainerRaw, 'entertainer');
+    const analystTake = parseRaw(analystRaw, 'analyst');
+
+    if (starterBot === 'entertainer') {
+      if (entertainerTake) dialogue.push({ speaker: 'entertainer', text: entertainerTake });
+      if (analystTake) dialogue.push({ speaker: 'analyst', text: analystTake });
+    } else {
+      if (analystTake) dialogue.push({ speaker: 'analyst', text: analystTake });
+      if (entertainerTake) dialogue.push({ speaker: 'entertainer', text: entertainerTake });
+    }
+
+    // Optional rebuttal for high-stakes games when Analyst pushes back on the Entertainer
+    if ((isChampionship || interestLevel === 'very high') && entertainerTake && analystTake) {
+      const analystPushesBack =
+        analystTake.toLowerCase().includes('disagree') ||
+        analystTake.toLowerCase().includes('actually') ||
+        analystTake.toLowerCase().includes('however') ||
+        analystTake.toLowerCase().includes('but ') ||
+        analystTake.toLowerCase().includes('not so fast') ||
+        analystTake.toLowerCase().includes("i don't think");
+
+      if (analystPushesBack) {
+        const rebuttalRaw = await generateSection({
+          persona: 'entertainer',
+          sectionType: `${bracketInfo} Rebuttal`,
+          context: `${seasonalContext}\n${entertainerMatchupContext}`,
+          constraints: `The Analyst just responded: "${analystTake}"\n\nCome back in 1-2 sentences. Stand your ground confidently — this is healthy disagreement. Write "ENTERTAINER: [your words]".`,
+          maxTokens: 80,
+        }).catch(() => null);
+
+        if (rebuttalRaw) {
+          const rebuttal = parseRaw(rebuttalRaw, 'entertainer');
+          if (rebuttal) dialogue.push({ speaker: 'entertainer', text: rebuttal });
+        }
       }
     }
-    
-    console.log(`[Dialogue] Parsed ${dialogue.length} turns for ${p.winner.name} vs ${p.loser.name}`);
+
+    console.log(`[Dialogue] Generated ${dialogue.length} turns for ${p.winner.name} vs ${p.loser.name}`);
+
+    // Fallback if sequential generation completely failed
     if (dialogue.length < 2) {
-      console.log(`[Dialogue] Raw response:\n${fullDialogue.substring(0, 800)}`);
-    }
-    
-    // Fallback only if parsing completely failed
-    if (dialogue.length < 2) {
-      console.log(`[Dialogue] Parsing failed for ${p.winner.name} vs ${p.loser.name}, using fallback`);
       if (qualityReport) {
         if (!Array.isArray(qualityReport.usedFallbacks)) qualityReport.usedFallbacks = [];
-        qualityReport.usedFallbacks.push('Recaps.DialogueParse');
+        qualityReport.usedFallbacks.push('Recaps.SequentialFallback');
       }
-      dialogue.length = 0; // Clear any partial results
-      dialogue.push({ 
-        speaker: 'entertainer', 
-        text: `${p.winner.name} takes it ${p.winner.points.toFixed(1)}-${p.loser.points.toFixed(1)}. ${p.margin > 20 ? 'Not even close!' : p.margin < 5 ? 'What a finish!' : 'Solid win.'}`
+      dialogue.length = 0;
+      dialogue.push({
+        speaker: 'entertainer',
+        text: `${p.winner.name} takes it ${p.winner.points.toFixed(1)}-${p.loser.points.toFixed(1)}. ${p.margin > 20 ? 'Not even close!' : p.margin < 5 ? 'What a finish!' : 'Solid win.'}`,
       });
-      dialogue.push({ 
-        speaker: 'analyst', 
-        text: `The margin of ${p.margin.toFixed(1)} tells the story. ${winnerPlayers.split(',')[0]} was the difference maker.`
+      dialogue.push({
+        speaker: 'analyst',
+        text: `Margin of ${p.margin.toFixed(1)} tells the story. ${winnerPlayers.split(',')[0]?.split(' (')[0] ?? 'Top performer'} was the difference.`,
       });
     }
     
@@ -1790,6 +1868,38 @@ function buildDivisionRivalryContext(_pairs: DerivedData['matchup_pairs'], _stan
   return '';
 }
 
+// ============ Blurt Section ============
+
+async function buildBlurt(
+  week: number,
+  memEntertainer: BotMemory,
+  memAnalyst: BotMemory,
+  enhancedContext: string,
+): Promise<BlurtSection> {
+  const entPersonality = isEnhancedMemory(memEntertainer) ? getPersonalityContext(memEntertainer) : '';
+  const anaPersonality = isEnhancedMemory(memAnalyst) ? getPersonalityContext(memAnalyst) : '';
+  const ctxSnippet = enhancedContext.substring(0, 600);
+
+  const [bot1, bot2] = await Promise.all([
+    generateSection({
+      persona: 'entertainer',
+      sectionType: 'Blurt',
+      context: ctxSnippet + (entPersonality ? `\n${entPersonality}` : ''),
+      constraints: `Week ${week}. Give ONE punchy aside — something on your mind, a hot observation, a player or team you can't stop thinking about. 1-2 sentences. No speaker label, just your words.`,
+      maxTokens: 60,
+    }).then(r => r.trim().replace(/^(?:entertainer|the entertainer)[:\s]+/i, '').replace(/^["']|["']$/g, '') || null).catch(() => null),
+    generateSection({
+      persona: 'analyst',
+      sectionType: 'Blurt',
+      context: ctxSnippet + (anaPersonality ? `\n${anaPersonality}` : ''),
+      constraints: `Week ${week}. Give ONE sharp analytical observation that doesn't fit anywhere else — a data point, a trend, a number that surprised you. 1-2 sentences. No speaker label, just your words.`,
+      maxTokens: 60,
+    }).then(r => r.trim().replace(/^(?:analyst|the analyst)[:\s]+/i, '').replace(/^["']|["']$/g, '') || null).catch(() => null),
+  ]);
+
+  return { bot1: bot1 || null, bot2: bot2 || null };
+}
+
 // ============ Main Compose Function ============
 
 export interface ComposeNewsletterInput {
@@ -1904,13 +2014,14 @@ export async function composeNewsletter(input: ComposeNewsletterInput, qualityRe
 
   // Build all sections using LLM (run in parallel where possible)
   // Each section is wrapped in error recovery to prevent one failure from killing the whole newsletter
-  const [intro, waiverItems, tradeItems, spotlight, finalWord, recaps] = await Promise.all([
+  const [intro, waiverItems, tradeItems, spotlight, finalWord, recaps, blurt] = await Promise.all([
     safeSection('Intro', () => buildIntro(week, pairs, events, memEntertainer, memAnalyst, fullEnhancedContext, episodeType, season), fallbackIntro),
     excludeSections.has('WaiversAndFA') ? Promise.resolve([]) : safeSection('WaiversAndFA', () => buildWaiverItems(events), []),
     excludeSections.has('Trades') ? Promise.resolve([]) : safeSection('Trades', () => buildTradeItems(events), []),
     excludeSections.has('SpotlightTeam') ? Promise.resolve(null) : safeSection('Spotlight', () => buildSpotlight(pairs, memEntertainer, memAnalyst, fullEnhancedContext), null),
     safeSection('FinalWord', () => buildFinalWord(week, episodeType), fallbackFinalWord),
     excludeSections.has('MatchupRecaps') ? Promise.resolve([]) : safeSection('Recaps', () => buildRecaps(pairs, memEntertainer, memAnalyst, week, fullEnhancedContext, qualityReport), []),
+    excludeSections.has('Blurt') ? Promise.resolve({ bot1: null, bot2: null } as BlurtSection) : safeSection('Blurt', () => buildBlurt(week, memEntertainer, memAnalyst, fullEnhancedContext), { bot1: null, bot2: null } as BlurtSection),
   ]);
 
   console.log(`[Compose] Core sections generated via LLM (with error recovery)`);
@@ -1993,6 +2104,19 @@ export async function composeNewsletter(input: ComposeNewsletterInput, qualityRe
     { type: 'Intro', data: intro },
   ];
 
+  // Blurt section — quick hot takes driven by each bot's current summaryMood
+  if (!excludeSections.has('Blurt')) {
+    const validBlurtMoods = ['Focused', 'Fired Up', 'Deflated'] as const;
+    type ValidBlurtMood = typeof validBlurtMoods[number];
+    const toBlurtMood = (m: string | undefined): ValidBlurtMood | undefined =>
+      (validBlurtMoods as readonly string[]).includes(m ?? '') ? m as ValidBlurtMood : undefined;
+    const blurt1 = makeBlurt('entertainer', toBlurtMood(memEntertainer.summaryMood));
+    const blurt2 = makeBlurt('analyst', toBlurtMood(memAnalyst.summaryMood));
+    if (blurt1 || blurt2) {
+      sections.push({ type: 'Blurt', data: { bot1: blurt1 ?? '', bot2: blurt2 ?? '' } });
+    }
+  }
+
   // Build WEEKLY power rankings for regular episodes (each bot ranks all 12 teams)
   // This is different from preseason rankings - it reflects current season performance
   if (episodeType === 'regular' && pairs.length > 0 && !excludeSections.has('PowerRankings')) {
@@ -2025,6 +2149,10 @@ export async function composeNewsletter(input: ComposeNewsletterInput, qualityRe
 
   if (!excludeSections.has('MatchupRecaps') && recaps.length > 0) {
     sections.push({ type: 'MatchupRecaps', data: recaps });
+  }
+
+  if (!excludeSections.has('Blurt') && (blurt.bot1 || blurt.bot2)) {
+    sections.push({ type: 'Blurt', data: blurt });
   }
 
   if (waiverItems.length > 0 && !excludeSections.has('WaiversAndFA')) {
