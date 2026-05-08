@@ -55,6 +55,7 @@ import { eq, and } from 'drizzle-orm';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+export const maxDuration = 800; // 13 min hard cap — Next.js will return 504 if exceeded
 
 // ============ Sleeper API Helpers ============
 

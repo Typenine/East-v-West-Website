@@ -134,11 +134,10 @@ function sleep(ms: number): Promise<void> {
 // ============ API Client ============
 
 const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
-const DEFAULT_MODEL = 'llama-3.1-8b-instant'; // Fast, good quality, generous limits
+const DEFAULT_MODEL = 'llama-3.3-70b-versatile'; // Best quality on Groq free tier
 const MODEL_FALLBACKS = [
   DEFAULT_MODEL,
-  'llama-3.1-70b-versatile',
-  'mixtral-8x7b-32768',
+  'llama-3.1-8b-instant', // Fast fallback if 70b is rate-limited
 ];
 
 export async function generateWithGroq(options: GroqGenerateOptions): Promise<GroqResponse> {
@@ -192,11 +191,11 @@ export async function generateWithGroq(options: GroqGenerateOptions): Promise<Gr
         // Handle rate limit errors with progressive backoff
         // Wait longer to guarantee we're back under limits
         if (response.status === 429) {
-          const waitTime = 90000 + (attempt * 30000); // 90s, 120s, 150s, 180s, 210s
-          console.log(`[Groq] Rate limited (429), attempt ${attempt + 1}/${maxRetries}, waiting ${Math.round(waitTime / 1000)}s to ensure limits reset...`);
-          await sleep(waitTime);
-          // Reset our rate limit tracking since we just waited
+          // Wait for remainder of current minute + small buffer, not a hardcoded 90s
           const st = getRLState(candidateModel);
+          const waitTime = Math.max(10000, 65000 - (Date.now() - st.minuteStart));
+          console.log(`[Groq] Rate limited (429), attempt ${attempt + 1}/${maxRetries}, waiting ${Math.round(waitTime / 1000)}s...`);
+          await sleep(waitTime);
           st.callsThisMinute = 0;
           st.tokensThisMinute = 0;
           st.minuteStart = Date.now();
@@ -224,10 +223,10 @@ export async function generateWithGroq(options: GroqGenerateOptions): Promise<Gr
         
         // Check if it's a rate limit message in text form
         if (responseText.toLowerCase().includes('rate limit') || responseText.toLowerCase().includes('too many')) {
-          const waitTime = 90000 + (attempt * 30000);
-          console.log(`[Groq] Rate limit detected in response text, waiting ${Math.round(waitTime / 1000)}s...`);
-          await sleep(waitTime);
           const st = getRLState(candidateModel);
+          const waitTime = Math.max(10000, 65000 - (Date.now() - st.minuteStart));
+          console.log(`[Groq] Rate limit in text response, waiting ${Math.round(waitTime / 1000)}s...`);
+          await sleep(waitTime);
           st.callsThisMinute = 0;
           st.tokensThisMinute = 0;
           st.minuteStart = Date.now();
@@ -243,10 +242,10 @@ export async function generateWithGroq(options: GroqGenerateOptions): Promise<Gr
         console.error(`[Groq] API error in response: ${errorMsg}`);
         
         if (errorMsg.toLowerCase().includes('rate limit')) {
-          const waitTime = 90000 + (attempt * 30000);
+          const st = getRLState(candidateModel);
+          const waitTime = Math.max(10000, 65000 - (Date.now() - st.minuteStart));
           console.log(`[Groq] Rate limit in error response, waiting ${Math.round(waitTime / 1000)}s...`);
           await sleep(waitTime);
-          const st = getRLState(candidateModel);
           st.callsThisMinute = 0;
           st.tokensThisMinute = 0;
           st.minuteStart = Date.now();

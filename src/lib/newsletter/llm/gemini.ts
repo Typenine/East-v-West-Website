@@ -19,11 +19,10 @@ export interface GenerateSectionOptions {
 
 // ============ Rate Limiting ============
 
-// Gemini 2.0 Flash free tier: 15 RPM, 1M TPM, 1500 RPD
-// We stay well under to avoid 429s during long newsletter generation runs
+// Gemini 2.0 Flash free tier: 15 RPM, 1M TPM, 1500 RPD — plenty for newsletter generation
 const RATE_LIMITS = {
-  maxCallsPerMinute: 12,       // Conservative buffer under 15 RPM
-  minDelayBetweenCalls: 5000,  // 5s between calls = max 12/min safely
+  maxCallsPerMinute: 12,      // Conservative buffer under 15 RPM
+  minDelayBetweenCalls: 5000, // 5s between calls = 12/min safely
 };
 
 type RLState = {
@@ -409,6 +408,89 @@ Remember to use your signature style and voice. Make it feel like YOU wrote this
     topP: 0.9,
     validate,
   });
+}
+
+// ============ Dual-Bot Generation (saves 1 API call per section) ============
+
+export interface BothBotsOptions {
+  sectionType: string;
+  context: string;
+  entertainerConstraints?: string;
+  analystConstraints?: string;
+  maxTokens?: number;
+  episodeType?: string;
+}
+
+export interface BothBotsResult {
+  entertainer: string;
+  analyst: string;
+}
+
+/**
+ * Generates both bot perspectives in a single API call.
+ * Use this instead of two separate generateSection calls to halve API usage.
+ * The model writes each voice in sequence inside XML-like tags.
+ */
+export async function generateBothBots(options: BothBotsOptions): Promise<BothBotsResult> {
+  const { sectionType, context, entertainerConstraints, analystConstraints, maxTokens = 800, episodeType } = options;
+
+  const entConfig = PERSONA_CONFIGS.entertainer;
+  const anaConfig = PERSONA_CONFIGS.analyst;
+
+  // Build a combined system prompt describing both personas
+  let systemPrompt = `You are writing for TWO distinct commentators covering the East v. West fantasy football league newsletter.
+
+=== PERSONA 1: THE ENTERTAINER ===
+${entConfig.systemPrompt}
+
+=== PERSONA 2: THE ANALYST ===
+${anaConfig.systemPrompt}
+
+Write both responses clearly separated. The Entertainer writes with heat and personality; the Analyst is sharp and data-grounded. Each stays completely in their own voice.`;
+
+  if (episodeType && EPISODE_PROMPT_ADDITIONS[episodeType]) {
+    systemPrompt += `\n\nENTERTAINER episode note: ${EPISODE_PROMPT_ADDITIONS[episodeType].entertainer}`;
+    systemPrompt += `\nANALYST episode note: ${EPISODE_PROMPT_ADDITIONS[episodeType].analyst}`;
+  }
+  if (episodeType?.startsWith('playoffs')) {
+    systemPrompt += `\nENTERTAINER playoff note: ${EPISODE_PROMPT_ADDITIONS.playoffs.entertainer}`;
+    systemPrompt += `\nANALYST playoff note: ${EPISODE_PROMPT_ADDITIONS.playoffs.analyst}`;
+  }
+
+  const userPrompt = `Generate the "${sectionType}" section written by BOTH commentators.
+
+CONTEXT:
+${context}
+
+${entertainerConstraints ? `ENTERTAINER CONSTRAINTS:\n${entertainerConstraints}\n` : ''}
+${analystConstraints ? `ANALYST CONSTRAINTS:\n${analystConstraints}\n` : ''}
+
+Output EXACTLY this format — no extra text before or after:
+
+<ENTERTAINER>
+[Entertainer's take here — no section headers, just their voice]
+</ENTERTAINER>
+
+<ANALYST>
+[Analyst's take here — no section headers, just their voice]
+</ANALYST>`;
+
+  const raw = await generateWithGemini({
+    systemPrompt,
+    userPrompt,
+    temperature: 0.75, // Middle ground between the two personas
+    maxTokens: maxTokens * 2, // Room for both responses
+    topP: 0.9,
+  });
+
+  // Parse out each section
+  const entMatch = raw.match(/<ENTERTAINER>([\s\S]*?)<\/ENTERTAINER>/i);
+  const anaMatch = raw.match(/<ANALYST>([\s\S]*?)<\/ANALYST>/i);
+
+  return {
+    entertainer: entMatch?.[1]?.trim() ?? raw,
+    analyst: anaMatch?.[1]?.trim() ?? '',
+  };
 }
 
 // ============ Staged Generation Support (unchanged) ============

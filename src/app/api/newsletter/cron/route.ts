@@ -26,7 +26,7 @@ import {
   loadPreviousSeasonMemory,
   initializeSeasonMemory,
 } from '@/server/db/newsletter-queries';
-import { generateSection, SECTION_GENERATION_ORDER } from '@/lib/newsletter/llm/gemini';
+import { generateSection, SECTION_GENERATION_ORDER } from '@/lib/newsletter/llm/groq';
 import { buildDerived } from '@/lib/newsletter/derive';
 // TODO: Use renderNewsletterData when generating final HTML
 import type { BotMemory } from '@/lib/newsletter/types';

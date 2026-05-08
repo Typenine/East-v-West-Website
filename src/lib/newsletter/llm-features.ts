@@ -24,7 +24,7 @@ import type {
   ForecastPick,
   TradeItem,
 } from './types';
-import { generateSection } from './llm/gemini';
+import { generateSection } from './llm/groq';
 
 // ============ 1. Bot Debates ============
 

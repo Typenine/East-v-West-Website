@@ -6,7 +6,7 @@
 
 import type { UpcomingPair, MatchupPair, BotMemory, ForecastData, ForecastPick } from './types';
 import { isEnhancedMemory } from './types';
-import { generateSection } from './llm/gemini';
+import { generateSection } from './llm/groq';
 import { recordPrediction } from './enhanced-context';
 
 // ============ Forecast Generation ============

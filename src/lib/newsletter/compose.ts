@@ -34,7 +34,7 @@ import type {
 } from './types';
 import type { LeagueDraftData } from './sleeper-ingest';
 import { isEnhancedMemory } from './types';
-import { generateSection } from './llm/gemini';
+import { generateSection } from './llm/groq';
 import { buildStaticLeagueContext } from './league-knowledge';
 import { getEpisodeConfig } from './episodes';
 import {
