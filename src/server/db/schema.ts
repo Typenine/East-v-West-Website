@@ -178,7 +178,7 @@ export const taxiSnapshots = pgTable('taxi_snapshots', {
 // ============ Newsletter Bot Memory ============
 
 export const botNameEnum = pgEnum('bot_name', ['entertainer', 'analyst']);
-export const summaryMoodEnum = pgEnum('summary_mood', ['Focused', 'Fired Up', 'Deflated']);
+export const summaryMoodEnum = pgEnum('summary_mood', ['Focused', 'Fired Up', 'Deflated', 'Chaotic', 'Vindicated']);
 export const teamMoodEnum = pgEnum('team_mood', ['Neutral', 'Confident', 'Suspicious', 'Irritated']);
 
 // Bot memory - stores overall bot state and per-team sentiment

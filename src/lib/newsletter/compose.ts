@@ -39,7 +39,7 @@ import {
   type LLMFeaturesInput,
   type LLMFeaturesOutput,
 } from './llm-features';
-import { getPartnerDynamicsContext, recordBotInteraction, getPersonalityContext, evolvePersonality, updateEmotionalState, updatePlayerRelationship, detectObsessions, fadeObsessions, getObsessionContext, decayEmotionalState, getPlayerRelationshipContext } from './memory';
+import { getPartnerDynamicsContext, recordBotInteraction, getPersonalityContext, evolvePersonality, updateEmotionalState, updatePlayerRelationship, detectObsessions, fadeObsessions, getObsessionContext, decayEmotionalState, getPlayerRelationshipContext, recordWhoWasRight, registerEmergingPhrase, addInsideJoke, updateBotFeud, getNarrativesContext } from './memory';
 import { recordHotTake } from './enhanced-context';
 import { makeBlurt } from './personality';
 
@@ -1139,19 +1139,19 @@ async function buildRecaps(
     
     // Get partner dynamics context (how they relate to each other)
     // Only available for BotMemory - check if partnerDynamics exists
-    const entertainerPartnerContext = 'partnerDynamics' in memEntertainer 
-      ? getPartnerDynamicsContext(memEntertainer as unknown as import('./types').BotMemory)
+    const entertainerPartnerContext = 'partnerDynamics' in memEntertainer
+      ? getPartnerDynamicsContext(memEntertainer)
       : '';
     const analystPartnerContext = 'partnerDynamics' in memAnalyst
-      ? getPartnerDynamicsContext(memAnalyst as unknown as import('./types').BotMemory)
+      ? getPartnerDynamicsContext(memAnalyst)
       : '';
     
-    // Get evolving personality context (confidence, emotional state, speech patterns)
+    // Get evolving personality context (confidence, emotional state, speech patterns, storylines)
     const entertainerPersonalityContext = isEnhancedMemory(memEntertainer)
-      ? getPersonalityContext(memEntertainer)
+      ? getPersonalityContext(memEntertainer) + getNarrativesContext(memEntertainer, week)
       : '';
     const analystPersonalityContext = isEnhancedMemory(memAnalyst)
-      ? getPersonalityContext(memAnalyst)
+      ? getPersonalityContext(memAnalyst) + getNarrativesContext(memAnalyst, week)
       : '';
 
     // Build focused context for THIS specific matchup only
@@ -1174,10 +1174,10 @@ MARGIN OF VICTORY: ${p.margin.toFixed(1)} points`;
       ...(p.loser.topPlayers || []).map(pl => pl.name),
     ].filter(Boolean);
     const entertainerPlayerCtx = getPlayerRelationshipContext(
-      memEntertainer as unknown as import('./types').BotMemory, matchupPlayerNames
+      memEntertainer, matchupPlayerNames
     );
     const analystPlayerCtx = getPlayerRelationshipContext(
-      memAnalyst as unknown as import('./types').BotMemory, matchupPlayerNames
+      memAnalyst, matchupPlayerNames
     );
 
     // Entertainer gets their personal history with these teams + partner dynamics + personality
@@ -1629,6 +1629,29 @@ ${starterBot === 'analyst' ? 'Note: The Analyst will speak first — write your 
           if (memAnaE) evolvePersonality(memAnaE, { type: 'vindicated', intensity: 3, context: 'Won debate', week });
           if (memEntE) evolvePersonality(memEntE, { type: 'humbled', intensity: 2, context: 'Lost debate', week });
         }
+
+        // Record who was right in partner dynamics (updates timesIWasRight / timesTheyWereRight)
+        const matchupLabel = `${p.winner.name} vs ${p.loser.name}`;
+        recordWhoWasRight(memEntertainer, week, matchupLabel, entChampioned, p.winner.name);
+        recordWhoWasRight(memAnalyst, week, matchupLabel, !entChampioned, p.winner.name);
+
+        // Register emerging phrases seeded by debate outcome — build toward catchphrases over time
+        if (memEntertainer.speechPatterns) {
+          registerEmergingPhrase(
+            memEntertainer,
+            entChampioned ? "called it" : "I'll own this one",
+            'debate_outcome', week,
+            `${p.winner.name} win`
+          );
+        }
+        if (memAnalyst.speechPatterns) {
+          registerEmergingPhrase(
+            memAnalyst,
+            !entChampioned ? "the data held" : "variance happens",
+            'debate_outcome', week,
+            `${p.winner.name} win`
+          );
+        }
       }
     }
 
@@ -1673,7 +1696,7 @@ ${starterBot === 'analyst' ? 'Note: The Analyst will speak first — write your 
     // Record for entertainer's memory
     if ('partnerDynamics' in memEntertainer || true) {
       recordBotInteraction(
-        memEntertainer as unknown as import('./types').BotMemory,
+        memEntertainer,
         week,
         {
           matchup: matchupTopic,
@@ -1689,7 +1712,7 @@ ${starterBot === 'analyst' ? 'Note: The Analyst will speak first — write your 
     // Record for analyst's memory (from their perspective)
     if ('partnerDynamics' in memAnalyst || true) {
       recordBotInteraction(
-        memAnalyst as unknown as import('./types').BotMemory,
+        memAnalyst,
         week,
         {
           matchup: matchupTopic,
@@ -2133,13 +2156,57 @@ export async function composeNewsletter(input: ComposeNewsletterInput, qualityRe
     console.log(`[Compose] Applied ${pushbackCollector.length} pushbacks to RelationshipMemory`);
   }
 
+  // Feud detection: if the same team triggered 2+ debates this week, start/escalate a feud
+  if (pushbackCollector.length >= 2) {
+    const teamDebateCounts = new Map<string, typeof pushbackCollector[0]>();
+    const teamCount = new Map<string, number>();
+    for (const pb of pushbackCollector) {
+      teamCount.set(pb.winner_name, (teamCount.get(pb.winner_name) || 0) + 1);
+      teamDebateCounts.set(pb.winner_name, pb);
+    }
+    for (const [team, count] of teamCount) {
+      if (count >= 2) {
+        const pb = teamDebateCounts.get(team)!;
+        const intensity = count >= 3 ? 'heated' : 'mild';
+        updateBotFeud(memEntertainer, {
+          topic: team,
+          myPosition: pb.entertainer_stance.slice(0, 80),
+          theirPosition: pb.analyst_stance.slice(0, 80),
+          startedWeek: week,
+          intensity,
+        });
+        updateBotFeud(memAnalyst, {
+          topic: team,
+          myPosition: pb.analyst_stance.slice(0, 80),
+          theirPosition: pb.entertainer_stance.slice(0, 80),
+          startedWeek: week,
+          intensity,
+        });
+        console.log(`[Compose] Feud started/escalated about ${team} (${count} debates, intensity: ${intensity})`);
+      }
+    }
+  }
+
+  // Inside jokes: add memorable references for blowouts where someone called it
+  for (const pair of pairs) {
+    if (pair.margin >= 35) {
+      const pb = pushbackCollector.find(p => p.winner_name === pair.winner.name);
+      if (pb) {
+        const who = pb.outcome === 'entertainer_championed_winner' ? 'Entertainer' : 'Analyst';
+        const joke = `${who} called ${pair.winner.name}'s blowout (Wk${week}, +${Math.round(pair.margin)})`;
+        addInsideJoke(memEntertainer, week, joke);
+        addInsideJoke(memAnalyst, week, joke);
+      }
+    }
+  }
+
   // Generate all new LLM-powered features (debates, hot takes, awards, etc.)
   let llmFeatures: LLMFeaturesOutput | null = null;
   if (episodeType === 'regular' && pairs.length > 0) {
     console.log(`[Compose] Generating LLM-powered features (debates, hot takes, awards, etc.)...`);
     try {
-      const personaCtxEnt = `${getPersonalityContext(memEntertainer)}${getPartnerDynamicsContext(memEntertainer)}${getObsessionContext(memEntertainer)}`;
-      const personaCtxAna = `${getPersonalityContext(memAnalyst)}${getPartnerDynamicsContext(memAnalyst)}${getObsessionContext(memAnalyst)}`;
+      const personaCtxEnt = `${getPersonalityContext(memEntertainer)}${getPartnerDynamicsContext(memEntertainer)}${getObsessionContext(memEntertainer)}${getNarrativesContext(memEntertainer, week)}`;
+      const personaCtxAna = `${getPersonalityContext(memAnalyst)}${getPartnerDynamicsContext(memAnalyst)}${getObsessionContext(memAnalyst)}${getNarrativesContext(memAnalyst, week)}`;
       const llmInput: LLMFeaturesInput = {
         week,
         pairs,

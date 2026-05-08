@@ -1284,6 +1284,24 @@ export function getPlayerRelationshipContext(mem: BotMemory, playerIds: string[]
 }
 
 /**
+ * Surface active season narratives (win streaks, collapses, redemption arcs) into LLM context.
+ * Returns only unresolved narratives updated in the last 4 weeks, capped at 4 entries.
+ */
+export function getNarrativesContext(mem: BotMemory, currentWeek: number): string {
+  if (!mem.narratives || mem.narratives.length === 0) return '';
+
+  const active = mem.narratives
+    .filter(n => !n.resolved && currentWeek - n.lastUpdated <= 4)
+    .sort((a, b) => b.lastUpdated - a.lastUpdated)
+    .slice(0, 4);
+
+  if (active.length === 0) return '';
+
+  const lines = active.map(n => `- ${n.title}: ${n.description}`);
+  return `\nACTIVE STORYLINES:\n${lines.join('\n')}`;
+}
+
+/**
  * Convert legacy BotMemory to BotMemory
  */
 export function upgradeToEnhancedMemory(legacy: BotMemory, season: number): BotMemory {

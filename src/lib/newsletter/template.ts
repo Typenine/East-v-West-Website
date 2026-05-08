@@ -943,6 +943,8 @@ export function renderNewsletterData(newsletter: Newsletter): {
       case 'SpotlightTeam': html = sectionSpotlight(s.data); break;
       case 'Forecast': html = sectionForecast(s.data); break;
       case 'FinalWord': html = sectionFinal(s.data); break;
+      case 'PowerRankings': html = sectionPowerRankings(s.data); break;
+      case 'SeasonPreview': html = sectionSeasonPreview(s.data); break;
       // New LLM-powered sections
       case 'BotDebates': html = sectionBotDebates(s.data); break;
       case 'HotTakes': html = sectionHotTakes(s.data); break;

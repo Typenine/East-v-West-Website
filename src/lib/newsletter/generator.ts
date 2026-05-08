@@ -3,11 +3,12 @@
  * High-level function that orchestrates the entire newsletter generation process
  */
 
-import type { Newsletter, BotMemory, ForecastData, CallbacksSection, WeeklyHotTake } from './types';
+import type { Newsletter, BotMemory, ForecastData, CallbacksSection, WeeklyHotTake, RelationshipMemory } from './types';
 import { buildDerived } from './derive';
-import { createEnhancedMemory, ensureEnhancedTeams, updateEnhancedMemoryAfterWeek, upgradeToEnhancedMemory } from './memory';
+import { createEnhancedMemory, ensureEnhancedTeams, updateEnhancedMemoryAfterWeek, upgradeToEnhancedMemory, addInsideJoke } from './memory';
 import { isEnhancedMemory } from './types';
 import { makeForecast, gradePendingPicks, type ForecastRecords } from './forecast';
+import { recordPrediction, gradePrediction, gradeHotTake } from './enhanced-context';
 import { composeNewsletter } from './compose';
 import { renderHtml } from './template';
 
@@ -106,6 +107,8 @@ export interface GenerateNewsletterInput {
   lastCallbacks?: import('./types').CallbacksSection | null;
   // Optional: raw previous newsletter for hot takes + spotlight extraction
   previousNewsletter?: { newsletter: { sections: Array<{ type: string; data: unknown }> } } | null;
+  // Optional: cross-bot relationship memory for debate tracking and theme inference
+  existingRelationshipMemory?: RelationshipMemory | null;
 }
 
 export interface GenerateNewsletterResult {
@@ -219,6 +222,54 @@ export async function generateNewsletter(
   // 6. Grade pending picks from last week if available
   if (pendingPicks && pendingPicks.week === week) {
     records = gradePendingPicks(pendingPicks, derived.matchup_pairs, records);
+
+    // Update per-bot prediction stats (predictionStats.correct/wrong/hotStreak)
+    for (const pick of pendingPicks.picks) {
+      const result = derived.matchup_pairs.find(
+        mp => String(mp.matchup_id) === String(pick.matchup_id)
+      );
+      if (!result) continue;
+      const margin = Math.round(result.winner.points - result.loser.points);
+      gradePrediction(memEntertainer, pendingPicks.week, pick.matchup_id, result.winner.name, margin);
+      gradePrediction(memAnalyst, pendingPicks.week, pick.matchup_id, result.winner.name, margin);
+
+      // Inside joke: both bots agreed on the same pick and were right (rare — worth noting)
+      if (
+        pick.entertainer_pick && pick.analyst_pick &&
+        pick.entertainer_pick === pick.analyst_pick &&
+        pick.entertainer_pick === result.winner.name
+      ) {
+        const joke = `We both called ${result.winner.name} and nailed it (Wk${week})`;
+        addInsideJoke(memEntertainer, week, joke);
+        addInsideJoke(memAnalyst, week, joke);
+      }
+    }
+
+    // Grade any ungraded hot takes whose subject appeared in this week's matchups
+    for (const mem of [memEntertainer, memAnalyst]) {
+      if (!mem.hotTakes) continue;
+      for (const ht of mem.hotTakes) {
+        if (ht.agedWell !== undefined) continue; // already graded
+        const subjectLower = ht.subject.toLowerCase();
+        const subjectWon = derived.matchup_pairs.some(mp =>
+          mp.winner.name.toLowerCase().includes(subjectLower) ||
+          subjectLower.includes(mp.winner.name.toLowerCase())
+        );
+        const subjectPlayed = derived.matchup_pairs.some(mp =>
+          mp.winner.name.toLowerCase().includes(subjectLower) ||
+          mp.loser.name.toLowerCase().includes(subjectLower) ||
+          subjectLower.includes(mp.winner.name.toLowerCase()) ||
+          subjectLower.includes(mp.loser.name.toLowerCase())
+        );
+        if (subjectPlayed) {
+          gradeHotTake(
+            mem, ht.week,
+            subjectWon,
+            subjectWon ? "Called it — that take aged beautifully." : "Tough look. I'll own this one."
+          );
+        }
+      }
+    }
   }
 
   // 7. Generate forecast for next week (now LLM-powered)
@@ -235,6 +286,58 @@ export async function generateNewsletter(
     topPlayers: input.enhancedContext?.topPlayers,
     injuries: input.enhancedContext?.injuries,
   });
+
+  // Store next week's picks in bot memory so they can be graded next run
+  for (const pick of forecast.picks) {
+    recordPrediction(memEntertainer, {
+      week: nextWeek,
+      matchupId: pick.matchup_id,
+      team1: pick.team1,
+      team2: pick.team2,
+      pick: pick.bot1_pick,
+      confidence: pick.confidence_bot1,
+    });
+    recordPrediction(memAnalyst, {
+      week: nextWeek,
+      matchupId: pick.matchup_id,
+      team1: pick.team1,
+      team2: pick.team2,
+      pick: pick.bot2_pick,
+      confidence: pick.confidence_bot2,
+    });
+  }
+
+  // Prune predictions: drop graded entries older than 3 weeks, hard-cap at 30
+  const pruneBeforeWeek = nextWeek - 3;
+  for (const mem of [memEntertainer, memAnalyst]) {
+    if (mem.predictions && mem.predictions.length > 30) {
+      mem.predictions = mem.predictions.filter(p => !p.result || p.week > pruneBeforeWeek);
+      if (mem.predictions.length > 30) mem.predictions = mem.predictions.slice(-30);
+    }
+    // Prune hotTakes: keep last 20 (oldest graded takes fall off first)
+    if (mem.hotTakes && mem.hotTakes.length > 20) {
+      mem.hotTakes = mem.hotTakes.slice(-20);
+    }
+  }
+
+  // Update RelationshipMemory counters now that grading is complete
+  const relationshipMem = input.existingRelationshipMemory ?? null;
+  if (relationshipMem) {
+    // Sync season prediction records to the graded W/L counts
+    relationshipMem.prediction_records.entertainer = records.entertainer;
+    relationshipMem.prediction_records.analyst = records.analyst;
+    // Lead = entertainer net wins minus analyst net wins
+    const entNet = records.entertainer.w - records.entertainer.l;
+    const anaNet = records.analyst.w - records.analyst.l;
+    relationshipMem.dynamic.entertainer_lead_in_predictions = entNet - anaNet;
+    // Count agreements in this week's pending picks (both bots picked the same team)
+    if (pendingPicks) {
+      const agreements = pendingPicks.picks.filter(
+        p => p.entertainer_pick && p.analyst_pick && p.entertainer_pick === p.analyst_pick
+      ).length;
+      relationshipMem.dynamic.agreements_this_season += agreements;
+    }
+  }
 
   // Add records to forecast
   const forecastWithRecords: ForecastData = {
@@ -265,7 +368,7 @@ export async function generateNewsletter(
 
   // 8b. Extract previousHotTakes and spotlight_team from lastCallbacks newsletter for compose
   // These come from the RAW (pre-grading) input, since they're from the *previous* newsletter
-  const rawPreviousNewsletter = (input as unknown as Record<string, unknown>).previousNewsletter as { newsletter: { sections: Array<{ type: string; data: unknown }> } } | undefined;
+  const rawPreviousNewsletter = input.previousNewsletter ?? undefined;
   let previousHotTakes: WeeklyHotTake[] = [];
   let prevSpotlightTeam = '';
   if (rawPreviousNewsletter?.newsletter?.sections) {
@@ -311,6 +414,7 @@ export async function generateNewsletter(
       h2hData: input.enhancedContext?.h2hData,
       previousPredictions: formattedPreviousPredictions,
       previousHotTakes: previousHotTakes.length > 0 ? previousHotTakes : undefined,
+      relationshipMemory: relationshipMem,
     }, qualityReport);
 
     // 9. Render to HTML
