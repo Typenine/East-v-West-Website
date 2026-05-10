@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, Component, ReactNode } from 'react';
+import { useState, useEffect, useRef, Component, ReactNode } from 'react';
 import Link from 'next/link';
 import SectionHeader from '@/components/ui/SectionHeader';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
@@ -73,7 +73,10 @@ function AdminNewsletterPageInner() {
   const [adminChecked, setAdminChecked] = useState(false); // Track if we've checked admin status
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
-  const [progress, setProgress] = useState<{ percent: number; stage: string; elapsed: number } | null>(null);
+  const [progress, setProgress] = useState<{ percent: number; stage: string; elapsed: number; sectionsCompleted: string[] } | null>(null);
+  const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const elapsedIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const generatingStartRef = useRef<number>(0);
   const [result, setResult] = useState<GenerationResult | null>(null);
   const [currentSeason, setCurrentSeason] = useState('2025');
   const [currentWeek, setCurrentWeek] = useState<number | null>(null);
@@ -86,10 +89,27 @@ function AdminNewsletterPageInner() {
   const [showPreviewHtml, setShowPreviewHtml] = useState(false);
 
   const isOffseason = seasonType !== 'regular';
-  
+
   // Episode types that don't need a week number
   const weeklessEpisodes = ['pre_draft', 'post_draft', 'preseason', 'offseason'];
   const needsWeek = !weeklessEpisodes.includes(episodeType);
+
+  // Maps DB section names to human-readable labels
+  const SECTION_LABELS: Record<string, string> = {
+    Intro:                 '✍️ Intro',
+    Blurt:                 '💬 Bot takes (Blurt)',
+    Recaps:                '🏈 Matchup recaps',
+    WeeklyPowerRankings:   '📈 Power rankings',
+    WaiversAndFA:          '💸 Waivers & FA',
+    Trades:                '🔄 Trades',
+    Spotlight:             '🔦 Spotlight',
+    FinalWord:             '📝 Final word',
+    PreseasonRankings:     '📈 Preseason rankings',
+    SeasonPreview:         '🌟 Season preview',
+    DraftPreview:          '📋 Draft preview',
+    DraftGrades:           '📊 Draft grades',
+  };
+  const TOTAL_SECTIONS = 8;
 
   // Check admin status - single call, no retry loop
   useEffect(() => {
@@ -143,52 +163,60 @@ function AdminNewsletterPageInner() {
       .catch(() => {});
   }, []);
 
+  const stopPolling = () => {
+    if (pollIntervalRef.current) { clearInterval(pollIntervalRef.current); pollIntervalRef.current = null; }
+    if (elapsedIntervalRef.current) { clearInterval(elapsedIntervalRef.current); elapsedIntervalRef.current = null; }
+  };
+
   const handleGenerate = async () => {
     setGenerating(true);
     setResult(null);
-    setProgress({ percent: 0, stage: 'Starting...', elapsed: 0 });
+    generatingStartRef.current = Date.now();
+    setProgress({ percent: 2, stage: '📡 Fetching Sleeper data & building context...', elapsed: 0, sectionsCompleted: [] });
 
-    // ~50 LLM calls × (5s delay + 2s response) = ~8-10 min for a full regular episode
-    const startTime = Date.now();
-    const ESTIMATED_TOTAL_MS = 540000; // 9 minutes — honest estimate
+    stopPolling();
 
-    // Stages keyed by elapsed ms — progress is purely time-based, not real server state
-    const stages = [
-      { percent: 3,  stage: '📡 Fetching Sleeper data...',         time: 0 },
-      { percent: 8,  stage: '📊 Building context & memory...',      time: 10000 },
-      { percent: 12, stage: '✍️ Generating intro...',               time: 25000 },
-      { percent: 22, stage: '🏈 Writing matchup recaps (1–2)...',   time: 70000 },
-      { percent: 35, stage: '🏈 Writing matchup recaps (3–4)...',   time: 150000 },
-      { percent: 50, stage: '🏈 Writing matchup recaps (5–6)...',   time: 230000 },
-      { percent: 62, stage: '📈 Building power rankings...',        time: 310000 },
-      { percent: 72, stage: '💸 Processing trades & waivers...',    time: 370000 },
-      { percent: 82, stage: '🔮 Generating forecasts...',           time: 430000 },
-      { percent: 90, stage: '📝 Wrapping up final sections...',     time: 490000 },
-      { percent: 94, stage: '🎨 Rendering HTML...',                 time: 530000 },
-    ];
-
-    const progressInterval = setInterval(() => {
-      const elapsed = Date.now() - startTime;
-      const elapsedSec = Math.floor(elapsed / 1000);
-
-      let currentStage = stages[0];
-      for (const stage of stages) {
-        if (elapsed >= stage.time) currentStage = stage;
-      }
-
-      // Interpolate smoothly between stage checkpoints, cap at 94% until done
-      const estimatedPercent = Math.min(94, Math.floor((elapsed / ESTIMATED_TOTAL_MS) * 100));
-      const percent = Math.max(currentStage.percent, estimatedPercent);
-
-      setProgress({ percent, stage: currentStage.stage, elapsed: elapsedSec });
+    // Elapsed timer — updates every second
+    elapsedIntervalRef.current = setInterval(() => {
+      setProgress(prev => prev ? { ...prev, elapsed: Math.floor((Date.now() - generatingStartRef.current) / 1000) } : prev);
     }, 1000);
 
+    // Real progress polling — every 3s, reads sectionsCompleted from DB
+    const pollWeek = needsWeek ? (parseInt(weekInput, 10) || currentWeek || 1) : 0;
+    pollIntervalRef.current = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/newsletter?progress=true&season=${seasonInput}&week=${pollWeek}`, {
+          credentials: 'include',
+        });
+        if (!res.ok) return;
+        const data = await res.json() as {
+          status?: string;
+          currentSection?: string | null;
+          sectionsCompleted?: string[];
+        };
+        const completed = data.sectionsCompleted ?? [];
+        const current = data.currentSection ?? null;
+        const completedCount = completed.length;
+        // Reserve first 5% for data fetch, last 5% for rendering
+        const sectionPercent = Math.round(5 + (completedCount / TOTAL_SECTIONS) * 90);
+        const label = current
+          ? `⚙️ Generating: ${SECTION_LABELS[current] ?? current}...`
+          : completedCount > 0
+            ? `⏳ Waiting for next section (${completedCount}/${TOTAL_SECTIONS} done)`
+            : '📡 Fetching Sleeper data & building context...';
+        setProgress(prev => prev
+          ? { ...prev, percent: Math.min(94, sectionPercent), stage: label, sectionsCompleted: completed }
+          : prev
+        );
+      } catch { /* best-effort poll */ }
+    }, 3000);
+
     try {
-      const week = needsWeek ? (parseInt(weekInput, 10) || currentWeek) : 0;
+      const week = pollWeek;
       const res = await fetch('/api/newsletter', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-        credentials: 'include', // Include cookies for admin auth
+        credentials: 'include',
         body: JSON.stringify({
           week,
           season: seasonInput,
@@ -216,7 +244,8 @@ function AdminNewsletterPageInner() {
         data.success = false;
         if (!data.error) data.error = `HTTP ${res.status}`;
       }
-      setProgress({ percent: 100, stage: '✅ Complete!', elapsed: Math.floor((Date.now() - startTime) / 1000) });
+      const elapsed = Math.floor((Date.now() - generatingStartRef.current) / 1000);
+      setProgress(prev => ({ ...(prev ?? { sectionsCompleted: [] }), percent: 100, stage: '✅ Complete!', elapsed }));
       setResult(data);
     } catch (err) {
       setResult({
@@ -224,7 +253,7 @@ function AdminNewsletterPageInner() {
         error: err instanceof Error ? err.message : 'Unknown error',
       });
     } finally {
-      clearInterval(progressInterval);
+      stopPolling();
       setGenerating(false);
     }
   };
@@ -451,28 +480,45 @@ function AdminNewsletterPageInner() {
                     {progress?.percent ?? 0}%
                   </div>
                   <div className="text-sm text-[var(--muted)] mt-1">
-                    {progress?.elapsed ? `${Math.floor(progress.elapsed / 60)}:${(progress.elapsed % 60).toString().padStart(2, '0')} elapsed` : 'Starting...'}
+                    {progress?.elapsed
+                      ? `${Math.floor((progress.elapsed) / 60)}:${((progress.elapsed) % 60).toString().padStart(2, '0')} elapsed`
+                      : 'Starting...'}
                   </div>
                 </div>
-                
-                {/* Progress bar with percentage */}
+
+                {/* Progress bar */}
                 <div className="space-y-2">
                   <div className="flex justify-between text-sm">
                     <span className="text-white font-medium">{progress?.stage || 'Initializing...'}</span>
-                    <span className="text-[var(--primary)] font-mono">{progress?.percent ?? 0}%</span>
+                    <span className="text-[var(--primary)] font-mono">
+                      {(progress?.sectionsCompleted?.length ?? 0)}/{TOTAL_SECTIONS} sections
+                    </span>
                   </div>
                   <div className="w-full bg-zinc-800 rounded-full h-3 overflow-hidden">
-                    <div 
-                      className="h-full bg-gradient-to-r from-[var(--primary)] to-amber-500 rounded-full transition-all duration-500 ease-out"
+                    <div
+                      className="h-full bg-gradient-to-r from-[var(--primary)] to-amber-500 rounded-full transition-all duration-700 ease-out"
                       style={{ width: `${progress?.percent ?? 0}%` }}
                     />
                   </div>
                   <div className="flex justify-between text-xs text-[var(--muted)]">
                     <span>0%</span>
-                    <span>Estimated: ~8–10 minutes</span>
+                    <span>Estimated: ~30–60 min (quality mode)</span>
                     <span>100%</span>
                   </div>
                 </div>
+
+                {/* Completed sections checklist */}
+                {(progress?.sectionsCompleted?.length ?? 0) > 0 && (
+                  <div className="p-3 bg-zinc-800/50 rounded-lg space-y-1">
+                    <div className="text-xs text-[var(--muted)] mb-2">Completed sections:</div>
+                    {progress!.sectionsCompleted.map(s => (
+                      <div key={s} className="text-xs text-emerald-400 flex items-center gap-1">
+                        <span>✓</span>
+                        <span>{SECTION_LABELS[s] ?? s}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
 
                 {/* Spinner */}
                 <div className="text-center">
@@ -480,10 +526,9 @@ function AdminNewsletterPageInner() {
                 </div>
 
                 <div className="mt-4 p-3 bg-blue-900/20 border border-blue-800 rounded text-xs text-blue-300">
-                  💡 <strong>Why so long?</strong> A full newsletter makes ~50 individual AI calls —
-                  two bot perspectives per matchup, plus rankings, trades, waivers, and forecasts.
-                  Gemini&apos;s free tier allows 12 calls/minute, so generation takes 8–10 minutes.
-                  It won&apos;t timeout — just let it run.
+                  💡 <strong>Quality mode:</strong> Each AI call has a 90-second cooldown to stay within
+                  free-tier rate limits. A full newsletter with real prose takes 30–60 minutes.
+                  Progress updates every 3 seconds from the server. Don&apos;t close this tab.
                 </div>
               </div>
             ) : result ? (
@@ -526,13 +571,29 @@ function AdminNewsletterPageInner() {
                     )}
 
                     {result.html && (
-                      <Button 
-                        variant="secondary" 
-                        className="w-full"
-                        onClick={() => setShowPreviewHtml(!showPreviewHtml)}
-                      >
-                        {showPreviewHtml ? '🔼 Hide Preview' : '👁️ View Generated HTML'}
-                      </Button>
+                      <div className="flex gap-2">
+                        <Button
+                          variant="secondary"
+                          className="flex-1"
+                          onClick={() => setShowPreviewHtml(!showPreviewHtml)}
+                        >
+                          {showPreviewHtml ? '🔼 Hide Preview' : '👁️ View HTML'}
+                        </Button>
+                        <Button
+                          variant="secondary"
+                          onClick={() => {
+                            const blob = new Blob([result.html!], { type: 'text/html' });
+                            const url = URL.createObjectURL(blob);
+                            const a = document.createElement('a');
+                            a.href = url;
+                            a.download = `newsletter-s${seasonInput}-w${weekInput}.html`;
+                            a.click();
+                            URL.revokeObjectURL(url);
+                          }}
+                        >
+                          ⬇️ Download
+                        </Button>
+                      </div>
                     )}
 
                     {!previewMode && (

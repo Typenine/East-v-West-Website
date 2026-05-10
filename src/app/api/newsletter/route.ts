@@ -479,12 +479,27 @@ export async function GET(request: NextRequest) {
   const weekParam = searchParams.get('week');
   const seasonParam = searchParams.get('season');
   const listParam = searchParams.get('list');
+  const progressParam = searchParams.get('progress');
 
   try {
     // Get current NFL state
     const state = await getSleeperState();
     const season = seasonParam || state.season;
     const seasonNum = parseInt(season, 10);
+
+    // If progress=true, return staged generation status
+    if (progressParam === 'true') {
+      const week = weekParam ? parseInt(weekParam, 10) : state.week;
+      const { getStagedNewsletter } = await import('@/server/db/newsletter-queries');
+      const staged = await getStagedNewsletter(seasonNum, week).catch(() => null);
+      return NextResponse.json({
+        success: true,
+        status: staged?.status ?? 'idle',
+        currentSection: staged?.currentSection ?? null,
+        sectionsCompleted: staged?.sectionsCompleted ?? [],
+        startedAt: staged?.startedAt ?? null,
+      });
+    }
 
     // If list=true, just return available weeks
     if (listParam === 'true') {
@@ -743,6 +758,25 @@ export async function POST(request: NextRequest) {
       previousPredictions, // Pass previous predictions for narrative callbacks
       existingRelationshipMemory: relationshipMem,
       draftData: draftData ?? null,
+      onSectionComplete: (sectionName) => {
+        void updateStagedNewsletter(seasonNum, week, {
+          currentSection: sectionName,
+          sectionsCompleted: undefined, // append handled below
+        }).catch(() => {});
+        // Append to sectionsCompleted via fire-and-forget
+        void (async () => {
+          try {
+            const { getStagedNewsletter } = await import('@/server/db/newsletter-queries');
+            const current = await getStagedNewsletter(seasonNum, week).catch(() => null);
+            const existing = current?.sectionsCompleted ?? [];
+            if (!existing.includes(sectionName)) {
+              await updateStagedNewsletter(seasonNum, week, {
+                sectionsCompleted: [...existing, sectionName],
+              });
+            }
+          } catch { /* best-effort */ }
+        })();
+      },
     });
 
     const generatedAt = new Date().toISOString();

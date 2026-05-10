@@ -652,6 +652,29 @@ export async function updateStagedNewsletter(
     .where(and(eq(newsletterStaged.season, season), eq(newsletterStaged.week, week)));
 }
 
+export async function getStagedNewsletter(
+  season: number,
+  week: number
+): Promise<{
+  status: string;
+  currentSection: string | null;
+  sectionsCompleted: string[];
+  startedAt: Date | null;
+} | null> {
+  const db = getDb();
+  const rows = await db
+    .select({
+      status: newsletterStaged.status,
+      currentSection: newsletterStaged.currentSection,
+      sectionsCompleted: newsletterStaged.sectionsCompleted,
+      startedAt: newsletterStaged.startedAt,
+    })
+    .from(newsletterStaged)
+    .where(and(eq(newsletterStaged.season, season), eq(newsletterStaged.week, week)))
+    .limit(1);
+  return rows[0] ?? null;
+}
+
 // ============ Cross-Season Memory ============
 
 export async function loadPreviousSeasonMemory(

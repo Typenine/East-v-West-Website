@@ -8,9 +8,12 @@ import type { ProviderRequest } from '../cascade';
 
 // ============ Rate Limiting ============
 
-// Gemini 2.0 Flash free tier: 15 RPM, 1000 RPD — conservative limits
-const RPM_LIMIT = 12; // buffer under 15
-const RPD_SOFT_LIMIT = 18; // throw quota error when > 18 so cascade can fall through
+// Gemini 2.0 Flash free tier: 15 RPM, 1000 RPD
+// The cascade serial queue spaces calls 120s apart, so RPM is never an issue.
+// RPD_SOFT_LIMIT: bail out if a single run uses this many Gemini calls so Groq can cover the tail.
+// 30 newsletter calls per run × multiple test runs per day, keep well under 1000/day.
+const RPM_LIMIT = 12;
+const RPD_SOFT_LIMIT = 60;
 
 let _rpdCount = 0;
 let _callsThisMinute = 0;

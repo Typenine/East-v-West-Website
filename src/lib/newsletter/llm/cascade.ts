@@ -45,17 +45,31 @@ export function getCascadeMetricsSummary(): string {
     .join(' ');
 }
 
-// ============ Minimum inter-call gap ============
+// ============ Minimum inter-call gap (serial queue) ============
+// All LLM calls share a single promise chain so they execute one at a time,
+// regardless of how many concurrent Promise.all() calls exist in compose.ts.
+// Without this, parallel sections race through the gap check simultaneously.
 
 let _lastCallTime = 0;
-const MIN_GAP_MS = 2_000;
+const MIN_GAP_MS = 120_000; // 2 minutes — well under Gemini's 15 RPM and Groq's 30 RPM
+
+// The tail of the queue — each new caller chains off this
+let _callQueue: Promise<void> = Promise.resolve();
 
 async function enforceMinGap(): Promise<void> {
-  const since = Date.now() - _lastCallTime;
-  if (_lastCallTime > 0 && since < MIN_GAP_MS) {
-    await sleep(MIN_GAP_MS - since);
-  }
-  _lastCallTime = Date.now();
+  // Grab a slot at the END of the current queue before any await
+  const mySlot = _callQueue.then(async () => {
+    const since = Date.now() - _lastCallTime;
+    if (_lastCallTime > 0 && since < MIN_GAP_MS) {
+      const wait = MIN_GAP_MS - since;
+      console.log(`[LLM] Queue: waiting ${Math.round(wait / 1000)}s before next call...`);
+      await sleep(wait);
+    }
+    _lastCallTime = Date.now();
+  });
+  // Extend the queue so the next caller waits for this slot
+  _callQueue = mySlot.catch(() => {});
+  await mySlot;
 }
 
 function sleep(ms: number): Promise<void> {

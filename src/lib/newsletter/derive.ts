@@ -322,6 +322,7 @@ interface NormalizedEvent {
   assets_moved?: number;
   picks_moved?: number;
   team?: string;
+  player?: string;
   faab_spent?: number;
 }
 
@@ -353,21 +354,25 @@ function normalizeTransactions(
       const faab = Number(t.waiver_bid || 0);
       const rosterId = t.roster_ids?.[0] ?? t.roster_id;
       const teamName = rosterId ? rostersIndex.get(rosterId)?.owner_name || `Roster ${rosterId}` : 'Unknown';
+      const addedNames = t.adds ? Object.keys(t.adds).map(resolvePlayerName).filter(n => n !== 'Unknown Player') : [];
       events.push({
         event_id: String(t.transaction_id || Math.random()),
         type: 'waiver',
         week: t.leg || null,
         team: teamName,
         faab_spent: faab,
+        player: addedNames.length > 0 ? addedNames.join(', ') : undefined,
       });
     } else if (type === 'free_agent') {
       const rosterId = t.roster_ids?.[0] ?? t.roster_id;
       const teamName = rosterId ? rostersIndex.get(rosterId)?.owner_name || `Roster ${rosterId}` : 'Unknown';
+      const addedNames = t.adds ? Object.keys(t.adds).map(resolvePlayerName).filter(n => n !== 'Unknown Player') : [];
       events.push({
         event_id: String(t.transaction_id || Math.random()),
         type: 'fa_add',
         week: t.leg || null,
         team: teamName,
+        player: addedNames.length > 0 ? addedNames.join(', ') : undefined,
       });
     }
   }

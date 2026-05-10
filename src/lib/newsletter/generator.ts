@@ -112,6 +112,8 @@ export interface GenerateNewsletterInput {
   existingRelationshipMemory?: RelationshipMemory | null;
   // Optional: draft data for draft-episode newsletters
   draftData?: LeagueDraftData | null;
+  /** Called when each section completes — used for real-time progress tracking */
+  onSectionComplete?: (sectionName: string) => void;
 }
 
 export interface GenerateNewsletterResult {
@@ -445,6 +447,7 @@ export async function generateNewsletter(
       previousHotTakes: previousHotTakes.length > 0 ? previousHotTakes : undefined,
       relationshipMemory: relationshipMem,
       draftData: resolvedDraftData,
+      onSectionComplete: input.onSectionComplete,
     }, qualityReport);
 
     // 9. Render to HTML

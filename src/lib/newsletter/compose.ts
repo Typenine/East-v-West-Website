@@ -283,6 +283,16 @@ async function buildIntro(
   
   const seasonalContext = getSeasonalContext(week, championshipMatchup);
 
+  // Collect top individual performers across all matchups for the intro
+  const allTopPlayers = pairs.flatMap(p => [
+    ...(p.winner.topPlayers || []),
+    ...(p.loser.topPlayers || []),
+  ]).filter(pl => pl.name && pl.name !== 'Unknown Player');
+  allTopPlayers.sort((a, b) => b.points - a.points);
+  const weekTopPerformers = allTopPlayers.slice(0, 5)
+    .map(pl => `${pl.name} (${pl.points} pts)`)
+    .join(', ');
+
   const context = `${leagueKnowledge}
 
 ---
@@ -298,6 +308,7 @@ Week ${week} Summary:
 - Closest game: ${closest ? `${closest.winner.name} edged ${closest.loser.name} by ${closest.margin.toFixed(1)}` : 'N/A'}
 - ${trades} trades this week
 - ${waivers} waiver/FA moves
+${weekTopPerformers ? `- Week's top individual scorers: ${weekTopPerformers}` : ''}
 
 Your current mood: ${memEntertainer.summaryMood || 'Neutral'}`;
 
@@ -2362,6 +2373,8 @@ export interface ComposeNewsletterInput {
   relationshipMemory?: RelationshipMemory | null;
   /** Resolved draft data (roster IDs already resolved to team names) */
   draftData?: LeagueDraftData | null;
+  /** Called when a section completes — used for real-time progress tracking */
+  onSectionComplete?: (sectionName: string) => void;
 }
 
 export async function composeNewsletter(input: ComposeNewsletterInput, qualityReport?: { usedFallbacks: string[] }): Promise<Newsletter> {
@@ -2381,6 +2394,7 @@ export async function composeNewsletter(input: ComposeNewsletterInput, qualityRe
     previousHotTakes,
     relationshipMemory,
     draftData,
+    onSectionComplete,
   } = input;
 
   // Get episode configuration for section filtering
@@ -2437,13 +2451,16 @@ export async function composeNewsletter(input: ComposeNewsletterInput, qualityRe
     fallback: T
   ): Promise<T> {
     try {
-      return await builder();
+      const result = await builder();
+      onSectionComplete?.(name);
+      return result;
     } catch (error) {
       console.error(`[Compose] Section "${name}" failed, using fallback:`, error);
       if (qualityReport) {
         if (!Array.isArray(qualityReport.usedFallbacks)) qualityReport.usedFallbacks = [];
         qualityReport.usedFallbacks.push(name);
       }
+      onSectionComplete?.(name);
       return fallback;
     }
   }
