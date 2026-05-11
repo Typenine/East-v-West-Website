@@ -13,6 +13,7 @@ import NowOnClockAnimation from '@/components/draft-overlay/NowOnClockAnimation'
 import DraftTradeCenter from '@/components/draft-overlay/DraftTradeCenter';
 import DraftTradeAnimation, { type TradeAnimAsset } from '@/components/draft-overlay/DraftTradeAnimation';
 import DraftInfoBarTicker from '@/components/draft-overlay/DraftInfoBarTicker';
+import RoundRecapOverlay from '@/components/draft-overlay/RoundRecapOverlay';
 import {
   draftPicksPerRound,
   DRAFT_ANIM_CLOCK_PHASE_MAX_MS,
@@ -57,6 +58,7 @@ type DraftOverview = {
   allPicks?: DraftPick[];
   upcoming: DraftSlot[];
   allSlots?: DraftSlot[];
+  roundEndPause?: boolean | null;
   pendingTradeAnimation?: {
     teams: string[];
     assets: TradeAnimAsset[];
@@ -130,6 +132,7 @@ export default function DraftRoomPage() {
   const animVideoContainerRef = useRef<HTMLDivElement>(null);
   const animStartTimeRef = useRef<number>(0);
   const clockPhaseFinishedRef = useRef(false);
+  const pendingGridAnimRef = useRef<{ idx: number; team: string } | null>(null);
   const finishClockIntroAfterAnimRef = useRef<() => Promise<void>>(async () => {});
   const roomClockRef = useRef<HTMLDivElement>(null);
   const prevAnimPhaseForClockHudRoomRef = useRef<'pick' | 'clock' | 'video' | null>(null);
@@ -231,7 +234,7 @@ export default function DraftRoomPage() {
       // If a new pick was approved (curOverall advanced), silently refresh available players
       // Detect pending trade animation
       if (newDraft?.pendingTradeAnimation) {
-        const animKey = JSON.stringify(newDraft.pendingTradeAnimation.teams);
+        const animKey = JSON.stringify(newDraft.pendingTradeAnimation.teams) + (newDraft.pendingTradeAnimation.assets?.length ?? 0);
         if (tradeAnimSeenIdRef.current !== animKey) {
           tradeAnimSeenIdRef.current = animKey;
           preTradeClockTeamRef.current = newDraft.onClockTeam ?? null;
@@ -517,9 +520,14 @@ export default function DraftRoomPage() {
           ? `/api/draft/player-image?playerId=${encodeURIComponent(lastPick.playerId)}`
           : null,
       };
+      const w = window as Window & { __pickAudioAt?: number };
+      if (!w.__pickAudioAt || Date.now() - w.__pickAudioAt > 3000) {
+        try { w.__pickAudioAt = Date.now(); new Audio('/assets/teams/audio/pickIsIn.mp3').play().catch(() => {}); } catch { /* ignored */ }
+      }
       animStartTimeRef.current = Date.now();
       setPickAnimCollege(undefined);
       setAnimPhase('pick');
+      pendingGridAnimRef.current = { idx: lastPick.overall - 1, team: lastPick.team };
       const pid = lastPick.playerId;
       if (usingCustomPoolRef.current) {
         const fromList = avail.find(a => a.id === pid);
@@ -556,6 +564,24 @@ export default function DraftRoomPage() {
 
   useEffect(() => {
     if (animPhase === 'clock') clockPhaseFinishedRef.current = false;
+  }, [animPhase]);
+
+  // Grid cell wipe animation — executes after pick + clock phases complete
+  useEffect(() => {
+    if (animPhase !== null) return;
+    const pending = pendingGridAnimRef.current;
+    if (!pending) return;
+    pendingGridAnimRef.current = null;
+    const cell = document.querySelector(`[data-grid-idx="${pending.idx}"]`) as HTMLElement | null;
+    if (!cell) return;
+    const teamColor = getTeamColors(pending.team).primary || '#888';
+    const overlay = document.createElement('div');
+    overlay.style.cssText = `position:absolute;inset:0;background:${teamColor};transform:scaleX(0);transform-origin:left center;z-index:10;pointer-events:none;`;
+    cell.appendChild(overlay);
+    const tl = gsap.timeline({ delay: 0.8, onComplete: () => overlay.remove() });
+    tl.to(overlay, { scaleX: 1, duration: 0.55, ease: 'power2.inOut' });
+    tl.to({}, { duration: 0.45 });
+    tl.to(overlay, { scaleX: 0, transformOrigin: 'right center', duration: 0.45, ease: 'power2.in' });
   }, [animPhase]);
 
   // Phase safety timeouts
@@ -643,6 +669,11 @@ export default function DraftRoomPage() {
   const isMyPickPending = pickStatus === 'pending' || (pendingPick?.team === myTeam);
   const eventColor1 = draft?.eventColor1 || '#a4c810';
   const eventLogoUrl = draft?.eventLogoUrl || null;
+  const eventGlow = `0 0 10px ${eventColor1}66`;
+  const showRoundRecap = draft?.roundEndPause === true && animPhase === null && !tradeAnimData;
+  const completedRound = draft?.allPicks && draft.allPicks.length > 0 ? draft.allPicks[draft.allPicks.length - 1].round : 0;
+  const nextRoundNumber = completedRound + 1;
+  const roundRecapPicks = draft?.allPicks?.filter(p => p.round === completedRound) || [];
   const fullClockSecRoom = draft?.clockSeconds ?? 600;
   const displayRemainingSecRoom =
     animPhase === 'clock' && draft?.status === 'LIVE' ? fullClockSecRoom : localRemaining;
@@ -748,6 +779,12 @@ export default function DraftRoomPage() {
 
       {/* ── DRAFT BOARD (full height, no internal scroll — whole page scrolls) ── */}
       <div className="relative border-b-2 border-zinc-700" style={{ background: '#0a0a0e' }}>
+        {/* Event logo watermark — centered on board at low opacity */}
+        {eventLogoUrl && (
+          <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-[1]">
+            <img src={eventLogoUrl} alt="" className="w-48 h-48 object-contain" style={{ opacity: 0.10 }} />
+          </div>
+        )}
         <div className="grid shrink-0 border-b border-zinc-800" style={{ gridTemplateColumns: `40px repeat(${rounds}, 1fr)`, background: '#111116' }}>
           <div className="text-center text-[10px] font-bold text-zinc-500 py-1.5" style={{ borderBottom: `2px solid ${eventColor1}` }}>#</div>
           {Array.from({ length: rounds }, (_, i) => (
@@ -771,7 +808,8 @@ export default function DraftRoomPage() {
                 return (
                   <div
                     key={roundIdx}
-                    className={`flex items-center gap-1 px-1.5 overflow-hidden ${isCurrent ? 'bg-yellow-400/15 ring-1 ring-inset ring-yellow-400' : picked ? 'bg-zinc-800/60' : isMySlot ? 'bg-blue-900/25' : ''}`}
+                    data-grid-idx={overall - 1}
+                    className={`relative flex items-center gap-1 px-1.5 overflow-hidden ${isCurrent ? 'bg-yellow-400/15 ring-1 ring-inset ring-yellow-400' : picked ? 'bg-zinc-800/60' : isMySlot ? 'bg-blue-900/25' : ''}`}
                     style={{ borderLeft: picked && posColor ? `3px solid ${posColor}` : '1px solid rgba(63,63,70,0.4)' }}
                   >
                     {slotLogo && <div className="shrink-0 w-5 h-5"><img src={slotLogo} alt="" className="w-full h-full object-contain" /></div>}
@@ -824,6 +862,26 @@ export default function DraftRoomPage() {
         })()}
       </div>
 
+      {/* ── Round Recap (inline card — teams keep full page access) ── */}
+      {showRoundRecap && draft && (
+        <div className="px-4 pt-4">
+          <RoundRecapOverlay
+            key={`room-recap-${completedRound}`}
+            roundNumber={completedRound}
+            nextRound={nextRoundNumber}
+            picks={roundRecapPicks}
+            draftId={draft.id}
+            isAdmin={isAdmin}
+            eventLogoUrl={eventLogoUrl}
+            eventColor1={eventColor1}
+            variant="inline"
+            onStartNextRound={() => {
+              fetch('/api/draft', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'resume' }) }).catch(() => {});
+            }}
+          />
+        </div>
+      )}
+
       {/* ── TEAM SECTION (below board, normal flow — whole page scrolls) ── */}
       <div>
         {/* ── Clock Box + Info Bar (always shown when draft is live) ── */}
@@ -845,7 +903,7 @@ export default function DraftRoomPage() {
                   <div
                     ref={roomClockRef}
                     className={`text-3xl font-bold font-mono ${displayRemainingSecRoom !== null && displayRemainingSecRoom <= 10 ? 'text-red-500' : ''}`}
-                    style={{ color: roomClockDigitColor }}
+                    style={{ color: roomClockDigitColor, textShadow: displayRemainingSecRoom !== null && displayRemainingSecRoom <= 10 ? undefined : eventGlow }}
                   >
                     {displayRemainingSecRoom !== null ? formatTime(displayRemainingSecRoom) : '--:--'}
                   </div>

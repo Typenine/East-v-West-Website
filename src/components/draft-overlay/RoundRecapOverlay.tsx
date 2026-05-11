@@ -45,6 +45,8 @@ interface RoundRecapOverlayProps {
   eventLogoUrl?: string | null;
   eventColor1?: string;
   onStartNextRound: () => void;
+  /** 'fullscreen' (default) = fixed inset-0 overlay; 'inline' = normal-flow card that doesn't obscure the page */
+  variant?: 'fullscreen' | 'inline';
 }
 
 const positionColors: Record<string, string> = {
@@ -65,7 +67,9 @@ export default function RoundRecapOverlay({
   eventLogoUrl,
   eventColor1 = '#a4c810',
   onStartNextRound,
+  variant = 'fullscreen',
 }: RoundRecapOverlayProps) {
+  const isInline = variant === 'inline';
   const containerRef = useRef<HTMLDivElement>(null);
   const [trades, setTrades] = useState<Trade[]>([]);
 
@@ -88,13 +92,17 @@ export default function RoundRecapOverlay({
   return (
     <div
       ref={containerRef}
-      className="fixed inset-0 z-[9999] flex flex-col"
-      style={{ background: 'linear-gradient(160deg, #08090c 0%, #0e1117 60%, #0a0c10 100%)', willChange: 'opacity' }}
+      className={isInline ? 'rounded-xl overflow-hidden' : 'fixed inset-0 z-[9999] flex flex-col'}
+      style={{
+        background: 'linear-gradient(160deg, #08090c 0%, #0e1117 60%, #0a0c10 100%)',
+        willChange: 'opacity',
+        ...(isInline ? { border: `1px solid ${eventColor1}44` } : {}),
+      }}
     >
       {/* Top bar */}
       <div
-        className="flex items-center justify-between px-10 py-5 flex-shrink-0"
-        style={{ borderBottom: `3px solid ${eventColor1}` }}
+        className={`flex items-center justify-between flex-shrink-0 ${isInline ? 'px-5 py-3' : 'px-10 py-5'}`}
+        style={{ borderBottom: `${isInline ? 2 : 3}px solid ${eventColor1}` }}
       >
         <div className="flex items-center gap-5">
           {eventLogoUrl && (
@@ -103,7 +111,7 @@ export default function RoundRecapOverlay({
           <div>
             <div
               className="font-black uppercase tracking-widest"
-              style={{ fontSize: '2.2rem', color: eventColor1, lineHeight: 1, textShadow: `0 0 20px ${eventColor1}66` }}
+              style={{ fontSize: isInline ? '1.4rem' : '2.2rem', color: eventColor1, lineHeight: 1, textShadow: `0 0 20px ${eventColor1}66` }}
             >
               Round {roundNumber} Complete
             </div>
@@ -134,13 +142,13 @@ export default function RoundRecapOverlay({
       </div>
 
       {/* Main content */}
-      <div className="flex-1 flex gap-6 p-6 min-h-0 overflow-hidden">
+      <div className={isInline ? 'flex flex-wrap gap-4 p-4' : 'flex-1 flex gap-6 p-6 min-h-0 overflow-hidden'}>
         {/* Picks grid */}
         <div className={`flex flex-col min-w-0 ${hasTrades ? 'flex-[2]' : 'flex-1'}`}>
           <div className="text-xs font-black uppercase tracking-widest text-zinc-500 mb-3">
             Round {roundNumber} Picks
           </div>
-          <div className="grid gap-2 flex-1 content-start overflow-y-auto" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))' }}>
+          <div className={`grid gap-2 content-start ${isInline ? '' : 'flex-1 overflow-y-auto'}`} style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))' }}>
             {picks.map((pick, i) => {
               const colors = getTeamColors(pick.team);
               const logo = getTeamLogoPath(pick.team);
@@ -188,11 +196,11 @@ export default function RoundRecapOverlay({
 
         {/* Trades section */}
         {hasTrades && (
-          <div className="flex flex-col flex-1 min-w-0">
+          <div className={`flex flex-col min-w-0 ${isInline ? 'flex-1' : 'flex flex-col flex-1'}`}>
             <div className="text-xs font-black uppercase tracking-widest text-zinc-500 mb-3">
               Trades This Draft
             </div>
-            <div className="flex flex-col gap-3 overflow-y-auto">
+            <div className="flex flex-col gap-3">
               {trades.map((trade) => (
                 <div
                   key={trade.id}
