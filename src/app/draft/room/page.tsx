@@ -575,12 +575,17 @@ export default function DraftRoomPage() {
     const cell = document.querySelector(`[data-grid-idx="${pending.idx}"]`) as HTMLElement | null;
     if (!cell) return;
     const teamColor = getTeamColors(pending.team).primary || '#888';
+    // Snapshot children BEFORE appending overlay, then hide them so the wipe reveals the name
+    const children = Array.from(cell.children) as HTMLElement[];
+    children.forEach(c => gsap.set(c, { opacity: 0 }));
     const overlay = document.createElement('div');
     overlay.style.cssText = `position:absolute;inset:0;background:${teamColor};transform:scaleX(0);transform-origin:left center;z-index:10;pointer-events:none;`;
     cell.appendChild(overlay);
     const tl = gsap.timeline({ delay: 0.8, onComplete: () => overlay.remove() });
     tl.to(overlay, { scaleX: 1, duration: 0.55, ease: 'power2.inOut' });
-    tl.to({}, { duration: 0.45 });
+    // At full coverage, reveal content so the sweep-out actually exposes the name
+    tl.call(() => { children.forEach(c => gsap.set(c, { opacity: 1 })); });
+    tl.to({}, { duration: 0.3 });
     tl.to(overlay, { scaleX: 0, transformOrigin: 'right center', duration: 0.45, ease: 'power2.in' });
   }, [animPhase]);
 
@@ -871,7 +876,7 @@ export default function DraftRoomPage() {
             nextRound={nextRoundNumber}
             picks={roundRecapPicks}
             draftId={draft.id}
-            isAdmin={isAdmin}
+            isAdmin={false}
             eventLogoUrl={eventLogoUrl}
             eventColor1={eventColor1}
             variant="inline"
@@ -1396,6 +1401,7 @@ export default function DraftRoomPage() {
           round={animDataRef.current.round}
           pickInRound={animDataRef.current.pickInRound}
           eventLogoUrl={draft?.eventLogoUrl}
+          eventColor1={eventColor1}
           onComplete={() => setAnimPhase('clock')}
         />
       )}

@@ -24,6 +24,7 @@ interface DraftPickAnimationProps {
   pickInRound: number;
   onComplete?: () => void;
   eventLogoUrl?: string | null;
+  eventColor1?: string | null;
 }
 
 function toOrdinal(n: number): string {
@@ -73,6 +74,7 @@ export default function DraftPickAnimation({
   pickInRound,
   onComplete,
   eventLogoUrl,
+  eventColor1,
 }: DraftPickAnimationProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const timelineRef = useRef<gsap.core.Timeline | null>(null);
@@ -101,13 +103,15 @@ export default function DraftPickAnimation({
     const pickInfo        = container.querySelector<HTMLElement>('.gsap-pick-info');
     const pickStats       = pickInfo ? pickInfo.querySelectorAll<HTMLElement>('.gsap-pick-stat') : [];
     const eventLogoFeat   = container.querySelector<HTMLElement>('.gsap-event-logo-feat');
+    const eventLogoInner  = container.querySelector<HTMLElement>('.gsap-event-logo-inner');
     const eventLogoCorner = container.querySelector<HTMLElement>('.gsap-event-logo-corner');
 
     if (!teamIntro || !wipe || !draftCard || !textReveal || !playerCard) {
       console.error('[DraftPickAnimation] Missing critical DOM elements — aborting');
       return;
     }
-    if (eventLogoFeat)   gsap.set(eventLogoFeat,   { opacity: 0, scale: 0.7, force3D: true });
+    if (eventLogoFeat)   gsap.set(eventLogoFeat,   { opacity: 0, force3D: true });
+    if (eventLogoInner)  gsap.set(eventLogoInner,  { scale: 1.3, force3D: true });
     if (eventLogoCorner) gsap.set(eventLogoCorner, { opacity: 0, force3D: true });
 
     // ── INITIAL STATES ───────────────────────────────────────────────────────
@@ -138,11 +142,16 @@ export default function DraftPickAnimation({
     });
     timelineRef.current = tl;
 
-    // PHASE 0: Featured event logo moment — opens the sequence before team intro
+    // PHASE 0: Featured event logo moment — cinematic reveal over Pittsburgh industrial background
     if (eventLogoFeat) {
-      tl.to(eventLogoFeat, { opacity: 1, scale: 1, duration: 0.55, ease: 'back.out(1.4)', force3D: true });
-      tl.to({}, { duration: 1.3 }); // hold
-      tl.to(eventLogoFeat, { opacity: 0, duration: 0.35, ease: 'power2.in', force3D: true });
+      // Background fades in first, then logo scales down from oversized
+      tl.to(eventLogoFeat, { opacity: 1, duration: 0.5, ease: 'power2.out', force3D: true });
+      if (eventLogoInner) tl.to(eventLogoInner, { scale: 1, duration: 0.65, ease: 'back.out(1.3)', force3D: true }, '-=0.3');
+      // Cinematic hold: slow pull-focus zoom + subtle drift rotation
+      if (eventLogoInner) tl.to(eventLogoInner, { scale: 1.1, rotation: 1.5, duration: 2.1, ease: 'power1.inOut', force3D: true });
+      // Punch out: scale up fast while container fades
+      if (eventLogoInner) tl.to(eventLogoInner, { scale: 1.38, duration: 0.22, ease: 'power3.in', force3D: true });
+      tl.to(eventLogoFeat, { opacity: 0, duration: 0.2, ease: 'power2.in', force3D: true }, '-=0.15');
     }
 
     // PHASE 1: Team intro (0–2.5s)
@@ -186,8 +195,8 @@ export default function DraftPickAnimation({
     // Corner watermark fades in on the broadcast hold frame
     if (eventLogoCorner) tl.to(eventLogoCorner, { opacity: 0.55, duration: 0.5, ease: 'power2.out', force3D: true }, '-=0.2');
 
-    // PHASE 7: Broadcast hold (9.0–12.0s)
-    tl.to({}, { duration: 3.0 });
+    // PHASE 7: Broadcast hold (9.0–15.0s)
+    tl.to({}, { duration: 6.0 });
 
     // PHASE 8: Exit
     tl.to(container, { opacity: 0, duration: 0.8, ease: 'power2.inOut', force3D: true });
@@ -204,6 +213,7 @@ export default function DraftPickAnimation({
 
   const c1 = fantasyTeam.colors[0];
   const c2 = fantasyTeam.colors[1] || fantasyTeam.colors[0];
+  const ec = eventColor1 || '#a4c810';
   const teamLogo = getTeamLogoPath(fantasyTeam.name);
 
   return (
@@ -313,17 +323,35 @@ export default function DraftPickAnimation({
         </div>
       </div>
 
-      {/* ── PHASE 4b: Featured event logo moment ── */}
+      {/* ── PHASE 4b: Featured event logo moment — Pittsburgh industrial background ── */}
       {eventLogoUrl && (
         <div
           className="gsap-event-logo-feat absolute inset-0 flex items-center justify-center pointer-events-none"
-          style={{ willChange: 'transform, opacity' }}
+          style={{ willChange: 'opacity' }}
         >
+          {/* Industrial dark base + event color radial glow */}
+          <div className="absolute inset-0" style={{
+            background: `radial-gradient(ellipse 65% 55% at 50% 50%, ${ec}2e 0%, #020406 72%)`,
+          }} />
+          {/* Bridge truss X-lattice */}
+          <div className="absolute inset-0" style={{
+            backgroundImage: `repeating-linear-gradient(45deg, transparent 0, transparent 30px, ${ec}20 30px, ${ec}20 32px), repeating-linear-gradient(-45deg, transparent 0, transparent 30px, ${ec}20 30px, ${ec}20 32px)`,
+          }} />
+          {/* Horizontal girder bands */}
+          <div className="absolute inset-0" style={{
+            backgroundImage: `repeating-linear-gradient(0deg, transparent 0, transparent 63px, ${ec}18 63px, ${ec}18 65px)`,
+          }} />
+          {/* Industrial spotlight beam rising from below center */}
+          <div className="absolute inset-0" style={{
+            background: `linear-gradient(to top, ${ec}22 0%, ${ec}0d 38%, transparent 58%)`,
+            clipPath: 'polygon(32% 100%, 68% 100%, 78% 0%, 22% 0%)',
+          }} />
+          {/* Logo — cinematic element animated independently */}
           <img
             src={eventLogoUrl}
             alt=""
-            className="object-contain"
-            style={{ width: 'clamp(140px, 22vw, 200px)', height: 'clamp(140px, 22vw, 200px)' }}
+            className="gsap-event-logo-inner relative z-10 object-contain"
+            style={{ width: 'clamp(150px, 24vw, 220px)', height: 'clamp(150px, 24vw, 220px)', willChange: 'transform' }}
           />
         </div>
       )}
@@ -443,7 +471,7 @@ export default function DraftPickAnimation({
                 style={{ willChange: 'transform, opacity' }}
               >
                 <h1
-                  className="font-black text-white uppercase break-words [overflow-wrap:anywhere]"
+                  className="font-black text-white uppercase [overflow-wrap:anywhere]"
                   style={{
                     fontSize: pickAnimPlayerNameFontSizeCard(player.name),
                     lineHeight: 1.12,
