@@ -3,7 +3,7 @@
  */
 
 /** Safety if GSAP onComplete never runs — must exceed full DraftPickAnimation sequence. */
-export const DRAFT_ANIM_PICK_PHASE_MAX_MS = 27_000;
+export const DRAFT_ANIM_PICK_PHASE_MAX_MS = 32_000;
 
 /** Safety if GSAP onComplete never runs — must exceed full NowOnClockAnimation sequence (~10s). */
 export const DRAFT_ANIM_CLOCK_PHASE_MAX_MS = 20_000;

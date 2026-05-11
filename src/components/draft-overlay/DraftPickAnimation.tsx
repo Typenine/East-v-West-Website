@@ -111,7 +111,7 @@ export default function DraftPickAnimation({
       return;
     }
     if (eventLogoFeat)   gsap.set(eventLogoFeat,   { opacity: 0, force3D: true });
-    if (eventLogoInner)  gsap.set(eventLogoInner,  { scale: 1.3, force3D: true });
+    if (eventLogoInner)  gsap.set(eventLogoInner,  { scale: 1.75, y: 0, rotation: 0, force3D: true });
     if (eventLogoCorner) gsap.set(eventLogoCorner, { opacity: 0, force3D: true });
 
     // ── INITIAL STATES ───────────────────────────────────────────────────────
@@ -142,15 +142,17 @@ export default function DraftPickAnimation({
     });
     timelineRef.current = tl;
 
-    // PHASE 0: Featured event logo moment — cinematic reveal over Pittsburgh industrial background
+    // PHASE 0: Featured event logo moment — slam-in entrance, cinematic hold, punch-out
     if (eventLogoFeat) {
-      // Background fades in first, then logo scales down from oversized
-      tl.to(eventLogoFeat, { opacity: 1, duration: 0.5, ease: 'power2.out', force3D: true });
-      if (eventLogoInner) tl.to(eventLogoInner, { scale: 1, duration: 0.65, ease: 'back.out(1.3)', force3D: true }, '-=0.3');
-      // Cinematic hold: slow pull-focus zoom + subtle drift rotation
-      if (eventLogoInner) tl.to(eventLogoInner, { scale: 1.1, rotation: 1.5, duration: 2.1, ease: 'power1.inOut', force3D: true });
-      // Punch out: scale up fast while container fades
-      if (eventLogoInner) tl.to(eventLogoInner, { scale: 1.38, duration: 0.22, ease: 'power3.in', force3D: true });
+      // Background fades in first
+      tl.to(eventLogoFeat, { opacity: 1, duration: 0.4, ease: 'power2.out', force3D: true });
+      // Slam-in: drop hard past rest (overshoot to 0.9), then spring back to 1.0
+      if (eventLogoInner) tl.to(eventLogoInner, { scale: 0.9, duration: 0.28, ease: 'power4.out', force3D: true }, '-=0.15');
+      if (eventLogoInner) tl.to(eventLogoInner, { scale: 1, duration: 0.22, ease: 'power2.out', force3D: true });
+      // Cinematic hold: slow pull-focus zoom + rotation drift + upward float
+      if (eventLogoInner) tl.to(eventLogoInner, { scale: 1.14, rotation: 3, y: -12, duration: 5.1, ease: 'power1.inOut', force3D: true });
+      // Punch out: burst to large scale while background fades
+      if (eventLogoInner) tl.to(eventLogoInner, { scale: 1.45, rotation: 3.5, duration: 0.22, ease: 'power3.in', force3D: true });
       tl.to(eventLogoFeat, { opacity: 0, duration: 0.2, ease: 'power2.in', force3D: true }, '-=0.15');
     }
 
