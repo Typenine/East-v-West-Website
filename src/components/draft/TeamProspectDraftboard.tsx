@@ -527,7 +527,7 @@ export default function TeamProspectDraftboard() {
       <div style={{ maxWidth: '900px', margin: '0 auto', padding: '14px' }}>
         {scoutingStatus === 'error' && <div style={{ padding: '10px 12px', marginBottom: '14px', background: `${C.warning}1a`, border: `1px solid ${C.warning}55`, borderRadius: '4px', fontSize: '12px', color: C.warning, lineHeight: '1.5', display: 'flex', alignItems: 'flex-start', gap: '8px' }}><AlertCircle size={16} style={{ flexShrink: 0, marginTop: '1px' }} /><div><strong>Scouting reports failed to load.</strong> {scoutingError}. Open settings to change the URL.</div></div>}
         <div style={{ display: 'flex', gap: '6px', marginBottom: '14px', borderBottom: `1px solid ${C.border}`, paddingBottom: '10px', flexWrap: 'wrap' }}>
-          {((['board', ...(canEdit ? ['notes'] : []), 'mock']) as Array<'board' | 'notes' | 'mock'>).map(v => {
+          {((['board', ...(canEdit ? ['notes', 'mock'] : [])]) as Array<'board' | 'notes' | 'mock'>).map(v => {
             const labels: Record<string, string> = { board: 'BOARD', notes: `MY NOTES${notedPlayers.length > 0 ? ` (${notedPlayers.length})` : ''}`, mock: 'MOCK DRAFT' };
             return (
               <button key={v} onClick={() => {
