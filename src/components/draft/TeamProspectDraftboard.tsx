@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { ChevronDown, ChevronUp, Eye, EyeOff, X, Check, RotateCcw, Save, Settings, AlertCircle, Search, Tag, Download, Printer } from 'lucide-react';
+import { ChevronDown, ChevronUp, Eye, EyeOff, X, Check, RotateCcw, Save, AlertCircle, Search, Tag, Download, Printer } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
 const C = {
@@ -350,12 +350,12 @@ export default function TeamProspectDraftboard() {
   const [loading, setLoading] = useState(true);
   const [saveStatus, setSaveStatus] = useState('');
   const [saveError, setSaveError] = useState('');
-  const [settingsOpen, setSettingsOpen] = useState(false);
   const [scoutingUrl, setScoutingUrl] = useState('/api/team-prospect-draftboard/scouting');
   const [scoutingCache, setScoutingCache] = useState<Record<string, unknown> | null>(null);
   const [scoutingStatus, setScoutingStatus] = useState('no-url');
   const [scoutingError, setScoutingError] = useState('');
   const [teamName, setTeamName] = useState<string>('');
+  const [teamDraftPicks, setTeamDraftPicks] = useState<Array<{ label: string }>>([]);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [customTiers, setCustomTiers] = useState<string[]>([]);
   const [tierBreaks, setTierBreaks] = useState<Record<string, number>>({});
@@ -445,6 +445,24 @@ export default function TeamProspectDraftboard() {
     loadScouting();
     return () => { cancelled = true; controller.abort(); };
   }, [scoutingUrl]);
+
+  useEffect(() => {
+    if (!teamName) return;
+    fetch('/api/draft/next-order')
+      .then(r => r.json())
+      .then((data: { roundsData?: Array<{ round: number; picks: Array<{ slot: number; ownerTeam: string }> }> }) => {
+        const result: Array<{ label: string }> = [];
+        for (const rd of (data.roundsData || [])) {
+          for (const pk of rd.picks) {
+            if (pk.ownerTeam.toLowerCase() === teamName.toLowerCase()) {
+              result.push({ label: `${rd.round}.${String(pk.slot).padStart(2, '0')}` });
+            }
+          }
+        }
+        setTeamDraftPicks(result);
+      })
+      .catch(() => {});
+  }, [teamName]);
 
   useEffect(() => {
     if (loading || !canEdit) return;
@@ -562,13 +580,6 @@ export default function TeamProspectDraftboard() {
 
   const rankedPlayers = players.map((p, idx) => ({ ...p, _absIdx: idx }));
   const title = teamName ? `${teamName} Prospect Draft Board` : 'Team Prospect Draft Board';
-  const parsedPicks = myPicks.split(',').map(s => s.trim()).filter(Boolean).map(s => {
-    const n = parseInt(s, 10);
-    if (!n || n < 1) return null;
-    const round = Math.ceil(n / 12);
-    const slot = ((n - 1) % 12) + 1;
-    return { overall: n, label: `${round}.${String(slot).padStart(2, '0')}` };
-  }).filter((x): x is { overall: number; label: string } => x !== null);
   const notedPlayers = rankedPlayers.filter(p => p.userNote && String(p.userNote).trim());
   const filteredPlayers = rankedPlayers.filter(p => {
     if (posFilter !== 'ALL' && p.pos !== posFilter) return false;
@@ -583,7 +594,6 @@ export default function TeamProspectDraftboard() {
 
   return (
     <div style={{ minHeight: '100vh', width: '100%', background: `linear-gradient(180deg, ${C.bg} 0%, ${C.bgGrad} 100%)`, color: C.text, fontFamily: '"Georgia", "Times New Roman", serif', paddingBottom: '60px', overflowY: 'auto' }}>
-      <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} scoutingUrl={scoutingUrl} onSaveUrl={(url) => { setScoutingUrl(url); setScoutingCache(null); setScoutingStatus(url ? 'loading' : 'no-url'); setScoutingError(''); }} myPicks={myPicks} onSavePicks={(picks) => setMyPicks(picks)} />
       <div style={{ position: 'sticky', top: 0, zIndex: 10, background: `${C.bg}f0`, backdropFilter: 'blur(8px)', borderBottom: `1px solid ${C.border}`, padding: '12px 14px' }}>
         <div style={{ maxWidth: '900px', margin: '0 auto' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
@@ -591,23 +601,22 @@ export default function TeamProspectDraftboard() {
             <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
               {saveStatus && <span style={{ fontSize: '11px', color: C.accent, display: 'flex', alignItems: 'center', gap: '4px' }}><Save size={12} /> {saveStatus}</span>}
               {saveError && <span style={{ fontSize: '11px', color: C.unlikely }}>{saveError}</span>}
-              {canEdit && <button onClick={() => setSettingsOpen(true)} title="Settings" style={{ background: 'transparent', border: `1px solid ${C.border}`, color: C.textMuted, padding: '6px 10px', borderRadius: '3px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px' }}><Settings size={12} /></button>}
               {canEdit && <button onClick={reset} title="Reset to NFL draft order" style={{ background: 'transparent', border: `1px solid ${C.border}`, color: C.textMuted, padding: '6px 10px', borderRadius: '3px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px' }}><RotateCcw size={12} /></button>}
               <button onClick={exportCSV} title="Download CSV" style={{ background: 'transparent', border: `1px solid ${C.border}`, color: C.textMuted, padding: '6px 10px', borderRadius: '3px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', letterSpacing: '1px' }}><Download size={12} /> CSV</button>
               <button onClick={exportExcel} title="Download Excel (.xlsx)" style={{ background: 'transparent', border: `1px solid ${C.border}`, color: C.textMuted, padding: '6px 10px', borderRadius: '3px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', letterSpacing: '1px' }}><Download size={12} /> XLSX</button>
               <button onClick={() => window.print()} title="Print / Save as PDF" style={{ background: 'transparent', border: `1px solid ${C.border}`, color: C.textMuted, padding: '6px 10px', borderRadius: '3px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px' }}><Printer size={12} /></button>
             </div>
           </div>
-          {parsedPicks.length > 0 && (
+          {teamDraftPicks.length > 0 && (
             <div style={{ marginTop: '8px', display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center' }}>
               <span style={{ fontSize: '9.5px', color: C.textDim, letterSpacing: '2px', fontWeight: 700 }}>MY PICKS</span>
-              {parsedPicks.map(pk => <span key={pk.overall} style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '3px', background: `${C.primary}33`, border: `1px solid ${C.accent}44`, color: C.accent, fontFamily: 'monospace' }}>{pk.label}</span>)}
+              {teamDraftPicks.map(pk => <span key={pk.label} style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '3px', background: `${C.primary}33`, border: `1px solid ${C.accent}44`, color: C.accent, fontFamily: 'monospace' }}>{pk.label}</span>)}
             </div>
           )}
         </div>
       </div>
       <div style={{ maxWidth: '900px', margin: '0 auto', padding: '14px' }}>
-        {scoutingStatus === 'error' && <div style={{ padding: '10px 12px', marginBottom: '14px', background: `${C.warning}1a`, border: `1px solid ${C.warning}55`, borderRadius: '4px', fontSize: '12px', color: C.warning, lineHeight: '1.5', display: 'flex', alignItems: 'flex-start', gap: '8px' }}><AlertCircle size={16} style={{ flexShrink: 0, marginTop: '1px' }} /><div><strong>Scouting reports failed to load.</strong> {scoutingError}. Open settings to change the URL.</div></div>}
+        {scoutingStatus === 'error' && <div style={{ padding: '10px 12px', marginBottom: '14px', background: `${C.warning}1a`, border: `1px solid ${C.warning}55`, borderRadius: '4px', fontSize: '12px', color: C.warning, lineHeight: '1.5', display: 'flex', alignItems: 'flex-start', gap: '8px' }}><AlertCircle size={16} style={{ flexShrink: 0, marginTop: '1px' }} /><div><strong>Scouting reports failed to load.</strong> {scoutingError}.</div></div>}
         <div style={{ display: 'flex', gap: '6px', marginBottom: '14px', borderBottom: `1px solid ${C.border}`, paddingBottom: '10px', flexWrap: 'wrap' }}>
           {((['board', ...(canEdit ? ['notes', 'mock'] : [])]) as Array<'board' | 'notes' | 'mock'>).map(v => {
             const labels: Record<string, string> = { board: 'BOARD', notes: `MY NOTES${notedPlayers.length > 0 ? ` (${notedPlayers.length})` : ''}`, mock: 'MOCK DRAFT' };
