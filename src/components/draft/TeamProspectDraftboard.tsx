@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { ChevronDown, ChevronUp, Eye, EyeOff, X, Check, RotateCcw, Save, Settings, AlertCircle } from 'lucide-react';
+import { ChevronDown, ChevronUp, Eye, EyeOff, X, Check, RotateCcw, Save, Settings, AlertCircle, Search } from 'lucide-react';
 
 const C = {
   bg: '#0B1020',
@@ -13,8 +13,8 @@ const C = {
   text: '#E9EDF5',
   textMuted: '#9AA5B1',
   textDim: '#7f8995',
-  unlikely: '#c5acd6',
-  unlikelyBg: 'rgba(197, 172, 214, 0.10)',
+  unlikely: '#d4a839',
+  unlikelyBg: 'rgba(212, 168, 57, 0.10)',
   noFit: '#e89a98',
   noFitBg: 'rgba(232, 154, 152, 0.10)',
   target: '#7dd4a8',
@@ -23,7 +23,7 @@ const C = {
 };
 
 const POS_COLORS: Record<string, string> = {
-  QB: '#c25852', RB: '#4a8e62', WR: '#3d7eaa', TE: '#9070b8', K: '#788896', FB: '#a07d4c',
+  QB: '#c25852', RB: '#c4a020', WR: '#3d7eaa', TE: '#4a8e62', K: '#7b5ea7', FB: '#4a8e62',
 };
 
 type BoardPlayer = {
@@ -145,6 +145,7 @@ function buildBoardData(
   scoutingUrl: string,
   customTiers: string[],
   playerCustomTier: Record<string, string>,
+  myPicks: string,
 ) {
   const orderIds = players.map((p) => String(p.id));
   const unlikely: Record<string, boolean> = {};
@@ -167,6 +168,7 @@ function buildBoardData(
     customTiers,
     playerCustomTier,
     scoutingUrl: scoutingUrl || '/api/team-prospect-draftboard/scouting',
+    myPicks: myPicks.trim(),
   };
 }
 
@@ -216,6 +218,7 @@ function applySavedBoardData(saved: Record<string, unknown>) {
     scoutingUrl: normalizeScoutingUrl(data.scoutingUrl),
     customTiers,
     playerCustomTier,
+    myPicks: typeof data.myPicks === 'string' ? data.myPicks : '',
   };
 }
 
@@ -280,9 +283,10 @@ function ScoutingSection({
   );
 }
 
-function SettingsModal({ open, onClose, scoutingUrl, onSaveUrl }: { open: boolean; onClose: () => void; scoutingUrl: string; onSaveUrl: (url: string) => void }) {
+function SettingsModal({ open, onClose, scoutingUrl, onSaveUrl, myPicks, onSavePicks }: { open: boolean; onClose: () => void; scoutingUrl: string; onSaveUrl: (url: string) => void; myPicks: string; onSavePicks: (picks: string) => void }) {
   const [url, setUrl] = useState(scoutingUrl || '');
-  useEffect(() => { if (open) setUrl(scoutingUrl || ''); }, [open, scoutingUrl]);
+  const [picks, setPicks] = useState(myPicks || '');
+  useEffect(() => { if (open) { setUrl(scoutingUrl || ''); setPicks(myPicks || ''); } }, [open, scoutingUrl, myPicks]);
   if (!open) return null;
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px' }} onClick={onClose}>
@@ -290,9 +294,11 @@ function SettingsModal({ open, onClose, scoutingUrl, onSaveUrl }: { open: boolea
         <div style={{ fontSize: '14px', fontWeight: 700, color: C.accent, letterSpacing: '2px', marginBottom: '14px' }}>SETTINGS</div>
         <div style={{ marginBottom: '6px', fontSize: '12px', color: C.textMuted }}>Scouting JSON URL</div>
         <input type="text" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="/scouting-reports.json" style={{ width: '100%', padding: '8px', background: C.bg, color: C.text, border: `1px solid ${C.border}`, borderRadius: '4px', fontFamily: 'monospace', fontSize: '12px' }} />
+        <div style={{ marginTop: '14px', marginBottom: '6px', fontSize: '12px', color: C.textMuted }}>My Draft Picks <span style={{ color: C.textDim }}>(comma-separated overall picks, e.g. 24, 58, 96)</span></div>
+        <input type="text" value={picks} onChange={(e) => setPicks(e.target.value)} placeholder="e.g. 24, 58, 96, 132" style={{ width: '100%', padding: '8px', background: C.bg, color: C.text, border: `1px solid ${C.border}`, borderRadius: '4px', fontFamily: 'monospace', fontSize: '12px' }} />
         <div style={{ marginTop: '16px', display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
           <button onClick={onClose} style={{ background: 'transparent', border: `1px solid ${C.border}`, color: C.textMuted, padding: '8px 14px', borderRadius: '3px', cursor: 'pointer' }}>Cancel</button>
-          <button onClick={() => { onSaveUrl(url.trim()); onClose(); }} style={{ background: C.primary, border: `1px solid ${C.accent}`, color: C.text, padding: '8px 14px', borderRadius: '3px', cursor: 'pointer', fontWeight: 600 }}>Save</button>
+          <button onClick={() => { onSaveUrl(url.trim()); onSavePicks(picks.trim()); onClose(); }} style={{ background: C.primary, border: `1px solid ${C.accent}`, color: C.text, padding: '8px 14px', borderRadius: '3px', cursor: 'pointer', fontWeight: 600 }}>Save</button>
         </div>
       </div>
     </div>
@@ -317,6 +323,11 @@ export default function TeamProspectDraftboard() {
   const [customTiers, setCustomTiers] = useState<string[]>([]);
   const [playerCustomTier, setPlayerCustomTier] = useState<Record<string, string>>({});
   const [newTierName, setNewTierName] = useState('');
+  const [posFilter, setPosFilter] = useState('ALL');
+  const [search, setSearch] = useState('');
+  const [boardView, setBoardView] = useState<'board' | 'notes' | 'mock'>('board');
+  const [myPicks, setMyPicks] = useState('');
+  const [mockDrafted, setMockDrafted] = useState<Record<string, boolean>>({});
   const canEdit = isAuthenticated;
 
   useEffect(() => {
@@ -343,6 +354,7 @@ export default function TeamProspectDraftboard() {
         setScoutingUrl(applied.scoutingUrl);
         setCustomTiers(applied.customTiers);
         setPlayerCustomTier(applied.playerCustomTier);
+        setMyPicks(applied.myPicks || '');
         if (typeof body?.team === 'string') setTeamName(body.team);
         saveLocalBackup(body?.data || {});
         setSaveError('');
@@ -353,6 +365,7 @@ export default function TeamProspectDraftboard() {
         setScoutingUrl(applied ? applied.scoutingUrl : '/api/team-prospect-draftboard/scouting');
         setCustomTiers(applied?.customTiers || []);
         setPlayerCustomTier(applied?.playerCustomTier || {});
+        setMyPicks(applied?.myPicks || '');
         setSaveError(`Remote sync unavailable. ${String((remoteError as Error)?.message || '')}`.trim());
       }
       setLoading(false);
@@ -388,7 +401,7 @@ export default function TeamProspectDraftboard() {
   useEffect(() => {
     if (loading || !canEdit) return;
     const t = setTimeout(async () => {
-      const boardData = buildBoardData(players, scoutingUrl, customTiers, playerCustomTier);
+      const boardData = buildBoardData(players, scoutingUrl, customTiers, playerCustomTier, myPicks);
       saveLocalBackup(boardData);
       try {
         const res = await fetch(BOARD_API_URL, { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json' }, body: JSON.stringify({ data: boardData }) });
@@ -404,7 +417,7 @@ export default function TeamProspectDraftboard() {
       }
     }, 600);
     return () => clearTimeout(t);
-  }, [players, scoutingUrl, loading, canEdit, customTiers, playerCustomTier]);
+  }, [players, scoutingUrl, loading, canEdit, customTiers, playerCustomTier, myPicks]);
 
   const toggleExpand = (id: string) => setExpandedId((prev) => prev === id ? null : id);
   const updatePlayer = (id: string, patch: Record<string, unknown>) => setPlayers((prev) => prev.map((p) => p.id === id ? { ...p, ...patch } : p));
@@ -454,32 +467,90 @@ export default function TeamProspectDraftboard() {
     setScoutingError('');
     setCustomTiers([]);
     setPlayerCustomTier({});
+    setMyPicks('');
+    setMockDrafted({});
   };
 
   if (loading) return <div style={{ minHeight: '50vh', background: C.bg, color: C.accent, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'Georgia, serif' }}>Loading draft board...</div>;
 
   const rankedPlayers = players.map((p, idx) => ({ ...p, _absIdx: idx }));
   const title = teamName ? `${teamName} Prospect Draft Board` : 'Team Prospect Draft Board';
+  const parsedPicks = myPicks.split(',').map(s => s.trim()).filter(Boolean).map(s => {
+    const n = parseInt(s, 10);
+    if (!n || n < 1) return null;
+    const round = Math.ceil(n / 12);
+    const slot = ((n - 1) % 12) + 1;
+    return { overall: n, label: `${round}.${String(slot).padStart(2, '0')}` };
+  }).filter((x): x is { overall: number; label: string } => x !== null);
+  const notedPlayers = rankedPlayers.filter(p => p.userNote && String(p.userNote).trim());
+  const filteredPlayers = rankedPlayers.filter(p => {
+    if (posFilter !== 'ALL' && p.pos !== posFilter) return false;
+    if (search.trim()) {
+      const q = search.toLowerCase();
+      return String(p.name).toLowerCase().includes(q) || String(p.team).toLowerCase().includes(q) || String(p.college).toLowerCase().includes(q);
+    }
+    return true;
+  });
+  const playersToShow = boardView === 'notes' ? notedPlayers : filteredPlayers;
 
   return (
     <div style={{ minHeight: '100vh', width: '100%', background: `linear-gradient(180deg, ${C.bg} 0%, ${C.bgGrad} 100%)`, color: C.text, fontFamily: '"Georgia", "Times New Roman", serif', paddingBottom: '60px', overflowY: 'auto' }}>
-      <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} scoutingUrl={scoutingUrl} onSaveUrl={(url) => { setScoutingUrl(url); setScoutingCache(null); setScoutingStatus(url ? 'loading' : 'no-url'); setScoutingError(''); }} />
+      <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} scoutingUrl={scoutingUrl} onSaveUrl={(url) => { setScoutingUrl(url); setScoutingCache(null); setScoutingStatus(url ? 'loading' : 'no-url'); setScoutingError(''); }} myPicks={myPicks} onSavePicks={(picks) => setMyPicks(picks)} />
       <div style={{ position: 'sticky', top: 0, zIndex: 10, background: `${C.bg}f0`, backdropFilter: 'blur(8px)', borderBottom: `1px solid ${C.border}`, padding: '12px 14px' }}>
-        <div style={{ maxWidth: '900px', margin: '0 auto', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
-          <div><div style={{ fontSize: '19px', fontWeight: 700, color: C.text, letterSpacing: '1.5px', lineHeight: 1.1 }}>{title}</div><div style={{ fontSize: '10px', color: C.accent, letterSpacing: '2.5px', marginTop: '3px' }}>2026 PROSPECT DRAFT BOARD</div></div>
-          <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-            {saveStatus && <span style={{ fontSize: '11px', color: C.accent, display: 'flex', alignItems: 'center', gap: '4px' }}><Save size={12} /> {saveStatus}</span>}
-            {saveError && <span style={{ fontSize: '11px', color: C.unlikely }}>{saveError}</span>}
-            {canEdit && <button onClick={() => setSettingsOpen(true)} title="Settings" style={{ background: 'transparent', border: `1px solid ${C.border}`, color: C.textMuted, padding: '6px 10px', borderRadius: '3px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px' }}><Settings size={12} /></button>}
-            {canEdit && <button onClick={reset} title="Reset to NFL draft order" style={{ background: 'transparent', border: `1px solid ${C.border}`, color: C.textMuted, padding: '6px 10px', borderRadius: '3px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px' }}><RotateCcw size={12} /></button>}
+        <div style={{ maxWidth: '900px', margin: '0 auto' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
+            <div><div style={{ fontSize: '19px', fontWeight: 700, color: C.text, letterSpacing: '1.5px', lineHeight: 1.1 }}>{title}</div><div style={{ fontSize: '10px', color: C.accent, letterSpacing: '2.5px', marginTop: '3px' }}>2026 PROSPECT DRAFT BOARD{boardView === 'mock' ? <span style={{ color: C.warning, marginLeft: '8px' }}>· MOCK DRAFT MODE</span> : null}</div></div>
+            <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+              {saveStatus && <span style={{ fontSize: '11px', color: C.accent, display: 'flex', alignItems: 'center', gap: '4px' }}><Save size={12} /> {saveStatus}</span>}
+              {saveError && <span style={{ fontSize: '11px', color: C.unlikely }}>{saveError}</span>}
+              {canEdit && <button onClick={() => setSettingsOpen(true)} title="Settings" style={{ background: 'transparent', border: `1px solid ${C.border}`, color: C.textMuted, padding: '6px 10px', borderRadius: '3px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px' }}><Settings size={12} /></button>}
+              {canEdit && <button onClick={reset} title="Reset to NFL draft order" style={{ background: 'transparent', border: `1px solid ${C.border}`, color: C.textMuted, padding: '6px 10px', borderRadius: '3px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px' }}><RotateCcw size={12} /></button>}
+            </div>
           </div>
+          {parsedPicks.length > 0 && (
+            <div style={{ marginTop: '8px', display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center' }}>
+              <span style={{ fontSize: '9.5px', color: C.textDim, letterSpacing: '2px', fontWeight: 700 }}>MY PICKS</span>
+              {parsedPicks.map(pk => <span key={pk.overall} style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '3px', background: `${C.primary}33`, border: `1px solid ${C.accent}44`, color: C.accent, fontFamily: 'monospace' }}>{pk.label}</span>)}
+            </div>
+          )}
         </div>
       </div>
       <div style={{ maxWidth: '900px', margin: '0 auto', padding: '14px' }}>
         {scoutingStatus === 'error' && <div style={{ padding: '10px 12px', marginBottom: '14px', background: `${C.warning}1a`, border: `1px solid ${C.warning}55`, borderRadius: '4px', fontSize: '12px', color: C.warning, lineHeight: '1.5', display: 'flex', alignItems: 'flex-start', gap: '8px' }}><AlertCircle size={16} style={{ flexShrink: 0, marginTop: '1px' }} /><div><strong>Scouting reports failed to load.</strong> {scoutingError}. Open settings to change the URL.</div></div>}
-        <div style={{ padding: '10px 12px', background: `${C.primary}14`, border: `1px solid ${C.border}`, borderRadius: '4px', marginBottom: '20px', fontSize: '12px', color: C.textMuted, lineHeight: '1.7' }}>
+        <div style={{ display: 'flex', gap: '6px', marginBottom: '14px', borderBottom: `1px solid ${C.border}`, paddingBottom: '10px', flexWrap: 'wrap' }}>
+          {(['board', 'notes', 'mock'] as const).map(v => {
+            const labels: Record<string, string> = { board: 'BOARD', notes: `MY NOTES${notedPlayers.length > 0 ? ` (${notedPlayers.length})` : ''}`, mock: 'MOCK DRAFT' };
+            return (
+              <button key={v} onClick={() => { setBoardView(v); if (v !== 'mock') setMockDrafted({}); }}
+                style={{ background: boardView === v ? `${C.primary}44` : 'transparent', border: `1px solid ${boardView === v ? C.primary : C.border}`, color: boardView === v ? C.accent : C.textMuted, padding: '6px 14px', borderRadius: '3px', cursor: 'pointer', fontSize: '11px', letterSpacing: '1.5px', fontWeight: boardView === v ? 700 : 400 }}>
+                {labels[v]}
+              </button>
+            );
+          })}
+        </div>
+        {boardView !== 'notes' && (
+          <div style={{ display: 'flex', gap: '8px', marginBottom: '12px', flexWrap: 'wrap', alignItems: 'center' }}>
+            <div style={{ position: 'relative', flex: '1', minWidth: '160px' }}>
+              <Search size={13} style={{ position: 'absolute', left: '9px', top: '50%', transform: 'translateY(-50%)', color: C.textDim, pointerEvents: 'none' }} />
+              <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search players..." style={{ width: '100%', paddingLeft: '28px', padding: '7px 8px 7px 28px', background: C.bg, color: C.text, border: `1px solid ${C.border}`, borderRadius: '4px', fontSize: '12px' }} />
+            </div>
+            {['ALL','QB','RB','WR','TE','K'].map(pos => (
+              <button key={pos} onClick={() => setPosFilter(pos)}
+                style={{ background: posFilter === pos ? `${(POS_COLORS[pos] || C.primary)}33` : 'transparent', border: `1px solid ${posFilter === pos ? (POS_COLORS[pos] || C.primary) : C.border}`, color: posFilter === pos ? (POS_COLORS[pos] || C.accent) : C.textMuted, padding: '6px 12px', borderRadius: '3px', cursor: 'pointer', fontSize: '11px', letterSpacing: '1px', fontWeight: posFilter === pos ? 700 : 400 }}>
+                {pos}
+              </button>
+            ))}
+          </div>
+        )}
+        {boardView === 'mock' && (
+          <div style={{ padding: '10px 12px', marginBottom: '12px', background: `${C.warning}1a`, border: `1px solid ${C.warning}55`, borderRadius: '4px', fontSize: '12px', color: C.warning, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+            <span><strong>Mock Draft Mode</strong> — click DRAFT on any card to simulate picking. Picks reset on exit.</span>
+            <button onClick={() => { setBoardView('board'); setMockDrafted({}); }} style={{ background: 'transparent', border: `1px solid ${C.warning}88`, color: C.warning, padding: '4px 10px', borderRadius: '3px', cursor: 'pointer', fontSize: '11px', whiteSpace: 'nowrap' }}>Exit Mock</button>
+          </div>
+        )}
+        <div style={{ padding: '10px 12px', background: `${C.primary}14`, border: `1px solid ${C.border}`, borderRadius: '4px', marginBottom: '14px', fontSize: '12px', color: C.textMuted, lineHeight: '1.7' }}>
           <strong style={{ color: C.accent }}>Flags (toggle independently):</strong><br />
-          <span style={{ color: C.target }}>✓ pale green</span> = Watchlist · <span style={{ color: C.unlikely }}>👁 pale purple</span> = Likely Gone · <span style={{ color: C.noFit }}>✕ pale red</span> = Fade
+          <span style={{ color: C.target }}>✓ green</span> = Target · <span style={{ color: C.unlikely }}>👁 amber</span> = Monitor · <span style={{ color: C.noFit }}>✕ red</span> = Avoid
           <br />
           <span style={{ color: C.textDim, fontSize: '11px' }}>
             {canEdit ? 'Use ↑↓ or drag/drop to reorder. Tap a name to expand for scouting, notes, and custom tier assignment.' : 'Read-only while signed out. Sign in to save private rankings, flags, notes, and custom tiers.'}
@@ -510,13 +581,20 @@ export default function TeamProspectDraftboard() {
             {customTiers.length > 0 && <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>{customTiers.map((tier) => <span key={tier} style={{ fontSize: '11px', border: `1px solid ${C.border}`, borderRadius: '999px', padding: '2px 8px', color: C.accent }}>{tier}</span>)}</div>}
           </div>
         )}
-        {rankedPlayers.map((p, rankIdx) => {
-                const rank = rankIdx + 1;
+        {playersToShow.length === 0 && (
+          <div style={{ padding: '30px', textAlign: 'center', color: C.textDim, fontSize: '13px', border: `1px dashed ${C.border}`, borderRadius: '4px' }}>
+            {boardView === 'notes' ? 'No notes yet — expand a player and write notes to see them here.' : 'No players match your search or filter.'}
+          </div>
+        )}
+        {playersToShow.map((p) => {
+                const rank = rankedPlayers.findIndex(rp => rp.id === p.id) + 1;
+                const isMockDrafted = boardView === 'mock' && !!mockDrafted[String(p.id)];
                 const isExpanded = expandedId === p.id;
                 const idx = p._absIdx;
                 const flagColors = getFlagColors(p);
                 return (
-                  <div key={String(p.id)} draggable={canEdit} onDragStart={() => setDraggedId(String(p.id))} onDragOver={(e) => { if (!canEdit) return; e.preventDefault(); if (dragOverId !== p.id) setDragOverId(String(p.id)); }} onDrop={(e) => onDrop(e, String(p.id))} onDragEnd={() => { setDraggedId(null); setDragOverId(null); }} style={{ background: flagColors.bg, border: `1px solid ${flagColors.border}`, borderRadius: '4px', marginBottom: '5px', opacity: draggedId === p.id ? 0.4 : 1 }}>
+                  <div key={String(p.id)} draggable={canEdit && boardView !== 'mock'} onDragStart={() => setDraggedId(String(p.id))} onDragOver={(e) => { if (!canEdit || boardView === 'mock') return; e.preventDefault(); if (dragOverId !== p.id) setDragOverId(String(p.id)); }} onDrop={(e) => onDrop(e, String(p.id))} onDragEnd={() => { setDraggedId(null); setDragOverId(null); }} style={{ background: isMockDrafted ? C.bg : flagColors.bg, border: `1px solid ${isMockDrafted ? C.border : flagColors.border}`, borderRadius: '4px', marginBottom: '5px', opacity: isMockDrafted ? 0.3 : (draggedId === p.id ? 0.4 : 1), position: 'relative' }}>
+                    {isMockDrafted && <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2, pointerEvents: 'none' }}><span style={{ fontSize: '10px', letterSpacing: '3px', color: C.textDim, fontWeight: 700, background: `${C.bg}cc`, padding: '2px 10px', borderRadius: '3px' }}>DRAFTED</span></div>}
                     <div style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '10px' }}>
                       <div style={{ display: 'flex', flexDirection: 'column' }}>
                         <button disabled={!canEdit} onClick={() => moveByOne(idx, -1)} aria-label="Up" style={{ background: 'transparent', border: 'none', color: flagColors.color !== C.text ? flagColors.color : C.accent, cursor: canEdit ? 'pointer' : 'default', padding: '2px', display: 'flex', opacity: canEdit ? 1 : 0.4 }}><ChevronUp size={16} /></button>
@@ -531,10 +609,12 @@ export default function TeamProspectDraftboard() {
                           <span style={{ fontSize: '11px', color: flagColors.color !== C.text ? `${flagColors.color}aa` : C.textDim }}>· {String(p.college)}</span>
                           <span style={{ fontSize: '11px', color: flagColors.color !== C.text ? `${flagColors.color}aa` : C.textDim }}>· NFL Pick #{Number(p.pick)}</span>
                         </div>
+                        {boardView === 'notes' && p.userNote && !isExpanded && <div style={{ marginTop: '5px', fontSize: '12px', color: C.textMuted, fontStyle: 'italic', lineHeight: '1.4' }}>{String(p.userNote).length > 160 ? String(p.userNote).substring(0, 160) + '…' : String(p.userNote)}</div>}
                       </div>
-                      <button disabled={!canEdit} onClick={() => toggleFlag(String(p.id), 'target')} title={p.target ? 'Remove Watchlist' : 'Add to Watchlist'} style={{ background: 'transparent', border: 'none', color: p.target ? C.target : C.textDim, cursor: canEdit ? 'pointer' : 'default', padding: '4px', display: 'flex', opacity: canEdit ? 1 : 0.5 }}><Check size={15} /></button>
-                      <button disabled={!canEdit} onClick={() => toggleFlag(String(p.id), 'unlikely')} title={p.unlikely ? 'Unmark Likely Gone' : 'Mark Likely Gone'} style={{ background: 'transparent', border: 'none', color: p.unlikely ? C.unlikely : C.textDim, cursor: canEdit ? 'pointer' : 'default', padding: '4px', display: 'flex', opacity: canEdit ? 1 : 0.5 }}>{p.unlikely ? <EyeOff size={15} /> : <Eye size={15} />}</button>
-                      <button disabled={!canEdit} onClick={() => toggleFlag(String(p.id), 'noFit')} title={p.noFit ? 'Unmark Fade' : 'Mark Fade'} style={{ background: 'transparent', border: 'none', color: p.noFit ? C.noFit : C.textDim, cursor: canEdit ? 'pointer' : 'default', padding: '4px', display: 'flex', opacity: canEdit ? 1 : 0.5 }}><X size={15} /></button>
+                      <button disabled={!canEdit} onClick={() => toggleFlag(String(p.id), 'target')} title={p.target ? 'Remove Target' : 'Mark as Target'} style={{ background: 'transparent', border: 'none', color: p.target ? C.target : C.textDim, cursor: canEdit ? 'pointer' : 'default', padding: '4px', display: 'flex', opacity: canEdit ? 1 : 0.5 }}><Check size={15} /></button>
+                      <button disabled={!canEdit} onClick={() => toggleFlag(String(p.id), 'unlikely')} title={p.unlikely ? 'Remove Monitor' : 'Mark as Monitor'} style={{ background: 'transparent', border: 'none', color: p.unlikely ? C.unlikely : C.textDim, cursor: canEdit ? 'pointer' : 'default', padding: '4px', display: 'flex', opacity: canEdit ? 1 : 0.5 }}>{p.unlikely ? <EyeOff size={15} /> : <Eye size={15} />}</button>
+                      <button disabled={!canEdit} onClick={() => toggleFlag(String(p.id), 'noFit')} title={p.noFit ? 'Remove Avoid' : 'Mark as Avoid'} style={{ background: 'transparent', border: 'none', color: p.noFit ? C.noFit : C.textDim, cursor: canEdit ? 'pointer' : 'default', padding: '4px', display: 'flex', opacity: canEdit ? 1 : 0.5 }}><X size={15} /></button>
+                      {boardView === 'mock' && <button onClick={() => setMockDrafted(prev => ({ ...prev, [String(p.id)]: !prev[String(p.id)] }))} title={isMockDrafted ? 'Undo Draft' : 'Draft this player'} style={{ background: isMockDrafted ? `${C.textDim}22` : `${C.accent}22`, border: `1px solid ${isMockDrafted ? C.textDim : C.accent}88`, color: isMockDrafted ? C.textDim : C.accent, cursor: 'pointer', padding: '3px 8px', borderRadius: '3px', fontSize: '10px', letterSpacing: '1px', fontWeight: 700 }}>{isMockDrafted ? 'UNDO' : 'DRAFT'}</button>}
                       <button onClick={() => toggleExpand(String(p.id))} aria-label={isExpanded ? 'Collapse' : 'Expand'} style={{ background: 'transparent', border: 'none', color: C.accent, cursor: 'pointer', padding: '4px', display: 'flex' }}>{isExpanded ? <ChevronUp size={18} /> : <ChevronDown size={18} />}</button>
                     </div>
                     {isExpanded && <div style={{ padding: '0 14px 14px 14px', borderTop: `1px solid ${C.border}`, marginTop: '4px' }}>
