@@ -1,7 +1,8 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { ChevronDown, ChevronUp, Eye, EyeOff, X, Check, RotateCcw, Save, Settings, AlertCircle, Search } from 'lucide-react';
+import { ChevronDown, ChevronUp, Eye, EyeOff, X, Check, RotateCcw, Save, Settings, AlertCircle, Search, Tag, Download, Printer } from 'lucide-react';
+import * as XLSX from 'xlsx';
 
 const C = {
   bg: '#0B1020',
@@ -155,6 +156,8 @@ function buildBoardData(
   customTiers: string[],
   tierBreaks: Record<string, number>,
   myPicks: string,
+  customTagsList: string[],
+  playerTags: Record<string, string[]>,
 ) {
   const orderIds = players.map((p) => String(p.id));
   const unlikely: Record<string, boolean> = {};
@@ -181,6 +184,8 @@ function buildBoardData(
     customTiers,
     tierBreaks,
     playerCustomTier,
+    customTagsList,
+    playerTags,
     scoutingUrl: scoutingUrl || '/api/team-prospect-draftboard/scouting',
     myPicks: myPicks.trim(),
   };
@@ -225,6 +230,12 @@ function applySavedBoardData(saved: Record<string, unknown>) {
     ? Object.fromEntries(Object.entries(data.tierBreaks as Record<string, unknown>).map(([k, v]) => [k, Number(v)]))
     : null;
   const tierBreaks: Record<string, number> = rawTierBreaks ?? computeTierBreaksFromAssignment(next, customTiers, playerCustomTier);
+  const customTagsList = Array.isArray(data.customTagsList)
+    ? data.customTagsList.map((t) => String(t).trim()).filter(Boolean)
+    : [];
+  const playerTags = data.playerTags && typeof data.playerTags === 'object' && !Array.isArray(data.playerTags)
+    ? (data.playerTags as Record<string, string[]>)
+    : {};
   const normalizeScoutingUrl = (raw: unknown) => {
     const url = raw !== undefined ? String(raw) : '';
     if (!url || url === '/scouting-reports.json') return '/api/team-prospect-draftboard/scouting';
@@ -236,6 +247,8 @@ function applySavedBoardData(saved: Record<string, unknown>) {
     scoutingUrl: normalizeScoutingUrl(data.scoutingUrl),
     customTiers,
     tierBreaks,
+    customTagsList,
+    playerTags,
     myPicks: typeof data.myPicks === 'string' ? data.myPicks : '',
   };
 }
@@ -348,6 +361,10 @@ export default function TeamProspectDraftboard() {
   const [tierBreaks, setTierBreaks] = useState<Record<string, number>>({});
   const [draggedTierDiv, setDraggedTierDiv] = useState<string | null>(null);
   const [newTierName, setNewTierName] = useState('');
+  const [customTagsList, setCustomTagsList] = useState<string[]>([]);
+  const [playerTags, setPlayerTags] = useState<Record<string, string[]>>({});
+  const [tagFilter, setTagFilter] = useState<string | null>(null);
+  const [newTagName, setNewTagName] = useState('');
   const [posFilter, setPosFilter] = useState('ALL');
   const [search, setSearch] = useState('');
   const [boardView, setBoardView] = useState<'board' | 'notes' | 'mock'>('board');
@@ -381,6 +398,8 @@ export default function TeamProspectDraftboard() {
         setScoutingUrl(applied.scoutingUrl);
         setCustomTiers(applied.customTiers);
         setTierBreaks(applied.tierBreaks || {});
+        setCustomTagsList(applied.customTagsList || []);
+        setPlayerTags(applied.playerTags || {});
         setMyPicks(applied.myPicks || '');
         if (typeof body?.team === 'string') setTeamName(body.team);
         saveLocalBackup(body?.data || {});
@@ -392,6 +411,8 @@ export default function TeamProspectDraftboard() {
         setScoutingUrl(applied ? applied.scoutingUrl : '/api/team-prospect-draftboard/scouting');
         setCustomTiers(applied?.customTiers || []);
         setTierBreaks(applied?.tierBreaks || {});
+        setCustomTagsList(applied?.customTagsList || []);
+        setPlayerTags(applied?.playerTags || {});
         setMyPicks(applied?.myPicks || '');
         setSaveError(`Remote sync unavailable. ${String((remoteError as Error)?.message || '')}`.trim());
       }
@@ -428,7 +449,7 @@ export default function TeamProspectDraftboard() {
   useEffect(() => {
     if (loading || !canEdit) return;
     const t = setTimeout(async () => {
-      const boardData = buildBoardData(players, scoutingUrl, customTiers, tierBreaks, myPicks);
+      const boardData = buildBoardData(players, scoutingUrl, customTiers, tierBreaks, myPicks, customTagsList, playerTags);
       saveLocalBackup(boardData);
       try {
         const res = await fetch(BOARD_API_URL, { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json' }, body: JSON.stringify({ data: boardData }) });
@@ -444,7 +465,7 @@ export default function TeamProspectDraftboard() {
       }
     }, 600);
     return () => clearTimeout(t);
-  }, [players, scoutingUrl, loading, canEdit, customTiers, tierBreaks, myPicks]);
+  }, [players, scoutingUrl, loading, canEdit, customTiers, tierBreaks, myPicks, customTagsList, playerTags]);
 
   const toggleExpand = (id: string) => setExpandedId((prev) => prev === id ? null : id);
   const updatePlayer = (id: string, patch: Record<string, unknown>) => setPlayers((prev) => prev.map((p) => p.id === id ? { ...p, ...patch } : p));
@@ -494,9 +515,47 @@ export default function TeamProspectDraftboard() {
     setScoutingError('');
     setCustomTiers([]);
     setTierBreaks({});
+    setCustomTagsList([]);
+    setPlayerTags({});
+    setTagFilter(null);
     setMyPicks('');
     setMockDraftOrder([]);
     setMockDraftSlots([]);
+  };
+
+  const togglePlayerTag = (id: string, tag: string) => {
+    if (!canEdit) return;
+    setPlayerTags(prev => { const cur = prev[id] || []; return { ...prev, [id]: cur.includes(tag) ? cur.filter(t => t !== tag) : [...cur, tag] }; });
+  };
+
+  const exportCSV = () => {
+    const ranked = players.map((p, i) => ({ ...p, _rank: i + 1 }));
+    const headers = ['Rank', 'Name', 'Position', 'NFL Team', 'College', 'NFL Pick', 'Tags', 'Target', 'Monitor', 'Avoid', 'Tier', 'Notes'];
+    const rows = ranked.map((p) => {
+      const pId = String(p.id);
+      const i = p._rank - 1;
+      let tier = ''; let bestBreak = -1;
+      for (const t of customTiers) { const b = tierBreaks[t] ?? -1; if (b >= 0 && b <= i && b > bestBreak) { bestBreak = b; tier = t; } }
+      return [String(p._rank), String(p.name), String(p.pos), String(p.team), String(p.college), String(p.pick), (playerTags[pId] || []).join('; '), p.target ? 'Yes' : '', p.unlikely ? 'Yes' : '', p.noFit ? 'Yes' : '', tier, String(p.userNote || '')].map(v => `"${v.replace(/"/g, '""')}"`).join(',');
+    });
+    const csv = [headers.map(h => `"${h}"`).join(','), ...rows].join('\n');
+    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `${title.replace(/\s+/g, '-').toLowerCase()}.csv`; a.click();
+  };
+
+  const exportExcel = () => {
+    const ranked = players.map((p, i) => ({ ...p, _rank: i + 1 }));
+    const rows = ranked.map((p) => {
+      const pId = String(p.id);
+      const i = p._rank - 1;
+      let tier = ''; let bestBreak = -1;
+      for (const t of customTiers) { const b = tierBreaks[t] ?? -1; if (b >= 0 && b <= i && b > bestBreak) { bestBreak = b; tier = t; } }
+      return { Rank: p._rank, Name: String(p.name), Position: String(p.pos), 'NFL Team': String(p.team), College: String(p.college), 'NFL Pick': Number(p.pick), Tags: (playerTags[pId] || []).join(', '), Target: p.target ? 'Yes' : '', Monitor: p.unlikely ? 'Yes' : '', Avoid: p.noFit ? 'Yes' : '', Tier: tier, Notes: String(p.userNote || '') };
+    });
+    const ws = XLSX.utils.json_to_sheet(rows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Draft Board');
+    XLSX.writeFile(wb, `${title.replace(/\s+/g, '-').toLowerCase()}.xlsx`);
   };
 
   if (loading) return <div style={{ minHeight: '50vh', background: C.bg, color: C.accent, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'Georgia, serif' }}>Loading draft board...</div>;
@@ -519,7 +578,8 @@ export default function TeamProspectDraftboard() {
     }
     return true;
   });
-  const playersToShow = boardView === 'notes' ? notedPlayers : filteredPlayers;
+  const tagFilteredPlayers = tagFilter ? filteredPlayers.filter(p => (playerTags[String(p.id)] || []).includes(tagFilter)) : filteredPlayers;
+  const playersToShow = boardView === 'notes' ? notedPlayers : tagFilteredPlayers;
 
   return (
     <div style={{ minHeight: '100vh', width: '100%', background: `linear-gradient(180deg, ${C.bg} 0%, ${C.bgGrad} 100%)`, color: C.text, fontFamily: '"Georgia", "Times New Roman", serif', paddingBottom: '60px', overflowY: 'auto' }}>
@@ -533,6 +593,9 @@ export default function TeamProspectDraftboard() {
               {saveError && <span style={{ fontSize: '11px', color: C.unlikely }}>{saveError}</span>}
               {canEdit && <button onClick={() => setSettingsOpen(true)} title="Settings" style={{ background: 'transparent', border: `1px solid ${C.border}`, color: C.textMuted, padding: '6px 10px', borderRadius: '3px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px' }}><Settings size={12} /></button>}
               {canEdit && <button onClick={reset} title="Reset to NFL draft order" style={{ background: 'transparent', border: `1px solid ${C.border}`, color: C.textMuted, padding: '6px 10px', borderRadius: '3px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px' }}><RotateCcw size={12} /></button>}
+              <button onClick={exportCSV} title="Download CSV" style={{ background: 'transparent', border: `1px solid ${C.border}`, color: C.textMuted, padding: '6px 10px', borderRadius: '3px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', letterSpacing: '1px' }}><Download size={12} /> CSV</button>
+              <button onClick={exportExcel} title="Download Excel (.xlsx)" style={{ background: 'transparent', border: `1px solid ${C.border}`, color: C.textMuted, padding: '6px 10px', borderRadius: '3px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', letterSpacing: '1px' }}><Download size={12} /> XLSX</button>
+              <button onClick={() => window.print()} title="Print / Save as PDF" style={{ background: 'transparent', border: `1px solid ${C.border}`, color: C.textMuted, padding: '6px 10px', borderRadius: '3px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px' }}><Printer size={12} /></button>
             </div>
           </div>
           {parsedPicks.length > 0 && (
@@ -580,6 +643,21 @@ export default function TeamProspectDraftboard() {
                 {pos}
               </button>
             ))}
+          </div>
+        )}
+        {boardView !== 'mock' && customTagsList.length > 0 && (
+          <div style={{ marginBottom: '12px', display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center' }}>
+            <span style={{ fontSize: '9px', color: C.textDim, letterSpacing: '1.5px', fontWeight: 700 }}>FILTER BY TAG:</span>
+            {tagFilter && <button onClick={() => setTagFilter(null)} style={{ fontSize: '10px', padding: '3px 10px', borderRadius: '3px', background: 'transparent', border: `1px solid ${C.border}`, color: C.textMuted, cursor: 'pointer', letterSpacing: '1px' }}>CLEAR ×</button>}
+            {customTagsList.map(tag => {
+              const count = rankedPlayers.filter(p => (playerTags[String(p.id)] || []).includes(tag)).length;
+              const isActive = tagFilter === tag;
+              return (
+                <button key={tag} onClick={() => setTagFilter(isActive ? null : tag)} style={{ fontSize: '10px', padding: '3px 10px', borderRadius: '3px', background: isActive ? `${C.accent}22` : 'transparent', border: `1px solid ${isActive ? C.accent : C.border}`, color: isActive ? C.accent : C.textMuted, cursor: 'pointer', letterSpacing: '1px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                  <Tag size={9} />{tag}{count > 0 ? ` (${count})` : ''}
+                </button>
+              );
+            })}
           </div>
         )}
         {boardView === 'mock' && (
@@ -634,6 +712,28 @@ export default function TeamProspectDraftboard() {
                     );
                   })}
                 </div>
+              </div>
+            )}
+          </div>
+        )}
+        {canEdit && (
+          <div style={{ marginBottom: '14px', padding: '10px 12px', background: `${C.primary}14`, border: `1px solid ${C.border}`, borderRadius: '4px' }}>
+            <div style={{ fontSize: '10px', letterSpacing: '2px', color: C.accent, fontWeight: 700, marginBottom: '8px' }}>CUSTOM TAGS</div>
+            <div style={{ display: 'flex', gap: '8px', marginBottom: customTagsList.length > 0 ? '8px' : '0' }}>
+              <input value={newTagName} onChange={(e) => setNewTagName(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { const t = newTagName.trim(); if (t && !customTagsList.includes(t)) { setCustomTagsList(prev => [...prev, t]); setNewTagName(''); } } }} placeholder="Add a tag (e.g., Targets, Watch List)" style={{ flex: 1, padding: '8px', background: C.bg, color: C.text, border: `1px solid ${C.border}`, borderRadius: '4px', fontSize: '12px' }} />
+              <button onClick={() => { const t = newTagName.trim(); if (!t || customTagsList.includes(t)) return; setCustomTagsList(prev => [...prev, t]); setNewTagName(''); }} style={{ background: `${C.primary}99`, border: `1px solid ${C.primary}`, color: C.text, borderRadius: '4px', padding: '8px 10px', fontSize: '12px', cursor: 'pointer' }}>Add</button>
+            </div>
+            {customTagsList.length > 0 && (
+              <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                {customTagsList.map(tag => {
+                  const count = rankedPlayers.filter(p => (playerTags[String(p.id)] || []).includes(tag)).length;
+                  return (
+                    <span key={tag} style={{ fontSize: '11px', border: `1px solid ${C.border}`, borderRadius: '999px', padding: '2px 8px 2px 10px', color: C.accent, display: 'inline-flex', alignItems: 'center', gap: '5px' }}>
+                      <Tag size={10} />{tag}{count > 0 && <span style={{ color: C.textDim, fontSize: '10px' }}>({count})</span>}
+                      <button onClick={() => { setCustomTagsList(prev => prev.filter(t => t !== tag)); setPlayerTags(prev => { const n = { ...prev }; Object.keys(n).forEach(id => { n[id] = (n[id] || []).filter(t => t !== tag); }); return n; }); if (tagFilter === tag) setTagFilter(null); }} style={{ background: 'transparent', border: 'none', color: C.textDim, cursor: 'pointer', padding: '0', fontSize: '13px', lineHeight: 1 }}>×</button>
+                    </span>
+                  );
+                })}
               </div>
             )}
           </div>
@@ -710,6 +810,7 @@ export default function TeamProspectDraftboard() {
                       <span style={{ fontSize: '11px', color: flagColors.color !== C.text ? `${flagColors.color}aa` : C.textDim }}>· {String(p.college)}</span>
                       <span style={{ fontSize: '11px', color: flagColors.color !== C.text ? `${flagColors.color}aa` : C.textDim }}>· NFL Pick #{Number(p.pick)}</span>
                     </div>
+                    {(playerTags[pId] || []).length > 0 && <div style={{ display: 'flex', gap: '3px', flexWrap: 'wrap', marginTop: '4px' }}>{(playerTags[pId] || []).map(tag => <span key={tag} style={{ fontSize: '9px', padding: '1px 6px', borderRadius: '999px', background: `${C.accent}22`, border: `1px solid ${C.accent}44`, color: C.accent }}>{tag}</span>)}</div>}
                     {boardView === 'notes' && p.userNote && !isExpanded && <div style={{ marginTop: '5px', fontSize: '12px', color: C.textMuted, fontStyle: 'italic', lineHeight: '1.4' }}>{String(p.userNote).length > 160 ? String(p.userNote).substring(0, 160) + '…' : String(p.userNote)}</div>}
                   </div>
                   <button disabled={!canEdit} onClick={() => toggleFlag(pId, 'target')} title={p.target ? 'Remove Target' : 'Mark as Target'} style={{ background: 'transparent', border: 'none', color: p.target ? C.target : C.textDim, cursor: canEdit ? 'pointer' : 'default', padding: '4px', display: 'flex', opacity: canEdit ? 1 : 0.5 }}><Check size={15} /></button>
@@ -720,6 +821,14 @@ export default function TeamProspectDraftboard() {
                 </div>
                 {isExpanded && <div style={{ padding: '0 14px 14px 14px', borderTop: `1px solid ${C.border}`, marginTop: '4px' }}>
                   {canEdit && assignedTier && <div style={{ marginTop: '8px', fontSize: '11px', color: C.textMuted }}><span style={{ color: C.textDim }}>Tier: </span><span style={{ color: C.accent }}>{assignedTier}</span></div>}
+                  {canEdit && customTagsList.length > 0 && (
+                    <div style={{ marginTop: '12px' }}>
+                      <div style={{ fontSize: '10px', letterSpacing: '2px', color: C.accent, fontWeight: 700, marginBottom: '6px' }}>TAGS</div>
+                      <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                        {customTagsList.map(tag => { const isTagged = (playerTags[pId] || []).includes(tag); return <button key={tag} onClick={() => togglePlayerTag(pId, tag)} style={{ fontSize: '11px', padding: '3px 10px', borderRadius: '999px', border: `1px solid ${isTagged ? C.accent : C.border}`, background: isTagged ? `${C.accent}22` : 'transparent', color: isTagged ? C.accent : C.textMuted, cursor: 'pointer' }}>{isTagged ? '✓ ' : ''}{tag}</button>; })}
+                      </div>
+                    </div>
+                  )}
                   <div style={{ marginTop: '14px' }}><div style={{ fontSize: '10px', letterSpacing: '2px', color: C.accent, fontWeight: 700, marginBottom: '6px' }}>COLLEGE PRODUCTION</div><div style={{ display: 'grid', gap: '3px' }}>{(Array.isArray(p.s) ? p.s : []).map((line: string, i: number) => <div key={i} style={{ fontSize: '12.5px', padding: '3px 0', borderBottom: `1px dotted ${C.border}`, color: C.textMuted, lineHeight: '1.4' }}>{line}</div>)}</div></div>
                   <div style={{ marginTop: '14px' }}><div style={{ fontSize: '10px', letterSpacing: '2px', color: C.accent, fontWeight: 700, marginBottom: '6px' }}>SCOUTING REPORT</div><ScoutingSection playerId={pId} scoutingUrl={scoutingUrl} scoutingCache={scoutingCache} scoutingStatus={scoutingStatus} scoutingError={scoutingError} /></div>
                   <div style={{ marginTop: '14px' }}><div style={{ fontSize: '10px', letterSpacing: '2px', color: C.accent, fontWeight: 700, marginBottom: '6px' }}>MY NOTES</div><textarea disabled={!canEdit} value={String(p.userNote || '')} onChange={(e) => updatePlayer(pId, { userNote: e.target.value })} placeholder={canEdit ? 'Add your own notes...' : 'Sign in to add notes'} style={{ width: '100%', background: C.bg, color: C.text, border: `1px solid ${C.border}`, borderRadius: '4px', padding: '8px', fontSize: '14px', minHeight: '70px', resize: 'vertical', opacity: canEdit ? 1 : 0.7 }} /></div>
