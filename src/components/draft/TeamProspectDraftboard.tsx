@@ -140,11 +140,20 @@ function sortByPick<T extends { pick?: number }>(items: T[]) {
 
 const DEFAULT_PLAYERS = sortByPick(INITIAL.map((p) => ({ ...p }))).slice(0, 82);
 
+function computeTierBreaksFromAssignment(players: Array<{ id: string }>, customTiers: string[], playerCustomTier: Record<string, string>): Record<string, number> {
+  const result: Record<string, number> = {};
+  for (const tier of customTiers) {
+    const firstIdx = players.findIndex(p => playerCustomTier[String(p.id)] === tier);
+    if (firstIdx >= 0) result[tier] = firstIdx;
+  }
+  return result;
+}
+
 function buildBoardData(
   players: BoardPlayer[],
   scoutingUrl: string,
   customTiers: string[],
-  playerCustomTier: Record<string, string>,
+  tierBreaks: Record<string, number>,
   myPicks: string,
 ) {
   const orderIds = players.map((p) => String(p.id));
@@ -152,12 +161,16 @@ function buildBoardData(
   const noFit: Record<string, boolean> = {};
   const target: Record<string, boolean> = {};
   const notes: Record<string, string> = {};
-  players.forEach((p) => {
+  const playerCustomTier: Record<string, string> = {};
+  players.forEach((p, idx) => {
     const id = String(p.id);
     if (p.unlikely) unlikely[id] = true;
     if (p.noFit) noFit[id] = true;
     if (p.target) target[id] = true;
     if (typeof p.userNote === 'string' && p.userNote.trim()) notes[id] = p.userNote;
+    let best = ''; let bestBreak = -1;
+    for (const t of customTiers) { const b = tierBreaks[t] ?? -1; if (b >= 0 && b <= idx && b > bestBreak) { bestBreak = b; best = t; } }
+    if (best) playerCustomTier[id] = best;
   });
   return {
     orderIds,
@@ -166,6 +179,7 @@ function buildBoardData(
     target,
     notes,
     customTiers,
+    tierBreaks,
     playerCustomTier,
     scoutingUrl: scoutingUrl || '/api/team-prospect-draftboard/scouting',
     myPicks: myPicks.trim(),
@@ -207,6 +221,10 @@ function applySavedBoardData(saved: Record<string, unknown>) {
   const playerCustomTier = data.playerCustomTier && typeof data.playerCustomTier === 'object'
     ? (data.playerCustomTier as Record<string, string>)
     : {};
+  const rawTierBreaks = data.tierBreaks && typeof data.tierBreaks === 'object' && !Array.isArray(data.tierBreaks)
+    ? Object.fromEntries(Object.entries(data.tierBreaks as Record<string, unknown>).map(([k, v]) => [k, Number(v)]))
+    : null;
+  const tierBreaks: Record<string, number> = rawTierBreaks ?? computeTierBreaksFromAssignment(next, customTiers, playerCustomTier);
   const normalizeScoutingUrl = (raw: unknown) => {
     const url = raw !== undefined ? String(raw) : '';
     if (!url || url === '/scouting-reports.json') return '/api/team-prospect-draftboard/scouting';
@@ -217,7 +235,7 @@ function applySavedBoardData(saved: Record<string, unknown>) {
     players: next,
     scoutingUrl: normalizeScoutingUrl(data.scoutingUrl),
     customTiers,
-    playerCustomTier,
+    tierBreaks,
     myPicks: typeof data.myPicks === 'string' ? data.myPicks : '',
   };
 }
@@ -327,7 +345,8 @@ export default function TeamProspectDraftboard() {
   const [teamName, setTeamName] = useState<string>('');
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [customTiers, setCustomTiers] = useState<string[]>([]);
-  const [playerCustomTier, setPlayerCustomTier] = useState<Record<string, string>>({});
+  const [tierBreaks, setTierBreaks] = useState<Record<string, number>>({});
+  const [draggedTierDiv, setDraggedTierDiv] = useState<string | null>(null);
   const [newTierName, setNewTierName] = useState('');
   const [posFilter, setPosFilter] = useState('ALL');
   const [search, setSearch] = useState('');
@@ -361,7 +380,7 @@ export default function TeamProspectDraftboard() {
         setPlayers(applied.players);
         setScoutingUrl(applied.scoutingUrl);
         setCustomTiers(applied.customTiers);
-        setPlayerCustomTier(applied.playerCustomTier);
+        setTierBreaks(applied.tierBreaks || {});
         setMyPicks(applied.myPicks || '');
         if (typeof body?.team === 'string') setTeamName(body.team);
         saveLocalBackup(body?.data || {});
@@ -372,7 +391,7 @@ export default function TeamProspectDraftboard() {
         setPlayers(applied ? applied.players : DEFAULT_PLAYERS.map((p) => ({ ...p })));
         setScoutingUrl(applied ? applied.scoutingUrl : '/api/team-prospect-draftboard/scouting');
         setCustomTiers(applied?.customTiers || []);
-        setPlayerCustomTier(applied?.playerCustomTier || {});
+        setTierBreaks(applied?.tierBreaks || {});
         setMyPicks(applied?.myPicks || '');
         setSaveError(`Remote sync unavailable. ${String((remoteError as Error)?.message || '')}`.trim());
       }
@@ -409,7 +428,7 @@ export default function TeamProspectDraftboard() {
   useEffect(() => {
     if (loading || !canEdit) return;
     const t = setTimeout(async () => {
-      const boardData = buildBoardData(players, scoutingUrl, customTiers, playerCustomTier, myPicks);
+      const boardData = buildBoardData(players, scoutingUrl, customTiers, tierBreaks, myPicks);
       saveLocalBackup(boardData);
       try {
         const res = await fetch(BOARD_API_URL, { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json' }, body: JSON.stringify({ data: boardData }) });
@@ -425,7 +444,7 @@ export default function TeamProspectDraftboard() {
       }
     }, 600);
     return () => clearTimeout(t);
-  }, [players, scoutingUrl, loading, canEdit, customTiers, playerCustomTier, myPicks]);
+  }, [players, scoutingUrl, loading, canEdit, customTiers, tierBreaks, myPicks]);
 
   const toggleExpand = (id: string) => setExpandedId((prev) => prev === id ? null : id);
   const updatePlayer = (id: string, patch: Record<string, unknown>) => setPlayers((prev) => prev.map((p) => p.id === id ? { ...p, ...patch } : p));
@@ -474,7 +493,7 @@ export default function TeamProspectDraftboard() {
     setScoutingStatus('loading');
     setScoutingError('');
     setCustomTiers([]);
-    setPlayerCustomTier({});
+    setTierBreaks({});
     setMyPicks('');
     setMockDraftOrder([]);
     setMockDraftSlots([]);
@@ -599,7 +618,24 @@ export default function TeamProspectDraftboard() {
                 Add
               </button>
             </div>
-            {customTiers.length > 0 && <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>{customTiers.map((tier) => <span key={tier} style={{ fontSize: '11px', border: `1px solid ${C.border}`, borderRadius: '999px', padding: '2px 8px', color: C.accent }}>{tier}</span>)}</div>}
+            {customTiers.length > 0 && (
+              <div>
+                <div style={{ fontSize: '9px', color: C.textDim, letterSpacing: '1.5px', marginBottom: '5px' }}>DRAG DIVIDERS ONTO BOARD TO PLACE · DRAG ON BOARD TO REPOSITION</div>
+                <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                  {customTiers.map((tier) => {
+                    const isPlaced = (tierBreaks[tier] ?? -1) >= 0;
+                    return (
+                      <span key={tier} draggable onDragStart={() => setDraggedTierDiv(tier)} onDragEnd={() => setDraggedTierDiv(null)} title={isPlaced ? `Drag to reposition "${tier}"` : `Drag onto board to place "${tier}"`} style={{ fontSize: '11px', border: `1px solid ${isPlaced ? C.accent : C.border}`, borderRadius: '999px', padding: '2px 8px 2px 6px', color: isPlaced ? C.accent : C.textMuted, cursor: 'grab', display: 'inline-flex', alignItems: 'center', gap: '4px', userSelect: 'none' }}>
+                        <span style={{ fontSize: '12px', color: C.textDim, lineHeight: 1 }}>⠿</span>
+                        {tier}
+                        {!isPlaced && <span style={{ fontSize: '9px', color: C.textDim }}>· place</span>}
+                        <button onClick={(e) => { e.stopPropagation(); setCustomTiers(prev => prev.filter(t => t !== tier)); setTierBreaks(prev => { const n = { ...prev }; delete n[tier]; return n; }); }} style={{ background: 'transparent', border: 'none', color: C.textDim, cursor: 'pointer', padding: '0 0 0 3px', fontSize: '13px', lineHeight: 1 }}>×</button>
+                      </span>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </div>
         )}
         {playersToShow.length === 0 && (
@@ -608,23 +644,43 @@ export default function TeamProspectDraftboard() {
           </div>
         )}
         {(() => {
-          const seenTiers = new Set<string>();
           return playersToShow.flatMap((p) => {
             const pId = String(p.id);
-            const tier = playerCustomTier[pId] || '';
-            const items: React.ReactNode[] = [];
-            if (boardView === 'board' && tier && !seenTiers.has(tier)) {
-              seenTiers.add(tier);
-              const isCollapsed = !!collapsedTiers[tier];
-              items.push(
-                <div key={`tier-${tier}`} onClick={() => setCollapsedTiers(prev => ({ ...prev, [tier]: !prev[tier] }))} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '7px 12px', margin: '10px 0 3px 0', background: `${C.primary}22`, border: `1px solid ${C.primary}44`, borderRadius: '3px', cursor: 'pointer', userSelect: 'none' }}>
-                  <span style={{ fontSize: '10px', letterSpacing: '2px', color: C.accent, fontWeight: 700 }}>{tier}</span>
-                  <span style={{ color: C.accent, fontSize: '11px' }}>{isCollapsed ? '▶ SHOW' : '▼ HIDE'}</span>
-                </div>
-              );
-            }
-            if (boardView === 'board' && tier && collapsedTiers[tier]) return items;
             const rank = rankedPlayers.findIndex(rp => rp.id === p.id) + 1;
+            const rankIdx = rank - 1;
+            const items: React.ReactNode[] = [];
+            if (boardView === 'board') {
+              for (const tierName of customTiers) {
+                if ((tierBreaks[tierName] ?? -1) === rankIdx) {
+                  const isCollapsed = !!collapsedTiers[tierName];
+                  const tierDivId = `tier-${tierName}`;
+                  items.push(
+                    <div key={tierDivId}
+                      draggable={canEdit}
+                      onDragStart={(e) => { e.stopPropagation(); setDraggedTierDiv(tierName); }}
+                      onDragEnd={() => { setDraggedTierDiv(null); setDragOverId(null); }}
+                      onClick={() => setCollapsedTiers(prev => ({ ...prev, [tierName]: !prev[tierName] }))}
+                      onDragOver={(e) => { if (!canEdit) return; e.preventDefault(); if (dragOverId !== tierDivId) setDragOverId(tierDivId); }}
+                      onDrop={(e) => { e.preventDefault(); if (draggedTierDiv && draggedTierDiv !== tierName) { setTierBreaks(prev => ({ ...prev, [draggedTierDiv]: rankIdx })); setDraggedTierDiv(null); } else if (!draggedTierDiv && draggedId) { onDrop(e, pId); } setDragOverId(null); }}
+                      onDragLeave={() => { if (dragOverId === tierDivId) setDragOverId(null); }}
+                      style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '7px 12px', margin: '10px 0 3px 0', background: dragOverId === tierDivId ? `${C.accent}22` : `${C.primary}22`, border: `2px solid ${dragOverId === tierDivId ? C.accent : `${C.primary}44`}`, borderRadius: '3px', cursor: canEdit ? 'grab' : 'pointer', userSelect: 'none', transition: 'border-color 0.1s, background 0.1s' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        {canEdit && <span style={{ fontSize: '13px', color: C.textDim }}>⠿</span>}
+                        <span style={{ fontSize: '10px', letterSpacing: '2px', color: C.accent, fontWeight: 700 }}>{tierName}</span>
+                      </div>
+                      <span style={{ color: C.accent, fontSize: '11px' }}>{isCollapsed ? '▶ SHOW' : '▼ HIDE'}</span>
+                    </div>
+                  );
+                }
+              }
+            }
+            const assignedTier = (() => {
+              if (boardView !== 'board') return '';
+              let best = ''; let bestBreak = -1;
+              for (const t of customTiers) { const b = tierBreaks[t] ?? -1; if (b >= 0 && b <= rankIdx && b > bestBreak) { bestBreak = b; best = t; } }
+              return best;
+            })();
+            if (boardView === 'board' && assignedTier && collapsedTiers[assignedTier]) return items;
             const isMockDrafted = boardView === 'mock' && mockDraftOrder.includes(pId);
             const mockPickIdx = isMockDrafted ? mockDraftOrder.indexOf(pId) : -1;
             const mockPickNum = mockPickIdx + 1;
@@ -635,7 +691,7 @@ export default function TeamProspectDraftboard() {
             const idx = p._absIdx;
             const flagColors = getFlagColors(p);
             items.push(
-              <div key={pId} draggable={canEdit && boardView !== 'mock'} onDragStart={() => setDraggedId(pId)} onDragOver={(e) => { if (!canEdit || boardView === 'mock') return; e.preventDefault(); if (dragOverId !== p.id) setDragOverId(pId); }} onDrop={(e) => onDrop(e, pId)} onDragEnd={() => { setDraggedId(null); setDragOverId(null); }} style={{ background: isMockDrafted ? C.bg : flagColors.bg, border: `1px solid ${isMockDrafted ? C.border : flagColors.border}`, borderRadius: '4px', marginBottom: '5px', opacity: isMockDrafted ? 0.3 : (draggedId === p.id ? 0.4 : 1), position: 'relative' }}>
+              <div key={pId} draggable={canEdit && boardView !== 'mock'} onDragStart={() => setDraggedId(pId)} onDragOver={(e) => { if (!canEdit || boardView === 'mock') return; e.preventDefault(); if (!draggedTierDiv && dragOverId !== p.id) setDragOverId(pId); }} onDrop={(e) => { if (draggedTierDiv) { setTierBreaks(prev => ({ ...prev, [draggedTierDiv]: rankIdx })); setDraggedTierDiv(null); setDragOverId(null); e.preventDefault(); } else { onDrop(e, pId); } }} onDragEnd={() => { setDraggedId(null); setDragOverId(null); }} style={{ background: isMockDrafted ? C.bg : flagColors.bg, border: `1px solid ${isMockDrafted ? C.border : flagColors.border}`, borderRadius: '4px', marginBottom: '5px', opacity: isMockDrafted ? 0.3 : (draggedId === p.id ? 0.4 : 1), position: 'relative' }}>
                 {isMockDrafted && <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', zIndex: 2, pointerEvents: 'none', gap: '3px' }}>
                   {(mockTeamLabel || mockPickLabel) && <div style={{ fontSize: '11px', color: C.warning, fontWeight: 700, background: `${C.bg}e0`, padding: '1px 10px', borderRadius: '3px' }}>{mockTeamLabel}{mockPickLabel ? ` • ${mockPickLabel}` : ''}</div>}
                   <div style={{ fontSize: '9px', letterSpacing: '3px', color: C.textDim, fontWeight: 700, background: `${C.bg}cc`, padding: '2px 10px', borderRadius: '3px' }}>{toOrdinal(mockPickNum)} OVERALL · DRAFTED</div>
@@ -663,7 +719,7 @@ export default function TeamProspectDraftboard() {
                   <button onClick={() => toggleExpand(pId)} aria-label={isExpanded ? 'Collapse' : 'Expand'} style={{ background: 'transparent', border: 'none', color: C.accent, cursor: 'pointer', padding: '4px', display: 'flex' }}>{isExpanded ? <ChevronUp size={18} /> : <ChevronDown size={18} />}</button>
                 </div>
                 {isExpanded && <div style={{ padding: '0 14px 14px 14px', borderTop: `1px solid ${C.border}`, marginTop: '4px' }}>
-                  {canEdit && <div style={{ marginTop: '12px' }}><div style={{ fontSize: '10px', letterSpacing: '2px', color: C.accent, fontWeight: 700, marginBottom: '6px' }}>CUSTOM TIER</div><div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}><select value={playerCustomTier[pId] || ''} onChange={(e) => setPlayerCustomTier((prev) => ({ ...prev, [pId]: e.target.value }))} style={{ background: C.bg, color: C.text, border: `1px solid ${C.border}`, borderRadius: '4px', padding: '6px', fontSize: '12px' }}><option value="">No Tier</option>{customTiers.map((t) => <option key={t} value={t}>{t}</option>)}</select>{playerCustomTier[pId] && <span style={{ fontSize: '11px', color: C.accent }}>Assigned: {playerCustomTier[pId]}</span>}</div></div>}
+                  {canEdit && assignedTier && <div style={{ marginTop: '8px', fontSize: '11px', color: C.textMuted }}><span style={{ color: C.textDim }}>Tier: </span><span style={{ color: C.accent }}>{assignedTier}</span></div>}
                   <div style={{ marginTop: '14px' }}><div style={{ fontSize: '10px', letterSpacing: '2px', color: C.accent, fontWeight: 700, marginBottom: '6px' }}>COLLEGE PRODUCTION</div><div style={{ display: 'grid', gap: '3px' }}>{(Array.isArray(p.s) ? p.s : []).map((line: string, i: number) => <div key={i} style={{ fontSize: '12.5px', padding: '3px 0', borderBottom: `1px dotted ${C.border}`, color: C.textMuted, lineHeight: '1.4' }}>{line}</div>)}</div></div>
                   <div style={{ marginTop: '14px' }}><div style={{ fontSize: '10px', letterSpacing: '2px', color: C.accent, fontWeight: 700, marginBottom: '6px' }}>SCOUTING REPORT</div><ScoutingSection playerId={pId} scoutingUrl={scoutingUrl} scoutingCache={scoutingCache} scoutingStatus={scoutingStatus} scoutingError={scoutingError} /></div>
                   <div style={{ marginTop: '14px' }}><div style={{ fontSize: '10px', letterSpacing: '2px', color: C.accent, fontWeight: 700, marginBottom: '6px' }}>MY NOTES</div><textarea disabled={!canEdit} value={String(p.userNote || '')} onChange={(e) => updatePlayer(pId, { userNote: e.target.value })} placeholder={canEdit ? 'Add your own notes...' : 'Sign in to add notes'} style={{ width: '100%', background: C.bg, color: C.text, border: `1px solid ${C.border}`, borderRadius: '4px', padding: '8px', fontSize: '14px', minHeight: '70px', resize: 'vertical', opacity: canEdit ? 1 : 0.7 }} /></div>
