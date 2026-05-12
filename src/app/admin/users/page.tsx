@@ -16,12 +16,69 @@ type Row = {
 
 type TimeRow = { team: string; minutesEst: number; lastSeen: string | null };
 
+type PinStatus = {
+  team: string;
+  hasPin: boolean;
+  updatedAt: string | null;
+  pinVersion: number | null;
+  isDefault: boolean | null;
+};
+
 export default function AdminUsersPage() {
   const [days, setDays] = useState<number>(30);
   const [rows, setRows] = useState<Array<Row & { minutesEst?: number }>>([]);
   const [since, setSince] = useState<string>('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  const [pinStatuses, setPinStatuses] = useState<PinStatus[]>([]);
+  const [pinLoading, setPinLoading] = useState(true);
+  const [pinInputs, setPinInputs] = useState<Record<string, string>>({});
+  const [pinResults, setPinResults] = useState<Record<string, { ok: boolean; msg: string }>>({});
+  const [pinSaving, setPinSaving] = useState<Record<string, boolean>>({});
+
+  async function loadPins() {
+    try {
+      setPinLoading(true);
+      const res = await fetch('/api/admin/pins', { cache: 'no-store' });
+      if (!res.ok) return;
+      const j = await res.json();
+      setPinStatuses((j.teams as PinStatus[]) || []);
+    } catch {
+      // silent
+    } finally {
+      setPinLoading(false);
+    }
+  }
+
+  async function resetPin(team: string) {
+    const newPin = (pinInputs[team] || '').trim();
+    if (!/^[0-9]{4,12}$/.test(newPin)) {
+      setPinResults((p) => ({ ...p, [team]: { ok: false, msg: 'PIN must be 4–12 digits' } }));
+      return;
+    }
+    setPinSaving((s) => ({ ...s, [team]: true }));
+    setPinResults((p) => ({ ...p, [team]: { ok: false, msg: '' } }));
+    try {
+      const res = await fetch('/api/admin/pins/set', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ team, pin: newPin }),
+      });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setPinResults((p) => ({ ...p, [team]: { ok: false, msg: j?.error || 'Failed' } }));
+      } else {
+        setPinResults((p) => ({ ...p, [team]: { ok: true, msg: 'PIN updated ✓' } }));
+        setPinInputs((inp) => ({ ...inp, [team]: '' }));
+        loadPins();
+      }
+    } catch {
+      setPinResults((p) => ({ ...p, [team]: { ok: false, msg: 'Network error' } }));
+    } finally {
+      setPinSaving((s) => ({ ...s, [team]: false }));
+    }
+  }
 
   async function load(d: number) {
     try {
@@ -66,6 +123,7 @@ export default function AdminUsersPage() {
 
   useEffect(() => {
     load(days);
+    loadPins();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -127,6 +185,85 @@ export default function AdminUsersPage() {
                       <td className="py-2 pr-4">{r.lastIp || '—'}</td>
                     </tr>
                   ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+      {/* PIN Management */}
+      <Card className="mt-6">
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <CardTitle>Team PIN Reset</CardTitle>
+            <Button variant="ghost" onClick={loadPins} disabled={pinLoading}>Refresh</Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {pinLoading ? (
+            <p className="text-[var(--muted)]">Loading…</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-sm">
+                <thead>
+                  <tr className="text-left border-b border-[var(--border)]">
+                    <th className="py-2 pr-4">Team</th>
+                    <th className="py-2 pr-4">Status</th>
+                    <th className="py-2 pr-4">Last Updated</th>
+                    <th className="py-2 pr-4">Version</th>
+                    <th className="py-2">Set New PIN</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {pinStatuses.map((ps) => {
+                    const result = pinResults[ps.team];
+                    const saving = pinSaving[ps.team] || false;
+                    return (
+                      <tr key={ps.team} className="border-b border-[var(--border)]">
+                        <td className="py-2 pr-4 font-medium">{ps.team}</td>
+                        <td className="py-2 pr-4">
+                          {!ps.hasPin ? (
+                            <span className="text-[var(--muted)] text-xs">No PIN set</span>
+                          ) : ps.isDefault ? (
+                            <span className="text-xs bg-yellow-400/20 text-yellow-600 dark:text-yellow-400 px-1.5 py-0.5 rounded">Default PIN</span>
+                          ) : (
+                            <span className="text-xs bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 px-1.5 py-0.5 rounded">Custom PIN</span>
+                          )}
+                        </td>
+                        <td className="py-2 pr-4 text-[var(--muted)] text-xs">
+                          {ps.updatedAt ? new Date(ps.updatedAt).toLocaleString() : '—'}
+                        </td>
+                        <td className="py-2 pr-4 text-[var(--muted)] text-xs">{ps.pinVersion ?? '—'}</td>
+                        <td className="py-2">
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="tel"
+                              inputMode="numeric"
+                              pattern="[0-9]*"
+                              maxLength={12}
+                              placeholder="4–12 digits"
+                              value={pinInputs[ps.team] || ''}
+                              onChange={(e) => setPinInputs((inp) => ({ ...inp, [ps.team]: e.target.value.replace(/[^0-9]/g, '').slice(0, 12) }))}
+                              onKeyDown={(e) => { if (e.key === 'Enter') resetPin(ps.team); }}
+                              className="w-32 rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-[var(--text)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)]"
+                            />
+                            <Button
+                              onClick={() => resetPin(ps.team)}
+                              disabled={saving || !(pinInputs[ps.team] || '').trim()}
+                              variant="primary"
+                            >
+                              {saving ? 'Saving…' : 'Set PIN'}
+                            </Button>
+                            {result?.msg && (
+                              <span className={`text-xs ${result.ok ? 'text-emerald-500' : 'text-[var(--danger)]'}`}>
+                                {result.msg}
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
