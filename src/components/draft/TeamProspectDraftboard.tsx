@@ -546,7 +546,17 @@ export default function TeamProspectDraftboard() {
     setPlayerTags(prev => { const cur = prev[id] || []; return { ...prev, [id]: cur.includes(tag) ? cur.filter(t => t !== tag) : [...cur, tag] }; });
   };
 
+  const boardFileName = () => (teamName ? `${teamName}-prospect-draft-board` : 'prospect-draft-board').replace(/\s+/g, '-').toLowerCase();
+
+  const exportJSON = () => {
+    if (!canEdit) return;
+    const boardData = buildBoardData(players, scoutingUrl, customTiers, tierBreaks, myPicks, customTagsList, playerTags);
+    const blob = new Blob([JSON.stringify(boardData, null, 2)], { type: 'application/json' });
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `${boardFileName()}.json`; a.click();
+  };
+
   const exportCSV = () => {
+    if (!canEdit) return;
     const ranked = players.map((p, i) => ({ ...p, _rank: i + 1 }));
     const headers = ['Rank', 'Name', 'Position', 'NFL Team', 'College', 'NFL Pick', 'Tags', 'Target', 'Monitor', 'Avoid', 'Tier', 'Notes'];
     const rows = ranked.map((p) => {
@@ -558,10 +568,11 @@ export default function TeamProspectDraftboard() {
     });
     const csv = [headers.map(h => `"${h}"`).join(','), ...rows].join('\n');
     const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
-    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `${title.replace(/\s+/g, '-').toLowerCase()}.csv`; a.click();
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `${boardFileName()}.csv`; a.click();
   };
 
   const exportExcel = () => {
+    if (!canEdit) return;
     const ranked = players.map((p, i) => ({ ...p, _rank: i + 1 }));
     const rows = ranked.map((p) => {
       const pId = String(p.id);
@@ -573,7 +584,7 @@ export default function TeamProspectDraftboard() {
     const ws = XLSX.utils.json_to_sheet(rows);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Draft Board');
-    XLSX.writeFile(wb, `${title.replace(/\s+/g, '-').toLowerCase()}.xlsx`);
+    XLSX.writeFile(wb, `${boardFileName()}.xlsx`);
   };
 
   if (loading) return <div style={{ minHeight: '50vh', background: C.bg, color: C.accent, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'Georgia, serif' }}>Loading draft board...</div>;
@@ -602,8 +613,9 @@ export default function TeamProspectDraftboard() {
               {saveStatus && <span style={{ fontSize: '11px', color: C.accent, display: 'flex', alignItems: 'center', gap: '4px' }}><Save size={12} /> {saveStatus}</span>}
               {saveError && <span style={{ fontSize: '11px', color: C.unlikely }}>{saveError}</span>}
               {canEdit && <button onClick={reset} title="Reset to NFL draft order" style={{ background: 'transparent', border: `1px solid ${C.border}`, color: C.textMuted, padding: '6px 10px', borderRadius: '3px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px' }}><RotateCcw size={12} /></button>}
-              <button onClick={exportCSV} title="Download CSV" style={{ background: 'transparent', border: `1px solid ${C.border}`, color: C.textMuted, padding: '6px 10px', borderRadius: '3px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', letterSpacing: '1px' }}><Download size={12} /> CSV</button>
-              <button onClick={exportExcel} title="Download Excel (.xlsx)" style={{ background: 'transparent', border: `1px solid ${C.border}`, color: C.textMuted, padding: '6px 10px', borderRadius: '3px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', letterSpacing: '1px' }}><Download size={12} /> XLSX</button>
+              {canEdit && <button onClick={exportJSON} title="Download JSON (full board backup)" style={{ background: 'transparent', border: `1px solid ${C.border}`, color: C.textMuted, padding: '6px 10px', borderRadius: '3px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', letterSpacing: '1px' }}><Download size={12} /> JSON</button>}
+              {canEdit && <button onClick={exportCSV} title="Download CSV" style={{ background: 'transparent', border: `1px solid ${C.border}`, color: C.textMuted, padding: '6px 10px', borderRadius: '3px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', letterSpacing: '1px' }}><Download size={12} /> CSV</button>}
+              {canEdit && <button onClick={exportExcel} title="Download Excel (.xlsx)" style={{ background: 'transparent', border: `1px solid ${C.border}`, color: C.textMuted, padding: '6px 10px', borderRadius: '3px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', letterSpacing: '1px' }}><Download size={12} /> XLSX</button>}
               <button onClick={() => window.print()} title="Print / Save as PDF" style={{ background: 'transparent', border: `1px solid ${C.border}`, color: C.textMuted, padding: '6px 10px', borderRadius: '3px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px' }}><Printer size={12} /></button>
             </div>
           </div>

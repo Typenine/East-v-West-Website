@@ -20,6 +20,12 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "East v. West Fantasy Football",
   description: "Dynasty fantasy football league for East v. West",
+  icons: {
+    icon: [
+      { url: '/assets/teams/East v West Logos/Official East v. West Logo.png', type: 'image/png' },
+    ],
+    apple: '/assets/teams/East v West Logos/Official East v. West Logo.png',
+  },
 };
 
 export default function RootLayout({

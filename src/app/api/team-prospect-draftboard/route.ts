@@ -23,13 +23,15 @@ export async function GET() {
     if (!ident) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     await ensureTeamProspectDraftboardTable();
     const db = getDb();
-    const rows = await db.execute(sql`
+    const res = await db.execute(sql`
       SELECT data, updated_at
       FROM team_prospect_draftboard_state
       WHERE user_id = ${ident.userId}
       LIMIT 1
     `);
-    const row = (rows as unknown as Array<{ data: unknown; updated_at: string }>)[0];
+    // neon-http returns { rows: [...] }, not a plain array
+    const rawRows = (res as unknown as { rows?: Array<{ data: unknown; updated_at: string }> }).rows ?? [];
+    const row = rawRows[0];
     return NextResponse.json({
       data: row?.data || {},
       updatedAt: row?.updated_at || null,
@@ -52,7 +54,7 @@ export async function POST(req: NextRequest) {
 
     await ensureTeamProspectDraftboardTable();
     const db = getDb();
-    const rows = await db.execute(sql`
+    const res = await db.execute(sql`
       INSERT INTO team_prospect_draftboard_state (user_id, team, data, updated_at)
       VALUES (${ident.userId}, ${canonicalizeTeamName(ident.team)}, ${JSON.stringify(body.data)}::jsonb, now())
       ON CONFLICT (user_id) DO UPDATE
@@ -62,7 +64,9 @@ export async function POST(req: NextRequest) {
       RETURNING data, updated_at
     `);
 
-    const row = (rows as unknown as Array<{ data: unknown; updated_at: string }>)[0];
+    // neon-http returns { rows: [...] }, not a plain array
+    const rawRows = (res as unknown as { rows?: Array<{ data: unknown; updated_at: string }> }).rows ?? [];
+    const row = rawRows[0];
     return NextResponse.json({
       data: row?.data || body.data,
       updatedAt: row?.updated_at || null,

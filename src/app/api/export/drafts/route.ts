@@ -438,11 +438,23 @@ export async function GET() {
     let futurePickOwnership: FuturePickOwnership = {};
     try {
       const currentLeagueId = LEAGUE_IDS.CURRENT;
+      // Determine current season dynamically so this stays correct year-over-year
+      let currentSeasonNum = new Date().getFullYear();
+      try {
+        const st = await getNFLState();
+        const s = Number((st as { season?: string | number }).season ?? currentSeasonNum);
+        if (Number.isFinite(s)) currentSeasonNum = s;
+      } catch {}
+      const futureSeasons = [
+        String(currentSeasonNum),
+        String(currentSeasonNum + 1),
+        String(currentSeasonNum + 2),
+      ];
       if (currentLeagueId) {
         futurePickOwnership = await buildFuturePickOwnershipForSeasons(
           currentLeagueId,
           opts,
-          ['2026', '2027', '2028'],
+          futureSeasons,
         );
       }
     } catch {
