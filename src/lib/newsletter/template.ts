@@ -114,11 +114,11 @@ function dualPerspective(entertainerText: string, analystText: string): string {
   return `
   <div style="display:grid;gap:20px;margin:24px 0;">
     <div style="padding:24px 28px;border-left:4px solid #be161e;background:#fff;box-shadow:0 1px 4px rgba(0,0,0,0.06);">
-      ${authorByline('The Entertainer', 'entertainer')}
+      ${authorByline('Mason Reed', 'entertainer')}
       <p style="margin:0;font-family:'Georgia','Times New Roman',serif;font-size:17px;line-height:1.8;color:#374151;">${esc(entertainerText)}</p>
     </div>
     <div style="padding:24px 28px;border-left:4px solid #0b5f98;background:#fff;box-shadow:0 1px 4px rgba(0,0,0,0.06);">
-      ${authorByline('The Analyst', 'analyst')}
+      ${authorByline('Trent Weston', 'analyst')}
       <p style="margin:0;font-family:'Georgia','Times New Roman',serif;font-size:17px;line-height:1.8;color:#374151;">${esc(analystText)}</p>
     </div>
   </div>`;
@@ -133,7 +133,7 @@ function conversationalDialogue(dialogue: Array<{ speaker: 'entertainer' | 'anal
     ${dialogue.map((turn) => {
       const isEntertainer = turn.speaker === 'entertainer';
       const borderColor = isEntertainer ? '#be161e' : '#0b5f98';
-      const name = isEntertainer ? 'The Entertainer' : 'The Analyst';
+      const name = isEntertainer ? 'Mason Reed' : 'Trent Weston';
       const role = isEntertainer ? 'entertainer' : 'analyst';
       return `
       <div style="padding:22px 26px;border-left:4px solid ${borderColor};background:#fff;box-shadow:0 1px 4px rgba(0,0,0,0.06);">
@@ -191,12 +191,12 @@ function sectionIntro(d: IntroSection, week: number, episodeType?: string, episo
     ${sectionHeader(headerTitle, subtitle)}
 
     <div style="padding:28px 32px;border-left:4px solid #be161e;background:#fff;box-shadow:0 1px 6px rgba(0,0,0,0.07);margin-bottom:20px;">
-      ${authorByline('The Entertainer', 'entertainer')}
+      ${authorByline('Mason Reed', 'entertainer')}
       <p style="margin:0;font-family:'Georgia','Times New Roman',serif;font-size:19px;line-height:1.9;color:#1f2937;font-style:italic;">"${esc(d.bot1_text)}"</p>
     </div>
 
     <div style="padding:28px 32px;border-left:4px solid #0b5f98;background:#fff;box-shadow:0 1px 6px rgba(0,0,0,0.07);">
-      ${authorByline('The Analyst', 'analyst')}
+      ${authorByline('Trent Weston', 'analyst')}
       <p style="margin:0;font-family:'Georgia','Times New Roman',serif;font-size:18px;line-height:1.85;color:#374151;">${esc(d.bot2_text)}</p>
     </div>
   </article>`;
@@ -232,8 +232,8 @@ function sectionCallbacks(cb: CallbacksSection | null): string {
     const anaW = (cb.forecast_picks || []).filter(x => x.analyst_correct === true).length;
     const anaL = (cb.forecast_picks || []).filter(x => x.analyst_correct === false).length;
     return `<div style="display:flex;gap:24px;margin-top:12px;padding-top:12px;border-top:2px solid #e5e7eb;font-size:13px;">
-      <span>🎭 Entertainer: <strong style="color:${entW >= entL ? '#16a34a' : '#dc2626'}">${entW}-${entL}</strong></span>
-      <span>📊 Analyst: <strong style="color:${anaW >= anaL ? '#16a34a' : '#dc2626'}">${anaW}-${anaL}</strong></span>
+      <span>🎭 Mason Reed: <strong style="color:${entW >= entL ? '#16a34a' : '#dc2626'}">${entW}-${entL}</strong></span>
+      <span>📊 Westy: <strong style="color:${anaW >= anaL ? '#16a34a' : '#dc2626'}">${anaW}-${anaL}</strong></span>
     </div>`;
   })() : '';
 
@@ -361,10 +361,19 @@ function sectionWaivers(list: WaiverItem[]): string {
       ? '<span style="background:#374151;color:#fff;padding:3px 10px;font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;margin-right:10px;">NOTABLE</span>'
       : '';
 
+    const teamPlayerLine = x.team || x.player
+      ? `<div style="font-family:'Georgia','Times New Roman',serif;font-weight:700;font-size:15px;color:#0d0d0d;margin-bottom:4px;">${x.player ? esc(x.player) : ''} ${x.player && x.team ? '→' : ''} ${x.team ? `<span style="font-weight:400;font-size:14px;color:#374151;">${esc(x.team)}</span>` : ''} ${x.faab_spent != null ? `<span style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:12px;font-weight:700;color:#059669;margin-left:8px;">$${x.faab_spent} FAAB</span>` : ''}</div>`
+      : '';
     return `
     <div style="background:#fff;border:1px solid #e5e7eb;border-radius:4px;margin-bottom:24px;box-shadow:0 1px 4px rgba(0,0,0,0.05);">
-      <div style="padding:12px 20px;border-bottom:1px solid #e5e7eb;background:#f9fafb;">
-        ${badge}${x.reasons?.length ? `<span style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;color:#6b7280;font-size:12px;">${esc(x.reasons.join(' · '))}</span>` : ''}
+      <div style="padding:14px 20px;border-bottom:1px solid #e5e7eb;background:#f9fafb;">
+        <div style="display:flex;align-items:flex-start;gap:10px;">
+          ${badge ? `<div style="flex-shrink:0;padding-top:2px;">${badge}</div>` : ''}
+          <div>
+            ${teamPlayerLine}
+            ${x.reasons?.length ? `<span style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;color:#6b7280;font-size:12px;">${esc(x.reasons.join(' · '))}</span>` : ''}
+          </div>
+        </div>
       </div>
       <div style="padding:4px 0;">
         ${dualPerspective(x.bot1, x.bot2)}
@@ -394,12 +403,19 @@ function sectionTrades(list: TradeItem[]): string {
       : '';
 
     const teamAnalysis = Object.entries(x.analysis || {}).map(([team, a]) => {
-      const gradeColor = a.grade === 'A' || a.grade === 'A+' ? '#059669' : a.grade === 'B' || a.grade === 'B+' ? '#0b5f98' : a.grade === 'C' ? '#92400e' : '#be161e';
+      const gradeColor = (g: string) => g.startsWith('A') ? '#059669' : g.startsWith('B') ? '#0b5f98' : g.startsWith('C') ? '#92400e' : '#be161e';
+      const entGrade = a.entertainer_grade || a.grade;
+      const anaGrade = a.analyst_grade || a.grade;
       return `
       <div style="margin:20px 0;padding-top:20px;border-top:1px solid #e5e7eb;">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
           <span style="font-family:'Georgia','Times New Roman',serif;font-weight:700;font-size:16px;color:#0d0d0d;">${esc(team)}</span>
-          <span style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;background:${gradeColor};color:#fff;padding:4px 14px;font-weight:700;font-size:13px;letter-spacing:0.5px;">Grade: ${esc(a.grade)}</span>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <span style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:10px;font-weight:700;color:#be161e;letter-spacing:0.5px;text-transform:uppercase;">Mason</span>
+            <span style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;background:${gradeColor(entGrade)};color:#fff;padding:4px 12px;font-weight:700;font-size:13px;letter-spacing:0.5px;">${esc(entGrade)}</span>
+            <span style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:10px;font-weight:700;color:#0b5f98;letter-spacing:0.5px;text-transform:uppercase;margin-left:4px;">Westy</span>
+            <span style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;background:${gradeColor(anaGrade)};color:#fff;padding:4px 12px;font-weight:700;font-size:13px;letter-spacing:0.5px;">${esc(anaGrade)}</span>
+          </div>
         </div>
         ${dualPerspective(a.entertainer_paragraph, a.analyst_paragraph)}
       </div>`;
@@ -436,11 +452,11 @@ function sectionForecast(d: ForecastData): string {
   const recordsLine = d.records
     ? `<div style="display:flex;gap:0;margin-bottom:28px;border:1px solid #e5e7eb;overflow:hidden;border-radius:4px;">
          <div style="flex:1;padding:16px 20px;border-right:1px solid #e5e7eb;text-align:center;">
-           <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#be161e;margin-bottom:6px;">Entertainer</div>
+           <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#be161e;margin-bottom:6px;">Mason Reed</div>
            <div style="font-family:'Georgia','Times New Roman',serif;font-size:28px;font-weight:700;color:#0d0d0d;">${esc(String(d.records.entertainer?.w || 0))}-${esc(String(d.records.entertainer?.l || 0))}</div>
          </div>
          <div style="flex:1;padding:16px 20px;text-align:center;">
-           <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#0b5f98;margin-bottom:6px;">Analyst</div>
+           <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#0b5f98;margin-bottom:6px;">Westy</div>
            <div style="font-family:'Georgia','Times New Roman',serif;font-size:28px;font-weight:700;color:#0d0d0d;">${esc(String(d.records.analyst?.w || 0))}-${esc(String(d.records.analyst?.l || 0))}</div>
          </div>
        </div>`
@@ -453,13 +469,13 @@ function sectionForecast(d: ForecastData): string {
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:0;">
         <div style="padding:16px 18px;border-right:1px solid #e5e7eb;">
-          <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#be161e;margin-bottom:8px;">Entertainer</div>
+          <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#be161e;margin-bottom:8px;">Mason Reed</div>
           <div style="font-family:'Georgia','Times New Roman',serif;font-weight:700;font-size:15px;color:#0d0d0d;">${esc(p.bot1_pick || '—')}</div>
           ${p.confidence_bot1 ? `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:12px;color:#6b7280;margin-top:4px;">${esc(p.confidence_bot1)}</div>` : ''}
           ${p.upset_bot1 ? `<span style="display:inline-block;margin-top:6px;background:#be161e;color:#fff;padding:2px 10px;font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;">UPSET PICK</span>` : ''}
         </div>
         <div style="padding:16px 18px;">
-          <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#0b5f98;margin-bottom:8px;">Analyst</div>
+          <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#0b5f98;margin-bottom:8px;">Westy</div>
           <div style="font-family:'Georgia','Times New Roman',serif;font-weight:700;font-size:15px;color:#0d0d0d;">${esc(p.bot2_pick || '—')}</div>
           ${p.confidence_bot2 ? `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:12px;color:#6b7280;margin-top:4px;">${esc(p.confidence_bot2)}</div>` : ''}
           ${p.upset_bot2 ? `<span style="display:inline-block;margin-top:6px;background:#0b5f98;color:#fff;padding:2px 10px;font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;">UPSET PICK</span>` : ''}
@@ -470,8 +486,8 @@ function sectionForecast(d: ForecastData): string {
   const extras = d.bot1_matchup_of_the_week || d.bot2_matchup_of_the_week ? `
     <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:4px;padding:20px 24px;margin-top:24px;">
       <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:11px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#0d0d0d;margin-bottom:14px;">Matchup of the Week</div>
-      ${d.bot1_matchup_of_the_week ? `<div style="font-family:'Georgia','Times New Roman',serif;font-size:15px;color:#374151;margin-bottom:10px;"><span style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:11px;font-weight:700;color:#be161e;letter-spacing:0.5px;text-transform:uppercase;margin-right:8px;">Entertainer</span>${esc(d.bot1_matchup_of_the_week)}</div>` : ''}
-      ${d.bot2_matchup_of_the_week ? `<div style="font-family:'Georgia','Times New Roman',serif;font-size:15px;color:#374151;"><span style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:11px;font-weight:700;color:#0b5f98;letter-spacing:0.5px;text-transform:uppercase;margin-right:8px;">Analyst</span>${esc(d.bot2_matchup_of_the_week)}</div>` : ''}
+      ${d.bot1_matchup_of_the_week ? `<div style="font-family:'Georgia','Times New Roman',serif;font-size:15px;color:#374151;margin-bottom:10px;"><span style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:11px;font-weight:700;color:#be161e;letter-spacing:0.5px;text-transform:uppercase;margin-right:8px;">Mason</span>${esc(d.bot1_matchup_of_the_week)}</div>` : ''}
+      ${d.bot2_matchup_of_the_week ? `<div style="font-family:'Georgia','Times New Roman',serif;font-size:15px;color:#374151;"><span style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:11px;font-weight:700;color:#0b5f98;letter-spacing:0.5px;text-transform:uppercase;margin-right:8px;">Westy</span>${esc(d.bot2_matchup_of_the_week)}</div>` : ''}
     </div>` : '';
 
   return `
@@ -488,13 +504,13 @@ function sectionFinal(d: FinalWordSection): string {
   <article>
     ${sectionHeader('THE FINAL WORD', 'Closing thoughts')}
     <div style="padding:28px 32px;border-left:4px solid #be161e;background:#fff;box-shadow:0 1px 6px rgba(0,0,0,0.07);margin-bottom:20px;">
-      ${authorByline('The Entertainer', 'entertainer')}
+      ${authorByline('Mason Reed', 'entertainer')}
       <blockquote style="margin:0;padding:0;border:none;">
         <p style="margin:0 0 0;font-family:'Georgia','Times New Roman',serif;font-size:18px;line-height:1.9;color:#374151;font-style:italic;">${esc(d.bot1)}</p>
       </blockquote>
     </div>
     <div style="padding:28px 32px;border-left:4px solid #0b5f98;background:#fff;box-shadow:0 1px 6px rgba(0,0,0,0.07);">
-      ${authorByline('The Analyst', 'analyst')}
+      ${authorByline('Trent Weston', 'analyst')}
       <blockquote style="margin:0;padding:0;border:none;">
         <p style="margin:0;font-family:'Georgia','Times New Roman',serif;font-size:18px;line-height:1.9;color:#374151;">${esc(d.bot2)}</p>
       </blockquote>
@@ -515,12 +531,12 @@ function sectionBotDebates(debates: BotDebate[]): string {
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:0;">
         <div style="padding:20px 22px;border-right:1px solid #e5e7eb;">
-          <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#be161e;margin-bottom:6px;">Entertainer</div>
+          <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#be161e;margin-bottom:6px;">Mason Reed</div>
           <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:12px;font-weight:700;color:#0d0d0d;margin-bottom:10px;">${esc(d.entertainer_position)}</div>
           <p style="margin:0;font-family:'Georgia','Times New Roman',serif;font-size:15px;line-height:1.75;color:#374151;">${esc(d.entertainer_argument)}</p>
         </div>
         <div style="padding:20px 22px;">
-          <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#0b5f98;margin-bottom:6px;">Analyst</div>
+          <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#0b5f98;margin-bottom:6px;">Westy</div>
           <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:12px;font-weight:700;color:#0d0d0d;margin-bottom:10px;">${esc(d.analyst_position)}</div>
           <p style="margin:0;font-family:'Georgia','Times New Roman',serif;font-size:15px;line-height:1.75;color:#374151;">${esc(d.analyst_argument)}</p>
         </div>
@@ -549,7 +565,7 @@ function sectionHotTakes(takes: WeeklyHotTake[]): string {
     const borderColor = boldnessColor[t.boldness];
     const textColor = boldnessTextColor[t.boldness];
     const accentColor = boldnessAccent[t.boldness];
-    const botLabel = t.bot === 'entertainer' ? 'The Entertainer' : 'The Analyst';
+    const botLabel = t.bot === 'entertainer' ? 'Mason Reed' : 'Trent Weston';
     const boldnessLabel = t.boldness.toUpperCase();
     return `
     <div style="background:${bg};border-left:5px solid ${borderColor};padding:24px 28px;margin-bottom:16px;">
@@ -840,11 +856,11 @@ function sectionSeasonPreview(d: SeasonPreviewSection): string {
       ${subHeading('Bold Predictions', '#374151')}
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:0;border:1px solid #e5e7eb;overflow:hidden;border-radius:4px;">
         <div style="padding:18px 20px;border-right:1px solid #e5e7eb;">
-          <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#be161e;margin-bottom:12px;">The Entertainer</div>
+          <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#be161e;margin-bottom:12px;">Mason Reed</div>
           <ul style="margin:0;padding-left:18px;">${predictions1}</ul>
         </div>
         <div style="padding:18px 20px;">
-          <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#0b5f98;margin-bottom:12px;">The Analyst</div>
+          <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#0b5f98;margin-bottom:12px;">Trent Weston</div>
           <ul style="margin:0;padding-left:18px;">${predictions2}</ul>
         </div>
       </div>
@@ -854,11 +870,11 @@ function sectionSeasonPreview(d: SeasonPreviewSection): string {
       <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:10px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:#be161e;margin-bottom:12px;">Championship Picks</div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;">
         <div>
-          <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:rgba(255,255,255,0.5);margin-bottom:8px;">Entertainer</div>
+          <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:rgba(255,255,255,0.5);margin-bottom:8px;">Mason</div>
           <div style="font-family:'Georgia','Times New Roman',serif;font-weight:700;font-size:18px;color:#fff;">${esc(d.championshipPick?.bot1 || 'TBD')}</div>
         </div>
         <div>
-          <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:rgba(255,255,255,0.5);margin-bottom:8px;">Analyst</div>
+          <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:rgba(255,255,255,0.5);margin-bottom:8px;">Westy</div>
           <div style="font-family:'Georgia','Times New Roman',serif;font-weight:700;font-size:18px;color:#fff;">${esc(d.championshipPick?.bot2 || 'TBD')}</div>
         </div>
       </div>
@@ -1064,6 +1080,23 @@ export function renderHtml(newsletter: Newsletter): string {
   * { box-sizing: border-box; }
   body { margin: 0; padding: 0; background: #f4f4f4; font-family: 'Georgia', 'Times New Roman', serif; color: #374151; line-height: 1.8; font-size: 17px; }
   article { margin-bottom: 56px; }
+  @media print {
+    body { background: #fff; font-size: 13px; line-height: 1.6; }
+    .no-print { display: none !important; }
+    article { margin-bottom: 32px; page-break-inside: avoid; }
+    div[style*="max-width:860px"] { padding: 0 !important; }
+    /* Keep section headers from orphaning at page bottom */
+    div[style*="border-left:5px solid #be161e"] { page-break-after: avoid; }
+    /* Avoid breaking inside recap cards */
+    div[style*="border-radius:6px"] { page-break-inside: avoid; }
+    div[style*="border-radius:4px"] { page-break-inside: avoid; }
+    /* Reduce header padding */
+    header { padding: 20px !important; margin-bottom: 24px !important; }
+    h1 { font-size: 26px !important; }
+    h2 { font-size: 18px !important; }
+    /* Force black text for score numbers */
+    div[style*="font-size:26px"] { color: #000 !important; }
+  }
 </style>
 </head>
 <body>

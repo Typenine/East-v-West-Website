@@ -6,14 +6,19 @@
 import type { ProviderRequest } from '../cascade';
 
 const OPENROUTER_API_URL = 'https://openrouter.ai/api/v1/chat/completions';
-const PRIMARY_MODEL  = 'meta-llama/llama-3.3-70b-instruct:free';
-const FALLBACK_MODEL = 'meta-llama/llama-3.1-8b-instruct:free';
+// Models tried in order — mix of free and small paid to maximise availability
+const MODELS = [
+  'meta-llama/llama-3.3-70b-instruct:free',
+  'mistralai/mistral-7b-instruct:free',
+  'google/gemini-2.0-flash-exp:free',
+  'qwen/qwen-2.5-7b-instruct:free',
+];
 
 export async function generateWithOpenRouterProvider(req: ProviderRequest): Promise<string> {
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) throw new Error('OPENROUTER_API_KEY not set');
 
-  const modelsToTry = [PRIMARY_MODEL, FALLBACK_MODEL];
+  const modelsToTry = MODELS;
 
   for (const model of modelsToTry) {
     const abort = new AbortController();
@@ -49,9 +54,7 @@ export async function generateWithOpenRouterProvider(req: ProviderRequest): Prom
         const errorText = await response.text();
         if (response.status === 401) throw new Error(`OpenRouter 401 Unauthorized: ${errorText}`);
         if (response.status === 404) {
-          // Try the fallback model
-          if (model === PRIMARY_MODEL) continue;
-          throw new Error(`OpenRouter 404 model not found: ${errorText}`);
+          continue; // try next model in the list
         }
         throw new Error(`OpenRouter HTTP ${response.status}: ${errorText}`);
       }
@@ -77,9 +80,8 @@ export async function generateWithOpenRouterProvider(req: ProviderRequest): Prom
       }
 
       if (msg.includes('401') || msg.includes('unauthorized')) throw err as Error;
-      if (msg.includes('404') || msg.includes('model not found')) {
-        if (model === PRIMARY_MODEL) continue;
-        throw err as Error;
+      if (msg.includes('404') || msg.includes('model not found') || msg.includes('no endpoints')) {
+        continue; // try next model
       }
 
       // Rate-limit / quota — re-throw for cascade
@@ -95,8 +97,7 @@ export async function generateWithOpenRouterProvider(req: ProviderRequest): Prom
         throw err as Error;
       }
 
-      if (model === PRIMARY_MODEL) continue;
-      throw err instanceof Error ? err : new Error(String(err));
+      continue; // unknown error — try next model
     }
   }
 

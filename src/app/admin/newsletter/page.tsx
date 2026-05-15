@@ -582,16 +582,19 @@ function AdminNewsletterPageInner() {
                         <Button
                           variant="secondary"
                           onClick={() => {
-                            const blob = new Blob([result.html!], { type: 'text/html' });
-                            const url = URL.createObjectURL(blob);
-                            const a = document.createElement('a');
-                            a.href = url;
-                            a.download = `newsletter-s${seasonInput}-w${weekInput}.html`;
-                            a.click();
-                            URL.revokeObjectURL(url);
+                            const printWindow = window.open('', '_blank');
+                            if (!printWindow) return;
+                            // Inject base tag so logo paths (e.g. /assets/...) resolve against the dev server
+                            const baseTag = `<base href="${window.location.origin}">`;
+                            const html = result.html!.replace('<head>', `<head>${baseTag}`);
+                            printWindow.document.write(html);
+                            printWindow.document.close();
+                            printWindow.addEventListener('load', () => {
+                              printWindow.print();
+                            });
                           }}
                         >
-                          ⬇️ Download
+                          ⬇️ Save as PDF
                         </Button>
                       </div>
                     )}

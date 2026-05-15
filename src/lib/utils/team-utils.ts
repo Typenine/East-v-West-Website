@@ -75,7 +75,7 @@ export const getTeamLogoPath = (teamName: string): string => {
   };
   
   const logoFile = logoMap[teamName] || `${formatTeamNameForLogo(teamName)}.png`;
-  return `/assets/teams/East v West Logos/${logoFile}`;
+  return `/assets/teams/East%20v%20West%20Logos/${encodeURIComponent(logoFile)}`;
 };
 
 /**

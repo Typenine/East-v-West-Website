@@ -324,6 +324,10 @@ interface NormalizedEvent {
   team?: string;
   player?: string;
   faab_spent?: number;
+  details?: {
+    headline?: string;
+    by_team?: Record<string, { gets: string[]; gives: string[] }>;
+  };
 }
 
 function normalizeTransactions(
@@ -336,12 +340,54 @@ function normalizeTransactions(
     const type = t.type;
 
     if (type === 'trade') {
-      const parties = (t.roster_ids || []).map(
+      const rosterIds = t.roster_ids || [];
+      const parties = rosterIds.map(
         id => rostersIndex.get(id)?.owner_name || `Roster ${id}`
       );
       const addsCount = t.adds ? Object.keys(t.adds).length : 0;
       const dropsCount = t.drops ? Object.keys(t.drops).length : 0;
       const picksCount = Array.isArray(t.draft_picks) ? t.draft_picks.length : 0;
+
+      // Build per-team asset breakdown with resolved player names
+      const by_team: Record<string, { gets: string[]; gives: string[] }> = {};
+      for (const rosterId of rosterIds) {
+        const teamName = rostersIndex.get(rosterId)?.owner_name || `Roster ${rosterId}`;
+        const gets: string[] = [];
+        const gives: string[] = [];
+        // Players received
+        if (t.adds) {
+          for (const [playerId, receiverId] of Object.entries(t.adds)) {
+            if (receiverId === rosterId) {
+              const name = resolvePlayerName(playerId);
+              if (name !== 'Unknown Player') gets.push(name);
+            }
+          }
+        }
+        // Players given away (drops by this roster)
+        if (t.drops) {
+          for (const [playerId, dropperId] of Object.entries(t.drops)) {
+            if (dropperId === rosterId) {
+              const name = resolvePlayerName(playerId);
+              if (name !== 'Unknown Player') gives.push(name);
+            }
+          }
+        }
+        // Draft picks
+        if (Array.isArray(t.draft_picks)) {
+          for (const raw of t.draft_picks) {
+            const pick = raw as { season?: string | number; round?: number; owner_id?: number; previous_owner_id?: number };
+            const label = `${pick.season ?? '?'} Rd ${pick.round ?? '?'} Pick`;
+            if (pick.owner_id === rosterId) gets.push(label);
+            else if (pick.previous_owner_id === rosterId) gives.push(label);
+          }
+        }
+        by_team[teamName] = { gets, gives };
+      }
+
+      const headline = parties.length >= 2
+        ? `${parties[0]} and ${parties[1]} make a deal`
+        : parties.join(' and ');
+
       events.push({
         event_id: String(t.transaction_id || Math.random()),
         type: 'trade',
@@ -349,6 +395,7 @@ function normalizeTransactions(
         parties,
         assets_moved: addsCount + dropsCount + picksCount,
         picks_moved: picksCount,
+        details: { headline, by_team },
       });
     } else if (type === 'waiver') {
       const faab = Number(t.waiver_bid || 0);

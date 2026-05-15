@@ -850,14 +850,18 @@ Think like a fantasy analyst doing a season preview:
 }
 
 async function buildWaiverItems(events: DerivedData['events_scored']): Promise<WaiverItem[]> {
-  const waiverEvents = events.filter(e => e.type === 'waiver' || (e.type === 'fa_add' && e.relevance_score >= 40));
-  
+  // Only show waiver moves with significant FAAB spend ($3+) — free adds aren't newsworthy
+  const waiverEvents = events.filter(e =>
+    (e.type === 'waiver' || e.type === 'fa_add') && (e.faab_spent ?? 0) >= 3
+  );
+
   if (waiverEvents.length === 0) return [];
 
   // Build context for all waivers at once to save API calls
-  const waiverContext = waiverEvents.map(e => 
-    `- ${e.team} added ${e.player || 'unknown player'} (relevance: ${e.relevance_score}/100)`
-  ).join('\n');
+  const waiverContext = waiverEvents.map(e => {
+    const faabStr = e.faab_spent != null ? ` ($${e.faab_spent} FAAB)` : '';
+    return `- ${e.team} added ${e.player || 'unknown player'}${faabStr} (relevance: ${e.relevance_score}/100)`;
+  }).join('\n');
 
   const [entertainerResponse, analystResponse] = await Promise.all([
     generateSection({
@@ -884,6 +888,9 @@ async function buildWaiverItems(events: DerivedData['events_scored']): Promise<W
     event_id: e.event_id,
     coverage_level: e.coverage_level,
     reasons: e.reasons || [],
+    team: e.team,
+    player: e.player,
+    faab_spent: e.faab_spent,
     bot1: entLines[i] || `${e.team} makes a move with ${e.player || 'a player'}.`,
     bot2: anaLines[i] || `${e.team} adds ${e.player || 'a player'}. Monitor usage.`,
   }));
@@ -959,10 +966,13 @@ Evaluate this trade FROM ${party.toUpperCase()}'S PERSPECTIVE ONLY.`;
         }),
       ]);
 
-      const gradeMatch = entertainerResponse.match(/\b([A-F][+-]?)\b/i) || analystResponse.match(/\b([A-F][+-]?)\b/i);
-      const grade = gradeMatch ? gradeMatch[1].toUpperCase() : 'B';
+      const entertainerGradeMatch = entertainerResponse.match(/\b([A-F][+-]?)\b/i);
+      const analystGradeMatch = analystResponse.match(/\b([A-F][+-]?)\b/i);
+      const entertainer_grade = entertainerGradeMatch ? entertainerGradeMatch[1].toUpperCase() : 'B';
+      const analyst_grade = analystGradeMatch ? analystGradeMatch[1].toUpperCase() : 'B';
+      const grade = entertainer_grade;
 
-      return { entertainerResponse, analystResponse, grade };
+      return { entertainerResponse, analystResponse, grade, entertainer_grade, analyst_grade };
     })
   );
 
@@ -972,12 +982,14 @@ Evaluate this trade FROM ${party.toUpperCase()}'S PERSPECTIVE ONLY.`;
 
   for (let i = 0; i < tradeContexts.length; i++) {
     const { event: e, parties, tradeContext } = tradeContexts[i];
-    const analysis: Record<string, { grade: string; deltaText: string; entertainer_paragraph: string; analyst_paragraph: string }> = {};
+    const analysis: Record<string, { grade: string; entertainer_grade?: string; analyst_grade?: string; deltaText: string; entertainer_paragraph: string; analyst_paragraph: string }> = {};
 
     for (const party of parties) {
-      const { entertainerResponse, analystResponse, grade } = allResponses[responseIdx++];
+      const { entertainerResponse, analystResponse, grade, entertainer_grade, analyst_grade } = allResponses[responseIdx++];
       analysis[party] = {
         grade,
+        entertainer_grade,
+        analyst_grade,
         deltaText: `${party}'s side`,
         entertainer_paragraph: entertainerResponse,
         analyst_paragraph: analystResponse,
@@ -1461,7 +1473,7 @@ ${h2hHistory ? `Head-to-head history: ${h2hHistory}` : ''}
 ${narrativeContext ? `Ongoing storylines: ${narrativeContext}` : ''}
 ${isChampionship ? `${p.winner.name} IS NOW THE CHAMPION. This is their crowning moment.` : ''}
 
-=== THE ENTERTAINER ===
+=== MASON REED (The Entertainer) ===
 ${entertainerState}
 ${entertainerWinnerMemory ? `History with ${p.winner.name}: ${entertainerWinnerMemory}` : ''}
 ${entertainerLoserMemory ? `History with ${p.loser.name}: ${entertainerLoserMemory}` : ''}
@@ -1470,7 +1482,7 @@ ${entertainerVindicated ? `✓ VINDICATED - called this one right` : ''}
 ${entertainerPersonalityContext}
 ${entertainerPartnerContext}
 
-=== THE ANALYST ===
+=== TRENT WESTON / WESTY (The Analyst) ===
 ${analystState}
 ${analystWinnerMemory ? `History with ${p.winner.name}: ${analystWinnerMemory}` : ''}
 ${analystLoserMemory ? `History with ${p.loser.name}: ${analystLoserMemory}` : ''}
@@ -1501,7 +1513,7 @@ ${situationalHooks.length > 0 ? `\nPOTENTIAL ANGLES (pick what feels natural):\n
 === OUTPUT FORMAT ===
 Each line starts with "ENTERTAINER:" or "ANALYST:"
 Alternate speakers. No other formatting.
-${starterBot === 'entertainer' ? 'Entertainer speaks first.' : 'Analyst speaks first.'}
+${starterBot === 'entertainer' ? 'Mason Reed (Entertainer) speaks first.' : 'Trent Weston (Analyst) speaks first.'}
 
 BEGIN:`;
 
@@ -1518,9 +1530,9 @@ BEGIN:`;
 
     const entertainerOnlyPrompt = `${fullDialoguePrompt}
 
-IMPORTANT: You are ONLY generating the ENTERTAINER's lines right now.
+IMPORTANT: You are ONLY generating the ENTERTAINER's lines right now (Mason Reed).
 Write only lines starting with "ENTERTAINER:". Do not write any "ANALYST:" lines.
-${starterBot === 'analyst' ? 'Note: The Analyst will speak first — write your ENTERTAINER response to an expected analyst opener about this game.' : ''}`;
+${starterBot === 'analyst' ? 'Note: Trent Weston (Analyst) will speak first — write your ENTERTAINER response to an expected analyst opener about this game.' : ''}`;
 
     const entertainerRaw = await generateSection({
       persona: 'entertainer',
@@ -1972,14 +1984,14 @@ async function buildBlurt(
       persona: 'entertainer',
       sectionType: 'Blurt',
       context: ctxSnippet + (entPersonality ? `\n${entPersonality}` : ''),
-      constraints: `Week ${week}. One sharp aside — something burning on your mind, a hot observation, a player or team you can't stop thinking about. 2-3 sentences max. No speaker label, just your words.`,
+      constraints: `Week ${week}. One sharp aside — something burning on your mind, a hot observation, a player or team you can't stop thinking about. 2-3 sentences max. No speaker label, just your words. CRITICAL: Only use actual team names from the context above. Never invent team names or use vague references like "one team" or "a squad" — say the real name.`,
       maxTokens: 150,
     }).then(r => r.trim().replace(/^(?:entertainer|the entertainer)[:\s]+/i, '').replace(/^["']|["']$/g, '') || null).catch(() => null),
     generateSection({
       persona: 'analyst',
       sectionType: 'Blurt',
       context: ctxSnippet + (anaPersonality ? `\n${anaPersonality}` : ''),
-      constraints: `Week ${week}. One sharp analytical observation that doesn't fit anywhere else — a data point, a trend, a number that surprised you. 2-3 sentences max. No speaker label, just your words.`,
+      constraints: `Week ${week}. One sharp analytical observation that doesn't fit anywhere else — a data point, a trend, a number that surprised you. 2-3 sentences max. No speaker label, just your words. CRITICAL: Only use actual team names from the context above. Never invent team names or use vague references — say the real name.`,
       maxTokens: 150,
     }).then(r => r.trim().replace(/^(?:analyst|the analyst)[:\s]+/i, '').replace(/^["']|["']$/g, '') || null).catch(() => null),
   ]);
@@ -2702,7 +2714,7 @@ export async function composeNewsletter(input: ComposeNewsletterInput, qualityRe
     sections.push({ type: 'SpotlightTeam', data: spotlight });
   }
 
-  if (forecast && !excludeSections.has('Forecast')) {
+  if (forecast && forecast.picks.length > 0 && !excludeSections.has('Forecast')) {
     sections.push({ type: 'Forecast', data: forecast });
   }
 

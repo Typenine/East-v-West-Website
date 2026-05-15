@@ -1,7 +1,11 @@
 /**
  * Cascade LLM Orchestrator
  * Tries providers in order: Gemini → Groq → Cerebras → OpenRouter
- * Falls through on rate-limit/quota errors; throws on auth/timeout/model errors.
+ * Falls through on rate-limit/quota errors; throws on auth errors.
+ *
+ * Provider cooldown: once a provider rate-limits it is skipped for 10 minutes
+ * across ALL subsequent calls in this server session. This prevents wasting
+ * time hammering an exhausted provider on every cascade call.
  */
 
 import { generateWithGeminiProvider }     from './providers/gemini-provider';
@@ -21,12 +25,12 @@ export interface ProviderRequest {
 
 export interface CascadeRequest extends ProviderRequest {
   validate?: (content: string) => boolean;
-  cacheKey?: string; // reserved for future Gemini context caching
+  cacheKey?: string;
 }
 
 export interface CascadeResponse {
   content: string;
-  provider: string; // 'gemini' | 'groq' | 'cerebras' | 'openrouter'
+  provider: string;
 }
 
 // ============ Session Metrics ============
@@ -45,19 +49,15 @@ export function getCascadeMetricsSummary(): string {
     .join(' ');
 }
 
-// ============ Minimum inter-call gap (serial queue) ============
-// All LLM calls share a single promise chain so they execute one at a time,
+// ============ Serial call queue ============
+// All LLM calls share one promise chain so they execute one at a time,
 // regardless of how many concurrent Promise.all() calls exist in compose.ts.
-// Without this, parallel sections race through the gap check simultaneously.
 
 let _lastCallTime = 0;
-const MIN_GAP_MS = 120_000; // 2 minutes — well under Gemini's 15 RPM and Groq's 30 RPM
-
-// The tail of the queue — each new caller chains off this
+const MIN_GAP_MS = 120_000; // 2 min — well under every provider's RPM limit
 let _callQueue: Promise<void> = Promise.resolve();
 
 async function enforceMinGap(): Promise<void> {
-  // Grab a slot at the END of the current queue before any await
   const mySlot = _callQueue.then(async () => {
     const since = Date.now() - _lastCallTime;
     if (_lastCallTime > 0 && since < MIN_GAP_MS) {
@@ -67,7 +67,6 @@ async function enforceMinGap(): Promise<void> {
     }
     _lastCallTime = Date.now();
   });
-  // Extend the queue so the next caller waits for this slot
   _callQueue = mySlot.catch(() => {});
   await mySlot;
 }
@@ -76,7 +75,35 @@ function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-// ============ Fall-through detection ============
+// ============ Provider-level cooldown ============
+// When a provider rate-limits, mark it cooling down for COOLDOWN_MS.
+// All subsequent cascade calls will skip it until the cooldown expires.
+
+const COOLDOWN_MS = 15 * 60 * 1000; // 15 minutes
+const providerCooldownUntil: Record<string, number> = {};
+
+function isProviderCoolingDown(name: string): boolean {
+  const until = providerCooldownUntil[name];
+  if (!until) return false;
+  if (Date.now() >= until) {
+    delete providerCooldownUntil[name];
+    return false;
+  }
+  return true;
+}
+
+function setCooldown(name: string): void {
+  providerCooldownUntil[name] = Date.now() + COOLDOWN_MS;
+  console.log(`[LLM] ${name} rate-limited — skipping for ${COOLDOWN_MS / 60_000} min`);
+}
+
+export function clearAllCooldowns(): void {
+  for (const key of Object.keys(providerCooldownUntil)) {
+    delete providerCooldownUntil[key];
+  }
+}
+
+// ============ Error classification ============
 
 function isFallThroughError(msg: string): boolean {
   const m = msg.toLowerCase();
@@ -88,16 +115,14 @@ function isFallThroughError(msg: string): boolean {
     m.includes('exhausted') ||
     m.includes('too many') ||
     m.includes('tokens per minute') ||
-    m.includes('requests per minute')
+    m.includes('requests per minute') ||
+    m.includes('daily limit')
   );
 }
 
 function isHardError(msg: string): boolean {
   const m = msg.toLowerCase();
-  return (
-    m.includes('401') ||
-    m.includes('unauthorized')
-  );
+  return m.includes('401') || m.includes('unauthorized');
 }
 
 // ============ Provider Registry ============
@@ -111,14 +136,11 @@ interface ProviderEntry {
 }
 
 const PROVIDERS: ProviderEntry[] = [
-  { name: 'gemini',      fn: generateWithGeminiProvider,    envKey: 'GEMINI_API_KEY' },
-  { name: 'groq',        fn: generateWithGroqProvider,      envKey: 'GROQ_API_KEY' },
-  { name: 'cerebras',    fn: generateWithCerebrasProvider,  envKey: 'CEREBRAS_API_KEY' },
-  { name: 'openrouter',  fn: generateWithOpenRouterProvider, envKey: 'OPENROUTER_API_KEY' },
+  { name: 'gemini',     fn: generateWithGeminiProvider,    envKey: 'GEMINI_API_KEY' },
+  { name: 'groq',       fn: generateWithGroqProvider,      envKey: 'GROQ_API_KEY' },
+  { name: 'cerebras',   fn: generateWithCerebrasProvider,  envKey: 'CEREBRAS_API_KEY' },
+  { name: 'openrouter', fn: generateWithOpenRouterProvider, envKey: 'OPENROUTER_API_KEY' },
 ];
-
-const MAX_RETRIES = 2;
-const BACKOFF_DELAYS = [5_000, 10_000];
 
 // ============ Main Cascade ============
 
@@ -128,66 +150,47 @@ export async function generateWithCascade(req: CascadeRequest): Promise<CascadeR
   const activeProviders = PROVIDERS.filter(p => !!process.env[p.envKey]);
 
   if (activeProviders.length === 0) {
-    throw new Error('All LLM providers exhausted — check API keys and rate limits');
+    throw new Error('No LLM providers configured — check API keys in .env.local');
   }
 
-  for (let pi = 0; pi < activeProviders.length; pi++) {
-    const { name, fn } = activeProviders[pi];
-    let lastErr: Error | null = null;
-
-    for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
-      if (attempt > 0) {
-        const delay = BACKOFF_DELAYS[attempt - 1] ?? 10_000;
-        console.log(`[LLM] ${name} rate-limited (attempt ${attempt}/${MAX_RETRIES - 1}), retrying in ${delay / 1000}s...`);
-        await sleep(delay);
-      }
-
-      try {
-        const content = await fn(req);
-
-        // Validate if requested
-        if (req.validate && !req.validate(content)) {
-          console.warn(`[LLM] ${name} validation failed, retrying...`);
-          lastErr = new Error('Validation failed');
-          continue;
-        }
-
-        // Success — record metrics
-        cascadeMetrics[name] = (cascadeMetrics[name] ?? 0) + 1;
-        return { content, provider: name };
-
-      } catch (err) {
-        lastErr = err instanceof Error ? err : new Error(String(err));
-        const msg = lastErr.message;
-
-        if (isHardError(msg)) {
-          // Hard errors are not retried and do not fall through — they propagate immediately
-          console.error(`[LLM] ${name} hard error: ${msg}`);
-          throw lastErr;
-        }
-
-        if (isFallThroughError(msg)) {
-          // Rate-limit — retry with backoff, then fall through
-          if (attempt < MAX_RETRIES - 1) {
-            // Will retry in next iteration of this loop
-            continue;
-          }
-          // Exhausted retries for this provider
-          break;
-        }
-
-        // Unknown error — fall through to next provider immediately
-        console.warn(`[LLM] ${name} unknown error (falling through): ${msg}`);
-        break;
-      }
+  for (const { name, fn } of activeProviders) {
+    // Skip providers that are cooling down from a recent rate limit
+    if (isProviderCoolingDown(name)) {
+      const remainingMin = Math.ceil((providerCooldownUntil[name] - Date.now()) / 60_000);
+      console.log(`[LLM] ${name} cooling down (${remainingMin}min left), skipping`);
+      continue;
     }
 
-    // This provider exhausted — log and try the next one
-    const nextProvider = activeProviders[pi + 1];
-    if (nextProvider) {
-      console.log(`[LLM] ${name} exhausted → trying ${nextProvider.name}`);
+    try {
+      const content = await fn(req);
+
+      if (req.validate && !req.validate(content)) {
+        console.warn(`[LLM] ${name} failed validation, trying next provider`);
+        continue;
+      }
+
+      cascadeMetrics[name] = (cascadeMetrics[name] ?? 0) + 1;
+      console.log(`[LLM] ${name} ✓`);
+      return { content, provider: name };
+
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      const msg = error.message;
+
+      if (isHardError(msg)) {
+        console.error(`[LLM] ${name} hard error (not retrying): ${msg}`);
+        throw error;
+      }
+
+      if (isFallThroughError(msg)) {
+        setCooldown(name);
+        continue; // immediately try next provider — no point retrying a rate-limited one
+      }
+
+      // Unknown error — log and try next provider
+      console.warn(`[LLM] ${name} error (trying next): ${msg}`);
     }
   }
 
-  throw new Error('All LLM providers exhausted — check API keys and rate limits');
+  throw new Error('All LLM providers exhausted or cooling down — try again later');
 }

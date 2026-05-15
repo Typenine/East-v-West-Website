@@ -663,10 +663,15 @@ export interface WaiverItem {
   reasons: string[];
   bot1: string;
   bot2: string;
+  team?: string;
+  player?: string;
+  faab_spent?: number;
 }
 
 export interface TradeAnalysis {
   grade: string;
+  entertainer_grade?: string;
+  analyst_grade?: string;
   deltaText: string;
   entertainer_paragraph: string;
   analyst_paragraph: string;
