@@ -214,15 +214,15 @@ export async function makeForecast(input: ForecastInput): Promise<ForecastResult
 
   try {
     // Generate predictions from both bots in parallel
-    const [entertainerResponse, analystResponse, boldPlayerEnt, boldPlayerAna] = await Promise.all([
+    const [entertainerResponse, analystResponse, boldPlayerEnt, boldPlayerAna, masonDialogueRaw, westyDialogueRaw] = await Promise.all([
       generateSection({
         persona: 'entertainer',
         sectionType: 'Matchup Predictions',
         context: fullContext,
         constraints: `For each matchup, pick a winner and give confidence (high/medium/low). Format EXACTLY as:
-1. [TEAM1 vs TEAM2]: Pick: [WINNER] | Confidence: [high/medium/low] | Reason: [brief reason]
-Be bold! Trust your gut. Pick upsets when you feel it. Consider injuries!`,
-        maxTokens: 400,
+1. [TEAM1 vs TEAM2]: Pick: [WINNER] | Confidence: [high/medium/low] | Reason: [2-3 sentences in your voice — be bold, dramatic, mention specific teams and why you feel it]
+Trust your gut. Pick upsets when you feel it. Use real team names from the context.`,
+        maxTokens: 600,
         validate: (txt) => /Pick:\s*/i.test(txt) && /Confidence:\s*/i.test(txt),
       }),
       generateSection({
@@ -230,9 +230,9 @@ Be bold! Trust your gut. Pick upsets when you feel it. Consider injuries!`,
         sectionType: 'Matchup Predictions',
         context: fullContext,
         constraints: `For each matchup, pick a winner and give confidence (high/medium/low). Format EXACTLY as:
-1. [TEAM1 vs TEAM2]: Pick: [WINNER] | Confidence: [high/medium/low] | Reason: [brief reason]
-Use data and trends. Consider sample size, regression, and injury impact.`,
-        maxTokens: 400,
+1. [TEAM1 vs TEAM2]: Pick: [WINNER] | Confidence: [high/medium/low] | Reason: [2-3 sentences in your voice — cite trends, records, scoring averages, and why the data points here]
+Use data and trends. Consider sample size, regression, and injury impact. Use real team names from the context.`,
+        maxTokens: 600,
         validate: (txt) => /Pick:\s*/i.test(txt) && /Confidence:\s*/i.test(txt),
       }),
       // Bold player predictions
@@ -250,6 +250,22 @@ Use data and trends. Consider sample size, regression, and injury impact.`,
         constraints: 'Name ONE player with analytical reasoning. One sentence. Format: "[PLAYER NAME] - [reason]"',
         maxTokens: 60,
       }) : Promise.resolve(''),
+      // Opening week-preview dialogue — Mason's take
+      generateSection({
+        persona: 'entertainer',
+        sectionType: 'Week Preview Opener',
+        context: fullContext,
+        constraints: `Give your overall vibe on the upcoming week in 3-4 sentences. Which matchup are you most hyped about? Any team you're fading hard? Speak with energy and personality — you're teasing the picks, not giving them away yet. Do NOT list all the matchups. Just set the tone.`,
+        maxTokens: 200,
+      }),
+      // Westy responds to Mason's preview take
+      generateSection({
+        persona: 'analyst',
+        sectionType: 'Week Preview Response',
+        context: fullContext,
+        constraints: `Give your analytical read on the upcoming week in 3-4 sentences. Where does the data diverge from what people expect? Any matchup that looks obvious but has hidden variance? Respond with your measured, data-driven lens — complement or push back on what Mason Reed likely just said.`,
+        maxTokens: 200,
+      }),
     ]);
 
     // Parse LLM responses into structured picks
@@ -296,9 +312,22 @@ Use data and trends. Consider sample size, regression, and injury impact.`,
 
     const agree_count = picks.filter(p => p.bot1_pick === p.bot2_pick).length;
 
+    // Build intro dialogue from opening takes
+    const intro_dialogue: Array<{ speaker: 'entertainer' | 'analyst'; text: string }> = [];
+    const cleanTake = (raw: string) => raw.trim()
+      .split('\n')
+      .map(l => l.replace(/^(?:entertainer|mason\s*reed?|analyst|trent\s*weston|westy)[:\s]+/i, '').replace(/^\*\*|\*\*$/g, '').trim())
+      .filter(l => l.length > 10)
+      .join(' ');
+    const masonTake = cleanTake(masonDialogueRaw);
+    const westyTake = cleanTake(westyDialogueRaw);
+    if (masonTake) intro_dialogue.push({ speaker: 'entertainer', text: masonTake });
+    if (westyTake) intro_dialogue.push({ speaker: 'analyst', text: westyTake });
+
     return {
       forecast: {
         picks,
+        intro_dialogue: intro_dialogue.length > 0 ? intro_dialogue : undefined,
         bot1_matchup_of_the_week,
         bot2_matchup_of_the_week,
         bot1_bold_player: boldPlayerEnt.trim(),

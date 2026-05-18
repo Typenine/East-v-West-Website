@@ -144,6 +144,33 @@ function mapRosters(
  * - Week 17 (Round 3): matchup_id 1 is Championship, 2 is 3rd place, 3-6 are lower consolation
  */
 /**
+ * Calculate how many points a team left on the bench vs their optimal lineup.
+ * Simplified: compares sum of top-N all-player scores to actual starter scores.
+ */
+function calculateBenchDelta(matchup: SleeperMatchup | undefined): number {
+  try {
+    if (!matchup?.players_points || !matchup?.starters) return 0;
+    const pts = matchup.players_points;
+    const starterIds = new Set(matchup.starters.filter(Boolean));
+    if (starterIds.size === 0) return 0;
+
+    const actualScore = Array.from(starterIds).reduce(
+      (sum, id) => sum + Number(pts[id] ?? 0), 0
+    );
+
+    const allScores = Object.values(pts)
+      .map(Number)
+      .filter(Number.isFinite)
+      .sort((a, b) => b - a);
+
+    const optimalScore = allScores.slice(0, starterIds.size).reduce((s, v) => s + v, 0);
+    return Math.max(0, Number((optimalScore - actualScore).toFixed(1)));
+  } catch {
+    return 0;
+  }
+}
+
+/**
  * Extract top scoring players from a matchup
  */
 function extractTopPlayers(matchup: SleeperMatchup | undefined, count: number = 3): Array<{ name: string; points: number }> {
@@ -263,17 +290,30 @@ function buildMatchupPairs(
     
     const winnerTopPlayers = extractTopPlayers(winnerMatchup, 3);
     const loserTopPlayers = extractTopPlayers(loserMatchup, 3);
-    
+    const winnerBenchDelta = calculateBenchDelta(winnerMatchup);
+    const loserBenchDelta = calculateBenchDelta(loserMatchup);
+
     pairs.push({
       matchup_id: mid,
       teams: entries.map(e => ({ name: e.owner_name, points: e.points })),
-      winner: { name: winner.owner_name, points: winner.points, topPlayers: winnerTopPlayers },
-      loser: { name: loser.owner_name, points: loser.points, topPlayers: loserTopPlayers },
+      winner: { name: winner.owner_name, points: winner.points, topPlayers: winnerTopPlayers, bench_delta: winnerBenchDelta },
+      loser: { name: loser.owner_name, points: loser.points, topPlayers: loserTopPlayers, bench_delta: loserBenchDelta },
       margin,
       bracketLabel,
     });
   }
-  
+
+  // Compute weekly score rankings across all teams
+  const allScores = pairs.flatMap(p => [
+    { name: p.winner.name, score: p.winner.points },
+    { name: p.loser.name, score: p.loser.points },
+  ]).sort((a, b) => b.score - a.score);
+  const weeklyRankMap = new Map(allScores.map((t, i) => [t.name, i + 1]));
+  for (const pair of pairs) {
+    pair.winner.weekly_rank = weeklyRankMap.get(pair.winner.name);
+    pair.loser.weekly_rank = weeklyRankMap.get(pair.loser.name);
+  }
+
   // Sort: Championship first, then by bracket importance, then by margin
   return pairs.sort((a, b) => {
     // Championship always first

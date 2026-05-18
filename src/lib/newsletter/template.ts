@@ -32,16 +32,24 @@ import { getTeamLogoPath } from '../utils/team-utils';
 
 // ============ Team Color Helpers ============
 
+function hexToRgba(hex: string, alpha: number): string {
+  const h = hex.replace('#', '');
+  const r = parseInt(h.substring(0, 2), 16);
+  const g = parseInt(h.substring(2, 4), 16);
+  const b = parseInt(h.substring(4, 6), 16);
+  return `rgba(${r},${g},${b},${alpha})`;
+}
+
 function getTeamColor(teamName: string, type: 'primary' | 'secondary' = 'primary'): string {
   const colors = TEAM_COLORS[teamName];
   if (!colors) return type === 'primary' ? '#3b5b8b' : '#ba1010';
   return type === 'primary' ? colors.primary : colors.secondary;
 }
 
-function teamBadge(teamName: string, size: 'sm' | 'md' | 'lg' = 'md'): string {
+function teamBadge(teamName: string, size: 'sm' | 'md' | 'lg' | 'xl' = 'md'): string {
   const primary = getTeamColor(teamName, 'primary');
   const secondary = getTeamColor(teamName, 'secondary');
-  const sizes = { sm: '24px', md: '32px', lg: '48px' };
+  const sizes = { sm: '28px', md: '44px', lg: '72px', xl: '96px' };
   const logoPath = getTeamLogoPath(teamName);
   const initials = teamName.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
   
@@ -58,23 +66,24 @@ function matchupVsBlock(team1: string, team2: string, score1?: number, score2?: 
   const t1Primary = getTeamColor(team1, 'primary');
   const t2Primary = getTeamColor(team2, 'primary');
   const winner = score1 !== undefined && score2 !== undefined ? (score1 > score2 ? team1 : team2) : null;
+  const splitBg = `linear-gradient(90deg, ${hexToRgba(t1Primary, 0.55)} 0%, #0d0d0d 38%, #0d0d0d 62%, ${hexToRgba(t2Primary, 0.55)} 100%)`;
 
   return `
-  <div style="background:linear-gradient(160deg,#0d0d0d 0%,#1a1a2e 100%);border-radius:10px;padding:24px 20px;margin:0 0 20px;display:flex;align-items:center;gap:0;">
-    <div style="flex:1;text-align:right;padding-right:16px;">
-      <div style="margin-bottom:6px;">${teamBadge(team1, 'md')}</div>
-      <div style="font-family:'Georgia',serif;font-weight:700;font-size:15px;color:${winner === team1 ? '#fff' : 'rgba(255,255,255,0.6)'};line-height:1.2;">${esc(team1)}</div>
-      ${score1 !== undefined ? `<div style="font-size:26px;font-weight:800;color:${winner === team1 ? '#fff' : 'rgba(255,255,255,0.45)'};margin-top:4px;letter-spacing:-0.5px;">${score1.toFixed(1)}</div>` : ''}
-      ${winner === team1 ? `<div style="font-size:10px;font-weight:700;letter-spacing:1.5px;color:#4ade80;margin-top:2px;">WIN</div>` : ''}
+  <div style="background:${splitBg};border-radius:10px;padding:28px 24px;margin:0 0 24px;display:flex;align-items:center;gap:0;">
+    <div style="flex:1;text-align:right;padding-right:20px;">
+      <div style="display:flex;justify-content:flex-end;margin-bottom:10px;">${teamBadge(team1, 'lg')}</div>
+      <div style="font-family:'Georgia',serif;font-weight:700;font-size:16px;color:${winner === team1 ? '#fff' : 'rgba(255,255,255,0.55)'};line-height:1.2;">${esc(team1)}</div>
+      ${score1 !== undefined ? `<div style="font-size:32px;font-weight:800;color:${winner === team1 ? '#fff' : 'rgba(255,255,255,0.4)'};margin-top:6px;letter-spacing:-1px;font-family:'Georgia',serif;">${score1.toFixed(1)}</div>` : ''}
+      ${winner === team1 ? `<div style="font-size:10px;font-weight:700;letter-spacing:2px;color:#4ade80;margin-top:4px;text-transform:uppercase;">WIN</div>` : ''}
     </div>
-    <div style="width:44px;text-align:center;flex-shrink:0;">
-      <div style="font-weight:800;color:rgba(255,255,255,0.3);font-size:11px;letter-spacing:2px;">VS</div>
+    <div style="width:52px;text-align:center;flex-shrink:0;">
+      <div style="font-weight:900;color:rgba(255,255,255,0.25);font-size:13px;letter-spacing:3px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;">VS</div>
     </div>
-    <div style="flex:1;text-align:left;padding-left:16px;">
-      <div style="margin-bottom:6px;">${teamBadge(team2, 'md')}</div>
-      <div style="font-family:'Georgia',serif;font-weight:700;font-size:15px;color:${winner === team2 ? '#fff' : 'rgba(255,255,255,0.6)'};line-height:1.2;">${esc(team2)}</div>
-      ${score2 !== undefined ? `<div style="font-size:26px;font-weight:800;color:${winner === team2 ? '#fff' : 'rgba(255,255,255,0.45)'};margin-top:4px;letter-spacing:-0.5px;">${score2.toFixed(1)}</div>` : ''}
-      ${winner === team2 ? `<div style="font-size:10px;font-weight:700;letter-spacing:1.5px;color:#4ade80;margin-top:2px;">WIN</div>` : ''}
+    <div style="flex:1;text-align:left;padding-left:20px;">
+      <div style="display:flex;justify-content:flex-start;margin-bottom:10px;">${teamBadge(team2, 'lg')}</div>
+      <div style="font-family:'Georgia',serif;font-weight:700;font-size:16px;color:${winner === team2 ? '#fff' : 'rgba(255,255,255,0.55)'};line-height:1.2;">${esc(team2)}</div>
+      ${score2 !== undefined ? `<div style="font-size:32px;font-weight:800;color:${winner === team2 ? '#fff' : 'rgba(255,255,255,0.4)'};margin-top:6px;letter-spacing:-1px;font-family:'Georgia',serif;">${score2.toFixed(1)}</div>` : ''}
+      ${winner === team2 ? `<div style="font-size:10px;font-weight:700;letter-spacing:2px;color:#4ade80;margin-top:4px;text-transform:uppercase;">WIN</div>` : ''}
     </div>
   </div>`;
 }
@@ -90,10 +99,13 @@ function esc(s: string | number | undefined | null = ''): string {
 
 function sectionHeader(title: string, subtitle?: string): string {
   return `
-  <div style="margin:64px 0 32px;padding-left:18px;border-left:5px solid #be161e;">
-    <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:#be161e;margin-bottom:6px;">East v. West</div>
-    <h2 style="margin:0;font-family:'Georgia','Times New Roman',serif;font-size:26px;font-weight:700;line-height:1.15;color:#0d0d0d;letter-spacing:-0.3px;">${esc(title)}</h2>
-    ${subtitle ? `<p style="margin:6px 0 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:14px;color:#6b7280;font-style:italic;">${esc(subtitle)}</p>` : ''}
+  <div style="margin:80px 0 36px;background:#0d0d0d;border-radius:6px;overflow:hidden;">
+    <div style="height:4px;background:linear-gradient(90deg,#be161e,#9a1218);"></div>
+    <div style="padding:24px 32px 22px;">
+      <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:10px;font-weight:700;letter-spacing:3px;text-transform:uppercase;color:#be161e;margin-bottom:10px;">East v. West</div>
+      <h2 style="margin:0;font-family:'Georgia','Times New Roman',serif;font-size:30px;font-weight:700;line-height:1.1;color:#ffffff;letter-spacing:-0.5px;">${esc(title)}</h2>
+      ${subtitle ? `<p style="margin:10px 0 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:13px;color:rgba(255,255,255,0.5);font-style:italic;letter-spacing:0.2px;">${esc(subtitle)}</p>` : ''}
+    </div>
   </div>`;
 }
 
@@ -316,6 +328,30 @@ function sectionRecaps(list: RecapItem[], week: number): string {
       ? conversationalDialogue(x.dialogue)
       : dualPerspective(x.bot1, x.bot2);
 
+    // Top performers chips
+    const playerChips = (players: Array<{ name: string; points: number }> | undefined, side: 'winner' | 'loser') => {
+      if (!players?.length) return '';
+      const color = side === 'winner' ? '#059669' : '#6b7280';
+      return players.slice(0, 3).map(pl => `
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:6px 10px;background:#fff;border:1px solid #e5e7eb;border-radius:3px;gap:12px;">
+          <span style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:12px;color:#374151;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(pl.name)}</span>
+          <span style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:12px;font-weight:700;color:${color};flex-shrink:0;">${pl.points.toFixed(1)}</span>
+        </div>`).join('');
+    };
+
+    const hasPlayers = x.winner_top_players?.length || x.loser_top_players?.length;
+    const performersRow = hasPlayers ? `
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:0 20px 16px;">
+        <div>
+          <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:9px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#059669;margin-bottom:6px;">Top Performers</div>
+          <div style="display:flex;flex-direction:column;gap:4px;">${playerChips(x.winner_top_players, 'winner')}</div>
+        </div>
+        <div>
+          <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:9px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#6b7280;margin-bottom:6px;">Top Performers</div>
+          <div style="display:flex;flex-direction:column;gap:4px;">${playerChips(x.loser_top_players, 'loser')}</div>
+        </div>
+      </div>` : '';
+
     return `
     <div style="${cardStyle}background:#fafafa;border-radius:6px;overflow:hidden;margin-bottom:28px;box-shadow:0 2px 8px rgba(0,0,0,0.06);">
       <div style="background:${labelBadgeBg};padding:10px 20px;">
@@ -324,6 +360,7 @@ function sectionRecaps(list: RecapItem[], week: number): string {
       <div style="padding:20px 20px 4px;">
         ${winner && loser ? matchupVsBlock(winner, loser, winnerScore, loserScore) : ''}
       </div>
+      ${performersRow}
       <div style="padding:0 20px 20px;">
         ${dialogueHtml}
       </div>
@@ -355,25 +392,35 @@ function sectionWaivers(list: WaiverItem[]): string {
   if (!list?.length) return '';
 
   const items = list.map(x => {
-    const badge = x.coverage_level === 'high'
-      ? '<span style="background:#be161e;color:#fff;padding:3px 10px;font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;margin-right:10px;">HOT</span>'
-      : x.coverage_level === 'moderate'
-      ? '<span style="background:#374151;color:#fff;padding:3px 10px;font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;margin-right:10px;">NOTABLE</span>'
+    const coverageBg = x.coverage_level === 'high' ? '#be161e' : x.coverage_level === 'moderate' ? '#374151' : '#6b7280';
+    const coverageLabel = x.coverage_level === 'high' ? 'HOT' : x.coverage_level === 'moderate' ? 'NOTABLE' : 'PICKUP';
+
+    const teamLogo = x.team ? `<div style="flex-shrink:0;">${teamBadge(x.team, 'md')}</div>` : '';
+    const faabBadge = x.faab_spent != null
+      ? `<span style="display:inline-flex;align-items:center;background:#059669;color:#fff;padding:4px 12px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:12px;font-weight:800;letter-spacing:0.5px;border-radius:2px;margin-left:12px;">$${x.faab_spent} FAAB</span>`
       : '';
 
-    const teamPlayerLine = x.team || x.player
-      ? `<div style="font-family:'Georgia','Times New Roman',serif;font-weight:700;font-size:15px;color:#0d0d0d;margin-bottom:4px;">${x.player ? esc(x.player) : ''} ${x.player && x.team ? '→' : ''} ${x.team ? `<span style="font-weight:400;font-size:14px;color:#374151;">${esc(x.team)}</span>` : ''} ${x.faab_spent != null ? `<span style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:12px;font-weight:700;color:#059669;margin-left:8px;">$${x.faab_spent} FAAB</span>` : ''}</div>`
+    const playerLine = x.player
+      ? `<div style="font-family:'Georgia','Times New Roman',serif;font-weight:700;font-size:20px;color:#fff;line-height:1.15;">${esc(x.player)}${faabBadge}</div>`
       : '';
+    const teamLine = x.team
+      ? `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:13px;color:rgba(255,255,255,0.55);margin-top:4px;">→ ${esc(x.team)}</div>`
+      : '';
+
     return `
-    <div style="background:#fff;border:1px solid #e5e7eb;border-radius:4px;margin-bottom:24px;box-shadow:0 1px 4px rgba(0,0,0,0.05);">
-      <div style="padding:14px 20px;border-bottom:1px solid #e5e7eb;background:#f9fafb;">
-        <div style="display:flex;align-items:flex-start;gap:10px;">
-          ${badge ? `<div style="flex-shrink:0;padding-top:2px;">${badge}</div>` : ''}
-          <div>
-            ${teamPlayerLine}
-            ${x.reasons?.length ? `<span style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;color:#6b7280;font-size:12px;">${esc(x.reasons.join(' · '))}</span>` : ''}
+    <div style="background:#fff;border:1px solid #e5e7eb;border-radius:6px;margin-bottom:28px;box-shadow:0 2px 8px rgba(0,0,0,0.07);overflow:hidden;">
+      <div style="background:#0d0d0d;padding:18px 24px;">
+        <div style="display:flex;align-items:center;gap:16px;">
+          ${teamLogo}
+          <div style="flex:1;">
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;">
+              <span style="background:${coverageBg};color:#fff;padding:3px 10px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:9px;font-weight:800;letter-spacing:1.5px;text-transform:uppercase;border-radius:2px;">${coverageLabel}</span>
+            </div>
+            ${playerLine}
+            ${teamLine}
           </div>
         </div>
+        ${x.reasons?.length ? `<div style="margin-top:10px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:12px;color:rgba(255,255,255,0.4);letter-spacing:0.2px;">${esc(x.reasons.join(' · '))}</div>` : ''}
       </div>
       <div style="padding:4px 0;">
         ${dualPerspective(x.bot1, x.bot2)}
@@ -422,10 +469,15 @@ function sectionTrades(list: TradeItem[]): string {
     }).join('');
 
     return `
-    <div style="background:#fff;border:1px solid #e5e7eb;border-radius:4px;padding:24px 28px;margin-bottom:24px;box-shadow:0 1px 4px rgba(0,0,0,0.05);">
-      <div style="font-family:'Georgia','Times New Roman',serif;font-weight:700;font-size:18px;color:#0d0d0d;margin-bottom:18px;padding-bottom:14px;border-bottom:2px solid #0d0d0d;">${esc(x.context || 'Trade')}</div>
-      <div style="margin-bottom:8px;">${teamMoves}</div>
-      ${teamAnalysis}
+    <div style="background:#fff;border:1px solid #e5e7eb;border-radius:6px;margin-bottom:28px;box-shadow:0 2px 8px rgba(0,0,0,0.07);overflow:hidden;">
+      <div style="background:#0d0d0d;padding:18px 28px;">
+        <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:9px;font-weight:800;letter-spacing:2px;text-transform:uppercase;color:#be161e;margin-bottom:8px;">Trade Report</div>
+        <div style="font-family:'Georgia','Times New Roman',serif;font-weight:700;font-size:20px;color:#fff;line-height:1.2;">${esc(x.context || 'Trade')}</div>
+      </div>
+      <div style="padding:24px 28px;">
+        <div style="margin-bottom:8px;">${teamMoves}</div>
+        ${teamAnalysis}
+      </div>
     </div>`;
   }).join('');
 
@@ -473,12 +525,14 @@ function sectionForecast(d: ForecastData): string {
           <div style="font-family:'Georgia','Times New Roman',serif;font-weight:700;font-size:15px;color:#0d0d0d;">${esc(p.bot1_pick || '—')}</div>
           ${p.confidence_bot1 ? `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:12px;color:#6b7280;margin-top:4px;">${esc(p.confidence_bot1)}</div>` : ''}
           ${p.upset_bot1 ? `<span style="display:inline-block;margin-top:6px;background:#be161e;color:#fff;padding:2px 10px;font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;">UPSET PICK</span>` : ''}
+          ${p.note_bot1 ? `<p style="margin:10px 0 0;font-family:'Georgia','Times New Roman',serif;font-size:13px;line-height:1.65;color:#4b5563;font-style:italic;">${esc(p.note_bot1)}</p>` : ''}
         </div>
         <div style="padding:16px 18px;">
           <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#0b5f98;margin-bottom:8px;">Westy</div>
           <div style="font-family:'Georgia','Times New Roman',serif;font-weight:700;font-size:15px;color:#0d0d0d;">${esc(p.bot2_pick || '—')}</div>
           ${p.confidence_bot2 ? `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:12px;color:#6b7280;margin-top:4px;">${esc(p.confidence_bot2)}</div>` : ''}
           ${p.upset_bot2 ? `<span style="display:inline-block;margin-top:6px;background:#0b5f98;color:#fff;padding:2px 10px;font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;">UPSET PICK</span>` : ''}
+          ${p.note_bot2 ? `<p style="margin:10px 0 0;font-family:'Georgia','Times New Roman',serif;font-size:13px;line-height:1.65;color:#4b5563;font-style:italic;">${esc(p.note_bot2)}</p>` : ''}
         </div>
       </div>
     </div>`).join('');
@@ -490,9 +544,14 @@ function sectionForecast(d: ForecastData): string {
       ${d.bot2_matchup_of_the_week ? `<div style="font-family:'Georgia','Times New Roman',serif;font-size:15px;color:#374151;"><span style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:11px;font-weight:700;color:#0b5f98;letter-spacing:0.5px;text-transform:uppercase;margin-right:8px;">Westy</span>${esc(d.bot2_matchup_of_the_week)}</div>` : ''}
     </div>` : '';
 
+  const introDialogue = d.intro_dialogue?.length
+    ? conversationalDialogue(d.intro_dialogue)
+    : '';
+
   return `
   <article>
     ${sectionHeader("NEXT WEEK'S FORECAST", 'Who will come out on top?')}
+    ${introDialogue}
     ${recordsLine}
     ${rows || '<div style="font-family:\'Georgia\',serif;color:#6b7280;font-style:italic;padding:20px 0;">No upcoming matchups found.</div>'}
     ${extras}
@@ -780,15 +839,36 @@ function sectionNarrativeCallbacks(callbacks: NarrativeCallback[]): string {
 
 function sectionPowerRankings(d: PowerRankingsSection): string {
   const rankings = (d.rankings || []).map(r => {
-    const rankColor = r.rank === 1 ? '#92400e' : r.rank === 2 ? '#6b7280' : r.rank === 3 ? '#78350f' : r.rank <= 6 ? '#0b5f98' : '#374151';
     const rankBg = r.rank === 1 ? 'linear-gradient(135deg,#f59e0b,#d97706)' : r.rank === 2 ? 'linear-gradient(135deg,#9ca3af,#6b7280)' : r.rank === 3 ? 'linear-gradient(135deg,#c2810c,#a16207)' : r.rank <= 6 ? '#0b5f98' : '#e5e7eb';
     const rankTextColor = r.rank <= 6 ? '#fff' : '#374151';
+    const isLast = r.rank === (d.rankings?.length || 0);
+
+    // Trend arrow
+    const trendHtml = r.trend === 'up'
+      ? `<span style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:12px;font-weight:700;color:#059669;margin-left:8px;">▲${r.trendAmount ? r.trendAmount : ''}</span>`
+      : r.trend === 'down'
+      ? `<span style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:12px;font-weight:700;color:#be161e;margin-left:8px;">▼${r.trendAmount ? r.trendAmount : ''}</span>`
+      : `<span style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:12px;color:#9ca3af;margin-left:8px;">—</span>`;
+
     return `
-    <div style="display:flex;align-items:flex-start;gap:16px;padding:16px 20px;background:#fff;border:1px solid #e5e7eb;border-bottom:none;${r.rank === (d.rankings?.length || 0) ? 'border-bottom:1px solid #e5e7eb;' : ''}">
-      <div style="width:36px;height:36px;background:${rankBg};color:${rankTextColor};display:flex;align-items:center;justify-content:center;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-weight:800;font-size:16px;flex-shrink:0;border-radius:2px;">${r.rank}</div>
+    <div style="display:flex;align-items:flex-start;gap:16px;padding:18px 22px;background:#fff;border:1px solid #e5e7eb;border-bottom:none;${isLast ? 'border-bottom:1px solid #e5e7eb;' : ''}">
+      <div style="width:38px;height:38px;background:${rankBg};color:${rankTextColor};display:flex;align-items:center;justify-content:center;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-weight:800;font-size:16px;flex-shrink:0;border-radius:2px;">${r.rank}</div>
       <div style="flex:1;">
-        <div style="font-family:'Georgia','Times New Roman',serif;font-weight:700;font-size:16px;color:#0d0d0d;margin-bottom:4px;">${esc(r.team)}</div>
-        <div style="font-family:'Georgia','Times New Roman',serif;font-size:14px;line-height:1.6;color:#6b7280;font-style:italic;">${esc(r.bot1_blurb)}</div>
+        <div style="display:flex;align-items:center;margin-bottom:6px;">
+          <span style="font-family:'Georgia','Times New Roman',serif;font-weight:700;font-size:16px;color:#0d0d0d;">${esc(r.team)}</span>
+          ${trendHtml}
+          ${r.record ? `<span style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:12px;color:#9ca3af;margin-left:10px;">${esc(r.record)}</span>` : ''}
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+          <div>
+            <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:9px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#be161e;margin-bottom:3px;">Mason</div>
+            <div style="font-family:'Georgia','Times New Roman',serif;font-size:13px;line-height:1.55;color:#4b5563;font-style:italic;">${esc(r.bot1_blurb)}</div>
+          </div>
+          <div>
+            <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:9px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#0b5f98;margin-bottom:3px;">Westy</div>
+            <div style="font-family:'Georgia','Times New Roman',serif;font-size:13px;line-height:1.55;color:#4b5563;font-style:italic;">${esc(r.bot2_blurb)}</div>
+          </div>
+        </div>
       </div>
     </div>`;
   }).join('');
@@ -1044,11 +1124,26 @@ export function renderHtml(newsletter: Newsletter): string {
     ? meta.episodeTitle 
     : (week > 0 ? `Week ${week}` : 'Newsletter');
 
+  const weekBadge = week > 0 && !isSpecialEpisode
+    ? `<div style="background:#be161e;padding:7px 18px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:11px;font-weight:800;letter-spacing:2.5px;color:#fff;text-transform:uppercase;border-radius:2px;flex-shrink:0;">Week ${week}</div>`
+    : '';
+
   const header = `
-  <header style="background:${headerBg};color:#fff;padding:40px 40px 36px;margin-bottom:48px;border-radius:4px;">
-    <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:rgba(255,255,255,0.55);margin-bottom:14px;">${esc(meta.date)}</div>
-    <h1 style="margin:0 0 10px;font-family:'Georgia','Times New Roman',serif;font-size:38px;line-height:1.1;font-weight:700;letter-spacing:-0.5px;">${headerAccent}${esc(meta.leagueName)}</h1>
-    <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:17px;color:rgba(255,255,255,0.75);font-weight:400;">${esc(mainTitle)}${subtitle ? ` ${esc(subtitle)}` : ''}</div>
+  <header style="background:${headerBg};color:#fff;padding:0;margin-bottom:56px;border-radius:6px;overflow:hidden;">
+    <div style="height:4px;background:linear-gradient(90deg,#be161e,#9a1218);"></div>
+    <div style="padding:40px 48px 36px;">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:22px;">
+        <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:10px;font-weight:700;letter-spacing:3px;text-transform:uppercase;color:rgba(255,255,255,0.4);">East v. West Fantasy Football</div>
+        ${weekBadge}
+      </div>
+      <h1 style="margin:0;font-family:'Georgia','Times New Roman',serif;font-size:46px;line-height:1.05;font-weight:700;letter-spacing:-1px;">${headerAccent}${esc(meta.leagueName)}</h1>
+      ${isSpecialEpisode && meta.episodeTitle ? `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:17px;color:rgba(255,255,255,0.7);margin-top:8px;font-weight:400;">${esc(mainTitle)}${subtitle ? ` ${esc(subtitle)}` : ''}</div>` : ''}
+      <div style="height:1px;background:rgba(255,255,255,0.12);margin:24px 0;"></div>
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <div style="font-family:'Georgia','Times New Roman',serif;font-style:italic;font-size:15px;color:rgba(255,255,255,0.5);">Your league, covered every week.</div>
+        <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:12px;color:rgba(255,255,255,0.35);letter-spacing:0.5px;">${esc(meta.date)}</div>
+      </div>
+    </div>
   </header>`;
 
   const body = sections.map(s => {
@@ -1078,15 +1173,16 @@ export function renderHtml(newsletter: Newsletter): string {
 <title>${esc(meta.leagueName)} — ${isSpecialEpisode && meta.episodeTitle ? esc(meta.episodeTitle) : `Week ${esc(String(meta.week))}`} Newsletter</title>
 <style>
   * { box-sizing: border-box; }
-  body { margin: 0; padding: 0; background: #f4f4f4; font-family: 'Georgia', 'Times New Roman', serif; color: #374151; line-height: 1.8; font-size: 17px; }
-  article { margin-bottom: 56px; }
+  body { margin: 0; padding: 0; background: #f0f0f0; font-family: 'Georgia', 'Times New Roman', serif; color: #374151; line-height: 1.8; font-size: 17px; }
+  article { margin-bottom: 72px; }
+  article + article { border-top: 1px solid #e5e7eb; padding-top: 8px; }
   @media print {
     body { background: #fff; font-size: 13px; line-height: 1.6; }
     .no-print { display: none !important; }
     article { margin-bottom: 32px; page-break-inside: avoid; }
-    div[style*="max-width:860px"] { padding: 0 !important; }
+    div[style*="max-width:980px"] { padding: 24px 32px !important; }
     /* Keep section headers from orphaning at page bottom */
-    div[style*="border-left:5px solid #be161e"] { page-break-after: avoid; }
+    div[style*="background:#0d0d0d"] { page-break-after: avoid; }
     /* Avoid breaking inside recap cards */
     div[style*="border-radius:6px"] { page-break-inside: avoid; }
     div[style*="border-radius:4px"] { page-break-inside: avoid; }
@@ -1100,7 +1196,7 @@ export function renderHtml(newsletter: Newsletter): string {
 </style>
 </head>
 <body>
-  <div style="max-width:860px;margin:0 auto;padding:32px 24px;background:#fff;min-height:100vh;">
+  <div style="max-width:980px;margin:0 auto;padding:48px 64px;background:#fff;min-height:100vh;">
     ${header}
     ${body}
     <footer style="margin-top:64px;padding-top:28px;border-top:2px solid #0d0d0d;">

@@ -582,19 +582,32 @@ function AdminNewsletterPageInner() {
                         <Button
                           variant="secondary"
                           onClick={() => {
+                            // Download HTML — open in Chrome then Ctrl+P → Save as PDF
+                            const blob = new Blob([result.html!], { type: 'text/html' });
+                            const url = URL.createObjectURL(blob);
+                            const a = document.createElement('a');
+                            a.href = url;
+                            a.download = `newsletter-s${seasonInput}-w${weekInput}.html`;
+                            a.click();
+                            URL.revokeObjectURL(url);
+                          }}
+                        >
+                          ⬇️ Download HTML
+                        </Button>
+                        <Button
+                          variant="secondary"
+                          onClick={() => {
+                            // Open in new tab with logos resolved, then print → Save as PDF
                             const printWindow = window.open('', '_blank');
                             if (!printWindow) return;
-                            // Inject base tag so logo paths (e.g. /assets/...) resolve against the dev server
                             const baseTag = `<base href="${window.location.origin}">`;
                             const html = result.html!.replace('<head>', `<head>${baseTag}`);
                             printWindow.document.write(html);
                             printWindow.document.close();
-                            printWindow.addEventListener('load', () => {
-                              printWindow.print();
-                            });
+                            printWindow.addEventListener('load', () => printWindow.print());
                           }}
                         >
-                          ⬇️ Save as PDF
+                          🖨️ Print / PDF
                         </Button>
                       </div>
                     )}

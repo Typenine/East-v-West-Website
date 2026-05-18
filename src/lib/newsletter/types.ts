@@ -8,8 +8,20 @@
 export interface MatchupPair {
   matchup_id: string | number;
   teams: Array<{ name: string; points: number }>;
-  winner: { name: string; points: number; topPlayers?: Array<{ name: string; points: number }> };
-  loser: { name: string; points: number; topPlayers?: Array<{ name: string; points: number }> };
+  winner: {
+    name: string;
+    points: number;
+    topPlayers?: Array<{ name: string; points: number }>;
+    weekly_rank?: number;   // 1 = highest scorer in the league this week
+    bench_delta?: number;   // points left on bench vs optimal lineup
+  };
+  loser: {
+    name: string;
+    points: number;
+    topPlayers?: Array<{ name: string; points: number }>;
+    weekly_rank?: number;
+    bench_delta?: number;
+  };
   margin: number;
   // Playoff bracket label (e.g., "Championship", "3rd Place", "5th Place", "Toilet Bowl")
   bracketLabel?: string;
@@ -178,6 +190,7 @@ export interface BotMemory {
   playerRelationships?: Record<string, PlayerRelationship>;
   favoritePlayers?: string[];
   disappointments?: string[];
+  previousPowerRankings?: Record<string, number>; // team name → rank from prior week
 }
 
 // ============ Enhanced Memory Types (Tier 2) ============
@@ -612,6 +625,7 @@ export interface ForecastPick {
 
 export interface ForecastData {
   picks: ForecastPick[];
+  intro_dialogue?: Array<{ speaker: 'entertainer' | 'analyst'; text: string }>;
   bot1_matchup_of_the_week?: string;
   bot2_matchup_of_the_week?: string;
   bot1_bold_player?: string;
@@ -648,6 +662,9 @@ export interface RecapItem {
   loser?: string;
   winner_score?: number;
   loser_score?: number;
+  // Top performers for each side
+  winner_top_players?: Array<{ name: string; points: number }>;
+  loser_top_players?: Array<{ name: string; points: number }>;
   // Playoff bracket label (e.g., "🏆 Championship", "🥉 3rd Place Game", "🚽 Toilet Bowl")
   bracketLabel?: string;
   // Dialogue format - array of back-and-forth exchanges

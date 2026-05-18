@@ -446,7 +446,7 @@ ${entConfig.systemPrompt}
 === PERSONA 2: THE ANALYST ===
 ${anaConfig.systemPrompt}
 
-Write both responses clearly separated. The Entertainer writes with heat and personality; the Analyst is sharp and data-grounded. Each stays completely in their own voice.`;
+Write both responses clearly separated. Mason Reed writes with heat and personality; Westy is sharp and data-grounded. Each stays completely in their own voice.`;
 
   if (episodeType && EPISODE_PROMPT_ADDITIONS[episodeType]) {
     systemPrompt += `\n\nENTERTAINER episode note: ${EPISODE_PROMPT_ADDITIONS[episodeType].entertainer}`;

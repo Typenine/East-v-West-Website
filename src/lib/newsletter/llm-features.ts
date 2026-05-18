@@ -578,6 +578,11 @@ export async function generateNarrativeCallbacks(
 
   // Follow up on hot takes if they can be graded
   for (const take of previousHotTakes.filter(t => !t.graded).slice(0, 1)) {
+    // Determine if the take aged well based on current results
+    const subjectWon = currentResults.some(r => r.winner.name.toLowerCase().includes(take.subject.toLowerCase()));
+    const subjectLost = currentResults.some(r => r.loser.name.toLowerCase().includes(take.subject.toLowerCase()));
+    const agedWell = subjectWon || (!subjectLost && Math.random() > 0.5); // heuristic when subject isn't a matchup team
+
     const followUp = await generateSection({
       persona: take.bot,
       sectionType: 'Hot Take Follow-up',
@@ -586,15 +591,20 @@ export async function generateNarrativeCallbacks(
 Current results this week: ${currentResults.map(r => `${r.winner.name} beat ${r.loser.name}`).join(', ')}
 
 ${context}`,
-      constraints: 'Is your hot take aging well or poorly? One sentence update.',
-      maxTokens: 50,
+      constraints: agedWell
+        ? 'Your hot take is aging well! One sentence of confident validation.'
+        : 'Your hot take is NOT aging well. One sentence owning it or making an excuse.',
+      maxTokens: 60,
     });
+
+    // Mark as graded so it doesn't recur next week
+    take.graded = true;
 
     callbacks.push({
       type: 'hot_take_followup',
       original_week: take.week,
       original_statement: take.take,
-      current_status: 'Checking in...',
+      current_status: agedWell ? '✓ Aging well' : '✗ Not aging well',
       bot_reaction: followUp.trim(),
     });
   }
