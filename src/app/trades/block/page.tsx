@@ -69,6 +69,9 @@ export default function TradeBlockPage() {
   const [snap, setSnap] = useState('');
   const [saving, setSaving] = useState(false);
 
+  const [slotByOriginalTeam, setSlotByOriginalTeam] = useState<Record<string, number>>({});
+  const [draftOrderSeason, setDraftOrderSeason] = useState<number>(0);
+
   useEffect(() => {
     (async () => {
       try {
@@ -134,6 +137,23 @@ export default function TradeBlockPage() {
       .catch(() => {});
   }, [myAssets, playerNames]);
 
+  // Fetch draft slot order so picks can show "Round 1 Pick 8 (bop pop)"
+  useEffect(() => {
+    fetch('/api/draft/next-order', { cache: 'no-store' })
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (data?.slotOrder && data?.season) {
+          const map: Record<string, number> = {};
+          for (const entry of data.slotOrder as Array<{ slot: number; team: string }>) {
+            map[entry.team] = entry.slot;
+          }
+          setSlotByOriginalTeam(map);
+          setDraftOrderSeason(Number(data.season));
+        }
+      })
+      .catch(() => {});
+  }, []);
+
   // Hydrate edit state from saved
   useEffect(() => {
     if (!myAssets) return;
@@ -165,6 +185,28 @@ export default function TradeBlockPage() {
     setWantsText(wt);
     setWantsPos(wp);
   }, [myAssets, mySaved]);
+
+  const pickSlot = (a: { year: number; originalTeam: string }): number =>
+    a.year === draftOrderSeason ? (slotByOriginalTeam[a.originalTeam] ?? 999) : 999;
+
+  const pickLabel = (a: { year: number; round: number; originalTeam: string }, owningTeam: string): string => {
+    const slot = pickSlot(a);
+    const roundOrd = a.round === 1 ? '1st' : a.round === 2 ? '2nd' : a.round === 3 ? '3rd' : `${a.round}th`;
+    const pickPart = slot !== 999 ? `${roundOrd} Round Pick ${slot}` : `${roundOrd} Round`;
+    return pickPart + (a.originalTeam && a.originalTeam !== owningTeam ? ` (${a.originalTeam})` : '');
+  };
+
+  const sortedBlock = (assets: TradeAsset[]): TradeAsset[] => {
+    const picks = assets.filter(a => a.type === 'pick') as Array<{ type: 'pick'; year: number; round: number; originalTeam: string }>;
+    const players = assets.filter(a => a.type === 'player');
+    const faab = assets.filter(a => a.type === 'faab');
+    const sorted = [...picks].sort((a, b) => {
+      if (a.year !== b.year) return a.year - b.year;
+      if (a.round !== b.round) return a.round - b.round;
+      return pickSlot(a) - pickSlot(b);
+    });
+    return [...sorted, ...players, ...faab];
+  };
 
   async function saveMine() {
     if (!auth || !myAssets) return;
@@ -298,7 +340,7 @@ export default function TradeBlockPage() {
                               On the Block
                             </div>
                             <ul className="space-y-2">
-                              {row.tradeBlock.map((a, idx) => (
+                              {sortedBlock(row.tradeBlock).map((a, idx) => (
                                 <li
                                   key={idx}
                                   className="rounded-lg px-3 py-2 border"
@@ -337,12 +379,7 @@ export default function TradeBlockPage() {
                                       <span className="inline-flex items-center text-[10px] px-1.5 py-0.5 rounded-full border mr-1" style={{ borderColor: secondaryFg, color: secondaryFg }}>
                                         {a.year}
                                       </span>
-                                      <span className="inline-flex items-center text-[10px] px-1.5 py-0.5 rounded-full border mr-1" style={{ borderColor: secondaryFg, color: secondaryFg }}>
-                                        R{a.round}
-                                      </span>
-                                      {a.originalTeam && a.originalTeam !== row.team ? (
-                                        <span className="text-xs" style={{ opacity: 0.9 }}> (originally {a.originalTeam})</span>
-                                      ) : null}
+                                      <span className="font-semibold">{pickLabel(a, row.team)}</span>
                                     </span>
                                   ) : (
                                     <span className="flex items-center gap-1.5 flex-wrap">
@@ -433,17 +470,12 @@ export default function TradeBlockPage() {
                         <div key={year}>
                           <Label className="mb-1 block">Picks ({year})</Label>
                           <div className="space-y-1 border border-[var(--border)] rounded-[var(--radius-card)] p-2">
-                            {(picksByYear[year] || []).map((p) => {
+                            {[...(picksByYear[year] || [])].sort((a, b) => a.round - b.round || pickSlot(a) - pickSlot(b)).map((p) => {
                               const key = `${p.year}-${p.round}-${p.originalTeam}`;
                               return (
                                 <label key={key} className="flex items-center gap-2 text-sm">
                                   <input type="checkbox" checked={!!selPicks[key]} onChange={(e) => setSelPicks((s) => ({ ...s, [key]: e.target.checked }))} />
-                                  <span>
-                                    {p.year} Round {p.round}
-                                    {p.originalTeam && myTeam && p.originalTeam !== myTeam ? (
-                                      <span className="text-xs text-[var(--muted)]"> (originally {p.originalTeam})</span>
-                                    ) : null}
-                                  </span>
+                                  <span>{p.year} {pickLabel(p, myTeam || '')}</span>
                                 </label>
                               );
                             })}

@@ -93,10 +93,10 @@ export async function snapshotDraftFuturePicks(draftId: string): Promise<void> {
   ]);
 
   const phase = getCurrentPhase();
-  const baseSeason = Number((league as unknown as { season?: string })?.season ?? new Date().getFullYear()) + 1;
+  const currentSeason = Number((league as unknown as { season?: string })?.season ?? new Date().getFullYear());
   const seasons = phase === 'post_championship_pre_draft'
-    ? [baseSeason, baseSeason + 1, baseSeason + 2]
-    : [baseSeason + 1, baseSeason + 2];
+    ? [currentSeason, currentSeason + 1, currentSeason + 2]
+    : [currentSeason + 1, currentSeason + 2];
 
   const picks: Array<{ ownerTeam: string; originalTeam: string; year: number; round: number }> = [];
   const seen = new Set<string>();
