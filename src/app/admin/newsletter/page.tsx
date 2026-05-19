@@ -94,6 +94,38 @@ function AdminNewsletterPageInner() {
   const weeklessEpisodes = ['pre_draft', 'post_draft', 'preseason', 'offseason'];
   const needsWeek = !weeklessEpisodes.includes(episodeType);
 
+  // Estimate total LLM calls for the selected episode type (12-team league = 6 matchups)
+  const GAP_MINUTES = 3;
+  function estimateLLMCalls(type: string): number {
+    const matchups = 6;
+    const base = 2 + 2 + 2 + 4; // intro + finalWord + blurt + llmFeatures
+    switch (type) {
+      case 'regular':
+      case 'trade_deadline':
+      case 'playoffs_preview':
+      case 'playoffs_round':
+      case 'championship':
+        return base + matchups + 4 + 2 + (matchups + 2); // recaps + powerRankings + spotlight + forecast
+      case 'preseason':
+        return base + 4 + 2 + (matchups + 2); // powerRankings + seasonPreview + forecast
+      case 'pre_draft':
+      case 'post_draft':
+        return base + 4; // draft sections
+      case 'offseason':
+        return base;
+      default:
+        return base + matchups + 4 + 2 + (matchups + 2);
+    }
+  }
+  const estimatedCalls = estimateLLMCalls(episodeType);
+  const estimatedMinutes = estimatedCalls * GAP_MINUTES;
+  const estimatedHours = Math.floor(estimatedMinutes / 60);
+  const estimatedMins = estimatedMinutes % 60;
+  const estimatedLabel = estimatedHours > 0
+    ? `~${estimatedHours}h ${estimatedMins > 0 ? `${estimatedMins}m` : ''}`
+    : `~${estimatedMinutes} min`;
+  const estimatedNote = `${estimatedCalls} AI calls × ${GAP_MINUTES} min gap = ${estimatedLabel} minimum`;
+
   // Maps DB section names to human-readable labels
   const SECTION_LABELS: Record<string, string> = {
     Intro:                 '✍️ Intro',
@@ -435,6 +467,11 @@ function AdminNewsletterPageInner() {
                 </div>
               )}
 
+              <div className="p-2 bg-zinc-800/40 border border-zinc-700 rounded text-xs text-zinc-400">
+                ⏱️ {estimatedNote}
+                <span className="block text-zinc-500 mt-0.5">Trades &amp; waivers add more time depending on volume.</span>
+              </div>
+
               <div className="flex gap-2">
                 <Button
                   onClick={handleGenerate}
@@ -502,7 +539,7 @@ function AdminNewsletterPageInner() {
                   </div>
                   <div className="flex justify-between text-xs text-[var(--muted)]">
                     <span>0%</span>
-                    <span>Estimated: ~30–60 min (quality mode)</span>
+                    <span>Est. {estimatedLabel} ({estimatedCalls} calls × {GAP_MINUTES} min)</span>
                     <span>100%</span>
                   </div>
                 </div>
@@ -526,9 +563,9 @@ function AdminNewsletterPageInner() {
                 </div>
 
                 <div className="mt-4 p-3 bg-blue-900/20 border border-blue-800 rounded text-xs text-blue-300">
-                  💡 <strong>Quality mode:</strong> Each AI call has a 90-second cooldown to stay within
-                  free-tier rate limits. A full newsletter with real prose takes 30–60 minutes.
-                  Progress updates every 3 seconds from the server. Don&apos;t close this tab.
+                  💡 <strong>Quality mode:</strong> Each AI call has a {GAP_MINUTES}-minute gap to stay safely
+                  under rate limits. This episode type needs ~{estimatedCalls} calls, so expect {estimatedLabel} minimum
+                  (more if there are trades or waivers). Progress updates every 3 seconds. Don&apos;t close this tab.
                 </div>
               </div>
             ) : result ? (

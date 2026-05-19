@@ -407,7 +407,8 @@ PRESEASON PREVIEW MODE:
 - Call out teams you think are overrated or underrated
 - Reference offseason moves and what they mean for the season
 - Build HYPE for the upcoming season - this is the kickoff!
-- NO references to current season games - they haven't happened yet`,
+- NO references to current season games - they haven't happened yet
+- IMPORTANT: Any records or W-L numbers in the context are from LAST SEASON. Always say "last year" or "last season" when citing them (e.g., "they finished 8-6 last year")`,
     analyst: `
 PRESEASON PREVIEW MODE:
 - Analyze roster construction and offseason moves objectively
@@ -415,7 +416,8 @@ PRESEASON PREVIEW MODE:
 - Identify strengths and weaknesses in each roster
 - Make data-driven predictions but acknowledge uncertainty
 - Reference all-time records and trends
-- NO references to current season games - they haven't happened yet`,
+- NO references to current season games - they haven't happened yet
+- IMPORTANT: Any records or W-L numbers in the context are from LAST SEASON. Always say "last year" or "last season" when citing them (e.g., "they went 8-6 last season")`,
   },
   pre_draft: {
     entertainer: `

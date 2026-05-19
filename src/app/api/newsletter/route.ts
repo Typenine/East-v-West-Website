@@ -593,8 +593,8 @@ export async function POST(request: NextRequest) {
       }, { status: 400 });
     }
 
-    // Mark generation as in-progress in the staged tracker (best-effort)
-    void updateStagedNewsletter(seasonNum, week, { status: 'in_progress' }).catch(() => {});
+    // Mark generation as in-progress and clear stale section data from any prior run
+    void updateStagedNewsletter(seasonNum, week, { status: 'in_progress', sectionsCompleted: [], currentSection: null }).catch(() => {});
 
     // Fetch all required data from Sleeper via single-call ingest layer
     console.log(`Generating newsletter for Season ${season} Week ${week}...`);

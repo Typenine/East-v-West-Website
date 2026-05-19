@@ -301,10 +301,12 @@ export async function loadTradeBlockLeagueContext(): Promise<TradeBlockLeagueCon
   const rosters = await getLeagueRosters(leagueId).catch(() => []);
   const nameMap = await getRosterIdToTeamNameMap(leagueId).catch(() => new Map<number, string>());
   const phase = getCurrentPhase();
-  const baseSeason = Number((league as unknown as { season?: string })?.season ?? new Date().getFullYear()) + 1;
+  const currentSeason = Number((league as unknown as { season?: string })?.season ?? new Date().getFullYear());
+  // pre-draft: current year's picks are still undrafted and tradeable → include currentSeason
+  // post-draft / in-season: current year's picks are used → start from currentSeason + 1
   const seasons = phase === 'post_championship_pre_draft'
-    ? [baseSeason, baseSeason + 1, baseSeason + 2]
-    : [baseSeason + 1, baseSeason + 2];
+    ? [currentSeason, currentSeason + 1, currentSeason + 2]
+    : [currentSeason + 1, currentSeason + 2];
   const ownerships = await Promise.all(
     seasons.map((season) => loadDraftOwnershipForSeason({ leagueId, league, rosters, nameMap, season }))
   );

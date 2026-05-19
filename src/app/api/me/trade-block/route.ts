@@ -92,7 +92,18 @@ export async function PUT(req: NextRequest) {
   // Post trade block update immediately to Discord (best-effort, don't block response)
   try {
     const { computeDiff, buildTradeBlockReport, getTradeBlockBaseUrl, getLeagueMarketContext } = await import('@/lib/server/trade-block-narrative');
-    const diff = await computeDiff(oldBlock as TradeAsset[], filtered, oldWants as TradeWants | null, newWants);
+
+    // Sanitize oldBlock: strip assets the team no longer owns (traded away) so they
+    // don't appear as "manually removed from trade block" in the Discord message.
+    const ownedPlayerSet = new Set(assets.players);
+    const ownedPickKeys = new Set(assets.picks.map((p) => `${p.year}-${p.round}-${p.originalTeam}`));
+    const sanitizedOldBlock = (oldBlock as TradeAsset[]).filter((a) => {
+      if (a.type === 'player') return ownedPlayerSet.has(a.playerId);
+      if (a.type === 'pick') return ownedPickKeys.has(`${a.year}-${a.round}-${a.originalTeam ?? ''}`);
+      return true;
+    });
+
+    const diff = await computeDiff(sanitizedOldBlock, filtered, oldWants as TradeWants | null, newWants);
     const baseUrl = getTradeBlockBaseUrl();
     const leagueContext = await getLeagueMarketContext().catch(() => undefined);
     

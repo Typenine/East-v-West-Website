@@ -54,7 +54,7 @@ export function getCascadeMetricsSummary(): string {
 // regardless of how many concurrent Promise.all() calls exist in compose.ts.
 
 let _lastCallTime = 0;
-const MIN_GAP_MS = 120_000; // 2 min — well under every provider's RPM limit
+const MIN_GAP_MS = 180_000; // 3 min — conservative gap to stay safely under provider RPM limits
 let _callQueue: Promise<void> = Promise.resolve();
 
 async function enforceMinGap(): Promise<void> {

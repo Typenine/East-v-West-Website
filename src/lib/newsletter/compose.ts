@@ -654,11 +654,11 @@ This isn't just about stats - it's about YOUR take on who's actually good.`;
 YOUR TEAM OPINIONS:
 ${entertainerTeamOpinions.length > 0 ? entertainerTeamOpinions.join('\n') : 'No strong opinions yet - form some!'}
 
-Generate YOUR power rankings 1-12. Be opinionated! If you think a team is overrated, say so.
-If you're high on a team others doubt, rank them up. Let your personality show.`,
+Generate YOUR power rankings 1-12. Lean on narrative, momentum, and gut feel — who's hot, who's peaking, who has the "it" factor right now.
+Be opinionated. If you're high on a team that the stats might not fully support, say so and say why.`,
     constraints: `Format each line as: "RANK. TeamName - [your hot take reason — 2-3 sentences of analysis]"
 Example: "1. Double Trouble - They're the real deal and I've been saying it all year. Their offense is clicking and nobody can stop them. Championship material."
-Rank all 12 teams. Be bold, dramatic, and give real analysis for each.`,
+Rank all 12 teams. Be bold and dramatic. Give your honest ranking based on how teams feel right now.`,
     maxTokens: 1200,
   });
 
@@ -671,11 +671,12 @@ Rank all 12 teams. Be bold, dramatic, and give real analysis for each.`,
 YOUR TEAM OPINIONS:
 ${analystTeamOpinions.length > 0 ? analystTeamOpinions.join('\n') : 'Building data on all teams.'}
 
-Generate YOUR power rankings 1-12. Base it on the numbers but don't be afraid to have takes.
-If the data says a team is good despite their record, rank them accordingly.`,
+Generate YOUR power rankings 1-12. Base it on points-per-game, roster construction, schedule strength, and efficiency.
+If a team has a great record but weak underlying numbers, rank them accordingly. If a team is underperforming their talent, rank them higher.
+Let the data lead — your job is to find the signal in the noise.`,
     constraints: `Format each line as: "RANK. TeamName - [analytical reason — 2-3 sentences]"
 Example: "1. Double Trouble - Best points-per-game average in the league and a favorable schedule ahead. Their roster depth is unmatched and they've shown consistency all season."
-Rank all 12 teams. Provide substantive analytical reasoning for each.`,
+Rank all 12 teams with substantive analytical reasoning. Let the numbers guide you.`,
     maxTokens: 1200,
   });
 
@@ -1107,28 +1108,28 @@ async function buildFinalWord(week: number, episodeType: string = 'regular', mem
   switch (episodeType) {
     case 'preseason':
       context = 'The season is about to begin. Sign off the preseason preview with excitement for what\'s to come.';
-      entertainerConstraint = '2-3 sentences closing out the season preview. Build maximum hype, drop your biggest bold prediction, and leave the audience desperate for Week 1 to start.';
-      analystConstraint = '2-3 sentences of measured analytical closing thoughts. What are the 2-3 most important things to watch as the season unfolds?';
+      entertainerConstraint = '3-4 sentences closing out the season preview. Build maximum hype, drop your biggest bold prediction, tease one team you\'re all-in on, and leave the audience desperate for Week 1 to start.';
+      analystConstraint = '3-4 sentences of measured analytical closing thoughts. Cover the 2-3 most important things to watch, flag a team you think is flying under the radar, and end with a data-backed prediction.';
       break;
     case 'pre_draft':
       context = 'The rookie draft is coming up. Sign off the pre-draft preview with anticipation.';
-      entertainerConstraint = '2-3 sentences to close out the draft preview. Build the hype, name the player you\'re most excited about, and leave the audience fired up.';
-      analystConstraint = '2-3 sentences of analytical closing thoughts. What\'s the key strategic takeaway heading into draft day?';
+      entertainerConstraint = '3-4 sentences to close out the draft preview. Build the hype, name the player you\'re most excited about, call out a team you think is going to steal the draft, and leave the audience fired up.';
+      analystConstraint = '3-4 sentences of analytical closing thoughts. Key strategic takeaway heading into draft day, which team has the best draft capital, and a projection on how this draft will change the competitive landscape.';
       break;
     case 'post_draft':
       context = 'The rookie draft is complete. Sign off the draft grades with final thoughts.';
-      entertainerConstraint = '2-3 sentences closing out the draft recap. Who was the biggest winner? What\'s your lasting impression of this class?';
-      analystConstraint = '2-3 sentences of analytical final thoughts. What does this draft mean for the competitive landscape going forward?';
+      entertainerConstraint = '3-4 sentences closing out the draft recap. Who was the biggest winner? What\'s your lasting impression of this class? Drop a bold take about which pick will look best in 2 years.';
+      analystConstraint = '3-4 sentences of analytical final thoughts. What does this draft mean for the competitive landscape? Which team\'s strategy surprised you? End with a data-driven projection.';
       break;
     case 'offseason':
       context = 'It\'s the offseason. Sign off with thoughts on what\'s next.';
-      entertainerConstraint = '2-3 sentences closing out the offseason update. What are you most looking forward to? Leave the audience engaged.';
-      analystConstraint = '2-3 sentences of measured offseason analysis. What are the biggest open questions heading into the season?';
+      entertainerConstraint = '3-4 sentences closing out the offseason update. What are you most looking forward to? Call out one team that\'s setting up for a big year. Leave the audience engaged.';
+      analystConstraint = '3-4 sentences of measured offseason analysis. The biggest open questions, which roster move made the most analytical sense, and where you see the power shifting.';
       break;
     default:
       context = `Week ${week} is in the books. Sign off the newsletter with a memorable closing thought.`;
-      entertainerConstraint = '2-3 sentences to close the show. Make it memorable, tease what to watch next week, and leave on a high note.';
-      analystConstraint = '2-3 sentences of measured closing analysis. Reference the biggest takeaway from this week and what it means going forward.';
+      entertainerConstraint = '3-4 sentences to close the show. Make it memorable — reference the week\'s biggest story, drop a take on what it means going forward, tease what to watch next week, and leave on a high note.';
+      analystConstraint = '3-4 sentences of measured closing analysis. Reference the biggest statistical takeaway from this week, what it means for the standings, and one thing to watch heading into next week.';
   }
 
   const entPersonality = memEntertainer && isEnhancedMemory(memEntertainer) ? getPersonalityContext(memEntertainer) : '';
@@ -1140,14 +1141,14 @@ async function buildFinalWord(week: number, episodeType: string = 'regular', mem
       sectionType: 'Final Word',
       context: context + (entPersonality ? `\n${entPersonality}` : ''),
       constraints: entertainerConstraint,
-      maxTokens: 200,
+      maxTokens: 350,
     }),
     generateSection({
       persona: 'analyst',
       sectionType: 'Final Word',
       context: context + (anaPersonality ? `\n${anaPersonality}` : ''),
       constraints: analystConstraint,
-      maxTokens: 200,
+      maxTokens: 350,
     }),
   ]);
 
@@ -1404,8 +1405,8 @@ IMPORTANT RULES:
       someoneBurned: entertainerBurned || analystBurned,
     };
     
-    // Calculate interest score (0-10+)
-    let interestScore = 2; // Base
+    // Calculate interest score (0-10+). Floor is 5 so every matchup gets at least moderate treatment.
+    let interestScore = 5; // Base — ensures at least 'moderate' for every matchup
     if (interestFactors.isChampionship) interestScore += 4;
     else if (interestFactors.isPlayoffGame) interestScore += 2;
     if (interestFactors.isBlowout) interestScore += 1;
@@ -1642,90 +1643,53 @@ ${starterBot === 'entertainer' ? 'Mason Reed (Entertainer) speaks first.' : 'Tre
 
 BEGIN:`;
 
-    // Token budgets per bot (each gets their own call now)
-    const entertainerTokens = isChampionship ? 800 :
-                              interestLevel === 'very high' ? 600 :
-                              interestLevel === 'moderate' ? 400 : 250;
-    const analystTokens = isChampionship ? 800 :
-                          interestLevel === 'very high' ? 600 :
-                          interestLevel === 'moderate' ? 400 : 250;
+    // Single-call dialogue: generate complete back-and-forth in one LLM call.
+    // This halves API calls vs the old sequential approach while producing richer interleaving.
+    const exchangeCount = isChampionship ? '6-8' :
+                          interestLevel === 'very high' ? '5-6' :
+                          interestLevel === 'moderate' ? '4-5' : '3-4';
+    const dialogueTokens = isChampionship ? 900 :
+                           interestLevel === 'very high' ? 750 :
+                           interestLevel === 'moderate' ? 600 :
+                           interestLevel === 'low' ? 500 : 400;
 
-    // SEQUENTIAL GENERATION: Entertainer speaks first, Analyst sees Entertainer's output
-    // This ensures the Analyst can genuinely respond to what the Entertainer said
+    const dialogueConstraints = `${fullDialoguePrompt}
 
-    const entertainerOnlyPrompt = `${fullDialoguePrompt}
+Generate ${exchangeCount} lines now — both speakers alternating naturally.
+Each line: "ENTERTAINER: [Mason's words]" OR "ANALYST: [Westy's words]"
+${starterBot === 'entertainer' ? 'Start with ENTERTAINER.' : 'Start with ANALYST.'}
+No headers, no other text. Begin immediately:`;
 
-IMPORTANT: You are ONLY generating the ENTERTAINER's lines right now (Mason Reed).
-Write only lines starting with "ENTERTAINER:". Do not write any "ANALYST:" lines.
-${starterBot === 'analyst' ? 'Note: Trent Weston (Analyst) will speak first — write your ENTERTAINER response to an expected analyst opener about this game.' : ''}`;
-
-    const entertainerRaw = await generateSection({
-      persona: 'entertainer',
-      sectionType: `${bracketInfo} Entertainer`,
-      context: `${seasonalContext}\n${entertainerMatchupContext}`,
-      constraints: entertainerOnlyPrompt,
-      maxTokens: entertainerTokens,
+    const dialogueRaw = await generateSection({
+      persona: starterBot === 'entertainer' ? 'entertainer' : 'analyst',
+      sectionType: `${bracketInfo} Recap`,
+      context: `${seasonalContext}\n${starterBot === 'entertainer' ? entertainerMatchupContext : analystMatchupContext}`,
+      constraints: dialogueConstraints,
+      maxTokens: dialogueTokens,
     }).catch(() => '');
 
-    // Analyst explicitly responds to the Entertainer's actual words
-    // Strip any speaker labels from entertainerRaw before injecting
-    const entertainerSaid = entertainerRaw.trim()
-      .split('\n')
-      .filter(l => l.trim())
-      .map(l => l.replace(/^(?:entertainer|the entertainer)[:\s]+/i, '').trim())
-      .join(' ')
-      .replace(/^["']|["']$/g, '');
-
-    const analystConstraints = [
-      `Mason Reed just said about this game: "${entertainerSaid}"`,
-      ``,
-      `Respond in 2-3 sentences using your analytical perspective.`,
-      `React to what they said — agree where the data supports it, push back where it doesn't.`,
-      analystBurned ? `Your analysis didn't hold up here. Acknowledge it briefly, then explain what the numbers missed.` : '',
-      analystVindicated ? `The data was right on this one. Mention it naturally.` : '',
-      isChampionship ? `This is the Championship — your response matters, be substantive.` : '',
-      `Write only "ANALYST: [your words]" — one line, no other formatting.`,
-    ].filter(Boolean).join('\n');
-
-    const analystRaw = await generateSection({
-      persona: 'analyst',
-      sectionType: `${bracketInfo} Analyst`,
-      context: `${seasonalContext}\n${analystMatchupContext}`,
-      constraints: analystConstraints,
-      maxTokens: analystTokens,
-    }).catch(() => '');
-
-    // Parse each bot's output directly — no interleaving needed since they're separate calls
-    const parseRaw = (raw: string, speaker: 'entertainer' | 'analyst'): string => {
-      const label = speaker === 'entertainer' ? /^(?:entertainer|the entertainer)[:\s]+/i : /^(?:analyst|the analyst)[:\s]+/i;
-      return raw.trim()
-        .split('\n')
-        .filter(l => l.trim())
-        .map(l => l.replace(/^\*\*/, '').replace(/\*\*$/, '').replace(/^\[|\]$/g, '').replace(/^[-•]\s*/, '').trim())
-        .filter(l => {
-          // For entertainer lines: accept lines with ENTERTAINER: label OR no label at all
-          // For analyst lines: accept lines with ANALYST: label OR no label at all
-          // Reject lines labeled for the OTHER speaker
-          const oppositeLabel = speaker === 'entertainer' ? /^(?:analyst|the analyst)[:\s]+/i : /^(?:entertainer|the entertainer)[:\s]+/i;
-          return !oppositeLabel.test(l);
-        })
-        .map(l => l.replace(label, '').replace(/^["']|["']$/g, '').trim())
-        .filter(l => l.length > 10) // Skip very short fragments
-        .join(' ');
+    // Parse interleaved dialogue from single call
+    type DialogueTurn = { speaker: 'entertainer' | 'analyst'; text: string };
+    const parseDialogue = (raw: string): DialogueTurn[] => {
+      const result: DialogueTurn[] = [];
+      for (const line of raw.split('\n')) {
+        if (!line.trim()) continue;
+        const clean = line.replace(/^\*\*/, '').replace(/\*\*$/, '').replace(/^\[|\]$/g, '').trim();
+        const entMatch = clean.match(/^(?:ENTERTAINER|MASON REED|MASON)[:\s]+(.+)/i);
+        const anaMatch = clean.match(/^(?:ANALYST|WESTY|TRENT WESTON|THE ANALYST)[:\s]+(.+)/i);
+        if (entMatch && entMatch[1].trim().length > 10) result.push({ speaker: 'entertainer', text: entMatch[1].trim().replace(/^["']|["']$/g, '') });
+        else if (anaMatch && anaMatch[1].trim().length > 10) result.push({ speaker: 'analyst', text: anaMatch[1].trim().replace(/^["']|["']$/g, '') });
+      }
+      return result;
     };
 
-    const entertainerTake = parseRaw(entertainerRaw, 'entertainer');
-    const analystTake = parseRaw(analystRaw, 'analyst');
+    dialogue.push(...parseDialogue(dialogueRaw));
 
-    if (starterBot === 'entertainer') {
-      if (entertainerTake) dialogue.push({ speaker: 'entertainer', text: entertainerTake });
-      if (analystTake) dialogue.push({ speaker: 'analyst', text: analystTake });
-    } else {
-      if (analystTake) dialogue.push({ speaker: 'analyst', text: analystTake });
-      if (entertainerTake) dialogue.push({ speaker: 'entertainer', text: entertainerTake });
-    }
+    // Derive per-speaker aggregates for downstream pushback recording
+    const entertainerTake = dialogue.filter(d => d.speaker === 'entertainer').map(d => d.text).join(' ');
+    const analystTake = dialogue.filter(d => d.speaker === 'analyst').map(d => d.text).join(' ');
 
-    // Optional rebuttal + pushback recording for any game (not just high-stakes)
+    // Pushback + personality recording (detect disagreement in the generated dialogue)
     {
       const analystPushesBack = !!(entertainerTake && analystTake && (
         analystTake.toLowerCase().includes('disagree') ||
@@ -1737,22 +1701,6 @@ ${starterBot === 'analyst' ? 'Note: Trent Weston (Analyst) will speak first — 
       ));
 
       if (analystPushesBack) {
-        // Rebuttal call for high-stakes games
-        if (isChampionship || interestLevel === 'very high' || interestLevel === 'moderate') {
-          const rebuttalRaw = await generateSection({
-            persona: 'entertainer',
-            sectionType: `${bracketInfo} Rebuttal`,
-            context: `${seasonalContext}\n${entertainerMatchupContext}`,
-            constraints: `Westy (the Analyst) just responded: "${analystTake}"\n\nCome back in 2-3 sentences. Stand your ground with confidence and fire — this is healthy disagreement. Push back specifically on what they said. Write "ENTERTAINER: [your words]".`,
-            maxTokens: 250,
-          }).catch(() => null);
-
-          if (rebuttalRaw) {
-            const rebuttal = parseRaw(rebuttalRaw, 'entertainer');
-            if (rebuttal) dialogue.push({ speaker: 'entertainer', text: rebuttal });
-          }
-        }
-
         // Record pushback to collector — who championed the actual winner?
         const entChampioned = (entertainerVindicated && !analystVindicated) ||
           (!entertainerVindicated && !analystVindicated && Math.random() > 0.5);
