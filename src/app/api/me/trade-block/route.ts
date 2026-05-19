@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server';
 import { requireTeamUser } from '@/lib/server/session';
 import { readUserDoc, writeUserDoc, TradeAsset, TradeWants } from '@/lib/server/user-store';
 import { getTeamAssets } from '@/lib/server/trade-assets';
+import { postToDiscordWebhook } from '@/lib/utils/discord';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -121,10 +122,20 @@ export async function PUT(req: NextRequest) {
     if (message) {
       const webhookUrl = process.env.DISCORD_TRADE_BLOCK_WEBHOOK_URL;
       if (webhookUrl) {
-        await fetch(webhookUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ content: message }),
+        const tradeBlockUrl = baseUrl ? `${baseUrl}/trades/block` : 'https://eastvswest.win/trades/block';
+        const urlSuffix = `\n\n${tradeBlockUrl}`;
+        const descriptionText = message.endsWith(urlSuffix)
+          ? message.slice(0, -urlSuffix.length).trim()
+          : message.trim();
+        await postToDiscordWebhook(webhookUrl, {
+          embeds: [{
+            author: { name: ident.team },
+            description: descriptionText,
+            url: tradeBlockUrl,
+            color: 0xbe161e,
+            footer: { text: 'East v. West · Trade Block' },
+            timestamp: new Date().toISOString(),
+          }],
         }).catch((e) => console.error('Discord webhook error:', e));
       }
     }

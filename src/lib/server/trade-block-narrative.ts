@@ -1,5 +1,7 @@
 import { TradeAsset, TradeWants } from './user-store';
 import { getAllPlayersCached } from '@/lib/utils/sleeper-api';
+import { LEAGUE_IDS, CURRENT_SEASON } from '@/lib/constants/league';
+import { loadDraftOwnershipForSeason } from './trade-assets';
 
 const DEBUG = process.env.TRADE_BLOCK_DEBUG === '1' || process.env.TRADE_BLOCK_DEBUG === 'true';
 
@@ -47,7 +49,40 @@ function assetToKey(asset: TradeAsset): string {
   return '';
 }
 
-async function assetToLabel(asset: TradeAsset, players: Record<string, { first_name?: string; last_name?: string; position?: string; team?: string }>): Promise<string> {
+type PickSlotMap = { season: number; slotByTeam: Record<string, number> };
+
+async function loadPickSlotMap(): Promise<PickSlotMap | null> {
+  try {
+    const ownership = await loadDraftOwnershipForSeason({ leagueId: LEAGUE_IDS.CURRENT, season: Number(CURRENT_SEASON) });
+    if (!ownership) return null;
+    const slotByTeam: Record<string, number> = {};
+    const seenOrig = new Set<string>();
+    for (const key of Object.keys(ownership.ownership)) {
+      const [origRosterIdStr] = key.split('-');
+      if (seenOrig.has(origRosterIdStr)) continue;
+      seenOrig.add(origRosterIdStr);
+      const teamName = ownership.rosterIdToTeam[origRosterIdStr];
+      if (!teamName) continue;
+      const origRosterId = Number(origRosterIdStr);
+      if (Number.isFinite(origRosterId)) slotByTeam[teamName] = origRosterId;
+    }
+    return { season: ownership.season, slotByTeam };
+  } catch {
+    return null;
+  }
+}
+
+function formatPickLabel(asset: { year: number; round: number; originalTeam?: string }, ownerTeam: string, slotMap: PickSlotMap | null): string {
+  const round = asset.round === 1 ? '1st' : asset.round === 2 ? '2nd' : asset.round === 3 ? '3rd' : `${asset.round}th`;
+  const slot = (slotMap && asset.year === slotMap.season && asset.originalTeam)
+    ? slotMap.slotByTeam[asset.originalTeam]
+    : undefined;
+  const pickPart = slot != null ? `${round} Round Pick ${slot}` : `${round} Round`;
+  const origPart = asset.originalTeam && asset.originalTeam !== ownerTeam ? ` (${asset.originalTeam})` : '';
+  return `${asset.year} ${pickPart}${origPart}`;
+}
+
+async function assetToLabel(asset: TradeAsset, players: Record<string, { first_name?: string; last_name?: string; position?: string; team?: string }>, ownerTeam: string, slotMap: PickSlotMap | null): Promise<string> {
   if (asset.type === 'player') {
     const player = players[asset.playerId];
     if (player) {
@@ -57,8 +92,7 @@ async function assetToLabel(asset: TradeAsset, players: Record<string, { first_n
     return asset.playerId;
   }
   if (asset.type === 'pick') {
-    const round = asset.round === 1 ? '1st' : asset.round === 2 ? '2nd' : asset.round === 3 ? '3rd' : `${asset.round}th`;
-    return `${asset.year} ${round}`;
+    return formatPickLabel(asset, ownerTeam, slotMap);
   }
   if (asset.type === 'faab') {
     return `$${asset.amount ?? 0} FAAB`;
@@ -66,10 +100,9 @@ async function assetToLabel(asset: TradeAsset, players: Record<string, { first_n
   return 'Unknown';
 }
 
-function pickToLabel(asset: TradeAsset): string {
+function pickToLabel(asset: TradeAsset, ownerTeam: string, slotMap: PickSlotMap | null): string {
   if (asset.type !== 'pick') return '';
-  const round = asset.round === 1 ? '1st' : asset.round === 2 ? '2nd' : asset.round === 3 ? '3rd' : `${asset.round}th`;
-  return `${asset.year} ${round}`;
+  return formatPickLabel(asset, ownerTeam, slotMap);
 }
 
 const POSITIONAL_TAGS = new Set(['QB', 'RB', 'WR', 'TE', 'K', 'DEF']);
@@ -555,7 +588,9 @@ async function selectHeadliners(
   addedPlayers: TradeAsset[],
   currentPlayers: TradeAsset[],
   removedPlayers: TradeAsset[],
-  players: Record<string, { first_name?: string; last_name?: string; position?: string; team?: string }>
+  players: Record<string, { first_name?: string; last_name?: string; position?: string; team?: string }>,
+  ownerTeam: string,
+  slotMap: PickSlotMap | null
 ): Promise<string[]> {
   // Build set of player IDs already mentioned in the message
   const alreadyMentioned = new Set<string>();
@@ -582,7 +617,7 @@ async function selectHeadliners(
 
   const labels: string[] = [];
   for (const asset of candidates) {
-    labels.push(await assetToLabel(asset, players));
+    labels.push(await assetToLabel(asset, players, ownerTeam, slotMap));
   }
   return labels;
 }
@@ -599,7 +634,10 @@ export async function buildTradeBlockReport(ctx: NarrativeContext): Promise<stri
     return null;
   }
 
-  const players = await getAllPlayersCached().catch(() => ({} as Record<string, { first_name?: string; last_name?: string; position?: string; team?: string }>));
+  const [players, slotMap] = await Promise.all([
+    getAllPlayersCached().catch(() => ({} as Record<string, { first_name?: string; last_name?: string; position?: string; team?: string }>)),
+    loadPickSlotMap().catch(() => null),
+  ]);
 
   const seed = simpleHash(`${teamName}|${updatedAt}|${JSON.stringify(diff)}`);
   const rng = seededRandom(seed);
@@ -629,10 +667,10 @@ export async function buildTradeBlockReport(ctx: NarrativeContext): Promise<stri
     parts.push(pickTemplate(OPENERS, rng));
   }
 
-  const addedPlayerLabels = await Promise.all(diff.addedPlayers.map((a) => assetToLabel(a, players)));
-  const removedPlayerLabels = await Promise.all(diff.removedPlayers.map((a) => assetToLabel(a, players)));
-  const addedPickLabels = diff.addedPicks.map(pickToLabel);
-  const removedPickLabels = diff.removedPicks.map(pickToLabel);
+  const addedPlayerLabels = await Promise.all(diff.addedPlayers.map((a) => assetToLabel(a, players, teamName, slotMap)));
+  const removedPlayerLabels = await Promise.all(diff.removedPlayers.map((a) => assetToLabel(a, players, teamName, slotMap)));
+  const addedPickLabels = diff.addedPicks.map(a => pickToLabel(a, teamName, slotMap));
+  const removedPickLabels = diff.removedPicks.map(a => pickToLabel(a, teamName, slotMap));
 
   // MAIN NEWS: Player changes
   if (diff.addedPlayers.length > 0 && diff.removedPlayers.length === 0) {
@@ -728,7 +766,7 @@ export async function buildTradeBlockReport(ctx: NarrativeContext): Promise<stri
   // SUPPORTING DETAILS: Headliners (if context exists) and market intel
   // Only add headliners if we have lookingFor or tags (provides context for what's available)
   if (contextParts.length > 0 && currentPlayers.length > 0) {
-    const headliners = await selectHeadliners(diff.addedPlayers, currentPlayers, diff.removedPlayers, players);
+    const headliners = await selectHeadliners(diff.addedPlayers, currentPlayers, diff.removedPlayers, players, teamName, slotMap);
     if (headliners.length > 0) {
       const headlinerList = formatList(headliners);
       const verb = headliners.length === 1 ? 'is' : 'are';

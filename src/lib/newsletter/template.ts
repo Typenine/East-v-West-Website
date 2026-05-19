@@ -26,6 +26,7 @@ import type {
   NarrativeCallback,
   DraftPreviewSection,
   DraftGradesSection,
+  MockDraftSection,
 } from './types';
 import { TEAM_COLORS } from '../constants/team-colors';
 import { getTeamLogoPath } from '../utils/team-utils';
@@ -1066,6 +1067,87 @@ function sectionDraftGrades(d: DraftGradesSection): string {
   </article>`;
 }
 
+function sectionMockDraft(d: MockDraftSection): string {
+  if (!d?.picks?.length) return '';
+
+  // Group picks by round
+  const round1 = d.picks.filter(p => p.round === 1);
+  const round2 = d.picks.filter(p => p.round === 2);
+
+  const renderPick = (pick: MockDraftSection['picks'][0]) => {
+    const overallLabel = `${pick.round}.${String(pick.slot).padStart(2, '0')}`;
+    const isTradedPick = pick.ownerTeam !== pick.originalTeam;
+    const teamLabel = isTradedPick
+      ? `${esc(pick.ownerTeam)} <span style="font-size:11px;color:#6b7280;font-weight:400;">(via ${esc(pick.originalTeam)})</span>`
+      : esc(pick.ownerTeam);
+
+    return `
+    <div style="background:#fff;border:1px solid #e5e7eb;border-radius:6px;margin-bottom:20px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,0.05);">
+      <!-- Pick header -->
+      <div style="background:#0d0d0d;padding:14px 22px;display:flex;align-items:center;gap:16px;">
+        <div style="flex-shrink:0;background:#be161e;color:#fff;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-weight:800;font-size:13px;letter-spacing:0.5px;padding:6px 12px;border-radius:3px;min-width:48px;text-align:center;">
+          ${esc(overallLabel)}
+        </div>
+        <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-weight:700;font-size:15px;color:#fff;">${teamLabel}</div>
+        <div style="margin-left:auto;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:rgba(255,255,255,0.3);">Pick ${pick.overall}</div>
+      </div>
+      <!-- Two-column bot takes -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0;">
+        <!-- Mason -->
+        <div style="padding:18px 22px;border-right:1px solid #e5e7eb;">
+          <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:10px;">
+            <span style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:9px;font-weight:800;letter-spacing:2px;text-transform:uppercase;color:#be161e;">Mason</span>
+            <span style="font-family:'Georgia','Times New Roman',serif;font-weight:700;font-size:15px;color:#0d0d0d;">${esc(pick.mason.player)}</span>
+          </div>
+          <p style="margin:0;font-family:'Georgia','Times New Roman',serif;font-size:14px;line-height:1.7;color:#374151;">${esc(pick.mason.analysis)}</p>
+        </div>
+        <!-- Westy -->
+        <div style="padding:18px 22px;">
+          <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:10px;">
+            <span style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:9px;font-weight:800;letter-spacing:2px;text-transform:uppercase;color:#0b5f98;">Westy</span>
+            <span style="font-family:'Georgia','Times New Roman',serif;font-weight:700;font-size:15px;color:#0d0d0d;">${esc(pick.westy.player)}</span>
+          </div>
+          <p style="margin:0;font-family:'Georgia','Times New Roman',serif;font-size:14px;line-height:1.7;color:#374151;">${esc(pick.westy.analysis)}</p>
+        </div>
+      </div>
+    </div>`;
+  };
+
+  // Bot intro blurbs
+  const introParagraph = (d.mason_intro || d.westy_intro)
+    ? `<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:32px;">
+        ${d.mason_intro ? `<div style="padding:16px 20px;border-left:4px solid #be161e;background:#fff8f8;">
+          <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:9px;font-weight:800;letter-spacing:2px;text-transform:uppercase;color:#be161e;margin-bottom:8px;">MASON REED</div>
+          <p style="margin:0;font-family:'Georgia','Times New Roman',serif;font-size:14px;line-height:1.7;color:#374151;font-style:italic;">${esc(d.mason_intro)}</p>
+        </div>` : ''}
+        ${d.westy_intro ? `<div style="padding:16px 20px;border-left:4px solid #0b5f98;background:#f0f7ff;">
+          <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:9px;font-weight:800;letter-spacing:2px;text-transform:uppercase;color:#0b5f98;margin-bottom:8px;">WESTY</div>
+          <p style="margin:0;font-family:'Georgia','Times New Roman',serif;font-size:14px;line-height:1.7;color:#374151;font-style:italic;">${esc(d.westy_intro)}</p>
+        </div>` : ''}
+      </div>`
+    : '';
+
+  const roundDivider = round1.length > 0 && round2.length > 0
+    ? `<div style="display:flex;align-items:center;gap:16px;margin:32px 0;">
+        <div style="flex:1;height:2px;background:#0d0d0d;"></div>
+        <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:11px;font-weight:800;letter-spacing:3px;text-transform:uppercase;color:#0d0d0d;white-space:nowrap;">Round 2</div>
+        <div style="flex:1;height:2px;background:#0d0d0d;"></div>
+      </div>`
+    : '';
+
+  return `
+  <article>
+    ${sectionHeader('MOCK DRAFT', 'Rounds 1-2 — pick by pick')}
+    ${introParagraph}
+    ${round1.length > 0 ? `<div style="margin-bottom:4px;">
+      <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:11px;font-weight:800;letter-spacing:3px;text-transform:uppercase;color:#0d0d0d;margin-bottom:20px;padding-bottom:10px;border-bottom:2px solid #0d0d0d;">Round 1</div>
+      ${round1.map(renderPick).join('')}
+    </div>` : ''}
+    ${roundDivider}
+    ${round2.length > 0 ? round2.map(renderPick).join('') : ''}
+  </article>`;
+}
+
 // ============ Main Render Function ============
 
 export function renderHtml(newsletter: Newsletter): string {
@@ -1162,6 +1244,7 @@ export function renderHtml(newsletter: Newsletter): string {
       case 'SeasonPreview': return sectionSeasonPreview(s.data);
       case 'DraftPreview': return sectionDraftPreview(s.data);
       case 'DraftGrades': return sectionDraftGrades(s.data);
+      case 'MockDraft': return sectionMockDraft(s.data);
       default: return '';
     }
   }).join('\n');
@@ -1232,6 +1315,7 @@ export function renderNewsletterData(newsletter: Newsletter): {
       case 'SeasonPreview': html = sectionSeasonPreview(s.data); break;
       case 'DraftPreview': html = sectionDraftPreview(s.data); break;
       case 'DraftGrades': html = sectionDraftGrades(s.data); break;
+      case 'MockDraft': html = sectionMockDraft(s.data); break;
       // New LLM-powered sections
       case 'BotDebates': html = sectionBotDebates(s.data); break;
       case 'HotTakes': html = sectionHotTakes(s.data); break;

@@ -207,11 +207,10 @@ export function getEpisodeConfig(
     pre_draft: {
       title: 'Draft Preview',
       subtitle: `${season} Rookie Draft`,
-      specialSections: ['DraftPreview', 'DraftOrder', 'ProspectRankings'],
-      excludeSections: ['MatchupRecaps', 'Forecast', 'Callbacks', 'WaiversAndFA', 'SpotlightTeam'],
+      specialSections: ['MockDraft', 'Trades'],
+      excludeSections: ['MatchupRecaps', 'Forecast', 'Callbacks', 'WaiversAndFA', 'SpotlightTeam', 'Blurt'],
       tone: 'hype',
-      // Content: Draft order, prospect rankings, team needs, mock draft predictions
-      // Trades section stays - offseason trades are relevant
+      // Structure: Intro → Offseason Trades → Mock Draft (Rds 1-2, pick-by-pick) → FinalWord
     },
     post_draft: {
       title: 'Draft Grades',

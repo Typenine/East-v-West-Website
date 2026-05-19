@@ -21,6 +21,7 @@ import { discordNotifications } from '@/server/db/schema';
 import { eq, and } from 'drizzle-orm';
 import { isCronAuthorized } from '@/lib/server/cron-auth';
 import { CURRENT_SEASON } from '@/lib/constants/league';
+import { getAllPlayersCached } from '@/lib/utils/sleeper-api';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -118,9 +119,7 @@ async function fetchRosters(leagueId: string): Promise<SleeperRoster[]> {
 }
 
 async function fetchPlayers(): Promise<Record<string, SleeperPlayer>> {
-  const res = await fetch(`${SLEEPER_API}/players/nfl`, { cache: 'no-store' });
-  if (!res.ok) return {};
-  return res.json();
+  return getAllPlayersCached().catch(() => ({}));
 }
 
 function buildRosterNameMap(users: SleeperUser[], rosters: SleeperRoster[]): Map<number, string> {
@@ -145,10 +144,13 @@ function formatPlayerName(playerId: string, players: Record<string, SleeperPlaye
   return `${name} (${pos}, ${team})`;
 }
 
-function formatDraftPick(pick: NonNullable<SleeperTransaction['draft_picks']>[0]): string {
+function formatDraftPick(pick: NonNullable<SleeperTransaction['draft_picks']>[0], rosterNameMap: Map<number, string>): string {
   const round = pick.round;
   const suffix = round === 1 ? 'st' : round === 2 ? 'nd' : round === 3 ? 'rd' : 'th';
-  return `${pick.season} ${round}${suffix} Round Pick`;
+  const base = `${pick.season} ${round}${suffix} Round Pick`;
+  const originalTeam = rosterNameMap.get(pick.roster_id);
+  if (originalTeam) return `${base} (${originalTeam})`;
+  return base;
 }
 
 function normalizeSleeperTxnStatus(raw: unknown): string {
@@ -270,7 +272,7 @@ function buildTeamAssetDetails(
 
   if (trade.draft_picks) {
     for (const pick of trade.draft_picks) {
-      const pickStr = formatDraftPick(pick);
+      const pickStr = formatDraftPick(pick, rosterNameMap);
       if (teamDetails[pick.owner_id]) {
         teamDetails[pick.owner_id].gets.push(pickStr);
       }

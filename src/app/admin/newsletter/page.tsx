@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
 import Label from '@/components/ui/Label';
 import Input from '@/components/ui/Input';
+import Modal from '@/components/ui/Modal';
 
 interface GenerationResult {
   success: boolean;
@@ -87,6 +88,9 @@ function AdminNewsletterPageInner() {
   const [forceRegenerate, setForceRegenerate] = useState(false);
   const [previewMode, setPreviewMode] = useState(true); // Default to preview for safety
   const [showPreviewHtml, setShowPreviewHtml] = useState(false);
+  const [showPublishModal, setShowPublishModal] = useState(false);
+  const [publishing, setPublishing] = useState(false);
+  const [publishResult, setPublishResult] = useState<{ success: boolean; message?: string } | null>(null);
 
   const isOffseason = seasonType !== 'regular';
 
@@ -198,6 +202,30 @@ function AdminNewsletterPageInner() {
   const stopPolling = () => {
     if (pollIntervalRef.current) { clearInterval(pollIntervalRef.current); pollIntervalRef.current = null; }
     if (elapsedIntervalRef.current) { clearInterval(elapsedIntervalRef.current); elapsedIntervalRef.current = null; }
+  };
+
+  const handlePublish = async () => {
+    if (!result?.newsletter || !result?.html) return;
+    setPublishing(true);
+    setPublishResult(null);
+    try {
+      const res = await fetch('/api/newsletter/publish', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          season: parseInt(seasonInput),
+          week: parseInt(weekInput),
+          newsletter: result.newsletter,
+          html: result.html,
+        }),
+      });
+      const data = await res.json();
+      setPublishResult({ success: res.ok, message: data.message || data.error });
+    } catch (err) {
+      setPublishResult({ success: false, message: err instanceof Error ? err.message : 'Publish failed' });
+    } finally {
+      setPublishing(false);
+    }
   };
 
   const handleGenerate = async () => {
@@ -649,6 +677,22 @@ function AdminNewsletterPageInner() {
                       </div>
                     )}
 
+                    {previewMode && result.html && (
+                      <Button
+                        variant="primary"
+                        className="w-full"
+                        onClick={() => { setShowPublishModal(true); setPublishResult(null); }}
+                      >
+                        🚀 Publish This Newsletter
+                      </Button>
+                    )}
+
+                    {publishResult && (
+                      <div className={`p-3 rounded-lg border text-sm ${publishResult.success ? 'bg-green-900/30 border-green-600 text-green-300' : 'bg-red-900/30 border-red-600 text-red-300'}`}>
+                        {publishResult.success ? '✅' : '❌'} {publishResult.message}
+                      </div>
+                    )}
+
                     {!previewMode && (
                       <Link href="/newsletter">
                         <Button variant="ghost" className="w-full">
@@ -739,6 +783,45 @@ function AdminNewsletterPageInner() {
           </CardContent>
         </Card>
       </div>
+
+      <Modal
+        open={showPublishModal}
+        onClose={() => { if (!publishing) setShowPublishModal(false); }}
+        title="Publish Newsletter"
+      >
+        <div className="space-y-4">
+          <p className="text-[var(--text)]">
+            Are you sure you want to publish <strong>Season {seasonInput} — Week {weekInput}</strong>?
+          </p>
+          <p className="text-sm text-[var(--muted)]">
+            This will make the newsletter visible to all users on the site. The preview content you generated will be saved as-is.
+          </p>
+          {publishResult && (
+            <div className={`p-3 rounded-lg border text-sm ${publishResult.success ? 'bg-green-900/30 border-green-600 text-green-300' : 'bg-red-900/30 border-red-600 text-red-300'}`}>
+              {publishResult.success ? '✅' : '❌'} {publishResult.message}
+            </div>
+          )}
+          <div className="flex gap-3 justify-end pt-2">
+            <Button variant="secondary" onClick={() => setShowPublishModal(false)} disabled={publishing}>
+              Cancel
+            </Button>
+            {!publishResult?.success && (
+              <Button
+                variant="primary"
+                onClick={async () => { await handlePublish(); }}
+                disabled={publishing}
+              >
+                {publishing ? 'Publishing...' : '🚀 Confirm Publish'}
+              </Button>
+            )}
+            {publishResult?.success && (
+              <Link href="/newsletter">
+                <Button variant="primary">View Published →</Button>
+              </Link>
+            )}
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }

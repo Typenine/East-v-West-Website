@@ -879,7 +879,8 @@ export type NewsletterSection =
   | { type: 'ChampionshipRecap'; data: ChampionshipRecapSection }
   // Draft episode sections
   | { type: 'DraftPreview'; data: DraftPreviewSection }
-  | { type: 'DraftGrades'; data: DraftGradesSection };
+  | { type: 'DraftGrades'; data: DraftGradesSection }
+  | { type: 'MockDraft'; data: MockDraftSection };
 
 // ============ Episode Types ============
 
@@ -1007,6 +1008,22 @@ export interface DraftGradesSection {
   stealOfTheDraft: { team: string; player: string; reason: string };
   bot1_summary: string;
   bot2_summary: string;
+}
+
+export interface MockDraftPick {
+  overall: number;
+  round: number;
+  slot: number;
+  originalTeam: string;
+  ownerTeam: string;
+  mason: { player: string; analysis: string };
+  westy: { player: string; analysis: string };
+}
+
+export interface MockDraftSection {
+  picks: MockDraftPick[];
+  mason_intro: string;
+  westy_intro: string;
 }
 
 export interface NewsletterMeta {

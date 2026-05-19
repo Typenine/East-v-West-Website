@@ -1,6 +1,7 @@
 /**
- * Gemini 2.5 Flash Provider
- * Uses GEMINI_API_KEY. Independent RPD counter from the 2.0 Flash provider.
+ * Gemini 2.0 Flash Provider
+ * Uses GEMINI_20_API_KEY. Independent RPD counter from the 2.5 Flash provider.
+ * Acts as a high-quality fallback when 2.5 Flash exhausts its soft limit.
  */
 
 import { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } from '@google/generative-ai';
@@ -8,10 +9,9 @@ import type { ProviderRequest } from '../cascade';
 
 // ============ Rate Limiting ============
 
-// Gemini 2.5 Flash free tier: 15 RPM, 1,000,000 TPM, 1000 RPD
-// The cascade serial queue spaces calls 180s apart (0.33 RPM effective) — RPM never an issue.
-// RPD_SOFT_LIMIT: once hit, throw a quota error so the cascade falls through to gemini-2.0.
-// ~30 calls per newsletter run → soft limit allows ~2 full runs before handing off.
+// Gemini 2.0 Flash free tier: 15 RPM, 1000 RPD
+// Cascade 180s gap → 0.33 RPM effective — RPM never an issue.
+// RPD_SOFT_LIMIT: independent from the 2.5 Flash counter, so both keys get their own 1000 RPD.
 const RPM_LIMIT = 12;
 const RPD_SOFT_LIMIT = 60;
 
@@ -20,7 +20,7 @@ let _callsThisMinute = 0;
 let _minuteStart = Date.now();
 let _lastCallTime = 0;
 
-export function resetGeminiRpdCount(): void {
+export function resetGemini20RpdCount(): void {
   _rpdCount = 0;
 }
 
@@ -70,25 +70,25 @@ const CALL_TIMEOUT_MS = 40_000;
 
 // ============ Main Export ============
 
-export async function generateWithGeminiProvider(req: ProviderRequest): Promise<string> {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) throw new Error('GEMINI_API_KEY not set');
+export async function generateWithGemini20Provider(req: ProviderRequest): Promise<string> {
+  const apiKey = process.env.GEMINI_20_API_KEY;
+  if (!apiKey) throw new Error('GEMINI_20_API_KEY not set');
 
   if (_rpdCount > RPD_SOFT_LIMIT) {
-    throw new Error('Gemini 2.5 Flash daily quota exhausted (RPD soft limit reached)');
+    throw new Error('Gemini 2.0 Flash daily quota exhausted (RPD soft limit reached)');
   }
 
   await waitForRateLimit();
 
   const client = new GoogleGenerativeAI(apiKey);
   const model = client.getGenerativeModel({
-    model: 'gemini-2.5-flash',
+    model: 'gemini-2.0-flash',
     safetySettings: SAFETY_SETTINGS,
     systemInstruction: req.systemPrompt,
   });
 
   const timeoutPromise = new Promise<never>((_, reject) =>
-    setTimeout(() => reject(new Error('Gemini call timed out after 40s')), CALL_TIMEOUT_MS)
+    setTimeout(() => reject(new Error('Gemini 2.0 call timed out after 40s')), CALL_TIMEOUT_MS)
   );
 
   const result = await Promise.race([

@@ -31,6 +31,8 @@ import type {
   PushbackRecord,
   DraftPreviewSection,
   DraftGradesSection,
+  MockDraftSection,
+  MockDraftPick,
 } from './types';
 import type { LeagueDraftData } from './sleeper-ingest';
 import { isEnhancedMemory } from './types';
@@ -196,6 +198,179 @@ function buildBotMemoryContext(mem: BotMemory): string {
   }
   
   return lines.join('\n');
+}
+
+/**
+ * Returns any unresolved hot takes about the given teams, formatted as callback prompts.
+ * Injected into matchup context so the LLM can reference prior predictions naturally.
+ */
+function buildHotTakeContext(mem: BotMemory, currentWeek: number, teamNames: string[]): string {
+  const enhanced = mem as unknown as Record<string, unknown>;
+  if (!('hotTakes' in enhanced) || !Array.isArray(enhanced.hotTakes)) return '';
+
+  type StoredHotTake = { week: number; take: string; subject?: string; boldness?: string; agedWell?: boolean };
+  const hotTakes = enhanced.hotTakes as StoredHotTake[];
+
+  const relevant = hotTakes.filter(ht =>
+    ht.agedWell === undefined &&
+    ht.week < currentWeek &&
+    teamNames.some(name =>
+      (ht.subject || '').toLowerCase().includes(name.toLowerCase()) ||
+      ht.take.toLowerCase().includes(name.toLowerCase())
+    )
+  ).slice(0, 2);
+
+  if (relevant.length === 0) return '';
+
+  const lines = relevant.map(ht => `- Week ${ht.week} (${ht.boldness || 'take'}): "${ht.take}"`);
+  return `\nOUTSTANDING HOT TAKES ABOUT THESE TEAMS — revisit naturally if the result confirms or kills them:\n${lines.join('\n')}`;
+}
+
+/**
+ * Returns both bots' season prediction records side-by-side so they can reference
+ * who's winning the prediction battle this season.
+ */
+function buildPredictionComparison(selfMem: BotMemory, otherMem: BotMemory): string {
+  type Stats = { correct: number; wrong: number; winRate: number };
+  const selfE = selfMem as unknown as Record<string, unknown>;
+  const otherE = otherMem as unknown as Record<string, unknown>;
+
+  const self  = ('predictionStats' in selfE  ? selfE.predictionStats  : null) as Stats | null;
+  const other = ('predictionStats' in otherE ? otherE.predictionStats : null) as Stats | null;
+
+  if (!self || (self.correct + self.wrong) === 0) return '';
+
+  const selfName  = selfMem.bot  === 'entertainer' ? 'Mason' : 'Westy';
+  const otherName = otherMem.bot === 'entertainer' ? 'Mason' : 'Westy';
+  const selfRecord  = `${self.correct}-${self.wrong}`;
+  const otherRecord = other ? `${other.correct}-${other.wrong}` : '?';
+
+  const otherRate = other ? other.correct / Math.max(1, other.correct + other.wrong) : 0;
+  const edge = self.winRate > otherRate
+    ? `${selfName} leads the prediction battle.`
+    : self.winRate < otherRate
+      ? `${otherName} leads the prediction battle.`
+      : 'Even on predictions so far.';
+
+  return `\nSEASON PREDICTION RECORD — ${selfName}: ${selfRecord} | ${otherName}: ${otherRecord}. ${edge}`;
+}
+
+/**
+ * Returns a specific "fresh on your mind" line based on the most emotionally
+ * significant thing that happened last week, so carry-over feels concrete not abstract.
+ */
+function buildLastWeekNarrative(mem: BotMemory, currentWeek: number): string {
+  if (currentWeek <= 1) return '';
+  const lastWeek = currentWeek - 1;
+
+  let topEvent: { team: string; event: string; weight: number } | null = null;
+
+  for (const [teamName, teamData] of Object.entries(mem.teams)) {
+    const enhanced = teamData as unknown as Record<string, unknown>;
+    if (!('notableEvents' in enhanced) || !Array.isArray(enhanced.notableEvents)) continue;
+    const events = enhanced.notableEvents as Array<{ week: number; event: string }>;
+    const ev = events.find(e => e.week === lastWeek);
+    if (!ev) continue;
+    const weight = Math.abs(teamData.trust ?? 0) + Math.abs(teamData.frustration ?? 0);
+    if (!topEvent || weight > topEvent.weight) {
+      topEvent = { team: teamName, event: ev.event, weight };
+    }
+  }
+
+  if (!topEvent) return '';
+  return `\nFRESH ON YOUR MIND FROM LAST WEEK: ${topEvent.team} — ${topEvent.event}. Let this color how you talk about them if they come up.`;
+}
+
+/**
+ * Auto-grades unresolved hot takes based on this week's results.
+ * Heuristic: if the take/subject names a team and that team won, grades as aged well.
+ * Called at the end of composeNewsletter after all pairs are finalized.
+ */
+function autoGradeHotTakes(mem: BotMemory, pairs: DerivedData['matchup_pairs']): void {
+  const enhanced = mem as unknown as Record<string, unknown>;
+  if (!('hotTakes' in enhanced) || !Array.isArray(enhanced.hotTakes)) return;
+
+  type StoredHotTake = { week: number; take: string; subject?: string; agedWell?: boolean; followUp?: string };
+  const hotTakes = enhanced.hotTakes as StoredHotTake[];
+  const winners = pairs.map(p => p.winner.name.toLowerCase());
+  const losers  = pairs.map(p => p.loser.name.toLowerCase());
+
+  for (const ht of hotTakes) {
+    if (ht.agedWell !== undefined) continue;
+    const subject  = (ht.subject  || '').toLowerCase();
+    const takeText = ht.take.toLowerCase();
+
+    const namedWinner = winners.find(w => subject.includes(w) || takeText.includes(w));
+    const namedLoser  = losers.find(l  => subject.includes(l)  || takeText.includes(l));
+
+    if (namedWinner && !namedLoser) {
+      ht.agedWell = true;
+      ht.followUp = `${ht.subject || 'They'} came through — aged well.`;
+    } else if (namedLoser && !namedWinner) {
+      ht.agedWell = false;
+      ht.followUp = `${ht.subject || 'They'} let me down — owning this L.`;
+    }
+  }
+}
+
+/**
+ * Returns personality context for a bot, falling back to seed opinions derived from
+ * all-time historical records when no in-season memory has been established yet.
+ * Prevents early-week content from being generic and personality-free.
+ */
+function effectivePersonalityCtx(
+  mem: BotMemory,
+  enhancedContext: string,
+  persona: 'entertainer' | 'analyst',
+): string {
+  const real = isEnhancedMemory(mem) ? getPersonalityContext(mem) : '';
+  if (real) return real;
+
+  // No established personality yet — seed from all-time records
+  const rankingsMatch = enhancedContext.match(/--- ALL-TIME TEAM RANKINGS[^-]*---\n([\s\S]*?)(?=\n---|\n\n===|$)/);
+  if (!rankingsMatch) return '';
+
+  const teams: Array<{ name: string; wins: number; losses: number; pct: number; champion: boolean }> = [];
+  for (const line of rankingsMatch[1].split('\n')) {
+    const m = line.match(/^\d+\.\s+([^:]+):\s+(\d+)-(\d+)\s+\(([^)%]+)/);
+    if (m) {
+      teams.push({
+        name: m[1].trim(),
+        wins: parseInt(m[2], 10),
+        losses: parseInt(m[3], 10),
+        pct: parseFloat(m[4]),
+        champion: line.includes('Champion'),
+      });
+    }
+  }
+  if (teams.length === 0) return '';
+
+  const sorted = [...teams].sort((a, b) => b.pct - a.pct);
+  const elite = sorted.slice(0, Math.min(3, Math.floor(sorted.length / 2)));
+  const weak  = sorted.slice(-Math.min(3, Math.floor(sorted.length / 2)));
+  const lines: string[] = [];
+
+  if (persona === 'entertainer') {
+    lines.push(`YOUR INITIAL READS (no in-season track record yet — going off league history):`);
+    for (const t of elite) {
+      lines.push(`- ${t.name}: ${t.wins}-${t.losses} all-time${t.champion ? ', a former champion' : ''} — pedigree demands respect. Hard to bet against them.`);
+    }
+    for (const t of weak) {
+      lines.push(`- ${t.name}: ${t.wins}-${t.losses} all-time — you're skeptical until they prove otherwise.`);
+    }
+    lines.push(`Let this history color your tone — vindication or surprise should show.`);
+  } else {
+    lines.push(`YOUR BASELINE ANALYSIS (no in-season data yet — working from historical record):`);
+    for (const t of elite) {
+      lines.push(`- ${t.name}: ${t.pct.toFixed(1)}% all-time win rate${t.champion ? ', championship pedigree' : ''} — statistically a buy-in until proven otherwise.`);
+    }
+    for (const t of weak) {
+      lines.push(`- ${t.name}: ${t.pct.toFixed(1)}% win rate — below average historically; burden of proof is on them.`);
+    }
+    lines.push(`Reference these baselines when analyzing results — are historical patterns holding or breaking?`);
+  }
+
+  return `\nYOUR CURRENT STATE:\n${lines.join('\n')}`;
 }
 
 function getSeasonalContext(week: number, championshipMatchup?: { team1: string; team2: string }): string {
@@ -398,34 +573,34 @@ async function buildPreDraftIntro(
 
 EPISODE TYPE: PRE-DRAFT PREVIEW - ${season} ROOKIE DRAFT
 
-This is the PRE-DRAFT newsletter. The rookie draft is coming up soon.
-This is NOT a weekly recap - there are no matchups to discuss.
-Your job is to preview the upcoming rookie draft.
+IMPORTANT: THIS IS YOUR FIRST EVER EPISODE appearing to the East v. West league.
+Mason Reed and Westy are brand new to this league — the members have never heard from you before.
+Introduce yourselves, welcome the league, and set the stage for your draft preview newsletter.
+Make a strong first impression that shows who you are as a personality.
 
-Think like a draft analyst:
-- Who are the top prospects?
-- Which teams have the most draft capital?
-- What positions are deep in this class?
-- Who needs to make moves?
+After the intro, preview the upcoming rookie draft:
+- Draft capital landscape (who picks when, any notable traded picks)
+- Top prospects you're most excited about
+- Key team needs and which teams are positioned well
 
-${enhancedContext}
-
-Your mood heading into the draft: ${memEntertainer.summaryMood || 'Excited'}`;
+${enhancedContext}`;
 
   const [bot1_text, bot2_text] = await Promise.all([
     generateSection({
       persona: 'entertainer',
       sectionType: 'Pre-Draft Preview Intro',
       context,
-      constraints: 'Write 4-5 paragraphs building hype for the draft. Who are the top prospects you\'re most excited about? Which teams have draft capital to make moves? Drop your hot takes on who will rise and fall. Make it feel like draft day hype.',
-      maxTokens: 700,
+      constraints: `Write 3-4 paragraphs. First, introduce yourself (Mason Reed) to the East v. West league — your first episode ever. Welcome the league, make it feel electric. Then pivot: build draft hype, name the prospects you're most fired up about, call out which teams you think are set up to steal this draft. Drop a bold take. End with something that leaves them wanting more.`,
+      maxTokens: 650,
+      episodeType: 'pre_draft',
     }),
     generateSection({
       persona: 'analyst',
       sectionType: 'Pre-Draft Preview Intro',
-      context: context.replace(memEntertainer.summaryMood || 'Excited', memAnalyst.summaryMood || 'Analytical'),
-      constraints: 'Write 4-5 paragraphs analyzing the draft landscape in depth. Cover: draft capital by team, positional depth in this class, team needs, value tiers, and analytical framework for making picks. Be thorough and data-driven.',
+      context,
+      constraints: `Write 3-4 paragraphs. First, introduce yourself (Westy) to the East v. West league — your first episode ever. Welcome the league and frame what you bring: data-driven analysis, accountability, receipts. Then pivot to the draft: lay out the analytical framework (draft capital, positional scarcity, team fit), highlight which teams have the most leverage, and set expectations for your mock draft picks. Measured but sharp.`,
       maxTokens: 600,
+      episodeType: 'pre_draft',
     }),
   ]);
 
@@ -907,7 +1082,7 @@ async function buildWaiverItems(events: DerivedData['events_scored']): Promise<W
   }));
 }
 
-async function buildTradeItems(events: DerivedData['events_scored'], memEntertainer: BotMemory, memAnalyst: BotMemory): Promise<TradeItem[]> {
+async function buildTradeItems(events: DerivedData['events_scored'], memEntertainer: BotMemory, memAnalyst: BotMemory, enhancedContext = ''): Promise<TradeItem[]> {
   const tradeEvents = events.filter(e => e.type === 'trade');
   
   if (tradeEvents.length === 0) return [];
@@ -935,8 +1110,8 @@ async function buildTradeItems(events: DerivedData['events_scored'], memEntertai
   });
 
   // Personality context for both bots
-  const entPersonality = isEnhancedMemory(memEntertainer) ? getPersonalityContext(memEntertainer) : '';
-  const anaPersonality = isEnhancedMemory(memAnalyst) ? getPersonalityContext(memAnalyst) : '';
+  const entPersonality = effectivePersonalityCtx(memEntertainer, enhancedContext, 'entertainer');
+  const anaPersonality = effectivePersonalityCtx(memAnalyst, enhancedContext, 'analyst');
 
   const teamTrustLine = (mem: BotMemory, team: string): string => {
     const t = mem.teams[team];
@@ -1050,7 +1225,7 @@ ${anaTrustLine ? `[Westy's history: ${anaTrustLine}]` : ''}`;
   return items;
 }
 
-async function buildSpotlight(pairs: DerivedData['matchup_pairs'], memEntertainer: BotMemory, memAnalyst: BotMemory, enhancedContext: string = ''): Promise<SpotlightSection | null> {
+async function buildSpotlight(pairs: DerivedData['matchup_pairs'], memEntertainer: BotMemory, memAnalyst: BotMemory, enhancedContext: string = '', week = 0): Promise<SpotlightSection | null> {
   if (!pairs.length) return null;
 
   // Intelligent spotlight selection - pick the most interesting team
@@ -1076,8 +1251,12 @@ async function buildSpotlight(pairs: DerivedData['matchup_pairs'], memEntertaine
 - Your history with this team: ${memEntertainer.teams[spotlight.team]?.mood || 'Neutral'}
 ${enhancedContext}`;
 
-  const entPersonality = isEnhancedMemory(memEntertainer) ? getPersonalityContext(memEntertainer) : '';
-  const anaPersonality = isEnhancedMemory(memAnalyst) ? getPersonalityContext(memAnalyst) : '';
+  const entPersonality = effectivePersonalityCtx(memEntertainer, enhancedContext, 'entertainer')
+    + buildPredictionComparison(memEntertainer, memAnalyst)
+    + buildLastWeekNarrative(memEntertainer, week);
+  const anaPersonality = effectivePersonalityCtx(memAnalyst, enhancedContext, 'analyst')
+    + buildPredictionComparison(memAnalyst, memEntertainer)
+    + buildLastWeekNarrative(memAnalyst, week);
 
   const [bot1, bot2] = await Promise.all([
     generateSection({
@@ -1099,7 +1278,7 @@ ${enhancedContext}`;
   return { team: spotlightPair.winner.name, bot1, bot2 };
 }
 
-async function buildFinalWord(week: number, episodeType: string = 'regular', memEntertainer?: BotMemory, memAnalyst?: BotMemory): Promise<FinalWordSection> {
+async function buildFinalWord(week: number, episodeType: string = 'regular', memEntertainer?: BotMemory, memAnalyst?: BotMemory, enhancedContext = ''): Promise<FinalWordSection> {
   // Build context based on episode type
   let context: string;
   let entertainerConstraint: string;
@@ -1132,8 +1311,8 @@ async function buildFinalWord(week: number, episodeType: string = 'regular', mem
       analystConstraint = '3-4 sentences of measured closing analysis. Reference the biggest statistical takeaway from this week, what it means for the standings, and one thing to watch heading into next week.';
   }
 
-  const entPersonality = memEntertainer && isEnhancedMemory(memEntertainer) ? getPersonalityContext(memEntertainer) : '';
-  const anaPersonality = memAnalyst && isEnhancedMemory(memAnalyst) ? getPersonalityContext(memAnalyst) : '';
+  const entPersonality = memEntertainer ? effectivePersonalityCtx(memEntertainer, enhancedContext, 'entertainer') : '';
+  const anaPersonality = memAnalyst ? effectivePersonalityCtx(memAnalyst, enhancedContext, 'analyst') : '';
 
   const [bot1, bot2] = await Promise.all([
     generateSection({
@@ -1249,7 +1428,20 @@ async function buildRecaps(
     // Build overall bot state context
     const entertainerState = buildBotMemoryContext(memEntertainer);
     const analystState = buildBotMemoryContext(memAnalyst);
-    
+
+    // Prediction record comparison — gives them something real to needle each other about
+    const entPredictionComparison = buildPredictionComparison(memEntertainer, memAnalyst);
+    const anaPredictionComparison = buildPredictionComparison(memAnalyst, memEntertainer);
+
+    // Last-week narrative carry-over — concrete event, not abstract mood scores
+    const entLastWeek = buildLastWeekNarrative(memEntertainer, week);
+    const anaLastWeek = buildLastWeekNarrative(memAnalyst, week);
+
+    // Outstanding hot takes about these specific teams
+    const matchupTeamNames = [p.winner.name, p.loser.name];
+    const entHotTakeCtx = buildHotTakeContext(memEntertainer, week, matchupTeamNames);
+    const anaHotTakeCtx = buildHotTakeContext(memAnalyst, week, matchupTeamNames);
+
     // Get partner dynamics context (how they relate to each other)
     // Only available for BotMemory - check if partnerDynamics exists
     const entertainerPartnerContext = 'partnerDynamics' in memEntertainer
@@ -1258,14 +1450,12 @@ async function buildRecaps(
     const analystPartnerContext = 'partnerDynamics' in memAnalyst
       ? getPartnerDynamicsContext(memAnalyst)
       : '';
-    
+
     // Get evolving personality context (confidence, emotional state, speech patterns, storylines)
-    const entertainerPersonalityContext = isEnhancedMemory(memEntertainer)
-      ? getPersonalityContext(memEntertainer) + getNarrativesContext(memEntertainer, week)
-      : '';
-    const analystPersonalityContext = isEnhancedMemory(memAnalyst)
-      ? getPersonalityContext(memAnalyst) + getNarrativesContext(memAnalyst, week)
-      : '';
+    const entertainerPersonalityContext = effectivePersonalityCtx(memEntertainer, enhancedContext, 'entertainer')
+      + (isEnhancedMemory(memEntertainer) ? getNarrativesContext(memEntertainer, week) : '');
+    const analystPersonalityContext = effectivePersonalityCtx(memAnalyst, enhancedContext, 'analyst')
+      + (isEnhancedMemory(memAnalyst) ? getNarrativesContext(memAnalyst, week) : '');
 
     // Build focused context for THIS specific matchup only
     const baseMatchupContext = `
@@ -1303,6 +1493,9 @@ ${entertainerLoserMemory || `You don't have strong feelings about ${p.loser.name
 ${entertainerState}
 ${entertainerPartnerContext}
 ${entertainerPersonalityContext}
+${entPredictionComparison}
+${entLastWeek}
+${entHotTakeCtx}
 ${entertainerPlayerCtx ? `\nYOUR HISTORY WITH KEY PLAYERS:\n${entertainerPlayerCtx}` : ''}
 
 USE YOUR HISTORY: If you've been high on a team and they won, feel vindicated. If you've been down on them and they won, acknowledge you might have been wrong. If a team you trusted let you down, express that disappointment. Your feelings about teams should color how you talk about this result.
@@ -1325,6 +1518,9 @@ ${analystLoserMemory || `No strong historical data on ${p.loser.name} yet.`}
 ${analystState}
 ${analystPartnerContext}
 ${analystPersonalityContext}
+${anaPredictionComparison}
+${anaLastWeek}
+${anaHotTakeCtx}
 ${analystPlayerCtx ? `\nYOUR HISTORY WITH KEY PLAYERS:\n${analystPlayerCtx}` : ''}
 
 IMPORTANT RULES:
@@ -2051,8 +2247,12 @@ async function buildBlurt(
   enhancedContext: string,
   pairs: DerivedData['matchup_pairs'],
 ): Promise<BlurtSection> {
-  const entPersonality = isEnhancedMemory(memEntertainer) ? getPersonalityContext(memEntertainer) : '';
-  const anaPersonality = isEnhancedMemory(memAnalyst) ? getPersonalityContext(memAnalyst) : '';
+  const entPersonality = effectivePersonalityCtx(memEntertainer, enhancedContext, 'entertainer')
+    + buildPredictionComparison(memEntertainer, memAnalyst)
+    + buildLastWeekNarrative(memEntertainer, week);
+  const anaPersonality = effectivePersonalityCtx(memAnalyst, enhancedContext, 'analyst')
+    + buildPredictionComparison(memAnalyst, memEntertainer)
+    + buildLastWeekNarrative(memAnalyst, week);
 
   // Build a structured fact sheet from actual week results
   const weekFacts: string[] = [];
@@ -2469,6 +2669,293 @@ Each array: 2-3 strings under 60 chars each.`,
   }
 }
 
+/**
+ * Generates offseason trade analysis for the pre-draft episode.
+ * Uses the enhanced context string (which includes trade history) rather than live events.
+ */
+async function buildPreDraftTrades(
+  enhancedContext: string,
+  memEntertainer: BotMemory,
+  memAnalyst: BotMemory,
+  season: number,
+): Promise<TradeItem[]> {
+  const leagueKnowledge = buildStaticLeagueContext();
+
+  const context = `${leagueKnowledge}
+
+---
+
+PRE-DRAFT TRADE ANALYSIS — ${season} SEASON
+
+Review any trades that have occurred this league year (since February ${season}).
+Focus on moves that affect draft capital, roster construction, and the upcoming rookie draft.
+The context below contains the full trade history — identify and analyze the significant deals.
+
+${enhancedContext}
+
+Your job: Analyze the most significant trades from this offseason (since February) that are relevant heading into the rookie draft.
+If no notable trades have happened, say so briefly.`;
+
+  const entPersonality = effectivePersonalityCtx(memEntertainer, enhancedContext, 'entertainer');
+  const anaPersonality = effectivePersonalityCtx(memAnalyst, enhancedContext, 'analyst');
+
+  const [masonAnalysis, westyAnalysis] = await Promise.all([
+    generateSection({
+      persona: 'entertainer',
+      sectionType: 'Offseason Trade Analysis',
+      context: context + (entPersonality ? `\n${entPersonality}` : ''),
+      constraints: `Write 3-4 sentences analyzing the key trades from this offseason. Which moves do you love? Which teams set themselves up well (or poorly)? Any trades that affect the draft order? Be colorful and opinionated. If no trades happened, say so briefly and pivot to what you expect.`,
+      maxTokens: 350,
+      episodeType: 'pre_draft',
+    }),
+    generateSection({
+      persona: 'analyst',
+      sectionType: 'Offseason Trade Analysis',
+      context: context + (anaPersonality ? `\n${anaPersonality}` : ''),
+      constraints: `Write 3-4 sentences with an analytical take on offseason trades. Evaluate the value exchanged, impact on draft capital, and implications for the upcoming draft. If no trades happened, note that and highlight what teams should be doing heading into draft season.`,
+      maxTokens: 350,
+      episodeType: 'pre_draft',
+    }),
+  ]);
+
+  const item: TradeItem = {
+    event_id: `offseason-trades-${season}`,
+    coverage_level: 'high',
+    reasons: [`${season} offseason trade activity and draft capital implications`],
+    context: `${season} Offseason Trade Landscape`,
+    teams: null,
+    analysis: {
+      'League Overview': {
+        grade: 'B',
+        entertainer_grade: '–',
+        analyst_grade: '–',
+        deltaText: '',
+        entertainer_paragraph: masonAnalysis,
+        analyst_paragraph: westyAnalysis,
+      },
+    },
+  };
+
+  return [item];
+}
+
+/**
+ * Parse structured pick output from LLM.
+ * Expects format: "PICK R.SS | Team Name | Player Name | Position\n[analysis paragraph]"
+ */
+function parseMockDraftPicks(
+  raw: string,
+  round: number,
+): Array<{ slot: number; team: string; player: string; position: string; analysis: string }> {
+  const result: Array<{ slot: number; team: string; player: string; position: string; analysis: string }> = [];
+  const lines = raw.split('\n');
+  let current: { slot: number; team: string; player: string; position: string } | null = null;
+  const analysisLines: string[] = [];
+
+  const flushCurrent = () => {
+    if (current && analysisLines.length > 0) {
+      result.push({ ...current, analysis: analysisLines.join(' ').trim() });
+    }
+    analysisLines.length = 0;
+  };
+
+  for (const line of lines) {
+    const m = line.match(/^PICK\s+\d+\.(\d+)\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|\s*(.+)/i);
+    if (m) {
+      flushCurrent();
+      current = {
+        slot: parseInt(m[1], 10),
+        team: m[2].trim(),
+        player: m[3].trim(),
+        position: m[4].trim(),
+      };
+    } else if (current && line.trim()) {
+      analysisLines.push(line.trim());
+    } else if (!line.trim() && analysisLines.length > 0) {
+      flushCurrent();
+      current = null;
+    }
+  }
+  flushCurrent();
+
+  // Keep only picks matching the correct round count
+  return result.filter(p => p.slot >= 1 && p.slot <= 12);
+}
+
+/**
+ * Build the pick-by-pick mock draft for the pre-draft episode.
+ * Generates 4 LLM calls (Mason R1, Westy R1, Mason R2, Westy R2) then interleaves picks.
+ */
+async function buildMockDraft(
+  draftData: LeagueDraftData | null,
+  memEntertainer: BotMemory,
+  memAnalyst: BotMemory,
+  season: number,
+  enhancedContext: string,
+): Promise<MockDraftSection> {
+  const leagueKnowledge = buildStaticLeagueContext();
+
+  // Build slot arrays from draftData (already resolved to team names)
+  const rawSlots = (draftData?.draftOrder ?? []).filter(t => !t.startsWith('Slot ') && !t.startsWith('RosterId:'));
+  const slots = rawSlots.map((team, idx) => ({ slot: idx + 1, team }));
+
+  const isSnake = !draftData?.type || draftData.type === 'snake';
+  const round2Slots = isSnake ? [...slots].reverse() : [...slots];
+
+  const teamCount = slots.length || 12;
+
+  // Format draft order context for LLM
+  const r1Order = slots.length > 0
+    ? slots.map(s => `Pick 1.${String(s.slot).padStart(2, '0')} (${s.slot} overall): ${s.team}`).join('\n')
+    : Array.from({ length: teamCount }, (_, i) => `Pick 1.${String(i + 1).padStart(2, '0')} (${i + 1} overall): Team ${i + 1}`).join('\n');
+
+  const r2Order = round2Slots.length > 0
+    ? round2Slots.map((s, i) => `Pick 2.${String(i + 1).padStart(2, '0')} (${teamCount + i + 1} overall): ${s.team}`).join('\n')
+    : Array.from({ length: teamCount }, (_, i) => `Pick 2.${String(i + 1).padStart(2, '0')} (${teamCount + i + 1} overall): Team ${i + 1}`).join('\n');
+
+  const draftOrderCtx = `ROUND 1 DRAFT ORDER (1st pick = worst prior-season record, ${teamCount}th = champion):
+${r1Order}
+
+ROUND 2 DRAFT ORDER (${isSnake ? 'reverse snake — best team picks first' : 'linear — same order as Round 1'}):
+${r2Order}`;
+
+  const baseContext = `${leagueKnowledge}
+
+---
+
+${season} EAST V. WEST ROOKIE DRAFT — MOCK DRAFT
+
+FIRST EPISODE EVER: This is Mason and Westy's debut newsletter for the East v. West league.
+They are generating independent mock drafts showing off their knowledge of this league and the draft class.
+
+${draftOrderCtx}
+
+${enhancedContext}
+
+Use your knowledge of the ${season} NFL Draft class: top prospects by ADP, positional depth, dynasty value, scheme fit.
+For each pick, consider: this team's record, roster construction, draft capital, needs, and the prospects available at that point.
+BE SPECIFIC — use real prospect names. Show you know this league and its teams by name.`;
+
+  const pickFormat = (round: number, orderedSlots: Array<{ slot: number; team: string }>) =>
+    `EXACTLY this format for all ${orderedSlots.length} picks (no extra text between picks):
+
+PICK ${round}.01 | ${orderedSlots[0]?.team ?? 'Team A'} | [Player Name] | [Position]
+[2-3 sentence paragraph — show personality, reference this specific team's situation]
+
+PICK ${round}.02 | ${orderedSlots[1]?.team ?? 'Team B'} | [Player Name] | [Position]
+[2-3 sentence paragraph]
+
+(continue through PICK ${round}.${String(orderedSlots.length).padStart(2, '0')})`;
+
+  const r1Constraint = (persona: 'entertainer' | 'analyst') =>
+    `You are writing YOUR MOCK DRAFT for ROUND 1 of the ${season} East v. West rookie draft.
+You are ${persona === 'entertainer' ? 'Mason Reed — high-energy, bold, personality-first' : 'Westy — analytical, methodical, data-driven'}.
+Each pick paragraph MUST reference the specific team by name and why this player fits them.
+${pickFormat(1, slots)}`;
+
+  const r2Constraint = (persona: 'entertainer' | 'analyst') =>
+    `Continue your mock draft into ROUND 2.
+You are ${persona === 'entertainer' ? 'Mason Reed' : 'Westy'}.
+Reference players taken in Round 1 where relevant (e.g. "with [player] off the board at 1.03, this team pivots to...").
+${pickFormat(2, round2Slots)}`;
+
+  // 4 sequential LLM calls (serial queue enforces spacing)
+  const masonR1Raw = await generateSection({
+    persona: 'entertainer',
+    sectionType: 'Mock Draft - Round 1',
+    context: baseContext,
+    constraints: r1Constraint('entertainer'),
+    maxTokens: 2500,
+    episodeType: 'pre_draft',
+  });
+
+  const westyR1Raw = await generateSection({
+    persona: 'analyst',
+    sectionType: 'Mock Draft - Round 1',
+    context: baseContext,
+    constraints: r1Constraint('analyst'),
+    maxTokens: 2500,
+    episodeType: 'pre_draft',
+  });
+
+  const masonR2Raw = await generateSection({
+    persona: 'entertainer',
+    sectionType: 'Mock Draft - Round 2',
+    context: baseContext,
+    constraints: r2Constraint('entertainer'),
+    maxTokens: 2500,
+    episodeType: 'pre_draft',
+  });
+
+  const westyR2Raw = await generateSection({
+    persona: 'analyst',
+    sectionType: 'Mock Draft - Round 2',
+    context: baseContext,
+    constraints: r2Constraint('analyst'),
+    maxTokens: 2500,
+    episodeType: 'pre_draft',
+  });
+
+  // Parse all four outputs
+  const masonR1 = parseMockDraftPicks(masonR1Raw, 1);
+  const westyR1 = parseMockDraftPicks(westyR1Raw, 1);
+  const masonR2 = parseMockDraftPicks(masonR2Raw, 2);
+  const westyR2 = parseMockDraftPicks(westyR2Raw, 2);
+
+  // Interleave: for each pick slot, pair mason + westy
+  const picks: MockDraftPick[] = [];
+
+  const buildPick = (
+    round: number,
+    slotIdx: number,
+    slotTeam: string,
+    masonPicks: ReturnType<typeof parseMockDraftPicks>,
+    westyPicks: ReturnType<typeof parseMockDraftPicks>,
+  ): MockDraftPick => {
+    const slot = slotIdx + 1;
+    const overall = round === 1 ? slot : teamCount + slotIdx + 1;
+    const mp = masonPicks.find(p => p.slot === slot) ?? masonPicks[slotIdx];
+    const wp = westyPicks.find(p => p.slot === slot) ?? westyPicks[slotIdx];
+    return {
+      overall,
+      round,
+      slot,
+      originalTeam: slotTeam,
+      ownerTeam: slotTeam,
+      mason: {
+        player: mp ? `${mp.player}${mp.position ? ` (${mp.position})` : ''}` : 'TBD',
+        analysis: mp?.analysis ?? '',
+      },
+      westy: {
+        player: wp ? `${wp.player}${wp.position ? ` (${wp.position})` : ''}` : 'TBD',
+        analysis: wp?.analysis ?? '',
+      },
+    };
+  };
+
+  for (let i = 0; i < (slots.length || teamCount); i++) {
+    picks.push(buildPick(1, i, slots[i]?.team ?? `Team ${i + 1}`, masonR1, westyR1));
+  }
+  for (let i = 0; i < (round2Slots.length || teamCount); i++) {
+    picks.push(buildPick(2, i, round2Slots[i]?.team ?? `Team ${i + 1}`, masonR2, westyR2));
+  }
+
+  // Short intro texts extracted from R1 output preamble (first non-PICK line, if any)
+  const extractIntro = (raw: string): string => {
+    const lines = raw.split('\n');
+    const firstPickIdx = lines.findIndex(l => /^PICK\s+\d+\.\d+/i.test(l));
+    if (firstPickIdx > 0) {
+      return lines.slice(0, firstPickIdx).join(' ').trim().slice(0, 300);
+    }
+    return '';
+  };
+
+  const mason_intro = extractIntro(masonR1Raw) || "Here's how I see this draft going down.";
+  const westy_intro = extractIntro(westyR1Raw) || "My projections for each pick, based on the data.";
+
+  return { picks, mason_intro, westy_intro };
+}
+
 // ============ Main Compose Function ============
 
 export interface ComposeNewsletterInput {
@@ -2595,19 +3082,31 @@ export async function composeNewsletter(input: ComposeNewsletterInput, qualityRe
   // Collect pushbacks from all matchup debates so they can be applied to RelationshipMemory after
   const pushbackCollector: PushbackRecord[] = [];
 
-  // Build all sections using LLM (run in parallel where possible)
-  // Each section is wrapped in error recovery to prevent one failure from killing the whole newsletter
-  const [intro, waiverItems, tradeItems, spotlight, finalWord, recaps, blurt] = await Promise.all([
-    safeSection('Intro', () => buildIntro(week, pairs, events, memEntertainer, memAnalyst, fullEnhancedContext, episodeType, season), fallbackIntro),
+  // Phase 1: Generate intro first so its theme can inform the rest of the newsletter
+  const intro = await safeSection('Intro', () => buildIntro(week, pairs, events, memEntertainer, memAnalyst, fullEnhancedContext, episodeType, season), fallbackIntro);
+
+  // Extract the week's narrative theme from the intro and inject it into Phase 2 sections
+  const introThemeSnippet = (intro.bot1_text || '').split(/[.!?]/).slice(0, 2).join('. ').trim();
+  const continuityCtx = introThemeSnippet
+    ? `\nWEEK'S NARRATIVE FRAMING: "${introThemeSnippet}..." — reference these themes if relevant; don't contradict them.`
+    : '';
+  const enhancedContextWithContinuity = fullEnhancedContext + continuityCtx;
+
+  // Phase 2: Generate all remaining sections (queued serially by the LLM cascade)
+  const [waiverItems, tradeItems, spotlight, finalWord, recaps, blurt] = await Promise.all([
     excludeSections.has('WaiversAndFA') ? Promise.resolve([]) : safeSection('WaiversAndFA', () => buildWaiverItems(events), []),
-    excludeSections.has('Trades') ? Promise.resolve([]) : safeSection('Trades', () => buildTradeItems(events, memEntertainer, memAnalyst), []),
-    excludeSections.has('SpotlightTeam') ? Promise.resolve(null) : safeSection('Spotlight', () => buildSpotlight(pairs, memEntertainer, memAnalyst, fullEnhancedContext), null),
-    safeSection('FinalWord', () => buildFinalWord(week, episodeType, memEntertainer, memAnalyst), fallbackFinalWord),
-    excludeSections.has('MatchupRecaps') ? Promise.resolve([]) : safeSection('Recaps', () => buildRecaps(pairs, memEntertainer, memAnalyst, week, fullEnhancedContext, qualityReport, pushbackCollector), []),
-    excludeSections.has('Blurt') ? Promise.resolve({ bot1: null, bot2: null } as BlurtSection) : safeSection('Blurt', () => buildBlurt(week, memEntertainer, memAnalyst, fullEnhancedContext, pairs), { bot1: null, bot2: null } as BlurtSection),
+    excludeSections.has('Trades') ? Promise.resolve([]) : safeSection('Trades', () => buildTradeItems(events, memEntertainer, memAnalyst, enhancedContextWithContinuity), []),
+    excludeSections.has('SpotlightTeam') ? Promise.resolve(null) : safeSection('Spotlight', () => buildSpotlight(pairs, memEntertainer, memAnalyst, enhancedContextWithContinuity, week), null),
+    safeSection('FinalWord', () => buildFinalWord(week, episodeType, memEntertainer, memAnalyst, enhancedContextWithContinuity), fallbackFinalWord),
+    excludeSections.has('MatchupRecaps') ? Promise.resolve([]) : safeSection('Recaps', () => buildRecaps(pairs, memEntertainer, memAnalyst, week, enhancedContextWithContinuity, qualityReport, pushbackCollector), []),
+    excludeSections.has('Blurt') ? Promise.resolve({ bot1: null, bot2: null } as BlurtSection) : safeSection('Blurt', () => buildBlurt(week, memEntertainer, memAnalyst, enhancedContextWithContinuity, pairs), { bot1: null, bot2: null } as BlurtSection),
   ]);
 
   console.log(`[Compose] Core sections generated via LLM (with error recovery)`);
+
+  // Auto-grade any outstanding hot takes based on this week's results
+  autoGradeHotTakes(memEntertainer, pairs);
+  autoGradeHotTakes(memAnalyst, pairs);
 
   // Apply collected pushbacks to RelationshipMemory and infer themes
   if (pushbackCollector.length > 0 && relationshipMemory) {
@@ -2770,16 +3269,29 @@ export async function composeNewsletter(input: ComposeNewsletterInput, qualityRe
 
   // Build draft-specific sections
   if (episodeType === 'pre_draft') {
-    console.log(`[Compose] Building pre-draft preview sections...`);
-    const draftPreview = await safeSection(
-      'DraftPreview',
-      () => buildDraftPreview(draftData ?? null, memEntertainer, memAnalyst, season, fullEnhancedContext),
-      null
+    console.log(`[Compose] Building pre-draft sections (trades + mock draft)...`);
+
+    // Offseason trade analysis (since February — from context, no live events needed)
+    const preDraftTrades = await safeSection(
+      'PreDraftTrades',
+      () => buildPreDraftTrades(enhancedContextWithContinuity, memEntertainer, memAnalyst, season),
+      [] as TradeItem[]
     );
-    if (draftPreview) {
-      sections.push({ type: 'DraftPreview', data: draftPreview });
+    if (preDraftTrades.length > 0) {
+      sections.push({ type: 'Trades', data: preDraftTrades });
     }
-    console.log(`[Compose] Pre-draft sections built`);
+
+    // Pick-by-pick mock draft (Rounds 1-2, both bots, interleaved)
+    const mockDraft = await safeSection(
+      'MockDraft',
+      () => buildMockDraft(draftData ?? null, memEntertainer, memAnalyst, season, enhancedContextWithContinuity),
+      null as MockDraftSection | null
+    );
+    if (mockDraft) {
+      sections.push({ type: 'MockDraft', data: mockDraft });
+    }
+
+    console.log(`[Compose] Pre-draft sections built (${preDraftTrades.length} trade items, ${mockDraft?.picks.length ?? 0} mock picks)`);
   }
 
   if (episodeType === 'post_draft') {

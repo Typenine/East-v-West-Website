@@ -1,14 +1,15 @@
 /**
  * Cascade LLM Orchestrator
- * Tries providers in order: Gemini → Groq → Cerebras → OpenRouter
+ * Tries providers in order: Gemini 2.5 Flash → Gemini 2.0 Flash → Groq → Cerebras → OpenRouter
  * Falls through on rate-limit/quota errors; throws on auth errors.
  *
- * Provider cooldown: once a provider rate-limits it is skipped for 10 minutes
+ * Provider cooldown: once a provider rate-limits it is skipped for 15 minutes
  * across ALL subsequent calls in this server session. This prevents wasting
  * time hammering an exhausted provider on every cascade call.
  */
 
 import { generateWithGeminiProvider }     from './providers/gemini-provider';
+import { generateWithGemini20Provider }   from './providers/gemini20-provider';
 import { generateWithGroqProvider }        from './providers/groq-provider';
 import { generateWithCerebrasProvider }    from './providers/cerebras-provider';
 import { generateWithOpenRouterProvider }  from './providers/openrouter-provider';
@@ -136,10 +137,11 @@ interface ProviderEntry {
 }
 
 const PROVIDERS: ProviderEntry[] = [
-  { name: 'gemini',     fn: generateWithGeminiProvider,    envKey: 'GEMINI_API_KEY' },
-  { name: 'groq',       fn: generateWithGroqProvider,      envKey: 'GROQ_API_KEY' },
-  { name: 'cerebras',   fn: generateWithCerebrasProvider,  envKey: 'CEREBRAS_API_KEY' },
-  { name: 'openrouter', fn: generateWithOpenRouterProvider, envKey: 'OPENROUTER_API_KEY' },
+  { name: 'gemini-2.5-flash', fn: generateWithGeminiProvider,   envKey: 'GEMINI_API_KEY' },
+  { name: 'gemini-2.0-flash', fn: generateWithGemini20Provider, envKey: 'GEMINI_20_API_KEY' },
+  { name: 'groq',             fn: generateWithGroqProvider,      envKey: 'GROQ_API_KEY' },
+  { name: 'cerebras',         fn: generateWithCerebrasProvider,  envKey: 'CEREBRAS_API_KEY' },
+  { name: 'openrouter',       fn: generateWithOpenRouterProvider, envKey: 'OPENROUTER_API_KEY' },
 ];
 
 // ============ Main Cascade ============
