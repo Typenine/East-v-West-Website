@@ -76,37 +76,113 @@ function normalizeValues(values: number[]): number[] {
   return values.map((v) => Math.round((v / max) * 10000));
 }
 
-// --- Draft pick detection ---
+// --- Standardized draft pick system ---
 
-const PICK_PATTERNS = [
-  /^(\d{4})\s+(early|mid|late)?\s*(\d)\w{0,2}\s*(round)?\s*pick$/i,
-  /^(\d{4})\s+round\s+(\d)\s+(early|mid|late)?$/i,
-  /^(\d{4})\s+(\d)\w{0,2}$/i,
-];
+const PICK_YEARS = ['2025', '2026', '2027', '2028', '2029'];
+const PICK_ROUNDS = [1, 2, 3, 4];
+const PICK_TIERS = ['Early', 'Mid', 'Late'] as const;
 
-function isPick(name: string): boolean {
-  const lower = name.toLowerCase();
-  return lower.includes('pick') || lower.includes('round') || /^\d{4}\s+(early|mid|late)?\s*\d\w{0,2}$/i.test(lower);
+const ORDINAL: Record<number, string> = { 1: '1st', 2: '2nd', 3: '3rd', 4: '4th' };
+
+function standardPickKey(year: string, round: number, tier: string): string {
+  return `PICK_${year}_${round}_${tier.toUpperCase()}`;
 }
 
+function standardPickName(year: string, round: number, tier: string): string {
+  return `${year} ${tier} ${ORDINAL[round] || `${round}th`}`;
+}
+
+function isPick(name: string): boolean {
+  const lower = name.toLowerCase().trim();
+  // Must start with a 4-digit year to be a pick — avoids matching "George Pickens", "Kenny Pickett", etc.
+  return /^\d{4}\s+(early|mid|late)?\s*\d\w{0,2}/i.test(lower)
+    || /^\d{4}\s+(early|mid|late)?\s*round/i.test(lower)
+    || /^\d{4}\s+pick/i.test(lower);
+}
+
+/** Map a raw pick name from FC/KTC to a standardized key. */
 function pickKey(name: string): string | null {
   const lower = name.toLowerCase().trim();
-  // Try to extract year, round, tier
-  for (const pattern of PICK_PATTERNS) {
-    const m = lower.match(pattern);
-    if (m) {
-      const year = m[1];
-      const round = m[3] || m[2];
-      const tier = (m[2] && isNaN(Number(m[2])) ? m[2] : m[3] && isNaN(Number(m[3])) ? m[3] : 'mid');
-      return `PICK_${year}_${round}_${tier.toUpperCase()}`;
+
+  // Extract year
+  const yearMatch = lower.match(/(\d{4})/);
+  if (!yearMatch) return null;
+  const year = yearMatch[1];
+
+  // Extract round number
+  let round: number | null = null;
+  const roundMatch = lower.match(/(\d)\s*(st|nd|rd|th)/i);
+  if (roundMatch) round = parseInt(roundMatch[1]);
+  if (!round) {
+    const roundWord = lower.match(/round\s*(\d)/i);
+    if (roundWord) round = parseInt(roundWord[1]);
+  }
+  if (!round) return null;
+
+  // Extract tier
+  let tier = 'Mid';
+  if (/early/i.test(lower)) tier = 'Early';
+  else if (/late/i.test(lower)) tier = 'Late';
+  else if (/mid/i.test(lower)) tier = 'Mid';
+
+  return standardPickKey(year, round, tier);
+}
+
+/** After merging source data, ensure we have a complete set of standard picks. */
+function ensureStandardPicks(result: Record<string, TradeValue>): void {
+  // Collect existing pick values to interpolate from
+  const existingPickValues = new Map<string, number>();
+  for (const [key, val] of Object.entries(result)) {
+    if (val.isPick) existingPickValues.set(key, val.value);
+  }
+
+  // Default pick values if no source data at all (rough dynasty SF scale 0-10000)
+  const defaultRoundValues: Record<number, Record<string, number>> = {
+    1: { Early: 7800, Mid: 7000, Late: 5500 },
+    2: { Early: 4200, Mid: 3500, Late: 2800 },
+    3: { Early: 2200, Mid: 1800, Late: 1400 },
+    4: { Early: 1000, Mid: 700, Late: 400 },
+  };
+  // Future-year discount factor (~15% per year out)
+  const currentYear = new Date().getFullYear();
+
+  let rank = Object.keys(result).length + 1;
+
+  for (const year of PICK_YEARS) {
+    const yearDelta = Math.max(0, parseInt(year) - currentYear);
+    const discount = Math.pow(0.85, yearDelta);
+
+    for (const round of PICK_ROUNDS) {
+      for (const tier of PICK_TIERS) {
+        const key = standardPickKey(year, round, tier);
+        if (result[key]) {
+          // Already exists from source data — just ensure clean name
+          result[key].name = standardPickName(year, round, tier);
+          continue;
+        }
+
+        // Try to interpolate from existing source pick with similar key
+        let value = existingPickValues.get(key) ?? null;
+        if (value === null) {
+          // Use default with discount
+          value = Math.round((defaultRoundValues[round]?.[tier] ?? 500) * discount);
+        }
+
+        result[key] = {
+          name: standardPickName(year, round, tier),
+          sleeperId: key,
+          position: 'PICK',
+          team: '',
+          value,
+          fcValue: null,
+          ktcValue: null,
+          rank: rank++,
+          trend: 0,
+          isPick: true,
+        };
+      }
     }
   }
-  // Simple fallback: "2026 1st" style
-  const simple = lower.match(/(\d{4})\s+(\d)\w{0,2}/);
-  if (simple) {
-    return `PICK_${simple[1]}_${simple[2]}_MID`;
-  }
-  return null;
 }
 
 // --- Merge logic ---
@@ -219,6 +295,9 @@ function mergeValues(fc: FantasyCalcPlayer[], ktc: KTCPlayer[]): Record<string, 
       isPick: ktcData.isPick,
     };
   }
+
+  // Ensure a complete set of standardized picks
+  ensureStandardPicks(result);
 
   return result;
 }
