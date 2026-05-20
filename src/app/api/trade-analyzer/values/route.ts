@@ -40,7 +40,7 @@ export type { TradeValue };
 
 // --- Cache ---
 
-let cache: { ts: number; data: Record<string, TradeValue> } | null = null;
+let cache: { ts: number; data: Record<string, TradeValue> } | null = null; // bump to bust: v2
 const CACHE_TTL = 6 * 60 * 60 * 1000; // 6 hours
 
 // --- Fetchers ---
@@ -222,7 +222,7 @@ function mergeValues(fc: FantasyCalcPlayer[], ktc: KTCPlayer[]): Record<string, 
   for (const p of ktc) {
     const name = p.playerName || '';
     const pick = isPick(name);
-    const rawValue = p.superflexValue ?? p.value ?? 0;
+    const rawValue = p.superflexValues?.value ?? p.superflexValue ?? p.value ?? 0;
     const sid = p.sleeperId || '';
     const key = pick ? (pickKey(name) || `ktc_${name}`) : (sid || `ktc_${name}`);
 

@@ -43,13 +43,6 @@ interface AnalysisResult {
 
 // --- Analysis Logic ---
 
-function getValueTier(value: number): string {
-  if (value >= 8000) return 'Elite';
-  if (value >= 6000) return 'Star';
-  if (value >= 4000) return 'Starter';
-  if (value >= 2000) return 'Depth';
-  return 'Flier';
-}
 
 function getDisplayValue(asset: SelectedAsset, source: ValueSource): number {
   if (source === 'fc') return asset.fcValue ?? asset.value;
@@ -140,7 +133,7 @@ function analyzeTrade(sideA: SelectedAsset[], sideB: SelectedAsset[], source: Va
 
   let counterHint: string | null = null;
   if (adjustedRatio < 0.80 && winner && diff > 0)
-    counterHint = `Side ${winner === 'A' ? 'B' : 'A'} is short ~${formatValue(diff)} pts. A ${getValueTier(diff)}-tier add-on would help balance this.`;
+    counterHint = `Side ${winner === 'A' ? 'B' : 'A'} is short ~${formatValue(diff)} pts. Adding or swapping a player would help balance this.`;
 
   return { rawRatio, adjustedRatio, verdict, winner, diff, sideAGrade, sideBGrade, notes, counterHint };
 }
@@ -171,7 +164,6 @@ function AssetChip({ asset, source, onRemove }: { asset: SelectedAsset; source: 
         <div className="text-xs text-[var(--muted)]">
           {asset.isPick ? 'Draft Pick' : `${asset.position} · ${asset.nflTeam || 'FA'}${asset.age ? ` · Age ${asset.age.toFixed(0)}` : ''}`}
           <span className="ml-2 font-medium" style={{ color: 'var(--accent)' }}>{formatValue(dv)}</span>
-          <span className="ml-1 opacity-60">({getValueTier(dv)})</span>
         </div>
       </div>
       <button onClick={onRemove} className="text-[var(--muted)] hover:text-[var(--danger)] transition-colors text-lg leading-none shrink-0" aria-label={`Remove ${asset.name}`}>×</button>
