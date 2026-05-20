@@ -459,20 +459,27 @@ function TradeAnalyzerContent() {
   const [sideA, setSideA] = useState<SelectedAsset[]>([]);
   const [sideB, setSideB] = useState<SelectedAsset[]>([]);
   const [source, setSource] = useState<ValueSource>('avg');
-  const isDevMode = searchParams.get('dev') === '1';
+  const [isAdmin, setIsAdmin] = useState(false);
   const urlInitialized = useRef(false);
 
   useEffect(() => {
     async function load() {
       try {
-        const res = await fetch('/api/trade-analyzer/values');
-        if (!res.ok) throw new Error(`Failed to load values (${res.status})`);
-        const data = await res.json();
+        const [valRes, meRes] = await Promise.all([
+          fetch('/api/trade-analyzer/values'),
+          fetch('/api/auth/me'),
+        ]);
+        if (!valRes.ok) throw new Error(`Failed to load values (${valRes.status})`);
+        const data = await valRes.json();
         const vals = Object.values(data.values) as TradeValue[];
         const map = new Map<string, TradeValue>();
         for (const v of vals) map.set(v.sleeperId, v);
         setValues(vals);
         setValuesMap(map);
+        if (meRes.ok) {
+          const me = await meRes.json();
+          setIsAdmin(!!me.isAdmin);
+        }
       } catch (e) {
         setError(e instanceof Error ? e.message : 'Failed to load trade values');
       } finally {
@@ -536,7 +543,7 @@ function TradeAnalyzerContent() {
           <h1 className="text-2xl font-bold text-[var(--text)]">Trade Analyzer</h1>
           <p className="text-sm text-[var(--muted)] mt-1">Dynasty · Superflex · 12-Team · PPR</p>
         </div>
-        {isDevMode && <ValueSourceToggle source={source} onChange={setSource} />}
+        {isAdmin && <ValueSourceToggle source={source} onChange={setSource} />}
       </div>
 
       <div className="rounded-[var(--radius-card)] bg-[var(--surface)] border border-[var(--border)] p-4 md:p-6 shadow-[var(--shadow-soft)]">
