@@ -27,7 +27,7 @@ import {
   type EnhancedContextData,
   type LeagueRecords,
 } from '@/lib/newsletter';
-import { getAllPlayersCached, getSleeperInjuriesCached } from '@/lib/utils/sleeper-api';
+import { getAllPlayersCached, getSleeperInjuriesCached, getTeamsData, getRegularSeasonRecords } from '@/lib/utils/sleeper-api';
 import {
   loadBotMemory,
   saveBotMemory,
@@ -45,6 +45,7 @@ import {
   loadRelationshipMemory,
   saveRelationshipMemory,
 } from '@/server/db/newsletter-queries';
+import { getActiveOrLatestDraftId, countDraftPlayers, getDraftPlayers } from '@/server/db/queries';
 import { fetchNewsletterData } from '@/lib/newsletter';
 import { getHeadToHeadAllTime } from '@/lib/utils/headtohead';
 import { fetchTradesAllTime } from '@/lib/utils/trades';
@@ -416,25 +417,74 @@ Base all analysis on PREVIOUS seasons' performance, NOT current season data.
     historicalContext += `- 2024: Belltown Raptors (Champion)\n`;
     historicalContext += `- 2023: Double Trouble (Inaugural Champion)\n`;
 
-    // Add recent trade activity summary
+    // Add current-year offseason trades (critical for pre_draft to avoid hallucination)
+    // Include trades from the current season's league OR trades since ~Dec 20 of the prior year
+    // (covers post-championship trades recorded in the outgoing season's league)
+    const offseasonStart = new Date(`${currentSeason - 1}-12-20`);
+    const currentYearTrades = allTrades.filter(t => {
+      if (t.season === String(currentSeason)) return true;
+      if (t.date && new Date(t.date) >= offseasonStart) return true;
+      return false;
+    });
+    historicalContext += `\n--- ${currentSeason} OFFSEASON TRADES ---\n`;
+    if (currentYearTrades.length > 0) {
+      for (const trade of currentYearTrades) {
+        const date = trade.date ? new Date(trade.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'Unknown date';
+        const teams = (trade.teams || []).map(tm => `${tm.name} (received: ${(tm.assets || []).map(a => a.name).join(', ') || 'unknown assets'})`).join(' ↔ ');
+        historicalContext += `- ${date}: ${teams}\n`;
+      }
+    } else {
+      historicalContext += `No trades have been made in the ${currentSeason} offseason yet. Every team still holds their original draft capital.\n`;
+    }
+
+    // Add all-time trade activity summary
     if (allTrades.length > 0) {
-      historicalContext += `\n--- RECENT OFFSEASON TRADE ACTIVITY ---\n`;
+      historicalContext += `\n--- ALL-TIME TRADE ACTIVITY ---\n`;
       historicalContext += `Total trades in league history: ${allTrades.length}\n`;
-      
+
       // Group trades by team to show who's been active
       const tradesByTeam = new Map<string, number>();
       for (const trade of allTrades) {
-        // Trade type has 'teams' array of TradeTeam objects with 'name' property
         for (const tradeTeam of trade.teams || []) {
           tradesByTeam.set(tradeTeam.name, (tradesByTeam.get(tradeTeam.name) || 0) + 1);
         }
       }
-      
+
       const sortedTraders = [...tradesByTeam.entries()].sort((a, b) => b[1] - a[1]);
       historicalContext += `Most active traders all-time:\n`;
       for (const [team, count] of sortedTraders.slice(0, 5)) {
         historicalContext += `- ${team}: ${count} trades\n`;
       }
+    }
+
+    // Add 2026 NFL draft prospect pool from the site's own player database
+    try {
+      const draftId = await getActiveOrLatestDraftId();
+      if (draftId) {
+        const playerCount = await countDraftPlayers(draftId);
+        if (playerCount > 0) {
+          const players = await getDraftPlayers(draftId);
+          players.sort((a, b) => {
+            const ra = a.rank == null ? 9999 : a.rank;
+            const rb = b.rank == null ? 9999 : b.rank;
+            return ra - rb;
+          });
+          const top48 = players.slice(0, 48);
+          historicalContext += `\n--- ${currentSeason} NFL DRAFT PROSPECT RANKINGS ---\n`;
+          historicalContext += `IMPORTANT: Use ONLY these players in your mock draft analysis. These are the real ${currentSeason} NFL Draft class with dynasty rookie rankings.\n`;
+          historicalContext += `Do NOT reference players from earlier draft classes (e.g. prior-year picks already in the NFL).\n\n`;
+          historicalContext += top48.map((p, i) => {
+            const college = p.meta && typeof p.meta === 'object' ? (p.meta as Record<string, unknown>).college ?? (p.meta as Record<string, unknown>).school : null;
+            const parts = [p.pos, p.nfl || (college ? `${college}` : null)].filter(Boolean).join(' — ');
+            return `${i + 1}. ${p.name}${parts ? ` (${parts})` : ''}`;
+          }).join('\n') + '\n';
+          console.log(`[pre_draft] Loaded ${top48.length} draft prospects from custom player pool`);
+        } else {
+          console.warn('[pre_draft] No custom player pool found — LLM will use training data for prospects');
+        }
+      }
+    } catch (e) {
+      console.warn('[pre_draft] Failed to load draft prospect pool:', e);
     }
 
     historicalContext += `
@@ -452,6 +502,41 @@ When creating the preseason preview:
   } catch (error) {
     console.error('Failed to build preseason historical context:', error);
     return `PRESEASON PREVIEW for ${currentSeason} season. Base analysis on historical performance.`;
+  }
+}
+
+// ============ Standings-Based Draft Slot Order ============
+
+async function buildSimpleDraftSlotOrder(season: number): Promise<Array<{ slot: number; team: string }>> {
+  try {
+    const sourceLeagueId = getLeagueIdForSeason(String(season - 1));
+    if (!sourceLeagueId) {
+      console.warn(`[pre_draft] No source league ID for season ${season - 1}`);
+      return [];
+    }
+
+    const [rawTeams, regularRecords] = await Promise.all([
+      getTeamsData(sourceLeagueId),
+      getRegularSeasonRecords(sourceLeagueId).catch(() => null),
+    ]);
+
+    const teams = regularRecords
+      ? rawTeams.map(t => { const r = regularRecords.get(t.rosterId); return r ? { ...t, wins: r.wins, losses: r.losses } : t; })
+      : rawTeams;
+
+    // Sort: worst record first (slot 1), champion last (slot 12)
+    teams.sort((a, b) => {
+      if (a.wins !== b.wins) return a.wins - b.wins;
+      if (a.losses !== b.losses) return b.losses - a.losses;
+      if (a.fpts !== b.fpts) return a.fpts - b.fpts;
+      return a.teamName.localeCompare(b.teamName);
+    });
+
+    console.log(`[pre_draft] Draft order built from ${teams.length} teams in league ${sourceLeagueId} (${season - 1} season)`);
+    return teams.map((t, i) => ({ slot: i + 1, team: t.teamName }));
+  } catch (e) {
+    console.warn('[pre_draft] Failed to build standings-based draft order:', e);
+    return [];
   }
 }
 
@@ -731,6 +816,18 @@ export async function POST(request: NextRequest) {
       console.log(`Enhanced context includes: league rules, comprehensive data, current standings, transactions, external APIs (ESPN/Sleeper), H2H, trades, records, playoff implications`);
     }
 
+    // For pre_draft, fetch standings-based draft order (Sleeper draft may not be configured yet)
+    let preDraftSlots: Array<{ slot: number; team: string }> | undefined;
+    if (episodeType === 'pre_draft') {
+      console.log('[pre_draft] Fetching standings-based draft slot order...');
+      preDraftSlots = await buildSimpleDraftSlotOrder(seasonNum);
+      if (preDraftSlots.length > 0) {
+        console.log(`[pre_draft] Draft order: ${preDraftSlots.map(s => `${s.slot}.${s.team}`).join(', ')}`);
+      } else {
+        console.warn('[pre_draft] Could not build standings-based draft order — mock draft will use fallback');
+      }
+    }
+
     // Generate the newsletter
     // Memory is ALWAYS persisted even if compose partially fails (composeFailed flag)
     const result = await generateNewsletter({
@@ -758,6 +855,7 @@ export async function POST(request: NextRequest) {
       previousPredictions, // Pass previous predictions for narrative callbacks
       existingRelationshipMemory: relationshipMem,
       draftData: draftData ?? null,
+      preDraftSlots,
       onSectionComplete: (sectionName) => {
         void updateStagedNewsletter(seasonNum, week, {
           currentSection: sectionName,

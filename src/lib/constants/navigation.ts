@@ -66,6 +66,7 @@ export const USER_NAV_CONFIG: UserNavItem[] = [
       { id: 'transactions.free-agency', label: 'Free Agency & Waivers', href: '/transactions' },
       { id: 'transactions.trades', label: 'Trades', href: '/trades' },
       { id: 'transactions.trade-block', label: 'Trade Block', href: '/trades/block' },
+      { id: 'transactions.trade-analyzer', label: 'Trade Analyzer', href: '/trades/analyzer' },
     ],
   },
   {

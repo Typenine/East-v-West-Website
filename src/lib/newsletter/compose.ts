@@ -591,7 +591,7 @@ ${enhancedContext}`;
       sectionType: 'Pre-Draft Preview Intro',
       context,
       constraints: `Write 3-4 paragraphs. First, introduce yourself (Mason Reed) to the East v. West league — your first episode ever. Welcome the league, make it feel electric. Then pivot: build draft hype, name the prospects you're most fired up about, call out which teams you think are set up to steal this draft. Drop a bold take. End with something that leaves them wanting more.`,
-      maxTokens: 650,
+      maxTokens: 1500,
       episodeType: 'pre_draft',
     }),
     generateSection({
@@ -599,7 +599,7 @@ ${enhancedContext}`;
       sectionType: 'Pre-Draft Preview Intro',
       context,
       constraints: `Write 3-4 paragraphs. First, introduce yourself (Westy) to the East v. West league — your first episode ever. Welcome the league and frame what you bring: data-driven analysis, accountability, receipts. Then pivot to the draft: lay out the analytical framework (draft capital, positional scarcity, team fit), highlight which teams have the most leverage, and set expectations for your mock draft picks. Measured but sharp.`,
-      maxTokens: 600,
+      maxTokens: 1400,
       episodeType: 'pre_draft',
     }),
   ]);
@@ -1314,20 +1314,22 @@ async function buildFinalWord(week: number, episodeType: string = 'regular', mem
   const entPersonality = memEntertainer ? effectivePersonalityCtx(memEntertainer, enhancedContext, 'entertainer') : '';
   const anaPersonality = memAnalyst ? effectivePersonalityCtx(memAnalyst, enhancedContext, 'analyst') : '';
 
+  const finalWordTokens = ['pre_draft', 'post_draft', 'preseason', 'offseason'].includes(episodeType) ? 600 : 350;
+
   const [bot1, bot2] = await Promise.all([
     generateSection({
       persona: 'entertainer',
       sectionType: 'Final Word',
       context: context + (entPersonality ? `\n${entPersonality}` : ''),
       constraints: entertainerConstraint,
-      maxTokens: 350,
+      maxTokens: finalWordTokens,
     }),
     generateSection({
       persona: 'analyst',
       sectionType: 'Final Word',
       context: context + (anaPersonality ? `\n${anaPersonality}` : ''),
       constraints: analystConstraint,
-      maxTokens: 350,
+      maxTokens: finalWordTokens,
     }),
   ]);
 
@@ -2693,8 +2695,12 @@ The context below contains the full trade history — identify and analyze the s
 
 ${enhancedContext}
 
-Your job: Analyze the most significant trades from this offseason (since February) that are relevant heading into the rookie draft.
-If no notable trades have happened, say so briefly.`;
+Your job: Analyze the most significant trades from this offseason (since February ${season}) that are relevant heading into the rookie draft.
+
+CRITICAL: The context above contains a section called "${season} OFFSEASON TRADES" — read it carefully.
+If it says "No trades have been made in the ${season} offseason yet" or similar, you MUST report that accurately.
+You may ONLY mention trades that are EXPLICITLY listed in the context with specific details (team names, assets, dates).
+Do NOT invent, assume, or imply that any trade happened unless it appears in the context above.`;
 
   const entPersonality = effectivePersonalityCtx(memEntertainer, enhancedContext, 'entertainer');
   const anaPersonality = effectivePersonalityCtx(memAnalyst, enhancedContext, 'analyst');
@@ -2704,7 +2710,7 @@ If no notable trades have happened, say so briefly.`;
       persona: 'entertainer',
       sectionType: 'Offseason Trade Analysis',
       context: context + (entPersonality ? `\n${entPersonality}` : ''),
-      constraints: `Write 3-4 sentences analyzing the key trades from this offseason. Which moves do you love? Which teams set themselves up well (or poorly)? Any trades that affect the draft order? Be colorful and opinionated. If no trades happened, say so briefly and pivot to what you expect.`,
+      constraints: `Write 3-4 sentences analyzing the key trades from this offseason. Which moves do you love? Which teams set themselves up well (or poorly)? Any trades that affect the draft order? Be colorful and opinionated. CRITICAL: If the context says no ${season} offseason trades have occurred, do NOT invent trades — instead acknowledge the quiet offseason and pivot to what you expect teams to do before draft day.`,
       maxTokens: 350,
       episodeType: 'pre_draft',
     }),
@@ -2712,7 +2718,7 @@ If no notable trades have happened, say so briefly.`;
       persona: 'analyst',
       sectionType: 'Offseason Trade Analysis',
       context: context + (anaPersonality ? `\n${anaPersonality}` : ''),
-      constraints: `Write 3-4 sentences with an analytical take on offseason trades. Evaluate the value exchanged, impact on draft capital, and implications for the upcoming draft. If no trades happened, note that and highlight what teams should be doing heading into draft season.`,
+      constraints: `Write 3-4 sentences with an analytical take on offseason trades. Evaluate the value exchanged, impact on draft capital, and implications for the upcoming draft. CRITICAL: If the context says no ${season} offseason trades have occurred, do NOT invent trades — instead note the quiet offseason and highlight what teams should be doing heading into draft season.`,
       maxTokens: 350,
       episodeType: 'pre_draft',
     }),
@@ -2792,12 +2798,18 @@ async function buildMockDraft(
   memAnalyst: BotMemory,
   season: number,
   enhancedContext: string,
+  preDraftSlots?: Array<{ slot: number; team: string }>,
 ): Promise<MockDraftSection> {
   const leagueKnowledge = buildStaticLeagueContext();
 
-  // Build slot arrays from draftData (already resolved to team names)
-  const rawSlots = (draftData?.draftOrder ?? []).filter(t => !t.startsWith('Slot ') && !t.startsWith('RosterId:'));
-  const slots = rawSlots.map((team, idx) => ({ slot: idx + 1, team }));
+  // Prefer standings-based slots (passed from route.ts); fall back to resolved draftData
+  let slots: Array<{ slot: number; team: string }>;
+  if (preDraftSlots && preDraftSlots.length > 0) {
+    slots = preDraftSlots;
+  } else {
+    const rawTeams = (draftData?.draftOrder ?? []).filter(t => !t.startsWith('Slot ') && !t.startsWith('RosterId:'));
+    slots = rawTeams.map((team, idx) => ({ slot: idx + 1, team }));
+  }
 
   const isSnake = !draftData?.type || draftData.type === 'snake';
   const round2Slots = isSnake ? [...slots].reverse() : [...slots];
@@ -2977,6 +2989,8 @@ export interface ComposeNewsletterInput {
   relationshipMemory?: RelationshipMemory | null;
   /** Resolved draft data (roster IDs already resolved to team names) */
   draftData?: LeagueDraftData | null;
+  /** Standings-based draft slot order for pre_draft mock drafts (slot 1 = worst record, 12 = champion) */
+  preDraftSlots?: Array<{ slot: number; team: string }>;
   /** Called when a section completes — used for real-time progress tracking */
   onSectionComplete?: (sectionName: string) => void;
 }
@@ -2998,6 +3012,7 @@ export async function composeNewsletter(input: ComposeNewsletterInput, qualityRe
     previousHotTakes,
     relationshipMemory,
     draftData,
+    preDraftSlots,
     onSectionComplete,
   } = input;
 
@@ -3284,7 +3299,7 @@ export async function composeNewsletter(input: ComposeNewsletterInput, qualityRe
     // Pick-by-pick mock draft (Rounds 1-2, both bots, interleaved)
     const mockDraft = await safeSection(
       'MockDraft',
-      () => buildMockDraft(draftData ?? null, memEntertainer, memAnalyst, season, enhancedContextWithContinuity),
+      () => buildMockDraft(draftData ?? null, memEntertainer, memAnalyst, season, enhancedContextWithContinuity, preDraftSlots),
       null as MockDraftSection | null
     );
     if (mockDraft) {

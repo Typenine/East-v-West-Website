@@ -112,6 +112,8 @@ export interface GenerateNewsletterInput {
   existingRelationshipMemory?: RelationshipMemory | null;
   // Optional: draft data for draft-episode newsletters
   draftData?: LeagueDraftData | null;
+  // Optional: standings-based draft slot order for pre_draft mock drafts
+  preDraftSlots?: Array<{ slot: number; team: string }>;
   /** Called when each section completes — used for real-time progress tracking */
   onSectionComplete?: (sectionName: string) => void;
 }
@@ -447,6 +449,7 @@ export async function generateNewsletter(
       previousHotTakes: previousHotTakes.length > 0 ? previousHotTakes : undefined,
       relationshipMemory: relationshipMem,
       draftData: resolvedDraftData,
+      preDraftSlots: input.preDraftSlots,
       onSectionComplete: input.onSectionComplete,
     }, qualityReport);
 

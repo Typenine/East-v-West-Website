@@ -9,11 +9,11 @@ import type { ProviderRequest } from '../cascade';
 // ============ Rate Limiting ============
 
 // Gemini 2.5 Flash free tier: 15 RPM, 1,000,000 TPM, 1000 RPD
-// The cascade serial queue spaces calls 180s apart (0.33 RPM effective) — RPM never an issue.
+// Cascade enforces 8s gap → 7.5 RPM effective, safely under the 15 RPM limit.
 // RPD_SOFT_LIMIT: once hit, throw a quota error so the cascade falls through to gemini-2.0.
-// ~30 calls per newsletter run → soft limit allows ~2 full runs before handing off.
+// ~10 calls per newsletter run → soft limit of 800 allows ~80 full runs before handing off.
 const RPM_LIMIT = 12;
-const RPD_SOFT_LIMIT = 60;
+const RPD_SOFT_LIMIT = 800;
 
 let _rpdCount = 0;
 let _callsThisMinute = 0;
@@ -66,7 +66,7 @@ const SAFETY_SETTINGS = [
   { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH },
 ];
 
-const CALL_TIMEOUT_MS = 40_000;
+const CALL_TIMEOUT_MS = 90_000; // 90s — accommodates large mock-draft outputs (2500 tokens)
 
 // ============ Main Export ============
 
