@@ -459,6 +459,7 @@ function TradeAnalyzerContent() {
   const [sideA, setSideA] = useState<SelectedAsset[]>([]);
   const [sideB, setSideB] = useState<SelectedAsset[]>([]);
   const [source, setSource] = useState<ValueSource>('avg');
+  const isDevMode = searchParams.get('dev') === '1';
   const urlInitialized = useRef(false);
 
   useEffect(() => {
@@ -535,7 +536,7 @@ function TradeAnalyzerContent() {
           <h1 className="text-2xl font-bold text-[var(--text)]">Trade Analyzer</h1>
           <p className="text-sm text-[var(--muted)] mt-1">Dynasty · Superflex · 12-Team · PPR</p>
         </div>
-        <ValueSourceToggle source={source} onChange={setSource} />
+        {isDevMode && <ValueSourceToggle source={source} onChange={setSource} />}
       </div>
 
       <div className="rounded-[var(--radius-card)] bg-[var(--surface)] border border-[var(--border)] p-4 md:p-6 shadow-[var(--shadow-soft)]">
