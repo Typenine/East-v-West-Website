@@ -460,6 +460,7 @@ function TradeAnalyzerContent() {
   const [sideB, setSideB] = useState<SelectedAsset[]>([]);
   const [source, setSource] = useState<ValueSource>('avg');
   const [isAdmin, setIsAdmin] = useState(false);
+  const [dataSources, setDataSources] = useState<{ fantasyCalc: boolean; keepTradeCut: boolean } | null>(null);
   const urlInitialized = useRef(false);
 
   useEffect(() => {
@@ -476,6 +477,7 @@ function TradeAnalyzerContent() {
         for (const v of vals) map.set(v.sleeperId, v);
         setValues(vals);
         setValuesMap(map);
+        if (data.sources) setDataSources(data.sources);
         if (meRes.ok) {
           const me = await meRes.json();
           setIsAdmin(!!me.isAdmin);
@@ -543,7 +545,19 @@ function TradeAnalyzerContent() {
           <h1 className="text-2xl font-bold text-[var(--text)]">Trade Analyzer</h1>
           <p className="text-sm text-[var(--muted)] mt-1">Dynasty · Superflex · 12-Team · PPR</p>
         </div>
-        {isAdmin && <ValueSourceToggle source={source} onChange={setSource} />}
+        {isAdmin && (
+          <div className="flex items-center gap-2">
+            {dataSources && (
+              <div className="flex items-center gap-1.5 text-[10px] text-[var(--muted)]">
+                <span className={`w-2 h-2 rounded-full ${dataSources.fantasyCalc ? 'bg-green-500' : 'bg-red-500'}`} title="FantasyCalc" />
+                <span>FC</span>
+                <span className={`w-2 h-2 rounded-full ml-1 ${dataSources.keepTradeCut ? 'bg-green-500' : 'bg-red-500'}`} title="KeepTradeCut" />
+                <span>KTC</span>
+              </div>
+            )}
+            <ValueSourceToggle source={source} onChange={setSource} />
+          </div>
+        )}
       </div>
 
       <div className="rounded-[var(--radius-card)] bg-[var(--surface)] border border-[var(--border)] p-4 md:p-6 shadow-[var(--shadow-soft)]">
