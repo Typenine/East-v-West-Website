@@ -40,7 +40,7 @@ export type { TradeValue };
 
 // --- Cache ---
 
-let cache: { ts: number; data: Record<string, TradeValue> } | null = null; // bump to bust: v2
+let cache: { ts: number; data: Record<string, TradeValue> } | null = null; // bump to bust: v3
 const CACHE_TTL = 6 * 60 * 60 * 1000; // 6 hours
 
 // --- Fetchers ---
@@ -56,11 +56,17 @@ async function fetchFantasyCalc(): Promise<FantasyCalcPlayer[]> {
 }
 
 async function fetchKTC(): Promise<KTCPlayer[]> {
-  // KTC undocumented endpoint for superflex dynasty rankings
-  const url = 'https://keeptradecut.com/api/v1/dynasty/rankings';
+  // Scrape KTC's internal dynasty rankings endpoint (same one their site uses)
+  const url = 'https://keeptradecut.com/api/v1/dynasty/rankings?format=3&page=0&filters=QB%7CWR%7CRB%7CTE%7CRDP&numResults=600';
   const res = await fetch(url, {
-    headers: { 'User-Agent': 'EastVWest/1.0' },
-    signal: AbortSignal.timeout(10000),
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+      'Accept': 'application/json, text/plain, */*',
+      'Accept-Language': 'en-US,en;q=0.9',
+      'Referer': 'https://keeptradecut.com/dynasty-rankings',
+      'Origin': 'https://keeptradecut.com',
+    },
+    signal: AbortSignal.timeout(12000),
   });
   if (!res.ok) throw new Error(`KTC ${res.status}`);
   return res.json();
