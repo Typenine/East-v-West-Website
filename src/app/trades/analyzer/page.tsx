@@ -460,7 +460,7 @@ function TradeAnalyzerContent() {
   const [sideB, setSideB] = useState<SelectedAsset[]>([]);
   const [source, setSource] = useState<ValueSource>('avg');
   const [isAdmin, setIsAdmin] = useState(false);
-  const [dataSources, setDataSources] = useState<{ fantasyCalc: boolean; keepTradeCut: boolean } | null>(null);
+  const [dataSources, setDataSources] = useState<{ fantasyCalc: boolean; keepTradeCut: boolean; fcCount?: number; ktcCount?: number } | null>(null);
   const urlInitialized = useRef(false);
 
   useEffect(() => {
@@ -549,10 +549,10 @@ function TradeAnalyzerContent() {
           <div className="flex items-center gap-2">
             {dataSources && (
               <div className="flex items-center gap-1.5 text-[10px] text-[var(--muted)]">
-                <span className={`w-2 h-2 rounded-full ${dataSources.fantasyCalc ? 'bg-green-500' : 'bg-red-500'}`} title="FantasyCalc" />
-                <span>FC</span>
-                <span className={`w-2 h-2 rounded-full ml-1 ${dataSources.keepTradeCut ? 'bg-green-500' : 'bg-red-500'}`} title="KeepTradeCut" />
-                <span>KTC</span>
+                <span className={`w-2 h-2 rounded-full ${dataSources.fantasyCalc ? 'bg-green-500' : 'bg-red-500'}`} />
+                <span>FC {dataSources.fcCount != null ? `(${dataSources.fcCount})` : ''}</span>
+                <span className={`w-2 h-2 rounded-full ml-1 ${dataSources.keepTradeCut ? 'bg-green-500' : 'bg-red-500'}`} />
+                <span>KTC {dataSources.ktcCount != null ? `(${dataSources.ktcCount})` : ''}</span>
               </div>
             )}
             <ValueSourceToggle source={source} onChange={setSource} />

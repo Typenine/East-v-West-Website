@@ -33,7 +33,7 @@ export type { TradeValue };
 
 // --- Cache ---
 
-let cache: { ts: number; data: Record<string, TradeValue> } | null = null; // bump to bust: v3
+let cache: { ts: number; data: Record<string, TradeValue>; sources: { fantasyCalc: boolean; keepTradeCut: boolean; fcCount: number; ktcCount: number } } | null = null; // bump to bust: v5
 const CACHE_TTL = 6 * 60 * 60 * 1000; // 6 hours
 
 // --- Fetchers ---
@@ -124,16 +124,6 @@ async function fetchKTC(): Promise<KTCPlayer[]> {
 /** Normalize a player name for fuzzy matching across sources */
 function normalizeName(name: string): string {
   return name.toLowerCase().replace(/['.,-]/g, '').replace(/\s+/g, ' ').trim();
-}
-
-// --- Normalization ---
-
-/**
- * Normalize values to a 0-10000 scale based on the max value in the dataset.
- */
-function normalizeValues(values: number[]): number[] {
-  const max = Math.max(...values, 1);
-  return values.map((v) => Math.round((v / max) * 10000));
 }
 
 // --- Standardized draft pick system ---
@@ -250,14 +240,11 @@ function ensureStandardPicks(result: Record<string, TradeValue>): void {
 function mergeValues(fc: FantasyCalcPlayer[], ktc: KTCPlayer[]): Record<string, TradeValue> {
   const result: Record<string, TradeValue> = {};
 
-  // Normalize FC values
-  const fcNorm = normalizeValues(fc.map((p) => p.value));
-
-  // Build KTC lookup by normalized name → normalized value
-  const ktcNorm = normalizeValues(ktc.map((p) => p.value));
+  // Both FC and KTC already use a 0-10000 native scale — use raw values directly.
+  // Normalizing them independently would collapse both to identical numbers.
   const ktcByName = new Map<string, number>();
-  for (let i = 0; i < ktc.length; i++) {
-    ktcByName.set(normalizeName(ktc[i].playerName), ktcNorm[i]);
+  for (const p of ktc) {
+    ktcByName.set(normalizeName(p.playerName), p.value);
   }
 
   // FC is the primary source — Sleeper IDs come from FC
@@ -267,9 +254,9 @@ function mergeValues(fc: FantasyCalcPlayer[], ktc: KTCPlayer[]): Record<string, 
     const pick = isPick(name);
     const key = pick ? (pickKey(name) || `fc_pick_${i}`) : (p.player.sleeperId || `fc_${p.player.id}`);
 
-    // Match KTC by normalized name
+    const fcVal = p.value; // raw FC value, 0-10000 scale
     const ktcVal = ktcByName.get(normalizeName(name)) ?? null;
-    const avgValue = ktcVal !== null ? Math.round((fcNorm[i] + ktcVal) / 2) : fcNorm[i];
+    const avgValue = ktcVal !== null ? Math.round((fcVal + ktcVal) / 2) : fcVal;
 
     result[key] = {
       name,
@@ -278,7 +265,7 @@ function mergeValues(fc: FantasyCalcPlayer[], ktc: KTCPlayer[]): Record<string, 
       team: p.player.maybeTeam || '',
       age: p.player.maybeAge,
       value: avgValue,
-      fcValue: fcNorm[i],
+      fcValue: fcVal,
       ktcValue: ktcVal,
       rank: p.overallRank,
       trend: p.trend30Day || 0,
@@ -297,7 +284,7 @@ function mergeValues(fc: FantasyCalcPlayer[], ktc: KTCPlayer[]): Record<string, 
 export async function GET() {
   // Return cached if fresh
   if (cache && Date.now() - cache.ts < CACHE_TTL) {
-    return NextResponse.json({ values: cache.data, cached: true, updatedAt: new Date(cache.ts).toISOString() });
+    return NextResponse.json({ values: cache.data, cached: true, sources: cache.sources, count: Object.keys(cache.data).length, updatedAt: new Date(cache.ts).toISOString() });
   }
 
   let fc: FantasyCalcPlayer[] = [];
@@ -309,14 +296,16 @@ export async function GET() {
 
   if (fcResult.status === 'fulfilled') {
     fc = fcResult.value;
-    fcOk = true;
+    fcOk = fc.length > 0;
+    if (!fcOk) console.error('[trade-analyzer] FantasyCalc fetch returned 0 players');
   } else {
     console.error('[trade-analyzer] FantasyCalc fetch failed:', fcResult.reason);
   }
 
   if (ktcResult.status === 'fulfilled') {
     ktc = ktcResult.value;
-    ktcOk = true;
+    ktcOk = ktc.length > 0; // only green if we actually parsed player data
+    if (!ktcOk) console.error('[trade-analyzer] KTC fetch returned 0 players (possible Cloudflare block)');
   } else {
     console.error('[trade-analyzer] KTC fetch failed:', ktcResult.reason);
   }
@@ -331,12 +320,13 @@ export async function GET() {
 
   const merged = mergeValues(fc, ktc);
 
-  cache = { ts: Date.now(), data: merged };
+  const sources = { fantasyCalc: fcOk, keepTradeCut: ktcOk, fcCount: fc.length, ktcCount: ktc.length };
+  cache = { ts: Date.now(), data: merged, sources };
 
   return NextResponse.json({
     values: merged,
     cached: false,
-    sources: { fantasyCalc: fcOk, keepTradeCut: ktcOk },
+    sources,
     count: Object.keys(merged).length,
     updatedAt: new Date().toISOString(),
   });
