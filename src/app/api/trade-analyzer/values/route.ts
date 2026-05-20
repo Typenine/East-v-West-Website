@@ -23,17 +23,10 @@ interface FantasyCalcPlayer {
 
 interface KTCPlayer {
   playerName: string;
-  slug?: string;
-  position?: string;
-  team?: string;
+  position: string;
+  team: string;
   age?: number;
-  superflexValues?: { value: number };
-  superfpiexValue?: number;
-  value?: number;
-  superflexValue?: number;
-  oneQBValue?: number;
-  sleeperId?: string;
-  playerID?: number;
+  value: number; // superflex value, already extracted from HTML
 }
 
 export type { TradeValue };
@@ -55,21 +48,82 @@ async function fetchFantasyCalc(): Promise<FantasyCalcPlayer[]> {
   return res.json();
 }
 
-async function fetchKTC(): Promise<KTCPlayer[]> {
-  // Scrape KTC's internal dynasty rankings endpoint (same one their site uses)
-  const url = 'https://keeptradecut.com/api/v1/dynasty/rankings?format=3&page=0&filters=QB%7CWR%7CRB%7CTE%7CRDP&numResults=600';
+// Scrape a single KTC dynasty-rankings HTML page (format=0 = Superflex)
+async function fetchKTCPage(page: number): Promise<string> {
+  const url = `https://keeptradecut.com/dynasty-rankings?page=${page}&filters=QB%7CWR%7CRB%7CTE%7CRDP&format=0`;
   const res = await fetch(url, {
     headers: {
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-      'Accept': 'application/json, text/plain, */*',
+      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
       'Accept-Language': 'en-US,en;q=0.9',
-      'Referer': 'https://keeptradecut.com/dynasty-rankings',
-      'Origin': 'https://keeptradecut.com',
+      'Referer': 'https://keeptradecut.com/',
     },
-    signal: AbortSignal.timeout(12000),
+    signal: AbortSignal.timeout(15000),
   });
-  if (!res.ok) throw new Error(`KTC ${res.status}`);
-  return res.json();
+  if (!res.ok) throw new Error(`KTC page ${page}: ${res.status}`);
+  return res.text();
+}
+
+// Parse KTC HTML — mirrors the ees4/KeepTradeCut-Scraper logic in TypeScript
+function parseKTCHtml(html: string): KTCPlayer[] {
+  const players: KTCPlayer[] = [];
+
+  // Split on each onePlayer block
+  const blocks = html.split(/class="onePlayer(?:\s[^"]*)?"/);
+  blocks.shift();
+
+  for (const block of blocks) {
+    // Player name element (may have inline team suffix e.g. "Josh AllenBUF")
+    const nameMatch = block.match(/class="player-name"[^>]*>([^<]+)</);
+    if (!nameMatch) continue;
+    const rawName = nameMatch[1].trim();
+
+    // Strip team suffix: last 2–4 uppercase chars (e.g. BUF, RFA, FA)
+    let playerName = rawName;
+    let team = '';
+    const suffixMatch = rawName.match(/^(.+?)([A-Z]{2,4})$/);
+    if (suffixMatch) {
+      playerName = suffixMatch[1].trim();
+      team = suffixMatch[2] === 'RFA' ? 'FA' : suffixMatch[2];
+    }
+
+    // Superflex value (class="value")
+    const valueMatch = block.match(/class="value"[^>]*>([^<]+)</);
+    if (!valueMatch) continue;
+    const value = parseInt(valueMatch[1].trim(), 10);
+    if (!value || isNaN(value)) continue;
+
+    // Position rank e.g. "QB1" → strip digits → "QB"
+    const posMatch = block.match(/class="position"[^>]*>([^<]+)</);
+    const position = posMatch ? posMatch[1].trim().replace(/\d.*$/, '').toUpperCase() : '';
+
+    // Age (class="position hidden-xs")
+    const ageMatch = block.match(/class="position hidden-xs"[^>]*>([^<]+)</);
+    const age = ageMatch ? parseFloat(ageMatch[1].trim()) : undefined;
+
+    if (!playerName) continue;
+    players.push({ playerName, position, team, age, value });
+  }
+
+  return players;
+}
+
+// Fetch all 10 pages in parallel, parse, and deduplicate
+async function fetchKTC(): Promise<KTCPlayer[]> {
+  const pages = Array.from({ length: 10 }, (_, i) => i);
+  const results = await Promise.allSettled(pages.map(fetchKTCPage));
+  const players: KTCPlayer[] = [];
+  for (const r of results) {
+    if (r.status === 'fulfilled') players.push(...parseKTCHtml(r.value));
+  }
+  return players;
+}
+
+// --- Helpers ---
+
+/** Normalize a player name for fuzzy matching across sources */
+function normalizeName(name: string): string {
+  return name.toLowerCase().replace(/['.,-]/g, '').replace(/\s+/g, ' ').trim();
 }
 
 // --- Normalization ---
@@ -196,109 +250,39 @@ function ensureStandardPicks(result: Record<string, TradeValue>): void {
 function mergeValues(fc: FantasyCalcPlayer[], ktc: KTCPlayer[]): Record<string, TradeValue> {
   const result: Record<string, TradeValue> = {};
 
-  // Process FantasyCalc
-  const fcValues = fc.map((p) => p.value);
-  const fcNorm = normalizeValues(fcValues);
+  // Normalize FC values
+  const fcNorm = normalizeValues(fc.map((p) => p.value));
 
-  const fcBySleeperId = new Map<string, { value: number; rank: number; trend: number; name: string; position: string; team: string; age?: number; isPick: boolean }>();
+  // Build KTC lookup by normalized name → normalized value
+  const ktcNorm = normalizeValues(ktc.map((p) => p.value));
+  const ktcByName = new Map<string, number>();
+  for (let i = 0; i < ktc.length; i++) {
+    ktcByName.set(normalizeName(ktc[i].playerName), ktcNorm[i]);
+  }
 
+  // FC is the primary source — Sleeper IDs come from FC
   for (let i = 0; i < fc.length; i++) {
     const p = fc[i];
-    const sid = p.player.sleeperId;
     const name = p.player.name || '';
     const pick = isPick(name);
-    const key = pick ? (pickKey(name) || `fc_pick_${i}`) : (sid || `fc_${p.player.id}`);
+    const key = pick ? (pickKey(name) || `fc_pick_${i}`) : (p.player.sleeperId || `fc_${p.player.id}`);
 
-    fcBySleeperId.set(key, {
-      value: fcNorm[i],
-      rank: p.overallRank,
-      trend: p.trend30Day || 0,
+    // Match KTC by normalized name
+    const ktcVal = ktcByName.get(normalizeName(name)) ?? null;
+    const avgValue = ktcVal !== null ? Math.round((fcNorm[i] + ktcVal) / 2) : fcNorm[i];
+
+    result[key] = {
       name,
+      sleeperId: key,
       position: p.player.position || (pick ? 'PICK' : ''),
       team: p.player.maybeTeam || '',
       age: p.player.maybeAge,
-      isPick: pick,
-    });
-  }
-
-  // Process KTC
-  const ktcRawValues: number[] = [];
-  const ktcEntries: Array<{ key: string; name: string; position: string; team: string; age?: number; rawValue: number; isPick: boolean; sleeperId?: string }> = [];
-
-  for (const p of ktc) {
-    const name = p.playerName || '';
-    const pick = isPick(name);
-    const rawValue = p.superflexValues?.value ?? p.superflexValue ?? p.value ?? 0;
-    const sid = p.sleeperId || '';
-    const key = pick ? (pickKey(name) || `ktc_${name}`) : (sid || `ktc_${name}`);
-
-    ktcRawValues.push(rawValue);
-    ktcEntries.push({
-      key,
-      name,
-      position: p.position || (pick ? 'PICK' : ''),
-      team: p.team || '',
-      age: p.age,
-      rawValue,
-      isPick: pick,
-      sleeperId: sid,
-    });
-  }
-
-  const ktcNorm = normalizeValues(ktcRawValues);
-  const ktcByKey = new Map<string, { value: number; name: string; position: string; team: string; age?: number; isPick: boolean; sleeperId?: string }>();
-
-  for (let i = 0; i < ktcEntries.length; i++) {
-    ktcByKey.set(ktcEntries[i].key, {
-      value: ktcNorm[i],
-      name: ktcEntries[i].name,
-      position: ktcEntries[i].position,
-      team: ktcEntries[i].team,
-      age: ktcEntries[i].age,
-      isPick: ktcEntries[i].isPick,
-      sleeperId: ktcEntries[i].sleeperId,
-    });
-  }
-
-  // Merge: start with FC data, enrich/average with KTC
-  for (const [key, fcData] of fcBySleeperId) {
-    const ktcData = ktcByKey.get(key);
-    const ktcVal = ktcData?.value ?? null;
-    const avgValue = ktcVal !== null ? Math.round((fcData.value + ktcVal) / 2) : fcData.value;
-
-    result[key] = {
-      name: fcData.name,
-      sleeperId: key,
-      position: fcData.position,
-      team: fcData.team,
-      age: fcData.age,
       value: avgValue,
-      fcValue: fcData.value,
+      fcValue: fcNorm[i],
       ktcValue: ktcVal,
-      rank: fcData.rank,
-      trend: fcData.trend,
-      isPick: fcData.isPick,
-    };
-
-    // Remove from KTC so we don't double-count
-    ktcByKey.delete(key);
-  }
-
-  // Add remaining KTC-only entries
-  let rank = Object.keys(result).length + 1;
-  for (const [key, ktcData] of ktcByKey) {
-    result[key] = {
-      name: ktcData.name,
-      sleeperId: ktcData.sleeperId || key,
-      position: ktcData.position,
-      team: ktcData.team,
-      age: ktcData.age,
-      value: ktcData.value,
-      fcValue: null,
-      ktcValue: ktcData.value,
-      rank: rank++,
-      trend: 0,
-      isPick: ktcData.isPick,
+      rank: p.overallRank,
+      trend: p.trend30Day || 0,
+      isPick: pick,
     };
   }
 
