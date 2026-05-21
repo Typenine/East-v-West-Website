@@ -80,7 +80,8 @@ function sleep(ms: number): Promise<void> {
 // When a provider rate-limits, mark it cooling down for COOLDOWN_MS.
 // All subsequent cascade calls will skip it until the cooldown expires.
 
-const COOLDOWN_MS = 15 * 60 * 1000; // 15 minutes
+const COOLDOWN_MS = 2 * 60 * 1000;       // 2 min — enough for RPM/TPM window reset
+const DAILY_COOLDOWN_MS = 25 * 60 * 60 * 1000; // 25 hours — daily quota exhaustion
 const providerCooldownUntil: Record<string, number> = {};
 
 function isProviderCoolingDown(name: string): boolean {
@@ -93,9 +94,21 @@ function isProviderCoolingDown(name: string): boolean {
   return true;
 }
 
-function setCooldown(name: string): void {
-  providerCooldownUntil[name] = Date.now() + COOLDOWN_MS;
-  console.log(`[LLM] ${name} rate-limited — skipping for ${COOLDOWN_MS / 60_000} min`);
+function setCooldown(name: string, daily = false): void {
+  const ms = daily ? DAILY_COOLDOWN_MS : COOLDOWN_MS;
+  providerCooldownUntil[name] = Date.now() + ms;
+  console.log(`[LLM] ${name} rate-limited — skipping for ${Math.round(ms / 60_000)} min${daily ? ' (daily quota)' : ''}`);
+}
+
+function isDailyQuotaError(msg: string): boolean {
+  const m = msg.toLowerCase();
+  return (
+    m.includes('daily') ||
+    m.includes('resource_exhausted') ||
+    m.includes('resource has been exhausted') ||
+    m.includes('per day') ||
+    m.includes('rpd soft limit')
+  );
 }
 
 export function clearAllCooldowns(): void {
@@ -185,12 +198,52 @@ export async function generateWithCascade(req: CascadeRequest): Promise<CascadeR
       }
 
       if (isFallThroughError(msg)) {
-        setCooldown(name);
+        console.warn(`[LLM] ${name} rate-limited/quota: ${error.message}`);
+        setCooldown(name, isDailyQuotaError(msg));
         continue; // immediately try next provider — no point retrying a rate-limited one
       }
 
-      // Unknown error — log and try next provider
-      console.warn(`[LLM] ${name} error (trying next): ${msg}`);
+      // Unknown error — log full message and try next provider
+      console.warn(`[LLM] ${name} unknown error (trying next): ${error.message}`);
+    }
+  }
+
+  // All providers skipped (all cooling). If any has a short-term cooldown (≤3 min),
+  // wait for the earliest one and retry — this recovers from RPM/TPM limits automatically.
+  const shortTermExpiry = activeProviders
+    .filter(p => {
+      const until = providerCooldownUntil[p.name];
+      return until && (until - Date.now()) <= 3 * 60_000;
+    })
+    .map(p => providerCooldownUntil[p.name])
+    .sort((a, b) => a - b)[0];
+
+  if (shortTermExpiry) {
+    const waitMs = Math.max(shortTermExpiry - Date.now() + 500, 1);
+    console.log(`[LLM] All providers cooling — waiting ${Math.round(waitMs / 1000)}s for earliest recovery`);
+    await sleep(waitMs);
+
+    // One retry pass after waiting
+    for (const { name, fn } of activeProviders) {
+      if (isProviderCoolingDown(name)) continue;
+      try {
+        const content = await fn(req);
+        if (req.validate && !req.validate(content)) {
+          console.warn(`[LLM] ${name} failed validation after wait, trying next`);
+          continue;
+        }
+        cascadeMetrics[name] = (cascadeMetrics[name] ?? 0) + 1;
+        console.log(`[LLM] ${name} ✓ (after cooldown wait)`);
+        return { content, provider: name };
+      } catch (err) {
+        const error = err instanceof Error ? err : new Error(String(err));
+        if (isHardError(error.message)) throw error;
+        if (isFallThroughError(error.message)) {
+          setCooldown(name, isDailyQuotaError(error.message));
+          continue;
+        }
+        console.warn(`[LLM] ${name} unknown error after wait: ${error.message}`);
+      }
     }
   }
 

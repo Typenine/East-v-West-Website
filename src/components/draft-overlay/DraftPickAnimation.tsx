@@ -197,8 +197,8 @@ export default function DraftPickAnimation({
     // Corner watermark fades in on the broadcast hold frame
     if (eventLogoCorner) tl.to(eventLogoCorner, { opacity: 0.55, duration: 0.5, ease: 'power2.out', force3D: true }, '-=0.2');
 
-    // PHASE 7: Broadcast hold (9.0–15.0s)
-    tl.to({}, { duration: 6.0 });
+    // PHASE 7: Broadcast hold (9.0–16.5s — extra 1.5s for TV readability)
+    tl.to({}, { duration: 7.5 });
 
     // PHASE 8: Exit
     tl.to(container, { opacity: 0, duration: 0.8, ease: 'power2.inOut', force3D: true });
@@ -446,7 +446,16 @@ export default function DraftPickAnimation({
                 ) : null}
               </div>
             </div>
-            <div className="flex-1 flex flex-col justify-center px-5 sm:px-10 py-6 sm:py-8 min-w-0">
+            <div className="flex-1 flex flex-col justify-center px-5 sm:px-10 py-6 sm:py-8 min-w-0 relative">
+              {/* Fantasy team logo — top-right watermark, no text impact */}
+              {teamLogo && (
+                <img
+                  src={teamLogo}
+                  alt=""
+                  className="absolute top-4 right-4 object-contain pointer-events-none"
+                  style={{ width: 'min(80px, 8vw)', height: 'min(80px, 8vw)', opacity: 0.18 }}
+                />
+              )}
               <div
                 className="gsap-player-details mb-4 sm:mb-5 flex flex-wrap items-center gap-x-4 gap-y-2"
                 style={{ willChange: 'transform, opacity' }}

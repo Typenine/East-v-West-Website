@@ -88,7 +88,7 @@ export async function generateWithGemini20Provider(req: ProviderRequest): Promis
   });
 
   const timeoutPromise = new Promise<never>((_, reject) =>
-    setTimeout(() => reject(new Error('Gemini 2.0 call timed out after 40s')), CALL_TIMEOUT_MS)
+    setTimeout(() => reject(new Error('Gemini 2.0 call timed out after 90s')), CALL_TIMEOUT_MS)
   );
 
   const result = await Promise.race([

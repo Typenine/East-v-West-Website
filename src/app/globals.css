@@ -257,4 +257,7 @@ hr { border-color: var(--border); opacity: 0.7; }
   border: 1px solid var(--border);
 }
 .react-flow__controls button:hover { background: color-mix(in srgb, var(--text) 8%, transparent); }
+
+/* Draft overlay presentation mode — hides site chrome and removes scrollbars */
+body.draft-overlay-mode { overflow: hidden !important; }
 .react-flow__controls button:focus-visible { outline: none; box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 35%, transparent); }

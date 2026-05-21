@@ -45,7 +45,7 @@ import {
   loadRelationshipMemory,
   saveRelationshipMemory,
 } from '@/server/db/newsletter-queries';
-import { getActiveOrLatestDraftId, countDraftPlayers, getDraftPlayers } from '@/server/db/queries';
+import { getActiveOrLatestDraftId, countDraftPlayers, getDraftPlayers, getDraftRound1Slots, getDraftRound2Slots } from '@/server/db/queries';
 import { fetchNewsletterData } from '@/lib/newsletter';
 import { getHeadToHeadAllTime } from '@/lib/utils/headtohead';
 import { fetchTradesAllTime } from '@/lib/utils/trades';
@@ -507,12 +507,63 @@ When creating the preseason preview:
 
 // ============ Standings-Based Draft Slot Order ============
 
-async function buildSimpleDraftSlotOrder(season: number): Promise<Array<{ slot: number; team: string }>> {
+interface DraftSlotOrder {
+  round1: Array<{ slot: number; team: string }>;
+  round2: Array<{ slot: number; team: string }> | undefined;
+}
+
+function hasDuplicateTeams(slots: Array<{ slot: number; team: string }>): string[] {
+  const seen = new Set<string>();
+  const dupes: string[] = [];
+  for (const s of slots) {
+    if (seen.has(s.team)) dupes.push(s.team);
+    else seen.add(s.team);
+  }
+  return dupes;
+}
+
+async function buildSimpleDraftSlotOrder(season: number): Promise<DraftSlotOrder> {
+  // 1. Try DB draft_slots — reflects the actual configured order for this draft
+  try {
+    const draftId = await getActiveOrLatestDraftId();
+    if (draftId) {
+      const dbSlots = await getDraftRound1Slots(draftId);
+      if (dbSlots.length > 0) {
+        // Validate: detect duplicate team names (indicates bad DB state, e.g. from failed set_draft_order)
+        const duplicates = hasDuplicateTeams(dbSlots);
+        if (duplicates.length > 0) {
+          console.warn(
+            `[pre_draft] DB draft_slots has duplicate team names (${duplicates.join(', ')}) — ` +
+            `falling back to standings. Fix via admin: reset draft order.`
+          );
+          // Fall through to standings (also skip round-2 DB fetch to keep orders consistent)
+        } else {
+          console.log(`[pre_draft] Draft order from DB draft_slots (${dbSlots.length} teams)`);
+          // Fetch round 2 from DB as well — it reflects traded pick order
+          let r2: Array<{ slot: number; team: string }> | undefined;
+          try {
+            const r2Slots = await getDraftRound2Slots(draftId);
+            if (r2Slots.length > 0 && hasDuplicateTeams(r2Slots).length === 0) {
+              r2 = r2Slots;
+              console.log(`[pre_draft] Round 2 order from DB (${r2.length} teams)`);
+            } else if (r2Slots.length > 0) {
+              console.warn('[pre_draft] DB round-2 slots also have duplicates — will compute from round 1');
+            }
+          } catch { /* no round 2 in DB yet — fine, will be computed from round 1 */ }
+          return { round1: dbSlots, round2: r2 };
+        }
+      }
+    }
+  } catch (e) {
+    console.warn('[pre_draft] Could not get draft order from DB:', e);
+  }
+
+  // 2. Fall back to previous-season standings (worst → first, champion → last)
   try {
     const sourceLeagueId = getLeagueIdForSeason(String(season - 1));
     if (!sourceLeagueId) {
       console.warn(`[pre_draft] No source league ID for season ${season - 1}`);
-      return [];
+      return { round1: [], round2: undefined };
     }
 
     const [rawTeams, regularRecords] = await Promise.all([
@@ -532,11 +583,12 @@ async function buildSimpleDraftSlotOrder(season: number): Promise<Array<{ slot: 
       return a.teamName.localeCompare(b.teamName);
     });
 
-    console.log(`[pre_draft] Draft order built from ${teams.length} teams in league ${sourceLeagueId} (${season - 1} season)`);
-    return teams.map((t, i) => ({ slot: i + 1, team: t.teamName }));
+    console.log(`[pre_draft] Draft order from ${season - 1} standings (${teams.length} teams)`);
+    const round1 = teams.map((t, i) => ({ slot: i + 1, team: t.teamName }));
+    return { round1, round2: undefined }; // round 2 computed from round 1 (snake) in buildMockDraft
   } catch (e) {
     console.warn('[pre_draft] Failed to build standings-based draft order:', e);
-    return [];
+    return { round1: [], round2: undefined };
   }
 }
 
@@ -818,11 +870,19 @@ export async function POST(request: NextRequest) {
 
     // For pre_draft, fetch standings-based draft order (Sleeper draft may not be configured yet)
     let preDraftSlots: Array<{ slot: number; team: string }> | undefined;
+    let preDraftRound2Slots: Array<{ slot: number; team: string }> | undefined;
     if (episodeType === 'pre_draft') {
       console.log('[pre_draft] Fetching standings-based draft slot order...');
-      preDraftSlots = await buildSimpleDraftSlotOrder(seasonNum);
+      const draftSlotOrder = await buildSimpleDraftSlotOrder(seasonNum);
+      preDraftSlots = draftSlotOrder.round1;
+      preDraftRound2Slots = draftSlotOrder.round2;
       if (preDraftSlots.length > 0) {
         console.log(`[pre_draft] Draft order: ${preDraftSlots.map(s => `${s.slot}.${s.team}`).join(', ')}`);
+        if (preDraftRound2Slots && preDraftRound2Slots.length > 0) {
+          console.log(`[pre_draft] Round 2 order from DB (${preDraftRound2Slots.length} teams): ${preDraftRound2Slots.map(s => `${s.slot}.${s.team}`).join(', ')}`);
+        } else {
+          console.log('[pre_draft] No round 2 slots in DB — will compute from round 1 snake/linear');
+        }
       } else {
         console.warn('[pre_draft] Could not build standings-based draft order — mock draft will use fallback');
       }
@@ -856,6 +916,7 @@ export async function POST(request: NextRequest) {
       existingRelationshipMemory: relationshipMem,
       draftData: draftData ?? null,
       preDraftSlots,
+      preDraftRound2Slots,
       onSectionComplete: (sectionName) => {
         void updateStagedNewsletter(seasonNum, week, {
           currentSection: sectionName,

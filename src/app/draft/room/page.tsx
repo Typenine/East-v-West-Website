@@ -482,7 +482,8 @@ export default function DraftRoomPage() {
   useEffect(() => {
     const lastPick = draft?.recentPicks?.length ? draft.recentPicks[draft.recentPicks.length - 1] : null;
     if (!lastPick) {
-      if (!animInitRef.current) animInitRef.current = true;
+      // Only set initialized once draft data has actually loaded — same guard as DraftOverlayLive
+      if (!animInitRef.current && draft !== null) animInitRef.current = true;
       animLastPickRef.current = null;
       return;
     }
@@ -1422,6 +1423,7 @@ export default function DraftRoomPage() {
           assets={tradeAnimData.assets}
           eventLogoUrl={draft?.eventLogoUrl}
           eventColor1={draft?.eventColor1}
+          picksPerRound={picksPerRound}
           onComplete={() => {
             const captured = tradeAnimData;
             setTradeAnimData(null);

@@ -56,7 +56,8 @@ export async function generateWithCerebrasProvider(req: ProviderRequest): Promis
       }
 
       const data = await response.json() as {
-        choices?: Array<{ message?: { content?: string } }>;
+        choices?: Array<{ message?: { content?: string }; finish_reason?: string }>;
+        usage?: { prompt_tokens?: number; completion_tokens?: number };
         error?: { message?: string } | string;
       };
 
@@ -66,6 +67,11 @@ export async function generateWithCerebrasProvider(req: ProviderRequest): Promis
       }
 
       const text = data.choices?.[0]?.message?.content ?? '';
+      const finishReason = data.choices?.[0]?.finish_reason ?? 'unknown';
+      const completionTokens = data.usage?.completion_tokens ?? 0;
+      if (finishReason === 'length' || completionTokens < 50) {
+        console.warn(`[Cerebras] Short output: ${completionTokens} tokens, finish_reason=${finishReason}, text_len=${text.length}`);
+      }
       return text.trim();
 
     } catch (err) {

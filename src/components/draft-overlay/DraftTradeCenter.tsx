@@ -54,11 +54,12 @@ function AssetPill({ asset, onRemove }: { asset: SelectedAsset; onRemove?: () =>
   }
   if (asset.kind === 'current_pick') {
     const pk = asset.pick;
+    const pickInRound = ((pk.overall - 1) % 12) + 1;
     return (
       <div className="flex items-center gap-1.5 bg-zinc-800 border border-zinc-700 rounded-full px-2.5 py-1 text-xs">
         <span className="text-yellow-400 font-black">⦿</span>
-        <span className="text-white font-medium">Pick #{pk.overall}</span>
-        <span className="text-zinc-400">Rd {pk.round}</span>
+        <span className="text-white font-medium">Rd {pk.round} Pk {pickInRound}</span>
+        <span className="text-zinc-400">(#{pk.overall})</span>
         {onRemove && <button onClick={onRemove} className="ml-1 text-zinc-400 hover:text-red-400 font-bold">×</button>}
       </div>
     );
@@ -186,8 +187,8 @@ function TeamAssetPicker({
                       onClick={() => onToggle({ kind: 'current_pick', fromTeam: team, toTeam: sel ? getToTeam(String(pk.overall)) : defaultToTeam, pick: pk })}
                       className={`w-full flex items-center gap-2 px-2 py-1.5 rounded text-left transition-colors ${sel ? 'bg-yellow-400/20 border border-yellow-400/40' : 'hover:bg-zinc-800'}`}>
                       <span className="text-yellow-400 font-black text-sm">⦿</span>
-                      <span className="text-white text-xs font-medium">Pick #{pk.overall}</span>
-                      <span className="text-zinc-500 text-[10px]">Round {pk.round}</span>
+                      <span className="text-white text-xs font-medium">Rd {pk.round} Pk {((pk.overall - 1) % 12) + 1}</span>
+                      <span className="text-zinc-500 text-[10px]">(#{pk.overall})</span>
                       {sel && otherTeams.length === 1 && <span className="ml-auto text-yellow-400 font-bold text-xs">✓</span>}
                       {sel && otherTeams.length > 1 && (
                         <select value={getToTeam(String(pk.overall))} onClick={e => e.stopPropagation()}
@@ -265,10 +266,11 @@ function TradeCard({ trade, myTeam, onAccept, onReject, onCounter, onCancel, all
       );
     }
     if (a.assetType === 'current_pick') {
+      const pickInRound = a.pickOverall != null ? ((a.pickOverall - 1) % 12) + 1 : null;
       return (
         <div key={a.id} className="flex items-center gap-1.5 text-xs">
           <span className="text-yellow-400 font-black">⦿</span>
-          <span className="text-white">Pick #{a.pickOverall} (Rd {a.pickRound})</span>
+          <span className="text-white">Rd {a.pickRound} Pk {pickInRound ?? '?'} (#{a.pickOverall})</span>
           <span className="text-zinc-400 text-[10px]">→ {a.toTeam}</span>
         </div>
       );

@@ -884,6 +884,28 @@ export async function getActiveOrLatestDraftId(): Promise<string | null> {
   return br[0]?.id || null;
 }
 
+/** Return round-1 draft slots in pick order [{slot, team}] from draft_slots table. */
+export async function getDraftRound1Slots(draftId: string): Promise<Array<{ slot: number; team: string }>> {
+  await ensureDraftTables();
+  const db = getDb();
+  const res = await db.execute(
+    sql`SELECT overall, team FROM draft_slots WHERE draft_id = ${draftId}::uuid AND round = 1 ORDER BY overall ASC`
+  );
+  const rows = (res as unknown as { rows?: Array<{ overall: number; team: string }> }).rows || [];
+  return rows.map((r, i) => ({ slot: i + 1, team: r.team }));
+}
+
+/** Return round-2 draft slots in pick order [{slot, team}] from draft_slots table. */
+export async function getDraftRound2Slots(draftId: string): Promise<Array<{ slot: number; team: string }>> {
+  await ensureDraftTables();
+  const db = getDb();
+  const res = await db.execute(
+    sql`SELECT overall, team FROM draft_slots WHERE draft_id = ${draftId}::uuid AND round = 2 ORDER BY overall ASC`
+  );
+  const rows = (res as unknown as { rows?: Array<{ overall: number; team: string }> }).rows || [];
+  return rows.map((r, i) => ({ slot: i + 1, team: r.team }));
+}
+
 export async function getDraftOverview(draftId: string): Promise<DraftOverview | null> {
   await ensureDraftTables();
   const db = getDb();

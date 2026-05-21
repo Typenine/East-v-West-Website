@@ -332,13 +332,19 @@ function RosterPicker({ values, excluded, onAdd }: { values: TradeValue[]; exclu
   );
 }
 
-function ValueSourceToggle({ source, onChange }: { source: ValueSource; onChange: (s: ValueSource) => void }) {
+function ValueSourceToggle({ source, onChange, ktcAvailable }: { source: ValueSource; onChange: (s: ValueSource) => void; ktcAvailable: boolean }) {
+  const disabled = (s: ValueSource) => !ktcAvailable && (s === 'ktc' || s === 'avg');
   return (
     <div className="flex rounded-[var(--radius-card)] border border-[var(--border)] overflow-hidden text-xs">
       {(['avg', 'ktc', 'fc'] as ValueSource[]).map((s) => (
-        <button key={s} onClick={() => onChange(s)}
-          className="px-3 py-1.5 font-medium transition-colors uppercase"
-          style={source === s ? { background: 'var(--accent)', color: '#fff' } : { background: 'var(--surface)', color: 'var(--muted)' }}>
+        <button key={s} onClick={() => !disabled(s) && onChange(s)}
+          title={disabled(s) ? 'KTC unavailable (blocked by server)' : undefined}
+          className={`px-3 py-1.5 font-medium transition-colors uppercase${disabled(s) ? ' cursor-not-allowed' : ''}`}
+          style={disabled(s)
+            ? { background: 'var(--surface)', color: 'var(--border)', cursor: 'not-allowed' }
+            : source === s
+              ? { background: 'var(--accent)', color: '#fff' }
+              : { background: 'var(--surface)', color: 'var(--muted)' }}>
           {s}
         </button>
       ))}
@@ -555,7 +561,7 @@ function TradeAnalyzerContent() {
                 <span>KTC {dataSources.ktcCount != null ? `(${dataSources.ktcCount})` : ''}</span>
               </div>
             )}
-            <ValueSourceToggle source={source} onChange={setSource} />
+            <ValueSourceToggle source={source} onChange={setSource} ktcAvailable={!!(dataSources?.ktcCount && dataSources.ktcCount > 0)} />
           </div>
         )}
       </div>

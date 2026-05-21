@@ -10,6 +10,11 @@ const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
 const PRIMARY_MODEL = 'llama-3.3-70b-versatile';
 const FALLBACK_MODEL = 'llama-3.1-8b-instant';
 
+// Groq free tier: ~6,000 TPM. A newsletter prompt is 8,000-12,000 tokens (system+context+output).
+// Capping output at 1,500 keeps total tokens manageable and prevents a single large call
+// from 429-ing the provider and poisoning it for the cascade's 2-minute cooldown window.
+const GROQ_MAX_OUTPUT_TOKENS = 1_500;
+
 export async function generateWithGroqProvider(req: ProviderRequest): Promise<string> {
   const apiKey = process.env.GROQ_API_KEY;
   if (!apiKey) throw new Error('GROQ_API_KEY not set');
@@ -36,7 +41,7 @@ export async function generateWithGroqProvider(req: ProviderRequest): Promise<st
               { role: 'user',   content: req.userPrompt },
             ],
             temperature: req.temperature,
-            max_tokens: req.maxTokens,
+            max_tokens: Math.min(req.maxTokens, GROQ_MAX_OUTPUT_TOKENS),
             top_p: req.topP ?? 0.9,
           }),
           signal: abort.signal,

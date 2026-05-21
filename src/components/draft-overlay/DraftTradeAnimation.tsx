@@ -24,19 +24,25 @@ interface DraftTradeAnimationProps {
   assets: TradeAnimAsset[];
   eventLogoUrl?: string | null;
   eventColor1?: string | null;
+  picksPerRound?: number;
   onComplete?: () => void;
 }
 
 const POS_COLORS: Record<string, string> = { QB:'#ef4444', RB:'#22c55e', WR:'#3b82f6', TE:'#f97316', K:'#a855f7', DEF:'#6b7280' };
 
-function AcquiredAsset({ asset, ec1 }: { asset: TradeAnimAsset; ec1: string }) {
+function AcquiredAsset({ asset, ec1, picksPerRound = 12 }: { asset: TradeAnimAsset; ec1: string; picksPerRound?: number }) {
   const fromColors = getTeamColors(asset.fromTeam);
   const fromLogo = getTeamLogoPath(asset.fromTeam);
 
+  const pickInRound = asset.pickOverall != null
+    ? ((asset.pickOverall - 1) % picksPerRound) + 1
+    : null;
+
   const name =
     asset.assetType === 'player' ? (asset.playerName || '—') :
-    asset.assetType === 'current_pick' ? `Pick #${asset.pickOverall}` :
-    `${asset.pickYear} Rd ${asset.pickRound}`;
+    asset.assetType === 'current_pick'
+      ? `Rd ${asset.pickRound ?? '?'} Pk ${pickInRound ?? '?'} (Overall #${asset.pickOverall})`
+      : `${asset.pickYear ?? '?'} Rd ${asset.pickRound ?? '?'}`;
 
   const sub =
     asset.assetType === 'future_pick' && asset.pickOriginalTeam && asset.pickOriginalTeam !== asset.fromTeam
@@ -72,7 +78,7 @@ function AcquiredAsset({ asset, ec1 }: { asset: TradeAnimAsset; ec1: string }) {
   );
 }
 
-export default function DraftTradeAnimation({ teams, assets, eventLogoUrl, eventColor1, onComplete }: DraftTradeAnimationProps) {
+export default function DraftTradeAnimation({ teams, assets, eventLogoUrl, eventColor1, picksPerRound = 12, onComplete }: DraftTradeAnimationProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const timelineRef = useRef<gsap.core.Timeline | null>(null);
   const onCompleteRef = useRef(onComplete);
@@ -296,7 +302,7 @@ export default function DraftTradeAnimation({ teams, assets, eventLogoUrl, event
                     {acquired.length === 0 ? (
                       <div className="text-white/25 text-sm text-center font-semibold pt-4">— nothing —</div>
                     ) : (
-                      acquired.map((a, i) => <AcquiredAsset key={i} asset={a} ec1={ec1} />)
+                      acquired.map((a, i) => <AcquiredAsset key={i} asset={a} ec1={ec1} picksPerRound={picksPerRound} />)
                     )}
                   </div>
                 </div>

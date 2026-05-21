@@ -114,6 +114,8 @@ export interface GenerateNewsletterInput {
   draftData?: LeagueDraftData | null;
   // Optional: standings-based draft slot order for pre_draft mock drafts
   preDraftSlots?: Array<{ slot: number; team: string }>;
+  // Optional: DB-sourced round 2 pick order for pre_draft mock drafts
+  preDraftRound2Slots?: Array<{ slot: number; team: string }>;
   /** Called when each section completes — used for real-time progress tracking */
   onSectionComplete?: (sectionName: string) => void;
 }
@@ -450,6 +452,7 @@ export async function generateNewsletter(
       relationshipMemory: relationshipMem,
       draftData: resolvedDraftData,
       preDraftSlots: input.preDraftSlots,
+      preDraftRound2Slots: input.preDraftRound2Slots,
       onSectionComplete: input.onSectionComplete,
     }, qualityReport);
 

@@ -80,7 +80,7 @@ export default function DraftOverlayLive() {
   type AnimPhase = 'pick' | 'video' | 'clock' | null;
   const [animPhase, setAnimPhase] = useState<AnimPhase>(null);
   // Trade animation state (independent of pick animation pipeline)
-  const [tradeAnimData, setTradeAnimData] = useState<{ teams: string[]; assets: TradeAnimAsset[] } | null>(null);
+  const [tradeAnimData, setTradeAnimData] = useState<{ teams: string[]; assets: TradeAnimAsset[]; resumeAfterAnimation?: boolean } | null>(null);
   const tradeAnimSeenIdRef = useRef<string | null>(null);
   const [videoExiting, setVideoExiting] = useState(false);
   const animDataRef = useRef<{
@@ -257,9 +257,12 @@ export default function DraftOverlayLive() {
   // Trigger animation sequence on new pick — driven by lastPick?.overall only (stable number)
   useEffect(() => {
     if (!lastPick) {
-      // No picks yet (or draft was reset) — ensure next pick triggers animation
-      if (!animInitializedRef.current) animInitializedRef.current = true;
-      lastAnimatedPickRef.current = null; // reset so first pick after reset fires animation
+      // No picks yet (or draft was reset). Only mark initialized once real data has loaded
+      // (draft !== null). Without this guard, the flag fires before the first fetch completes
+      // and the next render — which has existing picks — skips the initialization-skip block,
+      // causing the last pick animation to replay for every new tab/PC that joins mid-draft.
+      if (!animInitializedRef.current && draft !== null) animInitializedRef.current = true;
+      lastAnimatedPickRef.current = null;
       return;
     }
     if (!animInitializedRef.current) {
@@ -445,7 +448,7 @@ export default function DraftOverlayLive() {
   }, [animPhase]);
 
   return (
-    <div className="w-full h-full bg-gradient-to-b from-zinc-950 to-zinc-900 p-6 flex flex-col">
+    <div className="w-full h-full bg-gradient-to-b from-zinc-950 to-zinc-900 p-3 flex flex-col">
       {/* Draft Board Grid */}
       <div className="flex-1 mb-4 min-h-0 relative">
         <div 
@@ -500,7 +503,7 @@ export default function DraftOverlayLive() {
                     }}
                   >
                     {/* Team logo on LEFT side - ALWAYS visible */}
-                    <div className="flex-shrink-0 w-6 h-6 mr-1 flex items-center justify-center">
+                    <div className="flex-shrink-0 w-9 h-9 mr-1 flex items-center justify-center">
                       {teamLogo ? (
                         <img src={teamLogo} alt="" className="w-full h-full object-contain" />
                       ) : gridItem?.team ? (
@@ -754,14 +757,20 @@ export default function DraftOverlayLive() {
           assets={tradeAnimData.assets}
           eventLogoUrl={eventLogoUrl}
           eventColor1={eventColor1}
+          picksPerRound={picksPerRound}
           onComplete={() => {
+            const captured = tradeAnimData;
             setTradeAnimData(null);
-            // Resume the draft clock after trade animation
-            fetch('/api/draft', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ action: 'resume' }),
-            }).catch(() => {});
+            // Only resume the clock if it was live when the trade was approved.
+            // Calling resume unconditionally resets the clock to full time when
+            // paused_remaining_secs is 0 (e.g. clock had already expired).
+            if (captured?.resumeAfterAnimation) {
+              fetch('/api/draft', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'resume' }),
+              }).catch(() => {});
+            }
             // Clear animation trigger in DB
             fetch('/api/draft/trade', {
               method: 'POST',
@@ -772,17 +781,6 @@ export default function DraftOverlayLive() {
         />
       )}
 
-      {/* Status Bar */}
-      <div className="fixed top-0 left-0 right-0 bg-zinc-900/95 border-b border-zinc-700 px-4 py-2 flex items-center justify-between" style={{ zIndex: 10040 }}>
-        <div className="text-lg font-bold text-white">
-          {draft?.eventName?.trim()
-            ? `${draft.eventName.trim()} · ${draft.year}`
-            : `East v West Draft ${draft?.year ?? new Date().getFullYear()}`}
-        </div>
-        <div className="text-sm text-zinc-400">
-          Overall #{draft?.curOverall ?? 1} • {draft?.status ?? 'NOT_STARTED'}
-        </div>
-      </div>
     </div>
   );
 }

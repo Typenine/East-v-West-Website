@@ -88,6 +88,8 @@ export default function RoundRecapOverlay({
   }, []);
 
   const hasTrades = trades.length > 0;
+  // Deduplicate by overall pick number — prevents trade-related ghost entries from inflating count
+  const dedupedPicks = picks.filter((p, i, arr) => arr.findIndex(x => x.overall === p.overall) === i);
 
   return (
     <div
@@ -101,22 +103,22 @@ export default function RoundRecapOverlay({
     >
       {/* Top bar */}
       <div
-        className={`flex items-center justify-between flex-shrink-0 ${isInline ? 'px-5 py-3' : 'px-10 py-5'}`}
+        className={`flex items-center justify-between flex-shrink-0 ${isInline ? 'px-5 py-3' : 'px-10 py-6'}`}
         style={{ borderBottom: `${isInline ? 2 : 3}px solid ${eventColor1}` }}
       >
         <div className="flex items-center gap-5">
           {eventLogoUrl && (
-            <img src={eventLogoUrl} alt="" className="w-12 h-12 object-contain" style={{ opacity: 0.9 }} />
+            <img src={eventLogoUrl} alt="" className={isInline ? 'w-12 h-12' : 'w-16 h-16'} style={{ objectFit: 'contain', opacity: 0.9 }} />
           )}
           <div>
             <div
               className="font-black uppercase tracking-widest"
-              style={{ fontSize: isInline ? '1.4rem' : '2.2rem', color: eventColor1, lineHeight: 1, textShadow: `0 0 20px ${eventColor1}66` }}
+              style={{ fontSize: isInline ? '1.4rem' : 'clamp(1.8rem, 3.5vw, 4rem)', color: eventColor1, lineHeight: 1, textShadow: `0 0 20px ${eventColor1}66` }}
             >
               Round {roundNumber} Complete
             </div>
-            <div className="text-zinc-400 text-sm font-bold tracking-wider mt-0.5">
-              {picks.length} picks made
+            <div className="text-zinc-400 font-bold tracking-wider mt-0.5" style={{ fontSize: isInline ? '0.875rem' : 'clamp(0.9rem, 1.5vw, 1.2rem)' }}>
+              {dedupedPicks.length} picks made
             </div>
           </div>
         </div>
@@ -124,8 +126,10 @@ export default function RoundRecapOverlay({
           {isAdmin ? (
             <button
               onClick={onStartNextRound}
-              className="px-8 py-3 rounded-xl font-black text-xl uppercase tracking-wider transition-all hover:scale-105 active:scale-95"
+              className="rounded-xl font-black uppercase tracking-wider transition-all hover:scale-105 active:scale-95"
               style={{
+                padding: isInline ? '0.75rem 2rem' : 'clamp(0.75rem,1.2vw,1.1rem) clamp(2rem,3.5vw,3.5rem)',
+                fontSize: isInline ? '1.25rem' : 'clamp(1.2rem, 2.2vw, 2rem)',
                 background: `linear-gradient(135deg, ${eventColor1} 0%, ${eventColor1}aa 100%)`,
                 color: '#000',
                 boxShadow: `0 4px 24px ${eventColor1}66`,
@@ -134,7 +138,7 @@ export default function RoundRecapOverlay({
               ▶ Start Round {nextRound}
             </button>
           ) : (
-            <div className="text-zinc-400 text-sm font-bold animate-pulse">
+            <div className="text-zinc-400 font-bold animate-pulse" style={{ fontSize: isInline ? '0.875rem' : 'clamp(0.9rem, 1.5vw, 1.2rem)' }}>
               Waiting for Commissioner to start Round {nextRound}…
             </div>
           )}
@@ -148,16 +152,17 @@ export default function RoundRecapOverlay({
           <div className="text-xs font-black uppercase tracking-widest text-zinc-500 mb-3">
             Round {roundNumber} Picks
           </div>
-          <div className={`grid gap-2 content-start ${isInline ? '' : 'flex-1 overflow-y-auto'}`} style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))' }}>
-            {picks.map((pick, i) => {
+          <div className={`grid gap-2 content-start ${isInline ? '' : 'flex-1 overflow-y-auto'}`} style={{ gridTemplateColumns: isInline ? 'repeat(auto-fill, minmax(200px, 1fr))' : 'repeat(auto-fill, minmax(clamp(200px, 16vw, 300px), 1fr))' }}>
+            {dedupedPicks.map((pick, i) => {
               const colors = getTeamColors(pick.team);
               const logo = getTeamLogoPath(pick.team);
               const posColor = positionColors[pick.playerPos || ''] || '#666';
               return (
                 <div
                   key={pick.overall}
-                  className="rounded-lg overflow-hidden flex items-center gap-2 py-2 px-3"
+                  className="rounded-lg overflow-hidden flex items-center gap-2"
                   style={{
+                    padding: isInline ? '0.5rem 0.75rem' : 'clamp(0.5rem, 0.8vw, 0.9rem) clamp(0.75rem, 1vw, 1.1rem)',
                     background: `linear-gradient(135deg, ${colors.primary}22 0%, #1a1a1a 100%)`,
                     border: `1px solid ${colors.primary}44`,
                     animationDelay: `${i * 0.05}s`,
@@ -165,24 +170,24 @@ export default function RoundRecapOverlay({
                 >
                   {/* Pick # */}
                   <div
-                    className="text-xs font-black flex-shrink-0 w-6 text-center"
-                    style={{ color: eventColor1 }}
+                    className="font-black flex-shrink-0 text-center"
+                    style={{ color: eventColor1, fontSize: isInline ? '0.75rem' : 'clamp(0.8rem, 1.2vw, 1rem)', minWidth: isInline ? '1.5rem' : 'clamp(1.5rem, 2vw, 2rem)' }}
                   >
                     {pick.overall}
                   </div>
                   {/* Team logo */}
                   {logo && (
-                    <img src={logo} alt={pick.team} className="w-7 h-7 object-contain flex-shrink-0" />
+                    <img src={logo} alt={pick.team} className={isInline ? 'w-7 h-7' : 'flex-shrink-0 object-contain'} style={isInline ? { objectFit: 'contain' } : { width: 'clamp(28px, 3.5vw, 48px)', height: 'clamp(28px, 3.5vw, 48px)' }} />
                   )}
                   {/* Player info */}
                   <div className="flex-1 min-w-0">
-                    <div className="text-white font-bold text-xs leading-tight truncate">
+                    <div className="text-white font-bold leading-tight truncate" style={{ fontSize: isInline ? '0.75rem' : 'clamp(0.8rem, 1.3vw, 1.05rem)' }}>
                       {pick.playerName || pick.playerId}
                     </div>
                     {pick.playerPos && (
                       <div
-                        className="text-[10px] font-black inline-block px-1 rounded mt-0.5"
-                        style={{ background: posColor, color: '#fff' }}
+                        className="font-black inline-block px-1 rounded mt-0.5"
+                        style={{ background: posColor, color: '#fff', fontSize: isInline ? '0.625rem' : 'clamp(0.65rem, 1vw, 0.8rem)' }}
                       >
                         {pick.playerPos}
                       </div>
@@ -228,19 +233,23 @@ export default function RoundRecapOverlay({
                   <div className="space-y-1">
                     {trade.assets.map((asset, ai) => {
                       const arrow = '→';
-                      const desc = asset.assetType === 'pick'
-                        ? `Pick${asset.pickRound ? ` Rd ${asset.pickRound}` : ''}${asset.pickYear ? ` ${asset.pickYear}` : ''}`
-                        : (asset.playerName || 'Player');
+                      // assetType can be 'player', 'current_pick', 'future_pick', or legacy 'pick'
+                      const isPick = asset.assetType === 'current_pick' || asset.assetType === 'future_pick' || asset.assetType === 'pick';
+                      const desc = isPick
+                        ? asset.assetType === 'current_pick'
+                          ? `Pick Rd ${asset.pickRound ?? '?'} (Overall #${asset.pickOverall ?? '?'})`
+                          : `${asset.pickYear ?? '?'} Rd ${asset.pickRound ?? '?'} Pick`
+                        : (asset.playerName || 'Unknown Player');
                       return (
-                        <div key={ai} className="text-[11px] text-zinc-300 flex items-center gap-1">
+                        <div key={ai} className="text-zinc-300 flex items-center gap-1 flex-wrap" style={{ fontSize: isInline ? '0.6875rem' : 'clamp(0.75rem, 1.1vw, 0.9rem)' }}>
                           <span className="font-bold text-white/70">{asset.fromTeam.split(' ').pop()}</span>
                           <span className="text-zinc-500">{arrow}</span>
                           <span className="font-bold text-white/70">{asset.toTeam.split(' ').pop()}</span>
                           <span className="text-zinc-400 ml-1">{desc}</span>
                           {asset.playerPos && (
                             <span
-                              className="text-[9px] font-black px-1 rounded"
-                              style={{ background: positionColors[asset.playerPos] || '#666', color: '#fff' }}
+                              className="font-black px-1 rounded"
+                              style={{ background: positionColors[asset.playerPos] || '#666', color: '#fff', fontSize: isInline ? '0.5625rem' : 'clamp(0.65rem, 0.9vw, 0.75rem)' }}
                             >
                               {asset.playerPos}
                             </span>

@@ -66,7 +66,7 @@ const SAFETY_SETTINGS = [
   { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH },
 ];
 
-const CALL_TIMEOUT_MS = 90_000; // 90s — accommodates large mock-draft outputs (2500 tokens)
+const CALL_TIMEOUT_MS = 90_000; // 90s timeout per call
 
 // ============ Main Export ============
 
@@ -88,18 +88,24 @@ export async function generateWithGeminiProvider(req: ProviderRequest): Promise<
   });
 
   const timeoutPromise = new Promise<never>((_, reject) =>
-    setTimeout(() => reject(new Error('Gemini call timed out after 40s')), CALL_TIMEOUT_MS)
+    setTimeout(() => reject(new Error('Gemini 2.5 call timed out after 90s')), CALL_TIMEOUT_MS)
   );
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const generateRequest: any = {
+    contents: [{ role: 'user', parts: [{ text: req.userPrompt }] }],
+    generationConfig: {
+      temperature: req.temperature,
+      maxOutputTokens: req.maxTokens,
+      topP: req.topP ?? 0.9,
+      // Cap thinking tokens to prevent unbounded latency and TPM inflation.
+      // 1024 allows light reasoning without blowing the per-minute budget.
+      thinkingConfig: { thinkingBudget: 1024 },
+    },
+  };
+
   const result = await Promise.race([
-    model.generateContent({
-      contents: [{ role: 'user', parts: [{ text: req.userPrompt }] }],
-      generationConfig: {
-        temperature: req.temperature,
-        maxOutputTokens: req.maxTokens,
-        topP: req.topP ?? 0.9,
-      },
-    }),
+    model.generateContent(generateRequest),
     timeoutPromise,
   ]);
 

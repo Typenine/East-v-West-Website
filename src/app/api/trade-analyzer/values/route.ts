@@ -1,5 +1,9 @@
 import { NextResponse } from 'next/server';
 import type { TradeValue } from '@/lib/types/trade-analyzer';
+import { getKV } from '@/lib/server/kv';
+
+const KTC_KV_KEY = 'trade-analyzer:ktc';
+const KTC_KV_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -109,7 +113,7 @@ function parseKTCHtml(html: string): KTCPlayer[] {
 }
 
 // Fetch all 10 pages in parallel, parse, and deduplicate
-async function fetchKTC(): Promise<KTCPlayer[]> {
+async function scrapeKTCLive(): Promise<KTCPlayer[]> {
   const pages = Array.from({ length: 10 }, (_, i) => i);
   const results = await Promise.allSettled(pages.map(fetchKTCPage));
   const players: KTCPlayer[] = [];
@@ -117,6 +121,28 @@ async function fetchKTC(): Promise<KTCPlayer[]> {
     if (r.status === 'fulfilled') players.push(...parseKTCHtml(r.value));
   }
   return players;
+}
+
+// Read KTC from Vercel KV (written by scripts/refresh-ktc.ts on a residential IP).
+// Falls back to live scraping if KV is unavailable or stale.
+async function fetchKTC(): Promise<KTCPlayer[]> {
+  try {
+    const kv = await getKV();
+    if (kv) {
+      const stored = await kv.get(KTC_KV_KEY) as { players: KTCPlayer[]; updatedAt: string } | null;
+      if (stored && stored.players?.length > 0) {
+        const age = Date.now() - new Date(stored.updatedAt).getTime();
+        if (age < KTC_KV_TTL_MS) {
+          console.log(`[trade-analyzer] KTC from KV: ${stored.players.length} players, age ${Math.round(age / 3600000)}h`);
+          return stored.players;
+        }
+        console.log('[trade-analyzer] KTC KV data is stale, falling back to live scrape');
+      }
+    }
+  } catch (e) {
+    console.warn('[trade-analyzer] KV read failed, falling back to live scrape:', e);
+  }
+  return scrapeKTCLive();
 }
 
 // --- Helpers ---

@@ -18,6 +18,7 @@ import type {
   IntroSection,
   WaiverItem,
   TradeItem,
+  TradeAnalysis,
   SpotlightSection,
   FinalWordSection,
   CallbacksSection,
@@ -593,6 +594,7 @@ ${enhancedContext}`;
       constraints: `Write 3-4 paragraphs. First, introduce yourself (Mason Reed) to the East v. West league — your first episode ever. Welcome the league, make it feel electric. Then pivot: build draft hype, name the prospects you're most fired up about, call out which teams you think are set up to steal this draft. Drop a bold take. End with something that leaves them wanting more.`,
       maxTokens: 1500,
       episodeType: 'pre_draft',
+      validate: (text) => text.length >= 600 && /[.!?]["']?\s*$/.test(text.trim()),
     }),
     generateSection({
       persona: 'analyst',
@@ -601,6 +603,7 @@ ${enhancedContext}`;
       constraints: `Write 3-4 paragraphs. First, introduce yourself (Westy) to the East v. West league — your first episode ever. Welcome the league and frame what you bring: data-driven analysis, accountability, receipts. Then pivot to the draft: lay out the analytical framework (draft capital, positional scarcity, team fit), highlight which teams have the most leverage, and set expectations for your mock draft picks. Measured but sharp.`,
       maxTokens: 1400,
       episodeType: 'pre_draft',
+      validate: (text) => text.length >= 600 && /[.!?]["']?\s*$/.test(text.trim()),
     }),
   ]);
 
@@ -1128,46 +1131,73 @@ async function buildTradeItems(events: DerivedData['events_scored'], memEntertai
     tradeIdx: number;
     party: string;
     sideContext: string;
+    isMultiTeam: boolean;
+    allParties: string[];
   }> = [];
 
   for (let i = 0; i < tradeContexts.length; i++) {
     const { parties, byTeam, tradeContext } = tradeContexts[i];
+    const isMultiTeam = parties.length >= 3;
+
+    // For 3+ team trades, show every team's complete exchange so the LLM understands the full flow
+    const fullExchangeBlock = isMultiTeam
+      ? `\nCOMPLETE ${parties.length}-TEAM EXCHANGE:\n` +
+        parties.map(p => {
+          const a = byTeam[p];
+          return `  ${p}: RECEIVED ${a?.gets?.join(', ') || 'nothing'} | GAVE UP ${a?.gives?.join(', ') || 'nothing'}`;
+        }).join('\n')
+      : '';
+
     for (const party of parties) {
       const teamAssets = byTeam[party];
       const gets = teamAssets?.gets?.join(', ') || 'assets';
       const gives = teamAssets?.gives?.join(', ') || 'assets';
-      
+
       const entTrustLine = teamTrustLine(memEntertainer, party);
       const anaTrustLine = teamTrustLine(memAnalyst, party);
 
       const sideContext = `Trade Analysis for ${party}:
 Full trade: ${tradeContext}
-${party}'s haul: RECEIVED ${gets} | GAVE UP ${gives}
+${party}'s haul: RECEIVED ${gets} | GAVE UP ${gives}${fullExchangeBlock}
 Evaluate this trade FROM ${party.toUpperCase()}'S PERSPECTIVE ONLY.
 ${entTrustLine ? `[Mason Reed's history: ${entTrustLine}]` : ''}
 ${anaTrustLine ? `[Westy's history: ${anaTrustLine}]` : ''}`;
 
-      allPartyRequests.push({ tradeIdx: i, party, sideContext });
+      allPartyRequests.push({ tradeIdx: i, party, sideContext, isMultiTeam, allParties: parties });
     }
   }
 
   // Generate all analyses in parallel (rate limiting handled by groq client)
   const allResponses = await Promise.all(
-    allPartyRequests.map(async ({ party, sideContext }) => {
+    allPartyRequests.map(async ({ party, sideContext, isMultiTeam, allParties }) => {
+      const otherTeams = allParties.filter(p => p !== party).join(' and ');
+
+      const entertainerConstraints = isMultiTeam
+        ? `Grade this ${allParties.length}-team trade for ${party} specifically (A+ to F). ` +
+          `In a multi-team deal there's always a winner, someone who broke even, and a loser — where does ${party} land compared to ${otherTeams}? ` +
+          `Write 3-4 sentences with personality: did ${party} orchestrate this, get fleeced, or thread the needle? Reference what they gave up and what they got. Include your letter grade.`
+        : `Grade this trade for ${party} specifically (A+ to F). Did THEY win or lose? Write 3-4 sentences with personality — was this a heist, a fair deal, or a robbery? Let your history with this team color your take. Include your letter grade.`;
+
+      const analystConstraints = isMultiTeam
+        ? `Grade this ${allParties.length}-team trade for ${party} specifically (A+ to F). ` +
+          `Multi-team trades create complex value flows — evaluate what ${party} sent to each of ${otherTeams} vs what they received, and whether the net haul represents a win, break-even, or loss relative to the other parties. ` +
+          `Write 3-4 sentences analyzing short-term vs long-term implications, asset value, and roster fit. Include letter grade.`
+        : `Grade this trade for ${party} specifically (A+ to F). Evaluate value received vs given from their perspective. Write 3-4 sentences analyzing short-term vs long-term implications, value, and fit. Factor in your prior read on this team if relevant. Include letter grade.`;
+
       const [entertainerResponse, analystResponse] = await Promise.all([
         generateSection({
           persona: 'entertainer',
-          sectionType: 'Trade Grade',
+          sectionType: isMultiTeam ? `${allParties.length}-Team Trade Grade` : 'Trade Grade',
           context: sideContext + (entPersonality ? `\n${entPersonality}` : ''),
-          constraints: `Grade this trade for ${party} specifically (A+ to F). Did THEY win or lose? Write 3-4 sentences with personality — was this a heist, a fair deal, or a robbery? Let your history with this team color your take. Include your letter grade.`,
-          maxTokens: 300,
+          constraints: entertainerConstraints,
+          maxTokens: 350,
         }),
         generateSection({
           persona: 'analyst',
-          sectionType: 'Trade Grade',
+          sectionType: isMultiTeam ? `${allParties.length}-Team Trade Grade` : 'Trade Grade',
           context: sideContext + (anaPersonality ? `\n${anaPersonality}` : ''),
-          constraints: `Grade this trade for ${party} specifically (A+ to F). Evaluate value received vs given from their perspective. Write 3-4 sentences analyzing short-term vs long-term implications, value, and fit. Factor in your prior read on this team if relevant. Include letter grade.`,
-          maxTokens: 300,
+          constraints: analystConstraints,
+          maxTokens: 350,
         }),
       ]);
 
@@ -1291,7 +1321,7 @@ async function buildFinalWord(week: number, episodeType: string = 'regular', mem
       analystConstraint = '3-4 sentences of measured analytical closing thoughts. Cover the 2-3 most important things to watch, flag a team you think is flying under the radar, and end with a data-backed prediction.';
       break;
     case 'pre_draft':
-      context = 'The rookie draft is coming up. Sign off the pre-draft preview with anticipation.';
+      context = `The rookie draft is coming up. Sign off the pre-draft preview with anticipation.\n\n${enhancedContext.slice(0, 600)}\n\nIMPORTANT: Use ONLY the exact team names listed above from the league context. Do not invent, shorten, or paraphrase team names.`;
       entertainerConstraint = '3-4 sentences to close out the draft preview. Build the hype, name the player you\'re most excited about, call out a team you think is going to steal the draft, and leave the audience fired up.';
       analystConstraint = '3-4 sentences of analytical closing thoughts. Key strategic takeaway heading into draft day, which team has the best draft capital, and a projection on how this draft will change the competitive landscape.';
       break;
@@ -1315,6 +1345,7 @@ async function buildFinalWord(week: number, episodeType: string = 'regular', mem
   const anaPersonality = memAnalyst ? effectivePersonalityCtx(memAnalyst, enhancedContext, 'analyst') : '';
 
   const finalWordTokens = ['pre_draft', 'post_draft', 'preseason', 'offseason'].includes(episodeType) ? 600 : 350;
+  const finalWordMinLen = ['pre_draft', 'post_draft', 'preseason', 'offseason'].includes(episodeType) ? 200 : 100;
 
   const [bot1, bot2] = await Promise.all([
     generateSection({
@@ -1323,6 +1354,7 @@ async function buildFinalWord(week: number, episodeType: string = 'regular', mem
       context: context + (entPersonality ? `\n${entPersonality}` : ''),
       constraints: entertainerConstraint,
       maxTokens: finalWordTokens,
+      validate: (text) => text.length >= finalWordMinLen,
     }),
     generateSection({
       persona: 'analyst',
@@ -1330,6 +1362,7 @@ async function buildFinalWord(week: number, episodeType: string = 'regular', mem
       context: context + (anaPersonality ? `\n${anaPersonality}` : ''),
       constraints: analystConstraint,
       maxTokens: finalWordTokens,
+      validate: (text) => text.length >= finalWordMinLen,
     }),
   ]);
 
@@ -2711,18 +2744,107 @@ Do NOT invent, assume, or imply that any trade happened unless it appears in the
       sectionType: 'Offseason Trade Analysis',
       context: context + (entPersonality ? `\n${entPersonality}` : ''),
       constraints: `Write 3-4 sentences analyzing the key trades from this offseason. Which moves do you love? Which teams set themselves up well (or poorly)? Any trades that affect the draft order? Be colorful and opinionated. CRITICAL: If the context says no ${season} offseason trades have occurred, do NOT invent trades — instead acknowledge the quiet offseason and pivot to what you expect teams to do before draft day.`,
-      maxTokens: 350,
+      maxTokens: 600,
       episodeType: 'pre_draft',
+      validate: (text) => text.length >= 150,
     }),
     generateSection({
       persona: 'analyst',
       sectionType: 'Offseason Trade Analysis',
       context: context + (anaPersonality ? `\n${anaPersonality}` : ''),
       constraints: `Write 3-4 sentences with an analytical take on offseason trades. Evaluate the value exchanged, impact on draft capital, and implications for the upcoming draft. CRITICAL: If the context says no ${season} offseason trades have occurred, do NOT invent trades — instead note the quiet offseason and highlight what teams should be doing heading into draft season.`,
-      maxTokens: 350,
+      maxTokens: 600,
+      validate: (text) => text.length >= 150,
       episodeType: 'pre_draft',
     }),
   ]);
+
+  // Phase 2: Per-party trade grades — structured block format that LLMs follow reliably
+  const partyGradeConstraint = (persona: 'entertainer' | 'analyst') =>
+    `Based ONLY on trades explicitly described in the context, grade each team involved separately.
+Output EXACTLY this format for each team (use triple-equals delimiters):
+
+===TEAM: [Exact Team Name]===
+GRADE: [A+ to F]
+[Your 2-3 sentence analysis of this team's side: what they got, what they gave up, and your take]
+
+If no offseason trades are described in the context, output exactly: NO_TRADES
+Do NOT invent trades. Only grade teams for trades actually in the context.${persona === 'analyst' ? '\nFocus on analytical value: assets received vs. given, short-term vs. long-term implications, draft capital impact.' : '\nFocus on personality and bold opinion: who won, who got fleeced, who made a power move.'}`;
+
+  const [masonGradeRaw, westyGradeRaw] = await Promise.all([
+    generateSection({
+      persona: 'entertainer',
+      sectionType: 'Offseason Trade Party Grades',
+      context: context + (entPersonality ? `\n${entPersonality}` : ''),
+      constraints: partyGradeConstraint('entertainer'),
+      maxTokens: 700,
+      episodeType: 'pre_draft',
+    }),
+    generateSection({
+      persona: 'analyst',
+      sectionType: 'Offseason Trade Party Grades',
+      context: context + (anaPersonality ? `\n${anaPersonality}` : ''),
+      constraints: partyGradeConstraint('analyst'),
+      maxTokens: 700,
+      episodeType: 'pre_draft',
+    }),
+  ]);
+
+  // Parse ===TEAM: ...=== blocks from LLM output
+  const parseTeamGradeBlocks = (text: string): Array<{ team: string; grade: string; analysis: string }> => {
+    if (/NO_TRADES/i.test(text)) return [];
+    const results: Array<{ team: string; grade: string; analysis: string }> = [];
+    const parts = text.split(/===TEAM:\s*([^=]+?)===/).slice(1);
+    for (let i = 0; i < parts.length; i += 2) {
+      const team = parts[i]?.trim();
+      const content = (parts[i + 1] ?? '').trim();
+      if (!team || !content) continue;
+      const gradeMatch = content.match(/GRADE:\s*([A-F][+-]?)/i);
+      const grade = gradeMatch ? gradeMatch[1].toUpperCase() : 'B';
+      const analysis = content.replace(/GRADE:\s*[A-F][+-]?\s*/i, '').trim();
+      results.push({ team, grade, analysis });
+    }
+    return results;
+  };
+
+  const masonGrades = parseTeamGradeBlocks(masonGradeRaw);
+  const westyGrades = parseTeamGradeBlocks(westyGradeRaw);
+
+  // Build analysis: League Overview + per-party grades
+  const analysis: Record<string, TradeAnalysis> = {
+    'League Overview': {
+      grade: 'B',
+      entertainer_grade: '–',
+      analyst_grade: '–',
+      deltaText: '',
+      entertainer_paragraph: masonAnalysis,
+      analyst_paragraph: westyAnalysis,
+    },
+  };
+
+  if (masonGrades.length > 0 || westyGrades.length > 0) {
+    const normalize = (s: string) => s.toLowerCase().replace(/\s+/g, ' ').trim();
+    const teamMap = new Map<string, { canonical: string; mason?: typeof masonGrades[0]; westy?: typeof westyGrades[0] }>();
+    for (const mg of masonGrades) {
+      teamMap.set(normalize(mg.team), { canonical: mg.team, mason: mg });
+    }
+    for (const wg of westyGrades) {
+      const key = normalize(wg.team);
+      const existing = teamMap.get(key);
+      if (existing) { existing.westy = wg; }
+      else { teamMap.set(key, { canonical: wg.team, westy: wg }); }
+    }
+    for (const { canonical, mason, westy } of teamMap.values()) {
+      analysis[canonical] = {
+        grade: mason?.grade ?? westy?.grade ?? 'B',
+        entertainer_grade: mason?.grade,
+        analyst_grade: westy?.grade,
+        deltaText: `${canonical}'s side`,
+        entertainer_paragraph: mason?.analysis ?? '',
+        analyst_paragraph: westy?.analysis ?? '',
+      };
+    }
+  }
 
   const item: TradeItem = {
     event_id: `offseason-trades-${season}`,
@@ -2730,16 +2852,7 @@ Do NOT invent, assume, or imply that any trade happened unless it appears in the
     reasons: [`${season} offseason trade activity and draft capital implications`],
     context: `${season} Offseason Trade Landscape`,
     teams: null,
-    analysis: {
-      'League Overview': {
-        grade: 'B',
-        entertainer_grade: '–',
-        analyst_grade: '–',
-        deltaText: '',
-        entertainer_paragraph: masonAnalysis,
-        analyst_paragraph: westyAnalysis,
-      },
-    },
+    analysis,
   };
 
   return [item];
@@ -2766,7 +2879,8 @@ function parseMockDraftPicks(
   };
 
   for (const line of lines) {
-    const m = line.match(/^PICK\s+\d+\.(\d+)\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|\s*(.+)/i);
+    // Use word boundary so PICK matches regardless of leading *, -, 1., bold, etc.
+    const m = line.match(/\bPICK\s+\d+\.(\d+)\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|\s*(.+)/i);
     if (m) {
       flushCurrent();
       current = {
@@ -2799,6 +2913,7 @@ async function buildMockDraft(
   season: number,
   enhancedContext: string,
   preDraftSlots?: Array<{ slot: number; team: string }>,
+  preDraftRound2Slots?: Array<{ slot: number; team: string }>,
 ): Promise<MockDraftSection> {
   const leagueKnowledge = buildStaticLeagueContext();
 
@@ -2811,19 +2926,22 @@ async function buildMockDraft(
     slots = rawTeams.map((team, idx) => ({ slot: idx + 1, team }));
   }
 
-  const isSnake = !draftData?.type || draftData.type === 'snake';
-  const round2Slots = isSnake ? [...slots].reverse() : [...slots];
-
   const teamCount = slots.length || 12;
 
-  // Format draft order context for LLM
-  const r1Order = slots.length > 0
-    ? slots.map(s => `Pick 1.${String(s.slot).padStart(2, '0')} (${s.slot} overall): ${s.team}`).join('\n')
-    : Array.from({ length: teamCount }, (_, i) => `Pick 1.${String(i + 1).padStart(2, '0')} (${i + 1} overall): Team ${i + 1}`).join('\n');
+  // If no slots were resolved, create generic fallback slots so pickFormat never says "0 picks"
+  const effectiveSlots: Array<{ slot: number; team: string }> = slots.length > 0
+    ? slots
+    : Array.from({ length: teamCount }, (_, i) => ({ slot: i + 1, team: `Team ${i + 1}` }));
 
-  const r2Order = round2Slots.length > 0
-    ? round2Slots.map((s, i) => `Pick 2.${String(i + 1).padStart(2, '0')} (${teamCount + i + 1} overall): ${s.team}`).join('\n')
-    : Array.from({ length: teamCount }, (_, i) => `Pick 2.${String(i + 1).padStart(2, '0')} (${teamCount + i + 1} overall): Team ${i + 1}`).join('\n');
+  const isSnake = !draftData?.type || draftData.type === 'snake';
+  // Prefer DB-stored round 2 order (reflects traded picks and actual configured order)
+  const round2Slots: Array<{ slot: number; team: string }> = preDraftRound2Slots && preDraftRound2Slots.length > 0
+    ? preDraftRound2Slots
+    : (isSnake ? [...effectiveSlots].reverse() : [...effectiveSlots]);
+
+  // Format draft order context for LLM
+  const r1Order = effectiveSlots.map(s => `Pick 1.${String(s.slot).padStart(2, '0')} (${s.slot} overall): ${s.team}`).join('\n');
+  const r2Order = round2Slots.map((s, i) => `Pick 2.${String(i + 1).padStart(2, '0')} (${teamCount + i + 1} overall): ${s.team}`).join('\n');
 
   const draftOrderCtx = `ROUND 1 DRAFT ORDER (1st pick = worst prior-season record, ${teamCount}th = champion):
 ${r1Order}
@@ -2851,11 +2969,11 @@ BE SPECIFIC — use real prospect names. Show you know this league and its teams
   const pickFormat = (round: number, orderedSlots: Array<{ slot: number; team: string }>) =>
     `EXACTLY this format for all ${orderedSlots.length} picks (no extra text between picks):
 
-PICK ${round}.01 | ${orderedSlots[0]?.team ?? 'Team A'} | [Player Name] | [Position]
-[2-3 sentence paragraph — show personality, reference this specific team's situation]
+PICK ${round}.01 | ${orderedSlots[0].team} | [Player Name] | [Position]
+[4-5 sentence paragraph — reference this specific team's record and needs, explain why this player is the right fit, cover their NFL landing spot and dynasty value, and add your personality take]
 
-PICK ${round}.02 | ${orderedSlots[1]?.team ?? 'Team B'} | [Player Name] | [Position]
-[2-3 sentence paragraph]
+PICK ${round}.02 | ${orderedSlots[1].team} | [Player Name] | [Position]
+[4-5 sentence paragraph]
 
 (continue through PICK ${round}.${String(orderedSlots.length).padStart(2, '0')})`;
 
@@ -2863,22 +2981,42 @@ PICK ${round}.02 | ${orderedSlots[1]?.team ?? 'Team B'} | [Player Name] | [Posit
     `You are writing YOUR MOCK DRAFT for ROUND 1 of the ${season} East v. West rookie draft.
 You are ${persona === 'entertainer' ? 'Mason Reed — high-energy, bold, personality-first' : 'Westy — analytical, methodical, data-driven'}.
 Each pick paragraph MUST reference the specific team by name and why this player fits them.
-${pickFormat(1, slots)}`;
+${pickFormat(1, effectiveSlots)}`;
 
-  const r2Constraint = (persona: 'entertainer' | 'analyst') =>
-    `Continue your mock draft into ROUND 2.
+  // Build R2 constraint after R1 is known, injecting actual R1 picks so the LLM
+  // doesn't repeat players or hallucinate what teams drafted in round 1.
+  const r2Constraint = (
+    persona: 'entertainer' | 'analyst',
+    r1Picks: ReturnType<typeof parseMockDraftPicks>,
+  ) => {
+    const r1Summary = r1Picks.length > 0
+      ? `YOUR ROUND 1 PICKS (do NOT repeat these players in Round 2):\n` +
+        r1Picks.map(p => `  Pick 1.${String(p.slot).padStart(2, '0')} | ${p.team} | ${p.player} | ${p.position}`).join('\n')
+      : 'Round 1 picks unavailable — choose different players for each Round 2 slot.';
+    return `Continue your mock draft into ROUND 2.
 You are ${persona === 'entertainer' ? 'Mason Reed' : 'Westy'}.
-Reference players taken in Round 1 where relevant (e.g. "with [player] off the board at 1.03, this team pivots to...").
-${pickFormat(2, round2Slots)}`;
 
-  // 4 sequential LLM calls (serial queue enforces spacing)
+${r1Summary}
+
+For each Round 2 pick, reference what this team took in Round 1 and explain how their Round 2 pick complements it.
+Do NOT select any player already chosen in Round 1 above.
+${pickFormat(2, round2Slots)}`;
+  };
+
+  const minPicksNeeded = Math.max(8, Math.floor(teamCount * 0.8));
+  // Match PICK N.NN | anywhere in a line — handles bold, numbered lists, etc.
+  const pickCountValidator = (text: string) =>
+    (text.match(/\bPICK\s+\d+\.\d+\s*\|/gim) || []).length >= minPicksNeeded;
+
+  // Generate R1 for both bots first, then parse to pass as context to R2
   const masonR1Raw = await generateSection({
     persona: 'entertainer',
     sectionType: 'Mock Draft - Round 1',
     context: baseContext,
     constraints: r1Constraint('entertainer'),
-    maxTokens: 2500,
+    maxTokens: 3500,
     episodeType: 'pre_draft',
+    validate: pickCountValidator,
   });
 
   const westyR1Raw = await generateSection({
@@ -2886,31 +3024,35 @@ ${pickFormat(2, round2Slots)}`;
     sectionType: 'Mock Draft - Round 1',
     context: baseContext,
     constraints: r1Constraint('analyst'),
-    maxTokens: 2500,
+    maxTokens: 3500,
     episodeType: 'pre_draft',
+    validate: pickCountValidator,
   });
+
+  // Parse R1 first so R2 can reference actual picks
+  const masonR1 = parseMockDraftPicks(masonR1Raw, 1);
+  const westyR1 = parseMockDraftPicks(westyR1Raw, 1);
 
   const masonR2Raw = await generateSection({
     persona: 'entertainer',
     sectionType: 'Mock Draft - Round 2',
     context: baseContext,
-    constraints: r2Constraint('entertainer'),
-    maxTokens: 2500,
+    constraints: r2Constraint('entertainer', masonR1),
+    maxTokens: 3500,
     episodeType: 'pre_draft',
+    validate: pickCountValidator,
   });
 
   const westyR2Raw = await generateSection({
     persona: 'analyst',
     sectionType: 'Mock Draft - Round 2',
     context: baseContext,
-    constraints: r2Constraint('analyst'),
-    maxTokens: 2500,
+    constraints: r2Constraint('analyst', westyR1),
+    maxTokens: 3500,
     episodeType: 'pre_draft',
+    validate: pickCountValidator,
   });
 
-  // Parse all four outputs
-  const masonR1 = parseMockDraftPicks(masonR1Raw, 1);
-  const westyR1 = parseMockDraftPicks(westyR1Raw, 1);
   const masonR2 = parseMockDraftPicks(masonR2Raw, 2);
   const westyR2 = parseMockDraftPicks(westyR2Raw, 2);
 
@@ -2945,11 +3087,11 @@ ${pickFormat(2, round2Slots)}`;
     };
   };
 
-  for (let i = 0; i < (slots.length || teamCount); i++) {
-    picks.push(buildPick(1, i, slots[i]?.team ?? `Team ${i + 1}`, masonR1, westyR1));
+  for (let i = 0; i < effectiveSlots.length; i++) {
+    picks.push(buildPick(1, i, effectiveSlots[i].team, masonR1, westyR1));
   }
-  for (let i = 0; i < (round2Slots.length || teamCount); i++) {
-    picks.push(buildPick(2, i, round2Slots[i]?.team ?? `Team ${i + 1}`, masonR2, westyR2));
+  for (let i = 0; i < round2Slots.length; i++) {
+    picks.push(buildPick(2, i, round2Slots[i].team, masonR2, westyR2));
   }
 
   // Short intro texts extracted from R1 output preamble (first non-PICK line, if any)
@@ -2991,6 +3133,8 @@ export interface ComposeNewsletterInput {
   draftData?: LeagueDraftData | null;
   /** Standings-based draft slot order for pre_draft mock drafts (slot 1 = worst record, 12 = champion) */
   preDraftSlots?: Array<{ slot: number; team: string }>;
+  /** DB-sourced round 2 pick order for pre_draft mock drafts (overrides snake/linear computation) */
+  preDraftRound2Slots?: Array<{ slot: number; team: string }>;
   /** Called when a section completes — used for real-time progress tracking */
   onSectionComplete?: (sectionName: string) => void;
 }
@@ -3013,6 +3157,7 @@ export async function composeNewsletter(input: ComposeNewsletterInput, qualityRe
     relationshipMemory,
     draftData,
     preDraftSlots,
+    preDraftRound2Slots,
     onSectionComplete,
   } = input;
 
@@ -3299,7 +3444,7 @@ export async function composeNewsletter(input: ComposeNewsletterInput, qualityRe
     // Pick-by-pick mock draft (Rounds 1-2, both bots, interleaved)
     const mockDraft = await safeSection(
       'MockDraft',
-      () => buildMockDraft(draftData ?? null, memEntertainer, memAnalyst, season, enhancedContextWithContinuity, preDraftSlots),
+      () => buildMockDraft(draftData ?? null, memEntertainer, memAnalyst, season, enhancedContextWithContinuity, preDraftSlots, preDraftRound2Slots),
       null as MockDraftSection | null
     );
     if (mockDraft) {
