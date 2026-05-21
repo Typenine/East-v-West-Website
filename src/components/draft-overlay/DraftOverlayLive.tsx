@@ -451,13 +451,15 @@ export default function DraftOverlayLive() {
     <div className="w-full h-full bg-gradient-to-b from-zinc-950 to-zinc-900 p-3 flex flex-col">
       {/* Draft Board Grid */}
       <div className="flex-1 mb-4 min-h-0 relative">
-        <div 
-          className="grid grid-cols-5 gap-[2px] h-full bg-zinc-900/80 rounded-lg overflow-hidden">
+        <div
+          className="grid gap-[2px] h-full bg-zinc-900/80 rounded-lg overflow-hidden"
+          style={{ gridTemplateColumns: '2.5rem repeat(4, 1fr)' }}
+        >
           {/* Header Row */}
           <div
-            className="text-center text-[11px] font-bold text-zinc-400 py-1 bg-zinc-900"
+            className="text-center text-[10px] font-bold text-zinc-500 py-1 bg-zinc-900"
             style={{ borderBottom: `2px solid ${eventColor1}` }}
-          >Pick</div>
+          >#</div>
           {[1, 2, 3, 4].map(r => (
             <div
               key={r}
@@ -503,7 +505,7 @@ export default function DraftOverlayLive() {
                     }}
                   >
                     {/* Team logo on LEFT side - ALWAYS visible */}
-                    <div className="flex-shrink-0 w-9 h-9 mr-1 flex items-center justify-center">
+                    <div className="flex-shrink-0 w-12 h-12 mr-1 flex items-center justify-center">
                       {teamLogo ? (
                         <img src={teamLogo} alt="" className="w-full h-full object-contain" />
                       ) : gridItem?.team ? (

@@ -447,13 +447,19 @@ export default function DraftPickAnimation({
               </div>
             </div>
             <div className="flex-1 flex flex-col justify-center px-5 sm:px-10 py-6 sm:py-8 min-w-0 relative">
-              {/* Fantasy team logo — top-right watermark, no text impact */}
+              {/* Fantasy team logo — embossed into bottom-right of card */}
               {teamLogo && (
                 <img
                   src={teamLogo}
                   alt=""
-                  className="absolute top-4 right-4 object-contain pointer-events-none"
-                  style={{ width: 'min(80px, 8vw)', height: 'min(80px, 8vw)', opacity: 0.18 }}
+                  className="absolute bottom-0 right-0 object-contain pointer-events-none"
+                  style={{
+                    width: 'min(340px, 34vw)',
+                    height: 'min(340px, 34vw)',
+                    opacity: 0.22,
+                    filter: 'grayscale(1) brightness(1.6) contrast(0.55)',
+                    mixBlendMode: 'soft-light',
+                  }}
                 />
               )}
               <div
