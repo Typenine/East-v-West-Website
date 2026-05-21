@@ -304,11 +304,6 @@ export default function DraftRoomPage() {
     if (clockPhaseFinishedRef.current) return;
     clockPhaseFinishedRef.current = true;
     try {
-      await fetch('/api/draft', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ action: 'reset_clock' }),
-      });
       await load(false, true);
     } catch { /* ignore */ }
     setAnimPhase(!!(animDataRef.current?.videoUrl) ? 'video' : null);
