@@ -463,7 +463,7 @@ export default function DraftOverlayLive() {
           {[1, 2, 3, 4].map(r => (
             <div
               key={r}
-              className="text-center text-[11px] font-bold text-zinc-400 py-1 bg-zinc-900"
+              className="text-center text-sm font-bold text-zinc-400 py-1 bg-zinc-900"
               style={{ borderBottom: `2px solid ${eventColor1}` }}
             >Round {r}</div>
           ))}
@@ -472,10 +472,10 @@ export default function DraftOverlayLive() {
           {Array.from({ length: 12 }, (_, pickIdx) => (
             <React.Fragment key={pickIdx}>
               {/* Pick number */}
-              <div 
-                className={`text-center text-xs font-bold flex items-center justify-center transition-all duration-300 ${
-                  currentPickIndex % 12 === pickIdx 
-                    ? 'text-yellow-400 bg-yellow-400/20 animate-pulse' 
+              <div
+                className={`text-center text-sm font-bold flex items-center justify-center transition-all duration-300 ${
+                  currentPickIndex % 12 === pickIdx
+                    ? 'text-yellow-400 bg-yellow-400/20 animate-pulse'
                     : 'text-zinc-500 bg-zinc-900/80'
                 }`}
               >
@@ -493,7 +493,7 @@ export default function DraftOverlayLive() {
                   <div
                     key={gridIdx}
                     data-grid-idx={gridIdx}
-                    className={`relative text-[10px] px-1 py-[2px] flex flex-row items-center overflow-hidden ${
+                    className={`relative px-1 py-1 flex flex-row items-center overflow-hidden ${
                       isCurrentPick
                         ? 'ring-2 ring-yellow-400 bg-yellow-400/20'
                         : isPicked
@@ -518,8 +518,8 @@ export default function DraftOverlayLive() {
                     {/* Player info - only when picked */}
                     {isPicked && gridItem && (
                       <div className="flex-1 min-w-0">
-                        <div className="font-semibold text-white truncate leading-tight">{gridItem.player}</div>
-                        <div className="text-zinc-400 text-[9px] leading-tight">{gridItem.position}</div>
+                        <div className="font-bold text-white text-lg truncate leading-tight">{gridItem.player}</div>
+                        <div className="text-zinc-400 text-xs leading-tight">{gridItem.position}</div>
                       </div>
                     )}
                   </div>
