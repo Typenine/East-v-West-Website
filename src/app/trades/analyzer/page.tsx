@@ -97,7 +97,7 @@ function analyzeTrade(sideA: SelectedAsset[], sideB: SelectedAsset[], source: Va
   const totalA = sideA.reduce((s, a) => s + getDisplayValue(a, source), 0);
   const totalB = sideB.reduce((s, a) => s + getDisplayValue(a, source), 0);
 
-  if (totalA === 0 && totalB === 0) {
+  if (sideA.length === 0 || sideB.length === 0 || (totalA === 0 && totalB === 0)) {
     return { rawRatio: 1, adjustedRatio: 1, verdict: 'Add assets to analyze', winner: null, diff: 0, sideAGrade: '—', sideBGrade: '—', notes: [], counterHint: null };
   }
 
@@ -617,9 +617,9 @@ function TradeAnalyzerContent() {
       ? Math.abs(totalA - totalB)
       : all.reduce((s, a) => s + getDisplayValue(a, source), 0) / all.length;
     return values
-      .filter((v) => !v.isPick && !excluded.has(v.sleeperId) && getVal(v) > 0)
+      .filter((v) => !excluded.has(v.sleeperId) && getVal(v) > 0)
       .sort((a, b) => Math.abs(getVal(a) - target) - Math.abs(getVal(b) - target))
-      .slice(0, 4);
+      .slice(0, 8);
   }, [sideA, sideB, totalA, totalB, values, excluded, source]);
 
   const suggestionMode: 'balance' | 'compare' = sideA.length > 0 && sideB.length > 0 ? 'balance' : 'compare';
@@ -752,14 +752,17 @@ function TradeAnalyzerContent() {
                   className="flex items-center gap-2 rounded-[var(--radius-card)] border border-[var(--border)] px-2.5 py-1.5 shrink-0"
                   style={{ background: 'var(--surface)' }}>
                   <div className="min-w-0">
-                    <div className="text-sm font-semibold text-[var(--text)] whitespace-nowrap">{v.name}</div>
+                    <div className="text-sm font-semibold text-[var(--text)] whitespace-nowrap">
+                      {v.isPick ? v.name.replace(/^\d{4}\s*/, '') : v.name}
+                    </div>
                     <div className="text-xs text-[var(--muted)] whitespace-nowrap">
-                      {v.position}{v.team ? ` · ${v.team}` : ''} · <span style={{ color: 'var(--accent)' }}>{formatValue(val)}</span>
+                      {v.isPick ? 'Pick' : `${v.position}${v.team ? ` · ${v.team}` : ''}`}
+                      {' · '}<span style={{ color: 'var(--accent)' }}>{formatValue(val)}</span>
                     </div>
                   </div>
                   <div className="flex flex-col gap-0.5 ml-1">
                     <button
-                      onClick={() => setSideA((p) => [...p, assetFromValue(v, false)])}
+                      onClick={() => setSideA((p) => [...p, assetFromValue(v, v.isPick)])}
                       className="text-sm font-bold w-6 h-6 flex items-center justify-center rounded-full transition-opacity hover:opacity-90"
                       style={{
                         background: 'var(--accent)', color: '#fff',
@@ -768,7 +771,7 @@ function TradeAnalyzerContent() {
                       +
                     </button>
                     <button
-                      onClick={() => setSideB((p) => [...p, assetFromValue(v, false)])}
+                      onClick={() => setSideB((p) => [...p, assetFromValue(v, v.isPick)])}
                       className="text-sm font-bold w-6 h-6 flex items-center justify-center rounded-full transition-opacity hover:opacity-90"
                       style={{
                         background: 'var(--danger)', color: '#fff',
