@@ -243,18 +243,45 @@ function PlayerSearch({ values, excluded, source, onSelect }: {
   );
 }
 
-interface PickGroup { year: string; picks: TradeValue[]; }
+const ROUND_LABEL: Record<number, string> = { 1: '1st Round', 2: '2nd Round', 3: '3rd Round', 4: '4th Round' };
+const TIER_RANK: Record<string, number> = { EARLY: 0, MID: 1, LATE: 2 };
+
+function pickRound(sleeperId: string): number {
+  const m = sleeperId.match(/PICK_\d{4}_(\d)_/);
+  return m ? parseInt(m[1]) : 99;
+}
+function pickTierRank(sleeperId: string): number {
+  const m = sleeperId.match(/_(EARLY|MID|LATE)$/);
+  return m ? (TIER_RANK[m[1]] ?? 3) : 3;
+}
+
+interface PickRoundGroup { round: number; label: string; picks: TradeValue[]; }
+interface PickYearGroup { year: string; rounds: PickRoundGroup[]; }
 
 function PickSelector({ values, excluded, onSelect }: { values: TradeValue[]; excluded: Set<string>; onSelect: (a: SelectedAsset) => void; }) {
   const grouped = useMemo(() => {
-    const byYear = new Map<string, TradeValue[]>();
+    const byYear = new Map<string, Map<number, TradeValue[]>>();
     for (const p of values.filter((v) => v.isPick && !excluded.has(v.sleeperId))) {
       const year = p.name.match(/^(\d{4})/)?.[1] ?? 'Other';
-      if (!byYear.has(year)) byYear.set(year, []);
-      byYear.get(year)!.push(p);
+      const round = pickRound(p.sleeperId);
+      if (!byYear.has(year)) byYear.set(year, new Map());
+      const byRound = byYear.get(year)!;
+      if (!byRound.has(round)) byRound.set(round, []);
+      byRound.get(round)!.push(p);
     }
-    for (const arr of byYear.values()) arr.sort((a, b) => b.value - a.value);
-    return Array.from(byYear.keys()).sort().map((y) => ({ year: y, picks: byYear.get(y)! } as PickGroup));
+    const years: PickYearGroup[] = [];
+    for (const year of Array.from(byYear.keys()).sort()) {
+      const byRound = byYear.get(year)!;
+      const rounds: PickRoundGroup[] = [];
+      for (const round of Array.from(byRound.keys()).sort((a, b) => a - b)) {
+        const picks = byRound.get(round)!.sort((a, b) =>
+          pickTierRank(a.sleeperId) - pickTierRank(b.sleeperId) || b.value - a.value
+        );
+        rounds.push({ round, label: ROUND_LABEL[round] ?? `Round ${round}`, picks });
+      }
+      years.push({ year, rounds });
+    }
+    return years;
   }, [values, excluded]);
 
   const [open, setOpen] = useState(false);
@@ -277,12 +304,20 @@ function PickSelector({ values, excluded, onSelect }: { values: TradeValue[]; ex
           {grouped.map((g) => (
             <div key={g.year}>
               <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest text-[var(--muted)] bg-[var(--surface)] border-b border-[var(--border)] sticky top-0">{g.year} Picks</div>
-              {g.picks.map((v) => (
-                <button key={v.sleeperId} onClick={() => { onSelect(assetFromValue(v, true)); setOpen(false); }}
-                  className="w-full text-left px-3 py-1.5 hover:bg-[var(--surface)] transition-colors border-b border-[var(--border)] last:border-b-0">
-                  <span className="text-sm text-[var(--text)]">{v.name.replace(/^\d{4}\s*/, '')}</span>
-                  <span className="float-right text-xs font-medium" style={{ color: 'var(--accent)' }}>{formatValue(v.value)}</span>
-                </button>
+              {g.rounds.map((rg) => (
+                <div key={rg.round}>
+                  <div className="px-3 py-1 text-[9px] font-semibold uppercase tracking-wider border-b border-[var(--border)]"
+                    style={{ color: 'var(--accent)', background: 'color-mix(in srgb, var(--accent) 6%, var(--surface-strong))' }}>
+                    {rg.label}
+                  </div>
+                  {rg.picks.map((v) => (
+                    <button key={v.sleeperId} onClick={() => { onSelect(assetFromValue(v, true)); setOpen(false); }}
+                      className="w-full text-left px-3 py-1.5 hover:bg-[var(--surface)] transition-colors border-b border-[var(--border)] last:border-b-0">
+                      <span className="text-sm text-[var(--text)]">{v.name.replace(/^\d{4}\s*/, '')}</span>
+                      <span className="float-right text-xs font-medium" style={{ color: 'var(--accent)' }}>{formatValue(v.value)}</span>
+                    </button>
+                  ))}
+                </div>
               ))}
             </div>
           ))}
