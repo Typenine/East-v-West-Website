@@ -1,9 +1,9 @@
 import { NextResponse } from 'next/server';
 import type { TradeValue } from '@/lib/types/trade-analyzer';
-import { getKV } from '@/lib/server/kv';
+import { getObjectText } from '@/server/storage/r2';
 
-const KTC_KV_KEY = 'trade-analyzer:ktc';
-const KTC_KV_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+const KTC_R2_KEY = 'trade-analyzer/ktc.json';
+const KTC_R2_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -68,41 +68,40 @@ async function fetchKTCPage(page: number): Promise<string> {
   return res.text();
 }
 
-// Parse KTC HTML — mirrors the ees4/KeepTradeCut-Scraper logic in TypeScript
+// Parse KTC HTML — handles nested tags (2025 KTC markup)
 function parseKTCHtml(html: string): KTCPlayer[] {
   const players: KTCPlayer[] = [];
 
-  // Split on each onePlayer block
-  const blocks = html.split(/class="onePlayer(?:\s[^"]*)?"/);
-  blocks.shift();
+  // Split on each onePlayer block (start after the first match, skip header)
+  const blocks = html.split(/<div\s+class="onePlayer"\s*>/);
+  blocks.shift(); // remove everything before first onePlayer
 
   for (const block of blocks) {
-    // Player name element (may have inline team suffix e.g. "Josh AllenBUF")
-    const nameMatch = block.match(/class="player-name"[^>]*>([^<]+)</);
+    // The split boundary (<div class="onePlayer">) already isolates each player block.
+    // Nested divs mean we must NOT truncate at the first </div>.
+    const b = block;
+
+    // Player name: inside <a href="...">Name</a> within <div class="player-name">
+    const nameMatch = b.match(/class="player-name"[\s\S]*?<a[^>]*>([^<]+)</);
     if (!nameMatch) continue;
-    const rawName = nameMatch[1].trim();
+    const playerName = nameMatch[1].trim();
 
-    // Strip team suffix: last 2–4 uppercase chars (e.g. BUF, RFA, FA)
-    let playerName = rawName;
-    let team = '';
-    const suffixMatch = rawName.match(/^(.+?)([A-Z]{2,4})$/);
-    if (suffixMatch) {
-      playerName = suffixMatch[1].trim();
-      team = suffixMatch[2] === 'RFA' ? 'FA' : suffixMatch[2];
-    }
+    // Team: separate <span class="player-team">TEAM</span>
+    const teamMatch = b.match(/class="player-team"[^>]*>([^<]+)</);
+    const team = teamMatch ? teamMatch[1].trim() : '';
 
-    // Superflex value (class="value")
-    const valueMatch = block.match(/class="value"[^>]*>([^<]+)</);
+    // Superflex value: <div class="value"><p>9999</p></div>
+    const valueMatch = b.match(/class="value"[\s\S]*?<p>(\d+)<\/p>/);
     if (!valueMatch) continue;
     const value = parseInt(valueMatch[1].trim(), 10);
     if (!value || isNaN(value)) continue;
 
-    // Position rank e.g. "QB1" → strip digits → "QB"
-    const posMatch = block.match(/class="position"[^>]*>([^<]+)</);
+    // Position rank e.g. "RB1" inside <p class="position">RB1</p> within <div class="position-team">
+    const posMatch = b.match(/class="position-team"[\s\S]*?<p\s+class="position">([A-Z]+\d*)<\/p>/);
     const position = posMatch ? posMatch[1].trim().replace(/\d.*$/, '').toUpperCase() : '';
 
-    // Age (class="position hidden-xs")
-    const ageMatch = block.match(/class="position hidden-xs"[^>]*>([^<]+)</);
+    // Age: <p class="position hidden-xs">24.3 y.o.</p>
+    const ageMatch = b.match(/class="position hidden-xs"[^>]*>([\d.]+)/);
     const age = ageMatch ? parseFloat(ageMatch[1].trim()) : undefined;
 
     if (!playerName) continue;
@@ -123,24 +122,24 @@ async function scrapeKTCLive(): Promise<KTCPlayer[]> {
   return players;
 }
 
-// Read KTC from Vercel KV (written by scripts/refresh-ktc.ts on a residential IP).
-// Falls back to live scraping if KV is unavailable or stale.
+// Read KTC from R2 (written by scripts/refresh-ktc.ts on a residential IP).
+// Falls back to live scraping if R2 is unavailable or stale.
 async function fetchKTC(): Promise<KTCPlayer[]> {
   try {
-    const kv = await getKV();
-    if (kv) {
-      const stored = await kv.get(KTC_KV_KEY) as { players: KTCPlayer[]; updatedAt: string } | null;
-      if (stored && stored.players?.length > 0) {
+    const text = await getObjectText({ key: KTC_R2_KEY });
+    if (text) {
+      const stored = JSON.parse(text) as { players: KTCPlayer[]; updatedAt: string };
+      if (stored.players?.length > 0) {
         const age = Date.now() - new Date(stored.updatedAt).getTime();
-        if (age < KTC_KV_TTL_MS) {
-          console.log(`[trade-analyzer] KTC from KV: ${stored.players.length} players, age ${Math.round(age / 3600000)}h`);
+        if (age < KTC_R2_TTL_MS) {
+          console.log(`[trade-analyzer] KTC from R2: ${stored.players.length} players, age ${Math.round(age / 3600000)}h`);
           return stored.players;
         }
-        console.log('[trade-analyzer] KTC KV data is stale, falling back to live scrape');
+        console.log('[trade-analyzer] KTC R2 data is stale, falling back to live scrape');
       }
     }
   } catch (e) {
-    console.warn('[trade-analyzer] KV read failed, falling back to live scrape:', e);
+    console.warn('[trade-analyzer] R2 read failed, falling back to live scrape:', e);
   }
   return scrapeKTCLive();
 }

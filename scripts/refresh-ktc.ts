@@ -2,23 +2,24 @@
  * refresh-ktc.ts
  *
  * Run this locally (residential IP) to scrape KTC dynasty rankings and write
- * the result to Vercel KV. The trade-analyzer API route will then read from KV
+ * the result to your R2 bucket. The trade-analyzer API route will read from R2
  * instead of scraping live, bypassing Cloudflare's datacenter IP blocks.
  *
  * Usage:
  *   npx tsx scripts/refresh-ktc.ts
  *
- * Requires KV_REST_API_URL and KV_REST_API_TOKEN in .env.local
+ * Requires R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET in .env.local
  */
 
 import dotenv from 'dotenv';
 import path from 'path';
-import { kv } from '@vercel/kv';
+import { fileURLToPath } from 'url';
+import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 
-dotenv.config({ path: path.resolve(process.cwd(), '.env.local') });
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+dotenv.config({ path: path.resolve(__dirname, '..', '.env.local') });
 
-export const KTC_KV_KEY = 'trade-analyzer:ktc';
-export const KTC_KV_TTL_HOURS = 24;
+const KTC_R2_KEY = 'trade-analyzer/ktc.json';
 
 interface KTCPlayer {
   playerName: string;
@@ -44,31 +45,28 @@ async function fetchPage(page: number): Promise<string> {
 
 function parsePage(html: string): KTCPlayer[] {
   const players: KTCPlayer[] = [];
-  const blocks = html.split(/class="onePlayer(?:\s[^"]*)?"/);
+  const blocks = html.split(/<div\s+class="onePlayer"\s*>/);
   blocks.shift();
 
   for (const block of blocks) {
-    const nameMatch = block.match(/class="player-name"[^>]*>([^<]+)</);
+    const b = block;
+
+    const nameMatch = b.match(/class="player-name"[\s\S]*?<a[^>]*>([^<]+)</);
     if (!nameMatch) continue;
-    const rawName = nameMatch[1].trim();
+    const playerName = nameMatch[1].trim();
 
-    let playerName = rawName;
-    let team = '';
-    const suffixMatch = rawName.match(/^(.+?)([A-Z]{2,4})$/);
-    if (suffixMatch) {
-      playerName = suffixMatch[1].trim();
-      team = suffixMatch[2] === 'RFA' ? 'FA' : suffixMatch[2];
-    }
+    const teamMatch = b.match(/class="player-team"[^>]*>([^<]+)</);
+    const team = teamMatch ? teamMatch[1].trim() : '';
 
-    const valueMatch = block.match(/class="value"[^>]*>([^<]+)</);
+    const valueMatch = b.match(/class="value"[\s\S]*?<p>(\d+)<\/p>/);
     if (!valueMatch) continue;
     const value = parseInt(valueMatch[1].trim(), 10);
     if (!value || isNaN(value)) continue;
 
-    const posMatch = block.match(/class="position"[^>]*>([^<]+)</);
+    const posMatch = b.match(/class="position-team"[\s\S]*?<p\s+class="position">([A-Z]+\d*)<\/p>/);
     const position = posMatch ? posMatch[1].trim().replace(/\d.*$/, '').toUpperCase() : '';
 
-    const ageMatch = block.match(/class="position hidden-xs"[^>]*>([^<]+)</);
+    const ageMatch = b.match(/class="position hidden-xs"[^>]*>([\d.]+)/);
     const age = ageMatch ? parseFloat(ageMatch[1].trim()) : undefined;
 
     if (!playerName) continue;
@@ -98,8 +96,10 @@ async function scrapeKTC(): Promise<KTCPlayer[]> {
 }
 
 async function main() {
-  if (!process.env.KV_REST_API_URL || !process.env.KV_REST_API_TOKEN) {
-    console.error('Missing KV_REST_API_URL or KV_REST_API_TOKEN in .env.local');
+  const envs = ['R2_ACCOUNT_ID', 'R2_ACCESS_KEY_ID', 'R2_SECRET_ACCESS_KEY', 'R2_BUCKET'];
+  const missing = envs.filter((n) => !process.env[n] || !process.env[n]!.trim());
+  if (missing.length > 0) {
+    console.error(`Missing env vars: ${missing.join(', ')}`);
     process.exit(1);
   }
 
@@ -107,16 +107,42 @@ async function main() {
   console.log(`\nTotal players scraped: ${players.length}`);
 
   if (players.length < 100) {
-    console.error('Too few players — likely a Cloudflare block or parse failure. Aborting KV write.');
+    console.error('Too few players — likely a Cloudflare block or parse failure. Aborting write.');
     process.exit(1);
   }
 
-  const payload = { players, updatedAt: new Date().toISOString() };
-  await kv.set(KTC_KV_KEY, payload);
-  console.log(`\nWritten to Vercel KV: "${KTC_KV_KEY}"`);
+  const payload = JSON.stringify({ players, updatedAt: new Date().toISOString() });
+
+  // Calculate clock offset to avoid R2 signature mismatch
+  let clockOffset = 0;
+  try {
+    const res = await fetch(`https://${process.env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`, { method: 'GET' });
+    const date = res.headers.get('date');
+    if (date) {
+      const serverTime = Date.parse(date);
+      if (Number.isFinite(serverTime)) clockOffset = serverTime - Date.now();
+    }
+  } catch {}
+
+  const s3 = new S3Client({
+    region: 'auto',
+    endpoint: `https://${process.env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
+    credentials: {
+      accessKeyId: process.env.R2_ACCESS_KEY_ID!,
+      secretAccessKey: process.env.R2_SECRET_ACCESS_KEY!,
+    },
+    systemClockOffset: clockOffset,
+  });
+  await s3.send(new PutObjectCommand({
+    Bucket: process.env.R2_BUCKET!,
+    Key: KTC_R2_KEY,
+    Body: payload,
+    ContentType: 'application/json',
+  }));
+
+  console.log(`\nWritten to R2: ${KTC_R2_KEY}`);
   console.log(`Players stored: ${players.length}`);
-  console.log(`Updated at: ${payload.updatedAt}`);
-  console.log('\nDone. The trade analyzer will now use this KTC data for up to 24 hours.');
+  console.log('\nDone. The trade analyzer will now use this KTC data.');
 }
 
 main().catch((err) => {
