@@ -615,7 +615,7 @@ function TradeAnalyzerContent() {
       source === 'fc' ? (v.fcValue ?? v.value) : source === 'ktc' ? (v.ktcValue ?? v.value) : v.value;
     const target = sideA.length > 0 && sideB.length > 0
       ? Math.abs(totalA - totalB)
-      : all.reduce((s, a) => s + getDisplayValue(a, source), 0) / all.length;
+      : sideA.length > 0 ? totalA : totalB;
     return values
       .filter((v) => !excluded.has(v.sleeperId) && getVal(v) > 0)
       .sort((a, b) => Math.abs(getVal(a) - target) - Math.abs(getVal(b) - target))
