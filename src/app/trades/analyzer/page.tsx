@@ -571,18 +571,27 @@ function TradeAnalyzerContent() {
   const totalA = sideA.reduce((s, a) => s + getDisplayValue(a, source), 0);
   const totalB = sideB.reduce((s, a) => s + getDisplayValue(a, source), 0);
 
-  // Suggestions: 4 players closest in value to the average asset value in the trade
+  // Suggestions: when both sides have assets, target the gap (what the losing side needs to add).
+  // When only one side has assets, suggest comparable players for reference.
   const suggestions = useMemo(() => {
     const all = [...sideA, ...sideB];
     if (all.length === 0 || values.length === 0) return [];
-    const avg = all.reduce((s, a) => s + getDisplayValue(a, source), 0) / all.length;
     const getVal = (v: TradeValue) =>
       source === 'fc' ? (v.fcValue ?? v.value) : source === 'ktc' ? (v.ktcValue ?? v.value) : v.value;
+    const target = sideA.length > 0 && sideB.length > 0
+      ? Math.abs(totalA - totalB)
+      : all.reduce((s, a) => s + getDisplayValue(a, source), 0) / all.length;
     return values
       .filter((v) => !v.isPick && !excluded.has(v.sleeperId) && getVal(v) > 0)
-      .sort((a, b) => Math.abs(getVal(a) - avg) - Math.abs(getVal(b) - avg))
+      .sort((a, b) => Math.abs(getVal(a) - target) - Math.abs(getVal(b) - target))
       .slice(0, 4);
-  }, [sideA, sideB, values, excluded, source]);
+  }, [sideA, sideB, totalA, totalB, values, excluded, source]);
+
+  const suggestionMode: 'balance' | 'compare' = sideA.length > 0 && sideB.length > 0 ? 'balance' : 'compare';
+  // Which side is behind and needs the suggested player
+  const needsSide: 'A' | 'B' | null = suggestionMode === 'balance'
+    ? (totalA >= totalB ? 'B' : 'A')
+    : null;
 
   const showSuggestions = suggestions.length > 0 && !suggestDismissed;
 
@@ -692,8 +701,13 @@ function TradeAnalyzerContent() {
       <div className="fixed bottom-0 left-0 right-0 z-40 border-t border-[var(--border)] shadow-2xl"
         style={{ background: 'var(--surface-strong)', backdropFilter: 'blur(12px)' }}>
         <div className="container mx-auto px-4 py-3 flex items-center gap-3">
-          <div className="text-[10px] font-bold uppercase tracking-widest text-[var(--muted)] shrink-0 hidden sm:block">
-            Compare
+          <div className="shrink-0 hidden sm:block">
+            <div className="text-[10px] font-bold uppercase tracking-widest text-[var(--muted)]">
+              {suggestionMode === 'balance' ? 'Balance trade' : 'Compare'}
+            </div>
+            {suggestionMode === 'balance' && needsSide && (
+              <div className="text-[9px] text-[var(--muted)] opacity-60">add to Side {needsSide}</div>
+            )}
           </div>
           <div className="flex gap-2 flex-1 overflow-x-auto pb-0.5">
             {suggestions.map((v) => {
@@ -711,14 +725,20 @@ function TradeAnalyzerContent() {
                   <div className="flex flex-col gap-0.5 ml-1">
                     <button
                       onClick={() => setSideA((p) => [...p, assetFromValue(v, false)])}
-                      className="text-[9px] font-bold px-1.5 py-0.5 rounded leading-tight transition-opacity hover:opacity-80"
-                      style={{ background: 'var(--accent)', color: '#fff' }}>
+                      className="text-[9px] font-bold px-1.5 py-0.5 rounded leading-tight transition-opacity hover:opacity-90"
+                      style={{
+                        background: 'var(--accent)', color: '#fff',
+                        opacity: needsSide === 'B' ? 0.35 : 1,
+                      }}>
                       +A
                     </button>
                     <button
                       onClick={() => setSideB((p) => [...p, assetFromValue(v, false)])}
-                      className="text-[9px] font-bold px-1.5 py-0.5 rounded leading-tight transition-opacity hover:opacity-80"
-                      style={{ background: 'var(--danger)', color: '#fff' }}>
+                      className="text-[9px] font-bold px-1.5 py-0.5 rounded leading-tight transition-opacity hover:opacity-90"
+                      style={{
+                        background: 'var(--danger)', color: '#fff',
+                        opacity: needsSide === 'A' ? 0.35 : 1,
+                      }}>
                       +B
                     </button>
                   </div>
