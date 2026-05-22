@@ -760,21 +760,21 @@ function TradeAnalyzerContent() {
                   <div className="flex flex-col gap-0.5 ml-1">
                     <button
                       onClick={() => setSideA((p) => [...p, assetFromValue(v, false)])}
-                      className="text-[9px] font-bold px-1.5 py-0.5 rounded leading-tight transition-opacity hover:opacity-90"
+                      className="text-sm font-bold w-6 h-6 flex items-center justify-center rounded-full transition-opacity hover:opacity-90"
                       style={{
                         background: 'var(--accent)', color: '#fff',
-                        opacity: needsSide === 'B' ? 0.35 : 1,
+                        opacity: needsSide === 'B' ? 0.25 : 1,
                       }}>
-                      +A
+                      +
                     </button>
                     <button
                       onClick={() => setSideB((p) => [...p, assetFromValue(v, false)])}
-                      className="text-[9px] font-bold px-1.5 py-0.5 rounded leading-tight transition-opacity hover:opacity-90"
+                      className="text-sm font-bold w-6 h-6 flex items-center justify-center rounded-full transition-opacity hover:opacity-90"
                       style={{
                         background: 'var(--danger)', color: '#fff',
-                        opacity: needsSide === 'A' ? 0.35 : 1,
+                        opacity: needsSide === 'A' ? 0.25 : 1,
                       }}>
-                      +B
+                      +
                     </button>
                   </div>
                 </div>
