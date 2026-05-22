@@ -59,6 +59,14 @@ function getGradeLetter(ratio: number, isWinner: boolean): string {
   return isWinner ? 'A' : 'D';
 }
 
+function gradeColor(grade: string): string {
+  if (grade === 'A' || grade === 'A-') return '#22c55e';
+  if (grade === 'B+' || grade === 'B') return '#eab308';
+  if (grade === 'B-' || grade === 'C+') return '#f97316';
+  if (grade === 'C' || grade === 'D') return '#ef4444';
+  return 'var(--muted)';
+}
+
 function buildPosSummary(assets: SelectedAsset[]): string {
   const counts: Record<string, number> = {};
   for (const a of assets) {
@@ -152,21 +160,32 @@ function TrendArrow({ trend }: { trend: number }) {
   return null;
 }
 
-function AssetChip({ asset, source, onRemove }: { asset: SelectedAsset; source: ValueSource; onRemove: () => void }) {
+function AssetChip({ asset, source, sideTotal, barColor, onRemove }: {
+  asset: SelectedAsset; source: ValueSource; sideTotal: number; barColor: string; onRemove: () => void;
+}) {
   const dv = getDisplayValue(asset, source);
+  const pct = sideTotal > 0 ? Math.min(100, Math.round((dv / sideTotal) * 100)) : 0;
   return (
-    <div className="flex items-center gap-2 rounded-[var(--radius-card)] bg-[var(--surface)] border border-[var(--border)] px-3 py-2 shadow-[var(--shadow-soft)]">
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center text-sm font-medium text-[var(--text)]">
-          <span className="truncate">{asset.name}</span>
-          {!asset.isPick && <TrendArrow trend={asset.trend} />}
+    <div className="rounded-[var(--radius-card)] bg-[var(--surface)] border border-[var(--border)] px-3 py-2 shadow-[var(--shadow-soft)]">
+      <div className="flex items-center gap-2">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center text-sm font-medium text-[var(--text)]">
+            <span className="truncate">{asset.name}</span>
+            {!asset.isPick && <TrendArrow trend={asset.trend} />}
+          </div>
+          <div className="text-xs text-[var(--muted)]">
+            {asset.isPick ? 'Draft Pick' : `${asset.position} · ${asset.nflTeam || 'FA'}${asset.age ? ` · Age ${asset.age.toFixed(0)}` : ''}`}
+            <span className="ml-2 font-medium" style={{ color: barColor }}>{formatValue(dv)}</span>
+            {sideTotal > 0 && <span className="ml-1 opacity-50">{pct}%</span>}
+          </div>
         </div>
-        <div className="text-xs text-[var(--muted)]">
-          {asset.isPick ? 'Draft Pick' : `${asset.position} · ${asset.nflTeam || 'FA'}${asset.age ? ` · Age ${asset.age.toFixed(0)}` : ''}`}
-          <span className="ml-2 font-medium" style={{ color: 'var(--accent)' }}>{formatValue(dv)}</span>
-        </div>
+        <button onClick={onRemove} className="text-[var(--muted)] hover:text-[var(--danger)] transition-colors text-lg leading-none shrink-0" aria-label={`Remove ${asset.name}`}>×</button>
       </div>
-      <button onClick={onRemove} className="text-[var(--muted)] hover:text-[var(--danger)] transition-colors text-lg leading-none shrink-0" aria-label={`Remove ${asset.name}`}>×</button>
+      {sideTotal > 0 && (
+        <div className="mt-1.5 h-1 rounded-full bg-[var(--surface-strong)] overflow-hidden">
+          <div className="h-full rounded-full transition-all duration-500" style={{ width: `${pct}%`, backgroundColor: barColor, opacity: 0.7 }} />
+        </div>
+      )}
     </div>
   );
 }
@@ -360,6 +379,7 @@ function TradeSide({ label, color, assets, values, excluded, source, grade, onAd
   const total = assets.reduce((s, a) => s + getDisplayValue(a, source), 0);
   const posSummary = buildPosSummary(assets);
   const avgAge = getAvgAge(assets);
+  const gc = gradeColor(grade);
 
   return (
     <div className="flex-1 min-w-0">
@@ -369,7 +389,11 @@ function TradeSide({ label, color, assets, values, excluded, source, grade, onAd
           <h3 className="text-sm font-semibold text-[var(--text)] uppercase tracking-wide">{label}</h3>
         </div>
         <div className="flex items-center gap-2">
-          <span className="text-base font-bold text-[var(--text)] opacity-50">{grade}</span>
+          {grade !== '—' && (
+            <span className="text-sm font-bold px-2 py-0.5 rounded-full" style={{ color: gc, backgroundColor: gc + '22', border: `1px solid ${gc}55` }}>
+              {grade}
+            </span>
+          )}
           <span className="text-sm font-bold" style={{ color }}>{formatValue(total)}</span>
           {assets.length > 0 && (
             <button onClick={onClear} className="text-xs text-[var(--muted)] hover:text-[var(--danger)] transition-colors">Clear</button>
@@ -391,40 +415,64 @@ function TradeSide({ label, color, assets, values, excluded, source, grade, onAd
 
       <div className="space-y-2 min-h-[80px]">
         {assets.length === 0 && <div className="text-center text-[var(--muted)] text-sm py-6 opacity-60">Add players or picks</div>}
-        {assets.map((a) => <AssetChip key={a.key} asset={a} source={source} onRemove={() => onRemove(a.key)} />)}
+        {assets.map((a) => <AssetChip key={a.key} asset={a} source={source} sideTotal={total} barColor={color} onRemove={() => onRemove(a.key)} />)}
       </div>
     </div>
   );
 }
 
-function FairnessMeter({ analysis }: { analysis: AnalysisResult }) {
+function FairnessMeter({ analysis, totalA, totalB }: { analysis: AnalysisResult; totalA: number; totalB: number }) {
   if (analysis.verdict === 'Add assets to analyze')
     return <div className="text-center py-4 text-sm text-[var(--muted)]">Add assets to both sides to see the analysis</div>;
 
   const { adjustedRatio, verdict, winner, diff, notes, counterHint } = analysis;
-  const pct = Math.round(adjustedRatio * 100);
-  let verdictStyle: React.CSSProperties = {};
-  if (adjustedRatio >= 0.92) verdictStyle = { color: '#22c55e' };
-  else if (adjustedRatio >= 0.80) verdictStyle = { color: 'var(--gold)' };
-  else if (adjustedRatio >= 0.65) verdictStyle = { color: '#f59e0b' };
-  else verdictStyle = { color: 'var(--danger)' };
+  const grand = totalA + totalB;
+  const pctA = grand > 0 ? Math.round((totalA / grand) * 100) : 50;
+  const pctB = 100 - pctA;
+
+  let verdictColor = '#22c55e';
+  if (adjustedRatio < 0.65) verdictColor = '#ef4444';
+  else if (adjustedRatio < 0.80) verdictColor = '#f97316';
+  else if (adjustedRatio < 0.92) verdictColor = '#eab308';
 
   return (
-    <div className="py-4">
-      <div className="flex gap-0.5 mb-4 h-4 rounded-full overflow-hidden bg-[var(--surface-strong)]">
-        <div className="rounded-l-full transition-all duration-500" style={{ width: `${pct}%`, backgroundColor: 'var(--accent)' }} />
-        <div className="rounded-r-full transition-all duration-500" style={{ width: `${100 - pct}%`, backgroundColor: 'var(--danger)' }} />
-      </div>
-      <div className="text-center">
-        <div className="text-xl font-bold" style={verdictStyle}>{verdict}</div>
-        <div className="text-sm text-[var(--muted)] mt-1">
-          {pct}% balanced{winner && diff > 0 && <span className="ml-1">· Side {winner} wins by {formatValue(diff)}</span>}
+    <div className="py-2">
+      {/* Side-by-side value bar */}
+      <div className="flex h-7 rounded-full overflow-hidden mb-1">
+        <div className="flex items-center justify-end pr-2 transition-all duration-500 text-xs font-bold text-white/90"
+          style={{ width: `${pctA}%`, backgroundColor: 'var(--accent)' }}>
+          {pctA > 18 && `${pctA}%`}
         </div>
-        {notes.length > 0 && (
-          <div className="mt-3 space-y-1">
-            {notes.map((n, i) => <div key={i} className="text-xs text-[var(--muted)] italic">• {n}</div>)}
+        <div className="flex items-center justify-start pl-2 transition-all duration-500 text-xs font-bold text-white/90"
+          style={{ width: `${pctB}%`, backgroundColor: 'var(--danger)' }}>
+          {pctB > 18 && `${pctB}%`}
+        </div>
+      </div>
+      <div className="flex justify-between text-xs text-[var(--muted)] mb-4">
+        <span style={{ color: 'var(--accent)' }}>Side A · {formatValue(totalA)}</span>
+        <span style={{ color: 'var(--danger)' }}>Side B · {formatValue(totalB)}</span>
+      </div>
+
+      {/* Verdict */}
+      <div className="text-center">
+        <div className="text-2xl font-bold" style={{ color: verdictColor }}>{verdict}</div>
+        {winner && diff > 0 && (
+          <div className="text-sm text-[var(--muted)] mt-1">
+            Side {winner} wins by <span className="font-semibold text-[var(--text)]">{formatValue(diff)}</span>
           </div>
         )}
+
+        {/* Notes as chips */}
+        {notes.length > 0 && (
+          <div className="mt-3 flex flex-wrap justify-center gap-2">
+            {notes.map((n, i) => (
+              <span key={i} className="text-xs px-2.5 py-1 rounded-full bg-[var(--surface-strong)] border border-[var(--border)] text-[var(--muted)]">
+                {n}
+              </span>
+            ))}
+          </div>
+        )}
+
         {counterHint && (
           <div className="mt-3 mx-auto max-w-sm px-4 py-2 rounded-[var(--radius-card)] bg-[var(--surface-strong)] border border-[var(--border)] text-xs text-[var(--muted)] text-left">
             💡 {counterHint}
@@ -467,6 +515,7 @@ function TradeAnalyzerContent() {
   const [source, setSource] = useState<ValueSource>('avg');
   const [isAdmin, setIsAdmin] = useState(false);
   const [dataSources, setDataSources] = useState<{ fantasyCalc: boolean; keepTradeCut: boolean; fcCount?: number; ktcCount?: number } | null>(null);
+  const [suggestDismissed, setSuggestDismissed] = useState(false);
   const urlInitialized = useRef(false);
 
   useEffect(() => {
@@ -522,6 +571,26 @@ function TradeAnalyzerContent() {
   const totalA = sideA.reduce((s, a) => s + getDisplayValue(a, source), 0);
   const totalB = sideB.reduce((s, a) => s + getDisplayValue(a, source), 0);
 
+  // Suggestions: 4 players closest in value to the average asset value in the trade
+  const suggestions = useMemo(() => {
+    const all = [...sideA, ...sideB];
+    if (all.length === 0 || values.length === 0) return [];
+    const avg = all.reduce((s, a) => s + getDisplayValue(a, source), 0) / all.length;
+    const getVal = (v: TradeValue) =>
+      source === 'fc' ? (v.fcValue ?? v.value) : source === 'ktc' ? (v.ktcValue ?? v.value) : v.value;
+    return values
+      .filter((v) => !v.isPick && !excluded.has(v.sleeperId) && getVal(v) > 0)
+      .sort((a, b) => Math.abs(getVal(a) - avg) - Math.abs(getVal(b) - avg))
+      .slice(0, 4);
+  }, [sideA, sideB, values, excluded, source]);
+
+  const showSuggestions = suggestions.length > 0 && !suggestDismissed;
+
+  // Reset dismissed state when trade is fully cleared
+  useEffect(() => {
+    if (sideA.length === 0 && sideB.length === 0) setSuggestDismissed(false);
+  }, [sideA.length, sideB.length]);
+
   if (loading) return (
     <div className="container mx-auto px-4 py-8">
       <h1 className="text-2xl font-bold text-[var(--text)] mb-6">Trade Analyzer</h1>
@@ -545,7 +614,7 @@ function TradeAnalyzerContent() {
   );
 
   return (
-    <div className="container mx-auto px-4 py-8">
+    <div className={`container mx-auto px-4 py-8${showSuggestions ? ' pb-28' : ''}`}>
       <div className="flex flex-wrap items-start justify-between gap-3 mb-6">
         <div>
           <h1 className="text-2xl font-bold text-[var(--text)]">Trade Analyzer</h1>
@@ -576,7 +645,7 @@ function TradeAnalyzerContent() {
             grade={analysis.sideBGrade} onAdd={(a) => setSideB((p) => [...p, a])} onRemove={(k) => setSideB((p) => p.filter((x) => x.key !== k))} onClear={() => setSideB([])} />
         </div>
         <div className="mt-6 pt-4 border-t border-[var(--border)]">
-          <FairnessMeter analysis={analysis} />
+          <FairnessMeter analysis={analysis} totalA={totalA} totalB={totalB} />
         </div>
       </div>
 
@@ -616,6 +685,55 @@ function TradeAnalyzerContent() {
         Values from FantasyCalc &amp; KeepTradeCut · Updated every 6 hours
       </div>
     </div>
+
+    {/* Suggestion strip — sticky bottom, non-intrusive */}
+    {showSuggestions && (
+      <div className="fixed bottom-0 left-0 right-0 z-40 border-t border-[var(--border)] shadow-2xl"
+        style={{ background: 'var(--surface-strong)', backdropFilter: 'blur(12px)' }}>
+        <div className="container mx-auto px-4 py-3 flex items-center gap-3">
+          <div className="text-[10px] font-bold uppercase tracking-widest text-[var(--muted)] shrink-0 hidden sm:block">
+            Compare
+          </div>
+          <div className="flex gap-2 flex-1 overflow-x-auto pb-0.5">
+            {suggestions.map((v) => {
+              const val = source === 'fc' ? (v.fcValue ?? v.value) : source === 'ktc' ? (v.ktcValue ?? v.value) : v.value;
+              return (
+                <div key={v.sleeperId}
+                  className="flex items-center gap-2 rounded-[var(--radius-card)] border border-[var(--border)] px-2.5 py-1.5 shrink-0"
+                  style={{ background: 'var(--surface)' }}>
+                  <div className="min-w-0">
+                    <div className="text-sm font-semibold text-[var(--text)] whitespace-nowrap">{v.name}</div>
+                    <div className="text-xs text-[var(--muted)] whitespace-nowrap">
+                      {v.position}{v.team ? ` · ${v.team}` : ''} · <span style={{ color: 'var(--accent)' }}>{formatValue(val)}</span>
+                    </div>
+                  </div>
+                  <div className="flex flex-col gap-0.5 ml-1">
+                    <button
+                      onClick={() => setSideA((p) => [...p, assetFromValue(v, false)])}
+                      className="text-[9px] font-bold px-1.5 py-0.5 rounded leading-tight transition-opacity hover:opacity-80"
+                      style={{ background: 'var(--accent)', color: '#fff' }}>
+                      +A
+                    </button>
+                    <button
+                      onClick={() => setSideB((p) => [...p, assetFromValue(v, false)])}
+                      className="text-[9px] font-bold px-1.5 py-0.5 rounded leading-tight transition-opacity hover:opacity-80"
+                      style={{ background: 'var(--danger)', color: '#fff' }}>
+                      +B
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <button
+            onClick={() => setSuggestDismissed(true)}
+            className="text-[var(--muted)] hover:text-[var(--text)] transition-colors text-xl leading-none shrink-0"
+            aria-label="Dismiss suggestions">
+            ×
+          </button>
+        </div>
+      </div>
+    )}
   );
 }
 

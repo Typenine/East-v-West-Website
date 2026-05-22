@@ -14,6 +14,7 @@
 import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { writeFileSync } from 'fs';
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -113,36 +114,37 @@ async function main() {
 
   const payload = JSON.stringify({ players, updatedAt: new Date().toISOString() });
 
-  // Calculate clock offset to avoid R2 signature mismatch
-  let clockOffset = 0;
+  // Attempt direct S3 upload first
   try {
-    const res = await fetch(`https://${process.env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`, { method: 'GET' });
-    const date = res.headers.get('date');
-    if (date) {
-      const serverTime = Date.parse(date);
-      if (Number.isFinite(serverTime)) clockOffset = serverTime - Date.now();
-    }
-  } catch {}
+    const s3 = new S3Client({
+      region: 'auto',
+      endpoint: `https://${process.env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
+      credentials: {
+        accessKeyId: process.env.R2_ACCESS_KEY_ID!,
+        secretAccessKey: process.env.R2_SECRET_ACCESS_KEY!,
+      },
+      forcePathStyle: true,
+    });
+    await s3.send(new PutObjectCommand({
+      Bucket: process.env.R2_BUCKET!,
+      Key: KTC_R2_KEY,
+      Body: payload,
+      ContentType: 'application/json',
+    }));
+    console.log(`\nWritten to R2: ${KTC_R2_KEY}`);
+    console.log(`Players stored: ${players.length}`);
+    console.log('\nDone. The trade analyzer will now use this KTC data.');
+    return;
+  } catch (e) {
+    console.warn('Direct R2 upload failed:', e instanceof Error ? e.message : String(e));
+  }
 
-  const s3 = new S3Client({
-    region: 'auto',
-    endpoint: `https://${process.env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
-    credentials: {
-      accessKeyId: process.env.R2_ACCESS_KEY_ID!,
-      secretAccessKey: process.env.R2_SECRET_ACCESS_KEY!,
-    },
-    systemClockOffset: clockOffset,
-  });
-  await s3.send(new PutObjectCommand({
-    Bucket: process.env.R2_BUCKET!,
-    Key: KTC_R2_KEY,
-    Body: payload,
-    ContentType: 'application/json',
-  }));
-
-  console.log(`\nWritten to R2: ${KTC_R2_KEY}`);
-  console.log(`Players stored: ${players.length}`);
-  console.log('\nDone. The trade analyzer will now use this KTC data.');
+  // Fallback: save locally and instruct user to POST to API
+  const localPath = path.resolve(__dirname, 'ktc-data.json');
+  writeFileSync(localPath, payload);
+  console.log(`\nSaved locally: ${localPath}`);
+  console.log('To upload to R2, run your dev server and then:');
+  console.log(`  curl -X POST http://localhost:3000/api/admin/upload-ktc -H "Content-Type: application/json" -d @"${localPath.replace(/\\/g, '/')}"`);
 }
 
 main().catch((err) => {

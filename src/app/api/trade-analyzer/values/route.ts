@@ -153,7 +153,7 @@ function normalizeName(name: string): string {
 
 // --- Standardized draft pick system ---
 
-const PICK_YEARS = ['2025', '2026', '2027', '2028', '2029'];
+const PICK_YEARS = ['2026', '2027', '2028', '2029', '2030'];
 const PICK_ROUNDS = [1, 2, 3, 4];
 const PICK_TIERS = ['Early', 'Mid', 'Late'] as const;
 
