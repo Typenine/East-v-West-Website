@@ -203,22 +203,41 @@ function pickKey(name: string): string | null {
   return standardPickKey(year, round, tier);
 }
 
-/** After merging source data, ensure we have a complete set of standard picks. */
-function ensureStandardPicks(result: Record<string, TradeValue>): void {
-  // Collect existing pick values to interpolate from
-  const existingPickValues = new Map<string, number>();
-  for (const [key, val] of Object.entries(result)) {
-    if (val.isPick) existingPickValues.set(key, val.value);
-  }
+/** Parse a numbered pick like "2026 1.08" or "2026 Pick 1.08" → { year, round, slot }. */
+function parseNumberedPick(name: string): { year: string; round: number; slot: number } | null {
+  const yearMatch = name.match(/(\d{4})/);
+  if (!yearMatch) return null;
+  const year = yearMatch[1];
+  // Match R.SS pattern — e.g. "1.08", "2.05"
+  const slotMatch = name.match(/\b(\d)\.(\d{1,2})\b/);
+  if (!slotMatch) return null;
+  const round = parseInt(slotMatch[1]);
+  const slot = parseInt(slotMatch[2]);
+  if (round < 1 || round > 4 || slot < 1 || slot > 36) return null;
+  return { year, round, slot };
+}
 
-  // Default pick values if no source data at all (rough dynasty SF scale 0-10000)
+// Slot ranges per tier in a 12-team league
+const TIER_SLOTS: Record<string, [number, number]> = {
+  Early: [1, 4],
+  Mid: [5, 8],
+  Late: [9, 12],
+};
+
+/** After merging source data, ensure we have a complete set of standard picks.
+ *  numberedPicks: map from "YYYY_R" → list of { slot, value } from real numbered picks (e.g. 1.01–1.12).
+ *  Tier values are computed as the average of their slot group rather than using hardcoded defaults. */
+function ensureStandardPicks(
+  result: Record<string, TradeValue>,
+  numberedPicks: Map<string, { slot: number; value: number }[]>,
+): void {
+  // Default pick values used only when no source data exists at all
   const defaultRoundValues: Record<number, Record<string, number>> = {
     1: { Early: 7800, Mid: 7000, Late: 5500 },
     2: { Early: 4200, Mid: 3500, Late: 2800 },
     3: { Early: 2200, Mid: 1800, Late: 1400 },
     4: { Early: 1000, Mid: 700, Late: 400 },
   };
-  // Future-year discount factor (~15% per year out)
   const currentYear = new Date().getFullYear();
 
   let rank = Object.keys(result).length + 1;
@@ -228,18 +247,23 @@ function ensureStandardPicks(result: Record<string, TradeValue>): void {
     const discount = Math.pow(0.85, yearDelta);
 
     for (const round of PICK_ROUNDS) {
+      const slotData = numberedPicks.get(`${year}_${round}`) ?? [];
+
       for (const tier of PICK_TIERS) {
         const key = standardPickKey(year, round, tier);
         if (result[key]) {
-          // Already exists from source data — just ensure clean name
           result[key].name = standardPickName(year, round, tier);
           continue;
         }
 
-        // Try to interpolate from existing source pick with similar key
-        let value = existingPickValues.get(key) ?? null;
-        if (value === null) {
-          // Use default with discount
+        // Average the actual numbered picks that fall in this tier's slot range
+        const [minSlot, maxSlot] = TIER_SLOTS[tier];
+        const tierPicks = slotData.filter((p) => p.slot >= minSlot && p.slot <= maxSlot);
+        let value: number;
+        if (tierPicks.length > 0) {
+          value = Math.round(tierPicks.reduce((s, p) => s + p.value, 0) / tierPicks.length);
+        } else {
+          // Fall back to hardcoded defaults with future-year discount
           value = Math.round((defaultRoundValues[round]?.[tier] ?? 500) * discount);
         }
 
@@ -272,6 +296,9 @@ function mergeValues(fc: FantasyCalcPlayer[], ktc: KTCPlayer[]): Record<string, 
     ktcByName.set(normalizeName(p.playerName), p.value);
   }
 
+  // Collect numbered picks (e.g. "2026 1.08") grouped by "YYYY_R" for tier averaging
+  const numberedPicks = new Map<string, { slot: number; value: number }[]>();
+
   // FC is the primary source — Sleeper IDs come from FC
   for (let i = 0; i < fc.length; i++) {
     const p = fc[i];
@@ -296,10 +323,20 @@ function mergeValues(fc: FantasyCalcPlayer[], ktc: KTCPlayer[]): Record<string, 
       trend: p.trend30Day || 0,
       isPick: pick,
     };
+
+    // If this is a numbered pick (R.SS format), collect it for tier averaging
+    if (pick) {
+      const parsed = parseNumberedPick(name);
+      if (parsed) {
+        const mapKey = `${parsed.year}_${parsed.round}`;
+        if (!numberedPicks.has(mapKey)) numberedPicks.set(mapKey, []);
+        numberedPicks.get(mapKey)!.push({ slot: parsed.slot, value: avgValue });
+      }
+    }
   }
 
-  // Ensure a complete set of standardized picks
-  ensureStandardPicks(result);
+  // Ensure a complete set of standardized picks, using real slot data for tier averages
+  ensureStandardPicks(result, numberedPicks);
 
   return result;
 }
