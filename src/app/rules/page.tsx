@@ -276,7 +276,7 @@ export default function RulesPage() {
       {/* Ask Clancy */}
       <div className="mb-8 rounded-[var(--radius-card)] border border-[var(--border)] bg-[var(--surface)] shadow-[var(--shadow-soft)] overflow-hidden">
         <div className="flex items-center gap-2 px-4 py-3 border-b border-[var(--border)]" style={{ background: 'var(--surface-strong)' }}>
-          <span className="text-base">⚖️</span>
+          <img src="/clancy.png" alt="Clancy" className="w-7 h-7 rounded-full object-cover shrink-0" />
           <span className="text-sm font-bold text-[var(--text)] tracking-wide">Ask Clancy</span>
           <span className="text-xs text-[var(--muted)] ml-1">— rulebook Q&amp;A</span>
           <span className="text-xs text-[var(--muted)] px-1.5 py-0.5 rounded-full border border-[var(--border)] ml-1" title="AI-generated answers may be inaccurate. Always verify against the actual rulebook.">
