@@ -162,7 +162,7 @@ export default function TradePicks() {
             <div style={{ background: '#0a0a1a', border: '2px solid ' + PRP + '55', borderRadius: '12px', padding: '20px', marginBottom: '20px' }}>
               <div style={{ color: PRP, fontWeight: '900', fontSize: '13px', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '12px' }}>League Dues as Trade Consideration — Special Rule</div>
               <p style={{ color: TXT, fontSize: '13px', lineHeight: '1.7', margin: '0 0 10px' }}>
-                Paying another team's League Dues — or applying Dues Credit on their behalf — may not be offered, requested, or used as part of a trade deal. This applies whether the payment goes directly to the other team or to the league on their behalf.
+                Paying another team&apos;s League Dues — or applying Dues Credit on their behalf — may not be offered, requested, or used as part of a trade deal. This applies whether the payment goes directly to the other team or to the league on their behalf.
               </p>
               <NoteBox color={PRP} icon="⚠️" text="Note: the dues requirement for future picks (Section 7.3) is different. That is a condition placed on the team trading AWAY the pick — it is an obligation, not consideration being offered to the other side." />
             </div>

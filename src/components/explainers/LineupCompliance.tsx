@@ -61,7 +61,7 @@ export default function LineupCompliance() {
         {active === 1 && (
           <div>
             <SectionHead title="The 12-Hour Deadline" sub="When you are protected — and when you are not" />
-            <p style={pSt}>The <strong style={{ color: AMB }}>Ruled-Out Deadline</strong> is 12 hours before a player's scheduled kickoff. Whether a player was ruled out before or after this window determines everything.</p>
+            <p style={pSt}>The <strong style={{ color: AMB }}>Ruled-Out Deadline</strong> is 12 hours before a player&apos;s scheduled kickoff. Whether a player was ruled out before or after this window determines everything.</p>
             <DeadlineTimeline />
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', margin: '24px 0' }}>
               <Scenario color={RED} icon="🚫" title="Ruled Out BEFORE the deadline — Violation" desc="If Sleeper shows the player was ruled out more than 12 hours before kickoff, you had time to act. Starting them is an Illegal Lineup." example="Kickoff Sunday 1:00 PM. Player ruled out Saturday 10:00 AM (27 hrs before). You must swap." />

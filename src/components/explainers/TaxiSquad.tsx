@@ -5,16 +5,9 @@ import type { CSSProperties } from 'react';
 const sections = ['Basics', 'Adding Players', 'Activation', 'Offseason Reset', 'Penalties'];
 const TAB_ICONS = ['📋', '✅', '🚪', '🔄', '⚠️'];
 
-const GLD = '#c9a84c';
-const RED = '#e05c5c';
-const GRN = '#4aaa4a';
-const PRP = '#8a4a9a';
-const BLU = '#4a7aaa';
 const BG  = '#0f0f0f';
 const CARD = '#1a1a1a';
-const BDR  = '#2a2a2a';
 const TXT  = '#f0e6cc';
-const MUT  = '#888888';
 
 const descStyle: CSSProperties = { color: '#bbb', lineHeight: '1.7', marginBottom: '20px', fontSize: '15px' };
 
@@ -58,7 +51,7 @@ export default function TaxiSquad() {
         {active === 0 && (
           <div>
             <SectionHeader title="The Basics" subtitle="What is the Taxi Squad?" />
-            <p style={descStyle}>The Taxi Squad is a separate roster bucket — a "developmental squad" for younger or unproven players. It does <em>not</em> count toward your 17-player Main Roster limit.</p>
+            <p style={descStyle}>The Taxi Squad is a separate roster bucket — a &quot;developmental squad&quot; for younger or unproven players. It does <em>not</em> count toward your 17-player Main Roster limit.</p>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '28px' }}>
               <StatCard number="4" label="Max players on Taxi at any time" color="#c9a84c" icon="📋" />
               <StatCard number="1" label="Max QBs on Taxi at any time" color="#e05c5c" icon="🏈" />
@@ -257,7 +250,7 @@ function OffseasonTimeline() {
         ))}
       </div>
       <div style={{ marginTop: '16px', background: '#1e1e1e', border: '1px dashed #3a3a3a', borderRadius: '8px', padding: '12px 16px', fontSize: '12px', color: '#aaa', textAlign: 'center' }}>
-        ⏰ Eligibility expires at the <strong style={{ color: '#c9a84c' }}>kickoff of NFL Week 1</strong> of the player's 3rd season
+        ⏰ Eligibility expires at the <strong style={{ color: '#c9a84c' }}>kickoff of NFL Week 1</strong> of the player&apos;s 3rd season
       </div>
     </div>
   );
