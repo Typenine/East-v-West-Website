@@ -71,6 +71,60 @@ type RosterNewsResponse = {
   items: RosterNewsItem[];
 };
 
+// --- News helpers ---
+
+function timeAgo(dateStr: string | null): string {
+  if (!dateStr) return '';
+  const diff = Date.now() - new Date(dateStr).getTime();
+  const m = Math.floor(diff / 60000);
+  if (m < 1) return 'just now';
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  const d = Math.floor(h / 24);
+  return `${d}d ago`;
+}
+
+type InjuryStatus = { label: string; color: string };
+function detectInjuryStatus(title: string, description: string): InjuryStatus | null {
+  const hay = `${title} ${description}`.toLowerCase();
+  if (/placed on ir|injured reserve|season-ending/.test(hay)) return { label: 'IR', color: '#ef4444' };
+  if (/\bout\b/.test(hay)) return { label: 'Out', color: '#ef4444' };
+  if (/\bdoubtful\b/.test(hay)) return { label: 'Doubtful', color: '#f97316' };
+  if (/\bquestionable\b/.test(hay)) return { label: 'Questionable', color: '#eab308' };
+  if (/\bday.to.day\b/.test(hay)) return { label: 'Day-to-Day', color: '#eab308' };
+  if (/\blimited\b/.test(hay)) return { label: 'Limited', color: '#eab308' };
+  if (/\bfull practice\b|\bfull go\b/.test(hay)) return { label: 'Full', color: '#22c55e' };
+  return null;
+}
+
+const SOURCE_BADGE_COLORS: Record<string, { bg: string; text: string }> = {
+  'ESPN': { bg: '#cc0000', text: '#fff' },
+  'RotoWire': { bg: '#1a56db', text: '#fff' },
+  'Pro Football Talk': { bg: '#e07b00', text: '#fff' },
+  'CBS Sports': { bg: '#003087', text: '#fff' },
+  'FantasyPros': { bg: '#00aaff', text: '#fff' },
+  'Yahoo Sports': { bg: '#6001d2', text: '#fff' },
+  'NFL.com': { bg: '#013369', text: '#fff' },
+  'Sports Illustrated': { bg: '#b22222', text: '#fff' },
+  'The 33rd Team': { bg: '#222', text: '#fff' },
+  'SB Nation': { bg: '#333', text: '#fff' },
+  'USA Today': { bg: '#009bff', text: '#fff' },
+  'PFF': { bg: '#019a00', text: '#fff' },
+};
+
+function SourceBadge({ name }: { name: string }) {
+  const colors = SOURCE_BADGE_COLORS[name];
+  if (colors) {
+    return (
+      <span className="inline-block text-[10px] font-bold px-1.5 py-0.5 rounded" style={{ background: colors.bg, color: colors.text }}>
+        {name}
+      </span>
+    );
+  }
+  return <span className="text-xs text-[var(--muted)]">{name}</span>;
+}
+
 export default function TeamContent() {
   const params = useParams();
   const searchParams = useSearchParams();
@@ -126,6 +180,8 @@ export default function TeamContent() {
   const [newsLoading, setNewsLoading] = useState(false);
   const [newsError, setNewsError] = useState<string | null>(null);
   const [newsWindowHours, setNewsWindowHours] = useState<number>(336); // 14 days default
+  const [newsView, setNewsView] = useState<'grouped' | 'timeline'>('grouped');
+  const [newsFilterPlayer, setNewsFilterPlayer] = useState<string | null>(null);
   // Collapsed state per playerId for News groups
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
   const toggleGroup = (playerId: string) => {
@@ -799,7 +855,37 @@ export default function TeamContent() {
     }
     return groups;
   }, [news, players, team?.players]);
-  
+
+  // Player chip list derived from grouped data (for filter strip)
+  const newsPlayerList = useMemo(() =>
+    newsGrouped.map((g) => ({ playerId: g.playerId, playerName: g.playerName, count: g.items.length })),
+  [newsGrouped]);
+
+  // Filtered grouped view respecting active player filter
+  const newsGroupedFiltered = useMemo(() => {
+    if (!newsFilterPlayer) return newsGrouped;
+    return newsGrouped.filter((g) => g.playerId === newsFilterPlayer);
+  }, [newsGrouped, newsFilterPlayer]);
+
+  // Flat chronological list for timeline view, also respects player filter
+  const newsTimeline = useMemo(() => {
+    if (!news || news.length === 0) return [] as Array<RosterNewsItem & { primaryMatch: RosterNewsMatch | undefined }>;
+    let items = news;
+    if (newsFilterPlayer) {
+      items = news.filter((it) => it.matches?.some((m) => m.playerId === newsFilterPlayer && team?.players?.includes(m.playerId)));
+    }
+    return items
+      .map((it) => ({
+        ...it,
+        primaryMatch: it.matches?.find((m) => team?.players?.includes(m.playerId)),
+      }))
+      .sort((a, b) => {
+        const ta = a.publishedAt ? new Date(a.publishedAt).getTime() : 0;
+        const tb = b.publishedAt ? new Date(b.publishedAt).getTime() : 0;
+        return tb - ta;
+      });
+  }, [news, newsFilterPlayer, team?.players]);
+
   const handleYearChange = (year: string) => {
     setSelectedYear(year);
     // Update URL without refreshing the page
@@ -938,106 +1024,235 @@ export default function TeamContent() {
             label: 'News',
             content: (
               <Card style={{ borderTop: `4px solid ${teamColors.primary}` }}>
-                <CardHeader className="flex items-center justify-between">
-                  <div
-                    className="rounded-md"
-                    style={{
-                      backgroundImage: `linear-gradient(90deg, ${teamColors.primary} 0%, ${teamColors.secondary} 100%)`,
-                      color: '#ffffff',
-                      padding: '0.35rem 0.6rem',
-                    }}
-                  >
-                    <CardTitle>Roster News</CardTitle>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    {news && news.length > 0 ? (
-                      <span className="text-sm text-[var(--muted)]">{news.length} articles</span>
-                    ) : null}
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setNewsWindowHours((h) => (h === 336 ? 720 : 336))}
+                {/* ── Header: stacks vertically on mobile ── */}
+                <CardHeader className="flex flex-col gap-3 pb-2">
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <div
+                      className="rounded-md shrink-0"
+                      style={{
+                        backgroundImage: `linear-gradient(90deg, ${teamColors.primary} 0%, ${teamColors.secondary} 100%)`,
+                        color: '#ffffff',
+                        padding: '0.35rem 0.6rem',
+                      }}
                     >
-                      {newsWindowHours === 336 ? 'Show older (30d)' : 'Show recent (14d)'}
-                    </Button>
+                      <CardTitle>Roster News</CardTitle>
+                    </div>
+                    <div className="flex items-center gap-2 ml-auto">
+                      {/* View toggle */}
+                      <div className="flex rounded-lg overflow-hidden border border-[var(--border)] text-xs font-medium">
+                        <button
+                          type="button"
+                          onClick={() => setNewsView('grouped')}
+                          className="px-3 py-1.5 transition-colors"
+                          style={newsView === 'grouped' ? { background: 'var(--accent)', color: '#fff' } : { background: 'var(--surface-strong)', color: 'var(--muted)' }}
+                        >By Player</button>
+                        <button
+                          type="button"
+                          onClick={() => setNewsView('timeline')}
+                          className="px-3 py-1.5 transition-colors"
+                          style={newsView === 'timeline' ? { background: 'var(--accent)', color: '#fff' } : { background: 'var(--surface-strong)', color: 'var(--muted)' }}
+                        >Timeline</button>
+                      </div>
+                      {/* Time window toggle */}
+                      <button
+                        type="button"
+                        onClick={() => setNewsWindowHours((h) => (h === 336 ? 720 : 336))}
+                        className="text-xs px-2.5 py-1.5 rounded-lg border border-[var(--border)] text-[var(--muted)] hover:text-[var(--text)] transition-colors whitespace-nowrap"
+                        style={{ background: 'var(--surface-strong)' }}
+                        title={newsWindowHours === 336 ? 'Switch to last 30 days' : 'Switch to last 14 days'}
+                      >
+                        {newsWindowHours === 336 ? 'Last 14d' : 'Last 30d'}
+                      </button>
+                    </div>
                   </div>
+
+                  {/* Player filter chips — horizontally scrollable, no wrapping */}
+                  {newsPlayerList.length > 0 && (
+                    <div
+                      className="flex gap-1.5 overflow-x-auto pb-0.5"
+                      style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => setNewsFilterPlayer(null)}
+                        className="shrink-0 text-xs px-2.5 py-1 rounded-full border transition-colors"
+                        style={newsFilterPlayer === null
+                          ? { background: 'var(--accent)', color: '#fff', borderColor: 'var(--accent)' }
+                          : { background: 'transparent', color: 'var(--muted)', borderColor: 'var(--border)' }}
+                      >All</button>
+                      {newsPlayerList.map((pl) => (
+                        <button
+                          key={pl.playerId}
+                          type="button"
+                          onClick={() => setNewsFilterPlayer(newsFilterPlayer === pl.playerId ? null : pl.playerId)}
+                          className="shrink-0 text-xs px-2.5 py-1 rounded-full border transition-colors whitespace-nowrap"
+                          style={newsFilterPlayer === pl.playerId
+                            ? { background: 'var(--accent)', color: '#fff', borderColor: 'var(--accent)' }
+                            : { background: 'transparent', color: 'var(--muted)', borderColor: 'var(--border)' }}
+                        >
+                          {pl.playerName}
+                          <span className="ml-1 opacity-50">{pl.count}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </CardHeader>
-                <CardContent>
-                  {newsLoading && <div className="py-6"><LoadingState message="Loading news..." /></div>}
-                  {newsError && <div className="py-6"><ErrorState message={newsError} /></div>}
+
+                <CardContent className="pt-2">
+                  {newsLoading && <div className="py-8"><LoadingState message="Loading news..." /></div>}
+                  {newsError && <div className="py-8"><ErrorState message={newsError} /></div>}
                   {!newsLoading && !newsError && (
                     <div>
-                      {newsGrouped && newsGrouped.length > 0 ? (
-                        <div className="space-y-8">
-                          {newsGrouped.map((group) => {
-                            const p = players[group.playerId];
-                            const meta = p ? `${p.position || ''}${p.team ? ` • ${p.team}` : ''}` : '';
-                            return (
-                              <section key={group.playerId}>
-                                <button
-                                  type="button"
-                                  onClick={() => toggleGroup(group.playerId)}
-                                  aria-expanded={!collapsedGroups[group.playerId]}
-                                  aria-controls={`news-group-${group.playerId}`}
-                                  className="w-full flex items-baseline justify-between mb-2 text-left group hover:underline-offset-2"
+                      {newsView === 'timeline' ? (
+                        /* ── Timeline view ── */
+                        newsTimeline.length > 0 ? (
+                          <div className="space-y-2">
+                            {newsTimeline.map((it, idx) => {
+                              const injury = detectInjuryStatus(it.title, it.description);
+                              return (
+                                <article
+                                  key={`tl-${it.link}-${idx}`}
+                                  className="rounded-xl border border-[var(--border)] p-3 sm:p-4 cursor-pointer hover:border-[var(--accent)] hover:bg-[color-mix(in_srgb,var(--accent)_4%,transparent)] transition-all"
+                                  role="link"
+                                  tabIndex={0}
+                                  onClick={(e) => {
+                                    if ((e.target as HTMLElement).closest('a')) return;
+                                    if (it.link) window.open(it.link, '_blank', 'noopener,noreferrer');
+                                  }}
+                                  onKeyDown={(e) => {
+                                    if ((e.key === 'Enter' || e.key === ' ') && it.link) {
+                                      e.preventDefault();
+                                      window.open(it.link, '_blank', 'noopener,noreferrer');
+                                    }
+                                  }}
                                 >
-                                  <h3 className="text-lg font-semibold group-hover:underline">
-                                    {group.playerName}
-                                    {meta ? <span className="ml-2 text-sm text-[var(--muted)]">{meta}</span> : null}
-                                  </h3>
-                                  <span className="flex items-center gap-2 text-xs text-[var(--muted)]">
-                                    {group.items.length} article{group.items.length !== 1 ? 's' : ''}
-                                    <span aria-hidden>{collapsedGroups[group.playerId] ? '▸' : '▾'}</span>
-                                  </span>
-                                </button>
-                                {!collapsedGroups[group.playerId] && (
-                                  <div className="space-y-4" id={`news-group-${group.playerId}`}>
-                                    {group.items.map((it, idx) => (
-                                      <article
-                                        key={`${group.playerId}-${it.link}-${idx}`}
-                                        className="border border-[var(--border)] rounded-lg p-4 cursor-pointer hover:bg-[color-mix(in_srgb,var(--accent)_6%,transparent)] transition"
-                                        role="link"
-                                        tabIndex={0}
-                                        onClick={(e) => {
-                                          const target = e.target as HTMLElement;
-                                          if (target && target.closest('a')) return;
-                                          if (it.link) window.open(it.link, '_blank', 'noopener,noreferrer');
-                                        }}
-                                        onKeyDown={(e) => {
-                                          if ((e.key === 'Enter' || e.key === ' ') && it.link) {
-                                            e.preventDefault();
-                                            window.open(it.link, '_blank', 'noopener,noreferrer');
-                                          }
-                                        }}
-                                      >
-                                        <div className="flex items-center justify-between mb-1">
-                                          <div className="text-sm text-[var(--muted)]">{it.sourceName}</div>
-                                          <div className="text-xs text-[var(--muted)]">{it.publishedAt ? new Date(it.publishedAt).toLocaleString() : ''}</div>
-                                        </div>
-                                        <h4 className="font-semibold hover:underline">{it.title}</h4>
-                                        <p className="text-sm text-[var(--text)] mt-1 whitespace-pre-line">{it.description}</p>
-                                        <div className="mt-2">
-                                          <a
-                                            href={it.link}
-                                            target="_blank"
-                                            rel="noopener noreferrer"
-                                            className="inline-flex items-center text-sm hover:underline"
-                                            style={{ color: teamColors.secondary }}
-                                          >
-                                            Read at source ↗
-                                          </a>
-                                        </div>
-                                      </article>
-                                    ))}
+                                  {/* Meta row */}
+                                  <div className="flex items-center gap-1.5 mb-2 flex-wrap">
+                                    <SourceBadge name={it.sourceName} />
+                                    {it.primaryMatch && (
+                                      <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full" style={{ background: 'color-mix(in srgb,var(--accent) 15%,transparent)', color: 'var(--accent)' }}>
+                                        {it.primaryMatch.name}
+                                      </span>
+                                    )}
+                                    {injury && (
+                                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full text-white" style={{ background: injury.color }}>
+                                        {injury.label}
+                                      </span>
+                                    )}
+                                    <span className="ml-auto text-[11px] text-[var(--muted)] whitespace-nowrap">{timeAgo(it.publishedAt)}</span>
                                   </div>
-                                )}
-                              </section>
-                            );
-                          })}
-                        </div>
+                                  {/* Title */}
+                                  <h4 className="font-semibold text-sm sm:text-base leading-snug mb-1">{it.title}</h4>
+                                  {/* Description — 2 lines max */}
+                                  <p className="text-xs sm:text-sm text-[var(--muted)] line-clamp-2 leading-relaxed">{it.description}</p>
+                                  {/* Read link */}
+                                  <div className="mt-2 flex justify-end">
+                                    <a
+                                      href={it.link}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="text-[11px] font-medium hover:underline"
+                                      style={{ color: teamColors.secondary }}
+                                    >Read more ↗</a>
+                                  </div>
+                                </article>
+                              );
+                            })}
+                          </div>
+                        ) : (
+                          <p className="py-8 text-center text-[var(--muted)]">No recent news found for this roster.</p>
+                        )
                       ) : (
-                        <p className="text-[var(--muted)]">No recent news found for this roster.</p>
+                        /* ── Grouped by player view ── */
+                        newsGroupedFiltered.length > 0 ? (
+                          <div className="space-y-6">
+                            {newsGroupedFiltered.map((group) => {
+                              const pl = players[group.playerId];
+                              const pos = pl?.position || '';
+                              const nflTeam = pl?.team || '';
+                              return (
+                                <section key={group.playerId}>
+                                  {/* Player section header */}
+                                  <button
+                                    type="button"
+                                    onClick={() => toggleGroup(group.playerId)}
+                                    aria-expanded={!collapsedGroups[group.playerId]}
+                                    aria-controls={`news-group-${group.playerId}`}
+                                    className="w-full flex items-center justify-between mb-2 text-left rounded-lg px-3 py-2 transition-colors hover:bg-[color-mix(in_srgb,var(--accent)_6%,transparent)]"
+                                    style={{ background: 'var(--surface-strong)' }}
+                                  >
+                                    <div className="flex items-center gap-2 min-w-0">
+                                      <span className="font-semibold text-sm sm:text-base truncate">{group.playerName}</span>
+                                      {pos && (
+                                        <span className="text-[10px] font-bold px-1.5 py-0.5 rounded shrink-0" style={{ background: 'var(--accent)', color: '#fff' }}>{pos}</span>
+                                      )}
+                                      {nflTeam && (
+                                        <span className="text-[10px] text-[var(--muted)] shrink-0">{nflTeam}</span>
+                                      )}
+                                    </div>
+                                    <span className="flex items-center gap-1.5 text-xs text-[var(--muted)] shrink-0 ml-2">
+                                      <span>{group.items.length}</span>
+                                      <svg className={`w-3.5 h-3.5 transition-transform duration-200 ${collapsedGroups[group.playerId] ? '' : 'rotate-180'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 9l-7 7-7-7" />
+                                      </svg>
+                                    </span>
+                                  </button>
+                                  {!collapsedGroups[group.playerId] && (
+                                    <div className="space-y-2 mt-2" id={`news-group-${group.playerId}`}>
+                                      {group.items.map((it, idx) => {
+                                        const injury = detectInjuryStatus(it.title, it.description);
+                                        return (
+                                          <article
+                                            key={`${group.playerId}-${it.link}-${idx}`}
+                                            className="rounded-xl border border-[var(--border)] p-3 sm:p-4 cursor-pointer hover:border-[var(--accent)] hover:bg-[color-mix(in_srgb,var(--accent)_4%,transparent)] transition-all"
+                                            role="link"
+                                            tabIndex={0}
+                                            onClick={(e) => {
+                                              if ((e.target as HTMLElement).closest('a')) return;
+                                              if (it.link) window.open(it.link, '_blank', 'noopener,noreferrer');
+                                            }}
+                                            onKeyDown={(e) => {
+                                              if ((e.key === 'Enter' || e.key === ' ') && it.link) {
+                                                e.preventDefault();
+                                                window.open(it.link, '_blank', 'noopener,noreferrer');
+                                              }
+                                            }}
+                                          >
+                                            {/* Meta row */}
+                                            <div className="flex items-center gap-1.5 mb-2 flex-wrap">
+                                              <SourceBadge name={it.sourceName} />
+                                              {injury && (
+                                                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full text-white" style={{ background: injury.color }}>
+                                                  {injury.label}
+                                                </span>
+                                              )}
+                                              <span className="ml-auto text-[11px] text-[var(--muted)] whitespace-nowrap">{timeAgo(it.publishedAt)}</span>
+                                            </div>
+                                            {/* Title */}
+                                            <h4 className="font-semibold text-sm sm:text-base leading-snug mb-1">{it.title}</h4>
+                                            {/* Description */}
+                                            <p className="text-xs sm:text-sm text-[var(--muted)] line-clamp-2 leading-relaxed">{it.description}</p>
+                                            <div className="mt-2 flex justify-end">
+                                              <a
+                                                href={it.link}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                className="text-[11px] font-medium hover:underline"
+                                                style={{ color: teamColors.secondary }}
+                                              >Read more ↗</a>
+                                            </div>
+                                          </article>
+                                        );
+                                      })}
+                                    </div>
+                                  )}
+                                </section>
+                              );
+                            })}
+                          </div>
+                        ) : (
+                          <p className="py-8 text-center text-[var(--muted)]">No recent news found for this roster.</p>
+                        )
                       )}
                     </div>
                   )}

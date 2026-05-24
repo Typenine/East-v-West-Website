@@ -1,12 +1,25 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
+import { useEffect, useMemo, useRef, useState, useCallback, ComponentType } from 'react';
+import dynamic from 'next/dynamic';
 import { rulesHtmlSections } from '../../data/rules';
 import SectionHeader from '@/components/ui/SectionHeader';
 import Input from '@/components/ui/Input';
 import Button from '@/components/ui/Button';
 import { Card, CardContent, CardHeader } from '@/components/ui/Card';
 import Label from '@/components/ui/Label';
+
+const TaxiSquadExplainer = dynamic(() => import('@/components/explainers/TaxiSquad'), { ssr: false });
+const TradePicksExplainer = dynamic(() => import('@/components/explainers/TradePicks'), { ssr: false });
+const PlayoffStructureExplainer = dynamic(() => import('@/components/explainers/PlayoffStructure'), { ssr: false });
+const LineupComplianceExplainer = dynamic(() => import('@/components/explainers/LineupCompliance'), { ssr: false });
+
+const SECTION_EXPLAINERS: Record<string, ComponentType> = {
+  'rosters-lineups': TaxiSquadExplainer,
+  'trades': TradePicksExplainer,
+  'standings-playoffs': PlayoffStructureExplainer,
+  'competitive-integrity': LineupComplianceExplainer,
+};
 
 type RuleSection = {
   id: string;
@@ -106,6 +119,7 @@ export default function RulesPage() {
   const [openSections, setOpenSections] = useState<Set<string>>(
     () => new Set(ruleSections.map((s) => s.id))
   );
+  const [openExplainers, setOpenExplainers] = useState<Set<string>>(new Set());
 
   // (E) On mount: read URL hash and jump to that section
   useEffect(() => {
@@ -414,6 +428,42 @@ export default function RulesPage() {
                         className="rules-content space-y-4"
                         dangerouslySetInnerHTML={{ __html: processedHtml }}
                       />
+                      {SECTION_EXPLAINERS[section.id] && (() => {
+                        const ExplainerComp = SECTION_EXPLAINERS[section.id];
+                        const isExplainerOpen = openExplainers.has(section.id);
+                        return (
+                          <div className="mt-5 pt-4 border-t border-[var(--border)]">
+                            <button
+                              onClick={() => setOpenExplainers((prev) => {
+                                const next = new Set(prev);
+                                if (next.has(section.id)) next.delete(section.id);
+                                else next.add(section.id);
+                                return next;
+                              })}
+                              className="flex items-center gap-2 text-sm font-semibold px-3 py-2 rounded-lg transition-all"
+                              style={{
+                                background: isExplainerOpen ? 'var(--accent)' : 'transparent',
+                                color: isExplainerOpen ? '#fff' : 'var(--accent)',
+                                border: '1.5px solid var(--accent)',
+                              }}
+                            >
+                              <span>📊</span>
+                              <span>{isExplainerOpen ? 'Hide Interactive Guide' : 'Interactive Guide'}</span>
+                              <svg
+                                className={`w-4 h-4 transition-transform duration-200 ${isExplainerOpen ? 'rotate-180' : ''}`}
+                                fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                              >
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                              </svg>
+                            </button>
+                            {isExplainerOpen && (
+                              <div className="mt-4 rounded-xl overflow-hidden">
+                                <ExplainerComp />
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
                     </CardContent>
                   </Card>
                 );
