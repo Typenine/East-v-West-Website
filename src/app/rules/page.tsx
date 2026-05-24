@@ -13,12 +13,14 @@ const TaxiSquadExplainer = dynamic(() => import('@/components/explainers/TaxiSqu
 const TradePicksExplainer = dynamic(() => import('@/components/explainers/TradePicks'), { ssr: false });
 const PlayoffStructureExplainer = dynamic(() => import('@/components/explainers/PlayoffStructure'), { ssr: false });
 const LineupComplianceExplainer = dynamic(() => import('@/components/explainers/LineupCompliance'), { ssr: false });
+const AmendmentsExplainer = dynamic(() => import('@/components/explainers/Amendments'), { ssr: false });
 
 const SECTION_EXPLAINERS: Record<string, ComponentType> = {
   'rosters-lineups': TaxiSquadExplainer,
   'trades': TradePicksExplainer,
   'standings-playoffs': PlayoffStructureExplainer,
   'competitive-integrity': LineupComplianceExplainer,
+  'amendments-rule-changes': AmendmentsExplainer,
 };
 
 type RuleSection = {
@@ -120,6 +122,8 @@ export default function RulesPage() {
     () => new Set(ruleSections.map((s) => s.id))
   );
   const [sectionView, setSectionView] = useState<Record<string, 'rules' | 'guide'>>({});
+  const [pageView, setPageView] = useState<'rulebook' | 'guides'>('rulebook');
+  const [activeGuide, setActiveGuide] = useState<string>('rosters-lineups');
 
   // (E) On mount: read URL hash and jump to that section
   useEffect(() => {
@@ -226,6 +230,14 @@ export default function RulesPage() {
     ? ruleSections.filter((s) => s.title.toLowerCase().includes(q) || s.searchText.includes(q))
     : ruleSections;
 
+  const GUIDES = [
+    { id: 'rosters-lineups',       label: 'Taxi Squad',        desc: 'Roster rules, activation, eligibility & penalties',                   emoji: '🚕' },
+    { id: 'trades',                label: 'Trading Picks',      desc: 'Which picks can be traded, dues requirements & deadline',             emoji: '🔄' },
+    { id: 'standings-playoffs',    label: 'Playoffs & Payouts', desc: 'Bracket, Toilet Bowl, draft order & prize money',                    emoji: '🏆' },
+    { id: 'competitive-integrity',   label: 'Lineup Compliance', desc: 'The 12-hr rule, QB exception, tanking & what counts as a violation',  emoji: '✅' },
+    { id: 'amendments-rule-changes', label: 'Amendments',        desc: 'Proposals, endorsements, vote thresholds & competing amendments',       emoji: '📝' },
+  ];
+
   return (
     <div className="container mx-auto px-4 py-8">
       <style jsx global>{`
@@ -267,7 +279,70 @@ export default function RulesPage() {
 
       <SectionHeader title="League Rules" />
 
-      {/* Search Bar */}
+      {/* Top-level page tabs */}
+      <div className="flex items-center gap-2 mb-6">
+        <button
+          onClick={() => setPageView('rulebook')}
+          className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all"
+          style={{
+            background: pageView === 'rulebook' ? 'var(--surface-strong)' : 'transparent',
+            color: pageView === 'rulebook' ? 'var(--text)' : 'var(--muted)',
+            border: `1px solid ${pageView === 'rulebook' ? 'var(--border)' : 'transparent'}`,
+          }}
+        >
+          📋 Rulebook
+        </button>
+        <button
+          onClick={() => setPageView('guides')}
+          className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all"
+          style={{
+            background: pageView === 'guides' ? 'var(--accent)' : 'transparent',
+            color: pageView === 'guides' ? '#fff' : 'var(--muted)',
+            border: `1px solid ${pageView === 'guides' ? 'var(--accent)' : 'transparent'}`,
+          }}
+        >
+          📊 Key Rules Guides
+        </button>
+      </div>
+
+      {/* Key Rules Guides view */}
+      {pageView === 'guides' && (() => {
+        const ActiveGuideComp = SECTION_EXPLAINERS[activeGuide];
+        return (
+          <div className="mb-10">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-6">
+              {GUIDES.map((g) => {
+                const isActive = activeGuide === g.id;
+                return (
+                  <button
+                    key={g.id}
+                    onClick={() => setActiveGuide(g.id)}
+                    className="flex flex-col items-start gap-1.5 p-4 rounded-xl text-left transition-all"
+                    style={{
+                      background: isActive ? 'var(--accent)' : 'var(--surface)',
+                      border: `1.5px solid ${isActive ? 'var(--accent)' : 'var(--border)'}`,
+                      color: isActive ? '#fff' : 'var(--text)',
+                    }}
+                  >
+                    <span className="text-2xl">{g.emoji}</span>
+                    <span className="text-sm font-bold leading-tight">{g.label}</span>
+                    <span className="text-xs leading-snug" style={{ color: isActive ? 'rgba(255,255,255,0.75)' : 'var(--muted)' }}>{g.desc}</span>
+                  </button>
+                );
+              })}
+            </div>
+            {ActiveGuideComp && (
+              <div className="rounded-xl overflow-hidden">
+                <ActiveGuideComp />
+              </div>
+            )}
+          </div>
+        );
+      })()}
+
+      {/* Rulebook view */}
+      {pageView === 'rulebook' && (
+        <>
       <div className="mb-8">
         <Label htmlFor="rules-search" className="mb-1 block">Search rules</Label>
         <div className="relative">
@@ -483,6 +558,8 @@ export default function RulesPage() {
           )}
         </div>
       </div>
+        </>
+      )}
     </div>
   );
 }
