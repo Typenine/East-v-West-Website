@@ -119,7 +119,7 @@ export default function RulesPage() {
   const [openSections, setOpenSections] = useState<Set<string>>(
     () => new Set(ruleSections.map((s) => s.id))
   );
-  const [openExplainers, setOpenExplainers] = useState<Set<string>>(new Set());
+  const [sectionView, setSectionView] = useState<Record<string, 'rules' | 'guide'>>({});
 
   // (E) On mount: read URL hash and jump to that section
   useEffect(() => {
@@ -409,8 +409,13 @@ export default function RulesPage() {
                           })
                         }
                       >
-                        <span className="flex items-center gap-1">
+                        <span className="flex items-center gap-2">
                           <span className="text-lg font-medium text-[var(--text)]">{section.title}</span>
+                          {SECTION_EXPLAINERS[section.id] && (
+                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full tracking-wide" style={{ background: 'var(--accent)', color: '#fff', opacity: 0.9 }}>
+                              Guide
+                            </span>
+                          )}
                           <CopyLinkButton sectionId={section.id} />
                         </span>
                         <svg
@@ -424,46 +429,47 @@ export default function RulesPage() {
                       </button>
                     </CardHeader>
                     <CardContent id={`panel-${section.id}`} hidden={!isOpen}>
-                      <div
-                        className="rules-content space-y-4"
-                        dangerouslySetInnerHTML={{ __html: processedHtml }}
-                      />
-                      {SECTION_EXPLAINERS[section.id] && (() => {
+                      {SECTION_EXPLAINERS[section.id] ? (() => {
+                        const view = sectionView[section.id] ?? 'rules';
                         const ExplainerComp = SECTION_EXPLAINERS[section.id];
-                        const isExplainerOpen = openExplainers.has(section.id);
                         return (
-                          <div className="mt-5 pt-4 border-t border-[var(--border)]">
-                            <button
-                              onClick={() => setOpenExplainers((prev) => {
-                                const next = new Set(prev);
-                                if (next.has(section.id)) next.delete(section.id);
-                                else next.add(section.id);
-                                return next;
-                              })}
-                              className="flex items-center gap-2 text-sm font-semibold px-3 py-2 rounded-lg transition-all"
-                              style={{
-                                background: isExplainerOpen ? 'var(--accent)' : 'transparent',
-                                color: isExplainerOpen ? '#fff' : 'var(--accent)',
-                                border: '1.5px solid var(--accent)',
-                              }}
-                            >
-                              <span>📊</span>
-                              <span>{isExplainerOpen ? 'Hide Interactive Guide' : 'Interactive Guide'}</span>
-                              <svg
-                                className={`w-4 h-4 transition-transform duration-200 ${isExplainerOpen ? 'rotate-180' : ''}`}
-                                fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                          <>
+                            <div className="flex items-center gap-1.5 mb-4 pb-3 border-b border-[var(--border)]">
+                              <button
+                                onClick={() => setSectionView((p) => ({ ...p, [section.id]: 'rules' }))}
+                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-all"
+                                style={{
+                                  background: view === 'rules' ? 'var(--surface-strong)' : 'transparent',
+                                  color: view === 'rules' ? 'var(--text)' : 'var(--muted)',
+                                  border: `1px solid ${view === 'rules' ? 'var(--border)' : 'transparent'}`,
+                                }}
                               >
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                              </svg>
-                            </button>
-                            {isExplainerOpen && (
-                              <div className="mt-4 rounded-xl overflow-hidden">
+                                📋 Rules Text
+                              </button>
+                              <button
+                                onClick={() => setSectionView((p) => ({ ...p, [section.id]: 'guide' }))}
+                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-semibold transition-all"
+                                style={{
+                                  background: view === 'guide' ? 'var(--accent)' : 'transparent',
+                                  color: view === 'guide' ? '#fff' : 'var(--muted)',
+                                  border: `1px solid ${view === 'guide' ? 'var(--accent)' : 'transparent'}`,
+                                }}
+                              >
+                                📊 Interactive Guide
+                              </button>
+                            </div>
+                            {view === 'rules' ? (
+                              <div className="rules-content space-y-4" dangerouslySetInnerHTML={{ __html: processedHtml }} />
+                            ) : (
+                              <div className="rounded-xl overflow-hidden">
                                 <ExplainerComp />
                               </div>
                             )}
-                          </div>
+                          </>
                         );
-                      })()}
+                      })() : (
+                        <div className="rules-content space-y-4" dangerouslySetInnerHTML={{ __html: processedHtml }} />
+                      )}
                     </CardContent>
                   </Card>
                 );
