@@ -64,8 +64,8 @@ export default function LineupCompliance() {
             <p style={pSt}>The <strong style={{ color: AMB }}>Ruled-Out Deadline</strong> is 12 hours before a player&apos;s scheduled kickoff. Whether a player was ruled out before or after this window determines everything.</p>
             <DeadlineTimeline />
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', margin: '24px 0' }}>
-              <Scenario color={RED} icon="🚫" title="Ruled Out BEFORE the deadline — Violation" desc="If Sleeper shows the player was ruled out more than 12 hours before kickoff, you had time to act. Starting them is an Illegal Lineup." example="Kickoff Sunday 1:00 PM. Player ruled out Saturday 10:00 AM (27 hrs before). You must swap." />
-              <Scenario color={GRN} icon="✅" title="Ruled Out AFTER the deadline — Protected" desc="If the player is ruled out within 12 hours of kickoff, you are not in violation even if they do not play. Timing is what matters." example="Kickoff Sunday 1:00 PM. Player ruled out Sunday 10:00 AM (3 hrs before). No violation." />
+              <Scenario color={RED} icon="🚫" title="Ruled Out BEFORE the deadline — Violation" desc="If Sleeper shows the player was ruled out more than 12 hours before kickoff, you had time to act. Starting them is an Illegal Lineup." example="Kickoff Sunday 1:00 PM ET (12:00 PM CT / 10:00 AM PT). Player ruled out Saturday 10:00 AM ET (9:00 AM CT / 7:00 AM PT) — 27 hrs before kickoff. You must swap." />
+              <Scenario color={GRN} icon="✅" title="Ruled Out AFTER the deadline — Protected" desc="If the player is ruled out within 12 hours of kickoff, you are not in violation even if they do not play. Timing is what matters." example="Kickoff Sunday 1:00 PM ET (12:00 PM CT / 10:00 AM PT). Player ruled out Sunday 10:00 AM ET (9:00 AM CT / 7:00 AM PT) — 3 hrs before kickoff. No violation." />
             </div>
             <Note color={BLU} icon="📋" text={"The official record is Sleeper's Out Update Time on the player's page. If unavailable, Commissioners use the best timestamped source (NFL reports, ESPN, etc.). Their call is final."} />
           </div>
@@ -175,13 +175,13 @@ function Scenario({ color, icon, title, desc, example }: { color: string; icon: 
 
 function DeadlineTimeline() {
   const rows = [
-    { time: 'Saturday 1:00 AM', label: 'Ruled-Out Deadline', sub: '12 hrs before a 1 PM Sunday kickoff', color: AMB, icon: '⏰', hi: true },
-    { time: 'Sat 1 AM to Sun 1 AM', label: 'Safe Zone', sub: 'Ruled out in this window means you are protected', color: GRN, icon: '✅', hi: false },
-    { time: 'Sunday 1:00 PM', label: 'Kickoff', sub: 'Lineup locks — game begins', color: BLU, icon: '🏈', hi: false },
+    { time: '1:00 AM ET · 12:00 AM CT · 10:00 PM PT (Fri)', label: 'Ruled-Out Deadline', sub: 'Saturday — 12 hrs before a 1:00 PM ET Sunday kickoff', color: AMB, icon: '⏰', hi: true },
+    { time: 'Sat 1 AM – Sun 1 AM ET (12 AM – 11 PM CT · 10 PM – 9 PM PT)', label: 'Safe Zone', sub: 'Ruled out in this window means you are protected', color: GRN, icon: '✅', hi: false },
+    { time: '1:00 PM ET · 12:00 PM CT · 10:00 AM PT', label: 'Kickoff', sub: 'Sunday — lineup locks, game begins', color: BLU, icon: '🏈', hi: false },
   ];
   return (
     <div style={{ background: CARD, border: '1px solid ' + BDR, borderRadius: '12px', padding: '24px 20px', marginBottom: '8px' }}>
-      <div style={{ fontSize: '11px', color: MUT, letterSpacing: '2px', textTransform: 'uppercase', marginBottom: '20px' }}>Example: Sunday 1:00 PM kickoff</div>
+      <div style={{ fontSize: '11px', color: MUT, letterSpacing: '2px', textTransform: 'uppercase', marginBottom: '20px' }}>Example: Sunday 1:00 PM ET kickoff</div>
       <div style={{ position: 'relative', paddingLeft: '16px' }}>
         <div style={{ position: 'absolute', left: '27px', top: '10px', bottom: '10px', width: '2px', background: BDR }} />
         {rows.map((e, i) => (

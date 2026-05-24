@@ -18,6 +18,7 @@ const AmendmentsExplainer = dynamic(() => import('@/components/explainers/Amendm
 const SECTION_EXPLAINERS: Record<string, ComponentType> = {
   'rosters-lineups': TaxiSquadExplainer,
   'trades': TradePicksExplainer,
+  'draft': PlayoffStructureExplainer,
   'standings-playoffs': PlayoffStructureExplainer,
   'competitive-integrity': LineupComplianceExplainer,
   'amendments-rule-changes': AmendmentsExplainer,

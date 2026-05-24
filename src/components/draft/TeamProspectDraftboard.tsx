@@ -589,6 +589,20 @@ export default function TeamProspectDraftboard() {
 
   if (loading) return <div style={{ minHeight: '50vh', background: C.bg, color: C.accent, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'Georgia, serif' }}>Loading draft board...</div>;
 
+  const posRankMap = (() => {
+    const byPos: Record<string, Array<{ id: string; pick: number }>> = {};
+    for (const p of players) {
+      if (!byPos[p.pos]) byPos[p.pos] = [];
+      byPos[p.pos].push({ id: p.id, pick: p.pick });
+    }
+    const result: Record<string, number> = {};
+    for (const posGroup of Object.values(byPos)) {
+      posGroup.sort((a, b) => parsePick(a.pick) - parsePick(b.pick));
+      posGroup.forEach((p, i) => { result[p.id] = i + 1; });
+    }
+    return result;
+  })();
+
   const rankedPlayers = players.map((p, idx) => ({ ...p, _absIdx: idx }));
   const title = teamName ? `${teamName} Prospect Draft Board` : 'Team Prospect Draft Board';
   const notedPlayers = rankedPlayers.filter(p => p.userNote && String(p.userNote).trim());
@@ -829,7 +843,7 @@ export default function TeamProspectDraftboard() {
                       <span style={{ display: 'inline-block', padding: '2px 8px', borderRadius: '3px', fontSize: '11px', fontWeight: 700, color: 'white', letterSpacing: '0.5px', background: POS_COLORS[String(p.pos)] || '#666', opacity: (p.unlikely || p.noFit) && !p.target ? 0.6 : 1 }}>{String(p.pos)}</span>
                       <span style={{ fontSize: '12px', color: flagColors.color !== C.text ? flagColors.color : C.textMuted }}>{String(p.team)}</span>
                       <span style={{ fontSize: '11px', color: flagColors.color !== C.text ? `${flagColors.color}aa` : C.textDim }}>· {String(p.college)}</span>
-                      <span style={{ fontSize: '11px', color: flagColors.color !== C.text ? `${flagColors.color}aa` : C.textDim }}>· NFL Pick #{Number(p.pick)}</span>
+                      <span style={{ fontSize: '11px', color: flagColors.color !== C.text ? `${flagColors.color}aa` : C.textDim }}>· {String(p.pos)} {posRankMap[pId] ?? ''} · Pick #{Number(p.pick)}</span>
                     </div>
                     {(playerTags[pId] || []).length > 0 && <div style={{ display: 'flex', gap: '3px', flexWrap: 'wrap', marginTop: '4px' }}>{(playerTags[pId] || []).map(tag => <span key={tag} style={{ fontSize: '9px', padding: '1px 6px', borderRadius: '999px', background: `${C.accent}22`, border: `1px solid ${C.accent}44`, color: C.accent }}>{tag}</span>)}</div>}
                     {boardView === 'notes' && p.userNote && !isExpanded && <div style={{ marginTop: '5px', fontSize: '12px', color: C.textMuted, fontStyle: 'italic', lineHeight: '1.4' }}>{String(p.userNote).length > 160 ? String(p.userNote).substring(0, 160) + '…' : String(p.userNote)}</div>}
