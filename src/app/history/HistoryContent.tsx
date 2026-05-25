@@ -921,18 +921,25 @@ export default function HistoryContent() {
             title="Playoff Brackets"
             actions={
               <div className="flex items-center gap-2">
-                <label htmlFor="year-select" className="sr-only">Select Year</label>
-                <select
-                  id="year-select"
-                  className="mt-1 block w-40 pl-3 pr-10 py-2 text-base border-[var(--border)] focus:outline-none focus:ring-[var(--accent)] focus:border-[var(--accent)] sm:text-sm rounded-md"
-                  value={bracketYear}
-                  onChange={(e) => setBracketYear(e.target.value)}
-                >
-                  <option value="2026">2026 Season</option>
-                  <option value="2025">2025 Season</option>
-                  <option value="2024">2024 Season</option>
-                  <option value="2023">2023 Season</option>
-                </select>
+                {['2025', '2024', '2023'].map((year) => {
+                  const isActive = bracketYear === year;
+                  const colors: Record<string, { bg: string; text: string }> = {
+                    '2025': { bg: '#be161e', text: '#ffffff' },
+                    '2024': { bg: '#0b5f98', text: '#ffffff' },
+                    '2023': { bg: '#bf9944', text: '#111111' },
+                  };
+                  const c = colors[year] || { bg: 'var(--surface)', text: 'var(--text)' };
+                  return (
+                    <button
+                      key={year}
+                      onClick={() => setBracketYear(year)}
+                      className={`px-4 py-2 rounded-md font-bold text-sm transition-all ${isActive ? 'ring-2 ring-offset-2 ring-[var(--accent)] scale-105' : 'opacity-70 hover:opacity-100'}`}
+                      style={{ backgroundColor: c.bg, color: c.text }}
+                    >
+                      {year}
+                    </button>
+                  );
+                })}
               </div>
             }
           />
@@ -1048,20 +1055,20 @@ export default function HistoryContent() {
                               if (sources.length === 0) return [];
                               const jx = CONN_W / 2;
                               if (sources.length === 1) {
-                                return [<path key={`wc-${rIdx}-${ngi}-s`} d={`M 0 ${sources[0]} H ${jx} V ${targetMidY} H ${CONN_W}`} stroke="var(--border)" strokeWidth={1.5} fill="none" />];
+                                return [<path key={`wc-${rIdx}-${ngi}-s`} d={`M 0 ${sources[0]} H ${jx} V ${targetMidY} H ${CONN_W}`} stroke="var(--accent)" strokeWidth={3} fill="none" />];
                               }
                               return [
-                                <path key={`wc-${rIdx}-${ngi}-t`} d={`M 0 ${sources[0]} H ${jx}`} stroke="var(--border)" strokeWidth={1.5} fill="none" />,
-                                <path key={`wc-${rIdx}-${ngi}-b`} d={`M 0 ${sources[1]} H ${jx}`} stroke="var(--border)" strokeWidth={1.5} fill="none" />,
-                                <path key={`wc-${rIdx}-${ngi}-v`} d={`M ${jx} ${sources[0]} V ${sources[1]}`} stroke="var(--border)" strokeWidth={1.5} fill="none" />,
-                                <path key={`wc-${rIdx}-${ngi}-e`} d={`M ${jx} ${targetMidY} H ${CONN_W}`} stroke="var(--border)" strokeWidth={1.5} fill="none" />,
+                                <path key={`wc-${rIdx}-${ngi}-t`} d={`M 0 ${sources[0]} H ${jx}`} stroke="var(--accent)" strokeWidth={3} fill="none" />,
+                                <path key={`wc-${rIdx}-${ngi}-b`} d={`M 0 ${sources[1]} H ${jx}`} stroke="var(--accent)" strokeWidth={3} fill="none" />,
+                                <path key={`wc-${rIdx}-${ngi}-v`} d={`M ${jx} ${sources[0]} V ${sources[1]}`} stroke="var(--accent)" strokeWidth={3} fill="none" />,
+                                <path key={`wc-${rIdx}-${ngi}-e`} d={`M ${jx} ${targetMidY} H ${CONN_W}`} stroke="var(--accent)" strokeWidth={3} fill="none" />,
                               ];
                             }) : [];
 
                             const svgH = colHeight(rIdx, numGames);
                             const col = (
                               <div key={`w-col-${r}`} className="min-w-[260px]">
-                                <h4 className="text-sm font-semibold text-[var(--muted)]" style={{ height: HEADER_H, display: 'flex', alignItems: 'center' }}>{getWinnersRoundLabel(r)}</h4>
+                                <h4 className="text-base font-bold text-[var(--text)]" style={{ height: HEADER_H, display: 'flex', alignItems: 'center' }}>{getWinnersRoundLabel(r)}</h4>
                                 <div>
                                   {games.map((g, idx) => (
                                     <div key={`w-${r}-${g.m}`} style={{ marginTop: idx === 0 ? mt1 : mtN }} className={isLastRound ? 'relative pt-5' : ''}>
@@ -1201,20 +1208,20 @@ export default function HistoryContent() {
                               if (sources.length === 0) return [];
                               const jx = CONN_W / 2;
                               if (sources.length === 1) {
-                                return [<path key={`lc-${rIdx}-${ngi}-s`} d={`M 0 ${sources[0]} H ${jx} V ${targetMidY} H ${CONN_W}`} stroke="var(--border)" strokeWidth={1.5} fill="none" />];
+                                return [<path key={`lc-${rIdx}-${ngi}-s`} d={`M 0 ${sources[0]} H ${jx} V ${targetMidY} H ${CONN_W}`} stroke="var(--accent)" strokeWidth={3} fill="none" />];
                               }
                               return [
-                                <path key={`lc-${rIdx}-${ngi}-t`} d={`M 0 ${sources[0]} H ${jx}`} stroke="var(--border)" strokeWidth={1.5} fill="none" />,
-                                <path key={`lc-${rIdx}-${ngi}-b`} d={`M 0 ${sources[1]} H ${jx}`} stroke="var(--border)" strokeWidth={1.5} fill="none" />,
-                                <path key={`lc-${rIdx}-${ngi}-v`} d={`M ${jx} ${sources[0]} V ${sources[1]}`} stroke="var(--border)" strokeWidth={1.5} fill="none" />,
-                                <path key={`lc-${rIdx}-${ngi}-e`} d={`M ${jx} ${targetMidY} H ${CONN_W}`} stroke="var(--border)" strokeWidth={1.5} fill="none" />,
+                                <path key={`lc-${rIdx}-${ngi}-t`} d={`M 0 ${sources[0]} H ${jx}`} stroke="var(--accent)" strokeWidth={3} fill="none" />,
+                                <path key={`lc-${rIdx}-${ngi}-b`} d={`M 0 ${sources[1]} H ${jx}`} stroke="var(--accent)" strokeWidth={3} fill="none" />,
+                                <path key={`lc-${rIdx}-${ngi}-v`} d={`M ${jx} ${sources[0]} V ${sources[1]}`} stroke="var(--accent)" strokeWidth={3} fill="none" />,
+                                <path key={`lc-${rIdx}-${ngi}-e`} d={`M ${jx} ${targetMidY} H ${CONN_W}`} stroke="var(--accent)" strokeWidth={3} fill="none" />,
                               ];
                             }) : [];
 
                             const svgH = colHeight(rIdx, numGames);
                             const col = (
                               <div key={`l-col-${r}`} className="min-w-[260px]">
-                                <h4 className="text-sm font-semibold text-[var(--muted)]" style={{ height: HEADER_H, display: 'flex', alignItems: 'center' }}>{getLosersRoundLabel(r, rIdx)}</h4>
+                                <h4 className="text-base font-bold text-[var(--text)]" style={{ height: HEADER_H, display: 'flex', alignItems: 'center' }}>{getLosersRoundLabel(r, rIdx)}</h4>
                                 <div>
                                   {games.map((g, idx) => (
                                     <div key={`l-${r}-${g.m}`} style={{ marginTop: idx === 0 ? mt1 : mtN }} className={isLastRound ? 'relative pt-5' : ''}>
