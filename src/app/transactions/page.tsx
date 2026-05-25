@@ -111,7 +111,10 @@ export default async function TransactionsPage({
   if (week && !Number.isNaN(week)) filtered = filtered.filter((t) => (t.week || 0) === week);
   const pos = position && position !== "all" ? position : undefined;
   if (pos) filtered = filtered.filter((t) => t.added.some((p) => p.position === pos));
-  if (txnType && txnType !== 'all') filtered = filtered.filter((t) => t.type === txnType);
+  // Default (no param) excludes trades; "all" includes everything
+  const effectiveType = txnType ?? 'fa_waiver';
+  if (effectiveType === 'fa_waiver') filtered = filtered.filter((t) => t.type !== 'trade');
+  else if (effectiveType !== 'all') filtered = filtered.filter((t) => t.type === effectiveType);
   const transactions = sortTransactions(filtered, sortKey, sortDirection);
   const summary = buildSummary(transactions);
   const view = (Array.isArray(params.view) ? params.view[0] : params.view) || "all";
@@ -133,7 +136,7 @@ export default async function TransactionsPage({
       {view === 'all' && (
         <>
           <Suspense fallback={null}>
-            <TransactionsFilters summary={summary} seasons={seasons} teams={teams} positions={positions} activeType={txnType ?? "all"} />
+            <TransactionsFilters summary={summary} seasons={seasons} teams={teams} positions={positions} activeType={effectiveType} />
           </Suspense>
         <Card className="mt-4">
           <CardContent className="p-0">

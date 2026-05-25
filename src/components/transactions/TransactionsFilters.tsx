@@ -25,7 +25,7 @@ export default function TransactionsFilters({
   const activeTeam = searchParams.get("team") ?? "all";
   const activeWeek = searchParams.get("week") ?? "all";
   const activePosition = searchParams.get("position") ?? "all";
-  const activeType = searchParams.get("type") ?? activeTypeProp;
+  const activeType = searchParams.get("type") ?? activeTypeProp ?? "fa_waiver";
   const sort = searchParams.get("sort") ?? "created";
   const direction = searchParams.get("direction") ?? "desc";
 
@@ -115,10 +115,11 @@ export default function TransactionsFilters({
           value={activeType}
           onChange={(e) => updateParam("type", e.target.value)}
         >
+          <option value="fa_waiver">FA &amp; Waivers</option>
           <option value="all">All types</option>
-          <option value="waiver">Waivers</option>
-          <option value="free_agent">Free Agents</option>
-          <option value="trade">Trades</option>
+          <option value="waiver">Waivers only</option>
+          <option value="free_agent">Free Agents only</option>
+          <option value="trade">Trades only</option>
         </select>
         <button
           type="button"

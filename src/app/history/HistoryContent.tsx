@@ -990,8 +990,20 @@ export default function HistoryContent() {
                         </div>
                       );
                     };
-                    const MATCH_H = 72; // px
-                    const GAP = 24; // px
+                    const MATCH_H = 72;
+                    const GAP = 24;
+                    const CONN_W = 44;
+                    const HEADER_H = 28;
+                    const cardTopY = (ri: number, gi: number) => {
+                      const mt1 = ri === 0 ? 0 : ((MATCH_H + GAP) * Math.pow(2, ri - 1)) / 2;
+                      const mtN = ri === 0 ? GAP : ((MATCH_H + GAP) * Math.pow(2, ri - 1));
+                      return mt1 + gi * (MATCH_H + mtN);
+                    };
+                    const colHeight = (ri: number, n: number) => {
+                      const mt1 = ri === 0 ? 0 : ((MATCH_H + GAP) * Math.pow(2, ri - 1)) / 2;
+                      const mtN = ri === 0 ? GAP : ((MATCH_H + GAP) * Math.pow(2, ri - 1));
+                      return mt1 + n * MATCH_H + Math.max(0, n - 1) * mtN;
+                    };
                     const winnersGameLabels = ['Championship', '3rd Place Game', '5th Place Game'];
                     const getWinnersRoundLabel = (r: number) => {
                       if (r === totalRounds) return 'Finals';
@@ -1000,17 +1012,52 @@ export default function HistoryContent() {
                     };
                     return (
                       <div className="overflow-x-auto">
-                        <div className="flex items-start gap-8">
-                          {roundNums.map((r, rIdx) => {
-                            const mtFirst = rIdx === 0 ? 0 : ((MATCH_H + GAP) * Math.pow(2, rIdx - 1)) / 2;
-                            const mtBetween = rIdx === 0 ? GAP : ((MATCH_H + GAP) * Math.pow(2, rIdx - 1));
+                        <div className="flex items-start">
+                          {roundNums.flatMap((r, rIdx) => {
+                            const mt1 = rIdx === 0 ? 0 : ((MATCH_H + GAP) * Math.pow(2, rIdx - 1)) / 2;
+                            const mtN = rIdx === 0 ? GAP : ((MATCH_H + GAP) * Math.pow(2, rIdx - 1));
+                            const games = byRound[r];
+                            const numGames = games.length;
                             const isLastRound = r === totalRounds;
-                            return (
-                              <div key={`w-round-${r}`} className="min-w-[260px]">
-                                <h4 className="font-semibold text-[var(--muted)] mb-2">{getWinnersRoundLabel(r)}</h4>
+                            const nextRIdx = rIdx + 1;
+                            const nextR = roundNums[nextRIdx];
+                            const nextGames = nextR != null ? byRound[nextR] : null;
+
+                            const gameByM = new Map<number, number>();
+                            games.forEach((g, i) => { if (g.m != null) gameByM.set(g.m, i); });
+
+                            const connPaths = (!isLastRound && nextGames) ? nextGames.flatMap((ng, ngi) => {
+                              const targetMidY = cardTopY(nextRIdx, ngi) + MATCH_H / 2;
+                              const sources: number[] = [];
+                              for (const from of [ng.t1_from, ng.t2_from]) {
+                                if (from == null) continue;
+                                const srcM = from.w ?? from.l;
+                                if (srcM == null) continue;
+                                const srcIdx = gameByM.get(srcM);
+                                if (srcIdx == null) continue;
+                                sources.push(cardTopY(rIdx, srcIdx) + MATCH_H / 2);
+                              }
+                              sources.sort((a, b) => a - b);
+                              if (sources.length === 0) return [];
+                              const jx = CONN_W / 2;
+                              if (sources.length === 1) {
+                                return [<path key={`wc-${rIdx}-${ngi}-s`} d={`M 0 ${sources[0]} H ${jx} V ${targetMidY} H ${CONN_W}`} stroke="var(--border)" strokeWidth={1.5} fill="none" />];
+                              }
+                              return [
+                                <path key={`wc-${rIdx}-${ngi}-t`} d={`M 0 ${sources[0]} H ${jx}`} stroke="var(--border)" strokeWidth={1.5} fill="none" />,
+                                <path key={`wc-${rIdx}-${ngi}-b`} d={`M 0 ${sources[1]} H ${jx}`} stroke="var(--border)" strokeWidth={1.5} fill="none" />,
+                                <path key={`wc-${rIdx}-${ngi}-v`} d={`M ${jx} ${sources[0]} V ${sources[1]}`} stroke="var(--border)" strokeWidth={1.5} fill="none" />,
+                                <path key={`wc-${rIdx}-${ngi}-e`} d={`M ${jx} ${targetMidY} H ${CONN_W}`} stroke="var(--border)" strokeWidth={1.5} fill="none" />,
+                              ];
+                            }) : [];
+
+                            const svgH = colHeight(rIdx, numGames);
+                            const col = (
+                              <div key={`w-col-${r}`} className="min-w-[260px]">
+                                <h4 className="text-sm font-semibold text-[var(--muted)]" style={{ height: HEADER_H, display: 'flex', alignItems: 'center' }}>{getWinnersRoundLabel(r)}</h4>
                                 <div>
-                                  {byRound[r].map((g, idx) => (
-                                    <div key={`w-${r}-${g.m}`} style={{ marginTop: idx === 0 ? mtFirst : mtBetween }} className={isLastRound ? 'relative pt-5' : ''}>
+                                  {games.map((g, idx) => (
+                                    <div key={`w-${r}-${g.m}`} style={{ marginTop: idx === 0 ? mt1 : mtN }} className={isLastRound ? 'relative pt-5' : ''}>
                                       {isLastRound && (
                                         <div className="absolute top-0 left-0 right-0 text-center text-xs font-semibold text-[var(--muted)] uppercase tracking-wide">
                                           {winnersGameLabels[idx] ?? ''}
@@ -1025,6 +1072,16 @@ export default function HistoryContent() {
                                 </div>
                               </div>
                             );
+                            if (isLastRound) return [col];
+                            const conn = (
+                              <div key={`w-conn-${r}`} style={{ width: CONN_W, flexShrink: 0 }}>
+                                <div style={{ height: HEADER_H }} />
+                                <svg width={CONN_W} height={svgH} style={{ display: 'block', overflow: 'visible' }}>
+                                  {connPaths}
+                                </svg>
+                              </div>
+                            );
+                            return [col, conn];
                           })}
                         </div>
                       </div>
@@ -1080,26 +1137,73 @@ export default function HistoryContent() {
                         </div>
                       );
                     };
-                    const MATCH_H = 72; // px
-                    const GAP = 24; // px
-                    const losersGameLabels = ['7th Place Game', '9th Place Game', '11th Place Game', '13th Place Game'];
+                    const MATCH_H = 72;
+                    const GAP = 24;
+                    const CONN_W = 44;
+                    const HEADER_H = 28;
+                    const cardTopY = (ri: number, gi: number) => {
+                      const mt1 = ri === 0 ? 0 : ((MATCH_H + GAP) * Math.pow(2, ri - 1)) / 2;
+                      const mtN = ri === 0 ? GAP : ((MATCH_H + GAP) * Math.pow(2, ri - 1));
+                      return mt1 + gi * (MATCH_H + mtN);
+                    };
+                    const colHeight = (ri: number, n: number) => {
+                      const mt1 = ri === 0 ? 0 : ((MATCH_H + GAP) * Math.pow(2, ri - 1)) / 2;
+                      const mtN = ri === 0 ? GAP : ((MATCH_H + GAP) * Math.pow(2, ri - 1));
+                      return mt1 + n * MATCH_H + Math.max(0, n - 1) * mtN;
+                    };
+                    const losersGameLabels = ['8th Place Game', '10th Place Game', '12th Place Game', 'Last Place Game'];
                     const getLosersRoundLabel = (r: number, rIdx: number) => {
                       if (r === totalRounds) return 'Final Places';
                       return `Consolation Round ${rIdx + 1}`;
                     };
                     return (
                       <div className="overflow-x-auto">
-                        <div className="flex items-start gap-8">
-                          {roundNums.map((r, rIdx) => {
-                            const mtFirst = rIdx === 0 ? 0 : ((MATCH_H + GAP) * Math.pow(2, rIdx - 1)) / 2;
-                            const mtBetween = rIdx === 0 ? GAP : ((MATCH_H + GAP) * Math.pow(2, rIdx - 1));
+                        <div className="flex items-start">
+                          {roundNums.flatMap((r, rIdx) => {
+                            const mt1 = rIdx === 0 ? 0 : ((MATCH_H + GAP) * Math.pow(2, rIdx - 1)) / 2;
+                            const mtN = rIdx === 0 ? GAP : ((MATCH_H + GAP) * Math.pow(2, rIdx - 1));
+                            const games = byRound[r];
+                            const numGames = games.length;
                             const isLastRound = r === totalRounds;
-                            return (
-                              <div key={`l-round-${r}`} className="min-w-[260px]">
-                                <h4 className="font-semibold text-[var(--muted)] mb-2">{getLosersRoundLabel(r, rIdx)}</h4>
+                            const nextRIdx = rIdx + 1;
+                            const nextR = roundNums[nextRIdx];
+                            const nextGames = nextR != null ? byRound[nextR] : null;
+
+                            const gameByM = new Map<number, number>();
+                            games.forEach((g, i) => { if (g.m != null) gameByM.set(g.m, i); });
+
+                            const connPaths = (!isLastRound && nextGames) ? nextGames.flatMap((ng, ngi) => {
+                              const targetMidY = cardTopY(nextRIdx, ngi) + MATCH_H / 2;
+                              const sources: number[] = [];
+                              for (const from of [ng.t1_from, ng.t2_from]) {
+                                if (from == null) continue;
+                                const srcM = from.w ?? from.l;
+                                if (srcM == null) continue;
+                                const srcIdx = gameByM.get(srcM);
+                                if (srcIdx == null) continue;
+                                sources.push(cardTopY(rIdx, srcIdx) + MATCH_H / 2);
+                              }
+                              sources.sort((a, b) => a - b);
+                              if (sources.length === 0) return [];
+                              const jx = CONN_W / 2;
+                              if (sources.length === 1) {
+                                return [<path key={`lc-${rIdx}-${ngi}-s`} d={`M 0 ${sources[0]} H ${jx} V ${targetMidY} H ${CONN_W}`} stroke="var(--border)" strokeWidth={1.5} fill="none" />];
+                              }
+                              return [
+                                <path key={`lc-${rIdx}-${ngi}-t`} d={`M 0 ${sources[0]} H ${jx}`} stroke="var(--border)" strokeWidth={1.5} fill="none" />,
+                                <path key={`lc-${rIdx}-${ngi}-b`} d={`M 0 ${sources[1]} H ${jx}`} stroke="var(--border)" strokeWidth={1.5} fill="none" />,
+                                <path key={`lc-${rIdx}-${ngi}-v`} d={`M ${jx} ${sources[0]} V ${sources[1]}`} stroke="var(--border)" strokeWidth={1.5} fill="none" />,
+                                <path key={`lc-${rIdx}-${ngi}-e`} d={`M ${jx} ${targetMidY} H ${CONN_W}`} stroke="var(--border)" strokeWidth={1.5} fill="none" />,
+                              ];
+                            }) : [];
+
+                            const svgH = colHeight(rIdx, numGames);
+                            const col = (
+                              <div key={`l-col-${r}`} className="min-w-[260px]">
+                                <h4 className="text-sm font-semibold text-[var(--muted)]" style={{ height: HEADER_H, display: 'flex', alignItems: 'center' }}>{getLosersRoundLabel(r, rIdx)}</h4>
                                 <div>
-                                  {byRound[r].map((g, idx) => (
-                                    <div key={`l-${r}-${g.m}`} style={{ marginTop: idx === 0 ? mtFirst : mtBetween }} className={isLastRound ? 'relative pt-5' : ''}>
+                                  {games.map((g, idx) => (
+                                    <div key={`l-${r}-${g.m}`} style={{ marginTop: idx === 0 ? mt1 : mtN }} className={isLastRound ? 'relative pt-5' : ''}>
                                       {isLastRound && (
                                         <div className="absolute top-0 left-0 right-0 text-center text-xs font-semibold text-[var(--muted)] uppercase tracking-wide">
                                           {losersGameLabels[idx] ?? ''}
@@ -1114,6 +1218,16 @@ export default function HistoryContent() {
                                 </div>
                               </div>
                             );
+                            if (isLastRound) return [col];
+                            const conn = (
+                              <div key={`l-conn-${r}`} style={{ width: CONN_W, flexShrink: 0 }}>
+                                <div style={{ height: HEADER_H }} />
+                                <svg width={CONN_W} height={svgH} style={{ display: 'block', overflow: 'visible' }}>
+                                  {connPaths}
+                                </svg>
+                              </div>
+                            );
+                            return [col, conn];
                           })}
                         </div>
                       </div>
