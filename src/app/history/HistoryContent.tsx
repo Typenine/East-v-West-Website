@@ -971,14 +971,14 @@ export default function HistoryContent() {
                       const textColor = bgColor ? readableOn(bgColor) : undefined;
                       return (
                         <div
-                          className={`flex items-center justify-between gap-2 px-2 rounded h-[34px] ${isWinner ? 'font-semibold' : ''}`}
+                          className={`flex items-center justify-between gap-2 px-2 rounded h-[48px] ${isWinner ? 'font-semibold' : ''}`}
                           style={bgColor ? { backgroundColor: bgColor, color: textColor } : undefined}
                         >
                           <div className="min-w-0 flex-1 flex items-center gap-2">
                             {nm !== 'BYE' && rid != null ? (
                               <Link href={`/teams/${rid}`} className="flex items-center gap-2 min-w-0 hover:opacity-80 transition-opacity" title={nm} style={{ color: textColor }}>
-                                <div className="w-7 h-7 rounded-full overflow-hidden border shrink-0 bg-white/20" style={{ borderColor: 'rgba(255,255,255,0.4)' }}>
-                                  <Image src={getTeamLogoPath(nm)} alt={nm} width={28} height={28} className="object-contain w-7 h-7" />
+                                <div className="w-[42px] h-[42px] rounded-full overflow-hidden border shrink-0 bg-white/20" style={{ borderColor: 'rgba(255,255,255,0.4)' }}>
+                                  <Image src={getTeamLogoPath(nm)} alt={nm} width={42} height={42} className="object-contain w-[42px] h-[42px]" />
                                 </div>
                                 <span className="truncate text-xs font-medium">
                                   {seed ? `#${seed} ` : ''}{nm}
@@ -1125,14 +1125,14 @@ export default function HistoryContent() {
                       const textColor = bgColor ? readableOn(bgColor) : undefined;
                       return (
                         <div
-                          className={`flex items-center justify-between gap-2 px-2 rounded h-[34px] ${isWinner ? 'font-semibold' : ''}`}
+                          className={`flex items-center justify-between gap-2 px-2 rounded h-[48px] ${isWinner ? 'font-semibold' : ''}`}
                           style={bgColor ? { backgroundColor: bgColor, color: textColor } : undefined}
                         >
                           <div className="min-w-0 flex-1 flex items-center gap-2">
                             {nm !== 'BYE' && rid != null ? (
                               <Link href={`/teams/${rid}`} className="flex items-center gap-2 min-w-0 hover:opacity-80 transition-opacity" title={nm} style={{ color: textColor }}>
-                                <div className="w-7 h-7 rounded-full overflow-hidden border shrink-0 bg-white/20" style={{ borderColor: 'rgba(255,255,255,0.4)' }}>
-                                  <Image src={getTeamLogoPath(nm)} alt={nm} width={28} height={28} className="object-contain w-7 h-7" />
+                                <div className="w-[42px] h-[42px] rounded-full overflow-hidden border shrink-0 bg-white/20" style={{ borderColor: 'rgba(255,255,255,0.4)' }}>
+                                  <Image src={getTeamLogoPath(nm)} alt={nm} width={42} height={42} className="object-contain w-[42px] h-[42px]" />
                                 </div>
                                 <span className="truncate text-xs font-medium">
                                   {seed ? `#${seed} ` : ''}{nm}
