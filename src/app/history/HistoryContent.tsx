@@ -997,7 +997,7 @@ export default function HistoryContent() {
                         </div>
                       );
                     };
-                    const MATCH_H = 80;
+                    const MATCH_H = 108;
                     const GAP = 24;
                     const CONN_W = 44;
                     const HEADER_H = 28;
@@ -1070,7 +1070,7 @@ export default function HistoryContent() {
                                           {winnersGameLabels[idx] ?? ''}
                                         </div>
                                       )}
-                                      <div className="border rounded p-2 h-[80px] flex flex-col justify-between">
+                                      <div className="border rounded p-2 h-[108px] flex flex-col justify-between">
                                         <TeamRow rid={g.t1 ?? null} isWinner={g.w != null && g.t1 != null && g.w === g.t1} score={g.t1_points ?? null} />
                                         <TeamRow rid={g.t2 ?? null} isWinner={g.w != null && g.t2 != null && g.w === g.t2} score={g.t2_points ?? null} />
                                       </div>
@@ -1151,7 +1151,7 @@ export default function HistoryContent() {
                         </div>
                       );
                     };
-                    const MATCH_H = 80;
+                    const MATCH_H = 108;
                     const GAP = 24;
                     const CONN_W = 44;
                     const HEADER_H = 28;
@@ -1223,7 +1223,7 @@ export default function HistoryContent() {
                                           {losersGameLabels[idx] ?? ''}
                                         </div>
                                       )}
-                                      <div className="border rounded p-2 h-[80px] flex flex-col justify-between">
+                                      <div className="border rounded p-2 h-[108px] flex flex-col justify-between">
                                         <TeamRow rid={g.t1 ?? null} isWinner={g.w != null && g.t1 != null && g.w === g.t1} score={g.t1_points ?? null} />
                                         <TeamRow rid={g.t2 ?? null} isWinner={g.w != null && g.t2 != null && g.w === g.t2} score={g.t2_points ?? null} />
                                       </div>
