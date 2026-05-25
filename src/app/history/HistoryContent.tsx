@@ -971,14 +971,14 @@ export default function HistoryContent() {
                       const textColor = bgColor ? readableOn(bgColor) : undefined;
                       return (
                         <div
-                          className={`flex items-center justify-between gap-2 px-2 py-1 rounded ${isWinner ? 'font-semibold' : ''}`}
+                          className={`flex items-center justify-between gap-2 px-2 rounded h-[34px] ${isWinner ? 'font-semibold' : ''}`}
                           style={bgColor ? { backgroundColor: bgColor, color: textColor } : undefined}
                         >
                           <div className="min-w-0 flex-1 flex items-center gap-2">
                             {nm !== 'BYE' && rid != null ? (
                               <Link href={`/teams/${rid}`} className="flex items-center gap-2 min-w-0 hover:opacity-80 transition-opacity" title={nm} style={{ color: textColor }}>
-                                <div className="w-5 h-5 rounded-full overflow-hidden border shrink-0 bg-white/20" style={{ borderColor: 'rgba(255,255,255,0.4)' }}>
-                                  <Image src={getTeamLogoPath(nm)} alt={nm} width={20} height={20} className="object-contain w-5 h-5" />
+                                <div className="w-7 h-7 rounded-full overflow-hidden border shrink-0 bg-white/20" style={{ borderColor: 'rgba(255,255,255,0.4)' }}>
+                                  <Image src={getTeamLogoPath(nm)} alt={nm} width={28} height={28} className="object-contain w-7 h-7" />
                                 </div>
                                 <span className="truncate text-xs font-medium">
                                   {seed ? `#${seed} ` : ''}{nm}
@@ -997,7 +997,7 @@ export default function HistoryContent() {
                         </div>
                       );
                     };
-                    const MATCH_H = 72;
+                    const MATCH_H = 80;
                     const GAP = 24;
                     const CONN_W = 44;
                     const HEADER_H = 28;
@@ -1070,7 +1070,7 @@ export default function HistoryContent() {
                                           {winnersGameLabels[idx] ?? ''}
                                         </div>
                                       )}
-                                      <div className="border rounded p-3 h-[72px] flex flex-col justify-between">
+                                      <div className="border rounded p-2 h-[80px] flex flex-col justify-between">
                                         <TeamRow rid={g.t1 ?? null} isWinner={g.w != null && g.t1 != null && g.w === g.t1} score={g.t1_points ?? null} />
                                         <TeamRow rid={g.t2 ?? null} isWinner={g.w != null && g.t2 != null && g.w === g.t2} score={g.t2_points ?? null} />
                                       </div>
@@ -1125,14 +1125,14 @@ export default function HistoryContent() {
                       const textColor = bgColor ? readableOn(bgColor) : undefined;
                       return (
                         <div
-                          className={`flex items-center justify-between gap-2 px-2 py-1 rounded ${isWinner ? 'font-semibold' : ''}`}
+                          className={`flex items-center justify-between gap-2 px-2 rounded h-[34px] ${isWinner ? 'font-semibold' : ''}`}
                           style={bgColor ? { backgroundColor: bgColor, color: textColor } : undefined}
                         >
                           <div className="min-w-0 flex-1 flex items-center gap-2">
                             {nm !== 'BYE' && rid != null ? (
                               <Link href={`/teams/${rid}`} className="flex items-center gap-2 min-w-0 hover:opacity-80 transition-opacity" title={nm} style={{ color: textColor }}>
-                                <div className="w-5 h-5 rounded-full overflow-hidden border shrink-0 bg-white/20" style={{ borderColor: 'rgba(255,255,255,0.4)' }}>
-                                  <Image src={getTeamLogoPath(nm)} alt={nm} width={20} height={20} className="object-contain w-5 h-5" />
+                                <div className="w-7 h-7 rounded-full overflow-hidden border shrink-0 bg-white/20" style={{ borderColor: 'rgba(255,255,255,0.4)' }}>
+                                  <Image src={getTeamLogoPath(nm)} alt={nm} width={28} height={28} className="object-contain w-7 h-7" />
                                 </div>
                                 <span className="truncate text-xs font-medium">
                                   {seed ? `#${seed} ` : ''}{nm}
@@ -1151,7 +1151,7 @@ export default function HistoryContent() {
                         </div>
                       );
                     };
-                    const MATCH_H = 72;
+                    const MATCH_H = 80;
                     const GAP = 24;
                     const CONN_W = 44;
                     const HEADER_H = 28;
@@ -1223,7 +1223,7 @@ export default function HistoryContent() {
                                           {losersGameLabels[idx] ?? ''}
                                         </div>
                                       )}
-                                      <div className="border rounded p-3 h-[72px] flex flex-col justify-between">
+                                      <div className="border rounded p-2 h-[80px] flex flex-col justify-between">
                                         <TeamRow rid={g.t1 ?? null} isWinner={g.w != null && g.t1 != null && g.w === g.t1} score={g.t1_points ?? null} />
                                         <TeamRow rid={g.t2 ?? null} isWinner={g.w != null && g.t2 != null && g.w === g.t2} score={g.t2_points ?? null} />
                                       </div>
