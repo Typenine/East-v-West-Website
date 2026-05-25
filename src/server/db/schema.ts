@@ -1,17 +1,64 @@
-import { pgTable, uuid, varchar, text, timestamp, jsonb, pgEnum, index, integer, primaryKey } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, varchar, text, timestamp, jsonb, pgEnum, index, integer, primaryKey, boolean } from 'drizzle-orm/pg-core';
 
 export const roleEnum = pgEnum('user_role', ['admin', 'user']);
 export const suggestionStatusEnum = pgEnum('suggestion_status', ['draft', 'open', 'accepted', 'rejected']);
 export const taxiEventEnum = pgEnum('taxi_event', ['add', 'remove', 'promote', 'demote']);
 
+// ============ Leagues (Multi-League Support) ============
+
+export const leagues = pgTable('leagues', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  slug: varchar('slug', { length: 64 }).notNull().unique(),
+  name: varchar('name', { length: 255 }).notNull(),
+  shortName: varchar('short_name', { length: 32 }),
+  sleeperLeagueId: varchar('sleeper_league_id', { length: 64 }),
+  sleeperLeagueIds: jsonb('sleeper_league_ids').$type<Record<string, string>>().default({}),
+  logoUrl: text('logo_url'),
+  primaryColor: varchar('primary_color', { length: 16 }),
+  secondaryColor: varchar('secondary_color', { length: 16 }),
+  config: jsonb('config').$type<Record<string, unknown>>().default({}),
+  teamColors: jsonb('team_colors').$type<Record<string, { primary: string; secondary: string; tertiary?: string; quaternary?: string }>>().default({}),
+  rulesContent: text('rules_content'),
+  rulesFileKey: text('rules_file_key'),
+  foundedYear: integer('founded_year'),
+  setupCompleted: boolean('setup_completed').default(false).notNull(),
+  isActive: boolean('is_active').default(true).notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+}, (t) => ({
+  slugIdx: index('leagues_slug_idx').on(t.slug),
+  sleeperIdx: index('leagues_sleeper_idx').on(t.sleeperLeagueId),
+}));
+
 export const users = pgTable('users', {
   id: uuid('id').primaryKey().defaultRandom(),
   email: varchar('email', { length: 255 }).notNull().unique(),
   displayName: varchar('display_name', { length: 255 }),
+  passwordHash: text('password_hash'),
   role: roleEnum('role').default('user').notNull(),
+  leagueId: uuid('league_id').references(() => leagues.id),
+  teamName: varchar('team_name', { length: 255 }),
+  sleeperUserId: varchar('sleeper_user_id', { length: 64 }),
   createdAt: timestamp('created_at', { withTimezone: false }).defaultNow().notNull(),
 }, (t) => ({
   emailIdx: index('users_email_idx').on(t.email),
+  leagueIdx: index('users_league_idx').on(t.leagueId),
+}));
+
+// League invites for team signup
+export const leagueInvites = pgTable('league_invites', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  leagueId: uuid('league_id').references(() => leagues.id).notNull(),
+  teamName: varchar('team_name', { length: 255 }).notNull(),
+  rosterId: integer('roster_id'),
+  inviteCode: varchar('invite_code', { length: 64 }).notNull().unique(),
+  defaultPin: varchar('default_pin', { length: 64 }),
+  claimedAt: timestamp('claimed_at', { withTimezone: true }),
+  claimedBy: uuid('claimed_by').references(() => users.id),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+}, (t) => ({
+  leagueIdx: index('league_invites_league_idx').on(t.leagueId),
+  codeIdx: index('league_invites_code_idx').on(t.inviteCode),
 }));
 
 export const teams = pgTable('teams', {
@@ -35,6 +82,7 @@ export const players = pgTable('players', {
 export const suggestions = pgTable('suggestions', {
   id: uuid('id').primaryKey().defaultRandom(),
   userId: uuid('user_id'),
+  leagueId: uuid('league_id').references(() => leagues.id),
   text: text('text').notNull(),
   category: varchar('category', { length: 64 }),
   status: suggestionStatusEnum('status').default('open').notNull(),
@@ -43,6 +91,7 @@ export const suggestions = pgTable('suggestions', {
 }, (t) => ({
   userIdx: index('suggestions_user_idx').on(t.userId),
   statusCreatedIdx: index('suggestions_status_created_idx').on(t.status, t.createdAt),
+  leagueIdx: index('suggestions_league_idx').on(t.leagueId),
 }));
 
 export const taxiSquadMembers = pgTable('taxi_squad_members', {
@@ -82,12 +131,14 @@ export const mediaFiles = pgTable('media_files', {
 export const teamPins = pgTable('team_pins', {
   id: uuid('id').primaryKey().defaultRandom(),
   teamSlug: varchar('team_slug', { length: 128 }).notNull().unique(),
+  leagueId: uuid('league_id').references(() => leagues.id),
   hash: text('hash').notNull(),
   salt: text('salt').notNull(),
   pinVersion: integer('pin_version').default(1).notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 }, (t) => ({
   slugIdx: index('team_pins_slug_idx').on(t.teamSlug),
+  leagueIdx: index('team_pins_league_idx').on(t.leagueId),
 }));
 
 export const taxiObservations = pgTable('taxi_observations', {
@@ -98,6 +149,7 @@ export const taxiObservations = pgTable('taxi_observations', {
 
 export const userDocs = pgTable('user_docs', {
   userId: varchar('user_id', { length: 64 }).primaryKey(),
+  leagueId: uuid('league_id').references(() => leagues.id),
   team: varchar('team', { length: 255 }).notNull(),
   version: integer('version').default(0).notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
@@ -106,10 +158,12 @@ export const userDocs = pgTable('user_docs', {
   tradeWants: jsonb('trade_wants').$type<{ text?: string; positions?: string[] } | null>().default(null),
 }, (t) => ({
   userTeamIdx: index('user_docs_team_idx').on(t.team),
+  leagueIdx: index('user_docs_league_idx').on(t.leagueId),
 }));
 
 export const tradeBlockEvents = pgTable('trade_block_events', {
   id: uuid('id').primaryKey().defaultRandom(),
+  leagueId: uuid('league_id').references(() => leagues.id),
   team: varchar('team', { length: 255 }).notNull(),
   eventType: varchar('event_type', { length: 32 }).notNull(), // 'added' | 'removed' | 'wants_changed'
   assetType: varchar('asset_type', { length: 32 }), // 'player' | 'pick' | 'faab' | null for wants_changed
@@ -122,6 +176,7 @@ export const tradeBlockEvents = pgTable('trade_block_events', {
 }, (t) => ({
   teamCreatedIdx: index('trade_block_events_team_created_idx').on(t.team, t.createdAt),
   sentAtIdx: index('trade_block_events_sent_at_idx').on(t.sentAt),
+  leagueIdx: index('trade_block_events_league_idx').on(t.leagueId),
 }));
 
 // R2 storage config
@@ -175,141 +230,17 @@ export const taxiSnapshots = pgTable('taxi_snapshots', {
   teamIdx: index('taxi_snapshots_team_idx').on(t.teamId),
 }));
 
-// ============ Newsletter Bot Memory ============
-
-export const botNameEnum = pgEnum('bot_name', ['entertainer', 'analyst']);
-export const summaryMoodEnum = pgEnum('summary_mood', ['Focused', 'Fired Up', 'Deflated', 'Chaotic', 'Vindicated']);
-export const teamMoodEnum = pgEnum('team_mood', ['Neutral', 'Confident', 'Suspicious', 'Irritated']);
-
-// Bot memory - stores overall bot state and per-team sentiment
-// Now includes enhanced memory fields for personality evolution
-export const botMemory = pgTable('bot_memory', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  bot: botNameEnum('bot').notNull(),
-  season: integer('season').notNull(),
-  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
-  summaryMood: summaryMoodEnum('summary_mood').default('Focused').notNull(),
-  // Per-team memory stored as JSONB: { "Team Name": { trust: number, frustration: number, mood: string, ... } }
-  teams: jsonb('teams').$type<Record<string, { trust: number; frustration: number; mood: string }>>().default({}).notNull(),
-  // Enhanced memory fields stored as JSONB for personality evolution
-  // Includes: personality traits, emotional state, speech patterns, partner dynamics, predictions, hot takes, narratives
-  enhancedData: jsonb('enhanced_data').$type<Record<string, unknown>>().default({}).notNull(),
-}, (t) => ({
-  botSeasonIdx: index('bot_memory_bot_season_idx').on(t.bot, t.season),
-}));
-
-// Forecast records - tracks prediction accuracy over the season
-export const forecastRecords = pgTable('forecast_records', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  season: integer('season').notNull(),
-  bot: botNameEnum('bot').notNull(),
-  wins: integer('wins').default(0).notNull(),
-  losses: integer('losses').default(0).notNull(),
-  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
-}, (t) => ({
-  seasonBotIdx: index('forecast_records_season_bot_idx').on(t.season, t.bot),
-}));
-
-// Pending picks - stores predictions to grade next week
-export const pendingPicks = pgTable('pending_picks', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  season: integer('season').notNull(),
-  week: integer('week').notNull(), // The week these picks are FOR (next week)
-  matchupId: varchar('matchup_id', { length: 64 }).notNull(),
-  team1: varchar('team1', { length: 255 }),
-  team2: varchar('team2', { length: 255 }),
-  entertainerPick: varchar('entertainer_pick', { length: 255 }),
-  analystPick: varchar('analyst_pick', { length: 255 }),
-  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
-}, (t) => ({
-  seasonWeekIdx: index('pending_picks_season_week_idx').on(t.season, t.week),
-}));
-
-// Staged newsletter generation - tracks progress of Tuesday→Wednesday builds
-export const newsletterStatusEnum = pgEnum('newsletter_status', ['pending', 'in_progress', 'completed', 'failed', 'published']);
-
-export const newsletterStaged = pgTable('newsletter_staged', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  season: integer('season').notNull(),
-  week: integer('week').notNull(),
-  status: newsletterStatusEnum('status').default('pending').notNull(),
-  startedAt: timestamp('started_at', { withTimezone: true }),
-  completedAt: timestamp('completed_at', { withTimezone: true }),
-  publishedAt: timestamp('published_at', { withTimezone: true }),
-  sectionsCompleted: text('sections_completed').array().default([]).notNull(),
-  currentSection: varchar('current_section', { length: 64 }),
-  error: text('error'),
-  // Generated content per section: { "Intro": { entertainer: "...", analyst: "..." }, ... }
-  generatedContent: jsonb('generated_content').$type<Record<string, { entertainer: string; analyst: string }>>().default({}).notNull(),
-  // Derived data snapshot (so we don't re-fetch)
-  derivedData: jsonb('derived_data').$type<Record<string, unknown>>(),
-}, (t) => ({
-  seasonWeekIdx: index('newsletter_staged_season_week_idx').on(t.season, t.week),
-}));
-
-// Generated newsletters - stores the full newsletter content
-export const newsletters = pgTable('newsletters', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  season: integer('season').notNull(),
-  week: integer('week').notNull(),
-  leagueName: varchar('league_name', { length: 255 }).notNull(),
-  // Full newsletter JSON structure
-  content: jsonb('content').$type<{
-    meta: { leagueName: string; week: number; date: string; season: number };
-    sections: Array<{ type: string; data: unknown }>;
-  }>().notNull(),
-  // Pre-rendered HTML for fast display
-  html: text('html').notNull(),
-  generatedAt: timestamp('generated_at', { withTimezone: true }).defaultNow().notNull(),
-  // Track if newsletter was posted to Discord
-  discordPostedAt: timestamp('discord_posted_at', { withTimezone: true }),
-}, (t) => ({
-  seasonWeekIdx: index('newsletters_season_week_idx').on(t.season, t.week),
-}));
-
-// Relationship memory — cross-bot shared state: debate pushbacks, themes, prediction lead
-export const relationshipMemory = pgTable('relationship_memory', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  season: integer('season').notNull().unique(),
-  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
-  // Prediction W-L records for each bot
-  predictionRecords: jsonb('prediction_records')
-    .$type<{ entertainer: { w: number; l: number }; analyst: { w: number; l: number } }>()
-    .default({ entertainer: { w: 0, l: 0 }, analyst: { w: 0, l: 0 } })
-    .notNull(),
-  // Full pushback log
-  pushbacks: jsonb('pushbacks')
-    .$type<Array<{
-      week: number; matchup_id: string; winner_name: string;
-      entertainer_stance: string; analyst_stance: string;
-      outcome: string; recorded_at: string;
-    }>>()
-    .default([])
-    .notNull(),
-  // Inferred recurring themes
-  themes: jsonb('themes')
-    .$type<{ entertainer_tendencies: string[]; analyst_tendencies: string[]; persistent_disagreements: string[] }>()
-    .default({ entertainer_tendencies: [], analyst_tendencies: [], persistent_disagreements: [] })
-    .notNull(),
-  // Dynamic state
-  dynamic: jsonb('dynamic')
-    .$type<{ entertainer_lead_in_predictions: number; total_pushbacks: number; last_pushback_week: number | null; agreements_this_season: number }>()
-    .default({ entertainer_lead_in_predictions: 0, total_pushbacks: 0, last_pushback_week: null, agreements_this_season: 0 })
-    .notNull(),
-});
-
 // Discord notification dedupe - tracks which events have been posted to Discord
 export const discordNotificationTypeEnum = pgEnum('discord_notification_type', [
   'trade_accepted',
   'trade_pending',
   'trade_complete',
-  'newsletter_published',
 ]);
 
 export const discordNotifications = pgTable('discord_notifications', {
   id: uuid('id').primaryKey().defaultRandom(),
   notificationType: discordNotificationTypeEnum('notification_type').notNull(),
-  // Unique key for deduplication (e.g., transaction_id for trades, season-week for newsletters)
+  // Unique key for deduplication (e.g., transaction_id for trades)
   dedupeKey: varchar('dedupe_key', { length: 255 }).notNull(),
   postedAt: timestamp('posted_at', { withTimezone: true }).defaultNow().notNull(),
   // Optional metadata about the notification

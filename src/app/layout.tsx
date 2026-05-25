@@ -6,6 +6,7 @@ import { Suspense } from "react";
 
 import Navbar from "@/components/layout/navbar";
 import Footer from "@/components/layout/footer";
+import SetupCheck from "@/components/SetupCheck";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -18,8 +19,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "East v. West Fantasy Football",
-  description: "Dynasty fantasy football league for East v. West",
+  title: "Fantasy Football League",
+  description: "Dynasty fantasy football league management",
 };
 
 export default function RootLayout({
@@ -48,13 +49,15 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased flex flex-col min-h-screen`}
       >
-        <Suspense fallback={null}>
-          <Navbar />
-        </Suspense>
-        <main className="flex-grow">
-          {children}
-        </main>
-        <Footer />
+        <SetupCheck>
+          <Suspense fallback={null}>
+            <Navbar />
+          </Suspense>
+          <main className="flex-grow">
+            {children}
+          </main>
+          <Footer />
+        </SetupCheck>
         <Analytics />
       </body>
     </html>

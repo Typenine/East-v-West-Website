@@ -24,7 +24,6 @@ const searchablePages = [
   { title: 'Rules', path: '/rules', type: 'page' as const },
   { title: 'History', path: '/history', type: 'page' as const },
   { title: 'Draft', path: '/draft', type: 'page' as const },
-  { title: 'Newsletter', path: '/newsletter', type: 'page' as const },
   { title: 'Trades', path: '/trades', type: 'page' as const },
   { title: 'Trade Trees', path: '/trades/trees', type: 'page' as const },
 ];

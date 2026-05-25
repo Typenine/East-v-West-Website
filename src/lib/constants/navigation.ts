@@ -74,7 +74,6 @@ export const USER_NAV_CONFIG: UserNavItem[] = [
     label: 'Media',
     children: [
       { id: 'media.podcast', label: 'Podcast', href: '/podcast' },
-      { id: 'media.newsletter', label: 'Newsletter', href: '/newsletter' },
     ],
   },
   { id: 'suggestions', label: 'Suggestions', href: '/suggestions' },

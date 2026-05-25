@@ -74,45 +74,6 @@ export async function postToDiscordWebhook(
 }
 
 /**
- * Build a newsletter published embed
- */
-export function buildNewsletterEmbed(options: {
-  season: number;
-  week: number;
-  siteUrl: string;
-  highlights?: string[];
-}): DiscordEmbed {
-  const { season, week, siteUrl, highlights } = options;
-
-  const description = highlights && highlights.length > 0
-    ? highlights.map(h => `• ${h}`).join('\n')
-    : 'Check out the latest matchup recaps, power rankings, and predictions!';
-
-  return {
-    title: `📰 Weekly Newsletter – Week ${week}`,
-    description,
-    url: `${siteUrl}/newsletter`,
-    color: 0xbe161e, // League red color
-    fields: [
-      {
-        name: '📊 What\'s Inside',
-        value: '• Matchup Recaps\n• Power Rankings\n• Trade Analysis\n• Next Week Predictions',
-        inline: true,
-      },
-      {
-        name: '🔗 Read Now',
-        value: `[View Newsletter](${siteUrl}/newsletter)`,
-        inline: true,
-      },
-    ],
-    timestamp: new Date().toISOString(),
-    footer: {
-      text: `Season ${season} • East v. West`,
-    },
-  };
-}
-
-/**
  * Build a trade notification embed
  */
 export function buildTradeEmbed(options: {
