@@ -970,17 +970,17 @@ export default function HistoryContent() {
                       const bgColor = colors?.primary;
                       const textColor = bgColor ? readableOn(bgColor) : undefined;
                       return (
-                        <div className={`flex items-center justify-between gap-2 ${isWinner ? 'font-semibold' : ''}`}>
+                        <div
+                          className={`flex items-center justify-between gap-2 px-2 py-1 rounded ${isWinner ? 'font-semibold' : ''}`}
+                          style={bgColor ? { backgroundColor: bgColor, color: textColor } : undefined}
+                        >
                           <div className="min-w-0 flex-1 flex items-center gap-2">
                             {nm !== 'BYE' && rid != null ? (
-                              <Link href={`/teams/${rid}`} className="flex items-center gap-2 min-w-0 hover:opacity-80 transition-opacity" title={nm}>
-                                <div className="w-5 h-5 rounded-full overflow-hidden border shrink-0" style={{ borderColor: bgColor || 'var(--border)' }}>
+                              <Link href={`/teams/${rid}`} className="flex items-center gap-2 min-w-0 hover:opacity-80 transition-opacity" title={nm} style={{ color: textColor }}>
+                                <div className="w-5 h-5 rounded-full overflow-hidden border shrink-0 bg-white/20" style={{ borderColor: 'rgba(255,255,255,0.4)' }}>
                                   <Image src={getTeamLogoPath(nm)} alt={nm} width={20} height={20} className="object-contain w-5 h-5" />
                                 </div>
-                                <span
-                                  className="truncate text-xs px-2 py-0.5 rounded-md font-medium"
-                                  style={{ backgroundColor: bgColor, color: textColor }}
-                                >
+                                <span className="truncate text-xs font-medium">
                                   {seed ? `#${seed} ` : ''}{nm}
                                 </span>
                               </Link>
@@ -990,9 +990,9 @@ export default function HistoryContent() {
                           </div>
                           <div className="flex items-center gap-1 shrink-0">
                             {score != null && (
-                              <span className="ml-2 text-xs px-1.5 py-0.5 rounded border border-[var(--border)] text-[var(--muted)]">{score.toFixed(2)}</span>
+                              <span className="ml-2 text-xs px-1.5 py-0.5 rounded font-semibold" style={{ backgroundColor: 'rgba(255,255,255,0.2)', color: textColor }}>{score.toFixed(2)}</span>
                             )}
-                            {isWinner && <span className="text-[var(--accent)] ml-1 font-bold">&rsaquo;</span>}
+                            {isWinner && <span className="ml-1 font-bold" style={{ color: textColor }}>&rsaquo;</span>}
                           </div>
                         </div>
                       );
@@ -1124,17 +1124,17 @@ export default function HistoryContent() {
                       const bgColor = colors?.primary;
                       const textColor = bgColor ? readableOn(bgColor) : undefined;
                       return (
-                        <div className={`flex items-center justify-between gap-2 ${isWinner ? 'font-semibold' : ''}`}>
+                        <div
+                          className={`flex items-center justify-between gap-2 px-2 py-1 rounded ${isWinner ? 'font-semibold' : ''}`}
+                          style={bgColor ? { backgroundColor: bgColor, color: textColor } : undefined}
+                        >
                           <div className="min-w-0 flex-1 flex items-center gap-2">
                             {nm !== 'BYE' && rid != null ? (
-                              <Link href={`/teams/${rid}`} className="flex items-center gap-2 min-w-0 hover:opacity-80 transition-opacity" title={nm}>
-                                <div className="w-5 h-5 rounded-full overflow-hidden border shrink-0" style={{ borderColor: bgColor || 'var(--border)' }}>
+                              <Link href={`/teams/${rid}`} className="flex items-center gap-2 min-w-0 hover:opacity-80 transition-opacity" title={nm} style={{ color: textColor }}>
+                                <div className="w-5 h-5 rounded-full overflow-hidden border shrink-0 bg-white/20" style={{ borderColor: 'rgba(255,255,255,0.4)' }}>
                                   <Image src={getTeamLogoPath(nm)} alt={nm} width={20} height={20} className="object-contain w-5 h-5" />
                                 </div>
-                                <span
-                                  className="truncate text-xs px-2 py-0.5 rounded-md font-medium"
-                                  style={{ backgroundColor: bgColor, color: textColor }}
-                                >
+                                <span className="truncate text-xs font-medium">
                                   {seed ? `#${seed} ` : ''}{nm}
                                 </span>
                               </Link>
@@ -1144,9 +1144,9 @@ export default function HistoryContent() {
                           </div>
                           <div className="flex items-center gap-1 shrink-0">
                             {score != null && (
-                              <span className="ml-2 text-xs px-1.5 py-0.5 rounded border border-[var(--border)] text-[var(--muted)]">{score.toFixed(2)}</span>
+                              <span className="ml-2 text-xs px-1.5 py-0.5 rounded font-semibold" style={{ backgroundColor: 'rgba(255,255,255,0.2)', color: textColor }}>{score.toFixed(2)}</span>
                             )}
-                            {isWinner && <span className="text-[var(--accent)] ml-1 font-bold">&rsaquo;</span>}
+                            {isWinner && <span className="ml-1 font-bold" style={{ color: textColor }}>&rsaquo;</span>}
                           </div>
                         </div>
                       );
