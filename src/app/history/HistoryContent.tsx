@@ -943,9 +943,9 @@ export default function HistoryContent() {
             <ErrorState message={bracketError} />
           ) : (
             <div className="space-y-8">
-              {/* Winners Bracket */}
+              {/* Official Playoffs */}
               <div className="evw-surface border p-6 rounded-[var(--radius-card)] hover-lift">
-                <h3 className="text-xl font-bold mb-4">Winners Bracket</h3>
+                <h3 className="text-xl font-bold mb-4">Official Playoffs</h3>
                 {winnersBracket.length === 0 ? (
                   <p className="text-[var(--muted)]">No winners bracket available for {bracketYear}.</p>
                 ) : (
@@ -958,6 +958,7 @@ export default function HistoryContent() {
                     });
                     const roundNums = Object.keys(byRound).map(n => Number(n)).sort((a,b) => a - b);
                     roundNums.forEach(r => byRound[r].sort((a,b) => (a.m ?? 0) - (b.m ?? 0)));
+                    const totalRounds = roundNums.length > 0 ? Math.max(...roundNums) : 0;
                     const nameFor = (rid?: number | null) => {
                       if (rid == null) return 'BYE';
                       return bracketNameMap.get(rid) || `Roster ${rid}`;
@@ -980,26 +981,41 @@ export default function HistoryContent() {
                               <span className="block truncate text-[var(--muted)]" title="BYE">BYE</span>
                             )}
                           </div>
-                          {score != null && (
-                            <span className="shrink-0 ml-2 text-xs px-1.5 py-0.5 rounded border border-[var(--border)] text-[var(--muted)]">{score.toFixed(2)}</span>
-                          )}
+                          <div className="flex items-center gap-1 shrink-0">
+                            {score != null && (
+                              <span className="ml-2 text-xs px-1.5 py-0.5 rounded border border-[var(--border)] text-[var(--muted)]">{score.toFixed(2)}</span>
+                            )}
+                            {isWinner && <span className="text-[var(--accent)] ml-1 font-bold">&rsaquo;</span>}
+                          </div>
                         </div>
                       );
                     };
                     const MATCH_H = 72; // px
                     const GAP = 24; // px
+                    const winnersGameLabels = ['Championship', '3rd Place Game', '5th Place Game'];
+                    const getWinnersRoundLabel = (r: number) => {
+                      if (r === totalRounds) return 'Finals';
+                      if (r === totalRounds - 1) return 'Semifinals';
+                      return 'First Round';
+                    };
                     return (
                       <div className="overflow-x-auto">
                         <div className="flex items-start gap-8">
                           {roundNums.map((r, rIdx) => {
                             const mtFirst = rIdx === 0 ? 0 : ((MATCH_H + GAP) * Math.pow(2, rIdx - 1)) / 2;
                             const mtBetween = rIdx === 0 ? GAP : ((MATCH_H + GAP) * Math.pow(2, rIdx - 1));
+                            const isLastRound = r === totalRounds;
                             return (
                               <div key={`w-round-${r}`} className="min-w-[260px]">
-                                <h4 className="font-semibold text-[var(--muted)] mb-2">Round {r}</h4>
+                                <h4 className="font-semibold text-[var(--muted)] mb-2">{getWinnersRoundLabel(r)}</h4>
                                 <div>
                                   {byRound[r].map((g, idx) => (
-                                    <div key={`w-${r}-${g.m}`} style={{ marginTop: idx === 0 ? mtFirst : mtBetween }}>
+                                    <div key={`w-${r}-${g.m}`} style={{ marginTop: idx === 0 ? mtFirst : mtBetween }} className={isLastRound ? 'relative pt-5' : ''}>
+                                      {isLastRound && (
+                                        <div className="absolute top-0 left-0 right-0 text-center text-xs font-semibold text-[var(--muted)] uppercase tracking-wide">
+                                          {winnersGameLabels[idx] ?? ''}
+                                        </div>
+                                      )}
                                       <div className="border rounded p-3 h-[72px] flex flex-col justify-between">
                                         <TeamRow rid={g.t1 ?? null} isWinner={g.w != null && g.t1 != null && g.w === g.t1} score={g.t1_points ?? null} />
                                         <TeamRow rid={g.t2 ?? null} isWinner={g.w != null && g.t2 != null && g.w === g.t2} score={g.t2_points ?? null} />
@@ -1017,9 +1033,9 @@ export default function HistoryContent() {
                 )}
               </div>
 
-              {/* Losers Bracket */}
+              {/* Toilet Bowl */}
               <div className="evw-surface border p-6 rounded-[var(--radius-card)] hover-lift">
-                <h3 className="text-xl font-bold mb-4">Losers Bracket</h3>
+                <h3 className="text-xl font-bold mb-4">Toilet Bowl</h3>
                 {losersBracket.length === 0 ? (
                   <p className="text-[var(--muted)]">No losers bracket available for {bracketYear}.</p>
                 ) : (
@@ -1032,6 +1048,7 @@ export default function HistoryContent() {
                     });
                     const roundNums = Object.keys(byRound).map(n => Number(n)).sort((a,b) => a - b);
                     roundNums.forEach(r => byRound[r].sort((a,b) => (a.m ?? 0) - (b.m ?? 0)));
+                    const totalRounds = roundNums.length > 0 ? Math.max(...roundNums) : 0;
                     const nameFor = (rid?: number | null) => {
                       if (rid == null) return 'BYE';
                       return bracketNameMap.get(rid) || `Roster ${rid}`;
@@ -1054,26 +1071,40 @@ export default function HistoryContent() {
                               <span className="block truncate text-[var(--muted)]" title="BYE">BYE</span>
                             )}
                           </div>
-                          {score != null && (
-                            <span className="shrink-0 ml-2 text-xs px-1.5 py-0.5 rounded border border-[var(--border)] text-[var(--muted)]">{score.toFixed(2)}</span>
-                          )}
+                          <div className="flex items-center gap-1 shrink-0">
+                            {score != null && (
+                              <span className="ml-2 text-xs px-1.5 py-0.5 rounded border border-[var(--border)] text-[var(--muted)]">{score.toFixed(2)}</span>
+                            )}
+                            {isWinner && <span className="text-[var(--accent)] ml-1 font-bold">&rsaquo;</span>}
+                          </div>
                         </div>
                       );
                     };
                     const MATCH_H = 72; // px
                     const GAP = 24; // px
+                    const losersGameLabels = ['7th Place Game', '9th Place Game', '11th Place Game', '13th Place Game'];
+                    const getLosersRoundLabel = (r: number, rIdx: number) => {
+                      if (r === totalRounds) return 'Final Places';
+                      return `Consolation Round ${rIdx + 1}`;
+                    };
                     return (
                       <div className="overflow-x-auto">
                         <div className="flex items-start gap-8">
                           {roundNums.map((r, rIdx) => {
                             const mtFirst = rIdx === 0 ? 0 : ((MATCH_H + GAP) * Math.pow(2, rIdx - 1)) / 2;
                             const mtBetween = rIdx === 0 ? GAP : ((MATCH_H + GAP) * Math.pow(2, rIdx - 1));
+                            const isLastRound = r === totalRounds;
                             return (
                               <div key={`l-round-${r}`} className="min-w-[260px]">
-                                <h4 className="font-semibold text-[var(--muted)] mb-2">Round {r}</h4>
+                                <h4 className="font-semibold text-[var(--muted)] mb-2">{getLosersRoundLabel(r, rIdx)}</h4>
                                 <div>
                                   {byRound[r].map((g, idx) => (
-                                    <div key={`l-${r}-${g.m}`} style={{ marginTop: idx === 0 ? mtFirst : mtBetween }}>
+                                    <div key={`l-${r}-${g.m}`} style={{ marginTop: idx === 0 ? mtFirst : mtBetween }} className={isLastRound ? 'relative pt-5' : ''}>
+                                      {isLastRound && (
+                                        <div className="absolute top-0 left-0 right-0 text-center text-xs font-semibold text-[var(--muted)] uppercase tracking-wide">
+                                          {losersGameLabels[idx] ?? ''}
+                                        </div>
+                                      )}
                                       <div className="border rounded p-3 h-[72px] flex flex-col justify-between">
                                         <TeamRow rid={g.t1 ?? null} isWinner={g.w != null && g.t1 != null && g.w === g.t1} score={g.t1_points ?? null} />
                                         <TeamRow rid={g.t2 ?? null} isWinner={g.w != null && g.t2 != null && g.w === g.t2} score={g.t2_points ?? null} />

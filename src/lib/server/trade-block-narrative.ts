@@ -1,7 +1,6 @@
 import { TradeAsset, TradeWants } from './user-store';
-import { getAllPlayersCached } from '@/lib/utils/sleeper-api';
-import { LEAGUE_IDS, CURRENT_SEASON } from '@/lib/constants/league';
-import { loadDraftOwnershipForSeason } from './trade-assets';
+import { getAllPlayersCached, getTeamsData, getRegularSeasonRecords } from '@/lib/utils/sleeper-api';
+import { LEAGUE_IDS, CURRENT_SEASON, getLeagueIdForSeason } from '@/lib/constants/league';
 
 const DEBUG = process.env.TRADE_BLOCK_DEBUG === '1' || process.env.TRADE_BLOCK_DEBUG === 'true';
 
@@ -53,20 +52,32 @@ type PickSlotMap = { season: number; slotByTeam: Record<string, number> };
 
 async function loadPickSlotMap(): Promise<PickSlotMap | null> {
   try {
-    const ownership = await loadDraftOwnershipForSeason({ leagueId: LEAGUE_IDS.CURRENT, season: Number(CURRENT_SEASON) });
-    if (!ownership) return null;
+    const targetSeason = Number(CURRENT_SEASON);
+    // Slots are determined by prior-season standings (worst team = slot 1)
+    const sourceLeagueSeason = String(targetSeason - 1);
+    const standingsLeagueId = getLeagueIdForSeason(sourceLeagueSeason) || LEAGUE_IDS.CURRENT;
+
+    const [rawTeams, regularRecords] = await Promise.all([
+      getTeamsData(standingsLeagueId),
+      getRegularSeasonRecords(standingsLeagueId).catch(() => null),
+    ]);
+
+    const teams = regularRecords
+      ? rawTeams.map((t) => { const r = regularRecords.get(t.rosterId); return r ? { ...t, wins: r.wins, losses: r.losses, ties: r.ties } : t; })
+      : rawTeams;
+
+    const sorted = [...teams].sort((a, b) => {
+      if (a.wins !== b.wins) return a.wins - b.wins;
+      if (a.losses !== b.losses) return b.losses - a.losses;
+      if (a.fpts !== b.fpts) return a.fpts - b.fpts;
+      if (a.fptsAgainst !== b.fptsAgainst) return a.fptsAgainst - b.fptsAgainst;
+      return a.teamName.localeCompare(b.teamName);
+    });
+
     const slotByTeam: Record<string, number> = {};
-    const seenOrig = new Set<string>();
-    for (const key of Object.keys(ownership.ownership)) {
-      const [origRosterIdStr] = key.split('-');
-      if (seenOrig.has(origRosterIdStr)) continue;
-      seenOrig.add(origRosterIdStr);
-      const teamName = ownership.rosterIdToTeam[origRosterIdStr];
-      if (!teamName) continue;
-      const origRosterId = Number(origRosterIdStr);
-      if (Number.isFinite(origRosterId)) slotByTeam[teamName] = origRosterId;
-    }
-    return { season: ownership.season, slotByTeam };
+    sorted.forEach((team, index) => { slotByTeam[team.teamName] = index + 1; });
+
+    return { season: targetSeason, slotByTeam };
   } catch {
     return null;
   }

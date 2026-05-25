@@ -59,6 +59,7 @@ export default async function TransactionsPage({
   const perPageParamRaw = params.perPage;
   const weekParamRaw = params.week;
   const positionParamRaw = params.position;
+  const typeParamRaw = params.type;
 
   const season = Array.isArray(seasonParamRaw) ? seasonParamRaw[0] : seasonParamRaw;
   const team = Array.isArray(teamParamRaw) ? teamParamRaw[0] : teamParamRaw;
@@ -68,6 +69,7 @@ export default async function TransactionsPage({
   const perPageStr = Array.isArray(perPageParamRaw) ? perPageParamRaw[0] : perPageParamRaw;
   const weekStr = Array.isArray(weekParamRaw) ? weekParamRaw[0] : weekParamRaw;
   const position = Array.isArray(positionParamRaw) ? positionParamRaw[0] : positionParamRaw;
+  const txnType = Array.isArray(typeParamRaw) ? typeParamRaw[0] : typeParamRaw;
 
   // Determine seasons list
   const allSeasons = listAllSeasons();
@@ -109,6 +111,7 @@ export default async function TransactionsPage({
   if (week && !Number.isNaN(week)) filtered = filtered.filter((t) => (t.week || 0) === week);
   const pos = position && position !== "all" ? position : undefined;
   if (pos) filtered = filtered.filter((t) => t.added.some((p) => p.position === pos));
+  if (txnType && txnType !== 'all') filtered = filtered.filter((t) => t.type === txnType);
   const transactions = sortTransactions(filtered, sortKey, sortDirection);
   const summary = buildSummary(transactions);
   const view = (Array.isArray(params.view) ? params.view[0] : params.view) || "all";
@@ -130,7 +133,7 @@ export default async function TransactionsPage({
       {view === 'all' && (
         <>
           <Suspense fallback={null}>
-            <TransactionsFilters summary={summary} seasons={seasons} teams={teams} positions={positions} />
+            <TransactionsFilters summary={summary} seasons={seasons} teams={teams} positions={positions} activeType={txnType ?? "all"} />
           </Suspense>
         <Card className="mt-4">
           <CardContent className="p-0">

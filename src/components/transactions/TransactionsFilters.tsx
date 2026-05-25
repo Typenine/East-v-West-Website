@@ -10,11 +10,13 @@ export default function TransactionsFilters({
   seasons,
   teams,
   positions,
+  activeType: activeTypeProp = "all",
 }: {
   summary: TransactionsSummary;
   seasons: string[];
   teams: string[];
   positions?: string[];
+  activeType?: string;
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -23,6 +25,7 @@ export default function TransactionsFilters({
   const activeTeam = searchParams.get("team") ?? "all";
   const activeWeek = searchParams.get("week") ?? "all";
   const activePosition = searchParams.get("position") ?? "all";
+  const activeType = searchParams.get("type") ?? activeTypeProp;
   const sort = searchParams.get("sort") ?? "created";
   const direction = searchParams.get("direction") ?? "desc";
 
@@ -39,7 +42,7 @@ export default function TransactionsFilters({
       params.set(key, value);
     }
     // Reset pagination when filters change
-    if (["season", "team", "week", "position"].includes(key)) {
+    if (["season", "team", "week", "position", "type"].includes(key)) {
       params.delete("page");
     }
     const qs = params.toString();
@@ -106,6 +109,16 @@ export default function TransactionsFilters({
               {opt === "all" ? "All positions" : opt}
             </option>
           ))}
+        </select>
+        <select
+          className="evw-surface border border-[var(--border)] rounded px-3 py-2"
+          value={activeType}
+          onChange={(e) => updateParam("type", e.target.value)}
+        >
+          <option value="all">All types</option>
+          <option value="waiver">Waivers</option>
+          <option value="free_agent">Free Agents</option>
+          <option value="trade">Trades</option>
         </select>
         <button
           type="button"
