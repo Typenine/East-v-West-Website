@@ -966,16 +966,23 @@ export default function HistoryContent() {
                     const TeamRow = ({ rid, isWinner, score }: { rid?: number | null; isWinner: boolean; score?: number | null }) => {
                       const nm = rid != null ? nameFor(rid) : 'BYE';
                       const seed = rid != null ? (seedByRosterId.get(rid) ?? null) : null;
-                      const color = nm && nm !== 'BYE' ? getTeamColors(nm)?.primary : undefined;
+                      const colors = nm && nm !== 'BYE' ? getTeamColors(nm) : undefined;
+                      const bgColor = colors?.primary;
+                      const textColor = bgColor ? readableOn(bgColor) : undefined;
                       return (
-                        <div className={`flex items-center justify-between gap-2 ${isWinner ? 'font-semibold text-[var(--accent)]' : ''}`}>
+                        <div className={`flex items-center justify-between gap-2 ${isWinner ? 'font-semibold' : ''}`}>
                           <div className="min-w-0 flex-1 flex items-center gap-2">
                             {nm !== 'BYE' && rid != null ? (
-                              <Link href={`/teams/${rid}`} className="flex items-center gap-2 min-w-0 hover:underline" title={nm}>
-                                <div className="w-5 h-5 rounded-full overflow-hidden border" style={{ borderColor: color || 'var(--border)' }}>
+                              <Link href={`/teams/${rid}`} className="flex items-center gap-2 min-w-0 hover:opacity-80 transition-opacity" title={nm}>
+                                <div className="w-5 h-5 rounded-full overflow-hidden border shrink-0" style={{ borderColor: bgColor || 'var(--border)' }}>
                                   <Image src={getTeamLogoPath(nm)} alt={nm} width={20} height={20} className="object-contain w-5 h-5" />
                                 </div>
-                                <span className="truncate">{seed ? `#${seed} ` : ''}{nm}</span>
+                                <span
+                                  className="truncate text-xs px-2 py-0.5 rounded-md font-medium"
+                                  style={{ backgroundColor: bgColor, color: textColor }}
+                                >
+                                  {seed ? `#${seed} ` : ''}{nm}
+                                </span>
                               </Link>
                             ) : (
                               <span className="block truncate text-[var(--muted)]" title="BYE">BYE</span>
@@ -1113,16 +1120,23 @@ export default function HistoryContent() {
                     const TeamRow = ({ rid, isWinner, score }: { rid?: number | null; isWinner: boolean; score?: number | null }) => {
                       const nm = rid != null ? nameFor(rid) : 'BYE';
                       const seed = rid != null ? (seedByRosterId.get(rid) ?? null) : null;
-                      const color = nm && nm !== 'BYE' ? getTeamColors(nm)?.primary : undefined;
+                      const colors = nm && nm !== 'BYE' ? getTeamColors(nm) : undefined;
+                      const bgColor = colors?.primary;
+                      const textColor = bgColor ? readableOn(bgColor) : undefined;
                       return (
-                        <div className={`flex items-center justify-between gap-2 ${isWinner ? 'font-semibold text-[var(--accent)]' : ''}`}>
+                        <div className={`flex items-center justify-between gap-2 ${isWinner ? 'font-semibold' : ''}`}>
                           <div className="min-w-0 flex-1 flex items-center gap-2">
                             {nm !== 'BYE' && rid != null ? (
-                              <Link href={`/teams/${rid}`} className="flex items-center gap-2 min-w-0 hover:underline" title={nm}>
-                                <div className="w-5 h-5 rounded-full overflow-hidden border" style={{ borderColor: color || 'var(--border)' }}>
+                              <Link href={`/teams/${rid}`} className="flex items-center gap-2 min-w-0 hover:opacity-80 transition-opacity" title={nm}>
+                                <div className="w-5 h-5 rounded-full overflow-hidden border shrink-0" style={{ borderColor: bgColor || 'var(--border)' }}>
                                   <Image src={getTeamLogoPath(nm)} alt={nm} width={20} height={20} className="object-contain w-5 h-5" />
                                 </div>
-                                <span className="truncate">{seed ? `#${seed} ` : ''}{nm}</span>
+                                <span
+                                  className="truncate text-xs px-2 py-0.5 rounded-md font-medium"
+                                  style={{ backgroundColor: bgColor, color: textColor }}
+                                >
+                                  {seed ? `#${seed} ` : ''}{nm}
+                                </span>
                               </Link>
                             ) : (
                               <span className="block truncate text-[var(--muted)]" title="BYE">BYE</span>
