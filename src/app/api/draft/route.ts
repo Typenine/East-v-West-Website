@@ -53,6 +53,27 @@ import { isAdminCookieValue } from '@/lib/auth/admin';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
+// In-memory presence tracking: team -> last heartbeat timestamp
+const draftPresence = new Map<string, number>();
+const PRESENCE_TIMEOUT_MS = 15000; // 15 seconds - consider offline if no heartbeat
+
+function getActiveViewers(): string[] {
+  const now = Date.now();
+  const active: string[] = [];
+  for (const [team, lastSeen] of draftPresence.entries()) {
+    if (now - lastSeen < PRESENCE_TIMEOUT_MS) {
+      active.push(team);
+    } else {
+      draftPresence.delete(team); // Clean up stale entries
+    }
+  }
+  return active;
+}
+
+function recordPresence(team: string): void {
+  if (team) draftPresence.set(team, Date.now());
+}
+
 function isAdmin(req: NextRequest): boolean {
   try {
     const cookie = req.cookies.get('evw_admin')?.value;
@@ -172,7 +193,7 @@ export async function GET(req: NextRequest) {
       ...overview,
       eventLogoUrl: sanitizeLogoForResponse(overview.eventLogoUrl),
     };
-    const resp: { draft: DraftOverview; remainingSec: number | null; pendingPick?: typeof pendingPick; available?: Array<{ id: string; name: string; pos: string; nfl: string; college?: string | null }>; usingCustom?: boolean; revision: string } = { draft: sanitizedOverview, remainingSec, pendingPick: pendingPick ?? undefined, revision };
+    const resp: { draft: DraftOverview; remainingSec: number | null; pendingPick?: typeof pendingPick; available?: Array<{ id: string; name: string; pos: string; nfl: string; college?: string | null }>; usingCustom?: boolean; revision: string; activeViewers: string[] } = { draft: sanitizedOverview, remainingSec, pendingPick: pendingPick ?? undefined, revision, activeViewers: getActiveViewers() };
     if (includeAvail) {
       const taken = new Set(await getDraftPickedPlayerIds(draftId));
       if (pendingPick?.playerId) taken.add(pendingPick.playerId);
@@ -575,6 +596,17 @@ export async function POST(req: NextRequest) {
       if (!draftId) return ok({ useCustom: false, count: 0 });
       const count = await countDraftPlayers(draftId);
       return ok({ useCustom: count > 0, count });
+    }
+
+    // Presence heartbeat — teams call this to indicate they're viewing the draft room
+    if (action === 'presence') {
+      const adminReq = isAdmin(req);
+      const ident = adminReq ? null : await requireTeamUser().catch(() => null);
+      const team = adminReq
+        ? (typeof body.team === 'string' ? body.team : 'Admin')
+        : ident?.team || null;
+      if (team) recordPresence(team);
+      return ok({ ok: true, activeViewers: getActiveViewers() });
     }
 
     return bad('unknown_action');

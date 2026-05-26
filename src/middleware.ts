@@ -67,7 +67,7 @@ export async function middleware(req: NextRequest) {
 
   // Optional: draft preview lock using EVW_PREVIEW_SECRET
   const previewSecret = process.env.EVW_PREVIEW_SECRET || '';
-  const isDraftFeaturePath = pathname === '/draft/room' || pathname === '/draft/overlay' || pathname === '/admin/draft' || pathname.startsWith('/api/draft');
+  const isDraftFeaturePath = pathname === '/draft/room' || pathname.startsWith('/draft/room/') || pathname === '/draft/overlay' || pathname === '/admin/draft' || pathname.startsWith('/api/draft');
   if (previewSecret && isDraftFeaturePath) {
     // Allow admin cookie
     const adminCookie = req.cookies.get('evw_admin')?.value || '';
@@ -94,7 +94,7 @@ export async function middleware(req: NextRequest) {
   }
 
   // Allow admin or allowed teams to access Draft Room/Overlay without additional checks
-  if ((pathname === '/draft/room' || pathname === '/draft/overlay') && (isAdmin || isAllowedTeam)) {
+  if ((pathname === '/draft/room' || pathname.startsWith('/draft/room/') || pathname === '/draft/overlay') && (isAdmin || isAllowedTeam)) {
     return NextResponse.next();
   }
 

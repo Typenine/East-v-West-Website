@@ -58,6 +58,7 @@ export default function DraftOverlayLive() {
     localRemainingSec,
     pendingPick,
     pendingTradeAnimation,
+    activeViewers,
     refetch,
   } = useDraftData(1000);
 
@@ -488,6 +489,8 @@ export default function DraftOverlayLive() {
                 const isCurrentPick = currentPickIndex === gridIdx;
                 const isPicked = gridItem?.player !== null;
                 const teamLogo = gridItem?.team ? getTeamLogoPath(gridItem.team) : null;
+                const isViewerOnline = gridItem?.team && activeViewers.includes(gridItem.team);
+                const viewerGlowColor = isViewerOnline ? getTeamColors(gridItem.team).primary : null;
                 
                 return (
                   <div
@@ -505,7 +508,13 @@ export default function DraftOverlayLive() {
                     }}
                   >
                     {/* Team logo on LEFT side - ALWAYS visible */}
-                    <div className="flex-shrink-0 w-12 h-12 mr-1 flex items-center justify-center">
+                    <div
+                      className={`flex-shrink-0 w-12 h-12 mr-1 flex items-center justify-center rounded ${isViewerOnline ? 'animate-pulse' : ''}`}
+                      style={isViewerOnline && viewerGlowColor ? {
+                        boxShadow: `0 0 12px 3px ${viewerGlowColor}, 0 0 20px 6px ${viewerGlowColor}66`,
+                        background: `${viewerGlowColor}22`,
+                      } : undefined}
+                    >
                       {teamLogo ? (
                         <img src={teamLogo} alt="" className="w-full h-full object-contain" />
                       ) : gridItem?.team ? (

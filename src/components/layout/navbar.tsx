@@ -12,9 +12,6 @@ import Image from 'next/image';
 import { getTeamLogoPath, getTeamColors } from '@/lib/utils/team-utils';
 import { USER_NAV_CONFIG, type UserNavItem } from '@/lib/constants/navigation';
 
-// Teams allowed to access draft room/overlay
-const DRAFT_ALLOWED_TEAMS = ['Belleview Badgers', 'Mt. Lebanon Cake Eaters'];
-
 function matchesPath(pathname: string, targetPath: string): boolean {
   if (targetPath === '/') return pathname === '/';
   return pathname === targetPath || pathname.startsWith(`${targetPath}/`);
@@ -388,23 +385,6 @@ export default function Navbar() {
                       )}
                       {sessionTeam && (
                         <>
-                          {DRAFT_ALLOWED_TEAMS.includes(sessionTeam) && (
-                            <>
-                              <button
-                                className="w-full text-left px-2 py-1.5 rounded hover:bg-[var(--surface-strong)] font-medium text-emerald-600 dark:text-emerald-400"
-                                onClick={() => { setAccountMenuOpen(false); router.push('/draft/room'); }}
-                              >
-                                🎯 Draft Room
-                              </button>
-                              <button
-                                className="w-full text-left px-2 py-1.5 rounded hover:bg-[var(--surface-strong)]"
-                                onClick={() => { setAccountMenuOpen(false); router.push('/draft/overlay'); }}
-                              >
-                                📺 Presentation View
-                              </button>
-                              <div className="my-1 border-t border-[var(--border)]" />
-                            </>
-                          )}
                           <button
                             className="w-full text-left px-2 py-1.5 rounded hover:bg-[var(--surface-strong)]"
                             onClick={() => { setAccountMenuOpen(false); setChangeOpen(true); }}
@@ -578,28 +558,6 @@ export default function Navbar() {
             );
           })}
           <div className="pt-2 border-t border-[var(--border)] space-y-2">
-            {sessionTeam && DRAFT_ALLOWED_TEAMS.includes(sessionTeam) && (
-              <div className="flex gap-2">
-                <LinkButton
-                  href="/draft/room"
-                  variant="primary"
-                  size="sm"
-                  className="flex-1"
-                  onClick={closeMobile}
-                >
-                  🎯 Draft Room
-                </LinkButton>
-                <LinkButton
-                  href="/draft/overlay"
-                  variant="secondary"
-                  size="sm"
-                  className="flex-1"
-                  onClick={closeMobile}
-                >
-                  📺 Presentation
-                </LinkButton>
-              </div>
-            )}
             <div className="flex items-center justify-between">
             {sessionTeam || isAdmin ? (
               <>

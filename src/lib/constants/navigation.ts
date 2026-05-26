@@ -57,6 +57,7 @@ export const USER_NAV_CONFIG: UserNavItem[] = [
       { id: 'draft.2027', label: '2027 Draft', href: '/draft?view=2027' },
       { id: 'draft.past', label: 'Previous Drafts', href: '/draft?view=past' },
       { id: 'draft.team-prospect-draftboard', label: 'Team Prospect Draftboard', href: '/draft?view=team-prospect-draftboard' },
+      { id: 'draft.room', label: 'Draft Room', href: '/draft/room' },
     ],
   },
   {

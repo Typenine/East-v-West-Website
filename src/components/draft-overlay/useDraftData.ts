@@ -94,6 +94,7 @@ export interface OverlayState {
   isNewPick: boolean;
   pendingPick: { id: string; overall: number; team: string; playerId: string; playerName: string | null; playerPos: string | null; playerNfl: string | null; } | null;
   pendingTradeAnimation: DraftOverview['pendingTradeAnimation'];
+  activeViewers: string[]; // Teams currently viewing the draft room
 }
 
 export function useDraftData(basePollIntervalMs = 1000) {
@@ -112,6 +113,7 @@ export function useDraftData(basePollIntervalMs = 1000) {
     isNewPick: false,
     pendingPick: null,
     pendingTradeAnimation: null,
+    activeViewers: [],
   });
 
   const lastOverallRef = useRef<number | null>(null);
@@ -126,6 +128,7 @@ export function useDraftData(basePollIntervalMs = 1000) {
     available?: AvailablePlayer[];
     usingCustom?: boolean;
     revision?: string;
+    activeViewers?: string[];
   }) => {
     const draft = json.draft as DraftOverview | null;
     const remainingSec = json.remainingSec as number | null;
@@ -198,6 +201,7 @@ export function useDraftData(basePollIntervalMs = 1000) {
       remainingSec,
       ...(Array.isArray(json.available) ? { available: json.available } : {}),
       ...(typeof json.usingCustom === 'boolean' ? { usingCustom: json.usingCustom } : {}),
+      ...(Array.isArray(json.activeViewers) ? { activeViewers: json.activeViewers } : {}),
       currentTeam,
       currentPickIndex,
       timerSeconds,
@@ -223,6 +227,7 @@ export function useDraftData(basePollIntervalMs = 1000) {
         available: includeAvailable ? ((json.available || []) as AvailablePlayer[]) : undefined,
         usingCustom: includeAvailable ? Boolean(json.usingCustom) : undefined,
         revision: typeof json.revision === 'string' ? json.revision : undefined,
+        activeViewers: Array.isArray(json.activeViewers) ? json.activeViewers : undefined,
       });
     } catch (err) {
       console.error('[useDraftData] fetch error:', err);
@@ -286,6 +291,27 @@ export function useDraftData(basePollIntervalMs = 1000) {
   useEffect(() => {
     void fetchFullDraft(true);
   }, [fetchFullDraft]);
+
+  // Presence heartbeat — send every 10s to indicate viewer is active
+  useEffect(() => {
+    const sendHeartbeat = () => {
+      fetch('/api/draft', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ action: 'presence', team: 'Overlay' }),
+      })
+        .then(r => r.json())
+        .then(j => {
+          if (Array.isArray(j?.activeViewers)) {
+            setState(prev => ({ ...prev, activeViewers: j.activeViewers as string[] }));
+          }
+        })
+        .catch(() => {});
+    };
+    sendHeartbeat();
+    const interval = setInterval(sendHeartbeat, 10000);
+    return () => clearInterval(interval);
+  }, []);
 
   // Polling loop, visibility-aware.
   useEffect(() => {
