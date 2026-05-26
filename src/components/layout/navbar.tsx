@@ -12,6 +12,9 @@ import Image from 'next/image';
 import { getTeamLogoPath, getTeamColors } from '@/lib/utils/team-utils';
 import { USER_NAV_CONFIG, type UserNavItem } from '@/lib/constants/navigation';
 
+// Teams allowed to see Draft Room link (must match middleware)
+const DRAFT_ROOM_ALLOWED_TEAMS = ['Belleview Badgers', 'Mt. Lebanon Cake Eaters'];
+
 function matchesPath(pathname: string, targetPath: string): boolean {
   if (targetPath === '/') return pathname === '/';
   return pathname === targetPath || pathname.startsWith(`${targetPath}/`);
@@ -87,6 +90,19 @@ export default function Navbar() {
   const currentPinRef = useRef<HTMLInputElement | null>(null);
   const newPinRef = useRef<HTMLInputElement | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
+
+  // Filter nav config to hide Draft Room for users without access
+  const filteredNavConfig = useMemo(() => {
+    const canSeeDraftRoom = isAdmin || (sessionTeam && DRAFT_ROOM_ALLOWED_TEAMS.includes(sessionTeam));
+    if (canSeeDraftRoom) return USER_NAV_CONFIG;
+    // Filter out draft.room from the draft children
+    return USER_NAV_CONFIG.map(item => {
+      if (item.id === 'draft' && item.children) {
+        return { ...item, children: item.children.filter(child => child.id !== 'draft.room') };
+      }
+      return item;
+    });
+  }, [isAdmin, sessionTeam]);
 
   const toggleMobileSection = (id: string) => {
     setMobileExpanded((prev) => ({ ...prev, [id]: !prev[id] }));
@@ -218,7 +234,7 @@ export default function Navbar() {
             </div>
             <div className="hidden md:block">
               <div className="ml-10 flex items-center gap-1" ref={desktopMenuRef}>
-                {USER_NAV_CONFIG.map((item) => {
+                {filteredNavConfig.map((item) => {
                   const itemActive = isNavItemActive(item, pathname, currentQuery);
                   const hasChildren = Boolean(item.children && item.children.length > 0);
                   const menuOpen = desktopMenuOpen === item.id;
@@ -453,7 +469,7 @@ export default function Navbar() {
         aria-labelledby="mobile-menu-button"
       >
         <div className="px-2 pt-2 pb-3 space-y-1 sm:px-3">
-          {USER_NAV_CONFIG.map((item) => {
+          {filteredNavConfig.map((item) => {
             const itemActive = isNavItemActive(item, pathname, currentQuery);
             const hasChildren = Boolean(item.children && item.children.length > 0);
 
