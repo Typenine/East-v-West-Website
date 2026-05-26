@@ -14,6 +14,7 @@ import DraftTradeCenter from '@/components/draft-overlay/DraftTradeCenter';
 import DraftTradeAnimation, { type TradeAnimAsset } from '@/components/draft-overlay/DraftTradeAnimation';
 import DraftInfoBarTicker from '@/components/draft-overlay/DraftInfoBarTicker';
 import RoundRecapOverlay from '@/components/draft-overlay/RoundRecapOverlay';
+import TeamProspectDraftboardCompact from '@/components/draft/TeamProspectDraftboardCompact';
 import {
   draftPicksPerRound,
   DRAFT_ANIM_CLOCK_PHASE_MAX_MS,
@@ -108,7 +109,7 @@ export default function DraftRoomPage() {
   const [teamRoster, setTeamRoster] = useState<RosterPlayer[]>([]);
   const [rosterLoading, setRosterLoading] = useState(false);
   const [confirmPlayer, setConfirmPlayer] = useState<Avail | null>(null);
-  const [teamPanelTab, setTeamPanelTab] = useState<'pick' | 'queue' | 'roster' | 'trade'>('pick');
+  const [teamPanelTab, setTeamPanelTab] = useState<'pick' | 'queue' | 'roster' | 'trade' | 'board'>('pick');
   const [pickAnimCollege, setPickAnimCollege] = useState<string | undefined>(undefined);
   const usingCustomPoolRef = useRef(false);
   const [usingCustomPool, setUsingCustomPool] = useState(false);
@@ -1079,12 +1080,12 @@ export default function DraftRoomPage() {
                   </div>
                   <div className="min-w-0 flex-1">
                     <div className="font-black text-sm text-[var(--foreground)] break-words leading-tight">{myTeam}</div>
-                    <div className="text-[10px] font-bold uppercase tracking-wide text-[var(--muted)]">Pick · Queue · Roster · Trade</div>
+                    <div className="text-[10px] font-bold uppercase tracking-wide text-[var(--muted)]">Pick · Queue · Roster · Trade · Board</div>
                   </div>
                 </div>
               )}
               <div className="flex gap-1 px-2 py-2 border-b border-[var(--border)] bg-black/5 dark:bg-white/5 flex-wrap">
-                {(['pick', 'queue', 'roster', 'trade'] as const).map(tab => (
+                {(['pick', 'queue', 'roster', 'trade', 'board'] as const).map(tab => (
                   <button
                     key={tab}
                     type="button"
@@ -1102,7 +1103,9 @@ export default function DraftRoomPage() {
                         ? `Queue${queue.length ? ` (${queue.length})` : ''}`
                         : tab === 'trade'
                           ? `Trade${tradeInboxCount > 0 ? ` (${tradeInboxCount})` : ''}`
-                          : 'Roster'}
+                          : tab === 'board'
+                            ? 'My Board'
+                            : 'Roster'}
                   </button>
                 ))}
               </div>
@@ -1357,6 +1360,23 @@ export default function DraftRoomPage() {
                       draftId={draft.id}
                       eventColor1={eventColor1}
                       onClose={() => setTeamPanelTab('pick')}
+                    />
+                  </div>
+                )}
+
+                {teamPanelTab === 'board' && (
+                  <div className="flex-1 flex flex-col min-h-0">
+                    <TeamProspectDraftboardCompact
+                      availablePlayers={avail}
+                      draftedPlayerIds={new Set(allPicks.map(p => p.playerId))}
+                      onAddToQueue={(player) => {
+                        if (!queue.some(q => q.id === player.id)) {
+                          setQueue(prev => [...prev, { id: player.id, name: player.name, pos: player.pos, nfl: player.nfl }]);
+                        }
+                      }}
+                      queuedIds={new Set(queue.map(q => q.id))}
+                      teamColors={myTeamColors}
+                      teamRoster={teamRoster}
                     />
                   </div>
                 )}
