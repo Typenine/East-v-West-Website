@@ -11,13 +11,25 @@ const PROTECTED_PREFIXES = [
 ];
 
 // Teams allowed to access draft system (team view + presentation view)
-const DRAFT_ALLOWED_TEAMS = [
+// Empty array = all authenticated teams can access; non-empty = only listed teams
+const DRAFT_ALLOWED_TEAMS: string[] = [
   'Belleview Badgers',
   'Mt. Lebanon Cake Eaters',
 ];
 
 function isProtectedPath(pathname: string): boolean {
   return PROTECTED_PREFIXES.some((p) => pathname === p || pathname.startsWith(p + '/'));
+}
+
+/**
+ * Decode base64url string (Edge-compatible).
+ */
+function base64urlDecode(str: string): string {
+  // Convert base64url to base64
+  let base64 = str.replace(/-/g, '+').replace(/_/g, '/');
+  // Add padding if needed
+  while (base64.length % 4 !== 0) base64 += '=';
+  return atob(base64);
 }
 
 /**
@@ -46,7 +58,7 @@ async function getTeamFromSession(token: string): Promise<string | null> {
   const expectedSig = btoa(sigStr).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
   if (sig !== expectedSig) return null;
   try {
-    const json = JSON.parse(atob(data.replace(/-/g, '+').replace(/_/g, '/')));
+    const json = JSON.parse(base64urlDecode(data));
     const exp = typeof json.exp === 'number' ? json.exp : 0;
     if (Date.now() > exp) return null;
     return typeof json.team === 'string' ? json.team : null;
@@ -63,7 +75,8 @@ export async function middleware(req: NextRequest) {
 
   // Check if user belongs to an allowed team for draft access
   const userTeam = await getTeamFromSession(sessionToken);
-  const isAllowedTeam = userTeam !== null && DRAFT_ALLOWED_TEAMS.includes(userTeam);
+  // If DRAFT_ALLOWED_TEAMS is empty, all authenticated teams are allowed
+  const isAllowedTeam = userTeam !== null && (DRAFT_ALLOWED_TEAMS.length === 0 || DRAFT_ALLOWED_TEAMS.includes(userTeam));
 
   // Optional: draft preview lock using EVW_PREVIEW_SECRET
   const previewSecret = process.env.EVW_PREVIEW_SECRET || '';
