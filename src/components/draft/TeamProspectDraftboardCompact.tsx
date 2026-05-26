@@ -481,17 +481,49 @@ export default function TeamProspectDraftboardCompact({
                 {/* Expanded details */}
                 {isExpanded && (
                   <div style={{ padding: '8px 12px 12px', borderTop: `1px solid ${C.border}` }}>
-                    <div style={{ fontSize: '11px', color: C.textMuted, marginBottom: '6px' }}>
+                    <div style={{ fontSize: '11px', color: C.textMuted, marginBottom: '8px' }}>
                       {p.college} · NFL Pick #{p.pick}
                     </div>
-                    {p.userNote && (
-                      <div style={{ fontSize: '12px', color: C.text, fontStyle: 'italic', lineHeight: '1.4', padding: '6px 8px', background: `${C.bg}88`, borderRadius: '3px' }}>
-                        {p.userNote}
+
+                    {/* College Production / Scouting Stats */}
+                    {p.s && p.s.length > 0 && (
+                      <div style={{ marginBottom: '10px' }}>
+                        <div style={{ fontSize: '9px', letterSpacing: '1.5px', color: C.accent, fontWeight: 700, marginBottom: '4px' }}>
+                          COLLEGE PRODUCTION
+                        </div>
+                        <div style={{ 
+                          fontSize: '11px', 
+                          color: C.text, 
+                          lineHeight: '1.5',
+                          padding: '6px 8px',
+                          background: `${C.bg}66`,
+                          borderRadius: '4px',
+                          border: `1px solid ${C.border}`,
+                          fontFamily: 'monospace',
+                        }}>
+                          {p.s.map((line, i) => (
+                            <div key={i} style={{ marginBottom: i < p.s.length - 1 ? '3px' : 0 }}>
+                              {line}
+                            </div>
+                          ))}
+                        </div>
                       </div>
                     )}
-                    {!p.userNote && (
+
+                    {/* User Notes */}
+                    {p.userNote && (
+                      <div>
+                        <div style={{ fontSize: '9px', letterSpacing: '1.5px', color: C.accent, fontWeight: 700, marginBottom: '4px' }}>
+                          MY NOTES
+                        </div>
+                        <div style={{ fontSize: '12px', color: C.text, fontStyle: 'italic', lineHeight: '1.4', padding: '6px 8px', background: `${C.bg}88`, borderRadius: '3px' }}>
+                          {p.userNote}
+                        </div>
+                      </div>
+                    )}
+                    {!p.userNote && (!p.s || p.s.length === 0) && (
                       <div style={{ fontSize: '11px', color: C.textDim, fontStyle: 'italic' }}>
-                        No notes. Add notes on the full Draft Board page.
+                        No scouting data or notes available.
                       </div>
                     )}
                   </div>
