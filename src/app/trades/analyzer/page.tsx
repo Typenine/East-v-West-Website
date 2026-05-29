@@ -160,6 +160,26 @@ function effectiveTotal(
   return { total, premiumAssets, discountApplied };
 }
 
+// Returns the adjusted effective value per player (mirrors effectiveTotal logic) for display purposes.
+function computePerPlayerEffectives(sideA: SelectedAsset[], sideB: SelectedAsset[], source: ValueSource): Map<string, number> {
+  const allAssets = [...sideA, ...sideB];
+  if (!allAssets.length) return new Map();
+  const dealBest = Math.max(...allAssets.map((a) => getDisplayValue(a, source)));
+  const result = new Map<string, number>();
+  for (const side of [sideA, sideB]) {
+    const sorted = [...side].sort((a, b) => getDisplayValue(b, source) - getDisplayValue(a, source));
+    sorted.forEach((asset, idx) => {
+      const raw = getDisplayValue(asset, source);
+      let v = raw;
+      if (!asset.isPick) v *= ageFactor(asset.age);
+      v *= studMultiplier(raw);
+      v *= depthDiscount(idx, raw, dealBest);
+      result.set(asset.key, Math.round(v));
+    });
+  }
+  return result;
+}
+
 function analyzeTrade(sideA: SelectedAsset[], sideB: SelectedAsset[], source: ValueSource): AnalysisResult {
   const rawTotalA = sideA.reduce((s, a) => s + getDisplayValue(a, source), 0);
   const rawTotalB = sideB.reduce((s, a) => s + getDisplayValue(a, source), 0);
@@ -250,11 +270,15 @@ function TrendArrow({ trend }: { trend: number }) {
   return null;
 }
 
-function AssetChip({ asset, source, sideTotal, barColor, onRemove }: {
-  asset: SelectedAsset; source: ValueSource; sideTotal: number; barColor: string; onRemove: () => void;
+function AssetChip({ asset, source, sideTotal, barColor, effectiveValue, onRemove }: {
+  asset: SelectedAsset; source: ValueSource; sideTotal: number; barColor: string;
+  effectiveValue?: number; onRemove: () => void;
 }) {
   const dv = getDisplayValue(asset, source);
   const pct = sideTotal > 0 ? Math.min(100, Math.round((dv / sideTotal) * 100)) : 0;
+  const shift = effectiveValue != null ? effectiveValue - dv : 0;
+  const showShift = Math.abs(shift) >= dv * 0.04 && dv > 0;
+
   return (
     <div className="rounded-[var(--radius-card)] bg-[var(--surface)] border border-[var(--border)] px-3 py-2 shadow-[var(--shadow-soft)]">
       <div className="flex items-center gap-2">
@@ -266,7 +290,12 @@ function AssetChip({ asset, source, sideTotal, barColor, onRemove }: {
           <div className="text-xs text-[var(--muted)]">
             {asset.isPick ? 'Draft Pick' : `${asset.position} · ${asset.nflTeam || 'FA'}${asset.age ? ` · Age ${asset.age.toFixed(0)}` : ''}`}
             <span className="ml-2 font-medium" style={{ color: barColor }}>{formatValue(dv)}</span>
-            {sideTotal > 0 && <span className="ml-1 opacity-50">{pct}%</span>}
+            {showShift && (
+              <span className="ml-1 font-semibold text-[10px]" style={{ color: shift > 0 ? '#22c55e' : '#ef4444' }}>
+                {shift > 0 ? '+' : ''}{formatValue(shift)} adj
+              </span>
+            )}
+            {!showShift && sideTotal > 0 && <span className="ml-1 opacity-50">{pct}%</span>}
           </div>
         </div>
         <button onClick={onRemove} className="text-[var(--muted)] hover:text-[var(--danger)] transition-colors text-lg leading-none shrink-0" aria-label={`Remove ${asset.name}`}>×</button>
@@ -496,9 +525,10 @@ function ValueSourceToggle({ source, onChange, ktcAvailable }: { source: ValueSo
   );
 }
 
-function TradeSide({ label, color, assets, values, excluded, source, grade, onAdd, onRemove, onClear }: {
+function TradeSide({ label, color, assets, values, excluded, source, grade, effectiveValues, onAdd, onRemove, onClear }: {
   label: string; color: string; assets: SelectedAsset[]; values: TradeValue[];
   excluded: Set<string>; source: ValueSource; grade: string;
+  effectiveValues?: Map<string, number>;
   onAdd: (a: SelectedAsset) => void; onRemove: (k: string) => void; onClear: () => void;
 }) {
   const total = assets.reduce((s, a) => s + getDisplayValue(a, source), 0);
@@ -540,7 +570,7 @@ function TradeSide({ label, color, assets, values, excluded, source, grade, onAd
 
       <div className="space-y-2 min-h-[80px]">
         {assets.length === 0 && <div className="text-center text-[var(--muted)] text-sm py-6 opacity-60">Add players or picks</div>}
-        {assets.map((a) => <AssetChip key={a.key} asset={a} source={source} sideTotal={total} barColor={color} onRemove={() => onRemove(a.key)} />)}
+        {assets.map((a) => <AssetChip key={a.key} asset={a} source={source} sideTotal={total} barColor={color} effectiveValue={effectiveValues?.get(a.key)} onRemove={() => onRemove(a.key)} />)}
       </div>
     </div>
   );
@@ -629,26 +659,31 @@ function ShareButton({ sideA, sideB }: { sideA: SelectedAsset[]; sideB: Selected
 // --- Confidence badge: flags when FC and KTC meaningfully disagree on a player ---
 
 function ConfidenceBadge({ assets }: { assets: SelectedAsset[] }) {
-  const rated = assets.filter(
-    (a) => !a.isPick && a.fcValue != null && a.ktcValue != null && a.fcValue > 0 && a.ktcValue > 0,
-  );
-  if (!rated.length) return null;
+  const disagreements = assets
+    .filter((a) => !a.isPick && (a.fcValue ?? 0) > 0 && (a.ktcValue ?? 0) > 0)
+    .map((a) => ({
+      name: a.name,
+      diff: Math.abs((a.fcValue ?? 0) - (a.ktcValue ?? 0)),
+      ktcHigher: (a.ktcValue ?? 0) > (a.fcValue ?? 0),
+    }))
+    .filter((d) => d.diff >= 350)
+    .sort((a, b) => b.diff - a.diff);
 
-  const spreadOf = (a: SelectedAsset) => {
-    const avg = ((a.fcValue ?? 0) + (a.ktcValue ?? 0)) / 2;
-    return avg > 0 ? Math.abs((a.fcValue ?? 0) - (a.ktcValue ?? 0)) / avg : 0;
-  };
-  const maxSpread = Math.max(...rated.map(spreadOf));
-  if (maxSpread < 0.18) return null;
+  if (!disagreements.length) return null;
 
-  const disagreeing = rated.filter((a) => spreadOf(a) > 0.18).map((a) => a.name);
-  const isLow = maxSpread >= 0.35;
-  const color = isLow ? '#f97316' : '#eab308';
+  const lines = disagreements.slice(0, 2).map((d) => {
+    const higher = d.ktcHigher ? 'KTC' : 'FC';
+    const lower = d.ktcHigher ? 'FC' : 'KTC';
+    return `${higher} values ${d.name} ${formatValue(d.diff)} pts higher than ${lower}`;
+  });
+
+  const color = disagreements[0].diff >= 1200 ? '#f97316' : '#eab308';
+  const extra = disagreements.length > 2 ? ` · +${disagreements.length - 2} more` : '';
 
   return (
     <div className="mt-2 flex justify-center">
-      <span className="text-xs px-3 py-1 rounded-full" style={{ color, backgroundColor: color + '18', border: `1px solid ${color}44` }}>
-        ⚠ {isLow ? 'Low confidence' : 'Mixed signals'} · FC &amp; KTC disagree on {disagreeing.slice(0, 2).join(', ')}{disagreeing.length > 2 ? ` +${disagreeing.length - 2} more` : ''}
+      <span className="text-xs px-3 py-1 rounded-full text-center" style={{ color, backgroundColor: color + '18', border: `1px solid ${color}44` }}>
+        ⚠ {lines.join(' · ')}{extra}
       </span>
     </div>
   );
@@ -866,6 +901,7 @@ function TradeAnalyzerContent() {
 
   const excluded = useMemo(() => { const s = new Set<string>(); for (const a of [...sideA, ...sideB]) s.add(a.key); return s; }, [sideA, sideB]);
   const analysis = useMemo(() => analyzeTrade(sideA, sideB, source), [sideA, sideB, source]);
+  const playerEffectives = useMemo(() => computePerPlayerEffectives(sideA, sideB, source), [sideA, sideB, source]);
   const totalA = sideA.reduce((s, a) => s + getDisplayValue(a, source), 0);
   const totalB = sideB.reduce((s, a) => s + getDisplayValue(a, source), 0);
 
@@ -946,11 +982,13 @@ function TradeAnalyzerContent() {
       <div className="rounded-[var(--radius-card)] bg-[var(--surface)] border border-[var(--border)] p-4 md:p-6 shadow-[var(--shadow-soft)]">
         <div className="flex flex-col md:flex-row gap-6">
           <TradeSide label="Side A" color="var(--accent)" assets={sideA} values={values} excluded={excluded} source={source}
-            grade={analysis.sideAGrade} onAdd={(a) => setSideA((p) => [...p, a])} onRemove={(k) => setSideA((p) => p.filter((x) => x.key !== k))} onClear={() => setSideA([])} />
+            grade={analysis.sideAGrade} effectiveValues={playerEffectives}
+            onAdd={(a) => setSideA((p) => [...p, a])} onRemove={(k) => setSideA((p) => p.filter((x) => x.key !== k))} onClear={() => setSideA([])} />
           <div className="hidden md:flex items-center"><div className="w-px h-full bg-[var(--border)]" /></div>
           <div className="md:hidden border-t border-[var(--border)]" />
           <TradeSide label="Side B" color="var(--danger)" assets={sideB} values={values} excluded={excluded} source={source}
-            grade={analysis.sideBGrade} onAdd={(a) => setSideB((p) => [...p, a])} onRemove={(k) => setSideB((p) => p.filter((x) => x.key !== k))} onClear={() => setSideB([])} />
+            grade={analysis.sideBGrade} effectiveValues={playerEffectives}
+            onAdd={(a) => setSideB((p) => [...p, a])} onRemove={(k) => setSideB((p) => p.filter((x) => x.key !== k))} onClear={() => setSideB([])} />
         </div>
         <div className="mt-6 pt-4 border-t border-[var(--border)]">
           <FairnessMeter analysis={analysis} totalA={totalA} totalB={totalB} allAssets={[...sideA, ...sideB]} />
