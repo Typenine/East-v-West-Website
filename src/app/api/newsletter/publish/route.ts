@@ -8,6 +8,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { isAdminCookieValue } from '@/lib/auth/admin';
 import { saveNewsletter } from '@/server/db/newsletter-queries';
+import { postToDiscordWebhook, buildNewsletterEmbed } from '@/lib/utils/discord';
+import { getDb } from '@/server/db/client';
+import { discordNotifications } from '@/server/db/schema';
+import { eq, and } from 'drizzle-orm';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -45,7 +49,36 @@ export async function POST(req: NextRequest) {
       html,
     );
 
-    console.log(`[Publish] Newsletter published: Season ${season} Week ${week}`);
+    console.log(`[Publish] Newsletter saved to DB: Season ${season} Week ${week}`);
+
+    // Discord announcement — single authoritative place for this notification
+    const discordWebhookUrl = process.env.DISCORD_NEWSLETTER_WEBHOOK_URL;
+    const siteUrl = process.env.SITE_URL || 'https://eastvswest.football';
+    if (discordWebhookUrl) {
+      try {
+        const db = getDb();
+        const dedupeKey = `${Number(season)}-${Number(week)}`;
+        const existing = await db.select().from(discordNotifications)
+          .where(and(eq(discordNotifications.notificationType, 'newsletter_published'), eq(discordNotifications.dedupeKey, dedupeKey)))
+          .limit(1).catch(() => []);
+        if (existing.length === 0) {
+          console.log(`[Publish] Posting Discord embed for Season ${season} Week ${week}`);
+          const embed = buildNewsletterEmbed({ season: Number(season), week: Number(week), siteUrl });
+          const discordRes = await postToDiscordWebhook(discordWebhookUrl, { embeds: [embed] });
+          if (discordRes.success) {
+            await db.insert(discordNotifications).values({ notificationType: 'newsletter_published', dedupeKey, meta: { season, week } }).catch(() => {});
+            console.log(`[Publish] Discord embed posted — Season ${season} Week ${week}`);
+          } else {
+            console.warn(`[Publish] Discord post failed: ${discordRes.error}`);
+          }
+        } else {
+          console.log(`[Publish] Discord already posted for Season ${season} Week ${week} — skipping`);
+        }
+      } catch (discordErr) {
+        console.warn('[Publish] Discord notification error (non-fatal):', discordErr);
+      }
+    }
+
     return NextResponse.json({ success: true, message: `Season ${season} Week ${week} published successfully.` });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

@@ -676,7 +676,7 @@ function ConfidenceBadge({ assets }: { assets: SelectedAsset[] }) {
       diff: Math.abs((a.fcValue ?? 0) - (a.ktcValue ?? 0)),
       ktcHigher: (a.ktcValue ?? 0) > (a.fcValue ?? 0),
     }))
-    .filter((d) => d.diff >= 1200)
+    .filter((d) => d.diff >= 1500)
     .sort((a, b) => b.diff - a.diff);
 
   if (!disagreements.length) return null;

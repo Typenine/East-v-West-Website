@@ -23,6 +23,8 @@ import {
   loadBotMemory,
   saveBotMemory,
   saveNewsletter,
+  saveForecastRecords,
+  savePendingPicks,
 } from '@/server/db/newsletter-queries';
 import type { BotMemory } from '@/lib/newsletter/types';
 import {
@@ -35,10 +37,6 @@ import {
 import { renderHtml } from '@/lib/newsletter/template';
 import type { DerivedData } from '@/lib/newsletter/types';
 import type { LeagueDraftData } from '@/lib/newsletter/sleeper-ingest';
-import { postToDiscordWebhook, buildNewsletterEmbed } from '@/lib/utils/discord';
-import { getDb } from '@/server/db/client';
-import { discordNotifications } from '@/server/db/schema';
-import { eq, and } from 'drizzle-orm';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -114,6 +112,7 @@ export async function POST(request: NextRequest) {
   const derived = (derivedData.__derived as DerivedData) ?? { matchup_pairs: [], upcoming_pairs: [], events_scored: [] };
   const draftData = (derivedData.__draftData as LeagueDraftData | null) ?? null;
   const sectionOutputs = (derivedData.sections as Record<string, unknown>) ?? {};
+  const forecastRecords = (derivedData.__forecastRecords as { entertainer: { w: number; l: number }; analyst: { w: number; l: number } } | null) ?? null;
 
   const { episodeType, leagueName, matchupCount, tradeCount, preDraftSlots, preDraftRound2Slots, isFirstEpisodeEver, draftTeams } = jobMeta;
 
@@ -161,6 +160,7 @@ export async function POST(request: NextRequest) {
     draftTeams,
     mockDraftR1Mason: mockDraftR1Mason?.picks,
     mockDraftR1Westy: mockDraftR1Westy?.picks,
+    forecastRecords,
   };
 
   // ── Mark step as running ──
@@ -278,6 +278,25 @@ async function finalizeNewsletter(
     console.log(`[Step] Bot memory saved — Analyst: ${storedMemAna.summaryMood}`);
   }
 
+  // ── Save forecast records + pending picks if the Forecast step ran ──
+  type ForecastStepOutput = {
+    forecast?: { records?: { entertainer: { w: number; l: number }; analyst: { w: number; l: number } } };
+    pendingPicks?: { week: number; picks: Array<{ matchup_id: string | number; entertainer_pick: string; analyst_pick: string }> };
+  };
+  const forecastOutput = sectionOutputs['Forecast'] as ForecastStepOutput | null | undefined;
+  if (forecastOutput) {
+    if (forecastOutput.forecast?.records) {
+      await saveForecastRecords(season, forecastOutput.forecast.records)
+        .catch(e => console.warn('[Step] Failed to save forecast records:', e));
+      console.log(`[Step] Forecast records saved — Entertainer: ${forecastOutput.forecast.records.entertainer.w}W-${forecastOutput.forecast.records.entertainer.l}L, Analyst: ${forecastOutput.forecast.records.analyst.w}W-${forecastOutput.forecast.records.analyst.l}L`);
+    }
+    if (forecastOutput.pendingPicks && forecastOutput.pendingPicks.picks.length > 0) {
+      await savePendingPicks(season, forecastOutput.pendingPicks)
+        .catch(e => console.warn('[Step] Failed to save pending picks:', e));
+      console.log(`[Step] Forecast pending picks saved — ${forecastOutput.pendingPicks.picks.length} picks for Week ${forecastOutput.pendingPicks.week}`);
+    }
+  }
+
   // ── Render HTML ──
   let html = '';
   try {
@@ -299,33 +318,7 @@ async function finalizeNewsletter(
   await updateStagedNewsletter(season, week, { status: 'completed' });
 
   console.log(`[Step] Newsletter saved to DB — S${season}W${week} (${episodeType}), ${newsletter.sections.length} sections, ${html.length} HTML chars`);
-
-  // Discord notification
-  const discordWebhookUrl = process.env.DISCORD_NEWSLETTER_WEBHOOK_URL;
-  const siteUrl = process.env.SITE_URL || 'https://eastvswest.football';
-  if (discordWebhookUrl) {
-    try {
-      const db = getDb();
-      const dedupeKey = `${season}-${week}`;
-      const existing = await db.select().from(discordNotifications)
-        .where(and(eq(discordNotifications.notificationType, 'newsletter_published'), eq(discordNotifications.dedupeKey, dedupeKey)))
-        .limit(1).catch(() => []);
-      if (existing.length === 0) {
-        const embed = buildNewsletterEmbed({ season, week, siteUrl });
-        const res = await postToDiscordWebhook(discordWebhookUrl, { embeds: [embed] });
-        if (res.success) {
-          await db.insert(discordNotifications).values({ notificationType: 'newsletter_published', dedupeKey, meta: { season, week } }).catch(() => {});
-          console.log(`[Step] Discord embed posted — S${season}W${week}`);
-        } else {
-          console.warn(`[Step] Discord post failed: ${res.error}`);
-        }
-      } else {
-        console.log(`[Step] Discord already posted for S${season}W${week} — skipping`);
-      }
-    } catch (discordErr) {
-      console.warn('[Step] Discord notification error (non-fatal):', discordErr);
-    }
-  }
+  console.log(`[Step] Staged generation complete — Discord notification NOT posted (use Publish to announce)`);
 
   return NextResponse.json({
     done: true,

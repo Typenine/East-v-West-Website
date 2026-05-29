@@ -29,6 +29,7 @@ import type {
   MockDraftPick,
   DraftGradesSection,
   SeasonPreviewSection,
+  ForecastData,
   EpisodeType,
 } from './types';
 import type { DerivedData } from './types';
@@ -36,6 +37,7 @@ import type { LeagueDraftData } from './sleeper-ingest';
 import { generateSection } from './llm/groq';
 import { buildStaticLeagueContext, LEAGUE_IDENTITY } from './league-knowledge';
 import { getEpisodeConfig } from './episodes';
+import { makeForecast, type ForecastRecords } from './forecast';
 
 // ============ Step catalog ============
 
@@ -66,6 +68,10 @@ export function getGenerationSteps(
     steps.push('WaiversAndFA');
     for (let t = 0; t < tradeCount; t++) steps.push(`Trade_${t}`);
     steps.push('Spotlight', 'Blurt');
+    // Forecast step for episodes that normally include next-week predictions
+    if (['regular', 'trade_deadline', 'playoffs_preview', 'playoffs_round'].includes(episodeType)) {
+      steps.push('Forecast');
+    }
   }
 
   if (episodeType === 'pre_draft') {
@@ -108,6 +114,8 @@ export interface StepInput {
   // For mock draft R2, needs R1 picks from a previous step
   mockDraftR1Mason?: Array<{ slot: number; team: string; player: string; position: string; analysis: string }>;
   mockDraftR1Westy?: Array<{ slot: number; team: string; player: string; position: string; analysis: string }>;
+  /** Graded forecast records from job start — passed into Forecast step so picks embed the running W/L record. */
+  forecastRecords?: ForecastRecords | null;
 }
 
 export type StepResult =
@@ -639,6 +647,8 @@ function buildDraftPicksContext(draftData: LeagueDraftData | null | undefined): 
 }
 
 function extractLetterGrade(text: string): string {
+  // N/A grade — no-picks team
+  if (/^\s*n\/a\b/i.test(text.trim())) return 'N/A';
   const m = text.match(/\bgrade[:\s]+([A-F][+-]?)\b/i)
     || text.match(/\bgiv(?:e|ing)\s+(?:this\s+)?(?:a\s+)?([A-F][+-]?)\b/i)
     || text.match(/\b([A-F][+-]?)\s*[-–]\s*(?:grade|trade|deal)\b/i);
@@ -665,8 +675,16 @@ async function genDraftGradeTeam(
   if (!team) return null;
 
   const teamPicks = picksByTeam.get(team) ?? [];
-  const picksText = [...teamPicks].sort((a, b) => a.pick_no - b.pick_no)
-    .map(p => `Round ${p.round}: ${p.playerName} (${p.position})`).join(', ');
+  const noPicks = teamPicks.length === 0;
+
+  if (noPicks) {
+    console.log(`[ComposeStep] post_draft no-pick team at index ${teamIndex}: "${team}" — generating N/A grade`);
+  }
+
+  const picksText = noPicks
+    ? ''
+    : [...teamPicks].sort((a, b) => a.pick_no - b.pick_no)
+        .map(p => `Round ${p.round}: ${p.playerName} (${p.position})`).join(', ');
 
   const leagueKnowledge = buildStaticLeagueContext();
   const context = `${leagueKnowledge}
@@ -681,17 +699,22 @@ ${picksContext || 'Draft picks not yet available.'}
 ${enhancedContext.slice(0, 2000)}
 
 GRADING: ${team}
-Their picks: ${picksText || 'No picks on record.'}`;
+Their picks: ${picksText || 'No picks on record — this team had no picks in this draft.'}`;
 
-  const [bot1_analysis, bot2_analysis] = await Promise.all([
-    generateSection({ persona: 'entertainer', sectionType: `Draft Grade - ${team}`, context, constraints: `Grade ${team}'s draft (A+ to F). 2-3 sentences personality-driven reaction. Start with the letter grade.`, maxTokens: 300 }),
-    generateSection({ persona: 'analyst',     sectionType: `Draft Grade - ${team}`, context, constraints: `Grade ${team}'s draft (A+ to F). 2-3 analytical sentences on value, needs, dynasty trajectory. Start with letter grade.`, maxTokens: 300 }),
-  ]);
+  const [bot1_analysis, bot2_analysis] = noPicks
+    ? await Promise.all([
+        generateSection({ persona: 'entertainer', sectionType: `Draft Grade - ${team}`, context, constraints: `${team} had NO PICKS in this draft (either traded all picks away or picks were deferred). Start your response with exactly "N/A —" then write 2-3 sentences on what skipping this rookie class means for their dynasty outlook.`, maxTokens: 250 }),
+        generateSection({ persona: 'analyst',     sectionType: `Draft Grade - ${team}`, context, constraints: `${team} had NO PICKS in this draft. Start your response with exactly "N/A —" then give 2-3 analytical sentences on the dynasty implications of sitting out this rookie class entirely.`, maxTokens: 250 }),
+      ])
+    : await Promise.all([
+        generateSection({ persona: 'entertainer', sectionType: `Draft Grade - ${team}`, context, constraints: `Grade ${team}'s draft (A+ to F). 2-3 sentences personality-driven reaction. Start with the letter grade.`, maxTokens: 300 }),
+        generateSection({ persona: 'analyst',     sectionType: `Draft Grade - ${team}`, context, constraints: `Grade ${team}'s draft (A+ to F). 2-3 analytical sentences on value, needs, dynasty trajectory. Start with letter grade.`, maxTokens: 300 }),
+      ]);
 
   return {
     team,
     picks: teamPicks.map(p => ({ round: p.round, pick: p.pick_no, player: p.playerName, position: p.position })),
-    grade: extractLetterGrade(bot1_analysis + bot2_analysis),
+    grade: noPicks ? 'N/A' : extractLetterGrade(bot1_analysis + bot2_analysis),
     bot1_analysis,
     bot2_analysis,
   };
@@ -737,6 +760,48 @@ ${enhancedContext.slice(0, 2000)}`;
     worstPick:      parseAward(awardsRaw, 'WORST'),
     stealOfTheDraft: parseAward(awardsRaw, 'STEAL'),
   };
+}
+
+// ============ Forecast ============
+
+type ForecastStepOutput = {
+  forecast: ForecastData;
+  pendingPicks: { week: number; picks: Array<{ matchup_id: string | number; entertainer_pick: string; analyst_pick: string }> };
+} | null;
+
+async function genForecast(input: StepInput): Promise<ForecastStepOutput> {
+  const { derived, memEntertainer, memAnalyst, week, enhancedContext, forecastRecords } = input;
+
+  console.log(`[ComposeStep] Forecast step started — upcoming pairs: ${derived.upcoming_pairs?.length ?? 0}`);
+
+  if (!derived.upcoming_pairs || derived.upcoming_pairs.length === 0) {
+    console.log('[ComposeStep] Forecast skipped — no upcoming pairs available');
+    return null;
+  }
+
+  const nextWeek = week + 1;
+  try {
+    const { forecast, pending } = await makeForecast({
+      upcoming_pairs: derived.upcoming_pairs,
+      last_pairs: derived.matchup_pairs || [],
+      memEntertainer,
+      memAnalyst,
+      nextWeek,
+      enhancedContext,
+    });
+
+    const forecastWithRecords: ForecastData = {
+      ...forecast,
+      records: forecastRecords ?? undefined,
+    };
+
+    console.log(`[ComposeStep] Forecast completed — ${forecast.picks.length} picks, ${pending.picks.length} pending picks for Week ${nextWeek}`);
+
+    return { forecast: forecastWithRecords, pendingPicks: pending };
+  } catch (e) {
+    console.error('[ComposeStep] Forecast generation failed:', e);
+    return null;
+  }
 }
 
 // ============ Master dispatch ============
@@ -803,6 +868,12 @@ export async function generateNewsletterSection(input: StepInput): Promise<StepR
 
     if (sectionName === 'DraftGrades_Summary') {
       const data = await genDraftGradesSummary(input);
+      return { ok: true, sectionName, data };
+    }
+
+    // Forecast step — generates picks for next week and carries pending picks for persistence
+    if (sectionName === 'Forecast') {
+      const data = await genForecast(input);
       return { ok: true, sectionName, data };
     }
 
@@ -952,6 +1023,15 @@ export function assembleNewsletterFromSections(
   const blurt = get<BlurtSection>('Blurt');
   if (blurt && (blurt.bot1 || blurt.bot2)) sections.push({ type: 'Blurt', data: blurt });
 
+  // Forecast (regular/trade_deadline/playoffs_preview/playoffs_round)
+  if (steps.includes('Forecast')) {
+    const forecastOutput = sectionData['Forecast'] as { forecast?: ForecastData; pendingPicks?: unknown } | null;
+    const forecastData = forecastOutput?.forecast;
+    if (forecastData && Array.isArray(forecastData.picks) && forecastData.picks.length > 0) {
+      sections.push({ type: 'Forecast', data: forecastData });
+    }
+  }
+
   // Final Word
   const fw = get<FinalWordSection>('FinalWord');
   if (fw) sections.push({ type: 'FinalWord', data: fw });
@@ -1023,6 +1103,13 @@ export function validateNewsletterSections(
         }
       }
     }
+    // Forecast is required for regular/trade_deadline/playoffs_preview/playoffs_round
+    if (['regular', 'trade_deadline', 'playoffs_preview', 'playoffs_round'].includes(episodeType)) {
+      const forecastSec = newsletter.sections.find(s => s.type === 'Forecast');
+      if (!forecastSec) {
+        missing.push('Forecast');
+      }
+    }
   }
 
   if (episodeType === 'preseason') {
@@ -1052,7 +1139,8 @@ export function validateNewsletterSections(
       const teamCount = (grades.data as DraftGradesSection).grades.length;
       const expected = expectedTeamCount ?? LEAGUE_IDENTITY.format.teamCount;
       if (teamCount < expected) {
-        issues.push(`DraftGrades has ${teamCount}/${expected} team grades`);
+        // Blocking: all 12 teams must have a grade entry (no-pick teams get N/A grade)
+        missing.push(`DraftGrades requires all ${expected} team grades — only ${teamCount} present`);
       }
     }
   }

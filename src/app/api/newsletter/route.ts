@@ -877,7 +877,22 @@ async function startStagedJob(opts: {
       }
       draftTeams = allLeagueTeams.length > 0 ? allLeagueTeams : undefined;
       if (draftTeams) {
-        console.log(`[Staged] post_draft teams (${draftTeams.length}): ${draftTeams.join(', ')}`);
+        console.log(`[Staged] post_draft team list created (${draftTeams.length}): ${draftTeams.join(', ')}`);
+        // Detect and log teams with no recorded picks
+        if (draftData?.picks && draftData.picks.length > 0) {
+          const teamsWithPicksSet = new Set(
+            (draftData.picks as Array<{ teamName?: string; roster_id?: number }>)
+              .map(p => p.teamName || `Roster ${p.roster_id}`)
+          );
+          const noPickTeams = draftTeams.filter(t => !teamsWithPicksSet.has(t));
+          if (noPickTeams.length > 0) {
+            console.log(`[Staged] post_draft no-pick teams detected (${noPickTeams.length}): ${noPickTeams.join(', ')}`);
+          } else {
+            console.log(`[Staged] post_draft all ${draftTeams.length} teams have recorded picks`);
+          }
+        } else {
+          console.log(`[Staged] post_draft no picks data available — all teams will receive N/A grade`);
+        }
       }
     }
 
@@ -938,6 +953,8 @@ async function startStagedJob(opts: {
       // Store evolved memories so steps use personality-aware state
       __memoryEntertainer: JSON.parse(JSON.stringify(memEnt)) as Record<string, unknown>,
       __memoryAnalyst:     JSON.parse(JSON.stringify(memAna)) as Record<string, unknown>,
+      // Store graded forecast records so the Forecast step can embed the running W/L record
+      __forecastRecords: FORECAST_EPISODE_TYPES.includes(episodeType) ? stagedForecastRecords : null,
       sections: {},
     });
     await updateStagedNewsletter(seasonNum, week, { status: 'pending', sectionsCompleted: [], currentSection: null });
