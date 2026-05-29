@@ -194,41 +194,28 @@ function analyzeTrade(sideA: SelectedAsset[], sideB: SelectedAsset[], source: Va
 
   const notes: string[] = [];
 
-  // Stud premium notes
-  const allPrem = [...premA, ...premB];
-  if (allPrem.length === 1) notes.push(`Stud premium on ${allPrem[0]}`);
-  else if (allPrem.length === 2) notes.push(`Stud premiums on ${allPrem[0]} & ${allPrem[1]}`);
-  else if (allPrem.length > 2) notes.push(`Stud premiums on ${allPrem[0]}, ${allPrem[1]} +${allPrem.length - 2} more`);
-
-  // Depth discount notes
-  if (discA) notes.push(`Depth discount applied to Side A`);
-  if (discB) notes.push(`Depth discount applied to Side B`);
-
   const max = Math.max(effA, effB, 1);
   const rawRatio = Math.min(effA, effB) / max;
   let adjustedRatio = rawRatio;
 
-  // Best player advantage on top of existing premiums
+  // Best player advantage (affects ratio only, no note)
   const bestA = Math.max(...sideA.map((a) => getDisplayValue(a, source)));
   const bestB = Math.max(...sideB.map((a) => getDisplayValue(a, source)));
   const bestSide = bestA >= bestB ? 'A' : 'B';
   if (Math.abs(bestA - bestB) > 1500) {
     if ((bestSide === 'A' && effA >= effB) || (bestSide === 'B' && effB >= effA))
       adjustedRatio = Math.max(0, adjustedRatio - 0.03);
-    notes.push(`Side ${bestSide} gets the best player in the deal`);
   }
 
+  // Piece imbalance bonus (affects ratio only, no note)
   const pieceDiff = Math.abs(sideA.length - sideB.length);
   if (pieceDiff >= 1) {
     const consolidationBonus = Math.min(0.09, pieceDiff * 0.03);
     adjustedRatio = Math.min(1.0, adjustedRatio + consolidationBonus);
-    const fewerSide = sideA.length < sideB.length ? 'A' : 'B';
-    notes.push(`Side ${fewerSide} consolidates talent (+${Math.round(consolidationBonus * 100)}%)`);
   }
 
   const picksA = sideA.filter((a) => a.isPick).length;
   const picksB = sideB.filter((a) => a.isPick).length;
-  if (picksA !== picksB) notes.push(`Side ${picksA > picksB ? 'A' : 'B'} acquires more draft capital`);
 
   const ageA = getAvgAge(sideA);
   const ageB = getAvgAge(sideB);
