@@ -849,14 +849,32 @@ async function startStagedJob(opts: {
     updateEnhancedMemoryAfterWeek(memAna, derived, week);
     console.log(`[Staged] Bot memories evolved — Entertainer: ${memEnt.summaryMood}, Analyst: ${memAna.summaryMood}`);
 
-    // ── For pre_draft: fetch draft slot order ──
+    // ── For pre_draft: fetch draft slot order and prospect pool ──
     let preDraftSlots: Array<{ slot: number; team: string }> | undefined;
     let preDraftRound2Slots: Array<{ slot: number; team: string }> | undefined;
+    let prospectPool: Array<{ name: string; pos: string; rank: number | null }> | null = null;
     if (episodeType === 'pre_draft') {
       const draftOrder = await buildSimpleDraftSlotOrder(seasonNum);
       preDraftSlots = draftOrder.round1.length > 0 ? draftOrder.round1 : undefined;
       preDraftRound2Slots = draftOrder.round2;
-      console.log(`[Staged] pre_draft slot order: ${preDraftSlots?.map(s => `${s.slot}.${s.team}`).join(', ') ?? 'none'}`);
+      console.log(`[Staged] pre_draft slot order: ${preDraftSlots?.map(s => `${s.slot}.${s.team}`).join(', ') ?? 'none (will fallback to Team 1..12)'}`);
+
+      // Load eligible prospect pool — mock draft steps require this to prevent hallucinated players
+      try {
+        const draftId = await getActiveOrLatestDraftId();
+        if (draftId) {
+          const players = await getDraftPlayers(draftId);
+          players.sort((a, b) => (a.rank ?? 9999) - (b.rank ?? 9999));
+          prospectPool = players.map(p => ({ name: p.name, pos: p.pos, rank: p.rank ?? null }));
+          console.log(`[Staged] pre_draft prospect pool loaded: ${prospectPool.length} players`);
+          console.log(`[Staged] pre_draft first 10 prospects: ${prospectPool.slice(0, 10).map(p => p.name).join(', ')}`);
+        }
+      } catch (e) {
+        console.warn('[Staged] pre_draft: Failed to load prospect pool from DB:', e);
+      }
+      if (!prospectPool || prospectPool.length === 0) {
+        console.warn('[Staged] pre_draft: NO prospect pool found — MockDraft steps will fail with a hard error. Load the prospect pool via the draft admin tool first.');
+      }
     }
 
     // ── For post_draft: use ALL league teams as the grade list (not just teams with picks) ──
@@ -942,6 +960,7 @@ async function startStagedJob(opts: {
       tradeCount,
       draftTeams,
     };
+    // prospectPool is stored separately (not in jobMeta) to keep jobMeta size manageable
 
     const { createStagedNewsletter, mergeStagedDerivedData: mergeData } = await import('@/server/db/newsletter-queries');
     await createStagedNewsletter(seasonNum, week, { leagueName: leagueName || 'East v. West', derived, users, rosters });
@@ -955,6 +974,8 @@ async function startStagedJob(opts: {
       __memoryAnalyst:     JSON.parse(JSON.stringify(memAna)) as Record<string, unknown>,
       // Store graded forecast records so the Forecast step can embed the running W/L record
       __forecastRecords: FORECAST_EPISODE_TYPES.includes(episodeType) ? stagedForecastRecords : null,
+      // Store prospect pool so MockDraft steps can enforce hard player constraints
+      __prospectPool: prospectPool,
       sections: {},
     });
     await updateStagedNewsletter(seasonNum, week, { status: 'pending', sectionsCompleted: [], currentSection: null });

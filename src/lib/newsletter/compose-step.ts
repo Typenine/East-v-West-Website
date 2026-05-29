@@ -116,6 +116,11 @@ export interface StepInput {
   mockDraftR1Westy?: Array<{ slot: number; team: string; player: string; position: string; analysis: string }>;
   /** Graded forecast records from job start — passed into Forecast step so picks embed the running W/L record. */
   forecastRecords?: ForecastRecords | null;
+  /**
+   * For pre_draft: eligible prospect pool loaded from DB at job start.
+   * Mock draft steps MUST use only players from this list. If null/empty, mock draft step fails hard.
+   */
+  prospectPool?: Array<{ name: string; pos: string; rank: number | null }> | null;
 }
 
 export type StepResult =
@@ -419,6 +424,117 @@ Ranks 1–12, rank 1 = best team. Use exact team names from the league context.`
   return { rankings, bot1_intro, bot2_intro };
 }
 
+// ============ Mock draft prospect validation & repair ============
+
+type ProspectEntry = { name: string; pos: string; rank: number | null };
+type MockPick = { slot: number; team: string; player: string; position: string; analysis: string };
+
+function normalizePlayerName(name: string): string {
+  return name.toLowerCase().replace(/[^a-z\s]/g, '').replace(/\s+/g, ' ').trim();
+}
+
+function isInProspectPool(playerName: string, pool: ProspectEntry[]): boolean {
+  const pNorm = normalizePlayerName(playerName);
+  const pLast = pNorm.split(' ').pop() ?? '';
+  return pool.some(p => {
+    const pl = normalizePlayerName(p.name);
+    const poolLast = pl.split(' ').pop() ?? '';
+    return pl === pNorm || (pLast.length >= 4 && poolLast === pLast);
+  });
+}
+
+function validateMockDraftPicks(
+  picks: MockPick[],
+  pool: ProspectEntry[],
+  expectedSlots: Array<{ slot: number; team: string }>,
+  round: number,
+): { invalidPlayers: string[]; orderMismatches: string[] } {
+  const invalidPlayers: string[] = [];
+  const orderMismatches: string[] = [];
+  for (const pick of picks) {
+    if (!isInProspectPool(pick.player, pool)) {
+      invalidPlayers.push(`${pick.player} (R${round} slot ${pick.slot})`);
+    }
+    const expected = expectedSlots.find(s => s.slot === pick.slot);
+    if (expected && pick.team && normalizePlayerName(pick.team) !== normalizePlayerName(expected.team)) {
+      orderMismatches.push(`Slot ${pick.slot}: expected "${expected.team}", got "${pick.team}"`);
+    }
+  }
+  return { invalidPlayers, orderMismatches };
+}
+
+async function repairMockDraftRound(
+  round: number,
+  originalPicks: MockPick[],
+  invalidPlayerStrings: string[],
+  pool: ProspectEntry[],
+  slots: Array<{ slot: number; team: string }>,
+  alreadyPickedPlayers: string[],
+  persona: 'entertainer' | 'analyst',
+): Promise<{ picks: MockPick[]; raw: string } | null> {
+  console.log(`[ComposeStep] MockDraft R${round} repair started (${persona}) — fixing ${invalidPlayerStrings.length} invalid picks`);
+
+  const availablePool = pool.filter(p =>
+    !alreadyPickedPlayers.some(used =>
+      normalizePlayerName(used) === normalizePlayerName(p.name) ||
+      (normalizePlayerName(used).split(' ').pop() ?? '') === (normalizePlayerName(p.name).split(' ').pop() ?? '')
+    )
+  );
+  const poolText = availablePool.map((p, i) => `${i + 1}. ${p.name} (${p.pos})`).join('\n');
+  const orderText = slots.map((s, i) => `Pick ${round}.${String(i + 1).padStart(2, '0')}: ${s.team}`).join('\n');
+
+  const invalidPicks = originalPicks.filter(p => !isInProspectPool(p.player, pool));
+  const validPicks  = originalPicks.filter(p =>  isInProspectPool(p.player, pool));
+
+  const repairContext = `MOCK DRAFT REPAIR — ROUND ${round}
+
+PICKS WITH INVALID PLAYERS (not in the ${new Date().getFullYear()} NFL draft class — must be replaced):
+${invalidPicks.map(p => `  Pick ${round}.${String(p.slot).padStart(2, '0')} | ${p.team} | ${p.player} ← INVALID`).join('\n')}
+
+VALID PICKS TO KEEP UNCHANGED:
+${validPicks.length > 0 ? validPicks.map(p => `  Pick ${round}.${String(p.slot).padStart(2, '0')} | ${p.team} | ${p.player} | ${p.position}`).join('\n') : '(none — all picks need replacing)'}
+
+ELIGIBLE PLAYERS FOR ROUND ${round} (ONLY these are allowed):
+${poolText}
+
+EXACT DRAFT ORDER — ROUND ${round}:
+${orderText}`;
+
+  const repairConstraint = `Replace every INVALID pick with a player from the ELIGIBLE PLAYERS list above.
+Keep all VALID picks exactly as listed — do not change them.
+DO NOT use Bryce Young, Will Levis, CJ Stroud, Anthony Richardson, or any player not in the ELIGIBLE list.
+Output ALL ${slots.length} picks in this exact format:
+PICK ${round}.01 | [Exact Team] | [Player from eligible list] | [Position]
+[3-4 sentence analysis]
+(continue through PICK ${round}.${String(slots.length).padStart(2, '0')})`;
+
+  try {
+    const repairedRaw = await generateSection({
+      persona,
+      sectionType: `Mock Draft - Round ${round} Repair`,
+      context: repairContext,
+      constraints: repairConstraint,
+      maxTokens: 3500,
+      episodeType: 'pre_draft',
+      validate: (t) => (t.replace(/\*\*/g, '').match(/\bPICK\s+\d+\.\d+\s*\|/gim) || []).length >= Math.max(4, Math.floor(slots.length * 0.4)),
+    });
+
+    const repairedPicks = parseMockDraftPicksLocal(repairedRaw);
+    const { invalidPlayers: stillInvalid } = validateMockDraftPicks(repairedPicks, pool, slots, round);
+
+    if (stillInvalid.length > 0) {
+      console.warn(`[ComposeStep] MockDraft R${round} repair FAILED — still has invalid players: ${stillInvalid.join(', ')}`);
+      return null;
+    }
+
+    console.log(`[ComposeStep] MockDraft R${round} repair SUCCEEDED — ${repairedPicks.length} valid picks`);
+    return { picks: repairedPicks, raw: repairedRaw };
+  } catch (e) {
+    console.error(`[ComposeStep] MockDraft R${round} repair threw:`, e);
+    return null;
+  }
+}
+
 // Pre-draft mock draft sub-steps — each R1/R2 bot is its own step
 function parseMockDraftPicksLocal(
   raw: string,
@@ -453,28 +569,73 @@ function parseMockDraftPicksLocal(
 async function genMockDraftR1(
   input: StepInput,
   persona: 'entertainer' | 'analyst',
-): Promise<{ picks: typeof parseMockDraftPicksLocal extends (...args: infer _) => infer R ? R : never; raw: string }> {
+): Promise<{ picks: ReturnType<typeof parseMockDraftPicksLocal>; raw: string }> {
   const leagueKnowledge = buildStaticLeagueContext();
-  const { preDraftSlots = [], season, enhancedContext, draftData, isFirstEpisodeEver } = input;
+  const { preDraftSlots = [], season, enhancedContext, draftData, isFirstEpisodeEver, prospectPool } = input;
+
+  // Hard fail if no prospect pool — prevents LLM from hallucinating old-class players
+  if (!prospectPool || prospectPool.length === 0) {
+    throw new Error(`Mock draft failed — no eligible prospect pool found for ${season}. Load the ${season} NFL draft prospect pool in the admin draft tool before generating a pre_draft newsletter.`);
+  }
 
   const effectiveSlots = preDraftSlots.length > 0
     ? preDraftSlots
     : Array.from({ length: 12 }, (_, i) => ({ slot: i + 1, team: `Team ${i + 1}` }));
 
-  const r1Order = effectiveSlots.map(s => `Pick 1.${String(s.slot).padStart(2, '0')}: ${s.team}`).join('\n');
+  const personaLabel = persona === 'entertainer' ? 'Mason' : 'Westy';
+  console.log(`[ComposeStep] MockDraft_R1_${personaLabel} started — ${effectiveSlots.length} teams, ${prospectPool.length} eligible prospects`);
+  console.log(`[ComposeStep] MockDraft R1 draft order: ${effectiveSlots.map(s => `${s.slot}.${s.team}`).join(', ')}`);
+  console.log(`[ComposeStep] MockDraft R1 first 10 prospects: ${prospectPool.slice(0, 10).map(p => p.name).join(', ')}`);
+
+  const r1Order = effectiveSlots.map((s, i) => `Pick 1.${String(i + 1).padStart(2, '0')}: ${s.team}`).join('\n');
   const debutLine = isFirstEpisodeEver
     ? `FIRST EPISODE: Mason and Westy debut with the East v. West league.`
     : `Mason and Westy are established analysts for this league.`;
 
-  const context = `${leagueKnowledge}\n\n---\n\n${season} EAST V. WEST ROOKIE DRAFT — MOCK DRAFT\n\n${debutLine}\n\nROUND 1 DRAFT ORDER (slot 1 = worst record, ${effectiveSlots.length} = champion):\n${r1Order}\n\n${enhancedContext.slice(0, 5000)}`;
+  // Prospect pool goes FIRST — before league knowledge and enhanced context — so it is never truncated
+  const poolText = prospectPool.map((p, i) => `${i + 1}. ${p.name} (${p.pos})`).join('\n');
+  const poolHeader = `=== ELIGIBLE PLAYERS — ${season} NFL DRAFT PROSPECT POOL ===
+You may ONLY select players from the list below for this mock draft.
+DO NOT use players from any previous draft class.
+DO NOT use: Bryce Young, Will Levis, CJ Stroud, Anthony Richardson, Caleb Williams, Drake Maye, or any other player not on this exact list.
 
-  const pickFmt = `EXACTLY this format for all ${effectiveSlots.length} picks:\n\nPICK 1.01 | ${effectiveSlots[0].team} | [Player Name] | [Position]\n[4-5 sentence paragraph]\n\nPICK 1.02 | ${effectiveSlots[1]?.team ?? 'Team 2'} | [Player Name] | [Position]\n[4-5 sentence paragraph]\n\n(continue through PICK 1.${String(effectiveSlots.length).padStart(2, '0')})`;
+${poolText}
 
-  const constraint = `You are ${persona === 'entertainer' ? 'Mason Reed — bold, personality-first' : 'Westy — analytical, data-driven'}. Write YOUR Round 1 mock draft.\n${pickFmt}`;
+=== END ELIGIBLE PLAYER LIST (${prospectPool.length} total) ===`;
 
-  const raw = await generateSection({ persona, sectionType: 'Mock Draft - Round 1', context, constraints: constraint, maxTokens: 3500, episodeType: 'pre_draft', validate: (t) => (t.replace(/\*\*/g, '').match(/\bPICK\s+\d+\.\d+\s*\|/gim) || []).length >= Math.max(4, Math.floor(effectiveSlots.length * 0.4)) });
+  const context = `${poolHeader}\n\n${leagueKnowledge}\n\n---\n\n${season} EAST V. WEST ROOKIE DRAFT — MOCK DRAFT\n\n${debutLine}\n\nROUND 1 DRAFT ORDER (slot 1 = worst record, slot ${effectiveSlots.length} = champion):\n${r1Order}\n\n${enhancedContext.slice(0, 2000)}`;
 
-  return { picks: parseMockDraftPicksLocal(raw), raw };
+  const pickFmt = `EXACTLY this format for all ${effectiveSlots.length} picks:\n\nPICK 1.01 | ${effectiveSlots[0].team} | [Player Name from eligible list] | [Position]\n[4-5 sentence paragraph]\n\nPICK 1.02 | ${effectiveSlots[1]?.team ?? 'Team 2'} | [Player Name from eligible list] | [Position]\n[4-5 sentence paragraph]\n\n(continue through PICK 1.${String(effectiveSlots.length).padStart(2, '0')})`;
+
+  const constraint = `You are ${persona === 'entertainer' ? 'Mason Reed — bold, personality-first' : 'Westy — analytical, data-driven'}. Write YOUR Round 1 mock draft.\n\n⚠️ CRITICAL RULE: Every player you select MUST appear in the ELIGIBLE PLAYERS list at the top of the context. If a player is not on that list, do NOT pick them.\n\n${pickFmt}`;
+
+  const raw = await generateSection({
+    persona,
+    sectionType: 'Mock Draft - Round 1',
+    context,
+    constraints: constraint,
+    maxTokens: 3500,
+    episodeType: 'pre_draft',
+    validate: (t) => (t.replace(/\*\*/g, '').match(/\bPICK\s+\d+\.\d+\s*\|/gim) || []).length >= Math.max(4, Math.floor(effectiveSlots.length * 0.4)),
+  });
+
+  const picks = parseMockDraftPicksLocal(raw);
+  // Use sequential slot numbers (1..N) matching the draft order as presented to the LLM
+  const slotsForValidation = effectiveSlots.map((s, i) => ({ slot: i + 1, team: s.team }));
+  const { invalidPlayers, orderMismatches } = validateMockDraftPicks(picks, prospectPool, slotsForValidation, 1);
+
+  if (orderMismatches.length > 0) {
+    console.warn(`[ComposeStep] MockDraft R1 (${personaLabel}) draft-order mismatches: ${orderMismatches.join('; ')}`);
+  }
+  if (invalidPlayers.length > 0) {
+    console.warn(`[ComposeStep] MockDraft R1 (${personaLabel}) — ${invalidPlayers.length} invalid players detected: ${invalidPlayers.join(', ')}`);
+    const repaired = await repairMockDraftRound(1, picks, invalidPlayers, prospectPool, slotsForValidation, [], persona);
+    if (repaired) return repaired;
+    throw new Error(`MockDraft R1 (${personaLabel}) illegal players found and repair failed: ${invalidPlayers.join(', ')}`);
+  }
+
+  console.log(`[ComposeStep] MockDraft_R1_${personaLabel} completed — ${picks.length} valid picks`);
+  return { picks, raw };
 }
 
 async function genMockDraftR2(
@@ -483,7 +644,11 @@ async function genMockDraftR2(
   r1Picks: Array<{ slot: number; team: string; player: string; position: string; analysis: string }>,
 ): Promise<{ picks: ReturnType<typeof parseMockDraftPicksLocal>; raw: string }> {
   const leagueKnowledge = buildStaticLeagueContext();
-  const { preDraftSlots = [], preDraftRound2Slots, season, enhancedContext, draftData, isFirstEpisodeEver } = input;
+  const { preDraftSlots = [], preDraftRound2Slots, season, enhancedContext, draftData, isFirstEpisodeEver, prospectPool } = input;
+
+  if (!prospectPool || prospectPool.length === 0) {
+    throw new Error(`Mock draft R2 failed — no eligible prospect pool found for ${season}.`);
+  }
 
   const effectiveSlots = preDraftSlots.length > 0
     ? preDraftSlots
@@ -494,19 +659,64 @@ async function genMockDraftR2(
     ? preDraftRound2Slots
     : (isSnake ? [...effectiveSlots].reverse() : [...effectiveSlots]);
 
+  // Remove R1 picks from the eligible pool so R2 doesn't repeat them
+  const r1PlayerNames = r1Picks.map(p => p.player);
+  const r2Pool = prospectPool.filter(p =>
+    !r1PlayerNames.some(used =>
+      normalizePlayerName(used) === normalizePlayerName(p.name) ||
+      (normalizePlayerName(used).split(' ').pop() ?? '') === (normalizePlayerName(p.name).split(' ').pop() ?? '')
+    )
+  );
+
+  const personaLabel = persona === 'entertainer' ? 'Mason' : 'Westy';
+  console.log(`[ComposeStep] MockDraft_R2_${personaLabel} started — ${round2Slots.length} picks, ${r2Pool.length} remaining eligible prospects`);
+  console.log(`[ComposeStep] MockDraft R2 order: ${round2Slots.map((s, i) => `${i + 1}.${s.team}`).join(', ')}`);
+
+  const poolText = r2Pool.map((p, i) => `${i + 1}. ${p.name} (${p.pos})`).join('\n');
+  const poolHeader = `=== ELIGIBLE PLAYERS — ROUND 2 (${season} prospect pool minus Round 1 picks) ===
+You may ONLY select players from the list below.
+DO NOT repeat Round 1 picks. DO NOT use players from any previous draft class.
+
+${poolText}
+
+=== END ELIGIBLE PLAYER LIST (${r2Pool.length} available) ===`;
+
   const r1Summary = r1Picks.length > 0
     ? `YOUR ROUND 1 PICKS (do NOT repeat these players):\n${r1Picks.map(p => `  Pick 1.${String(p.slot).padStart(2, '0')} | ${p.team} | ${p.player} | ${p.position}`).join('\n')}`
     : 'Round 1 unavailable — choose different players for each slot.';
 
   const r2Order = round2Slots.map((s, i) => `Pick 2.${String(i + 1).padStart(2, '0')}: ${s.team}`).join('\n');
-  const pickFmt = `EXACTLY this format for all ${round2Slots.length} picks:\n\nPICK 2.01 | ${round2Slots[0].team} | [Player Name] | [Position]\n[4-5 sentence paragraph]\n\n(continue through PICK 2.${String(round2Slots.length).padStart(2, '0')})`;
+  const pickFmt = `EXACTLY this format for all ${round2Slots.length} picks:\n\nPICK 2.01 | ${round2Slots[0].team} | [Player Name from eligible list] | [Position]\n[4-5 sentence paragraph]\n\n(continue through PICK 2.${String(round2Slots.length).padStart(2, '0')})`;
 
-  const context = `${leagueKnowledge}\n\n${r1Summary}\n\nROUND 2 ORDER:\n${r2Order}\n\n${enhancedContext.slice(0, 4000)}`;
-  const constraint = `Continue your mock draft into ROUND 2 as ${persona === 'entertainer' ? 'Mason Reed' : 'Westy'}.\n${r1Summary}\nFor each R2 pick, reference what this team took in Round 1.\n${pickFmt}`;
+  const context = `${poolHeader}\n\n${leagueKnowledge}\n\n${r1Summary}\n\nROUND 2 ORDER:\n${r2Order}\n\n${enhancedContext.slice(0, 2000)}`;
+  const constraint = `Continue your mock draft into ROUND 2 as ${persona === 'entertainer' ? 'Mason Reed' : 'Westy'}.\n${r1Summary}\n⚠️ CRITICAL RULE: Every player you select MUST appear in the ELIGIBLE PLAYERS list at the top. Do NOT use any other player.\nFor each R2 pick, reference what this team took in Round 1.\n${pickFmt}`;
 
-  const raw = await generateSection({ persona, sectionType: 'Mock Draft - Round 2', context, constraints: constraint, maxTokens: 3500, episodeType: 'pre_draft', validate: (t) => (t.replace(/\*\*/g, '').match(/\bPICK\s+\d+\.\d+\s*\|/gim) || []).length >= Math.max(4, Math.floor(round2Slots.length * 0.4)) });
+  const raw = await generateSection({
+    persona,
+    sectionType: 'Mock Draft - Round 2',
+    context,
+    constraints: constraint,
+    maxTokens: 3500,
+    episodeType: 'pre_draft',
+    validate: (t) => (t.replace(/\*\*/g, '').match(/\bPICK\s+\d+\.\d+\s*\|/gim) || []).length >= Math.max(4, Math.floor(round2Slots.length * 0.4)),
+  });
 
-  return { picks: parseMockDraftPicksLocal(raw), raw };
+  const picks = parseMockDraftPicksLocal(raw);
+  const slotsForValidation = round2Slots.map((s, i) => ({ slot: i + 1, team: s.team }));
+  const { invalidPlayers, orderMismatches } = validateMockDraftPicks(picks, prospectPool, slotsForValidation, 2);
+
+  if (orderMismatches.length > 0) {
+    console.warn(`[ComposeStep] MockDraft R2 (${personaLabel}) draft-order mismatches: ${orderMismatches.join('; ')}`);
+  }
+  if (invalidPlayers.length > 0) {
+    console.warn(`[ComposeStep] MockDraft R2 (${personaLabel}) — ${invalidPlayers.length} invalid players detected: ${invalidPlayers.join(', ')}`);
+    const repaired = await repairMockDraftRound(2, picks, invalidPlayers, prospectPool, slotsForValidation, r1PlayerNames, persona);
+    if (repaired) return repaired;
+    throw new Error(`MockDraft R2 (${personaLabel}) illegal players found and repair failed: ${invalidPlayers.join(', ')}`);
+  }
+
+  console.log(`[ComposeStep] MockDraft_R2_${personaLabel} completed — ${picks.length} valid picks`);
+  return { picks, raw };
 }
 
 async function genPreDraftTrades(input: StepInput): Promise<TradeItem[]> {
@@ -1117,16 +1327,43 @@ export function validateNewsletterSections(
   }
 
   if (episodeType === 'pre_draft') {
-    const mockDraft = newsletter.sections.find(s => s.type === 'MockDraft');
-    if (!mockDraft) {
+    const mockDraftSec = newsletter.sections.find(s => s.type === 'MockDraft');
+    if (!mockDraftSec) {
       missing.push('MockDraft');
     } else {
-      const picks = (mockDraft.data as MockDraftSection).picks;
-      const expectedPicks = LEAGUE_IDENTITY.format.teamCount * 2; // 2 rounds
-      if (picks.length < LEAGUE_IDENTITY.format.teamCount) {
-        issues.push(`MockDraft has only ${picks.length} picks (expected ≥${LEAGUE_IDENTITY.format.teamCount} for Round 1)`);
-      } else if (picks.length < expectedPicks) {
-        issues.push(`MockDraft has only ${picks.length}/${expectedPicks} picks (Round 2 may be incomplete)`);
+      const allPicks = (mockDraftSec.data as MockDraftSection).picks;
+      const teamCount = LEAGUE_IDENTITY.format.teamCount;
+      const r1 = allPicks.filter(p => p.round === 1);
+      const r2 = allPicks.filter(p => p.round === 2);
+
+      // Round 1 count — blocking
+      if (r1.length < teamCount) {
+        missing.push(`MockDraft — Round 1 incomplete (${r1.length}/${teamCount} picks). Retry the failed MockDraft_R1 steps.`);
+      } else {
+        const r1Slots = r1.map(p => p.slot);
+        const r1Dupes = r1Slots.filter((s, i) => r1Slots.indexOf(s) !== i);
+        if (r1Dupes.length > 0) missing.push(`MockDraft — Round 1 duplicate slot numbers: ${[...new Set(r1Dupes)].join(', ')}`);
+        const r1Missing = Array.from({ length: teamCount }, (_, i) => i + 1).filter(s => !r1Slots.includes(s));
+        if (r1Missing.length > 0) missing.push(`MockDraft — Round 1 missing slots: ${r1Missing.join(', ')}`);
+      }
+
+      // Round 2 count — blocking
+      if (r2.length < teamCount) {
+        missing.push(`MockDraft — Round 2 incomplete (${r2.length}/${teamCount} picks). Retry the failed MockDraft_R2 steps.`);
+      } else {
+        const r2Slots = r2.map(p => p.slot);
+        const r2Dupes = r2Slots.filter((s, i) => r2Slots.indexOf(s) !== i);
+        if (r2Dupes.length > 0) missing.push(`MockDraft — Round 2 duplicate slot numbers: ${[...new Set(r2Dupes)].join(', ')}`);
+        const r2Missing = Array.from({ length: teamCount }, (_, i) => i + 1).filter(s => !r2Slots.includes(s));
+        if (r2Missing.length > 0) missing.push(`MockDraft — Round 2 missing slots: ${r2Missing.join(', ')}`);
+      }
+
+      // Duplicate player names within each bot's full draft (R1 + R2) — blocking
+      const stripPos = (name: string) => name.replace(/\s*\([^)]+\)\s*$/, '').trim().toLowerCase();
+      for (const [bot, key] of [['Mason', 'mason'], ['Westy', 'westy']] as const) {
+        const names = allPicks.map(p => stripPos((p as unknown as Record<string, { player: string }>)[key].player)).filter(n => n && n !== 'tbd');
+        const dupes = names.filter((n, i) => names.indexOf(n) !== i);
+        if (dupes.length > 0) missing.push(`MockDraft — ${bot} has duplicate player picks: ${[...new Set(dupes)].join(', ')}`);
       }
     }
   }
