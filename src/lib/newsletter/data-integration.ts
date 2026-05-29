@@ -572,12 +572,18 @@ export function buildComprehensiveContextString(data: ComprehensiveLeagueData): 
     lines.push('');
   }
   
-  // Championship History
+  // Championship History — derived from CHAMPIONS constant so it stays current
   lines.push('--- CHAMPIONSHIP HISTORY ---');
-  lines.push('2023: Double Trouble (Champion) def. Belltown Raptors');
-  lines.push('2024: Belltown Raptors (Champion) def. Double Trouble');
-  lines.push('2025: BeerNeverBrokeMyHeart (Champion) def. bop pop');
-  lines.push('Three different champions in three years - dynasty parity!');
+  const champYears = Object.entries(CHAMPIONS)
+    .filter(([, c]) => c.champion !== 'TBD')
+    .sort((a, b) => Number(b[0]) - Number(a[0])); // newest first
+  for (const [yr, c] of champYears) {
+    const runnerUpStr = c.runnerUp !== 'TBD' ? `, runner-up: ${c.runnerUp}` : '';
+    const thirdStr = c.thirdPlace !== 'TBD' ? `, 3rd: ${c.thirdPlace}` : '';
+    lines.push(`${yr}: ${c.champion} (Champion)${runnerUpStr}${thirdStr}`);
+  }
+  const uniqueChamps = new Set(champYears.map(([, c]) => c.champion));
+  lines.push(`${uniqueChamps.size} different champion${uniqueChamps.size === 1 ? '' : 's'} in ${champYears.length} year${champYears.length === 1 ? '' : 's'}`);
   lines.push('');
   
   return lines.join('\n');

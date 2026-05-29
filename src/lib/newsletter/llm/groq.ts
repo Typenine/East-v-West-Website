@@ -354,10 +354,10 @@ HOW YOU THINK:
 
 LEAGUE CONTEXT (absorbed, not recited):
 - Three different champions in three years (Double Trouble '23, Belltown '24, Beer '25)
-- 12 teams, 0.5 PPR, SuperFlex — QBs are gold
-- 8 make playoffs, 4 fight for the Toilet Bowl (loser ships the trophy)
-- Trade deadline Week 12, playoffs Weeks 15-17
-- Dynasty format means every trade and draft pick matters for years
+- 12 teams, 0.5 PPR, SuperFlex — QBs are gold, second roster spot is premium
+- Top 7 make playoffs (Seed 1 gets a bye); bottom 5 fight for the Toilet Bowl — last place ships the trophy
+- Trade deadline End of Week 12, playoffs start Week 15 (championship Week 17)
+- Dynasty format: every trade and draft pick matters for years; taxi squad holds up to 4 rookies/2nd-year players
 
 YOUR VOICE:
 Rhythm: Lead with the take, justify after. Short declarative sentences when excited. Let it run when you're on a roll. Don't over-explain.
@@ -412,11 +412,11 @@ HOW YOU THINK:
 - You want to understand WHY something happened, not just THAT it happened
 
 LEAGUE CONTEXT (absorbed, not recited):
-- Three different champions in three years — parity is real in this league
-- 12 teams, 0.5 PPR, SuperFlex — roster construction matters more than most leagues
-- 8 make playoffs, 4 in Toilet Bowl bracket
-- Trade deadline Week 12, playoffs Weeks 15-17, single elimination
-- Dynasty format means evaluating both present and future value; a 2025 rookie could win you 2027
+- Three different champions in three years — Double Trouble appeared in the championship every single year (won 2023, runner-up 2024 and 2025)
+- 12 teams, 0.5 PPR, SuperFlex — roster construction matters more here than most leagues
+- Top 7 make playoffs (Seed 1 bye); bottom 5 in Toilet Bowl; last place ships the trophy to the new champion
+- Trade deadline End of Week 12, playoffs start Week 15 (championship Week 17), single elimination
+- Lineup: QB, 2RB, 2WR, TE, FLEX, SuperFlex, K, D/ST — dynasty format means both present and future value matter; a 2025 rookie could win you 2027
 
 YOUR VOICE:
 Rhythm: Build to your conclusion. Setup the evidence, then deliver the verdict. You sometimes think out loud — a clause begins, you revise mid-thought. More measured than Mason, not robotic.
@@ -542,18 +542,84 @@ CHAMPIONSHIP MODE:
   },
 };
 
+// ============ Per-section Gemini thinking budgets ============
+// Lower budgets = faster calls. Use 0 for simple one-liners, higher for deep analysis.
+// The cascade passes this through to the Gemini provider only; other providers ignore it.
+const THINKING_BUDGET_BY_SECTION: Record<string, number> = {
+  // Zero thinking — short reactions, one-liners
+  'Blurt': 0,
+  'Debate Argument': 0,
+  'Hot Take': 0,
+  'MVP Award': 0,
+  'Bust Award': 0,
+  'Blowout Commentary': 0,
+  'Nail-biter Commentary': 0,
+  'What-If Scenario': 0,
+  'Prediction Callback': 0,
+  'Hot Take Follow-up': 0,
+  'Rivalry Hype': 0,
+  'Rivalry Breakdown': 0,
+  'Playoff Odds': 0,
+  'ThemeInference': 0,
+
+  // Light analysis (1024)
+  'Final Word': 1024,
+  'Dynasty Analysis': 1024,
+  'Draft Grade': 1024,
+  'Spotlight': 1024,
+  'Power Rankings Intro': 1024,
+  'Championship Pick': 1024,
+  'Season Preview - Bust Candidates': 1024,
+  'Season Preview - Sleepers': 1024,
+  'Offseason Update Intro': 1024,
+  'Draft Preview - Team Needs': 1024,
+  'Draft Grades - Awards': 1024,
+
+  // Medium analysis (2048)
+  'Waivers': 2048,
+  'Trade Grade': 2048,
+  '2-Team Trade Grade': 2048,
+  '3-Team Trade Grade': 2048,
+  'Offseason Trade Analysis': 2048,
+  'Offseason Trade Party Grades': 2048,
+  'Intro': 2048,
+  'Preseason Preview Intro': 2048,
+  'Post-Draft Grades Intro': 2048,
+  'Weekly Power Rankings': 2048,
+  'Power Rankings List': 2048,
+  'Season Preview - Contenders': 2048,
+  'Bold Predictions': 2048,
+  'Draft Grades - Overall Summary': 2048,
+  'Draft Preview - Top Prospects': 2048,
+  'Draft Preview - Mock Draft': 2048,
+
+  // Deep analysis (4096) — mock draft needs full reasoning
+  'Pre-Draft Preview Intro': 4096,
+  'Mock Draft - Round 1': 4096,
+  'Mock Draft - Round 2': 4096,
+};
+
+const DEFAULT_THINKING_BUDGET = 2048;
+
+function getThinkingBudget(sectionType: string, override?: number): number {
+  if (override !== undefined) return override;
+  return THINKING_BUDGET_BY_SECTION[sectionType] ?? DEFAULT_THINKING_BUDGET;
+}
+
 export interface GenerateSectionOptions {
   persona: PersonaType;
   sectionType: string;
   context: string;
   constraints?: string;
   maxTokens?: number;
-  episodeType?: string; // For episode-specific prompting
+  episodeType?: string;
   validate?: (content: string) => boolean;
+  /** Override the Gemini thinking budget for this specific call. */
+  thinkingBudget?: number;
 }
 
 export async function generateSection(options: GenerateSectionOptions): Promise<string> {
-  const { persona, sectionType, context, constraints, maxTokens = 400, episodeType, validate } = options;
+  const { persona, sectionType, context, constraints, maxTokens = 400, episodeType, validate, thinkingBudget } = options;
   const config = PERSONA_CONFIGS[persona];
 
   // Build system prompt with episode-specific additions if applicable
@@ -561,7 +627,6 @@ export async function generateSection(options: GenerateSectionOptions): Promise<
   if (episodeType && EPISODE_PROMPT_ADDITIONS[episodeType]) {
     systemPrompt += '\n\n' + EPISODE_PROMPT_ADDITIONS[episodeType][persona];
   }
-  // Handle playoff episodes (playoffs_preview, playoffs_round)
   if (episodeType?.startsWith('playoffs')) {
     systemPrompt += '\n\n' + EPISODE_PROMPT_ADDITIONS.playoffs[persona];
   }
@@ -575,6 +640,9 @@ ${constraints ? `CONSTRAINTS:\n${constraints}\n` : ''}
 Write your section now. Be concise but engaging. Do not include section headers - just the content.
 Remember to use your signature style and voice. Make it feel like YOU wrote this.`;
 
+  const budget = getThinkingBudget(sectionType, thinkingBudget);
+  const t0 = Date.now();
+
   const resp = await generateWithCascade({
     systemPrompt,
     userPrompt,
@@ -582,7 +650,12 @@ Remember to use your signature style and voice. Make it feel like YOU wrote this
     maxTokens,
     topP: 0.9,
     validate,
+    thinkingBudget: budget,
+    sectionName: sectionType,
   });
+
+  const durationMs = Date.now() - t0;
+  console.log(`[Section] "${sectionType}" via ${resp.provider} — ${resp.content.length} chars, thinking=${budget}, ${durationMs}ms`);
 
   return resp.content;
 }

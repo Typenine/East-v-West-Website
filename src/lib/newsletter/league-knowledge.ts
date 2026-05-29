@@ -17,27 +17,26 @@ export const LEAGUE_IDENTITY = {
   name: 'East v. West',
   shortName: 'EvW',
   founded: 2023,
-  
+
   format: {
     type: 'Dynasty',
-    scoring: 'PPR',
+    scoring: '0.5 PPR',
     superflex: true,
     teamCount: 12,
-    divisions: false, // No divisions - all 12 teams compete in one pool
+    divisions: false,
   },
-  
+
   structure: {
     regularSeasonWeeks: 14,
-    playoffTeams: 6,
+    playoffTeams: 7,       // Seed 1 gets a first-round bye; 5 teams in Toilet Bowl
+    toiletBowlTeams: 5,
     playoffStartWeek: 15,
     semifinalWeek: 16,
     championshipWeek: 17,
     tradeDeadlineWeek: 12,
   },
-  
-  description: `East v. West is a 12-team dynasty superflex league founded in 2023. 
-Known for aggressive trading and competitive balance, the league has seen three different champions in its first three years.
-Top 6 teams make playoffs (50% playoff rate). Dynasty format means rookie picks and long-term roster building are crucial.`,
+
+  description: `East v. West is a 12-team SuperFlex dynasty league (0.5 PPR) founded in 2023. Three different champions in three years — Double Trouble won in 2023, Belltown Raptors in 2024, BeerNeverBrokeMyHeart in 2025. Double Trouble has appeared in the championship every single year. Top 7 teams make playoffs; the top seed gets a first-round bye. Bottom 5 teams compete in the Toilet Bowl — the last-place finisher ships the league trophy to the new champion.`,
 };
 
 // ============ Champions & History ============
@@ -45,29 +44,29 @@ Top 6 teams make playoffs (50% playoff rate). Dynasty format means rookie picks 
 export const CHAMPIONS = {
   2023: {
     champion: 'Double Trouble',
-    runnerUp: 'Belltown Raptors',
-    thirdPlace: 'bop pop',
-    note: 'Inaugural season. Double Trouble dominated with a loaded roster from the auction draft.',
+    runnerUp: 'Elemental Heroes',
+    thirdPlace: 'Detroit Dawgs',
+    note: 'Inaugural season. Double Trouble won it all.',
   },
   2024: {
     champion: 'Belltown Raptors',
     runnerUp: 'Double Trouble',
-    thirdPlace: 'BeerNeverBrokeMyHeart',
-    note: 'Revenge season for Belltown after losing the inaugural championship. Championship rematch.',
+    thirdPlace: 'Belleview Badgers',
+    note: 'Belltown Raptors win their first championship.',
   },
   2025: {
     champion: 'BeerNeverBrokeMyHeart',
-    runnerUp: 'bop pop',
-    thirdPlace: 'Double Trouble',
-    note: 'Third different champion in three years. Dynasty parity at its finest.',
+    runnerUp: 'Double Trouble',
+    thirdPlace: 'Mt. Lebanon Cake Eaters',
+    note: 'Third different champion in three years. Double Trouble is a perennial runner-up.',
   },
 } as const;
 
 export const CHAMPIONSHIP_APPEARANCES = {
-  'Double Trouble': { appearances: 2, wins: 1, years: [2023, 2024] },
+  'Double Trouble': { appearances: 3, wins: 1, years: [2023, 2024, 2025] },
   'Belltown Raptors': { appearances: 2, wins: 1, years: [2023, 2024] },
   'BeerNeverBrokeMyHeart': { appearances: 1, wins: 1, years: [2025] },
-  'bop pop': { appearances: 1, wins: 0, years: [2025] },
+  'Elemental Heroes': { appearances: 1, wins: 0, years: [2023] },
 } as const;
 
 // ============ Team Facts (Objective Only) ============
@@ -83,9 +82,9 @@ export const TEAM_FACTS: Record<string, {
 }> = {
   'Double Trouble': {
     championships: 1,
-    championshipAppearances: 2,
+    championshipAppearances: 3,
     yearsInLeague: 3,
-    notableFacts: ['Inaugural champion (2023)', 'Back-to-back championship appearances (2023-2024)'],
+    notableFacts: ['Inaugural champion (2023)', 'Championship appearances every year (2023, 2024, 2025)', 'Runner-up in 2024 and 2025 — best team that never won it twice'],
   },
   'Belltown Raptors': {
     championships: 1,
@@ -101,15 +100,15 @@ export const TEAM_FACTS: Record<string, {
   },
   'bop pop': {
     championships: 0,
-    championshipAppearances: 1,
-    yearsInLeague: 3,
-    notableFacts: ['2025 runner-up', 'Consistent playoff contender'],
-  },
-  'Elemental Heroes': {
-    championships: 0,
     championshipAppearances: 0,
     yearsInLeague: 3,
     notableFacts: [],
+  },
+  'Elemental Heroes': {
+    championships: 0,
+    championshipAppearances: 1,
+    yearsInLeague: 3,
+    notableFacts: ['2023 runner-up (inaugural championship)'],
   },
   'Mt. Lebanon Cake Eaters': {
     championships: 0,
@@ -166,9 +165,9 @@ export const CHAMPIONSHIP_MEETINGS: Array<{
   winner: string;
   context: string;
 }> = [
-  { year: 2023, team1: 'Double Trouble', team2: 'Belltown Raptors', winner: 'Double Trouble', context: 'Inaugural championship' },
-  { year: 2024, team1: 'Double Trouble', team2: 'Belltown Raptors', winner: 'Belltown Raptors', context: 'Championship rematch' },
-  { year: 2025, team1: 'BeerNeverBrokeMyHeart', team2: 'bop pop', winner: 'BeerNeverBrokeMyHeart', context: 'Third different champion' },
+  { year: 2023, team1: 'Double Trouble', team2: 'Elemental Heroes', winner: 'Double Trouble', context: 'Inaugural championship' },
+  { year: 2024, team1: 'Belltown Raptors', team2: 'Double Trouble', winner: 'Belltown Raptors', context: 'Belltown gets revenge' },
+  { year: 2025, team1: 'BeerNeverBrokeMyHeart', team2: 'Double Trouble', winner: 'BeerNeverBrokeMyHeart', context: 'Third different champion; Double Trouble runner-up for the second time' },
 ];
 
 // ============ League Records ============
@@ -214,16 +213,17 @@ export const LEAGUE_RECORDS = {
 
 export const LEAGUE_RULES = {
   roster: {
-    starters: 'QB, 2RB, 3WR, TE, 2FLEX, SF',
-    bench: 15,
-    ir: 3,
-    taxi: 5,
+    starters: 'QB, 2RB, 2WR, TE, FLEX (RB/WR/TE), SF (QB/RB/WR/TE), K, D/ST',
+    bench: 7,
+    ir: 4,
+    taxi: 4,  // max 1 QB on taxi; rookies and 2nd-year players only
+    mainRosterLimit: 17,  // starters + bench; IR and taxi are separate
   },
   scoring: {
     passingTD: 4,
     rushingTD: 6,
     receivingTD: 6,
-    ppr: 1.0,
+    ppr: 0.5,
     passingYards: '0.04/yard',
     rushingYards: '0.1/yard',
     receivingYards: '0.1/yard',
@@ -239,7 +239,8 @@ export const LEAGUE_RULES = {
     vetoSystem: 'Commissioner review only',
   },
   taxi: {
-    maxYears: 2,
+    maxPlayers: 4,
+    maxQBs: 1,
     eligibility: 'Rookies and second-year players only',
   },
 };
@@ -277,11 +278,15 @@ export function buildStaticLeagueContext(): string {
     `LEAGUE KNOWLEDGE (${LEAGUE_IDENTITY.name}):`,
     ``,
     `LEAGUE INFO:`,
-    `- Founded: ${LEAGUE_IDENTITY.founded}`,
-    `- Format: ${LEAGUE_IDENTITY.format.teamCount}-team ${LEAGUE_IDENTITY.format.type} ${LEAGUE_IDENTITY.format.scoring}${LEAGUE_IDENTITY.format.superflex ? ' Superflex' : ''}`,
-    `- NO divisions - all 10 teams compete in one pool`,
-    `- Playoffs: Top ${LEAGUE_IDENTITY.structure.playoffTeams} teams, Weeks ${LEAGUE_IDENTITY.structure.playoffStartWeek}-${LEAGUE_IDENTITY.structure.championshipWeek}`,
-    `- Trade deadline: End of Week ${LEAGUE_IDENTITY.structure.tradeDeadlineWeek}`,
+    `- Founded: ${LEAGUE_IDENTITY.founded} | 12 teams, no divisions`,
+    `- Format: ${LEAGUE_IDENTITY.format.type}, ${LEAGUE_IDENTITY.format.scoring}, SuperFlex`,
+    `- Scoring: passing TD=4pts, rush/rec TD=6pts, 0.5pts per reception, 0.04pts/passing yard, 0.1pts/rush+rec yard`,
+    `- Lineup: QB, 2RB, 2WR, TE, FLEX (RB/WR/TE), SuperFlex (QB/RB/WR/TE), K, D/ST`,
+    `- Roster: 17 main (starters+bench), 4 IR, 4 Taxi (rookies/2nd-year only, max 1 QB on taxi)`,
+    `- Regular Season: Weeks 1–14 | Playoffs: Top ${LEAGUE_IDENTITY.structure.playoffTeams} teams, Weeks ${LEAGUE_IDENTITY.structure.playoffStartWeek}-${LEAGUE_IDENTITY.structure.championshipWeek}`,
+    `- Playoff format: 7 teams; Seed #1 gets first-round bye. Bottom 5 teams play Toilet Bowl — last-place team ships the trophy.`,
+    `- Trade deadline: End of Week ${LEAGUE_IDENTITY.structure.tradeDeadlineWeek} | Waivers: FAAB ($100 budget, Wednesday processing)`,
+    `- Rivalry Week: 2 designated weeks where teams play their assigned rival`,
     ``,
     `CHAMPIONS:`,
   ];

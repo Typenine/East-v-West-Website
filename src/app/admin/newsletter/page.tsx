@@ -89,6 +89,8 @@ function AdminNewsletterPageInner() {
   const [previewMode, setPreviewMode] = useState(true); // Default to preview for safety
   const [showPreviewHtml, setShowPreviewHtml] = useState(false);
   const [showPublishModal, setShowPublishModal] = useState(false);
+  const [stagedFailedSteps, setStagedFailedSteps] = useState<string[]>([]);
+  const [stagedValidation, setStagedValidation] = useState<{ passed: boolean; missing: string[]; issues: string[] } | null>(null);
   const [publishing, setPublishing] = useState(false);
   const [publishResult, setPublishResult] = useState<{ success: boolean; message?: string } | null>(null);
 
@@ -225,6 +227,135 @@ function AdminNewsletterPageInner() {
       setPublishResult({ success: false, message: err instanceof Error ? err.message : 'Publish failed' });
     } finally {
       setPublishing(false);
+    }
+  };
+
+  // ── Staged generation (Vercel-safe: one section per request) ──
+  const handleStagedGenerate = async () => {
+    setGenerating(true);
+    setResult(null);
+    setStagedFailedSteps([]);
+    setStagedValidation(null);
+    generatingStartRef.current = Date.now();
+    setProgress({ percent: 2, stage: '📡 Starting staged generation job...', elapsed: 0, sectionsCompleted: [] });
+
+    stopPolling();
+
+    // Elapsed timer
+    elapsedIntervalRef.current = setInterval(() => {
+      setProgress(prev => prev ? { ...prev, elapsed: Math.floor((Date.now() - generatingStartRef.current) / 1000) } : prev);
+    }, 1000);
+
+    const week = needsWeek ? (parseInt(weekInput, 10) || currentWeek || 1) : 0;
+
+    try {
+      // 1. Start the job — builds full context, evolves memory, stores everything in DB
+      setProgress(prev => ({ ...(prev ?? { sectionsCompleted: [], elapsed: 0, percent: 2 }), stage: '📡 Fetching data & building context (this takes ~30s)...' }));
+      const startRes = await fetch('/api/newsletter', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ week, season: seasonInput, episodeType, forceRegenerate, mode: 'start', isFirstEpisodeEver: false }),
+      });
+      const startData = await startRes.json() as { success?: boolean; error?: string; totalSteps?: number; steps?: string[]; details?: string };
+      if (!startRes.ok || !startData.success) {
+        setResult({ success: false, error: startData.error || 'Failed to start job', details: startData.details });
+        return;
+      }
+
+      const totalSteps = startData.totalSteps ?? 10;
+      const failedInRun: string[] = [];
+      setProgress(prev => ({ ...(prev ?? { sectionsCompleted: [], elapsed: 0 }), percent: 5, stage: `✅ Job started — ${totalSteps} sections to generate` }));
+
+      // 2. Loop: call generate-step until done or unrecoverable error
+      let done = false;
+      let completedCount = 0;
+      let consecutiveHttpErrors = 0;
+
+      while (!done) {
+        const stepRes = await fetch('/api/newsletter/generate-step', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ season: parseInt(seasonInput), week }),
+        });
+        const stepData = await stepRes.json() as {
+          done?: boolean;
+          step?: string;
+          nextStep?: string;
+          status?: string;
+          completedCount?: number;
+          totalSteps?: number;
+          remainingSteps?: number;
+          failedSteps?: string[];
+          error?: string;
+          validation?: { passed: boolean; missing: string[]; issues: string[] };
+        };
+
+        if (!stepRes.ok) {
+          consecutiveHttpErrors++;
+          if (consecutiveHttpErrors >= 3) {
+            setResult({ success: false, error: `Step request failed 3 times in a row: ${stepData.error || stepRes.status}` });
+            break;
+          }
+          await new Promise(r => setTimeout(r, 2000));
+          continue;
+        }
+        consecutiveHttpErrors = 0;
+
+        completedCount = stepData.completedCount ?? completedCount + 1;
+        done = stepData.done ?? false;
+
+        if (stepData.failedSteps) {
+          setStagedFailedSteps(stepData.failedSteps);
+          failedInRun.push(...stepData.failedSteps.filter(s => !failedInRun.includes(s)));
+        }
+
+        const sectionPercent = Math.round(5 + (completedCount / totalSteps) * 90);
+        const completedLabel = SECTION_LABELS[stepData.step ?? ''] ?? stepData.step ?? '';
+        const nextLabel = stepData.nextStep ? ` → next: ${SECTION_LABELS[stepData.nextStep] ?? stepData.nextStep}` : '';
+        const failLabel = failedInRun.length > 0 ? ` ⚠️ ${failedInRun.length} failed` : '';
+        const stepLabel = stepData.status === 'step_failed'
+          ? `⚠️ Section failed: ${completedLabel} — continuing...`
+          : completedLabel
+            ? `✓ ${completedLabel}${nextLabel}${failLabel}`
+            : `⏳ Processing (${completedCount}/${totalSteps})...`;
+
+        setProgress(prev => ({
+          ...(prev ?? { sectionsCompleted: [], elapsed: 0 }),
+          percent: Math.min(94, sectionPercent),
+          stage: stepLabel,
+          sectionsCompleted: prev?.sectionsCompleted ?? [],
+        }));
+
+        if (stepData.status === 'needs_attention') {
+          if (stepData.validation) setStagedValidation(stepData.validation);
+          setResult({ success: false, error: `Validation failed — missing required sections: ${stepData.validation?.missing.join(', ')}` });
+          break;
+        }
+
+        if (done) {
+          if (stepData.validation) setStagedValidation(stepData.validation);
+          break;
+        }
+
+        // Small pause between steps
+        await new Promise(r => setTimeout(r, 300));
+      }
+
+      if (done) {
+        // 3. Fetch the assembled newsletter
+        const getRes = await fetch(`/api/newsletter?week=${week}&season=${seasonInput}`, { credentials: 'include' });
+        const getData = await getRes.json() as GenerationResult;
+        const elapsed = Math.floor((Date.now() - generatingStartRef.current) / 1000);
+        setProgress(prev => ({ ...(prev ?? { sectionsCompleted: [], elapsed: 0 }), percent: 100, stage: failedInRun.length > 0 ? `✅ Complete (${failedInRun.length} sections skipped)` : '✅ Complete!', elapsed }));
+        setResult(getData);
+      }
+    } catch (err) {
+      setResult({ success: false, error: err instanceof Error ? err.message : 'Unknown error' });
+    } finally {
+      stopPolling();
+      setGenerating(false);
     }
   };
 
@@ -464,34 +595,10 @@ function AdminNewsletterPageInner() {
                 </div>
               )}
 
-              {/* Block generation on Vercel - it will timeout */}
               {IS_VERCEL && (
-                <div className="p-3 bg-red-900/30 border border-red-600 rounded text-sm space-y-2">
-                  <div className="font-medium text-red-400">🚫 Generation Disabled on Deployed Site</div>
-                  <p className="text-red-300">
-                    Newsletter generation takes ~3 minutes and exceeds Vercel&apos;s serverless timeout.
-                    Use one of these methods instead:
-                  </p>
-                  <div className="space-y-1 text-xs">
-                    <div><strong>GitHub Actions (recommended):</strong></div>
-                    <a 
-                      href="https://github.com/Typenine/East-v-West-Website/actions/workflows/newsletter-scheduler.yml"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="block text-blue-400 hover:underline"
-                    >
-                      → Open Newsletter Scheduler workflow
-                    </a>
-                    <div className="text-[var(--muted)] mt-1">
-                      Click &quot;Run workflow&quot; → set episode_type, week, preview=true
-                    </div>
-                  </div>
-                  <div className="space-y-1 text-xs mt-2">
-                    <div><strong>Local CLI:</strong></div>
-                    <code className="block bg-black/30 px-2 py-1 rounded text-green-300">
-                      node scripts/run-newsletter.mjs --preview --episode {episodeType} --week {weekInput}
-                    </code>
-                  </div>
+                <div className="p-3 bg-blue-900/30 border border-blue-600 rounded text-sm space-y-1">
+                  <div className="font-medium text-blue-300">ℹ️ On Vercel — use Staged Generation below</div>
+                  <p className="text-blue-200 text-xs">Staged mode sends one section per request, staying safely under the 300s timeout. Each step takes 30–90s. The loop runs automatically until the newsletter is complete.</p>
                 </div>
               )}
 
@@ -500,14 +607,25 @@ function AdminNewsletterPageInner() {
                 <span className="block text-zinc-500 mt-0.5">Trades &amp; waivers add more time depending on volume.</span>
               </div>
 
-              <div className="flex gap-2">
+              <div className="flex gap-2 flex-wrap">
+                {/* Sync mode — local dev only */}
+                {!IS_VERCEL && (
+                  <Button
+                    onClick={handleGenerate}
+                    disabled={generating}
+                    variant={previewMode ? 'secondary' : 'primary'}
+                  >
+                    {generating ? 'Generating...' : previewMode ? '👁️ Preview (sync)' : '📰 Publish (sync)'}
+                  </Button>
+                )}
+                {/* Staged mode — safe on Vercel, section by section */}
                 <Button
-                  onClick={handleGenerate}
-                  disabled={generating || IS_VERCEL}
-                  variant={previewMode ? 'secondary' : 'primary'}
-                  title={IS_VERCEL ? 'Generation disabled on deployed site - use GitHub Actions' : undefined}
+                  onClick={handleStagedGenerate}
+                  disabled={generating}
+                  variant="primary"
+                  title="Runs one section per request — safe on Vercel. Auto-loops until newsletter is complete."
                 >
-                  {generating ? 'Generating...' : IS_VERCEL ? '🚫 Disabled (use GH Actions)' : previewMode ? '👁️ Preview Newsletter' : '📰 Publish Newsletter'}
+                  {generating ? 'Generating...' : IS_VERCEL ? '⚡ Generate (Staged)' : '⚡ Generate (Staged)'}
                 </Button>
                 <Button
                   onClick={async () => {
@@ -572,17 +690,34 @@ function AdminNewsletterPageInner() {
                   </div>
                 </div>
 
-                {/* Completed sections checklist */}
-                {(progress?.sectionsCompleted?.length ?? 0) > 0 && (
+                {/* Completed + failed sections */}
+                {((progress?.sectionsCompleted?.length ?? 0) > 0 || stagedFailedSteps.length > 0) && (
                   <div className="p-3 bg-zinc-800/50 rounded-lg space-y-1">
-                    <div className="text-xs text-[var(--muted)] mb-2">Completed sections:</div>
+                    <div className="text-xs text-[var(--muted)] mb-2">Section status:</div>
                     {progress!.sectionsCompleted.map(s => (
                       <div key={s} className="text-xs text-emerald-400 flex items-center gap-1">
                         <span>✓</span>
                         <span>{SECTION_LABELS[s] ?? s}</span>
                       </div>
                     ))}
+                    {stagedFailedSteps.map(s => (
+                      <div key={s} className="text-xs text-amber-400 flex items-center gap-1">
+                        <span>⚠️</span>
+                        <span>{SECTION_LABELS[s] ?? s} (failed — skipped)</span>
+                      </div>
+                    ))}
                   </div>
+                )}
+                {/* Validation result */}
+                {stagedValidation && !stagedValidation.passed && (
+                  <div className="p-2 bg-red-900/30 border border-red-700 rounded text-xs text-red-300">
+                    <div className="font-medium mb-1">❌ Validation failed</div>
+                    {stagedValidation.missing.length > 0 && <div>Missing: {stagedValidation.missing.join(', ')}</div>}
+                    {stagedValidation.issues.length > 0  && <div>Issues: {stagedValidation.issues.join('; ')}</div>}
+                  </div>
+                )}
+                {stagedValidation?.passed && (
+                  <div className="text-xs text-emerald-400">✅ Validation passed</div>
                 )}
 
                 {/* Spinner */}

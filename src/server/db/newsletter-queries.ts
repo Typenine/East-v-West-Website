@@ -612,6 +612,8 @@ export async function updateStagedNewsletter(
     currentSection?: string | null;
     sectionsCompleted?: string[];
     generatedContent?: Record<string, { entertainer: string; analyst: string }>;
+    /** Replaces the full derivedData JSON. Use mergeStagedDerivedData for partial updates. */
+    derivedData?: Record<string, unknown>;
     error?: string | null;
   }
 ): Promise<void> {
@@ -628,7 +630,7 @@ export async function updateStagedNewsletter(
   }
 
   const setData: Record<string, unknown> = {};
-  
+
   if (updates.status !== undefined) {
     setData.status = updates.status;
     if (updates.status === 'in_progress' && !updates.currentSection) {
@@ -644,11 +646,37 @@ export async function updateStagedNewsletter(
   if (updates.currentSection !== undefined) setData.currentSection = updates.currentSection;
   if (updates.sectionsCompleted !== undefined) setData.sectionsCompleted = updates.sectionsCompleted;
   if (updates.generatedContent !== undefined) setData.generatedContent = updates.generatedContent;
+  if (updates.derivedData !== undefined) setData.derivedData = updates.derivedData;
   if (updates.error !== undefined) setData.error = updates.error;
 
   await db
     .update(newsletterStaged)
     .set(setData)
+    .where(and(eq(newsletterStaged.season, season), eq(newsletterStaged.week, week)));
+}
+
+/**
+ * Merge additional keys into the derivedData JSON without overwriting existing keys.
+ * Used by the step endpoint to store section outputs incrementally.
+ */
+export async function mergeStagedDerivedData(
+  season: number,
+  week: number,
+  patch: Record<string, unknown>,
+): Promise<void> {
+  const db = getDb();
+  const rows = await db
+    .select({ derivedData: newsletterStaged.derivedData })
+    .from(newsletterStaged)
+    .where(and(eq(newsletterStaged.season, season), eq(newsletterStaged.week, week)))
+    .limit(1);
+
+  const current = (rows[0]?.derivedData as Record<string, unknown>) ?? {};
+  const merged = { ...current, ...patch };
+
+  await db
+    .update(newsletterStaged)
+    .set({ derivedData: merged })
     .where(and(eq(newsletterStaged.season, season), eq(newsletterStaged.week, week)));
 }
 

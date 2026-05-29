@@ -116,6 +116,11 @@ export interface GenerateNewsletterInput {
   preDraftSlots?: Array<{ slot: number; team: string }>;
   // Optional: DB-sourced round 2 pick order for pre_draft mock drafts
   preDraftRound2Slots?: Array<{ slot: number; team: string }>;
+  /**
+   * When true, Mason and Westy introduce themselves as making their debut with this league.
+   * Set to true only for the very first pre_draft newsletter ever generated.
+   */
+  isFirstEpisodeEver?: boolean;
   /** Called when each section completes — used for real-time progress tracking */
   onSectionComplete?: (sectionName: string) => void;
 }
@@ -453,6 +458,7 @@ export async function generateNewsletter(
       draftData: resolvedDraftData,
       preDraftSlots: input.preDraftSlots,
       preDraftRound2Slots: input.preDraftRound2Slots,
+      isFirstEpisodeEver: input.isFirstEpisodeEver,
       onSectionComplete: input.onSectionComplete,
     }, qualityReport);
 

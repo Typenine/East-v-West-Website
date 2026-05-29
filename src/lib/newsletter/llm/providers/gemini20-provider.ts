@@ -91,6 +91,7 @@ export async function generateWithGemini20Provider(req: ProviderRequest): Promis
     setTimeout(() => reject(new Error('Gemini 2.0 call timed out after 90s')), CALL_TIMEOUT_MS)
   );
 
+  const t0 = Date.now();
   const result = await Promise.race([
     model.generateContent({
       contents: [{ role: 'user', parts: [{ text: req.userPrompt }] }],
@@ -104,5 +105,22 @@ export async function generateWithGemini20Provider(req: ProviderRequest): Promis
   ]);
 
   recordCall();
+  const durationMs = Date.now() - t0;
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const candidate = (result.response as any).candidates?.[0];
+  const finishReason: string = candidate?.finishReason ?? 'UNKNOWN';
+  const outputTokens: number = result.response.usageMetadata?.candidatesTokenCount ?? 0;
+  const section = req.sectionName ?? 'unknown';
+
+  console.log(`[Gemini20] section="${section}" finish=${finishReason} outputTokens=${outputTokens} maxTokens=${req.maxTokens} ${durationMs}ms`);
+
+  if (finishReason === 'MAX_TOKENS') {
+    throw new Error(
+      `LLM_TRUNCATED_OUTPUT: Gemini 2.0 hit MAX_TOKENS for "${section}" ` +
+      `(outputTokens=${outputTokens}, maxTokens=${req.maxTokens})`
+    );
+  }
+
   return result.response.text().trim();
 }

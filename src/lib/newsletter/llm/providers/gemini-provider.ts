@@ -66,7 +66,8 @@ const SAFETY_SETTINGS = [
   { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH },
 ];
 
-const CALL_TIMEOUT_MS = 150_000; // 150s — extra headroom for 8192 thinking tokens
+// 150s accommodates mock draft sections (up to 4096 thinking tokens + 3500 output tokens)
+const CALL_TIMEOUT_MS = 150_000;
 
 // ============ Main Export ============
 
@@ -87,8 +88,11 @@ export async function generateWithGeminiProvider(req: ProviderRequest): Promise<
     systemInstruction: req.systemPrompt,
   });
 
+  // Use caller-supplied budget; default 2048 (was 8192 — lower budget = faster calls)
+  const thinkingBudget = req.thinkingBudget ?? 2048;
+
   const timeoutPromise = new Promise<never>((_, reject) =>
-    setTimeout(() => reject(new Error('Gemini 2.5 call timed out after 90s')), CALL_TIMEOUT_MS)
+    setTimeout(() => reject(new Error('Gemini 2.5 call timed out after 150s')), CALL_TIMEOUT_MS)
   );
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -98,17 +102,34 @@ export async function generateWithGeminiProvider(req: ProviderRequest): Promise<
       temperature: req.temperature,
       maxOutputTokens: req.maxTokens,
       topP: req.topP ?? 0.9,
-      // 8192 thinking tokens: enough for complex draft analysis and trade evaluation
-      // without unbounded latency. Gemini 2.5 Flash TPM is 1M — not a constraint.
-      thinkingConfig: { thinkingBudget: 8192 },
+      thinkingConfig: { thinkingBudget },
     },
   };
 
+  const t0 = Date.now();
   const result = await Promise.race([
     model.generateContent(generateRequest),
     timeoutPromise,
   ]);
 
   recordCall();
+  const durationMs = Date.now() - t0;
+
+  // Inspect finish reason — throw on truncation so cascade falls through to next provider
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const candidate = (result.response as any).candidates?.[0];
+  const finishReason: string = candidate?.finishReason ?? 'UNKNOWN';
+  const outputTokens: number = result.response.usageMetadata?.candidatesTokenCount ?? 0;
+  const section = req.sectionName ?? 'unknown';
+
+  console.log(`[Gemini25] section="${section}" finish=${finishReason} outputTokens=${outputTokens} maxTokens=${req.maxTokens} thinking=${thinkingBudget} ${durationMs}ms`);
+
+  if (finishReason === 'MAX_TOKENS') {
+    throw new Error(
+      `LLM_TRUNCATED_OUTPUT: Gemini 2.5 hit MAX_TOKENS for "${section}" ` +
+      `(outputTokens=${outputTokens}, maxTokens=${req.maxTokens})`
+    );
+  }
+
   return result.response.text().trim();
 }

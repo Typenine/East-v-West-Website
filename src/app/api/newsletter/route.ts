@@ -5,7 +5,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
-import { getLeagueIdForSeason } from '@/lib/constants/league';
+import { getLeagueIdForSeason, CHAMPIONS } from '@/lib/constants/league';
 import { getConfiguredAdminSecret, isAdminCookieValue } from '@/lib/auth/admin';
 import { 
   generateNewsletter,
@@ -27,7 +27,7 @@ import {
   type EnhancedContextData,
   type LeagueRecords,
 } from '@/lib/newsletter';
-import { getAllPlayersCached, getSleeperInjuriesCached, getTeamsData, getRegularSeasonRecords } from '@/lib/utils/sleeper-api';
+import { getAllPlayersCached, getSleeperInjuriesCached, getTeamsData, getRegularSeasonRecords, getLeagueDrafts, getDraftPicks, getLeagueUsers, getLeagueRosters, getSeasonAwardsUsingLeagueScoring } from '@/lib/utils/sleeper-api';
 import {
   loadBotMemory,
   saveBotMemory,
@@ -311,7 +311,7 @@ async function buildEnhancedContextFull(
     try {
       // Convert standings format for playoff implications (name -> team)
       const standingsForPlayoffs = standings.map(s => ({ team: s.name, wins: s.wins, losses: s.losses, pointsFor: s.pointsFor }));
-      playoffImplications = calculatePlayoffImplications(standingsForPlayoffs, week, 6, 14);
+      playoffImplications = calculatePlayoffImplications(standingsForPlayoffs, week, 7, 14);
     } catch (e) {
       console.warn('Failed to calculate playoff implications:', e);
     }
@@ -412,10 +412,16 @@ Base all analysis on PREVIOUS seasons' performance, NOT current season data.
       }
     }
 
-    // Add championship history
+    // Add championship history from CHAMPIONS constant (stays current automatically)
     historicalContext += `\n--- CHAMPIONSHIP HISTORY ---\n`;
-    historicalContext += `- 2024: Belltown Raptors (Champion)\n`;
-    historicalContext += `- 2023: Double Trouble (Inaugural Champion)\n`;
+    const champEntries = Object.entries(CHAMPIONS)
+      .filter(([, c]) => c.champion !== 'TBD')
+      .sort((a, b) => Number(b[0]) - Number(a[0]));
+    for (const [yr, c] of champEntries) {
+      const runnerUp = c.runnerUp !== 'TBD' ? `, runner-up: ${c.runnerUp}` : '';
+      const third = c.thirdPlace !== 'TBD' ? `, 3rd: ${c.thirdPlace}` : '';
+      historicalContext += `- ${yr}: ${c.champion} (Champion)${runnerUp}${third}\n`;
+    }
 
     // Add current-year offseason trades (critical for pre_draft to avoid hallucination)
     // Include trades from the current season's league OR trades since ~Dec 20 of the prior year
@@ -455,6 +461,80 @@ Base all analysis on PREVIOUS seasons' performance, NOT current season data.
       for (const [team, count] of sortedTraders.slice(0, 5)) {
         historicalContext += `- ${team}: ${count} trades\n`;
       }
+    }
+
+    // ---- Previous season awards (MVP / ROY) ----
+    // Gives the LLMs context on who the standout performers were, relevant for dynasty valuations
+    try {
+      const prevLeagueId = getLeagueIdForSeason(String(currentSeason - 1));
+      if (prevLeagueId) {
+        const awards = await getSeasonAwardsUsingLeagueScoring(currentSeason - 1, prevLeagueId, 14).catch(() => null);
+        if (awards && (awards.mvp.length > 0 || awards.roy.length > 0)) {
+          historicalContext += `\n--- ${currentSeason - 1} SEASON AWARDS ---\n`;
+          if (awards.mvp.length > 0) {
+            const mvpStr = awards.mvp.map(w => `${w.name} (${w.points.toFixed(1)} pts${w.teamName ? `, owned by ${w.teamName}` : ''})`).join(', ');
+            historicalContext += `MVP: ${mvpStr}\n`;
+          }
+          if (awards.roy.length > 0) {
+            const royStr = awards.roy.map(w => `${w.name} (${w.points.toFixed(1)} pts${w.teamName ? `, owned by ${w.teamName}` : ''})`).join(', ');
+            historicalContext += `Rookie of the Year: ${royStr}\n`;
+          }
+          console.log(`[pre_draft] Loaded ${currentSeason - 1} season awards`);
+        }
+      }
+    } catch (e) {
+      console.warn('[pre_draft] Failed to load previous season awards:', e);
+    }
+
+    // ---- Previous season dynasty draft history ----
+    // Shows which teams selected which rookies in last year's draft — useful for draft capital analysis
+    try {
+      const prevLeagueId = getLeagueIdForSeason(String(currentSeason - 1));
+      if (prevLeagueId) {
+        const prevDrafts = await getLeagueDrafts(prevLeagueId).catch(() => null);
+        if (prevDrafts && prevDrafts.length > 0) {
+          const prevDraft = prevDrafts[prevDrafts.length - 1];
+          if (prevDraft.status === 'complete') {
+            const [picks, prevUsers, prevRosters, allPlayerMap] = await Promise.all([
+              getDraftPicks(prevDraft.draft_id).catch(() => []),
+              getLeagueUsers(prevLeagueId).catch(() => []),
+              getLeagueRosters(prevLeagueId).catch(() => []),
+              getAllPlayersCached().catch(() => ({} as Record<string, import('@/lib/utils/sleeper-api').SleeperPlayer>)),
+            ]);
+            if (picks.length > 0) {
+              // Build roster_id -> team_name map for the previous season
+              const prevUserMap = new Map<string, string>();
+              for (const u of prevUsers) {
+                const meta = (u as unknown as { metadata?: { team_name?: string } }).metadata;
+                prevUserMap.set(u.user_id, meta?.team_name || u.display_name || u.username || `User ${u.user_id}`);
+              }
+              const prevRosterMap = new Map<number, string>();
+              for (const r of prevRosters) {
+                prevRosterMap.set(r.roster_id, prevUserMap.get(r.owner_id) || `Roster ${r.roster_id}`);
+              }
+
+              // Format the top 36 picks (3 rounds of 12)
+              const topPicks = picks
+                .filter(p => p.round <= 3)
+                .sort((a, b) => a.round !== b.round ? a.round - b.round : (a.pick_no ?? 0) - (b.pick_no ?? 0));
+
+              historicalContext += `\n--- ${currentSeason - 1} DYNASTY DRAFT (LAST YEAR'S ROOKIE PICKS) ---\n`;
+              historicalContext += `Note: These are now second-year players entering the ${currentSeason} season.\n`;
+              for (const pick of topPicks) {
+                const player = allPlayerMap[pick.player_id];
+                const playerName = player ? `${player.first_name} ${player.last_name}`.trim() : `Player ${pick.player_id}`;
+                const pos = player?.position ?? 'UNK';
+                const nflTeam = player?.team ?? '';
+                const fantasyTeam = prevRosterMap.get(pick.roster_id) || `Roster ${pick.roster_id}`;
+                historicalContext += `${pick.round}.${String(pick.pick_no ?? 0).padStart(2, '0')}: ${fantasyTeam} — ${playerName} (${pos}${nflTeam ? ', ' + nflTeam : ''})\n`;
+              }
+              console.log(`[pre_draft] Loaded ${topPicks.length} picks from ${currentSeason - 1} dynasty draft`);
+            }
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('[pre_draft] Failed to load previous season draft history:', e);
     }
 
     // Add 2026 NFL draft prospect pool from the site's own player database
@@ -683,6 +763,208 @@ export async function GET(request: NextRequest) {
   }
 }
 
+// ============ Staged job starter ============
+
+async function startStagedJob(opts: {
+  seasonNum: number;
+  week: number;
+  leagueId: string;
+  episodeType: string;
+  isFirstEpisodeEver: boolean;
+  forceRegenerate: boolean;
+}): Promise<Response> {
+  const { seasonNum, week, leagueId, episodeType, isFirstEpisodeEver } = opts;
+
+  try {
+    console.log(`[Staged] Starting job for S${seasonNum}W${week} (${episodeType})`);
+
+    // ── Fetch Sleeper data ──
+    const ingestData = await fetchNewsletterData(leagueId, week);
+    const { leagueName, users, rosters, matchups, nextMatchups, transactions, playerMap: allPlayers, draftData } = ingestData;
+
+    setPlayerNameCache(allPlayers);
+    const { buildDerived } = await import('@/lib/newsletter');
+    const derived = buildDerived({
+      users, rosters, matchups,
+      nextMatchups: nextMatchups ?? [],
+      transactions: transactions.map(t => ({ ...t, adds: t.adds ?? undefined, drops: t.drops ?? undefined })),
+    });
+
+    // ── Build enhanced context — same quality as the sync route ──
+    console.log(`[Staged] Building enhanced context for ${episodeType}...`);
+
+    const isPreseasonEp = ['preseason', 'pre_draft', 'post_draft', 'offseason'].includes(episodeType);
+    let enhancedContextString = '';
+
+    const comprehensiveData = await fetchComprehensiveLeagueData();
+    const comprehensiveStr = buildComprehensiveContextString(comprehensiveData);
+    const rulesStr = getLeagueRulesContext();
+
+    if (isPreseasonEp) {
+      // Use the same rich historical context the sync route uses — not a placeholder
+      const histCtx = await buildPreseasonHistoricalContext(seasonNum, users);
+      enhancedContextString = `${rulesStr}\n\n${comprehensiveStr}\n\n${histCtx}`;
+      console.log(`[Staged] Preseason historical context built (${Math.round(enhancedContextString.length / 1000)}K chars)`);
+    } else {
+      const currentWeekCtx = await fetchCurrentWeekContext(leagueId, seasonNum, week);
+      const standingsStr = buildCurrentStandingsContext(currentWeekCtx);
+      const txStr = buildTransactionsContext(currentWeekCtx);
+      const externalData = await fetchAllExternalData();
+      const externalStr = buildExternalDataContext(externalData);
+      enhancedContextString = `${rulesStr}\n\n${comprehensiveStr}\n\n${standingsStr}\n\n${txStr}\n\n${externalStr}`;
+      console.log(`[Staged] Regular context built (${Math.round(enhancedContextString.length / 1000)}K chars)`);
+    }
+
+    // ── Load and evolve bot memories (same as sync generator.ts) ──
+    const { createEnhancedMemory, ensureEnhancedTeams, updateEnhancedMemoryAfterWeek, upgradeToEnhancedMemory } = await import('@/lib/newsletter/memory');
+    const { isEnhancedMemory: isEnhanced } = await import('@/lib/newsletter/types');
+
+    const [rawMemEnt, rawMemAna] = await Promise.all([
+      loadBotMemory('entertainer', seasonNum).catch(() => null),
+      loadBotMemory('analyst', seasonNum).catch(() => null),
+    ]);
+
+    const memEnt = rawMemEnt
+      ? (isEnhanced(rawMemEnt) ? rawMemEnt : upgradeToEnhancedMemory(rawMemEnt, seasonNum))
+      : createEnhancedMemory('entertainer', seasonNum);
+    const memAna = rawMemAna
+      ? (isEnhanced(rawMemAna) ? rawMemAna : upgradeToEnhancedMemory(rawMemAna, seasonNum))
+      : createEnhancedMemory('analyst', seasonNum);
+
+    // Ensure all teams are represented in memory
+    const teamNames = derived.matchup_pairs.flatMap(p => [p.winner.name, p.loser.name]);
+    const uniqueTeams = [...new Set(teamNames)];
+    if (uniqueTeams.length === 0) {
+      // Offseason/preseason — seed from user list
+      users.forEach(u => {
+        const name = (u as { metadata?: { team_name?: string } }).metadata?.team_name || u.display_name || u.username || `User ${u.user_id}`;
+        uniqueTeams.push(name);
+      });
+    }
+    ensureEnhancedTeams(memEnt, uniqueTeams);
+    ensureEnhancedTeams(memAna, uniqueTeams);
+
+    // Evolve memory based on this week's matchup results
+    updateEnhancedMemoryAfterWeek(memEnt, derived, week);
+    updateEnhancedMemoryAfterWeek(memAna, derived, week);
+    console.log(`[Staged] Bot memories evolved — Entertainer: ${memEnt.summaryMood}, Analyst: ${memAna.summaryMood}`);
+
+    // ── For pre_draft: fetch draft slot order ──
+    let preDraftSlots: Array<{ slot: number; team: string }> | undefined;
+    let preDraftRound2Slots: Array<{ slot: number; team: string }> | undefined;
+    if (episodeType === 'pre_draft') {
+      const draftOrder = await buildSimpleDraftSlotOrder(seasonNum);
+      preDraftSlots = draftOrder.round1.length > 0 ? draftOrder.round1 : undefined;
+      preDraftRound2Slots = draftOrder.round2;
+      console.log(`[Staged] pre_draft slot order: ${preDraftSlots?.map(s => `${s.slot}.${s.team}`).join(', ') ?? 'none'}`);
+    }
+
+    // ── For post_draft: use ALL league teams as the grade list (not just teams with picks) ──
+    // This ensures teams that traded away all picks still get a "no picks" grade section.
+    let draftTeams: string[] | undefined;
+    if (episodeType === 'post_draft') {
+      // Build the full canonical team list from league users/rosters
+      const userNameMap = new Map<string, string>();
+      for (const u of users) {
+        const meta = (u as { metadata?: { team_name?: string } }).metadata;
+        userNameMap.set(u.user_id, meta?.team_name || u.display_name || u.username || `User ${u.user_id}`);
+      }
+      const allLeagueTeams: string[] = [];
+      const seenTeams = new Set<string>();
+      for (const r of rosters) {
+        const name = userNameMap.get(r.owner_id) || `Roster ${r.roster_id}`;
+        if (!seenTeams.has(name)) { seenTeams.add(name); allLeagueTeams.push(name); }
+      }
+      draftTeams = allLeagueTeams.length > 0 ? allLeagueTeams : undefined;
+      if (draftTeams) {
+        console.log(`[Staged] post_draft teams (${draftTeams.length}): ${draftTeams.join(', ')}`);
+      }
+    }
+
+    const matchupCount = derived.matchup_pairs.length;
+    const tradeCount = derived.events_scored.filter(e => e.type === 'trade').length;
+
+    // ── Grade previous picks + load forecast records for episodes that use Forecast ──
+    // This runs at job start so forecast records are available to the Forecast step.
+    const FORECAST_EPISODE_TYPES = ['regular', 'trade_deadline', 'playoffs_preview', 'playoffs_round', 'preseason'];
+    let stagedForecastRecords: { entertainer: { w: number; l: number }; analyst: { w: number; l: number } } = {
+      entertainer: { w: 0, l: 0 },
+      analyst: { w: 0, l: 0 },
+    };
+    if (FORECAST_EPISODE_TYPES.includes(episodeType)) {
+      try {
+        const [existingRecords, existingPendingPicks] = await Promise.all([
+          loadForecastRecords(seasonNum).catch(() => null),
+          loadPendingPicks(seasonNum, week).catch(() => null),
+        ]);
+        const baseRecords = existingRecords ?? { entertainer: { w: 0, l: 0 }, analyst: { w: 0, l: 0 } };
+        if (existingPendingPicks && derived.matchup_pairs.length > 0) {
+          const { gradePendingPicks } = await import('@/lib/newsletter/forecast');
+          stagedForecastRecords = gradePendingPicks(
+            existingPendingPicks,
+            derived.matchup_pairs,
+            { ...baseRecords, entertainer: { ...baseRecords.entertainer }, analyst: { ...baseRecords.analyst } },
+          );
+          console.log(`[Staged] Previous picks graded — Entertainer: ${stagedForecastRecords.entertainer.w}W-${stagedForecastRecords.entertainer.l}L, Analyst: ${stagedForecastRecords.analyst.w}W-${stagedForecastRecords.analyst.l}L`);
+        } else {
+          stagedForecastRecords = baseRecords;
+          console.log(`[Staged] No previous picks to grade — using existing records`);
+        }
+      } catch (e) {
+        console.warn('[Staged] Failed to load/grade forecast records:', e);
+      }
+    }
+
+    // ── Store everything in the staged record ──
+    const jobMeta = {
+      episodeType,
+      leagueName: leagueName || 'East v. West',
+      leagueId,
+      preDraftSlots,
+      preDraftRound2Slots,
+      isFirstEpisodeEver,
+      matchupCount,
+      tradeCount,
+      draftTeams,
+    };
+
+    const { createStagedNewsletter, mergeStagedDerivedData: mergeData } = await import('@/server/db/newsletter-queries');
+    await createStagedNewsletter(seasonNum, week, { leagueName: leagueName || 'East v. West', derived, users, rosters });
+    await mergeData(seasonNum, week, {
+      __jobMeta: jobMeta,
+      __context: enhancedContextString,
+      __derived: derived as unknown as Record<string, unknown>,
+      __draftData: draftData as unknown as Record<string, unknown> | null,
+      // Store evolved memories so steps use personality-aware state
+      __memoryEntertainer: JSON.parse(JSON.stringify(memEnt)) as Record<string, unknown>,
+      __memoryAnalyst:     JSON.parse(JSON.stringify(memAna)) as Record<string, unknown>,
+      sections: {},
+    });
+    await updateStagedNewsletter(seasonNum, week, { status: 'pending', sectionsCompleted: [], currentSection: null });
+
+    const { getGenerationSteps } = await import('@/lib/newsletter/compose-step');
+    const allSteps = getGenerationSteps(episodeType, matchupCount, tradeCount, draftTeams);
+
+    console.log(`[Staged] Job created — ${allSteps.length} steps: ${allSteps.join(', ')}`);
+
+    return NextResponse.json({
+      success: true,
+      status: 'started',
+      season: seasonNum,
+      week,
+      episodeType,
+      totalSteps: allSteps.length,
+      steps: allSteps,
+      message: `Staged job created. Call POST /api/newsletter/generate-step { season: ${seasonNum}, week: ${week} } to advance one section at a time.`,
+    });
+
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error('[Staged] Failed to start job:', msg);
+    return NextResponse.json({ success: false, error: 'Failed to start staged job', details: msg }, { status: 500 });
+  }
+}
+
 // ============ POST: Generate newsletter ============
 
 export async function POST(request: NextRequest) {
@@ -693,12 +975,21 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json().catch(() => ({}));
-    const { week: weekOverride, season: seasonOverride, episodeType, forceRegenerate, preview } = body as {
+    const { week: weekOverride, season: seasonOverride, episodeType, forceRegenerate, preview, isFirstEpisodeEver, mode } = body as {
       week?: number;
       season?: string;
-      episodeType?: string; // Episode type for special newsletters (pre_draft, post_draft, preseason, etc.)
+      episodeType?: string;
       forceRegenerate?: boolean;
-      preview?: boolean; // Preview mode - generates but doesn't save to DB or show on public page
+      preview?: boolean;
+      /** Pass true only for the very first pre_draft newsletter — makes Mason/Westy introduce themselves */
+      isFirstEpisodeEver?: boolean;
+      /**
+       * Generation mode:
+       *   'sync'   — run the full newsletter synchronously (legacy; may time out on Vercel for large episodes)
+       *   'start'  — create a staged job and return immediately; client calls /generate-step to advance
+       * Default: 'sync' so existing callers (GitHub Actions, local dev) are unchanged.
+       */
+      mode?: 'sync' | 'start';
     };
 
     // Get current NFL state
@@ -730,6 +1021,17 @@ export async function POST(request: NextRequest) {
       }, { status: 400 });
     }
 
+    // ── STAGED MODE: build context, save to DB, return immediately ──
+    // The client then loops POST /api/newsletter/generate-step to advance one section at a time.
+    if (mode === 'start') {
+      return await startStagedJob({
+        seasonNum, week, leagueId, episodeType: episodeType || 'regular',
+        isFirstEpisodeEver: isFirstEpisodeEver ?? false,
+        forceRegenerate: forceRegenerate ?? false,
+      });
+    }
+
+    // ── SYNC MODE (default): run full generation in this request ──
     // Mark generation as in-progress and clear stale section data from any prior run
     void updateStagedNewsletter(seasonNum, week, { status: 'in_progress', sectionsCompleted: [], currentSection: null }).catch(() => {});
 
@@ -917,6 +1219,7 @@ export async function POST(request: NextRequest) {
       draftData: draftData ?? null,
       preDraftSlots,
       preDraftRound2Slots,
+      isFirstEpisodeEver: isFirstEpisodeEver ?? false,
       onSectionComplete: (sectionName) => {
         void updateStagedNewsletter(seasonNum, week, {
           currentSection: sectionName,

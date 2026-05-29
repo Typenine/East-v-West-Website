@@ -50,8 +50,8 @@ export const IMPORTANT_DATES = {
 
 // Champions by year
 export const CHAMPIONS = {
-  '2026': { champion: 'TBD', runnerUp: 'TBD', thirdPlace: 'TBD' },
-  '2025': { champion: 'BeerNeverBrokeMyHeart', runnerUp: 'TBD', thirdPlace: 'TBD' },
-  '2024': { champion: 'Belltown Raptors', runnerUp: 'TBD', thirdPlace: 'TBD' },
-  '2023': { champion: 'Double Trouble', runnerUp: 'TBD', thirdPlace: 'TBD' }
+  '2026': { champion: 'TBD',                    runnerUp: 'TBD',              thirdPlace: 'TBD' },
+  '2025': { champion: 'BeerNeverBrokeMyHeart',  runnerUp: 'Double Trouble',   thirdPlace: 'Mt. Lebanon Cake Eaters' },
+  '2024': { champion: 'Belltown Raptors',       runnerUp: 'Double Trouble',   thirdPlace: 'Belleview Badgers' },
+  '2023': { champion: 'Double Trouble',         runnerUp: 'Elemental Heroes', thirdPlace: 'Detroit Dawgs' },
 };

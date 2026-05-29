@@ -23,6 +23,7 @@ export async function generateWithGroqProvider(req: ProviderRequest): Promise<st
   for (const model of modelsToTry) {
     const abort = new AbortController();
     const abortTimer = setTimeout(() => abort.abort(), 40_000);
+    const t0 = Date.now();
 
     try {
       let response: Response;
@@ -57,7 +58,8 @@ export async function generateWithGroqProvider(req: ProviderRequest): Promise<st
       }
 
       const data = await response.json() as {
-        choices?: Array<{ message?: { content?: string } }>;
+        choices?: Array<{ message?: { content?: string }; finish_reason?: string }>;
+        usage?: { completion_tokens?: number };
         error?: { message?: string } | string;
       };
 
@@ -67,6 +69,20 @@ export async function generateWithGroqProvider(req: ProviderRequest): Promise<st
       }
 
       const text = data.choices?.[0]?.message?.content ?? '';
+      const finishReason = data.choices?.[0]?.finish_reason ?? 'unknown';
+      const outputTokens = data.usage?.completion_tokens ?? 0;
+      const section = req.sectionName ?? 'unknown';
+      const durationMs = Date.now() - t0;
+
+      console.log(`[Groq/${model}] section="${section}" finish=${finishReason} outputTokens=${outputTokens} maxTokens=${Math.min(req.maxTokens, GROQ_MAX_OUTPUT_TOKENS)} ${durationMs}ms`);
+
+      if (finishReason === 'length') {
+        throw new Error(
+          `LLM_TRUNCATED_OUTPUT: Groq hit max_tokens for "${section}" ` +
+          `(model=${model}, outputTokens=${outputTokens}, maxTokens=${Math.min(req.maxTokens, GROQ_MAX_OUTPUT_TOKENS)})`
+        );
+      }
+
       return text.trim();
 
     } catch (err) {

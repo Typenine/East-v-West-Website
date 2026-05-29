@@ -22,6 +22,10 @@ export interface ProviderRequest {
   temperature: number;
   maxTokens: number;
   topP?: number;
+  /** Gemini-only: thinking token budget. 0 = disabled, undefined = let provider decide. */
+  thinkingBudget?: number;
+  /** Caller-supplied section label used in logs (e.g. "Mock Draft - Round 1"). */
+  sectionName?: string;
 }
 
 export interface CascadeRequest extends ProviderRequest {

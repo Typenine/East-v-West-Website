@@ -60,7 +60,8 @@ export async function generateWithOpenRouterProvider(req: ProviderRequest): Prom
       }
 
       const data = await response.json() as {
-        choices?: Array<{ message?: { content?: string } }>;
+        choices?: Array<{ message?: { content?: string }; finish_reason?: string }>;
+        usage?: { completion_tokens?: number };
         error?: { message?: string } | string;
       };
 
@@ -70,6 +71,19 @@ export async function generateWithOpenRouterProvider(req: ProviderRequest): Prom
       }
 
       const text = data.choices?.[0]?.message?.content ?? '';
+      const finishReason = data.choices?.[0]?.finish_reason ?? 'unknown';
+      const outputTokens = data.usage?.completion_tokens ?? 0;
+      const section = req.sectionName ?? 'unknown';
+
+      console.log(`[OpenRouter/${model}] section="${section}" finish=${finishReason} outputTokens=${outputTokens} maxTokens=${req.maxTokens} responseLen=${text.length}`);
+
+      if (finishReason === 'length') {
+        throw new Error(
+          `LLM_TRUNCATED_OUTPUT: OpenRouter hit max_tokens for "${section}" ` +
+          `(model=${model}, outputTokens=${outputTokens}, maxTokens=${req.maxTokens})`
+        );
+      }
+
       return text.trim();
 
     } catch (err) {

@@ -38,7 +38,7 @@ import type {
 import type { LeagueDraftData } from './sleeper-ingest';
 import { isEnhancedMemory } from './types';
 import { generateSection } from './llm/groq';
-import { buildStaticLeagueContext } from './league-knowledge';
+import { buildStaticLeagueContext, LEAGUE_IDENTITY } from './league-knowledge';
 import { getEpisodeConfig } from './episodes';
 import {
   generateAllLLMFeatures,
@@ -419,7 +419,8 @@ async function buildIntro(
   memAnalyst: BotMemory,
   enhancedContext: string = '',
   episodeType: string = 'regular',
-  season: number = new Date().getFullYear()
+  season: number = new Date().getFullYear(),
+  isFirstEpisodeEver = false,
 ): Promise<IntroSection> {
   const leagueKnowledge = buildStaticLeagueContext();
   
@@ -428,7 +429,7 @@ async function buildIntro(
     return buildPreseasonIntro(leagueKnowledge, season, memEntertainer, memAnalyst, enhancedContext);
   }
   if (episodeType === 'pre_draft') {
-    return buildPreDraftIntro(leagueKnowledge, season, memEntertainer, memAnalyst, enhancedContext);
+    return buildPreDraftIntro(leagueKnowledge, season, memEntertainer, memAnalyst, enhancedContext, isFirstEpisodeEver);
   }
   if (episodeType === 'post_draft') {
     return buildPostDraftIntro(leagueKnowledge, season, memEntertainer, memAnalyst, enhancedContext);
@@ -566,18 +567,32 @@ async function buildPreDraftIntro(
   season: number,
   memEntertainer: BotMemory,
   memAnalyst: BotMemory,
-  enhancedContext: string
+  enhancedContext: string,
+  isFirstEpisodeEver = false,
 ): Promise<IntroSection> {
+  const debutBlock = isFirstEpisodeEver
+    ? `IMPORTANT: THIS IS YOUR FIRST EVER EPISODE appearing to the East v. West league.
+Mason Reed and Westy are brand new to this league — the members have never heard from you before.
+Introduce yourselves, welcome the league, and set the stage for your draft preview newsletter.
+Make a strong first impression that shows who you are as a personality.`
+    : `You and your co-host are well-established voices for the East v. West league. The members know you both.
+Reference your history with this league where relevant — prior seasons, memorable moments, past takes that aged well or poorly.`;
+
+  const entertainerConstraint = isFirstEpisodeEver
+    ? `Write 3-4 paragraphs. First, introduce yourself (Mason Reed) to the East v. West league — your first episode ever. Welcome the league, make it feel electric. Then pivot: build draft hype, name the prospects you're most fired up about, call out which teams you think are set up to steal this draft. Drop a bold take. End with something that leaves them wanting more.`
+    : `Write 3-4 paragraphs opening the draft preview. No intro needed — dive straight in. Build draft hype, name the prospects you're most fired up about, call out which teams are set up to steal this draft. Reference what you've seen from these teams in prior seasons. Drop a bold take.`;
+
+  const analystConstraint = isFirstEpisodeEver
+    ? `Write 3-4 paragraphs. First, introduce yourself (Westy) to the East v. West league — your first episode ever. Welcome the league and frame what you bring: data-driven analysis, accountability, receipts. Then pivot to the draft: lay out the analytical framework (draft capital, positional scarcity, team fit), highlight which teams have the most leverage, and set expectations for your mock draft picks. Measured but sharp.`
+    : `Write 3-4 paragraphs opening the draft preview analytically. No intro needed — you're a known quantity to this league. Lay out the analytical framework (draft capital, positional scarcity, team fit), highlight which teams have the most leverage, and set expectations for your mock picks. Reference prior seasons' draft results where relevant.`;
+
   const context = `${leagueKnowledge}
 
 ---
 
 EPISODE TYPE: PRE-DRAFT PREVIEW - ${season} ROOKIE DRAFT
 
-IMPORTANT: THIS IS YOUR FIRST EVER EPISODE appearing to the East v. West league.
-Mason Reed and Westy are brand new to this league — the members have never heard from you before.
-Introduce yourselves, welcome the league, and set the stage for your draft preview newsletter.
-Make a strong first impression that shows who you are as a personality.
+${debutBlock}
 
 After the intro, preview the upcoming rookie draft:
 - Draft capital landscape (who picks when, any notable traded picks)
@@ -591,7 +606,7 @@ ${enhancedContext}`;
       persona: 'entertainer',
       sectionType: 'Pre-Draft Preview Intro',
       context,
-      constraints: `Write 3-4 paragraphs. First, introduce yourself (Mason Reed) to the East v. West league — your first episode ever. Welcome the league, make it feel electric. Then pivot: build draft hype, name the prospects you're most fired up about, call out which teams you think are set up to steal this draft. Drop a bold take. End with something that leaves them wanting more.`,
+      constraints: entertainerConstraint,
       maxTokens: 1500,
       episodeType: 'pre_draft',
       validate: (text) => text.length >= 300,
@@ -600,7 +615,7 @@ ${enhancedContext}`;
       persona: 'analyst',
       sectionType: 'Pre-Draft Preview Intro',
       context,
-      constraints: `Write 3-4 paragraphs. First, introduce yourself (Westy) to the East v. West league — your first episode ever. Welcome the league and frame what you bring: data-driven analysis, accountability, receipts. Then pivot to the draft: lay out the analytical framework (draft capital, positional scarcity, team fit), highlight which teams have the most leverage, and set expectations for your mock draft picks. Measured but sharp.`,
+      constraints: analystConstraint,
       maxTokens: 1400,
       episodeType: 'pre_draft',
       validate: (text) => text.length >= 300,
@@ -823,20 +838,17 @@ YOUR OPINIONS MATTER: Let your feelings about teams influence your rankings.
 If you've been burned by a team, maybe rank them lower. If a team has impressed you, rank them higher.
 This isn't just about stats - it's about YOUR take on who's actually good.`;
 
+  // JSON format — more reliable than regex parsing
+  const JSON_RANKINGS_FORMAT = `Return ONLY a valid JSON array (no markdown fences, no other text) of exactly 12 objects:
+[{"rank":1,"team":"TeamName","blurb":"2-3 sentence take"},...]
+Rank 1 = best team. Use exact team names from the context. No extra keys.`;
+
   // Generate entertainer's rankings
   const entertainerRankings = await generateSection({
     persona: 'entertainer',
     sectionType: 'Weekly Power Rankings',
-    context: `${context}
-
-YOUR TEAM OPINIONS:
-${entertainerTeamOpinions.length > 0 ? entertainerTeamOpinions.join('\n') : 'No strong opinions yet - form some!'}
-
-Generate YOUR power rankings 1-12. Lean on narrative, momentum, and gut feel — who's hot, who's peaking, who has the "it" factor right now.
-Be opinionated. If you're high on a team that the stats might not fully support, say so and say why.`,
-    constraints: `Format each line as: "RANK. TeamName - [your hot take reason — 2-3 sentences of analysis]"
-Example: "1. Double Trouble - They're the real deal and I've been saying it all year. Their offense is clicking and nobody can stop them. Championship material."
-Rank all 12 teams. Be bold and dramatic. Give your honest ranking based on how teams feel right now.`,
+    context: `${context}\n\nYOUR TEAM OPINIONS:\n${entertainerTeamOpinions.length > 0 ? entertainerTeamOpinions.join('\n') : 'No strong opinions yet.'}`,
+    constraints: `Rank all 12 teams based on narrative, momentum, and gut feel.\n${JSON_RANKINGS_FORMAT}`,
     maxTokens: 1200,
   });
 
@@ -844,25 +856,23 @@ Rank all 12 teams. Be bold and dramatic. Give your honest ranking based on how t
   const analystRankings = await generateSection({
     persona: 'analyst',
     sectionType: 'Weekly Power Rankings',
-    context: `${context}
-
-YOUR TEAM OPINIONS:
-${analystTeamOpinions.length > 0 ? analystTeamOpinions.join('\n') : 'Building data on all teams.'}
-
-Generate YOUR power rankings 1-12. Base it on points-per-game, roster construction, schedule strength, and efficiency.
-If a team has a great record but weak underlying numbers, rank them accordingly. If a team is underperforming their talent, rank them higher.
-Let the data lead — your job is to find the signal in the noise.`,
-    constraints: `Format each line as: "RANK. TeamName - [analytical reason — 2-3 sentences]"
-Example: "1. Double Trouble - Best points-per-game average in the league and a favorable schedule ahead. Their roster depth is unmatched and they've shown consistency all season."
-Rank all 12 teams with substantive analytical reasoning. Let the numbers guide you.`,
+    context: `${context}\n\nYOUR TEAM OPINIONS:\n${analystTeamOpinions.length > 0 ? analystTeamOpinions.join('\n') : 'Building data on all teams.'}`,
+    constraints: `Rank all 12 teams based on points-per-game, roster construction, and efficiency.\n${JSON_RANKINGS_FORMAT}`,
     maxTokens: 1200,
   });
 
-  // Parse both rankings
+  // Parse rankings — JSON-first with regex fallback
   const parseRankings = (response: string): Array<{ rank: number; team: string; blurb: string }> => {
+    try {
+      const clean = response.trim().replace(/^```json?\n?|\n?```$/g, '');
+      const parsed = JSON.parse(clean) as Array<{ rank?: number; team?: string; blurb?: string }>;
+      if (Array.isArray(parsed) && parsed.length >= 10) {
+        return parsed.map((r, i) => ({ rank: Number(r.rank ?? i + 1), team: String(r.team ?? `Team ${i + 1}`), blurb: String(r.blurb ?? '') }));
+      }
+    } catch { /* fall through to regex */ }
     const lines = response.split('\n').filter(l => l.trim() && /^\d+\./.test(l.trim()));
     return lines.slice(0, 12).map((line, idx) => {
-      const match = line.match(/^\d+\.\s*([^-–]+)[-–]\s*(.+)/);
+      const match = line.match(/^\d+\.\s*([^-–:]+)[-–:]\s*(.+)/);
       const team = match ? match[1].trim() : `Team ${idx + 1}`;
       const blurb = match ? match[2].trim() : 'Solid team.';
       return { rank: idx + 1, team, blurb };
@@ -1052,26 +1062,42 @@ async function buildWaiverItems(events: DerivedData['events_scored']): Promise<W
     return `- ${e.team} added ${e.player || 'unknown player'}${faabStr} (relevance: ${e.relevance_score}/100)`;
   }).join('\n');
 
+  // Numbered list format so we can split by "N." delimiter after the fact
+  const numberedContext = waiverEvents.map((e, i) => {
+    const faabStr = e.faab_spent != null ? ` ($${e.faab_spent} FAAB)` : '';
+    return `${i + 1}. ${e.team} added ${e.player || 'unknown player'}${faabStr}`;
+  }).join('\n');
+
+  const waiverConstraint = (style: string) =>
+    `React to each numbered waiver move with 2-3 sentences. ${style}. ` +
+    `Start each response with the move number, e.g. "1. [your take]". One paragraph per move. ` +
+    `${waiverEvents.length} moves total.`;
+
   const [entertainerResponse, analystResponse] = await Promise.all([
     generateSection({
       persona: 'entertainer',
       sectionType: 'Waivers',
-      context: `Waiver wire moves this week:\n${waiverContext}`,
-      constraints: `React to each waiver move with 2-3 sentences. Be spicy about the great pickups, skeptical about the questionable ones. Give your personality-driven take on what it means for that team.`,
+      context: `Waiver wire moves this week:\n${numberedContext}`,
+      constraints: waiverConstraint('Be spicy about great pickups, skeptical about questionable ones — personality-driven takes'),
       maxTokens: 600,
     }),
     generateSection({
       persona: 'analyst',
       sectionType: 'Waivers',
-      context: `Waiver wire moves this week:\n${waiverContext}`,
-      constraints: `Analyze each move with 2-3 sentences. Cover role, usage projection, upside, and what it means for the team's roster construction.`,
+      context: `Waiver wire moves this week:\n${numberedContext}`,
+      constraints: waiverConstraint('Cover role, usage projection, upside, and roster construction impact — analytical takes'),
       maxTokens: 600,
     }),
   ]);
 
-  // Parse responses and match to events
-  const entLines = entertainerResponse.split('\n').filter(l => l.trim());
-  const anaLines = analystResponse.split('\n').filter(l => l.trim());
+  // Split on numbered entries "1. ", "2. ", etc.
+  const splitByNumber = (text: string): string[] => {
+    const parts = text.split(/\n?(?=\d+\.)/g).filter(p => p.trim());
+    return parts.map(p => p.replace(/^\d+\.\s*/, '').trim());
+  };
+
+  const entParts = splitByNumber(entertainerResponse);
+  const anaParts = splitByNumber(analystResponse);
 
   return waiverEvents.map((e, i) => ({
     event_id: e.event_id,
@@ -1080,8 +1106,8 @@ async function buildWaiverItems(events: DerivedData['events_scored']): Promise<W
     team: e.team,
     player: e.player,
     faab_spent: e.faab_spent,
-    bot1: entLines[i] || `${e.team} makes a move with ${e.player || 'a player'}.`,
-    bot2: anaLines[i] || `${e.team} adds ${e.player || 'a player'}. Monitor usage.`,
+    bot1: entParts[i] || `${e.team} makes a move with ${e.player || 'a player'}.`,
+    bot2: anaParts[i] || `${e.team} adds ${e.player || 'a player'}. Monitor usage.`,
   }));
 }
 
@@ -1202,7 +1228,7 @@ ${anaTrustLine ? `[Westy's history: ${anaTrustLine}]` : ''}`;
       ]);
 
       const extractGrade = (text: string): string => {
-        // Look for explicitly stated grade patterns first
+        // Explicit label patterns — most reliable
         const explicit = text.match(/\bgrade[:\s]+([A-F][+-]?)\b/i)
           || text.match(/\bgiv(?:e|ing)\s+(?:this\s+)?(?:a\s+)?([A-F][+-]?)\b/i)
           || text.match(/\b([A-F][+-]?)\s*[-–]\s*(?:grade|trade|deal)\b/i)
@@ -1210,9 +1236,15 @@ ${anaTrustLine ? `[Westy's history: ${anaTrustLine}]` : ''}`;
           || text.match(/\bscore[:\s]+([A-F][+-]?)\b/i)
           || text.match(/\b([A-F][+-]?)\s*(?:grade|rating)\b/i);
         if (explicit) return explicit[1].toUpperCase();
-        // Last resort: standalone letter at end of sentence or punctuation boundary
-        const all = [...text.matchAll(/(?<![A-Z])([A-F][+-]?)(?=[^a-zA-Z]|$)/gm)].map(m => m[1]);
-        return all.length > 0 ? all[all.length - 1].toUpperCase() : 'B';
+        // Grade on its own line (e.g. "A+" as a standalone line)
+        for (const line of text.split('\n')) {
+          const solo = line.trim().match(/^([A-F][+-]?)\.?$/);
+          if (solo) return solo[1].toUpperCase();
+        }
+        // Grade at the end of the text after punctuation (e.g. "solid pickup. B+")
+        const endMatch = text.trim().match(/[.!]\s*([A-F][+-]?)\.?\s*$/);
+        if (endMatch) return endMatch[1].toUpperCase();
+        return 'B';
       };
       const entertainer_grade = extractGrade(entertainerResponse);
       const analyst_grade = extractGrade(analystResponse);
@@ -1413,7 +1445,7 @@ async function buildRecaps(
     }
   }
   const totalTeams = pairs.length * 2;
-  const playoffSpots = Math.floor(totalTeams / 2);
+  const playoffSpots = LEAGUE_IDENTITY.structure.playoffTeams; // 7 — top seed gets a bye
   const remainingWeeks = Math.max(0, 14 - week);
 
   // Sort all teams by wins to find the playoff cutoff
@@ -2024,7 +2056,7 @@ No headers, no other text. Begin immediately:`;
     const didTheyAgree = !hasDisagreement;
     
     // Record for entertainer's memory
-    if ('partnerDynamics' in memEntertainer || true) {
+    if (true) {
       recordBotInteraction(
         memEntertainer,
         week,
@@ -2722,13 +2754,13 @@ async function buildPreDraftTrades(
 
 PRE-DRAFT TRADE ANALYSIS — ${season} SEASON
 
-Review any trades that have occurred this league year (since February ${season}).
+Review any trades that have occurred since late ${season - 1} (post-championship offseason through the present).
 Focus on moves that affect draft capital, roster construction, and the upcoming rookie draft.
 The context below contains the full trade history — identify and analyze the significant deals.
 
 ${enhancedContext}
 
-Your job: Analyze the most significant trades from this offseason (since February ${season}) that are relevant heading into the rookie draft.
+Your job: Analyze the most significant trades from this offseason that are relevant heading into the rookie draft.
 
 CRITICAL: The context above contains a section called "${season} OFFSEASON TRADES" — read it carefully.
 If it says "No trades have been made in the ${season} offseason yet" or similar, you MUST report that accurately.
@@ -2884,11 +2916,13 @@ function parseMockDraftPicks(
     const m = cleanLine.match(/\bPICK\s+\d+\.(\d+)\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|\s*(.+)/i);
     if (m) {
       flushCurrent();
+      // m[4] may include trailing analysis text (e.g. "WR — some note"); take only the first token
+      const rawPos = m[4].trim().split(/[\s|—–\-]/)[0].toUpperCase();
       current = {
         slot: parseInt(m[1], 10),
         team: m[2].trim(),
         player: m[3].trim(),
-        position: m[4].trim(),
+        position: rawPos || m[4].trim(),
       };
     } else if (current && line.trim()) {
       analysisLines.push(line.trim());
@@ -2915,6 +2949,7 @@ async function buildMockDraft(
   enhancedContext: string,
   preDraftSlots?: Array<{ slot: number; team: string }>,
   preDraftRound2Slots?: Array<{ slot: number; team: string }>,
+  isFirstEpisodeEver = false,
 ): Promise<MockDraftSection> {
   const leagueKnowledge = buildStaticLeagueContext();
 
@@ -2950,14 +2985,17 @@ ${r1Order}
 ROUND 2 DRAFT ORDER (${isSnake ? 'reverse snake — best team picks first' : 'linear — same order as Round 1'}):
 ${r2Order}`;
 
+  const debutLine = isFirstEpisodeEver
+    ? `FIRST EPISODE EVER: This is Mason and Westy's debut newsletter for the East v. West league. They are making their first impression with this draft class.`
+    : `Mason and Westy are established analysts for this league — reference prior seasons and your knowledge of these teams.`;
+
   const baseContext = `${leagueKnowledge}
 
 ---
 
 ${season} EAST V. WEST ROOKIE DRAFT — MOCK DRAFT
 
-FIRST EPISODE EVER: This is Mason and Westy's debut newsletter for the East v. West league.
-They are generating independent mock drafts showing off their knowledge of this league and the draft class.
+${debutLine}
 
 ${draftOrderCtx}
 
@@ -3140,6 +3178,12 @@ export interface ComposeNewsletterInput {
   preDraftSlots?: Array<{ slot: number; team: string }>;
   /** DB-sourced round 2 pick order for pre_draft mock drafts (overrides snake/linear computation) */
   preDraftRound2Slots?: Array<{ slot: number; team: string }>;
+  /**
+   * When true, Mason and Westy introduce themselves as making their debut with this league.
+   * Set to true for the very first pre_draft newsletter ever generated.
+   * Set to false (or omit) for all subsequent newsletters so they don't keep claiming it's their debut.
+   */
+  isFirstEpisodeEver?: boolean;
   /** Called when a section completes — used for real-time progress tracking */
   onSectionComplete?: (sectionName: string) => void;
 }
@@ -3163,6 +3207,7 @@ export async function composeNewsletter(input: ComposeNewsletterInput, qualityRe
     draftData,
     preDraftSlots,
     preDraftRound2Slots,
+    isFirstEpisodeEver = false,
     onSectionComplete,
   } = input;
 
@@ -3248,10 +3293,11 @@ export async function composeNewsletter(input: ComposeNewsletterInput, qualityRe
   const pushbackCollector: PushbackRecord[] = [];
 
   // Phase 1: Generate intro first so its theme can inform the rest of the newsletter
-  const intro = await safeSection('Intro', () => buildIntro(week, pairs, events, memEntertainer, memAnalyst, fullEnhancedContext, episodeType, season), fallbackIntro);
+  const intro = await safeSection('Intro', () => buildIntro(week, pairs, events, memEntertainer, memAnalyst, fullEnhancedContext, episodeType, season, isFirstEpisodeEver), fallbackIntro);
 
-  // Extract the week's narrative theme from the intro and inject it into Phase 2 sections
-  const introThemeSnippet = (intro.bot1_text || '').split(/[.!?]/).slice(0, 2).join('. ').trim();
+  // Extract the week's narrative theme from the intro — skip if intro used a fallback (too generic to be useful)
+  const introIsReal = intro.bot1_text.length > 100 && !intro.bot1_text.startsWith(`Week ${week} is in the books`);
+  const introThemeSnippet = introIsReal ? (intro.bot1_text || '').split(/[.!?]/).slice(0, 2).join('. ').trim() : '';
   const continuityCtx = introThemeSnippet
     ? `\nWEEK'S NARRATIVE FRAMING: "${introThemeSnippet}..." — reference these themes if relevant; don't contradict them.`
     : '';
@@ -3329,8 +3375,13 @@ export async function composeNewsletter(input: ComposeNewsletterInput, qualityRe
   }
 
   // Generate all new LLM-powered features (debates, hot takes, awards, etc.)
+  // Gate with ENABLE_EXTRA_LLM_FEATURES=true to skip ~20 extra LLM calls that push generation past the Vercel timeout.
+  // Default is disabled. Set ENABLE_EXTRA_LLM_FEATURES=true in .env.local to re-enable for local deep runs.
+  const extraFeaturesEnabled = process.env.ENABLE_EXTRA_LLM_FEATURES === 'true';
+  console.log(`[Compose] Extra LLM features: ${extraFeaturesEnabled ? 'ENABLED (debates/hot-takes/awards/what-ifs/etc.)' : 'SKIPPED (set ENABLE_EXTRA_LLM_FEATURES=true to enable)'}`);
+
   let llmFeatures: LLMFeaturesOutput | null = null;
-  if (episodeType === 'regular' && pairs.length > 0) {
+  if (extraFeaturesEnabled && episodeType === 'regular' && pairs.length > 0) {
     console.log(`[Compose] Generating LLM-powered features (debates, hot takes, awards, etc.)...`);
     try {
       const personaCtxEnt = `${getPersonalityContext(memEntertainer)}${getPartnerDynamicsContext(memEntertainer)}${getObsessionContext(memEntertainer)}${getNarrativesContext(memEntertainer, week)}`;
@@ -3449,7 +3500,7 @@ export async function composeNewsletter(input: ComposeNewsletterInput, qualityRe
     // Pick-by-pick mock draft (Rounds 1-2, both bots, interleaved)
     const mockDraft = await safeSection(
       'MockDraft',
-      () => buildMockDraft(draftData ?? null, memEntertainer, memAnalyst, season, enhancedContextWithContinuity, preDraftSlots, preDraftRound2Slots),
+      () => buildMockDraft(draftData ?? null, memEntertainer, memAnalyst, season, enhancedContextWithContinuity, preDraftSlots, preDraftRound2Slots, isFirstEpisodeEver),
       null as MockDraftSection | null
     );
     if (mockDraft) {

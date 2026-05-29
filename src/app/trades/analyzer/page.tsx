@@ -676,7 +676,7 @@ function ConfidenceBadge({ assets }: { assets: SelectedAsset[] }) {
       diff: Math.abs((a.fcValue ?? 0) - (a.ktcValue ?? 0)),
       ktcHigher: (a.ktcValue ?? 0) > (a.fcValue ?? 0),
     }))
-    .filter((d) => d.diff >= 350)
+    .filter((d) => d.diff >= 1200)
     .sort((a, b) => b.diff - a.diff);
 
   if (!disagreements.length) return null;
@@ -687,7 +687,7 @@ function ConfidenceBadge({ assets }: { assets: SelectedAsset[] }) {
     return `${higher} values ${d.name} ${formatValue(d.diff)} pts higher than ${lower}`;
   });
 
-  const color = disagreements[0].diff >= 1200 ? '#f97316' : '#eab308';
+  const color = disagreements[0].diff >= 2000 ? '#f97316' : '#eab308';
   const extra = disagreements.length > 2 ? ` · +${disagreements.length - 2} more` : '';
 
   return (
