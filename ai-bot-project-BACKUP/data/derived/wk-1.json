@@ -1,0 +1,825 @@
+{
+  "matchup_pairs": [
+    {
+      "matchup_id": 3,
+      "teams": [
+        {
+          "name": "Belltown Raptors",
+          "points": 0
+        },
+        {
+          "name": "bop pop",
+          "points": 0
+        }
+      ],
+      "winner": {
+        "name": "Belltown Raptors",
+        "points": 0
+      },
+      "loser": {
+        "name": "bop pop",
+        "points": 0
+      },
+      "margin": 0
+    },
+    {
+      "matchup_id": 5,
+      "teams": [
+        {
+          "name": "Belleview Badgers",
+          "points": 0
+        },
+        {
+          "name": "The Lone Ginger",
+          "points": 0
+        }
+      ],
+      "winner": {
+        "name": "Belleview Badgers",
+        "points": 0
+      },
+      "loser": {
+        "name": "The Lone Ginger",
+        "points": 0
+      },
+      "margin": 0
+    },
+    {
+      "matchup_id": 2,
+      "teams": [
+        {
+          "name": "Red Pandas",
+          "points": 0
+        },
+        {
+          "name": "BeerNeverBrokeMyHeart",
+          "points": 0
+        }
+      ],
+      "winner": {
+        "name": "Red Pandas",
+        "points": 0
+      },
+      "loser": {
+        "name": "BeerNeverBrokeMyHeart",
+        "points": 0
+      },
+      "margin": 0
+    },
+    {
+      "matchup_id": 1,
+      "teams": [
+        {
+          "name": "Double Trouble",
+          "points": 0
+        },
+        {
+          "name": "Mt. Lebanon Cake Eaters",
+          "points": 0
+        }
+      ],
+      "winner": {
+        "name": "Double Trouble",
+        "points": 0
+      },
+      "loser": {
+        "name": "Mt. Lebanon Cake Eaters",
+        "points": 0
+      },
+      "margin": 0
+    },
+    {
+      "matchup_id": 4,
+      "teams": [
+        {
+          "name": "Elemental Heroes",
+          "points": 0
+        },
+        {
+          "name": "Bimg Bamg Boomg",
+          "points": 0
+        }
+      ],
+      "winner": {
+        "name": "Elemental Heroes",
+        "points": 0
+      },
+      "loser": {
+        "name": "Bimg Bamg Boomg",
+        "points": 0
+      },
+      "margin": 0
+    },
+    {
+      "matchup_id": 6,
+      "teams": [
+        {
+          "name": "Detroit Dawgs",
+          "points": 0
+        },
+        {
+          "name": "Minshew's Maniacs",
+          "points": 0
+        }
+      ],
+      "winner": {
+        "name": "Detroit Dawgs",
+        "points": 0
+      },
+      "loser": {
+        "name": "Minshew's Maniacs",
+        "points": 0
+      },
+      "margin": 0
+    }
+  ],
+  "upcoming_pairs": [
+    {
+      "matchup_id": 3,
+      "teams": [
+        "Belltown Raptors",
+        "Bimg Bamg Boomg"
+      ]
+    },
+    {
+      "matchup_id": 6,
+      "teams": [
+        "Belleview Badgers",
+        "Minshew's Maniacs"
+      ]
+    },
+    {
+      "matchup_id": 2,
+      "teams": [
+        "Red Pandas",
+        "Mt. Lebanon Cake Eaters"
+      ]
+    },
+    {
+      "matchup_id": 1,
+      "teams": [
+        "Double Trouble",
+        "BeerNeverBrokeMyHeart"
+      ]
+    },
+    {
+      "matchup_id": 4,
+      "teams": [
+        "Elemental Heroes",
+        "bop pop"
+      ]
+    },
+    {
+      "matchup_id": 5,
+      "teams": [
+        "Detroit Dawgs",
+        "The Lone Ginger"
+      ]
+    }
+  ],
+  "events_scored": [
+    {
+      "event_id": "1259919072313753600",
+      "type": "fa_add",
+      "week": 1,
+      "team": "Belltown Raptors",
+      "relevance_score": 30,
+      "coverage_level": "low",
+      "why": [
+        "free agent add"
+      ]
+    },
+    {
+      "event_id": "1259918932383367168",
+      "type": "fa_add",
+      "week": 1,
+      "team": "Belltown Raptors",
+      "relevance_score": 30,
+      "coverage_level": "low",
+      "why": [
+        "free agent add"
+      ]
+    },
+    {
+      "event_id": "1259918604309102592",
+      "type": "fa_add",
+      "week": 1,
+      "team": "Belltown Raptors",
+      "relevance_score": 30,
+      "coverage_level": "low",
+      "why": [
+        "free agent add"
+      ]
+    },
+    {
+      "event_id": "1259918463502127104",
+      "type": "fa_add",
+      "week": 1,
+      "team": "Belltown Raptors",
+      "relevance_score": 30,
+      "coverage_level": "low",
+      "why": [
+        "free agent add"
+      ]
+    },
+    {
+      "event_id": "1259918403649417216",
+      "type": "fa_add",
+      "week": 1,
+      "team": "Belltown Raptors",
+      "relevance_score": 30,
+      "coverage_level": "low",
+      "why": [
+        "free agent add"
+      ]
+    },
+    {
+      "event_id": "1249823792956448768",
+      "type": "fa_add",
+      "week": 1,
+      "team": "Detroit Dawgs",
+      "relevance_score": 30,
+      "coverage_level": "low",
+      "why": [
+        "free agent add"
+      ]
+    },
+    {
+      "event_id": "1246123162651865088",
+      "type": "fa_add",
+      "week": 1,
+      "team": "Mt. Lebanon Cake Eaters",
+      "relevance_score": 30,
+      "coverage_level": "low",
+      "why": [
+        "free agent add"
+      ]
+    },
+    {
+      "event_id": "1245427092833718272",
+      "type": "fa_add",
+      "week": 1,
+      "team": "bop pop",
+      "relevance_score": 30,
+      "coverage_level": "low",
+      "why": [
+        "free agent add"
+      ]
+    },
+    {
+      "event_id": "1245426351154925568",
+      "type": "fa_add",
+      "week": 1,
+      "team": "bop pop",
+      "relevance_score": 30,
+      "coverage_level": "low",
+      "why": [
+        "free agent add"
+      ]
+    },
+    {
+      "event_id": "1245413409088880640",
+      "type": "trade",
+      "week": 1,
+      "parties": [
+        "Red Pandas",
+        "Minshew's Maniacs"
+      ],
+      "assets_moved": 5,
+      "picks_moved": 5,
+      "relevance_score": 70,
+      "coverage_level": "high",
+      "why": [
+        "multiple picks involved",
+        "several assets moved"
+      ]
+    },
+    {
+      "event_id": "1242455888665530368",
+      "type": "fa_add",
+      "week": 1,
+      "team": "Bimg Bamg Boomg",
+      "relevance_score": 30,
+      "coverage_level": "low",
+      "why": [
+        "free agent add"
+      ]
+    },
+    {
+      "event_id": "1242418710140944384",
+      "type": "trade",
+      "week": 1,
+      "parties": [
+        "Belleview Badgers",
+        "Minshew's Maniacs"
+      ],
+      "assets_moved": 3,
+      "picks_moved": 1,
+      "relevance_score": 59,
+      "coverage_level": "moderate",
+      "why": [
+        "future pick involved",
+        "low volume swap"
+      ]
+    },
+    {
+      "event_id": "1242325681837191168",
+      "type": "fa_add",
+      "week": 1,
+      "team": "Minshew's Maniacs",
+      "relevance_score": 30,
+      "coverage_level": "low",
+      "why": [
+        "free agent add"
+      ]
+    },
+    {
+      "event_id": "1242325506653691904",
+      "type": "fa_add",
+      "week": 1,
+      "team": "Minshew's Maniacs",
+      "relevance_score": 30,
+      "coverage_level": "low",
+      "why": [
+        "free agent add"
+      ]
+    },
+    {
+      "event_id": "1242323700703838208",
+      "type": "fa_add",
+      "week": 1,
+      "team": "BeerNeverBrokeMyHeart",
+      "relevance_score": 30,
+      "coverage_level": "low",
+      "why": [
+        "free agent add"
+      ]
+    },
+    {
+      "event_id": "1242320467386175488",
+      "type": "trade",
+      "week": 1,
+      "parties": [
+        "Mt. Lebanon Cake Eaters",
+        "Minshew's Maniacs"
+      ],
+      "assets_moved": 5,
+      "picks_moved": 1,
+      "relevance_score": 61,
+      "coverage_level": "moderate",
+      "why": [
+        "future pick involved",
+        "several assets moved"
+      ]
+    },
+    {
+      "event_id": "1242313165778202624",
+      "type": "fa_add",
+      "week": 1,
+      "team": "Minshew's Maniacs",
+      "relevance_score": 30,
+      "coverage_level": "low",
+      "why": [
+        "free agent add"
+      ]
+    },
+    {
+      "event_id": "1242313067929288704",
+      "type": "fa_add",
+      "week": 1,
+      "team": "Bimg Bamg Boomg",
+      "relevance_score": 30,
+      "coverage_level": "low",
+      "why": [
+        "free agent add"
+      ]
+    },
+    {
+      "event_id": "1242313028523806720",
+      "type": "fa_add",
+      "week": 1,
+      "team": "Bimg Bamg Boomg",
+      "relevance_score": 30,
+      "coverage_level": "low",
+      "why": [
+        "free agent add"
+      ]
+    },
+    {
+      "event_id": "1242312977680449536",
+      "type": "fa_add",
+      "week": 1,
+      "team": "Mt. Lebanon Cake Eaters",
+      "relevance_score": 30,
+      "coverage_level": "low",
+      "why": [
+        "free agent add"
+      ]
+    },
+    {
+      "event_id": "1242312942788026368",
+      "type": "fa_add",
+      "week": 1,
+      "team": "Minshew's Maniacs",
+      "relevance_score": 30,
+      "coverage_level": "low",
+      "why": [
+        "free agent add"
+      ]
+    },
+    {
+      "event_id": "1242312508342022144",
+      "type": "fa_add",
+      "week": 1,
+      "team": "Minshew's Maniacs",
+      "relevance_score": 30,
+      "coverage_level": "low",
+      "why": [
+        "free agent add"
+      ]
+    },
+    {
+      "event_id": "1242312444747976704",
+      "type": "fa_add",
+      "week": 1,
+      "team": "Minshew's Maniacs",
+      "relevance_score": 30,
+      "coverage_level": "low",
+      "why": [
+        "free agent add"
+      ]
+    },
+    {
+      "event_id": "1242312405917110272",
+      "type": "fa_add",
+      "week": 1,
+      "team": "Mt. Lebanon Cake Eaters",
+      "relevance_score": 30,
+      "coverage_level": "low",
+      "why": [
+        "free agent add"
+      ]
+    },
+    {
+      "event_id": "1242312354901786624",
+      "type": "fa_add",
+      "week": 1,
+      "team": "Mt. Lebanon Cake Eaters",
+      "relevance_score": 30,
+      "coverage_level": "low",
+      "why": [
+        "free agent add"
+      ]
+    },
+    {
+      "event_id": "1242312314678431744",
+      "type": "fa_add",
+      "week": 1,
+      "team": "Belleview Badgers",
+      "relevance_score": 30,
+      "coverage_level": "low",
+      "why": [
+        "free agent add"
+      ]
+    },
+    {
+      "event_id": "1242312109295939584",
+      "type": "fa_add",
+      "week": 1,
+      "team": "Mt. Lebanon Cake Eaters",
+      "relevance_score": 30,
+      "coverage_level": "low",
+      "why": [
+        "free agent add"
+      ]
+    },
+    {
+      "event_id": "1242311479978381312",
+      "type": "fa_add",
+      "week": 1,
+      "team": "Belleview Badgers",
+      "relevance_score": 30,
+      "coverage_level": "low",
+      "why": [
+        "free agent add"
+      ]
+    },
+    {
+      "event_id": "1242308719568494592",
+      "type": "fa_add",
+      "week": 1,
+      "team": "Minshew's Maniacs",
+      "relevance_score": 30,
+      "coverage_level": "low",
+      "why": [
+        "free agent add"
+      ]
+    },
+    {
+      "event_id": "1242301929279737856",
+      "type": "trade",
+      "week": 1,
+      "parties": [
+        "Belleview Badgers",
+        "Bimg Bamg Boomg"
+      ],
+      "assets_moved": 2,
+      "picks_moved": 2,
+      "relevance_score": 70,
+      "coverage_level": "high",
+      "why": [
+        "multiple picks involved",
+        "low volume swap"
+      ]
+    },
+    {
+      "event_id": "1242279230218174464",
+      "type": "trade",
+      "week": 1,
+      "parties": [
+        "Double Trouble",
+        "Bimg Bamg Boomg"
+      ],
+      "assets_moved": 3,
+      "picks_moved": 3,
+      "relevance_score": 70,
+      "coverage_level": "high",
+      "why": [
+        "multiple picks involved",
+        "low volume swap"
+      ]
+    },
+    {
+      "event_id": "1242250229583974400",
+      "type": "trade",
+      "week": 1,
+      "parties": [
+        "Belltown Raptors",
+        "Minshew's Maniacs"
+      ],
+      "assets_moved": 4,
+      "picks_moved": 0,
+      "relevance_score": 57,
+      "coverage_level": "moderate",
+      "why": [
+        "several assets moved"
+      ]
+    },
+    {
+      "event_id": "1242244362113404928",
+      "type": "trade",
+      "week": 1,
+      "parties": [
+        "The Lone Ginger",
+        "Minshew's Maniacs"
+      ],
+      "assets_moved": 4,
+      "picks_moved": 4,
+      "relevance_score": 70,
+      "coverage_level": "high",
+      "why": [
+        "multiple picks involved",
+        "several assets moved"
+      ]
+    },
+    {
+      "event_id": "1242234485819310080",
+      "type": "trade",
+      "week": 1,
+      "parties": [
+        "Double Trouble",
+        "Mt. Lebanon Cake Eaters"
+      ],
+      "assets_moved": 3,
+      "picks_moved": 3,
+      "relevance_score": 70,
+      "coverage_level": "high",
+      "why": [
+        "multiple picks involved",
+        "low volume swap"
+      ]
+    },
+    {
+      "event_id": "1242230925421461504",
+      "type": "fa_add",
+      "week": 1,
+      "team": "Double Trouble",
+      "relevance_score": 30,
+      "coverage_level": "low",
+      "why": [
+        "free agent add"
+      ]
+    },
+    {
+      "event_id": "1242038877103861760",
+      "type": "trade",
+      "week": 1,
+      "parties": [
+        "Detroit Dawgs",
+        "The Lone Ginger"
+      ],
+      "assets_moved": 4,
+      "picks_moved": 2,
+      "relevance_score": 70,
+      "coverage_level": "high",
+      "why": [
+        "multiple picks involved",
+        "several assets moved"
+      ]
+    },
+    {
+      "event_id": "1241995719414386688",
+      "type": "trade",
+      "week": 1,
+      "parties": [
+        "Double Trouble",
+        "bop pop"
+      ],
+      "assets_moved": 4,
+      "picks_moved": 2,
+      "relevance_score": 70,
+      "coverage_level": "high",
+      "why": [
+        "multiple picks involved",
+        "several assets moved"
+      ]
+    },
+    {
+      "event_id": "1241987259670990848",
+      "type": "trade",
+      "week": 1,
+      "parties": [
+        "The Lone Ginger",
+        "Minshew's Maniacs"
+      ],
+      "assets_moved": 7,
+      "picks_moved": 3,
+      "relevance_score": 70,
+      "coverage_level": "high",
+      "why": [
+        "multiple picks involved",
+        "many assets moved"
+      ]
+    },
+    {
+      "event_id": "1241952009918099456",
+      "type": "trade",
+      "week": 1,
+      "parties": [
+        "Double Trouble",
+        "Bimg Bamg Boomg"
+      ],
+      "assets_moved": 3,
+      "picks_moved": 1,
+      "relevance_score": 59,
+      "coverage_level": "moderate",
+      "why": [
+        "future pick involved",
+        "low volume swap"
+      ]
+    },
+    {
+      "event_id": "1241859834580586496",
+      "type": "fa_add",
+      "week": 1,
+      "team": "The Lone Ginger",
+      "relevance_score": 30,
+      "coverage_level": "low",
+      "why": [
+        "free agent add"
+      ]
+    },
+    {
+      "event_id": "1240052466813259776",
+      "type": "fa_add",
+      "week": 1,
+      "team": "BeerNeverBrokeMyHeart",
+      "relevance_score": 30,
+      "coverage_level": "low",
+      "why": [
+        "free agent add"
+      ]
+    },
+    {
+      "event_id": "1240041629067247616",
+      "type": "fa_add",
+      "week": 1,
+      "team": "bop pop",
+      "relevance_score": 30,
+      "coverage_level": "low",
+      "why": [
+        "free agent add"
+      ]
+    },
+    {
+      "event_id": "1238560229277319168",
+      "type": "fa_add",
+      "week": 1,
+      "team": "The Lone Ginger",
+      "relevance_score": 30,
+      "coverage_level": "low",
+      "why": [
+        "free agent add"
+      ]
+    },
+    {
+      "event_id": "1238559365120655360",
+      "type": "fa_add",
+      "week": 1,
+      "team": "The Lone Ginger",
+      "relevance_score": 30,
+      "coverage_level": "low",
+      "why": [
+        "free agent add"
+      ]
+    },
+    {
+      "event_id": "1205427057559883776",
+      "type": "fa_add",
+      "week": 1,
+      "team": "Minshew's Maniacs",
+      "relevance_score": 30,
+      "coverage_level": "low",
+      "why": [
+        "free agent add"
+      ]
+    },
+    {
+      "event_id": "1205290125890703360",
+      "type": "fa_add",
+      "week": 1,
+      "team": "BeerNeverBrokeMyHeart",
+      "relevance_score": 30,
+      "coverage_level": "low",
+      "why": [
+        "free agent add"
+      ]
+    },
+    {
+      "event_id": "1205288557590085632",
+      "type": "fa_add",
+      "week": 1,
+      "team": "Minshew's Maniacs",
+      "relevance_score": 30,
+      "coverage_level": "low",
+      "why": [
+        "free agent add"
+      ]
+    },
+    {
+      "event_id": "1205288259182141440",
+      "type": "fa_add",
+      "week": 1,
+      "team": "Double Trouble",
+      "relevance_score": 30,
+      "coverage_level": "low",
+      "why": [
+        "free agent add"
+      ]
+    },
+    {
+      "event_id": "1205287949684449280",
+      "type": "fa_add",
+      "week": 1,
+      "team": "BeerNeverBrokeMyHeart",
+      "relevance_score": 30,
+      "coverage_level": "low",
+      "why": [
+        "free agent add"
+      ]
+    },
+    {
+      "event_id": "1205287705534009344",
+      "type": "fa_add",
+      "week": 1,
+      "team": "Double Trouble",
+      "relevance_score": 30,
+      "coverage_level": "low",
+      "why": [
+        "free agent add"
+      ]
+    },
+    {
+      "event_id": "1205287641952559104",
+      "type": "fa_add",
+      "week": 1,
+      "team": "Double Trouble",
+      "relevance_score": 30,
+      "coverage_level": "low",
+      "why": [
+        "free agent add"
+      ]
+    },
+    {
+      "event_id": "1205287307653959680",
+      "type": "fa_add",
+      "week": 1,
+      "team": "BeerNeverBrokeMyHeart",
+      "relevance_score": 30,
+      "coverage_level": "low",
+      "why": [
+        "free agent add"
+      ]
+    }
+  ]
+}

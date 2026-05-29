@@ -1,0 +1,32 @@
+name: Taxi Cron
+
+on:
+  schedule:
+    - cron: '0 * * * *'
+  workflow_dispatch:
+
+jobs:
+  run-taxi-cron:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call Taxi Cron Endpoint
+        env:
+          TAXI_CRON_SECRET: ${{ secrets.TAXI_CRON_SECRET }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          TAXI_CRON_URL: ${{ secrets.TAXI_CRON_URL }}
+        run: |
+          if [ -z "$TAXI_CRON_URL" ]; then
+            echo "TAXI_CRON_URL secret is not set" >&2
+            exit 1
+          fi
+          SECRET="${TAXI_CRON_SECRET:-$CRON_SECRET}"
+          if [ -z "$SECRET" ]; then
+            echo "TAXI_CRON_SECRET or CRON_SECRET secret is not set" >&2
+            exit 1
+          fi
+          http_code=$(curl -s -o /tmp/resp.txt -w "%{http_code}" -X POST "$TAXI_CRON_URL" -H "x-cron-secret: $SECRET" -H "Authorization: Bearer $SECRET")
+          echo "HTTP $http_code"
+          cat /tmp/resp.txt || true
+          if [ "$http_code" -ge 400 ]; then
+            exit 1
+          fi

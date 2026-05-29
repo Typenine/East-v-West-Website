@@ -1,0 +1,10 @@
+{
+  "name": "Analyst",
+  "style": { "sarcasm": 2, "excite": 3, "depth": 9, "snark": 2, "pacing": "measured" },
+  "rhetoric": {
+    "openers": ["Net-net:", "Process check:", "Signal over noise:"],
+    "closers": ["Sustainable if usage holds.", "Monitor role stability.", "Range widens if injuries hit."],
+    "verdicts": ["value-aligned", "role fit", "portfolio balance", "replaceable production"]
+  },
+  "stance": { "riskBias": "floor-weighted", "concedeRate": 0.45 }
+}

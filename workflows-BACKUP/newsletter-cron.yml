@@ -1,0 +1,106 @@
+name: Newsletter Generation
+
+on:
+  schedule:
+    # Tuesday 6 AM ET (11:00 UTC) - Start staged generation
+    - cron: '0 11 * * 2'
+    # Tuesday 12 PM ET (17:00 UTC) - Continue generation
+    - cron: '0 17 * * 2'
+    # Tuesday 6 PM ET (23:00 UTC) - Continue generation
+    - cron: '0 23 * * 2'
+    # Wednesday 6 AM ET (11:00 UTC) - Finalize and publish
+    - cron: '0 11 * * 3'
+  workflow_dispatch:
+    inputs:
+      week:
+        description: 'Week number (leave empty for current)'
+        required: false
+        type: number
+      season:
+        description: 'Season year (leave empty for current)'
+        required: false
+        type: string
+      publish:
+        description: 'Publish immediately (skip staging)'
+        required: false
+        type: boolean
+        default: false
+
+env:
+  VERCEL_URL: ${{ secrets.VERCEL_URL }}
+  NEWSLETTER_CRON_SECRET: ${{ secrets.NEWSLETTER_CRON_SECRET }}
+
+jobs:
+  generate-newsletter:
+    runs-on: ubuntu-latest
+    # Only run during NFL season (roughly Sept-Feb)
+    # Can be adjusted or removed if you want year-round
+    steps:
+      - name: Determine if publish run
+        id: check-publish
+        run: |
+          # Wednesday runs should publish
+          DAY_OF_WEEK=$(date -u +%u)
+          if [ "$DAY_OF_WEEK" = "3" ]; then
+            echo "publish=true" >> $GITHUB_OUTPUT
+          else
+            echo "publish=false" >> $GITHUB_OUTPUT
+          fi
+          # Manual trigger can override
+          if [ "${{ github.event.inputs.publish }}" = "true" ]; then
+            echo "publish=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Call Newsletter Cron API
+        run: |
+          PUBLISH="${{ steps.check-publish.outputs.publish }}"
+          WEEK="${{ github.event.inputs.week }}"
+          SEASON="${{ github.event.inputs.season }}"
+          
+          # Build JSON body
+          BODY="{\"publish\": $PUBLISH"
+          if [ -n "$WEEK" ]; then
+            BODY="$BODY, \"week\": $WEEK"
+          fi
+          if [ -n "$SEASON" ]; then
+            BODY="$BODY, \"season\": \"$SEASON\""
+          fi
+          BODY="$BODY}"
+          
+          echo "Calling newsletter cron with: $BODY"
+          
+          RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
+            -H "Authorization: Bearer $NEWSLETTER_CRON_SECRET" \
+            -H "Content-Type: application/json" \
+            -d "$BODY" \
+            "$VERCEL_URL/api/newsletter/cron")
+          
+          HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+          BODY=$(echo "$RESPONSE" | sed '$d')
+          
+          echo "Response ($HTTP_CODE):"
+          echo "$BODY" | jq . || echo "$BODY"
+          
+          if [ "$HTTP_CODE" -ge 400 ]; then
+            echo "::error::Newsletter cron failed with status $HTTP_CODE"
+            exit 1
+          fi
+
+      - name: Check Generation Status
+        run: |
+          WEEK="${{ github.event.inputs.week }}"
+          SEASON="${{ github.event.inputs.season }}"
+          
+          QUERY=""
+          if [ -n "$WEEK" ]; then
+            QUERY="?week=$WEEK"
+          fi
+          if [ -n "$SEASON" ]; then
+            if [ -n "$QUERY" ]; then
+              QUERY="$QUERY&season=$SEASON"
+            else
+              QUERY="?season=$SEASON"
+            fi
+          fi
+          
+          curl -s "$VERCEL_URL/api/newsletter/cron$QUERY" | jq .

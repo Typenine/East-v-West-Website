@@ -1,0 +1,25 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(Get-ChildItem -Path \"c:\\\\Users\\\\patri\\\\OneDrive\\\\Documents\\\\East v West Website\" -Recurse -Force)",
+      "Bash(Select-Object FullName, PSIsContainer)",
+      "Bash(ConvertTo-Json)",
+      "Bash(Get-ChildItem -Path \"c:\\\\Users\\\\patri\\\\OneDrive\\\\Documents\\\\East v West Website\\\\east-v-west\" -Recurse -Force)",
+      "Bash(Select-Object FullName)",
+      "Bash(ConvertTo-Csv -NoTypeInformation)",
+      "Bash(Measure-Object -Line)",
+      "Bash(npm install *)",
+      "Bash(npm list *)",
+      "Bash(npx tsc *)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:3000/api/admin-login)",
+      "Bash(curl -s -X POST http://localhost:3000/api/newsletter -H 'Content-Type: application/json' -H 'x-admin-secret: 002023' -d '{\"week\":14,\"season\":\"2025\",\"episodeType\":\"regular\",\"forceRegenerate\":false,\"preview\":true}' --max-time 900 -w '\\\\n\\\\nHTTP STATUS: %{http_code}\\\\nTIME: %{time_total}s\\\\n')",
+      "Bash(node -e \"const m = require\\('./node_modules/@google/generative-ai/dist/server/index.js'\\); console.log\\(Object.keys\\(m\\).filter\\(k=>k.toLowerCase\\(\\).includes\\('cache'\\)\\)\\)\")",
+      "Bash(node -e \"const m = require\\('c:/Users/patri/OneDrive/Documents/East v West Website/east-v-west/node_modules/@google/generative-ai/dist/server/index.js'\\); const cm = new m.GoogleAICacheManager\\('dummy'\\); console.log\\(Object.getOwnPropertyNames\\(Object.getPrototypeOf\\(cm\\)\\)\\)\")",
+      "PowerShell(Get-NetTCPConnection -LocalPort 3000 -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess | ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue }; Write-Host \"Port 3000 cleared\")",
+      "Bash(npm run *)",
+      "Bash(curl -s http://localhost:3000/api/health)",
+      "Bash(curl -s -X POST http://localhost:3000/api/newsletter -H 'Content-Type: application/json' -d '{\"season\":\"2025\",\"week\":14,\"adminSecret\":\"dev-admin-secret\"}' --max-time 300 -w '\\\\n\\\\nHTTP STATUS: %{http_code}\\\\nTIME: %{time_total}s\\\\n')",
+      "Bash(xargs grep -l \"MockDraft\\\\|pre_draft\\\\|post_draft\")"
+    ]
+  }
+}

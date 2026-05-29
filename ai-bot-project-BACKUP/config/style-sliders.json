@@ -1,0 +1,14 @@
+{
+  "defaults": {
+    "entertainer": { "sarcasm": 7, "emotion": 8, "depth": 4, "snark": 7, "excitability": 8 },
+    "analyst":     { "sarcasm": 2, "emotion": 4, "depth": 8, "snark": 2, "excitability": 3 }
+  },
+  "overrides": {
+    "Intro":         { "entertainer": { "excitability": 1, "sarcasm": 1 }, "analyst": { "emotion": 1 } },
+    "MatchupRecaps": { "entertainer": { "snark": 1 },                      "analyst": { "depth": 1 } },
+    "WaiversAndFA":  { "entertainer": { "sarcasm": 1 },                    "analyst": { "depth": 1, "emotion": 1 } },
+    "Trades":        { "entertainer": { "excitability": 1 },               "analyst": { "depth": 2 } },
+    "SpotlightTeam": { "entertainer": { "sarcasm": -1, "emotion": 1 },     "analyst": { "depth": 1, "emotion": 1 } },
+    "FinalWord":     { "entertainer": { "emotion": 1 },                    "analyst": { "excitability": -1 } }
+  }
+}

@@ -1,0 +1,243 @@
+{
+  "byTeam": {
+    "Belltown Raptors": {
+      "tags": [
+        "Chaos Agent"
+      ],
+      "reasons": [
+        "Aggressive week: 1 trade(s), 0 high-FAAB claim(s)."
+      ],
+      "metrics": {
+        "games": 1,
+        "season_avg": 0,
+        "last3_avg": 0,
+        "stdev": 0,
+        "best": 0,
+        "worst": 0
+      },
+      "activity": {
+        "waiversHi": 0,
+        "waiversAny": 5,
+        "trades": 1
+      }
+    },
+    "bop pop": {
+      "tags": [],
+      "reasons": [],
+      "metrics": {
+        "games": 1,
+        "season_avg": 0,
+        "last3_avg": 0,
+        "stdev": 0,
+        "best": 0,
+        "worst": 0
+      },
+      "activity": {
+        "waiversHi": 0,
+        "waiversAny": 3,
+        "trades": 1
+      }
+    },
+    "Belleview Badgers": {
+      "tags": [
+        "Chaos Agent"
+      ],
+      "reasons": [
+        "Aggressive week: 2 trade(s), 0 high-FAAB claim(s)."
+      ],
+      "metrics": {
+        "games": 1,
+        "season_avg": 0,
+        "last3_avg": 0,
+        "stdev": 0,
+        "best": 0,
+        "worst": 0
+      },
+      "activity": {
+        "waiversHi": 0,
+        "waiversAny": 2,
+        "trades": 2
+      }
+    },
+    "The Lone Ginger": {
+      "tags": [
+        "Chaos Agent"
+      ],
+      "reasons": [
+        "Aggressive week: 3 trade(s), 0 high-FAAB claim(s)."
+      ],
+      "metrics": {
+        "games": 1,
+        "season_avg": 0,
+        "last3_avg": 0,
+        "stdev": 0,
+        "best": 0,
+        "worst": 0
+      },
+      "activity": {
+        "waiversHi": 0,
+        "waiversAny": 3,
+        "trades": 3
+      }
+    },
+    "Red Pandas": {
+      "tags": [],
+      "reasons": [],
+      "metrics": {
+        "games": 1,
+        "season_avg": 0,
+        "last3_avg": 0,
+        "stdev": 0,
+        "best": 0,
+        "worst": 0
+      },
+      "activity": {
+        "waiversHi": 0,
+        "waiversAny": 0,
+        "trades": 1
+      }
+    },
+    "BeerNeverBrokeMyHeart": {
+      "tags": [],
+      "reasons": [],
+      "metrics": {
+        "games": 1,
+        "season_avg": 0,
+        "last3_avg": 0,
+        "stdev": 0,
+        "best": 0,
+        "worst": 0
+      },
+      "activity": {
+        "waiversHi": 0,
+        "waiversAny": 5,
+        "trades": 0
+      }
+    },
+    "Double Trouble": {
+      "tags": [
+        "Chaos Agent"
+      ],
+      "reasons": [
+        "Aggressive week: 4 trade(s), 0 high-FAAB claim(s)."
+      ],
+      "metrics": {
+        "games": 1,
+        "season_avg": 0,
+        "last3_avg": 0,
+        "stdev": 0,
+        "best": 0,
+        "worst": 0
+      },
+      "activity": {
+        "waiversHi": 0,
+        "waiversAny": 4,
+        "trades": 4
+      }
+    },
+    "Mt. Lebanon Cake Eaters": {
+      "tags": [
+        "Chaos Agent"
+      ],
+      "reasons": [
+        "Aggressive week: 2 trade(s), 0 high-FAAB claim(s)."
+      ],
+      "metrics": {
+        "games": 1,
+        "season_avg": 0,
+        "last3_avg": 0,
+        "stdev": 0,
+        "best": 0,
+        "worst": 0
+      },
+      "activity": {
+        "waiversHi": 0,
+        "waiversAny": 5,
+        "trades": 2
+      }
+    },
+    "Elemental Heroes": {
+      "tags": [
+        "Safe Builder"
+      ],
+      "reasons": [
+        "Low variance (σ 0) and quiet market behavior."
+      ],
+      "metrics": {
+        "games": 1,
+        "season_avg": 0,
+        "last3_avg": 0,
+        "stdev": 0,
+        "best": 0,
+        "worst": 0
+      },
+      "activity": {
+        "waiversHi": 0,
+        "waiversAny": 0,
+        "trades": 0
+      }
+    },
+    "Bimg Bamg Boomg": {
+      "tags": [
+        "Chaos Agent"
+      ],
+      "reasons": [
+        "Aggressive week: 3 trade(s), 0 high-FAAB claim(s)."
+      ],
+      "metrics": {
+        "games": 1,
+        "season_avg": 0,
+        "last3_avg": 0,
+        "stdev": 0,
+        "best": 0,
+        "worst": 0
+      },
+      "activity": {
+        "waiversHi": 0,
+        "waiversAny": 3,
+        "trades": 3
+      }
+    },
+    "Detroit Dawgs": {
+      "tags": [],
+      "reasons": [],
+      "metrics": {
+        "games": 1,
+        "season_avg": 0,
+        "last3_avg": 0,
+        "stdev": 0,
+        "best": 0,
+        "worst": 0
+      },
+      "activity": {
+        "waiversHi": 0,
+        "waiversAny": 1,
+        "trades": 1
+      }
+    },
+    "Minshew's Maniacs": {
+      "tags": [
+        "Chaos Agent"
+      ],
+      "reasons": [
+        "Aggressive week: 6 trade(s), 0 high-FAAB claim(s)."
+      ],
+      "metrics": {
+        "games": 1,
+        "season_avg": 0,
+        "last3_avg": 0,
+        "stdev": 0,
+        "best": 0,
+        "worst": 0
+      },
+      "activity": {
+        "waiversHi": 0,
+        "waiversAny": 9,
+        "trades": 6
+      }
+    }
+  },
+  "league": {
+    "last3_avg": 0
+  }
+}
