@@ -3,9 +3,9 @@
  * Tries providers in order: Gemini 2.5 Flash → Gemini 2.0 Flash → Groq → Cerebras → OpenRouter
  * Falls through on rate-limit/quota errors; throws on auth errors.
  *
- * Provider cooldown: once a provider rate-limits it is skipped for 15 minutes
- * across ALL subsequent calls in this server session. This prevents wasting
- * time hammering an exhausted provider on every cascade call.
+ * Provider cooldown: once a provider hits an RPM/TPM rate limit it is skipped
+ * for 2 minutes; daily quota errors trigger a 25-hour cooldown. This prevents
+ * wasting time hammering an exhausted provider on every cascade call.
  */
 
 import { generateWithGeminiProvider }     from './providers/gemini-provider';
@@ -124,6 +124,8 @@ function isFallThroughError(msg: string): boolean {
   return (
     m.includes('429') ||
     m.includes('413') ||
+    m.includes('503') ||
+    m.includes('service unavailable') ||
     m.includes('rate limit') ||
     m.includes('quota') ||
     m.includes('exhausted') ||

@@ -66,7 +66,7 @@ const SAFETY_SETTINGS = [
   { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH },
 ];
 
-const CALL_TIMEOUT_MS = 90_000; // 90s timeout per call
+const CALL_TIMEOUT_MS = 150_000; // 150s — extra headroom for 8192 thinking tokens
 
 // ============ Main Export ============
 
@@ -98,9 +98,9 @@ export async function generateWithGeminiProvider(req: ProviderRequest): Promise<
       temperature: req.temperature,
       maxOutputTokens: req.maxTokens,
       topP: req.topP ?? 0.9,
-      // Cap thinking tokens to prevent unbounded latency and TPM inflation.
-      // 1024 allows light reasoning without blowing the per-minute budget.
-      thinkingConfig: { thinkingBudget: 1024 },
+      // 8192 thinking tokens: enough for complex draft analysis and trade evaluation
+      // without unbounded latency. Gemini 2.5 Flash TPM is 1M — not a constraint.
+      thinkingConfig: { thinkingBudget: 8192 },
     },
   };
 

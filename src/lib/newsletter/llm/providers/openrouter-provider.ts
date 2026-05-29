@@ -6,12 +6,12 @@
 import type { ProviderRequest } from '../cascade';
 
 const OPENROUTER_API_URL = 'https://openrouter.ai/api/v1/chat/completions';
-// Models tried in order — mix of free and small paid to maximise availability
+// Models tried in order — all currently active free-tier models, largest first for quality
 const MODELS = [
+  'nousresearch/hermes-3-llama-3.1-405b:free',
+  'openai/gpt-oss-120b:free',
   'meta-llama/llama-3.3-70b-instruct:free',
-  'mistralai/mistral-7b-instruct:free',
-  'google/gemini-2.0-flash-exp:free',
-  'qwen/qwen-2.5-7b-instruct:free',
+  'nvidia/nemotron-3-super-120b-a12b:free',
 ];
 
 export async function generateWithOpenRouterProvider(req: ProviderRequest): Promise<string> {
@@ -22,7 +22,7 @@ export async function generateWithOpenRouterProvider(req: ProviderRequest): Prom
 
   for (const model of modelsToTry) {
     const abort = new AbortController();
-    const abortTimer = setTimeout(() => abort.abort(), 45_000);
+    const abortTimer = setTimeout(() => abort.abort(), 90_000);
 
     try {
       let response: Response;
@@ -76,7 +76,7 @@ export async function generateWithOpenRouterProvider(req: ProviderRequest): Prom
       const msg = (err instanceof Error ? err.message : String(err)).toLowerCase();
 
       if (msg.includes('aborted') || msg.includes('timed out')) {
-        throw new Error('OpenRouter call timed out after 45s');
+        throw new Error('OpenRouter call timed out after 90s');
       }
 
       if (msg.includes('401') || msg.includes('unauthorized')) throw err as Error;
@@ -84,7 +84,7 @@ export async function generateWithOpenRouterProvider(req: ProviderRequest): Prom
         continue; // try next model
       }
 
-      // Rate-limit / quota — re-throw for cascade
+      // Rate-limit on one model — try the next free model instead of bailing on the provider
       if (
         msg.includes('429') ||
         msg.includes('rate limit') ||
@@ -94,7 +94,7 @@ export async function generateWithOpenRouterProvider(req: ProviderRequest): Prom
         msg.includes('tokens per minute') ||
         msg.includes('requests per minute')
       ) {
-        throw err as Error;
+        continue;
       }
 
       continue; // unknown error — try next model

@@ -7,7 +7,7 @@
 import type { ProviderRequest } from '../cascade';
 
 const CEREBRAS_API_URL = 'https://api.cerebras.ai/v1/chat/completions';
-const MODELS = ['llama3.3-70b', 'llama3.1-8b'];
+const MODELS = ['gpt-oss-120b', 'zai-glm-4.7'];
 
 export async function generateWithCerebrasProvider(req: ProviderRequest): Promise<string> {
   const apiKey = process.env.CEREBRAS_API_KEY;
