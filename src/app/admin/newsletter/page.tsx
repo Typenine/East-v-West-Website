@@ -90,7 +90,9 @@ function AdminNewsletterPageInner() {
   const [showPreviewHtml, setShowPreviewHtml] = useState(false);
   const [showPublishModal, setShowPublishModal] = useState(false);
   const [stagedFailedSteps, setStagedFailedSteps] = useState<string[]>([]);
+  const [stagedFailedRequired, setStagedFailedRequired] = useState<string[]>([]);
   const [stagedValidation, setStagedValidation] = useState<{ passed: boolean; missing: string[]; issues: string[] } | null>(null);
+  const [stagedTotalSteps, setStagedTotalSteps] = useState<number>(8); // updated from job start response
   const [publishing, setPublishing] = useState(false);
   const [publishResult, setPublishResult] = useState<{ success: boolean; message?: string } | null>(null);
 
@@ -100,37 +102,32 @@ function AdminNewsletterPageInner() {
   const weeklessEpisodes = ['pre_draft', 'post_draft', 'preseason', 'offseason'];
   const needsWeek = !weeklessEpisodes.includes(episodeType);
 
-  // Estimate total LLM calls for the selected episode type (12-team league = 6 matchups)
-  const GAP_MINUTES = 3;
-  function estimateLLMCalls(type: string): number {
-    const matchups = 6;
-    const base = 2 + 2 + 2 + 4; // intro + finalWord + blurt + llmFeatures
+  // Estimate generation time based on step count × 45 seconds per step (observed real time)
+  const SECS_PER_STEP = 45;
+  function estimateSteps(type: string): number {
     switch (type) {
-      case 'regular':
+      case 'regular': return 13; // intro + PR + 6 recaps + waivers + spotlight + blurt + forecast + fw
       case 'trade_deadline':
       case 'playoffs_preview':
-      case 'playoffs_round':
+      case 'playoffs_round': return 12;
       case 'championship':
-        return base + matchups + 4 + 2 + (matchups + 2); // recaps + powerRankings + spotlight + forecast
-      case 'preseason':
-        return base + 4 + 2 + (matchups + 2); // powerRankings + seasonPreview + forecast
-      case 'pre_draft':
-      case 'post_draft':
-        return base + 4; // draft sections
-      case 'offseason':
-        return base;
-      default:
-        return base + matchups + 4 + 2 + (matchups + 2);
+      case 'season_finale': return 11;
+      case 'preseason': return 4;  // intro + PR_preseason + SeasonPreview + fw
+      case 'pre_draft': return 7;  // intro + PreDraftTrades + 4 MockDraft steps + fw
+      case 'post_draft': return 15; // intro + 12 DraftGrade steps + Summary + fw
+      case 'offseason': return 2;
+      default: return 10;
     }
   }
-  const estimatedCalls = estimateLLMCalls(episodeType);
-  const estimatedMinutes = estimatedCalls * GAP_MINUTES;
+  const estimatedSteps = estimateSteps(episodeType);
+  const estimatedTotalSecs = estimatedSteps * SECS_PER_STEP;
+  const estimatedMinutes = Math.ceil(estimatedTotalSecs / 60);
   const estimatedHours = Math.floor(estimatedMinutes / 60);
   const estimatedMins = estimatedMinutes % 60;
   const estimatedLabel = estimatedHours > 0
     ? `~${estimatedHours}h ${estimatedMins > 0 ? `${estimatedMins}m` : ''}`
     : `~${estimatedMinutes} min`;
-  const estimatedNote = `${estimatedCalls} AI calls × ${GAP_MINUTES} min gap = ${estimatedLabel} minimum`;
+  const estimatedNote = `~${estimatedSteps} steps × 45s/step = ${estimatedLabel}`;
 
   // Maps DB section names to human-readable labels
   const SECTION_LABELS: Record<string, string> = {
@@ -147,7 +144,8 @@ function AdminNewsletterPageInner() {
     DraftPreview:          '📋 Draft preview',
     DraftGrades:           '📊 Draft grades',
   };
-  const TOTAL_SECTIONS = 8;
+  // stagedTotalSteps is set from the job-start response; TOTAL_SECTIONS is the fallback for sync-mode polling
+  const TOTAL_SECTIONS = stagedTotalSteps;
 
   // Check admin status - single call, no retry loop
   useEffect(() => {
@@ -235,6 +233,7 @@ function AdminNewsletterPageInner() {
     setGenerating(true);
     setResult(null);
     setStagedFailedSteps([]);
+    setStagedFailedRequired([]);
     setStagedValidation(null);
     generatingStartRef.current = Date.now();
     setProgress({ percent: 2, stage: '📡 Starting staged generation job...', elapsed: 0, sectionsCompleted: [] });
@@ -264,7 +263,9 @@ function AdminNewsletterPageInner() {
       }
 
       const totalSteps = startData.totalSteps ?? 10;
+      setStagedTotalSteps(totalSteps);
       const failedInRun: string[] = [];
+      const failedRequiredInRun: string[] = [];
       setProgress(prev => ({ ...(prev ?? { sectionsCompleted: [], elapsed: 0 }), percent: 5, stage: `✅ Job started — ${totalSteps} sections to generate` }));
 
       // 2. Loop: call generate-step until done or unrecoverable error
@@ -284,11 +285,15 @@ function AdminNewsletterPageInner() {
           step?: string;
           nextStep?: string;
           status?: string;
+          isRequiredStep?: boolean;
           completedCount?: number;
           totalSteps?: number;
           remainingSteps?: number;
           failedSteps?: string[];
+          missingRequiredSteps?: string[];
+          failedRequiredSteps?: string[];
           error?: string;
+          message?: string;
           validation?: { passed: boolean; missing: string[]; issues: string[] };
         };
 
@@ -303,6 +308,7 @@ function AdminNewsletterPageInner() {
         }
         consecutiveHttpErrors = 0;
 
+        // completedCount from server now reflects all "handled" steps (completed + failed)
         completedCount = stepData.completedCount ?? completedCount + 1;
         done = stepData.done ?? false;
 
@@ -314,12 +320,16 @@ function AdminNewsletterPageInner() {
         const sectionPercent = Math.round(5 + (completedCount / totalSteps) * 90);
         const completedLabel = SECTION_LABELS[stepData.step ?? ''] ?? stepData.step ?? '';
         const nextLabel = stepData.nextStep ? ` → next: ${SECTION_LABELS[stepData.nextStep] ?? stepData.nextStep}` : '';
-        const failLabel = failedInRun.length > 0 ? ` ⚠️ ${failedInRun.length} failed` : '';
-        const stepLabel = stepData.status === 'step_failed'
-          ? `⚠️ Section failed: ${completedLabel} — continuing...`
-          : completedLabel
-            ? `✓ ${completedLabel}${nextLabel}${failLabel}`
-            : `⏳ Processing (${completedCount}/${totalSteps})...`;
+        const failOptLabel = failedInRun.filter(s => !failedRequiredInRun.includes(s)).length > 0
+          ? ` ⚠️ ${failedInRun.filter(s => !failedRequiredInRun.includes(s)).length} optional failed`
+          : '';
+        const stepLabel = stepData.status === 'step_failed_required'
+          ? `🚫 Required section failed: ${completedLabel} — RETRY REQUIRED`
+          : stepData.status === 'step_failed'
+            ? `⚠️ Optional section skipped: ${completedLabel} — continuing...`
+            : completedLabel
+              ? `✓ ${completedLabel}${nextLabel}${failOptLabel}`
+              : `⏳ Processing (${completedCount}/${totalSteps})...`;
 
         setProgress(prev => ({
           ...(prev ?? { sectionsCompleted: [], elapsed: 0 }),
@@ -327,6 +337,22 @@ function AdminNewsletterPageInner() {
           stage: stepLabel,
           sectionsCompleted: prev?.sectionsCompleted ?? [],
         }));
+
+        // Required step failure — stop the loop, require explicit retry
+        if (stepData.status === 'step_failed_required') {
+          failedRequiredInRun.push(stepData.step ?? 'unknown');
+          setStagedFailedRequired([...failedRequiredInRun]);
+          setResult({ success: false, error: `Required section "${completedLabel}" failed and must be retried before generation can continue. Error: ${stepData.error}` });
+          break;
+        }
+
+        // Pre-finalization guard blocked finalization
+        if (stepData.status === 'needs_attention' && (stepData.failedRequiredSteps?.length || stepData.missingRequiredSteps?.length)) {
+          const blocked = [...(stepData.failedRequiredSteps ?? []), ...(stepData.missingRequiredSteps ?? [])];
+          setStagedFailedRequired(blocked);
+          setResult({ success: false, error: `Generation blocked — required sections not completed: ${blocked.join(', ')}. Retry each using the step override.` });
+          break;
+        }
 
         if (stepData.status === 'needs_attention') {
           if (stepData.validation) setStagedValidation(stepData.validation);
@@ -604,7 +630,6 @@ function AdminNewsletterPageInner() {
 
               <div className="p-2 bg-zinc-800/40 border border-zinc-700 rounded text-xs text-zinc-400">
                 ⏱️ {estimatedNote}
-                <span className="block text-zinc-500 mt-0.5">Trades &amp; waivers add more time depending on volume.</span>
               </div>
 
               <div className="flex gap-2 flex-wrap">
@@ -685,13 +710,13 @@ function AdminNewsletterPageInner() {
                   </div>
                   <div className="flex justify-between text-xs text-[var(--muted)]">
                     <span>0%</span>
-                    <span>Est. {estimatedLabel} ({estimatedCalls} calls × {GAP_MINUTES} min)</span>
+                    <span>Est. {estimatedLabel} (~{estimatedSteps} steps × 45s)</span>
                     <span>100%</span>
                   </div>
                 </div>
 
                 {/* Completed + failed sections */}
-                {((progress?.sectionsCompleted?.length ?? 0) > 0 || stagedFailedSteps.length > 0) && (
+                {((progress?.sectionsCompleted?.length ?? 0) > 0 || stagedFailedSteps.length > 0 || stagedFailedRequired.length > 0) && (
                   <div className="p-3 bg-zinc-800/50 rounded-lg space-y-1">
                     <div className="text-xs text-[var(--muted)] mb-2">Section status:</div>
                     {progress!.sectionsCompleted.map(s => (
@@ -700,10 +725,16 @@ function AdminNewsletterPageInner() {
                         <span>{SECTION_LABELS[s] ?? s}</span>
                       </div>
                     ))}
-                    {stagedFailedSteps.map(s => (
+                    {stagedFailedRequired.map(s => (
+                      <div key={`req-${s}`} className="text-xs text-red-400 flex items-center gap-1 font-medium">
+                        <span>🚫</span>
+                        <span>{SECTION_LABELS[s] ?? s} (required — must retry)</span>
+                      </div>
+                    ))}
+                    {stagedFailedSteps.filter(s => !stagedFailedRequired.includes(s)).map(s => (
                       <div key={s} className="text-xs text-amber-400 flex items-center gap-1">
                         <span>⚠️</span>
-                        <span>{SECTION_LABELS[s] ?? s} (failed — skipped)</span>
+                        <span>{SECTION_LABELS[s] ?? s} (optional — skipped)</span>
                       </div>
                     ))}
                   </div>
@@ -726,9 +757,7 @@ function AdminNewsletterPageInner() {
                 </div>
 
                 <div className="mt-4 p-3 bg-blue-900/20 border border-blue-800 rounded text-xs text-blue-300">
-                  💡 <strong>Quality mode:</strong> Each AI call has a {GAP_MINUTES}-minute gap to stay safely
-                  under rate limits. This episode type needs ~{estimatedCalls} calls, so expect {estimatedLabel} minimum
-                  (more if there are trades or waivers). Progress updates every 3 seconds. Don&apos;t close this tab.
+                  💡 <strong>Quality mode:</strong> Generation runs one section at a time to avoid Vercel timeouts and provider rate limits. Most sections take 20–60 seconds. Larger mock draft sections may take longer. Keep this tab open while generation runs.
                 </div>
               </div>
             ) : result ? (

@@ -49,6 +49,51 @@ import { makeForecast, type ForecastRecords } from './forecast';
  *                     Length determines the number of DraftGrade_N steps.
  *                     Pass undefined to fall back to teamCount.
  */
+/**
+ * Returns the subset of generation steps that are REQUIRED for finalization.
+ * A failed or missing required step blocks finalization and must be retried.
+ * Steps not in this list are optional — failure is recorded but does not block.
+ */
+export function getRequiredSteps(
+  episodeType: string,
+  matchupCount: number,
+  _tradeCount: number,
+  draftTeamsOrCount?: string[] | number,
+): string[] {
+  const required: string[] = ['Intro', 'FinalWord'];
+
+  if (episodeType === 'preseason') {
+    required.push('PowerRankings_Preseason', 'SeasonPreview');
+  }
+
+  if (episodeType === 'regular') {
+    required.push('PowerRankings', 'Forecast');
+    for (let i = 0; i < matchupCount; i++) required.push(`Recap_${i}`);
+  }
+
+  if (['trade_deadline', 'playoffs_preview', 'playoffs_round', 'championship', 'season_finale'].includes(episodeType)) {
+    for (let i = 0; i < matchupCount; i++) required.push(`Recap_${i}`);
+    if (['trade_deadline', 'playoffs_preview', 'playoffs_round'].includes(episodeType)) {
+      required.push('Forecast');
+    }
+  }
+
+  if (episodeType === 'pre_draft') {
+    // PreDraftTrades is optional (trades may not exist yet)
+    required.push('MockDraft_R1_Mason', 'MockDraft_R1_Westy', 'MockDraft_R2_Mason', 'MockDraft_R2_Westy');
+  }
+
+  if (episodeType === 'post_draft') {
+    const count = Array.isArray(draftTeamsOrCount)
+      ? draftTeamsOrCount.length
+      : (typeof draftTeamsOrCount === 'number' ? draftTeamsOrCount : 12);
+    for (let i = 0; i < count; i++) required.push(`DraftGrade_${i}`);
+    required.push('DraftGrades_Summary');
+  }
+
+  return required;
+}
+
 export function getGenerationSteps(
   episodeType: string,
   matchupCount: number,

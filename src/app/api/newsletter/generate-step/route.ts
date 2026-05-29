@@ -29,6 +29,7 @@ import {
 import type { BotMemory } from '@/lib/newsletter/types';
 import {
   getGenerationSteps,
+  getRequiredSteps,
   generateNewsletterSection,
   assembleNewsletterFromSections,
   validateNewsletterSections,
@@ -59,6 +60,48 @@ async function isAdmin(req: NextRequest): Promise<boolean> {
 }
 
 // ============ Handler ============
+
+// ============ Required-step pre-finalization guard ============
+
+function checkRequiredStepsGuard(
+  allSteps: string[],
+  requiredSteps: Set<string>,
+  completedSteps: Set<string>,
+  failedSteps: Set<string>,
+  sectionOutputs: Record<string, unknown>,
+): { message: string; response: Record<string, unknown> } | null {
+  const missingRequired: string[] = [];
+  const failedRequired: string[] = [];
+
+  for (const step of allSteps) {
+    if (!requiredSteps.has(step)) continue;
+    const hasOutput = completedSteps.has(step) || step in sectionOutputs;
+    if (failedSteps.has(step)) {
+      failedRequired.push(step);
+    } else if (!hasOutput) {
+      missingRequired.push(step);
+    }
+  }
+
+  if (failedRequired.length === 0 && missingRequired.length === 0) return null;
+
+  const message = [
+    failedRequired.length > 0 ? `Failed required steps: ${failedRequired.join(', ')}` : '',
+    missingRequired.length > 0 ? `Missing required steps: ${missingRequired.join(', ')}` : '',
+  ].filter(Boolean).join('; ');
+
+  return {
+    message,
+    response: {
+      done: false,
+      status: 'needs_attention',
+      missingRequiredSteps: missingRequired,
+      failedRequiredSteps: failedRequired,
+      nextAction: 'retry_missing_required_steps',
+      message: `Cannot finalize — required steps are blocked. ${message}. Use step override to retry each.`,
+    },
+  };
+}
 
 export async function POST(request: NextRequest) {
   if (!(await isAdmin(request))) {
@@ -117,18 +160,33 @@ export async function POST(request: NextRequest) {
 
   const { episodeType, leagueName, matchupCount, tradeCount, preDraftSlots, preDraftRound2Slots, isFirstEpisodeEver, draftTeams } = jobMeta;
 
-  // ── Determine all steps and find the next incomplete one ──
+  // ── Determine all steps, required steps, and find the next incomplete one ──
   const allSteps = getGenerationSteps(episodeType, matchupCount, tradeCount, draftTeams);
+  const requiredSteps = new Set(getRequiredSteps(episodeType, matchupCount, tradeCount, draftTeams));
+  const optionalSteps = allSteps.filter(s => !requiredSteps.has(s));
   const completedSteps = new Set(staged.sectionsCompleted ?? []);
   const failedSteps = new Set<string>((derivedData.__failedSteps as string[]) ?? []);
+
+  console.log(`[Step] S${season}W${week} (${episodeType}) — all steps: ${allSteps.join(', ')}`);
+  console.log(`[Step] Required: ${[...requiredSteps].join(', ')}`);
+  if (optionalSteps.length) console.log(`[Step] Optional: ${optionalSteps.join(', ')}`);
+  console.log(`[Step] Completed: ${[...completedSteps].join(', ') || 'none'} | Failed: ${[...failedSteps].join(', ') || 'none'}`);
+  console.log(`[Step] Section outputs saved: ${Object.keys(sectionOutputs).join(', ') || 'none'}`);
 
   const nextStep = stepOverride
     ? stepOverride
     : allSteps.find(s => !completedSteps.has(s) && !failedSteps.has(s));
 
   if (!nextStep) {
-    // All steps done (or only failed steps remain) — assemble and save
-    console.log(`[Step] No remaining steps for S${season}W${week} — triggering final assembly`);
+    // All steps done (or only failed steps remain) — run required-step guard before assembling
+    console.log(`[Step] No remaining pending steps for S${season}W${week} — running required-step guard`);
+    const guardResult = checkRequiredStepsGuard(allSteps, requiredSteps, completedSteps, failedSteps, sectionOutputs);
+    if (guardResult) {
+      console.warn(`[Step] Pre-finalization guard BLOCKED: ${guardResult.message}`);
+      await updateStagedNewsletter(season, week, { status: 'failed', error: guardResult.message });
+      return NextResponse.json(guardResult.response);
+    }
+    console.log(`[Step] Required-step guard passed — triggering final assembly`);
     return await finalizeNewsletter(season, week, leagueName, episodeType, allSteps, sectionOutputs, derived, staged.sectionsCompleted ?? [], derivedData);
   }
 
@@ -172,24 +230,45 @@ export async function POST(request: NextRequest) {
   console.log(`[Step] Generating section "${nextStep}" for Season ${season} Week ${week} (${episodeType})`);
   const result = await generateNewsletterSection(stepInput);
 
+  const isRequired = requiredSteps.has(nextStep);
+
   if (!result.ok) {
-    // Record failure but don't halt — subsequent calls will skip this step
     const currentFailed = (derivedData.__failedSteps as string[]) ?? [];
+    const newFailed = [...currentFailed, nextStep];
     await mergeStagedDerivedData(season, week, {
-      __failedSteps: [...currentFailed, nextStep],
+      __failedSteps: newFailed,
       [`__err_${nextStep}`]: result.error,
     });
-    console.error(`[Step] Section "${nextStep}" failed: ${result.error}`);
-    const newCompleted = [...(staged.sectionsCompleted ?? [])];
-    await updateStagedNewsletter(season, week, { currentSection: null, sectionsCompleted: newCompleted });
+    await updateStagedNewsletter(season, week, { currentSection: null, sectionsCompleted: staged.sectionsCompleted ?? [] });
+
+    const handledCount = completedSteps.size + newFailed.length; // completed + all failed (for progress)
+
+    if (isRequired) {
+      console.error(`[Step] REQUIRED section "${nextStep}" FAILED — generation blocked: ${result.error}`);
+      return NextResponse.json({
+        done: false,
+        step: nextStep,
+        status: 'step_failed_required',
+        isRequiredStep: true,
+        error: result.error,
+        completedCount: handledCount,
+        totalSteps: allSteps.length,
+        failedSteps: newFailed,
+        message: `Required step "${nextStep}" failed. Retry this step before generation can continue.`,
+      });
+    }
+
+    // Optional step failure — record and continue
+    console.warn(`[Step] Optional section "${nextStep}" failed (skipping): ${result.error}`);
     return NextResponse.json({
       done: false,
       step: nextStep,
       status: 'step_failed',
+      isRequiredStep: false,
       error: result.error,
-      completedCount: completedSteps.size,
+      completedCount: handledCount,
       totalSteps: allSteps.length,
-      failedSteps: [...failedSteps, nextStep],
+      failedSteps: newFailed,
     });
   }
 
@@ -198,13 +277,21 @@ export async function POST(request: NextRequest) {
   const newCompleted = [...(staged.sectionsCompleted ?? []), nextStep];
   await updateStagedNewsletter(season, week, { currentSection: null, sectionsCompleted: newCompleted });
 
-  console.log(`[Step] Section "${nextStep}" complete. ${newCompleted.length}/${allSteps.length} steps done.`);
+  const handledCountSuccess = newCompleted.length + failedSteps.size; // completed + already-failed
+  console.log(`[Step] Section "${nextStep}" complete. ${newCompleted.length} done, ${failedSteps.size} failed, ${allSteps.length} total.`);
 
   // ── Check if all steps are now done ──
   const remaining = allSteps.filter(s => !new Set(newCompleted).has(s) && !failedSteps.has(s));
   if (remaining.length === 0) {
     const updatedOutputs = { ...sectionOutputs, [nextStep]: result.data };
-    console.log(`[Step] Last step "${nextStep}" done — triggering final assembly`);
+    console.log(`[Step] Last pending step "${nextStep}" done — running required-step guard before final assembly`);
+    const guardResult = checkRequiredStepsGuard(allSteps, requiredSteps, new Set(newCompleted), failedSteps, updatedOutputs);
+    if (guardResult) {
+      console.warn(`[Step] Pre-finalization guard BLOCKED: ${guardResult.message}`);
+      await updateStagedNewsletter(season, week, { status: 'failed', error: guardResult.message });
+      return NextResponse.json(guardResult.response);
+    }
+    console.log(`[Step] Required-step guard passed — triggering final assembly`);
     return await finalizeNewsletter(season, week, leagueName, episodeType, allSteps, updatedOutputs, derived, newCompleted, derivedData);
   }
 
@@ -212,7 +299,8 @@ export async function POST(request: NextRequest) {
     done: false,
     step: nextStep,
     status: 'step_complete',
-    completedCount: newCompleted.length,
+    isRequiredStep: isRequired,
+    completedCount: handledCountSuccess,
     totalSteps: allSteps.length,
     nextStep: remaining[0],
     remainingSteps: remaining.length,
