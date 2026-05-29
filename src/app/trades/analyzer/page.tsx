@@ -142,8 +142,8 @@ function effectiveTotal(
     const raw = getDisplayValue(asset, source);
     let v = raw;
 
-    // Age factor (non-picks only)
-    if (!asset.isPick) v *= ageFactor(asset.age);
+    // Age is already priced into KTC/FC raw values — applying it again double-counts.
+    // Age differences are surfaced in the notes chip, not the effective math.
 
     // Stud premium for any qualifying player
     const sm = studMultiplier(raw);
@@ -171,7 +171,6 @@ function computePerPlayerEffectives(sideA: SelectedAsset[], sideB: SelectedAsset
     sorted.forEach((asset, idx) => {
       const raw = getDisplayValue(asset, source);
       let v = raw;
-      if (!asset.isPick) v *= ageFactor(asset.age);
       v *= studMultiplier(raw);
       v *= depthDiscount(idx, raw, dealBest);
       result.set(asset.key, Math.round(v));
@@ -220,8 +219,8 @@ function analyzeTrade(sideA: SelectedAsset[], sideB: SelectedAsset[], source: Va
   }
 
   const pieceDiff = Math.abs(sideA.length - sideB.length);
-  if (pieceDiff >= 2) {
-    const consolidationBonus = Math.min(0.05, (pieceDiff - 1) * 0.025);
+  if (pieceDiff >= 1) {
+    const consolidationBonus = Math.min(0.09, pieceDiff * 0.03);
     adjustedRatio = Math.min(1.0, adjustedRatio + consolidationBonus);
     const fewerSide = sideA.length < sideB.length ? 'A' : 'B';
     notes.push(`Side ${fewerSide} consolidates talent (+${Math.round(consolidationBonus * 100)}%)`);
@@ -270,15 +269,11 @@ function TrendArrow({ trend }: { trend: number }) {
   return null;
 }
 
-function AssetChip({ asset, source, sideTotal, barColor, effectiveValue, onRemove }: {
-  asset: SelectedAsset; source: ValueSource; sideTotal: number; barColor: string;
-  effectiveValue?: number; onRemove: () => void;
+function AssetChip({ asset, source, sideTotal, barColor, onRemove }: {
+  asset: SelectedAsset; source: ValueSource; sideTotal: number; barColor: string; onRemove: () => void;
 }) {
   const dv = getDisplayValue(asset, source);
   const pct = sideTotal > 0 ? Math.min(100, Math.round((dv / sideTotal) * 100)) : 0;
-  const shift = effectiveValue != null ? effectiveValue - dv : 0;
-  const showShift = Math.abs(shift) >= dv * 0.04 && dv > 0;
-
   return (
     <div className="rounded-[var(--radius-card)] bg-[var(--surface)] border border-[var(--border)] px-3 py-2 shadow-[var(--shadow-soft)]">
       <div className="flex items-center gap-2">
@@ -290,12 +285,7 @@ function AssetChip({ asset, source, sideTotal, barColor, effectiveValue, onRemov
           <div className="text-xs text-[var(--muted)]">
             {asset.isPick ? 'Draft Pick' : `${asset.position} · ${asset.nflTeam || 'FA'}${asset.age ? ` · Age ${asset.age.toFixed(0)}` : ''}`}
             <span className="ml-2 font-medium" style={{ color: barColor }}>{formatValue(dv)}</span>
-            {showShift && (
-              <span className="ml-1 font-semibold text-[10px]" style={{ color: shift > 0 ? '#22c55e' : '#ef4444' }}>
-                {shift > 0 ? '+' : ''}{formatValue(shift)} adj
-              </span>
-            )}
-            {!showShift && sideTotal > 0 && <span className="ml-1 opacity-50">{pct}%</span>}
+            {sideTotal > 0 && <span className="ml-1 opacity-50">{pct}%</span>}
           </div>
         </div>
         <button onClick={onRemove} className="text-[var(--muted)] hover:text-[var(--danger)] transition-colors text-lg leading-none shrink-0" aria-label={`Remove ${asset.name}`}>×</button>
@@ -525,13 +515,38 @@ function ValueSourceToggle({ source, onChange, ktcAvailable }: { source: ValueSo
   );
 }
 
-function TradeSide({ label, color, assets, values, excluded, source, grade, effectiveValues, onAdd, onRemove, onClear }: {
+// Consolidation display rate: matches KTC's observed ~40% for mid-tier, ~28-35% for elite.
+// Applied to the fewer-piece side to show their structural advantage.
+function consolidationDisplayRate(rawTotal: number): number {
+  if (rawTotal >= 7000) return 0.30;
+  if (rawTotal >= 4000) return 0.35;
+  return 0.40;
+}
+
+function TradeSide({ label, color, assets, values, excluded, source, grade, effectiveValues, tradeActive, isFewer, pieceDiff, onAdd, onRemove, onClear }: {
   label: string; color: string; assets: SelectedAsset[]; values: TradeValue[];
   excluded: Set<string>; source: ValueSource; grade: string;
   effectiveValues?: Map<string, number>;
+  tradeActive: boolean;
+  isFewer: boolean;
+  pieceDiff: number;
   onAdd: (a: SelectedAsset) => void; onRemove: (k: string) => void; onClear: () => void;
 }) {
-  const total = assets.reduce((s, a) => s + getDisplayValue(a, source), 0);
+  const rawTotal = assets.reduce((s, a) => s + getDisplayValue(a, source), 0);
+
+  // Display adjustment: stud premium + consolidation rate (both always positive).
+  // Age is NOT included — raw values already price it in.
+  const studBoost = assets.reduce((s, a) => {
+    const raw = getDisplayValue(a, source);
+    return s + (studMultiplier(raw) - 1.0) * raw;
+  }, 0);
+  const consolidationBoost = (tradeActive && isFewer && pieceDiff >= 1)
+    ? rawTotal * consolidationDisplayRate(rawTotal) * Math.min(1.5, pieceDiff)
+    : 0;
+  const displayAdjustment = Math.round(studBoost + consolidationBoost);
+  const showAdjustment = tradeActive && assets.length > 0 && displayAdjustment >= 100;
+  const displayTotal = showAdjustment ? rawTotal + displayAdjustment : rawTotal;
+
   const posSummary = buildPosSummary(assets);
   const avgAge = getAvgAge(assets);
   const gc = gradeColor(grade);
@@ -549,7 +564,7 @@ function TradeSide({ label, color, assets, values, excluded, source, grade, effe
               {grade}
             </span>
           )}
-          <span className="text-sm font-bold" style={{ color }}>{formatValue(total)}</span>
+          <span className="text-sm font-bold" style={{ color }}>{formatValue(displayTotal)}</span>
           {assets.length > 0 && (
             <button onClick={onClear} className="text-xs text-[var(--muted)] hover:text-[var(--danger)] transition-colors">Clear</button>
           )}
@@ -570,7 +585,15 @@ function TradeSide({ label, color, assets, values, excluded, source, grade, effe
 
       <div className="space-y-2 min-h-[80px]">
         {assets.length === 0 && <div className="text-center text-[var(--muted)] text-sm py-6 opacity-60">Add players or picks</div>}
-        {assets.map((a) => <AssetChip key={a.key} asset={a} source={source} sideTotal={total} barColor={color} effectiveValue={effectiveValues?.get(a.key)} onRemove={() => onRemove(a.key)} />)}
+        {assets.map((a) => <AssetChip key={a.key} asset={a} source={source} sideTotal={rawTotal} barColor={color} onRemove={() => onRemove(a.key)} />)}
+        {showAdjustment && (
+          <div className="flex items-center justify-between px-3 py-2 rounded-[var(--radius-card)] border border-dashed border-[var(--border)] bg-[var(--surface-strong)] opacity-80">
+            <span className="text-xs text-[var(--muted)] italic">Value Adjustment</span>
+            <span className="text-xs font-semibold" style={{ color: '#22c55e' }}>
+              +{formatValue(displayAdjustment)}
+            </span>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -981,14 +1004,24 @@ function TradeAnalyzerContent() {
 
       <div className="rounded-[var(--radius-card)] bg-[var(--surface)] border border-[var(--border)] p-4 md:p-6 shadow-[var(--shadow-soft)]">
         <div className="flex flex-col md:flex-row gap-6">
-          <TradeSide label="Side A" color="var(--accent)" assets={sideA} values={values} excluded={excluded} source={source}
-            grade={analysis.sideAGrade} effectiveValues={playerEffectives}
-            onAdd={(a) => setSideA((p) => [...p, a])} onRemove={(k) => setSideA((p) => p.filter((x) => x.key !== k))} onClear={() => setSideA([])} />
-          <div className="hidden md:flex items-center"><div className="w-px h-full bg-[var(--border)]" /></div>
-          <div className="md:hidden border-t border-[var(--border)]" />
-          <TradeSide label="Side B" color="var(--danger)" assets={sideB} values={values} excluded={excluded} source={source}
-            grade={analysis.sideBGrade} effectiveValues={playerEffectives}
-            onAdd={(a) => setSideB((p) => [...p, a])} onRemove={(k) => setSideB((p) => p.filter((x) => x.key !== k))} onClear={() => setSideB([])} />
+          {(() => {
+            const tradeActive = sideA.length > 0 && sideB.length > 0;
+            const pd = Math.abs(sideA.length - sideB.length);
+            return (
+              <>
+                <TradeSide label="Side A" color="var(--accent)" assets={sideA} values={values} excluded={excluded} source={source}
+                  grade={analysis.sideAGrade} effectiveValues={playerEffectives} tradeActive={tradeActive}
+                  isFewer={sideA.length < sideB.length} pieceDiff={pd}
+                  onAdd={(a) => setSideA((p) => [...p, a])} onRemove={(k) => setSideA((p) => p.filter((x) => x.key !== k))} onClear={() => setSideA([])} />
+                <div className="hidden md:flex items-center"><div className="w-px h-full bg-[var(--border)]" /></div>
+                <div className="md:hidden border-t border-[var(--border)]" />
+                <TradeSide label="Side B" color="var(--danger)" assets={sideB} values={values} excluded={excluded} source={source}
+                  grade={analysis.sideBGrade} effectiveValues={playerEffectives} tradeActive={tradeActive}
+                  isFewer={sideB.length < sideA.length} pieceDiff={pd}
+                  onAdd={(a) => setSideB((p) => [...p, a])} onRemove={(k) => setSideB((p) => p.filter((x) => x.key !== k))} onClear={() => setSideB([])} />
+              </>
+            );
+          })()}
         </div>
         <div className="mt-6 pt-4 border-t border-[var(--border)]">
           <FairnessMeter analysis={analysis} totalA={totalA} totalB={totalB} allAssets={[...sideA, ...sideB]} />
