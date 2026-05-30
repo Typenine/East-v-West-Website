@@ -936,88 +936,60 @@ async function startStagedJob(opts: {
         if (draftId) {
           const players = await getDraftPlayers(draftId);
 
-          // Supplement missing ranks from KTC dynasty data stored in R2.
-          // If the admin has uploaded KTC rankings via /admin/upload-ktc, use those
-          // to fill in any rank=null entries in the draft player pool.
-          const unranked = players.filter(p => p.rank == null || p.rank === 0);
-          if (unranked.length > 0) {
-            // Try FantasyCalc free dynasty API first (latest live data, no auth required)
-            // Falls back to KTC data stored in R2 if FC is unavailable
-            let rankingsByName: Map<string, number> | null = null;
+          // Always re-derive prospect ranks fresh from FantasyCalc dynasty values.
+          // NEVER trust DB-stored ranks — they can be stale, wrong, or set from a different
+          // source. Instead: fetch FC values for all pool players, sort by value within the
+          // pool, and assign sequential ranks 1..N (1 = most valuable rookie in this class).
+          // This gives correct prospect-class rankings regardless of what's in the DB.
+          type FcEntry = { player?: { name?: string; position?: string; nflTeamAbbreviation?: string }; value?: number };
+          let fcValueByName: Map<string, number> | null = null;
 
-            try {
-              // FantasyCalc free dynasty rankings — sorted by value desc, position 1 = best dynasty asset
-              // Uses 2QB / SuperFlex scoring to match the East v. West league format
-              const fcRes = await fetch(
-                'https://api.fantasycalc.com/values/current?isDynasty=true&numQbs=2&ppr=0.5',
-                { signal: AbortSignal.timeout(8000), next: { revalidate: 3600 } },
-              );
-              if (fcRes.ok) {
-                const fcData = await fcRes.json() as Array<{
-                  player?: { name?: string; position?: string; nflTeamAbbreviation?: string };
-                  value?: number;
-                  rank?: number;
-                }>;
-                if (Array.isArray(fcData) && fcData.length > 0) {
-                  // FC returns highest-value first; derive rank from sorted position
-                  rankingsByName = new Map<string, number>();
-                  for (const [i, entry] of fcData.entries()) {
-                    const name = (entry.player?.name ?? '').toLowerCase().trim();
-                    if (name) rankingsByName.set(name, i + 1);
-                  }
-                  console.log(`[Staged] pre_draft: loaded ${rankingsByName.size} dynasty rankings from FantasyCalc (live)`);
+          try {
+            const fcRes = await fetch(
+              'https://api.fantasycalc.com/values/current?isDynasty=true&numQbs=2&ppr=0.5',
+              { signal: AbortSignal.timeout(8000), next: { revalidate: 3600 } },
+            );
+            if (fcRes.ok) {
+              const fcData = await fcRes.json() as FcEntry[];
+              if (Array.isArray(fcData) && fcData.length > 0) {
+                fcValueByName = new Map<string, number>();
+                for (const entry of fcData) {
+                  const name = (entry.player?.name ?? '').toLowerCase().trim();
+                  if (name && entry.value != null) fcValueByName.set(name, Number(entry.value));
                 }
-              }
-            } catch (fcErr) {
-              console.log('[Staged] pre_draft: FantasyCalc unavailable, trying KTC R2 data:', fcErr instanceof Error ? fcErr.message : String(fcErr));
-            }
-
-            // Fallback: KTC data stored in R2 from admin upload
-            if (!rankingsByName) {
-              try {
-                const { getObjectText } = await import('@/server/storage/r2');
-                const raw = await getObjectText({ key: 'trade-analyzer/ktc.json' });
-                if (raw) {
-                  const ktc = JSON.parse(raw) as { players?: Array<{ playerName?: string; name?: string; rank?: number }> };
-                  const ktcPlayers = ktc.players ?? [];
-                  rankingsByName = new Map<string, number>();
-                  for (const [i, kp] of ktcPlayers.entries()) {
-                    const name = (kp.playerName || kp.name || '').toLowerCase().trim();
-                    if (name) rankingsByName.set(name, typeof kp.rank === 'number' ? kp.rank : i + 1);
-                  }
-                  console.log(`[Staged] pre_draft: loaded ${rankingsByName.size} dynasty rankings from KTC R2 data`);
-                }
-              } catch {
-                console.log('[Staged] pre_draft: no KTC data in R2 either — ranks come from draft player pool only');
+                console.log(`[Staged] pre_draft: loaded ${fcValueByName.size} FC dynasty values for rank derivation`);
               }
             }
-
-            // Apply rankings to unranked players using exact name match, then last-name fallback
-            if (rankingsByName && rankingsByName.size > 0) {
-              let supplemented = 0;
-              for (const p of players) {
-                if (p.rank != null && p.rank !== 0) continue;
-                const pLower = p.name.toLowerCase().trim();
-                if (rankingsByName.has(pLower)) {
-                  p.rank = rankingsByName.get(pLower)!;
-                  supplemented++;
-                } else {
-                  const lastName = pLower.split(' ').pop() ?? '';
-                  if (lastName.length >= 4) {
-                    for (const [rName, rRank] of rankingsByName) {
-                      if (rName.endsWith(' ' + lastName) || rName.endsWith(lastName)) {
-                        p.rank = rRank;
-                        supplemented++;
-                        break;
-                      }
-                    }
-                  }
-                }
-              }
-              console.log(`[Staged] pre_draft: supplemented ${supplemented}/${unranked.length} missing ranks from dynasty rankings`);
-            }
+          } catch (fcErr) {
+            console.log('[Staged] pre_draft: FantasyCalc unavailable, will use DB ranks as fallback:', fcErr instanceof Error ? fcErr.message : String(fcErr));
           }
 
+          if (fcValueByName && fcValueByName.size > 0) {
+            // Assign FC value to each pool player (exact name match, then last-name fallback)
+            const lookupValue = (name: string): number => {
+              const lower = name.toLowerCase().trim();
+              if (fcValueByName!.has(lower)) return fcValueByName!.get(lower)!;
+              const last = lower.split(' ').pop() ?? '';
+              if (last.length >= 4) {
+                for (const [fcName, val] of fcValueByName!) {
+                  if (fcName.endsWith(' ' + last)) return val;
+                }
+              }
+              return 0; // unmatched — will sort to the bottom
+            };
+
+            // Sort pool by FC value descending, then assign sequential prospect ranks
+            const withValues = players.map(p => ({ p, val: lookupValue(p.name) }));
+            withValues.sort((a, b) => b.val - a.val);
+            let matched = 0;
+            for (let i = 0; i < withValues.length; i++) {
+              const { p, val } = withValues[i];
+              p.rank = i + 1; // rank within the draft class pool (1 = top prospect)
+              if (val > 0) matched++;
+            }
+            console.log(`[Staged] pre_draft: assigned prospect ranks for ${matched}/${players.length} players via FC values`);
+          }
+          // If FC unavailable, fall back to DB ranks (sort nulls last)
           players.sort((a, b) => (a.rank ?? 9999) - (b.rank ?? 9999));
           prospectPool = players.map(p => ({ name: p.name, pos: p.pos, rank: p.rank ?? null }));
 

@@ -415,13 +415,22 @@ function normalizeTransactions(
         // Draft picks
         // owner_id = current owner (receiver) after the trade
         // previous_owner_id = prior owner (giver) before the trade
-        // Use Number() coercion because Sleeper may return these as strings
+        // IMPORTANT: In multi-team trades, Sleeper sometimes sets previous_owner_id to a
+        // roster that is NOT a party to this transaction. Guard against that: only trust
+        // previous_owner_id if it refers to an actual party in rosterIds.
         if (Array.isArray(t.draft_picks)) {
+          const rosterIdSet = new Set(rosterIds);
           for (const raw of t.draft_picks) {
             const pick = raw as { season?: string | number; round?: number; owner_id?: string | number; previous_owner_id?: string | number };
             const label = `${pick.season ?? '?'} Rd ${pick.round ?? '?'} Pick`;
-            if (Number(pick.owner_id) === rosterId) gets.push(label);
-            else if (Number(pick.previous_owner_id) === rosterId) gives.push(label);
+            const ownerId = Number(pick.owner_id);
+            const prevOwnerId = Number(pick.previous_owner_id);
+            if (ownerId === rosterId) {
+              gets.push(label);
+            } else if (prevOwnerId === rosterId && rosterIdSet.has(prevOwnerId)) {
+              // Only assign "gives" when previous_owner_id is a confirmed party to this trade
+              gives.push(label);
+            }
           }
         }
         by_team[teamName] = { gets, gives };

@@ -51,21 +51,19 @@ function hexToRgba(hex: string, alpha: number): string {
   return `rgba(${r},${g},${b},${alpha})`;
 }
 
-function getTeamColor(teamName: string, type: 'primary' | 'secondary' = 'primary'): string {
+function getTeamColor(teamName: string, type: 'primary' | 'secondary' | 'tertiary' = 'primary'): string {
   const colors = TEAM_COLORS[teamName];
-  if (!colors) return type === 'primary' ? '#3b5b8b' : '#ba1010';
+  if (!colors) return type === 'primary' ? '#3b5b8b' : type === 'secondary' ? '#ba1010' : '#9ca3af';
+  if (type === 'tertiary') return colors.tertiary ?? colors.secondary;
   return type === 'primary' ? colors.primary : colors.secondary;
 }
 
 function teamBadge(teamName: string, size: 'sm' | 'md' | 'lg' | 'xl' = 'md'): string {
   const primary = getTeamColor(teamName, 'primary');
-  const secondary = getTeamColor(teamName, 'secondary');
   const sizes = { sm: '28px', md: '44px', lg: '72px', xl: '96px' };
   const logoPath = getTeamLogoPath(teamName);
   const initials = teamName.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
-  
-  // Use actual team logo with gradient background fallback
-  return `<span style="display:inline-flex;align-items:center;justify-content:center;width:${sizes[size]};height:${sizes[size]};border-radius:50%;background:linear-gradient(135deg, ${primary}, ${secondary});overflow:hidden;flex-shrink:0;"><img src="${logoPath}" alt="${esc(initials)}" style="width:100%;height:100%;object-fit:cover;" onerror="this.style.display='none';this.parentElement.style.color='#fff';this.parentElement.style.fontWeight='700';this.parentElement.innerHTML='${initials}'"/></span>`;
+  return `<span style="display:inline-flex;align-items:center;justify-content:center;width:${sizes[size]};height:${sizes[size]};border-radius:50%;background:${primary};overflow:hidden;flex-shrink:0;"><img src="${logoPath}" alt="${esc(initials)}" style="width:100%;height:100%;object-fit:cover;" onerror="this.style.display='none';this.parentElement.style.color='#fff';this.parentElement.style.fontWeight='700';this.parentElement.innerHTML='${initials}'"/></span>`;
 }
 
 function teamNameStyled(teamName: string): string {
@@ -75,24 +73,25 @@ function teamNameStyled(teamName: string): string {
 
 function matchupVsBlock(team1: string, team2: string, score1?: number, score2?: number): string {
   const t1Primary = getTeamColor(team1, 'primary');
+  const t1Tertiary = getTeamColor(team1, 'tertiary');
   const t2Primary = getTeamColor(team2, 'primary');
+  const t2Tertiary = getTeamColor(team2, 'tertiary');
   const winner = score1 !== undefined && score2 !== undefined ? (score1 > score2 ? team1 : team2) : null;
-  const splitBg = `linear-gradient(90deg, ${hexToRgba(t1Primary, 0.55)} 0%, #0d0d0d 38%, #0d0d0d 62%, ${hexToRgba(t2Primary, 0.55)} 100%)`;
 
   return `
-  <div style="background:${splitBg};border-radius:10px;padding:28px 24px;margin:0 0 24px;display:flex;align-items:center;gap:0;">
-    <div style="flex:1;text-align:right;padding-right:20px;">
+  <div style="border-radius:10px;overflow:hidden;margin:0 0 24px;display:flex;align-items:stretch;">
+    <div style="flex:1;background:${t1Primary};padding:24px 20px;text-align:right;border-right:4px solid ${t1Tertiary};">
       <div style="display:flex;justify-content:flex-end;margin-bottom:10px;">${teamBadge(team1, 'lg')}</div>
-      <div style="font-family:'Georgia',serif;font-weight:700;font-size:16px;color:${winner === team1 ? '#fff' : 'rgba(255,255,255,0.55)'};line-height:1.2;">${esc(team1)}</div>
+      <div style="font-family:'Georgia',serif;font-weight:700;font-size:16px;color:${winner === team1 ? '#fff' : 'rgba(255,255,255,0.6)'};line-height:1.2;">${esc(team1)}</div>
       ${score1 !== undefined ? `<div style="font-size:32px;font-weight:800;color:${winner === team1 ? '#fff' : 'rgba(255,255,255,0.4)'};margin-top:6px;letter-spacing:-1px;font-family:'Georgia',serif;">${score1.toFixed(1)}</div>` : ''}
       ${winner === team1 ? `<div style="font-size:10px;font-weight:700;letter-spacing:2px;color:#4ade80;margin-top:4px;text-transform:uppercase;">WIN</div>` : ''}
     </div>
-    <div style="width:52px;text-align:center;flex-shrink:0;">
-      <div style="font-weight:900;color:rgba(255,255,255,0.25);font-size:13px;letter-spacing:3px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;">VS</div>
+    <div style="width:48px;text-align:center;flex-shrink:0;background:#0d0d0d;display:flex;align-items:center;justify-content:center;">
+      <div style="font-weight:900;color:rgba(255,255,255,0.25);font-size:11px;letter-spacing:3px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;">VS</div>
     </div>
-    <div style="flex:1;text-align:left;padding-left:20px;">
+    <div style="flex:1;background:${t2Primary};padding:24px 20px;text-align:left;border-left:4px solid ${t2Tertiary};">
       <div style="display:flex;justify-content:flex-start;margin-bottom:10px;">${teamBadge(team2, 'lg')}</div>
-      <div style="font-family:'Georgia',serif;font-weight:700;font-size:16px;color:${winner === team2 ? '#fff' : 'rgba(255,255,255,0.55)'};line-height:1.2;">${esc(team2)}</div>
+      <div style="font-family:'Georgia',serif;font-weight:700;font-size:16px;color:${winner === team2 ? '#fff' : 'rgba(255,255,255,0.6)'};line-height:1.2;">${esc(team2)}</div>
       ${score2 !== undefined ? `<div style="font-size:32px;font-weight:800;color:${winner === team2 ? '#fff' : 'rgba(255,255,255,0.4)'};margin-top:6px;letter-spacing:-1px;font-family:'Georgia',serif;">${score2.toFixed(1)}</div>` : ''}
       ${winner === team2 ? `<div style="font-size:10px;font-weight:700;letter-spacing:2px;color:#4ade80;margin-top:4px;text-transform:uppercase;">WIN</div>` : ''}
     </div>
@@ -513,10 +512,11 @@ function sectionTrades(list: TradeItem[]): string {
 function sectionSpotlight(d: SpotlightSection): string {
   const spotPrimary = getTeamColor(d.team, 'primary');
   const spotSecondary = getTeamColor(d.team, 'secondary');
+  const spotTertiary = getTeamColor(d.team, 'tertiary');
   return `
   <article>
     ${sectionHeader('TEAM OF THE WEEK', 'Spotlight performance')}
-    <div style="background:linear-gradient(135deg,${spotPrimary} 0%,${spotSecondary} 60%,${hexToRgba(spotPrimary,0.7)} 100%);border-radius:8px;padding:32px 36px;margin-bottom:4px;display:flex;align-items:center;gap:24px;">
+    <div style="background:${spotPrimary};border-radius:8px;padding:32px 36px;margin-bottom:4px;display:flex;align-items:center;gap:24px;border-left:8px solid ${spotTertiary};border-right:4px solid ${spotSecondary};">
       <div style="flex-shrink:0;">${teamBadge(d.team, 'xl')}</div>
       <div>
         <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:10px;font-weight:700;letter-spacing:3px;text-transform:uppercase;color:rgba(255,255,255,0.65);margin-bottom:8px;">Team of the Week</div>
@@ -543,14 +543,21 @@ function sectionForecast(d: ForecastData): string {
 
   const rows = (d.picks || []).map(p => {
     const fp1 = getTeamColor(p.team1, 'primary');
+    const fp1t = getTeamColor(p.team1, 'tertiary');
     const fp2 = getTeamColor(p.team2, 'primary');
-    const fSplit = `linear-gradient(90deg,${hexToRgba(fp1,0.5)} 0%,#0d0d0d 35%,#0d0d0d 65%,${hexToRgba(fp2,0.5)} 100%)`;
+    const fp2t = getTeamColor(p.team2, 'tertiary');
     return `
     <div style="background:#fff;border:1px solid #e5e7eb;border-radius:4px;overflow:hidden;margin-bottom:16px;box-shadow:0 1px 3px rgba(0,0,0,0.05);">
-      <div style="background:${fSplit};padding:12px 20px;display:flex;align-items:center;justify-content:space-between;">
-        <div style="display:flex;align-items:center;gap:8px;">${teamBadge(p.team1,'sm')}<span style="font-family:'Georgia','Times New Roman',serif;font-weight:700;font-size:14px;color:#fff;">${esc(p.team1)}</span></div>
-        <span style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:11px;font-weight:900;color:rgba(255,255,255,0.3);letter-spacing:3px;">VS</span>
-        <div style="display:flex;align-items:center;gap:8px;flex-direction:row-reverse;">${teamBadge(p.team2,'sm')}<span style="font-family:'Georgia','Times New Roman',serif;font-weight:700;font-size:14px;color:#fff;">${esc(p.team2)}</span></div>
+      <div style="display:flex;align-items:stretch;">
+        <div style="flex:1;background:${fp1};padding:12px 16px;display:flex;align-items:center;gap:8px;border-right:3px solid ${fp1t};">
+          ${teamBadge(p.team1,'sm')}<span style="font-family:'Georgia','Times New Roman',serif;font-weight:700;font-size:14px;color:#fff;">${esc(p.team1)}</span>
+        </div>
+        <div style="background:#0d0d0d;padding:0 12px;display:flex;align-items:center;">
+          <span style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:10px;font-weight:900;color:rgba(255,255,255,0.3);letter-spacing:2px;">VS</span>
+        </div>
+        <div style="flex:1;background:${fp2};padding:12px 16px;display:flex;align-items:center;justify-content:flex-end;gap:8px;border-left:3px solid ${fp2t};">
+          <span style="font-family:'Georgia','Times New Roman',serif;font-weight:700;font-size:14px;color:#fff;">${esc(p.team2)}</span>${teamBadge(p.team2,'sm')}
+        </div>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:0;">
         <div style="padding:16px 18px;border-right:1px solid #e5e7eb;">
@@ -1114,7 +1121,7 @@ function sectionMockDraft(d: MockDraftSection): string {
     return `
     <div style="background:#fff;border:1px solid #e5e7eb;border-radius:6px;margin-bottom:20px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,0.05);">
       <!-- Pick header -->
-      <div style="background:linear-gradient(90deg,#0d0d0d 0%,${hexToRgba(getTeamColor(pick.ownerTeam,'primary'),0.35)} 100%);padding:14px 22px;display:flex;align-items:center;gap:14px;">
+      <div style="background:#0d0d0d;padding:14px 22px;display:flex;align-items:center;gap:14px;border-left:5px solid ${getTeamColor(pick.ownerTeam,'primary')};border-right:2px solid ${getTeamColor(pick.ownerTeam,'tertiary')};">
         <div style="flex-shrink:0;background:#be161e;color:#fff;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-weight:800;font-size:13px;letter-spacing:0.5px;padding:6px 12px;border-radius:3px;min-width:48px;text-align:center;">
           ${esc(overallLabel)}
         </div>

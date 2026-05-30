@@ -553,9 +553,21 @@ async function genSingleTradeItem(input: StepInput, tradeIndex: number): Promise
   for (const party of parties) {
     const a = byTeam[party];
     const sideCtx = `You are grading THIS SPECIFIC TRADE for ${party} only. All players and picks listed below are exactly what changed hands — do not reference external news or other trades.\n\n${party} in this trade:\n  RECEIVED: ${annotateTradePlayers(a?.gets)}\n  GAVE UP: ${annotateTradePlayers(a?.gives)}${getTeamRoster(party)}\n\nFull trade breakdown:\n${tradeContext}`;
+    const received = annotateTradePlayers(a?.gets);
+    const gaveUp   = annotateTradePlayers(a?.gives);
     const [entR, anaR] = await Promise.all([
-      generateSection({ persona: 'entertainer', sectionType: 'Trade Grade', context: sideCtx, constraints: `Grade this trade FOR ${party} specifically (A+ to F). Start with the letter grade. 3-4 sentences on what ${party} got and what they gave up. Give a SPECIFIC reason for the grade — were they the winner or the loser and why? FACTUAL RULE: only reference assets listed in RECEIVED and GAVE UP above. Do not invent players or picks.`, maxTokens: 350 }),
-      generateSection({ persona: 'analyst',     sectionType: 'Trade Grade', context: sideCtx, constraints: `Grade this trade FOR ${party} specifically (A+ to F). Start with the letter grade. 3-4 sentences analyzing the value exchange — what did ${party} receive vs. what they surrendered, and is the dynasty cost worth it? FACTUAL RULE: only reference assets listed in RECEIVED and GAVE UP above. Do not invent players or picks.`, maxTokens: 350 }),
+      generateSection({
+        persona: 'entertainer', sectionType: 'Trade Grade', context: sideCtx,
+        constraints: `Grade this trade FOR ${party} specifically (A+ to F). Start with the letter grade on its own line, then write 3-4 full sentences: what did ${party} receive (${received}), what did they give up (${gaveUp}), and is this a good deal for them specifically? Give your gut take. FACTUAL RULE: only reference assets listed above.`,
+        maxTokens: 500,
+        validate: (t) => t.trim().length >= 80,
+      }),
+      generateSection({
+        persona: 'analyst', sectionType: 'Trade Grade', context: sideCtx,
+        constraints: `Grade this trade FOR ${party} specifically (A+ to F). Start with the letter grade on its own line, then write 3-4 analytical sentences: evaluate what ${party} received (${received}) vs. what they surrendered (${gaveUp}). Is the dynasty cost worth it given their roster and window? FACTUAL RULE: only reference assets listed above.`,
+        maxTokens: 500,
+        validate: (t) => t.trim().length >= 80,
+      }),
     ]);
     analysis[party] = {
       grade: extractGrade(entR),
@@ -753,7 +765,7 @@ async function repairMockDraftRound(
     )
   );
   const poolText = availablePool.map((p, i) =>
-    `${i + 1}. ${p.name} (${p.pos}${p.rank !== null ? `, dynasty rank #${p.rank}` : ', unranked'})`
+    `${i + 1}. ${p.name} (${p.pos}${p.rank !== null ? `, prospect rank #${p.rank}` : ', unranked'})`
   ).join('\n');
   const orderText = slots.map((s, i) => `Pick ${round}.${String(i + 1).padStart(2, '0')}: ${s.team}`).join('\n');
 
@@ -885,15 +897,16 @@ async function genMockDraftR1(
     : `Mason and Westy are established analysts for this league.`;
 
   // Prospect pool goes FIRST — before league knowledge and enhanced context — so it is never truncated
-  // Dynasty rank (#1 = best dynasty value) is shown so the LLM knows relative prospect value
+  // Prospect rank (#1 = best in this draft class, NOT overall dynasty rank) shown so LLM knows relative prospect value
   const poolText = prospectPool.map((p, i) =>
-    `${i + 1}. ${p.name} (${p.pos}${p.rank !== null ? `, dynasty rank #${p.rank}` : ', unranked'})`
+    `${i + 1}. ${p.name} (${p.pos}${p.rank !== null ? `, prospect rank #${p.rank}` : ', unranked'})`
   ).join('\n');
   const poolHeader = `=== ELIGIBLE PLAYERS — ${season} NFL DRAFT PROSPECT POOL ===
-Dynasty rank #1 = highest dynasty fantasy value. Higher-ranked players should generally go earlier unless a team has a clear positional need for a lower-ranked player.
+Prospect rank #1 = best dynasty prospect IN THIS DRAFT CLASS (NOT an overall dynasty rank — these are rookie-specific rankings, not rankings against established NFL players).
+Higher-ranked prospects should generally go earlier unless a team has a clear positional need.
 You may ONLY select players from the list below for this mock draft.
 DO NOT use players from any previous draft class.
-DO NOT use: Bryce Young, Will Levis, CJ Stroud, Anthony Richardson, Caleb Williams, Drake Maye, or any other player not on this exact list.
+DO NOT use any player not on this exact list.
 
 ${poolText}
 
@@ -907,7 +920,7 @@ ${poolText}
 
   const pickFmt = `EXACTLY this format for all ${effectiveSlots.length} picks:\n\nPICK 1.01 | ${effectiveSlots[0].team} | [Player Name from eligible list] | [Position]\n[4-5 sentence paragraph]\n\nPICK 1.02 | ${effectiveSlots[1]?.team ?? 'Team 2'} | [Player Name from eligible list] | [Position]\n[4-5 sentence paragraph]\n\n(continue through PICK 1.${String(effectiveSlots.length).padStart(2, '0')})`;
 
-  const constraint = `You are ${persona === 'entertainer' ? 'Mason Reed — bold, personality-first' : 'Westy — analytical, data-driven'}. Write YOUR Round 1 mock draft.\n\n⚠️ PLAYER RULE: Every player MUST appear in the ELIGIBLE PLAYERS list above. Do NOT use any other player.\n⚠️ ROSTER RULE: Before each pick, check that team's CURRENT ROSTER (listed above). Reference SPECIFIC players they already have — every player on their roster matters, including backups and recent acquisitions. A team that just traded for a QB doesn't need another QB; a team with Bowers doesn't need a TE.\n⚠️ POSITION RULE: TE is 1-deep (start only 1 TE per week) — TE depth is low priority vs BPA. QB is the most valuable dynasty position in SuperFlex — teams needing a QB should prioritize it.\n⚠️ ORDER RULE: Generally pick higher dynasty-ranked players earlier. Deviate only for clear team need (and say why).\n⚠️ ANALYSIS RULE: Name specific players the team already has at that position. Explain the positional need by reference to their current roster. Vague praise is not enough.\n\n${pickFmt}`;
+  const constraint = `You are ${persona === 'entertainer' ? 'Mason Reed — bold, personality-first' : 'Westy — analytical, data-driven'}. Write YOUR Round 1 mock draft.\n\n⚠️ PRONOUN RULE: All NFL Draft prospects are male athletes. Always use he/him/his pronouns regardless of the player's name.\n⚠️ PLAYER RULE: Every player MUST appear in the ELIGIBLE PLAYERS list above. Do NOT use any other player.\n⚠️ ROSTER RULE: Before each pick, check that team's CURRENT ROSTER (listed above). Reference SPECIFIC players they already have — every player on their roster matters, including backups and recent acquisitions. A team that just traded for a QB doesn't need another QB; a team with Bowers doesn't need a TE.\n⚠️ POSITION RULE: TE is 1-deep (start only 1 TE per week) — TE depth is low priority vs BPA. QB is the most valuable dynasty position in SuperFlex — teams needing a QB should prioritize it.\n⚠️ ORDER RULE: Generally pick higher dynasty-ranked players earlier. Deviate only for clear team need (and say why).\n⚠️ ANALYSIS RULE: Name specific players the team already has at that position. Explain the positional need by reference to their current roster. Vague praise is not enough.\n\n${pickFmt}`;
 
   const raw = await generateSection({
     persona,
@@ -976,10 +989,11 @@ async function genMockDraftR2(
   console.log(`[ComposeStep] MockDraft R2 order: ${round2Slots.map((s, i) => `${i + 1}.${s.team}`).join(', ')}`);
 
   const poolText = r2Pool.map((p, i) =>
-    `${i + 1}. ${p.name} (${p.pos}${p.rank !== null ? `, dynasty rank #${p.rank}` : ', unranked'})`
+    `${i + 1}. ${p.name} (${p.pos}${p.rank !== null ? `, prospect rank #${p.rank}` : ', unranked'})`
   ).join('\n');
   const poolHeader = `=== ELIGIBLE PLAYERS — ROUND 2 (${season} prospect pool minus Round 1 picks) ===
-Dynasty rank #1 = highest dynasty value. Pick in roughly ranking order unless a team has a specific positional need.
+Prospect rank #1 = best dynasty prospect remaining IN THIS DRAFT CLASS (NOT overall dynasty rank — rookie-specific rankings only).
+Pick in roughly ranking order unless a team has a specific positional need.
 You may ONLY select players from the list below.
 DO NOT repeat Round 1 picks. DO NOT use players from any previous draft class.
 
@@ -999,7 +1013,7 @@ ${poolText}
     : '';
 
   const context = `${poolHeader}\n\n${leagueKnowledge}\n\n${rosterCtxBlock}${r1Summary}\n\nROUND 2 ORDER:\n${r2Order}\n\n${enhancedContext.slice(0, 2000)}`;
-  const constraint = `Continue your mock draft into ROUND 2 as ${persona === 'entertainer' ? 'Mason Reed' : 'Westy'}.\n${r1Summary}\n⚠️ PLAYER RULE: Every player MUST appear in the ELIGIBLE PLAYERS list above. Do NOT use any other player.\n⚠️ ROSTER RULE: Check each team's CURRENT ROSTER (listed above) before picking. Reference specific players they already have — including recent acquisitions. A team with Bowers has no TE need; a team with two QBs doesn't need a third.\n⚠️ POSITION RULE: TE is 1-deep — don't prioritize TE depth unless a team has NO startable TE. QB is the most valuable dynasty position in this SuperFlex league.\n⚠️ ORDER RULE: Generally pick higher dynasty-ranked players earlier. Deviate only for clear team need (and say why).\n⚠️ ANALYSIS RULE: Reference their Round 1 pick AND their existing roster to explain the Round 2 pick. Name specific players on their roster.\n${pickFmt}`;
+  const constraint = `Continue your mock draft into ROUND 2 as ${persona === 'entertainer' ? 'Mason Reed' : 'Westy'}.\n${r1Summary}\n⚠️ PRONOUN RULE: All NFL Draft prospects are male athletes. Always use he/him/his pronouns regardless of the player's name.\n⚠️ PLAYER RULE: Every player MUST appear in the ELIGIBLE PLAYERS list above. Do NOT use any other player.\n⚠️ ROSTER RULE: Check each team's CURRENT ROSTER (listed above) before picking. Reference specific players they already have — including recent acquisitions. A team with Bowers has no TE need; a team with two QBs doesn't need a third.\n⚠️ POSITION RULE: TE is 1-deep — don't prioritize TE depth unless a team has NO startable TE. QB is the most valuable dynasty position in this SuperFlex league.\n⚠️ ORDER RULE: Generally pick higher dynasty-ranked players earlier. Deviate only for clear team need (and say why).\n⚠️ ANALYSIS RULE: Reference their Round 1 pick AND their existing roster to explain the Round 2 pick. Name specific players on their roster.\n${pickFmt}`;
 
   const raw = await generateSection({
     persona,
