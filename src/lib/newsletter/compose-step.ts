@@ -136,6 +136,8 @@ export function getGenerationSteps(
   }
 
   steps.push('FinalWord');
+  // SocialSummary comes after FinalWord so it can summarise the full newsletter
+  if (isRegularOrPlayoff) steps.push('SocialSummary');
   return steps;
 }
 
@@ -166,6 +168,21 @@ export interface StepInput {
    * Mock draft steps MUST use only players from this list. If null/empty, mock draft step fails hard.
    */
   prospectPool?: Array<{ name: string; pos: string; rank: number | null }> | null;
+  /**
+   * Compact summary of already-completed section outputs (scores, intros, spotlights) for
+   * cross-referencing. Lets FinalWord, Blurt, and Spotlight avoid repeating earlier content.
+   */
+  priorSectionSummary?: string;
+  /**
+   * For pre_draft: one-line roster composition per team (positions + top players).
+   * Lets mock draft bots reason about team needs when making picks.
+   */
+  rosterContext?: string;
+  /**
+   * Full dynasty rankings loaded from R2 at job start. Used for per-player rank lookups
+   * in waiver and trade sections without bloating the base context string.
+   */
+  dynastyRankings?: Array<{ name: string; pos: string; nfl: string; rank: number }>;
 }
 
 export type StepResult =
@@ -184,21 +201,42 @@ async function genIntro(input: StepInput): Promise<IntroSection> {
     const debutBlock = isFirstEpisodeEver
       ? `IMPORTANT: THIS IS YOUR FIRST EVER EPISODE appearing to the East v. West league.
 Mason Reed and Westy are brand new to this league — the members have never heard from you before.
-Introduce yourselves, welcome the league, and set the stage for your draft preview newsletter.`
+Introduce yourselves briefly, welcome the league, then move straight into draft content.`
       : `You and your co-host are well-established voices for the East v. West league. Reference your history with this league where relevant.`;
 
     const context = `${leagueKnowledge}\n\n---\n\nEPISODE TYPE: PRE-DRAFT PREVIEW - ${season} ROOKIE DRAFT\n\n${debutBlock}\n\n${enhancedContext}`;
-    const entertainerConstraint = isFirstEpisodeEver
-      ? `Write 3-4 paragraphs. Introduce yourself (Mason Reed) to the East v. West league — first episode ever. Welcome the league, build draft hype, name the prospects you're most fired up about, drop a bold take.`
-      : `Write 3-4 paragraphs opening the draft preview. Dive straight in — build draft hype, name top prospects, call out teams set up to win the draft.`;
-    const analystConstraint = isFirstEpisodeEver
-      ? `Write 3-4 paragraphs. Introduce yourself (Westy) to the East v. West league — first episode ever. Frame your analytical approach, lay out the draft capital landscape, set expectations for your mock picks.`
-      : `Write 3-4 paragraphs opening the draft preview analytically. Lay out draft capital, positional scarcity, and team fit. Reference prior seasons where relevant.`;
 
-    const [bot1_text, bot2_text] = await Promise.all([
-      generateSection({ persona: 'entertainer', sectionType: 'Pre-Draft Preview Intro', context, constraints: entertainerConstraint, maxTokens: 1500, episodeType: 'pre_draft', validate: (t) => t.length >= 300 }),
-      generateSection({ persona: 'analyst',     sectionType: 'Pre-Draft Preview Intro', context, constraints: analystConstraint,     maxTokens: 1400, episodeType: 'pre_draft', validate: (t) => t.length >= 300 }),
-    ]);
+    // Mason goes first — short and punchy, sets up what HE wants to talk about
+    const masonConstraint = isFirstEpisodeEver
+      ? `Write 2-3 short paragraphs (2-4 sentences each). Introduce yourself to the East v. West league — make it quick, then pivot straight to what excites you about this draft. Name 1-2 specific prospects and why. Drop a bold take about which team is set up to win the draft. Speak directly to Westy as if you're on air together.`
+      : `Write 2-3 short paragraphs (2-4 sentences each). Open the draft conversation — what's the storyline you're most locked in on right now? Name 1-2 prospects or teams you're hyped about and WHY specifically. End with a question or provocation for Westy. FACTUAL RULE: Only reference events, records, or trades explicitly stated in the context above.`;
+
+    const bot1_text = await generateSection({
+      persona: 'entertainer',
+      sectionType: 'Pre-Draft Preview Intro',
+      context,
+      constraints: masonConstraint,
+      maxTokens: 600,
+      episodeType: 'pre_draft',
+      validate: (t) => t.length >= 200,
+    });
+
+    // Westy responds to Mason — he sees exactly what Mason said and picks up the thread
+    const westyContext = `${context}\n\n---\nMason Reed just opened the show with this:\n"${bot1_text}"\n\nNow it's your turn to respond.`;
+    const westyConstraint = isFirstEpisodeEver
+      ? `Write 2-3 short paragraphs (2-4 sentences each). Introduce yourself briefly — your analytical background — then respond directly to what Mason said. Push back on something or add the data angle he's missing. Do NOT re-introduce the draft or the episode — Mason already did that. Speak as if you're sitting across from him.`
+      : `Write 2-3 short paragraphs (2-4 sentences each). Respond directly to Mason's take — pick it up from where he left off. Agree with something and push back on something else. Add the analytical angle: what do the numbers say about the prospects or teams he mentioned? Do NOT re-introduce topics Mason already covered. Do NOT reuse his phrases or examples. FACTUAL RULE: Only reference events, records, or trades explicitly stated in the context above.`;
+
+    const bot2_text = await generateSection({
+      persona: 'analyst',
+      sectionType: 'Pre-Draft Preview Intro',
+      context: westyContext,
+      constraints: westyConstraint,
+      maxTokens: 600,
+      episodeType: 'pre_draft',
+      validate: (t) => t.length >= 200,
+    });
+
     return { bot1_text, bot2_text };
   }
 
@@ -210,27 +248,49 @@ Introduce yourselves, welcome the league, and set the stage for your draft previ
 
   const context = `${leagueKnowledge}\n\n---\n\n${enhancedContext}\n\nWeek ${week} Summary:\n- ${numGames} matchups\n- Biggest win: ${biggest ? `${biggest.winner.name} beat ${biggest.loser.name} by ${biggest.margin.toFixed(1)}` : 'N/A'}\n- Closest: ${closest ? `${closest.winner.name} edged ${closest.loser.name} by ${closest.margin.toFixed(1)}` : 'N/A'}\n- ${trades} trades, ${waivers} waiver moves`;
 
-  const [bot1_text, bot2_text] = await Promise.all([
-    generateSection({ persona: 'entertainer', sectionType: 'Intro', context, constraints: 'Write 3-4 paragraphs. Set the tone with big personality — reference the week\'s top storylines, drop bold takes.', maxTokens: 600, episodeType }),
-    generateSection({ persona: 'analyst',     sectionType: 'Intro', context, constraints: 'Write 3-4 paragraphs. Provide analytical depth — specific stats, trends, honest assessment.', maxTokens: 500, episodeType }),
-  ]);
+  // Sequential: Mason opens, Westy responds to what Mason actually said
+  const bot1_text = await generateSection({
+    persona: 'entertainer',
+    sectionType: 'Intro',
+    context,
+    constraints: `Write 2-3 short paragraphs (2-4 sentences each). Lead with the biggest storyline from this week and your gut reaction to it. Give a SPECIFIC REASON for every take — not just what happened, but what it means. End with something that sets up Westy. FACTUAL RULE: Only reference events explicitly stated in the context above.`,
+    maxTokens: 500,
+    episodeType,
+  });
+
+  const westyContext = `${context}\n\n---\nMason Reed just opened the show with this:\n"${bot1_text}"\n\nNow it's your turn.`;
+  const bot2_text = await generateSection({
+    persona: 'analyst',
+    sectionType: 'Intro',
+    context: westyContext,
+    constraints: `Write 2-3 short paragraphs (2-4 sentences each). Respond directly to Mason's take. Don't re-introduce the week — pick up where he left off. Agree on one thing, push back on one thing, and add a stat or trend that changes the picture. Do NOT reuse Mason's phrases or examples. FACTUAL RULE: Only reference stats or events explicitly stated in the context above.`,
+    maxTokens: 500,
+    episodeType,
+  });
+
   return { bot1_text, bot2_text };
 }
 
 async function genFinalWord(input: StepInput): Promise<FinalWordSection> {
-  const { week, episodeType, enhancedContext } = input;
+  const { week, episodeType, enhancedContext, priorSectionSummary } = input;
   const leagueKnowledge = buildStaticLeagueContext();
+
+  // If we have a summary of earlier sections, inject it so FinalWord can callback to the show's narrative
+  const priorCtxBlock = priorSectionSummary
+    ? `\n\n--- WHAT HAPPENED IN THIS NEWSLETTER ---\n${priorSectionSummary}\n--- END SUMMARY ---`
+    : '';
+
   const contextMap: Record<string, { ctx: string; entConstraint: string; anaConstraint: string; tokens: number }> = {
     pre_draft: {
       ctx: `The rookie draft is coming up.\n\n${enhancedContext.slice(0, 600)}`,
-      entConstraint: '3-4 sentences closing the draft preview. Build hype, name a player you\'re most excited about, call out a team set to steal the draft.',
-      anaConstraint: '3-4 sentences of analytical closing thoughts. Key strategic takeaway, best draft capital position, projection on how this draft changes the competitive landscape.',
+      entConstraint: '3-4 sentences closing the draft preview. Name one player you\'re most fired up about and give a SPECIFIC reason why. Call out one team you think is set to steal the draft and explain exactly why. FACTUAL RULE: only reference players and teams from the context provided.',
+      anaConstraint: '3-4 sentences of analytical closing. Name one key strategic point about this draft class. Name one team with the best draft capital position and explain the specific reason. FACTUAL RULE: only reference facts explicitly stated in the context.',
       tokens: 600,
     },
     post_draft: {
       ctx: 'The rookie draft is complete. Sign off with final thoughts.',
-      entConstraint: '3-4 sentences closing the draft recap. Who was the biggest winner? Drop a bold take on which pick will look best in 2 years.',
-      anaConstraint: '3-4 sentences of analytical final thoughts. What does this draft mean for the competitive landscape? Which strategy surprised you?',
+      entConstraint: '3-4 sentences closing the draft recap. Name the biggest winner and give a SPECIFIC reason why their haul was good. Drop one bold take on a pick that will either look great or terrible in 2 years — and say WHY. FACTUAL RULE: only reference picks explicitly listed in the context.',
+      anaConstraint: '3-4 sentences of analytical final thoughts. Name one strategy that worked and one that didn\'t — and explain specifically why. FACTUAL RULE: only reference picks explicitly listed in the context.',
       tokens: 600,
     },
     preseason: {
@@ -241,52 +301,92 @@ async function genFinalWord(input: StepInput): Promise<FinalWordSection> {
     },
   };
   const cfg = contextMap[episodeType] ?? {
-    ctx: `Week ${week} is in the books.\n\n${leagueKnowledge}`,
-    entConstraint: '3-4 sentences to close the show. Reference the week\'s biggest story, drop a take on what it means going forward.',
-    anaConstraint: '3-4 sentences of measured closing analysis. Biggest statistical takeaway, what it means for the standings.',
-    tokens: 350,
+    // Use actual week context — not just static league knowledge
+    ctx: `Week ${week} is in the books.\n\n${enhancedContext.slice(0, 1200)}\n\n${leagueKnowledge}`,
+    entConstraint: '3-4 sentences to close the show. Land on the ONE thing that matters most coming out of this week and give a SPECIFIC reason why it matters going forward. Leave them thinking.',
+    anaConstraint: '3-4 sentences of measured closing analysis. Biggest analytical takeaway from this week — and WHY it matters for the standings or dynasty outlook.',
+    tokens: 400,
   };
 
-  const [bot1, bot2] = await Promise.all([
-    generateSection({ persona: 'entertainer', sectionType: 'Final Word', context: cfg.ctx, constraints: cfg.entConstraint, maxTokens: cfg.tokens, episodeType, validate: (t) => t.length >= 100 }),
-    generateSection({ persona: 'analyst',     sectionType: 'Final Word', context: cfg.ctx, constraints: cfg.anaConstraint, maxTokens: cfg.tokens, episodeType, validate: (t) => t.length >= 100 }),
-  ]);
+  // Sequential: Mason closes first, Westy responds to Mason's closing
+  const bot1 = await generateSection({
+    persona: 'entertainer',
+    sectionType: 'Final Word',
+    context: cfg.ctx + priorCtxBlock,
+    constraints: cfg.entConstraint,
+    maxTokens: cfg.tokens,
+    episodeType,
+    validate: (t) => t.length >= 100,
+  });
+
+  const westyCtx = `${cfg.ctx}\n\n---\nMason Reed just closed the show with:\n"${bot1}"\n\nNow give your final word.`;
+  const bot2 = await generateSection({
+    persona: 'analyst',
+    sectionType: 'Final Word',
+    context: westyCtx,
+    constraints: cfg.anaConstraint + ' Do NOT re-state what Mason just said. Respond to it briefly or add a different angle.',
+    maxTokens: cfg.tokens,
+    episodeType,
+    validate: (t) => t.length >= 100,
+  });
+
   return { bot1, bot2 };
 }
 
 async function genSingleRecap(input: StepInput, matchupIndex: number): Promise<RecapItem> {
-  const { week, derived, memEntertainer, memAnalyst, enhancedContext } = input;
+  const { week, derived, enhancedContext } = input;
   const pairs = derived.matchup_pairs || [];
   const p = pairs[matchupIndex];
   if (!p) throw new Error(`No matchup at index ${matchupIndex}`);
 
   const winnerPlayers = p.winner.topPlayers?.map(pl => `${pl.name} (${pl.points} pts)`).join(', ') || 'no player data';
-  const loserPlayers = p.loser.topPlayers?.map(pl => `${pl.name} (${pl.points} pts)`).join(', ') || 'no player data';
+  const loserPlayers  = p.loser.topPlayers?.map(pl => `${pl.name} (${pl.points} pts)`).join(', ') || 'no player data';
 
-  const context = `MATCHUP: ${p.winner.name} defeated ${p.loser.name}\nFinal: ${p.winner.points.toFixed(1)} – ${p.loser.points.toFixed(1)} (margin: ${p.margin.toFixed(1)})\n${p.winner.name} heroes: ${winnerPlayers}\n${p.loser.name} scorers: ${loserPlayers}\n\n${enhancedContext.slice(0, 3000)}`;
+  const baseContext = `MATCHUP: ${p.winner.name} defeated ${p.loser.name}\nFinal: ${p.winner.points.toFixed(1)} – ${p.loser.points.toFixed(1)} (margin: ${p.margin.toFixed(1)})\n${p.winner.name} top players: ${winnerPlayers}\n${p.loser.name} top players: ${loserPlayers}\n\n${enhancedContext.slice(0, 2500)}`;
 
-  const exchangeTokens = week >= 17 ? 900 : p.margin <= 5 ? 700 : 550;
+  const lineCount = week >= 17 ? 3 : p.margin <= 5 ? 3 : 2;
+  const perBotTokens = week >= 17 ? 350 : p.margin <= 5 ? 300 : 250;
 
-  const dialogueRaw = await generateSection({
+  // Mason speaks first — his genuine take on this specific game
+  const masonRaw = await generateSection({
     persona: 'entertainer',
     sectionType: `${p.bracketLabel ?? 'Matchup'} Recap`,
-    context,
-    constraints: `Generate ${week >= 17 ? '6-8' : '4-5'} alternating lines of commentary about this specific matchup.\nFormat: "ENTERTAINER: [line]" OR "ANALYST: [line]"\nEntertainer (Mason Reed) speaks first.\nReference the actual scores, players, and margin. No other teams.\nBegin immediately:`,
-    maxTokens: exchangeTokens,
+    context: baseContext,
+    constraints: `Write ${lineCount} sharp lines reacting to this game. Each line is a separate take — reference actual players, the final score, and the margin. No dialogue labels needed. Be specific about WHY ${p.winner.name} won and what it means. FACTUAL RULE: only reference players and facts from the context above.`,
+    maxTokens: perBotTokens,
   }).catch(() => '');
+
+  // Westy responds — he reads what Mason said and adds the analytical counter
+  const westyContext = `${baseContext}\n\n--- Mason Reed just said about this game ---\n${masonRaw || '(no comment yet)'}\n---`;
+  const westyRaw = await generateSection({
+    persona: 'analyst',
+    sectionType: `${p.bracketLabel ?? 'Matchup'} Recap`,
+    context: westyContext,
+    constraints: `Write ${lineCount} analytical lines responding to this game. Reference what the numbers actually show — efficiency, margin context, what ${masonRaw ? "Mason mentioned" : "the scoreline"} misses. Push back on one point or add something Mason overlooked. Be specific. FACTUAL RULE: only reference players and facts from the context above.`,
+    maxTokens: perBotTokens,
+  }).catch(() => '');
+
+  // Parse each bot's lines into dialogue entries, then interleave them
+  const parseLines = (raw: string, speaker: 'entertainer' | 'analyst') =>
+    raw.split(/\n+/)
+       .map(l => l.replace(/^\*\*|\*\*$|^[-•]\s*/g, '').trim())
+       .filter(l => l.length > 12)
+       .slice(0, lineCount + 1)
+       .map(text => ({ speaker, text }));
+
+  const masonLines = parseLines(masonRaw, 'entertainer');
+  const westyLines = parseLines(westyRaw, 'analyst');
 
   type DT = { speaker: 'entertainer' | 'analyst'; text: string };
   const dialogue: DT[] = [];
-  for (const line of dialogueRaw.split('\n')) {
-    const clean = line.replace(/^\*\*/, '').replace(/\*\*$/, '').trim();
-    const em = clean.match(/^(?:ENTERTAINER|MASON REED|MASON)[:\s]+(.+)/i);
-    const am = clean.match(/^(?:ANALYST|WESTY|TRENT WESTON)[:\s]+(.+)/i);
-    if (em && em[1].trim().length > 10) dialogue.push({ speaker: 'entertainer', text: em[1].trim() });
-    else if (am && am[1].trim().length > 10) dialogue.push({ speaker: 'analyst', text: am[1].trim() });
+  const maxLen = Math.max(masonLines.length, westyLines.length);
+  for (let i = 0; i < maxLen; i++) {
+    if (masonLines[i]) dialogue.push(masonLines[i]);
+    if (westyLines[i]) dialogue.push(westyLines[i]);
   }
 
   if (dialogue.length < 2) {
-    dialogue.push({ speaker: 'entertainer', text: `${p.winner.name} takes it ${p.winner.points.toFixed(1)}-${p.loser.points.toFixed(1)}. ${p.margin > 20 ? 'Not even close.' : 'Close one.'}` });
+    dialogue.push({ speaker: 'entertainer', text: `${p.winner.name} takes it ${p.winner.points.toFixed(1)}-${p.loser.points.toFixed(1)}. ${p.margin > 20 ? 'Not even close.' : 'Hard-fought one.'}` });
     dialogue.push({ speaker: 'analyst',     text: `Margin of ${p.margin.toFixed(1)}. ${winnerPlayers.split(',')[0]?.split(' (')[0] ?? 'Top performer'} was the difference.` });
   }
 
@@ -309,14 +409,44 @@ async function genSingleRecap(input: StepInput, matchupIndex: number): Promise<R
 }
 
 async function genWaivers(input: StepInput): Promise<WaiverItem[]> {
-  const events = (input.derived.events_scored || []).filter(e =>
-    (e.type === 'waiver' || e.type === 'fa_add') && (e.faab_spent ?? 0) >= 3
-  );
+  // Include high/medium coverage moves, or any bid >= $5; exclude low-coverage $0 pickups
+  const events = (input.derived.events_scored || []).filter(e => {
+    if (e.type !== 'waiver' && e.type !== 'fa_add') return false;
+    if (e.coverage_level === 'high' || e.coverage_level === 'moderate') return true;
+    if ((e.faab_spent ?? 0) >= 5) return true;
+    return false;
+  });
   if (events.length === 0) return [];
+
+  // Build dynasty rank lookup from stored rankings for per-player annotation
+  const dynLookup = (() => {
+    const rankings = input.dynastyRankings;
+    if (!rankings || rankings.length === 0) return null;
+    const byFull = new Map<string, number>();
+    const byLast = new Map<string, number>();
+    for (const r of rankings) {
+      const full = r.name.toLowerCase().trim();
+      byFull.set(full, r.rank);
+      const last = full.split(' ').pop() ?? '';
+      if (last.length >= 4 && !byLast.has(last)) byLast.set(last, r.rank);
+    }
+    return { byFull, byLast };
+  })();
+
+  const getDynastyRank = (name: string | undefined): string => {
+    if (!name || !dynLookup) return '';
+    const lower = name.toLowerCase().trim();
+    const rank = dynLookup.byFull.get(lower) ?? (() => {
+      const last = lower.split(' ').pop() ?? '';
+      return last.length >= 4 ? dynLookup.byLast.get(last) : undefined;
+    })();
+    return rank != null ? ` [Dynasty #${rank}]` : '';
+  };
 
   const numberedContext = events.map((e, i) => {
     const faab = e.faab_spent != null ? ` ($${e.faab_spent} FAAB)` : '';
-    return `${i + 1}. ${e.team} added ${e.player || 'unknown'}${faab}`;
+    const dynRank = getDynastyRank(e.player);
+    return `${i + 1}. ${e.team} added ${e.player || 'unknown'}${faab}${dynRank}`;
   }).join('\n');
 
   const splitByNumber = (text: string): string[] =>
@@ -347,12 +477,40 @@ async function genSingleTradeItem(input: StepInput, tradeIndex: number): Promise
   const e = tradeEvents[tradeIndex];
   if (!e) return null;
 
+  // Build dynasty rank lookup so player assets can be annotated inline
+  const tradeDynLookup = (() => {
+    const rankings = input.dynastyRankings;
+    if (!rankings || rankings.length === 0) return null;
+    const byFull = new Map<string, number>();
+    const byLast = new Map<string, number>();
+    for (const r of rankings) {
+      const full = r.name.toLowerCase().trim();
+      byFull.set(full, r.rank);
+      const last = full.split(' ').pop() ?? '';
+      if (last.length >= 4 && !byLast.has(last)) byLast.set(last, r.rank);
+    }
+    return { byFull, byLast };
+  })();
+
+  const annotateTradePlayers = (assets: string[] | undefined): string => {
+    if (!assets || assets.length === 0) return 'none';
+    return assets.map(asset => {
+      if (!tradeDynLookup) return asset;
+      const lower = asset.toLowerCase().trim();
+      const rank = tradeDynLookup.byFull.get(lower) ?? (() => {
+        const last = lower.split(' ').pop() ?? '';
+        return last.length >= 4 ? tradeDynLookup.byLast.get(last) : undefined;
+      })();
+      return rank != null ? `${asset} [Dynasty #${rank}]` : asset;
+    }).join(', ');
+  };
+
   const byTeam = e.details?.by_team || {};
   const parties = e.parties || Object.keys(byTeam);
   let tradeBreakdown = '';
   for (const team of parties) {
     const a = byTeam[team];
-    if (a) tradeBreakdown += `\n${team}: GETS ${a.gets?.join(', ')} | GIVES ${a.gives?.join(', ')}`;
+    if (a) tradeBreakdown += `\n${team}: GETS ${annotateTradePlayers(a.gets)} | GIVES ${annotateTradePlayers(a.gives)}`;
   }
   const tradeContext = e.details?.headline
     ? `${parties.join(' ↔ ')}: ${e.details.headline}${tradeBreakdown}`
@@ -374,10 +532,10 @@ async function genSingleTradeItem(input: StepInput, tradeIndex: number): Promise
   const analysis: TradeItem['analysis'] = {};
   for (const party of parties) {
     const a = byTeam[party];
-    const sideCtx = `Trade for ${party}: RECEIVED ${a?.gets?.join(', ')} | GAVE ${a?.gives?.join(', ')}\nFull trade: ${tradeContext}`;
+    const sideCtx = `Trade for ${party}:\n  RECEIVED: ${annotateTradePlayers(a?.gets)}\n  GAVE UP: ${annotateTradePlayers(a?.gives)}\n\nFull trade breakdown:\n${tradeContext}`;
     const [entR, anaR] = await Promise.all([
-      generateSection({ persona: 'entertainer', sectionType: 'Trade Grade', context: sideCtx, constraints: `Grade this trade for ${party} (A+ to F). 3-4 sentences with personality. Include your letter grade.`, maxTokens: 350 }),
-      generateSection({ persona: 'analyst',     sectionType: 'Trade Grade', context: sideCtx, constraints: `Grade this trade for ${party} (A+ to F). 3-4 analytical sentences on short/long-term value and fit. Include letter grade.`, maxTokens: 350 }),
+      generateSection({ persona: 'entertainer', sectionType: 'Trade Grade', context: sideCtx, constraints: `Grade this trade FOR ${party} specifically (A+ to F). Start with the letter grade. 3-4 sentences on what ${party} got and what they gave up. Give a SPECIFIC reason for the grade — were they the winner or the loser and why? FACTUAL RULE: only reference assets listed in RECEIVED and GAVE UP above. Do not invent players or picks.`, maxTokens: 350 }),
+      generateSection({ persona: 'analyst',     sectionType: 'Trade Grade', context: sideCtx, constraints: `Grade this trade FOR ${party} specifically (A+ to F). Start with the letter grade. 3-4 sentences analyzing the value exchange — what did ${party} receive vs. what they surrendered, and is the dynasty cost worth it? FACTUAL RULE: only reference assets listed in RECEIVED and GAVE UP above. Do not invent players or picks.`, maxTokens: 350 }),
     ]);
     analysis[party] = {
       grade: extractGrade(entR),
@@ -396,10 +554,15 @@ async function genSpotlight(input: StepInput): Promise<SpotlightSection | null> 
   const pairs = input.derived.matchup_pairs || [];
   if (!pairs.length) return null;
   const p = pairs.reduce((best, curr) => curr.winner.points > best.winner.points ? curr : best, pairs[0]);
-  const context = `Team of the Week: ${p.winner.name}\n- Beat ${p.loser.name} by ${p.margin.toFixed(1)}\n- Scored ${p.winner.points.toFixed(1)} pts\n${input.enhancedContext.slice(0, 2000)}`;
+
+  const priorBlock = input.priorSectionSummary
+    ? `\n\n--- ALREADY COVERED IN THIS NEWSLETTER ---\n${input.priorSectionSummary}\n(Do NOT repeat these storylines — the Spotlight should add a new angle on why ${p.winner.name} dominated)`
+    : '';
+
+  const context = `Team of the Week: ${p.winner.name}\n- Beat ${p.loser.name} by ${p.margin.toFixed(1)}\n- Scored ${p.winner.points.toFixed(1)} pts\n${input.enhancedContext.slice(0, 2000)}${priorBlock}`;
   const [bot1, bot2] = await Promise.all([
-    generateSection({ persona: 'entertainer', sectionType: 'Spotlight', context, constraints: 'Write 3-4 paragraphs spotlighting this team. Hype them up, reference which players came through, what it means for their season.', maxTokens: 500 }),
-    generateSection({ persona: 'analyst',     sectionType: 'Spotlight', context, constraints: 'Write 3-4 paragraphs analytically dissecting this performance. Stats, sustainability, playoff trajectory.', maxTokens: 500 }),
+    generateSection({ persona: 'entertainer', sectionType: 'Spotlight', context, constraints: 'Write 3-4 paragraphs spotlighting this team. Hype them up, reference which players came through, what it means for their season. FACTUAL RULE: only reference players and stats from the context above.', maxTokens: 500 }),
+    generateSection({ persona: 'analyst',     sectionType: 'Spotlight', context, constraints: 'Write 3-4 paragraphs analytically dissecting this performance. Stats, sustainability, playoff trajectory. FACTUAL RULE: only reference players and stats from the context above.', maxTokens: 500 }),
   ]);
   return { team: p.winner.name, bot1, bot2 };
 }
@@ -413,20 +576,52 @@ async function genBlurt(input: StepInput): Promise<BlurtSection> {
     const biggest = [...pairs].sort((a, b) => b.margin - a.margin)[0];
     weekFacts.push(`Biggest win: ${biggest.winner.name} def. ${biggest.loser.name} by ${biggest.margin.toFixed(1)}`);
   }
-  const ctx = weekFacts.join('\n') + '\n\n' + input.enhancedContext.slice(0, 500);
-  const [bot1, bot2] = await Promise.all([
-    generateSection({ persona: 'entertainer', sectionType: 'Blurt', context: ctx, constraints: 'One sharp 2-3 sentence aside — a hot observation or team you can\'t stop thinking about. No speaker label.', maxTokens: 150 })
-      .then(r => r.trim().replace(/^(?:entertainer|the entertainer)[:\s]+/i, '') || null).catch(() => null),
-    generateSection({ persona: 'analyst',     sectionType: 'Blurt', context: ctx, constraints: 'One sharp 2-3 sentence data observation or surprising trend. No speaker label.', maxTokens: 150 })
-      .then(r => r.trim().replace(/^(?:analyst|the analyst)[:\s]+/i, '') || null).catch(() => null),
-  ]);
+
+  const priorBlock = input.priorSectionSummary
+    ? `\n\n--- ALREADY COVERED THIS WEEK ---\n${input.priorSectionSummary}\n(Your blurt MUST take a fresh angle — don't repeat anything listed above)`
+    : '';
+
+  const ctx = weekFacts.join('\n') + '\n\n' + input.enhancedContext.slice(0, 500) + priorBlock;
+
+  // Sequential: Mason first, Westy responds with a different angle
+  const bot1 = await generateSection({
+    persona: 'entertainer',
+    sectionType: 'Blurt',
+    context: ctx,
+    constraints: 'One sharp 2-3 sentence hot take — a bold observation or team you can\'t stop thinking about. No speaker label. Pick something NOT already mentioned above.',
+    maxTokens: 150,
+  }).then(r => r.trim().replace(/^(?:entertainer|the entertainer|mason|mason reed)[:\s]+/i, '') || null).catch(() => null);
+
+  const westyCtx = `${ctx}\n\n--- Mason Reed's aside ---\n"${bot1 ?? '(nothing yet)'}"\n(Your blurt must be a DIFFERENT observation — not a response to Mason, just your own angle)`;
+  const bot2 = await generateSection({
+    persona: 'analyst',
+    sectionType: 'Blurt',
+    context: westyCtx,
+    constraints: 'One sharp 2-3 sentence data observation or surprising trend. No speaker label. Must be a completely different angle from what Mason said.',
+    maxTokens: 150,
+  }).then(r => r.trim().replace(/^(?:analyst|the analyst|westy|trent)[:\s]+/i, '') || null).catch(() => null);
+
   return { bot1: bot1 ?? null, bot2: bot2 ?? null };
 }
 
 // Structured JSON power rankings — more reliable than regex parsing
 async function genPowerRankings(input: StepInput, preseason = false): Promise<PowerRankingsSection> {
   const leagueKnowledge = buildStaticLeagueContext();
-  const ctx = `${leagueKnowledge}\n\n${preseason ? 'PRESEASON ' : ''}POWER RANKINGS — ${input.season}\n\n${input.enhancedContext.slice(0, 4000)}`;
+
+  // Build explicit standings table from matchup pairs so the LLM has concrete data to rank from
+  const standingsBlock = (() => {
+    const pairs = input.derived.matchup_pairs || [];
+    if (pairs.length === 0) return '';
+    const allTeams = new Map<string, { pts: number }>();
+    for (const p of pairs) {
+      allTeams.set(p.winner.name, { pts: p.winner.points });
+      allTeams.set(p.loser.name, { pts: p.loser.points });
+    }
+    const lines = [...allTeams.entries()].map(([name, d]) => `  ${name}: ${d.pts.toFixed(1)} pts this week`);
+    return `\n=== WEEK ${input.week} SCORES (use these to inform rankings) ===\n${lines.join('\n')}\n=== END SCORES ===\n`;
+  })();
+
+  const ctx = `${leagueKnowledge}\n\n${preseason ? 'PRESEASON ' : ''}POWER RANKINGS — ${input.season}\n${standingsBlock}\n${input.enhancedContext.slice(0, 4000)}`;
 
   const JSON_FORMAT = `Return ONLY a JSON array (no markdown fences, no other text) of exactly 12 objects:
 [{"rank":1,"team":"TeamName","blurb":"2-3 sentence take"},...]
@@ -525,7 +720,9 @@ async function repairMockDraftRound(
       (normalizePlayerName(used).split(' ').pop() ?? '') === (normalizePlayerName(p.name).split(' ').pop() ?? '')
     )
   );
-  const poolText = availablePool.map((p, i) => `${i + 1}. ${p.name} (${p.pos})`).join('\n');
+  const poolText = availablePool.map((p, i) =>
+    `${i + 1}. ${p.name} (${p.pos}${p.rank !== null ? `, dynasty rank #${p.rank}` : ', unranked'})`
+  ).join('\n');
   const orderText = slots.map((s, i) => `Pick ${round}.${String(i + 1).padStart(2, '0')}: ${s.team}`).join('\n');
 
   const invalidPicks = originalPicks.filter(p => !isInProspectPool(p.player, pool));
@@ -638,8 +835,12 @@ async function genMockDraftR1(
     : `Mason and Westy are established analysts for this league.`;
 
   // Prospect pool goes FIRST — before league knowledge and enhanced context — so it is never truncated
-  const poolText = prospectPool.map((p, i) => `${i + 1}. ${p.name} (${p.pos})`).join('\n');
+  // Dynasty rank (#1 = best dynasty value) is shown so the LLM knows relative prospect value
+  const poolText = prospectPool.map((p, i) =>
+    `${i + 1}. ${p.name} (${p.pos}${p.rank !== null ? `, dynasty rank #${p.rank}` : ', unranked'})`
+  ).join('\n');
   const poolHeader = `=== ELIGIBLE PLAYERS — ${season} NFL DRAFT PROSPECT POOL ===
+Dynasty rank #1 = highest dynasty fantasy value. Higher-ranked players should generally go earlier unless a team has a clear positional need for a lower-ranked player.
 You may ONLY select players from the list below for this mock draft.
 DO NOT use players from any previous draft class.
 DO NOT use: Bryce Young, Will Levis, CJ Stroud, Anthony Richardson, Caleb Williams, Drake Maye, or any other player not on this exact list.
@@ -648,11 +849,15 @@ ${poolText}
 
 === END ELIGIBLE PLAYER LIST (${prospectPool.length} total) ===`;
 
-  const context = `${poolHeader}\n\n${leagueKnowledge}\n\n---\n\n${season} EAST V. WEST ROOKIE DRAFT — MOCK DRAFT\n\n${debutLine}\n\nROUND 1 DRAFT ORDER (slot 1 = worst record, slot ${effectiveSlots.length} = champion):\n${r1Order}\n\n${enhancedContext.slice(0, 2000)}`;
+  const rosterCtxBlock = input.rosterContext
+    ? `=== CURRENT TEAM ROSTERS (use to judge positional needs for each pick) ===\n${input.rosterContext}\n=== END ROSTERS ===\n\n`
+    : '';
+
+  const context = `${poolHeader}\n\n${leagueKnowledge}\n\n${rosterCtxBlock}---\n\n${season} EAST V. WEST ROOKIE DRAFT — MOCK DRAFT\n\n${debutLine}\n\nROUND 1 DRAFT ORDER (slot 1 = worst record, slot ${effectiveSlots.length} = champion):\n${r1Order}\n\n${enhancedContext.slice(0, 2000)}`;
 
   const pickFmt = `EXACTLY this format for all ${effectiveSlots.length} picks:\n\nPICK 1.01 | ${effectiveSlots[0].team} | [Player Name from eligible list] | [Position]\n[4-5 sentence paragraph]\n\nPICK 1.02 | ${effectiveSlots[1]?.team ?? 'Team 2'} | [Player Name from eligible list] | [Position]\n[4-5 sentence paragraph]\n\n(continue through PICK 1.${String(effectiveSlots.length).padStart(2, '0')})`;
 
-  const constraint = `You are ${persona === 'entertainer' ? 'Mason Reed — bold, personality-first' : 'Westy — analytical, data-driven'}. Write YOUR Round 1 mock draft.\n\n⚠️ CRITICAL RULE: Every player you select MUST appear in the ELIGIBLE PLAYERS list at the top of the context. If a player is not on that list, do NOT pick them.\n\n${pickFmt}`;
+  const constraint = `You are ${persona === 'entertainer' ? 'Mason Reed — bold, personality-first' : 'Westy — analytical, data-driven'}. Write YOUR Round 1 mock draft.\n\n⚠️ PLAYER RULE: Every player MUST appear in the ELIGIBLE PLAYERS list above. Do NOT use any other player.\n⚠️ ORDER RULE: Generally pick higher dynasty-ranked players earlier. Deviate only for clear team need (and say why).\n⚠️ ANALYSIS RULE: For each pick paragraph, explain WHY this player goes HERE — what is this team's need, what is this player's dynasty upside, and why does the fit make sense. Vague praise is not enough.\n\n${pickFmt}`;
 
   const raw = await generateSection({
     persona,
@@ -717,8 +922,11 @@ async function genMockDraftR2(
   console.log(`[ComposeStep] MockDraft_R2_${personaLabel} started — ${round2Slots.length} picks, ${r2Pool.length} remaining eligible prospects`);
   console.log(`[ComposeStep] MockDraft R2 order: ${round2Slots.map((s, i) => `${i + 1}.${s.team}`).join(', ')}`);
 
-  const poolText = r2Pool.map((p, i) => `${i + 1}. ${p.name} (${p.pos})`).join('\n');
+  const poolText = r2Pool.map((p, i) =>
+    `${i + 1}. ${p.name} (${p.pos}${p.rank !== null ? `, dynasty rank #${p.rank}` : ', unranked'})`
+  ).join('\n');
   const poolHeader = `=== ELIGIBLE PLAYERS — ROUND 2 (${season} prospect pool minus Round 1 picks) ===
+Dynasty rank #1 = highest dynasty value. Pick in roughly ranking order unless a team has a specific positional need.
 You may ONLY select players from the list below.
 DO NOT repeat Round 1 picks. DO NOT use players from any previous draft class.
 
@@ -733,8 +941,12 @@ ${poolText}
   const r2Order = round2Slots.map((s, i) => `Pick 2.${String(i + 1).padStart(2, '0')}: ${s.team}`).join('\n');
   const pickFmt = `EXACTLY this format for all ${round2Slots.length} picks:\n\nPICK 2.01 | ${round2Slots[0].team} | [Player Name from eligible list] | [Position]\n[4-5 sentence paragraph]\n\n(continue through PICK 2.${String(round2Slots.length).padStart(2, '0')})`;
 
-  const context = `${poolHeader}\n\n${leagueKnowledge}\n\n${r1Summary}\n\nROUND 2 ORDER:\n${r2Order}\n\n${enhancedContext.slice(0, 2000)}`;
-  const constraint = `Continue your mock draft into ROUND 2 as ${persona === 'entertainer' ? 'Mason Reed' : 'Westy'}.\n${r1Summary}\n⚠️ CRITICAL RULE: Every player you select MUST appear in the ELIGIBLE PLAYERS list at the top. Do NOT use any other player.\nFor each R2 pick, reference what this team took in Round 1.\n${pickFmt}`;
+  const rosterCtxBlock = input.rosterContext
+    ? `=== CURRENT TEAM ROSTERS (use to judge positional needs for each pick) ===\n${input.rosterContext}\n=== END ROSTERS ===\n\n`
+    : '';
+
+  const context = `${poolHeader}\n\n${leagueKnowledge}\n\n${rosterCtxBlock}${r1Summary}\n\nROUND 2 ORDER:\n${r2Order}\n\n${enhancedContext.slice(0, 2000)}`;
+  const constraint = `Continue your mock draft into ROUND 2 as ${persona === 'entertainer' ? 'Mason Reed' : 'Westy'}.\n${r1Summary}\n⚠️ PLAYER RULE: Every player MUST appear in the ELIGIBLE PLAYERS list above. Do NOT use any other player.\n⚠️ ORDER RULE: Generally pick higher dynasty-ranked players earlier. Deviate only for clear team need (and say why).\n⚠️ ANALYSIS RULE: For each pick, reference what this team took in Round 1 and explain WHY this Round 2 pick complements it — address, need, upside, or dynasty timeline.\n${pickFmt}`;
 
   const raw = await generateSection({
     persona,
@@ -962,8 +1174,8 @@ Their picks: ${picksText || 'No picks on record — this team had no picks in th
         generateSection({ persona: 'analyst',     sectionType: `Draft Grade - ${team}`, context, constraints: `${team} had NO PICKS in this draft. Start your response with exactly "N/A —" then give 2-3 analytical sentences on the dynasty implications of sitting out this rookie class entirely.`, maxTokens: 250 }),
       ])
     : await Promise.all([
-        generateSection({ persona: 'entertainer', sectionType: `Draft Grade - ${team}`, context, constraints: `Grade ${team}'s draft (A+ to F). 2-3 sentences personality-driven reaction. Start with the letter grade.`, maxTokens: 300 }),
-        generateSection({ persona: 'analyst',     sectionType: `Draft Grade - ${team}`, context, constraints: `Grade ${team}'s draft (A+ to F). 2-3 analytical sentences on value, needs, dynasty trajectory. Start with letter grade.`, maxTokens: 300 }),
+        generateSection({ persona: 'entertainer', sectionType: `Draft Grade - ${team}`, context, constraints: `Grade ${team}'s draft (A+ to F). Start with the letter grade. Then 2-3 sentences explaining WHY: were these reaches or steals relative to dynasty ranking? Did they fill a need? What does this class mean for their dynasty window? FACTUAL RULE: only reference picks explicitly listed for this team above.`, maxTokens: 300 }),
+        generateSection({ persona: 'analyst',     sectionType: `Draft Grade - ${team}`, context, constraints: `Grade ${team}'s draft (A+ to F). Start with the letter grade. Then 2-3 analytical sentences on: (1) value relative to dynasty ranking, (2) fit with team's roster construction, (3) dynasty timeline impact. FACTUAL RULE: only reference picks explicitly listed for this team above.`, maxTokens: 300 }),
       ]);
 
   return {
@@ -1059,6 +1271,39 @@ async function genForecast(input: StepInput): Promise<ForecastStepOutput> {
   }
 }
 
+// ============ Social Summary ============
+
+async function genSocialSummary(input: StepInput): Promise<{ text: string }> {
+  const { week, season, derived, enhancedContext, priorSectionSummary } = input;
+  const pairs = derived.matchup_pairs || [];
+
+  const facts: string[] = [`Season ${season}, Week ${week}`];
+  if (pairs.length > 0) {
+    const top = [...pairs].sort((a, b) => b.winner.points - a.winner.points)[0];
+    facts.push(`Top scorer: ${top.winner.name} (${top.winner.points.toFixed(1)} pts)`);
+    const biggest = [...pairs].sort((a, b) => b.margin - a.margin)[0];
+    if (biggest !== top) {
+      facts.push(`Biggest win: ${biggest.winner.name} def. ${biggest.loser.name} by ${biggest.margin.toFixed(1)}`);
+    }
+  }
+
+  const ctx = [
+    `EAST V. WEST — ${facts.join(' | ')}`,
+    enhancedContext.slice(0, 800),
+    priorSectionSummary ? `NEWSLETTER HIGHLIGHTS:\n${priorSectionSummary}` : '',
+  ].filter(Boolean).join('\n\n');
+
+  const text = await generateSection({
+    persona: 'entertainer',
+    sectionType: 'Social Summary',
+    context: ctx,
+    constraints: `Write 2-3 sentences for a Discord announcement about this week's newsletter. Cover: the biggest result, the team making headlines, and one spicy take. Target 200-280 characters. No hashtags, no emojis. Punchy and direct — make members want to read it.`,
+    maxTokens: 120,
+  }).catch(() => `East v. West Week ${week} newsletter is live — check it out.`);
+
+  return { text: text.trim() };
+}
+
 // ============ Master dispatch ============
 
 /**
@@ -1129,6 +1374,12 @@ export async function generateNewsletterSection(input: StepInput): Promise<StepR
     // Forecast step — generates picks for next week and carries pending picks for persistence
     if (sectionName === 'Forecast') {
       const data = await genForecast(input);
+      return { ok: true, sectionName, data };
+    }
+
+    // Social summary — 2-3 sentence Discord preview, generated after FinalWord
+    if (sectionName === 'SocialSummary') {
+      const data = await genSocialSummary(input);
       return { ok: true, sectionName, data };
     }
 

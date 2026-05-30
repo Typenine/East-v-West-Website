@@ -103,6 +103,85 @@ function checkRequiredStepsGuard(
   };
 }
 
+// ============ Prior-section summary builder ============
+
+/**
+ * Extracts key facts from already-completed section outputs into a compact string.
+ * Passed into later steps (FinalWord, Blurt, Spotlight) so they avoid repeating earlier content.
+ */
+function buildPriorSectionSummary(
+  sectionOutputs: Record<string, unknown>,
+  completedSteps: string[],
+): string {
+  const parts: string[] = [];
+
+  // Game results from recaps
+  const recapSteps = completedSteps.filter(s => /^Recap_\d+$/.test(s));
+  if (recapSteps.length > 0) {
+    const recapLines: string[] = [];
+    for (const step of recapSteps) {
+      const recap = sectionOutputs[step] as {
+        winner?: string; loser?: string; winner_score?: number; loser_score?: number; bracketLabel?: string;
+      } | null;
+      if (recap?.winner && recap?.loser) {
+        const label = recap.bracketLabel ? `[${recap.bracketLabel}] ` : '';
+        recapLines.push(`${label}${recap.winner} def. ${recap.loser} (${(recap.winner_score ?? 0).toFixed(1)}–${(recap.loser_score ?? 0).toFixed(1)})`);
+      }
+    }
+    if (recapLines.length > 0) parts.push(`Game results: ${recapLines.join('; ')}`);
+  }
+
+  // Spotlight team
+  if (completedSteps.includes('Spotlight')) {
+    const spotlight = sectionOutputs['Spotlight'] as { team?: string } | null;
+    if (spotlight?.team) parts.push(`Team of the Week spotlighted: ${spotlight.team}`);
+  }
+
+  // Notable waiver adds
+  if (completedSteps.includes('WaiversAndFA')) {
+    const waivers = sectionOutputs['WaiversAndFA'] as Array<{
+      player?: string; team?: string; faab_spent?: number; coverage_level?: string;
+    }> | null;
+    if (waivers && waivers.length > 0) {
+      const notable = waivers
+        .filter(w => w.coverage_level === 'high' || w.coverage_level === 'moderate' || (w.faab_spent ?? 0) >= 10)
+        .slice(0, 3)
+        .map(w => `${w.player ?? 'unknown'} to ${w.team ?? 'unknown'}${w.faab_spent ? ` ($${w.faab_spent})` : ''}`);
+      if (notable.length > 0) parts.push(`Notable adds: ${notable.join(', ')}`);
+    }
+  }
+
+  // Power rankings top 3
+  const pr = (sectionOutputs['PowerRankings'] ?? sectionOutputs['PowerRankings_Preseason']) as {
+    rankings?: Array<{ rank: number; team: string }>
+  } | null;
+  if (pr?.rankings && pr.rankings.length >= 3) {
+    const top3 = pr.rankings.slice(0, 3).map(r => r.team).join(', ');
+    parts.push(`Top 3 power rankings: ${top3}`);
+  }
+
+  // Trade grades — summarise which teams were graded and their letter grade
+  const tradeSteps = completedSteps.filter(s => /^Trade_\d+$/.test(s));
+  if (tradeSteps.length > 0) {
+    const tradeLines: string[] = [];
+    for (const step of tradeSteps) {
+      const trade = sectionOutputs[step] as {
+        analysis?: Record<string, { entertainer_grade?: string; analyst_grade?: string }>
+      } | null;
+      if (trade?.analysis) {
+        for (const [team, grades] of Object.entries(trade.analysis)) {
+          if (team === 'League Overview') continue;
+          const g = grades.entertainer_grade ?? grades.analyst_grade;
+          if (g) tradeLines.push(`${team}: ${g}`);
+        }
+      }
+    }
+    if (tradeLines.length > 0) parts.push(`Trade grades: ${tradeLines.join(', ')}`);
+  }
+
+  return parts.join('\n');
+}
+
 export async function POST(request: NextRequest) {
   if (!(await isAdmin(request))) {
     return NextResponse.json({ error: 'Admin access required' }, { status: 403 });
@@ -157,6 +236,7 @@ export async function POST(request: NextRequest) {
   const sectionOutputs = (derivedData.sections as Record<string, unknown>) ?? {};
   const forecastRecords = (derivedData.__forecastRecords as { entertainer: { w: number; l: number }; analyst: { w: number; l: number } } | null) ?? null;
   const prospectPool = (derivedData.__prospectPool as Array<{ name: string; pos: string; rank: number | null }> | null) ?? null;
+  const dynastyRankings = (derivedData.__dynastyRankings as Array<{ name: string; pos: string; nfl: string; rank: number }> | null) ?? undefined;
 
   const { episodeType, leagueName, matchupCount, tradeCount, preDraftSlots, preDraftRound2Slots, isFirstEpisodeEver, draftTeams } = jobMeta;
 
@@ -203,6 +283,12 @@ export async function POST(request: NextRequest) {
   const mockDraftR1Mason = sectionOutputs['MockDraft_R1_Mason'] as { picks: StepInput['mockDraftR1Mason'] } | undefined;
   const mockDraftR1Westy = sectionOutputs['MockDraft_R1_Westy'] as { picks: StepInput['mockDraftR1Westy'] } | undefined;
 
+  // Build a compact summary of completed sections for cross-referencing in later steps
+  const priorSectionSummary = buildPriorSectionSummary(sectionOutputs, Array.from(completedSteps));
+
+  // Load roster context built at job start (used by mock draft steps for team needs)
+  const rosterContext = (derivedData.__rosterContext as string | undefined) ?? '';
+
   const stepInput: StepInput = {
     sectionName: nextStep,
     week,
@@ -221,6 +307,9 @@ export async function POST(request: NextRequest) {
     mockDraftR1Westy: mockDraftR1Westy?.picks,
     forecastRecords,
     prospectPool,
+    priorSectionSummary: priorSectionSummary || undefined,
+    rosterContext: rosterContext || undefined,
+    dynastyRankings,
   };
 
   // ── Mark step as running ──
@@ -410,11 +499,16 @@ async function finalizeNewsletter(
   console.log(`[Step] Newsletter saved to DB — S${season}W${week} (${episodeType}), ${newsletter.sections.length} sections, ${html.length} HTML chars`);
   console.log(`[Step] Staged generation complete — Discord notification NOT posted (use Publish to announce)`);
 
+  // Include social summary in response if the step ran
+  const socialSummaryOutput = sectionOutputs['SocialSummary'] as { text?: string } | null | undefined;
+  const socialSummary = socialSummaryOutput?.text ?? null;
+
   return NextResponse.json({
     done: true,
     status: 'complete',
     completedSteps,
     validation,
+    ...(socialSummary ? { socialSummary } : {}),
     message: `Newsletter assembled and saved for Season ${season} Week ${week}.`,
   });
 }

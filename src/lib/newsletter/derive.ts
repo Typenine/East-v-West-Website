@@ -413,12 +413,15 @@ function normalizeTransactions(
           }
         }
         // Draft picks
+        // owner_id = current owner (receiver) after the trade
+        // previous_owner_id = prior owner (giver) before the trade
+        // Use Number() coercion because Sleeper may return these as strings
         if (Array.isArray(t.draft_picks)) {
           for (const raw of t.draft_picks) {
-            const pick = raw as { season?: string | number; round?: number; owner_id?: number; previous_owner_id?: number };
+            const pick = raw as { season?: string | number; round?: number; owner_id?: string | number; previous_owner_id?: string | number };
             const label = `${pick.season ?? '?'} Rd ${pick.round ?? '?'} Pick`;
-            if (pick.owner_id === rosterId) gets.push(label);
-            else if (pick.previous_owner_id === rosterId) gives.push(label);
+            if (Number(pick.owner_id) === rosterId) gets.push(label);
+            else if (Number(pick.previous_owner_id) === rosterId) gives.push(label);
           }
         }
         by_team[teamName] = { gets, gives };

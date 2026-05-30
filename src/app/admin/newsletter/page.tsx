@@ -86,6 +86,7 @@ function AdminNewsletterPageInner() {
   const [seasonInput, setSeasonInput] = useState('2025'); // User-editable season override
   const [episodeType, setEpisodeType] = useState<string>('regular'); // Episode type selector
   const [forceRegenerate, setForceRegenerate] = useState(false);
+  const [isFirstEpisodeEver, setIsFirstEpisodeEver] = useState(false);
   const [previewMode, setPreviewMode] = useState(true); // Default to preview for safety
   const [showPreviewHtml, setShowPreviewHtml] = useState(false);
   const [showPublishModal, setShowPublishModal] = useState(false);
@@ -254,7 +255,7 @@ function AdminNewsletterPageInner() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ week, season: seasonInput, episodeType, forceRegenerate, mode: 'start', isFirstEpisodeEver: false }),
+        body: JSON.stringify({ week, season: seasonInput, episodeType, forceRegenerate, mode: 'start', isFirstEpisodeEver }),
       });
       const startData = await startRes.json() as { success?: boolean; error?: string; totalSteps?: number; steps?: string[]; details?: string };
       if (!startRes.ok || !startData.success) {
@@ -440,6 +441,7 @@ function AdminNewsletterPageInner() {
           episodeType,
           forceRegenerate,
           preview: previewMode,
+          isFirstEpisodeEver,
         }),
       });
 
@@ -587,6 +589,19 @@ function AdminNewsletterPageInner() {
                   ℹ️ This episode type doesn&apos;t require a specific week number.
                 </div>
               )}
+
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id="isFirstEpisodeEver"
+                  checked={isFirstEpisodeEver}
+                  onChange={(e) => setIsFirstEpisodeEver(e.target.checked)}
+                  className="rounded"
+                />
+                <Label htmlFor="isFirstEpisodeEver" className="cursor-pointer">
+                  <span className="text-blue-400">First episode ever</span> — bots introduce themselves to the league
+                </Label>
+              </div>
 
               <div className="flex items-center gap-2">
                 <input

@@ -142,6 +142,11 @@ export {
   // External API integration (ESPN, Sleeper trending, etc.)
   fetchAllExternalData,
   buildExternalDataContext,
+  loadDynastyRankings,
+  buildDynastyOverviewContext,
+  buildDynastyLookup,
+  lookupDynastyRank,
+  type DynastyRankingsEntry,
   fetchSleeperTrending,
   fetchESPNInjuries,
   fetchESPNNews,

@@ -30,13 +30,16 @@ import {
   getCurrentStreaksForLeague,
   getLeagueTransactions,
   getLeague,
+  getLeagueMatchups,
   type LeagueRecordBook,
   type FranchiseSummary,
   type TopScoringWeekEntry,
   type TeamData,
   type SleeperTransaction,
+  type SleeperMatchup,
 } from '@/lib/utils/sleeper-api';
 import { rulesHtmlSections } from '@/data/rules';
+import { resolvePlayerName } from './derive';
 
 // ============ Types ============
 
@@ -285,12 +288,16 @@ export async function fetchCurrentWeekContext(
 ): Promise<CurrentWeekContext> {
   console.log(`[DataIntegration] Fetching current week context for Season ${season} Week ${week}...`);
 
-  // Fetch current season data in parallel
-  const [teamsData, streaks, league, transactions] = await Promise.all([
+  // Fetch last 4 completed weeks of matchup data for recent-form tracking
+  const recentWeekNums = Array.from({ length: Math.min(4, week - 1) }, (_, i) => week - 1 - i).filter(w => w >= 1);
+
+  // Fetch all data in parallel — current season + historical matchups for form
+  const [teamsData, streaks, league, transactions, ...historicalMatchupsByWeek] = await Promise.all([
     getTeamsData(leagueId).catch(e => { console.warn('Failed to fetch teams data:', e); return [] as TeamData[]; }),
     getCurrentStreaksForLeague(leagueId).catch(e => { console.warn('Failed to fetch streaks:', e); return {} as Record<number, { type: 'W' | 'L' | 'T' | null; length: number }>; }),
     getLeague(leagueId).catch(e => { console.warn('Failed to fetch league:', e); return null; }),
     getLeagueTransactions(leagueId, week).catch(e => { console.warn('Failed to fetch transactions:', e); return [] as SleeperTransaction[]; }),
+    ...recentWeekNums.map(w => getLeagueMatchups(leagueId, w).catch(() => [] as SleeperMatchup[])),
   ]);
 
   // Get league settings
@@ -302,6 +309,36 @@ export async function fetchCurrentWeekContext(
     if (b.wins !== a.wins) return b.wins - a.wins;
     return b.fpts - a.fpts;
   });
+
+  // Build recent results (last 4 weeks) per team from historical matchup data
+  const rosterToTeamName = new Map<number, string>(sortedTeams.map(t => [t.rosterId, t.teamName]));
+  const teamRecentResults = new Map<string, CurrentSeasonTeamData['recentResults']>();
+
+  for (let i = 0; i < recentWeekNums.length; i++) {
+    const wk = recentWeekNums[i];
+    const matchups = historicalMatchupsByWeek[i] as SleeperMatchup[];
+    const groups = new Map<number, Array<{ name: string; points: number }>>();
+    for (const m of matchups) {
+      if (m.matchup_id == null) continue;
+      const name = rosterToTeamName.get(m.roster_id) ?? `Roster ${m.roster_id}`;
+      const pts = Number(m.points ?? 0);
+      const grp = groups.get(m.matchup_id) ?? [];
+      grp.push({ name, points: pts });
+      groups.set(m.matchup_id, grp);
+    }
+    for (const [, grp] of groups) {
+      if (grp.length < 2) continue;
+      const [a, b] = grp;
+      const aWin = a.points > b.points;
+      const bWin = b.points > a.points;
+      const aRes: 'W' | 'L' | 'T' = aWin ? 'W' : bWin ? 'L' : 'T';
+      const bRes: 'W' | 'L' | 'T' = bWin ? 'W' : aWin ? 'L' : 'T';
+      if (!teamRecentResults.has(a.name)) teamRecentResults.set(a.name, []);
+      if (!teamRecentResults.has(b.name)) teamRecentResults.set(b.name, []);
+      teamRecentResults.get(a.name)!.push({ week: wk, result: aRes, points: a.points, opponentPoints: b.points, opponent: b.name });
+      teamRecentResults.get(b.name)!.push({ week: wk, result: bRes, points: b.points, opponentPoints: a.points, opponent: a.name });
+    }
+  }
 
   // Calculate playoff implications
   const weeksRemaining = Math.max(0, playoffStartWeek - 1 - week);
@@ -359,7 +396,7 @@ export async function fetchCurrentWeekContext(
       standingsPosition: position,
       playoffPosition,
       streak,
-      recentResults: [], // Would need to fetch weekly results for each team
+      recentResults: teamRecentResults.get(team.teamName) ?? [],
     };
   });
 
@@ -374,8 +411,8 @@ export async function fetchCurrentWeekContext(
         type: t.type as 'waiver' | 'free_agent',
         teamName,
         week,
-        adds: Object.keys(t.adds || {}).map(pid => ({ playerName: pid, playerId: pid })), // Would need player lookup
-        drops: Object.keys(t.drops || {}).map(pid => ({ playerName: pid, playerId: pid })),
+        adds: Object.keys(t.adds || {}).map(pid => ({ playerName: resolvePlayerName(pid), playerId: pid })),
+        drops: Object.keys(t.drops || {}).map(pid => ({ playerName: resolvePlayerName(pid), playerId: pid })),
         faabSpent: typeof faabBid === 'number' ? faabBid : undefined,
       };
     });
@@ -405,10 +442,12 @@ export function buildCurrentStandingsContext(context: CurrentWeekContext): strin
   for (const team of context.standings) {
     const streakStr = team.streak.type ? ` (${team.streak.type}${team.streak.length})` : '';
     const positionEmoji = team.standingsPosition <= context.playoffTeams ? '✅' : '❌';
-    const bubbleNote = team.playoffPosition === 'bubble' ? ' [BUBBLE]' : 
+    const bubbleNote = team.playoffPosition === 'bubble' ? ' [BUBBLE]' :
                        team.playoffPosition === 'eliminated' ? ' [ELIMINATED]' : '';
-    
-    lines.push(`${team.standingsPosition}. ${positionEmoji} ${team.teamName}: ${team.wins}-${team.losses} (${team.pointsFor.toFixed(1)} PF)${streakStr}${bubbleNote}`);
+    const formStr = team.recentResults.length > 0
+      ? ' | Last ' + team.recentResults.length + ': ' + team.recentResults.map(r => r.result).join('-')
+      : '';
+    lines.push(`${team.standingsPosition}. ${positionEmoji} ${team.teamName}: ${team.wins}-${team.losses} (${team.pointsFor.toFixed(1)} PF)${streakStr}${bubbleNote}${formStr}`);
   }
   
   lines.push('');
@@ -587,6 +626,104 @@ export function buildComprehensiveContextString(data: ComprehensiveLeagueData): 
   lines.push('');
   
   return lines.join('\n');
+}
+
+export interface DynastyRankingsEntry {
+  name: string;
+  pos: string;
+  nfl: string;
+  rank: number;
+}
+
+/**
+ * Load dynasty rankings — prefers stored R2 data (set via /admin/refresh-dynasty-rankings),
+ * falls back to a live FantasyCalc fetch if R2 is empty. Returns [] on total failure.
+ *
+ * Callers should store the result in the staged job and reuse it — don't call this per-step.
+ */
+export async function loadDynastyRankings(): Promise<DynastyRankingsEntry[]> {
+  // Try R2 first
+  try {
+    const { getObjectText } = await import('@/server/storage/r2');
+    const raw = await getObjectText({ key: 'newsletter/dynasty-rankings.json' });
+    if (raw) {
+      const stored = JSON.parse(raw) as { rankings?: DynastyRankingsEntry[] };
+      if (Array.isArray(stored.rankings) && stored.rankings.length > 0) {
+        console.log(`[Dynasty] Loaded ${stored.rankings.length} rankings from R2`);
+        return stored.rankings;
+      }
+    }
+  } catch (e) {
+    console.warn('[Dynasty] R2 read failed, trying live fetch:', e instanceof Error ? e.message : e);
+  }
+
+  // Fallback: live FantasyCalc fetch
+  try {
+    const res = await fetch(
+      'https://api.fantasycalc.com/values/current?isDynasty=true&numQbs=2&ppr=0.5',
+      { signal: AbortSignal.timeout(8000), next: { revalidate: 3600 } },
+    );
+    if (!res.ok) return [];
+    const data = await res.json() as Array<{
+      player?: { name?: string; position?: string; nflTeamAbbreviation?: string };
+    }>;
+    if (!Array.isArray(data)) return [];
+    const rankings = data
+      .map((entry, i) => ({
+        name: entry.player?.name ?? '',
+        pos:  entry.player?.position ?? 'UNK',
+        nfl:  entry.player?.nflTeamAbbreviation ?? '',
+        rank: i + 1,
+      }))
+      .filter(r => r.name);
+    console.log(`[Dynasty] Loaded ${rankings.length} rankings from live FC (no R2 data — run /admin/refresh-dynasty-rankings)`);
+    return rankings;
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Build a compact top-50 overview context string from stored dynasty rankings.
+ * Used as a general "bot awareness" block — not a per-player lookup.
+ */
+export function buildDynastyOverviewContext(rankings: DynastyRankingsEntry[]): string {
+  if (rankings.length === 0) return '';
+  const lines = rankings.slice(0, 50).map(r =>
+    `${r.rank}. ${r.name} (${r.pos}${r.nfl ? ', ' + r.nfl : ''})`
+  );
+  return `=== TOP 50 DYNASTY ASSETS (FantasyCalc 2QB/SF) ===\nRank 1 = most valuable. Use these ranks when discussing trade value, waiver stashes, and player upside.\n${lines.join('\n')}\n`;
+}
+
+/**
+ * Build a name→rank lookup map from stored dynasty rankings for per-player annotation.
+ * Returns two maps for O(1) lookup: exact full name and last name (for fuzzy matching).
+ */
+export function buildDynastyLookup(rankings: DynastyRankingsEntry[]): {
+  byFullName: Map<string, number>;
+  byLastName: Map<string, number>;
+} {
+  const byFullName = new Map<string, number>();
+  const byLastName = new Map<string, number>();
+  for (const r of rankings) {
+    const full = r.name.toLowerCase().trim();
+    byFullName.set(full, r.rank);
+    const last = full.split(' ').pop() ?? '';
+    if (last.length >= 4 && !byLastName.has(last)) byLastName.set(last, r.rank);
+  }
+  return { byFullName, byLastName };
+}
+
+/** Look up a player's dynasty rank by name. Returns null if not found. */
+export function lookupDynastyRank(
+  name: string,
+  lookup: { byFullName: Map<string, number>; byLastName: Map<string, number> },
+): number | null {
+  const lower = name.toLowerCase().trim();
+  if (lookup.byFullName.has(lower)) return lookup.byFullName.get(lower)!;
+  const last = lower.split(' ').pop() ?? '';
+  if (last.length >= 4 && lookup.byLastName.has(last)) return lookup.byLastName.get(last)!;
+  return null;
 }
 
 /**
@@ -1148,9 +1285,14 @@ export async function fetchAllExternalData(): Promise<ExternalDataBundle> {
 }
 
 /**
- * Build context string from external data for LLM prompts
+ * Build context string from external data for LLM prompts.
+ * Pass rosterPlayerNames (lowercase full names + last names) to scope injuries
+ * to only players on this league's rosters.
  */
-export function buildExternalDataContext(data: ExternalDataBundle): string {
+export function buildExternalDataContext(
+  data: ExternalDataBundle,
+  rosterPlayerNames?: { full: Set<string>; last: Set<string> },
+): string {
   const lines: string[] = [];
   
   // Trending players section
@@ -1174,13 +1316,21 @@ export function buildExternalDataContext(data: ExternalDataBundle): string {
     lines.push('');
   }
   
-  // Injury report section
-  if (data.injuries.length > 0) {
-    lines.push('=== NFL INJURY REPORT ===');
+  // Injury report section — scoped to league roster players when rosterPlayerNames provided
+  const relevantInjuries = rosterPlayerNames
+    ? data.injuries.filter(inj => {
+        const name = inj.playerName.toLowerCase().trim();
+        if (rosterPlayerNames.full.has(name)) return true;
+        const last = name.split(' ').pop() ?? '';
+        return last.length >= 4 && rosterPlayerNames.last.has(last);
+      })
+    : data.injuries;
+  if (relevantInjuries.length > 0) {
+    lines.push(rosterPlayerNames ? '=== EXTERNAL INJURY REPORT (roster players) ===' : '=== NFL INJURY REPORT ===');
     const byStatus = {
-      out: data.injuries.filter(i => i.status.toLowerCase() === 'out'),
-      doubtful: data.injuries.filter(i => i.status.toLowerCase() === 'doubtful'),
-      questionable: data.injuries.filter(i => i.status.toLowerCase() === 'questionable'),
+      out: relevantInjuries.filter(i => i.status.toLowerCase() === 'out'),
+      doubtful: relevantInjuries.filter(i => i.status.toLowerCase() === 'doubtful'),
+      questionable: relevantInjuries.filter(i => i.status.toLowerCase() === 'questionable'),
     };
     
     if (byStatus.out.length > 0) {
