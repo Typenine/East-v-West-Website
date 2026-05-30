@@ -828,9 +828,21 @@ async function startStagedJob(opts: {
     const rulesStr = getLeagueRulesContext();
 
     if (isPreseasonEp) {
-      // Use the same rich historical context the sync route uses — not a placeholder
       const histCtx = await buildPreseasonHistoricalContext(seasonNum, users);
-      enhancedContextString = `${rulesStr}\n\n${comprehensiveStr}\n\n${histCtx}`;
+      // Team name stability block — critical for pre_draft so bots know who owns which pick
+      const preTeamNameBlock = (() => {
+        const lines = ['=== CURRENT TEAM NAMES (may differ from historical records) ===',
+          'Use [SL:username] to correlate teams across seasons if names have changed.',
+        ];
+        for (const u of users) {
+          const meta = (u as { metadata?: { team_name?: string } }).metadata;
+          const teamName = meta?.team_name || u.display_name || u.username || `User ${u.user_id}`;
+          const slName = u.username || u.display_name || u.user_id;
+          lines.push(`- ${teamName} [SL:${slName}]`);
+        }
+        return lines.join('\n');
+      })();
+      enhancedContextString = `${preTeamNameBlock}\n\n${rulesStr}\n\n${comprehensiveStr}\n\n${histCtx}`;
       console.log(`[Staged] Preseason historical context built (${Math.round(enhancedContextString.length / 1000)}K chars)`);
     } else {
       const [currentWeekCtx, externalData, dynastyRankingsResult] = await Promise.all([
@@ -850,9 +862,24 @@ async function startStagedJob(opts: {
       // Compact top-50 overview for general bot awareness; full list stored separately for per-player lookup
       const dynastyOverviewStr = buildDynastyOverviewContext(stagedDynastyRankings);
 
+      // Build team-name stability block — lets bots correlate across name changes via Sleeper username
+      const teamNameBlock = (() => {
+        const lines = ['=== CURRENT TEAM NAMES (may differ from historical records) ===',
+          'Team names can change between seasons. Use [SL:username] to correlate with older trade/H2H records.',
+          'IMPORTANT: If you see a team name you do not recognize, look it up by [SL:username] in the roster list below.',
+        ];
+        for (const u of users) {
+          const meta = (u as { metadata?: { team_name?: string } }).metadata;
+          const teamName = meta?.team_name || u.display_name || u.username || `User ${u.user_id}`;
+          const slName = u.username || u.display_name || u.user_id;
+          lines.push(`- ${teamName} [SL:${slName}]`);
+        }
+        return lines.join('\n');
+      })();
+
       // Current data first — section generators slice context at 2-4K chars, so standings/transactions
       // must come before static historical content or they get cut off
-      enhancedContextString = [standingsStr, txStr, rosterInjuryStr, dynastyOverviewStr, externalStr, rulesStr, comprehensiveStr].filter(Boolean).join('\n\n');
+      enhancedContextString = [teamNameBlock, standingsStr, txStr, rosterInjuryStr, dynastyOverviewStr, externalStr, rulesStr, comprehensiveStr].filter(Boolean).join('\n\n');
       console.log(`[Staged] Regular context built (${Math.round(enhancedContextString.length / 1000)}K chars, dynasty=${stagedDynastyRankings.length} players)`);
     }
 
@@ -1043,34 +1070,60 @@ async function startStagedJob(opts: {
       }
     }
 
-    // ── Build roster context — compact per-team position summary for mock draft steps ──
+    // ── Build roster context — full per-team roster for mock draft and trade analysis ──
     let rosterContext = '';
     try {
-      const userNameMap = new Map<string, string>();
+      const rcUserNameMap = new Map<string, string>();
+      const rcSleeperUsernameMap = new Map<string, string>(); // user_id → stable Sleeper username
       for (const u of users) {
         const meta = (u as { metadata?: { team_name?: string } }).metadata;
-        userNameMap.set(u.user_id, meta?.team_name || u.display_name || u.username || `User ${u.user_id}`);
+        rcUserNameMap.set(u.user_id, meta?.team_name || u.display_name || u.username || `User ${u.user_id}`);
+        rcSleeperUsernameMap.set(u.user_id, u.username || u.display_name || `User ${u.user_id}`);
       }
       const rosterLines: string[] = [];
       for (const roster of rosters) {
-        const teamName = userNameMap.get(roster.owner_id) ?? `Roster ${roster.roster_id}`;
-        const playerIds = (roster as { players?: string[] }).players ?? [];
-        const byPos = new Map<string, string[]>();
-        for (const pid of playerIds.slice(0, 20)) {
-          const p = allPlayers[pid];
-          if (!p) continue;
-          const pos = (p as { position?: string }).position ?? 'UNK';
+        const teamName = rcUserNameMap.get(roster.owner_id) ?? `Roster ${roster.roster_id}`;
+        const sleeperName = rcSleeperUsernameMap.get(roster.owner_id) ?? '';
+        // Full roster: active + taxi + reserve (no slice limit — dynasty rosters are 25-35 players)
+        type ExtRoster = { players?: string[]; taxi?: string[]; reserve?: string[] };
+        const ext = roster as ExtRoster;
+        const activeIds = ext.players ?? [];
+        const taxiIds = ext.taxi ?? [];
+
+        const byPos = new Map<string, Array<{ name: string; taxi: boolean }>>();
+        const addPlayer = (pid: string, isTaxi: boolean) => {
+          const p = allPlayers[pid] as { first_name?: string; last_name?: string; position?: string } | undefined;
+          if (!p) return;
+          const pos = p.position ?? 'UNK';
+          const name = `${p.first_name ?? ''} ${p.last_name ?? ''}`.trim();
+          if (!name) return;
           if (!byPos.has(pos)) byPos.set(pos, []);
-          const name = `${(p as { first_name?: string }).first_name ?? ''} ${(p as { last_name?: string }).last_name ?? ''}`.trim();
-          byPos.get(pos)!.push(name);
+          byPos.get(pos)!.push({ name, taxi: isTaxi });
+        };
+        for (const pid of activeIds) addPlayer(pid, false);
+        for (const pid of taxiIds) addPlayer(pid, true);
+
+        const posOrder = ['QB', 'RB', 'WR', 'TE', 'K', 'DEF'];
+        const posLines: string[] = [];
+        for (const pos of posOrder) {
+          const players = byPos.get(pos);
+          if (players && players.length > 0) {
+            const names = players.map(pl => pl.taxi ? `${pl.name}*` : pl.name).join(', ');
+            posLines.push(`  ${pos}: ${names}`);
+          }
         }
-        const summary = ['QB', 'RB', 'WR', 'TE']
-          .map(pos => { const names = byPos.get(pos) ?? []; return names.length ? `${pos}: ${names.slice(0, 3).join('/')}` : null; })
-          .filter(Boolean).join(', ');
-        rosterLines.push(`${teamName}: ${summary || 'no data'}`);
+        // Any other positions not in posOrder
+        for (const [pos, players] of byPos) {
+          if (!posOrder.includes(pos) && players.length > 0) {
+            posLines.push(`  ${pos}: ${players.map(pl => pl.name).join(', ')}`);
+          }
+        }
+
+        const taxiNote = taxiIds.length > 0 ? ' (*=taxi squad)' : '';
+        rosterLines.push(`${teamName} [SL:${sleeperName}]${taxiNote}:\n${posLines.join('\n') || '  (no data)'}`);
       }
-      rosterContext = rosterLines.join('\n');
-      console.log(`[Staged] Roster context built: ${rosterLines.length} teams`);
+      rosterContext = rosterLines.join('\n\n');
+      console.log(`[Staged] Roster context built: ${rosterLines.length} teams (full rosters)`);
     } catch (e) {
       console.warn('[Staged] Failed to build roster context:', e);
     }
@@ -1438,9 +1491,25 @@ export async function POST(request: NextRequest) {
         ? `=== ROSTER INJURIES (players on league rosters) ===\n${rosterInjuryLines.join('\n')}\n`
         : '';
 
+      // Team name stability block for the sync route
+      const syncTeamNameBlock = (() => {
+        const lines = ['=== CURRENT TEAM NAMES (may differ from historical records) ===',
+          'Use [SL:username] to correlate teams across seasons if names have changed.',
+          'IMPORTANT: If you see an unfamiliar team name, look for its [SL:username] match.',
+        ];
+        for (const u of users) {
+          const meta = (u as unknown as { metadata?: { team_name?: string } }).metadata;
+          const teamName = meta?.team_name || u.display_name || u.username || `User ${u.user_id}`;
+          const slName = u.username || u.display_name || u.user_id;
+          lines.push(`- ${teamName} [SL:${slName}]`);
+        }
+        return lines.join('\n');
+      })();
+
       // Current data first — section generators slice to 2-4K chars, so standings/transactions
       // must come before static historical content or they get cut off
       enhancedContext.enhancedContextString = [
+        syncTeamNameBlock,
         currentStandingsString,
         transactionsString,
         rosterInjuryString,

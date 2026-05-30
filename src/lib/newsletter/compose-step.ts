@@ -507,14 +507,34 @@ async function genSingleTradeItem(input: StepInput, tradeIndex: number): Promise
 
   const byTeam = e.details?.by_team || {};
   const parties = e.parties || Object.keys(byTeam);
+  const isMultiTeam = parties.length > 2;
+
   let tradeBreakdown = '';
   for (const team of parties) {
     const a = byTeam[team];
     if (a) tradeBreakdown += `\n${team}: GETS ${annotateTradePlayers(a.gets)} | GIVES ${annotateTradePlayers(a.gives)}`;
   }
+
+  const multiTeamNote = isMultiTeam
+    ? `\n⚠️ MULTI-TEAM TRADE (${parties.length} teams): Each team's GETS and GIVES are listed separately. Assets may flow between any two of the ${parties.length} parties — read each team's side carefully.\n`
+    : '';
+
   const tradeContext = e.details?.headline
-    ? `${parties.join(' ↔ ')}: ${e.details.headline}${tradeBreakdown}`
-    : `Trade between ${parties.join(' and ')}${tradeBreakdown}`;
+    ? `${parties.join(' ↔ ')}: ${e.details.headline}${multiTeamNote}${tradeBreakdown}`
+    : `Trade between ${parties.join(' and ')}${multiTeamNote}${tradeBreakdown}`;
+
+  // Helper: find a team's full current roster from rosterContext for trade evaluation
+  const getTeamRoster = (teamName: string): string => {
+    if (!input.rosterContext) return '';
+    const blocks = input.rosterContext.split('\n\n');
+    const match = blocks.find(block => {
+      const header = block.split('\n')[0].toLowerCase();
+      return header.includes(teamName.toLowerCase()) ||
+        // Fuzzy: first word of team name (handles "Mt. Lebanon" vs "Mt Lebanon")
+        header.includes(teamName.toLowerCase().split(/\s+/)[0]);
+    });
+    return match ? `\n\nCURRENT ROSTER (use to evaluate their need for each asset):\n${match}` : '';
+  };
 
   const extractGrade = (text: string): string => {
     const m = text.match(/\bgrade[:\s]+([A-F][+-]?)\b/i)
@@ -532,7 +552,7 @@ async function genSingleTradeItem(input: StepInput, tradeIndex: number): Promise
   const analysis: TradeItem['analysis'] = {};
   for (const party of parties) {
     const a = byTeam[party];
-    const sideCtx = `Trade for ${party}:\n  RECEIVED: ${annotateTradePlayers(a?.gets)}\n  GAVE UP: ${annotateTradePlayers(a?.gives)}\n\nFull trade breakdown:\n${tradeContext}`;
+    const sideCtx = `You are grading THIS SPECIFIC TRADE for ${party} only. All players and picks listed below are exactly what changed hands — do not reference external news or other trades.\n\n${party} in this trade:\n  RECEIVED: ${annotateTradePlayers(a?.gets)}\n  GAVE UP: ${annotateTradePlayers(a?.gives)}${getTeamRoster(party)}\n\nFull trade breakdown:\n${tradeContext}`;
     const [entR, anaR] = await Promise.all([
       generateSection({ persona: 'entertainer', sectionType: 'Trade Grade', context: sideCtx, constraints: `Grade this trade FOR ${party} specifically (A+ to F). Start with the letter grade. 3-4 sentences on what ${party} got and what they gave up. Give a SPECIFIC reason for the grade — were they the winner or the loser and why? FACTUAL RULE: only reference assets listed in RECEIVED and GAVE UP above. Do not invent players or picks.`, maxTokens: 350 }),
       generateSection({ persona: 'analyst',     sectionType: 'Trade Grade', context: sideCtx, constraints: `Grade this trade FOR ${party} specifically (A+ to F). Start with the letter grade. 3-4 sentences analyzing the value exchange — what did ${party} receive vs. what they surrendered, and is the dynasty cost worth it? FACTUAL RULE: only reference assets listed in RECEIVED and GAVE UP above. Do not invent players or picks.`, maxTokens: 350 }),
@@ -887,7 +907,7 @@ ${poolText}
 
   const pickFmt = `EXACTLY this format for all ${effectiveSlots.length} picks:\n\nPICK 1.01 | ${effectiveSlots[0].team} | [Player Name from eligible list] | [Position]\n[4-5 sentence paragraph]\n\nPICK 1.02 | ${effectiveSlots[1]?.team ?? 'Team 2'} | [Player Name from eligible list] | [Position]\n[4-5 sentence paragraph]\n\n(continue through PICK 1.${String(effectiveSlots.length).padStart(2, '0')})`;
 
-  const constraint = `You are ${persona === 'entertainer' ? 'Mason Reed — bold, personality-first' : 'Westy — analytical, data-driven'}. Write YOUR Round 1 mock draft.\n\n⚠️ PLAYER RULE: Every player MUST appear in the ELIGIBLE PLAYERS list above. Do NOT use any other player.\n⚠️ ORDER RULE: Generally pick higher dynasty-ranked players earlier. Deviate only for clear team need (and say why).\n⚠️ ANALYSIS RULE: For each pick paragraph, explain WHY this player goes HERE — what is this team's need, what is this player's dynasty upside, and why does the fit make sense. Vague praise is not enough.\n\n${pickFmt}`;
+  const constraint = `You are ${persona === 'entertainer' ? 'Mason Reed — bold, personality-first' : 'Westy — analytical, data-driven'}. Write YOUR Round 1 mock draft.\n\n⚠️ PLAYER RULE: Every player MUST appear in the ELIGIBLE PLAYERS list above. Do NOT use any other player.\n⚠️ ROSTER RULE: Before each pick, check that team's CURRENT ROSTER (listed above). Reference SPECIFIC players they already have — every player on their roster matters, including backups and recent acquisitions. A team that just traded for a QB doesn't need another QB; a team with Bowers doesn't need a TE.\n⚠️ POSITION RULE: TE is 1-deep (start only 1 TE per week) — TE depth is low priority vs BPA. QB is the most valuable dynasty position in SuperFlex — teams needing a QB should prioritize it.\n⚠️ ORDER RULE: Generally pick higher dynasty-ranked players earlier. Deviate only for clear team need (and say why).\n⚠️ ANALYSIS RULE: Name specific players the team already has at that position. Explain the positional need by reference to their current roster. Vague praise is not enough.\n\n${pickFmt}`;
 
   const raw = await generateSection({
     persona,
@@ -979,7 +999,7 @@ ${poolText}
     : '';
 
   const context = `${poolHeader}\n\n${leagueKnowledge}\n\n${rosterCtxBlock}${r1Summary}\n\nROUND 2 ORDER:\n${r2Order}\n\n${enhancedContext.slice(0, 2000)}`;
-  const constraint = `Continue your mock draft into ROUND 2 as ${persona === 'entertainer' ? 'Mason Reed' : 'Westy'}.\n${r1Summary}\n⚠️ PLAYER RULE: Every player MUST appear in the ELIGIBLE PLAYERS list above. Do NOT use any other player.\n⚠️ ORDER RULE: Generally pick higher dynasty-ranked players earlier. Deviate only for clear team need (and say why).\n⚠️ ANALYSIS RULE: For each pick, reference what this team took in Round 1 and explain WHY this Round 2 pick complements it — address, need, upside, or dynasty timeline.\n${pickFmt}`;
+  const constraint = `Continue your mock draft into ROUND 2 as ${persona === 'entertainer' ? 'Mason Reed' : 'Westy'}.\n${r1Summary}\n⚠️ PLAYER RULE: Every player MUST appear in the ELIGIBLE PLAYERS list above. Do NOT use any other player.\n⚠️ ROSTER RULE: Check each team's CURRENT ROSTER (listed above) before picking. Reference specific players they already have — including recent acquisitions. A team with Bowers has no TE need; a team with two QBs doesn't need a third.\n⚠️ POSITION RULE: TE is 1-deep — don't prioritize TE depth unless a team has NO startable TE. QB is the most valuable dynasty position in this SuperFlex league.\n⚠️ ORDER RULE: Generally pick higher dynasty-ranked players earlier. Deviate only for clear team need (and say why).\n⚠️ ANALYSIS RULE: Reference their Round 1 pick AND their existing roster to explain the Round 2 pick. Name specific players on their roster.\n${pickFmt}`;
 
   const raw = await generateSection({
     persona,

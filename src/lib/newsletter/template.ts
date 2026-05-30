@@ -31,6 +31,16 @@ import type {
 import { TEAM_COLORS } from '../constants/team-colors';
 import { getTeamLogoPath } from '../utils/team-utils';
 
+// ============ League Brand ============
+
+const LEAGUE_LOGO = '/assets/teams/East v West Logos/Official East v. West Logo.png';
+const DRAFT_LOGO_2026 = '/draft-logos/2026-draft-logo.png';
+
+function leagueBadge(size: number = 48, episodeType?: string): string {
+  const src = (episodeType === 'pre_draft' || episodeType === 'post_draft') ? DRAFT_LOGO_2026 : LEAGUE_LOGO;
+  return `<img src="${src}" alt="East v. West" style="width:${size}px;height:${size}px;object-fit:contain;display:block;" onerror="this.style.display='none'" />`;
+}
+
 // ============ Team Color Helpers ============
 
 function hexToRgba(hex: string, alpha: number): string {
@@ -102,10 +112,13 @@ function sectionHeader(title: string, subtitle?: string): string {
   return `
   <div style="margin:80px 0 36px;background:#0d0d0d;border-radius:6px;overflow:hidden;">
     <div style="height:4px;background:linear-gradient(90deg,#be161e,#9a1218);"></div>
-    <div style="padding:24px 32px 22px;">
-      <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:10px;font-weight:700;letter-spacing:3px;text-transform:uppercase;color:#be161e;margin-bottom:10px;">East v. West</div>
-      <h2 style="margin:0;font-family:'Georgia','Times New Roman',serif;font-size:30px;font-weight:700;line-height:1.1;color:#ffffff;letter-spacing:-0.5px;">${esc(title)}</h2>
-      ${subtitle ? `<p style="margin:10px 0 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:13px;color:rgba(255,255,255,0.5);font-style:italic;letter-spacing:0.2px;">${esc(subtitle)}</p>` : ''}
+    <div style="padding:28px 40px 26px;display:flex;align-items:flex-start;gap:18px;">
+      <div style="flex-shrink:0;margin-top:2px;opacity:0.7;">${leagueBadge(32)}</div>
+      <div style="flex:1;">
+        <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:10px;font-weight:700;letter-spacing:3px;text-transform:uppercase;color:#be161e;margin-bottom:10px;">East v. West</div>
+        <h2 style="margin:0;font-family:'Georgia','Times New Roman',serif;font-size:30px;font-weight:700;line-height:1.1;color:#ffffff;letter-spacing:-0.5px;">${esc(title)}</h2>
+        ${subtitle ? `<p style="margin:10px 0 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:13px;color:rgba(255,255,255,0.5);font-style:italic;letter-spacing:0.2px;">${esc(subtitle)}</p>` : ''}
+      </div>
     </div>
   </div>`;
 }
@@ -125,14 +138,14 @@ function authorByline(name: string, role: string): string {
 
 function dualPerspective(entertainerText: string, analystText: string): string {
   return `
-  <div style="display:grid;gap:20px;margin:24px 0;">
-    <div style="padding:24px 28px;border-left:4px solid #be161e;background:#fff;box-shadow:0 1px 4px rgba(0,0,0,0.06);">
+  <div style="display:grid;gap:20px;margin:28px 0;">
+    <div style="padding:28px 36px;border-left:4px solid #be161e;background:#fff;box-shadow:0 1px 4px rgba(0,0,0,0.06);">
       ${authorByline('Mason Reed', 'entertainer')}
-      <p style="margin:0;font-family:'Georgia','Times New Roman',serif;font-size:17px;line-height:1.8;color:#374151;">${esc(entertainerText)}</p>
+      <p style="margin:0;font-family:'Georgia','Times New Roman',serif;font-size:17px;line-height:1.85;color:#374151;">${esc(entertainerText)}</p>
     </div>
-    <div style="padding:24px 28px;border-left:4px solid #0b5f98;background:#fff;box-shadow:0 1px 4px rgba(0,0,0,0.06);">
+    <div style="padding:28px 36px;border-left:4px solid #0b5f98;background:#fff;box-shadow:0 1px 4px rgba(0,0,0,0.06);">
       ${authorByline('Trent Weston', 'analyst')}
-      <p style="margin:0;font-family:'Georgia','Times New Roman',serif;font-size:17px;line-height:1.8;color:#374151;">${esc(analystText)}</p>
+      <p style="margin:0;font-family:'Georgia','Times New Roman',serif;font-size:17px;line-height:1.85;color:#374151;">${esc(analystText)}</p>
     </div>
   </div>`;
 }
@@ -142,16 +155,16 @@ function conversationalDialogue(dialogue: Array<{ speaker: 'entertainer' | 'anal
   if (!dialogue?.length) return '';
 
   return `
-  <div style="display:grid;gap:16px;margin:24px 0;">
+  <div style="display:grid;gap:16px;margin:28px 0;">
     ${dialogue.map((turn) => {
       const isEntertainer = turn.speaker === 'entertainer';
       const borderColor = isEntertainer ? '#be161e' : '#0b5f98';
       const name = isEntertainer ? 'Mason Reed' : 'Trent Weston';
       const role = isEntertainer ? 'entertainer' : 'analyst';
       return `
-      <div style="padding:22px 26px;border-left:4px solid ${borderColor};background:#fff;box-shadow:0 1px 4px rgba(0,0,0,0.06);">
+      <div style="padding:26px 36px;border-left:4px solid ${borderColor};background:#fff;box-shadow:0 1px 4px rgba(0,0,0,0.06);">
         ${authorByline(name, role)}
-        <p style="margin:0;font-family:'Georgia','Times New Roman',serif;font-size:17px;line-height:1.8;color:#374151;">${esc(turn.text)}</p>
+        <p style="margin:0;font-family:'Georgia','Times New Roman',serif;font-size:17px;line-height:1.85;color:#374151;">${esc(turn.text)}</p>
       </div>`;
     }).join('')}
   </div>`;
@@ -203,14 +216,14 @@ function sectionIntro(d: IntroSection, week: number, episodeType?: string, episo
   <article style="margin-bottom:48px;">
     ${sectionHeader(headerTitle, subtitle)}
 
-    <div style="padding:28px 32px;border-left:4px solid #be161e;background:#fff;box-shadow:0 1px 6px rgba(0,0,0,0.07);margin-bottom:20px;">
+    <div style="padding:32px 40px;border-left:4px solid #be161e;background:#fff;box-shadow:0 1px 6px rgba(0,0,0,0.07);margin-bottom:20px;">
       ${authorByline('Mason Reed', 'entertainer')}
       <p style="margin:0;font-family:'Georgia','Times New Roman',serif;font-size:19px;line-height:1.9;color:#1f2937;font-style:italic;">"${esc(d.bot1_text)}"</p>
     </div>
 
-    <div style="padding:28px 32px;border-left:4px solid #0b5f98;background:#fff;box-shadow:0 1px 6px rgba(0,0,0,0.07);">
+    <div style="padding:32px 40px;border-left:4px solid #0b5f98;background:#fff;box-shadow:0 1px 6px rgba(0,0,0,0.07);">
       ${authorByline('Trent Weston', 'analyst')}
-      <p style="margin:0;font-family:'Georgia','Times New Roman',serif;font-size:18px;line-height:1.85;color:#374151;">${esc(d.bot2_text)}</p>
+      <p style="margin:0;font-family:'Georgia','Times New Roman',serif;font-size:18px;line-height:1.9;color:#374151;">${esc(d.bot2_text)}</p>
     </div>
   </article>`;
 }
@@ -441,13 +454,18 @@ function sectionTrades(list: TradeItem[]): string {
 
   const items = list.map(x => {
     const teamMoves = x.teams
-      ? Object.entries(x.teams).map(([team, rec]) => `
-          <div style="background:#f9fafb;padding:14px 18px;border-left:3px solid #374151;margin:10px 0;">
-            <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-weight:700;color:#0d0d0d;font-size:14px;margin-bottom:6px;">${esc(team)}</div>
+      ? Object.entries(x.teams).map(([team, rec]) => {
+          const tColor = getTeamColor(team, 'primary');
+          return `
+          <div style="background:#f9fafb;padding:14px 18px;border-left:3px solid ${tColor};margin:10px 0;">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+              ${teamBadge(team, 'sm')}
+              <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-weight:700;color:${tColor};font-size:14px;">${esc(team)}</div>
+            </div>
             <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:13px;color:#059669;margin-bottom:2px;">Receives: ${esc((rec.gets || []).join(', ') || '—')}</div>
             <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:13px;color:#be161e;">Sends: ${esc((rec.gives || []).join(', ') || '—')}</div>
-          </div>
-        `).join('')
+          </div>`;
+        }).join('')
       : '';
 
     const teamAnalysis = Object.entries(x.analysis || {}).map(([team, a]) => {
@@ -457,7 +475,10 @@ function sectionTrades(list: TradeItem[]): string {
       return `
       <div style="margin:20px 0;padding-top:20px;border-top:1px solid #e5e7eb;">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
-          <span style="font-family:'Georgia','Times New Roman',serif;font-weight:700;font-size:16px;color:#0d0d0d;">${esc(team)}</span>
+          <div style="display:flex;align-items:center;gap:10px;">
+            ${teamBadge(team, 'sm')}
+            <span style="font-family:'Georgia','Times New Roman',serif;font-weight:700;font-size:16px;color:${getTeamColor(team, 'primary')};">${esc(team)}</span>
+          </div>
           <div style="display:flex;gap:8px;align-items:center;">
             <span style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:10px;font-weight:700;color:#be161e;letter-spacing:0.5px;text-transform:uppercase;">Mason</span>
             <span style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;background:${gradeColor(entGrade)};color:#fff;padding:4px 12px;font-weight:700;font-size:13px;letter-spacing:0.5px;">${esc(entGrade)}</span>
@@ -490,12 +511,17 @@ function sectionTrades(list: TradeItem[]): string {
 }
 
 function sectionSpotlight(d: SpotlightSection): string {
+  const spotPrimary = getTeamColor(d.team, 'primary');
+  const spotSecondary = getTeamColor(d.team, 'secondary');
   return `
   <article>
     ${sectionHeader('TEAM OF THE WEEK', 'Spotlight performance')}
-    <div style="background:#0d0d0d;border-radius:4px;padding:28px 32px;margin-bottom:4px;">
-      <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:10px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:#be161e;margin-bottom:8px;">This Week's Spotlight</div>
-      <div style="font-family:'Georgia','Times New Roman',serif;font-weight:700;font-size:28px;color:#fff;letter-spacing:-0.5px;">${esc(d.team)}</div>
+    <div style="background:linear-gradient(135deg,${spotPrimary} 0%,${spotSecondary} 60%,${hexToRgba(spotPrimary,0.7)} 100%);border-radius:8px;padding:32px 36px;margin-bottom:4px;display:flex;align-items:center;gap:24px;">
+      <div style="flex-shrink:0;">${teamBadge(d.team, 'xl')}</div>
+      <div>
+        <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:10px;font-weight:700;letter-spacing:3px;text-transform:uppercase;color:rgba(255,255,255,0.65);margin-bottom:8px;">Team of the Week</div>
+        <div style="font-family:'Georgia','Times New Roman',serif;font-weight:700;font-size:34px;color:#fff;letter-spacing:-0.5px;line-height:1.1;">${esc(d.team)}</div>
+      </div>
     </div>
     ${dualPerspective(d.bot1, d.bot2)}
   </article>`;
@@ -515,10 +541,16 @@ function sectionForecast(d: ForecastData): string {
        </div>`
     : '';
 
-  const rows = (d.picks || []).map(p => `
+  const rows = (d.picks || []).map(p => {
+    const fp1 = getTeamColor(p.team1, 'primary');
+    const fp2 = getTeamColor(p.team2, 'primary');
+    const fSplit = `linear-gradient(90deg,${hexToRgba(fp1,0.5)} 0%,#0d0d0d 35%,#0d0d0d 65%,${hexToRgba(fp2,0.5)} 100%)`;
+    return `
     <div style="background:#fff;border:1px solid #e5e7eb;border-radius:4px;overflow:hidden;margin-bottom:16px;box-shadow:0 1px 3px rgba(0,0,0,0.05);">
-      <div style="background:#0d0d0d;padding:12px 20px;">
-        <div style="font-family:'Georgia','Times New Roman',serif;font-weight:700;font-size:15px;color:#fff;text-align:center;">${esc(p.team1)} vs. ${esc(p.team2)}</div>
+      <div style="background:${fSplit};padding:12px 20px;display:flex;align-items:center;justify-content:space-between;">
+        <div style="display:flex;align-items:center;gap:8px;">${teamBadge(p.team1,'sm')}<span style="font-family:'Georgia','Times New Roman',serif;font-weight:700;font-size:14px;color:#fff;">${esc(p.team1)}</span></div>
+        <span style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:11px;font-weight:900;color:rgba(255,255,255,0.3);letter-spacing:3px;">VS</span>
+        <div style="display:flex;align-items:center;gap:8px;flex-direction:row-reverse;">${teamBadge(p.team2,'sm')}<span style="font-family:'Georgia','Times New Roman',serif;font-weight:700;font-size:14px;color:#fff;">${esc(p.team2)}</span></div>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:0;">
         <div style="padding:16px 18px;border-right:1px solid #e5e7eb;">
@@ -536,7 +568,8 @@ function sectionForecast(d: ForecastData): string {
           ${p.note_bot2 ? `<p style="margin:10px 0 0;font-family:'Georgia','Times New Roman',serif;font-size:13px;line-height:1.65;color:#4b5563;font-style:italic;">${esc(p.note_bot2)}</p>` : ''}
         </div>
       </div>
-    </div>`).join('');
+    </div>`;
+  }).join('');
 
   const extras = d.bot1_matchup_of_the_week || d.bot2_matchup_of_the_week ? `
     <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:4px;padding:20px 24px;margin-top:24px;">
@@ -563,13 +596,13 @@ function sectionFinal(d: FinalWordSection): string {
   return `
   <article>
     ${sectionHeader('THE FINAL WORD', 'Closing thoughts')}
-    <div style="padding:28px 32px;border-left:4px solid #be161e;background:#fff;box-shadow:0 1px 6px rgba(0,0,0,0.07);margin-bottom:20px;">
+    <div style="padding:32px 40px;border-left:4px solid #be161e;background:#fff;box-shadow:0 1px 6px rgba(0,0,0,0.07);margin-bottom:20px;">
       ${authorByline('Mason Reed', 'entertainer')}
       <blockquote style="margin:0;padding:0;border:none;">
-        <p style="margin:0 0 0;font-family:'Georgia','Times New Roman',serif;font-size:18px;line-height:1.9;color:#374151;font-style:italic;">${esc(d.bot1)}</p>
+        <p style="margin:0;font-family:'Georgia','Times New Roman',serif;font-size:18px;line-height:1.9;color:#374151;font-style:italic;">${esc(d.bot1)}</p>
       </blockquote>
     </div>
-    <div style="padding:28px 32px;border-left:4px solid #0b5f98;background:#fff;box-shadow:0 1px 6px rgba(0,0,0,0.07);">
+    <div style="padding:32px 40px;border-left:4px solid #0b5f98;background:#fff;box-shadow:0 1px 6px rgba(0,0,0,0.07);">
       ${authorByline('Trent Weston', 'analyst')}
       <blockquote style="margin:0;padding:0;border:none;">
         <p style="margin:0;font-family:'Georgia','Times New Roman',serif;font-size:18px;line-height:1.9;color:#374151;">${esc(d.bot2)}</p>
@@ -851,12 +884,14 @@ function sectionPowerRankings(d: PowerRankingsSection): string {
       ? `<span style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:12px;font-weight:700;color:#be161e;margin-left:8px;">▼${r.trendAmount ? r.trendAmount : ''}</span>`
       : `<span style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:12px;color:#9ca3af;margin-left:8px;">—</span>`;
 
+    const rowAccent = hexToRgba(getTeamColor(r.team, 'primary'), 0.08);
     return `
-    <div style="display:flex;align-items:flex-start;gap:16px;padding:18px 22px;background:#fff;border:1px solid #e5e7eb;border-bottom:none;${isLast ? 'border-bottom:1px solid #e5e7eb;' : ''}">
+    <div style="display:flex;align-items:flex-start;gap:16px;padding:18px 22px;background:${rowAccent};border:1px solid #e5e7eb;border-bottom:none;${isLast ? 'border-bottom:1px solid #e5e7eb;' : ''}">
       <div style="width:38px;height:38px;background:${rankBg};color:${rankTextColor};display:flex;align-items:center;justify-content:center;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-weight:800;font-size:16px;flex-shrink:0;border-radius:2px;">${r.rank}</div>
+      <div style="flex-shrink:0;margin-top:1px;">${teamBadge(r.team, 'sm')}</div>
       <div style="flex:1;">
         <div style="display:flex;align-items:center;margin-bottom:6px;">
-          <span style="font-family:'Georgia','Times New Roman',serif;font-weight:700;font-size:16px;color:#0d0d0d;">${esc(r.team)}</span>
+          <span style="font-family:'Georgia','Times New Roman',serif;font-weight:700;font-size:16px;color:${getTeamColor(r.team, 'primary')};">${esc(r.team)}</span>
           ${trendHtml}
           ${r.record ? `<span style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:12px;color:#9ca3af;margin-left:10px;">${esc(r.record)}</span>` : ''}
         </div>
@@ -888,26 +923,18 @@ function sectionPowerRankings(d: PowerRankingsSection): string {
 }
 
 function sectionSeasonPreview(d: SeasonPreviewSection): string {
-  const contenders = (d.contenders || []).map(c => `
-    <div style="padding:14px 18px;border-left:4px solid #059669;background:#fff;border:1px solid #e5e7eb;border-left:4px solid #059669;margin-bottom:8px;">
-      <div style="font-family:'Georgia','Times New Roman',serif;font-weight:700;font-size:15px;color:#0d0d0d;margin-bottom:3px;">${esc(c.team)}</div>
-      <div style="font-family:'Georgia','Times New Roman',serif;font-size:14px;color:#374151;line-height:1.6;">${esc(c.reason)}</div>
-    </div>
-  `).join('');
+  const teamPreviewCard = (team: string, reason: string, accent: string) => `
+    <div style="padding:14px 18px;background:#fff;border:1px solid #e5e7eb;border-left:4px solid ${accent};margin-bottom:8px;display:flex;align-items:flex-start;gap:12px;">
+      <div style="flex-shrink:0;margin-top:2px;">${teamBadge(team,'sm')}</div>
+      <div>
+        <div style="font-family:'Georgia','Times New Roman',serif;font-weight:700;font-size:15px;color:${getTeamColor(team,'primary')};margin-bottom:3px;">${esc(team)}</div>
+        <div style="font-family:'Georgia','Times New Roman',serif;font-size:14px;color:#374151;line-height:1.6;">${esc(reason)}</div>
+      </div>
+    </div>`;
 
-  const sleepers = (d.sleepers || []).map(s => `
-    <div style="padding:14px 18px;background:#fff;border:1px solid #e5e7eb;border-left:4px solid #f59e0b;margin-bottom:8px;">
-      <div style="font-family:'Georgia','Times New Roman',serif;font-weight:700;font-size:15px;color:#0d0d0d;margin-bottom:3px;">${esc(s.team)}</div>
-      <div style="font-family:'Georgia','Times New Roman',serif;font-size:14px;color:#374151;line-height:1.6;">${esc(s.reason)}</div>
-    </div>
-  `).join('');
-
-  const busts = (d.bustCandidates || []).map(b => `
-    <div style="padding:14px 18px;background:#fff;border:1px solid #e5e7eb;border-left:4px solid #be161e;margin-bottom:8px;">
-      <div style="font-family:'Georgia','Times New Roman',serif;font-weight:700;font-size:15px;color:#0d0d0d;margin-bottom:3px;">${esc(b.team)}</div>
-      <div style="font-family:'Georgia','Times New Roman',serif;font-size:14px;color:#374151;line-height:1.6;">${esc(b.reason)}</div>
-    </div>
-  `).join('');
+  const contenders = (d.contenders || []).map(c => teamPreviewCard(c.team, c.reason, '#059669')).join('');
+  const sleepers   = (d.sleepers   || []).map(s => teamPreviewCard(s.team, s.reason, '#f59e0b')).join('');
+  const busts      = (d.bustCandidates || []).map(b => teamPreviewCard(b.team, b.reason, '#be161e')).join('');
 
   const predictions1 = (d.boldPredictions?.bot1 || []).map(p => `<li style="font-family:'Georgia','Times New Roman',serif;font-size:15px;line-height:1.7;color:#374151;margin-bottom:8px;">${esc(p)}</li>`).join('');
   const predictions2 = (d.boldPredictions?.bot2 || []).map(p => `<li style="font-family:'Georgia','Times New Roman',serif;font-size:15px;line-height:1.7;color:#374151;margin-bottom:8px;">${esc(p)}</li>`).join('');
@@ -1028,8 +1055,11 @@ function sectionDraftGrades(d: DraftGradesSection): string {
     ).join('');
     return `
     <div style="background:#fff;border:1px solid #e5e7eb;border-radius:4px;margin-bottom:16px;overflow:hidden;">
-      <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 20px;background:#f9fafb;border-bottom:1px solid #e5e7eb;">
-        <div style="font-family:'Georgia','Times New Roman',serif;font-weight:700;font-size:16px;color:#0d0d0d;">${esc(g.team)}</div>
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 20px;background:${hexToRgba(getTeamColor(g.team,'primary'),0.07)};border-bottom:1px solid #e5e7eb;">
+        <div style="display:flex;align-items:center;gap:10px;">
+          ${teamBadge(g.team,'sm')}
+          <div style="font-family:'Georgia','Times New Roman',serif;font-weight:700;font-size:16px;color:${getTeamColor(g.team,'primary')};">${esc(g.team)}</div>
+        </div>
         <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-weight:800;font-size:18px;background:${color.bg};color:${color.text};padding:4px 14px;border-radius:4px;">${esc(g.grade)}</div>
       </div>
       ${picksHtml ? `<div style="padding:10px 20px;border-bottom:1px solid #f3f4f6;">${picksHtml}</div>` : ''}
@@ -1084,10 +1114,11 @@ function sectionMockDraft(d: MockDraftSection): string {
     return `
     <div style="background:#fff;border:1px solid #e5e7eb;border-radius:6px;margin-bottom:20px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,0.05);">
       <!-- Pick header -->
-      <div style="background:#0d0d0d;padding:14px 22px;display:flex;align-items:center;gap:16px;">
+      <div style="background:linear-gradient(90deg,#0d0d0d 0%,${hexToRgba(getTeamColor(pick.ownerTeam,'primary'),0.35)} 100%);padding:14px 22px;display:flex;align-items:center;gap:14px;">
         <div style="flex-shrink:0;background:#be161e;color:#fff;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-weight:800;font-size:13px;letter-spacing:0.5px;padding:6px 12px;border-radius:3px;min-width:48px;text-align:center;">
           ${esc(overallLabel)}
         </div>
+        <div style="flex-shrink:0;">${teamBadge(pick.ownerTeam,'sm')}</div>
         <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-weight:700;font-size:15px;color:#fff;">${teamLabel}</div>
         <div style="margin-left:auto;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:rgba(255,255,255,0.3);">Pick ${pick.overall}</div>
       </div>
@@ -1213,13 +1244,21 @@ export function renderHtml(newsletter: Newsletter): string {
   const header = `
   <header style="background:${headerBg};color:#fff;padding:0;margin-bottom:56px;border-radius:6px;overflow:hidden;">
     <div style="height:4px;background:linear-gradient(90deg,#be161e,#9a1218);"></div>
-    <div style="padding:40px 48px 36px;">
+    <div style="padding:48px 56px 44px;">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:22px;">
-        <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:10px;font-weight:700;letter-spacing:3px;text-transform:uppercase;color:rgba(255,255,255,0.4);">East v. West Fantasy Football</div>
+        <div style="display:flex;align-items:center;gap:10px;">
+          ${leagueBadge(28, episodeType)}
+          <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:10px;font-weight:700;letter-spacing:3px;text-transform:uppercase;color:rgba(255,255,255,0.4);">East v. West Fantasy Football</div>
+        </div>
         ${weekBadge}
       </div>
-      <h1 style="margin:0;font-family:'Georgia','Times New Roman',serif;font-size:46px;line-height:1.05;font-weight:700;letter-spacing:-1px;">${headerAccent}${esc(meta.leagueName)}</h1>
-      ${isSpecialEpisode && meta.episodeTitle ? `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:17px;color:rgba(255,255,255,0.7);margin-top:8px;font-weight:400;">${esc(mainTitle)}${subtitle ? ` ${esc(subtitle)}` : ''}</div>` : ''}
+      <div style="display:flex;align-items:center;gap:28px;">
+        <div style="flex:1;">
+          <h1 style="margin:0;font-family:'Georgia','Times New Roman',serif;font-size:46px;line-height:1.05;font-weight:700;letter-spacing:-1px;">${headerAccent}${esc(meta.leagueName)}</h1>
+          ${isSpecialEpisode && meta.episodeTitle ? `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:17px;color:rgba(255,255,255,0.7);margin-top:8px;font-weight:400;">${esc(mainTitle)}${subtitle ? ` ${esc(subtitle)}` : ''}</div>` : ''}
+        </div>
+        <div style="flex-shrink:0;opacity:0.85;">${leagueBadge(96, episodeType)}</div>
+      </div>
       <div style="height:1px;background:rgba(255,255,255,0.12);margin:24px 0;"></div>
       <div style="display:flex;justify-content:space-between;align-items:center;">
         <div style="font-family:'Georgia','Times New Roman',serif;font-style:italic;font-size:15px;color:rgba(255,255,255,0.5);">Your league, covered every week.</div>
@@ -1263,7 +1302,7 @@ export function renderHtml(newsletter: Newsletter): string {
     body { background: #fff; font-size: 13px; line-height: 1.6; }
     .no-print { display: none !important; }
     article { margin-bottom: 32px; page-break-inside: avoid; }
-    div[style*="max-width:980px"] { padding: 24px 32px !important; }
+    div[style*="max-width:1080px"] { padding: 24px 40px !important; }
     /* Keep section headers from orphaning at page bottom */
     div[style*="background:#0d0d0d"] { page-break-after: avoid; }
     /* Avoid breaking inside recap cards */
@@ -1279,12 +1318,17 @@ export function renderHtml(newsletter: Newsletter): string {
 </style>
 </head>
 <body>
-  <div style="max-width:980px;margin:0 auto;padding:48px 64px;background:#fff;min-height:100vh;">
+  <div style="max-width:1080px;margin:0 auto;padding:56px 96px;background:#fff;min-height:100vh;">
     ${header}
     ${body}
     <footer style="margin-top:64px;padding-top:28px;border-top:2px solid #0d0d0d;">
-      <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:12px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#0d0d0d;margin-bottom:4px;">${esc(meta.leagueName)}</div>
-      <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:12px;color:#9ca3af;">${esc(meta.date)} &nbsp;&middot;&nbsp; Powered by East v. West</div>
+      <div style="display:flex;align-items:center;gap:14px;margin-bottom:8px;">
+        ${leagueBadge(40)}
+        <div>
+          <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:12px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#0d0d0d;">${esc(meta.leagueName)}</div>
+          <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:12px;color:#9ca3af;margin-top:2px;">${esc(meta.date)} &nbsp;&middot;&nbsp; Season ${esc(String(meta.season))}</div>
+        </div>
+      </div>
     </footer>
   </div>
 </body></html>`;

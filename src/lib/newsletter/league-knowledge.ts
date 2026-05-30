@@ -302,6 +302,13 @@ export function buildStaticLeagueContext(): string {
   }
 
   lines.push(``);
+  lines.push(`DYNASTY POSITIONAL SCARCITY (critical for trade grades and mock draft analysis):`);
+  lines.push(`- QB: EXTREMELY scarce in SuperFlex. You start 2 QBs every week. Elite QBs (top-6) are the most valuable dynasty assets. Every team needs at least 2 startable QBs. Weak QB rooms are a massive liability.`);
+  lines.push(`- RB: High scarcity. You start 2 RBs + FLEX + SF (can run a 3rd RB). Backfield depth and youth are premium. Aging RBs depreciate fast.`);
+  lines.push(`- WR: Deepest position. You start 2 WRs + FLEX + SF. True WR1s are premium but WR3/WR4 are largely replaceable. Volume and target share matter most.`);
+  lines.push(`- TE: LOW scarcity — you only START 1 TE per week (TE slot only; TE can also play FLEX but rarely worth it). Having two elite TEs is a luxury, not a need. One elite TE is sufficient; beyond that, BPA wins over TE depth. A team with Bowers has no TE need.`);
+  lines.push(`- K/DEF: Near zero dynasty value — do not factor into draft grades or trade value.`);
+  lines.push(``);
   lines.push(`NOTE: You assess rivalries and team tendencies yourself based on H2H data and results. Do not assume rivalries exist - identify them from the data.`);
 
   return lines.join('\n');
