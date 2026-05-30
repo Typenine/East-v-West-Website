@@ -688,9 +688,12 @@ function validateMockDraftPicks(
   pool: ProspectEntry[],
   expectedSlots: Array<{ slot: number; team: string }>,
   round: number,
-): { invalidPlayers: string[]; orderMismatches: string[] } {
+): { invalidPlayers: string[]; orderMismatches: string[]; withinRoundDupes: string[] } {
   const invalidPlayers: string[] = [];
   const orderMismatches: string[] = [];
+  const withinRoundDupes: string[] = [];
+  const seenNormalized = new Map<string, number>(); // normalized name → first slot
+
   for (const pick of picks) {
     if (!isInProspectPool(pick.player, pool)) {
       invalidPlayers.push(`${pick.player} (R${round} slot ${pick.slot})`);
@@ -699,8 +702,17 @@ function validateMockDraftPicks(
     if (expected && pick.team && normalizePlayerName(pick.team) !== normalizePlayerName(expected.team)) {
       orderMismatches.push(`Slot ${pick.slot}: expected "${expected.team}", got "${pick.team}"`);
     }
+    // Within-round duplicate check
+    const norm = normalizePlayerName(pick.player);
+    const lastName = norm.split(' ').pop() ?? '';
+    const key = lastName.length >= 4 ? lastName : norm;
+    if (seenNormalized.has(key)) {
+      withinRoundDupes.push(`${pick.player} (R${round} slot ${pick.slot}, also slot ${seenNormalized.get(key)})`);
+    } else {
+      seenNormalized.set(key, pick.slot);
+    }
   }
-  return { invalidPlayers, orderMismatches };
+  return { invalidPlayers, orderMismatches, withinRoundDupes };
 }
 
 async function repairMockDraftRound(
@@ -725,8 +737,23 @@ async function repairMockDraftRound(
   ).join('\n');
   const orderText = slots.map((s, i) => `Pick ${round}.${String(i + 1).padStart(2, '0')}: ${s.team}`).join('\n');
 
-  const invalidPicks = originalPicks.filter(p => !isInProspectPool(p.player, pool));
-  const validPicks  = originalPicks.filter(p =>  isInProspectPool(p.player, pool));
+  // Mark picks as invalid if: (a) not in pool, OR (b) same player already seen (within-round dupe)
+  // The second occurrence of a duplicate must be in invalidPicks so the repair replaces it
+  const seenPlayerKeys = new Map<string, number>(); // normalized last-name key → first slot
+  const markedInvalidIdx = new Set<number>();
+  for (let i = 0; i < originalPicks.length; i++) {
+    const p = originalPicks[i];
+    const norm = normalizePlayerName(p.player);
+    const last = norm.split(' ').pop() ?? norm;
+    const key = last.length >= 4 ? last : norm;
+    if (!isInProspectPool(p.player, pool) || seenPlayerKeys.has(key)) {
+      markedInvalidIdx.add(i);
+    } else {
+      seenPlayerKeys.set(key, p.slot);
+    }
+  }
+  const invalidPicks = originalPicks.filter((_, i) => markedInvalidIdx.has(i));
+  const validPicks   = originalPicks.filter((_, i) => !markedInvalidIdx.has(i));
 
   const repairContext = `MOCK DRAFT REPAIR — ROUND ${round}
 
@@ -744,7 +771,8 @@ ${orderText}`;
 
   const repairConstraint = `Replace every INVALID pick with a player from the ELIGIBLE PLAYERS list above.
 Keep all VALID picks exactly as listed — do not change them.
-DO NOT use Bryce Young, Will Levis, CJ Stroud, Anthony Richardson, or any player not in the ELIGIBLE list.
+DO NOT pick the same player twice. Every pick must use a DIFFERENT player from the eligible list.
+DO NOT use any player not in the ELIGIBLE list above.
 Output ALL ${slots.length} picks in this exact format:
 PICK ${round}.01 | [Exact Team] | [Player from eligible list] | [Position]
 [3-4 sentence analysis]
@@ -756,16 +784,17 @@ PICK ${round}.01 | [Exact Team] | [Player from eligible list] | [Position]
       sectionType: `Mock Draft - Round ${round} Repair`,
       context: repairContext,
       constraints: repairConstraint,
-      maxTokens: 3500,
+      maxTokens: 6000,
       episodeType: 'pre_draft',
       validate: (t) => (t.replace(/\*\*/g, '').match(/\bPICK\s+\d+\.\d+\s*\|/gim) || []).length >= Math.max(4, Math.floor(slots.length * 0.4)),
     });
 
     const repairedPicks = parseMockDraftPicksLocal(repairedRaw);
-    const { invalidPlayers: stillInvalid } = validateMockDraftPicks(repairedPicks, pool, slots, round);
+    const { invalidPlayers: stillInvalid, withinRoundDupes: stillDupes } = validateMockDraftPicks(repairedPicks, pool, slots, round);
+    const stillBroken = [...stillInvalid, ...stillDupes];
 
-    if (stillInvalid.length > 0) {
-      console.warn(`[ComposeStep] MockDraft R${round} repair FAILED — still has invalid players: ${stillInvalid.join(', ')}`);
+    if (stillBroken.length > 0) {
+      console.warn(`[ComposeStep] MockDraft R${round} repair FAILED — still broken: ${stillBroken.join(', ')}`);
       return null;
     }
 
@@ -787,7 +816,8 @@ function parseMockDraftPicksLocal(
   const analysisLines: string[] = [];
 
   const flush = () => {
-    if (current && analysisLines.length > 0) result.push({ ...current, analysis: analysisLines.join(' ').trim() });
+    // Accept picks even with no analysis — missing analysis is better than a dropped pick
+    if (current) result.push({ ...current, analysis: analysisLines.join(' ').trim() });
     analysisLines.length = 0;
   };
 
@@ -864,7 +894,7 @@ ${poolText}
     sectionType: 'Mock Draft - Round 1',
     context,
     constraints: constraint,
-    maxTokens: 3500,
+    maxTokens: 6000,
     episodeType: 'pre_draft',
     validate: (t) => (t.replace(/\*\*/g, '').match(/\bPICK\s+\d+\.\d+\s*\|/gim) || []).length >= Math.max(4, Math.floor(effectiveSlots.length * 0.4)),
   });
@@ -872,16 +902,19 @@ ${poolText}
   const picks = parseMockDraftPicksLocal(raw);
   // Use sequential slot numbers (1..N) matching the draft order as presented to the LLM
   const slotsForValidation = effectiveSlots.map((s, i) => ({ slot: i + 1, team: s.team }));
-  const { invalidPlayers, orderMismatches } = validateMockDraftPicks(picks, prospectPool, slotsForValidation, 1);
+  const { invalidPlayers, orderMismatches, withinRoundDupes } = validateMockDraftPicks(picks, prospectPool, slotsForValidation, 1);
 
   if (orderMismatches.length > 0) {
     console.warn(`[ComposeStep] MockDraft R1 (${personaLabel}) draft-order mismatches: ${orderMismatches.join('; ')}`);
   }
-  if (invalidPlayers.length > 0) {
-    console.warn(`[ComposeStep] MockDraft R1 (${personaLabel}) — ${invalidPlayers.length} invalid players detected: ${invalidPlayers.join(', ')}`);
-    const repaired = await repairMockDraftRound(1, picks, invalidPlayers, prospectPool, slotsForValidation, [], persona);
+
+  const allR1Issues = [...invalidPlayers, ...withinRoundDupes];
+  if (allR1Issues.length > 0) {
+    if (withinRoundDupes.length > 0) console.warn(`[ComposeStep] MockDraft R1 (${personaLabel}) — ${withinRoundDupes.length} within-round dupes: ${withinRoundDupes.join(', ')}`);
+    if (invalidPlayers.length > 0) console.warn(`[ComposeStep] MockDraft R1 (${personaLabel}) — ${invalidPlayers.length} invalid players: ${invalidPlayers.join(', ')}`);
+    const repaired = await repairMockDraftRound(1, picks, allR1Issues, prospectPool, slotsForValidation, [], persona);
     if (repaired) return repaired;
-    throw new Error(`MockDraft R1 (${personaLabel}) illegal players found and repair failed: ${invalidPlayers.join(', ')}`);
+    throw new Error(`MockDraft R1 (${personaLabel}) repair failed: ${allR1Issues.join(', ')}`);
   }
 
   console.log(`[ComposeStep] MockDraft_R1_${personaLabel} completed — ${picks.length} valid picks`);
@@ -953,20 +986,21 @@ ${poolText}
     sectionType: 'Mock Draft - Round 2',
     context,
     constraints: constraint,
-    maxTokens: 3500,
+    maxTokens: 6000,
     episodeType: 'pre_draft',
     validate: (t) => (t.replace(/\*\*/g, '').match(/\bPICK\s+\d+\.\d+\s*\|/gim) || []).length >= Math.max(4, Math.floor(round2Slots.length * 0.4)),
   });
 
   const picks = parseMockDraftPicksLocal(raw);
   const slotsForValidation = round2Slots.map((s, i) => ({ slot: i + 1, team: s.team }));
-  const { invalidPlayers, orderMismatches } = validateMockDraftPicks(picks, prospectPool, slotsForValidation, 2);
+  // Validate against r2Pool (R1 picks already removed) so pool-check also catches cross-round repeats
+  const { invalidPlayers, orderMismatches, withinRoundDupes } = validateMockDraftPicks(picks, r2Pool, slotsForValidation, 2);
 
   if (orderMismatches.length > 0) {
     console.warn(`[ComposeStep] MockDraft R2 (${personaLabel}) draft-order mismatches: ${orderMismatches.join('; ')}`);
   }
 
-  // Check for R1 repeats — LLM sometimes re-picks a player they already took in R1
+  // Also explicitly check cross-round (R1) repeats in case pool check missed a near-match
   const r1Dupes = picks.filter(p =>
     r1PlayerNames.some(used =>
       normalizePlayerName(used) === normalizePlayerName(p.player) ||
@@ -974,14 +1008,15 @@ ${poolText}
     )
   ).map(p => `${p.player} (R2 slot ${p.slot})`);
 
-  const allInvalid = [...invalidPlayers, ...r1Dupes];
+  const allR2Issues = [...new Set([...invalidPlayers, ...withinRoundDupes, ...r1Dupes])];
 
-  if (allInvalid.length > 0) {
-    if (r1Dupes.length > 0) console.warn(`[ComposeStep] MockDraft R2 (${personaLabel}) — ${r1Dupes.length} R1 repeats: ${r1Dupes.join(', ')}`);
-    if (invalidPlayers.length > 0) console.warn(`[ComposeStep] MockDraft R2 (${personaLabel}) — ${invalidPlayers.length} invalid players: ${invalidPlayers.join(', ')}`);
-    const repaired = await repairMockDraftRound(2, picks, allInvalid, r2Pool, slotsForValidation, r1PlayerNames, persona);
+  if (allR2Issues.length > 0) {
+    if (withinRoundDupes.length > 0) console.warn(`[ComposeStep] MockDraft R2 (${personaLabel}) — within-round dupes: ${withinRoundDupes.join(', ')}`);
+    if (r1Dupes.length > 0) console.warn(`[ComposeStep] MockDraft R2 (${personaLabel}) — R1 repeats: ${r1Dupes.join(', ')}`);
+    if (invalidPlayers.length > 0) console.warn(`[ComposeStep] MockDraft R2 (${personaLabel}) — invalid players: ${invalidPlayers.join(', ')}`);
+    const repaired = await repairMockDraftRound(2, picks, allR2Issues, r2Pool, slotsForValidation, r1PlayerNames, persona);
     if (repaired) return repaired;
-    throw new Error(`MockDraft R2 (${personaLabel}) repair failed — issues: ${allInvalid.join(', ')}`);
+    throw new Error(`MockDraft R2 (${personaLabel}) repair failed — issues: ${allR2Issues.join(', ')}`);
   }
 
   console.log(`[ComposeStep] MockDraft_R2_${personaLabel} completed — ${picks.length} valid picks`);
@@ -1475,8 +1510,10 @@ export function assembleNewsletterFromSections(
 
       const buildPick = (round: number, idx: number, slotTeam: string, mPicks: ReturnType<typeof parseMockDraftPicksLocal>, wPicks: ReturnType<typeof parseMockDraftPicksLocal>): MockDraftPick => {
         const slot = idx + 1;
-        const mp = mPicks.find(p => p.slot === slot) ?? mPicks[idx];
-        const wp = wPicks.find(p => p.slot === slot) ?? wPicks[idx];
+        // Only match by slot — never fall back by index; an index fallback creates silent duplicates
+        // when the parsed array has gaps (e.g. slot 3 missing → index 2 returns slot 4's player twice)
+        const mp = mPicks.find(p => p.slot === slot);
+        const wp = wPicks.find(p => p.slot === slot);
         return {
           overall: round === 1 ? slot : teamCount + slot,
           round, slot,
