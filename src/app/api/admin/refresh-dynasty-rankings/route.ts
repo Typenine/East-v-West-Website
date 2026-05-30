@@ -7,9 +7,9 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
 
-export const DYNASTY_RANKINGS_R2_KEY = 'newsletter/dynasty-rankings.json';
+const DYNASTY_RANKINGS_R2_KEY = 'newsletter/dynasty-rankings.json';
 
-export interface StoredDynastyRankings {
+interface StoredDynastyRankings {
   fetchedAt: string;
   source: 'fantasycalc';
   rankings: Array<{ name: string; pos: string; nfl: string; rank: number }>;
