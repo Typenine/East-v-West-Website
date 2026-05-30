@@ -965,11 +965,23 @@ ${poolText}
   if (orderMismatches.length > 0) {
     console.warn(`[ComposeStep] MockDraft R2 (${personaLabel}) draft-order mismatches: ${orderMismatches.join('; ')}`);
   }
-  if (invalidPlayers.length > 0) {
-    console.warn(`[ComposeStep] MockDraft R2 (${personaLabel}) — ${invalidPlayers.length} invalid players detected: ${invalidPlayers.join(', ')}`);
-    const repaired = await repairMockDraftRound(2, picks, invalidPlayers, prospectPool, slotsForValidation, r1PlayerNames, persona);
+
+  // Check for R1 repeats — LLM sometimes re-picks a player they already took in R1
+  const r1Dupes = picks.filter(p =>
+    r1PlayerNames.some(used =>
+      normalizePlayerName(used) === normalizePlayerName(p.player) ||
+      (normalizePlayerName(used).split(' ').pop() ?? '') === (normalizePlayerName(p.player).split(' ').pop() ?? '')
+    )
+  ).map(p => `${p.player} (R2 slot ${p.slot})`);
+
+  const allInvalid = [...invalidPlayers, ...r1Dupes];
+
+  if (allInvalid.length > 0) {
+    if (r1Dupes.length > 0) console.warn(`[ComposeStep] MockDraft R2 (${personaLabel}) — ${r1Dupes.length} R1 repeats: ${r1Dupes.join(', ')}`);
+    if (invalidPlayers.length > 0) console.warn(`[ComposeStep] MockDraft R2 (${personaLabel}) — ${invalidPlayers.length} invalid players: ${invalidPlayers.join(', ')}`);
+    const repaired = await repairMockDraftRound(2, picks, allInvalid, r2Pool, slotsForValidation, r1PlayerNames, persona);
     if (repaired) return repaired;
-    throw new Error(`MockDraft R2 (${personaLabel}) illegal players found and repair failed: ${invalidPlayers.join(', ')}`);
+    throw new Error(`MockDraft R2 (${personaLabel}) repair failed — issues: ${allInvalid.join(', ')}`);
   }
 
   console.log(`[ComposeStep] MockDraft_R2_${personaLabel} completed — ${picks.length} valid picks`);
