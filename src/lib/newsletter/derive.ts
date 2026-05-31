@@ -427,8 +427,11 @@ function normalizeTransactions(
             const prevOwnerId = Number(pick.previous_owner_id);
             if (ownerId === rosterId) {
               gets.push(label);
-            } else if (prevOwnerId === rosterId && rosterIdSet.has(prevOwnerId)) {
-              // Only assign "gives" when previous_owner_id is a confirmed party to this trade
+            } else if (prevOwnerId === rosterId && rosterIdSet.has(ownerId)) {
+              // Only assign "gives" when the pick's recipient (owner_id) is a confirmed party.
+              // Checks ownerId (not prevOwnerId) because in multi-team trades Sleeper sometimes
+              // stores a stale previous_owner_id pointing to a team that owned the pick in a
+              // prior trade — checking the recipient being a known party is the reliable guard.
               gives.push(label);
             }
           }

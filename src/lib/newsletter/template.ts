@@ -51,8 +51,26 @@ function hexToRgba(hex: string, alpha: number): string {
   return `rgba(${r},${g},${b},${alpha})`;
 }
 
+// Normalize team name for color/logo lookup: collapse smart quotes to ASCII apostrophe and trim.
+// Sleeper can return team names with Unicode apostrophes (’) while our constants use ASCII (').
+function normalizeTeamKey(name: string): string {
+  return name
+    .replace(/[‘’‚‛′‵`]/g, "'") // smart/back single quotes → ASCII
+    .replace(/[“”„‟″‶]/g, '"')        // smart double quotes → ASCII
+    .trim();
+}
+
+// Pre-built normalized lookup so we only iterate TEAM_COLORS once per call
+const TEAM_COLORS_NORMALIZED = new Map<string, import('../constants/team-colors').TeamColors>(
+  Object.entries(TEAM_COLORS).map(([k, v]) => [normalizeTeamKey(k), v])
+);
+
+function getTeamColorEntry(teamName: string): import('../constants/team-colors').TeamColors | undefined {
+  return TEAM_COLORS[teamName] ?? TEAM_COLORS_NORMALIZED.get(normalizeTeamKey(teamName));
+}
+
 function getTeamColor(teamName: string, type: 'primary' | 'secondary' | 'tertiary' = 'primary'): string {
-  const colors = TEAM_COLORS[teamName];
+  const colors = getTeamColorEntry(teamName);
   if (!colors) return type === 'primary' ? '#3b5b8b' : type === 'secondary' ? '#ba1010' : '#9ca3af';
   if (type === 'tertiary') return colors.tertiary ?? colors.secondary;
   return type === 'primary' ? colors.primary : colors.secondary;

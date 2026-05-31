@@ -453,8 +453,8 @@ async function genWaivers(input: StepInput): Promise<WaiverItem[]> {
     text.split(/\n?(?=\d+\.)/g).filter(p => p.trim()).map(p => p.replace(/^\d+\.\s*/, '').trim());
 
   const [entRaw, anaRaw] = await Promise.all([
-    generateSection({ persona: 'entertainer', sectionType: 'Waivers', context: `Waiver moves:\n${numberedContext}`, constraints: `React to each numbered move (2-3 sentences each). Start each with its number. Be spicy — ${events.length} moves total.`, maxTokens: 600 }),
-    generateSection({ persona: 'analyst',     sectionType: 'Waivers', context: `Waiver moves:\n${numberedContext}`, constraints: `Analyze each numbered move (2-3 sentences each). Start each with its number. Cover role, usage, upside — ${events.length} moves total.`, maxTokens: 600 }),
+    generateSection({ persona: 'entertainer', sectionType: 'Waivers', context: `Waiver moves:\n${numberedContext}`, constraints: `React to each numbered move (2-3 sentences each). Start each with its number. Be spicy — ${events.length} moves total.`, maxTokens: 800, validate: (t) => t.trim().length >= 40 }).catch(() => ''),
+    generateSection({ persona: 'analyst',     sectionType: 'Waivers', context: `Waiver moves:\n${numberedContext}`, constraints: `Analyze each numbered move (2-3 sentences each). Start each with its number. Cover role, usage, upside — ${events.length} moves total.`, maxTokens: 800, validate: (t) => t.trim().length >= 40 }).catch(() => ''),
   ]);
 
   const entParts = splitByNumber(entRaw);
@@ -555,19 +555,20 @@ async function genSingleTradeItem(input: StepInput, tradeIndex: number): Promise
     const sideCtx = `You are grading THIS SPECIFIC TRADE for ${party} only. All players and picks listed below are exactly what changed hands — do not reference external news or other trades.\n\n${party} in this trade:\n  RECEIVED: ${annotateTradePlayers(a?.gets)}\n  GAVE UP: ${annotateTradePlayers(a?.gives)}${getTeamRoster(party)}\n\nFull trade breakdown:\n${tradeContext}`;
     const received = annotateTradePlayers(a?.gets);
     const gaveUp   = annotateTradePlayers(a?.gives);
+    const fallbackAnalysis = `Grade: B. Analysis unavailable for this side of the trade.`;
     const [entR, anaR] = await Promise.all([
       generateSection({
         persona: 'entertainer', sectionType: 'Trade Grade', context: sideCtx,
         constraints: `Grade this trade FOR ${party} specifically (A+ to F). Start with the letter grade on its own line, then write 3-4 full sentences: what did ${party} receive (${received}), what did they give up (${gaveUp}), and is this a good deal for them specifically? Give your gut take. FACTUAL RULE: only reference assets listed above.`,
-        maxTokens: 500,
+        maxTokens: 800,
         validate: (t) => t.trim().length >= 80,
-      }),
+      }).catch(() => fallbackAnalysis),
       generateSection({
         persona: 'analyst', sectionType: 'Trade Grade', context: sideCtx,
         constraints: `Grade this trade FOR ${party} specifically (A+ to F). Start with the letter grade on its own line, then write 3-4 analytical sentences: evaluate what ${party} received (${received}) vs. what they surrendered (${gaveUp}). Is the dynasty cost worth it given their roster and window? FACTUAL RULE: only reference assets listed above.`,
-        maxTokens: 500,
+        maxTokens: 800,
         validate: (t) => t.trim().length >= 80,
-      }),
+      }).catch(() => fallbackAnalysis),
     ]);
     analysis[party] = {
       grade: extractGrade(entR),
@@ -593,8 +594,8 @@ async function genSpotlight(input: StepInput): Promise<SpotlightSection | null> 
 
   const context = `Team of the Week: ${p.winner.name}\n- Beat ${p.loser.name} by ${p.margin.toFixed(1)}\n- Scored ${p.winner.points.toFixed(1)} pts\n${input.enhancedContext.slice(0, 2000)}${priorBlock}`;
   const [bot1, bot2] = await Promise.all([
-    generateSection({ persona: 'entertainer', sectionType: 'Spotlight', context, constraints: 'Write 3-4 paragraphs spotlighting this team. Hype them up, reference which players came through, what it means for their season. FACTUAL RULE: only reference players and stats from the context above.', maxTokens: 500 }),
-    generateSection({ persona: 'analyst',     sectionType: 'Spotlight', context, constraints: 'Write 3-4 paragraphs analytically dissecting this performance. Stats, sustainability, playoff trajectory. FACTUAL RULE: only reference players and stats from the context above.', maxTokens: 500 }),
+    generateSection({ persona: 'entertainer', sectionType: 'Spotlight', context, constraints: 'Write 3-4 paragraphs spotlighting this team. Hype them up, reference which players came through, what it means for their season. FACTUAL RULE: only reference players and stats from the context above.', maxTokens: 700, validate: (t) => t.trim().length >= 80 }).catch(() => ''),
+    generateSection({ persona: 'analyst',     sectionType: 'Spotlight', context, constraints: 'Write 3-4 paragraphs analytically dissecting this performance. Stats, sustainability, playoff trajectory. FACTUAL RULE: only reference players and stats from the context above.', maxTokens: 700, validate: (t) => t.trim().length >= 80 }).catch(() => ''),
   ]);
   return { team: p.winner.name, bot1, bot2 };
 }
@@ -684,8 +685,8 @@ Ranks 1–12, rank 1 = best team. Use exact team names from the league context.`
   const anaList = parseRankings(anaRaw);
 
   const [bot1_intro, bot2_intro] = await Promise.all([
-    generateSection({ persona: 'entertainer', sectionType: 'Power Rankings Intro', context: ctx, constraints: `Write 2-3 sentences introducing your ${preseason ? 'preseason' : `Week ${input.week}`} power rankings. Be bold.`, maxTokens: 300 }),
-    generateSection({ persona: 'analyst',     sectionType: 'Power Rankings Intro', context: ctx, constraints: `Write 2-3 sentences introducing your ${preseason ? 'preseason' : `Week ${input.week}`} power rankings. Reference key trends.`, maxTokens: 300 }),
+    generateSection({ persona: 'entertainer', sectionType: 'Power Rankings Intro', context: ctx, constraints: `Write 2-3 sentences introducing your ${preseason ? 'preseason' : `Week ${input.week}`} power rankings. Be bold.`, maxTokens: 400, validate: (t) => t.trim().length >= 40 }).catch(() => ''),
+    generateSection({ persona: 'analyst',     sectionType: 'Power Rankings Intro', context: ctx, constraints: `Write 2-3 sentences introducing your ${preseason ? 'preseason' : `Week ${input.week}`} power rankings. Reference key trends.`, maxTokens: 400, validate: (t) => t.trim().length >= 40 }).catch(() => ''),
   ]);
 
   const rankings: PowerRankingsSection['rankings'] = entList.map(ent => {

@@ -41,6 +41,17 @@ export const POSITION_RANK: Record<string, number> = {
 };
 
 /**
+ * Normalize a team name for map lookups: collapses smart/curly quotes to ASCII equivalents
+ * and trims whitespace. Sleeper can return names with Unicode apostrophes while our constants
+ * use ASCII, causing silent lookup misses.
+ */
+const normalizeTeamKeyForLookup = (name: string): string =>
+  name
+    .replace(/[''‚‛′‵`]/g, "'") // smart/back single quotes → ASCII apostrophe
+    .replace(/[""„‟″‶]/g, '"')        // smart double quotes → ASCII
+    .trim();
+
+/**
  * Converts a team name to a URL-friendly format for logo paths
  * @param teamName The team name to format
  * @returns Formatted team name for logo path
@@ -58,7 +69,9 @@ export const formatTeamNameForLogo = (teamName: string): string => {
  * @returns Path to the team's logo
  */
 export const getTeamLogoPath = (teamName: string): string => {
-  // Map team names to their actual logo filenames in the East v West Logos folder
+  // Map team names to their actual logo filenames in the East v West Logos folder.
+  // Keys use ASCII apostrophes — Sleeper may send Unicode apostrophes, so we also
+  // try a normalized lookup if the direct lookup fails.
   const logoMap: Record<string, string> = {
     'Belleview Badgers': 'Belleview Badgers Primary Logo.png',
     'Belltown Raptors': 'Belltown Raptors logo.png',
@@ -71,10 +84,13 @@ export const getTeamLogoPath = (teamName: string): string => {
     'BeerNeverBrokeMyHeart': 'Beer Never Broke My Heart Logo.png',
     'Elemental Heroes': 'Elemental Heroes Logo.png',
     'Detroit Dawgs': 'Detroit Dawgs Logo.png',
-    'Bimg Bamg Boomg': 'Bimg Bamg Boomg Logo .png'
+    'Bimg Bamg Boomg': 'Bimg Bamg Boomg Logo .png',
   };
-  
-  const logoFile = logoMap[teamName] || `${formatTeamNameForLogo(teamName)}.png`;
+
+  const normalized = normalizeTeamKeyForLookup(teamName);
+  const logoFile = logoMap[teamName]
+    ?? logoMap[normalized]
+    ?? `${formatTeamNameForLogo(teamName)}.png`;
   return `/assets/teams/East%20v%20West%20Logos/${encodeURIComponent(logoFile)}`;
 };
 
@@ -84,10 +100,9 @@ export const getTeamLogoPath = (teamName: string): string => {
  * @returns The team's colors object
  */
 export const getTeamColors = (teamName: string): TeamColors => {
-  return TEAM_COLORS[teamName] || {
-    primary: '#3b5b8b',
-    secondary: '#ba1010'
-  };
+  return TEAM_COLORS[teamName]
+    ?? TEAM_COLORS[normalizeTeamKeyForLookup(teamName)]
+    ?? { primary: '#3b5b8b', secondary: '#ba1010' };
 };
 
 /**
