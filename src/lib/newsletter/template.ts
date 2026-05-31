@@ -51,6 +51,17 @@ function hexToRgba(hex: string, alpha: number): string {
   return `rgba(${r},${g},${b},${alpha})`;
 }
 
+// Returns '#fff' or '#0d0d0d' depending on the perceived luminance of the background hex.
+// Used so text remains readable when a team's primary color is the card background.
+function textOnBg(hex: string): string {
+  const h = hex.replace('#', '');
+  const r = parseInt(h.substring(0, 2), 16);
+  const g = parseInt(h.substring(2, 4), 16);
+  const b = parseInt(h.substring(4, 6), 16);
+  const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  return luminance > 0.55 ? '#0d0d0d' : '#ffffff';
+}
+
 // Normalize team name for color/logo lookup: collapse smart quotes to ASCII apostrophe and trim.
 // Sleeper can return team names with Unicode apostrophes (’) while our constants use ASCII (').
 function normalizeTeamKey(name: string): string {
@@ -60,13 +71,22 @@ function normalizeTeamKey(name: string): string {
     .trim();
 }
 
-// Pre-built normalized lookup so we only iterate TEAM_COLORS once per call
-const TEAM_COLORS_NORMALIZED = new Map<string, import('../constants/team-colors').TeamColors>(
+// Pre-built lookups so we iterate TEAM_COLORS once at module init
+// 1. Normalized: smart-quote → ASCII (handles Sleeper Unicode apostrophes)
+// 2. Lowercase: fully case-insensitive fallback (handles capitalisation diffs)
+const TEAM_COLORS_NORMALIZED = new Map<string, (typeof TEAM_COLORS)[string]>(
   Object.entries(TEAM_COLORS).map(([k, v]) => [normalizeTeamKey(k), v])
 );
+const TEAM_COLORS_LOWER = new Map<string, (typeof TEAM_COLORS)[string]>(
+  Object.entries(TEAM_COLORS).map(([k, v]) => [normalizeTeamKey(k).toLowerCase(), v])
+);
 
-function getTeamColorEntry(teamName: string): import('../constants/team-colors').TeamColors | undefined {
-  return TEAM_COLORS[teamName] ?? TEAM_COLORS_NORMALIZED.get(normalizeTeamKey(teamName));
+function getTeamColorEntry(teamName: string): (typeof TEAM_COLORS)[string] | undefined {
+  return (
+    TEAM_COLORS[teamName]                                          // 1. exact
+    ?? TEAM_COLORS_NORMALIZED.get(normalizeTeamKey(teamName))     // 2. quote-normalized
+    ?? TEAM_COLORS_LOWER.get(normalizeTeamKey(teamName).toLowerCase()) // 3. case-insensitive
+  );
 }
 
 function getTeamColor(teamName: string, type: 'primary' | 'secondary' | 'tertiary' = 'primary'): string {
@@ -354,6 +374,12 @@ function sectionRecaps(list: RecapItem[], week: number): string {
     const winnerScore = x.winner_score;
     const loserScore = x.loser_score;
 
+    // Team-color gradient stripe: a 4px accent bar at the top of each card showing team colors.
+    // This ensures team identity is visible even for teams with very dark primary colors.
+    const stripeHtml = (winner && loser && !isChampMatch && !isThirdPlace && !isToiletBowl)
+      ? `<div style="height:4px;background:linear-gradient(90deg,${getTeamColor(winner,'primary')} 0%,${getTeamColor(winner,'primary')} 49%,${getTeamColor(loser,'primary')} 51%,${getTeamColor(loser,'primary')} 100%);"></div>`
+      : '';
+
     // Use conversational dialogue if available (multi-turn), otherwise fall back to dual perspective
     const dialogueHtml = x.dialogue && x.dialogue.length > 0
       ? conversationalDialogue(x.dialogue)
@@ -385,6 +411,7 @@ function sectionRecaps(list: RecapItem[], week: number): string {
 
     return `
     <div style="${cardStyle}background:#fafafa;border-radius:6px;overflow:hidden;margin-bottom:28px;box-shadow:0 2px 8px rgba(0,0,0,0.06);">
+      ${stripeHtml}
       <div style="background:${labelBadgeBg};padding:10px 20px;">
         <span style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:11px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:${labelBadgeColor};">${esc(matchLabel)}</span>
       </div>
@@ -472,15 +499,19 @@ function sectionTrades(list: TradeItem[]): string {
   const items = list.map(x => {
     const teamMoves = x.teams
       ? Object.entries(x.teams).map(([team, rec]) => {
-          const tColor = getTeamColor(team, 'primary');
+          const tPrimary = getTeamColor(team, 'primary');
+          const tSecondary = getTeamColor(team, 'secondary');
+          const tFg = textOnBg(tPrimary);
           return `
-          <div style="background:#f9fafb;padding:14px 18px;border-left:3px solid ${tColor};margin:10px 0;">
-            <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+          <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:4px;margin:10px 0;overflow:hidden;">
+            <div style="background:${tPrimary};border-bottom:2px solid ${tSecondary};padding:10px 14px;display:flex;align-items:center;gap:8px;">
               ${teamBadge(team, 'sm')}
-              <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-weight:700;color:${tColor};font-size:14px;">${esc(team)}</div>
+              <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-weight:700;color:${tFg};font-size:14px;">${esc(team)}</div>
             </div>
-            <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:13px;color:#059669;margin-bottom:2px;">Receives: ${esc((rec.gets || []).join(', ') || '—')}</div>
-            <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:13px;color:#be161e;">Sends: ${esc((rec.gives || []).join(', ') || '—')}</div>
+            <div style="padding:10px 14px;">
+              <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:13px;color:#059669;margin-bottom:2px;">Receives: ${esc((rec.gets || []).join(', ') || '—')}</div>
+              <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:13px;color:#be161e;">Sends: ${esc((rec.gives || []).join(', ') || '—')}</div>
+            </div>
           </div>`;
         }).join('')
       : '';
@@ -909,7 +940,7 @@ function sectionPowerRankings(d: PowerRankingsSection): string {
       ? `<span style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:12px;font-weight:700;color:#be161e;margin-left:8px;">▼${r.trendAmount ? r.trendAmount : ''}</span>`
       : `<span style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:12px;color:#9ca3af;margin-left:8px;">—</span>`;
 
-    const rowAccent = hexToRgba(getTeamColor(r.team, 'primary'), 0.08);
+    const rowAccent = hexToRgba(getTeamColor(r.team, 'primary'), 0.18);
     return `
     <div style="display:flex;align-items:flex-start;gap:16px;padding:18px 22px;background:${rowAccent};border:1px solid #e5e7eb;border-bottom:none;${isLast ? 'border-bottom:1px solid #e5e7eb;' : ''}">
       <div style="width:38px;height:38px;background:${rankBg};color:${rankTextColor};display:flex;align-items:center;justify-content:center;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-weight:800;font-size:16px;flex-shrink:0;border-radius:2px;">${r.rank}</div>
@@ -1078,12 +1109,15 @@ function sectionDraftGrades(d: DraftGradesSection): string {
     const picksHtml = g.picks.map(p =>
       `<span style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:12px;color:#6b7280;margin-right:12px;">Rd ${p.round}: ${esc(p.player)} (${esc(p.position)})</span>`
     ).join('');
+    const tPrimary = getTeamColor(g.team, 'primary');
+    const tSecondary = getTeamColor(g.team, 'secondary');
+    const tFg = textOnBg(tPrimary);
     return `
     <div style="background:#fff;border:1px solid #e5e7eb;border-radius:4px;margin-bottom:16px;overflow:hidden;">
-      <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 20px;background:${hexToRgba(getTeamColor(g.team,'primary'),0.07)};border-bottom:1px solid #e5e7eb;">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 20px;background:${tPrimary};border-bottom:3px solid ${tSecondary};">
         <div style="display:flex;align-items:center;gap:10px;">
           ${teamBadge(g.team,'sm')}
-          <div style="font-family:'Georgia','Times New Roman',serif;font-weight:700;font-size:16px;color:${getTeamColor(g.team,'primary')};">${esc(g.team)}</div>
+          <div style="font-family:'Georgia','Times New Roman',serif;font-weight:700;font-size:16px;color:${tFg};">${esc(g.team)}</div>
         </div>
         <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-weight:800;font-size:18px;background:${color.bg};color:${color.text};padding:4px 14px;border-radius:4px;">${esc(g.grade)}</div>
       </div>
@@ -1132,20 +1166,23 @@ function sectionMockDraft(d: MockDraftSection): string {
   const renderPick = (pick: MockDraftSection['picks'][0]) => {
     const overallLabel = `${pick.round}.${String(pick.slot).padStart(2, '0')}`;
     const isTradedPick = pick.ownerTeam !== pick.originalTeam;
+    const teamPrimary   = getTeamColor(pick.ownerTeam, 'primary');
+    const teamSecondary = getTeamColor(pick.ownerTeam, 'secondary');
+    const fg = textOnBg(teamPrimary); // white for dark teams, near-black for bright teams
     const teamLabel = isTradedPick
-      ? `${esc(pick.ownerTeam)} <span style="font-size:11px;color:#6b7280;font-weight:400;">(via ${esc(pick.originalTeam)})</span>`
+      ? `${esc(pick.ownerTeam)} <span style="font-size:11px;color:${fg === '#fff' ? 'rgba(255,255,255,0.55)' : 'rgba(0,0,0,0.45)'};font-weight:400;">(via ${esc(pick.originalTeam)})</span>`
       : esc(pick.ownerTeam);
 
     return `
     <div style="background:#fff;border:1px solid #e5e7eb;border-radius:6px;margin-bottom:20px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,0.05);">
-      <!-- Pick header -->
-      <div style="background:#0d0d0d;padding:14px 22px;display:flex;align-items:center;gap:14px;border-left:5px solid ${getTeamColor(pick.ownerTeam,'primary')};border-right:2px solid ${getTeamColor(pick.ownerTeam,'tertiary')};">
-        <div style="flex-shrink:0;background:#be161e;color:#fff;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-weight:800;font-size:13px;letter-spacing:0.5px;padding:6px 12px;border-radius:3px;min-width:48px;text-align:center;">
+      <!-- Pick header — team primary color background -->
+      <div style="background:${teamPrimary};padding:14px 22px;display:flex;align-items:center;gap:14px;border-bottom:3px solid ${teamSecondary};">
+        <div style="flex-shrink:0;background:rgba(0,0,0,0.35);color:#fff;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-weight:800;font-size:13px;letter-spacing:0.5px;padding:6px 12px;border-radius:3px;min-width:48px;text-align:center;">
           ${esc(overallLabel)}
         </div>
         <div style="flex-shrink:0;">${teamBadge(pick.ownerTeam,'sm')}</div>
-        <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-weight:700;font-size:15px;color:#fff;">${teamLabel}</div>
-        <div style="margin-left:auto;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:rgba(255,255,255,0.3);">Pick ${pick.overall}</div>
+        <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-weight:700;font-size:15px;color:${fg};">${teamLabel}</div>
+        <div style="margin-left:auto;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:${fg === '#fff' ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.35)'};">Pick ${pick.overall}</div>
       </div>
       <!-- Two-column bot takes -->
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:0;">

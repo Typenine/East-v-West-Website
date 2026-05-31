@@ -561,13 +561,13 @@ async function genSingleTradeItem(input: StepInput, tradeIndex: number): Promise
         persona: 'entertainer', sectionType: 'Trade Grade', context: sideCtx,
         constraints: `Grade this trade FOR ${party} specifically (A+ to F). Start with the letter grade on its own line, then write 3-4 full sentences: what did ${party} receive (${received}), what did they give up (${gaveUp}), and is this a good deal for them specifically? Give your gut take. FACTUAL RULE: only reference assets listed above.`,
         maxTokens: 800,
-        validate: (t) => t.trim().length >= 80,
+        // No validate — with validate every provider is tried in sequence (8s gaps each),
+        // causing the 270s Vercel step timeout before content is returned. .catch handles outright failures.
       }).catch(() => fallbackAnalysis),
       generateSection({
         persona: 'analyst', sectionType: 'Trade Grade', context: sideCtx,
         constraints: `Grade this trade FOR ${party} specifically (A+ to F). Start with the letter grade on its own line, then write 3-4 analytical sentences: evaluate what ${party} received (${received}) vs. what they surrendered (${gaveUp}). Is the dynasty cost worth it given their roster and window? FACTUAL RULE: only reference assets listed above.`,
         maxTokens: 800,
-        validate: (t) => t.trim().length >= 80,
       }).catch(() => fallbackAnalysis),
     ]);
     analysis[party] = {

@@ -100,9 +100,15 @@ export const getTeamLogoPath = (teamName: string): string => {
  * @returns The team's colors object
  */
 export const getTeamColors = (teamName: string): TeamColors => {
-  return TEAM_COLORS[teamName]
-    ?? TEAM_COLORS[normalizeTeamKeyForLookup(teamName)]
-    ?? { primary: '#3b5b8b', secondary: '#ba1010' };
+  const norm = normalizeTeamKeyForLookup(teamName);
+  return (
+    TEAM_COLORS[teamName]
+    ?? TEAM_COLORS[norm]
+    ?? TEAM_COLORS[norm.toLowerCase()]
+    // Case-insensitive scan as final fallback (handles capitalisation diffs like 'Bop Pop' vs 'bop pop')
+    ?? Object.entries(TEAM_COLORS).find(([k]) => k.toLowerCase() === norm.toLowerCase())?.[1]
+    ?? { primary: '#3b5b8b', secondary: '#ba1010' }
+  );
 };
 
 /**

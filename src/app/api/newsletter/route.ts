@@ -877,39 +877,9 @@ async function startStagedJob(opts: {
         return lines.join('\n');
       })();
 
-      // Load current draft pick ownership — bots use this to correctly attribute picks in trades.
-      // Sleeper's previous_owner_id can be stale in multi-team trades; the DB pick slots are authoritative.
-      let pickOwnershipStr = '';
-      try {
-        const draftId = await getActiveOrLatestDraftId();
-        if (draftId) {
-          const [r1Slots, r2Slots] = await Promise.all([
-            getDraftRound1Slots(draftId).catch(() => [] as Array<{ slot: number; team: string }>),
-            getDraftRound2Slots(draftId).catch(() => [] as Array<{ slot: number; team: string }>),
-          ]);
-          if (r1Slots.length > 0) {
-            const r1Lines = r1Slots.map(s => `  Pick 1.${String(s.slot).padStart(2, '0')}: ${s.team}`).join('\n');
-            const r2Lines = r2Slots.length > 0
-              ? r2Slots.map(s => `  Pick 2.${String(s.slot).padStart(2, '0')}: ${s.team}`).join('\n')
-              : '  (no round-2 data)';
-            pickOwnershipStr = `=== DRAFT PICK OWNERSHIP (current state after all trades) ===
-IMPORTANT: Use this table to correctly attribute which team currently owns each draft pick.
-When analyzing trades that involve picks, verify attribution against this table — Sleeper transaction data can misattribute picks in multi-team trades.
-Round 1 picks (who owns each slot):
-${r1Lines}
-Round 2 picks:
-${r2Lines}
-===`;
-            console.log(`[Staged] Pick ownership context loaded (R1: ${r1Slots.length} slots, R2: ${r2Slots.length} slots)`);
-          }
-        }
-      } catch (pickErr) {
-        console.warn('[Staged] Could not load pick ownership for context:', pickErr instanceof Error ? pickErr.message : String(pickErr));
-      }
-
       // Current data first — section generators slice context at 2-4K chars, so standings/transactions
       // must come before static historical content or they get cut off
-      enhancedContextString = [teamNameBlock, standingsStr, txStr, pickOwnershipStr, rosterInjuryStr, dynastyOverviewStr, externalStr, rulesStr, comprehensiveStr].filter(Boolean).join('\n\n');
+      enhancedContextString = [teamNameBlock, standingsStr, txStr, rosterInjuryStr, dynastyOverviewStr, externalStr, rulesStr, comprehensiveStr].filter(Boolean).join('\n\n');
       console.log(`[Staged] Regular context built (${Math.round(enhancedContextString.length / 1000)}K chars, dynasty=${stagedDynastyRankings.length} players)`);
     }
 
