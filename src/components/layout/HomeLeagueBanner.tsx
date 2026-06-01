@@ -35,17 +35,17 @@ function TeamGrid({ teams }: { teams: string[] }) {
           >
             <div
               aria-hidden
-              className="absolute inset-y-0 left-0 w-[34%]"
+              className="absolute inset-y-0 right-0 w-[34%]"
               style={{
                 background: `linear-gradient(180deg, ${stripeBackground})`,
-                boxShadow: 'inset -1px 0 0 rgba(255,255,255,0.12)',
+                boxShadow: 'inset 1px 0 0 rgba(255,255,255,0.12)',
               }}
             />
             <div
               aria-hidden
               className="absolute inset-0"
               style={{
-                background: 'linear-gradient(90deg, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0.02) 34%, rgba(255,255,255,0) 55%)',
+                background: 'linear-gradient(270deg, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0.02) 34%, rgba(255,255,255,0) 55%)',
               }}
             />
             <Image
