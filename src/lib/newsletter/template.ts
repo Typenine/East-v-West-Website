@@ -538,11 +538,22 @@ function sectionTrades(list: TradeItem[]): string {
       </div>`;
     }).join('');
 
+    const introBlock = x.intro
+      ? `<div style="padding:16px 28px 0;border-top:1px solid #1f1f1f;">
+           <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+             <div style="width:6px;height:6px;border-radius:50%;background:#be161e;flex-shrink:0;"></div>
+             <span style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:9px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#be161e;">Mason Reed</span>
+           </div>
+           <p style="margin:0 0 16px;font-family:'Georgia','Times New Roman',serif;font-size:15px;line-height:1.7;color:rgba(255,255,255,0.82);font-style:italic;">${esc(x.intro)}</p>
+         </div>`
+      : '';
+
     return `
     <div style="background:#fff;border:1px solid #e5e7eb;border-radius:6px;margin-bottom:28px;box-shadow:0 2px 8px rgba(0,0,0,0.07);overflow:hidden;">
-      <div style="background:#0d0d0d;padding:18px 28px;">
+      <div style="background:#0d0d0d;padding:18px 28px 0;">
         <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:9px;font-weight:800;letter-spacing:2px;text-transform:uppercase;color:#be161e;margin-bottom:8px;">Trade Report</div>
-        <div style="font-family:'Georgia','Times New Roman',serif;font-weight:700;font-size:20px;color:#fff;line-height:1.2;">${esc(x.context || 'Trade')}</div>
+        <div style="font-family:'Georgia','Times New Roman',serif;font-weight:700;font-size:20px;color:#fff;line-height:1.2;padding-bottom:16px;">${esc(x.context || 'Trade')}</div>
+        ${introBlock}
       </div>
       <div style="padding:24px 28px;">
         <div style="margin-bottom:8px;">${teamMoves}</div>

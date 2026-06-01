@@ -1241,7 +1241,7 @@ async function buildTradeItems(events: DerivedData['events_scored'], memEntertai
   const tradeContexts = tradeEvents.map(e => {
     const byTeam = e.details?.by_team || {};
     const parties = e.parties || Object.keys(byTeam);
-    
+
     const isMultiTeamTrade = parties.length >= 3;
     let tradeBreakdown = '';
     for (const team of parties) {
@@ -1257,11 +1257,15 @@ async function buildTradeItems(events: DerivedData['events_scored'], memEntertai
       tradeBreakdown += '\nNOTE: In 3-team trades, any pick not appearing in a team\'s GIVES column was not sent by them — do not infer unconfirmed senders.';
     }
 
+    // Display headline (clean, for the template card header)
+    const tradeDisplayHeadline = e.details?.headline || `Trade between ${parties.join(' and ')}`;
+
+    // Full LLM context (includes data breakdown — only used for generation, not displayed)
     const tradeContext = e.details?.headline
       ? `${parties.join(' traded with ')}: ${e.details.headline}${tradeBreakdown}`
       : `Trade between ${parties.join(' and ')}${tradeBreakdown}`;
 
-    return { event: e, parties, byTeam, tradeContext };
+    return { event: e, parties, byTeam, tradeContext, tradeDisplayHeadline };
   });
 
   // Personality context for both bots
@@ -1281,6 +1285,19 @@ async function buildTradeItems(events: DerivedData['events_scored'], memEntertai
     if (t.frustration && t.frustration > 10) parts.push(`frustration: ${t.frustration}`);
     return parts.length ? `Your history with ${team}: ${parts.join(', ')}.` : '';
   };
+
+  // Generate one Mason Reed intro per trade (sets the stage once, not repeated per team)
+  const tradeIntros = await Promise.all(
+    tradeContexts.map(({ tradeContext, parties }) =>
+      generateSection({
+        persona: 'entertainer',
+        sectionType: 'Trade Intro',
+        context: tradeContext + (entPersonality ? `\n${entPersonality}` : ''),
+        constraints: `Write 1-2 punchy sentences introducing this ${parties.length > 2 ? `${parties.length}-team` : ''} trade. Set the scene and the storyline — who made the power move, what's the narrative. Do NOT grade anyone or analyze specific team outcomes yet; that's coming in the per-team sections below.`,
+        maxTokens: 120,
+      }).then(raw => guardText(raw, { sectionType: 'Trade Intro', logPrefix: '[compose:TradeIntro:entertainer]' }))
+    )
+  );
 
   // Build all party analysis requests
   const allPartyRequests: Array<{
@@ -1338,35 +1355,40 @@ ${anaTrustLine ? `[Westy's history: ${anaTrustLine}]` : ''}${partyCard}`;
     allPartyRequests.map(async ({ party, sideContext, isMultiTeam, allParties }) => {
       const otherTeams = allParties.filter(p => p !== party).join(' and ');
 
+      // The trade intro is already written by Mason Reed above — both bots skip re-introduction
+      // and dive directly into their grade and analysis for this specific team.
       const entertainerConstraints = isMultiTeam
         ? `Grade this ${allParties.length}-team trade for ${party} specifically (A+ to F). ` +
-          `In a multi-team deal there's always a winner, someone who broke even, and a loser — where does ${party} land compared to ${otherTeams}? ` +
-          `The GAVE UP column reflects confirmed asset sends. Do NOT attribute any pick or player to ${party} that is not in their GAVE UP column — in 3-team trades, some picks may appear unattributed because they were acquired picks from prior deals. ` +
-          `Write 3-4 sentences with personality: did ${party} orchestrate this, get fleeced, or thread the needle? Reference what they gave up and what they got. Include your letter grade.`
-        : `Grade this trade for ${party} specifically (A+ to F). Did THEY win or lose? Write 3-4 sentences with personality — was this a heist, a fair deal, or a robbery? Let your history with this team color your take. Include your letter grade.`;
+          `Skip any trade introduction — jump straight into your take on ${party}'s outcome. ` +
+          `Where does ${party} land vs ${otherTeams}: winner, break-even, or loser? ` +
+          `Only attribute assets to ${party} that are in their GAVE UP column — do not infer unconfirmed picks. ` +
+          `4-5 sentences with personality: did they orchestrate this, get fleeced, or thread the needle? End with your letter grade.`
+        : `Grade this trade for ${party} specifically (A+ to F). Skip any trade setup — go straight to your verdict. Did THEY win or lose? 4-5 sentences with personality — was this a heist, a fair deal, or a robbery? Let your history with this team color your take. End with your letter grade.`;
 
       const analystConstraints = isMultiTeam
         ? `Grade this ${allParties.length}-team trade for ${party} specifically (A+ to F). ` +
-          `Multi-team trades create complex value flows — evaluate what ${party} sent to each of ${otherTeams} vs what they received, and whether the net haul represents a win, break-even, or loss relative to the other parties. ` +
-          `Grade based strictly on the GAVE UP and RECEIVED columns. Do NOT penalize ${party} for picks not listed in their GAVE UP column — in 3-team trades, acquired picks from prior deals may appear unattributed rather than assigned to the wrong sender. ` +
-          `Write 3-4 sentences analyzing short-term vs long-term implications, asset value, and roster fit. Include letter grade.`
-        : `Grade this trade for ${party} specifically (A+ to F). Evaluate value received vs given from their perspective. Write 3-4 sentences analyzing short-term vs long-term implications, value, and fit. Factor in your prior read on this team if relevant. Include letter grade.`;
+          `Skip any trade introduction — go straight into your analysis of ${party}'s outcome. ` +
+          `Evaluate what ${party} sent to each of ${otherTeams} vs what they received; is the net haul a win, break-even, or loss? ` +
+          `Only grade ${party} on assets in their confirmed GAVE UP column — do not penalize for picks not listed there. ` +
+          `4-5 sentences on short vs long-term implications, asset value, and roster fit. End with your letter grade.`
+        : `Grade this trade for ${party} specifically (A+ to F). Skip any trade setup — go straight into your analysis. Evaluate value received vs given from ${party}'s perspective. 4-5 sentences on short vs long-term implications, value, and fit. Factor in your prior read on this team if relevant. End with your letter grade.`;
 
       const tradeSection = isMultiTeam ? `${allParties.length}-Team Trade Grade` : 'Trade Grade';
+      const perTeamTokens = isMultiTeam ? 500 : 420;
       const [rawEntTrade, rawAnaTrade] = await Promise.all([
         generateSection({
           persona: 'entertainer',
           sectionType: tradeSection,
           context: sideContext + (entPersonality ? `\n${entPersonality}` : '') + tradeDedupeEnt,
           constraints: entertainerConstraints,
-          maxTokens: 350,
+          maxTokens: perTeamTokens,
         }),
         generateSection({
           persona: 'analyst',
           sectionType: tradeSection,
           context: sideContext + (anaPersonality ? `\n${anaPersonality}` : '') + tradeDedupeAna,
           constraints: analystConstraints,
-          maxTokens: 350,
+          maxTokens: perTeamTokens,
         }),
       ]);
       const entertainerResponse = guardText(rawEntTrade, { sectionType: 'Trade Grade', logPrefix: `[compose:TradeGrade:${party}:entertainer]` });
@@ -1404,7 +1426,7 @@ ${anaTrustLine ? `[Westy's history: ${anaTrustLine}]` : ''}${partyCard}`;
   let responseIdx = 0;
 
   for (let i = 0; i < tradeContexts.length; i++) {
-    const { event: e, parties, tradeContext } = tradeContexts[i];
+    const { event: e, parties, tradeDisplayHeadline } = tradeContexts[i];
     const analysis: Record<string, { grade: string; entertainer_grade?: string; analyst_grade?: string; deltaText: string; entertainer_paragraph: string; analyst_paragraph: string }> = {};
 
     for (const party of parties) {
@@ -1423,9 +1445,10 @@ ${anaTrustLine ? `[Westy's history: ${anaTrustLine}]` : ''}${partyCard}`;
       event_id: e.event_id,
       coverage_level: e.coverage_level,
       reasons: e.reasons || [],
-      context: tradeContext,
+      context: tradeDisplayHeadline,
       teams: e.details?.by_team || null,
       analysis,
+      intro: tradeIntros[i],
     });
   }
 

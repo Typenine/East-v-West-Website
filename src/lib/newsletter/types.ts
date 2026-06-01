@@ -722,6 +722,8 @@ export interface TradeItem {
   teams: Record<string, { gets: string[]; gives: string[] }> | null;
   analysis: Record<string, TradeAnalysis>;
   debate_line?: string;
+  /** Mason Reed's one-time trade intro — shown once at the top, not repeated per-team */
+  intro?: string;
 }
 
 export interface SpotlightSection {
