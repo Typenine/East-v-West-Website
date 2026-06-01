@@ -8,7 +8,7 @@ import { cookies } from 'next/headers';
 import { getLeagueIdForSeason, CHAMPIONS } from '@/lib/constants/league';
 import { getConfiguredAdminSecret, isAdminCookieValue } from '@/lib/auth/admin';
 import { clearSeasonOutputLog } from '@/lib/newsletter/memory';
-import { applyBotBrainOverride } from '@/lib/newsletter/bot-brain';
+import { applyBotBrainOverride, type BotBrainOverride } from '@/lib/newsletter/bot-brain';
 import { setTeamCardOverride } from '@/lib/newsletter/team-narratives';
 import { setRuntimeBannedPhrases } from '@/lib/newsletter/guardrails';
 import {
@@ -58,6 +58,7 @@ import { getHeadToHeadAllTime } from '@/lib/utils/headtohead';
 import { fetchTradesAllTime } from '@/lib/utils/trades';
 import { postToDiscordWebhook, buildNewsletterEmbed } from '@/lib/utils/discord';
 import { getDb } from '@/server/db/client';
+import type { BotSettingsRow } from '@/server/db/personality-queries';
 import { discordNotifications } from '@/server/db/schema';
 import { eq, and } from 'drizzle-orm';
 
@@ -158,6 +159,40 @@ const NFL_BYE_WEEKS: Record<number, string[]> = {
 
 function getByeTeamsForWeek(week: number): string[] {
   return NFL_BYE_WEEKS[week] || [];
+}
+
+function toBotBrainOverride(settings: BotSettingsRow): BotBrainOverride {
+  const override: BotBrainOverride = {};
+
+  if (settings.displayName) {
+    override.displayName = settings.displayName;
+  }
+
+  if (settings.roleDescription) {
+    override.role = settings.roleDescription;
+  }
+
+  if (settings.voiceConfig) {
+    override.voice = settings.voiceConfig;
+  }
+
+  if (settings.signaturePhrases?.openers?.length) {
+    override.openers = settings.signaturePhrases.openers;
+  }
+
+  if (settings.signaturePhrases?.closers?.length) {
+    override.closers = settings.signaturePhrases.closers;
+  }
+
+  if (settings.signaturePhrases?.verbalTics?.length) {
+    override.verbalTics = settings.signaturePhrases.verbalTics;
+  }
+
+  if (settings.safetyBoundaries?.length) {
+    override.safetyBoundaries = settings.safetyBoundaries;
+  }
+
+  return override;
 }
 
 // Build enhanced context for LLM - integrates all 8 improvements
@@ -1505,10 +1540,10 @@ export async function POST(request: NextRequest) {
         ]);
 
         if (entSettings.status === 'fulfilled' && entSettings.value) {
-          applyBotBrainOverride('entertainer', entSettings.value);
+          applyBotBrainOverride('entertainer', toBotBrainOverride(entSettings.value));
         }
         if (anaSettings.status === 'fulfilled' && anaSettings.value) {
-          applyBotBrainOverride('analyst', anaSettings.value);
+          applyBotBrainOverride('analyst', toBotBrainOverride(anaSettings.value));
         }
         if (teamCardRows.status === 'fulfilled') {
           for (const card of teamCardRows.value) {

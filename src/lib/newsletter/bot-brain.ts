@@ -85,6 +85,12 @@ export interface BotBrain {
   safetyBoundaries: string[];
 }
 
+export interface BotBrainOverride extends Partial<Omit<BotBrain, 'voice' | 'debate' | 'baseTraits'>> {
+  voice?: Partial<BotBrainVoice>;
+  debate?: Partial<BotBrainDebate>;
+  baseTraits?: Partial<BotBrain['baseTraits']>;
+}
+
 // ============ Concrete brain objects ============
 
 export const ENTERTAINER_BRAIN: BotBrain = {
@@ -212,7 +218,7 @@ const BRAINS: Record<BotName, BotBrain> = {
 // the newsletter API route after loading from DB. Falls back to BRAINS when absent.
 // Concurrent writes of identical data are idempotent — safe for serverless.
 
-const _botOverrides = new Map<BotName, Partial<BotBrain>>();
+const _botOverrides = new Map<BotName, BotBrainOverride>();
 
 /**
  * Apply admin-edited overrides for a bot. Called by the newsletter API route
@@ -220,7 +226,7 @@ const _botOverrides = new Map<BotName, Partial<BotBrain>>();
  * never wipes the full brain. Passing null or undefined for a field preserves
  * the hardcoded default.
  */
-export function applyBotBrainOverride(bot: BotName, partial: Partial<BotBrain>): void {
+export function applyBotBrainOverride(bot: BotName, partial: BotBrainOverride): void {
   _botOverrides.set(bot, partial);
 }
 
@@ -241,12 +247,25 @@ export function getBotBrain(bot: BotName): BotBrain {
   return {
     ...base,
     ...(override.displayName ? { displayName: override.displayName } : {}),
+    ...(override.shortName    ? { shortName: override.shortName }       : {}),
     ...(override.role         ? { role: override.role }               : {}),
+    ...(override.color        ? { color: override.color }             : {}),
     ...(override.safetyBoundaries ? { safetyBoundaries: [...base.safetyBoundaries, ...override.safetyBoundaries] } : {}),
     ...(override.blindSpots   ? { blindSpots: [...base.blindSpots, ...override.blindSpots] } : {}),
+    ...(override.verbalTics   ? { verbalTics: [...base.verbalTics, ...override.verbalTics] } : {}),
+    ...(override.openers      ? { openers: [...base.openers, ...override.openers] } : {}),
+    ...(override.closers      ? { closers: [...base.closers, ...override.closers] } : {}),
     voice: {
       ...base.voice,
       ...(override.voice ?? {}),
+    },
+    debate: {
+      ...base.debate,
+      ...(override.debate ?? {}),
+    },
+    baseTraits: {
+      ...base.baseTraits,
+      ...(override.baseTraits ?? {}),
     },
   };
 }
