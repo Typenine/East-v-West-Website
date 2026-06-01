@@ -505,9 +505,14 @@ function AdminNewsletterPageInner() {
     <div className="container mx-auto px-4 py-8">
       <div className="flex items-center justify-between mb-6">
         <SectionHeader title="Admin: Newsletter Generator" />
-        <Link href="/newsletter">
-          <Button variant="ghost" size="sm">View Newsletter Page →</Button>
-        </Link>
+        <div className="flex items-center gap-2">
+          <Link href="/admin/newsletter/personality">
+            <Button variant="secondary" size="sm">🎭 Personality Console</Button>
+          </Link>
+          <Link href="/newsletter">
+            <Button variant="ghost" size="sm">View Newsletter Page →</Button>
+          </Link>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

@@ -95,9 +95,9 @@ export default function PersonalityConsolePage() {
   const [activeTab, setActiveTab] = useState<'bots' | 'teams' | 'phrases' | 'preview'>('bots');
 
   useEffect(() => {
-    fetch('/api/auth/me', { credentials: 'include' })
+    fetch('/api/admin-login', { credentials: 'include' })
       .then(r => r.json())
-      .then(d => { setIsAdmin(d?.role === 'admin'); setChecked(true); })
+      .then(d => { setIsAdmin(Boolean(d?.isAdmin)); setChecked(true); })
       .catch(() => setChecked(true));
   }, []);
 

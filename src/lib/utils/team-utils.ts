@@ -76,7 +76,7 @@ export const getTeamLogoPath = (teamName: string): string => {
     'Belleview Badgers': 'Belleview Badgers Primary Logo.png',
     'Belltown Raptors': 'Belltown Raptors logo.png',
     'Minshew\'s Maniacs': 'Minshew\'s Maniacs Logo.png',
-    'Double Trouble': 'Double Trouble logo2.png',
+    'Double Trouble': 'Double Trouble logo.png',
     'Mt. Lebanon Cake Eaters': 'Cake Eaters Logo Final Version (1).png',
     'The Lone Ginger': 'Lone Ginger Logo.png',
     'bop pop': 'bop pop logo.png',
