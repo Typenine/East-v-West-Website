@@ -97,6 +97,8 @@ export const fetchTradesAllTime = async (): Promise<Trade[]> => {
 export type TradeTeam = {
   name: string;
   assets: TradeAsset[];
+  gets?: TradeAsset[];
+  gives?: TradeAsset[];
   totalValue?: number;
 };
 
@@ -326,6 +328,8 @@ async function convertSleeperTradeToTrade(
     const rosterId = transaction.roster_ids[i];
     const teamName = teamNames[i];
     const assets: TradeAsset[] = [];
+    const gets: TradeAsset[] = [];
+    const gives: TradeAsset[] = [];
 
     // Process player adds (players received by this team)
     if (transaction.adds) {
@@ -333,12 +337,45 @@ async function convertSleeperTradeToTrade(
         if (receivingRosterId === rosterId) {
           const player = playersCache?.[playerId];
           if (player) {
-            assets.push({
+            const senderRosterId = Number(transaction.drops?.[playerId]);
+            const senderName = Number.isFinite(senderRosterId)
+              ? (rosterIdToTeam.get(senderRosterId) || rosterMap.get(senderRosterId)?.metadata?.team_name || `Roster ${senderRosterId}`)
+              : undefined;
+            const baseAsset: TradeAsset = {
               type: 'player',
               name: `${player.first_name} ${player.last_name}`,
               position: player.position,
               team: player.team || 'FA',
               playerId: playerId
+            };
+            assets.push(baseAsset);
+            gets.push({
+              ...baseAsset,
+              name: senderName && senderName !== teamName ? `${baseAsset.name} (from ${senderName})` : baseAsset.name,
+            });
+          }
+        }
+      });
+    }
+
+    // Process players given by this team
+    if (transaction.drops) {
+      Object.entries(transaction.drops).forEach(([playerId, droppingRosterId]) => {
+        if (droppingRosterId === rosterId) {
+          const player = playersCache?.[playerId];
+          if (player) {
+            const receiverRosterId = Number(transaction.adds?.[playerId]);
+            const receiverName = Number.isFinite(receiverRosterId)
+              ? (rosterIdToTeam.get(receiverRosterId) || rosterMap.get(receiverRosterId)?.metadata?.team_name || `Roster ${receiverRosterId}`)
+              : undefined;
+            gives.push({
+              type: 'player',
+              name: receiverName && receiverName !== teamName
+                ? `${player.first_name} ${player.last_name} → ${receiverName}`
+                : `${player.first_name} ${player.last_name}`,
+              position: player.position,
+              team: player.team || 'FA',
+              playerId,
             });
           }
         }
@@ -379,9 +416,14 @@ async function convertSleeperTradeToTrade(
         } catch {
           // Non-fatal
         }
-        assets.push({
+        const basePickName = `${pick.season} ${getOrdinal(pick.round)} Round Pick${originalOwnerName && originalOwnerName !== teamName ? ` (${originalOwnerName}'s slot)` : ''}`;
+        const senderRosterId = Number((pick as { previous_owner_id?: number | string }).previous_owner_id);
+        const senderName = Number.isFinite(senderRosterId)
+          ? (rosterIdToTeam.get(senderRosterId) || rosterMap.get(senderRosterId)?.metadata?.team_name || `Roster ${senderRosterId}`)
+          : undefined;
+        const baseAsset: TradeAsset = {
           type: 'pick',
-          name: `${pick.season} ${getOrdinal(pick.round)} Round Pick`,
+          name: basePickName,
           year: pick.season,
           round: pick.round,
           draftSlot,
@@ -397,6 +439,36 @@ async function convertSleeperTradeToTrade(
             originalOwner: originalOwnerName,
             currentOwner: teamName,
           },
+        };
+        assets.push(baseAsset);
+        gets.push({
+          ...baseAsset,
+          name: senderName && senderName !== teamName ? `${baseAsset.name} (from ${senderName})` : baseAsset.name,
+        });
+      }
+
+      const picksGiven = transaction.draft_picks
+        .filter((pick) => Number((pick as { previous_owner_id?: number | string }).previous_owner_id) === Number(rosterId));
+      for (const pick of picksGiven) {
+        const ownerId = Number((pick as { owner_id?: number | string }).owner_id);
+        const receiverName = Number.isFinite(ownerId)
+          ? (rosterIdToTeam.get(ownerId) || rosterMap.get(ownerId)?.metadata?.team_name || `Roster ${ownerId}`)
+          : undefined;
+        const originalRosterId = Number((pick as { roster_id?: number | string }).roster_id);
+        const originalOwnerName = rosterIdToTeam.get(originalRosterId) || (rosterMap.get(originalRosterId)?.metadata?.team_name ?? `Roster ${originalRosterId}`);
+        const pickName = `${pick.season} ${getOrdinal(pick.round)} Round Pick${originalOwnerName && originalOwnerName !== teamName ? ` (${originalOwnerName}'s slot)` : ''}`;
+        gives.push({
+          type: 'pick',
+          name: receiverName && receiverName !== teamName ? `${pickName} → ${receiverName}` : pickName,
+          year: pick.season,
+          round: pick.round,
+          originalOwner: originalOwnerName,
+          pick: {
+            season: String(pick.season),
+            round: pick.round,
+            originalOwner: originalOwnerName,
+            currentOwner: receiverName || `Roster ${ownerId}`,
+          },
         });
       }
     }
@@ -407,9 +479,26 @@ async function convertSleeperTradeToTrade(
         .filter(budget => budget.receiver === rosterId)
         .forEach(budget => {
           const amt = Number(budget.amount ?? 0) || 0;
-          assets.push({
+          const senderName = rosterIdToTeam.get(budget.sender) || rosterMap.get(budget.sender)?.metadata?.team_name || `Roster ${budget.sender}`;
+          const baseAsset: TradeAsset = {
             type: 'faab',
             name: `$${amt} FAAB`,
+            faabAmount: amt,
+          };
+          assets.push(baseAsset);
+          gets.push({
+            ...baseAsset,
+            name: senderName && senderName !== teamName ? `$${amt} FAAB from ${senderName}` : baseAsset.name,
+          });
+        });
+      transaction.waiver_budget
+        .filter(budget => budget.sender === rosterId)
+        .forEach(budget => {
+          const amt = Number(budget.amount ?? 0) || 0;
+          const receiverName = rosterIdToTeam.get(budget.receiver) || rosterMap.get(budget.receiver)?.metadata?.team_name || `Roster ${budget.receiver}`;
+          gives.push({
+            type: 'faab',
+            name: receiverName && receiverName !== teamName ? `$${amt} FAAB → ${receiverName}` : `$${amt} FAAB`,
             faabAmount: amt,
           });
         });
@@ -417,7 +506,9 @@ async function convertSleeperTradeToTrade(
 
     tradeTeams.push({
       name: teamName,
-      assets
+      assets,
+      gets,
+      gives,
     });
   }
 
@@ -449,7 +540,7 @@ function getOrdinal(n: number): string {
 
 // Cache for converted trades
 const tradesCache: Record<string, Trade> = {};
-const TRADES_CACHE_VERSION = 'v2';
+const TRADES_CACHE_VERSION = 'v3';
 const cacheKeyForTxn = (txnId: string) => `${TRADES_CACHE_VERSION}:${txnId}`;
 
 /* Sample trades removed - replaced with real Sleeper API data */

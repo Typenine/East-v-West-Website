@@ -1294,6 +1294,14 @@ export function buildExternalDataContext(
   rosterPlayerNames?: { full: Set<string>; last: Set<string> },
 ): string {
   const lines: string[] = [];
+  const now = Date.now();
+  const recentNews = data.news.filter(item => {
+    if (item.category === 'projection' || item.category === 'analysis') return false;
+    const ts = item.timestamp ? Date.parse(item.timestamp) : NaN;
+    if (!Number.isFinite(ts)) return false;
+    const ageMs = now - ts;
+    return ageMs >= 0 && ageMs <= 7 * 24 * 60 * 60 * 1000;
+  });
   
   // Trending players section
   if (data.trending.length > 0) {
@@ -1355,9 +1363,9 @@ export function buildExternalDataContext(
   }
   
   // News section
-  if (data.news.length > 0) {
-    lines.push('=== LATEST NFL NEWS ===');
-    for (const item of data.news.slice(0, 15)) {
+  if (recentNews.length > 0) {
+    lines.push('=== LATEST NFL NEWS (fresh factual items from last 7 days) ===');
+    for (const item of recentNews.slice(0, 10)) {
       const emoji = item.category === 'injury' ? '🏥' :
                     item.category === 'transaction' ? '📝' :
                     item.category === 'projection' ? '📊' : '📰';

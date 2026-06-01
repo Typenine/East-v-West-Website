@@ -1286,6 +1286,32 @@ async function buildTradeItems(events: DerivedData['events_scored'], memEntertai
     return parts.length ? `Your history with ${team}: ${parts.join(', ')}.` : '';
   };
 
+  const stripTradeSetup = (text: string, tradeHeadline: string): string => {
+    const trimmed = text.trim();
+    if (!trimmed) return trimmed;
+    const sentences = trimmed.match(/[^.!?]+[.!?]+|[^.!?]+$/g)?.map(s => s.trim()).filter(Boolean) ?? [trimmed];
+    if (sentences.length < 2) return trimmed;
+    const first = sentences[0].toLowerCase();
+    const headlineLower = tradeHeadline.toLowerCase();
+    const looksLikeIntro =
+      first.includes('trade') ||
+      first.includes('deal') ||
+      first.includes('three-team') ||
+      first.includes('multi-team') ||
+      first.includes('let\'s start') ||
+      first.includes('breaking this down') ||
+      first.includes(headlineLower);
+    return looksLikeIntro ? sentences.slice(1).join(' ').trim() : trimmed;
+  };
+
+  const isCompleteTradeAnalysis = (text: string): boolean => {
+    const trimmed = text.trim();
+    if (trimmed.length < 180) return false;
+    if (!/[A-F][+-]?/i.test(trimmed)) return false;
+    const sentenceCount = (trimmed.match(/[.!?](?:\s|$)/g) ?? []).length;
+    return sentenceCount >= 3;
+  };
+
   // Generate one Mason Reed intro per trade (sets the stage once, not repeated per team)
   const tradeIntros = await Promise.all(
     tradeContexts.map(({ tradeContext, parties }) =>
@@ -1304,6 +1330,7 @@ async function buildTradeItems(events: DerivedData['events_scored'], memEntertai
     tradeIdx: number;
     party: string;
     sideContext: string;
+    tradeContext: string;
     isMultiTeam: boolean;
     allParties: string[];
   }> = [];
@@ -1346,13 +1373,13 @@ Evaluate this trade FROM ${party.toUpperCase()}'S PERSPECTIVE ONLY. Only judge $
 ${entTrustLine ? `[Mason Reed's history: ${entTrustLine}]` : ''}
 ${anaTrustLine ? `[Westy's history: ${anaTrustLine}]` : ''}${partyCard}`;
 
-      allPartyRequests.push({ tradeIdx: i, party, sideContext, isMultiTeam, allParties: parties });
+      allPartyRequests.push({ tradeIdx: i, party, sideContext, tradeContext, isMultiTeam, allParties: parties });
     }
   }
 
   // Generate all analyses in parallel (rate limiting handled by groq client)
   const allResponses = await Promise.all(
-    allPartyRequests.map(async ({ party, sideContext, isMultiTeam, allParties }) => {
+    allPartyRequests.map(async ({ party, sideContext, tradeContext, isMultiTeam, allParties }) => {
       const otherTeams = allParties.filter(p => p !== party).join(' and ');
 
       // The trade intro is already written by Mason Reed above — both bots skip re-introduction
@@ -1374,7 +1401,7 @@ ${anaTrustLine ? `[Westy's history: ${anaTrustLine}]` : ''}${partyCard}`;
         : `Grade this trade for ${party} specifically (A+ to F). Skip any trade setup — go straight into your analysis. Evaluate value received vs given from ${party}'s perspective. 4-5 sentences on short vs long-term implications, value, and fit. Factor in your prior read on this team if relevant. End with your letter grade.`;
 
       const tradeSection = isMultiTeam ? `${allParties.length}-Team Trade Grade` : 'Trade Grade';
-      const perTeamTokens = isMultiTeam ? 500 : 420;
+      const perTeamTokens = isMultiTeam ? 720 : 560;
       const [rawEntTrade, rawAnaTrade] = await Promise.all([
         generateSection({
           persona: 'entertainer',
@@ -1382,6 +1409,7 @@ ${anaTrustLine ? `[Westy's history: ${anaTrustLine}]` : ''}${partyCard}`;
           context: sideContext + (entPersonality ? `\n${entPersonality}` : '') + tradeDedupeEnt,
           constraints: entertainerConstraints,
           maxTokens: perTeamTokens,
+          validate: isCompleteTradeAnalysis,
         }),
         generateSection({
           persona: 'analyst',
@@ -1389,10 +1417,17 @@ ${anaTrustLine ? `[Westy's history: ${anaTrustLine}]` : ''}${partyCard}`;
           context: sideContext + (anaPersonality ? `\n${anaPersonality}` : '') + tradeDedupeAna,
           constraints: analystConstraints,
           maxTokens: perTeamTokens,
+          validate: isCompleteTradeAnalysis,
         }),
       ]);
-      const entertainerResponse = guardText(rawEntTrade, { sectionType: 'Trade Grade', logPrefix: `[compose:TradeGrade:${party}:entertainer]` });
-      const analystResponse     = guardText(rawAnaTrade, { sectionType: 'Trade Grade', logPrefix: `[compose:TradeGrade:${party}:analyst]` });
+      const entertainerResponse = stripTradeSetup(
+        guardText(rawEntTrade, { sectionType: 'Trade Grade', logPrefix: `[compose:TradeGrade:${party}:entertainer]` }),
+        tradeContext,
+      );
+      const analystResponse = stripTradeSetup(
+        guardText(rawAnaTrade, { sectionType: 'Trade Grade', logPrefix: `[compose:TradeGrade:${party}:analyst]` }),
+        tradeContext,
+      );
 
       const extractGrade = (text: string): string => {
         // Explicit label patterns — most reliable

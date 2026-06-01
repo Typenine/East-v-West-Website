@@ -304,7 +304,10 @@ async function buildEnhancedContextFull(
           week: t.week ?? undefined,
           teams: t.teams.map(tm => ({
             name: tm.name,
-            assets: { gets: tm.assets.map(a => a.name), gives: [] as string[] },
+            assets: {
+              gets: (tm.gets ?? tm.assets).map(a => a.name),
+              gives: (tm.gives ?? []).map(a => a.name),
+            },
           })),
         }));
       tradeContext = buildTradeContext(seasonTrades, week);
@@ -939,8 +942,7 @@ async function startStagedJob(opts: {
 
     // Enrich pick labels in derived events with slot numbers + original ownership from the draft tracker.
     // The Sleeper transaction only gives us "2026 Rd 1 Pick"; the DB tells us it's "1.08 originally bop pop's".
-    // Enrichment is ONLY applied to `gets` (receiver IS the current DB owner — reliable key match).
-    // `gives` for multi-team trades is already empty by design; 2-team gives labels stay as-is.
+    // We enrich both gets and gives so every prompt path uses the same labeled pick identity.
     // We build pickOwnership once here and reuse it below for the context string.
     const pickOwnership = await buildPickOwnershipContext(seasonNum).catch(() => null);
     try {
@@ -949,16 +951,28 @@ async function startStagedJob(opts: {
         for (const ev of derived.events_scored) {
           if (ev.type !== 'trade' || !ev.details?.by_team) continue;
           for (const [teamName, side] of Object.entries(ev.details.by_team)) {
-            // Only enrich `gets`: the receiving team IS the current owner → reliable lookup key
-            side.gets = (side.gets ?? []).map(asset => {
-              const m = asset.match(/^(\d{4})\s+Rd\s+(\d+)\s+Pick$/i);
+            const enrichPickLabel = (asset: string, useReceiverKey: boolean): string => {
+              const m = asset.match(/^(\d{4})\s+Rd\s+(\d+)\s+Pick(?:\s*\([^)]*\))?(?:\s*\(from\s+[^)]*\))?(?:\s*→\s*.+)?$/i);
               if (!m) return asset;
               const [, yr, rd] = m;
-              return pickLookup.get(`${yr}-${rd}-${teamName}`)?.label ?? asset;
-            });
+              const receiverTeam = useReceiverKey
+                ? teamName
+                : (asset.match(/→\s*(.+)$/)?.[1]?.trim() || '');
+              const entry = receiverTeam ? pickLookup.get(`${yr}-${rd}-${receiverTeam}`) : undefined;
+              if (!entry) return asset;
+              if (useReceiverKey) {
+                const fromMatch = asset.match(/\(from\s+([^)]*)\)/i);
+                return fromMatch ? `${entry.label} (from ${fromMatch[1]})` : entry.label;
+              }
+              const arrowMatch = asset.match(/→\s*(.+)$/);
+              return arrowMatch ? `${entry.label} → ${arrowMatch[1]}` : entry.label;
+            };
+
+            side.gets = (side.gets ?? []).map(asset => enrichPickLabel(asset, true));
+            side.gives = (side.gives ?? []).map(asset => enrichPickLabel(asset, false));
           }
         }
-        console.log(`[Staged] Pick labels enriched in derived events (gets only)`);
+        console.log(`[Staged] Pick labels enriched in derived events (gets + gives)`);
       }
     } catch (enrichErr) {
       console.warn('[Staged] Pick label enrichment failed (non-fatal):', enrichErr instanceof Error ? enrichErr.message : String(enrichErr));
@@ -977,6 +991,43 @@ async function startStagedJob(opts: {
         if (last.length >= 4) rosterNames.last.add(last);
       }
     }
+
+    const currentQbStatusStr = (() => {
+      const qbLines = Array.from(rosterPlayerIds)
+        .map(pid => {
+          const p = allPlayers[pid] as {
+            full_name?: string;
+            first_name?: string;
+            last_name?: string;
+            position?: string;
+            team?: string;
+            starting_status?: string | null;
+            depth_chart_order?: number | null;
+            depth_chart_position?: string | null;
+          } | undefined;
+          if (!p || p.position !== 'QB') return null;
+          const name = p.full_name || `${p.first_name ?? ''} ${p.last_name ?? ''}`.trim();
+          if (!name) return null;
+          const starterTag = p.starting_status?.trim() ? `status=${p.starting_status}` : null;
+          const depthTag = typeof p.depth_chart_order === 'number'
+            ? `depth=${p.depth_chart_position || 'QB'}${p.depth_chart_order}`
+            : null;
+          return {
+            name,
+            team: p.team || 'FA',
+            starter: (p.starting_status || '').toLowerCase() === 'starter' || p.depth_chart_order === 1,
+            note: [starterTag, depthTag].filter(Boolean).join(', '),
+          };
+        })
+        .filter((x): x is { name: string; team: string; starter: boolean; note: string } => Boolean(x))
+        .sort((a, b) => Number(b.starter) - Number(a.starter) || a.name.localeCompare(b.name));
+      if (qbLines.length === 0) return '';
+      return [
+        '=== CURRENT ROSTERED QB STATUS (live Sleeper metadata) ===',
+        'Use this as more current than offseason narratives or old headlines. If a QB is listed as a starter here, do not describe him as still competing to win the job unless the context explicitly says that changed.',
+        ...qbLines.slice(0, 24).map(q => `- ${q.name} (${q.team}): ${q.starter ? 'starter' : 'not confirmed starter'}${q.note ? ` [${q.note}]` : ''}`),
+      ].join('\n');
+    })();
 
     // Build roster_id → team name map (used for stale picks grading below)
     const stagedUserMap = new Map<string, string>();
@@ -1016,7 +1067,9 @@ async function startStagedJob(opts: {
       // pickOwnership was already loaded above (before context building) — reuse it
       const pickOwnershipStr = pickOwnership?.contextBlock ?? '';
 
-      enhancedContextString = `${preTeamNameBlock}\n\n${rulesStr}\n\n${comprehensiveStr}\n\n${histCtx}${pickOwnershipStr ? '\n\n' + pickOwnershipStr : ''}`;
+      enhancedContextString = [preTeamNameBlock, currentQbStatusStr, rulesStr, comprehensiveStr, `${histCtx}${pickOwnershipStr ? '\n\n' + pickOwnershipStr : ''}`]
+        .filter(Boolean)
+        .join('\n\n');
       console.log(`[Staged] Preseason historical context built (${Math.round(enhancedContextString.length / 1000)}K chars)`);
     } else {
       const [currentWeekCtx, externalData, dynastyRankingsResult] = await Promise.all([
@@ -1056,7 +1109,7 @@ async function startStagedJob(opts: {
 
       // Current data first — section generators slice context at 2-4K chars, so standings/transactions
       // must come before static historical content or they get cut off
-      enhancedContextString = [teamNameBlock, standingsStr, txStr, pickOwnershipStr, rosterInjuryStr, dynastyOverviewStr, externalStr, rulesStr, comprehensiveStr].filter(Boolean).join('\n\n');
+      enhancedContextString = [teamNameBlock, standingsStr, txStr, pickOwnershipStr, currentQbStatusStr, rosterInjuryStr, dynastyOverviewStr, externalStr, rulesStr, comprehensiveStr].filter(Boolean).join('\n\n');
       console.log(`[Staged] Regular context built (${Math.round(enhancedContextString.length / 1000)}K chars, dynasty=${stagedDynastyRankings.length} players)`);
     }
 
