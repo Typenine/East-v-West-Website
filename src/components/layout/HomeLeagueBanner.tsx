@@ -14,6 +14,7 @@ function TeamTile({ team, compact = false }: { team: string; compact?: boolean }
   const isCakeEaters = team === 'Mt. Lebanon Cake Eaters';
   const isLoneGinger = team === 'The Lone Ginger';
   const isDoubleTrouble = team === 'Double Trouble';
+  const needsRoundCrop = isCakeEaters || isLoneGinger || isDoubleTrouble;
   const logoSrc = isDoubleTrouble ? `${getTeamLogoPath(team)}?v=double-trouble-transparent-2` : getTeamLogoPath(team);
   const stripeColors = [colors.primary, colors.secondary, colors.tertiary].filter(Boolean) as string[];
   const stripeCount = stripeColors.length;
@@ -28,19 +29,19 @@ function TeamTile({ team, compact = false }: { team: string; compact?: boolean }
     ? 'relative overflow-hidden rounded-[14px] border backdrop-blur-md shadow-[0_12px_26px_rgba(0,0,0,0.2)] min-h-[62px] px-2 py-1.5 flex items-center justify-center'
     : 'relative overflow-hidden rounded-[16px] border backdrop-blur-md shadow-[0_12px_30px_rgba(0,0,0,0.22)] min-h-[64px] sm:min-h-[72px] lg:min-h-[80px] px-2 py-2 sm:px-2.5 sm:py-2.5 flex items-center justify-center';
   const logoFrameClassName = compact
-    ? isCakeEaters || isLoneGinger
+    ? needsRoundCrop
       ? 'relative z-10 overflow-hidden rounded-full h-[2.45rem] w-[2.45rem]'
       : 'relative z-10 overflow-hidden h-[2.45rem] w-[2.45rem]'
-    : isCakeEaters || isLoneGinger
+    : needsRoundCrop
       ? 'relative z-10 overflow-hidden rounded-full h-[2.8rem] w-[2.8rem] sm:h-[3.2rem] sm:w-[3.2rem] lg:h-[3.75rem] lg:w-[3.75rem]'
       : 'relative z-10 overflow-hidden h-[2.8rem] w-[2.8rem] sm:h-[3.2rem] sm:w-[3.2rem] lg:h-[3.75rem] lg:w-[3.75rem]';
   const logoClassName = isDoubleTrouble
-    ? 'object-contain scale-[1.82]'
+    ? 'object-cover scale-[2.18]'
     : isCakeEaters || isLoneGinger
       ? 'object-cover scale-[1.16]'
       : 'object-contain';
   const logoPosition = isDoubleTrouble
-    ? '52% 47%'
+    ? '56% 44%'
     : 'center';
 
   return (
@@ -49,7 +50,7 @@ function TeamTile({ team, compact = false }: { team: string; compact?: boolean }
       className={tileClassName}
       style={{
         borderColor: 'rgba(255,255,255,0.16)',
-        backgroundImage: `linear-gradient(180deg, rgba(7,10,18,0.72) 0%, rgba(9,13,22,0.82) 100%), linear-gradient(90deg, ${stripeBackground})`,
+        backgroundImage: `linear-gradient(180deg, rgba(7,10,18,0.54) 0%, rgba(9,13,22,0.66) 100%), linear-gradient(90deg, ${stripeBackground})`,
         boxShadow: `0 0 0 1px ${colors.secondary}1f inset, ${compact ? '0 12px 26px rgba(0,0,0,0.2)' : '0 12px 30px rgba(0,0,0,0.22)'}`,
       }}
       title={team}
@@ -58,14 +59,14 @@ function TeamTile({ team, compact = false }: { team: string; compact?: boolean }
         aria-hidden
         className="absolute inset-0"
         style={{
-          background: 'linear-gradient(120deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.02) 28%, rgba(255,255,255,0) 58%)',
+          background: 'linear-gradient(120deg, rgba(255,255,255,0.1) 0%, rgba(255,255,255,0.04) 28%, rgba(255,255,255,0) 58%)',
         }}
       />
       <div
         aria-hidden
         className="absolute inset-0"
         style={{
-          background: 'linear-gradient(90deg, rgba(5,8,14,0.3) 0%, rgba(5,8,14,0.18) 42%, rgba(5,8,14,0.12) 100%)',
+          background: 'linear-gradient(90deg, rgba(5,8,14,0.18) 0%, rgba(5,8,14,0.1) 42%, rgba(5,8,14,0.06) 100%)',
         }}
       />
       <div className={logoFrameClassName}>
@@ -155,8 +156,7 @@ export default function HomeLeagueBanner() {
                 />
               </Link>
               <div className="text-center uppercase tracking-[0.16em]">
-                <div className="text-[6px] font-extrabold text-[#bf9944]">Dynasty Fantasy Football</div>
-                <div className="mt-0.5 text-[10px] font-black leading-none text-[var(--text)]">East v. West League</div>
+                <div className="text-[10px] font-black leading-none text-[var(--text)]">East v. West League</div>
               </div>
             </div>
             <TeamGrid teams={allTeams} compact className="grid grid-cols-3 gap-1.5 items-center" />
@@ -184,8 +184,7 @@ export default function HomeLeagueBanner() {
                 />
               </Link>
               <div className="text-center uppercase tracking-[0.16em]">
-                <div className="text-[6px] sm:text-[7px] lg:text-[8px] font-extrabold text-[#bf9944]">Dynasty Fantasy Football</div>
-                <div className="mt-0.5 text-[10px] sm:text-[11px] lg:text-[13px] font-black leading-none text-[var(--text)]">East v. West League</div>
+                <div className="text-[10px] sm:text-[11px] lg:text-[13px] font-black leading-none text-[var(--text)]">East v. West League</div>
               </div>
             </div>
             <TeamGrid teams={rightTeams} className="grid grid-cols-2 sm:grid-cols-3 gap-2 sm:gap-2.5 lg:gap-3 items-center" />
