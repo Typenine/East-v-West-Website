@@ -5,6 +5,7 @@
  */
 
 import { generateWithCascade, resetCascadeMetrics, getCascadeMetricsSummary } from './cascade';
+import { getBotBrainOverrideContext } from '../bot-brain';
 export { resetCascadeMetrics, getCascadeMetricsSummary };
 
 // ============ Types ============
@@ -629,6 +630,11 @@ export async function generateSection(options: GenerateSectionOptions): Promise<
   }
   if (episodeType?.startsWith('playoffs')) {
     systemPrompt += '\n\n' + EPISODE_PROMPT_ADDITIONS.playoffs[persona];
+  }
+  // Phase 3: wire admin voice overrides into the system prompt if any are active
+  const adminOverrideCtx = getBotBrainOverrideContext(persona);
+  if (adminOverrideCtx) {
+    systemPrompt += adminOverrideCtx;
   }
 
   const userPrompt = `Generate the "${sectionType}" section for this fantasy football newsletter.

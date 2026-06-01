@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { isAdminCookieValue } from '@/lib/auth/admin';
 
 // Teams allowed to access draft room (for testing)
-const DRAFT_ALLOWED_TEAMS = ['Belleview Badgers', 'Mt. Lebanon Cake Eaters'];
+const DRAFT_ALLOWED_TEAMS = ['Belleview Badgers', 'Mt. Lebanon Cake Eaters', 'Bimg Bamg Boomg'];
 
 // Paths that require a session cookie
 const PROTECTED_PREFIXES = ['/trade-block', '/vote', '/api/trade-block', '/api/votes'];
@@ -80,3 +80,4 @@ export const config = {
     '/admin/draft',
   ],
 };
+

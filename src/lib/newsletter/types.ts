@@ -870,6 +870,55 @@ export interface NarrativeCallback {
   bot_reaction: string;
 }
 
+// ============ Phase 4: Guest Voice Types ============
+
+/**
+ * Keys for guest voice personalities.
+ * Kept separate from BotName to avoid entanglement with existing bot assumptions.
+ * BotName is always 'entertainer' | 'analyst'; GuestVoiceKey is a parallel type.
+ */
+export type GuestVoiceKey = 'clancy';
+
+/**
+ * Trigger types that can activate a guest voice appearance.
+ * Each trigger maps to a specific scenario requiring archival or procedural commentary.
+ */
+export type ClancyTriggerType =
+  | 'rivalry_week'      // Active rivalry matchup (rivalryScore >= 5)
+  | 'blood_feud'        // Intense rivalry (rivalryScore >= 8)
+  | 'championship'      // Championship or title-deciding moment
+  | 'trade_deadline'    // Trade deadline episode
+  | 'procedural_issue'  // Rule-adjacent or format-related event
+  | 'draft_event'       // Pre or post-draft episode
+  | 'historic_record'   // Near or broken league record
+  | 'franchise_arc';    // Significant franchise history moment
+
+/** A short archival/procedural insert from Clancy. Max 2-4 sentences. */
+export interface ClancyInsert {
+  trigger: ClancyTriggerType;
+  /** Display label for the section header: "From the Archives", "The Ledger", etc. */
+  label: string;
+  /** The generated text. Guardrails-validated before storage. */
+  text: string;
+  /** Teams referenced in this insert, if any */
+  teams?: string[];
+  week: number;
+}
+
+/** A single prediction callback — one bot's reaction to a recently graded pick */
+export interface PredictionCallbackItem {
+  bot: BotName;
+  outcome: 'correct' | 'wrong';
+  /** The original pick text (team name) */
+  originalPick: string;
+  /** Both teams involved in the original matchup */
+  teams: [string, string];
+  /** Week the prediction was originally made */
+  week: number;
+  /** LLM-generated 1-2 sentence reaction: victory lap or acknowledgement of error */
+  reaction: string;
+}
+
 export type NewsletterSection =
   // Standard sections (regular episodes)
   | { type: 'Intro'; data: IntroSection }
@@ -900,7 +949,10 @@ export type NewsletterSection =
   // Draft episode sections
   | { type: 'DraftPreview'; data: DraftPreviewSection }
   | { type: 'DraftGrades'; data: DraftGradesSection }
-  | { type: 'MockDraft'; data: MockDraftSection };
+  | { type: 'MockDraft'; data: MockDraftSection }
+  // Phase 4: Guest voice sections
+  | { type: 'ClancyInsert'; data: ClancyInsert }
+  | { type: 'PredictionCallbacks'; data: PredictionCallbackItem[] };
 
 // ============ Episode Types ============
 

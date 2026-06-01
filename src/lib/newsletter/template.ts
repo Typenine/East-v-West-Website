@@ -1241,6 +1241,68 @@ function sectionMockDraft(d: MockDraftSection): string {
   </article>`;
 }
 
+// ============ Phase 4: Clancy Insert Renderer ============
+
+function sectionClancyInsert(d: import('./types').ClancyInsert): string {
+  // Sepia/parchment palette — distinct from Mason red and Westy blue
+  const bg = '#faf7f0';
+  const border = '#c8a96e';
+  const labelColor = '#8b6914';
+  const textColor = '#3d2b0e';
+
+  return `
+  <article>
+    ${sectionHeader(d.label, 'From the record books')}
+    <div style="margin:24px 0;background:${bg};border-left:4px solid ${border};border-radius:0 6px 6px 0;padding:22px 28px;position:relative;">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;">
+        <div style="width:36px;height:36px;border-radius:50%;background:${border};display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+          <span style="font-size:16px;font-weight:800;color:#fff;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;">C</span>
+        </div>
+        <div>
+          <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-weight:700;font-size:14px;color:${textColor};">Clancy</div>
+          <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:11px;color:${labelColor};letter-spacing:0.5px;">League Historian &amp; Archivist</div>
+        </div>
+      </div>
+      <p style="margin:0;font-family:'Georgia','Times New Roman',serif;font-size:16px;line-height:1.8;color:${textColor};font-style:italic;">${esc(d.text)}</p>
+      ${d.teams && d.teams.length > 0 ? `<div style="margin-top:10px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:11px;color:${labelColor};letter-spacing:1px;text-transform:uppercase;">Re: ${esc(d.teams.join(' &amp; '))}</div>` : ''}
+    </div>
+  </article>`;
+}
+
+// ============ Phase 4: Prediction Callbacks Renderer ============
+
+function sectionPredictionCallbacks(d: import('./types').PredictionCallbackItem[]): string {
+  if (!d || d.length === 0) return '';
+
+  const rows = d.map(item => {
+    const isEntertainer = item.bot === 'entertainer';
+    const borderColor = isEntertainer ? '#be161e' : '#0b5f98';
+    const name = isEntertainer ? 'Mason Reed' : 'Trent Weston';
+    const role = isEntertainer ? 'entertainer' : 'analyst';
+    const outcomeLabel = item.outcome === 'correct'
+      ? `<span style="color:#16a34a;font-weight:700;font-size:11px;letter-spacing:1px;text-transform:uppercase;">✓ Called It</span>`
+      : `<span style="color:#dc2626;font-weight:700;font-size:11px;letter-spacing:1px;text-transform:uppercase;">✗ Miss</span>`;
+
+    return `
+    <div style="padding:22px 28px;border-left:4px solid ${borderColor};background:#fff;box-shadow:0 1px 4px rgba(0,0,0,0.06);margin-bottom:12px;">
+      ${authorByline(name, role)}
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+        ${outcomeLabel}
+        <span style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:11px;color:#9ca3af;">Week ${item.week} pick: ${esc(item.originalPick.slice(0, 60))}</span>
+      </div>
+      <p style="margin:0;font-family:'Georgia','Times New Roman',serif;font-size:16px;line-height:1.8;color:#374151;">${esc(item.reaction)}</p>
+    </div>`;
+  }).join('');
+
+  return `
+  <article>
+    ${sectionHeader('Accountability Corner', 'Last week\'s picks, reviewed')}
+    <div style="margin:24px 0;">
+      ${rows}
+    </div>
+  </article>`;
+}
+
 // ============ Main Render Function ============
 
 export function renderHtml(newsletter: Newsletter): string {
@@ -1346,6 +1408,9 @@ export function renderHtml(newsletter: Newsletter): string {
       case 'DraftPreview': return sectionDraftPreview(s.data);
       case 'DraftGrades': return sectionDraftGrades(s.data);
       case 'MockDraft': return sectionMockDraft(s.data);
+      // Phase 4 sections
+      case 'ClancyInsert': return sectionClancyInsert(s.data);
+      case 'PredictionCallbacks': return sectionPredictionCallbacks(s.data);
       default: return '';
     }
   }).join('\n');
@@ -1431,6 +1496,9 @@ export function renderNewsletterData(newsletter: Newsletter): {
       case 'RivalryWatch': html = sectionRivalryWatch(s.data); break;
       case 'PlayoffOdds': html = sectionPlayoffOdds(s.data); break;
       case 'NarrativeCallbacks': html = sectionNarrativeCallbacks(s.data); break;
+      // Phase 4 sections
+      case 'ClancyInsert': html = sectionClancyInsert(s.data); break;
+      case 'PredictionCallbacks': html = sectionPredictionCallbacks(s.data); break;
     }
     return { type: s.type, html };
   });

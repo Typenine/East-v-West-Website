@@ -26,6 +26,10 @@ import {
   saveForecastRecords,
   savePendingPicks,
 } from '@/server/db/newsletter-queries';
+import { applyBotBrainOverride } from '@/lib/newsletter/bot-brain';
+import { setTeamCardOverride } from '@/lib/newsletter/team-narratives';
+import { setRuntimeBannedPhrases } from '@/lib/newsletter/guardrails';
+import type { BotSettingsRow } from '@/server/db/personality-queries';
 import type { BotMemory } from '@/lib/newsletter/types';
 import {
   getGenerationSteps,
@@ -38,6 +42,18 @@ import {
 import { renderHtml } from '@/lib/newsletter/template';
 import type { DerivedData } from '@/lib/newsletter/types';
 import type { LeagueDraftData } from '@/lib/newsletter/sleeper-ingest';
+
+function toBotBrainOverrideStep(settings: BotSettingsRow) {
+  const override: Parameters<typeof applyBotBrainOverride>[1] = {};
+  if (settings.displayName)                       override.displayName = settings.displayName;
+  if (settings.roleDescription)                   override.role = settings.roleDescription;
+  if (settings.voiceConfig)                       override.voice = settings.voiceConfig;
+  if (settings.signaturePhrases?.openers?.length) override.openers = settings.signaturePhrases.openers;
+  if (settings.signaturePhrases?.closers?.length) override.closers = settings.signaturePhrases.closers;
+  if (settings.signaturePhrases?.verbalTics?.length) override.verbalTics = settings.signaturePhrases.verbalTics;
+  if (settings.safetyBoundaries?.length)          override.safetyBoundaries = settings.safetyBoundaries;
+  return override;
+}
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -311,6 +327,40 @@ export async function POST(request: NextRequest) {
     rosterContext: rosterContext || undefined,
     dynastyRankings,
   };
+
+  // ── Phase 3: load admin personality overrides (mirrors sync route — non-fatal) ──
+  try {
+    const { loadBotSettings, loadAllTeamNarrativeOverrides, loadPhrasePool } =
+      await import('@/server/db/personality-queries').catch(() => ({
+        loadBotSettings: null as null, loadAllTeamNarrativeOverrides: null as null, loadPhrasePool: null as null,
+      }));
+
+    if (loadBotSettings && loadAllTeamNarrativeOverrides && loadPhrasePool) {
+      const [entSettings, anaSettings, teamCardRows, bannedPool] = await Promise.allSettled([
+        loadBotSettings('entertainer'),
+        loadBotSettings('analyst'),
+        loadAllTeamNarrativeOverrides(),
+        loadPhrasePool('banned_global'),
+      ]);
+
+      if (entSettings.status === 'fulfilled' && entSettings.value) {
+        applyBotBrainOverride('entertainer', toBotBrainOverrideStep(entSettings.value));
+      }
+      if (anaSettings.status === 'fulfilled' && anaSettings.value) {
+        applyBotBrainOverride('analyst', toBotBrainOverrideStep(anaSettings.value));
+      }
+      if (teamCardRows.status === 'fulfilled') {
+        for (const card of teamCardRows.value) {
+          setTeamCardOverride(card.teamName, card.cardData);
+        }
+      }
+      if (bannedPool.status === 'fulfilled' && bannedPool.value) {
+        setRuntimeBannedPhrases(bannedPool.value);
+      }
+    }
+  } catch {
+    console.warn('[Step] personality overrides load failed; using hardcoded defaults');
+  }
 
   // ── Mark step as running ──
   await updateStagedNewsletter(season, week, { status: 'in_progress', currentSection: nextStep });

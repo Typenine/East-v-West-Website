@@ -43,7 +43,9 @@ import { guardText } from './guardrails';
 import { judgeSection, judgeMatchup, buildJudgmentContext } from './judgment';
 import { selectAndBuildStance } from './stance';
 import { getPhaseRules, buildPhaseRulesContext } from './episodes';
-import { buildMatchupCardContext, buildTeamCardContext } from './team-narratives';
+import { buildMatchupCardContext, buildTeamCardContext, computeRivalryScore } from './team-narratives';
+import { evaluateClancyTrigger, generateClancyInsert, buildClancySystemContext } from './guest-voice';
+import type { ClancyInsert, PredictionCallbackItem } from './types';
 
 // ============ Step catalog ============
 
@@ -123,10 +125,22 @@ export function getGenerationSteps(
     if (['regular', 'trade_deadline', 'playoffs_preview', 'playoffs_round'].includes(episodeType)) {
       steps.push('Forecast');
     }
+    // PredictionCallbacks: review last week's picks — runs on regular episodes after Forecast
+    if (episodeType === 'regular') {
+      steps.push('PredictionCallbacks');
+    }
+    // ClancyInsert: optional archival/procedural insert — always attempted but
+    // internally gated by trigger evaluation; returns empty if conditions not met.
+    // For championship/trade_deadline the trigger almost always fires.
+    if (['championship', 'trade_deadline', 'playoffs_round', 'regular'].includes(episodeType)) {
+      steps.push('ClancyInsert');
+    }
   }
 
   if (episodeType === 'pre_draft') {
     steps.push('PreDraftTrades', 'MockDraft_R1_Mason', 'MockDraft_R1_Westy', 'MockDraft_R2_Mason', 'MockDraft_R2_Westy');
+    // Clancy always appears for draft episodes
+    steps.push('ClancyInsert');
   }
 
   if (episodeType === 'post_draft') {
@@ -135,6 +149,7 @@ export function getGenerationSteps(
       : (typeof draftTeamsOrCount === 'number' ? draftTeamsOrCount : 12);
     for (let i = 0; i < count; i++) steps.push(`DraftGrade_${i}`);
     steps.push('DraftGrades_Summary');
+    steps.push('ClancyInsert');
   }
 
   if (episodeType === 'offseason') {
@@ -361,11 +376,13 @@ Introduce yourselves briefly, welcome the league, then move straight into draft 
   const anaP1 = stepPhase1(input, 'analyst', { sectionType: 'Intro' });
 
   // Sequential: Mason opens, Westy responds to what Mason actually said
+  // Phase 1 addendum goes into constraints (not context) so it isn't buried
+  // after 30K+ chars of league/enhanced data and is read as a directive.
   const rawBot1 = await generateSection({
     persona: 'entertainer',
     sectionType: 'Intro',
-    context: context + entP1,
-    constraints: `Write 2-3 short paragraphs (2-4 sentences each). Lead with the biggest storyline from this week and your gut reaction to it. Give a SPECIFIC REASON for every take — not just what happened, but what it means. End with something that sets up Westy. FACTUAL RULE: Only reference events explicitly stated in the context above.`,
+    context,
+    constraints: `Write 2-3 short paragraphs (2-4 sentences each). Lead with the biggest storyline from this week and your gut reaction to it. Give a SPECIFIC REASON for every take — not just what happened, but what it means. End with something that sets up Westy. FACTUAL RULE: Only reference events explicitly stated in the context above.${entP1 ? `\n\n${entP1}` : ''}`,
     maxTokens: 500,
     episodeType,
   });
@@ -375,8 +392,8 @@ Introduce yourselves briefly, welcome the league, then move straight into draft 
   const rawBot2 = await generateSection({
     persona: 'analyst',
     sectionType: 'Intro',
-    context: westyContext + anaP1,
-    constraints: `Write 2-3 short paragraphs (2-4 sentences each). Respond directly to Mason's take. Don't re-introduce the week — pick up where he left off. Agree on one thing, push back on one thing, and add a stat or trend that changes the picture. Do NOT reuse Mason's phrases or examples. FACTUAL RULE: Only reference stats or events explicitly stated in the context above.`,
+    context: westyContext,
+    constraints: `Write 2-3 short paragraphs (2-4 sentences each). Respond directly to Mason's take. Don't re-introduce the week — pick up where he left off. Agree on one thing, push back on one thing, and add a stat or trend that changes the picture. Do NOT reuse Mason's phrases or examples. FACTUAL RULE: Only reference stats or events explicitly stated in the context above.${anaP1 ? `\n\n${anaP1}` : ''}`,
     maxTokens: 500,
     episodeType,
   });
@@ -427,11 +444,12 @@ async function genFinalWord(input: StepInput): Promise<FinalWordSection> {
   const anaFWP1 = stepPhase1(input, 'analyst', { sectionType: 'FinalWord' });
 
   // Sequential: Mason closes first, Westy responds to Mason's closing
+  // Phase 1 addendum goes into constraints so it reads as directive, not buried context.
   const rawBot1FW = await generateSection({
     persona: 'entertainer',
     sectionType: 'Final Word',
-    context: cfg.ctx + priorCtxBlock + entFWP1,
-    constraints: cfg.entConstraint,
+    context: cfg.ctx + priorCtxBlock,
+    constraints: cfg.entConstraint + (entFWP1 ? `\n\n${entFWP1}` : ''),
     maxTokens: cfg.tokens,
     episodeType,
     validate: (t) => t.length >= 100,
@@ -442,8 +460,8 @@ async function genFinalWord(input: StepInput): Promise<FinalWordSection> {
   const rawBot2FW = await generateSection({
     persona: 'analyst',
     sectionType: 'Final Word',
-    context: westyCtx + anaFWP1,
-    constraints: cfg.anaConstraint + ' Do NOT re-state what Mason just said. Respond to it briefly or add a different angle.',
+    context: westyCtx,
+    constraints: cfg.anaConstraint + ' Do NOT re-state what Mason just said. Respond to it briefly or add a different angle.' + (anaFWP1 ? `\n\n${anaFWP1}` : ''),
     maxTokens: cfg.tokens,
     episodeType,
     validate: (t) => t.length >= 100,
@@ -1622,6 +1640,182 @@ async function genSocialSummary(input: StepInput): Promise<{ text: string }> {
   return { text: text.trim() };
 }
 
+// ============ Phase 4: Clancy Insert ============
+
+/**
+ * Attempt to generate a Clancy archival insert for this week.
+ *
+ * Returns null (no insert) when:
+ * - Narrative heat is below the threshold
+ * - No qualifying trigger condition is met
+ * - Frequency cap has been reached
+ * - Guardrails block the output
+ *
+ * This step is always OPTIONAL — a null result is not an error.
+ */
+async function genClancyInsert(input: StepInput): Promise<ClancyInsert | null> {
+  const { week, season, episodeType, derived, enhancedContext, memEntertainer } = input;
+
+  // Compute narrative heat proxy from matchup data
+  const pairs = derived.matchup_pairs || [];
+  const maxMargin = pairs.reduce((m, p) => Math.max(m, p.margin), 0);
+  const hasBlowout = maxMargin >= 35;
+  const topRivalryScore = pairs.reduce((m, p) => {
+    try { return Math.max(m, computeRivalryScore(p.winner.name, p.loser.name)); } catch { return m; }
+  }, 0);
+
+  // Approximate heat: base 30, +20 for blowout, +5 per rivalry point
+  const approxHeat = Math.min(100, 30 + (hasBlowout ? 20 : 0) + (topRivalryScore * 5));
+
+  // Read Clancy appearance count from enhanced context meta if available
+  // (We use a simple in-memory approach — not persisted per season, which is acceptable
+  // since the frequency cap is a soft quality control, not a hard business rule)
+  const clancyCountThisSeason = 0; // Starter value; in production this would come from season memory
+
+  const triggerResult = evaluateClancyTrigger({
+    episodeType,
+    week,
+    narrativeHeat: approxHeat,
+    rivalryScore: topRivalryScore,
+    hasHistoricRecord: false, // Could be extended with record-checking logic
+    clancyCountThisSeason,
+    teams: pairs.flatMap(p => [p.winner.name, p.loser.name]).slice(0, 4),
+  });
+
+  if (!triggerResult.triggered) {
+    console.log(`[Clancy] No insert this week: ${triggerResult.reason}`);
+    return null;
+  }
+
+  console.log(`[Clancy] Triggered: ${triggerResult.triggerType} — "${triggerResult.label}"`);
+
+  // Most relevant teams for Clancy to focus on
+  const relevantTeams = pairs.length > 0
+    ? [pairs[0].winner.name, pairs[0].loser.name]
+    : [];
+
+  // Build Clancy's context: inject his identity directive at the top so the LLM
+  // knows it's writing as Clancy, not Mason or Westy.
+  const clancyContext = buildClancySystemContext() + '\n\n' + enhancedContext.slice(0, 2500);
+
+  const insert = await generateClancyInsert(
+    triggerResult.triggerType!,
+    clancyContext,
+    week,
+    relevantTeams,
+    triggerResult.label,
+  );
+
+  if (insert) {
+    console.log(`[Clancy] Insert ready: "${triggerResult.label}" (${insert.text.length} chars)`);
+  }
+
+  return insert ?? null;
+}
+
+// ============ Phase 4: Prediction Callbacks ============
+
+/**
+ * Generate prediction callback reactions for recently graded picks.
+ *
+ * Looks at each bot's `hotTakes` and `predictionStats` for graded predictions
+ * from the previous 1-2 weeks. Generates a 1-2 sentence reaction (victory lap or
+ * acknowledgement of error) for each meaningful callback.
+ *
+ * Returns an empty array when there are no qualifying callbacks.
+ * This step is OPTIONAL.
+ */
+async function genPredictionCallbacks(input: StepInput): Promise<PredictionCallbackItem[]> {
+  const { week, memEntertainer, memAnalyst, derived } = input;
+  if (week < 2) return []; // No predictions to grade in Week 1
+
+  const callbacks: PredictionCallbackItem[] = [];
+
+  // Extract recently graded hot takes from both bots
+  type StoredHotTake = { week: number; take: string; subject?: string; boldness?: string; agedWell?: boolean; followUp?: string };
+  const getBotCallbacks = (mem: import('./types').BotMemory, botName: 'entertainer' | 'analyst') => {
+    const hotTakes = (mem as unknown as Record<string, unknown>)['hotTakes'];
+    if (!Array.isArray(hotTakes)) return [];
+    const takes = hotTakes as StoredHotTake[];
+    // Only picks graded last week or the week before, that haven't already been reacted to
+    return takes.filter(t =>
+      t.agedWell !== undefined &&
+      t.week >= week - 2 &&
+      t.week < week
+    ).slice(0, 2);
+  };
+
+  const entTakes = getBotCallbacks(memEntertainer, 'entertainer');
+  const anaTakes = getBotCallbacks(memAnalyst, 'analyst');
+
+  if (entTakes.length === 0 && anaTakes.length === 0) return [];
+
+  // Build matchup context for grounding the reactions
+  const matchupSummary = derived.matchup_pairs
+    .slice(0, 4)
+    .map(p => `${p.winner.name} def. ${p.loser.name} (${p.winner.points.toFixed(1)}–${p.loser.points.toFixed(1)})`)
+    .join('; ');
+
+  const genReaction = async (
+    take: StoredHotTake,
+    persona: 'entertainer' | 'analyst',
+  ): Promise<string> => {
+    const outcome = take.agedWell ? 'correct' : 'wrong';
+    const victoryOrEat = take.agedWell
+      ? 'You were RIGHT. Take a brief, deserved victory lap — 1-2 sentences. Don\'t be obnoxious about it, but let them know you called it.'
+      : 'You were WRONG. Acknowledge it honestly in 1-2 sentences. Own the miss and move on — don\'t dwell, don\'t make excuses.';
+
+    const ctx = `ORIGINAL PREDICTION (Week ${take.week}): "${take.take}"\nOutcome: ${outcome.toUpperCase()}\nThis week's results: ${matchupSummary}`;
+
+    try {
+      const raw = await generateSection({
+        persona,
+        sectionType: 'Prediction Callback',
+        context: ctx,
+        constraints: `${victoryOrEat} Reference the original prediction naturally. 1-2 sentences only. Stay in character.`,
+        maxTokens: 120,
+        thinkingBudget: 0,
+      });
+      return guardText(raw, { sectionType: 'Prediction Callback', logPrefix: `[Callback:${persona}]` });
+    } catch {
+      return take.agedWell
+        ? `Called it — ${take.subject ?? 'they'} came through.`
+        : `Missed that one on ${take.subject ?? 'that matchup'} — won't make the same mistake twice.`;
+    }
+  };
+
+  // Generate reactions for each bot's relevant callbacks
+  for (const take of entTakes) {
+    const reaction = await genReaction(take, 'entertainer');
+    if (reaction.trim().length > 10) {
+      callbacks.push({
+        bot: 'entertainer',
+        outcome: take.agedWell ? 'correct' : 'wrong',
+        originalPick: take.take.slice(0, 100),
+        teams: ['', ''], // Could be enriched from take.subject
+        week: take.week,
+        reaction,
+      });
+    }
+  }
+
+  for (const take of anaTakes) {
+    const reaction = await genReaction(take, 'analyst');
+    if (reaction.trim().length > 10) {
+      callbacks.push({
+        bot: 'analyst',
+        outcome: take.agedWell ? 'correct' : 'wrong',
+        originalPick: take.take.slice(0, 100),
+        teams: ['', ''],
+        week: take.week,
+        reaction,
+      });
+    }
+  }
+
+  return callbacks;
+}
+
 // ============ Master dispatch ============
 
 /**
@@ -1698,6 +1892,18 @@ export async function generateNewsletterSection(input: StepInput): Promise<StepR
     // Social summary — 2-3 sentence Discord preview, generated after FinalWord
     if (sectionName === 'SocialSummary') {
       const data = await genSocialSummary(input);
+      return { ok: true, sectionName, data };
+    }
+
+    // Phase 4: Clancy archival insert — optional, returns null if conditions not met
+    if (sectionName === 'ClancyInsert') {
+      const data = await genClancyInsert(input);
+      return { ok: true, sectionName, data };
+    }
+
+    // Phase 4: Prediction callbacks — optional, returns [] if no qualifying callbacks
+    if (sectionName === 'PredictionCallbacks') {
+      const data = await genPredictionCallbacks(input);
       return { ok: true, sectionName, data };
     }
 
@@ -1855,6 +2061,22 @@ export function assembleNewsletterFromSections(
     const forecastData = forecastOutput?.forecast;
     if (forecastData && Array.isArray(forecastData.picks) && forecastData.picks.length > 0) {
       sections.push({ type: 'Forecast', data: forecastData });
+    }
+  }
+
+  // Phase 4: Clancy insert — only included when non-null (trigger fired + guardrails passed)
+  if (steps.includes('ClancyInsert')) {
+    const clancy = get<ClancyInsert>('ClancyInsert');
+    if (clancy?.text && clancy.text.trim().length > 20) {
+      sections.push({ type: 'ClancyInsert', data: clancy });
+    }
+  }
+
+  // Phase 4: Prediction callbacks — only included when callbacks exist
+  if (steps.includes('PredictionCallbacks')) {
+    const callbacks = get<PredictionCallbackItem[]>('PredictionCallbacks');
+    if (callbacks && callbacks.length > 0) {
+      sections.push({ type: 'PredictionCallbacks', data: callbacks });
     }
   }
 

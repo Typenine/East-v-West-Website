@@ -271,6 +271,42 @@ export function getBotBrain(bot: BotName): BotBrain {
 }
 
 /**
+ * Returns a compact system-prompt addition describing any admin-applied overrides
+ * for this bot — verbal tics, openers, closers, role refinements.
+ * Returns '' when no overrides are active (typical for hardcoded-default runs).
+ * Called by groq.ts::generateSection() to wire Phase 3 admin settings into LLM calls.
+ */
+export function getBotBrainOverrideContext(bot: BotName): string {
+  const override = _botOverrides.get(bot);
+  if (!override) return '';
+
+  const base = BRAINS[bot];
+  const lines: string[] = [];
+
+  if (override.displayName && override.displayName !== base.displayName) {
+    lines.push(`Your display name: ${override.displayName}`);
+  }
+  if (override.role && override.role !== base.role) {
+    lines.push(`Role refinement: ${override.role}`);
+  }
+  const newTics = (override.verbalTics ?? []).filter(t => !base.verbalTics.includes(t));
+  if (newTics.length > 0) {
+    lines.push(`Additional verbal tics to weave in naturally: ${newTics.join(', ')}`);
+  }
+  const newOpeners = (override.openers ?? []).filter(o => !base.openers.includes(o));
+  if (newOpeners.length > 0) {
+    lines.push(`Additional section openers: ${newOpeners.join(', ')}`);
+  }
+  const newClosers = (override.closers ?? []).filter(c => !base.closers.includes(c));
+  if (newClosers.length > 0) {
+    lines.push(`Additional verdict phrases: ${newClosers.join(', ')}`);
+  }
+
+  if (lines.length === 0) return '';
+  return `\n\nVOICE OVERRIDES (configured by league admin — follow these):\n${lines.join('\n')}`;
+}
+
+/**
  * Returns a compact prompt-ready description of the bot's core identity.
  * Use this when you need to remind the LLM who it is without the full system prompt.
  */

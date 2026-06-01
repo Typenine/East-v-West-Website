@@ -358,12 +358,115 @@ export function updateEnhancedMemoryAfterWeek(
   
   // Check for narrative triggers
   detectAndAddNarratives(mem, derived, week);
-  
+
+  // Phase 4: Nudge personality traits based on this week's outcomes
+  // Small, clamped adjustments so bots evolve without losing their identity
+  nudgePersonalityFromWeekOutcomes(mem, derived);
+
   // Update summary mood
   updateEnhancedSummaryMood(mem);
-  
+
   mem.lastGeneratedWeek = week;
   mem.updated_at = new Date().toISOString();
+}
+
+// ============ Phase 4: Personality Evolution Tuning ============
+
+/**
+ * Hard floor/ceiling caps for each personality trait.
+ * Prevents bots from drifting to unrecognisable extremes.
+ * Starting values (from createEnhancedMemory) are within these bounds.
+ */
+const PERSONALITY_CAPS = {
+  entertainer: { confidence: [20, 90], riskTolerance: [30, 95], grudgeLevel: [20, 80], dramaAppreciation: [50, 95], analyticalTrust: [-60, 30], underdogAffinity: [20, 85], contrarianism: [20, 80], nostalgia: [10, 70], pettiness: [20, 85], patience: [-60, 30], superstition: [20, 80], competitiveness: [30, 90], optimism: [10, 80], loyalty: [10, 70], volatility: [20, 90] },
+  analyst:     { confidence: [5, 70],  riskTolerance: [5, 60],  grudgeLevel: [5, 50],  dramaAppreciation: [0, 40],  analyticalTrust: [40, 95], underdogAffinity: [-50, 30], contrarianism: [-40, 40], nostalgia: [5, 50], pettiness: [0, 40], patience: [20, 90], superstition: [-70, 10], competitiveness: [15, 70], optimism: [-30, 50], loyalty: [20, 80], volatility: [5, 50] },
+} as const;
+
+// Starting personality values from createEnhancedMemory — the "gravity" centre
+// traits decay toward these over time so evolution is noticeable but reversible.
+const PERSONALITY_BASELINE = {
+  entertainer: { confidence: 60, riskTolerance: 70, grudgeLevel: 50, dramaAppreciation: 80, analyticalTrust: -20, underdogAffinity: 60, contrarianism: 55, nostalgia: 40, pettiness: 60, patience: -20, superstition: 50, competitiveness: 70, optimism: 40, loyalty: 30, volatility: 60 },
+  analyst:     { confidence: 30, riskTolerance: 20, grudgeLevel: 20, dramaAppreciation: 10, analyticalTrust: 80,  underdogAffinity: -20, contrarianism: -10, nostalgia: 20, pettiness: 10, patience: 60, superstition: -40, competitiveness: 40, optimism: 0, loyalty: 50, volatility: 20 },
+} as const;
+
+/**
+ * Nudge personality traits slightly based on this week's matchup outcomes.
+ *
+ * Rules:
+ * - Nudges are tiny (0.5–2 per week) — a full season of nudges moves a trait ~10–15 pts max.
+ * - A soft gravity of 0.2/week pulls traits back toward their starting baseline.
+ * - Hard caps (PERSONALITY_CAPS) are applied after every update.
+ * - Only adjusts traits that are present in the memory object (gracefully skips missing).
+ */
+function nudgePersonalityFromWeekOutcomes(mem: BotMemory, derived: DerivedData): void {
+  if (!mem.personality) return;
+  const bot = mem.bot;
+  const caps = PERSONALITY_CAPS[bot];
+  const baseline = PERSONALITY_BASELINE[bot];
+
+  const p = mem.personality;
+
+  // Count blowouts and nail-biters to gauge how dramatic this week was
+  const blowouts = derived.matchup_pairs.filter(mp => mp.margin >= 30).length;
+  const nailbiters = derived.matchup_pairs.filter(mp => mp.margin <= 5).length;
+  const totalGames = derived.matchup_pairs.length;
+
+  // Drama index: high blowouts/nail-biters = more dramatic week
+  const dramaIndex = totalGames > 0 ? ((blowouts * 2) + (nailbiters * 1.5)) / (totalGames * 2) : 0;
+
+  // Prediction accuracy nudge: confidence tracks prediction accuracy
+  const predStats = mem.predictionStats;
+  if (predStats) {
+    const total = predStats.correct + predStats.wrong;
+    if (total >= 3) {
+      const accuracy = predStats.correct / total;
+      // Confidence rises with accuracy (max +1.5/week), falls with poor accuracy
+      const confNudge = accuracy > 0.65 ? 1.5 : accuracy < 0.4 ? -1.5 : 0;
+      p.confidence = CLAMP(p.confidence + confNudge, caps.confidence[0], caps.confidence[1]);
+    }
+    // Hot streak increases risk tolerance (entertainer) or decreases it (analyst cautious)
+    if (predStats.hotStreak >= 3) {
+      p.riskTolerance = CLAMP(p.riskTolerance + (bot === 'entertainer' ? 1 : -0.5), caps.riskTolerance[0], caps.riskTolerance[1]);
+    } else if (predStats.hotStreak <= -3) {
+      p.riskTolerance = CLAMP(p.riskTolerance + (bot === 'entertainer' ? -1 : 0.5), caps.riskTolerance[0], caps.riskTolerance[1]);
+    }
+  }
+
+  // Drama appreciation nudges from weekly events
+  if (dramaIndex > 0.5) {
+    // Dramatic week: entertainer's dramaAppreciation ticks up; analyst's barely moves
+    const draNudge = bot === 'entertainer' ? 1 : 0.2;
+    p.dramaAppreciation = CLAMP(p.dramaAppreciation + draNudge, caps.dramaAppreciation[0], caps.dramaAppreciation[1]);
+  }
+
+  // Frustration-based grudge nudge: high overall frustration ↑ grudgeLevel
+  const avgFrustration = Object.values(mem.teams).reduce((s, t) => s + (t.frustration ?? 0), 0) / Math.max(1, Object.keys(mem.teams).length);
+  if (avgFrustration > 20) {
+    p.grudgeLevel = CLAMP(p.grudgeLevel + 0.5, caps.grudgeLevel[0], caps.grudgeLevel[1]);
+  } else if (avgFrustration < 5) {
+    p.grudgeLevel = CLAMP(p.grudgeLevel - 0.3, caps.grudgeLevel[0], caps.grudgeLevel[1]);
+  }
+
+  // Contrarianism nudge: analyst moderates contrarianism; entertainer may push it
+  // Only nudge ≥ Week 4 when there's enough data for a contrarian position to matter
+  if ((mem.lastGeneratedWeek ?? 0) >= 4) {
+    const contraNudge = bot === 'entertainer' ? 0.3 : -0.2;
+    p.contrarianism = CLAMP(p.contrarianism + contraNudge, caps.contrarianism[0], caps.contrarianism[1]);
+  }
+
+  // Soft gravity: 0.2 per week drift toward baseline (prevents runaway drift)
+  // Applies only to the most behaviorally impactful traits
+  const gravityTraits: Array<keyof typeof baseline> = ['confidence', 'riskTolerance', 'grudgeLevel', 'dramaAppreciation', 'analyticalTrust'];
+  for (const trait of gravityTraits) {
+    const current = p[trait as keyof typeof p] as number | undefined;
+    if (current === undefined) continue;
+    const base = (baseline as Record<string, number>)[trait];
+    const cap = (caps as Record<string, readonly [number, number]>)[trait];
+    if (cap === undefined) continue;
+    const diff = base - current;
+    const gravityNudge = Math.sign(diff) * Math.min(0.2, Math.abs(diff));
+    (p as unknown as Record<string, number>)[trait as string] = CLAMP(current + gravityNudge, cap[0], cap[1]);
+  }
 }
 
 function updateEnhancedTeamMood(t: TeamMemory): void {

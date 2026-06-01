@@ -13,6 +13,21 @@ function TeamGrid({ teams }: { teams: string[] }) {
     <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 sm:gap-3 lg:gap-4 items-center">
       {teams.map((team) => {
         const colors = getTeamColors(team);
+        const isCakeEaters = team === 'Mt. Lebanon Cake Eaters';
+        const isLoneGinger = team === 'The Lone Ginger';
+        const isDoubleTrouble = team === 'Double Trouble';
+        const logoSrc = isDoubleTrouble ? `${getTeamLogoPath(team)}?v=transparent-logo` : getTeamLogoPath(team);
+        const logoFrameClassName = isCakeEaters || isLoneGinger
+          ? 'relative z-10 overflow-hidden rounded-full h-[3.7rem] w-[3.7rem] sm:h-[4.35rem] sm:w-[4.35rem] lg:h-[5rem] lg:w-[5rem]'
+          : 'relative z-10 overflow-hidden h-[3.7rem] w-[3.7rem] sm:h-[4.35rem] sm:w-[4.35rem] lg:h-[5rem] lg:w-[5rem]';
+        const logoClassName = isDoubleTrouble
+          ? 'object-contain scale-[1.42]'
+          : isCakeEaters || isLoneGinger
+            ? 'object-cover scale-[1.14]'
+            : 'object-contain';
+        const logoPosition = isDoubleTrouble
+          ? '48% 46%'
+          : 'center';
         const stripeColors = [colors.primary, colors.secondary, colors.tertiary].filter(Boolean) as string[];
         const stripeCount = stripeColors.length;
         const stripeBackground = stripeColors
@@ -48,13 +63,16 @@ function TeamGrid({ teams }: { teams: string[] }) {
                 background: 'linear-gradient(270deg, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0.02) 34%, rgba(255,255,255,0) 55%)',
               }}
             />
-            <Image
-              src={getTeamLogoPath(team)}
-              alt={team}
-              width={120}
-              height={120}
-              className="relative z-10 h-[3.7rem] sm:h-[4.35rem] lg:h-[5rem] w-auto object-contain drop-shadow-[0_10px_14px_rgba(0,0,0,0.42)]"
-            />
+            <div className={logoFrameClassName}>
+              <Image
+                src={logoSrc}
+                alt={team}
+                fill
+                sizes="(min-width: 1024px) 5rem, (min-width: 640px) 4.35rem, 3.7rem"
+                className={`${logoClassName} drop-shadow-[0_10px_14px_rgba(0,0,0,0.42)]`}
+                style={{ objectPosition: logoPosition }}
+              />
+            </div>
           </div>
         );
       })}
