@@ -1,15 +1,17 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
-import { TEAM_NAMES } from '@/lib/constants/league';
+import { LEAGUE_IDS, TEAM_NAMES } from '@/lib/constants/league';
+import { getTeamsData } from '@/lib/utils/sleeper-api';
 import { getTeamColors, getTeamLogoPath } from '@/lib/utils/team-utils';
 
 const allTeams = TEAM_NAMES;
 const leftTeams = TEAM_NAMES.slice(0, 6);
 const rightTeams = TEAM_NAMES.slice(6, 12);
 
-function TeamTile({ team, compact = false }: { team: string; compact?: boolean }) {
+function TeamTile({ team, compact = false, href }: { team: string; compact?: boolean; href?: string }) {
   const colors = getTeamColors(team);
   const isCakeEaters = team === 'Mt. Lebanon Cake Eaters';
   const isLoneGinger = team === 'The Lone Ginger';
@@ -43,18 +45,8 @@ function TeamTile({ team, compact = false }: { team: string; compact?: boolean }
   const logoPosition = isDoubleTrouble
     ? '56% 44%'
     : 'center';
-
-  return (
-    <div
-      key={team}
-      className={tileClassName}
-      style={{
-        borderColor: 'rgba(255,255,255,0.16)',
-        backgroundImage: `linear-gradient(180deg, rgba(7,10,18,0.54) 0%, rgba(9,13,22,0.66) 100%), linear-gradient(90deg, ${stripeBackground})`,
-        boxShadow: `0 0 0 1px ${colors.secondary}1f inset, ${compact ? '0 12px 26px rgba(0,0,0,0.2)' : '0 12px 30px rgba(0,0,0,0.22)'}`,
-      }}
-      title={team}
-    >
+  const tileContents = (
+    <>
       <div
         aria-hidden
         className="absolute inset-0"
@@ -79,21 +71,81 @@ function TeamTile({ team, compact = false }: { team: string; compact?: boolean }
           style={{ objectPosition: logoPosition }}
         />
       </div>
+    </>
+  );
+
+  if (href) {
+    return (
+      <Link
+        href={href}
+        aria-label={`View ${team} team page`}
+        className={`${tileClassName} cursor-pointer transition-transform duration-150 hover:scale-[1.015] hover:brightness-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus)] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0d1322]`}
+        style={{
+          borderColor: 'rgba(255,255,255,0.16)',
+          backgroundImage: `linear-gradient(180deg, rgba(7,10,18,0.54) 0%, rgba(9,13,22,0.66) 100%), linear-gradient(90deg, ${stripeBackground})`,
+          boxShadow: `0 0 0 1px ${colors.secondary}1f inset, ${compact ? '0 12px 26px rgba(0,0,0,0.2)' : '0 12px 30px rgba(0,0,0,0.22)'}`,
+        }}
+        title={team}
+      >
+        {tileContents}
+      </Link>
+    );
+  }
+
+  return (
+    <div
+      className={tileClassName}
+      style={{
+        borderColor: 'rgba(255,255,255,0.16)',
+        backgroundImage: `linear-gradient(180deg, rgba(7,10,18,0.54) 0%, rgba(9,13,22,0.66) 100%), linear-gradient(90deg, ${stripeBackground})`,
+        boxShadow: `0 0 0 1px ${colors.secondary}1f inset, ${compact ? '0 12px 26px rgba(0,0,0,0.2)' : '0 12px 30px rgba(0,0,0,0.22)'}`,
+      }}
+      title={team}
+    >
+      {tileContents}
     </div>
   );
 }
 
-function TeamGrid({ teams, compact = false, className }: { teams: string[]; compact?: boolean; className?: string }) {
+function TeamGrid({ teams, compact = false, className, teamLinks }: { teams: string[]; compact?: boolean; className?: string; teamLinks: Record<string, string> }) {
   return (
     <div className={className ?? 'grid grid-cols-2 sm:grid-cols-3 gap-2 sm:gap-2.5 lg:gap-3 items-center'}>
       {teams.map((team) => (
-        <TeamTile key={team} team={team} compact={compact} />
+        <TeamTile key={team} team={team} compact={compact} href={teamLinks[team]} />
       ))}
     </div>
   );
 }
 
 export default function HomeLeagueBanner() {
+  const [teamLinks, setTeamLinks] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadTeamLinks() {
+      try {
+        const teams = await getTeamsData(LEAGUE_IDS.CURRENT);
+        if (cancelled) return;
+        const nextLinks = teams.reduce<Record<string, string>>((acc, team) => {
+          acc[team.teamName] = `/teams/${team.rosterId}`;
+          return acc;
+        }, {});
+        setTeamLinks(nextLinks);
+      } catch {
+        if (!cancelled) {
+          setTeamLinks({});
+        }
+      }
+    }
+
+    loadTeamLinks();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   return (
     <div className="relative overflow-hidden border-b border-[var(--border)] bg-[linear-gradient(135deg,#08111f_0%,#101d33_100%)]">
       <div
@@ -159,10 +211,10 @@ export default function HomeLeagueBanner() {
                 <div className="text-[10px] font-black leading-none text-[var(--text)]">East v. West League</div>
               </div>
             </div>
-            <TeamGrid teams={allTeams} compact className="grid grid-cols-3 gap-1.5 items-center" />
+            <TeamGrid teams={allTeams} compact className="grid grid-cols-3 gap-1.5 items-center" teamLinks={teamLinks} />
           </div>
           <div className="relative z-10 hidden lg:grid grid-cols-1 lg:grid-cols-[1fr_auto_1fr] gap-3 lg:gap-3 items-center">
-            <TeamGrid teams={leftTeams} className="grid grid-cols-2 sm:grid-cols-3 gap-2 sm:gap-2.5 lg:gap-3 items-center" />
+            <TeamGrid teams={leftTeams} className="grid grid-cols-2 sm:grid-cols-3 gap-2 sm:gap-2.5 lg:gap-3 items-center" teamLinks={teamLinks} />
             <div className="grid place-items-center gap-1 w-full lg:w-[clamp(92px,7.2vw,115px)] order-first lg:order-none mx-auto">
               <Link
                 href="/"
@@ -187,7 +239,7 @@ export default function HomeLeagueBanner() {
                 <div className="text-[10px] sm:text-[11px] lg:text-[13px] font-black leading-none text-[var(--text)]">East v. West League</div>
               </div>
             </div>
-            <TeamGrid teams={rightTeams} className="grid grid-cols-2 sm:grid-cols-3 gap-2 sm:gap-2.5 lg:gap-3 items-center" />
+            <TeamGrid teams={rightTeams} className="grid grid-cols-2 sm:grid-cols-3 gap-2 sm:gap-2.5 lg:gap-3 items-center" teamLinks={teamLinks} />
           </div>
         </div>
       </div>

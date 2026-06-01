@@ -1242,14 +1242,19 @@ async function buildTradeItems(events: DerivedData['events_scored'], memEntertai
     const byTeam = e.details?.by_team || {};
     const parties = e.parties || Object.keys(byTeam);
     
+    const isMultiTeamTrade = parties.length >= 3;
     let tradeBreakdown = '';
     for (const team of parties) {
       const teamAssets = byTeam[team];
       if (teamAssets) {
-        const gets = teamAssets.gets?.join(', ') || 'unknown';
-        const gives = teamAssets.gives?.join(', ') || 'unknown';
+        const gets = teamAssets.gets?.join(', ') || 'nothing confirmed';
+        const givesArr = teamAssets.gives || [];
+        const gives = givesArr.length > 0 ? givesArr.join(', ') : 'nothing confirmed';
         tradeBreakdown += `\n${team}: GETS ${gets} | GIVES ${gives}`;
       }
+    }
+    if (isMultiTeamTrade) {
+      tradeBreakdown += '\nNOTE: In 3-team trades, any pick not appearing in a team\'s GIVES column was not sent by them — do not infer unconfirmed senders.';
     }
 
     const tradeContext = e.details?.headline
@@ -1295,14 +1300,18 @@ async function buildTradeItems(events: DerivedData['events_scored'], memEntertai
       ? `\nCOMPLETE ${parties.length}-TEAM EXCHANGE:\n` +
         parties.map(p => {
           const a = byTeam[p];
-          return `  ${p}: RECEIVED ${a?.gets?.join(', ') || 'nothing'} | GAVE UP ${a?.gives?.join(', ') || 'nothing'}`;
-        }).join('\n')
+          const givesArr = a?.gives || [];
+          const givesStr = givesArr.length > 0 ? givesArr.join(', ') : 'nothing confirmed';
+          return `  ${p}: RECEIVED ${a?.gets?.join(', ') || 'nothing'} | GAVE UP ${givesStr}`;
+        }).join('\n') +
+        '\nNOTE: Pick sender attribution uses full trade history. Any pick not in a team\'s GAVE UP column was confirmed not sent by them — do not speculate.'
       : '';
 
     for (const party of parties) {
       const teamAssets = byTeam[party];
-      const gets = teamAssets?.gets?.join(', ') || 'assets';
-      const gives = teamAssets?.gives?.join(', ') || 'assets';
+      const gets = teamAssets?.gets?.join(', ') || 'nothing confirmed';
+      const givesArr = teamAssets?.gives || [];
+      const gives = givesArr.length > 0 ? givesArr.join(', ') : 'nothing confirmed';
 
       const entTrustLine = teamTrustLine(memEntertainer, party);
       const anaTrustLine = teamTrustLine(memAnalyst, party);
@@ -1332,12 +1341,14 @@ ${anaTrustLine ? `[Westy's history: ${anaTrustLine}]` : ''}${partyCard}`;
       const entertainerConstraints = isMultiTeam
         ? `Grade this ${allParties.length}-team trade for ${party} specifically (A+ to F). ` +
           `In a multi-team deal there's always a winner, someone who broke even, and a loser — where does ${party} land compared to ${otherTeams}? ` +
+          `The GAVE UP column reflects confirmed asset sends. Do NOT attribute any pick or player to ${party} that is not in their GAVE UP column — in 3-team trades, some picks may appear unattributed because they were acquired picks from prior deals. ` +
           `Write 3-4 sentences with personality: did ${party} orchestrate this, get fleeced, or thread the needle? Reference what they gave up and what they got. Include your letter grade.`
         : `Grade this trade for ${party} specifically (A+ to F). Did THEY win or lose? Write 3-4 sentences with personality — was this a heist, a fair deal, or a robbery? Let your history with this team color your take. Include your letter grade.`;
 
       const analystConstraints = isMultiTeam
         ? `Grade this ${allParties.length}-team trade for ${party} specifically (A+ to F). ` +
           `Multi-team trades create complex value flows — evaluate what ${party} sent to each of ${otherTeams} vs what they received, and whether the net haul represents a win, break-even, or loss relative to the other parties. ` +
+          `Grade based strictly on the GAVE UP and RECEIVED columns. Do NOT penalize ${party} for picks not listed in their GAVE UP column — in 3-team trades, acquired picks from prior deals may appear unattributed rather than assigned to the wrong sender. ` +
           `Write 3-4 sentences analyzing short-term vs long-term implications, asset value, and roster fit. Include letter grade.`
         : `Grade this trade for ${party} specifically (A+ to F). Evaluate value received vs given from their perspective. Write 3-4 sentences analyzing short-term vs long-term implications, value, and fit. Factor in your prior read on this team if relevant. Include letter grade.`;
 

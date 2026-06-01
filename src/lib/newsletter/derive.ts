@@ -103,6 +103,9 @@ interface SleeperMatchup {
 interface SleeperTransaction {
   transaction_id?: string;
   type: 'trade' | 'waiver' | 'free_agent';
+  status?: string;
+  status_updated?: number;
+  created?: number;
   leg?: number;
   roster_ids?: number[];
   roster_id?: number;
@@ -376,6 +379,40 @@ function normalizeTransactions(
 ): NormalizedEvent[] {
   const events: NormalizedEvent[] = [];
 
+  // Pre-pass: build chronological pick ownership history from all completed trades.
+  // Key = "season-rosterSlot-round" (e.g. "2026-5-1"). Each hop records who received
+  // the pick (toRosterId = owner_id, always reliable). For 3-team trades we find the
+  // sender by looking at who last held the pick before this trade rather than trusting
+  // previous_owner_id, which Sleeper sometimes sets to the pick's historical origin
+  // instead of the immediate pre-trade holder.
+  type PickHop = { tradeId: string; ts: number; toRosterId: number };
+  const pickHistory = new Map<string, PickHop[]>();
+  const completedTrades = (transactions ?? [])
+    .filter(t => t.type === 'trade' && t.status === 'complete')
+    .sort((a, b) => (a.status_updated || a.created || 0) - (b.status_updated || b.created || 0));
+  type RawPick = { season?: string | number; round?: number; roster_id?: number; owner_id?: number; previous_owner_id?: number };
+  for (const tx of completedTrades) {
+    for (const raw of (tx.draft_picks ?? [])) {
+      const pick = raw as RawPick;
+      if (pick.roster_id == null || pick.round == null || pick.owner_id == null) continue;
+      const key = `${pick.season}-${pick.roster_id}-${pick.round}`;
+      const hops = pickHistory.get(key) ?? [];
+      hops.push({ tradeId: String(tx.transaction_id), ts: tx.status_updated || tx.created || 0, toRosterId: pick.owner_id });
+      pickHistory.set(key, hops);
+    }
+  }
+
+  // Returns the roster ID of whoever held the pick immediately before thisTxId.
+  // Falls back to the pick's original roster slot if no prior trade exists.
+  function pickSenderFor(season: string | number, origRosterId: number, round: number, thisTxId: string): number {
+    const key = `${season}-${origRosterId}-${round}`;
+    const hops = pickHistory.get(key) ?? [];
+    for (let i = hops.length - 1; i >= 0; i--) {
+      if (hops[i].tradeId !== thisTxId) return hops[i].toRosterId;
+    }
+    return origRosterId; // never traded before — original slot owner is the sender
+  }
+
   for (const t of transactions || []) {
     const type = t.type;
 
@@ -412,27 +449,29 @@ function normalizeTransactions(
             }
           }
         }
-        // Draft picks — owner_id (receiver) is reliable; previous_owner_id is NOT.
-        // In multi-team trades Sleeper sets previous_owner_id to an arbitrary party
-        // (often a team that NEVER owned the pick, e.g. Cake Eaters being blamed for
-        // a pick that went bop pop → Lone Ginger → Belleview Badgers).
-        // Safe rule: always attribute "gets" via owner_id.
-        // For "gives": only use previous_owner_id in strict 2-team trades where there
-        // is exactly one possible sender. In 3+ team trades, never guess the giver —
-        // leave gives unpopulated for picks (better to say nothing than say wrong team).
+        // Draft picks: owner_id (receiver) is always reliable from Sleeper.
+        // For "gives" in 2-team trades, previous_owner_id is safe (only one possible sender).
+        // For 3-team trades, previous_owner_id can point to the pick's historical origin
+        // rather than the immediate pre-trade holder, so we use the chronological pick
+        // history built above: whoever last received this pick before this trade is the sender.
         if (Array.isArray(t.draft_picks)) {
-          const isMultiTeam = rosterIds.length > 2;
           const rosterIdSet = new Set(rosterIds);
+          const isMultiTeam = rosterIds.length > 2;
           for (const raw of t.draft_picks) {
-            const pick = raw as { season?: string | number; round?: number; owner_id?: string | number; previous_owner_id?: string | number };
+            const pick = raw as RawPick;
             const label = `${pick.season ?? '?'} Rd ${pick.round ?? '?'} Pick`;
             const ownerId = Number(pick.owner_id);
-            const prevOwnerId = Number(pick.previous_owner_id);
+            const origRosterId = Number(pick.roster_id);
             if (ownerId === rosterId) {
               gets.push(label);
-            } else if (!isMultiTeam && prevOwnerId === rosterId && rosterIdSet.has(ownerId)) {
-              // 2-team trade only: previous_owner_id is the one other party, so it's reliable
-              gives.push(label);
+            } else if (!isMultiTeam) {
+              // 2-team trade: previous_owner_id is the one other party, so it's reliable
+              const prevOwnerId = Number(pick.previous_owner_id);
+              if (prevOwnerId === rosterId && rosterIdSet.has(ownerId)) gives.push(label);
+            } else {
+              // 3-team trade: use pick history to find who last held this pick before now
+              const senderRosterId = pickSenderFor(pick.season ?? '', origRosterId, Number(pick.round), String(t.transaction_id));
+              if (senderRosterId === rosterId && rosterIdSet.has(ownerId)) gives.push(label);
             }
           }
         }
