@@ -680,29 +680,23 @@ async function genSingleTradeItem(input: StepInput, tradeIndex: number): Promise
   let tradeBreakdown = '';
   for (const team of parties) {
     const a = byTeam[team];
-    if (a) tradeBreakdown += `\n${team}: GETS ${annotateTradePlayers(a.gets)} | GIVES ${annotateTradePlayers(a.gives)}`;
-  }
-
-  // Check whether any picks appear in this trade (to build a targeted pick warning)
-  const picksInTrade: string[] = [];
-  if (isMultiTeam) {
-    for (const a of Object.values(byTeam)) {
-      for (const asset of [...(a.gets || []), ...(a.gives || [])]) {
-        if (asset.includes(' Rd ') && asset.includes(' Pick') && !picksInTrade.includes(asset)) {
-          picksInTrade.push(asset);
-        }
-      }
+    if (a) {
+      const givesArr = a.gives || [];
+      const givesStr = givesArr.length > 0 ? annotateTradePlayers(givesArr) : 'nothing confirmed';
+      tradeBreakdown += `\n${team}: GETS ${annotateTradePlayers(a.gets)} | GIVES ${givesStr}`;
     }
   }
 
-  const pickWarning = isMultiTeam && picksInTrade.length > 0
-    ? `\n⚠️ PICK ATTRIBUTION WARNING: Sleeper's transaction data does NOT reliably identify who gave each pick in multi-team trades (it can point to a team that never owned the pick). The "GIVES" column for picks has been intentionally left blank. Only the receiver (shown in GETS) is confirmed. DO NOT say which team gave a pick unless their GIVES column explicitly lists it. Simply say "[Team] acquired [pick]" — do not attribute the sender.\n`
-    : '';
-
   const multiTeamNote = isMultiTeam
-    ? `\n⚠️ MULTI-TEAM TRADE (${parties.length} teams): Each team's GETS and GIVES are listed separately. Assets may flow between any two of the ${parties.length} parties — read each team's side carefully.${pickWarning}\n`
+    ? `\n⚠️ MULTI-TEAM TRADE (${parties.length} teams): Each team's GETS and GIVES are listed separately. ` +
+      `Pick senders have been verified against the full league trade history — if a pick appears in a team's GIVES column it was confirmed they sent it. ` +
+      `If a pick does NOT appear in any team's GIVES column, the sender is uncertain — do not guess or attribute it.\n`
     : '';
 
+  // Display headline (clean, for the template card header)
+  const tradeDisplayHeadline = e.details?.headline || `Trade between ${parties.join(' and ')}`;
+
+  // Full LLM context (includes breakdown — used for generation only)
   const tradeContext = e.details?.headline
     ? `${parties.join(' ↔ ')}: ${e.details.headline}${multiTeamNote}${tradeBreakdown}`
     : `Trade between ${parties.join(' and ')}${multiTeamNote}${tradeBreakdown}`;
@@ -740,6 +734,16 @@ async function genSingleTradeItem(input: StepInput, tradeIndex: number): Promise
   // Phase 2: phase rules for trade context
   const tradeStepPhaseCtx = buildPhaseRulesContext(getPhaseRules(input.episodeType));
 
+  // Mason Reed writes one intro for the whole trade — Westy does not intro, goes straight to analysis.
+  const rawIntro = await generateSection({
+    persona: 'entertainer',
+    sectionType: 'Trade Intro',
+    context: tradeContext + tradeStepPhaseCtx,
+    constraints: `Write 1-2 punchy sentences introducing this ${isMultiTeam ? `${parties.length}-team` : ''} trade. Set the scene and the storyline — who made the power move, what's the narrative. Do NOT grade anyone or analyze specific team outcomes yet.`,
+    maxTokens: 120,
+  }).catch(() => '');
+  const tradeIntro = rawIntro ? guardText(rawIntro, { sectionType: 'Trade Intro', logPrefix: '[step:TradeIntro:entertainer]' }) : '';
+
   const analysis: TradeItem['analysis'] = {};
   for (const party of parties) {
     const a = byTeam[party];
@@ -749,22 +753,39 @@ async function genSingleTradeItem(input: StepInput, tradeIndex: number): Promise
       dataConfidenceFilter: 'medium',
     });
 
-    const sideCtx = `You are grading THIS SPECIFIC TRADE for ${party} only. All players and picks listed below are exactly what changed hands — do not reference external news or other trades.\n\n${party} in this trade:\n  RECEIVED: ${annotateTradePlayers(a?.gets)}\n  GAVE UP: ${annotateTradePlayers(a?.gives)}${getTeamRoster(party)}\n\nFull trade breakdown:\n${tradeContext}${tradePartyCard}`;
+    const givesArr = a?.gives || [];
     const received = annotateTradePlayers(a?.gets);
-    const gaveUp   = annotateTradePlayers(a?.gives);
+    const gaveUp   = givesArr.length > 0 ? annotateTradePlayers(givesArr) : 'nothing confirmed';
+    const otherTeams = parties.filter(p => p !== party).join(' and ');
+
+    const sideCtx = `You are grading THIS SPECIFIC TRADE for ${party} only. All players and picks listed below are exactly what changed hands — do not reference external news or other trades.\n\n${party} in this trade:\n  RECEIVED: ${received}\n  GAVE UP: ${gaveUp}${getTeamRoster(party)}\n\nFull trade breakdown:\n${tradeContext}${tradePartyCard}`;
     const fallbackAnalysis = `Grade: B. Analysis unavailable for this side of the trade.`;
     const [rawEntTrade, rawAnaTrade] = await Promise.all([
       generateSection({
         persona: 'entertainer', sectionType: 'Trade Grade', context: sideCtx + tradeStepDedupeEnt + tradeStepPhaseCtx,
-        constraints: `Grade this trade FOR ${party} specifically (A+ to F). Start with the letter grade on its own line, then write 3-4 full sentences: what did ${party} receive (${received}), what did they give up (${gaveUp}), and is this a good deal for them specifically? Give your gut take. FACTUAL RULE: only reference assets listed above.`,
-        maxTokens: 800,
-        // No validate — with validate every provider is tried in sequence (8s gaps each),
-        // causing the 270s Vercel step timeout before content is returned. .catch handles outright failures.
+        constraints: isMultiTeam
+          ? `Grade this ${parties.length}-team trade FOR ${party} specifically (A+ to F). ` +
+            `Skip any trade introduction — jump straight into your verdict. ` +
+            `Write 2-3 paragraphs: first your gut reaction on where ${party} lands vs ${otherTeams} (winner/break-even/loser and why), then break down each asset they received and gave up with personality, then your final take on what this means for their season. ` +
+            `Only attribute assets explicitly listed in their GAVE UP column — do NOT attribute picks not shown there. ` +
+            `End with your letter grade.`
+          : `Grade this trade FOR ${party} specifically (A+ to F). Skip any trade setup — go straight to your verdict. ` +
+            `Write 2-3 paragraphs: first your gut reaction (heist, robbery, or fair deal?), then break down each asset they got and gave up with personality, then what this means for their dynasty outlook. ` +
+            `End with your letter grade. FACTUAL RULE: only reference assets listed above.`,
+        maxTokens: 1100,
       }).catch(() => fallbackAnalysis),
       generateSection({
         persona: 'analyst', sectionType: 'Trade Grade', context: sideCtx + tradeStepDedupeAna + tradeStepPhaseCtx,
-        constraints: `Grade this trade FOR ${party} specifically (A+ to F). Start with the letter grade on its own line, then write 3-4 analytical sentences: evaluate what ${party} received (${received}) vs. what they surrendered (${gaveUp}). Is the dynasty cost worth it given their roster and window? FACTUAL RULE: only reference assets listed above.`,
-        maxTokens: 800,
+        constraints: isMultiTeam
+          ? `Grade this ${parties.length}-team trade FOR ${party} specifically (A+ to F). ` +
+            `Skip any trade introduction — go straight into your analysis. ` +
+            `Write 2-3 paragraphs: first the net value assessment (did ${party} win or lose the trade vs ${otherTeams}?), then a detailed breakdown of each asset — age curve, dynasty value, positional scarcity, pick cost — using any dynasty rankings shown, then the roster-fit and window analysis. ` +
+            `Only grade ${party} on assets in their confirmed GAVE UP column — do not penalize for picks not listed there. ` +
+            `End with your letter grade.`
+          : `Grade this trade FOR ${party} specifically (A+ to F). Skip any trade setup — go straight into your analysis. ` +
+            `Write 2-3 paragraphs: first the overall value verdict for ${party}, then a detailed breakdown of each asset received and surrendered (age, dynasty value, positional scarcity, using any dynasty rankings shown), then roster fit and championship window implications. ` +
+            `End with your letter grade. FACTUAL RULE: only reference assets listed above.`,
+        maxTokens: 1100,
       }).catch(() => fallbackAnalysis),
     ]);
     const entR = guardText(rawEntTrade, { sectionType: 'Trade Grade', logPrefix: `[step:TradeGrade:${party}:entertainer]` });
@@ -779,7 +800,15 @@ async function genSingleTradeItem(input: StepInput, tradeIndex: number): Promise
     };
   }
 
-  return { event_id: e.event_id, coverage_level: e.coverage_level, reasons: e.reasons || [], context: tradeContext, teams: e.details?.by_team || null, analysis };
+  return {
+    event_id: e.event_id,
+    coverage_level: e.coverage_level,
+    reasons: e.reasons || [],
+    context: tradeDisplayHeadline,
+    teams: e.details?.by_team || null,
+    analysis,
+    intro: tradeIntro || undefined,
+  };
 }
 
 async function genSpotlight(input: StepInput): Promise<SpotlightSection | null> {

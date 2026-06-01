@@ -1394,22 +1394,24 @@ ${anaTrustLine ? `[Westy's history: ${anaTrustLine}]` : ''}${partyCard}`;
       // and dive directly into their grade and analysis for this specific team.
       const entertainerConstraints = isMultiTeam
         ? `Grade this ${allParties.length}-team trade for ${party} specifically (A+ to F). ` +
-          `Skip any trade introduction — jump straight into your take on ${party}'s outcome. ` +
-          `Where does ${party} land vs ${otherTeams}: winner, break-even, or loser? ` +
-          `Only judge ${party} on what they SENT (listed in their SENT column above) — do NOT blame them for assets sent by other teams. ` +
-          `4-5 sentences with personality: did they orchestrate this, get fleeced, or thread the needle? End with your letter grade.`
-        : `Grade this trade for ${party} specifically (A+ to F). Skip any trade setup — go straight to your verdict. Did THEY win or lose? 4-5 sentences with personality — was this a heist, a fair deal, or a robbery? Let your history with this team color your take. End with your letter grade.`;
+          `Skip any trade introduction — jump straight into your verdict. ` +
+          `Write 2-3 paragraphs: first your gut reaction on where ${party} lands vs ${otherTeams} (winner/break-even/loser and why), then break down each asset they received and gave up with personality, then your final take on what this means for their season. ` +
+          `Only judge ${party} on what they SENT (listed in their SENT column above) — do NOT blame them for assets sent by other teams. End with your letter grade.`
+        : `Grade this trade for ${party} specifically (A+ to F). Skip any trade setup — go straight to your verdict. ` +
+          `Write 2-3 paragraphs: first your gut reaction (heist, robbery, or fair deal?), then break down each asset they got and gave up with personality, then what this means for their dynasty outlook. ` +
+          `Let your history with this team color your take. End with your letter grade.`;
 
       const analystConstraints = isMultiTeam
         ? `Grade this ${allParties.length}-team trade for ${party} specifically (A+ to F). ` +
-          `Skip any trade introduction — go straight into your analysis of ${party}'s outcome. ` +
-          `Evaluate what ${party} SENT (see their SENT column) vs what they RECEIVED; is the net haul a win, break-even, or loss? ` +
-          `Do NOT penalize ${party} for assets sent by other teams in this deal. ` +
-          `4-5 sentences on short vs long-term implications, asset value, and roster fit. End with your letter grade.`
-        : `Grade this trade for ${party} specifically (A+ to F). Skip any trade setup — go straight into your analysis. Evaluate value received vs given from ${party}'s perspective. 4-5 sentences on short vs long-term implications, value, and fit. Factor in your prior read on this team if relevant. End with your letter grade.`;
+          `Skip any trade introduction — go straight into your analysis. ` +
+          `Write 2-3 paragraphs: first the net value assessment (did ${party} win or lose vs ${otherTeams}?), then a detailed breakdown of each asset — age curve, dynasty value, positional scarcity — then the roster-fit and window analysis. ` +
+          `Do NOT penalize ${party} for assets sent by other teams in this deal. End with your letter grade.`
+        : `Grade this trade for ${party} specifically (A+ to F). Skip any trade setup — go straight into your analysis. ` +
+          `Write 2-3 paragraphs: first the overall value verdict for ${party}, then a detailed breakdown of each asset received and surrendered (age, dynasty value, positional scarcity), then roster fit and championship window implications. ` +
+          `Factor in your prior read on this team if relevant. End with your letter grade.`;
 
       const tradeSection = isMultiTeam ? `${allParties.length}-Team Trade Grade` : 'Trade Grade';
-      const perTeamTokens = isMultiTeam ? 720 : 560;
+      const perTeamTokens = isMultiTeam ? 1100 : 1000;
       const [rawEntTrade, rawAnaTrade] = await Promise.all([
         generateSection({
           persona: 'entertainer',
