@@ -380,21 +380,18 @@ function normalizeTransactions(
 ): NormalizedEvent[] {
   const events: NormalizedEvent[] = [];
 
+  // Type for raw draft pick entries from Sleeper transactions
+  type RawPick = { season?: string | number; round?: number; roster_id?: number; owner_id?: number; previous_owner_id?: number };
+
   // Pre-pass: build chronological pick ownership history from all completed trades.
-  // Key = "season-rosterSlot-round" (e.g. "2026-5-1"). Each hop records who received
-  // the pick (toRosterId = owner_id, always reliable). For 3-team trades we find the
-  // sender by looking at who last held the pick before this trade rather than trusting
-  // previous_owner_id, which Sleeper sometimes sets to the pick's historical origin
-  // instead of the immediate pre-trade holder.
-  // Use allTransactions (full league history) when available so prior-week trades that
-  // moved a pick are present; without this the lookup falls back to the original slot
-  // owner, which is wrong when a pick has already changed hands.
+  // Used ONLY as a cross-check / diagnostic log against Sleeper's previous_owner_id.
+  // previous_owner_id is the authoritative immediate pre-trade holder for all trades
+  // (including multi-team). roster_id is the original draft slot owner (never changes).
   type PickHop = { tradeId: string; ts: number; toRosterId: number };
   const pickHistory = new Map<string, PickHop[]>();
   const completedTrades = (allTransactions ?? transactions ?? [])
     .filter(t => t.type === 'trade' && t.status === 'complete')
     .sort((a, b) => (a.status_updated || a.created || 0) - (b.status_updated || b.created || 0));
-  type RawPick = { season?: string | number; round?: number; roster_id?: number; owner_id?: number; previous_owner_id?: number };
   for (const tx of completedTrades) {
     for (const raw of (tx.draft_picks ?? [])) {
       const pick = raw as RawPick;
@@ -406,15 +403,15 @@ function normalizeTransactions(
     }
   }
 
-  // Returns the roster ID of whoever held the pick immediately before thisTxId.
-  // Falls back to the pick's original roster slot if no prior trade exists.
-  function pickSenderFor(season: string | number, origRosterId: number, round: number, thisTxId: string): number {
+  // Cross-check helper: returns the roster ID of whoever held the pick immediately
+  // before thisTxId based on hop history. Used only for diagnostic logging.
+  function pickSenderForCrossCheck(season: string | number, origRosterId: number, round: number, thisTxId: string): number {
     const key = `${season}-${origRosterId}-${round}`;
     const hops = pickHistory.get(key) ?? [];
     for (let i = hops.length - 1; i >= 0; i--) {
       if (hops[i].tradeId !== thisTxId) return hops[i].toRosterId;
     }
-    return origRosterId; // never traded before — original slot owner is the sender
+    return origRosterId;
   }
 
   for (const t of transactions || []) {
@@ -453,29 +450,51 @@ function normalizeTransactions(
             }
           }
         }
-        // Draft picks: owner_id (receiver) is always reliable from Sleeper.
-        // For "gives" in 2-team trades, previous_owner_id is safe (only one possible sender).
-        // For 3-team trades, previous_owner_id can point to the pick's historical origin
-        // rather than the immediate pre-trade holder, so we use the chronological pick
-        // history built above: whoever last received this pick before this trade is the sender.
+        // Draft picks: owner_id (receiver) and previous_owner_id (sender) are both
+        // authoritative from Sleeper for all trades including multi-team.
+        // roster_id is the original draft slot owner (never changes across trades).
         if (Array.isArray(t.draft_picks)) {
           const rosterIdSet = new Set(rosterIds);
           const isMultiTeam = rosterIds.length > 2;
           for (const raw of t.draft_picks) {
             const pick = raw as RawPick;
-            const label = `${pick.season ?? '?'} Rd ${pick.round ?? '?'} Pick`;
             const ownerId = Number(pick.owner_id);
+            const prevOwnerId = Number(pick.previous_owner_id);
             const origRosterId = Number(pick.roster_id);
+            // Build an enriched label: "2026 Rd 1 Pick (Team C's slot)"
+            const slotOwnerName = rostersIndex.get(origRosterId)?.owner_name;
+            const slotSuffix = slotOwnerName && origRosterId !== prevOwnerId
+              ? ` (${slotOwnerName}'s slot)` : '';
+            const label = `${pick.season ?? '?'} Rd ${pick.round ?? '?'} Pick${slotSuffix}`;
+            const receiverName = rostersIndex.get(ownerId)?.owner_name || `Roster ${ownerId}`;
             if (ownerId === rosterId) {
-              gets.push(label);
-            } else if (!isMultiTeam) {
-              // 2-team trade: previous_owner_id is the one other party, so it's reliable
-              const prevOwnerId = Number(pick.previous_owner_id);
-              if (prevOwnerId === rosterId && rosterIdSet.has(ownerId)) gives.push(label);
-            } else {
-              // 3-team trade: use pick history to find who last held this pick before now
-              const senderRosterId = pickSenderFor(pick.season ?? '', origRosterId, Number(pick.round), String(t.transaction_id));
-              if (senderRosterId === rosterId && rosterIdSet.has(ownerId)) gives.push(label);
+              // This team RECEIVED the pick
+              const senderName = rostersIndex.get(prevOwnerId)?.owner_name || `Roster ${prevOwnerId}`;
+              gets.push(isMultiTeam ? `${label} (from ${senderName})` : label);
+            } else if (prevOwnerId === rosterId && rosterIdSet.has(ownerId)) {
+              // This team SENT the pick (previous_owner_id matches this roster)
+              gives.push(isMultiTeam ? `${label} → ${receiverName}` : label);
+            }
+            // Cross-check: log if hop history disagrees with previous_owner_id
+            if (isMultiTeam && (ownerId === rosterId || prevOwnerId === rosterId)) {
+              const hopSender = pickSenderForCrossCheck(pick.season ?? '', origRosterId, Number(pick.round), String(t.transaction_id));
+              if (hopSender !== prevOwnerId) {
+                console.warn(`[derive] Pick sender cross-check mismatch for ${label}: previous_owner_id=${prevOwnerId} vs hop_history=${hopSender} (using previous_owner_id)`);
+              }
+            }
+          }
+        }
+        // FAAB budget transfers in trades
+        if (Array.isArray((t as unknown as { waiver_budget?: unknown[] }).waiver_budget)) {
+          const budgets = (t as unknown as { waiver_budget: Array<{ sender: number; receiver: number; amount: number }> }).waiver_budget;
+          for (const budget of budgets) {
+            const amt = Number(budget.amount ?? 0) || 0;
+            if (amt <= 0) continue;
+            const faabLabel = `$${amt} FAAB`;
+            if (budget.receiver === rosterId) {
+              gets.push(faabLabel);
+            } else if (budget.sender === rosterId) {
+              gives.push(faabLabel);
             }
           }
         }

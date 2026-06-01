@@ -1247,14 +1247,14 @@ async function buildTradeItems(events: DerivedData['events_scored'], memEntertai
     for (const team of parties) {
       const teamAssets = byTeam[team];
       if (teamAssets) {
-        const gets = teamAssets.gets?.join(', ') || 'nothing confirmed';
+        const gets = teamAssets.gets?.join(', ') || 'nothing';
         const givesArr = teamAssets.gives || [];
-        const gives = givesArr.length > 0 ? givesArr.join(', ') : 'nothing confirmed';
-        tradeBreakdown += `\n${team}: GETS ${gets} | GIVES ${gives}`;
+        const gives = givesArr.length > 0 ? givesArr.join(', ') : 'nothing';
+        tradeBreakdown += `\n${team}: RECEIVED ${gets} | SENT ${gives}`;
       }
     }
     if (isMultiTeamTrade) {
-      tradeBreakdown += '\nNOTE: In 3-team trades, any pick not appearing in a team\'s GIVES column was not sent by them — do not infer unconfirmed senders.';
+      tradeBreakdown += '\nIMPORTANT: Asset routing above is authoritative. Only grade each team on what appears in their SENT column.';
     }
 
     // Display headline (clean, for the template card header)
@@ -1312,16 +1312,16 @@ async function buildTradeItems(events: DerivedData['events_scored'], memEntertai
     const { parties, byTeam, tradeContext } = tradeContexts[i];
     const isMultiTeam = parties.length >= 3;
 
-    // For 3+ team trades, show every team's complete exchange so the LLM understands the full flow
+    // For 3+ team trades, show every team's complete exchange with explicit routing
     const fullExchangeBlock = isMultiTeam
-      ? `\nCOMPLETE ${parties.length}-TEAM EXCHANGE:\n` +
+      ? `\nAUTHORITATIVE ${parties.length}-TEAM ASSET ROUTING:\n` +
         parties.map(p => {
           const a = byTeam[p];
           const givesArr = a?.gives || [];
-          const givesStr = givesArr.length > 0 ? givesArr.join(', ') : 'nothing confirmed';
-          return `  ${p}: RECEIVED ${a?.gets?.join(', ') || 'nothing'} | GAVE UP ${givesStr}`;
+          const givesStr = givesArr.length > 0 ? givesArr.join(', ') : 'nothing';
+          return `  ${p}: RECEIVED ${a?.gets?.join(', ') || 'nothing'} | SENT ${givesStr}`;
         }).join('\n') +
-        '\nNOTE: Pick sender attribution uses full trade history. Any pick not in a team\'s GAVE UP column was confirmed not sent by them — do not speculate.'
+        '\nThe routing above is verified from Sleeper transaction data. Only penalize a team for assets listed in their SENT column.'
       : '';
 
     for (const party of parties) {
@@ -1341,8 +1341,8 @@ async function buildTradeItems(events: DerivedData['events_scored'], memEntertai
 
       const sideContext = `Trade Analysis for ${party}:
 Full trade: ${tradeContext}
-${party}'s haul: RECEIVED ${gets} | GAVE UP ${gives}${fullExchangeBlock}
-Evaluate this trade FROM ${party.toUpperCase()}'S PERSPECTIVE ONLY.
+${party}'s outcome: RECEIVED ${gets} | SENT ${gives}${fullExchangeBlock}
+Evaluate this trade FROM ${party.toUpperCase()}'S PERSPECTIVE ONLY. Only judge ${party} on what they SENT — not on assets sent by other teams.
 ${entTrustLine ? `[Mason Reed's history: ${entTrustLine}]` : ''}
 ${anaTrustLine ? `[Westy's history: ${anaTrustLine}]` : ''}${partyCard}`;
 
@@ -1361,15 +1361,15 @@ ${anaTrustLine ? `[Westy's history: ${anaTrustLine}]` : ''}${partyCard}`;
         ? `Grade this ${allParties.length}-team trade for ${party} specifically (A+ to F). ` +
           `Skip any trade introduction — jump straight into your take on ${party}'s outcome. ` +
           `Where does ${party} land vs ${otherTeams}: winner, break-even, or loser? ` +
-          `Only attribute assets to ${party} that are in their GAVE UP column — do not infer unconfirmed picks. ` +
+          `Only judge ${party} on what they SENT (listed in their SENT column above) — do NOT blame them for assets sent by other teams. ` +
           `4-5 sentences with personality: did they orchestrate this, get fleeced, or thread the needle? End with your letter grade.`
         : `Grade this trade for ${party} specifically (A+ to F). Skip any trade setup — go straight to your verdict. Did THEY win or lose? 4-5 sentences with personality — was this a heist, a fair deal, or a robbery? Let your history with this team color your take. End with your letter grade.`;
 
       const analystConstraints = isMultiTeam
         ? `Grade this ${allParties.length}-team trade for ${party} specifically (A+ to F). ` +
           `Skip any trade introduction — go straight into your analysis of ${party}'s outcome. ` +
-          `Evaluate what ${party} sent to each of ${otherTeams} vs what they received; is the net haul a win, break-even, or loss? ` +
-          `Only grade ${party} on assets in their confirmed GAVE UP column — do not penalize for picks not listed there. ` +
+          `Evaluate what ${party} SENT (see their SENT column) vs what they RECEIVED; is the net haul a win, break-even, or loss? ` +
+          `Do NOT penalize ${party} for assets sent by other teams in this deal. ` +
           `4-5 sentences on short vs long-term implications, asset value, and roster fit. End with your letter grade.`
         : `Grade this trade for ${party} specifically (A+ to F). Skip any trade setup — go straight into your analysis. Evaluate value received vs given from ${party}'s perspective. 4-5 sentences on short vs long-term implications, value, and fit. Factor in your prior read on this team if relevant. End with your letter grade.`;
 

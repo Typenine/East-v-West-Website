@@ -313,23 +313,27 @@ export async function generateDynastyAnalysis(
     const teams = Object.keys(trade.teams || {});
     if (teams.length < 2) continue;
 
+    const isMultiTeam = teams.length >= 3;
     const tradeDetails = teams.map(team => {
       const assets = trade.teams?.[team];
-      return `${team}: Gets ${assets?.gets?.join(', ') || 'unknown'} | Gives ${assets?.gives?.join(', ') || 'unknown'}`;
+      return `${team}: RECEIVED ${assets?.gets?.join(', ') || 'unknown'} | SENT ${assets?.gives?.join(', ') || 'unknown'}`;
     }).join('\n');
+    const routingNote = isMultiTeam
+      ? '\nAsset routing above is authoritative. Only judge each team on what they SENT.'
+      : '';
 
     const [entDynasty, anaDynasty] = await Promise.all([
       generateSection({
         persona: 'entertainer',
         sectionType: 'Dynasty Analysis',
-        context: `TRADE FOR DYNASTY ANALYSIS:\n${tradeDetails}\n\n${context}\n\n${personaContextEntertainer || ''}`,
+        context: `TRADE FOR DYNASTY ANALYSIS:\n${tradeDetails}${routingNote}\n\n${context}\n\n${personaContextEntertainer || ''}`,
         constraints: 'Who wins this trade long-term (3+ years)? Consider age, potential, and draft capital. 2 sentences. Name the winner!',
         maxTokens: 100,
       }),
       generateSection({
         persona: 'analyst',
         sectionType: 'Dynasty Analysis',
-        context: `TRADE FOR DYNASTY ANALYSIS:\n${tradeDetails}\n\n${context}\n\n${personaContextAnalyst || ''}`,
+        context: `TRADE FOR DYNASTY ANALYSIS:\n${tradeDetails}${routingNote}\n\n${context}\n\n${personaContextAnalyst || ''}`,
         constraints: 'Analyze dynasty value: short-term winner vs long-term winner. Consider age curves and asset depreciation. 2 sentences.',
         maxTokens: 100,
       }),
