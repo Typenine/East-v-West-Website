@@ -5,77 +5,89 @@ import Link from 'next/link';
 import { TEAM_NAMES } from '@/lib/constants/league';
 import { getTeamColors, getTeamLogoPath } from '@/lib/utils/team-utils';
 
+const allTeams = TEAM_NAMES;
 const leftTeams = TEAM_NAMES.slice(0, 6);
 const rightTeams = TEAM_NAMES.slice(6, 12);
 
-function TeamGrid({ teams }: { teams: string[] }) {
+function TeamTile({ team, compact = false }: { team: string; compact?: boolean }) {
+  const colors = getTeamColors(team);
+  const isCakeEaters = team === 'Mt. Lebanon Cake Eaters';
+  const isLoneGinger = team === 'The Lone Ginger';
+  const isDoubleTrouble = team === 'Double Trouble';
+  const logoSrc = isDoubleTrouble ? `${getTeamLogoPath(team)}?v=double-trouble-transparent-2` : getTeamLogoPath(team);
+  const stripeColors = [colors.primary, colors.secondary, colors.tertiary].filter(Boolean) as string[];
+  const stripeCount = stripeColors.length;
+  const stripeBackground = stripeColors
+    .map((color, index) => {
+      const start = (index / stripeCount) * 100;
+      const end = ((index + 1) / stripeCount) * 100;
+      return `${color} ${start}%, ${color} ${end}%`;
+    })
+    .join(', ');
+  const tileClassName = compact
+    ? 'relative overflow-hidden rounded-[14px] border backdrop-blur-md shadow-[0_12px_26px_rgba(0,0,0,0.2)] min-h-[62px] px-2 py-1.5 flex items-center justify-center'
+    : 'relative overflow-hidden rounded-[16px] border backdrop-blur-md shadow-[0_12px_30px_rgba(0,0,0,0.22)] min-h-[64px] sm:min-h-[72px] lg:min-h-[80px] px-2 py-2 sm:px-2.5 sm:py-2.5 flex items-center justify-center';
+  const logoFrameClassName = compact
+    ? isCakeEaters || isLoneGinger
+      ? 'relative z-10 overflow-hidden rounded-full h-[2.45rem] w-[2.45rem]'
+      : 'relative z-10 overflow-hidden h-[2.45rem] w-[2.45rem]'
+    : isCakeEaters || isLoneGinger
+      ? 'relative z-10 overflow-hidden rounded-full h-[2.8rem] w-[2.8rem] sm:h-[3.2rem] sm:w-[3.2rem] lg:h-[3.75rem] lg:w-[3.75rem]'
+      : 'relative z-10 overflow-hidden h-[2.8rem] w-[2.8rem] sm:h-[3.2rem] sm:w-[3.2rem] lg:h-[3.75rem] lg:w-[3.75rem]';
+  const logoClassName = isDoubleTrouble
+    ? 'object-contain scale-[1.82]'
+    : isCakeEaters || isLoneGinger
+      ? 'object-cover scale-[1.16]'
+      : 'object-contain';
+  const logoPosition = isDoubleTrouble
+    ? '52% 47%'
+    : 'center';
+
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 sm:gap-3 lg:gap-4 items-center">
-      {teams.map((team) => {
-        const colors = getTeamColors(team);
-        const isCakeEaters = team === 'Mt. Lebanon Cake Eaters';
-        const isLoneGinger = team === 'The Lone Ginger';
-        const isDoubleTrouble = team === 'Double Trouble';
-        const logoSrc = isDoubleTrouble ? `${getTeamLogoPath(team)}?v=transparent-logo` : getTeamLogoPath(team);
-        const logoFrameClassName = isCakeEaters || isLoneGinger
-          ? 'relative z-10 overflow-hidden rounded-full h-[3.7rem] w-[3.7rem] sm:h-[4.35rem] sm:w-[4.35rem] lg:h-[5rem] lg:w-[5rem]'
-          : 'relative z-10 overflow-hidden h-[3.7rem] w-[3.7rem] sm:h-[4.35rem] sm:w-[4.35rem] lg:h-[5rem] lg:w-[5rem]';
-        const logoClassName = isDoubleTrouble
-          ? 'object-contain scale-[1.42]'
-          : isCakeEaters || isLoneGinger
-            ? 'object-cover scale-[1.14]'
-            : 'object-contain';
-        const logoPosition = isDoubleTrouble
-          ? '48% 46%'
-          : 'center';
-        const stripeColors = [colors.primary, colors.secondary, colors.tertiary].filter(Boolean) as string[];
-        const stripeCount = stripeColors.length;
-        const stripeBackground = stripeColors
-          .map((color, index) => {
-            const start = (index / stripeCount) * 100;
-            const end = ((index + 1) / stripeCount) * 100;
-            return `${color} ${start}%, ${color} ${end}%`;
-          })
-          .join(', ');
-        return (
-          <div
-            key={team}
-            className="relative overflow-hidden rounded-[18px] border backdrop-blur-md shadow-[0_16px_36px_rgba(0,0,0,0.22)] min-h-[84px] sm:min-h-[94px] lg:min-h-[106px] px-2.5 py-2.5 sm:px-3 sm:py-3 flex items-center justify-center"
-            style={{
-              borderColor: 'rgba(255,255,255,0.18)',
-              background: 'linear-gradient(180deg, rgba(10,14,24,0.9) 0%, rgba(14,18,30,0.88) 100%)',
-              boxShadow: `0 0 0 1px ${colors.secondary}26 inset, 0 16px 36px rgba(0,0,0,0.22)`,
-            }}
-            title={team}
-          >
-            <div
-              aria-hidden
-              className="absolute inset-y-0 right-0 w-[34%]"
-              style={{
-                background: `linear-gradient(180deg, ${stripeBackground})`,
-                boxShadow: 'inset 1px 0 0 rgba(255,255,255,0.12)',
-              }}
-            />
-            <div
-              aria-hidden
-              className="absolute inset-0"
-              style={{
-                background: 'linear-gradient(270deg, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0.02) 34%, rgba(255,255,255,0) 55%)',
-              }}
-            />
-            <div className={logoFrameClassName}>
-              <Image
-                src={logoSrc}
-                alt={team}
-                fill
-                sizes="(min-width: 1024px) 5rem, (min-width: 640px) 4.35rem, 3.7rem"
-                className={`${logoClassName} drop-shadow-[0_10px_14px_rgba(0,0,0,0.42)]`}
-                style={{ objectPosition: logoPosition }}
-              />
-            </div>
-          </div>
-        );
-      })}
+    <div
+      key={team}
+      className={tileClassName}
+      style={{
+        borderColor: 'rgba(255,255,255,0.16)',
+        backgroundImage: `linear-gradient(180deg, rgba(7,10,18,0.72) 0%, rgba(9,13,22,0.82) 100%), linear-gradient(90deg, ${stripeBackground})`,
+        boxShadow: `0 0 0 1px ${colors.secondary}1f inset, ${compact ? '0 12px 26px rgba(0,0,0,0.2)' : '0 12px 30px rgba(0,0,0,0.22)'}`,
+      }}
+      title={team}
+    >
+      <div
+        aria-hidden
+        className="absolute inset-0"
+        style={{
+          background: 'linear-gradient(120deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.02) 28%, rgba(255,255,255,0) 58%)',
+        }}
+      />
+      <div
+        aria-hidden
+        className="absolute inset-0"
+        style={{
+          background: 'linear-gradient(90deg, rgba(5,8,14,0.3) 0%, rgba(5,8,14,0.18) 42%, rgba(5,8,14,0.12) 100%)',
+        }}
+      />
+      <div className={logoFrameClassName}>
+        <Image
+          src={logoSrc}
+          alt={team}
+          fill
+          sizes={compact ? '2.45rem' : '(min-width: 1024px) 3.75rem, (min-width: 640px) 3.2rem, 2.8rem'}
+          className={`${logoClassName} drop-shadow-[0_10px_14px_rgba(0,0,0,0.42)]`}
+          style={{ objectPosition: logoPosition }}
+        />
+      </div>
+    </div>
+  );
+}
+
+function TeamGrid({ teams, compact = false, className }: { teams: string[]; compact?: boolean; className?: string }) {
+  return (
+    <div className={className ?? 'grid grid-cols-2 sm:grid-cols-3 gap-2 sm:gap-2.5 lg:gap-3 items-center'}>
+      {teams.map((team) => (
+        <TeamTile key={team} team={team} compact={compact} />
+      ))}
     </div>
   );
 }
@@ -94,9 +106,9 @@ export default function HomeLeagueBanner() {
           `,
         }}
       />
-      <div className="container mx-auto px-4 sm:px-5 py-2.5 sm:py-3 lg:py-3 relative z-10">
+      <div className="container mx-auto px-3 sm:px-4 py-2 sm:py-2.5 lg:py-2.5 relative z-10">
         <div
-          className="relative overflow-hidden rounded-[20px] border p-2.5 sm:p-3 lg:p-3"
+          className="relative overflow-hidden rounded-[18px] border p-2 sm:p-2.5 lg:p-2.5"
           style={{
             borderColor: 'rgba(255,255,255,0.18)',
             background: 'linear-gradient(90deg, rgba(255,255,255,0.05), transparent 18%, transparent 82%, rgba(255,255,255,0.05)), rgba(255,255,255,0.045)',
@@ -121,34 +133,62 @@ export default function HomeLeagueBanner() {
               transform: 'translateY(-50%)',
             }}
           />
-          <div className="relative z-10 grid grid-cols-1 lg:grid-cols-[1fr_auto_1fr] gap-3 lg:gap-4 items-center">
-            <TeamGrid teams={leftTeams} />
-            <div className="grid place-items-center gap-1.5 w-full lg:w-[clamp(120px,9.6vw,152px)] order-first lg:order-none mx-auto">
+          <div className="relative z-10 flex flex-col gap-2.5 lg:hidden">
+            <div className="grid place-items-center gap-1 w-full max-w-[92px] mx-auto">
               <Link
                 href="/"
-                className="w-full aspect-square rounded-[14px] border p-1.5 sm:p-2 lg:p-2.5 backdrop-blur-md flex items-center justify-center"
+                className="w-full aspect-square rounded-[12px] border p-1.5 backdrop-blur-md flex items-center justify-center"
                 style={{
                   borderColor: 'rgba(191,153,68,0.52)',
                   background: 'linear-gradient(180deg, rgba(255,255,255,0.14), rgba(255,255,255,0.08))',
-                  boxShadow: '0 0 0 1px rgba(191,153,68,0.22), 0 22px 60px rgba(0,0,0,0.38), 0 0 70px rgba(191,153,68,0.16)',
+                  boxShadow: '0 0 0 1px rgba(191,153,68,0.22), 0 16px 42px rgba(0,0,0,0.34), 0 0 56px rgba(191,153,68,0.14)',
                 }}
                 aria-label="East v. West Fantasy Football home"
               >
                 <Image
                   src="/assets/teams/East v West Logos/Official East v. West Logo.png"
                   alt="East v. West League Logo"
-                  width={280}
-                  height={280}
+                  width={220}
+                  height={220}
                   priority
-                  className="w-[94%] h-[94%] object-contain drop-shadow-[0_12px_18px_rgba(0,0,0,0.48)]"
+                  className="w-[92%] h-[92%] object-contain drop-shadow-[0_10px_14px_rgba(0,0,0,0.44)]"
                 />
               </Link>
-              <div className="text-center uppercase tracking-[0.18em]">
-                <div className="text-[7px] sm:text-[8px] lg:text-[9px] font-extrabold text-[#bf9944]">Dynasty Fantasy Football</div>
-                <div className="mt-0.5 text-[12px] sm:text-[13px] lg:text-[15px] font-black leading-none text-[var(--text)]">East v. West League</div>
+              <div className="text-center uppercase tracking-[0.16em]">
+                <div className="text-[6px] font-extrabold text-[#bf9944]">Dynasty Fantasy Football</div>
+                <div className="mt-0.5 text-[10px] font-black leading-none text-[var(--text)]">East v. West League</div>
               </div>
             </div>
-            <TeamGrid teams={rightTeams} />
+            <TeamGrid teams={allTeams} compact className="grid grid-cols-3 gap-1.5 items-center" />
+          </div>
+          <div className="relative z-10 hidden lg:grid grid-cols-1 lg:grid-cols-[1fr_auto_1fr] gap-3 lg:gap-3 items-center">
+            <TeamGrid teams={leftTeams} className="grid grid-cols-2 sm:grid-cols-3 gap-2 sm:gap-2.5 lg:gap-3 items-center" />
+            <div className="grid place-items-center gap-1 w-full lg:w-[clamp(92px,7.2vw,115px)] order-first lg:order-none mx-auto">
+              <Link
+                href="/"
+                className="w-full aspect-square rounded-[12px] border p-1.5 sm:p-1.5 lg:p-2 backdrop-blur-md flex items-center justify-center"
+                style={{
+                  borderColor: 'rgba(191,153,68,0.52)',
+                  background: 'linear-gradient(180deg, rgba(255,255,255,0.14), rgba(255,255,255,0.08))',
+                  boxShadow: '0 0 0 1px rgba(191,153,68,0.22), 0 18px 48px rgba(0,0,0,0.36), 0 0 58px rgba(191,153,68,0.15)',
+                }}
+                aria-label="East v. West Fantasy Football home"
+              >
+                <Image
+                  src="/assets/teams/East v West Logos/Official East v. West Logo.png"
+                  alt="East v. West League Logo"
+                  width={220}
+                  height={220}
+                  priority
+                  className="w-[92%] h-[92%] object-contain drop-shadow-[0_10px_14px_rgba(0,0,0,0.46)]"
+                />
+              </Link>
+              <div className="text-center uppercase tracking-[0.16em]">
+                <div className="text-[6px] sm:text-[7px] lg:text-[8px] font-extrabold text-[#bf9944]">Dynasty Fantasy Football</div>
+                <div className="mt-0.5 text-[10px] sm:text-[11px] lg:text-[13px] font-black leading-none text-[var(--text)]">East v. West League</div>
+              </div>
+            </div>
+            <TeamGrid teams={rightTeams} className="grid grid-cols-2 sm:grid-cols-3 gap-2 sm:gap-2.5 lg:gap-3 items-center" />
           </div>
         </div>
       </div>
