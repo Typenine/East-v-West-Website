@@ -432,12 +432,17 @@ function normalizeTransactions(
         const teamName = rostersIndex.get(rosterId)?.owner_name || `Roster ${rosterId}`;
         const gets: string[] = [];
         const gives: string[] = [];
+        const isMultiTeam = rosterIds.length > 2;
         // Players received
         if (t.adds) {
           for (const [playerId, receiverId] of Object.entries(t.adds)) {
             if (receiverId === rosterId) {
               const name = resolvePlayerName(playerId);
-              if (name !== 'Unknown Player') gets.push(name);
+              if (name !== 'Unknown Player') {
+                const senderRosterId = Number(t.drops?.[playerId]);
+                const senderName = rostersIndex.get(senderRosterId)?.owner_name || `Roster ${senderRosterId}`;
+                gets.push(isMultiTeam && Number.isFinite(senderRosterId) ? `${name} (from ${senderName})` : name);
+              }
             }
           }
         }
@@ -446,7 +451,11 @@ function normalizeTransactions(
           for (const [playerId, dropperId] of Object.entries(t.drops)) {
             if (dropperId === rosterId) {
               const name = resolvePlayerName(playerId);
-              if (name !== 'Unknown Player') gives.push(name);
+              if (name !== 'Unknown Player') {
+                const receiverRosterId = Number(t.adds?.[playerId]);
+                const receiverName = rostersIndex.get(receiverRosterId)?.owner_name || `Roster ${receiverRosterId}`;
+                gives.push(isMultiTeam && Number.isFinite(receiverRosterId) ? `${name} → ${receiverName}` : name);
+              }
             }
           }
         }
@@ -455,7 +464,6 @@ function normalizeTransactions(
         // roster_id is the original draft slot owner (never changes across trades).
         if (Array.isArray(t.draft_picks)) {
           const rosterIdSet = new Set(rosterIds);
-          const isMultiTeam = rosterIds.length > 2;
           for (const raw of t.draft_picks) {
             const pick = raw as RawPick;
             const ownerId = Number(pick.owner_id);

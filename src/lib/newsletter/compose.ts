@@ -1300,7 +1300,7 @@ async function buildTradeItems(events: DerivedData['events_scored'], memEntertai
       first.includes('multi-team') ||
       first.includes('let\'s start') ||
       first.includes('breaking this down') ||
-      first.includes(headlineLower);
+      (headlineLower.length > 0 && first.includes(headlineLower));
     return looksLikeIntro ? sentences.slice(1).join(' ').trim() : trimmed;
   };
 
@@ -1310,6 +1310,14 @@ async function buildTradeItems(events: DerivedData['events_scored'], memEntertai
     if (!/[A-F][+-]?/i.test(trimmed)) return false;
     const sentenceCount = (trimmed.match(/[.!?](?:\s|$)/g) ?? []).length;
     return sentenceCount >= 3;
+  };
+
+  const finalizeTradeAnalysis = (text: string, party: string): string => {
+    const trimmed = stripTradeSetup(text, '').trim();
+    if (!trimmed || trimmed === '[Content removed by guardrails — please regenerate this section.]') {
+      return `${party} gets an incomplete read here, but the directional asset routing above is the authoritative breakdown. Based on that routing alone, this side needs a manual re-check before making a stronger claim. Grade: Incomplete.`;
+    }
+    return trimmed;
   };
 
   // Generate one Mason Reed intro per trade (sets the stage once, not repeated per team)
@@ -1420,13 +1428,19 @@ ${anaTrustLine ? `[Westy's history: ${anaTrustLine}]` : ''}${partyCard}`;
           validate: isCompleteTradeAnalysis,
         }),
       ]);
-      const entertainerResponse = stripTradeSetup(
-        guardText(rawEntTrade, { sectionType: 'Trade Grade', logPrefix: `[compose:TradeGrade:${party}:entertainer]` }),
-        tradeContext,
+      const entertainerResponse = finalizeTradeAnalysis(
+        stripTradeSetup(
+          guardText(rawEntTrade, { sectionType: 'Trade Grade', logPrefix: `[compose:TradeGrade:${party}:entertainer]` }),
+          tradeContext,
+        ),
+        party,
       );
-      const analystResponse = stripTradeSetup(
-        guardText(rawAnaTrade, { sectionType: 'Trade Grade', logPrefix: `[compose:TradeGrade:${party}:analyst]` }),
-        tradeContext,
+      const analystResponse = finalizeTradeAnalysis(
+        stripTradeSetup(
+          guardText(rawAnaTrade, { sectionType: 'Trade Grade', logPrefix: `[compose:TradeGrade:${party}:analyst]` }),
+          tradeContext,
+        ),
+        party,
       );
 
       const extractGrade = (text: string): string => {
@@ -1446,6 +1460,7 @@ ${anaTrustLine ? `[Westy's history: ${anaTrustLine}]` : ''}${partyCard}`;
         // Grade at the end of the text after punctuation (e.g. "solid pickup. B+")
         const endMatch = text.trim().match(/[.!]\s*([A-F][+-]?)\.?\s*$/);
         if (endMatch) return endMatch[1].toUpperCase();
+        if (/\bincomplete\b/i.test(text)) return 'INC';
         return 'B';
       };
       const entertainer_grade = extractGrade(entertainerResponse);
