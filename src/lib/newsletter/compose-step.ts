@@ -38,6 +38,12 @@ import { generateSection } from './llm/groq';
 import { buildStaticLeagueContext, LEAGUE_IDENTITY } from './league-knowledge';
 import { getEpisodeConfig } from './episodes';
 import { makeForecast, type ForecastRecords } from './forecast';
+import { buildDedupeContext, buildEnrichedMemoryContext } from './memory';
+import { guardText } from './guardrails';
+import { judgeSection, judgeMatchup, buildJudgmentContext } from './judgment';
+import { selectAndBuildStance } from './stance';
+import { getPhaseRules, buildPhaseRulesContext } from './episodes';
+import { buildMatchupCardContext, buildTeamCardContext } from './team-narratives';
 
 // ============ Step catalog ============
 
@@ -183,11 +189,113 @@ export interface StepInput {
    * in waiver and trade sections without bloating the base context string.
    */
   dynastyRankings?: Array<{ name: string; pos: string; nfl: string; rank: number }>;
+  /**
+   * Phase 1: pre-computed per-bot Phase 1 addendum strings.
+   * If absent, the step computes them inline from memEntertainer / memAnalyst.
+   * Populated by the step API route from the loaded BotMemory.
+   */
+  phase1Entertainer?: string;
+  phase1Analyst?: string;
 }
 
 export type StepResult =
   | { ok: true; sectionName: string; data: unknown }
   | { ok: false; sectionName: string; error: string };
+
+// ============ Phase 1 helper for compose-step ============
+
+/**
+ * Build the Phase 1 addendum for a step section.
+ * Combines dedupe + judgment + stance guidance into one appended string.
+ * Returns the pre-computed value if provided, otherwise derives inline.
+ */
+function stepPhase1(
+  input: StepInput,
+  bot: 'entertainer' | 'analyst',
+  opts: {
+    sectionType: string;
+    teamNames?: string[];
+    matchupMargin?: number;
+    isBlowout?: boolean;
+    isNailbiter?: boolean;
+    eventRelevanceScore?: number;
+    primaryTeamName?: string;
+  },
+): string {
+  const { week, season, episodeType, memEntertainer, memAnalyst } = input;
+  const mem = bot === 'entertainer' ? memEntertainer : memAnalyst;
+
+  // Use pre-computed value if caller supplied it (for Intro / FinalWord)
+  if (bot === 'entertainer' && input.phase1Entertainer !== undefined) {
+    return input.phase1Entertainer;
+  }
+  if (bot === 'analyst' && input.phase1Analyst !== undefined) {
+    return input.phase1Analyst;
+  }
+
+  // Derive inline otherwise
+  const parts: string[] = [];
+
+  const dedupeBlock = buildDedupeContext(mem);
+  if (dedupeBlock) parts.push(dedupeBlock);
+
+  const isPlayoffs = episodeType === 'playoffs_round' || episodeType === 'championship';
+  const isChampionship = episodeType === 'championship';
+
+  const judgment = judgeSection({
+    sectionType: opts.sectionType,
+    episodeType,
+    week,
+    season,
+    teamNames: opts.teamNames,
+    matchupMargin: opts.matchupMargin,
+    isBlowout: opts.isBlowout,
+    isNailbiter: opts.isNailbiter,
+    eventRelevanceScore: opts.eventRelevanceScore,
+    isPlayoffs,
+    isChampionship,
+    isTradeDeadline: episodeType === 'trade_deadline',
+    teamMemory: opts.primaryTeamName ? mem.teams[opts.primaryTeamName] : undefined,
+  });
+  parts.push(buildJudgmentContext(judgment));
+
+  const priorStance = opts.primaryTeamName
+    ? mem.recentOutputLog?.recentStances?.[opts.primaryTeamName]
+    : undefined;
+
+  const { context: stanceCtx } = selectAndBuildStance(
+    {
+      sectionType: opts.sectionType,
+      episodeType,
+      bot: mem.bot,
+      judgment,
+      week,
+      personality: mem.personality ? {
+        riskTolerance: mem.personality.riskTolerance,
+        dramaAppreciation: mem.personality.dramaAppreciation,
+        grudgeLevel: mem.personality.grudgeLevel,
+        analyticalTrust: mem.personality.analyticalTrust,
+        underdogAffinity: mem.personality.underdogAffinity,
+        contrarianism: mem.personality.contrarianism,
+      } : undefined,
+      priorStance,
+    },
+    mem,
+    opts.primaryTeamName,
+  );
+  parts.push(stanceCtx);
+
+  // Phase 2: phase rules
+  const phaseRules = getPhaseRules(episodeType);
+  const phaseCtx = buildPhaseRulesContext(phaseRules);
+  if (phaseCtx) parts.push(phaseCtx);
+
+  // Phase 2: enriched memory surfacing (heat-gated)
+  const enrichedMem = buildEnrichedMemoryContext(mem, judgment.narrativeHeat, opts.sectionType);
+  if (enrichedMem) parts.push(enrichedMem);
+
+  return parts.join('');
+}
 
 // ============ Individual section generators ============
 
@@ -248,25 +356,31 @@ Introduce yourselves briefly, welcome the league, then move straight into draft 
 
   const context = `${leagueKnowledge}\n\n---\n\n${enhancedContext}\n\nWeek ${week} Summary:\n- ${numGames} matchups\n- Biggest win: ${biggest ? `${biggest.winner.name} beat ${biggest.loser.name} by ${biggest.margin.toFixed(1)}` : 'N/A'}\n- Closest: ${closest ? `${closest.winner.name} edged ${closest.loser.name} by ${closest.margin.toFixed(1)}` : 'N/A'}\n- ${trades} trades, ${waivers} waiver moves`;
 
+  // Phase 1 addendum for each bot
+  const entP1 = stepPhase1(input, 'entertainer', { sectionType: 'Intro' });
+  const anaP1 = stepPhase1(input, 'analyst', { sectionType: 'Intro' });
+
   // Sequential: Mason opens, Westy responds to what Mason actually said
-  const bot1_text = await generateSection({
+  const rawBot1 = await generateSection({
     persona: 'entertainer',
     sectionType: 'Intro',
-    context,
+    context: context + entP1,
     constraints: `Write 2-3 short paragraphs (2-4 sentences each). Lead with the biggest storyline from this week and your gut reaction to it. Give a SPECIFIC REASON for every take — not just what happened, but what it means. End with something that sets up Westy. FACTUAL RULE: Only reference events explicitly stated in the context above.`,
     maxTokens: 500,
     episodeType,
   });
+  const bot1_text = guardText(rawBot1, { sectionType: 'Intro', logPrefix: '[step:Intro:entertainer]' });
 
   const westyContext = `${context}\n\n---\nMason Reed just opened the show with this:\n"${bot1_text}"\n\nNow it's your turn.`;
-  const bot2_text = await generateSection({
+  const rawBot2 = await generateSection({
     persona: 'analyst',
     sectionType: 'Intro',
-    context: westyContext,
+    context: westyContext + anaP1,
     constraints: `Write 2-3 short paragraphs (2-4 sentences each). Respond directly to Mason's take. Don't re-introduce the week — pick up where he left off. Agree on one thing, push back on one thing, and add a stat or trend that changes the picture. Do NOT reuse Mason's phrases or examples. FACTUAL RULE: Only reference stats or events explicitly stated in the context above.`,
     maxTokens: 500,
     episodeType,
   });
+  const bot2_text = guardText(rawBot2, { sectionType: 'Intro', logPrefix: '[step:Intro:analyst]' });
 
   return { bot1_text, bot2_text };
 }
@@ -308,27 +422,33 @@ async function genFinalWord(input: StepInput): Promise<FinalWordSection> {
     tokens: 400,
   };
 
+  // Phase 1 addendum
+  const entFWP1 = stepPhase1(input, 'entertainer', { sectionType: 'FinalWord' });
+  const anaFWP1 = stepPhase1(input, 'analyst', { sectionType: 'FinalWord' });
+
   // Sequential: Mason closes first, Westy responds to Mason's closing
-  const bot1 = await generateSection({
+  const rawBot1FW = await generateSection({
     persona: 'entertainer',
     sectionType: 'Final Word',
-    context: cfg.ctx + priorCtxBlock,
+    context: cfg.ctx + priorCtxBlock + entFWP1,
     constraints: cfg.entConstraint,
     maxTokens: cfg.tokens,
     episodeType,
     validate: (t) => t.length >= 100,
   });
+  const bot1 = guardText(rawBot1FW, { sectionType: 'FinalWord', logPrefix: '[step:FinalWord:entertainer]' });
 
   const westyCtx = `${cfg.ctx}\n\n---\nMason Reed just closed the show with:\n"${bot1}"\n\nNow give your final word.`;
-  const bot2 = await generateSection({
+  const rawBot2FW = await generateSection({
     persona: 'analyst',
     sectionType: 'Final Word',
-    context: westyCtx,
+    context: westyCtx + anaFWP1,
     constraints: cfg.anaConstraint + ' Do NOT re-state what Mason just said. Respond to it briefly or add a different angle.',
     maxTokens: cfg.tokens,
     episodeType,
     validate: (t) => t.length >= 100,
   });
+  const bot2 = guardText(rawBot2FW, { sectionType: 'FinalWord', logPrefix: '[step:FinalWord:analyst]' });
 
   return { bot1, bot2 };
 }
@@ -347,24 +467,47 @@ async function genSingleRecap(input: StepInput, matchupIndex: number): Promise<R
   const lineCount = week >= 17 ? 3 : p.margin <= 5 ? 3 : 2;
   const perBotTokens = week >= 17 ? 350 : p.margin <= 5 ? 300 : 250;
 
+  // Phase 1: dedupe + judgment for this specific matchup
+  const recapStepDedupeEnt = buildDedupeContext(input.memEntertainer);
+  const recapStepDedupeAna = buildDedupeContext(input.memAnalyst);
+  const recapStepJudgment = judgeMatchup(
+    input.memEntertainer, p.winner.name, p.loser.name, p.margin,
+    week, input.season, input.episodeType, matchupIndex,
+  );
+  const recapStepJudgmentCtx = buildJudgmentContext(recapStepJudgment);
+
+  // Phase 2: team cards + phase rules + enriched memory
+  const recapStepTeamCards = buildMatchupCardContext(
+    p.winner.name, p.loser.name, recapStepJudgment.rivalryScore,
+    {
+      [p.winner.name]: input.memEntertainer.recentOutputLog?.recentStances?.[p.winner.name],
+      [p.loser.name]:  input.memEntertainer.recentOutputLog?.recentStances?.[p.loser.name],
+    },
+  );
+  const recapStepPhaseCtx = buildPhaseRulesContext(getPhaseRules(input.episodeType));
+  const recapStepEnrichedEnt = buildEnrichedMemoryContext(input.memEntertainer, recapStepJudgment.narrativeHeat, `Recap_${matchupIndex}`);
+  const recapStepEnrichedAna = buildEnrichedMemoryContext(input.memAnalyst,     recapStepJudgment.narrativeHeat, `Recap_${matchupIndex}`);
+
   // Mason speaks first — his genuine take on this specific game
-  const masonRaw = await generateSection({
+  const rawMason = await generateSection({
     persona: 'entertainer',
     sectionType: `${p.bracketLabel ?? 'Matchup'} Recap`,
-    context: baseContext,
+    context: baseContext + recapStepDedupeEnt + recapStepJudgmentCtx + recapStepTeamCards + recapStepPhaseCtx + recapStepEnrichedEnt,
     constraints: `Write ${lineCount} sharp lines reacting to this game. Each line is a separate take — reference actual players, the final score, and the margin. No dialogue labels needed. Be specific about WHY ${p.winner.name} won and what it means. FACTUAL RULE: only reference players and facts from the context above.`,
     maxTokens: perBotTokens,
   }).catch(() => '');
+  const masonRaw = guardText(rawMason, { sectionType: 'Matchup Recap', logPrefix: `[step:Recap:${p.winner.name}v${p.loser.name}:entertainer]` });
 
   // Westy responds — he reads what Mason said and adds the analytical counter
   const westyContext = `${baseContext}\n\n--- Mason Reed just said about this game ---\n${masonRaw || '(no comment yet)'}\n---`;
-  const westyRaw = await generateSection({
+  const rawWesty = await generateSection({
     persona: 'analyst',
     sectionType: `${p.bracketLabel ?? 'Matchup'} Recap`,
-    context: westyContext,
+    context: westyContext + recapStepDedupeAna + recapStepJudgmentCtx + recapStepTeamCards + recapStepPhaseCtx + recapStepEnrichedAna,
     constraints: `Write ${lineCount} analytical lines responding to this game. Reference what the numbers actually show — efficiency, margin context, what ${masonRaw ? "Mason mentioned" : "the scoreline"} misses. Push back on one point or add something Mason overlooked. Be specific. FACTUAL RULE: only reference players and facts from the context above.`,
     maxTokens: perBotTokens,
   }).catch(() => '');
+  const westyRaw = guardText(rawWesty, { sectionType: 'Matchup Recap', logPrefix: `[step:Recap:${p.winner.name}v${p.loser.name}:analyst]` });
 
   // Parse each bot's lines into dialogue entries, then interleave them
   const parseLines = (raw: string, speaker: 'entertainer' | 'analyst') =>
@@ -452,10 +595,17 @@ async function genWaivers(input: StepInput): Promise<WaiverItem[]> {
   const splitByNumber = (text: string): string[] =>
     text.split(/\n?(?=\d+\.)/g).filter(p => p.trim()).map(p => p.replace(/^\d+\.\s*/, '').trim());
 
-  const [entRaw, anaRaw] = await Promise.all([
-    generateSection({ persona: 'entertainer', sectionType: 'Waivers', context: `Waiver moves:\n${numberedContext}`, constraints: `React to each numbered move (2-3 sentences each). Start each with its number. Be spicy — ${events.length} moves total.`, maxTokens: 800, validate: (t) => t.trim().length >= 40 }).catch(() => ''),
-    generateSection({ persona: 'analyst',     sectionType: 'Waivers', context: `Waiver moves:\n${numberedContext}`, constraints: `Analyze each numbered move (2-3 sentences each). Start each with its number. Cover role, usage, upside — ${events.length} moves total.`, maxTokens: 800, validate: (t) => t.trim().length >= 40 }).catch(() => ''),
+  // Phase 1: dedupe blocks injected into waiver context
+  const waiverDedupeEnt = buildDedupeContext(input.memEntertainer);
+  const waiverDedupeAna = buildDedupeContext(input.memAnalyst);
+
+  const [rawEntWaiver, rawAnaWaiver] = await Promise.all([
+    generateSection({ persona: 'entertainer', sectionType: 'Waivers', context: `Waiver moves:\n${numberedContext}${waiverDedupeEnt}`, constraints: `React to each numbered move (2-3 sentences each). Start each with its number. Be spicy — ${events.length} moves total.`, maxTokens: 800, validate: (t) => t.trim().length >= 40 }).catch(() => ''),
+    generateSection({ persona: 'analyst',     sectionType: 'Waivers', context: `Waiver moves:\n${numberedContext}${waiverDedupeAna}`, constraints: `Analyze each numbered move (2-3 sentences each). Start each with its number. Cover role, usage, upside — ${events.length} moves total.`, maxTokens: 800, validate: (t) => t.trim().length >= 40 }).catch(() => ''),
   ]);
+
+  const entRaw = guardText(rawEntWaiver, { sectionType: 'Waivers', logPrefix: '[step:Waivers:entertainer]' });
+  const anaRaw = guardText(rawAnaWaiver, { sectionType: 'Waivers', logPrefix: '[step:Waivers:analyst]' });
 
   const entParts = splitByNumber(entRaw);
   const anaParts = splitByNumber(anaRaw);
@@ -515,8 +665,24 @@ async function genSingleTradeItem(input: StepInput, tradeIndex: number): Promise
     if (a) tradeBreakdown += `\n${team}: GETS ${annotateTradePlayers(a.gets)} | GIVES ${annotateTradePlayers(a.gives)}`;
   }
 
+  // Check whether any picks appear in this trade (to build a targeted pick warning)
+  const picksInTrade: string[] = [];
+  if (isMultiTeam) {
+    for (const a of Object.values(byTeam)) {
+      for (const asset of [...(a.gets || []), ...(a.gives || [])]) {
+        if (asset.includes(' Rd ') && asset.includes(' Pick') && !picksInTrade.includes(asset)) {
+          picksInTrade.push(asset);
+        }
+      }
+    }
+  }
+
+  const pickWarning = isMultiTeam && picksInTrade.length > 0
+    ? `\n⚠️ PICK ATTRIBUTION WARNING: Sleeper's transaction data does NOT reliably identify who gave each pick in multi-team trades (it can point to a team that never owned the pick). The "GIVES" column for picks has been intentionally left blank. Only the receiver (shown in GETS) is confirmed. DO NOT say which team gave a pick unless their GIVES column explicitly lists it. Simply say "[Team] acquired [pick]" — do not attribute the sender.\n`
+    : '';
+
   const multiTeamNote = isMultiTeam
-    ? `\n⚠️ MULTI-TEAM TRADE (${parties.length} teams): Each team's GETS and GIVES are listed separately. Assets may flow between any two of the ${parties.length} parties — read each team's side carefully.\n`
+    ? `\n⚠️ MULTI-TEAM TRADE (${parties.length} teams): Each team's GETS and GIVES are listed separately. Assets may flow between any two of the ${parties.length} parties — read each team's side carefully.${pickWarning}\n`
     : '';
 
   const tradeContext = e.details?.headline
@@ -549,27 +715,42 @@ async function genSingleTradeItem(input: StepInput, tradeIndex: number): Promise
     return end ? end[1].toUpperCase() : 'B';
   };
 
+  // Phase 1: compute dedupe blocks once for all trade parties
+  const tradeStepDedupeEnt = buildDedupeContext(input.memEntertainer);
+  const tradeStepDedupeAna = buildDedupeContext(input.memAnalyst);
+
+  // Phase 2: phase rules for trade context
+  const tradeStepPhaseCtx = buildPhaseRulesContext(getPhaseRules(input.episodeType));
+
   const analysis: TradeItem['analysis'] = {};
   for (const party of parties) {
     const a = byTeam[party];
-    const sideCtx = `You are grading THIS SPECIFIC TRADE for ${party} only. All players and picks listed below are exactly what changed hands — do not reference external news or other trades.\n\n${party} in this trade:\n  RECEIVED: ${annotateTradePlayers(a?.gets)}\n  GAVE UP: ${annotateTradePlayers(a?.gives)}${getTeamRoster(party)}\n\nFull trade breakdown:\n${tradeContext}`;
+    // Phase 2: team card for this party
+    const tradePartyCard = buildTeamCardContext(party, {
+      recentStance: input.memEntertainer.recentOutputLog?.recentStances?.[party],
+      dataConfidenceFilter: 'medium',
+    });
+
+    const sideCtx = `You are grading THIS SPECIFIC TRADE for ${party} only. All players and picks listed below are exactly what changed hands — do not reference external news or other trades.\n\n${party} in this trade:\n  RECEIVED: ${annotateTradePlayers(a?.gets)}\n  GAVE UP: ${annotateTradePlayers(a?.gives)}${getTeamRoster(party)}\n\nFull trade breakdown:\n${tradeContext}${tradePartyCard}`;
     const received = annotateTradePlayers(a?.gets);
     const gaveUp   = annotateTradePlayers(a?.gives);
     const fallbackAnalysis = `Grade: B. Analysis unavailable for this side of the trade.`;
-    const [entR, anaR] = await Promise.all([
+    const [rawEntTrade, rawAnaTrade] = await Promise.all([
       generateSection({
-        persona: 'entertainer', sectionType: 'Trade Grade', context: sideCtx,
+        persona: 'entertainer', sectionType: 'Trade Grade', context: sideCtx + tradeStepDedupeEnt + tradeStepPhaseCtx,
         constraints: `Grade this trade FOR ${party} specifically (A+ to F). Start with the letter grade on its own line, then write 3-4 full sentences: what did ${party} receive (${received}), what did they give up (${gaveUp}), and is this a good deal for them specifically? Give your gut take. FACTUAL RULE: only reference assets listed above.`,
         maxTokens: 800,
         // No validate — with validate every provider is tried in sequence (8s gaps each),
         // causing the 270s Vercel step timeout before content is returned. .catch handles outright failures.
       }).catch(() => fallbackAnalysis),
       generateSection({
-        persona: 'analyst', sectionType: 'Trade Grade', context: sideCtx,
+        persona: 'analyst', sectionType: 'Trade Grade', context: sideCtx + tradeStepDedupeAna + tradeStepPhaseCtx,
         constraints: `Grade this trade FOR ${party} specifically (A+ to F). Start with the letter grade on its own line, then write 3-4 analytical sentences: evaluate what ${party} received (${received}) vs. what they surrendered (${gaveUp}). Is the dynasty cost worth it given their roster and window? FACTUAL RULE: only reference assets listed above.`,
         maxTokens: 800,
       }).catch(() => fallbackAnalysis),
     ]);
+    const entR = guardText(rawEntTrade, { sectionType: 'Trade Grade', logPrefix: `[step:TradeGrade:${party}:entertainer]` });
+    const anaR = guardText(rawAnaTrade, { sectionType: 'Trade Grade', logPrefix: `[step:TradeGrade:${party}:analyst]` });
     analysis[party] = {
       grade: extractGrade(entR),
       entertainer_grade: extractGrade(entR),
@@ -592,11 +773,36 @@ async function genSpotlight(input: StepInput): Promise<SpotlightSection | null> 
     ? `\n\n--- ALREADY COVERED IN THIS NEWSLETTER ---\n${input.priorSectionSummary}\n(Do NOT repeat these storylines — the Spotlight should add a new angle on why ${p.winner.name} dominated)`
     : '';
 
-  const context = `Team of the Week: ${p.winner.name}\n- Beat ${p.loser.name} by ${p.margin.toFixed(1)}\n- Scored ${p.winner.points.toFixed(1)} pts\n${input.enhancedContext.slice(0, 2000)}${priorBlock}`;
-  const [bot1, bot2] = await Promise.all([
-    generateSection({ persona: 'entertainer', sectionType: 'Spotlight', context, constraints: 'Write 3-4 paragraphs spotlighting this team. Hype them up, reference which players came through, what it means for their season. FACTUAL RULE: only reference players and stats from the context above.', maxTokens: 700, validate: (t) => t.trim().length >= 80 }).catch(() => ''),
-    generateSection({ persona: 'analyst',     sectionType: 'Spotlight', context, constraints: 'Write 3-4 paragraphs analytically dissecting this performance. Stats, sustainability, playoff trajectory. FACTUAL RULE: only reference players and stats from the context above.', maxTokens: 700, validate: (t) => t.trim().length >= 80 }).catch(() => ''),
+  const baseSpotlightCtx = `Team of the Week: ${p.winner.name}\n- Beat ${p.loser.name} by ${p.margin.toFixed(1)}\n- Scored ${p.winner.points.toFixed(1)} pts\n${input.enhancedContext.slice(0, 2000)}${priorBlock}`;
+
+  // Phase 1: dedupe + judgment for spotlight
+  const spotlightStepDedupeEnt = buildDedupeContext(input.memEntertainer);
+  const spotlightStepDedupeAna = buildDedupeContext(input.memAnalyst);
+  const spotlightStepJudgment = judgeSection({
+    sectionType: 'Spotlight',
+    episodeType: input.episodeType,
+    week: input.week,
+    season: input.season,
+    teamNames: [p.winner.name, p.loser.name],
+    isBlowout: p.margin > 30,
+    teamMemory: input.memEntertainer.teams[p.winner.name],
+  });
+  const spotlightStepJudgmentCtx = buildJudgmentContext(spotlightStepJudgment);
+
+  // Phase 2: team card + phase rules + enriched memory
+  const spotlightCard = buildTeamCardContext(p.winner.name, {
+    recentStance: input.memEntertainer.recentOutputLog?.recentStances?.[p.winner.name],
+  });
+  const spotlightStepPhaseCtx = buildPhaseRulesContext(getPhaseRules(input.episodeType));
+  const spotlightStepEnrichedEnt = buildEnrichedMemoryContext(input.memEntertainer, spotlightStepJudgment.narrativeHeat, 'Spotlight');
+  const spotlightStepEnrichedAna = buildEnrichedMemoryContext(input.memAnalyst,     spotlightStepJudgment.narrativeHeat, 'Spotlight');
+
+  const [rawBot1Spot, rawBot2Spot] = await Promise.all([
+    generateSection({ persona: 'entertainer', sectionType: 'Spotlight', context: baseSpotlightCtx + spotlightStepDedupeEnt + spotlightStepJudgmentCtx + spotlightCard + spotlightStepPhaseCtx + spotlightStepEnrichedEnt, constraints: 'Write 3-4 paragraphs spotlighting this team. Hype them up, reference which players came through, what it means for their season. FACTUAL RULE: only reference players and stats from the context above.', maxTokens: 700, validate: (t) => t.trim().length >= 80 }).catch(() => ''),
+    generateSection({ persona: 'analyst',     sectionType: 'Spotlight', context: baseSpotlightCtx + spotlightStepDedupeAna + spotlightStepJudgmentCtx + spotlightCard + spotlightStepPhaseCtx + spotlightStepEnrichedAna, constraints: 'Write 3-4 paragraphs analytically dissecting this performance. Stats, sustainability, playoff trajectory. FACTUAL RULE: only reference players and stats from the context above.', maxTokens: 700, validate: (t) => t.trim().length >= 80 }).catch(() => ''),
   ]);
+  const bot1 = guardText(rawBot1Spot, { sectionType: 'Spotlight', logPrefix: '[step:Spotlight:entertainer]' });
+  const bot2 = guardText(rawBot2Spot, { sectionType: 'Spotlight', logPrefix: '[step:Spotlight:analyst]' });
   return { team: p.winner.name, bot1, bot2 };
 }
 
@@ -897,17 +1103,16 @@ async function genMockDraftR1(
     ? `FIRST EPISODE: Mason and Westy debut with the East v. West league.`
     : `Mason and Westy are established analysts for this league.`;
 
-  // Prospect pool goes FIRST — before league knowledge and enhanced context — so it is never truncated
-  // Prospect rank (#1 = best in this draft class, NOT overall dynasty rank) shown so LLM knows relative prospect value
-  const poolText = prospectPool.map((p, i) =>
-    `${i + 1}. ${p.name} (${p.pos}${p.rank !== null ? `, prospect rank #${p.rank}` : ', unranked'})`
+  // Prospect pool goes FIRST — before league knowledge and enhanced context — so it is never truncated.
+  // Listed ALPHABETICALLY so the model can't just read top-to-bottom and call it a mock draft.
+  // Consensus rank is shown as reference data — one input among many, not a pick order.
+  const poolSorted = [...prospectPool].sort((a, b) => a.name.localeCompare(b.name));
+  const poolText = poolSorted.map(p =>
+    `- ${p.name} (${p.pos}${p.rank !== null ? `, consensus rank #${p.rank} of ${prospectPool.length}` : ', unranked'})`
   ).join('\n');
   const poolHeader = `=== ELIGIBLE PLAYERS — ${season} NFL DRAFT PROSPECT POOL ===
-Prospect rank #1 = best dynasty prospect IN THIS DRAFT CLASS (NOT an overall dynasty rank — these are rookie-specific rankings, not rankings against established NFL players).
-Higher-ranked prospects should generally go earlier unless a team has a clear positional need.
-You may ONLY select players from the list below for this mock draft.
-DO NOT use players from any previous draft class.
-DO NOT use any player not on this exact list.
+Listed alphabetically. "Consensus rank" is aggregate market opinion — treat it as one data point, not a pick order.
+You may ONLY select players from the list below. DO NOT use players from any previous draft class.
 
 ${poolText}
 
@@ -921,7 +1126,22 @@ ${poolText}
 
   const pickFmt = `EXACTLY this format for all ${effectiveSlots.length} picks:\n\nPICK 1.01 | ${effectiveSlots[0].team} | [Player Name from eligible list] | [Position]\n[4-5 sentence paragraph]\n\nPICK 1.02 | ${effectiveSlots[1]?.team ?? 'Team 2'} | [Player Name from eligible list] | [Position]\n[4-5 sentence paragraph]\n\n(continue through PICK 1.${String(effectiveSlots.length).padStart(2, '0')})`;
 
-  const constraint = `You are ${persona === 'entertainer' ? 'Mason Reed — bold, personality-first' : 'Westy — analytical, data-driven'}. Write YOUR Round 1 mock draft.\n\n⚠️ PRONOUN RULE: All NFL Draft prospects are male athletes. Always use he/him/his pronouns regardless of the player's name.\n⚠️ PLAYER RULE: Every player MUST appear in the ELIGIBLE PLAYERS list above. Do NOT use any other player.\n⚠️ ROSTER RULE: Before each pick, check that team's CURRENT ROSTER (listed above). Reference SPECIFIC players they already have — every player on their roster matters, including backups and recent acquisitions. A team that just traded for a QB doesn't need another QB; a team with Bowers doesn't need a TE.\n⚠️ POSITION RULE: TE is 1-deep (start only 1 TE per week) — TE depth is low priority vs BPA. QB is the most valuable dynasty position in SuperFlex — teams needing a QB should prioritize it.\n⚠️ ORDER RULE: Generally pick higher dynasty-ranked players earlier. Deviate only for clear team need (and say why).\n⚠️ ANALYSIS RULE: Name specific players the team already has at that position. Explain the positional need by reference to their current roster. Vague praise is not enough.\n\n${pickFmt}`;
+  const masonOpinionRule = `⚠️ YOUR STYLE — MASON REED: You go on gut feel, hype, and upside. Consensus rankings are one input — not your bible. You'll agree with the consensus sometimes, but when your gut says something different, you go with it. You'll reach for a player you love. You'll fall a guy you think is overhyped. You might take a QB early if a team needs a franchise piece. The point is: you're making picks YOU believe in, not just reading a list out loud. Your analysis should sound like YOU, not like a ranking aggregator.`;
+  const westyOpinionRule = `⚠️ YOUR STYLE — WESTY: You are analytical, but you form your OWN views. Consensus rankings are a starting point — you also look at landing spot, NFL scheme fit, opportunity, and age curves. Sometimes you'll land on the same pick as consensus. Sometimes you'll diverge because your analysis tells you a player is over- or under-valued. The key is that every pick comes from your own evaluation, not from "who's ranked highest available." When you agree with consensus, explain why the data supports it. When you differ, explain why your read is different.`;
+
+  const constraint = [
+    `You are ${persona === 'entertainer' ? 'Mason Reed' : 'Westy'}. Write YOUR Round 1 mock draft — not a reading of a rankings list.`,
+    ``,
+    persona === 'entertainer' ? masonOpinionRule : westyOpinionRule,
+    ``,
+    `⚠️ PRONOUN RULE: All NFL Draft prospects are male athletes. Always use he/him/his pronouns regardless of the player's name.`,
+    `⚠️ PLAYER RULE: Every player MUST appear in the ELIGIBLE PLAYERS list above. Do NOT use any other player.`,
+    `⚠️ ROSTER RULE: Before each pick, check that team's CURRENT ROSTER (listed above). Reference SPECIFIC players they already have — including recent acquisitions. A team that just traded for a QB doesn't need another; a team with Bowers doesn't need a TE.`,
+    `⚠️ POSITION RULE: TE is 1-deep (start only 1 TE per week) — TE depth is low priority. QB is premium in SuperFlex.`,
+    `⚠️ ANALYSIS RULE: Explain why YOU are making this pick for THIS team at THIS slot. If you're reaching, say why you love him. If you're falling a guy, say why you're skeptical. Name specific players the team already has. Vague praise is not enough.`,
+    ``,
+    pickFmt,
+  ].join('\n');
 
   const raw = await generateSection({
     persona,
@@ -989,14 +1209,14 @@ async function genMockDraftR2(
   console.log(`[ComposeStep] MockDraft_R2_${personaLabel} started — ${round2Slots.length} picks, ${r2Pool.length} remaining eligible prospects`);
   console.log(`[ComposeStep] MockDraft R2 order: ${round2Slots.map((s, i) => `${i + 1}.${s.team}`).join(', ')}`);
 
-  const poolText = r2Pool.map((p, i) =>
-    `${i + 1}. ${p.name} (${p.pos}${p.rank !== null ? `, prospect rank #${p.rank}` : ', unranked'})`
+  // Alphabetical pool — same reasoning as R1: prevents the model from just reading a ranked list top-to-bottom
+  const r2PoolSorted = [...r2Pool].sort((a, b) => a.name.localeCompare(b.name));
+  const poolText = r2PoolSorted.map(p =>
+    `- ${p.name} (${p.pos}${p.rank !== null ? `, consensus rank #${p.rank} of ${prospectPool.length}` : ', unranked'})`
   ).join('\n');
-  const poolHeader = `=== ELIGIBLE PLAYERS — ROUND 2 (${season} prospect pool minus Round 1 picks) ===
-Prospect rank #1 = best dynasty prospect remaining IN THIS DRAFT CLASS (NOT overall dynasty rank — rookie-specific rankings only).
-Pick in roughly ranking order unless a team has a specific positional need.
-You may ONLY select players from the list below.
-DO NOT repeat Round 1 picks. DO NOT use players from any previous draft class.
+  const poolHeader = `=== ELIGIBLE PLAYERS — ROUND 2 (${season} prospect pool, Round 1 picks removed) ===
+Listed alphabetically. Consensus rank is reference data — not a pick order.
+You may ONLY select players from this list. DO NOT repeat Round 1 picks.
 
 ${poolText}
 
@@ -1014,7 +1234,23 @@ ${poolText}
     : '';
 
   const context = `${poolHeader}\n\n${leagueKnowledge}\n\n${rosterCtxBlock}${r1Summary}\n\nROUND 2 ORDER:\n${r2Order}\n\n${enhancedContext.slice(0, 2000)}`;
-  const constraint = `Continue your mock draft into ROUND 2 as ${persona === 'entertainer' ? 'Mason Reed' : 'Westy'}.\n${r1Summary}\n⚠️ PRONOUN RULE: All NFL Draft prospects are male athletes. Always use he/him/his pronouns regardless of the player's name.\n⚠️ PLAYER RULE: Every player MUST appear in the ELIGIBLE PLAYERS list above. Do NOT use any other player.\n⚠️ ROSTER RULE: Check each team's CURRENT ROSTER (listed above) before picking. Reference specific players they already have — including recent acquisitions. A team with Bowers has no TE need; a team with two QBs doesn't need a third.\n⚠️ POSITION RULE: TE is 1-deep — don't prioritize TE depth unless a team has NO startable TE. QB is the most valuable dynasty position in this SuperFlex league.\n⚠️ ORDER RULE: Generally pick higher dynasty-ranked players earlier. Deviate only for clear team need (and say why).\n⚠️ ANALYSIS RULE: Reference their Round 1 pick AND their existing roster to explain the Round 2 pick. Name specific players on their roster.\n${pickFmt}`;
+  const masonR2Rule = `⚠️ YOUR STYLE — MASON REED (Round 2): Round 2 is where your real opinions show. You'll agree with consensus on some picks and diverge on others — that's fine. What matters is that every pick is yours: your gut, your read on the player, your feel for what a team needs. Don't just take the highest available guy every time. But don't artificially reach either — if the best player really is the obvious pick for a team, take him and say why.`;
+  const westyR2Rule = `⚠️ YOUR STYLE — WESTY (Round 2): Round 2 is where value often diverges from consensus — NFL opportunity, scheme fit, and roster situations matter more at this tier. Some picks will line up with consensus; others won't. What matters is that your analysis drives the decision, not the ranking number. When you agree with consensus, show the data behind it. When you differ, explain your reasoning.`;
+
+  const constraint = [
+    `Continue your mock draft into ROUND 2 as ${persona === 'entertainer' ? 'Mason Reed' : 'Westy'}.`,
+    r1Summary,
+    ``,
+    persona === 'entertainer' ? masonR2Rule : westyR2Rule,
+    ``,
+    `⚠️ PRONOUN RULE: All NFL Draft prospects are male athletes. Always use he/him/his pronouns.`,
+    `⚠️ PLAYER RULE: Every player MUST appear in the ELIGIBLE PLAYERS list above. Do NOT use any other player.`,
+    `⚠️ ROSTER RULE: Check each team's CURRENT ROSTER before picking. Reference specific players they already have.`,
+    `⚠️ POSITION RULE: TE is 1-deep. QB is premium in SuperFlex.`,
+    `⚠️ ANALYSIS RULE: Reference their Round 1 pick AND existing roster. Explain why you're taking THIS player at THIS slot — is it a reach? a value pick? Why do you diverge from consensus here?`,
+    ``,
+    pickFmt,
+  ].join('\n');
 
   const raw = await generateSection({
     persona,

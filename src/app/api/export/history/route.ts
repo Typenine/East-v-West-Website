@@ -26,6 +26,12 @@ import { getHeadToHeadAllTime } from '@/lib/utils/headtohead';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
+const EXPORT_CACHE_HEADERS = {
+  'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0, s-maxage=0',
+  Pragma: 'no-cache',
+  Expires: '0',
+};
+
 export async function GET() {
   try {
     const optsCached: SleeperFetchOptions = { timeoutMs: 20000 };
@@ -292,6 +298,7 @@ export async function GET() {
       headers: {
         'Content-Type': 'application/json',
         'Content-Disposition': 'attachment; filename="evw-history-and-records.json"',
+        ...EXPORT_CACHE_HEADERS,
       },
     });
   } catch (err) {

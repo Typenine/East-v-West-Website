@@ -906,6 +906,51 @@ export async function getDraftRound2Slots(draftId: string): Promise<Array<{ slot
   return rows.map((r, i) => ({ slot: i + 1, team: r.team }));
 }
 
+/** Full slot details for pick-ownership lookups: overall pick number, round, pick-in-round, current owner, original owner. */
+export async function getDraftSlotsDetailed(draftId: string): Promise<Array<{
+  overall: number; round: number; pickInRound: number; team: string; originalTeam: string;
+}>> {
+  await ensureDraftTables();
+  const db = getDb();
+  const res = await db.execute(
+    sql`SELECT overall, round, pick_in_round, team, original_team FROM draft_slots WHERE draft_id = ${draftId}::uuid ORDER BY overall ASC`
+  );
+  const rows = (res as unknown as { rows?: Array<{ overall: number; round: number; pick_in_round: number; team: string; original_team: string }> }).rows || [];
+  return rows.map(r => ({
+    overall: r.overall,
+    round: r.round,
+    pickInRound: r.pick_in_round,
+    team: r.team,
+    originalTeam: r.original_team ?? r.team,
+  }));
+}
+
+/** All accepted pick-trade assets for this draft in chronological order, for tracing pick ownership chains. */
+export async function getDraftPickTradeHistory(draftId: string): Promise<Array<{
+  fromTeam: string; toTeam: string; pickYear: number | null; pickRound: number | null; pickOriginalTeam: string | null; pickOverall: number | null;
+}>> {
+  await ensureDraftTables();
+  const db = getDb();
+  const res = await db.execute(sql`
+    SELECT dta.from_team, dta.to_team, dta.pick_year, dta.pick_round, dta.pick_original_team, dta.pick_overall
+    FROM draft_trade_assets dta
+    JOIN draft_trades dt ON dt.id = dta.trade_id
+    WHERE dt.draft_id = ${draftId}::uuid
+      AND dt.status = 'accepted'
+      AND dta.asset_type = 'pick'
+    ORDER BY dt.updated_at ASC
+  `);
+  const rows = (res as unknown as { rows?: Array<{ from_team: string; to_team: string; pick_year: number | null; pick_round: number | null; pick_original_team: string | null; pick_overall: number | null }> }).rows || [];
+  return rows.map(r => ({
+    fromTeam: r.from_team,
+    toTeam: r.to_team,
+    pickYear: r.pick_year,
+    pickRound: r.pick_round,
+    pickOriginalTeam: r.pick_original_team,
+    pickOverall: r.pick_overall,
+  }));
+}
+
 export async function getDraftOverview(draftId: string): Promise<DraftOverview | null> {
   await ensureDraftTables();
   const db = getDb();

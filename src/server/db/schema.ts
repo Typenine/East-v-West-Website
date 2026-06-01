@@ -298,6 +298,78 @@ export const relationshipMemory = pgTable('relationship_memory', {
     .notNull(),
 });
 
+// ============ Phase 3: Admin Personality Settings ============
+
+/**
+ * Admin-editable bot personality overrides.
+ * Hardcoded defaults in bot-brain.ts remain active when no DB row exists,
+ * or when a field is null/absent — always merge, never replace entirely.
+ */
+export const botSettings = pgTable('bot_settings', {
+  bot: botNameEnum('bot').primaryKey(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  displayName: varchar('display_name', { length: 255 }),
+  roleDescription: text('role_description'),
+  // Voice slider overrides (0-10 each); null fields inherit hardcoded default
+  voiceConfig: jsonb('voice_config').$type<{
+    sarcasm?: number;
+    excitability?: number;
+    depth?: number;
+    snark?: number;
+  } | null>().default(null),
+  // Additive phrase lists — merged with hardcoded phrases, not replacing them
+  signaturePhrases: jsonb('signature_phrases').$type<{
+    openers?: string[];
+    closers?: string[];
+    verbalTics?: string[];
+  } | null>().default(null),
+  // Banned phrases fed into guardrails.checkOutput() at runtime
+  bannedPhrases: jsonb('banned_phrases').$type<string[] | null>().default(null),
+  // Additional safety boundary lines (appended to hardcoded ones)
+  safetyBoundaries: jsonb('safety_boundaries').$type<string[] | null>().default(null),
+  // Per-phase preferred stance overrides (episodeType → stance label)
+  phaseStances: jsonb('phase_stances').$type<Record<string, string> | null>().default(null),
+  // Commissioner-only notes (never injected into prompts)
+  adminNotes: text('admin_notes'),
+});
+
+/**
+ * Admin-editable team narrative card overrides.
+ * Hardcoded defaults in team-narratives.ts remain as fallback.
+ * cardData is merged field-by-field into the hardcoded card.
+ */
+export const teamNarrativeCards = pgTable('team_narrative_cards', {
+  teamName: varchar('team_name', { length: 255 }).primaryKey(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  cardData: jsonb('card_data').$type<{
+    archetype?: string;
+    era?: 'early' | 'peak' | 'decline' | 'rebuild' | 'unknown';
+    historicalArc?: string;
+    currentSeasonArc?: string;
+    botRelationship?: { entertainerView: string; analystView: string };
+    runningJokes?: string[];
+    retiredJokes?: string[];
+    rivalries?: Array<{ team: string; intensity: 'mild' | 'heated' | 'blood_feud'; notes: string }>;
+    sensitivityLevel?: 'low' | 'medium' | 'high';
+    achievements?: string[];
+    wounds?: string[];
+    preferredAngles?: string[];
+  }>().notNull().default({}),
+});
+
+/**
+ * Admin-editable phrase pools.
+ * Pool keys: 'banned_global', 'mason_openers', 'westy_closers',
+ *             'team:{TeamName}:bits', 'phase:{episodeType}:hints'
+ * Banned phrases from 'banned_global' are loaded into guardrails at generation time.
+ */
+export const phrasePools = pgTable('phrase_pools', {
+  poolKey: varchar('pool_key', { length: 128 }).primaryKey(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  phrases: jsonb('phrases').$type<string[]>().default([]).notNull(),
+  adminNotes: text('admin_notes'),
+});
+
 // Discord notification dedupe - tracks which events have been posted to Discord
 export const discordNotificationTypeEnum = pgEnum('discord_notification_type', [
   'trade_accepted',

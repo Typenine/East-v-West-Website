@@ -6,7 +6,7 @@
 import type { Newsletter, BotMemory, ForecastData, CallbacksSection, WeeklyHotTake, RelationshipMemory } from './types';
 import type { LeagueDraftData } from './sleeper-ingest';
 import { buildDerived } from './derive';
-import { createEnhancedMemory, ensureEnhancedTeams, updateEnhancedMemoryAfterWeek, upgradeToEnhancedMemory, addInsideJoke } from './memory';
+import { createEnhancedMemory, ensureEnhancedTeams, updateEnhancedMemoryAfterWeek, upgradeToEnhancedMemory, addInsideJoke, updateRecentOutputLog } from './memory';
 import { isEnhancedMemory } from './types';
 import { makeForecast, gradePendingPicks, type ForecastRecords } from './forecast';
 import { recordPrediction, gradePrediction, gradeHotTake } from './enhanced-context';
@@ -487,6 +487,27 @@ export async function generateNewsletter(
       ],
     };
     html = `<html><body><h1>Newsletter Generation Error</h1><p>Week ${week} newsletter failed to generate. Memory has been preserved.</p></body></html>`;
+  }
+
+  // Phase 1: update recent-output log so next week's generation can avoid repetition.
+  // Only update when compose succeeded — don't log failed/fallback output as canonical.
+  if (!composeFailed) {
+    // Collect all generated text across both bots for signature extraction
+    const entSectionTexts: string[] = [];
+    const anaSectionTexts: string[] = [];
+    for (const section of newsletter.sections) {
+      const d = section.data as unknown as Record<string, unknown>;
+      if (typeof d?.bot1_text === 'string') entSectionTexts.push(d.bot1_text);
+      if (typeof d?.bot2_text === 'string') anaSectionTexts.push(d.bot2_text);
+      if (typeof d?.bot1 === 'string') entSectionTexts.push(d.bot1);
+      if (typeof d?.bot2 === 'string') anaSectionTexts.push(d.bot2);
+    }
+    if (entSectionTexts.length > 0) {
+      updateRecentOutputLog(memEntertainer, week, entSectionTexts.join('\n\n'), uniqueTeamNames);
+    }
+    if (anaSectionTexts.length > 0) {
+      updateRecentOutputLog(memAnalyst, week, anaSectionTexts.join('\n\n'), uniqueTeamNames);
+    }
   }
 
   return {

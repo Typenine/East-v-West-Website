@@ -10,6 +10,12 @@ import {
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
+const EXPORT_CACHE_HEADERS = {
+  'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0, s-maxage=0',
+  Pragma: 'no-cache',
+  Expires: '0',
+};
+
 function buildSummary(transactions: LeagueTransaction[]): TransactionsSummary {
   const totalsByTeam = new Map<string, number>();
   const totalsBySeason = new Map<string, number>();
@@ -141,6 +147,7 @@ export async function GET() {
       headers: {
         'Content-Type': 'application/json',
         'Content-Disposition': 'attachment; filename="evw-trades-and-transactions.json"',
+        ...EXPORT_CACHE_HEADERS,
       },
     });
   } catch (err) {

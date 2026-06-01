@@ -7,7 +7,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { getLeagueIdForSeason, CHAMPIONS } from '@/lib/constants/league';
 import { getConfiguredAdminSecret, isAdminCookieValue } from '@/lib/auth/admin';
-import { 
+import { clearSeasonOutputLog } from '@/lib/newsletter/memory';
+import { applyBotBrainOverride } from '@/lib/newsletter/bot-brain';
+import { setTeamCardOverride } from '@/lib/newsletter/team-narratives';
+import { setRuntimeBannedPhrases } from '@/lib/newsletter/guardrails';
+import {
   generateNewsletter,
   buildH2HContext,
   buildTradeContext,
@@ -48,7 +52,7 @@ import {
   loadRelationshipMemory,
   saveRelationshipMemory,
 } from '@/server/db/newsletter-queries';
-import { getActiveOrLatestDraftId, countDraftPlayers, getDraftPlayers, getDraftRound1Slots, getDraftRound2Slots } from '@/server/db/queries';
+import { getActiveOrLatestDraftId, countDraftPlayers, getDraftPlayers, getDraftRound1Slots, getDraftRound2Slots, getDraftSlotsDetailed, getDraftPickTradeHistory } from '@/server/db/queries';
 import { fetchNewsletterData } from '@/lib/newsletter';
 import { getHeadToHeadAllTime } from '@/lib/utils/headtohead';
 import { fetchTradesAllTime } from '@/lib/utils/trades';
@@ -766,6 +770,110 @@ export async function GET(request: NextRequest) {
   }
 }
 
+// ============ Pick ownership context builder ============
+
+/**
+ * Loads pick slot data + full trade-chain history for the active draft and returns:
+ *  1. A human-readable context block for LLM context (shows slot numbers, ownership chains)
+ *  2. A lookup map keyed by "{year}-{round}-{currentOwner}" → enriched label string
+ *     so normalizeTransactions pick labels can include slot numbers + original ownership.
+ *
+ * Returns null if no draft is configured or no slots exist.
+ */
+async function buildPickOwnershipContext(seasonNum: number): Promise<{
+  contextBlock: string;
+  // Keyed by "year-round-currentOwner" (team name) → enriched pick description.
+  // Only picks whose current owner is in the key can be looked up — i.e., use this
+  // on a pick's `gets` side (the receiving team IS the current owner after the trade).
+  pickLookup: Map<string, { label: string; overall: number; originalTeam: string; chain: string[] }>;
+} | null> {
+  try {
+    const draftId = await getActiveOrLatestDraftId();
+    if (!draftId) return null;
+
+    const [slots, tradeHistory] = await Promise.all([
+      getDraftSlotsDetailed(draftId).catch(() => [] as Awaited<ReturnType<typeof getDraftSlotsDetailed>>),
+      getDraftPickTradeHistory(draftId).catch(() => [] as Awaited<ReturnType<typeof getDraftPickTradeHistory>>),
+    ]);
+    if (slots.length === 0) return null;
+
+    // Validate: if no trade history references the current season, the draft is probably
+    // from a prior year. Skip rather than inject stale data.
+    // (draft_slots has no year column, so we check via trade history year field.)
+    if (tradeHistory.length > 0) {
+      const hasCurrentYear = tradeHistory.some(t => t.pickYear === seasonNum || t.pickYear === seasonNum + 1);
+      if (!hasCurrentYear) {
+        console.log(`[Staged] Pick ownership: draft appears stale (no ${seasonNum} picks in trade history) — skipping`);
+        return null;
+      }
+    }
+
+    // Build trade chains keyed by OVERALL pick number (unique per pick), falling back
+    // to "round-originalTeam" only when overall is missing (older trade records).
+    // Keying by originalTeam alone caused collisions when a team had multiple picks.
+    const chainMap = new Map<string, string[]>();
+    for (const t of tradeHistory) {
+      if (!t.pickYear || !t.pickRound) continue;
+      // Prefer overall as key; fall back to original team
+      const key = t.pickOverall != null
+        ? `overall-${t.pickOverall}`
+        : `${t.pickYear}-${t.pickRound}-${t.pickOriginalTeam ?? 'unknown'}`;
+      if (!chainMap.has(key)) chainMap.set(key, [t.pickOriginalTeam ?? t.fromTeam]);
+      const chain = chainMap.get(key)!;
+      if (chain[chain.length - 1] !== t.fromTeam) chain.push(t.fromTeam);
+      if (chain[chain.length - 1] !== t.toTeam)   chain.push(t.toTeam);
+    }
+
+    const pickLookup = new Map<string, { label: string; overall: number; originalTeam: string; chain: string[] }>();
+    const linesByRound = new Map<number, string[]>();
+
+    for (const slot of slots) {
+      // Look up chain by overall first (most precise), then by round+originalTeam fallback
+      const chain = chainMap.get(`overall-${slot.overall}`)
+        ?? chainMap.get(`${seasonNum}-${slot.round}-${slot.originalTeam}`)
+        ?? [slot.originalTeam];
+      // Ensure the chain ends with the slot's current DB owner
+      if (chain[chain.length - 1] !== slot.team) chain.push(slot.team);
+
+      const wasTraded = slot.originalTeam !== slot.team;
+      const ownershipNote = wasTraded
+        ? `currently ${slot.team} (originally ${slot.originalTeam}, chain: ${chain.join(' → ')})`
+        : `${slot.team} (original owner)`;
+
+      const slotStr = `${slot.round}.${String(slot.pickInRound).padStart(2, '0')}`;
+      const fullLine = `  ${slotStr} (overall #${slot.overall}): ${ownershipNote}`;
+
+      if (!linesByRound.has(slot.round)) linesByRound.set(slot.round, []);
+      linesByRound.get(slot.round)!.push(fullLine);
+
+      // Key = "year-round-currentOwner" so the enrichment step can look up a pick
+      // in a team's `gets` using that team's name (the current owner after the trade).
+      const lookupKey = `${seasonNum}-${slot.round}-${slot.team}`;
+      pickLookup.set(lookupKey, {
+        label: `${seasonNum} Rd ${slot.round} Pick ${slotStr} (overall #${slot.overall}, originally ${slot.originalTeam})`,
+        overall: slot.overall,
+        originalTeam: slot.originalTeam,
+        chain,
+      });
+    }
+
+    const rounds = [...linesByRound.keys()].sort((a, b) => a - b);
+    const contextBlock = [
+      `=== ${seasonNum} DRAFT PICK OWNERSHIP (from league trade tracker) ===`,
+      `Slot (R.P), overall pick #, current owner, and full trade chain for every pick.`,
+      `Use this to correctly attribute picks in trades — do NOT rely on Sleeper attribution.`,
+      ...rounds.map(r => [`Round ${r}:`, ...(linesByRound.get(r) ?? [])].join('\n')),
+      `===`,
+    ].join('\n');
+
+    console.log(`[Staged] Pick ownership context: ${slots.length} slots, ${tradeHistory.length} trade records`);
+    return { contextBlock, pickLookup };
+  } catch (e) {
+    console.warn('[Staged] buildPickOwnershipContext failed:', e instanceof Error ? e.message : String(e));
+    return null;
+  }
+}
+
 // ============ Staged job starter ============
 
 async function startStagedJob(opts: {
@@ -792,6 +900,33 @@ async function startStagedJob(opts: {
       nextMatchups: nextMatchups ?? [],
       transactions: transactions.map(t => ({ ...t, adds: t.adds ?? undefined, drops: t.drops ?? undefined })),
     });
+
+    // Enrich pick labels in derived events with slot numbers + original ownership from the draft tracker.
+    // The Sleeper transaction only gives us "2026 Rd 1 Pick"; the DB tells us it's "1.08 originally bop pop's".
+    // Enrichment is ONLY applied to `gets` (receiver IS the current DB owner — reliable key match).
+    // `gives` for multi-team trades is already empty by design; 2-team gives labels stay as-is.
+    // We build pickOwnership once here and reuse it below for the context string.
+    const pickOwnership = await buildPickOwnershipContext(seasonNum).catch(() => null);
+    try {
+      if (pickOwnership?.pickLookup) {
+        const { pickLookup } = pickOwnership;
+        for (const ev of derived.events_scored) {
+          if (ev.type !== 'trade' || !ev.details?.by_team) continue;
+          for (const [teamName, side] of Object.entries(ev.details.by_team)) {
+            // Only enrich `gets`: the receiving team IS the current owner → reliable lookup key
+            side.gets = (side.gets ?? []).map(asset => {
+              const m = asset.match(/^(\d{4})\s+Rd\s+(\d+)\s+Pick$/i);
+              if (!m) return asset;
+              const [, yr, rd] = m;
+              return pickLookup.get(`${yr}-${rd}-${teamName}`)?.label ?? asset;
+            });
+          }
+        }
+        console.log(`[Staged] Pick labels enriched in derived events (gets only)`);
+      }
+    } catch (enrichErr) {
+      console.warn('[Staged] Pick label enrichment failed (non-fatal):', enrichErr instanceof Error ? enrichErr.message : String(enrichErr));
+    }
 
     // Build roster player ID + name sets for ESPN injury filtering
     const rosterPlayerIds = new Set<string>(rosters.flatMap(r => (r as { players?: string[] }).players ?? []));
@@ -842,7 +977,10 @@ async function startStagedJob(opts: {
         }
         return lines.join('\n');
       })();
-      enhancedContextString = `${preTeamNameBlock}\n\n${rulesStr}\n\n${comprehensiveStr}\n\n${histCtx}`;
+      // pickOwnership was already loaded above (before context building) — reuse it
+      const pickOwnershipStr = pickOwnership?.contextBlock ?? '';
+
+      enhancedContextString = `${preTeamNameBlock}\n\n${rulesStr}\n\n${comprehensiveStr}\n\n${histCtx}${pickOwnershipStr ? '\n\n' + pickOwnershipStr : ''}`;
       console.log(`[Staged] Preseason historical context built (${Math.round(enhancedContextString.length / 1000)}K chars)`);
     } else {
       const [currentWeekCtx, externalData, dynastyRankingsResult] = await Promise.all([
@@ -862,6 +1000,9 @@ async function startStagedJob(opts: {
       // Compact top-50 overview for general bot awareness; full list stored separately for per-player lookup
       const dynastyOverviewStr = buildDynastyOverviewContext(stagedDynastyRankings);
 
+      // pickOwnership already loaded above — reuse the same result
+      const pickOwnershipStr = pickOwnership?.contextBlock ?? '';
+
       // Build team-name stability block — lets bots correlate across name changes via Sleeper username
       const teamNameBlock = (() => {
         const lines = ['=== CURRENT TEAM NAMES (may differ from historical records) ===',
@@ -879,7 +1020,7 @@ async function startStagedJob(opts: {
 
       // Current data first — section generators slice context at 2-4K chars, so standings/transactions
       // must come before static historical content or they get cut off
-      enhancedContextString = [teamNameBlock, standingsStr, txStr, rosterInjuryStr, dynastyOverviewStr, externalStr, rulesStr, comprehensiveStr].filter(Boolean).join('\n\n');
+      enhancedContextString = [teamNameBlock, standingsStr, txStr, pickOwnershipStr, rosterInjuryStr, dynastyOverviewStr, externalStr, rulesStr, comprehensiveStr].filter(Boolean).join('\n\n');
       console.log(`[Staged] Regular context built (${Math.round(enhancedContextString.length / 1000)}K chars, dynasty=${stagedDynastyRankings.length} players)`);
     }
 
@@ -1340,6 +1481,48 @@ export async function POST(request: NextRequest) {
     const { leagueName: leagueNameFromIngest, users, rosters, matchups, nextMatchups, transactions, playerMap: allPlayers, injuries: rawInjuries, draftData } = ingestData;
 
     console.log(`Loaded bot memory - Entertainer: ${existingMemoryEntertainer ? 'found' : 'new'}, Analyst: ${existingMemoryAnalyst ? 'found' : 'new'}`);
+
+    // Carry-forward: clear stale output log on season boundary (defensive; DB query is season-indexed)
+    if (existingMemoryEntertainer?.season && existingMemoryEntertainer.season !== seasonNum) {
+      clearSeasonOutputLog(existingMemoryEntertainer);
+    }
+    if (existingMemoryAnalyst?.season && existingMemoryAnalyst.season !== seasonNum) {
+      clearSeasonOutputLog(existingMemoryAnalyst);
+    }
+
+    // Phase 3: load admin personality overrides and apply to runtime module state.
+    // Failures are non-fatal — hardcoded defaults remain in effect.
+    try {
+      const { loadBotSettings, loadAllTeamNarrativeOverrides, loadPhrasePool } =
+        await import('@/server/db/personality-queries').catch(() => ({ loadBotSettings: null, loadAllTeamNarrativeOverrides: null, loadPhrasePool: null }));
+
+      if (loadBotSettings && loadAllTeamNarrativeOverrides && loadPhrasePool) {
+        const [entSettings, anaSettings, teamCardRows, bannedPool] = await Promise.allSettled([
+          loadBotSettings('entertainer'),
+          loadBotSettings('analyst'),
+          loadAllTeamNarrativeOverrides(),
+          loadPhrasePool('banned_global'),
+        ]);
+
+        if (entSettings.status === 'fulfilled' && entSettings.value) {
+          applyBotBrainOverride('entertainer', entSettings.value);
+        }
+        if (anaSettings.status === 'fulfilled' && anaSettings.value) {
+          applyBotBrainOverride('analyst', anaSettings.value);
+        }
+        if (teamCardRows.status === 'fulfilled') {
+          for (const card of teamCardRows.value) {
+            setTeamCardOverride(card.teamName, card.cardData);
+          }
+        }
+        if (bannedPool.status === 'fulfilled' && bannedPool.value) {
+          setRuntimeBannedPhrases(bannedPool.value);
+        }
+      }
+    } catch {
+      // Non-fatal — hardcoded defaults remain active
+      console.warn('[Newsletter] personality overrides load failed; using hardcoded defaults');
+    }
     console.log(`[Newsletter] Player cache loaded: ${Object.keys(allPlayers).length} players, ${rawInjuries.length} injuries`);
 
     // Build roster player name sets for ESPN injury filtering

@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { GET as getRosters } from '@/app/api/export/rosters/route';
 import { GET as getRules } from '@/app/api/export/rules/route';
 import { GET as getDrafts } from '@/app/api/export/drafts/route';
@@ -7,6 +7,12 @@ import { GET as getTrades } from '@/app/api/export/trades/route';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+
+const EXPORT_CACHE_HEADERS = {
+  'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0, s-maxage=0',
+  Pragma: 'no-cache',
+  Expires: '0',
+};
 
 type PlayerEntity = {
   idx: number;
@@ -151,6 +157,7 @@ export async function GET() {
         'Content-Type': 'application/json',
         'Content-Disposition':
           'attachment; filename="evw-league-export-all.json"',
+        ...EXPORT_CACHE_HEADERS,
       },
     });
   } catch (err) {

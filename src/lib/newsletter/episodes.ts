@@ -3,7 +3,7 @@
  * Handles special episode types and season-to-season transitions
  */
 
-import type { EpisodeType, EpisodeConfig } from './types';
+import type { EpisodeType, EpisodeConfig, PhaseRules } from './types';
 import { IMPORTANT_DATES } from '@/lib/constants/league';
 
 // ============ League Calendar Constants ============
@@ -474,4 +474,166 @@ export function generateEpisodeTitle(
       if (context?.isRivalryWeek) return 'Rivalry Week';
       return `Week ${week}: The Grind Continues`;
   }
+}
+
+// ============ Phase 2: Phase Behavior Rules ============
+
+/**
+ * Per-phase behavioral directives.
+ * Expands the existing episode style system from "how" into "what and why."
+ * Does NOT replace EPISODE_STYLE_MODIFIERS or episode section configs.
+ */
+const PHASE_RULES: Record<EpisodeType, PhaseRules> = {
+  regular: {
+    phase: 'regular',
+    name: 'Regular Season',
+    priorities: ['matchup results', 'standings implications', 'fraud-watch on overrated teams'],
+    avoidances: ['premature playoff clinch talk before Week 10', 'overly long takes on low-stakes games'],
+    preferredStances: ['Town Crier', 'Prosecutor', 'Defense Attorney'],
+    historicalDepth: 4,
+    ruleAwareness: 3,
+    speculationLevel: 6,
+    comedyCeiling: 8,
+    highlightSections: ['MatchupRecaps', 'Forecast', 'SpotlightTeam'],
+  },
+  preseason: {
+    phase: 'preseason',
+    name: 'Preseason Preview',
+    priorities: ['roster construction grades', 'draft capital valuations', 'sleeper identification'],
+    avoidances: ['definitive statements about teams with no in-season data', 'overconfident win projections'],
+    preferredStances: ['Hype Man', 'Sicko Scout', 'Accountant'],
+    historicalDepth: 6,
+    ruleAwareness: 6,
+    speculationLevel: 9,
+    comedyCeiling: 7,
+    highlightSections: ['PowerRankings', 'SeasonPreview'],
+  },
+  pre_draft: {
+    phase: 'pre_draft',
+    name: 'Draft Preview',
+    priorities: ['prospect rankings', 'team roster holes', 'pick slot value'],
+    avoidances: ['making definitive rookie projections without NFL data', 'dwelling on past seasons'],
+    preferredStances: ['Sicko Scout', 'Accountant', 'Hype Man'],
+    historicalDepth: 3,
+    ruleAwareness: 8,
+    speculationLevel: 9,
+    comedyCeiling: 6,
+    highlightSections: ['MockDraft'],
+  },
+  post_draft: {
+    phase: 'post_draft',
+    name: 'Draft Grades',
+    priorities: ['draft pick grades', 'value assessment', 'dynasty window shifts'],
+    avoidances: ['premature bust/star labels on rookies who haven\'t played yet'],
+    preferredStances: ['Accountant', 'Historian', 'Prosecutor'],
+    historicalDepth: 5,
+    ruleAwareness: 7,
+    speculationLevel: 7,
+    comedyCeiling: 6,
+    highlightSections: ['DraftGrades'],
+  },
+  trade_deadline: {
+    phase: 'trade_deadline',
+    name: 'Trade Deadline',
+    priorities: ['deadline trades', 'playoff picture impact', 'buyers vs sellers'],
+    avoidances: ['waiver wire minutiae during deadline week — trades are the story'],
+    preferredStances: ['Accountant', 'Prosecutor', 'Town Crier'],
+    historicalDepth: 4,
+    ruleAwareness: 5,
+    speculationLevel: 7,
+    comedyCeiling: 7,
+    highlightSections: ['Trades', 'SpotlightTeam'],
+  },
+  playoffs_preview: {
+    phase: 'playoffs_preview',
+    name: 'Playoff Preview',
+    priorities: ['playoff seeding', 'first-round matchups', 'bracket analysis'],
+    avoidances: ['dismissing any playoff team as unworthy — they earned it'],
+    preferredStances: ['Historian', 'Prosecutor', 'Town Crier'],
+    historicalDepth: 7,
+    ruleAwareness: 5,
+    speculationLevel: 8,
+    comedyCeiling: 6,
+    highlightSections: ['Forecast', 'SpotlightTeam'],
+  },
+  playoffs_round: {
+    phase: 'playoffs_round',
+    name: 'Playoffs',
+    priorities: ['elimination stakes', 'who-advances analysis', 'season legacy building'],
+    avoidances: ['casual dismissiveness — this is do-or-die', 'premature dynasty crowning'],
+    preferredStances: ['Historian', 'Prosecutor', 'Rivalry Arsonist'],
+    historicalDepth: 8,
+    ruleAwareness: 4,
+    speculationLevel: 6,
+    comedyCeiling: 5,
+    highlightSections: ['MatchupRecaps', 'Forecast'],
+  },
+  championship: {
+    phase: 'championship',
+    name: 'Championship',
+    priorities: ['champion coronation', 'season legacy', 'who fell short and why'],
+    avoidances: ['trivializing the moment', 'off-topic takes that dilute the championship story'],
+    preferredStances: ['Historian', 'Hype Man', 'Undertaker'],
+    historicalDepth: 10,
+    ruleAwareness: 3,
+    speculationLevel: 4,
+    comedyCeiling: 4,
+    highlightSections: ['MatchupRecaps', 'FinalWord'],
+  },
+  season_finale: {
+    phase: 'season_finale',
+    name: 'Season Wrap-Up',
+    priorities: ['season awards', 'franchise arcs', 'offseason outlook'],
+    avoidances: ['relitigating losses — forward-looking now'],
+    preferredStances: ['Historian', 'Accountant', 'Undertaker'],
+    historicalDepth: 9,
+    ruleAwareness: 3,
+    speculationLevel: 7,
+    comedyCeiling: 6,
+    highlightSections: ['FinalWord'],
+  },
+  offseason: {
+    phase: 'offseason',
+    name: 'Offseason',
+    priorities: ['rebuilds and retooling', 'trade philosophy', 'dynasty arcs'],
+    avoidances: ['pretending games matter when none are being played', 'overconfident win projections'],
+    preferredStances: ['Historian', 'Sicko Scout', 'Accountant'],
+    historicalDepth: 8,
+    ruleAwareness: 4,
+    speculationLevel: 8,
+    comedyCeiling: 7,
+    highlightSections: ['Trades'],
+  },
+};
+
+/**
+ * Returns the phase behavior rules for a given episode type.
+ * Falls back to 'regular' for unknown types.
+ */
+export function getPhaseRules(episodeType: string): PhaseRules {
+  return PHASE_RULES[episodeType as EpisodeType] ?? PHASE_RULES.regular;
+}
+
+/**
+ * Build a compact phase-rules context block for prompt injection.
+ * Returns 3-5 lines; goes at the end of the Phase 1/2 addendum block.
+ */
+export function buildPhaseRulesContext(rules: PhaseRules): string {
+  const lines: string[] = [
+    `PHASE: ${rules.name}.`,
+    `Priority this week: ${rules.priorities.slice(0, 2).join('; ')}.`,
+    `Avoid: ${rules.avoidances[0]}.`,
+  ];
+
+  if (rules.comedyCeiling <= 4) {
+    lines.push(`Comedy ceiling: restrained — this phase calls for gravitas.`);
+  } else if (rules.comedyCeiling >= 8) {
+    lines.push(`Comedy ceiling: high — lean into entertainment value.`);
+  }
+
+  if (rules.historicalDepth >= 8) {
+    lines.push(`Historical depth: high — callbacks and precedent are valuable this phase.`);
+  }
+
+  return `\n${lines.join('\n')}`;
 }

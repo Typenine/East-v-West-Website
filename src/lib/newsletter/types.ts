@@ -191,6 +191,26 @@ export interface BotMemory {
   favoritePlayers?: string[];
   disappointments?: string[];
   previousPowerRankings?: Record<string, number>; // team name → rank from prior week
+  // Phase 1: recent-output dedupe log — prevents repeating labels, angles, phrases week-over-week
+  recentOutputLog?: RecentOutputLog;
+}
+
+// ============ Phase 1: Recent Output Dedupe ============
+
+/**
+ * Compact log of what was generated last week so bots can avoid repeating themselves.
+ * Bounded storage — never exceeds ~2KB serialized.
+ */
+export interface RecentOutputLog {
+  weekLastUpdated: number;
+  // Per-team descriptors recently used (max 3 per team, LIFO)
+  teamLabels: Record<string, string[]>;
+  // Strong adjectives/framings recently applied to any team (max 8)
+  narrativeAngles: string[];
+  // Extracted phrases worth deduplicating (max 12, heuristic)
+  recentPhrases: string[];
+  // Stance label taken for each team last week (helps vary approach)
+  recentStances: Record<string, string>;
 }
 
 // ============ Enhanced Memory Types (Tier 2) ============
@@ -1120,4 +1140,93 @@ export interface DynastyConfig {
   injuryPenalty: number;
   starterWeight: number;
   benchWeight: number;
+}
+
+// ============ Phase 2: Team Narrative Cards ============
+
+export interface RivalryEntry {
+  team: string;
+  intensity: 'mild' | 'heated' | 'blood_feud';
+  notes: string;
+}
+
+/**
+ * Structured narrative card per team. Separates objective facts (achievements,
+ * wounds) from subjective framing (archetypes, bot relationship notes).
+ * Designed to become admin-editable in a future phase.
+ */
+export interface TeamNarrativeCard {
+  teamName: string;
+  /** High-level identity label for this franchise */
+  archetype: string;
+  /** Where this franchise currently is in its dynasty arc */
+  era: 'early' | 'peak' | 'decline' | 'rebuild' | 'unknown';
+  /** 1-2 sentence long-arc description (objective pattern, not opinion) */
+  historicalArc: string;
+  /** What is happening THIS season for this team (empty if unknown) */
+  currentSeasonArc: string;
+  /** Typical framing each bot uses — suggestions, not injunctions */
+  botRelationship: { entertainerView: string; analystView: string };
+  /** Recurring bits / angles the bots can lean into (not mandatory) */
+  runningJokes: string[];
+  /** Angles that have been overused — bots should avoid these */
+  retiredJokes: string[];
+  /** Known rivalries with other teams */
+  rivalries: RivalryEntry[];
+  /** How carefully the bots should tread with this team's sensitive history */
+  sensitivityLevel: 'low' | 'medium' | 'high';
+  /** Objective notable achievements (championships, records) */
+  achievements: string[];
+  /** Notable historical failures/losses worth referencing contextually */
+  wounds: string[];
+  /** Narrative angles that tend to generate interesting coverage */
+  preferredAngles: string[];
+  /** How reliable the data in this card is */
+  dataConfidence: 'high' | 'medium' | 'low';
+}
+
+// ============ Phase 2: Phase Behavior Rules ============
+
+/**
+ * Behavioral directives for a given episode/league phase.
+ * Extends the existing style modifier system without replacing it.
+ */
+export interface PhaseRules {
+  phase: EpisodeType;
+  /** Short display name */
+  name: string;
+  /** What bots should focus on (top 3) */
+  priorities: string[];
+  /** What bots should actively avoid (top 3) */
+  avoidances: string[];
+  /** Stance types preferred for this phase */
+  preferredStances: string[];
+  /** 0-10: how deeply to reference history */
+  historicalDepth: number;
+  /** 0-10: how much rule/procedure awareness to surface */
+  ruleAwareness: number;
+  /** 0-10: how freely bots can speculate */
+  speculationLevel: number;
+  /** 0-10: max comedy level appropriate for this phase */
+  comedyCeiling: number;
+  /** Section types that deserve extra attention this phase */
+  highlightSections: string[];
+}
+
+// ============ Phase 2: Narrative Heat ============
+
+export type NarrativeHeatTier = 'cold' | 'warm' | 'hot' | 'nuclear';
+
+/**
+ * Scoring result from the narrative heat engine.
+ * Drives memory surfacing depth and prompt verbosity.
+ */
+export interface NarrativeHeat {
+  /** 0-100 composite score */
+  score: number;
+  tier: NarrativeHeatTier;
+  /** Human-readable factors that contributed to the score */
+  factors: string[];
+  /** Convenience: true when tier is hot or nuclear */
+  shouldLeanIn: boolean;
 }

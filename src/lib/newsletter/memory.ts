@@ -7,13 +7,14 @@
  * are presented as media personalities, never as bots or AI.
  */
 
-import type { 
-  BotName, 
-  BotMemory, 
-  TeamMemory, 
+import type {
+  BotName,
+  BotMemory,
+  TeamMemory,
   DerivedData,
   EnhancedTeamMemory,
   Narrative,
+  RecentOutputLog,
 } from './types';
 
 // ============ Constants ============
@@ -1236,15 +1237,272 @@ export function getObsessionContext(mem: BotMemory): string {
   if (!mem.speechPatterns || !mem.speechPatterns.obsessions || mem.speechPatterns.obsessions.length === 0) {
     return '';
   }
-  
+
   const active = mem.speechPatterns.obsessions.filter(o => o.mentions >= 2);
   if (active.length === 0) return '';
-  
-  const lines = active.map(o => 
+
+  const lines = active.map(o =>
     `- You've been obsessed with ${o.topic} (mentioned ${o.mentions} times)`
   );
-  
+
   return `\nYOUR CURRENT OBSESSIONS:\n${lines.join('\n')}\nFeel free to reference these naturally if relevant.`;
+}
+
+// ============ Phase 2: Enriched Memory Surfacing ============
+
+import type { NarrativeHeat } from './types';
+import { memoryDepthFromHeat } from './narrative-heat';
+
+/**
+ * Returns ADDITIONAL memory context beyond what buildBotMemoryContext() already provides.
+ * Call this AFTER the standard context functions, not instead of them.
+ *
+ * Heat-gated: cold sections get nothing extra; nuclear sections get full depth.
+ *
+ * cold  (0)  → empty string — standard memory is enough
+ * warm  (1)  → top active narrative
+ * hot   (2)  → narratives + hard lesson + partner feud
+ * nuclear(3) → all of the above + blind spots + prediction accountability
+ *
+ * This prevents dumping all memory into every prompt while ensuring important
+ * context surfaces when the section genuinely warrants attention.
+ */
+export function buildEnrichedMemoryContext(
+  mem: BotMemory,
+  heat: NarrativeHeat,
+  sectionType?: string,
+): string {
+  const depth = memoryDepthFromHeat(heat);
+  if (depth === 0) return '';
+
+  const parts: string[] = [];
+
+  // depth >= 1: surface the top unresolved narrative arc
+  if (depth >= 1 && Array.isArray(mem.narratives)) {
+    const active = (mem.narratives as Array<{ resolved?: boolean; title?: string; description?: string }>)
+      .filter(n => !n.resolved && n.title && n.description)
+      .slice(0, 1);
+    if (active.length > 0) {
+      parts.push(`\nACTIVE STORYLINE: ${active[0].title} — ${active[0].description}`);
+    }
+  }
+
+  // depth >= 2: hard lesson from personalGrowth + partner feud
+  if (depth >= 2) {
+    // Hard lesson most recently unapplied
+    if (mem.personalGrowth?.hardLessons) {
+      const lesson = (mem.personalGrowth.hardLessons as Array<{ lesson?: string; appliedSince?: boolean }>)
+        .filter(l => !l.appliedSince && l.lesson)
+        .slice(-1)[0];
+      if (lesson?.lesson) {
+        parts.push(`\nHARD LESSON (still applying): "${lesson.lesson}"`);
+      }
+    }
+
+    // Active feud with partner
+    if (mem.partnerDynamics?.activeFeud) {
+      const f = mem.partnerDynamics.activeFeud;
+      parts.push(`\nACTIVE FEUD WITH CO-HOST: ${f.topic} (intensity: ${f.intensity}). Your position: "${f.myPosition}". Their position: "${f.theirPosition}". Let this color any disagreements this section.`);
+    }
+  }
+
+  // depth >= 3 (nuclear): blind spots + prediction accountability
+  if (depth >= 3) {
+    // Recognized blind spots
+    const blindSpots = mem.personalGrowth?.blindSpots ?? [];
+    if (blindSpots.length > 0) {
+      parts.push(`\nYOUR KNOWN BLIND SPOTS: ${(blindSpots as string[]).slice(0, 2).join('; ')}. Try to work against these.`);
+    }
+
+    // Prediction accountability — if they're on a losing streak
+    if (mem.predictionStats) {
+      const ps = mem.predictionStats as { hotStreak?: number; winRate?: number };
+      const streak = ps.hotStreak ?? 0;
+      const rate = ps.winRate ?? 0.5;
+      if (streak <= -3) {
+        parts.push(`\nPREDICTION ACCOUNTABILITY: You've missed ${Math.abs(streak)} straight predictions. Own it and adjust.`);
+      } else if (rate <= 0.35 && (mem.predictionStats as { correct: number; wrong: number }).correct + (mem.predictionStats as { correct: number; wrong: number }).wrong >= 5) {
+        parts.push(`\nPREDICTION RECORD: You're only right ${Math.round(rate * 100)}% of the time this season. Humbling. Factor this into your confidence.`);
+      }
+    }
+
+    // Surface inside jokes for nuclear moments (championship, etc.)
+    if (sectionType === 'FinalWord' || sectionType === 'championship') {
+      const jokes = mem.partnerDynamics?.insideJokes ?? [];
+      if (jokes.length > 0) {
+        const joke = (jokes as Array<{ reference: string; week: number }>)[jokes.length - 1];
+        parts.push(`\nINSIDE JOKE CALLBACK OPPORTUNITY: "${joke.reference}" (Week ${joke.week}) — use naturally if the moment fits.`);
+      }
+    }
+  }
+
+  return parts.join('');
+}
+
+// ============ Phase 1: Recent Output Dedupe ============
+
+// Adjectives that indicate a narrative framing worth deduplicating
+const NARRATIVE_KEYWORDS = [
+  'dominant', 'dominant', 'dangerous', 'struggling', 'collapsing', 'surging',
+  'sneaky', 'fraudulent', 'legit', 'inconsistent', 'volatile', 'cooked',
+  'locked in', 'sleeping', 'waking up', 'falling apart', 'running it back',
+  'redemption', 'chaos', 'pretender', 'contender', 'overrated', 'underrated',
+  'hot', 'cold', 'on fire', 'ice cold', 'for real', 'fading', 'rising',
+];
+
+// Sentence-level signals worth extracting as recent phrases
+const PHRASE_MARKERS = [
+  "i've been", "mark my words", "i told you", "here's the thing",
+  "sound the alarms", "book it", "clip this", "i love this for",
+  "the numbers suggest", "historically speaking", "i'm not ready",
+  "the floor on this", "this is", "that's a problem", "different animal",
+  "let me be clear", "don't sleep on", "i need to see",
+];
+
+/**
+ * Heuristically extract a signature from generated text.
+ * Returns partial RecentOutputLog fields — no LLM call required.
+ */
+export function extractOutputSignatures(
+  text: string,
+  teamNames: string[],
+): Pick<RecentOutputLog, 'teamLabels' | 'narrativeAngles' | 'recentPhrases'> {
+  const teamLabels: Record<string, string[]> = {};
+  const narrativeAngles: string[] = [];
+  const recentPhrases: string[] = [];
+
+  const lower = text.toLowerCase();
+  const sentences = text
+    .split(/(?<=[.!?])\s+/)
+    .map(s => s.trim())
+    .filter(s => s.length > 25 && s.length < 200);
+
+  // Extract team-specific labels: sentences that mention a known team name
+  for (const teamName of teamNames) {
+    const lowerTeam = teamName.toLowerCase();
+    const teamSentences = sentences.filter(s => s.toLowerCase().includes(lowerTeam));
+    if (teamSentences.length > 0) {
+      // Keep the shortest (most label-like) sentence for this team, max 2
+      const sorted = [...teamSentences].sort((a, b) => a.length - b.length);
+      teamLabels[teamName] = sorted.slice(0, 2);
+    }
+  }
+
+  // Extract narrative angles: strong adjectives/framings applied to any team
+  for (const kw of NARRATIVE_KEYWORDS) {
+    if (lower.includes(kw) && !narrativeAngles.includes(kw)) {
+      narrativeAngles.push(kw);
+      if (narrativeAngles.length >= 8) break;
+    }
+  }
+
+  // Extract recent phrases: sentences containing known rhetorical markers
+  for (const sentence of sentences) {
+    const sl = sentence.toLowerCase();
+    const hasMarker = PHRASE_MARKERS.some(m => sl.includes(m));
+    if (hasMarker && recentPhrases.length < 12) {
+      // Truncate to first 80 chars so the dedupe block stays compact
+      recentPhrases.push(sentence.slice(0, 80));
+    }
+  }
+
+  return { teamLabels, narrativeAngles, recentPhrases };
+}
+
+/**
+ * Update a bot's recent-output log after a newsletter has been generated.
+ * Pass all section outputs concatenated as `fullOutput`.
+ * Bounded — never grows beyond the limits defined in RecentOutputLog.
+ */
+export function updateRecentOutputLog(
+  mem: BotMemory,
+  week: number,
+  fullOutput: string,
+  teamNames: string[],
+): void {
+  const sigs = extractOutputSignatures(fullOutput, teamNames);
+
+  mem.recentOutputLog = {
+    weekLastUpdated: week,
+    teamLabels: sigs.teamLabels,
+    narrativeAngles: sigs.narrativeAngles.slice(0, 8),
+    recentPhrases: sigs.recentPhrases.slice(0, 12),
+    // recentStances is populated by stance selector at generation time
+    recentStances: mem.recentOutputLog?.recentStances ?? {},
+  };
+}
+
+/**
+ * Record the stance taken for a specific team this generation run.
+ * Called by stance selector — lets next week avoid the same angle.
+ */
+export function recordStanceUsed(mem: BotMemory, teamName: string, stance: string): void {
+  if (!mem.recentOutputLog) {
+    mem.recentOutputLog = {
+      weekLastUpdated: 0,
+      teamLabels: {},
+      narrativeAngles: [],
+      recentPhrases: [],
+      recentStances: {},
+    };
+  }
+  mem.recentOutputLog.recentStances[teamName] = stance;
+}
+
+/**
+ * Clear the recent-output log when crossing a season boundary.
+ * Call this whenever `mem.season` differs from the active season.
+ */
+export function clearSeasonOutputLog(mem: BotMemory): void {
+  if (mem.recentOutputLog) {
+    mem.recentOutputLog = {
+      weekLastUpdated: 0,
+      teamLabels: {},
+      narrativeAngles: [],
+      recentPhrases: [],
+      recentStances: {},
+    };
+  }
+}
+
+/**
+ * Build the "avoid repeating" context block for LLM prompts.
+ * Returns empty string if no log exists (first week, log cleared, or season mismatch).
+ * Pass `currentSeason` to automatically suppress stale cross-season logs.
+ */
+export function buildDedupeContext(mem: BotMemory, currentSeason?: number): string {
+  const log = mem.recentOutputLog;
+  if (!log || log.weekLastUpdated === 0) return '';
+  // Suppress dedupe across season boundaries so Week 1 of a new season is fresh
+  if (currentSeason !== undefined && mem.season !== undefined && mem.season !== currentSeason) return '';
+
+  const parts: string[] = [];
+
+  parts.push(`AVOID REPEATING FROM LAST WEEK (Week ${log.weekLastUpdated}):`);
+
+  if (log.narrativeAngles.length > 0) {
+    parts.push(`- Don't re-use these framings you already used: ${log.narrativeAngles.join(', ')}.`);
+  }
+
+  if (Object.keys(log.recentStances).length > 0) {
+    const stanceLines = Object.entries(log.recentStances)
+      .map(([team, stance]) => `${team} (${stance})`)
+      .join(', ');
+    parts.push(`- Find a fresh angle for these teams — you already took these stances: ${stanceLines}.`);
+  }
+
+  // Only include a sample of phrases (top 5) to keep the block short
+  const phraseSample = log.recentPhrases.slice(0, 5);
+  if (phraseSample.length > 0) {
+    parts.push(`- Avoid echoing phrases you said recently:`);
+    for (const p of phraseSample) {
+      parts.push(`  • "${p}"`);
+    }
+  }
+
+  parts.push(`Find new angles, fresh characterizations, and different framings this week.`);
+
+  return `\n${parts.join('\n')}`;
 }
 
 /**

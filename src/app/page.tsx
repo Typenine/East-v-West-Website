@@ -474,6 +474,8 @@ export default async function Home({ searchParams }: { searchParams?: Promise<Re
     if (c1 && c1.meetings > 0 && c1.wins.total === 0) h2hHighlightKeys.push(key(a, b));
     if (c2 && c2.meetings > 0 && c2.wins.total === 0) h2hHighlightKeys.push(key(b, a));
   }
+  const exportTs = Date.now().toString();
+  const withFreshExportUrl = (path: string) => `${path}?ts=${exportTs}`;
   return (
     <div className="home-page relative overflow-hidden">
       {/* Home-only background treatment (kept local to this page). */}
@@ -1151,38 +1153,38 @@ export default async function Home({ searchParams }: { searchParams?: Promise<Re
         <SectionHeader title="Data exports" />
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <LinkButton
-            href="/api/export/all"
+            href={withFreshExportUrl('/api/export/all')}
             aria-label="Download full league export JSON including rosters, rules, drafts, history, and trades"
             variant="primary"
           >
             Export everything (.json)
           </LinkButton>
           <LinkButton
-            href="/api/export/rosters"
+            href={withFreshExportUrl('/api/export/rosters')}
             aria-label="Download rosters and teams JSON across seasons"
           >
             Rosters & Teams (.json)
           </LinkButton>
           <LinkButton
-            href="/api/export/rules"
+            href={withFreshExportUrl('/api/export/rules')}
             aria-label="Download league rules and settings JSON"
           >
             Rules & Settings (.json)
           </LinkButton>
           <LinkButton
-            href="/api/export/drafts"
+            href={withFreshExportUrl('/api/export/drafts')}
             aria-label="Download drafts and picks JSON across seasons"
           >
             Drafts & Picks (.json)
           </LinkButton>
           <LinkButton
-            href="/api/export/history"
+            href={withFreshExportUrl('/api/export/history')}
             aria-label="Download league history and records JSON"
           >
             History & Records (.json)
           </LinkButton>
           <LinkButton
-            href="/api/export/trades"
+            href={withFreshExportUrl('/api/export/trades')}
             aria-label="Download trades and transactions JSON"
           >
             Trades & Transactions (.json)

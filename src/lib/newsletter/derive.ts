@@ -412,13 +412,16 @@ function normalizeTransactions(
             }
           }
         }
-        // Draft picks
-        // owner_id = current owner (receiver) after the trade
-        // previous_owner_id = prior owner (giver) before the trade
-        // IMPORTANT: In multi-team trades, Sleeper sometimes sets previous_owner_id to a
-        // roster that is NOT a party to this transaction. Guard against that: only trust
-        // previous_owner_id if it refers to an actual party in rosterIds.
+        // Draft picks — owner_id (receiver) is reliable; previous_owner_id is NOT.
+        // In multi-team trades Sleeper sets previous_owner_id to an arbitrary party
+        // (often a team that NEVER owned the pick, e.g. Cake Eaters being blamed for
+        // a pick that went bop pop → Lone Ginger → Belleview Badgers).
+        // Safe rule: always attribute "gets" via owner_id.
+        // For "gives": only use previous_owner_id in strict 2-team trades where there
+        // is exactly one possible sender. In 3+ team trades, never guess the giver —
+        // leave gives unpopulated for picks (better to say nothing than say wrong team).
         if (Array.isArray(t.draft_picks)) {
+          const isMultiTeam = rosterIds.length > 2;
           const rosterIdSet = new Set(rosterIds);
           for (const raw of t.draft_picks) {
             const pick = raw as { season?: string | number; round?: number; owner_id?: string | number; previous_owner_id?: string | number };
@@ -427,11 +430,8 @@ function normalizeTransactions(
             const prevOwnerId = Number(pick.previous_owner_id);
             if (ownerId === rosterId) {
               gets.push(label);
-            } else if (prevOwnerId === rosterId && rosterIdSet.has(ownerId)) {
-              // Only assign "gives" when the pick's recipient (owner_id) is a confirmed party.
-              // Checks ownerId (not prevOwnerId) because in multi-team trades Sleeper sometimes
-              // stores a stale previous_owner_id pointing to a team that owned the pick in a
-              // prior trade — checking the recipient being a known party is the reliable guard.
+            } else if (!isMultiTeam && prevOwnerId === rosterId && rosterIdSet.has(ownerId)) {
+              // 2-team trade only: previous_owner_id is the one other party, so it's reliable
               gives.push(label);
             }
           }

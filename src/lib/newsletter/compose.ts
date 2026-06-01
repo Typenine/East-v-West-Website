@@ -45,9 +45,16 @@ import {
   type LLMFeaturesInput,
   type LLMFeaturesOutput,
 } from './llm-features';
-import { getPartnerDynamicsContext, recordBotInteraction, getPersonalityContext, evolvePersonality, updateEmotionalState, updatePlayerRelationship, detectObsessions, fadeObsessions, getObsessionContext, decayEmotionalState, getPlayerRelationshipContext, recordWhoWasRight, registerEmergingPhrase, addInsideJoke, updateBotFeud, getNarrativesContext } from './memory';
+import { getPartnerDynamicsContext, recordBotInteraction, getPersonalityContext, evolvePersonality, updateEmotionalState, updatePlayerRelationship, detectObsessions, fadeObsessions, getObsessionContext, decayEmotionalState, getPlayerRelationshipContext, recordWhoWasRight, registerEmergingPhrase, addInsideJoke, updateBotFeud, getNarrativesContext, buildDedupeContext } from './memory';
 import { recordHotTake, gradeHotTake } from './enhanced-context';
 import { makeBlurt } from './personality';
+import { guardText, checkOutput } from './guardrails';
+import { judgeSection, judgeMatchup, buildJudgmentContext } from './judgment';
+import { selectAndBuildStance } from './stance';
+import { getPhaseRules, buildPhaseRulesContext } from './episodes';
+import { buildMatchupCardContext, buildTeamCardContext, computeRivalryScore } from './team-narratives';
+import { heatFromMatchup } from './narrative-heat';
+import { buildEnrichedMemoryContext } from './memory';
 
 // Helper to get episode config with type safety
 function getEpisodeConfigForType(episodeType: string, week: number, season: number) {
@@ -65,6 +72,102 @@ function getEpisodeConfigForType(episodeType: string, week: number, season: numb
 
 function countBy<T>(arr: T[], pred: (x: T) => boolean): number {
   return arr.reduce((n, x) => n + (pred(x) ? 1 : 0), 0);
+}
+
+// ============ Phase 1 helpers ============
+
+/**
+ * Build the Phase 1 addendum for any section context string.
+ * Combines dedupe + judgment + stance into one compact block.
+ * Returns an empty string when all features produce no output (first week, etc.)
+ *
+ * @param mem          The bot's memory (entertainer or analyst)
+ * @param sectionType  e.g. 'Intro', 'Recap_0', 'Trade_0'
+ * @param episodeType  e.g. 'regular', 'playoffs_round'
+ * @param week         Current NFL week
+ * @param season       Current season year
+ * @param opts         Optional per-section signals for judgment/stance
+ */
+function buildPhase1Addendum(
+  mem: BotMemory,
+  sectionType: string,
+  episodeType: string,
+  week: number,
+  season: number,
+  opts: {
+    teamNames?: string[];
+    matchupMargin?: number;
+    isBlowout?: boolean;
+    isNailbiter?: boolean;
+    eventRelevanceScore?: number;
+    isPlayoffs?: boolean;
+    isChampionship?: boolean;
+    isTradeDeadline?: boolean;
+    isRivalryMatchup?: boolean;
+    primaryTeamName?: string; // used for stance recording
+  } = {},
+): string {
+  const parts: string[] = [];
+
+  // 1. Dedupe block — prevents repeating last week's angles/phrases
+  const dedupeBlock = buildDedupeContext(mem);
+  if (dedupeBlock) parts.push(dedupeBlock);
+
+  // 2. Event judgment — heuristic assessment of this section's stakes/type
+  const judgment = judgeSection({
+    sectionType,
+    episodeType,
+    week,
+    season,
+    teamNames: opts.teamNames,
+    matchupMargin: opts.matchupMargin,
+    isBlowout: opts.isBlowout,
+    isNailbiter: opts.isNailbiter,
+    eventRelevanceScore: opts.eventRelevanceScore,
+    isPlayoffs: opts.isPlayoffs ?? (episodeType === 'playoffs_round' || episodeType === 'championship'),
+    isChampionship: opts.isChampionship ?? (episodeType === 'championship'),
+    isTradeDeadline: opts.isTradeDeadline ?? (episodeType === 'trade_deadline'),
+    isRivalryMatchup: opts.isRivalryMatchup,
+    teamMemory: opts.primaryTeamName ? mem.teams[opts.primaryTeamName] : undefined,
+  });
+  parts.push(buildJudgmentContext(judgment));
+
+  // 3. Stance selection — explicit framing directive for this section
+  const priorStance = opts.primaryTeamName
+    ? mem.recentOutputLog?.recentStances?.[opts.primaryTeamName]
+    : undefined;
+  const { context: stanceCtx } = selectAndBuildStance(
+    {
+      sectionType,
+      episodeType,
+      bot: mem.bot,
+      judgment,
+      week,
+      personality: mem.personality ? {
+        riskTolerance: mem.personality.riskTolerance,
+        dramaAppreciation: mem.personality.dramaAppreciation,
+        grudgeLevel: mem.personality.grudgeLevel,
+        analyticalTrust: mem.personality.analyticalTrust,
+        underdogAffinity: mem.personality.underdogAffinity,
+        contrarianism: mem.personality.contrarianism,
+      } : undefined,
+      priorStance,
+    },
+    mem,
+    opts.primaryTeamName,
+  );
+  parts.push(stanceCtx);
+
+  // 4. Phase behavior rules — compact behavioral directive for this episode type
+  const phaseRules = getPhaseRules(episodeType);
+  const phaseCtx = buildPhaseRulesContext(phaseRules);
+  if (phaseCtx) parts.push(phaseCtx);
+
+  // 5. Enriched memory surfacing — heat-gated additional memory fields
+  const enrichedMem = buildEnrichedMemoryContext(mem, judgment.narrativeHeat, sectionType);
+  if (enrichedMem) parts.push(enrichedMem);
+
+  return parts.join('');
 }
 
 /**
@@ -489,24 +592,33 @@ ${weekTopPerformers ? `- Week's top individual scorers: ${weekTopPerformers}` : 
 
 Your current mood: ${memEntertainer.summaryMood || 'Neutral'}`;
 
-  const [bot1_text, bot2_text] = await Promise.all([
-    generateSection({
-      persona: 'entertainer',
-      sectionType: 'Intro',
-      context,
-      constraints: 'Write 3-4 rich paragraphs. Set the tone with big personality — reference the week\'s top storylines, drop a bold take or two, and make the reader feel the energy. Be colorful and opinionated.',
-      maxTokens: 600,
-      episodeType,
-    }),
-    generateSection({
-      persona: 'analyst',
-      sectionType: 'Intro',
-      context: context.replace(memEntertainer.summaryMood || 'Neutral', memAnalyst.summaryMood || 'Neutral'),
-      constraints: 'Write 3-4 substantial paragraphs. Provide analytical depth — reference specific stats, trends, and the week\'s biggest storylines. Give your honest assessment with data to back it up.',
-      maxTokens: 500,
-      episodeType,
-    }),
-  ]);
+  const isPlayoffs = episodeType === 'playoffs_round' || episodeType === 'championship';
+  const entPhase1 = buildPhase1Addendum(memEntertainer, 'Intro', episodeType, week, season, {
+    isPlayoffs, isChampionship: episodeType === 'championship',
+  });
+  const anaPhase1 = buildPhase1Addendum(memAnalyst, 'Intro', episodeType, week, season, {
+    isPlayoffs, isChampionship: episodeType === 'championship',
+  });
+
+  const rawBot1 = await generateSection({
+    persona: 'entertainer',
+    sectionType: 'Intro',
+    context: context + entPhase1,
+    constraints: 'Write 3-4 rich paragraphs. Set the tone with big personality — reference the week\'s top storylines, drop a bold take or two, and make the reader feel the energy. Be colorful and opinionated.',
+    maxTokens: 600,
+    episodeType,
+  });
+  const bot1_text = guardText(rawBot1, { sectionType: 'Intro', logPrefix: '[compose:Intro:entertainer]' });
+
+  const rawBot2 = await generateSection({
+    persona: 'analyst',
+    sectionType: 'Intro',
+    context: context.replace(memEntertainer.summaryMood || 'Neutral', memAnalyst.summaryMood || 'Neutral') + anaPhase1,
+    constraints: 'Write 3-4 substantial paragraphs. Provide analytical depth — reference specific stats, trends, and the week\'s biggest storylines. Give your honest assessment with data to back it up.',
+    maxTokens: 500,
+    episodeType,
+  });
+  const bot2_text = guardText(rawBot2, { sectionType: 'Intro', logPrefix: '[compose:Intro:analyst]' });
 
   return { bot1_text, bot2_text };
 }
@@ -1048,7 +1160,10 @@ Think like a fantasy analyst doing a season preview:
   };
 }
 
-async function buildWaiverItems(events: DerivedData['events_scored']): Promise<WaiverItem[]> {
+async function buildWaiverItems(
+  events: DerivedData['events_scored'],
+  opts?: { memEntertainer?: BotMemory; memAnalyst?: BotMemory; season?: number },
+): Promise<WaiverItem[]> {
   // Only show waiver moves with significant FAAB spend ($3+) — free adds aren't newsworthy
   const waiverEvents = events.filter(e =>
     (e.type === 'waiver' || e.type === 'fa_add') && (e.faab_spent ?? 0) >= 3
@@ -1073,22 +1188,28 @@ async function buildWaiverItems(events: DerivedData['events_scored']): Promise<W
     `Start each response with the move number, e.g. "1. [your take]". One paragraph per move. ` +
     `${waiverEvents.length} moves total.`;
 
-  const [entertainerResponse, analystResponse] = await Promise.all([
+  const waiverCtxEnt = `Waiver wire moves this week:\n${numberedContext}${opts?.memEntertainer ? buildDedupeContext(opts.memEntertainer, opts?.season) : ''}`;
+  const waiverCtxAna = `Waiver wire moves this week:\n${numberedContext}${opts?.memAnalyst ? buildDedupeContext(opts.memAnalyst, opts?.season) : ''}`;
+
+  const [rawEntWaivers, rawAnaWaivers] = await Promise.all([
     generateSection({
       persona: 'entertainer',
       sectionType: 'Waivers',
-      context: `Waiver wire moves this week:\n${numberedContext}`,
+      context: waiverCtxEnt,
       constraints: waiverConstraint('Be spicy about great pickups, skeptical about questionable ones — personality-driven takes'),
       maxTokens: 600,
     }),
     generateSection({
       persona: 'analyst',
       sectionType: 'Waivers',
-      context: `Waiver wire moves this week:\n${numberedContext}`,
+      context: waiverCtxAna,
       constraints: waiverConstraint('Cover role, usage projection, upside, and roster construction impact — analytical takes'),
       maxTokens: 600,
     }),
   ]);
+
+  const entertainerResponse = guardText(rawEntWaivers, { sectionType: 'Waivers', logPrefix: '[compose:Waivers:entertainer]' });
+  const analystResponse     = guardText(rawAnaWaivers, { sectionType: 'Waivers', logPrefix: '[compose:Waivers:analyst]' });
 
   // Split on numbered entries "1. ", "2. ", etc.
   const splitByNumber = (text: string): string[] => {
@@ -1142,6 +1263,10 @@ async function buildTradeItems(events: DerivedData['events_scored'], memEntertai
   const entPersonality = effectivePersonalityCtx(memEntertainer, enhancedContext, 'entertainer');
   const anaPersonality = effectivePersonalityCtx(memAnalyst, enhancedContext, 'analyst');
 
+  // Phase 1: dedupe — prevent repeating last week's trade angles
+  const tradeDedupeEnt = buildDedupeContext(memEntertainer);
+  const tradeDedupeAna = buildDedupeContext(memAnalyst);
+
   const teamTrustLine = (mem: BotMemory, team: string): string => {
     const t = mem.teams[team];
     if (!t) return '';
@@ -1182,12 +1307,18 @@ async function buildTradeItems(events: DerivedData['events_scored'], memEntertai
       const entTrustLine = teamTrustLine(memEntertainer, party);
       const anaTrustLine = teamTrustLine(memAnalyst, party);
 
+      // Phase 2: team card for this trade party
+      const partyCard = buildTeamCardContext(party, {
+        recentStance: memEntertainer.recentOutputLog?.recentStances?.[party],
+        dataConfidenceFilter: 'medium',
+      });
+
       const sideContext = `Trade Analysis for ${party}:
 Full trade: ${tradeContext}
 ${party}'s haul: RECEIVED ${gets} | GAVE UP ${gives}${fullExchangeBlock}
 Evaluate this trade FROM ${party.toUpperCase()}'S PERSPECTIVE ONLY.
 ${entTrustLine ? `[Mason Reed's history: ${entTrustLine}]` : ''}
-${anaTrustLine ? `[Westy's history: ${anaTrustLine}]` : ''}`;
+${anaTrustLine ? `[Westy's history: ${anaTrustLine}]` : ''}${partyCard}`;
 
       allPartyRequests.push({ tradeIdx: i, party, sideContext, isMultiTeam, allParties: parties });
     }
@@ -1210,22 +1341,25 @@ ${anaTrustLine ? `[Westy's history: ${anaTrustLine}]` : ''}`;
           `Write 3-4 sentences analyzing short-term vs long-term implications, asset value, and roster fit. Include letter grade.`
         : `Grade this trade for ${party} specifically (A+ to F). Evaluate value received vs given from their perspective. Write 3-4 sentences analyzing short-term vs long-term implications, value, and fit. Factor in your prior read on this team if relevant. Include letter grade.`;
 
-      const [entertainerResponse, analystResponse] = await Promise.all([
+      const tradeSection = isMultiTeam ? `${allParties.length}-Team Trade Grade` : 'Trade Grade';
+      const [rawEntTrade, rawAnaTrade] = await Promise.all([
         generateSection({
           persona: 'entertainer',
-          sectionType: isMultiTeam ? `${allParties.length}-Team Trade Grade` : 'Trade Grade',
-          context: sideContext + (entPersonality ? `\n${entPersonality}` : ''),
+          sectionType: tradeSection,
+          context: sideContext + (entPersonality ? `\n${entPersonality}` : '') + tradeDedupeEnt,
           constraints: entertainerConstraints,
           maxTokens: 350,
         }),
         generateSection({
           persona: 'analyst',
-          sectionType: isMultiTeam ? `${allParties.length}-Team Trade Grade` : 'Trade Grade',
-          context: sideContext + (anaPersonality ? `\n${anaPersonality}` : ''),
+          sectionType: tradeSection,
+          context: sideContext + (anaPersonality ? `\n${anaPersonality}` : '') + tradeDedupeAna,
           constraints: analystConstraints,
           maxTokens: 350,
         }),
       ]);
+      const entertainerResponse = guardText(rawEntTrade, { sectionType: 'Trade Grade', logPrefix: `[compose:TradeGrade:${party}:entertainer]` });
+      const analystResponse     = guardText(rawAnaTrade, { sectionType: 'Trade Grade', logPrefix: `[compose:TradeGrade:${party}:analyst]` });
 
       const extractGrade = (text: string): string => {
         // Explicit label patterns — most reliable
@@ -1320,22 +1454,46 @@ ${enhancedContext}`;
     + buildPredictionComparison(memAnalyst, memEntertainer)
     + buildLastWeekNarrative(memAnalyst, week);
 
-  const [bot1, bot2] = await Promise.all([
+  // Phase 1: dedupe + judgment for spotlight section
+  const spotlightDedupeEnt = buildDedupeContext(memEntertainer);
+  const spotlightDedupeAna = buildDedupeContext(memAnalyst);
+  const spotlightJudgment = judgeSection({
+    sectionType: 'Spotlight',
+    episodeType: 'regular',
+    week,
+    season: new Date().getFullYear(),
+    teamNames: [spotlight.team, spotlight.opponent],
+    isBlowout: spotlight.margin > 30,
+    teamMemory: memEntertainer.teams[spotlight.team],
+  });
+  const spotlightJudgmentCtx = buildJudgmentContext(spotlightJudgment);
+
+  // Phase 2: team card + phase rules + enriched memory
+  const spotlightTeamCard = buildTeamCardContext(spotlight.team, {
+    recentStance: memEntertainer.recentOutputLog?.recentStances?.[spotlight.team],
+  });
+  const spotlightPhaseCtx = buildPhaseRulesContext(getPhaseRules('regular'));
+  const spotlightEnrichedEnt = buildEnrichedMemoryContext(memEntertainer, spotlightJudgment.narrativeHeat, 'Spotlight');
+  const spotlightEnrichedAna = buildEnrichedMemoryContext(memAnalyst,     spotlightJudgment.narrativeHeat, 'Spotlight');
+
+  const [rawBot1Spot, rawBot2Spot] = await Promise.all([
     generateSection({
       persona: 'entertainer',
       sectionType: 'Spotlight',
-      context: context + (entPersonality ? `\n${entPersonality}` : ''),
+      context: context + (entPersonality ? `\n${entPersonality}` : '') + spotlightDedupeEnt + spotlightJudgmentCtx + spotlightTeamCard + spotlightPhaseCtx + spotlightEnrichedEnt,
       constraints: 'Write 3-4 paragraphs spotlighting this team\'s performance. Hype them up or give them tough love. Talk about what made this week special, which players came through, and what it means for their season. Be vivid and memorable. Let your current emotional state and personality color the writing.',
       maxTokens: 500,
     }),
     generateSection({
       persona: 'analyst',
       sectionType: 'Spotlight',
-      context: context.replace(memEntertainer.teams[spotlightPair.winner.name]?.mood || 'Neutral', memAnalyst.teams[spotlightPair.winner.name]?.mood || 'Neutral') + (anaPersonality ? `\n${anaPersonality}` : ''),
+      context: context.replace(memEntertainer.teams[spotlightPair.winner.name]?.mood || 'Neutral', memAnalyst.teams[spotlightPair.winner.name]?.mood || 'Neutral') + (anaPersonality ? `\n${anaPersonality}` : '') + spotlightDedupeAna + spotlightJudgmentCtx + spotlightTeamCard + spotlightPhaseCtx + spotlightEnrichedAna,
       constraints: 'Write 3-4 paragraphs analytically dissecting this performance. What made it special statistically? Is it sustainable or regression bait? What does it mean for their playoff trajectory? Reference specific numbers. Let your analytical personality and current state come through.',
       maxTokens: 500,
     }),
   ]);
+  const bot1 = guardText(rawBot1Spot, { sectionType: 'Spotlight', logPrefix: '[compose:Spotlight:entertainer]' });
+  const bot2 = guardText(rawBot2Spot, { sectionType: 'Spotlight', logPrefix: '[compose:Spotlight:analyst]' });
 
   return { team: spotlightPair.winner.name, bot1, bot2 };
 }
@@ -1376,27 +1534,43 @@ async function buildFinalWord(week: number, episodeType: string = 'regular', mem
   const entPersonality = memEntertainer ? effectivePersonalityCtx(memEntertainer, enhancedContext, 'entertainer') : '';
   const anaPersonality = memAnalyst ? effectivePersonalityCtx(memAnalyst, enhancedContext, 'analyst') : '';
 
+  // Phase 1: dedupe + judgment + stance for FinalWord
+  const currentSeason = new Date().getFullYear();
+  const entFinalPhase1 = memEntertainer
+    ? buildPhase1Addendum(memEntertainer, 'FinalWord', episodeType, week, currentSeason, {
+        isPlayoffs: episodeType === 'playoffs_round' || episodeType === 'championship',
+        isChampionship: episodeType === 'championship',
+      })
+    : '';
+  const anaFinalPhase1 = memAnalyst
+    ? buildPhase1Addendum(memAnalyst, 'FinalWord', episodeType, week, currentSeason, {
+        isPlayoffs: episodeType === 'playoffs_round' || episodeType === 'championship',
+        isChampionship: episodeType === 'championship',
+      })
+    : '';
+
   const finalWordTokens = ['pre_draft', 'post_draft', 'preseason', 'offseason'].includes(episodeType) ? 600 : 350;
   const finalWordMinLen = ['pre_draft', 'post_draft', 'preseason', 'offseason'].includes(episodeType) ? 200 : 100;
 
-  const [bot1, bot2] = await Promise.all([
-    generateSection({
-      persona: 'entertainer',
-      sectionType: 'Final Word',
-      context: context + (entPersonality ? `\n${entPersonality}` : ''),
-      constraints: entertainerConstraint,
-      maxTokens: finalWordTokens,
-      validate: (text) => text.length >= finalWordMinLen,
-    }),
-    generateSection({
-      persona: 'analyst',
-      sectionType: 'Final Word',
-      context: context + (anaPersonality ? `\n${anaPersonality}` : ''),
-      constraints: analystConstraint,
-      maxTokens: finalWordTokens,
-      validate: (text) => text.length >= finalWordMinLen,
-    }),
-  ]);
+  const rawBot1FW = await generateSection({
+    persona: 'entertainer',
+    sectionType: 'Final Word',
+    context: context + (entPersonality ? `\n${entPersonality}` : '') + entFinalPhase1,
+    constraints: entertainerConstraint,
+    maxTokens: finalWordTokens,
+    validate: (text) => text.length >= finalWordMinLen,
+  });
+  const bot1 = guardText(rawBot1FW, { sectionType: 'FinalWord', logPrefix: '[compose:FinalWord:entertainer]' });
+
+  const rawBot2FW = await generateSection({
+    persona: 'analyst',
+    sectionType: 'Final Word',
+    context: context + (anaPersonality ? `\n${anaPersonality}` : '') + anaFinalPhase1,
+    constraints: analystConstraint,
+    maxTokens: finalWordTokens,
+    validate: (text) => text.length >= finalWordMinLen,
+  });
+  const bot2 = guardText(rawBot2FW, { sectionType: 'FinalWord', logPrefix: '[compose:FinalWord:analyst]' });
 
   return { bot1, bot2 };
 }
@@ -1473,9 +1647,17 @@ async function buildRecaps(
     return `${suffix}-highest scorer in the league this week (${rank}/${totalTeams})`;
   };
 
+  // Phase 1: pre-compute dedupe blocks (same for all recaps — avoids calling per-pair)
+  const recapDedupeEnt = buildDedupeContext(memEntertainer);
+  const recapDedupeAna = buildDedupeContext(memAnalyst);
+
+  // Phase 2: pre-compute phase rules context (same for all recaps this week)
+  const recapPhaseRules = getPhaseRules(isChampionshipWeek ? 'championship' : isPlayoffs ? 'playoffs_round' : 'regular');
+  const recapPhaseCtx = buildPhaseRulesContext(recapPhaseRules);
+
   // Generate recaps for EACH matchup individually to prevent LLM confusion
   // This ensures each recap is about the correct teams
-  const recapPromises = pairs.map(async (p) => {
+  const recapPromises = pairs.map(async (p, pairIndex) => {
     const bracketInfo = p.bracketLabel || 'Matchup';
     
     // Build player performance strings
@@ -1923,13 +2105,42 @@ Each line: "ENTERTAINER: [Mason's words]" OR "ANALYST: [Westy's words]"
 ${starterBot === 'entertainer' ? 'Start with ENTERTAINER.' : 'Start with ANALYST.'}
 No headers, no other text. Begin immediately:`;
 
+    // Phase 1: judgment + dedupe appended to the starter bot's context
+    const recapJudgment = judgeMatchup(
+      memEntertainer, p.winner.name, p.loser.name, p.margin,
+      week, new Date().getFullYear(),
+      isChampionshipWeek ? 'championship' : isPlayoffs ? 'playoffs_round' : 'regular',
+      pairIndex,
+    );
+    const recapJudgmentCtx = buildJudgmentContext(recapJudgment);
+    const starterDedupe = starterBot === 'entertainer' ? recapDedupeEnt : recapDedupeAna;
+
+    // Phase 2: team cards for this specific matchup
+    const pairRivalryScore = recapJudgment.rivalryScore;
+    const teamCards = buildMatchupCardContext(
+      p.winner.name, p.loser.name, pairRivalryScore,
+      {
+        [p.winner.name]: memEntertainer.recentOutputLog?.recentStances?.[p.winner.name],
+        [p.loser.name]:  memEntertainer.recentOutputLog?.recentStances?.[p.loser.name],
+      },
+    );
+
+    // Phase 2: enriched memory surfacing (heat-gated)
+    const recapEnrichedEnt = buildEnrichedMemoryContext(memEntertainer, recapJudgment.narrativeHeat, `Recap_${pairIndex}`);
+    const recapEnrichedAna = buildEnrichedMemoryContext(memAnalyst,     recapJudgment.narrativeHeat, `Recap_${pairIndex}`);
+
     const dialogueRaw = await generateSection({
       persona: starterBot === 'entertainer' ? 'entertainer' : 'analyst',
       sectionType: `${bracketInfo} Recap`,
-      context: `${seasonalContext}\n${starterBot === 'entertainer' ? entertainerMatchupContext : analystMatchupContext}`,
+      context: `${seasonalContext}\n${starterBot === 'entertainer' ? entertainerMatchupContext + recapEnrichedEnt : analystMatchupContext + recapEnrichedAna}${starterDedupe}${recapJudgmentCtx}${teamCards}${recapPhaseCtx}`,
       constraints: dialogueConstraints,
       maxTokens: dialogueTokens,
     }).catch(() => '');
+
+    // Guardrails check on the full dialogue before parsing
+    const { text: safeDialogueRaw } = dialogueRaw
+      ? checkOutput(dialogueRaw, { sectionType: 'Matchup Recap', logPrefix: `[compose:Recap:${p.winner.name}v${p.loser.name}]` })
+      : { text: '' };
 
     // Parse interleaved dialogue from single call
     type DialogueTurn = { speaker: 'entertainer' | 'analyst'; text: string };
@@ -1946,7 +2157,7 @@ No headers, no other text. Begin immediately:`;
       return result;
     };
 
-    dialogue.push(...parseDialogue(dialogueRaw));
+    dialogue.push(...parseDialogue(safeDialogueRaw));
 
     // Derive per-speaker aggregates for downstream pushback recording
     const entertainerTake = dialogue.filter(d => d.speaker === 'entertainer').map(d => d.text).join(' ');
@@ -3305,7 +3516,7 @@ export async function composeNewsletter(input: ComposeNewsletterInput, qualityRe
 
   // Phase 2: Generate all remaining sections (queued serially by the LLM cascade)
   const [waiverItems, tradeItems, spotlight, finalWord, recaps, blurt] = await Promise.all([
-    excludeSections.has('WaiversAndFA') ? Promise.resolve([]) : safeSection('WaiversAndFA', () => buildWaiverItems(events), []),
+    excludeSections.has('WaiversAndFA') ? Promise.resolve([]) : safeSection('WaiversAndFA', () => buildWaiverItems(events, { memEntertainer, memAnalyst, season }), []),
     excludeSections.has('Trades') ? Promise.resolve([]) : safeSection('Trades', () => buildTradeItems(events, memEntertainer, memAnalyst, enhancedContextWithContinuity), []),
     excludeSections.has('SpotlightTeam') ? Promise.resolve(null) : safeSection('Spotlight', () => buildSpotlight(pairs, memEntertainer, memAnalyst, enhancedContextWithContinuity, week), null),
     safeSection('FinalWord', () => buildFinalWord(week, episodeType, memEntertainer, memAnalyst, enhancedContextWithContinuity), fallbackFinalWord),
