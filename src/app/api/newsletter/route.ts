@@ -926,7 +926,7 @@ async function startStagedJob(opts: {
 
     // ── Fetch Sleeper data ──
     const ingestData = await fetchNewsletterData(leagueId, week);
-    const { leagueName, users, rosters, matchups, nextMatchups, transactions, playerMap: allPlayers, draftData } = ingestData;
+    const { leagueName, users, rosters, matchups, nextMatchups, transactions, allTransactions, playerMap: allPlayers, draftData } = ingestData;
 
     setPlayerNameCache(allPlayers);
     const { buildDerived } = await import('@/lib/newsletter');
@@ -934,6 +934,7 @@ async function startStagedJob(opts: {
       users, rosters, matchups,
       nextMatchups: nextMatchups ?? [],
       transactions: transactions.map(t => ({ ...t, adds: t.adds ?? undefined, drops: t.drops ?? undefined })),
+      allTransactions: allTransactions?.map(t => ({ ...t, adds: t.adds ?? undefined, drops: t.drops ?? undefined })),
     });
 
     // Enrich pick labels in derived events with slot numbers + original ownership from the draft tracker.
@@ -1513,7 +1514,7 @@ export async function POST(request: NextRequest) {
       loadRelationshipMemory(seasonNum),
     ]);
 
-    const { leagueName: leagueNameFromIngest, users, rosters, matchups, nextMatchups, transactions, playerMap: allPlayers, injuries: rawInjuries, draftData } = ingestData;
+    const { leagueName: leagueNameFromIngest, users, rosters, matchups, nextMatchups, transactions, allTransactions, playerMap: allPlayers, injuries: rawInjuries, draftData } = ingestData;
 
     console.log(`Loaded bot memory - Entertainer: ${existingMemoryEntertainer ? 'found' : 'new'}, Analyst: ${existingMemoryAnalyst ? 'found' : 'new'}`);
 
@@ -1768,6 +1769,7 @@ export async function POST(request: NextRequest) {
         adds: t.adds ?? undefined,
         drops: t.drops ?? undefined,
       })),
+      allTransactions: allTransactions?.map(t => ({ ...t, adds: t.adds ?? undefined, drops: t.drops ?? undefined })),
       existingMemoryEntertainer,
       existingMemoryAnalyst,
       existingRecords,

@@ -16,6 +16,7 @@ import {
   getLeagueDrafts,
   getDraftById,
   getDraftPicks,
+  getLeagueTransactionsAllWeeks,
   type SleeperUser,
   type SleeperRoster,
   type SleeperMatchup,
@@ -24,6 +25,7 @@ import {
   type SleeperLeague,
   type SleeperDraftPick,
 } from '../utils/sleeper-api';
+import { LEAGUE_IDS } from '@/lib/constants/league';
 import { setPlayerNameCache } from './derive';
 
 // Re-export the types callers need so they don't have to import from two places
@@ -62,6 +64,8 @@ export interface NewsletterIngestData {
   matchups: SleeperMatchup[];
   nextMatchups: SleeperMatchup[];
   transactions: SleeperTransaction[];
+  /** All transactions across all weeks — used for pick lineage in multi-team trade attribution */
+  allTransactions: SleeperTransaction[];
   /** Full player map keyed by Sleeper player_id — populated in the player cache */
   playerMap: Record<string, SleeperPlayer>;
   /** Injuries filtered to only players on league rosters */
@@ -102,8 +106,8 @@ export async function fetchNewsletterData(
   );
   const nextWeek = week + 1;
 
-  // Parallel: users, rosters, current matchups, next week matchups, transactions, players, injuries, drafts
-  const [users, rosters, matchups, nextMatchups, transactions, allPlayers, injuries, draftData] =
+  // Parallel: users, rosters, current matchups, next week matchups, transactions, players, injuries, drafts, full history
+  const [users, rosters, matchups, nextMatchups, transactions, allPlayers, injuries, draftData, allTransactions] =
     await Promise.all([
       getLeagueUsers(leagueId),
       getLeagueRosters(leagueId),
@@ -113,6 +117,15 @@ export async function fetchNewsletterData(
       getAllPlayersCached(),
       getSleeperInjuriesCached().catch(() => []),
       fetchDraftData(leagueId).catch(() => null),
+      // Fetch all league years in parallel and flatten — pick lineage can span
+      // across season boundaries (e.g. a 2026 pick traded in the 2025 league).
+      // Without cross-season history the pre-pass in derive.ts falls back to
+      // the original slot owner, wrongly attributing sends in 3-team trades.
+      Promise.all(
+        [LEAGUE_IDS.CURRENT, ...Object.values(LEAGUE_IDS.PREVIOUS)]
+          .filter(Boolean)
+          .map(lid => getLeagueTransactionsAllWeeks(lid as string).catch(() => [] as SleeperTransaction[]))
+      ).then(arrays => arrays.flat()),
     ]);
 
   // Seed the player name cache so derive.ts can resolve IDs
@@ -157,6 +170,7 @@ export async function fetchNewsletterData(
     matchups,
     nextMatchups,
     transactions,
+    allTransactions,
     playerMap: allPlayers,
     injuries: filteredInjuries,
     draftData,

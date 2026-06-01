@@ -79,6 +79,8 @@ export interface GenerateNewsletterInput {
   matchups: SleeperMatchup[];
   nextMatchups?: SleeperMatchup[];
   transactions: SleeperTransaction[];
+  /** All transactions across all weeks — used for pick lineage in multi-team trade attribution */
+  allTransactions?: SleeperTransaction[];
   // Optional: existing memory state (load from DB)
   // Accepts BotMemory for personality evolution
   existingMemoryEntertainer?: BotMemory | null;
@@ -163,6 +165,7 @@ export async function generateNewsletter(
     matchups,
     nextMatchups,
     transactions,
+    allTransactions,
     existingMemoryEntertainer,
     existingMemoryAnalyst,
     existingRecords,
@@ -181,6 +184,7 @@ export async function generateNewsletter(
     matchups,
     nextMatchups,
     transactions,
+    allTransactions,
     bracketContext: week >= playoffStartWeek ? {
       week,
       playoffStartWeek,

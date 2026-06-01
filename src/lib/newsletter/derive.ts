@@ -375,7 +375,8 @@ interface NormalizedEvent {
 
 function normalizeTransactions(
   transactions: SleeperTransaction[],
-  rostersIndex: Map<number, { owner_id: string; owner_name: string }>
+  rostersIndex: Map<number, { owner_id: string; owner_name: string }>,
+  allTransactions?: SleeperTransaction[]
 ): NormalizedEvent[] {
   const events: NormalizedEvent[] = [];
 
@@ -385,9 +386,12 @@ function normalizeTransactions(
   // sender by looking at who last held the pick before this trade rather than trusting
   // previous_owner_id, which Sleeper sometimes sets to the pick's historical origin
   // instead of the immediate pre-trade holder.
+  // Use allTransactions (full league history) when available so prior-week trades that
+  // moved a pick are present; without this the lookup falls back to the original slot
+  // owner, which is wrong when a pick has already changed hands.
   type PickHop = { tradeId: string; ts: number; toRosterId: number };
   const pickHistory = new Map<string, PickHop[]>();
-  const completedTrades = (transactions ?? [])
+  const completedTrades = (allTransactions ?? transactions ?? [])
     .filter(t => t.type === 'trade' && t.status === 'complete')
     .sort((a, b) => (a.status_updated || a.created || 0) - (b.status_updated || b.created || 0));
   type RawPick = { season?: string | number; round?: number; roster_id?: number; owner_id?: number; previous_owner_id?: number };
@@ -669,6 +673,8 @@ export interface BuildDerivedInput {
   matchups: SleeperMatchup[];
   nextMatchups?: SleeperMatchup[];
   transactions: SleeperTransaction[];
+  /** All transactions across all weeks — used for pick lineage in multi-team trade attribution */
+  allTransactions?: SleeperTransaction[];
   // Optional bracket context for playoff weeks
   bracketContext?: {
     week: number;
@@ -689,7 +695,7 @@ export function buildDerived(input: BuildDerivedInput): DerivedData {
   const matchup_pairs = buildMatchupPairs(input.matchups, rostersIndex, week, playoffStartWeek);
   const upcoming_pairs = buildUpcomingPairs(input.nextMatchups, rostersIndex);
 
-  const events_normalized = normalizeTransactions(input.transactions, rostersIndex);
+  const events_normalized = normalizeTransactions(input.transactions, rostersIndex, input.allTransactions);
   const events_scored = scoreEvents(events_normalized, cfg);
 
   return { matchup_pairs, upcoming_pairs, events_scored };
