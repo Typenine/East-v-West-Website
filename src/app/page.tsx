@@ -501,18 +501,7 @@ export default async function Home({ searchParams }: { searchParams?: Promise<Re
         }}
       />
       <div className="container mx-auto px-4 sm:px-5 py-6 sm:py-8 relative z-10">
-      <div className="flex flex-col items-center gap-4 mb-6 sm:mb-8">
-        <Image
-          src="/assets/teams/East v West Logos/Official East v. West Logo.png"
-          alt="East v. West League Logo"
-          width={200}
-          height={200}
-          priority
-          className="h-24 w-auto object-contain"
-        />
-        <SectionHeader title="East v. West Fantasy Football" className="mx-auto max-w-fit" />
-      </div>
-      
+
       {/* Countdowns Section */}
       <section className="mb-10 sm:mb-12">
         <SectionHeader title="Key dates" />

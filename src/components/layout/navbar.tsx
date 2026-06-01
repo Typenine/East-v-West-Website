@@ -9,6 +9,7 @@ import Button from '@/components/ui/Button';
 import Modal from '@/components/ui/Modal';
 import Label from '@/components/ui/Label';
 import Image from 'next/image';
+import HomeLeagueBanner from '@/components/layout/HomeLeagueBanner';
 import { getTeamLogoPath, getTeamColors } from '@/lib/utils/team-utils';
 import { USER_NAV_CONFIG, type UserNavItem } from '@/lib/constants/navigation';
 
@@ -223,6 +224,7 @@ export default function Navbar() {
 
   return (
     <>
+    {pathname === '/' ? <HomeLeagueBanner /> : null}
     <nav className="evw-surface border-b border-[var(--border)] sticky top-0 backdrop-blur-sm bg-[var(--surface)]/95 z-50">
       <div className="container mx-auto px-4">
         <div className="flex items-center justify-between h-16">
