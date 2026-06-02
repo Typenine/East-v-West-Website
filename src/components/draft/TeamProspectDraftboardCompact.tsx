@@ -394,7 +394,7 @@ export default function TeamProspectDraftboardCompact({
       </div>
 
       {/* Player List */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', maxHeight: '400px', overflowY: 'auto' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', maxHeight: 'min(400px, 50dvh)', overflowY: 'auto' }}>
         {filteredPlayers.length === 0 ? (
           <div style={{ padding: '20px', textAlign: 'center', color: C.textDim, fontSize: '12px' }}>
             No players match your filters.
@@ -475,7 +475,7 @@ export default function TeamProspectDraftboardCompact({
                     <button
                       disabled={isDrafted}
                       onClick={() => moveByOne(rankIdx, -1)}
-                      style={{ background: 'transparent', border: 'none', color: C.accent, cursor: isDrafted ? 'default' : 'pointer', padding: '1px', opacity: isDrafted ? 0.3 : 1 }}
+                      style={{ background: 'transparent', border: 'none', color: C.accent, cursor: isDrafted ? 'default' : 'pointer', padding: '8px 6px', opacity: isDrafted ? 0.3 : 1 }}
                     >
                       <ChevronUp size={14} />
                     </button>
@@ -490,13 +490,13 @@ export default function TeamProspectDraftboardCompact({
                         onBlur={() => { const n = parseInt(rankEditVal, 10); if (!isNaN(n) && n >= 1 && n <= players.length) moveToRank(rankIdx, n); setRankEditId(null); }}
                         onKeyDown={(e) => { if (e.key === 'Enter') { const n = parseInt(rankEditVal, 10); if (!isNaN(n) && n >= 1 && n <= players.length) moveToRank(rankIdx, n); setRankEditId(null); } else if (e.key === 'Escape') setRankEditId(null); }}
                         onClick={(e) => e.stopPropagation()}
-                        style={{ width: '36px', fontSize: '12px', fontWeight: 700, color: C.accent, background: C.bg, border: `1px solid ${C.accent}`, borderRadius: '3px', textAlign: 'center', padding: '1px 0' }}
+                        style={{ width: '36px', fontSize: '16px', fontWeight: 700, color: C.accent, background: C.bg, border: `1px solid ${C.accent}`, borderRadius: '3px', textAlign: 'center', padding: '1px 0', touchAction: 'manipulation' }}
                       />
                     ) : (
                       <span
                         onClick={(e) => { if (!isDrafted) { e.stopPropagation(); setRankEditId(p.id); setRankEditVal(String(rank)); } }}
                         title={isDrafted ? undefined : 'Click to jump to rank'}
-                        style={{ fontSize: '13px', fontWeight: 700, color: flagColors.color !== C.text ? flagColors.color : C.accent, cursor: isDrafted ? 'default' : 'text' }}
+                        style={{ fontSize: '13px', fontWeight: 700, color: flagColors.color !== C.text ? flagColors.color : C.accent, cursor: isDrafted ? 'default' : 'text', touchAction: 'manipulation' }}
                       >
                         {rank}
                       </span>
@@ -504,7 +504,7 @@ export default function TeamProspectDraftboardCompact({
                     <button
                       disabled={isDrafted}
                       onClick={() => moveByOne(rankIdx, 1)}
-                      style={{ background: 'transparent', border: 'none', color: C.accent, cursor: isDrafted ? 'default' : 'pointer', padding: '1px', opacity: isDrafted ? 0.3 : 1 }}
+                      style={{ background: 'transparent', border: 'none', color: C.accent, cursor: isDrafted ? 'default' : 'pointer', padding: '8px 6px', opacity: isDrafted ? 0.3 : 1 }}
                     >
                       <ChevronDown size={14} />
                     </button>
@@ -540,13 +540,13 @@ export default function TeamProspectDraftboardCompact({
                   </div>
 
                   {/* Flags */}
-                  <button onClick={() => toggleFlag(p.id, 'target')} title="Target" style={{ background: 'transparent', border: 'none', color: p.target ? C.target : C.textDim, cursor: 'pointer', padding: '2px' }}>
+                  <button onClick={() => toggleFlag(p.id, 'target')} title="Target" style={{ background: 'transparent', border: 'none', color: p.target ? C.target : C.textDim, cursor: 'pointer', padding: '8px 4px' }}>
                     <Check size={14} />
                   </button>
-                  <button onClick={() => toggleFlag(p.id, 'unlikely')} title="Monitor" style={{ background: 'transparent', border: 'none', color: p.unlikely ? C.unlikely : C.textDim, cursor: 'pointer', padding: '2px' }}>
+                  <button onClick={() => toggleFlag(p.id, 'unlikely')} title="Monitor" style={{ background: 'transparent', border: 'none', color: p.unlikely ? C.unlikely : C.textDim, cursor: 'pointer', padding: '8px 4px' }}>
                     {p.unlikely ? <EyeOff size={14} /> : <Eye size={14} />}
                   </button>
-                  <button onClick={() => toggleFlag(p.id, 'noFit')} title="Avoid" style={{ background: 'transparent', border: 'none', color: p.noFit ? C.noFit : C.textDim, cursor: 'pointer', padding: '2px' }}>
+                  <button onClick={() => toggleFlag(p.id, 'noFit')} title="Avoid" style={{ background: 'transparent', border: 'none', color: p.noFit ? C.noFit : C.textDim, cursor: 'pointer', padding: '8px 4px' }}>
                     <X size={14} />
                   </button>
 
@@ -559,7 +559,7 @@ export default function TeamProspectDraftboardCompact({
                         display: 'flex',
                         alignItems: 'center',
                         gap: '3px',
-                        padding: '3px 8px',
+                        padding: '8px 10px',
                         borderRadius: '4px',
                         fontSize: '10px',
                         fontWeight: 700,
@@ -574,7 +574,7 @@ export default function TeamProspectDraftboardCompact({
                   )}
 
                   {/* Expand toggle */}
-                  <button onClick={() => toggleExpand(p.id)} style={{ background: 'transparent', border: 'none', color: C.accent, cursor: 'pointer', padding: '2px' }}>
+                  <button onClick={() => toggleExpand(p.id)} style={{ background: 'transparent', border: 'none', color: C.accent, cursor: 'pointer', padding: '8px 4px' }}>
                     {isExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
                   </button>
                 </div>

@@ -1258,7 +1258,8 @@ export default function DraftRoomPage() {
                                 max={queue.length}
                                 value={queueEditVal}
                                 autoFocus
-                                className="w-7 text-xs font-bold tabular-nums text-center border border-[var(--border)] rounded bg-[var(--background)] text-[var(--foreground)] shrink-0 pt-0.5"
+                                className="w-7 font-bold tabular-nums text-center border border-[var(--border)] rounded bg-[var(--background)] text-[var(--foreground)] shrink-0 pt-0.5"
+                                style={{ fontSize: '16px', touchAction: 'manipulation' }}
                                 onChange={(e) => setQueueEditVal(e.target.value)}
                                 onBlur={() => { const n = parseInt(queueEditVal, 10); if (!isNaN(n) && n >= 1 && n <= queue.length) moveToQueuePosition(q.id, n); setQueueEditIdx(null); }}
                                 onKeyDown={(e) => { if (e.key === 'Enter') { const n = parseInt(queueEditVal, 10); if (!isNaN(n) && n >= 1 && n <= queue.length) moveToQueuePosition(q.id, n); setQueueEditIdx(null); } else if (e.key === 'Escape') setQueueEditIdx(null); }}
