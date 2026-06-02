@@ -173,16 +173,34 @@ function authorByline(name: string, role: string): string {
   </div>`;
 }
 
+function renderBotText(raw: string): string {
+  // Split on blank lines so the LLM's paragraph breaks are visible in HTML.
+  // Each non-empty chunk becomes its own <p>. Inline newlines become <br>.
+  const paras = raw
+    .split(/\n{2,}/)
+    .map(chunk => chunk.trim())
+    .filter(Boolean);
+  if (paras.length <= 1) {
+    return `<p style="margin:0 0 0 0;font-family:'Georgia','Times New Roman',serif;font-size:17px;line-height:1.85;color:#374151;">${esc(raw)}</p>`;
+  }
+  return paras
+    .map((para, i) => {
+      const marginBottom = i < paras.length - 1 ? '1.2em' : '0';
+      return `<p style="margin:0 0 ${marginBottom} 0;font-family:'Georgia','Times New Roman',serif;font-size:17px;line-height:1.85;color:#374151;">${esc(para)}</p>`;
+    })
+    .join('\n');
+}
+
 function dualPerspective(entertainerText: string, analystText: string): string {
   return `
   <div style="display:grid;gap:20px;margin:28px 0;">
     <div style="padding:28px 36px;border-left:4px solid #be161e;background:#fff;box-shadow:0 1px 4px rgba(0,0,0,0.06);">
       ${authorByline('Mason Reed', 'entertainer')}
-      <p style="margin:0;font-family:'Georgia','Times New Roman',serif;font-size:17px;line-height:1.85;color:#374151;">${esc(entertainerText)}</p>
+      ${renderBotText(entertainerText)}
     </div>
     <div style="padding:28px 36px;border-left:4px solid #0b5f98;background:#fff;box-shadow:0 1px 4px rgba(0,0,0,0.06);">
       ${authorByline('Trent Weston', 'analyst')}
-      <p style="margin:0;font-family:'Georgia','Times New Roman',serif;font-size:17px;line-height:1.85;color:#374151;">${esc(analystText)}</p>
+      ${renderBotText(analystText)}
     </div>
   </div>`;
 }

@@ -306,24 +306,61 @@ export async function POST(request: NextRequest) {
   // before the job was created, or if the pick attribution code was updated after job
   // creation, the stored data would produce wrong analysis. Re-deriving is cheap (only
   // trade events are swapped in) and guarantees correct GIVES/GETS.
+  const tradeDebug = process.env.NEWSLETTER_TRADE_DEBUG === 'true';
+  const tdLog = (msg: string, payload?: unknown) => {
+    if (!tradeDebug) return;
+    if (payload !== undefined) console.log(`[TradeDebug] ${msg}`, JSON.stringify(payload, null, 2).slice(0, 2000));
+    else console.log(`[TradeDebug] ${msg}`);
+  };
+
   if (/^Trade_\d+$/.test(nextStep)) {
+    tdLog(`Starting re-derive for step "${nextStep}", season=${season} week=${week}`);
     try {
       const { leagueId } = jobMeta;
+
       const storedUsers = (derivedData.users as Parameters<typeof import('@/lib/newsletter').buildDerived>[0]['users']) ?? [];
       const storedRosters = (derivedData.rosters as Parameters<typeof import('@/lib/newsletter').buildDerived>[0]['rosters']) ?? [];
+      tdLog('Stored roster/user arrays', {
+        usersCount: Array.isArray(storedUsers) ? storedUsers.length : `NOT ARRAY — type: ${typeof storedUsers}`,
+        rostersCount: Array.isArray(storedRosters) ? storedRosters.length : `NOT ARRAY — type: ${typeof storedRosters}`,
+      });
 
       // Fetch fresh current-week transactions and full cross-season history in parallel
       const allLeagueIds = [LEAGUE_IDS.CURRENT, ...Object.values(LEAGUE_IDS.PREVIOUS)].filter(Boolean) as string[];
+      tdLog(`Fetching transactions for ${allLeagueIds.length} league IDs`, allLeagueIds);
+
       const txArrays = await Promise.all(
-        allLeagueIds.map(lid => getLeagueTransactionsAllWeeks(lid).catch(() => []))
+        allLeagueIds.map(lid => getLeagueTransactionsAllWeeks(lid).catch((e) => {
+          tdLog(`getLeagueTransactionsAllWeeks failed for leagueId=${lid}`, { error: String(e) });
+          return [];
+        }))
       );
+      tdLog('Transaction counts by league', Object.fromEntries(allLeagueIds.map((lid, i) => [lid, txArrays[i].length])));
+
       const allTransactions = txArrays.flat();
+      tdLog(`allTransactions total: ${allTransactions.length}`);
+
       // Current-season transactions scoped to this week for the main event loop
       const weekTransactions = txArrays[0].filter(t => t.leg === week);
+      tdLog(`weekTransactions for leg=${week}: ${weekTransactions.length}`, {
+        tradeCount: weekTransactions.filter(t => t.type === 'trade').length,
+        sampleLegs: txArrays[0].slice(0, 5).map(t => ({ id: t.transaction_id, leg: t.leg, type: t.type })),
+      });
+
+      if (weekTransactions.length === 0) {
+        tdLog(`WARNING: No transactions found for week=${week} in current league. ` +
+          `Check that t.leg matches the week number. ` +
+          `Total current-league transactions: ${txArrays[0].length}. ` +
+          `Unique leg values: ${[...new Set(txArrays[0].map(t => t.leg))].slice(0, 20).join(', ')}`);
+      }
 
       const { buildDerived, setPlayerNameCache } = await import('@/lib/newsletter');
-      const allPlayers = await getAllPlayersCached().catch(() => ({} as Record<string, never>));
-      setPlayerNameCache(allPlayers as Parameters<typeof setPlayerNameCache>[0]);
+      const allPlayers = await getAllPlayersCached().catch((e) => {
+        tdLog('getAllPlayersCached failed', { error: String(e) });
+        return {} as Record<string, { full_name?: string; first_name?: string; last_name?: string }>;
+      });
+      setPlayerNameCache(allPlayers as Record<string, { full_name?: string; first_name?: string; last_name?: string }>);
+      tdLog(`Player cache set: ${Object.keys(allPlayers).length} players`);
 
       const freshDerived = buildDerived({
         users: storedUsers,
@@ -336,9 +373,17 @@ export async function POST(request: NextRequest) {
       const freshTrades = freshDerived.events_scored.filter(e => e.type === 'trade');
       const nonTrades = derived.events_scored.filter(e => e.type !== 'trade');
       derived = { ...derived, events_scored: [...nonTrades, ...freshTrades] };
-      console.log(`[Step] Trade step: re-derived ${freshTrades.length} trade event(s) with live Sleeper data`);
+
+      tdLog(`Re-derive complete: ${freshTrades.length} fresh trade event(s)`, {
+        tradeIds: freshTrades.map(t => t.event_id),
+        parties: freshTrades.map(t => ({ id: t.event_id, parties: t.parties })),
+        byTeamSample: freshTrades[0]?.details?.by_team,
+      });
+      console.log(`[Step] Trade step "${nextStep}": re-derived ${freshTrades.length} trade event(s) with live Sleeper data (week=${week})`);
     } catch (err) {
-      console.warn('[Step] Trade re-derive failed — falling back to stored derived data:', err);
+      const errMsg = err instanceof Error ? `${err.message}\n${err.stack ?? ''}` : String(err);
+      console.warn(`[Step] Trade re-derive FAILED for "${nextStep}" — falling back to frozen derivedData.__derived. Error: ${errMsg}`);
+      tdLog('Re-derive caught error — using frozen __derived', { error: errMsg });
     }
   }
 

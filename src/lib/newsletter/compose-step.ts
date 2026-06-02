@@ -46,6 +46,7 @@ import { getPhaseRules, buildPhaseRulesContext } from './episodes';
 import { buildMatchupCardContext, buildTeamCardContext, computeRivalryScore } from './team-narratives';
 import { evaluateClancyTrigger, generateClancyInsert, buildClancySystemContext } from './guest-voice';
 import type { ClancyInsert, PredictionCallbackItem } from './types';
+import { buildTradeFacts, stripTradeIntroBoilerplate } from './trade-facts';
 
 // ============ Step catalog ============
 
@@ -677,29 +678,24 @@ async function genSingleTradeItem(input: StepInput, tradeIndex: number): Promise
   const parties = e.parties || Object.keys(byTeam);
   const isMultiTeam = parties.length > 2;
 
-  let tradeBreakdown = '';
-  for (const team of parties) {
-    const a = byTeam[team];
-    if (a) {
-      const givesArr = a.gives || [];
-      const givesStr = givesArr.length > 0 ? annotateTradePlayers(givesArr) : 'nothing confirmed';
-      tradeBreakdown += `\n${team}: GETS ${annotateTradePlayers(a.gets)} | GIVES ${givesStr}`;
-    }
-  }
-
-  const multiTeamNote = isMultiTeam
-    ? `\n⚠️ MULTI-TEAM TRADE (${parties.length} teams): Each team's GETS and GIVES are listed separately. ` +
-      `Pick senders have been verified against the full league trade history — if a pick appears in a team's GIVES column it was confirmed they sent it. ` +
-      `If a pick does NOT appear in any team's GIVES column, the sender is uncertain — do not guess or attribute it.\n`
-    : '';
+  // ── TRADE FACTS block ────────────────────────────────────────────────────────
+  // Built deterministically by code — source of truth for all LLM calls.
+  const tradeFacts = buildTradeFacts(parties, byTeam, annotateTradePlayers);
 
   // Display headline (clean, for the template card header)
   const tradeDisplayHeadline = e.details?.headline || `Trade between ${parties.join(' and ')}`;
 
-  // Full LLM context (includes breakdown — used for generation only)
-  const tradeContext = e.details?.headline
-    ? `${parties.join(' ↔ ')}: ${e.details.headline}${multiTeamNote}${tradeBreakdown}`
-    : `Trade between ${parties.join(' and ')}${multiTeamNote}${tradeBreakdown}`;
+  // Concise headline for intro context — not the full breakdown
+  const tradeHeadlineCtx = e.details?.headline
+    ? `${parties.join(' ↔ ')}: ${e.details.headline}`
+    : `Trade between ${parties.join(' and ')}`;
+
+  const stripTradeBoilerplate = (text: string, logPrefix: string): string =>
+    stripTradeIntroBoilerplate(text, (pat) => {
+      if (process.env.NEWSLETTER_TRADE_DEBUG === 'true') {
+        console.log(`[TradeDebug] ${logPrefix}: stripped intro boilerplate — pattern: ${pat}`);
+      }
+    });
 
   // Helper: find a team's full current roster from rosterContext for trade evaluation
   const getTeamRoster = (teamName: string): string => {
@@ -734,62 +730,109 @@ async function genSingleTradeItem(input: StepInput, tradeIndex: number): Promise
   // Phase 2: phase rules for trade context
   const tradeStepPhaseCtx = buildPhaseRulesContext(getPhaseRules(input.episodeType));
 
-  // Mason Reed writes one intro for the whole trade — Westy does not intro, goes straight to analysis.
+  // Mason Reed writes one 1-2 sentence intro for the whole trade.
+  // Context is the headline + TRADE FACTS so Mason knows what happened.
+  // Westy does not write an intro.
   const rawIntro = await generateSection({
     persona: 'entertainer',
     sectionType: 'Trade Intro',
-    context: tradeContext + tradeStepPhaseCtx,
-    constraints: `Write 1-2 punchy sentences introducing this ${isMultiTeam ? `${parties.length}-team` : ''} trade. Set the scene and the storyline — who made the power move, what's the narrative. Do NOT grade anyone or analyze specific team outcomes yet.`,
+    context: `${tradeHeadlineCtx}\n\n${tradeFacts}\n\n${tradeStepPhaseCtx}`,
+    constraints: `Write 1-2 punchy sentences setting the scene for this ${isMultiTeam ? `${parties.length}-team ` : ''}trade. Focus on the narrative — who made the power move, what's the story. Do NOT summarize every asset. Do NOT grade or analyze any specific team's outcome here.`,
     maxTokens: 120,
   }).catch(() => '');
-  const tradeIntro = rawIntro ? guardText(rawIntro, { sectionType: 'Trade Intro', logPrefix: '[step:TradeIntro:entertainer]' }) : '';
+  const tradeIntro = rawIntro
+    ? stripTradeBoilerplate(
+        guardText(rawIntro, { sectionType: 'Trade Intro', logPrefix: '[step:TradeIntro:entertainer]' }),
+        'TradeIntro',
+      )
+    : '';
 
   const analysis: TradeItem['analysis'] = {};
   for (const party of parties) {
     const a = byTeam[party];
-    // Phase 2: team card for this party
     const tradePartyCard = buildTeamCardContext(party, {
       recentStance: input.memEntertainer.recentOutputLog?.recentStances?.[party],
       dataConfidenceFilter: 'medium',
     });
 
-    const givesArr = a?.gives || [];
-    const received = annotateTradePlayers(a?.gets);
-    const gaveUp   = givesArr.length > 0 ? annotateTradePlayers(givesArr) : 'nothing confirmed';
     const otherTeams = parties.filter(p => p !== party).join(' and ');
 
-    const sideCtx = `You are grading THIS SPECIFIC TRADE for ${party} only. All players and picks listed below are exactly what changed hands — do not reference external news or other trades.\n\n${party} in this trade:\n  RECEIVED: ${received}\n  GAVE UP: ${gaveUp}${getTeamRoster(party)}\n\nFull trade breakdown:\n${tradeContext}${tradePartyCard}`;
+    // Context for this party: TRADE FACTS first, then party-specific focus, then roster
+    const sideCtx = [
+      tradeFacts,
+      '',
+      `YOUR ASSIGNMENT: Grade this trade for ${party} only.`,
+      `Focus team: ${party}`,
+      `  Their Gave:     ${(a?.gives?.length ?? 0) > 0 ? annotateTradePlayers(a!.gives) : '(no assets listed)'}`,
+      `  Their Received: ${(a?.gets?.length ?? 0) > 0 ? annotateTradePlayers(a!.gets) : '(no assets listed)'}`,
+      getTeamRoster(party),
+      tradePartyCard,
+    ].filter(Boolean).join('\n');
+
     const fallbackAnalysis = `Grade: B. Analysis unavailable for this side of the trade.`;
+
+    const masonConstraint = isMultiTeam
+      ? `You are Mason Reed. Grade this ${parties.length}-team trade for ${party} (A+ to F).\n` +
+        `Do NOT open with a trade summary or introduction — the trade facts are already displayed above.\n` +
+        `Do NOT use phrases like "Welcome to", "Let's break down", "This week's trade", "In this trade".\n` +
+        `Write 2-3 paragraphs:\n` +
+        `  1. Where does ${party} land vs ${otherTeams}? Winner, break-even, or loser — and why?\n` +
+        `  2. React to each specific asset in their "Gave" and "Received" with your personality.\n` +
+        `  3. What does this mean for ${party}'s season?\n` +
+        `Stick to assets listed under ${party} in TRADE FACTS. End with your letter grade.`
+      : `You are Mason Reed. Grade this trade for ${party} (A+ to F).\n` +
+        `Do NOT open with a trade summary or introduction — the trade facts are already displayed above.\n` +
+        `Do NOT use phrases like "Welcome to", "Let's break down", "This week's trade", "In this trade".\n` +
+        `Write 2-3 paragraphs:\n` +
+        `  1. Was this a heist, a robbery, or a fair deal for ${party}?\n` +
+        `  2. React to each specific asset in their "Gave" and "Received" with your personality.\n` +
+        `  3. What does this mean for ${party}'s dynasty outlook?\n` +
+        `Stick to assets listed under ${party} in TRADE FACTS. End with your letter grade.`;
+
+    const westyConstraint = isMultiTeam
+      ? `You are Westy (Trent Weston). Grade this ${parties.length}-team trade for ${party} (A+ to F).\n` +
+        `Do NOT open with a trade summary or introduction — the trade facts are already displayed above.\n` +
+        `Do NOT use phrases like "Welcome to", "Let's break down", "This week's trade", "In this trade".\n` +
+        `Write 2-3 paragraphs:\n` +
+        `  1. Net value: did ${party} win or lose vs ${otherTeams}? State the verdict.\n` +
+        `  2. Break down each asset under ${party}'s "Gave" and "Received": age curve, dynasty value, positional scarcity, pick round/year cost. Use dynasty rankings shown if available.\n` +
+        `  3. Roster fit and championship window impact for ${party}.\n` +
+        `Only penalize ${party} for assets listed under their "Gave". End with your letter grade.`
+      : `You are Westy (Trent Weston). Grade this trade for ${party} (A+ to F).\n` +
+        `Do NOT open with a trade summary or introduction — the trade facts are already displayed above.\n` +
+        `Do NOT use phrases like "Welcome to", "Let's break down", "This week's trade", "In this trade".\n` +
+        `Write 2-3 paragraphs:\n` +
+        `  1. Net value verdict for ${party}: did they win or lose?\n` +
+        `  2. Break down each asset under ${party}'s "Gave" and "Received": age, dynasty value, positional scarcity. Use dynasty rankings if available.\n` +
+        `  3. Roster fit and championship window implications.\n` +
+        `Stick to assets listed under ${party} in TRADE FACTS. End with your letter grade.`;
+
     const [rawEntTrade, rawAnaTrade] = await Promise.all([
       generateSection({
-        persona: 'entertainer', sectionType: 'Trade Grade', context: sideCtx + tradeStepDedupeEnt + tradeStepPhaseCtx,
-        constraints: isMultiTeam
-          ? `Grade this ${parties.length}-team trade FOR ${party} specifically (A+ to F). ` +
-            `Skip any trade introduction — jump straight into your verdict. ` +
-            `Write 2-3 paragraphs: first your gut reaction on where ${party} lands vs ${otherTeams} (winner/break-even/loser and why), then break down each asset they received and gave up with personality, then your final take on what this means for their season. ` +
-            `Only attribute assets explicitly listed in their GAVE UP column — do NOT attribute picks not shown there. ` +
-            `End with your letter grade.`
-          : `Grade this trade FOR ${party} specifically (A+ to F). Skip any trade setup — go straight to your verdict. ` +
-            `Write 2-3 paragraphs: first your gut reaction (heist, robbery, or fair deal?), then break down each asset they got and gave up with personality, then what this means for their dynasty outlook. ` +
-            `End with your letter grade. FACTUAL RULE: only reference assets listed above.`,
+        persona: 'entertainer',
+        sectionType: 'Trade Grade',
+        context: sideCtx + '\n\n' + tradeStepDedupeEnt + tradeStepPhaseCtx,
+        constraints: masonConstraint,
         maxTokens: 1100,
       }).catch(() => fallbackAnalysis),
       generateSection({
-        persona: 'analyst', sectionType: 'Trade Grade', context: sideCtx + tradeStepDedupeAna + tradeStepPhaseCtx,
-        constraints: isMultiTeam
-          ? `Grade this ${parties.length}-team trade FOR ${party} specifically (A+ to F). ` +
-            `Skip any trade introduction — go straight into your analysis. ` +
-            `Write 2-3 paragraphs: first the net value assessment (did ${party} win or lose the trade vs ${otherTeams}?), then a detailed breakdown of each asset — age curve, dynasty value, positional scarcity, pick cost — using any dynasty rankings shown, then the roster-fit and window analysis. ` +
-            `Only grade ${party} on assets in their confirmed GAVE UP column — do not penalize for picks not listed there. ` +
-            `End with your letter grade.`
-          : `Grade this trade FOR ${party} specifically (A+ to F). Skip any trade setup — go straight into your analysis. ` +
-            `Write 2-3 paragraphs: first the overall value verdict for ${party}, then a detailed breakdown of each asset received and surrendered (age, dynasty value, positional scarcity, using any dynasty rankings shown), then roster fit and championship window implications. ` +
-            `End with your letter grade. FACTUAL RULE: only reference assets listed above.`,
+        persona: 'analyst',
+        sectionType: 'Trade Grade',
+        context: sideCtx + '\n\n' + tradeStepDedupeAna + tradeStepPhaseCtx,
+        constraints: westyConstraint,
         maxTokens: 1100,
       }).catch(() => fallbackAnalysis),
     ]);
-    const entR = guardText(rawEntTrade, { sectionType: 'Trade Grade', logPrefix: `[step:TradeGrade:${party}:entertainer]` });
-    const anaR = guardText(rawAnaTrade, { sectionType: 'Trade Grade', logPrefix: `[step:TradeGrade:${party}:analyst]` });
+
+    const entR = stripTradeBoilerplate(
+      guardText(rawEntTrade, { sectionType: 'Trade Grade', logPrefix: `[step:TradeGrade:${party}:entertainer]` }),
+      `TradeGrade:${party}:mason`,
+    );
+    const anaR = stripTradeBoilerplate(
+      guardText(rawAnaTrade, { sectionType: 'Trade Grade', logPrefix: `[step:TradeGrade:${party}:analyst]` }),
+      `TradeGrade:${party}:westy`,
+    );
+
     analysis[party] = {
       grade: extractGrade(entR),
       entertainer_grade: extractGrade(entR),

@@ -637,13 +637,21 @@ export async function generateSection(options: GenerateSectionOptions): Promise<
     systemPrompt += adminOverrideCtx;
   }
 
+  // Detect when the constraint explicitly requests length — "Be concise" would override it.
+  const hasLengthContract = constraints != null && /\b(paragraph|paragraphs|\d\s*[-–]\s*\d\s*paragraph|expanded|detailed breakdown)\b/i.test(constraints);
+  const isTradeSection = /trade/i.test(sectionType);
+
+  const closingInstruction = (hasLengthContract || isTradeSection)
+    ? 'Write your assigned commentary now. Follow the section contract exactly. Do not add a section header or introduction.'
+    : 'Write your section now. Be concise but engaging. Do not include section headers - just the content.';
+
   const userPrompt = `Generate the "${sectionType}" section for this fantasy football newsletter.
 
 CONTEXT:
 ${context}
 
 ${constraints ? `CONSTRAINTS:\n${constraints}\n` : ''}
-Write your section now. Be concise but engaging. Do not include section headers - just the content.
+${closingInstruction}
 Remember to use your signature style and voice. Make it feel like YOU wrote this.`;
 
   const budget = getThinkingBudget(sectionType, thinkingBudget);
