@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { ChevronDown, ChevronUp, Eye, EyeOff, X, Check, RotateCcw, Save, AlertCircle, Search, Tag, Download, Printer } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
@@ -372,6 +372,9 @@ export default function TeamProspectDraftboard() {
   const [mockDraftOrder, setMockDraftOrder] = useState<string[]>([]);
   const [mockDraftSlots, setMockDraftSlots] = useState<Array<{ round: number; slot: number; ownerTeam: string }>>([]);
   const [collapsedTiers, setCollapsedTiers] = useState<Record<string, boolean>>({});
+  const [rankEditId, setRankEditId] = useState<string | null>(null);
+  const [rankEditVal, setRankEditVal] = useState('');
+  const dragYRef = useRef<number>(0);
   const canEdit = isAuthenticated;
 
   useEffect(() => {
@@ -485,6 +488,23 @@ export default function TeamProspectDraftboard() {
     return () => clearTimeout(t);
   }, [players, scoutingUrl, loading, canEdit, customTiers, tierBreaks, myPicks, customTagsList, playerTags]);
 
+  useEffect(() => {
+    if (!draggedTierDiv) return;
+    const trackY = (e: DragEvent) => { dragYRef.current = e.clientY; };
+    document.addEventListener('dragover', trackY);
+    const timer = setInterval(() => {
+      const y = dragYRef.current;
+      const vh = window.innerHeight;
+      const zone = 80;
+      if (y > 0 && y < zone) window.scrollBy(0, -Math.ceil(12 * (1 - y / zone)));
+      else if (y > vh - zone) window.scrollBy(0, Math.ceil(12 * (1 - (vh - y) / zone)));
+    }, 30);
+    return () => {
+      document.removeEventListener('dragover', trackY);
+      clearInterval(timer);
+    };
+  }, [draggedTierDiv]);
+
   const toggleExpand = (id: string) => setExpandedId((prev) => prev === id ? null : id);
   const updatePlayer = (id: string, patch: Record<string, unknown>) => setPlayers((prev) => prev.map((p) => p.id === id ? { ...p, ...patch } : p));
   const toggleFlag = (id: string, flag: string) => {
@@ -503,6 +523,18 @@ export default function TeamProspectDraftboard() {
       if (neighbor.tier !== player.tier) newPlayer.tier = neighbor.tier;
       arr[idx] = arr[targetIdx];
       arr[targetIdx] = newPlayer;
+      return arr;
+    });
+  };
+  const moveToRank = (fromIdx: number, targetRank: number) => {
+    if (!canEdit) return;
+    setPlayers((prev) => {
+      const toIdx = targetRank - 1;
+      if (toIdx < 0 || toIdx >= prev.length || toIdx === fromIdx) return prev;
+      const arr = [...prev];
+      const [item] = arr.splice(fromIdx, 1);
+      const destTier = arr[Math.min(toIdx, arr.length - 1)]?.tier ?? item.tier;
+      arr.splice(toIdx, 0, { ...item, tier: destTier });
       return arr;
     });
   };
@@ -601,6 +633,16 @@ export default function TeamProspectDraftboard() {
       posGroup.forEach((p, i) => { result[p.id] = i + 1; });
     }
     return result;
+  })();
+
+  const tierPlayerCounts: Record<string, number> = (() => {
+    const counts: Record<string, number> = {};
+    players.forEach((p, idx) => {
+      let best = ''; let bestBreak = -1;
+      for (const t of customTiers) { const b = tierBreaks[t] ?? -1; if (b >= 0 && b <= idx && b > bestBreak) { bestBreak = b; best = t; } }
+      if (best) counts[best] = (counts[best] || 0) + 1;
+    });
+    return counts;
   })();
 
   const rankedPlayers = players.map((p, idx) => ({ ...p, _absIdx: idx }));
@@ -802,6 +844,7 @@ export default function TeamProspectDraftboard() {
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                         {canEdit && <span style={{ fontSize: '13px', color: C.textDim }}>⠿</span>}
                         <span style={{ fontSize: '10px', letterSpacing: '2px', color: C.accent, fontWeight: 700 }}>{tierName}</span>
+                        {(tierPlayerCounts[tierName] ?? 0) > 0 && <span style={{ fontSize: '10px', color: C.textDim }}>({tierPlayerCounts[tierName]})</span>}
                       </div>
                       <span style={{ color: C.accent, fontSize: '11px' }}>{isCollapsed ? '▶ SHOW' : '▼ HIDE'}</span>
                     </div>
@@ -832,11 +875,33 @@ export default function TeamProspectDraftboard() {
                   <div style={{ fontSize: '9px', letterSpacing: '3px', color: C.textDim, fontWeight: 700, background: `${C.bg}cc`, padding: '2px 10px', borderRadius: '3px' }}>{toOrdinal(mockPickNum)} OVERALL · DRAFTED</div>
                 </div>}
                 <div style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '10px' }}>
+                  {canEdit && boardView !== 'mock' && <span style={{ fontSize: '14px', color: C.textDim, cursor: 'grab', lineHeight: 1, flexShrink: 0, alignSelf: 'center', opacity: 0.55 }}>⠿</span>}
                   <div style={{ display: 'flex', flexDirection: 'column' }}>
                     <button disabled={!canEdit} onClick={() => moveByOne(idx, -1)} aria-label="Up" style={{ background: 'transparent', border: 'none', color: flagColors.color !== C.text ? flagColors.color : C.accent, cursor: canEdit ? 'pointer' : 'default', padding: '2px', display: 'flex', opacity: canEdit ? 1 : 0.4 }}><ChevronUp size={16} /></button>
                     <button disabled={!canEdit} onClick={() => moveByOne(idx, 1)} aria-label="Down" style={{ background: 'transparent', border: 'none', color: flagColors.color !== C.text ? flagColors.color : C.accent, cursor: canEdit ? 'pointer' : 'default', padding: '2px', display: 'flex', opacity: canEdit ? 1 : 0.4 }}><ChevronDown size={16} /></button>
                   </div>
-                  <div style={{ fontSize: '17px', fontWeight: 700, color: flagColors.color !== C.text ? flagColors.color : C.accent, minWidth: '28px', textAlign: 'center' }}>{rank}</div>
+                  {rankEditId === pId && canEdit ? (
+                    <input
+                      type="number"
+                      min={1}
+                      max={players.length}
+                      value={rankEditVal}
+                      autoFocus
+                      onChange={(e) => setRankEditVal(e.target.value)}
+                      onBlur={() => { const n = parseInt(rankEditVal, 10); if (!isNaN(n) && n >= 1 && n <= players.length) moveToRank(idx, n); setRankEditId(null); }}
+                      onKeyDown={(e) => { if (e.key === 'Enter') { const n = parseInt(rankEditVal, 10); if (!isNaN(n) && n >= 1 && n <= players.length) moveToRank(idx, n); setRankEditId(null); } else if (e.key === 'Escape') setRankEditId(null); }}
+                      onClick={(e) => e.stopPropagation()}
+                      style={{ width: '44px', fontSize: '15px', fontWeight: 700, color: C.accent, background: C.bg, border: `1px solid ${C.accent}`, borderRadius: '3px', textAlign: 'center', padding: '2px 0' }}
+                    />
+                  ) : (
+                    <div
+                      onClick={(e) => { if (canEdit) { e.stopPropagation(); setRankEditId(pId); setRankEditVal(String(rank)); } }}
+                      title={canEdit ? 'Click to jump to rank' : undefined}
+                      style={{ fontSize: '17px', fontWeight: 700, color: flagColors.color !== C.text ? flagColors.color : C.accent, minWidth: '28px', textAlign: 'center', cursor: canEdit ? 'text' : 'default' }}
+                    >
+                      {rank}
+                    </div>
+                  )}
                   <div onClick={() => toggleExpand(pId)} style={{ flex: 1, cursor: 'pointer', minWidth: 0 }}>
                     <div style={{ fontSize: '15px', fontWeight: 600, color: flagColors.color }}>{String(p.name)}</div>
                     <div style={{ display: 'flex', gap: '6px', alignItems: 'center', marginTop: '3px', flexWrap: 'wrap' }}>
@@ -855,7 +920,20 @@ export default function TeamProspectDraftboard() {
                   <button onClick={() => toggleExpand(pId)} aria-label={isExpanded ? 'Collapse' : 'Expand'} style={{ background: 'transparent', border: 'none', color: C.accent, cursor: 'pointer', padding: '4px', display: 'flex' }}>{isExpanded ? <ChevronUp size={18} /> : <ChevronDown size={18} />}</button>
                 </div>
                 {isExpanded && <div style={{ padding: '0 14px 14px 14px', borderTop: `1px solid ${C.border}`, marginTop: '4px' }}>
-                  {canEdit && assignedTier && <div style={{ marginTop: '8px', fontSize: '11px', color: C.textMuted }}><span style={{ color: C.textDim }}>Tier: </span><span style={{ color: C.accent }}>{assignedTier}</span></div>}
+                  {canEdit && customTiers.length > 0 && (
+                    <div style={{ marginTop: '8px', display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center' }}>
+                      <span style={{ fontSize: '10px', color: C.textDim, letterSpacing: '1px' }}>{assignedTier ? 'TIER:' : 'PLACE IN TIER:'}</span>
+                      {customTiers.map(tier => (
+                        <button
+                          key={tier}
+                          onClick={(e) => { e.stopPropagation(); setTierBreaks(prev => ({ ...prev, [tier]: rankIdx })); }}
+                          style={{ fontSize: '10px', padding: '2px 8px', borderRadius: '3px', border: `1px solid ${assignedTier === tier ? C.accent : C.border}`, background: assignedTier === tier ? `${C.accent}22` : 'transparent', color: assignedTier === tier ? C.accent : C.textMuted, cursor: 'pointer', letterSpacing: '0.5px' }}
+                        >
+                          {tier}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                   {canEdit && customTagsList.length > 0 && (
                     <div style={{ marginTop: '12px' }}>
                       <div style={{ fontSize: '10px', letterSpacing: '2px', color: C.accent, fontWeight: 700, marginBottom: '6px' }}>TAGS</div>

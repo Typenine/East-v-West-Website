@@ -66,10 +66,18 @@ function applySavedBoardData(saved: Record<string, unknown>) {
     next = next.map((p) => ({ ...p, userNote: String(notesMap[p.id] || '') }));
   }
 
-  return { players: next };
+  const customTiers = Array.isArray(data.customTiers)
+    ? data.customTiers.map((t) => String(t).trim()).filter(Boolean)
+    : [];
+  const tierBreaks: Record<string, number> =
+    data.tierBreaks && typeof data.tierBreaks === 'object' && !Array.isArray(data.tierBreaks)
+      ? Object.fromEntries(Object.entries(data.tierBreaks as Record<string, unknown>).map(([k, v]) => [k, Number(v)]))
+      : {};
+
+  return { players: next, customTiers, tierBreaks };
 }
 
-function buildBoardData(players: BoardPlayer[]) {
+function buildBoardData(players: BoardPlayer[], customTiers: string[], tierBreaks: Record<string, number>) {
   const orderIds = players.map((p) => String(p.id));
   const unlikely: Record<string, boolean> = {};
   const noFit: Record<string, boolean> = {};
@@ -82,7 +90,7 @@ function buildBoardData(players: BoardPlayer[]) {
     if (p.target) target[id] = true;
     if (typeof p.userNote === 'string' && p.userNote.trim()) notes[id] = p.userNote;
   });
-  return { orderIds, unlikely, noFit, target, notes };
+  return { orderIds, unlikely, noFit, target, notes, customTiers, tierBreaks };
 }
 
 function getFlagColors(p: Record<string, unknown>) {
@@ -134,6 +142,11 @@ export default function TeamProspectDraftboardCompact({
   const [posFilter, setPosFilter] = useState('ALL');
   const [search, setSearch] = useState('');
   const [showDrafted, setShowDrafted] = useState(true);
+  const [customTiers, setCustomTiers] = useState<string[]>([]);
+  const [tierBreaks, setTierBreaks] = useState<Record<string, number>>({});
+  const [rankEditId, setRankEditId] = useState<string | null>(null);
+  const [rankEditVal, setRankEditVal] = useState('');
+  const [collapsedTiers, setCollapsedTiers] = useState<Record<string, boolean>>({});
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Build a map of available player IDs for quick lookup (memoized)
@@ -150,6 +163,8 @@ export default function TeamProspectDraftboardCompact({
         const body = await res.json();
         const applied = applySavedBoardData((body?.data || {}) as Record<string, unknown>);
         setPlayers(applied.players);
+        setCustomTiers(applied.customTiers);
+        setTierBreaks(applied.tierBreaks);
       } catch {
         setPlayers(DEFAULT_PLAYERS.map((p) => ({ ...p })));
       }
@@ -162,7 +177,7 @@ export default function TeamProspectDraftboardCompact({
     if (loading) return;
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
     saveTimeoutRef.current = setTimeout(async () => {
-      const boardData = buildBoardData(players);
+      const boardData = buildBoardData(players, customTiers, tierBreaks);
       try {
         const res = await fetch(BOARD_API_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ data: boardData }) });
         if (res.ok) {
@@ -175,7 +190,7 @@ export default function TeamProspectDraftboardCompact({
       }
     }, 800);
     return () => { if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current); };
-  }, [players, loading]);
+  }, [players, customTiers, tierBreaks, loading]);
 
   const toggleExpand = (id: string) => setExpandedId((prev) => prev === id ? null : id);
 
@@ -194,6 +209,18 @@ export default function TeamProspectDraftboardCompact({
       if (neighbor.tier !== player.tier) newPlayer.tier = neighbor.tier;
       arr[idx] = arr[targetIdx];
       arr[targetIdx] = newPlayer;
+      return arr;
+    });
+  };
+
+  const moveToRank = (fromIdx: number, targetRank: number) => {
+    setPlayers((prev) => {
+      const toIdx = targetRank - 1;
+      if (toIdx < 0 || toIdx >= prev.length || toIdx === fromIdx) return prev;
+      const arr = [...prev];
+      const [item] = arr.splice(fromIdx, 1);
+      const destTier = arr[Math.min(toIdx, arr.length - 1)]?.tier ?? item.tier;
+      arr.splice(toIdx, 0, { ...item, tier: destTier });
       return arr;
     });
   };
@@ -248,6 +275,32 @@ export default function TeamProspectDraftboardCompact({
 
   // Position needs (using roster only, draft picks are already in roster context)
   const positionNeeds = calculatePositionNeeds(teamRoster, []);
+
+  const posRankMap: Record<string, number> = (() => {
+    const byPos: Record<string, string[]> = {};
+    [...players].sort((a, b) => (Number(a.pick) || 9999) - (Number(b.pick) || 9999))
+      .forEach(p => { if (!byPos[p.pos]) byPos[p.pos] = []; byPos[p.pos].push(p.id); });
+    const result: Record<string, number> = {};
+    for (const ids of Object.values(byPos)) ids.forEach((id, i) => { result[id] = i + 1; });
+    return result;
+  })();
+
+  const tierPlayerCounts: Record<string, number> = (() => {
+    const counts: Record<string, number> = {};
+    players.forEach((p, idx) => {
+      let best = ''; let bestBreak = -1;
+      for (const t of customTiers) { const b = tierBreaks[t] ?? -1; if (b >= 0 && b <= idx && b > bestBreak) { bestBreak = b; best = t; } }
+      if (best) counts[best] = (counts[best] || 0) + 1;
+    });
+    return counts;
+  })();
+
+  const bestAvailId = (() => {
+    for (const p of players) {
+      if (p.target && isPlayerAvailable(p) && !isPlayerDrafted(p)) return p.id;
+    }
+    return null;
+  })();
 
   if (loading) {
     return (
@@ -354,11 +407,34 @@ export default function TeamProspectDraftboardCompact({
             const isQueued = availPlayer ? queuedIds.has(availPlayer.id) : false;
             const flagColors = getFlagColors(p);
             const isExpanded = expandedId === p.id;
-            const rank = players.findIndex(pl => pl.id === p.id) + 1;
+            const rankIdx = players.findIndex(pl => pl.id === p.id);
+            const rank = rankIdx + 1;
+
+            const assignedTier = (() => {
+              let best = ''; let bestBreak = -1;
+              for (const t of customTiers) { const b = tierBreaks[t] ?? -1; if (b >= 0 && b <= rankIdx && b > bestBreak) { bestBreak = b; best = t; } }
+              return best;
+            })();
 
             return (
-              <div
-                key={p.id}
+              <React.Fragment key={p.id}>
+                {customTiers.map(tierName =>
+                  (tierBreaks[tierName] ?? -1) === rankIdx ? (
+                    <div
+                      key={`tier-${tierName}`}
+                      onClick={() => setCollapsedTiers(prev => ({ ...prev, [tierName]: !prev[tierName] }))}
+                      style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '5px 10px', margin: '4px 0 1px 0', background: `${C.primary}22`, border: `2px solid ${C.primary}44`, borderRadius: '3px', cursor: 'pointer', userSelect: 'none' }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <span style={{ fontSize: '11px', color: C.textDim }}>⠿</span>
+                        <span style={{ fontSize: '9px', letterSpacing: '2px', color: C.accent, fontWeight: 700 }}>{tierName}</span>
+                        {(tierPlayerCounts[tierName] ?? 0) > 0 && <span style={{ fontSize: '9px', color: C.textDim }}>({tierPlayerCounts[tierName]})</span>}
+                      </div>
+                      <span style={{ fontSize: '10px', color: C.accent }}>{collapsedTiers[tierName] ? '▶ SHOW' : '▼ HIDE'}</span>
+                    </div>
+                  ) : null
+                )}
+              {!(assignedTier && collapsedTiers[assignedTier]) && <div
                 draggable={!isDrafted}
                 onDragStart={() => setDraggedId(p.id)}
                 onDragOver={(e) => { e.preventDefault(); if (dragOverId !== p.id) setDragOverId(p.id); }}
@@ -392,19 +468,42 @@ export default function TeamProspectDraftboardCompact({
                   </div>
                 )}
                 <div style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '8px' }}>
+                  {/* Drag handle */}
+                  {!isDrafted && <span style={{ fontSize: '13px', color: C.textDim, cursor: 'grab', lineHeight: 1, flexShrink: 0, alignSelf: 'center' }}>⠿</span>}
                   {/* Rank & reorder */}
                   <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', minWidth: '28px' }}>
                     <button
                       disabled={isDrafted}
-                      onClick={() => moveByOne(players.findIndex(pl => pl.id === p.id), -1)}
+                      onClick={() => moveByOne(rankIdx, -1)}
                       style={{ background: 'transparent', border: 'none', color: C.accent, cursor: isDrafted ? 'default' : 'pointer', padding: '1px', opacity: isDrafted ? 0.3 : 1 }}
                     >
                       <ChevronUp size={14} />
                     </button>
-                    <span style={{ fontSize: '13px', fontWeight: 700, color: flagColors.color !== C.text ? flagColors.color : C.accent }}>{rank}</span>
+                    {rankEditId === p.id ? (
+                      <input
+                        type="number"
+                        min={1}
+                        max={players.length}
+                        value={rankEditVal}
+                        autoFocus
+                        onChange={(e) => setRankEditVal(e.target.value)}
+                        onBlur={() => { const n = parseInt(rankEditVal, 10); if (!isNaN(n) && n >= 1 && n <= players.length) moveToRank(rankIdx, n); setRankEditId(null); }}
+                        onKeyDown={(e) => { if (e.key === 'Enter') { const n = parseInt(rankEditVal, 10); if (!isNaN(n) && n >= 1 && n <= players.length) moveToRank(rankIdx, n); setRankEditId(null); } else if (e.key === 'Escape') setRankEditId(null); }}
+                        onClick={(e) => e.stopPropagation()}
+                        style={{ width: '36px', fontSize: '12px', fontWeight: 700, color: C.accent, background: C.bg, border: `1px solid ${C.accent}`, borderRadius: '3px', textAlign: 'center', padding: '1px 0' }}
+                      />
+                    ) : (
+                      <span
+                        onClick={(e) => { if (!isDrafted) { e.stopPropagation(); setRankEditId(p.id); setRankEditVal(String(rank)); } }}
+                        title={isDrafted ? undefined : 'Click to jump to rank'}
+                        style={{ fontSize: '13px', fontWeight: 700, color: flagColors.color !== C.text ? flagColors.color : C.accent, cursor: isDrafted ? 'default' : 'text' }}
+                      >
+                        {rank}
+                      </span>
+                    )}
                     <button
                       disabled={isDrafted}
-                      onClick={() => moveByOne(players.findIndex(pl => pl.id === p.id), 1)}
+                      onClick={() => moveByOne(rankIdx, 1)}
                       style={{ background: 'transparent', border: 'none', color: C.accent, cursor: isDrafted ? 'default' : 'pointer', padding: '1px', opacity: isDrafted ? 0.3 : 1 }}
                     >
                       <ChevronDown size={14} />
@@ -434,7 +533,9 @@ export default function TeamProspectDraftboardCompact({
                       }}>
                         {p.name}
                       </span>
+                      {p.id === bestAvailId && <span style={{ fontSize: '9px', fontWeight: 700, color: C.accent, background: `${C.accent}1a`, padding: '1px 5px', borderRadius: '3px', border: `1px solid ${C.accent}44`, letterSpacing: '0.5px', whiteSpace: 'nowrap' }}>★ TOP</span>}
                       <span style={{ fontSize: '11px', color: C.textMuted }}>{p.team}</span>
+                      {posRankMap[p.id] && <span style={{ fontSize: '10px', color: C.textDim }}>· {p.pos}{posRankMap[p.id]}</span>}
                     </div>
                   </div>
 
@@ -528,7 +629,8 @@ export default function TeamProspectDraftboardCompact({
                     )}
                   </div>
                 )}
-              </div>
+              </div>}
+              </React.Fragment>
             );
           })
         )}

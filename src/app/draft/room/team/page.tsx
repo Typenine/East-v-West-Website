@@ -119,6 +119,8 @@ export default function DraftRoomPage() {
   const tradeTabVisibleRef = useRef(false);
   tradeTabVisibleRef.current = teamPanelTab === 'trade';
   const [activeViewers, setActiveViewers] = useState<string[]>([]);
+  const [queueEditIdx, setQueueEditIdx] = useState<number | null>(null);
+  const [queueEditVal, setQueueEditVal] = useState('');
 
   // Animation phase state — mirrors DraftOverlayLive (display only, no admin controls)
   const [animPhase, setAnimPhase] = useState<'pick' | 'clock' | 'video' | null>(null);
@@ -334,6 +336,16 @@ export default function DraftRoomPage() {
     if (nIdx < 0 || nIdx >= queue.length) return;
     const nq = [...queue];
     [nq[idx], nq[nIdx]] = [nq[nIdx], nq[idx]];
+    await syncQueue(nq);
+  };
+  const moveToQueuePosition = async (id: string, targetPos: number) => {
+    const fromIdx = queue.findIndex(q => q.id === id);
+    if (fromIdx < 0) return;
+    const toIdx = targetPos - 1;
+    if (toIdx < 0 || toIdx >= queue.length || toIdx === fromIdx) return;
+    const nq = [...queue];
+    const [item] = nq.splice(fromIdx, 1);
+    nq.splice(toIdx, 0, item);
     await syncQueue(nq);
   };
 
@@ -1239,7 +1251,28 @@ export default function DraftRoomPage() {
                       <ul className="divide-y divide-[var(--border)]">
                         {queue.map((q, idx) => (
                           <li key={q.id} className={`flex items-start gap-2 px-3 py-2 ${idx === 0 && autoPickEnabled ? 'bg-emerald-50 dark:bg-emerald-900/20' : ''}`}>
-                            <span className="text-xs font-bold text-[var(--muted)] w-4 shrink-0 tabular-nums pt-0.5">{idx + 1}</span>
+                            {queueEditIdx === idx ? (
+                              <input
+                                type="number"
+                                min={1}
+                                max={queue.length}
+                                value={queueEditVal}
+                                autoFocus
+                                className="w-7 text-xs font-bold tabular-nums text-center border border-[var(--border)] rounded bg-[var(--background)] text-[var(--foreground)] shrink-0 pt-0.5"
+                                onChange={(e) => setQueueEditVal(e.target.value)}
+                                onBlur={() => { const n = parseInt(queueEditVal, 10); if (!isNaN(n) && n >= 1 && n <= queue.length) moveToQueuePosition(q.id, n); setQueueEditIdx(null); }}
+                                onKeyDown={(e) => { if (e.key === 'Enter') { const n = parseInt(queueEditVal, 10); if (!isNaN(n) && n >= 1 && n <= queue.length) moveToQueuePosition(q.id, n); setQueueEditIdx(null); } else if (e.key === 'Escape') setQueueEditIdx(null); }}
+                                onClick={(e) => e.stopPropagation()}
+                              />
+                            ) : (
+                              <span
+                                className="text-xs font-bold text-[var(--muted)] w-4 shrink-0 tabular-nums pt-0.5 cursor-text"
+                                title="Click to jump to position"
+                                onClick={() => { setQueueEditIdx(idx); setQueueEditVal(String(idx + 1)); }}
+                              >
+                                {idx + 1}
+                              </span>
+                            )}
                             <span className="shrink-0 text-[10px] font-black px-1.5 py-0.5 rounded text-white mt-0.5" style={{ background: POS_COLORS[q.pos] || '#555', minWidth: '30px', textAlign: 'center' }}>
                               {q.pos}
                             </span>
