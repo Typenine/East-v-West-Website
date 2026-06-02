@@ -91,6 +91,28 @@ function sectionLabel(step: string): string {
   return step;
 }
 
+// ── Error classification helpers ──────────────────────────────────────────────
+
+function isRateLimitError(err?: string): boolean {
+  if (!err) return false;
+  const lower = err.toLowerCase();
+  return lower.includes('exhausted') || lower.includes('rate limit') || lower.includes('cooling down') || lower.includes('429');
+}
+
+function isStepValidationError(err?: string): boolean {
+  if (!err) return false;
+  return err.includes('not valid for episodeType') || err.includes('Valid:');
+}
+
+function errorCategory(err?: string): string {
+  if (!err) return 'Error';
+  if (isRateLimitError(err)) return 'LLM rate limit';
+  if (isStepValidationError(err)) return 'Invalid section';
+  if (err.toLowerCase().includes('no league id')) return 'Configuration error';
+  if (err.toLowerCase().includes('no staged')) return 'No data';
+  return 'Generation failed';
+}
+
 // ── Result types ─────────────────────────────────────────────────────────────
 
 interface LabResult {
@@ -384,13 +406,17 @@ export default function SectionLabPage() {
                     )}
                   </>
                 ) : (
-                  <div className="p-3 bg-red-900/30 border border-red-600 rounded-lg">
-                    <div className="font-medium text-red-400 text-sm mb-1">❌ Error</div>
-                    <div className="text-xs text-red-300 font-mono break-all">{result.error}</div>
-                    {result.debug?.availableSteps && (
-                      <div className="mt-2 text-xs text-zinc-400">
-                        Valid steps: {result.debug.availableSteps.join(', ')}
+                  <div className="p-3 bg-red-900/30 border border-red-600 rounded-lg space-y-2">
+                    <div className="font-medium text-red-400 text-sm">❌ {errorCategory(result.error)}</div>
+                    <div className="text-xs text-red-300 break-all">{result.error}</div>
+                    {/* Only show valid-steps list for actual step-selection errors, not LLM/network failures */}
+                    {result.debug?.availableSteps && isStepValidationError(result.error) && (
+                      <div className="text-xs text-zinc-400 pt-1 border-t border-red-800">
+                        Valid steps for this episode type: {result.debug.availableSteps.join(', ')}
                       </div>
+                    )}
+                    {isRateLimitError(result.error) && (
+                      <div className="text-xs text-amber-300 pt-1">Groq is rate-limited. Wait 30–60 seconds and try again.</div>
                     )}
                   </div>
                 )}

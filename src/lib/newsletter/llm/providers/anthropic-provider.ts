@@ -24,7 +24,11 @@ export function resetAnthropicSessionTokens(): void {
 
 const DEFAULT_MODEL = 'claude-sonnet-4-6';
 const DEFAULT_TIMEOUT_MS = 120_000;
-const DEFAULT_MAX_RETRIES = 2;
+// 5 retries = backoffs of 5s, 10s, 20s, 40s, 60s = up to 135s of patience.
+// genPreDraftTrades (and other sections) run 4+ parallel LLM calls. If Claude
+// returns 529 on any one of them, the default 2-retry window (5+10=15s) was
+// too short — the other calls already consumed credits and their output is lost.
+const DEFAULT_MAX_RETRIES = 5;
 
 // Claude paid tier output cap. Higher than Groq/Gemini free tiers.
 // Mock draft sections need up to 3500 tokens; 4096 gives headroom.
