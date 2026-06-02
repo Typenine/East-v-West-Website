@@ -257,10 +257,14 @@ function AdminNewsletterPageInner() {
         credentials: 'include',
         body: JSON.stringify({ week, season: seasonInput, episodeType, forceRegenerate, mode: 'start', isFirstEpisodeEver }),
       });
-      const startData = await startRes.json() as { success?: boolean; error?: string; totalSteps?: number; steps?: string[]; details?: string };
+      const startData = await startRes.json() as { success?: boolean; error?: string; totalSteps?: number; steps?: string[]; details?: string; runId?: string };
       if (!startRes.ok || !startData.success) {
         setResult({ success: false, error: startData.error || 'Failed to start job', details: startData.details });
         return;
+      }
+
+      if (startData.runId) {
+        console.log(`[Newsletter] runId=${startData.runId} — staged job started`);
       }
 
       const totalSteps = startData.totalSteps ?? 10;
@@ -371,8 +375,8 @@ function AdminNewsletterPageInner() {
       }
 
       if (done) {
-        // 3. Fetch the assembled newsletter
-        const getRes = await fetch(`/api/newsletter?week=${week}&season=${seasonInput}`, { credentials: 'include' });
+        // 3. Fetch the assembled newsletter — no-store to bypass any browser cache
+        const getRes = await fetch(`/api/newsletter?week=${week}&season=${seasonInput}`, { credentials: 'include', cache: 'no-store' });
         const getData = await getRes.json() as GenerationResult;
         const elapsed = Math.floor((Date.now() - generatingStartRef.current) / 1000);
         setProgress(prev => ({ ...(prev ?? { sectionsCompleted: [], elapsed: 0 }), percent: 100, stage: failedInRun.length > 0 ? `✅ Complete (${failedInRun.length} sections skipped)` : '✅ Complete!', elapsed }));
@@ -506,6 +510,9 @@ function AdminNewsletterPageInner() {
       <div className="flex items-center justify-between mb-6">
         <SectionHeader title="Admin: Newsletter Generator" />
         <div className="flex items-center gap-2">
+          <Link href="/admin/newsletter/section-lab">
+            <Button variant="secondary" size="sm">🧪 Section Lab</Button>
+          </Link>
           <Link href="/admin/newsletter/personality">
             <Button variant="secondary" size="sm">🎭 Personality Console</Button>
           </Link>
@@ -628,10 +635,9 @@ function AdminNewsletterPageInner() {
                   checked={forceRegenerate}
                   onChange={(e) => setForceRegenerate(e.target.checked)}
                   className="rounded"
-                  disabled={previewMode}
                 />
-                <Label htmlFor="forceRegenerate" className={`cursor-pointer ${previewMode ? 'opacity-50' : ''}`}>
-                  Force regenerate (overwrite existing)
+                <Label htmlFor="forceRegenerate" className="cursor-pointer">
+                  Force regenerate (overwrite existing) — not needed for staged mode
                 </Label>
               </div>
 

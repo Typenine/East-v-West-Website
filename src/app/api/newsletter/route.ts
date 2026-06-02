@@ -1426,7 +1426,11 @@ async function startStagedJob(opts: {
     }
 
     // ── Store everything in the staged record ──
+    const runId = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    console.log(`[Staged] runId=${runId} S${seasonNum}W${week} (${episodeType})`);
+
     const jobMeta = {
+      runId,
       episodeType,
       leagueName: leagueName || 'East v. West',
       leagueId,
@@ -1469,6 +1473,7 @@ async function startStagedJob(opts: {
     return NextResponse.json({
       success: true,
       status: 'started',
+      runId,
       season: seasonNum,
       week,
       episodeType,
@@ -1517,7 +1522,28 @@ export async function POST(request: NextRequest) {
     const seasonNum = parseInt(season, 10);
     const week = weekOverride || state.week;
 
-    // Check database unless force regenerate
+    const leagueId = getLeagueIdForSeason(String(season));
+    if (!leagueId) {
+      return NextResponse.json({
+        success: false,
+        error: `No league ID found for season ${season}`,
+      }, { status: 400 });
+    }
+
+    // ── STAGED MODE: always bypass the newsletter cache check ──
+    // mode:start means the admin is explicitly requesting a new generation run.
+    // The cache guard below must NOT run first — it would return the old newsletter
+    // and startStagedJob would never be called, causing the UI to silently display
+    // the previous run's output even though new sections were never generated.
+    if (mode === 'start') {
+      return await startStagedJob({
+        seasonNum, week, leagueId, episodeType: episodeType || 'regular',
+        isFirstEpisodeEver: isFirstEpisodeEver ?? false,
+        forceRegenerate: forceRegenerate ?? false,
+      });
+    }
+
+    // ── SYNC MODE (default): check cache unless force regenerate ──
     if (!forceRegenerate) {
       const existing = await loadNewsletter(seasonNum, week);
       if (existing) {
@@ -1530,24 +1556,6 @@ export async function POST(request: NextRequest) {
           message: 'Newsletter already exists. Use forceRegenerate: true to regenerate.',
         });
       }
-    }
-
-    const leagueId = getLeagueIdForSeason(String(season));
-    if (!leagueId) {
-      return NextResponse.json({
-        success: false,
-        error: `No league ID found for season ${season}`,
-      }, { status: 400 });
-    }
-
-    // ── STAGED MODE: build context, save to DB, return immediately ──
-    // The client then loops POST /api/newsletter/generate-step to advance one section at a time.
-    if (mode === 'start') {
-      return await startStagedJob({
-        seasonNum, week, leagueId, episodeType: episodeType || 'regular',
-        isFirstEpisodeEver: isFirstEpisodeEver ?? false,
-        forceRegenerate: forceRegenerate ?? false,
-      });
     }
 
     // ── SYNC MODE (default): run full generation in this request ──

@@ -257,6 +257,7 @@ export async function POST(request: NextRequest) {
   const dynastyRankings = (derivedData.__dynastyRankings as Array<{ name: string; pos: string; nfl: string; rank: number }> | null) ?? undefined;
 
   const { episodeType, leagueName, matchupCount, tradeCount, preDraftSlots, preDraftRound2Slots, isFirstEpisodeEver, draftTeams } = jobMeta;
+  const runId = (jobMeta as { runId?: string }).runId ?? '(no-runId)';
 
   // ── Determine all steps, required steps, and find the next incomplete one ──
   const allSteps = getGenerationSteps(episodeType, matchupCount, tradeCount, draftTeams);
@@ -265,7 +266,7 @@ export async function POST(request: NextRequest) {
   const completedSteps = new Set(staged.sectionsCompleted ?? []);
   const failedSteps = new Set<string>((derivedData.__failedSteps as string[]) ?? []);
 
-  console.log(`[Step] S${season}W${week} (${episodeType}) — all steps: ${allSteps.join(', ')}`);
+  console.log(`[Step] runId=${runId} S${season}W${week} (${episodeType}) — all steps: ${allSteps.join(', ')}`);
   console.log(`[Step] Required: ${[...requiredSteps].join(', ')}`);
   if (optionalSteps.length) console.log(`[Step] Optional: ${optionalSteps.join(', ')}`);
   console.log(`[Step] Completed: ${[...completedSteps].join(', ') || 'none'} | Failed: ${[...failedSteps].join(', ') || 'none'}`);
@@ -454,7 +455,7 @@ export async function POST(request: NextRequest) {
   await updateStagedNewsletter(season, week, { status: 'in_progress', currentSection: nextStep });
 
   // ── Generate the section ──
-  console.log(`[Step] Generating section "${nextStep}" for Season ${season} Week ${week} (${episodeType})`);
+  console.log(`[Step] runId=${runId} generating "${nextStep}" S${season}W${week} (${episodeType})`);
   const result = await generateNewsletterSection(stepInput);
 
   const isRequired = requiredSteps.has(nextStep);
@@ -547,7 +548,8 @@ async function finalizeNewsletter(
   completedSteps: string[],
   derivedData: Record<string, unknown>,
 ) {
-  console.log(`[Step] All steps done — assembling newsletter S${season}W${week} (${episodeType})`);
+  const jobRunId = (derivedData.__jobMeta as { runId?: string } | undefined)?.runId ?? '(no-runId)';
+  console.log(`[Step] runId=${jobRunId} finalizing S${season}W${week} (${episodeType})`);
 
   // Determine expected team count for post_draft validation
   const draftTeams = (derivedData.__jobMeta as { draftTeams?: string[] } | undefined)?.draftTeams;
@@ -634,7 +636,7 @@ async function finalizeNewsletter(
 
   await updateStagedNewsletter(season, week, { status: 'completed' });
 
-  console.log(`[Step] Newsletter saved to DB — S${season}W${week} (${episodeType}), ${newsletter.sections.length} sections, ${html.length} HTML chars`);
+  console.log(`[Step] runId=${jobRunId} saved to DB — S${season}W${week} (${episodeType}), ${newsletter.sections.length} sections, ${html.length} HTML chars`);
   console.log(`[Step] Staged generation complete — Discord notification NOT posted (use Publish to announce)`);
 
   // Include social summary in response if the step ran
@@ -644,6 +646,7 @@ async function finalizeNewsletter(
   return NextResponse.json({
     done: true,
     status: 'complete',
+    runId: jobRunId,
     completedSteps,
     validation,
     ...(socialSummary ? { socialSummary } : {}),
