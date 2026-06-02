@@ -261,18 +261,60 @@ export async function POST(request: NextRequest) {
         ? `=== ROSTER INJURIES ===\n${rosterInjuries.slice(0, 20).map(i => `- ${i.playerName} (${i.nflTeam}): ${i.injuryStatus || i.status}`).join('\n')}`
         : '';
 
-      enhancedContext = [teamNameBlock, standingsStr, txStr, injuryStr, dynastyStr, externalStr, rulesStr, comprehensiveStr]
-        .filter(Boolean).join('\n\n');
+      // For preseason episode types, the regular season context (standings, transactions)
+      // is not what the LLM needs — it needs the offseason trade history.
+      // buildPreseasonHistoricalContext (in route.ts) generates this, but it's not exported.
+      // Instead, we inject the essential piece here: the offseason trades block.
+      // genPreDraftTrades relies on an explicit "=== OFFSEASON TRADES ===" block in the
+      // context; without it the LLM obeys its "If no trades exist → NO_TRADES" instruction.
+      let offseasonTradesStr = '';
+      const isPreseasonEp = ['preseason', 'pre_draft', 'post_draft', 'offseason'].includes(episodeType);
+      if (isPreseasonEp) {
+        try {
+          const { fetchTradesAllTime } = await import('@/lib/utils/trades');
+          const allTrades = await fetchTradesAllTime();
+          const offseasonStart = new Date(`${season - 1}-12-20`);
+          const offseasonTrades = allTrades.filter(t => {
+            if (t.season === String(season)) return true;
+            if (t.date && new Date(t.date) >= offseasonStart) return true;
+            return false;
+          });
+          if (offseasonTrades.length > 0) {
+            offseasonTradesStr = `=== ${season} OFFSEASON TRADES ===\n` +
+              offseasonTrades.map(t => {
+                const date = t.date
+                  ? new Date(t.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+                  : 'Unknown date';
+                const teams = (t.teams ?? []).map((tm: { name: string; assets?: Array<{ name: string }> }) =>
+                  `${tm.name} (received: ${(tm.assets ?? []).map(a => a.name).join(', ') || 'unknown'})`
+                ).join(' ↔ ');
+                return `- ${date}: ${teams}`;
+              }).join('\n');
+          } else {
+            offseasonTradesStr = `=== ${season} OFFSEASON TRADES ===\nNo offseason trades recorded yet.`;
+          }
+          console.log(`[SectionLab] runId=${runId} offseason trades: ${offseasonTrades.length} found`);
+        } catch (tradesFetchErr) {
+          console.warn(`[SectionLab] runId=${runId} offseason trades fetch failed:`, tradesFetchErr instanceof Error ? tradesFetchErr.message : String(tradesFetchErr));
+        }
+      }
+
+      // Preseason episodes: put offseason trades first so the LLM sees them prominently.
+      // Regular episodes: standard context order.
+      const contextParts = isPreseasonEp
+        ? [offseasonTradesStr, teamNameBlock, rulesStr, comprehensiveStr].filter(Boolean)
+        : [teamNameBlock, standingsStr, txStr, injuryStr, dynastyStr, externalStr, rulesStr, comprehensiveStr].filter(Boolean);
+      enhancedContext = contextParts.join('\n\n');
 
       console.log(`[SectionLab] runId=${runId} full context built (${Math.round(enhancedContext.length / 1000)}K chars, ${derived.events_scored.length} events, dynasty=${dynastyResult.length} players)`);
     }
 
-    // ── Trade_N: always re-derive trade events live ───────────────────────────
-    // Mirrors the re-derive logic in generate-step/route.ts exactly so the same
-    // trade event data is used in both paths.
+    // ── Trade re-derive: always fetch live transaction data ───────────────────
+    // Applies to Trade_N (regular season) and PreDraftTrades (pre_draft episode).
+    // Mirrors generate-step/route.ts exactly so the same trade event data is used.
     let tradeDebug: Record<string, unknown> | undefined;
 
-    if (isTrade) {
+    if (isTrade || sectionName === 'PreDraftTrades') {
       try {
         const { buildDerived, setPlayerNameCache } = await import('@/lib/newsletter');
         const allLeagueIds = [LEAGUE_IDS.CURRENT, ...Object.values(LEAGUE_IDS.PREVIOUS)].filter(Boolean) as string[];

@@ -259,7 +259,7 @@ function AdminNewsletterPageInner() {
         consecutiveErrors = 0;
 
         const stepData = await stepRes.json() as {
-          done?: boolean; step?: string; status?: string;
+          done?: boolean; step?: string; nextStep?: string; status?: string;
           isRequiredStep?: boolean; completedCount?: number;
           failedSteps?: string[]; missingRequiredSteps?: string[];
           failedRequiredSteps?: string[]; error?: string;
@@ -297,19 +297,19 @@ function AdminNewsletterPageInner() {
           break;
         }
 
-        // Update completed/current step in state
+        // Update completed/current step in state.
+        // Set currentStep to nextStep so the chip shows as running while the next API call is in flight.
         if (stepData.step) {
           setGen(g => {
             const newDone = new Set(g.done);
-            if (stepData.status !== 'step_failed' && stepData.status !== 'step_failed_required') {
-              newDone.add(stepData.step!);
-            }
+            const failed = stepData.status === 'step_failed' || stepData.status === 'step_failed_required';
+            if (!failed) newDone.add(stepData.step!);
             return {
               ...g,
               done: newDone,
               failed: new Set(failedInRun),
               failedRequired: new Set(failedRequiredInRun),
-              currentStep: done ? null : (stepData.status === 'step_failed' || stepData.status === 'step_failed_required' ? null : null),
+              currentStep: done ? null : (stepData.nextStep ?? null),
             };
           });
         }
@@ -660,27 +660,25 @@ function AdminNewsletterPageInner() {
               />
             </div>
 
-            {/* Section chips */}
+            {/* Section chips — one per step, colour-coded by state */}
             {gen.steps.length > 0 && (
               <div className="flex flex-wrap gap-1.5">
                 {gen.steps.map(s => {
-                  const isDone     = gen.done.has(s);
-                  const isFailReq  = gen.failedRequired.has(s);
-                  const isFail     = gen.failed.has(s) && !isFailReq;
-                  const isCurrent  = gen.currentStep === s;
+                  const isDone    = gen.done.has(s);
+                  const isFailReq = gen.failedRequired.has(s);
+                  const isFail    = gen.failed.has(s) && !isFailReq;
+                  const isCurrent = gen.currentStep === s;
+                  const cls = isFailReq ? 'bg-red-900/50 text-red-300 border-red-700'
+                            : isFail    ? 'bg-amber-900/50 text-amber-300 border-amber-700'
+                            : isDone    ? 'bg-emerald-900/50 text-emerald-300 border-emerald-700'
+                            : isCurrent ? 'bg-blue-900/50 text-blue-300 border-blue-600'
+                            :             'bg-zinc-800/80 text-zinc-500 border-zinc-700';
                   return (
-                    <span key={s} className={`
-                      inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium
-                      ${isDone     ? 'bg-emerald-900/50 text-emerald-300 border border-emerald-700'  : ''}
-                      ${isFailReq  ? 'bg-red-900/50 text-red-300 border border-red-700'              : ''}
-                      ${isFail     ? 'bg-amber-900/50 text-amber-300 border border-amber-700'        : ''}
-                      ${isCurrent  ? 'bg-blue-900/50 text-blue-300 border border-blue-700 animate-pulse' : ''}
-                      ${!isDone && !isFailReq && !isFail && !isCurrent ? 'bg-zinc-800 text-zinc-500 border border-zinc-700' : ''}
-                    `}>
-                      {isDone && '✓'}
-                      {isFailReq && '✗'}
-                      {isFail && '⚠'}
-                      {isCurrent && <span className="inline-block animate-spin text-xs">⟳</span>}
+                    <span key={s} className={`inline-flex items-center gap-1 px-2 py-0.5 rounded border text-xs font-medium ${cls}${isCurrent ? ' animate-pulse' : ''}`}>
+                      {isDone    && <span>✓</span>}
+                      {isFailReq && <span>✗</span>}
+                      {isFail    && <span>⚠</span>}
+                      {isCurrent && <span className="inline-block animate-spin leading-none">↻</span>}
                       {stepLabel(s)}
                     </span>
                   );
