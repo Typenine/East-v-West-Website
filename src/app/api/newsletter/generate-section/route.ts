@@ -127,11 +127,14 @@ export async function POST(request: NextRequest) {
 
     // ── Build StepInput ───────────────────────────────────────────────────────
     //
-    // Preferred: use staged job data from a previous mode:start run.
-    //   The staged job stores all context (enhancedContext, derived data, bot
-    //   memories) without any section output. Reading it is free and instant.
+    // Fast path: use existing staged job data from a prior mode:start run.
+    //   Reading stored context is instant — no Sleeper/external API calls.
     //
-    // Fallback: minimal fresh Sleeper fetch when no staged data exists.
+    // Full-build path: when no staged data exists, run the complete context
+    //   pipeline (identical to startStagedJob) — same Sleeper ingest, standings,
+    //   transactions, external data, dynasty rankings, bot memories.
+    //   A degraded context would produce meaningless test results, so there is
+    //   no fallback — either staged data or a full build, nothing in between.
 
     let derived: DerivedData = { matchup_pairs: [], upcoming_pairs: [], events_scored: [] };
     let enhancedContext = '';
@@ -177,47 +180,91 @@ export async function POST(request: NextRequest) {
     }
 
     if (!usedStagedData) {
-      // Minimal fresh context build — best-effort, context will be less rich than a full staged job.
-      // For richest results, run mode:start first, then use the Section Lab.
-      console.log(`[SectionLab] runId=${runId} no staged data — building minimal context from Sleeper`);
-      try {
-        const leagueId = getLeagueIdForSeason(String(season));
-        if (!leagueId) throw new Error(`No league ID for season ${season}`);
+      // Full context build — identical pipeline to startStagedJob in route.ts.
+      // No shortcuts. The section lab must test against the same data the real
+      // newsletter uses; degraded context produces meaningless test results.
+      console.log(`[SectionLab] runId=${runId} no staged data — running full context build (same as mode:start)`);
 
-        const { fetchNewsletterData, buildDerived, setPlayerNameCache,
-                fetchCurrentWeekContext, buildCurrentStandingsContext,
-                buildTransactionsContext, getLeagueRulesContext } = await import('@/lib/newsletter');
-
-        const ingestData = await fetchNewsletterData(leagueId, week);
-        const { leagueName: ln, users, rosters, matchups, transactions, allTransactions, playerMap } = ingestData;
-        leagueName    = ln || 'East v. West';
-        storedUsers   = users   as unknown[];
-        storedRosters = rosters as unknown[];
-        setPlayerNameCache(playerMap);
-
-        derived = buildDerived({
-          users, rosters, matchups,
-          transactions:    transactions.map(t => ({ ...t, adds: t.adds ?? undefined, drops: t.drops ?? undefined })),
-          allTransactions: allTransactions?.map(t => ({ ...t, adds: t.adds ?? undefined, drops: t.drops ?? undefined })),
-        });
-
-        const [mEnt, mAna, weekCtx] = await Promise.all([
-          loadBotMemory('entertainer', season),
-          loadBotMemory('analyst', season),
-          fetchCurrentWeekContext(leagueId, season, week).catch(() => null),
-        ]);
-        if (mEnt) memEntertainer = mEnt;
-        if (mAna) memAnalyst     = mAna;
-
-        const standingsStr = weekCtx ? buildCurrentStandingsContext(weekCtx) : '';
-        const txStr        = weekCtx ? buildTransactionsContext(weekCtx)      : '';
-        enhancedContext = [standingsStr, txStr, getLeagueRulesContext()].filter(Boolean).join('\n\n');
-        console.log(`[SectionLab] runId=${runId} fresh context built (${Math.round(enhancedContext.length / 1000)}K chars)`);
-      } catch (fetchErr) {
-        const msg = fetchErr instanceof Error ? fetchErr.message : String(fetchErr);
-        console.warn(`[SectionLab] runId=${runId} fresh context build failed: ${msg}`);
-        enhancedContext = `[SectionLab warning] Context build failed: ${msg}. Output quality will be degraded.`;
+      const leagueId = getLeagueIdForSeason(String(season));
+      if (!leagueId) {
+        return NextResponse.json({ ok: false, error: `No league ID configured for season ${season}` }, { status: 400, headers: NO_STORE });
       }
+
+      const {
+        fetchNewsletterData, buildDerived, setPlayerNameCache,
+        fetchCurrentWeekContext, buildCurrentStandingsContext, buildTransactionsContext,
+        getLeagueRulesContext, fetchComprehensiveLeagueData, buildComprehensiveContextString,
+        fetchAllExternalData, buildExternalDataContext,
+        loadDynastyRankings, buildDynastyOverviewContext,
+      } = await import('@/lib/newsletter');
+
+      // Sleeper ingest — same single call as startStagedJob
+      const ingestData = await fetchNewsletterData(leagueId, week);
+      const { leagueName: ln, users, rosters, matchups, nextMatchups, transactions, allTransactions, playerMap, draftData: draftDataRaw } = ingestData;
+      leagueName    = ln || 'East v. West';
+      storedUsers   = users   as unknown[];
+      storedRosters = rosters as unknown[];
+      draftData     = draftDataRaw ?? null;
+      setPlayerNameCache(playerMap);
+
+      derived = buildDerived({
+        users, rosters, matchups,
+        nextMatchups: nextMatchups ?? [],
+        transactions:    transactions.map(t => ({ ...t, adds: t.adds ?? undefined, drops: t.drops ?? undefined })),
+        allTransactions: allTransactions?.map(t => ({ ...t, adds: t.adds ?? undefined, drops: t.drops ?? undefined })),
+      });
+
+      // Build roster name sets for ESPN injury filtering
+      const rosterPids = new Set(rosters.flatMap(r => (r as { players?: string[] }).players ?? []));
+      const rosterNames = { full: new Set<string>(), last: new Set<string>() };
+      for (const pid of rosterPids) {
+        const p = playerMap[pid] as { full_name?: string; first_name?: string; last_name?: string } | undefined;
+        if (!p) continue;
+        const full = (p.full_name || `${p.first_name ?? ''} ${p.last_name ?? ''}`).toLowerCase().trim();
+        if (full) { rosterNames.full.add(full); const last = full.split(' ').pop() ?? ''; if (last.length >= 4) rosterNames.last.add(last); }
+      }
+
+      // Parallel data fetches — same set as startStagedJob regular episode path
+      const [mEnt, mAna, weekCtx, comprehensiveData, externalData, dynastyResult, fRecords] = await Promise.all([
+        loadBotMemory('entertainer', season),
+        loadBotMemory('analyst', season),
+        fetchCurrentWeekContext(leagueId, season, week).catch(() => null),
+        fetchComprehensiveLeagueData(),
+        fetchAllExternalData(),
+        loadDynastyRankings().catch(() => [] as Awaited<ReturnType<typeof loadDynastyRankings>>),
+        import('@/server/db/newsletter-queries').then(m => m.loadForecastRecords(season)).catch(() => null),
+      ]);
+      if (mEnt) memEntertainer = mEnt;
+      if (mAna) memAnalyst     = mAna;
+      forecastRecords = fRecords;
+
+      // Assemble full enhanced context string — same order as startStagedJob
+      const teamNameBlock = (() => {
+        const lines = ['=== CURRENT TEAM NAMES (may differ from historical records) ===',
+          'Use [SL:username] to correlate teams across seasons if names have changed.',
+        ];
+        for (const u of users) {
+          const meta = (u as { metadata?: { team_name?: string } }).metadata;
+          const teamName = meta?.team_name || u.display_name || u.username || `User ${u.user_id}`;
+          lines.push(`- ${teamName} [SL:${u.username || u.display_name || u.user_id}]`);
+        }
+        return lines.join('\n');
+      })();
+      const standingsStr   = weekCtx ? buildCurrentStandingsContext(weekCtx) : '';
+      const txStr          = weekCtx ? buildTransactionsContext(weekCtx)      : '';
+      const comprehensiveStr = buildComprehensiveContextString(comprehensiveData);
+      const rulesStr       = getLeagueRulesContext();
+      const externalStr    = buildExternalDataContext(externalData, rosterNames);
+      const dynastyStr     = buildDynastyOverviewContext(dynastyResult);
+      const rosterInjuries = ingestData.injuries.filter(inj => inj.status && inj.status !== 'Active' && inj.status !== 'Healthy');
+      const injuryStr      = rosterInjuries.length > 0
+        ? `=== ROSTER INJURIES ===\n${rosterInjuries.slice(0, 20).map(i => `- ${i.playerName} (${i.nflTeam}): ${i.injuryStatus || i.status}`).join('\n')}`
+        : '';
+
+      enhancedContext = [teamNameBlock, standingsStr, txStr, injuryStr, dynastyStr, externalStr, rulesStr, comprehensiveStr]
+        .filter(Boolean).join('\n\n');
+
+      console.log(`[SectionLab] runId=${runId} full context built (${Math.round(enhancedContext.length / 1000)}K chars, ${derived.events_scored.length} events, dynasty=${dynastyResult.length} players)`);
     }
 
     // ── Trade_N: always re-derive trade events live ───────────────────────────

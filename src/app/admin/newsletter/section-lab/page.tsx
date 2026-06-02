@@ -203,9 +203,9 @@ export default function SectionLabPage() {
       </div>
 
       <div className="mb-4 p-3 bg-blue-900/30 border border-blue-600 rounded text-sm text-blue-200">
-        <strong>Section Lab:</strong> Generate one section in isolation using the exact same code path as the full staged generator. Trade sections always re-derive from live Sleeper data.
+        <strong>Section Lab:</strong> Generate one section in isolation. Uses the exact same code path, data, and context as the full staged generator — no shortcuts.
         <br />
-        <span className="text-blue-300 text-xs">Tip: Run &ldquo;Generate (Staged) → Start Job&rdquo; first on the Newsletter Admin page to build data context without spending LLM credits. Then come here to generate specific sections.</span>
+        <span className="text-blue-300 text-xs">If a staged job already exists for the selected week (from clicking &ldquo;Generate (Staged)&rdquo; on the main page), it reuses that stored context instantly. Otherwise it runs a full data build automatically — same quality, takes ~30s extra.</span>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
