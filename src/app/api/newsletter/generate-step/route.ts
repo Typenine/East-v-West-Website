@@ -42,6 +42,8 @@ import {
 import { renderHtml } from '@/lib/newsletter/template';
 import type { DerivedData } from '@/lib/newsletter/types';
 import type { LeagueDraftData } from '@/lib/newsletter/sleeper-ingest';
+import { LEAGUE_IDS } from '@/lib/constants/league';
+import { getLeagueTransactionsAllWeeks, getAllPlayersCached } from '@/lib/utils/sleeper-api';
 
 function toBotBrainOverrideStep(settings: BotSettingsRow) {
   const override: Parameters<typeof applyBotBrainOverride>[1] = {};
@@ -247,7 +249,7 @@ export async function POST(request: NextRequest) {
   }
 
   const enhancedContextString = (derivedData.__context as string) ?? '';
-  const derived = (derivedData.__derived as DerivedData) ?? { matchup_pairs: [], upcoming_pairs: [], events_scored: [] };
+  let derived = (derivedData.__derived as DerivedData) ?? { matchup_pairs: [], upcoming_pairs: [], events_scored: [] };
   const draftData = (derivedData.__draftData as LeagueDraftData | null) ?? null;
   const sectionOutputs = (derivedData.sections as Record<string, unknown>) ?? {};
   const forecastRecords = (derivedData.__forecastRecords as { entertainer: { w: number; l: number }; analyst: { w: number; l: number } } | null) ?? null;
@@ -298,6 +300,47 @@ export async function POST(request: NextRequest) {
   // For mock draft R2 steps, load R1 picks from stored outputs
   const mockDraftR1Mason = sectionOutputs['MockDraft_R1_Mason'] as { picks: StepInput['mockDraftR1Mason'] } | undefined;
   const mockDraftR1Westy = sectionOutputs['MockDraft_R1_Westy'] as { picks: StepInput['mockDraftR1Westy'] } | undefined;
+
+  // For Trade steps: re-derive trade events fresh from Sleeper so pick history is always
+  // current. The stored __derived was frozen at job-creation time — if trades happened
+  // before the job was created, or if the pick attribution code was updated after job
+  // creation, the stored data would produce wrong analysis. Re-deriving is cheap (only
+  // trade events are swapped in) and guarantees correct GIVES/GETS.
+  if (/^Trade_\d+$/.test(nextStep)) {
+    try {
+      const { leagueId } = jobMeta;
+      const storedUsers = (derivedData.users as Parameters<typeof import('@/lib/newsletter').buildDerived>[0]['users']) ?? [];
+      const storedRosters = (derivedData.rosters as Parameters<typeof import('@/lib/newsletter').buildDerived>[0]['rosters']) ?? [];
+
+      // Fetch fresh current-week transactions and full cross-season history in parallel
+      const allLeagueIds = [LEAGUE_IDS.CURRENT, ...Object.values(LEAGUE_IDS.PREVIOUS)].filter(Boolean) as string[];
+      const txArrays = await Promise.all(
+        allLeagueIds.map(lid => getLeagueTransactionsAllWeeks(lid).catch(() => []))
+      );
+      const allTransactions = txArrays.flat();
+      // Current-season transactions scoped to this week for the main event loop
+      const weekTransactions = txArrays[0].filter(t => t.leg === week);
+
+      const { buildDerived, setPlayerNameCache } = await import('@/lib/newsletter');
+      const allPlayers = await getAllPlayersCached().catch(() => ({} as Record<string, never>));
+      setPlayerNameCache(allPlayers as Parameters<typeof setPlayerNameCache>[0]);
+
+      const freshDerived = buildDerived({
+        users: storedUsers,
+        rosters: storedRosters,
+        matchups: [],
+        transactions: weekTransactions.map(t => ({ ...t, adds: t.adds ?? undefined, drops: t.drops ?? undefined })),
+        allTransactions: allTransactions.map(t => ({ ...t, adds: t.adds ?? undefined, drops: t.drops ?? undefined })),
+      });
+
+      const freshTrades = freshDerived.events_scored.filter(e => e.type === 'trade');
+      const nonTrades = derived.events_scored.filter(e => e.type !== 'trade');
+      derived = { ...derived, events_scored: [...nonTrades, ...freshTrades] };
+      console.log(`[Step] Trade step: re-derived ${freshTrades.length} trade event(s) with live Sleeper data`);
+    } catch (err) {
+      console.warn('[Step] Trade re-derive failed — falling back to stored derived data:', err);
+    }
+  }
 
   // Build a compact summary of completed sections for cross-referencing in later steps
   const priorSectionSummary = buildPriorSectionSummary(sectionOutputs, Array.from(completedSteps));
