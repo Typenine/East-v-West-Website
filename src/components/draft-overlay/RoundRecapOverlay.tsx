@@ -34,6 +34,7 @@ interface Trade {
   teams: string[];
   notes?: string | null;
   assets: TradeAsset[];
+  updatedAt?: string;
 }
 
 interface RoundRecapOverlayProps {
@@ -87,9 +88,24 @@ export default function RoundRecapOverlay({
     gsap.fromTo(container, { opacity: 0 }, { opacity: 1, duration: 0.6, ease: 'power2.out' });
   }, []);
 
-  const hasTrades = trades.length > 0;
   // Deduplicate by overall pick number — prevents trade-related ghost entries from inflating count
   const dedupedPicks = picks.filter((p, i, arr) => arr.findIndex(x => x.overall === p.overall) === i);
+
+  // Filter trades to only those that occurred during this round.
+  // Primary signal: earliest pick in this round marks when the round began.
+  // A trade "belongs to this round" if it was approved at/after that time,
+  // OR if one of its assets is a current pick from this round (regardless of timestamp).
+  const roundStartMs = dedupedPicks.length > 0
+    ? Math.min(...dedupedPicks.map(p => new Date(p.madeAt).getTime()))
+    : null;
+  const roundTrades = roundStartMs != null
+    ? trades.filter(t =>
+        t.assets.some(a => a.assetType === 'current_pick' && a.pickRound === roundNumber) ||
+        (t.updatedAt != null && new Date(t.updatedAt).getTime() >= roundStartMs)
+      )
+    : trades;
+
+  const hasTrades = roundTrades.length > 0;
 
   return (
     <div
@@ -203,10 +219,10 @@ export default function RoundRecapOverlay({
         {hasTrades && (
           <div className={`flex flex-col min-w-0 ${isInline ? 'flex-1' : 'flex flex-col flex-1'}`}>
             <div className="text-xs font-black uppercase tracking-widest text-zinc-500 mb-3">
-              Trades This Draft
+              Trades This Round
             </div>
             <div className="flex flex-col gap-3">
-              {trades.map((trade) => (
+              {roundTrades.map((trade) => (
                 <div
                   key={trade.id}
                   className="rounded-lg p-3"
@@ -270,7 +286,7 @@ export default function RoundRecapOverlay({
         {/* If no trades — footnote */}
         {!hasTrades && (
           <div className="flex-shrink-0 self-end text-zinc-600 text-xs italic">
-            No trades this draft
+            No trades this round
           </div>
         )}
       </div>

@@ -16,6 +16,8 @@ import DraftInfoBarTicker from '@/components/draft-overlay/DraftInfoBarTicker';
 import RoundRecapOverlay from '@/components/draft-overlay/RoundRecapOverlay';
 import TeamProspectDraftboardCompact from '@/components/draft/TeamProspectDraftboardCompact';
 import { DEFAULT_PLAYERS } from '@/components/draft/prospect-board-data';
+import EndOfRoundAnimation from '@/components/draft-overlay/EndOfRoundAnimation';
+import StartOfRoundAnimation from '@/components/draft-overlay/StartOfRoundAnimation';
 import {
   draftPicksPerRound,
   DRAFT_ANIM_CLOCK_PHASE_MAX_MS,
@@ -127,6 +129,15 @@ export default function DraftRoomPage() {
   const [approvedTradeCount, setApprovedTradeCount] = useState(0);
   const prevApprovedTradeCountRef = useRef(0);
   const [rosterFromSnapshot, setRosterFromSnapshot] = useState(false);
+
+  // End-of-round / start-of-round animation state
+  type EndRoundAnimState = 'idle' | 'waiting' | 'playing' | 'done';
+  const [endRoundAnimState, setEndRoundAnimState] = useState<EndRoundAnimState>('idle');
+  const [startRoundAnimPlaying, setStartRoundAnimPlaying] = useState(false);
+  const startRoundAnimNumberRef = useRef(1);
+  // Prevents duplicate start-animation when the same user both triggers the resume and detects it via polling
+  const startAnimFiredThisRoundRef = useRef(false);
+  const prevRoundEndPauseRef = useRef<boolean | null | undefined>(undefined);
 
   // Animation phase state — mirrors DraftOverlayLive (display only, no admin controls)
   const [animPhase, setAnimPhase] = useState<'pick' | 'clock' | 'video' | null>(null);
@@ -767,7 +778,8 @@ export default function DraftRoomPage() {
   const eventColor1 = draft?.eventColor1 || '#a4c810';
   const eventLogoUrl = draft?.eventLogoUrl || null;
   const eventGlow = `0 0 10px ${eventColor1}66`;
-  const showRoundRecap = draft?.roundEndPause === true && animPhase === null && !tradeAnimData;
+  // Recap only shows once the end-of-round animation has played. Start-of-round hides it.
+  const showRoundRecap = draft?.roundEndPause === true && animPhase === null && !tradeAnimData && endRoundAnimState === 'done' && !startRoundAnimPlaying;
   const completedRound = draft?.allPicks && draft.allPicks.length > 0 ? draft.allPicks[draft.allPicks.length - 1].round : 0;
   const nextRoundNumber = completedRound + 1;
   const roundRecapPicks = draft?.allPicks?.filter(p => p.round === completedRound) || [];
@@ -783,6 +795,50 @@ export default function DraftRoomPage() {
       setPostIntroClockRoomSeq((n) => n + 1);
     }
   }, [animPhase]);
+
+  // End-of-round sequence: when animPhase clears to null with roundEndPause active,
+  // start a 10-second wait then play the end-of-round animation.
+  useEffect(() => {
+    if (animPhase !== null) return;
+    if (!draft?.roundEndPause) return;
+    if (tradeAnimData) return;
+    if (endRoundAnimState !== 'idle') return;
+    setEndRoundAnimState('waiting');
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [animPhase, draft?.roundEndPause, tradeAnimData]);
+
+  // 10-second delay before end-of-round animation plays
+  useEffect(() => {
+    if (endRoundAnimState !== 'waiting') return;
+    const t = setTimeout(() => setEndRoundAnimState('playing'), 10000);
+    return () => clearTimeout(t);
+  }, [endRoundAnimState]);
+
+  // Reset end-of-round animation state when the round resumes
+  useEffect(() => {
+    if (!draft?.roundEndPause && endRoundAnimState !== 'idle') {
+      setEndRoundAnimState('idle');
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draft?.roundEndPause]);
+
+  // Start-of-round animation: fires when roundEndPause transitions true → false
+  // (i.e., admin pressed Start Round). Mark as fired to avoid double-play when the
+  // same client both clicked the button and then detects the change via polling.
+  useEffect(() => {
+    const prev = prevRoundEndPauseRef.current;
+    prevRoundEndPauseRef.current = draft?.roundEndPause;
+    if (draft?.roundEndPause === true) {
+      // New round-end pause — reset the fired flag for the upcoming start animation
+      startAnimFiredThisRoundRef.current = false;
+    }
+    if (prev === true && draft?.roundEndPause === false && !startAnimFiredThisRoundRef.current) {
+      startAnimFiredThisRoundRef.current = true;
+      startRoundAnimNumberRef.current = nextRoundNumber;
+      setStartRoundAnimPlaying(true);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draft?.roundEndPause]);
 
   useEffect(() => {
     if (postIntroClockRoomSeq === 0) return;
@@ -840,39 +896,6 @@ export default function DraftRoomPage() {
 
   return (
     <div className="flex flex-col" style={{ background: 'var(--background)' }}>
-
-      {/* ── Header (sticky) ── */}
-      <div className="sticky top-0 z-50 flex items-center justify-between px-4 py-2" style={{ background: 'linear-gradient(90deg,#be161e,#bf9944)', boxShadow: '0 2px 8px rgba(0,0,0,0.4)' }}>
-        <div className="flex items-center gap-3">
-          {myTeam && myTeamColors && (
-            <div className="w-8 h-8 rounded overflow-hidden bg-black/30">
-              <img src={getTeamLogoPath(myTeam)} alt={myTeam} className="w-full h-full object-contain" />
-            </div>
-          )}
-          <span className="font-black text-white text-lg tracking-tight">
-            Draft Room{myTeam ? ` — ${myTeam}` : ''}
-          </span>
-          {isAdmin && <span className="text-xs bg-yellow-400 text-black font-bold px-2 py-0.5 rounded">ADMIN MODE</span>}
-        </div>
-        <div className="flex items-center gap-3">
-          {draft && (
-            <span className={`text-xs font-bold px-2 py-0.5 rounded ${draft.status === 'LIVE' ? 'bg-emerald-500 text-white' : draft.status === 'PAUSED' ? 'bg-yellow-400 text-black' : 'bg-zinc-600 text-white'}`}>
-              {draft.status}
-            </span>
-          )}
-          {myTeam && draft && (
-            <button
-              type="button"
-              onClick={() => setTeamPanelTab('trade')}
-              className="text-xs font-bold px-3 py-1.5 rounded-lg transition-colors"
-              style={{ background: eventColor1, color: '#000' }}
-            >
-              🤝 Trade
-            </button>
-          )}
-          <span className="text-white/70 text-xs">{draft ? `${draft.year} Draft` : 'No active draft'}</span>
-        </div>
-      </div>
 
       {/* ── DRAFT BOARD (full height, no internal scroll — whole page scrolls) ── */}
       <div className="relative border-b-2 border-zinc-700" style={{ background: '#0a0a0e' }}>
@@ -980,12 +1003,15 @@ export default function DraftRoomPage() {
             nextRound={nextRoundNumber}
             picks={roundRecapPicks}
             draftId={draft.id}
-            isAdmin={false}
+            isAdmin={isAdmin}
             eventLogoUrl={eventLogoUrl}
             eventColor1={eventColor1}
             variant="inline"
             onStartNextRound={() => {
-              fetch('/api/draft', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'resume' }) }).catch(() => {});
+              // Play the start-of-round animation; the resume fetch fires when it completes.
+              startAnimFiredThisRoundRef.current = true;
+              startRoundAnimNumberRef.current = nextRoundNumber;
+              setStartRoundAnimPlaying(true);
             }}
           />
         </div>
@@ -1660,6 +1686,34 @@ export default function DraftRoomPage() {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ action: 'clear_trade_animation', draftId: draft.id }),
               }).catch(() => {});
+            }
+          }}
+        />
+      )}
+
+      {/* ── End-of-round animation (plays 10s after last pick anim, before recap) ── */}
+      {endRoundAnimState === 'playing' && draft && (
+        <EndOfRoundAnimation
+          key={`eor-${completedRound}`}
+          roundNumber={completedRound}
+          eventLogoUrl={eventLogoUrl}
+          eventColor1={eventColor1}
+          onComplete={() => setEndRoundAnimState('done')}
+        />
+      )}
+
+      {/* ── Start-of-round animation (plays when round resumes) ── */}
+      {startRoundAnimPlaying && draft && (
+        <StartOfRoundAnimation
+          key={`sor-${startRoundAnimNumberRef.current}`}
+          roundNumber={startRoundAnimNumberRef.current}
+          eventLogoUrl={eventLogoUrl}
+          eventColor1={eventColor1}
+          onComplete={() => {
+            setStartRoundAnimPlaying(false);
+            // If this was triggered by the admin clicking "Start Round", fire the resume now
+            if (startAnimFiredThisRoundRef.current) {
+              fetch('/api/draft', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'resume' }) }).catch(() => {});
             }
           }}
         />
