@@ -373,6 +373,19 @@ export async function POST(request: NextRequest) {
 
       const freshTrades = freshDerived.events_scored.filter(e => e.type === 'trade');
       const nonTrades = derived.events_scored.filter(e => e.type !== 'trade');
+
+      // Slot labels (1.08, original owner) — same enrichment as job start
+      try {
+        const { buildPickOwnershipContext, enrichDerivedTradePickLabels } = await import('@/lib/newsletter/pick-ownership-context');
+        const pickCtx = await buildPickOwnershipContext(season);
+        if (pickCtx?.pickLookup.size) {
+          enrichDerivedTradePickLabels(freshTrades, pickCtx.pickLookup);
+          tdLog('Pick labels enriched on re-derived trades');
+        }
+      } catch (pickErr) {
+        console.warn(`[Step] Trade pick enrichment failed (non-fatal):`, pickErr instanceof Error ? pickErr.message : String(pickErr));
+      }
+
       derived = { ...derived, events_scored: [...nonTrades, ...freshTrades] };
 
       tdLog(`Re-derive complete: ${freshTrades.length} fresh trade event(s)`, {

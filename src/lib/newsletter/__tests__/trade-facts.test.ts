@@ -6,7 +6,14 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { buildTradeFacts, buildTradeRoutingLedger, stripTradeIntroBoilerplate, type ByTeam } from '../trade-facts';
+import {
+  buildTradeFacts,
+  buildTradeRoutingLedger,
+  buildTradePartyScopeBlock,
+  stripTradeGradeLeadIn,
+  stripTradeIntroBoilerplate,
+  type ByTeam,
+} from '../trade-facts';
 
 // ── buildTradeFacts ───────────────────────────────────────────────────────────
 
@@ -65,6 +72,41 @@ describe('buildTradeFacts — 3-team trade', () => {
 
   it('includes multi-team grading note in footer', () => {
     expect(block).toContain('Per-team Gave/Received is authoritative');
+  });
+});
+
+describe('buildTradePartyScopeBlock — Etienne 3-team trade', () => {
+  const parties = ['Belleview Badgers', 'Mt. Lebanon Cake Eaters ', 'The Lone Ginger'];
+  const byTeam: ByTeam = {
+    'Belleview Badgers': {
+      gives: ['Romeo Doubs → Mt. Lebanon Cake Eaters ', 'David Montgomery → The Lone Ginger'],
+      gets: ['Travis Etienne (from Mt. Lebanon Cake Eaters )', '2026 Rd 1 Pick (bop pop\'s slot) (from The Lone Ginger)'],
+    },
+    'Mt. Lebanon Cake Eaters ': {
+      gives: ['Travis Etienne → Belleview Badgers'],
+      gets: ['Romeo Doubs (from Belleview Badgers)', 'Brian Thomas (from The Lone Ginger)'],
+    },
+    'The Lone Ginger': {
+      gives: ['Brian Thomas → Mt. Lebanon Cake Eaters ', '2026 Rd 1 Pick (bop pop\'s slot) → Belleview Badgers'],
+      gets: ['David Montgomery (from Belleview Badgers)'],
+    },
+  };
+
+  it('lists Badgers gave only Doubs (not Thomas) in scope block', () => {
+    const scope = buildTradePartyScopeBlock('Belleview Badgers', parties, byTeam);
+    const gaveLine = scope.match(/Assets Belleview Badgers gave up IN THIS TRADE \(\d+\):[^\n]+/)?.[0] ?? '';
+    expect(gaveLine).toContain('Romeo Doubs');
+    expect(gaveLine).not.toContain('Brian Thomas');
+    expect(scope).toContain('The Lone Ginger SENT:');
+    expect(scope).toMatch(/Brian Thomas → Mt\. Lebanon/);
+  });
+
+  it('states Lone Ginger sent the 1st, not Mt. Lebanon', () => {
+    const scope = buildTradePartyScopeBlock('Belleview Badgers', parties, byTeam);
+    expect(scope).toContain('(from The Lone Ginger)');
+    const mtLine = scope.match(/Mt\. Lebanon Cake Eaters  SENT:[^\n]+/)?.[0] ?? '';
+    expect(mtLine).not.toContain('2026 Rd 1');
+    expect(scope).toMatch(/The Lone Ginger SENT:[^\n]*2026 Rd 1 Pick/);
   });
 });
 
@@ -153,6 +195,17 @@ describe('buildTradeFacts — data warnings', () => {
 });
 
 // ── stripTradeIntroBoilerplate ────────────────────────────────────────────────
+
+describe('stripTradeGradeLeadIn', () => {
+  it('removes a leading trade-recap sentence', () => {
+    const input =
+      "Look, I'll be honest — when I first saw this three-team trade, I felt sick. " +
+      'For Belleview Badgers this is a clear B+ win.';
+    const result = stripTradeGradeLeadIn(input);
+    expect(result).not.toMatch(/when i first saw/i);
+    expect(result).toContain('Belleview Badgers');
+  });
+});
 
 describe('stripTradeIntroBoilerplate', () => {
   it('strips "Let\'s break down this trade"', () => {

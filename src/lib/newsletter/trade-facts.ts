@@ -105,6 +105,48 @@ export function buildTradeFacts(
   return [header, warnings.join('\n'), routingLedger, rows, footer].filter(Boolean).join('\n\n');
 }
 
+/**
+ * Per-team scope block — prevents conflating "(from X)" on one asset with X sending everything,
+ * and blocks inventing pre-trade pick inventory as part of this deal.
+ */
+export function buildTradePartyScopeBlock(
+  focusTeam: string,
+  parties: string[],
+  byTeam: ByTeam,
+  annotate: (assets: string[] | undefined) => string = defaultAnnotate,
+): string {
+  const side = byTeam[focusTeam];
+  const received = annotate(side?.gets);
+  const gave = annotate(side?.gives);
+  const receivedN = side?.gets?.length ?? 0;
+  const gaveN = side?.gives?.length ?? 0;
+
+  const otherGives = parties
+    .filter(p => p !== focusTeam)
+    .map(p => {
+      const g = byTeam[p]?.gives ?? [];
+      if (g.length === 0) return `  • ${p} SENT: (nothing listed)`;
+      return `  • ${p} SENT: ${annotate(g)}`;
+    })
+    .join('\n');
+
+  return [
+    '=== GRADING SCOPE (this transaction only) ===',
+    `You are grading ${focusTeam} ONLY.`,
+    `Assets ${focusTeam} acquired IN THIS TRADE (${receivedN}): ${received}`,
+    `Assets ${focusTeam} gave up IN THIS TRADE (${gaveN}): ${gave}`,
+    '',
+    'Rules:',
+    '• Do NOT count draft picks they already owned before this deal — only the Received line is new capital from this trade.',
+    '• "(from Team X)" on one received asset means ONLY that asset came from X — not every asset they received.',
+    `• Never list an asset under another team's SENT line as something ${focusTeam} gave up.`,
+    '',
+    'What other teams gave up (do NOT attribute these to ' + focusTeam + '):',
+    otherGives,
+    '===',
+  ].join('\n');
+}
+
 function defaultAnnotate(assets: string[] | undefined): string {
   if (!assets || assets.length === 0) return '(no assets listed)';
   return assets.join(', ');
@@ -129,6 +171,31 @@ export const INTRO_BOILERPLATE_PATTERNS: RegExp[] = [
  * Strip known intro boilerplate from the start of bot commentary.
  * Returns the original string unchanged if no pattern matches.
  */
+/** Drop a leading sentence that recaps the whole trade instead of grading the focus team. */
+export function stripTradeGradeLeadIn(text: string, tradeHeadline = ''): string {
+  const trimmed = text.trim();
+  if (!trimmed) return trimmed;
+  const sentences = trimmed.match(/[^.!?]+[.!?]+|[^.!?]+$/g)?.map(s => s.trim()).filter(Boolean) ?? [trimmed];
+  if (sentences.length < 2) return trimmed;
+  const first = sentences[0].toLowerCase();
+  const headlineLower = tradeHeadline.toLowerCase();
+  const looksLikeIntro =
+    first.includes('trade') ||
+    first.includes('deal') ||
+    first.includes('three-team') ||
+    first.includes('multi-team') ||
+    first.includes("let's start") ||
+    first.includes("let's break") ||
+    first.includes('breaking this down') ||
+    first.includes('when i first saw') ||
+    first.includes("i'll be honest") ||
+    first.includes('welcome to') ||
+    first.includes('in this trade') ||
+    first.includes('this week') ||
+    (headlineLower.length > 0 && first.includes(headlineLower));
+  return looksLikeIntro ? sentences.slice(1).join(' ').trim() : trimmed;
+}
+
 export function stripTradeIntroBoilerplate(
   text: string,
   onStripped?: (pattern: RegExp) => void,

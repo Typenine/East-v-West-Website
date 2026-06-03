@@ -54,6 +54,7 @@ import {
 } from '@/server/db/newsletter-queries';
 import { getActiveOrLatestDraftId, countDraftPlayers, getDraftPlayers, getDraftRound1Slots, getDraftRound2Slots, getDraftSlotsDetailed, getDraftPickTradeHistory } from '@/server/db/queries';
 import { fetchNewsletterData } from '@/lib/newsletter';
+import { buildPickOwnershipContext, enrichDerivedTradePickLabels } from '@/lib/newsletter/pick-ownership-context';
 import { getHeadToHeadAllTime } from '@/lib/utils/headtohead';
 import { fetchTradesAllTime } from '@/lib/utils/trades';
 import { postToDiscordWebhook, buildNewsletterEmbed } from '@/lib/utils/discord';
@@ -808,110 +809,6 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// ============ Pick ownership context builder ============
-
-/**
- * Loads pick slot data + full trade-chain history for the active draft and returns:
- *  1. A human-readable context block for LLM context (shows slot numbers, ownership chains)
- *  2. A lookup map keyed by "{year}-{round}-{currentOwner}" → enriched label string
- *     so normalizeTransactions pick labels can include slot numbers + original ownership.
- *
- * Returns null if no draft is configured or no slots exist.
- */
-async function buildPickOwnershipContext(seasonNum: number): Promise<{
-  contextBlock: string;
-  // Keyed by "year-round-currentOwner" (team name) → enriched pick description.
-  // Only picks whose current owner is in the key can be looked up — i.e., use this
-  // on a pick's `gets` side (the receiving team IS the current owner after the trade).
-  pickLookup: Map<string, { label: string; overall: number; originalTeam: string; chain: string[] }>;
-} | null> {
-  try {
-    const draftId = await getActiveOrLatestDraftId();
-    if (!draftId) return null;
-
-    const [slots, tradeHistory] = await Promise.all([
-      getDraftSlotsDetailed(draftId).catch(() => [] as Awaited<ReturnType<typeof getDraftSlotsDetailed>>),
-      getDraftPickTradeHistory(draftId).catch(() => [] as Awaited<ReturnType<typeof getDraftPickTradeHistory>>),
-    ]);
-    if (slots.length === 0) return null;
-
-    // Validate: if no trade history references the current season, the draft is probably
-    // from a prior year. Skip rather than inject stale data.
-    // (draft_slots has no year column, so we check via trade history year field.)
-    if (tradeHistory.length > 0) {
-      const hasCurrentYear = tradeHistory.some(t => t.pickYear === seasonNum || t.pickYear === seasonNum + 1);
-      if (!hasCurrentYear) {
-        console.log(`[Staged] Pick ownership: draft appears stale (no ${seasonNum} picks in trade history) — skipping`);
-        return null;
-      }
-    }
-
-    // Build trade chains keyed by OVERALL pick number (unique per pick), falling back
-    // to "round-originalTeam" only when overall is missing (older trade records).
-    // Keying by originalTeam alone caused collisions when a team had multiple picks.
-    const chainMap = new Map<string, string[]>();
-    for (const t of tradeHistory) {
-      if (!t.pickYear || !t.pickRound) continue;
-      // Prefer overall as key; fall back to original team
-      const key = t.pickOverall != null
-        ? `overall-${t.pickOverall}`
-        : `${t.pickYear}-${t.pickRound}-${t.pickOriginalTeam ?? 'unknown'}`;
-      if (!chainMap.has(key)) chainMap.set(key, [t.pickOriginalTeam ?? t.fromTeam]);
-      const chain = chainMap.get(key)!;
-      if (chain[chain.length - 1] !== t.fromTeam) chain.push(t.fromTeam);
-      if (chain[chain.length - 1] !== t.toTeam)   chain.push(t.toTeam);
-    }
-
-    const pickLookup = new Map<string, { label: string; overall: number; originalTeam: string; chain: string[] }>();
-    const linesByRound = new Map<number, string[]>();
-
-    for (const slot of slots) {
-      // Look up chain by overall first (most precise), then by round+originalTeam fallback
-      const chain = chainMap.get(`overall-${slot.overall}`)
-        ?? chainMap.get(`${seasonNum}-${slot.round}-${slot.originalTeam}`)
-        ?? [slot.originalTeam];
-      // Ensure the chain ends with the slot's current DB owner
-      if (chain[chain.length - 1] !== slot.team) chain.push(slot.team);
-
-      const wasTraded = slot.originalTeam !== slot.team;
-      const ownershipNote = wasTraded
-        ? `currently ${slot.team} (originally ${slot.originalTeam}, chain: ${chain.join(' → ')})`
-        : `${slot.team} (original owner)`;
-
-      const slotStr = `${slot.round}.${String(slot.pickInRound).padStart(2, '0')}`;
-      const fullLine = `  ${slotStr} (overall #${slot.overall}): ${ownershipNote}`;
-
-      if (!linesByRound.has(slot.round)) linesByRound.set(slot.round, []);
-      linesByRound.get(slot.round)!.push(fullLine);
-
-      // Key = "year-round-currentOwner" so the enrichment step can look up a pick
-      // in a team's `gets` using that team's name (the current owner after the trade).
-      const lookupKey = `${seasonNum}-${slot.round}-${slot.team}`;
-      pickLookup.set(lookupKey, {
-        label: `${seasonNum} Rd ${slot.round} Pick ${slotStr} (overall #${slot.overall}, originally ${slot.originalTeam})`,
-        overall: slot.overall,
-        originalTeam: slot.originalTeam,
-        chain,
-      });
-    }
-
-    const rounds = [...linesByRound.keys()].sort((a, b) => a - b);
-    const contextBlock = [
-      `=== ${seasonNum} DRAFT PICK OWNERSHIP (from league trade tracker) ===`,
-      `Slot (R.P), overall pick #, current owner, and full trade chain for every pick.`,
-      `Use this to correctly attribute picks in trades — do NOT rely on Sleeper attribution.`,
-      ...rounds.map(r => [`Round ${r}:`, ...(linesByRound.get(r) ?? [])].join('\n')),
-      `===`,
-    ].join('\n');
-
-    console.log(`[Staged] Pick ownership context: ${slots.length} slots, ${tradeHistory.length} trade records`);
-    return { contextBlock, pickLookup };
-  } catch (e) {
-    console.warn('[Staged] buildPickOwnershipContext failed:', e instanceof Error ? e.message : String(e));
-    return null;
-  }
-}
-
 // ============ Staged job starter ============
 
 async function startStagedJob(opts: {
@@ -947,31 +844,7 @@ async function startStagedJob(opts: {
     const pickOwnership = await buildPickOwnershipContext(seasonNum).catch(() => null);
     try {
       if (pickOwnership?.pickLookup) {
-        const { pickLookup } = pickOwnership;
-        for (const ev of derived.events_scored) {
-          if (ev.type !== 'trade' || !ev.details?.by_team) continue;
-          for (const [teamName, side] of Object.entries(ev.details.by_team)) {
-            const enrichPickLabel = (asset: string, useReceiverKey: boolean): string => {
-              const m = asset.match(/^(\d{4})\s+Rd\s+(\d+)\s+Pick(?:\s*\([^)]*\))?(?:\s*\(from\s+[^)]*\))?(?:\s*→\s*.+)?$/i);
-              if (!m) return asset;
-              const [, yr, rd] = m;
-              const receiverTeam = useReceiverKey
-                ? teamName
-                : (asset.match(/→\s*(.+)$/)?.[1]?.trim() || '');
-              const entry = receiverTeam ? pickLookup.get(`${yr}-${rd}-${receiverTeam}`) : undefined;
-              if (!entry) return asset;
-              if (useReceiverKey) {
-                const fromMatch = asset.match(/\(from\s+([^)]*)\)/i);
-                return fromMatch ? `${entry.label} (from ${fromMatch[1]})` : entry.label;
-              }
-              const arrowMatch = asset.match(/→\s*(.+)$/);
-              return arrowMatch ? `${entry.label} → ${arrowMatch[1]}` : entry.label;
-            };
-
-            side.gets = (side.gets ?? []).map(asset => enrichPickLabel(asset, true));
-            side.gives = (side.gives ?? []).map(asset => enrichPickLabel(asset, false));
-          }
-        }
+        enrichDerivedTradePickLabels(derived.events_scored, pickOwnership.pickLookup);
         console.log(`[Staged] Pick labels enriched in derived events (gets + gives)`);
       }
     } catch (enrichErr) {

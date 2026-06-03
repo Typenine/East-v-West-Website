@@ -1321,18 +1321,6 @@ async function buildTradeItems(events: DerivedData['events_scored'], memEntertai
   };
 
   // Generate one Mason Reed intro per trade (sets the stage once, not repeated per team)
-  const tradeIntros = await Promise.all(
-    tradeContexts.map(({ tradeContext, parties }) =>
-      generateSection({
-        persona: 'entertainer',
-        sectionType: 'Trade Intro',
-        context: tradeContext + (entPersonality ? `\n${entPersonality}` : ''),
-        constraints: `Write 1-2 punchy sentences introducing this ${parties.length > 2 ? `${parties.length}-team` : ''} trade. Set the scene and the storyline — who made the power move, what's the narrative. Do NOT grade anyone or analyze specific team outcomes yet; that's coming in the per-team sections below.`,
-        maxTokens: 120,
-      }).then(raw => guardText(raw, { sectionType: 'Trade Intro', logPrefix: '[compose:TradeIntro:entertainer]' }))
-    )
-  );
-
   // Build all party analysis requests
   const allPartyRequests: Array<{
     tradeIdx: number;
@@ -1390,23 +1378,30 @@ ${anaTrustLine ? `[Westy's history: ${anaTrustLine}]` : ''}${partyCard}`;
     allPartyRequests.map(async ({ party, sideContext, tradeContext, isMultiTeam, allParties }) => {
       const otherTeams = allParties.filter(p => p !== party).join(' and ');
 
-      // The trade intro is already written by Mason Reed above — both bots skip re-introduction
-      // and dive directly into their grade and analysis for this specific team.
+      const gradeOpenRule =
+        `OPENING: First sentence = your verdict for ${party} only. No trade-section intro, no full-deal recap. ` +
+        `Mason and Westy publish side-by-side — do not introduce the trade for the other voice.\n`;
       const entertainerConstraints = isMultiTeam
         ? `Grade this ${allParties.length}-team trade for ${party} specifically (A+ to F). ` +
+          gradeOpenRule +
           `Skip any trade introduction — jump straight into your verdict. ` +
           `Write 2-3 paragraphs: first your gut reaction on where ${party} lands vs ${otherTeams} (winner/break-even/loser and why), then break down each asset they received and gave up with personality, then your final take on what this means for their season. ` +
           `Only judge ${party} on what they SENT (listed in their SENT column above) — do NOT blame them for assets sent by other teams. End with your letter grade.`
-        : `Grade this trade for ${party} specifically (A+ to F). Skip any trade setup — go straight to your verdict. ` +
+        : `Grade this trade for ${party} specifically (A+ to F). ` +
+          gradeOpenRule +
+          `Skip any trade setup — go straight to your verdict. ` +
           `Write 2-3 paragraphs: first your gut reaction (heist, robbery, or fair deal?), then break down each asset they got and gave up with personality, then what this means for their dynasty outlook. ` +
           `Let your history with this team color your take. End with your letter grade.`;
 
       const analystConstraints = isMultiTeam
         ? `Grade this ${allParties.length}-team trade for ${party} specifically (A+ to F). ` +
+          gradeOpenRule +
           `Skip any trade introduction — go straight into your analysis. ` +
           `Write 2-3 paragraphs: first the net value assessment (did ${party} win or lose vs ${otherTeams}?), then a detailed breakdown of each asset — age curve, dynasty value, positional scarcity — then the roster-fit and window analysis. ` +
           `Do NOT penalize ${party} for assets sent by other teams in this deal. End with your letter grade.`
-        : `Grade this trade for ${party} specifically (A+ to F). Skip any trade setup — go straight into your analysis. ` +
+        : `Grade this trade for ${party} specifically (A+ to F). ` +
+          gradeOpenRule +
+          `Skip any trade setup — go straight into your analysis. ` +
           `Write 2-3 paragraphs: first the overall value verdict for ${party}, then a detailed breakdown of each asset received and surrendered (age, dynasty value, positional scarcity), then roster fit and championship window implications. ` +
           `Factor in your prior read on this team if relevant. End with your letter grade.`;
 
@@ -1500,7 +1495,6 @@ ${anaTrustLine ? `[Westy's history: ${anaTrustLine}]` : ''}${partyCard}`;
       context: tradeDisplayHeadline,
       teams: e.details?.by_team || null,
       analysis,
-      intro: tradeIntros[i],
     });
   }
 
