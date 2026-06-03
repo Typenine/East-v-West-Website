@@ -39,7 +39,8 @@ export async function GET(req: NextRequest) {
             : {};
           const players = combined
             .map(p => {
-              let { playerId, playerName, playerPos, playerNfl } = p;
+              const { playerId } = p;
+              let { playerName, playerPos, playerNfl } = p;
               if (!playerName || playerName === playerId) {
                 const sp = sleeperPlayers[playerId];
                 if (sp) {
