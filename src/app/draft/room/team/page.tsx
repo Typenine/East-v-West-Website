@@ -123,6 +123,7 @@ export default function DraftRoomPage() {
   const [queueEditIdx, setQueueEditIdx] = useState<number | null>(null);
   const [queueEditVal, setQueueEditVal] = useState('');
   const [boardRankByName, setBoardRankByName] = useState<Record<string, { overall: number; posRank: number }>>({});
+  const [boardRankById, setBoardRankById] = useState<Record<string, { overall: number; posRank: number }>>({});
   const [approvedTradeCount, setApprovedTradeCount] = useState(0);
   const prevApprovedTradeCountRef = useRef(0);
   const [rosterFromSnapshot, setRosterFromSnapshot] = useState(false);
@@ -363,13 +364,13 @@ export default function DraftRoomPage() {
     } catch {}
   }, [myTeam]);
 
-  // Fetch prospect board ranks once on mount — used in Pick tab to annotate available players
+  // Fetch prospect board ranks once on mount — used in Pick tab to sort and annotate players.
+  // Builds two lookup maps (by prospect board ID and by lowercase name) for robust matching.
   useEffect(() => {
     fetch('/api/team-prospect-draftboard', { cache: 'no-store' })
       .then(r => r.ok ? r.json() : null)
       .then(data => {
-        if (!data?.data) return;
-        const orderIds: string[] = Array.isArray(data.data.orderIds) ? data.data.orderIds : [];
+        const orderIds: string[] = Array.isArray(data?.data?.orderIds) ? data.data.orderIds : [];
         const playerById = Object.fromEntries(DEFAULT_PLAYERS.map(p => [p.id, p]));
         const ranked: typeof DEFAULT_PLAYERS = [];
         const usedIds = new Set<string>();
@@ -377,14 +378,19 @@ export default function DraftRoomPage() {
           const p = playerById[id];
           if (p && !usedIds.has(id)) { ranked.push(p); usedIds.add(id); }
         }
+        // Append any board players not in saved order (new additions or first use)
         for (const p of DEFAULT_PLAYERS) { if (!usedIds.has(p.id)) ranked.push(p); }
         const posCount: Record<string, number> = {};
-        const result: Record<string, { overall: number; posRank: number }> = {};
+        const byName: Record<string, { overall: number; posRank: number }> = {};
+        const byId:   Record<string, { overall: number; posRank: number }> = {};
         ranked.forEach((p, idx) => {
           posCount[p.pos] = (posCount[p.pos] || 0) + 1;
-          result[p.name.toLowerCase()] = { overall: idx + 1, posRank: posCount[p.pos] };
+          const entry = { overall: idx + 1, posRank: posCount[p.pos] };
+          byName[p.name.toLowerCase()] = entry;
+          byId[p.id] = entry;
         });
-        setBoardRankByName(result);
+        setBoardRankByName(byName);
+        setBoardRankById(byId);
       })
       .catch(() => {});
   }, []);
@@ -1177,8 +1183,15 @@ export default function DraftRoomPage() {
                 {teamPanelTab === 'pick' && (
                   <div className="rounded-lg border border-[var(--border)] overflow-hidden bg-[var(--background)]">
                     <div className="px-3 pt-3 pb-2 border-b border-[var(--border)]">
-                      <div className="text-xs font-bold text-[var(--muted)] uppercase tracking-wide mb-2">
-                        {isMyTurn && !isMyPickPending ? 'Make your pick' : 'Browse players'}
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="text-xs font-bold text-[var(--muted)] uppercase tracking-wide">
+                          {isMyTurn && !isMyPickPending ? 'Make your pick' : 'Browse players'}
+                        </div>
+                        {Object.keys(boardRankById).length > 0 && (
+                          <span className="text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded" style={{ color: myTeamColors?.primary || '#be161e', background: `${myTeamColors?.primary || '#be161e'}15` }}>
+                            Your Board Order
+                          </span>
+                        )}
                       </div>
                       <div className="flex gap-1.5 flex-wrap mb-2">
                         {(['', ...POSITIONS] as string[]).map(pos => {
@@ -1206,25 +1219,43 @@ export default function DraftRoomPage() {
                     <div className="max-h-72 overflow-y-auto divide-y divide-[var(--border)]">
                       {avail.length === 0 ? (
                         <div className="px-3 py-4 text-center text-xs text-[var(--muted)]">{loading ? 'Loading…' : 'No results — try a search or change position filter.'}</div>
-                      ) : avail.map(p => {
+                      ) : (() => {
+                        const hasBoardData = Object.keys(boardRankById).length > 0;
+                        // Sort by this team's board rank when board data is loaded
+                        const availSorted = hasBoardData
+                          ? [...avail].sort((a, b) => {
+                              const ra = boardRankById[a.id] || boardRankByName[a.name.toLowerCase()];
+                              const rb = boardRankById[b.id] || boardRankByName[b.name.toLowerCase()];
+                              if (ra && rb) return ra.overall - rb.overall;
+                              if (ra) return -1;
+                              if (rb) return 1;
+                              return 0;
+                            })
+                          : avail;
+                        return availSorted.map(p => {
                         const inQueue = queue.some(q => q.id === p.id);
                         const canPick = isMyTurn && !isMyPickPending;
-                        const boardRank = boardRankByName[p.name.toLowerCase()];
+                        const boardRank = boardRankById[p.id] || boardRankByName[p.name.toLowerCase()];
                         return (
-                          <div key={p.id} className="flex items-start gap-2 px-3 py-2 hover:bg-zinc-100 dark:hover:bg-zinc-800/50">
-                            <span className="shrink-0 text-[10px] font-black px-1.5 py-0.5 rounded text-white mt-0.5" style={{ background: POS_COLORS[p.pos] || '#555', minWidth: '30px', textAlign: 'center' }}>
+                          <div key={p.id} className="flex items-center gap-2 px-3 py-2 hover:bg-zinc-100 dark:hover:bg-zinc-800/50">
+                            {boardRank ? (
+                              <div className="flex flex-col items-center shrink-0" style={{ minWidth: '32px' }}>
+                                <span className="text-xs font-black leading-tight" style={{ color: myTeamColors?.primary || '#be161e' }}>
+                                  #{boardRank.overall}
+                                </span>
+                                <span className="text-[9px] font-bold leading-tight" style={{ color: myTeamColors?.secondary || '#bf9944' }}>
+                                  {p.pos}{boardRank.posRank}
+                                </span>
+                              </div>
+                            ) : (
+                              <div className="shrink-0" style={{ minWidth: '32px' }} />
+                            )}
+                            <span className="shrink-0 text-[10px] font-black px-1.5 py-0.5 rounded text-white" style={{ background: POS_COLORS[p.pos] || '#555', minWidth: '30px', textAlign: 'center' }}>
                               {p.pos}
                             </span>
                             <div className="flex-1 min-w-0">
                               <div className="text-sm font-semibold text-[var(--foreground)] break-words leading-snug">{p.name}</div>
-                              <div className="flex items-center gap-2 flex-wrap">
-                                <span className="text-xs text-[var(--muted)]">{p.nfl}</span>
-                                {boardRank && (
-                                  <span className="text-[10px] font-bold text-[var(--muted)] bg-zinc-100 dark:bg-zinc-800 px-1.5 py-0.5 rounded" title="Your prospect board rank">
-                                    #{boardRank.overall} · {p.pos}{boardRank.posRank}
-                                  </span>
-                                )}
-                              </div>
+                              <div className="text-xs text-[var(--muted)]">{p.nfl}</div>
                             </div>
                             <div className="flex gap-1.5 shrink-0 self-center items-center">
                               {canPick && myTeamColors && (
@@ -1275,7 +1306,8 @@ export default function DraftRoomPage() {
                             </div>
                           </div>
                         );
-                      })}
+                      });
+                      })()}
                     </div>
                   </div>
                 )}

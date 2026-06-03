@@ -127,7 +127,14 @@ export default function DraftInfoBarTicker({ draftId, picksPerRound = 12, onCloc
   // In-draft approved current_pick trades (refetched when onClockTeam changes)
   const [approvedPickTrades, setApprovedPickTrades] = useState<Array<{
     fromTeam: string; toTeam: string; pickOverall: number;
-    returnAssets: Array<{ assetType: string; playerName?: string | null; pickRound?: number | null; pickYear?: number | null }>;
+    returnAssets: Array<{
+      assetType: string;
+      playerName?: string | null;
+      playerId?: string | null;
+      pickRound?: number | null;
+      pickYear?: number | null;
+      pickOverall?: number | null;
+    }>;
   }>>([]);
 
   // Per-team data (refetched when onClockTeam changes)
@@ -249,19 +256,24 @@ export default function DraftInfoBarTicker({ draftId, picksPerRound = 12, onCloc
       .then(r => r.ok ? r.json() : null)
       .then(data => {
         if (!data?.trades) return;
-        type TradeAsset = { assetType: string; fromTeam: string; toTeam: string; pickOverall?: number | null; playerName?: string | null; pickRound?: number | null; pickYear?: number | null };
+        type TradeAsset = { assetType: string; fromTeam: string; toTeam: string; pickOverall?: number | null; playerName?: string | null; playerId?: string | null; pickRound?: number | null; pickYear?: number | null };
         const picks: typeof approvedPickTrades = [];
         for (const t of data.trades as Array<{ status: string; assets: TradeAsset[] }>) {
           if (t.status !== 'approved') continue;
           for (const a of t.assets) {
             if (a.assetType === 'current_pick' && a.pickOverall != null) {
-              // What did fromTeam receive in return? All assets going back to fromTeam.
-              const returnAssets = t.assets.filter(r => r.toTeam === a.fromTeam).map(r => ({
-                assetType: r.assetType,
-                playerName: r.playerName ?? null,
-                pickRound: r.pickRound ?? null,
-                pickYear: r.pickYear ?? null,
-              }));
+              // Collect every asset in the trade EXCEPT the on-clock pick itself.
+              // Avoids team-name equality mismatches that can silently drop players/picks.
+              const returnAssets = t.assets
+                .filter(r => !(r.assetType === 'current_pick' && r.pickOverall === a.pickOverall))
+                .map(r => ({
+                  assetType: r.assetType,
+                  playerName: r.playerName ?? null,
+                  playerId: r.playerId ?? null,
+                  pickRound: r.pickRound ?? null,
+                  pickYear: r.pickYear ?? null,
+                  pickOverall: r.pickOverall ?? null,
+                }));
               picks.push({ fromTeam: a.fromTeam, toTeam: a.toTeam, pickOverall: a.pickOverall, returnAssets });
             }
           }
@@ -500,11 +512,31 @@ export default function DraftInfoBarTicker({ draftId, picksPerRound = 12, onCloc
       {currentPickTradeInfo && (() => {
         const full = currentPickTradeInfo as {
           fromTeam: string; toTeam?: string; originalTeam?: string; summary?: string;
-          returnAssets?: Array<{ assetType: string; playerName?: string | null; pickRound?: number | null; pickYear?: number | null }>;
+          returnAssets?: Array<{
+            assetType: string;
+            playerName?: string | null;
+            playerId?: string | null;
+            pickRound?: number | null;
+            pickYear?: number | null;
+            pickOverall?: number | null;
+          }>;
         };
         const returnAssets = full.returnAssets || [];
         const returnSummary = returnAssets.length > 0
-          ? returnAssets.map(r => r.assetType === 'player' ? (r.playerName || 'Player') : `${r.pickYear ?? ''} Rd ${r.pickRound ?? '?'} pick`).join(', ')
+          ? returnAssets.map(r => {
+              if (r.assetType === 'player') {
+                return r.playerName || r.playerId || 'a player';
+              }
+              if (r.assetType === 'current_pick') {
+                // Current-draft pick: show Round + in-round pick number
+                const inRound = r.pickOverall != null ? ((r.pickOverall - 1) % teamsPerRound) + 1 : null;
+                return `Rd ${r.pickRound ?? '?'}, Pk ${inRound ?? '?'}`;
+              }
+              // Future pick: show Year · Round
+              const year = r.pickYear != null ? String(r.pickYear) : '';
+              const round = r.pickRound != null ? `Rd ${r.pickRound}` : 'Rd ?';
+              return [year, round].filter(Boolean).join(' ');
+            }).join(' + ')
           : null;
         return (
           <div style={{ display: currentTickerView === 'tradeInfo' ? 'block' : 'none' }}>

@@ -15,10 +15,10 @@ export async function GET(req: NextRequest) {
   const draftId = url.searchParams.get('draftId') || '';
   if (!team) return Response.json({ error: 'team required' }, { status: 400 });
 
-  // When draftId provided and a snapshot exists, use snapshot — it accurately reflects
-  // which pre-draft players each team currently owns after in-draft trades.
-  // Also merges players drafted during this draft who are still on the team
-  // (not yet traded, so not yet in the snapshot table).
+  // When draftId provided and the snapshot has pre-draft roster data for this team,
+  // use it — it accurately reflects which players each team owns after in-draft trades.
+  // Also merges players drafted during this draft who haven't been traded yet.
+  // Resolves any unresolved player names (stored as numeric IDs) via Sleeper cache.
   if (draftId) {
     try {
       const snapshotExists = await hasRosterSnapshot(draftId);
@@ -27,10 +27,29 @@ export async function GET(req: NextRequest) {
           getRosterSnapshot(draftId, team),
           getDraftPicksStillOwnedByTeam(draftId, team),
         ]);
-        if (snapshot.length > 0 || draftedStillOwned.length > 0) {
+        // Only use snapshot path when the pre-draft roster snapshot is present for this team.
+        // If snapshot is empty, the team was missed during snapshotting — fall through to Sleeper.
+        if (snapshot.length > 0) {
           const combined = [...snapshot, ...draftedStillOwned];
+          // Some snapshot rows have the Sleeper player ID stored as the name (happens when
+          // getAllPlayersCached() didn't include that player at snapshot time). Resolve them now.
+          const needsResolution = combined.some(p => !p.playerName || p.playerName === p.playerId);
+          const sleeperPlayers: Record<string, SleeperPlayer> = needsResolution
+            ? await getAllPlayersCached().catch(() => ({} as Record<string, SleeperPlayer>))
+            : {};
           const players = combined
-            .map(p => ({ id: p.playerId, name: p.playerName || p.playerId, pos: p.playerPos || '', nfl: p.playerNfl || '' }))
+            .map(p => {
+              let { playerId, playerName, playerPos, playerNfl } = p;
+              if (!playerName || playerName === playerId) {
+                const sp = sleeperPlayers[playerId];
+                if (sp) {
+                  playerName = [sp.first_name, sp.last_name].filter(Boolean).join(' ') || playerId;
+                  if (!playerPos) playerPos = sp.position || null;
+                  if (!playerNfl) playerNfl = sp.team || null;
+                }
+              }
+              return { id: playerId, name: playerName || playerId, pos: playerPos || '', nfl: playerNfl || '' };
+            })
             .sort((a, b) => (POS_ORDER[a.pos] ?? 9) - (POS_ORDER[b.pos] ?? 9) || a.name.localeCompare(b.name));
           return Response.json({ players, fromSnapshot: true });
         }
