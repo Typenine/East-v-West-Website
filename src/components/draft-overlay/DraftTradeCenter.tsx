@@ -426,7 +426,16 @@ export default function DraftTradeCenter({
     finally { setLoadingAssets(prev => ({ ...prev, [team]: false })); }
   }, [assetsCache, loadingAssets, draftId]);
 
-  // When propose tab is opened, fetch assets
+  // When propose tab is opened, invalidate asset cache to force fresh pick/player data
+  const prevTabRef = useRef(tab);
+  useEffect(() => {
+    if (tab === 'propose' && prevTabRef.current !== 'propose') {
+      setAssetsCache({});
+    }
+    prevTabRef.current = tab;
+  }, [tab]);
+
+  // When propose tab is open, fetch assets for all teams in the trade
   useEffect(() => {
     if (tab !== 'propose') return;
     const teamsInTrade = [myTeam, ...partnerTeams];

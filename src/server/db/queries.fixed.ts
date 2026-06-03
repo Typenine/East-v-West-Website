@@ -2485,6 +2485,28 @@ export async function getRosterSnapshot(draftId: string, team: string): Promise<
   return rows.map(r => ({ playerId: r.player_id, playerName: r.player_name, playerPos: r.player_pos, playerNfl: r.player_nfl, acquiredVia: r.acquired_via }));
 }
 
+/**
+ * Returns players drafted by `team` during this draft that are NOT yet in the snapshot table.
+ * "Not in snapshot" means they were drafted this draft and haven't been traded
+ * (traded players get inserted into the receiving team's snapshot by approveDraftTrade).
+ * Use this alongside getRosterSnapshot to build a complete current roster.
+ */
+export async function getDraftPicksStillOwnedByTeam(draftId: string, team: string): Promise<DraftRosterPlayer[]> {
+  await ensureDraftTables();
+  const db = getDb();
+  const res = await db.execute(sql`
+    SELECT p.player_id, p.player_name, p.player_pos, p.player_nfl
+    FROM draft_picks p
+    WHERE p.draft_id = ${draftId}::uuid AND p.team = ${team}
+      AND NOT EXISTS (
+        SELECT 1 FROM draft_roster_snapshots s
+        WHERE s.draft_id = p.draft_id AND s.player_id = p.player_id
+      )
+  `);
+  const rows = (res as unknown as { rows?: Array<{ player_id: string; player_name: string | null; player_pos: string | null; player_nfl: string | null }> }).rows || [];
+  return rows.map(r => ({ playerId: r.player_id, playerName: r.player_name, playerPos: r.player_pos, playerNfl: r.player_nfl, acquiredVia: 'draft_pick' }));
+}
+
 export async function hasRosterSnapshot(draftId: string): Promise<boolean> {
   const db = getDb();
   const res = await db.execute(sql`SELECT 1 FROM draft_roster_snapshots WHERE draft_id = ${draftId}::uuid LIMIT 1`);
@@ -2696,7 +2718,31 @@ export async function approveDraftTrade(
   // Execute asset swaps
   for (const asset of trade.assets) {
     if (asset.assetType === 'player' && asset.playerId) {
-      await movePlayerInSnapshot(trade.draftId, asset.playerId, asset.fromTeam, asset.toTeam);
+      // Try to move within snapshot (handles pre-draft roster players)
+      const updateRes = await db.execute(sql`
+        UPDATE draft_roster_snapshots SET team = ${asset.toTeam}, acquired_via = 'trade'
+        WHERE draft_id = ${trade.draftId}::uuid AND player_id = ${asset.playerId} AND team = ${asset.fromTeam}
+      `);
+      const updatedRows = (updateRes as unknown as { rowCount?: number }).rowCount ?? 0;
+      // If the player wasn't in the snapshot, they were drafted during this draft —
+      // look up their metadata from draft_picks and insert them into the receiving team's snapshot.
+      if (updatedRows === 0) {
+        const pickRes = await db.execute(sql`
+          SELECT player_name, player_pos, player_nfl FROM draft_picks
+          WHERE draft_id = ${trade.draftId}::uuid AND player_id = ${asset.playerId}
+          LIMIT 1
+        `);
+        const pickRow = (pickRes as unknown as { rows?: Array<{ player_name: string | null; player_pos: string | null; player_nfl: string | null }> }).rows?.[0];
+        if (pickRow) {
+          await db.execute(sql`
+            INSERT INTO draft_roster_snapshots (draft_id, team, player_id, player_name, player_pos, player_nfl, acquired_via)
+            VALUES (${trade.draftId}::uuid, ${asset.toTeam}, ${asset.playerId}, ${pickRow.player_name}, ${pickRow.player_pos}, ${pickRow.player_nfl}, 'trade')
+            ON CONFLICT (draft_id, team, player_id) DO UPDATE
+              SET player_name = EXCLUDED.player_name, player_pos = EXCLUDED.player_pos,
+                  player_nfl = EXCLUDED.player_nfl, acquired_via = 'trade'
+          `);
+        }
+      }
     } else if (asset.assetType === 'current_pick' && asset.pickOverall != null) {
       await db.execute(sql`UPDATE draft_slots SET team = ${asset.toTeam} WHERE draft_id = ${trade.draftId}::uuid AND overall = ${asset.pickOverall}`);
     } else if (asset.assetType === 'future_pick' && asset.pickYear != null && asset.pickRound != null && asset.pickOriginalTeam) {

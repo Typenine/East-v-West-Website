@@ -31,6 +31,8 @@ type Props = {
   availablePlayers: AvailPlayer[];
   draftedPlayerIds: Set<string>;
   onAddToQueue?: (player: AvailPlayer) => void;
+  onDraft?: (player: AvailPlayer) => void;
+  canDraft?: boolean;
   queuedIds?: Set<string>;
   teamColors?: { primary: string; secondary: string } | null;
   teamRoster?: Array<{ pos: string }>;
@@ -129,6 +131,8 @@ export default function TeamProspectDraftboardCompact({
   availablePlayers,
   draftedPlayerIds,
   onAddToQueue,
+  onDraft,
+  canDraft = false,
   queuedIds = new Set(),
   teamColors,
   teamRoster = [],
@@ -550,6 +554,31 @@ export default function TeamProspectDraftboardCompact({
                     <X size={14} />
                   </button>
 
+                  {/* Draft action — visually distinct, only when on clock */}
+                  {isAvail && availPlayer && canDraft && onDraft && (
+                    <button
+                      onClick={() => onDraft(availPlayer)}
+                      title="Draft this player"
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '3px',
+                        padding: '8px 12px',
+                        borderRadius: '6px',
+                        fontSize: '11px',
+                        fontWeight: 900,
+                        letterSpacing: '0.5px',
+                        border: `2px solid ${teamColors?.secondary || C.primary}`,
+                        background: `linear-gradient(135deg, ${teamColors?.primary || C.primary}, ${teamColors?.secondary || C.accent})`,
+                        color: '#fff',
+                        cursor: 'pointer',
+                        textTransform: 'uppercase',
+                        boxShadow: `0 0 8px ${teamColors?.primary || C.primary}66`,
+                      }}
+                    >
+                      DRAFT
+                    </button>
+                  )}
                   {/* Queue action */}
                   {isAvail && availPlayer && onAddToQueue && (
                     <button
@@ -569,7 +598,7 @@ export default function TeamProspectDraftboardCompact({
                         cursor: 'pointer',
                       }}
                     >
-                      {isQueued ? '✓' : '+Q'}
+                      {isQueued ? '✓' : 'Queue'}
                     </button>
                   )}
 

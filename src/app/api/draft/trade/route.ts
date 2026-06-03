@@ -156,6 +156,34 @@ export async function POST(req: NextRequest) {
     if (!trade || trade.draftId !== draftId) return bad('trade not found');
     if (!trade.teams.includes(team)) return bad('team not part of this trade');
     if (trade.status !== 'pending') return bad('trade is not pending');
+    // Validate that all pick assets are still valid at accept time
+    const [overview, futurePicks] = await Promise.all([
+      getDraftOverview(draftId),
+      getFuturePicks(draftId),
+    ]);
+    const madeOveralls = new Set((overview?.allPicks || []).map(p => p.overall));
+    const allSlots = overview?.allSlots || [];
+    for (const asset of trade.assets) {
+      if (asset.assetType === 'current_pick' && asset.pickOverall != null) {
+        if (madeOveralls.has(asset.pickOverall)) {
+          return bad(`Pick #${asset.pickOverall} has already been used and can no longer be traded`);
+        }
+        const slot = allSlots.find(s => s.overall === asset.pickOverall);
+        if (!slot || slot.team !== asset.fromTeam) {
+          return bad(`Pick #${asset.pickOverall} is no longer owned by ${asset.fromTeam}`);
+        }
+      }
+      if (asset.assetType === 'future_pick') {
+        const fp = futurePicks.find(fp =>
+          fp.round === asset.pickRound &&
+          fp.year === asset.pickYear &&
+          fp.ownerTeam === asset.fromTeam
+        );
+        if (!fp) {
+          return bad(`${asset.pickYear} Round ${asset.pickRound} pick is no longer owned by ${asset.fromTeam}`);
+        }
+      }
+    }
     const result = await addTradeAcceptance(tradeId, team);
     return ok({ ok: true, allAccepted: result.allAccepted, trade: result.trade });
   }

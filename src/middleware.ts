@@ -47,6 +47,11 @@ export async function middleware(req: NextRequest) {
   const isDraftRoomPath = pathname === '/draft/room' || pathname.startsWith('/draft/room/') || pathname === '/draft/overlay';
   if (isDraftRoomPath) {
     if (isAdmin) return NextResponse.next();
+    if (!sessionToken) {
+      const url = new URL('/login', req.url);
+      url.searchParams.set('next', pathname + (search || ''));
+      return NextResponse.redirect(url);
+    }
     if (userTeam && DRAFT_ALLOWED_TEAMS.includes(userTeam)) return NextResponse.next();
     // Not authorized - redirect to home (not login, since they need to be a specific team)
     return NextResponse.redirect(new URL('/', req.url));

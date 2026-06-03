@@ -15,6 +15,7 @@ import DraftTradeAnimation, { type TradeAnimAsset } from '@/components/draft-ove
 import DraftInfoBarTicker from '@/components/draft-overlay/DraftInfoBarTicker';
 import RoundRecapOverlay from '@/components/draft-overlay/RoundRecapOverlay';
 import TeamProspectDraftboardCompact from '@/components/draft/TeamProspectDraftboardCompact';
+import { DEFAULT_PLAYERS } from '@/components/draft/prospect-board-data';
 import {
   draftPicksPerRound,
   DRAFT_ANIM_CLOCK_PHASE_MAX_MS,
@@ -121,6 +122,10 @@ export default function DraftRoomPage() {
   const [activeViewers, setActiveViewers] = useState<string[]>([]);
   const [queueEditIdx, setQueueEditIdx] = useState<number | null>(null);
   const [queueEditVal, setQueueEditVal] = useState('');
+  const [boardRankByName, setBoardRankByName] = useState<Record<string, { overall: number; posRank: number }>>({});
+  const [approvedTradeCount, setApprovedTradeCount] = useState(0);
+  const prevApprovedTradeCountRef = useRef(0);
+  const [rosterFromSnapshot, setRosterFromSnapshot] = useState(false);
 
   // Animation phase state — mirrors DraftOverlayLive (display only, no admin controls)
   const [animPhase, setAnimPhase] = useState<'pick' | 'clock' | 'video' | null>(null);
@@ -358,16 +363,49 @@ export default function DraftRoomPage() {
     } catch {}
   }, [myTeam]);
 
-  // Fetch team roster from Sleeper when myTeam is known
+  // Fetch prospect board ranks once on mount — used in Pick tab to annotate available players
+  useEffect(() => {
+    fetch('/api/team-prospect-draftboard', { cache: 'no-store' })
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (!data?.data) return;
+        const orderIds: string[] = Array.isArray(data.data.orderIds) ? data.data.orderIds : [];
+        const playerById = Object.fromEntries(DEFAULT_PLAYERS.map(p => [p.id, p]));
+        const ranked: typeof DEFAULT_PLAYERS = [];
+        const usedIds = new Set<string>();
+        for (const id of orderIds) {
+          const p = playerById[id];
+          if (p && !usedIds.has(id)) { ranked.push(p); usedIds.add(id); }
+        }
+        for (const p of DEFAULT_PLAYERS) { if (!usedIds.has(p.id)) ranked.push(p); }
+        const posCount: Record<string, number> = {};
+        const result: Record<string, { overall: number; posRank: number }> = {};
+        ranked.forEach((p, idx) => {
+          posCount[p.pos] = (posCount[p.pos] || 0) + 1;
+          result[p.name.toLowerCase()] = { overall: idx + 1, posRank: posCount[p.pos] };
+        });
+        setBoardRankByName(result);
+      })
+      .catch(() => {});
+  }, []);
+
+  // Fetch team roster — uses snapshot data (trade-accurate) when draftId + snapshot available,
+  // falls back to Sleeper. Re-fetches when curOverall advances OR approved trade count changes.
+  const rosterRefreshKey = `${myTeam}_${draft?.curOverall ?? 0}_${approvedTradeCount}`;
   useEffect(() => {
     if (!myTeam) { setTeamRoster([]); return; }
     setRosterLoading(true);
-    fetch(`/api/draft/team-roster?team=${encodeURIComponent(myTeam)}`)
+    const draftIdParam = draft?.id ? `&draftId=${encodeURIComponent(draft.id)}` : '';
+    fetch(`/api/draft/team-roster?team=${encodeURIComponent(myTeam)}${draftIdParam}`)
       .then(r => r.json())
-      .then(j => setTeamRoster((j?.players as RosterPlayer[]) || []))
-      .catch(() => setTeamRoster([]))
+      .then(j => {
+        setTeamRoster((j?.players as RosterPlayer[]) || []);
+        setRosterFromSnapshot(!!j?.fromSnapshot);
+      })
+      .catch(() => { setTeamRoster([]); setRosterFromSnapshot(false); })
       .finally(() => setRosterLoading(false));
-  }, [myTeam]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rosterRefreshKey]);
 
   // Bootstrap
   useEffect(() => {
@@ -665,7 +703,7 @@ export default function DraftRoomPage() {
     return () => window.removeEventListener('message', handler);
   }, [animPhase]);
 
-  // Poll for incoming trade offers every 15s
+  // Poll for incoming trade offers — 8s during LIVE draft, 15s otherwise
   useEffect(() => {
     if (!myTeam || !draft?.id) return;
     const poll = async () => {
@@ -680,12 +718,19 @@ export default function DraftRoomPage() {
           setTradeNotif(true);
         }
         prevTradeInboxCountRef.current = count;
+        // Track approved trade count to trigger roster re-fetch
+        const approved = trades.filter(t => t.status === 'approved').length;
+        if (approved !== prevApprovedTradeCountRef.current) {
+          prevApprovedTradeCountRef.current = approved;
+          setApprovedTradeCount(approved);
+        }
       } catch {}
     };
     poll();
-    const id = setInterval(poll, 15000);
+    const pollMs = draft?.status === 'LIVE' ? 8000 : 15000;
+    const id = setInterval(poll, pollMs);
     return () => clearInterval(id);
-  }, [myTeam, draft?.id]);
+  }, [myTeam, draft?.id, draft?.status]);
 
   // GSAP entrance + safety timeout for video
   useEffect(() => {
@@ -705,7 +750,9 @@ export default function DraftRoomPage() {
   const tc = onClockColors ? [onClockColors.primary, onClockColors.secondary] : ['#1a1a2e', '#16213e'];
   const onClockLogo = onClock ? getTeamLogoPath(onClock) : null;
   const allSlots = draft?.allSlots || [];
-  const allPicks = draft?.allPicks || draft?.recentPicks || [];
+  // Deduplicate picks by overall to prevent duplicate display in infobars/roster
+  const allPicksRaw = draft?.allPicks || draft?.recentPicks || [];
+  const allPicks = [...new Map(allPicksRaw.map(p => [p.overall, p])).values()];
   const pickedByOverall = new Map(allPicks.map(p => [p.overall, p]));
   const rounds = draft?.rounds || 4;
   const picksPerRound = draftPicksPerRound(draft);
@@ -1097,29 +1144,34 @@ export default function DraftRoomPage() {
                 </div>
               )}
               <div className="flex gap-1 px-2 py-2 border-b border-[var(--border)] bg-black/5 dark:bg-white/5 flex-wrap">
-                {(['pick', 'queue', 'roster', 'trade', 'board'] as const).map(tab => (
-                  <button
-                    key={tab}
-                    type="button"
-                    onClick={() => { setTeamPanelTab(tab); if (tab === 'trade') setTradeNotif(false); }}
-                    className="flex-1 min-w-[4.5rem] py-2 rounded-lg text-[11px] font-black uppercase tracking-wide transition-colors"
-                    style={
-                      teamPanelTab === tab
-                        ? { background: myTeamColors?.primary ?? '#be161e', color: '#fff', boxShadow: `0 0 0 1px ${myTeamColors?.secondary ?? 'transparent'}` }
-                        : { background: 'transparent', color: 'var(--muted)' }
-                    }
-                  >
-                    {tab === 'pick'
-                      ? 'Pick'
-                      : tab === 'queue'
-                        ? `Queue${queue.length ? ` (${queue.length})` : ''}`
-                        : tab === 'trade'
-                          ? `Trade${tradeInboxCount > 0 ? ` (${tradeInboxCount})` : ''}`
-                          : tab === 'board'
-                            ? 'My Board'
-                            : 'Roster'}
-                  </button>
-                ))}
+                {(['pick', 'queue', 'roster', 'trade', 'board'] as const).map(tab => {
+                  const isTradeAlert = tab === 'trade' && tradeNotif && teamPanelTab !== 'trade';
+                  return (
+                    <button
+                      key={tab}
+                      type="button"
+                      onClick={() => { setTeamPanelTab(tab); if (tab === 'trade') setTradeNotif(false); }}
+                      className={`flex-1 min-w-[4.5rem] py-2 rounded-lg text-[11px] font-black uppercase tracking-wide transition-colors ${isTradeAlert ? 'animate-pulse' : ''}`}
+                      style={
+                        isTradeAlert
+                          ? { background: '#ef4444', color: '#fff', boxShadow: '0 0 12px #ef444488' }
+                          : teamPanelTab === tab
+                            ? { background: myTeamColors?.primary ?? '#be161e', color: '#fff', boxShadow: `0 0 0 1px ${myTeamColors?.secondary ?? 'transparent'}` }
+                            : { background: 'transparent', color: 'var(--muted)' }
+                      }
+                    >
+                      {tab === 'pick'
+                        ? 'Pick'
+                        : tab === 'queue'
+                          ? `Queue${queue.length ? ` (${queue.length})` : ''}`
+                          : tab === 'trade'
+                            ? `Trade${tradeInboxCount > 0 ? ` (${tradeInboxCount})` : ''}`
+                            : tab === 'board'
+                              ? 'My Board'
+                              : 'Roster'}
+                    </button>
+                  );
+                })}
               </div>
               <div className={`p-3 space-y-3 flex-1 flex flex-col min-h-0 ${teamPanelTab === 'trade' ? 'min-h-[340px]' : ''}`}>
                 {teamPanelTab === 'pick' && (
@@ -1157,6 +1209,7 @@ export default function DraftRoomPage() {
                       ) : avail.map(p => {
                         const inQueue = queue.some(q => q.id === p.id);
                         const canPick = isMyTurn && !isMyPickPending;
+                        const boardRank = boardRankByName[p.name.toLowerCase()];
                         return (
                           <div key={p.id} className="flex items-start gap-2 px-3 py-2 hover:bg-zinc-100 dark:hover:bg-zinc-800/50">
                             <span className="shrink-0 text-[10px] font-black px-1.5 py-0.5 rounded text-white mt-0.5" style={{ background: POS_COLORS[p.pos] || '#555', minWidth: '30px', textAlign: 'center' }}>
@@ -1164,7 +1217,14 @@ export default function DraftRoomPage() {
                             </span>
                             <div className="flex-1 min-w-0">
                               <div className="text-sm font-semibold text-[var(--foreground)] break-words leading-snug">{p.name}</div>
-                              <div className="text-xs text-[var(--muted)]">{p.nfl}</div>
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="text-xs text-[var(--muted)]">{p.nfl}</span>
+                                {boardRank && (
+                                  <span className="text-[10px] font-bold text-[var(--muted)] bg-zinc-100 dark:bg-zinc-800 px-1.5 py-0.5 rounded" title="Your prospect board rank">
+                                    #{boardRank.overall} · {p.pos}{boardRank.posRank}
+                                  </span>
+                                )}
+                              </div>
                             </div>
                             <div className="flex gap-1.5 shrink-0 self-center items-center">
                               {canPick && myTeamColors && (
@@ -1279,7 +1339,23 @@ export default function DraftRoomPage() {
                             </span>
                             <span className="flex-1 min-w-0 text-sm font-semibold text-[var(--foreground)] break-words leading-snug">{q.name}</span>
                             {idx === 0 && autoPickEnabled && <span className="text-[10px] font-black text-emerald-600 dark:text-emerald-400 shrink-0 uppercase pt-0.5">AUTO</span>}
-                            <div className="flex shrink-0 self-center">
+                            <div className="flex shrink-0 self-center items-center gap-1">
+                              {isMyTurn && !isMyPickPending && (
+                                <button
+                                  type="button"
+                                  disabled={submitting}
+                                  onClick={() => setConfirmPlayer({ id: q.id, name: q.name, pos: q.pos, nfl: q.nfl })}
+                                  className="px-2 py-1 rounded-md text-[10px] font-black uppercase text-white disabled:opacity-50"
+                                  style={{
+                                    background: myTeamColors
+                                      ? `linear-gradient(135deg, ${myTeamColors.primary}, ${myTeamColors.secondary})`
+                                      : 'linear-gradient(135deg, #be161e, #bf9944)',
+                                    boxShadow: `0 0 6px ${myTeamColors?.primary || '#be161e'}44`,
+                                  }}
+                                >
+                                  Draft
+                                </button>
+                              )}
                               <button type="button" disabled={idx === 0} onClick={() => moveInQueue(q.id, 'up')} className="w-6 h-6 flex items-center justify-center text-[var(--muted)] hover:text-[var(--foreground)] disabled:opacity-20 text-xs rounded hover:bg-zinc-200 dark:hover:bg-zinc-700">↑</button>
                               <button type="button" disabled={idx === queue.length - 1} onClick={() => moveInQueue(q.id, 'down')} className="w-6 h-6 flex items-center justify-center text-[var(--muted)] hover:text-[var(--foreground)] disabled:opacity-20 text-xs rounded hover:bg-zinc-200 dark:hover:bg-zinc-700">↓</button>
                               <button type="button" onClick={() => removeFromQueue(q.id)} className="w-6 h-6 flex items-center justify-center text-[var(--muted)] hover:text-red-500 text-xs rounded hover:bg-zinc-200 dark:hover:bg-zinc-700">×</button>
@@ -1356,27 +1432,37 @@ export default function DraftRoomPage() {
                         </div>
                         {rosterLoading ? (
                           <div className="px-3 py-3 text-xs text-[var(--muted)]">Loading roster…</div>
-                        ) : teamRoster.length === 0 ? (
-                          <div className="px-3 py-3 text-xs text-[var(--muted)]">No roster data found.</div>
-                        ) : (
-                          <ul className="divide-y divide-[var(--border)]">
-                            {[...teamRoster]
-                              .filter(p => rosterPosFilter === 'ALL' || p.pos === rosterPosFilter)
-                              .sort((a, b) => {
-                                const order: Record<string, number> = { QB: 0, RB: 1, WR: 2, TE: 3, K: 4 };
-                                return (order[a.pos] ?? 9) - (order[b.pos] ?? 9) || a.name.localeCompare(b.name);
-                              })
-                              .map(p => (
-                                <li key={p.id} className="flex items-start gap-2 px-3 py-2">
-                                  <span className="shrink-0 text-[10px] font-black px-1.5 py-0.5 rounded text-white mt-0.5" style={{ background: POS_COLORS[p.pos] || '#555', minWidth: '30px', textAlign: 'center' }}>
-                                    {p.pos || '?'}
-                                  </span>
-                                  <span className="flex-1 min-w-0 text-sm font-semibold text-[var(--foreground)] break-words leading-snug">{p.name}</span>
-                                  <span className="text-xs text-[var(--muted)] shrink-0 pt-0.5">{p.nfl}</span>
-                                </li>
-                              ))}
-                          </ul>
-                        )}
+                        ) : (() => {
+                          // When the API returned snapshot-based data it already includes all current
+                          // players (pre-draft, drafted-this-draft, traded-in) and excludes traded-away
+                          // players. Only fall back to the client-side merge for Sleeper data (no snapshot).
+                          const rosterIds = new Set(teamRoster.map(p => p.id));
+                          const myDraftedPlayers: RosterPlayer[] = rosterFromSnapshot ? [] : allPicks
+                            .filter(p => p.team === myTeam && !rosterIds.has(p.playerId))
+                            .map(p => ({ id: p.playerId, name: p.playerName || p.playerId, pos: p.playerPos || '?', nfl: p.playerNfl || '' }));
+                          const fullRoster = [...teamRoster, ...myDraftedPlayers];
+                          return fullRoster.length === 0 ? (
+                            <div className="px-3 py-3 text-xs text-[var(--muted)]">No roster data found.</div>
+                          ) : (
+                            <ul className="divide-y divide-[var(--border)]">
+                              {fullRoster
+                                .filter(p => rosterPosFilter === 'ALL' || p.pos === rosterPosFilter)
+                                .sort((a, b) => {
+                                  const order: Record<string, number> = { QB: 0, RB: 1, WR: 2, TE: 3, K: 4 };
+                                  return (order[a.pos] ?? 9) - (order[b.pos] ?? 9) || a.name.localeCompare(b.name);
+                                })
+                                .map(p => (
+                                  <li key={p.id} className="flex items-start gap-2 px-3 py-2">
+                                    <span className="shrink-0 text-[10px] font-black px-1.5 py-0.5 rounded text-white mt-0.5" style={{ background: POS_COLORS[p.pos] || '#555', minWidth: '30px', textAlign: 'center' }}>
+                                      {p.pos || '?'}
+                                    </span>
+                                    <span className="flex-1 min-w-0 text-sm font-semibold text-[var(--foreground)] break-words leading-snug">{p.name}</span>
+                                    <span className="text-xs text-[var(--muted)] shrink-0 pt-0.5">{p.nfl}</span>
+                                  </li>
+                                ))}
+                            </ul>
+                          );
+                        })()}
                       </div>
                     )}
                     {!myTeam && (
@@ -1405,9 +1491,11 @@ export default function DraftRoomPage() {
                       draftedPlayerIds={new Set(allPicks.map(p => p.playerId))}
                       onAddToQueue={(player) => {
                         if (!queue.some(q => q.id === player.id)) {
-                          setQueue(prev => [...prev, { id: player.id, name: player.name, pos: player.pos, nfl: player.nfl }]);
+                          syncQueue([...queue, { id: player.id, name: player.name, pos: player.pos, nfl: player.nfl }]);
                         }
                       }}
+                      onDraft={(player) => setConfirmPlayer({ id: player.id, name: player.name, pos: player.pos, nfl: player.nfl })}
+                      canDraft={isMyTurn && !isMyPickPending}
                       queuedIds={new Set(queue.map(q => q.id))}
                       teamColors={myTeamColors}
                       teamRoster={teamRoster}
@@ -1545,20 +1633,28 @@ export default function DraftRoomPage() {
         />
       )}
 
-      {/* Trade offer notification popup */}
+      {/* Trade offer notification popup — stays visible until explicitly dismissed or Trade tab opened */}
       {tradeNotif && teamPanelTab !== 'trade' && (
         <div
-          className="fixed bottom-6 right-6 z-[9999] w-72 rounded-xl border-2 bg-zinc-900 shadow-2xl p-4 cursor-pointer"
-          style={{ borderColor: eventColor1, boxShadow: `0 0 24px ${eventColor1}55` }}
+          className="fixed bottom-6 right-6 z-[9999] w-80 rounded-xl border-2 bg-zinc-900 shadow-2xl p-4 cursor-pointer animate-pulse"
+          style={{
+            borderColor: '#ef4444',
+            boxShadow: '0 0 32px #ef444488, 0 0 0 4px #ef444422',
+            animation: 'pulse 1.5s cubic-bezier(0.4,0,0.6,1) infinite',
+          }}
           onClick={() => { setTradeNotif(false); setTeamPanelTab('trade'); }}
         >
-          <div className="font-black text-sm uppercase tracking-widest mb-1" style={{ color: eventColor1 }}>🤝 Trade Offer!</div>
-          <div className="text-white text-sm mb-1">You have {tradeInboxCount} pending trade offer{tradeInboxCount !== 1 ? 's' : ''}.</div>
-          <div className="text-xs text-zinc-400">Tap to open Trade Center →</div>
-          <button
-            onClick={e => { e.stopPropagation(); setTradeNotif(false); }}
-            className="absolute top-2 right-2 text-zinc-500 hover:text-white text-lg w-6 h-6 flex items-center justify-center"
-          >×</button>
+          <div className="font-black text-base uppercase tracking-widest mb-1.5" style={{ color: '#ef4444' }}>🚨 Incoming Trade Offer!</div>
+          <div className="text-white text-sm font-semibold mb-1">
+            You have {tradeInboxCount} pending trade offer{tradeInboxCount !== 1 ? 's' : ''}.
+          </div>
+          <div className="flex items-center justify-between mt-2">
+            <span className="text-xs text-zinc-400">Tap here to open Trade Center →</span>
+            <button
+              onClick={e => { e.stopPropagation(); setTradeNotif(false); }}
+              className="text-zinc-500 hover:text-white text-lg w-6 h-6 flex items-center justify-center rounded-full hover:bg-zinc-700 ml-2"
+            >×</button>
+          </div>
         </div>
       )}
 

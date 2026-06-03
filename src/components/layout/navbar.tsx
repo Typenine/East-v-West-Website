@@ -14,7 +14,7 @@ import { getTeamLogoPath, getTeamColors } from '@/lib/utils/team-utils';
 import { USER_NAV_CONFIG, type UserNavItem } from '@/lib/constants/navigation';
 
 // Teams allowed to see Draft Room link (must match middleware)
-const DRAFT_ROOM_ALLOWED_TEAMS = ['Belleview Badgers', 'Mt. Lebanon Cake Eaters'];
+const DRAFT_ROOM_ALLOWED_TEAMS = ['Belleview Badgers', 'Mt. Lebanon Cake Eaters', 'Bimg Bamg Boomg'];
 
 function matchesPath(pathname: string, targetPath: string): boolean {
   if (targetPath === '/') return pathname === '/';

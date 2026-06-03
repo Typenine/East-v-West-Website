@@ -101,7 +101,7 @@ function tickerNameFontSize(name: string | null | undefined): string {
   return '20px';
 }
 
-export default function DraftInfoBarTicker({ picksPerRound = 12, onClockTeam, available, recentPicks, curOverall, pendingPick }: Props) {
+export default function DraftInfoBarTicker({ draftId, picksPerRound = 12, onClockTeam, available, recentPicks, curOverall, pendingPick }: Props) {
   const teamsPerRound = Math.max(1, picksPerRound | 0);
   const [currentTickerView, setCurrentTickerView] = useState<TickerView>('bestAvailable');
   const cycleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -125,7 +125,10 @@ export default function DraftInfoBarTicker({ picksPerRound = 12, onClockTeam, av
   });
 
   // In-draft approved current_pick trades (refetched when onClockTeam changes)
-  const [approvedPickTrades, setApprovedPickTrades] = useState<Array<{ fromTeam: string; toTeam: string; pickOverall: number }>>([]);
+  const [approvedPickTrades, setApprovedPickTrades] = useState<Array<{
+    fromTeam: string; toTeam: string; pickOverall: number;
+    returnAssets: Array<{ assetType: string; playerName?: string | null; pickRound?: number | null; pickYear?: number | null }>;
+  }>>([]);
 
   // Per-team data (refetched when onClockTeam changes)
   const [topScorers, setTopScorers] = useState<TopScorer[] | null>(null);
@@ -133,14 +136,20 @@ export default function DraftInfoBarTicker({ picksPerRound = 12, onClockTeam, av
   const lastFetchedTeamRef = useRef<string | null>(null);
 
   // Build dynamic rotation: insert teamRecentPicks only if team has ≥1 pick AND not pick #1
-  const teamPicksThisDraft = (recentPicks || []).filter(p => p.team === onClockTeam);
+  // Deduplicate by overall to prevent showing the same pick twice
+  const teamPicksThisDraft = [...new Map((recentPicks || []).filter(p => p.team === onClockTeam).map(p => [p.overall, p])).values()];
   const showTeamPicks = teamPicksThisDraft.length > 0 && (curOverall ?? 1) > 1;
 
   const currentPickTradeInfo = (() => {
     if (!onClockTeam || curOverall == null) return null;
     // Check in-draft trades first (trades made during the draft via DraftTradeCenter)
     const inDraftTrade = approvedPickTrades.find(a => a.pickOverall === curOverall && a.toTeam === onClockTeam);
-    if (inDraftTrade) return { round: Math.floor((curOverall - 1) / teamsPerRound) + 1, fromTeam: inDraftTrade.fromTeam, toTeam: inDraftTrade.toTeam };
+    if (inDraftTrade) return {
+      round: Math.floor((curOverall - 1) / teamsPerRound) + 1,
+      fromTeam: inDraftTrade.fromTeam,
+      toTeam: inDraftTrade.toTeam,
+      returnAssets: inDraftTrade.returnAssets,
+    };
     // Fall back to pre-draft pick ownership transfers (Sleeper trade history)
     if (!draftOrderData?.transfers) return null;
     const currentRound = Math.floor((curOverall - 1) / teamsPerRound) + 1;
@@ -235,23 +244,33 @@ export default function DraftInfoBarTicker({ picksPerRound = 12, onClockTeam, av
   // Fetch in-draft approved current_pick trades (re-runs on every clock team change)
   useEffect(() => {
     if (!onClockTeam) return;
-    fetch(`/api/draft/trade?action=get_team&team=${encodeURIComponent(onClockTeam)}`)
+    const draftParam = draftId ? `&draftId=${encodeURIComponent(draftId)}` : '';
+    fetch(`/api/draft/trade?action=get_team&team=${encodeURIComponent(onClockTeam)}${draftParam}`)
       .then(r => r.ok ? r.json() : null)
       .then(data => {
         if (!data?.trades) return;
-        const picks: Array<{ fromTeam: string; toTeam: string; pickOverall: number }> = [];
-        for (const t of data.trades as Array<{ status: string; assets: Array<{ assetType: string; fromTeam: string; toTeam: string; pickOverall?: number | null }> }>) {
+        type TradeAsset = { assetType: string; fromTeam: string; toTeam: string; pickOverall?: number | null; playerName?: string | null; pickRound?: number | null; pickYear?: number | null };
+        const picks: typeof approvedPickTrades = [];
+        for (const t of data.trades as Array<{ status: string; assets: TradeAsset[] }>) {
           if (t.status !== 'approved') continue;
           for (const a of t.assets) {
             if (a.assetType === 'current_pick' && a.pickOverall != null) {
-              picks.push({ fromTeam: a.fromTeam, toTeam: a.toTeam, pickOverall: a.pickOverall });
+              // What did fromTeam receive in return? All assets going back to fromTeam.
+              const returnAssets = t.assets.filter(r => r.toTeam === a.fromTeam).map(r => ({
+                assetType: r.assetType,
+                playerName: r.playerName ?? null,
+                pickRound: r.pickRound ?? null,
+                pickYear: r.pickYear ?? null,
+              }));
+              picks.push({ fromTeam: a.fromTeam, toTeam: a.toTeam, pickOverall: a.pickOverall, returnAssets });
             }
           }
         }
         setApprovedPickTrades(picks);
       })
       .catch(() => {});
-  }, [onClockTeam]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [onClockTeam, draftId]);
 
   // Fetch top scorers + season history when on-clock team changes
   useEffect(() => {
@@ -271,7 +290,8 @@ export default function DraftInfoBarTicker({ picksPerRound = 12, onClockTeam, av
   }, [onClockTeam]);
 
   const teamRecord = draftOrderData?.slotOrder?.find(s => s.team === onClockTeam);
-  const allRecentPicks = (recentPicks || []).slice(-6);
+  // Deduplicate recent picks by overall before displaying
+  const allRecentPicks = [...new Map((recentPicks || []).map(p => [p.overall, p])).values()].slice(-6);
 
   if (pendingPick) {
     return (
@@ -478,26 +498,41 @@ export default function DraftInfoBarTicker({ picksPerRound = 12, onClockTeam, av
 
       {/* Trade Info */}
       {currentPickTradeInfo && (() => {
-        const full = currentPickTradeInfo as { fromTeam: string; toTeam?: string; originalTeam?: string; summary?: string };
+        const full = currentPickTradeInfo as {
+          fromTeam: string; toTeam?: string; originalTeam?: string; summary?: string;
+          returnAssets?: Array<{ assetType: string; playerName?: string | null; pickRound?: number | null; pickYear?: number | null }>;
+        };
+        const returnAssets = full.returnAssets || [];
+        const returnSummary = returnAssets.length > 0
+          ? returnAssets.map(r => r.assetType === 'player' ? (r.playerName || 'Player') : `${r.pickYear ?? ''} Rd ${r.pickRound ?? '?'} pick`).join(', ')
+          : null;
         return (
           <div style={{ display: currentTickerView === 'tradeInfo' ? 'block' : 'none' }}>
-            <div className="text-sm font-black text-white/80 uppercase tracking-widest mb-2 text-center">Pick Acquired via Trade</div>
+            <div className="text-lg font-black text-yellow-300 uppercase tracking-widest mb-3 text-center" style={{ textShadow: '0 0 12px #fde04788' }}>
+              🔄 This Pick Was Traded
+            </div>
             <div className="flex items-center gap-3">
-              <div className="bg-black/30 rounded-lg px-3 py-1.5 flex-1 min-w-0">
-                <div className="text-xs text-white/50 uppercase tracking-wide mb-0.5">From</div>
-                <div className="text-xl font-black text-white break-words leading-tight">{full.fromTeam}</div>
+              <div className="bg-black/50 rounded-lg px-4 py-3 flex-1 min-w-0 border-2 border-yellow-400/30">
+                <div className="text-xs font-bold text-yellow-400/70 uppercase tracking-wider mb-1">Acquired From</div>
+                <div className="text-2xl font-black text-white break-words leading-tight">{full.fromTeam}</div>
               </div>
-              <div className="text-2xl font-black text-white/40 flex-shrink-0">→</div>
-              <div className="bg-black/30 rounded-lg px-3 py-1.5 flex-1 min-w-0">
-                <div className="text-xs text-white/50 uppercase tracking-wide mb-0.5">To</div>
-                <div className="text-xl font-black text-white break-words leading-tight">{full.toTeam || onClockTeam}</div>
+              <div className="text-3xl font-black text-yellow-400 flex-shrink-0">→</div>
+              <div className="bg-black/50 rounded-lg px-4 py-3 flex-1 min-w-0 border-2 border-yellow-400/30">
+                <div className="text-xs font-bold text-yellow-400/70 uppercase tracking-wider mb-1">Now Owned By</div>
+                <div className="text-2xl font-black text-white break-words leading-tight">{full.toTeam || onClockTeam}</div>
               </div>
             </div>
+            {returnSummary && (
+              <div className="mt-3 px-3 py-2 rounded-lg bg-yellow-400/10 border border-yellow-400/30 text-center">
+                <span className="text-xs font-bold text-yellow-400/70 uppercase tracking-wider">In exchange for </span>
+                <span className="text-sm font-black text-yellow-200">{returnSummary}</span>
+              </div>
+            )}
             {full.originalTeam && full.originalTeam !== full.fromTeam && (
-              <div className="mt-1.5 text-sm text-white/55 text-center break-words">Originally from: {full.originalTeam}</div>
+              <div className="mt-2 text-sm font-semibold text-white/60 text-center break-words">Originally from: {full.originalTeam}</div>
             )}
             {full.summary && (
-              <div className="mt-1 text-sm text-white/55 text-center break-words">{full.summary}</div>
+              <div className="mt-2 text-sm font-bold text-yellow-300/80 text-center break-words border-t border-white/10 pt-2">{full.summary}</div>
             )}
           </div>
         );
