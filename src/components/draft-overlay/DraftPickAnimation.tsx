@@ -438,7 +438,9 @@ export default function DraftPickAnimation({
             style={{
               fontSize: pickAnimPlayerNameFontSize(player.name),
               letterSpacing: '-0.01em',
-              textShadow: `0 4px 24px rgba(0,0,0,0.9), 0 0 60px ${c1}44`,
+              textShadow: `0 2px 8px rgba(0,0,0,1), 0 4px 24px rgba(0,0,0,0.95), 0 0 60px ${c1}44`,
+              WebkitTextStroke: '1.5px rgba(0,0,0,0.5)',
+              paintOrder: 'stroke fill',
               willChange: 'transform, opacity',
             }}
           >
@@ -557,8 +559,10 @@ export default function DraftPickAnimation({
                   style={{
                     fontSize: pickAnimPlayerNameFontSizeCard(player.name),
                     lineHeight: 1.12,
-                    textShadow: '0 3px 12px rgba(0,0,0,0.8)',
+                    textShadow: '0 2px 6px rgba(0,0,0,1), 0 4px 20px rgba(0,0,0,0.95), 0 8px 40px rgba(0,0,0,0.8)',
                     letterSpacing: '0.02em',
+                    WebkitTextStroke: '1px rgba(0,0,0,0.6)',
+                    paintOrder: 'stroke fill',
                   }}
                 >
                   {player.name}

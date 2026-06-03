@@ -50,26 +50,32 @@ function AcquiredAsset({ asset, ec1, picksPerRound = 12 }: { asset: TradeAnimAss
 
   return (
     <div className="gtrade-asset-row flex items-center gap-5 rounded-2xl px-6 py-4" style={{
-      background: 'rgba(0,0,0,0.42)',
-      border: '1px solid rgba(255,255,255,0.14)',
+      background: 'rgba(0,0,0,0.65)',
+      border: '1px solid rgba(255,255,255,0.18)',
     }}>
-      {/* Position badge or pick icon — large enough to read from TV */}
+      {/* Position badge or pick icon — large enough to read at TV distance */}
       {asset.assetType === 'player' && asset.playerPos ? (
         <span className="font-black px-4 py-2 rounded-xl flex-shrink-0 text-white"
-          style={{ background: POS_COLORS[asset.playerPos] || '#555', fontSize: 'clamp(1.1rem,2vw,1.6rem)', minWidth: '64px', textAlign: 'center', lineHeight: 1.3 }}>
+          style={{ background: POS_COLORS[asset.playerPos] || '#555', fontSize: 'clamp(1.2rem,2.2vw,1.8rem)', minWidth: '68px', textAlign: 'center', lineHeight: 1.3, boxShadow: '0 2px 8px rgba(0,0,0,0.6)' }}>
           {asset.playerPos}
         </span>
       ) : asset.assetType === 'current_pick' ? (
-        <span className="font-black flex-shrink-0" style={{ color: ec1, fontSize: 'clamp(2.2rem,3.5vw,3rem)', lineHeight: 1 }}>⦿</span>
+        <span className="font-black flex-shrink-0" style={{ color: ec1, fontSize: 'clamp(2.4rem,4vw,3.4rem)', lineHeight: 1, filter: 'drop-shadow(0 2px 6px rgba(0,0,0,0.8))' }}>⦿</span>
       ) : (
-        <span className="font-black flex-shrink-0 text-sky-400" style={{ fontSize: 'clamp(2.2rem,3.5vw,3rem)', lineHeight: 1 }}>◈</span>
+        <span className="font-black flex-shrink-0 text-sky-400" style={{ fontSize: 'clamp(2.4rem,4vw,3.4rem)', lineHeight: 1, filter: 'drop-shadow(0 2px 6px rgba(0,0,0,0.8))' }}>◈</span>
       )}
       <div className="flex-1 min-w-0">
-        <div className="font-black text-white leading-tight" style={{ fontSize: 'clamp(1.5rem,3.2vw,2.6rem)', overflowWrap: 'break-word' }}>{name}</div>
-        {sub && <div className="text-white/55 font-semibold mt-1" style={{ fontSize: 'clamp(0.9rem,1.5vw,1.15rem)' }}>{sub}</div>}
-        <div className="flex items-center gap-2 mt-1.5">
-          {fromLogo && <img src={fromLogo} alt={asset.fromTeam} className="object-contain flex-shrink-0" style={{ width: '20px', height: '20px', opacity: 0.75 }} />}
-          <span className="font-bold" style={{ color: fromColors.primary, fontSize: 'clamp(0.85rem,1.4vw,1.05rem)' }}>from {asset.fromTeam}</span>
+        <div className="font-black text-white leading-tight" style={{
+          fontSize: 'clamp(1.8rem,3.8vw,3.2rem)',
+          overflowWrap: 'break-word',
+          textShadow: '0 2px 8px rgba(0,0,0,1), 0 4px 20px rgba(0,0,0,0.8)',
+          WebkitTextStroke: '1px rgba(0,0,0,0.4)',
+          paintOrder: 'stroke fill',
+        }}>{name}</div>
+        {sub && <div className="text-white/65 font-semibold mt-1" style={{ fontSize: 'clamp(1rem,1.6vw,1.3rem)', textShadow: '0 1px 4px rgba(0,0,0,0.8)' }}>{sub}</div>}
+        <div className="flex items-center gap-2 mt-2">
+          {fromLogo && <img src={fromLogo} alt={asset.fromTeam} className="object-contain flex-shrink-0" style={{ width: '22px', height: '22px', opacity: 0.85 }} />}
+          <span className="font-bold text-white/75" style={{ fontSize: 'clamp(0.95rem,1.5vw,1.15rem)', textShadow: '0 1px 4px rgba(0,0,0,0.9)' }}>from {asset.fromTeam}</span>
         </div>
       </div>
     </div>
@@ -227,7 +233,7 @@ export default function DraftTradeAnimation({ teams, assets, eventLogoUrl, event
               <img src={tLogo} alt={t} className="relative z-10 object-contain drop-shadow-2xl"
                 style={{ width: 'clamp(80px, 12vw, 180px)', height: 'clamp(80px, 12vw, 180px)' }} />
               <div className="relative z-10 font-black text-white text-center uppercase leading-tight px-4"
-                style={{ fontSize: 'clamp(1.1rem, 3vw, 2.8rem)', textShadow: '0 3px 20px rgba(0,0,0,0.9)', letterSpacing: '0.04em' }}>
+                style={{ fontSize: 'clamp(1.5rem, 3.5vw, 3.2rem)', textShadow: '0 2px 8px rgba(0,0,0,1), 0 4px 24px rgba(0,0,0,0.9)', letterSpacing: '0.04em', WebkitTextStroke: '1px rgba(0,0,0,0.5)', paintOrder: 'stroke fill' }}>
                 {t}
               </div>
             </div>
@@ -288,7 +294,7 @@ export default function DraftTradeAnimation({ teams, assets, eventLogoUrl, event
                       style={{ width: 'clamp(44px,5vw,68px)', height: 'clamp(44px,5vw,68px)' }} />
                     <div>
                       <div className="font-black text-white uppercase leading-none"
-                        style={{ fontSize: 'clamp(1.1rem,2.4vw,1.9rem)', letterSpacing: '0.05em', textShadow: '0 2px 12px rgba(0,0,0,0.9)' }}>{t}</div>
+                        style={{ fontSize: 'clamp(1.3rem,2.8vw,2.2rem)', letterSpacing: '0.05em', textShadow: '0 2px 10px rgba(0,0,0,1), 0 4px 20px rgba(0,0,0,0.8)', WebkitTextStroke: '0.5px rgba(0,0,0,0.5)', paintOrder: 'stroke fill' }}>{t}</div>
                       <div className="font-black uppercase tracking-widest mt-0.5"
                         style={{ color: tc.primary, fontSize: 'clamp(0.7rem,1.1vw,0.9rem)' }}>ACQUIRES</div>
                     </div>

@@ -19,6 +19,7 @@ import {
 import { requireTeamUser } from '@/lib/server/session';
 import { snapshotDraftRosters, snapshotDraftFuturePicks, snapshotTeamRosterIfMissing } from '@/server/draft-snapshot';
 import { isAdminCookieValue } from '@/lib/auth/admin';
+import { getAllPlayersCached } from '@/lib/utils/sleeper-api';
 
 function isAdmin(req: NextRequest): boolean {
   try {
@@ -55,15 +56,35 @@ export async function GET(req: NextRequest) {
       snapshotDraftRosters(draftId).catch(() => {}),
       snapshotDraftFuturePicks(draftId).catch(() => {}),
     ]);
-    const [futurePicks, overview] = await Promise.all([
+    const [futurePicksRaw, overview] = await Promise.all([
       getFuturePicks(draftId, team),
       getDraftOverview(draftId),
     ]);
+    // Only show future picks from years strictly after the current draft year.
+    // Picks for the current year are already in draft_slots (current picks), and
+    // picks from past years are stale and no longer tradeable.
+    const draftYear = overview?.year ?? null;
+    const futurePicks = draftYear != null
+      ? futurePicksRaw.filter(fp => fp.year > draftYear)
+      : futurePicksRaw;
     let rosterPlayers = await getRosterSnapshot(draftId, team);
     // If this team was missed in the global snapshot (name-map gap), fill it now
     if (rosterPlayers.length === 0) {
       await snapshotTeamRosterIfMissing(draftId, team).catch(() => {});
       rosterPlayers = await getRosterSnapshot(draftId, team);
+    }
+    // Resolve any snapshot rows whose name is still the raw Sleeper ID (can happen
+    // when getAllPlayersCached didn't include that player at snapshot time).
+    const needsResolution = rosterPlayers.some(p => !p.playerName || p.playerName === p.playerId);
+    if (needsResolution) {
+      const sleeperPlayers = await getAllPlayersCached().catch(() => ({} as Record<string, { first_name?: string; last_name?: string; position?: string; team?: string }>));
+      rosterPlayers = rosterPlayers.map(p => {
+        if (p.playerName && p.playerName !== p.playerId) return p;
+        const sp = sleeperPlayers[p.playerId];
+        if (!sp) return p;
+        const name = [sp.first_name, sp.last_name].filter(Boolean).join(' ') || p.playerId;
+        return { ...p, playerName: name, playerPos: p.playerPos || sp.position || null, playerNfl: p.playerNfl || sp.team || null };
+      });
     }
     // Current draft picks owned by this team (not yet made)
     const allSlots = overview?.allSlots || [];
