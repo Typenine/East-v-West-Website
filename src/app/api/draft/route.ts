@@ -15,6 +15,8 @@ import {
   startDraft,
   pauseDraft,
   resumeDraft,
+  pauseDraftForAnimation,
+  resumeAfterAnimation,
   setClockSeconds,
   resetPickClock,
   forcePick,
@@ -446,6 +448,9 @@ export async function POST(req: NextRequest) {
         }, 'drafted').catch(() => {});
         // Clean the approved player from the team's queue (handles offline team clients)
         await removePlayerFromQueue(draftId, pending.team, pending.playerId);
+        // Freeze clock at full configured time so it only starts once the pick +
+        // "Now on the Clock" animations finish (clients call anim_clock_start).
+        await pauseDraftForAnimation(draftId);
         return ok({ ok: true });
       }
       if (action === 'reject_pick') {
@@ -456,6 +461,19 @@ export async function POST(req: NextRequest) {
         await resumeDraft(draftId);
         return ok({ ok: true });
       }
+    }
+
+    // anim_clock_start — non-admin, idempotent: starts the clock only if the draft is
+    // paused for a pick animation (not a round-end pause). Called by clients when their
+    // pick + "Now on the Clock" animations have finished playing.
+    if (action === 'anim_clock_start') {
+      const adminReq = isAdmin(req);
+      const ident = adminReq ? null : await requireTeamUser().catch(() => null);
+      if (!ident && !adminReq) return bad('auth_required', 401);
+      const animDraftId = id || (await getActiveOrLatestDraftId());
+      if (!animDraftId) return bad('no_draft');
+      await resumeAfterAnimation(animDraftId);
+      return ok({ ok: true });
     }
 
     // Team actions

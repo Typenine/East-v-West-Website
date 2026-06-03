@@ -135,8 +135,11 @@ export default function DraftRoomPage() {
   const [endRoundAnimState, setEndRoundAnimState] = useState<EndRoundAnimState>('idle');
   const [startRoundAnimPlaying, setStartRoundAnimPlaying] = useState(false);
   const startRoundAnimNumberRef = useRef(1);
-  // Prevents duplicate start-animation when the same user both triggers the resume and detects it via polling
+  // Ref-based guard: avoids stale-closure issues with state checks inside effects
+  const endRoundAnimFiredRef = useRef(false);
   const startAnimFiredThisRoundRef = useRef(false);
+  // True only when the admin clicked "Start Round" in the recap — resume fires after animation
+  const pendingResumeRef = useRef(false);
   const prevRoundEndPauseRef = useRef<boolean | null | undefined>(undefined);
 
   // Animation phase state — mirrors DraftOverlayLive (display only, no admin controls)
@@ -150,6 +153,7 @@ export default function DraftRoomPage() {
   const animLastPickRef = useRef<number | null>(null);
   const animInitRef = useRef(false);
   const animDismissingRef = useRef(false);
+  const animPhaseRef = useRef(animPhase);
   const animVideoContainerRef = useRef<HTMLDivElement>(null);
   const animStartTimeRef = useRef<number>(0);
   const clockPhaseFinishedRef = useRef(false);
@@ -328,6 +332,15 @@ export default function DraftRoomPage() {
   finishClockIntroAfterAnimRef.current = async () => {
     if (clockPhaseFinishedRef.current) return;
     clockPhaseFinishedRef.current = true;
+    // Animations are done — signal the server to start the next team's clock now.
+    // resumeAfterAnimation is idempotent so multiple clients calling this is safe.
+    try {
+      await fetch('/api/draft', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ action: 'anim_clock_start' }),
+      });
+    } catch { /* ignore */ }
     try {
       await load(false, true);
     } catch { /* ignore */ }
@@ -660,8 +673,28 @@ export default function DraftRoomPage() {
   }, []);
 
   useEffect(() => {
+    animPhaseRef.current = animPhase;
     if (animPhase === 'clock') clockPhaseFinishedRef.current = false;
   }, [animPhase]);
+
+  // Safety net: if the draft is paused for pick animation but no animation is playing
+  // (tab was hidden, animations were skipped, etc.), resume the clock after 15 seconds.
+  useEffect(() => {
+    if (draft?.status !== 'PAUSED') return;
+    if (draft?.roundEndPause) return;
+    if (pendingPick) return; // still waiting for admin approval — not an animation pause
+    const t = setTimeout(() => {
+      if (animPhaseRef.current === null) {
+        fetch('/api/draft', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ action: 'anim_clock_start' }),
+        }).catch(() => {});
+      }
+    }, 15000);
+    return () => clearTimeout(t);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draft?.status, draft?.roundEndPause, pendingPick]);
 
   // Grid cell wipe animation — executes after pick + clock phases complete
   useEffect(() => {
@@ -784,8 +817,10 @@ export default function DraftRoomPage() {
   const nextRoundNumber = completedRound + 1;
   const roundRecapPicks = draft?.allPicks?.filter(p => p.round === completedRound) || [];
   const fullClockSecRoom = draft?.clockSeconds ?? 600;
+  // During pick or clock-intro animations the real clock is frozen server-side;
+  // show full clock time so the HUD never counts down while animations play.
   const displayRemainingSecRoom =
-    animPhase === 'clock' && draft?.status === 'LIVE' ? fullClockSecRoom : localRemaining;
+    (animPhase === 'pick' || animPhase === 'clock') ? fullClockSecRoom : localRemaining;
 
   useEffect(() => {
     const prev = prevAnimPhaseForClockHudRoomRef.current;
@@ -796,40 +831,42 @@ export default function DraftRoomPage() {
     }
   }, [animPhase]);
 
-  // End-of-round sequence: when animPhase clears to null with roundEndPause active,
-  // start a 10-second wait then play the end-of-round animation.
+  // Reset end-of-round state when round resumes (roundEndPause goes false).
+  useEffect(() => {
+    if (!draft?.roundEndPause) {
+      endRoundAnimFiredRef.current = false;
+      setEndRoundAnimState('idle');
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draft?.roundEndPause]);
+
+  // End-of-round trigger: when pick animations finish AND roundEndPause is active,
+  // start the 10-second wait. Uses a ref guard so it only fires once per round-end,
+  // even if deps re-evaluate multiple times.
   useEffect(() => {
     if (animPhase !== null) return;
     if (!draft?.roundEndPause) return;
     if (tradeAnimData) return;
-    if (endRoundAnimState !== 'idle') return;
+    if (endRoundAnimFiredRef.current) return; // already triggered this round-end
+    endRoundAnimFiredRef.current = true;
     setEndRoundAnimState('waiting');
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [animPhase, draft?.roundEndPause, tradeAnimData]);
 
-  // 10-second delay before end-of-round animation plays
+  // 10-second delay then play
   useEffect(() => {
     if (endRoundAnimState !== 'waiting') return;
     const t = setTimeout(() => setEndRoundAnimState('playing'), 10000);
     return () => clearTimeout(t);
   }, [endRoundAnimState]);
 
-  // Reset end-of-round animation state when the round resumes
-  useEffect(() => {
-    if (!draft?.roundEndPause && endRoundAnimState !== 'idle') {
-      setEndRoundAnimState('idle');
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [draft?.roundEndPause]);
-
-  // Start-of-round animation: fires when roundEndPause transitions true → false
-  // (i.e., admin pressed Start Round). Mark as fired to avoid double-play when the
-  // same client both clicked the button and then detects the change via polling.
+  // Start-of-round animation: fires when roundEndPause transitions true → false.
+  // Uses a ref guard to avoid double-play when the same client both triggered the
+  // resume (admin click) and then detects roundEndPause → false via polling.
   useEffect(() => {
     const prev = prevRoundEndPauseRef.current;
     prevRoundEndPauseRef.current = draft?.roundEndPause;
     if (draft?.roundEndPause === true) {
-      // New round-end pause — reset the fired flag for the upcoming start animation
       startAnimFiredThisRoundRef.current = false;
     }
     if (prev === true && draft?.roundEndPause === false && !startAnimFiredThisRoundRef.current) {

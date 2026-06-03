@@ -7,6 +7,55 @@
 
 export type ByTeam = Record<string, { gets?: string[]; gives?: string[] }>;
 
+const FROM_SUFFIX_RE = /\s*\(from\s+([^)]+)\)\s*$/i;
+const TO_SUFFIX_RE = /\s*→\s*(.+?)\s*$/;
+
+/**
+ * Pairwise asset flows for 3+ team trades — helps LLMs track who sent what to whom.
+ * Parses (from X) / → Y suffixes produced by derive.ts for multi-team deals.
+ */
+export function buildTradeRoutingLedger(parties: string[], byTeam: ByTeam): string | null {
+  if (parties.length < 3) return null;
+
+  const edges: string[] = [];
+  const seen = new Set<string>();
+
+  const pushEdge = (from: string, to: string, asset: string) => {
+    const key = `${from}→${to}:${asset}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    edges.push(`${from} → ${to}: ${asset}`);
+  };
+
+  for (const team of parties) {
+    const side = byTeam[team];
+    if (!side) continue;
+
+    for (const raw of side.gets ?? []) {
+      const fromMatch = raw.match(FROM_SUFFIX_RE);
+      if (!fromMatch) continue;
+      const sender = fromMatch[1].trim();
+      const asset = raw.replace(FROM_SUFFIX_RE, '').trim();
+      pushEdge(sender, team, asset);
+    }
+
+    for (const raw of side.gives ?? []) {
+      const toMatch = raw.match(TO_SUFFIX_RE);
+      if (!toMatch) continue;
+      const receiver = toMatch[1].trim();
+      const asset = raw.replace(TO_SUFFIX_RE, '').trim();
+      pushEdge(team, receiver, asset);
+    }
+  }
+
+  if (edges.length === 0) return null;
+
+  return [
+    'PAIRWISE ROUTING (verified — each line is one direct transfer in this deal):',
+    ...edges.map(line => `  • ${line}`),
+  ].join('\n');
+}
+
 /**
  * Build the deterministic TRADE FACTS block from `by_team` data.
  *
@@ -45,11 +94,15 @@ export function buildTradeFacts(
     return `${team}\n  Gave:     ${gave}\n  Received: ${received}`;
   }).join('\n\n');
 
+  const routingLedger = buildTradeRoutingLedger(parties, byTeam);
+
   const footer = teamCount > 2
-    ? 'NOTE: Pick sender attribution is verified from full trade history. Do not attribute a pick to a team unless it appears under "Gave" above.'
+    ? routingLedger
+      ? 'NOTE: Use PAIRWISE ROUTING for who sent what to whom. Per-team Gave/Received is authoritative for grades — only penalize a team for assets under their Gave line.'
+      : 'NOTE: Per-team Gave/Received is authoritative for grades — only penalize a team for assets under their Gave line. Do not invent transfers not listed above.'
     : 'NOTE: These facts are fixed. Do not contradict them or invent additional assets.';
 
-  return [header, warnings.join('\n'), rows, footer].filter(Boolean).join('\n\n');
+  return [header, warnings.join('\n'), routingLedger, rows, footer].filter(Boolean).join('\n\n');
 }
 
 function defaultAnnotate(assets: string[] | undefined): string {

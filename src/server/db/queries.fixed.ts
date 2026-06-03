@@ -1249,6 +1249,55 @@ export async function getDraftPickedPlayerIds(draftId: string): Promise<string[]
   return rows.map((r) => r.player_id).filter(Boolean);
 }
 
+/**
+ * Pause the draft specifically for a pick animation: saves the FULL configured clock
+ * time (not the partial remaining time) so the next team gets a fresh clock when
+ * `resumeAfterAnimation` is called once the animation finishes.
+ */
+export async function pauseDraftForAnimation(draftId: string) {
+  await ensureDraftTables();
+  const db = getDb();
+  await db.execute(sql`
+    UPDATE drafts
+    SET status = 'PAUSED',
+        paused_remaining_secs = clock_seconds,
+        clock_started_at = NULL,
+        deadline_ts = NULL
+    WHERE id = ${draftId}::uuid AND round_end_pause = false
+  `);
+  return true;
+}
+
+/**
+ * Idempotent resume after a pick animation: only starts the clock if the draft is
+ * currently in an animation-pause state (PAUSED + round_end_pause = false).
+ * Safe to call from multiple clients — the second call is a no-op.
+ */
+export async function resumeAfterAnimation(draftId: string): Promise<boolean> {
+  await ensureDraftTables();
+  const db = getDb();
+  const r = await db.execute(sql`
+    SELECT clock_seconds, paused_remaining_secs
+    FROM drafts
+    WHERE id = ${draftId}::uuid AND status = 'PAUSED' AND round_end_pause = false
+    LIMIT 1
+  `);
+  const row = (r as unknown as { rows?: Array<{ clock_seconds: number; paused_remaining_secs: number | null }> }).rows?.[0];
+  if (!row) return false; // already live or in round-end pause — no-op
+  const secs = (row.paused_remaining_secs != null && row.paused_remaining_secs > 0)
+    ? row.paused_remaining_secs
+    : (row.clock_seconds || 60);
+  await db.execute(sql`
+    UPDATE drafts
+    SET status = 'LIVE',
+        clock_started_at = now(),
+        deadline_ts = now() + (interval '1 second' * ${secs}),
+        paused_remaining_secs = NULL
+    WHERE id = ${draftId}::uuid AND status = 'PAUSED' AND round_end_pause = false
+  `);
+  return true;
+}
+
 export async function pauseDraft(draftId: string) {
   await ensureDraftTables();
   const db = getDb();

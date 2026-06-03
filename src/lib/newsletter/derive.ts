@@ -357,6 +357,19 @@ function buildUpcomingPairs(
 
 // ============ Transaction Normalization ============
 
+/** Human-readable trade headline — must name every party for 3+ team deals. */
+function formatTradeHeadline(parties: string[]): string {
+  if (parties.length === 0) return 'Trade';
+  if (parties.length === 1) return `${parties[0]} roster move`;
+  if (parties.length === 2) return `${parties[0]} and ${parties[1]} make a deal`;
+  if (parties.length === 3) {
+    return `${parties[0]}, ${parties[1]}, and ${parties[2]} complete a three-team trade`;
+  }
+  const last = parties[parties.length - 1];
+  const rest = parties.slice(0, -1).join(', ');
+  return `${rest}, and ${last} complete a ${parties.length}-team trade`;
+}
+
 interface NormalizedEvent {
   event_id: string;
   type: 'trade' | 'waiver' | 'fa_add';
@@ -463,7 +476,6 @@ function normalizeTransactions(
         // authoritative from Sleeper for all trades including multi-team.
         // roster_id is the original draft slot owner (never changes across trades).
         if (Array.isArray(t.draft_picks)) {
-          const rosterIdSet = new Set(rosterIds);
           for (const raw of t.draft_picks) {
             const pick = raw as RawPick;
             const ownerId = Number(pick.owner_id);
@@ -475,12 +487,12 @@ function normalizeTransactions(
               ? ` (${slotOwnerName}'s slot)` : '';
             const label = `${pick.season ?? '?'} Rd ${pick.round ?? '?'} Pick${slotSuffix}`;
             const receiverName = rostersIndex.get(ownerId)?.owner_name || `Roster ${ownerId}`;
-            if (ownerId === rosterId) {
-              // This team RECEIVED the pick
+            if (ownerId === rosterId && prevOwnerId !== rosterId) {
+              // This team RECEIVED the pick (post-trade owner; must have changed hands)
               const senderName = rostersIndex.get(prevOwnerId)?.owner_name || `Roster ${prevOwnerId}`;
               gets.push(isMultiTeam ? `${label} (from ${senderName})` : label);
-            } else if (prevOwnerId === rosterId && rosterIdSet.has(ownerId)) {
-              // This team SENT the pick (previous_owner_id matches this roster)
+            } else if (prevOwnerId === rosterId) {
+              // This team SENT the pick — matches trade-notifier / trades.ts (no owner-in-trade guard)
               gives.push(isMultiTeam ? `${label} → ${receiverName}` : label);
             }
             // Cross-check: log if hop history disagrees with previous_owner_id
@@ -499,19 +511,19 @@ function normalizeTransactions(
             const amt = Number(budget.amount ?? 0) || 0;
             if (amt <= 0) continue;
             const faabLabel = `$${amt} FAAB`;
+            const faabSenderName = rostersIndex.get(budget.sender)?.owner_name || `Roster ${budget.sender}`;
+            const faabReceiverName = rostersIndex.get(budget.receiver)?.owner_name || `Roster ${budget.receiver}`;
             if (budget.receiver === rosterId) {
-              gets.push(faabLabel);
+              gets.push(isMultiTeam ? `${faabLabel} (from ${faabSenderName})` : faabLabel);
             } else if (budget.sender === rosterId) {
-              gives.push(faabLabel);
+              gives.push(isMultiTeam ? `${faabLabel} → ${faabReceiverName}` : faabLabel);
             }
           }
         }
         by_team[teamName] = { gets, gives };
       }
 
-      const headline = parties.length >= 2
-        ? `${parties[0]} and ${parties[1]} make a deal`
-        : parties.join(' and ');
+      const headline = formatTradeHeadline(parties);
 
       events.push({
         event_id: String(t.transaction_id || Math.random()),

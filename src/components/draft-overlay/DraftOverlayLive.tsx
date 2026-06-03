@@ -12,6 +12,8 @@ import NowOnClockAnimation from './NowOnClockAnimation';
 import DraftTradeAnimation, { type TradeAnimAsset } from './DraftTradeAnimation';
 import DraftInfoBarTicker from './DraftInfoBarTicker';
 import RoundRecapOverlay from './RoundRecapOverlay';
+import EndOfRoundAnimation from './EndOfRoundAnimation';
+import StartOfRoundAnimation from './StartOfRoundAnimation';
 import {
   draftPicksPerRound,
   DRAFT_ANIM_CLOCK_PHASE_MAX_MS,
@@ -117,6 +119,12 @@ export default function DraftOverlayLive() {
   const [pickAnimCollege, setPickAnimCollege] = useState<string | undefined>(undefined);
   // Pending grid cell wipe: recorded when pick fires, executed when animPhase → null
   const pendingGridAnimRef = useRef<{ idx: number; team: string } | null>(null);
+
+  // Round transition animations
+  const [endOfRoundAnimRound, setEndOfRoundAnimRound] = useState<number | null>(null);
+  const [startOfRoundAnimRound, setStartOfRoundAnimRound] = useState<number | null>(null);
+  const endOfRoundInitializedRef = useRef(false);
+  const endOfRoundShownRef = useRef(0);
 
   // Detect pending trade animation from DB trigger
   useEffect(() => {
@@ -410,20 +418,36 @@ export default function DraftOverlayLive() {
     : clockHudTeamPrimary && displayRemainingSec >= fullClockSec ? teamColors[0]
     : eventColor1;
 
-  // Round recap: show after all animations complete when round_end_pause is true
-  const showRoundRecap = draft?.roundEndPause === true && animPhase === null && !tradeAnimData;
   const completedRound = draft && draft.allPicks && draft.allPicks.length > 0
     ? draft.allPicks[draft.allPicks.length - 1].round
     : 0;
   const nextRoundNumber = completedRound + 1;
+
+  // Trigger EndOfRoundAnimation when a round completes during this session.
+  // Initialize the ref to the current completedRound on first load so we skip
+  // rounds that already finished before this tab opened.
+  useEffect(() => {
+    if (!draft?.id) return;
+    if (!endOfRoundInitializedRef.current) {
+      endOfRoundInitializedRef.current = true;
+      endOfRoundShownRef.current = completedRound;
+      return;
+    }
+    if (animPhase !== null) return;
+    if (tradeAnimData) return;
+    if (!draft.roundEndPause) return;
+    if (completedRound <= 0 || endOfRoundShownRef.current >= completedRound) return;
+    endOfRoundShownRef.current = completedRound;
+    setEndOfRoundAnimRound(completedRound);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [animPhase, draft?.id, draft?.roundEndPause, completedRound, tradeAnimData]);
+
+  // Round recap: show after all animations (including end-of-round) complete
+  const showRoundRecap = draft?.roundEndPause === true && animPhase === null && !tradeAnimData && endOfRoundAnimRound === null;
   const roundRecapPicks = draft?.allPicks?.filter(p => p.round === completedRound) || [];
 
   function handleStartNextRound() {
-    fetch('/api/draft', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ action: 'resume' }),
-    }).catch(() => {});
+    setStartOfRoundAnimRound(nextRoundNumber);
   }
 
 
@@ -757,6 +781,35 @@ export default function DraftOverlayLive() {
           eventLogoUrl={eventLogoUrl}
           eventColor1={eventColor1}
           onStartNextRound={handleStartNextRound}
+        />
+      )}
+
+      {/* PHASE: End-of-round animation — plays after last pick of a round, before recap */}
+      {endOfRoundAnimRound !== null && (
+        <EndOfRoundAnimation
+          key={`eor-${endOfRoundAnimRound}`}
+          roundNumber={endOfRoundAnimRound}
+          eventLogoUrl={eventLogoUrl}
+          eventColor1={eventColor1}
+          onComplete={() => setEndOfRoundAnimRound(null)}
+        />
+      )}
+
+      {/* PHASE: Start-of-round animation — plays when admin starts the next round */}
+      {startOfRoundAnimRound !== null && (
+        <StartOfRoundAnimation
+          key={`sor-${startOfRoundAnimRound}`}
+          roundNumber={startOfRoundAnimRound}
+          eventLogoUrl={eventLogoUrl}
+          eventColor1={eventColor1}
+          onComplete={() => {
+            setStartOfRoundAnimRound(null);
+            fetch('/api/draft', {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ action: 'resume' }),
+            }).catch(() => {});
+          }}
         />
       )}
 

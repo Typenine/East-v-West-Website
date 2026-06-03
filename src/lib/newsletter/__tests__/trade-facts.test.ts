@@ -6,7 +6,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { buildTradeFacts, stripTradeIntroBoilerplate, type ByTeam } from '../trade-facts';
+import { buildTradeFacts, buildTradeRoutingLedger, stripTradeIntroBoilerplate, type ByTeam } from '../trade-facts';
 
 // ── buildTradeFacts ───────────────────────────────────────────────────────────
 
@@ -53,7 +53,8 @@ describe('buildTradeFacts — 3-team trade', () => {
 
   it('does NOT list Justin Jefferson under Team Beta gave', () => {
     const betaSection = block.split('\n\n').find(s => s.startsWith('Team Beta'));
-    expect(betaSection).not.toContain('Justin Jefferson');
+    expect(betaSection).toBeDefined();
+    expect(betaSection).not.toMatch(/Gave:.*Justin Jefferson/);
   });
 
   it('shows (no assets listed) for Team Gamma received', () => {
@@ -62,8 +63,41 @@ describe('buildTradeFacts — 3-team trade', () => {
     expect(gammaSection).toContain('Received: (no assets listed)');
   });
 
-  it('includes pick attribution note for 3-team trades', () => {
-    expect(block).toContain('Pick sender attribution is verified');
+  it('includes multi-team grading note in footer', () => {
+    expect(block).toContain('Per-team Gave/Received is authoritative');
+  });
+});
+
+describe('buildTradeRoutingLedger — annotated 3-team flows', () => {
+  const parties = ['Team Alpha', 'Team Beta', 'Team Gamma'];
+  const byTeam: ByTeam = {
+    'Team Alpha': {
+      gives: ['Justin Jefferson → Team Beta'],
+      gets: ['2026 Rd 1 Pick (from Team Beta)', 'Bijan Robinson (from Team Gamma)'],
+    },
+    'Team Beta': {
+      gives: ['2026 Rd 1 Pick → Team Alpha'],
+      gets: ['Justin Jefferson (from Team Alpha)'],
+    },
+    'Team Gamma': {
+      gives: ['Bijan Robinson → Team Alpha'],
+      gets: [],
+    },
+  };
+
+  it('lists each direct transfer', () => {
+    const ledger = buildTradeRoutingLedger(parties, byTeam);
+    expect(ledger).toContain('Team Alpha → Team Beta: Justin Jefferson');
+    expect(ledger).toContain('Team Beta → Team Alpha: 2026 Rd 1 Pick');
+    expect(ledger).toContain('Team Gamma → Team Alpha: Bijan Robinson');
+    expect(ledger).toContain('Team Alpha → Team Beta: Justin Jefferson');
+    expect(ledger).not.toContain('Team Beta → Team Beta');
+  });
+
+  it('embeds routing ledger inside buildTradeFacts for 3-team trades', () => {
+    const block = buildTradeFacts(parties, byTeam);
+    expect(block).toContain('PAIRWISE ROUTING');
+    expect(block).toContain('Team Gamma → Team Alpha: Bijan Robinson');
   });
 });
 
