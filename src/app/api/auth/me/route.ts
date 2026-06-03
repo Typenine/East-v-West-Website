@@ -1,6 +1,7 @@
 import { cookies } from 'next/headers';
 import { verifySession } from '@/lib/server/auth';
 import { isAdminCookieValue } from '@/lib/auth/admin';
+import { canonicalizeTeamName } from '@/lib/server/user-identity';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -12,5 +13,6 @@ export async function GET() {
   if (!token) return Response.json({ authenticated: false, isAdmin }, { status: isAdmin ? 200 : 401 });
   const claims = verifySession(token);
   if (!claims) return Response.json({ authenticated: false, isAdmin }, { status: isAdmin ? 200 : 401 });
-  return Response.json({ authenticated: true, isAdmin, claims });
+  const team = typeof claims.team === 'string' ? canonicalizeTeamName(claims.team) : claims.team;
+  return Response.json({ authenticated: true, isAdmin, claims: { ...claims, team } });
 }

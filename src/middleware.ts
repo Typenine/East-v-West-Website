@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { isAdminCookieValue } from '@/lib/auth/admin';
+import { canonicalizeTeamName } from '@/lib/server/user-identity';
 
 // Teams allowed to access draft room (for testing)
 const DRAFT_ALLOWED_TEAMS = ['Belleview Badgers', 'Mt. Lebanon Cake Eaters', 'Bimg Bamg Boomg'];
@@ -30,7 +31,7 @@ async function getTeamFromSession(token: string): Promise<string | null> {
   try {
     const json = JSON.parse(base64urlDecode(data));
     if (typeof json.exp === 'number' && Date.now() > json.exp) return null;
-    return typeof json.team === 'string' ? json.team : null;
+    return typeof json.team === 'string' ? canonicalizeTeamName(json.team) : null;
   } catch {
     return null;
   }
