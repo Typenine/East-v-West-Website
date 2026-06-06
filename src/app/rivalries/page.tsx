@@ -416,14 +416,12 @@ function SubmissionForm({
 // ─── submitted view ───────────────────────────────────────────────────────────
 
 function SubmittedView({
-  myTeam,
   mySubmission,
   submittedCount,
   totalTeams,
   cycleOpen,
   onEdit,
 }: {
-  myTeam: string;
   mySubmission: { submittedAt: string; scores: ScoreEntry[] };
   submittedCount: number;
   totalTeams: number;
@@ -733,7 +731,7 @@ function AdminPanel({
         <div className="mb-5 rounded-[var(--radius-card)] border p-4" style={{ borderColor: 'var(--border)', background: 'var(--surface)' }}>
           <p className="text-sm font-semibold text-[var(--text)] mb-1">Proposed Pairings</p>
           <p className="text-xs text-[var(--muted)] mb-3">
-            These are not visible to other managers yet. Hit "Publish" above to reveal them to the league.
+            These are not visible to other managers yet. Hit &quot;Publish&quot; above to reveal them to the league.
           </p>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {proposedPairs.map((pair) => <PairCard key={`${pair.teamAId}|${pair.teamBId}`} pair={pair} />)}
@@ -951,7 +949,6 @@ export default function RivalriesPage() {
               {/* Submitted view */}
               {mySubmission && !editing && (
                 <SubmittedView
-                  myTeam={myTeam}
                   mySubmission={mySubmission}
                   submittedCount={submittedCount}
                   totalTeams={totalTeams}
