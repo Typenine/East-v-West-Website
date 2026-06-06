@@ -123,8 +123,9 @@ export default function DraftOverlayLive() {
   // Round transition animations
   const [endOfRoundAnimRound, setEndOfRoundAnimRound] = useState<number | null>(null);
   const [startOfRoundAnimRound, setStartOfRoundAnimRound] = useState<number | null>(null);
-  const endOfRoundInitializedRef = useRef(false);
-  const endOfRoundShownRef = useRef(0);
+  // Transition detection: fire EndOfRoundAnimation exactly when roundEndPause flips false→true
+  const prevRoundEndPauseRef = useRef<boolean | undefined>(undefined);
+  const pendingEndOfRoundRef = useRef(false);
 
   // Detect pending trade animation from DB trigger
   useEffect(() => {
@@ -423,32 +424,42 @@ export default function DraftOverlayLive() {
     : 0;
   const nextRoundNumber = completedRound + 1;
 
-  // Trigger EndOfRoundAnimation when a round completes during this session.
-  // Initialize the ref to the current completedRound on first load so we skip
-  // rounds that already finished before this tab opened.
+  // Effect 1: Detect when roundEndPause transitions false→true (a round just ended this session).
+  // Skip on initial load (prev === undefined) so joining mid-recap doesn't replay the animation.
   useEffect(() => {
     if (!draft?.id) return;
-    if (!endOfRoundInitializedRef.current) {
-      endOfRoundInitializedRef.current = true;
-      // If joining mid-recap (roundEndPause already true), skip this round's animation.
-      // If joining mid-round, allow the current round to animate when it ends.
-      endOfRoundShownRef.current = draft?.roundEndPause ? completedRound : completedRound - 1;
-      return;
-    }
+    const curr = Boolean(draft?.roundEndPause);
+    const prev = prevRoundEndPauseRef.current;
+    prevRoundEndPauseRef.current = curr;
+    if (prev === undefined) return; // first load — skip
+    if (curr && prev === false) pendingEndOfRoundRef.current = true;
+    if (!curr) pendingEndOfRoundRef.current = false; // round started again, cancel any pending
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draft?.roundEndPause, draft?.id]);
+
+  // Effect 2: Show EndOfRoundAnimation once animations finish and a round-end is pending.
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    if (!pendingEndOfRoundRef.current) return;
     if (animPhase !== null) return;
     if (tradeAnimData) return;
-    if (!draft.roundEndPause) return;
-    if (completedRound <= 0 || endOfRoundShownRef.current >= completedRound) return;
-    endOfRoundShownRef.current = completedRound;
+    if (!completedRound) return;
+    pendingEndOfRoundRef.current = false;
     setEndOfRoundAnimRound(completedRound);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [animPhase, draft?.id, draft?.roundEndPause, completedRound, tradeAnimData]);
+  }, [animPhase, tradeAnimData, completedRound]);
 
   // Round recap: show after all animations (including end-of-round and start-of-round) complete
   const showRoundRecap = draft?.roundEndPause === true && animPhase === null && !tradeAnimData && endOfRoundAnimRound === null && startOfRoundAnimRound === null;
   const roundRecapPicks = draft?.allPicks?.filter(p => p.round === completedRound) || [];
 
   function handleStartNextRound() {
+    // Resume the draft immediately — don't gate it on the animation completing.
+    fetch('/api/draft', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ action: 'resume' }),
+    }).catch(() => {});
     setStartOfRoundAnimRound(nextRoundNumber);
   }
 
@@ -804,14 +815,7 @@ export default function DraftOverlayLive() {
           roundNumber={startOfRoundAnimRound}
           eventLogoUrl={eventLogoUrl}
           eventColor1={eventColor1}
-          onComplete={() => {
-            setStartOfRoundAnimRound(null);
-            fetch('/api/draft', {
-              method: 'POST',
-              headers: { 'content-type': 'application/json' },
-              body: JSON.stringify({ action: 'resume' }),
-            }).catch(() => {});
-          }}
+          onComplete={() => setStartOfRoundAnimRound(null)}
         />
       )}
 
