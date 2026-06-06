@@ -430,7 +430,9 @@ export default function DraftOverlayLive() {
     if (!draft?.id) return;
     if (!endOfRoundInitializedRef.current) {
       endOfRoundInitializedRef.current = true;
-      endOfRoundShownRef.current = completedRound;
+      // If joining mid-recap (roundEndPause already true), skip this round's animation.
+      // If joining mid-round, allow the current round to animate when it ends.
+      endOfRoundShownRef.current = draft?.roundEndPause ? completedRound : completedRound - 1;
       return;
     }
     if (animPhase !== null) return;
@@ -442,8 +444,8 @@ export default function DraftOverlayLive() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [animPhase, draft?.id, draft?.roundEndPause, completedRound, tradeAnimData]);
 
-  // Round recap: show after all animations (including end-of-round) complete
-  const showRoundRecap = draft?.roundEndPause === true && animPhase === null && !tradeAnimData && endOfRoundAnimRound === null;
+  // Round recap: show after all animations (including end-of-round and start-of-round) complete
+  const showRoundRecap = draft?.roundEndPause === true && animPhase === null && !tradeAnimData && endOfRoundAnimRound === null && startOfRoundAnimRound === null;
   const roundRecapPicks = draft?.allPicks?.filter(p => p.round === completedRound) || [];
 
   function handleStartNextRound() {
