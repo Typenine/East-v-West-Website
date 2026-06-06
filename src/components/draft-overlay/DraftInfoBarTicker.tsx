@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import { getLeagueDrafts, getDraftPicks, getTeamsData, getAllPlayersCached } from '@/lib/utils/sleeper-api';
 import { CURRENT_SEASON, getLeagueIdForSeason } from '@/lib/constants/league';
 
@@ -90,6 +90,74 @@ interface Props {
   curOverall?: number;
   usingCustom?: boolean;
   pendingPick: boolean;
+  /** Fires when pause state or active slide changes (for external admin controls). */
+  onControlStateChange?: (state: DraftInfoBarTickerControlState) => void;
+}
+
+export type DraftInfoBarTickerControlState = {
+  paused: boolean;
+  slideLabel: string;
+};
+
+export type DraftInfoBarTickerHandle = {
+  stepTicker: (direction: -1 | 1) => void;
+  toggleTickerPause: () => void;
+  getControlState: () => DraftInfoBarTickerControlState;
+};
+
+type DraftCapitalRoundPick = { ownerTeam: string; slot?: number };
+type DraftCapitalRoundsData = Array<{ round: number; picks: DraftCapitalRoundPick[] }>;
+
+const DRAFT_CAPITAL_YEARS = [
+  Number(CURRENT_SEASON),
+  Number(CURRENT_SEASON) + 1,
+  Number(CURRENT_SEASON) + 2,
+] as const;
+
+function teamDraftCapitalPicks(roundsData: DraftCapitalRoundsData, team: string): string[] {
+  const picks: string[] = [];
+  for (const rd of roundsData) {
+    for (const p of rd.picks) {
+      if (p.ownerTeam !== team) continue;
+      const slot = p.slot ?? 0;
+      picks.push(`${rd.round}.${String(slot).padStart(2, '0')}`);
+    }
+  }
+  return picks.sort((a, b) => {
+    const [aRound, aSlot] = a.split('.').map(Number);
+    const [bRound, bSlot] = b.split('.').map(Number);
+    return aRound - bRound || aSlot - bSlot;
+  });
+}
+
+function roundOrdinal(round: number): string {
+  const mod100 = round % 100;
+  const mod10 = round % 10;
+  const suffix =
+    mod100 >= 11 && mod100 <= 13 ? 'th'
+    : mod10 === 1 ? 'st'
+    : mod10 === 2 ? 'nd'
+    : mod10 === 3 ? 'rd'
+    : 'th';
+  return `${round}${suffix}`;
+}
+
+/** Current draft year shows slot numbers; future years show round ordinals only. */
+function teamDraftCapitalDisplayPicks(
+  year: number,
+  roundsData: DraftCapitalRoundsData,
+  team: string,
+): string[] {
+  if (year === Number(CURRENT_SEASON)) {
+    return teamDraftCapitalPicks(roundsData, team);
+  }
+  const rounds: number[] = [];
+  for (const rd of roundsData) {
+    for (const p of rd.picks) {
+      if (p.ownerTeam === team) rounds.push(rd.round);
+    }
+  }
+  return rounds.sort((a, b) => a - b).map(roundOrdinal);
 }
 
 /** Scales down only for very long names — keeps everything legible at TV distance. */
@@ -101,9 +169,20 @@ function tickerNameFontSize(name: string | null | undefined): string {
   return '20px';
 }
 
-export default function DraftInfoBarTicker({ draftId, picksPerRound = 12, onClockTeam, available, recentPicks, curOverall, pendingPick }: Props) {
+const DraftInfoBarTicker = forwardRef<DraftInfoBarTickerHandle, Props>(function DraftInfoBarTicker({
+  draftId,
+  picksPerRound = 12,
+  onClockTeam,
+  available,
+  recentPicks,
+  curOverall,
+  pendingPick,
+  onControlStateChange,
+}, ref) {
   const teamsPerRound = Math.max(1, picksPerRound | 0);
   const [currentTickerView, setCurrentTickerView] = useState<TickerView>('bestAvailable');
+  const [tickerPaused, setTickerPaused] = useState(false);
+  const [cycleEpoch, setCycleEpoch] = useState(0);
   const cycleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Draft order / record data (fetched once)
@@ -112,6 +191,7 @@ export default function DraftInfoBarTicker({ draftId, picksPerRound = 12, onCloc
     transfers: Array<{ round: number; slot: number | null; fromTeam: string; toTeam: string; originalTeam: string; ownerTeam: string; summary?: string }>;
     slotOrder?: Array<{ team: string; record: { wins: number; losses: number; fpts: number; fptsAgainst?: number } }>;
   } | null>(null);
+  const [draftCapitalByYear, setDraftCapitalByYear] = useState<Record<number, DraftCapitalRoundsData> | null>(null);
 
   const completedSeason = Number(CURRENT_SEASON) - 1;
   const priorSeason = completedSeason - 1;
@@ -183,23 +263,42 @@ export default function DraftInfoBarTicker({ draftId, picksPerRound = 12, onCloc
   const tickerViewsRef = useRef(tickerViews);
   tickerViewsRef.current = tickerViews;
 
-  // Cycle every 10 seconds
-  useEffect(() => {
-    const startCycle = () => {
-      if (cycleTimerRef.current) clearTimeout(cycleTimerRef.current);
-      cycleTimerRef.current = setTimeout(() => {
-        setCurrentTickerView(prev => {
-          const views = tickerViewsRef.current;
-          const index = views.indexOf(prev);
-          if (index === -1) return views[0];
-          return views[(index + 1) % views.length];
-        });
-        startCycle();
-      }, 10000);
-    };
-    startCycle();
-    return () => { if (cycleTimerRef.current) clearTimeout(cycleTimerRef.current); };
+  const stepTicker = useCallback((direction: 1 | -1) => {
+    setCurrentTickerView(prev => {
+      const views = tickerViewsRef.current;
+      if (!views.length) return prev;
+      const index = views.indexOf(prev);
+      const startIndex = index === -1 ? 0 : index;
+      return views[(startIndex + direction + views.length) % views.length];
+    });
+    setCycleEpoch(epoch => epoch + 1);
   }, []);
+
+  const toggleTickerPause = useCallback(() => {
+    setTickerPaused(prev => {
+      if (prev) setCycleEpoch(epoch => epoch + 1);
+      return !prev;
+    });
+  }, []);
+
+  // Cycle every 10 seconds (skipped while admin has paused the ticker)
+  useEffect(() => {
+    if (tickerPaused) {
+      if (cycleTimerRef.current) clearTimeout(cycleTimerRef.current);
+      return;
+    }
+    if (cycleTimerRef.current) clearTimeout(cycleTimerRef.current);
+    cycleTimerRef.current = setTimeout(() => {
+      setCurrentTickerView(prev => {
+        const views = tickerViewsRef.current;
+        const index = views.indexOf(prev);
+        if (index === -1) return views[0];
+        return views[(index + 1) % views.length];
+      });
+      setCycleEpoch(epoch => epoch + 1);
+    }, 10000);
+    return () => { if (cycleTimerRef.current) clearTimeout(cycleTimerRef.current); };
+  }, [tickerPaused, cycleEpoch]);
 
   // Fetch draft order / record (once)
   useEffect(() => {
@@ -207,6 +306,32 @@ export default function DraftInfoBarTicker({ draftId, picksPerRound = 12, onCloc
       .then(r => r.ok ? r.json() : null)
       .then(data => { if (data) setDraftOrderData(data); })
       .catch(() => {});
+  }, []);
+
+  // Fetch multi-year draft capital (2026–2028) for on-clock team ticker slide
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const results = await Promise.all(
+          DRAFT_CAPITAL_YEARS.map(async (year) => {
+            const res = await fetch(`/api/draft/next-order?season=${year}`, { cache: 'no-store' });
+            if (!res.ok) return { year, roundsData: null };
+            const data = await res.json();
+            return { year, roundsData: (data?.roundsData ?? null) as DraftCapitalRoundsData | null };
+          })
+        );
+        if (cancelled) return;
+        const byYear: Record<number, DraftCapitalRoundsData> = {};
+        for (const { year, roundsData } of results) {
+          if (roundsData) byYear[year] = roundsData;
+        }
+        setDraftCapitalByYear(byYear);
+      } catch {
+        if (!cancelled) setDraftCapitalByYear({});
+      }
+    })();
+    return () => { cancelled = true; };
   }, []);
 
   // Fetch historical Sleeper draft picks (once)
@@ -305,6 +430,31 @@ export default function DraftInfoBarTicker({ draftId, picksPerRound = 12, onCloc
   // Deduplicate recent picks by overall before displaying
   const allRecentPicks = [...new Map((recentPicks || []).map(p => [p.overall, p])).values()].slice(-6);
 
+  const tickerViewLabels: Record<TickerView, string> = {
+    bestAvailable: 'Best Available',
+    recentPicksAll: 'Recent Picks',
+    teamRecord: 'Season Record',
+    draftCapital: 'Draft Capital',
+    topScorers: 'Top Scorers',
+    seasonHistory: 'Season History',
+    draft2025: `${completedSeason} Draft`,
+    draft2024: `${priorSeason} Draft`,
+    teamRecentPicks: 'Team Picks',
+    tradeInfo: 'Trade Info',
+  };
+
+  const slideLabel = tickerViewLabels[currentTickerView] ?? currentTickerView;
+
+  useImperativeHandle(ref, () => ({
+    stepTicker,
+    toggleTickerPause,
+    getControlState: () => ({ paused: tickerPaused, slideLabel }),
+  }), [stepTicker, toggleTickerPause, tickerPaused, slideLabel]);
+
+  useEffect(() => {
+    onControlStateChange?.({ paused: tickerPaused, slideLabel });
+  }, [tickerPaused, slideLabel, onControlStateChange]);
+
   if (pendingPick) {
     return (
       <div className="absolute inset-0 flex flex-col items-center justify-center z-20" style={{ background: 'linear-gradient(135deg,rgba(0,0,0,0.92),rgba(30,10,0,0.96))' }}>
@@ -314,7 +464,7 @@ export default function DraftInfoBarTicker({ draftId, picksPerRound = 12, onCloc
   }
 
   return (
-    <>
+    <div className="relative h-full">
       {/* Best Available */}
       <div style={{ display: currentTickerView === 'bestAvailable' ? 'block' : 'none' }}>
         <div className="text-sm font-black text-white/90 uppercase tracking-wider mb-2 text-center">Best Available</div>
@@ -389,27 +539,31 @@ export default function DraftInfoBarTicker({ draftId, picksPerRound = 12, onCloc
       {/* Draft Capital */}
       <div style={{ display: currentTickerView === 'draftCapital' ? 'block' : 'none' }}>
         <div className="text-sm font-black text-white/90 uppercase tracking-wider mb-2 text-center">Draft Capital</div>
-        {draftOrderData?.roundsData ? (() => {
-          const teamPicks: string[] = [];
-          draftOrderData.roundsData.forEach(rd => {
-            rd.picks.forEach((p, idx) => {
-              if (p.ownerTeam === onClockTeam) teamPicks.push(`${rd.round}.${String(idx + 1).padStart(2, '0')}`);
-            });
-          });
-          return (
-            <div className="flex flex-wrap gap-1 items-start">
-              <div className="bg-black/30 rounded px-1.5 py-1.5">
-                <div className="text-3xl font-black text-white leading-tight">{teamPicks.length || 1}</div>
-                <div className="text-xs font-semibold text-white/50 uppercase tracking-wide leading-tight">Picks</div>
-              </div>
-              {teamPicks.map(slot => (
-                <div key={slot} className="bg-black/30 rounded px-1.5 py-1.5 text-center">
-                  <div className="text-base font-bold text-white leading-tight">{slot}</div>
+        {draftCapitalByYear && onClockTeam ? (
+          <div className="flex flex-col gap-1">
+            {DRAFT_CAPITAL_YEARS.map(year => {
+              const roundsData = draftCapitalByYear[year];
+              const picks = roundsData ? teamDraftCapitalDisplayPicks(year, roundsData, onClockTeam) : [];
+              return (
+                <div key={year} className="flex items-center gap-1.5 bg-black/25 rounded px-1 py-0.5">
+                  <div className="shrink-0 w-[62px] text-right pr-0.5">
+                    <div className="text-[10px] font-bold text-white/85 leading-tight">{year}</div>
+                    <div className="text-[8px] font-semibold text-white/45 uppercase tracking-wide leading-tight">Picks</div>
+                  </div>
+                  <div className="flex flex-wrap gap-1 flex-1 items-center min-h-[22px]">
+                    {picks.length > 0 ? picks.map((slot, idx) => (
+                      <div key={`${year}-${slot}-${idx}`} className="bg-black/35 rounded px-1.5 py-0.5 min-w-[38px] text-center">
+                        <div className="text-sm font-bold text-white leading-tight">{slot}</div>
+                      </div>
+                    )) : (
+                      <span className="text-[10px] text-white/35 italic">—</span>
+                    )}
+                  </div>
                 </div>
-              ))}
-            </div>
-          );
-        })() : (
+              );
+            })}
+          </div>
+        ) : (
           <div className="bg-black/30 rounded px-1.5 py-1.5 text-[11px] text-white/50">Loading...</div>
         )}
       </div>
@@ -443,13 +597,13 @@ export default function DraftInfoBarTicker({ draftId, picksPerRound = 12, onCloc
             <div className="grid grid-cols-3 gap-1">
               {seasonHistory.map(s => (
                 <div key={s.season} className="bg-black/30 rounded px-1.5 py-1.5">
-                  <div className="text-xs font-bold text-white/50 uppercase tracking-wide leading-tight mb-0.5">{s.season}</div>
+                  <div className="text-sm font-bold text-white/50 uppercase tracking-wide leading-tight mb-0.5">{s.season}</div>
                   <div className="text-2xl font-black text-white leading-tight">{s.wins}–{s.losses}</div>
-                  <div className="text-xs text-white/70 leading-tight">Rank: #{s.recordRank}</div>
-                  <div className="text-xs text-white/60 leading-tight">PF: {s.fpts} (#{s.fptsRank})</div>
-                  <div className="text-xs text-white/60 leading-tight">PA: {s.fptsAgainst} (#{s.fptsAgainstRank})</div>
+                  <div className="text-sm text-white/70 leading-tight">Rank: #{s.recordRank}</div>
+                  <div className="text-sm text-white/60 leading-tight">PF: {s.fpts} (#{s.fptsRank})</div>
+                  <div className="text-sm text-white/60 leading-tight">PA: {s.fptsAgainst} (#{s.fptsAgainstRank})</div>
                   {onClockTeam && (
-                    <div className="text-xs text-white/80 leading-tight mt-0.5 break-words">
+                    <div className="text-sm text-white/80 leading-snug mt-0.5 break-words">
                       {CANONICAL_SEASON_RESULTS[onClockTeam]?.[s.season as '2023' | '2024' | '2025'] || ''}
                     </div>
                   )}
@@ -569,6 +723,8 @@ export default function DraftInfoBarTicker({ draftId, picksPerRound = 12, onCloc
           </div>
         );
       })()}
-    </>
+    </div>
   );
-}
+});
+
+export default DraftInfoBarTicker;

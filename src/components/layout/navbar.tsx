@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import ThemeToggle from '@/components/ui/ThemeToggle';
 import LinkButton from '@/components/ui/LinkButton';
 import Button from '@/components/ui/Button';
@@ -12,9 +12,12 @@ import Image from 'next/image';
 import HomeLeagueBanner from '@/components/layout/HomeLeagueBanner';
 import { getTeamLogoPath, getTeamColors } from '@/lib/utils/team-utils';
 import { USER_NAV_CONFIG, type UserNavItem } from '@/lib/constants/navigation';
+import { cn } from '@/lib/utils/cn';
 
 // Teams allowed to see Draft Room link (must match middleware)
 const DRAFT_ROOM_ALLOWED_TEAMS = ['Belleview Badgers', 'Mt. Lebanon Cake Eaters', 'Bimg Bamg Boomg'];
+/** Grace period before closing a hover-opened menu (ms) */
+const DESKTOP_MENU_CLOSE_DELAY_MS = 450;
 
 function matchesPath(pathname: string, targetPath: string): boolean {
   if (targetPath === '/') return pathname === '/';
@@ -66,6 +69,216 @@ function findBestActive(items: UserNavItem[], pathname: string, searchParams: UR
   return best;
 }
 
+const navTriggerClass = (active: boolean, open?: boolean) =>
+  cn(
+    'inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-semibold transition-colors',
+    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--surface)]',
+    active || open
+      ? 'bg-[var(--surface-strong)] text-[var(--text)] shadow-sm ring-1 ring-[var(--border)]'
+      : 'text-[var(--muted)] hover:bg-[var(--surface-strong)] hover:text-[var(--text)]',
+  );
+
+const navLinkClass = (active: boolean) =>
+  cn(
+    'inline-flex items-center rounded-lg px-3 py-2 text-sm font-semibold transition-colors',
+    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--surface)]',
+    active
+      ? 'bg-[var(--surface-strong)] text-[var(--text)] shadow-sm ring-1 ring-[var(--border)]'
+      : 'text-[var(--muted)] hover:bg-[var(--surface-strong)] hover:text-[var(--text)]',
+  );
+
+const dropdownPanelClass =
+  'overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface)] p-2 shadow-xl';
+
+const dropdownItemClass = (active: boolean, emphasize = false) =>
+  cn(
+    'block w-full rounded-lg px-3 py-2 text-left transition-colors',
+    emphasize && !active && 'ring-1 ring-[color-mix(in_srgb,var(--accent)_30%,var(--border))] bg-[color-mix(in_srgb,var(--accent)_8%,transparent)]',
+    active
+      ? 'bg-accent-soft font-semibold text-accent'
+      : 'font-medium text-[var(--text)] hover:bg-[var(--surface-strong)]',
+  );
+
+type NavGroup = { label: string | null; items: UserNavItem[] };
+
+function groupNavItems(items: UserNavItem[]): NavGroup[] {
+  const order: Array<string | null> = [];
+  const map = new Map<string | null, UserNavItem[]>();
+  for (const item of items) {
+    const key = item.group ?? null;
+    if (!map.has(key)) {
+      map.set(key, []);
+      order.push(key);
+    }
+    map.get(key)!.push(item);
+  }
+  return order.map((label) => ({ label, items: map.get(label)! }));
+}
+
+function isChildBranchActive(
+  child: UserNavItem,
+  bestChild: { id: string; score: number } | null,
+  pathname: string,
+  searchParams: URLSearchParams,
+): boolean {
+  if (bestChild?.id === child.id) return true;
+  return (child.children || []).some((g) => isHrefActive(pathname, searchParams, g.href) || g.id === bestChild?.id);
+}
+
+function NavMenuSectionLabel({ children }: { children: string }) {
+  return (
+    <div className="px-3 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wider text-[var(--muted)] first:pt-0">
+      {children}
+    </div>
+  );
+}
+
+function NavMenuLeafLink({
+  item,
+  active,
+  onNavigate,
+  emphasize = false,
+}: {
+  item: UserNavItem;
+  active: boolean;
+  onNavigate?: () => void;
+  emphasize?: boolean;
+}) {
+  return (
+    <Link
+      href={item.href || '#'}
+      role="menuitem"
+      onClick={onNavigate}
+      className={dropdownItemClass(active, emphasize)}
+    >
+      <span className={cn('text-sm leading-snug', active ? 'font-semibold' : 'font-medium')}>{item.label}</span>
+      {item.description ? (
+        <span className="mt-0.5 block text-xs leading-snug text-[var(--muted)]">{item.description}</span>
+      ) : null}
+    </Link>
+  );
+}
+
+function NavMenuBranch({
+  item,
+  active,
+  pathname,
+  searchParams,
+  onNavigate,
+}: {
+  item: UserNavItem;
+  active: boolean;
+  pathname: string;
+  searchParams: URLSearchParams;
+  onNavigate?: () => void;
+}) {
+  const bestGrand = findBestActive(item.children || [], pathname, searchParams);
+  return (
+    <div className="space-y-1">
+      <NavMenuLeafLink item={item} active={active} onNavigate={onNavigate} />
+      <ul className="ml-2 space-y-0.5 border-l-2 border-[color-mix(in_srgb,var(--accent)_35%,var(--border))] pl-3">
+        {(item.children || []).map((grand) => {
+          const grandActive = bestGrand?.id === grand.id;
+          return (
+            <li key={grand.id}>
+              <Link
+                href={grand.href || '#'}
+                role="menuitem"
+                onClick={onNavigate}
+                className={cn(
+                  'block rounded-md px-2 py-1.5 text-sm font-medium transition-colors',
+                  grandActive
+                    ? 'bg-accent-soft font-semibold text-accent'
+                    : 'text-[var(--text)] hover:bg-[var(--surface-strong)]',
+                )}
+              >
+                {grand.label}
+              </Link>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
+function NavDropdownGroups({
+  parentId,
+  items,
+  pathname,
+  searchParams,
+  onNavigate,
+  layout = 'desktop',
+}: {
+  parentId: string;
+  items: UserNavItem[];
+  pathname: string;
+  searchParams: URLSearchParams;
+  onNavigate?: () => void;
+  layout?: 'desktop' | 'mobile';
+}) {
+  const bestChild = findBestActive(items, pathname, searchParams);
+  const groups = groupNavItems(items);
+  const twoColumn = layout === 'desktop' && parentId === 'history' && groups.length > 1;
+
+  return (
+    <div className={cn(twoColumn ? 'grid grid-cols-2 gap-x-3 gap-y-1' : 'space-y-1')}>
+      {groups.map((group) => (
+        <div key={group.label || `${parentId}-ungrouped`}>
+          {group.label ? <NavMenuSectionLabel>{group.label}</NavMenuSectionLabel> : null}
+          <div className="space-y-0.5">
+            {group.items.map((child) => {
+              const branchActive = isChildBranchActive(child, bestChild, pathname, searchParams);
+              const hasGrandChildren = Boolean(child.children && child.children.length > 0);
+              const emphasize = child.id === 'draft.room';
+
+              if (hasGrandChildren) {
+                return (
+                  <NavMenuBranch
+                    key={child.id}
+                    item={child}
+                    active={branchActive}
+                    pathname={pathname}
+                    searchParams={searchParams}
+                    onNavigate={onNavigate}
+                  />
+                );
+              }
+
+              return (
+                <NavMenuLeafLink
+                  key={child.id}
+                  item={child}
+                  active={branchActive}
+                  onNavigate={onNavigate}
+                  emphasize={emphasize}
+                />
+              );
+            })}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ChevronDownIcon({ open, className }: { open?: boolean; className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 20 20"
+      fill="currentColor"
+      aria-hidden="true"
+      className={cn('h-4 w-4 shrink-0 opacity-60 transition-transform duration-200', open && 'rotate-180', className)}
+    >
+      <path
+        fillRule="evenodd"
+        d="M5.23 7.21a.75.75 0 011.06.02L10 10.94l3.71-3.71a.75.75 0 111.06 1.06l-4.24 4.25a.75.75 0 01-1.06 0L5.21 8.29a.75.75 0 01.02-1.08z"
+        clipRule="evenodd"
+      />
+    </svg>
+  );
+}
+
 export default function Navbar() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -86,7 +299,9 @@ export default function Navbar() {
   const [changeLoading, setChangeLoading] = useState(false);
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const [desktopMenuOpen, setDesktopMenuOpen] = useState<string | null>(null);
+  const [desktopMenuPinned, setDesktopMenuPinned] = useState<string | null>(null);
   const desktopMenuRef = useRef<HTMLDivElement | null>(null);
+  const desktopMenuCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const accountMenuRef = useRef<HTMLDivElement | null>(null);
   const currentPinRef = useRef<HTMLInputElement | null>(null);
   const newPinRef = useRef<HTMLInputElement | null>(null);
@@ -112,6 +327,44 @@ export default function Navbar() {
   const closeMobile = () => {
     setMobileMenuOpen(false);
   };
+
+  const cancelDesktopMenuClose = useCallback(() => {
+    if (desktopMenuCloseTimerRef.current) {
+      clearTimeout(desktopMenuCloseTimerRef.current);
+      desktopMenuCloseTimerRef.current = null;
+    }
+  }, []);
+
+  const closeDesktopMenu = useCallback(() => {
+    cancelDesktopMenuClose();
+    setDesktopMenuOpen(null);
+    setDesktopMenuPinned(null);
+  }, [cancelDesktopMenuClose]);
+
+  const openDesktopMenu = useCallback((id: string) => {
+    cancelDesktopMenuClose();
+    setDesktopMenuOpen(id);
+  }, [cancelDesktopMenuClose]);
+
+  const scheduleCloseDesktopMenu = useCallback((id: string) => {
+    if (desktopMenuPinned === id) return;
+    cancelDesktopMenuClose();
+    desktopMenuCloseTimerRef.current = setTimeout(() => {
+      setDesktopMenuOpen((open) => (open === id ? null : open));
+      desktopMenuCloseTimerRef.current = null;
+    }, DESKTOP_MENU_CLOSE_DELAY_MS);
+  }, [desktopMenuPinned, cancelDesktopMenuClose]);
+
+  const toggleDesktopMenu = useCallback((id: string) => {
+    if (desktopMenuOpen === id && desktopMenuPinned === id) {
+      closeDesktopMenu();
+      return;
+    }
+    setDesktopMenuPinned(id);
+    openDesktopMenu(id);
+  }, [desktopMenuOpen, desktopMenuPinned, closeDesktopMenu, openDesktopMenu]);
+
+  useEffect(() => () => cancelDesktopMenuClose(), [cancelDesktopMenuClose]);
 
   // Removed special homepage click-to-admin; admin sign-in now lives on /login
 
@@ -191,12 +444,12 @@ export default function Navbar() {
         setAccountMenuOpen(false);
       }
       if (desktopMenuRef.current && !desktopMenuRef.current.contains(e.target as Node)) {
-        setDesktopMenuOpen(null);
+        closeDesktopMenu();
       }
     };
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        setDesktopMenuOpen(null);
+        closeDesktopMenu();
         setAccountMenuOpen(false);
       }
     };
@@ -206,7 +459,7 @@ export default function Navbar() {
       document.removeEventListener('mousedown', onDocClick);
       document.removeEventListener('keydown', onKeyDown);
     };
-  }, []);
+  }, [closeDesktopMenu]);
 
   const handleLogout = async () => {
     try {
@@ -225,112 +478,93 @@ export default function Navbar() {
   return (
     <>
     {pathname === '/' ? <HomeLeagueBanner /> : null}
-    <nav className="evw-surface border-b border-[var(--border)] sticky top-0 backdrop-blur-sm bg-[var(--surface)]/95 z-50">
+    <nav className="evw-surface sticky top-0 z-50 border-b border-[var(--border)] bg-[var(--surface)]/95 backdrop-blur-md">
       <div className="container mx-auto px-4">
-        <div className="flex items-center justify-between h-16">
-          <div className="flex items-center">
-            <div className="flex-shrink-0">
-              <Link href="/" className="font-bold text-xl">
+        <div className="flex h-16 items-center justify-between">
+          <div className="flex min-w-0 items-center gap-8">
+            <div className="shrink-0">
+              <Link
+                href="/"
+                className="text-lg font-bold tracking-tight text-[var(--text)] transition-colors hover:text-accent sm:text-xl"
+              >
                 East v. West
               </Link>
             </div>
             <div className="hidden md:block">
-              <div className="ml-10 flex items-center gap-1" ref={desktopMenuRef}>
+              <div
+                className="flex items-center gap-0.5"
+                ref={desktopMenuRef}
+                onMouseEnter={cancelDesktopMenuClose}
+                onMouseLeave={() => {
+                  if (desktopMenuOpen) scheduleCloseDesktopMenu(desktopMenuOpen);
+                }}
+              >
                 {filteredNavConfig.map((item) => {
                   const itemActive = isNavItemActive(item, pathname, currentQuery);
                   const hasChildren = Boolean(item.children && item.children.length > 0);
                   const menuOpen = desktopMenuOpen === item.id;
+                  const isSuggestions = item.id === 'suggestions';
 
                   if (!hasChildren && item.href) {
                     return (
-                      <LinkButton
+                      <Link
                         key={item.id}
                         href={item.href}
                         aria-current={isHrefActive(pathname, currentQuery, item.href) ? 'page' : undefined}
-                        variant={itemActive ? 'secondary' : 'ghost'}
-                        size="md"
+                        className={cn(
+                          navLinkClass(itemActive),
+                          isSuggestions && !itemActive && 'text-accent hover:text-accent',
+                        )}
                       >
                         {item.label}
-                      </LinkButton>
+                      </Link>
                     );
                   }
 
                   return (
-                    <div key={item.id} className="relative group">
-                      <Button
+                    <div
+                      key={item.id}
+                      className="relative"
+                      onMouseEnter={() => openDesktopMenu(item.id)}
+                      onMouseLeave={() => scheduleCloseDesktopMenu(item.id)}
+                    >
+                      <button
                         type="button"
-                        variant={itemActive ? 'secondary' : 'ghost'}
-                        size="sm"
-                        className="inline-flex items-center gap-1"
+                        className={navTriggerClass(itemActive, menuOpen)}
                         aria-haspopup="menu"
                         aria-expanded={menuOpen}
                         aria-controls={`desktop-menu-${item.id}`}
-                        onClick={() => setDesktopMenuOpen((open) => open === item.id ? null : item.id)}
-                        onMouseEnter={() => setDesktopMenuOpen(item.id)}
-                        onFocus={() => setDesktopMenuOpen(item.id)}
+                        onClick={() => toggleDesktopMenu(item.id)}
+                        onFocus={() => openDesktopMenu(item.id)}
                       >
                         {item.label}
-                        <span className="text-xs">▾</span>
-                      </Button>
+                        <ChevronDownIcon open={menuOpen} />
+                      </button>
 
+                      {/* pt-3 bridges the gap between trigger and panel so hover is not lost */}
                       <div
                         id={`desktop-menu-${item.id}`}
-                        className={`absolute left-0 top-full z-50 transition-opacity duration-150 ${menuOpen ? 'visible opacity-100 pointer-events-auto' : 'invisible opacity-0 pointer-events-none'}`}
+                        className={cn(
+                          'absolute left-0 top-full z-50 min-w-full pt-3',
+                          menuOpen ? 'block' : 'hidden',
+                        )}
+                        onMouseEnter={() => openDesktopMenu(item.id)}
                       >
-                        <div className="min-w-[220px] evw-surface border border-[var(--border)] rounded-md shadow-lg p-1">
-                          {(() => {
-                            const bestChild = findBestActive(item.children || [], pathname, currentQuery);
-                            return (item.children || []).map((child) => {
-                              const childIsDirectMatch = bestChild?.id === child.id;
-                              const hasGrandChildren = Boolean(child.children && child.children.length > 0);
-                              const childBranchActive = childIsDirectMatch || (child.children || []).some((g) => g.id === bestChild?.id);
-                              const bestGrand = hasGrandChildren ? findBestActive(child.children || [], pathname, currentQuery) : null;
-
-                              if (!hasGrandChildren) {
-                                return (
-                                  <Link
-                                    key={child.id}
-                                    href={child.href || '#'}
-                                    className={`block rounded px-2 py-1.5 text-sm ${childBranchActive ? 'bg-[var(--surface-strong)] text-[var(--text)] font-medium' : 'hover:bg-[var(--surface-strong)] text-[var(--text)]'}`}
-                                    onClick={() => setDesktopMenuOpen(null)}
-                                  >
-                                    {child.label}
-                                  </Link>
-                                );
-                              }
-
-                              return (
-                                <div key={child.id} className="relative group/submenu">
-                                  <Link
-                                    href={child.href || '#'}
-                                    className={`flex items-center justify-between rounded px-2 py-1.5 text-sm ${childBranchActive ? 'bg-[var(--surface-strong)] text-[var(--text)] font-medium' : 'hover:bg-[var(--surface-strong)] text-[var(--text)]'}`}
-                                    onClick={() => setDesktopMenuOpen(null)}
-                                  >
-                                    <span>{child.label}</span>
-                                    <span aria-hidden="true">▸</span>
-                                  </Link>
-
-                                  <div className="absolute left-full top-0 invisible opacity-0 pointer-events-none group-hover/submenu:visible group-hover/submenu:opacity-100 group-hover/submenu:pointer-events-auto transition-opacity duration-150">
-                                    <div className="min-w-[220px] evw-surface border border-[var(--border)] rounded-md shadow-lg p-1">
-                                      {(child.children || []).map((grand) => {
-                                        const grandActive = bestGrand?.id === grand.id;
-                                        return (
-                                          <Link
-                                            key={grand.id}
-                                            href={grand.href || '#'}
-                                            className={`block rounded px-2 py-1.5 text-sm ${grandActive ? 'bg-[var(--surface-strong)] text-[var(--text)] font-medium' : 'hover:bg-[var(--surface-strong)] text-[var(--text)]'}`}
-                                            onClick={() => setDesktopMenuOpen(null)}
-                                          >
-                                            {grand.label}
-                                          </Link>
-                                        );
-                                      })}
-                                    </div>
-                                  </div>
-                                </div>
-                              );
-                            });
-                          })()}
+                        <div
+                          className={cn(
+                            dropdownPanelClass,
+                            item.id === 'history' ? 'w-[22rem]' : item.id === 'draft' ? 'w-[16.5rem]' : 'w-[14.5rem]',
+                          )}
+                          role="menu"
+                        >
+                          <NavDropdownGroups
+                            parentId={item.id}
+                            items={item.children || []}
+                            pathname={pathname}
+                            searchParams={currentQuery}
+                            onNavigate={closeDesktopMenu}
+                            layout="desktop"
+                          />
                         </div>
                       </div>
                     </div>
@@ -359,41 +593,41 @@ export default function Navbar() {
                     )}
                   </button>
                   {accountMenuOpen && (
-                    <div className="absolute right-0 mt-2 w-40 evw-surface border border-[var(--border)] rounded shadow-lg p-1">
+                    <div className={cn(dropdownPanelClass, 'absolute right-0 mt-2 w-48')}>
                       {isAdmin && (
                         <>
                           <button
-                            className="w-full text-left px-2 py-1.5 rounded hover:bg-[var(--surface-strong)]"
+                            className={dropdownItemClass(false)}
                             onClick={() => { setAccountMenuOpen(false); router.push('/admin/newsletter'); }}
                           >
                             Admin: Newsletter
                           </button>
                           <button
-                            className="w-full text-left px-2 py-1.5 rounded hover:bg-[var(--surface-strong)]"
+                            className={dropdownItemClass(false)}
                             onClick={() => { setAccountMenuOpen(false); router.push('/admin/trades'); }}
                           >
                             Admin: Trades
                           </button>
                           <button
-                            className="w-full text-left px-2 py-1.5 rounded hover:bg-[var(--surface-strong)]"
+                            className={dropdownItemClass(false)}
                             onClick={() => { setAccountMenuOpen(false); router.push('/admin/suggestions'); }}
                           >
                             Admin: Suggestions
                           </button>
                           <button
-                            className="w-full text-left px-2 py-1.5 rounded hover:bg-[var(--surface-strong)]"
+                            className={dropdownItemClass(false)}
                             onClick={() => { setAccountMenuOpen(false); router.push('/admin/taxi'); }}
                           >
                             Admin: Taxi
                           </button>
                           <button
-                            className="w-full text-left px-2 py-1.5 rounded hover:bg-[var(--surface-strong)]"
+                            className={dropdownItemClass(false)}
                             onClick={() => { setAccountMenuOpen(false); router.push('/admin/users'); }}
                           >
                             Admin: Users
                           </button>
                           <button
-                            className="w-full text-left px-2 py-1.5 rounded hover:bg-[var(--surface-strong)]"
+                            className={dropdownItemClass(false)}
                             onClick={() => { setAccountMenuOpen(false); handleAdminLogout(); }}
                           >
                             Admin Logout
@@ -404,13 +638,13 @@ export default function Navbar() {
                       {sessionTeam && (
                         <>
                           <button
-                            className="w-full text-left px-2 py-1.5 rounded hover:bg-[var(--surface-strong)]"
+                            className={dropdownItemClass(false)}
                             onClick={() => { setAccountMenuOpen(false); setChangeOpen(true); }}
                           >
                             Change PIN
                           </button>
                           <button
-                            className="w-full text-left px-2 py-1.5 rounded hover:bg-[var(--surface-strong)]"
+                            className={dropdownItemClass(false)}
                             onClick={() => { setAccountMenuOpen(false); handleLogout(); }}
                             disabled={authLoading}
                           >
@@ -466,110 +700,60 @@ export default function Navbar() {
 
       {/* Mobile menu, show/hide based on menu state */}
       <div
-        className={`${mobileMenuOpen ? 'block' : 'hidden'} md:hidden relative z-40`}
+        className={cn('relative z-40 border-t border-[var(--border)] md:hidden', mobileMenuOpen ? 'block' : 'hidden')}
         id="mobile-menu"
         aria-labelledby="mobile-menu-button"
       >
-        <div className="px-2 pt-2 pb-3 space-y-1 sm:px-3">
+        <div className="space-y-2 px-3 py-3">
           {filteredNavConfig.map((item) => {
             const itemActive = isNavItemActive(item, pathname, currentQuery);
             const hasChildren = Boolean(item.children && item.children.length > 0);
+            const isSuggestions = item.id === 'suggestions';
 
             if (!hasChildren && item.href) {
               return (
-                <LinkButton
+                <Link
                   key={item.id}
                   href={item.href}
                   aria-current={isHrefActive(pathname, currentQuery, item.href) ? 'page' : undefined}
-                  variant={itemActive ? 'secondary' : 'ghost'}
-                  size="lg"
-                  className="block text-left"
+                  className={cn(
+                    navLinkClass(itemActive),
+                    'block w-full text-left',
+                    isSuggestions && !itemActive && 'text-accent hover:text-accent',
+                  )}
                   onClick={closeMobile}
                 >
                   {item.label}
-                </LinkButton>
+                </Link>
               );
             }
 
             const expanded = Boolean(mobileExpanded[item.id]);
             return (
-              <div key={item.id} className="border border-[var(--border)] rounded-md">
+              <div key={item.id} className="overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface-strong)]/40">
                 <button
                   type="button"
-                  className={`w-full flex items-center justify-between px-3 py-2 text-left ${itemActive ? 'text-[var(--text)] font-medium' : 'text-[var(--muted)]'}`}
+                  className={cn(
+                    'flex w-full items-center justify-between px-4 py-3 text-left text-sm font-semibold transition-colors',
+                    itemActive ? 'text-[var(--text)]' : 'text-[var(--muted)]',
+                  )}
                   onClick={() => toggleMobileSection(item.id)}
                   aria-expanded={expanded}
                 >
                   <span>{item.label}</span>
-                  <span aria-hidden="true">{expanded ? '▾' : '▸'}</span>
+                  <ChevronDownIcon open={expanded} />
                 </button>
 
                 {expanded && (
-                  <div className="px-2 pb-2 space-y-1">
-                    {(() => {
-                      const bestChild = findBestActive(item.children || [], pathname, currentQuery);
-                      return (item.children || []).map((child) => {
-                      const hasGrandChildren = Boolean(child.children && child.children.length > 0);
-                      const childBranchActive = bestChild?.id === child.id || (child.children || []).some((g) => g.id === bestChild?.id);
-
-                      if (!hasGrandChildren) {
-                        return (
-                          <Link
-                            key={child.id}
-                            href={child.href || '#'}
-                            onClick={closeMobile}
-                            className={`block rounded px-2 py-1.5 text-sm ${childBranchActive ? 'bg-[var(--surface-strong)] text-[var(--text)] font-medium' : 'text-[var(--text)] hover:bg-[var(--surface-strong)]'}`}
-                          >
-                            {child.label}
-                          </Link>
-                        );
-                      }
-
-                      const childExpanded = Boolean(mobileExpanded[child.id]);
-                      const bestGrand = findBestActive(child.children || [], pathname, currentQuery);
-
-                      return (
-                        <div key={child.id} className="border border-[var(--border)] rounded-md">
-                          <div className="w-full flex items-center justify-between px-2 py-1.5 text-sm">
-                            <Link
-                              href={child.href || '#'}
-                              onClick={closeMobile}
-                              className={`${childBranchActive ? 'text-[var(--text)] font-medium' : 'text-[var(--text)]'} hover:underline`}
-                            >
-                              {child.label}
-                            </Link>
-                            <button
-                              type="button"
-                              className={`${childBranchActive ? 'text-[var(--text)] font-medium' : 'text-[var(--muted)]'}`}
-                              onClick={() => toggleMobileSection(child.id)}
-                              aria-expanded={childExpanded}
-                              aria-label={`Toggle ${child.label} submenu`}
-                            >
-                              <span aria-hidden="true">{childExpanded ? '▾' : '▸'}</span>
-                            </button>
-                          </div>
-
-                          {childExpanded && (
-                            <div className="px-2 pb-2 space-y-1">
-                              {(child.children || []).map((grand) => {
-                                const grandActive = bestGrand?.id === grand.id;
-                                return (
-                                  <Link
-                                    key={grand.id}
-                                    href={grand.href || '#'}
-                                    onClick={closeMobile}
-                                    className={`block rounded px-2 py-1.5 text-sm ${grandActive ? 'bg-[var(--surface-strong)] text-[var(--text)] font-medium' : 'text-[var(--text)] hover:bg-[var(--surface-strong)]'}`}
-                                  >
-                                    {grand.label}
-                                  </Link>
-                                );
-                              })}
-                            </div>
-                          )}
-                        </div>
-                      );
-                    });
-                    })()}
+                  <div className="border-t border-[var(--border)] px-2 py-2">
+                    <NavDropdownGroups
+                      parentId={item.id}
+                      items={item.children || []}
+                      pathname={pathname}
+                      searchParams={currentQuery}
+                      onNavigate={closeMobile}
+                      layout="mobile"
+                    />
                   </div>
                 )}
               </div>

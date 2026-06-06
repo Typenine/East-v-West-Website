@@ -10,7 +10,10 @@ import Input from '@/components/ui/Input';
 import Select from '@/components/ui/Select';
 import Button from '@/components/ui/Button';
 import { TEAM_NAMES } from '@/lib/constants/league';
-import DraftOverlayLive from '@/components/draft-overlay/DraftOverlayLive';
+import DraftOverlayLive, {
+  type DraftInfoBarTickerControlState,
+  type DraftOverlayLiveHandle,
+} from '@/components/draft-overlay/DraftOverlayLive';
 import { getTeamLogoPath } from '@/lib/utils/team-utils';
 import { getTeamColors } from '@/lib/constants/team-colors';
 
@@ -473,6 +476,11 @@ export default function AdminDraftPage() {
   type AdminTrade = { id: string; draftId: string; status: string; proposedBy: string; teams: string[]; acceptedBy: string[]; notes?: string | null; proposedAt: string; updatedAt: string; assets: Array<{ id: string; fromTeam: string; toTeam: string; assetType: string; playerId?: string | null; playerName?: string | null; playerPos?: string | null; pickOverall?: number | null; pickYear?: number | null; pickRound?: number | null; pickOriginalTeam?: string | null }> };
   const [pendingTrades, setPendingTrades] = useState<AdminTrade[]>([]);
   const [tradeAction, setTradeAction] = useState<string | null>(null);
+  const overlayRef = useRef<DraftOverlayLiveHandle>(null);
+  const [tickerControl, setTickerControl] = useState<DraftInfoBarTickerControlState>({
+    paused: false,
+    slideLabel: 'Best Available',
+  });
   const [brandingForm, setBrandingForm] = useState({ eventName: '', eventColor1: '#a4c810', eventColor2: '#ffffff', eventLogoUrl: '' });
   const [brandingLogoPreview, setBrandingLogoPreview] = useState<string | null>(null);
   const [savingBranding, setSavingBranding] = useState(false);
@@ -1065,7 +1073,7 @@ export default function AdminDraftPage() {
       {/* Live Overlay - Full Screen Display */}
       {draft && (
         <div className="mb-4 rounded-lg overflow-hidden border border-[var(--border)] bg-black" style={{ height: 'calc(100vh - 300px)', minHeight: '700px' }}>
-          <DraftOverlayLive />
+          <DraftOverlayLive ref={overlayRef} onTickerControlStateChange={setTickerControl} />
         </div>
       )}
 
@@ -1603,6 +1611,45 @@ export default function AdminDraftPage() {
                 )}
               </CardContent>
             </Card>
+
+            {draft && (
+              <Card>
+                <CardHeader>
+                  <CardTitle>Ticker Controls</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-sm text-[var(--muted)] mb-3">
+                    Pause or step through info-bar slides while reviewing the live overlay preview above.
+                  </p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => overlayRef.current?.stepTicker(-1)}
+                    >
+                      ◀ Prev
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => overlayRef.current?.toggleTickerPause()}
+                    >
+                      {tickerControl.paused ? '▶ Resume' : '⏸ Pause'}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => overlayRef.current?.stepTicker(1)}
+                    >
+                      Next ▶
+                    </Button>
+                    <span className="text-sm font-semibold text-[var(--text)] ml-1">
+                      {tickerControl.slideLabel}
+                    </span>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
 
             {/* Pick Reordering - Only show when draft is LIVE or PAUSED */}
             {draft && (draft.status === 'LIVE' || draft.status === 'PAUSED') && (

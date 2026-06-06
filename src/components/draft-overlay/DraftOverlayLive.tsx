@@ -2,7 +2,7 @@
 
 /* eslint-disable @next/next/no-img-element -- Using <img> for GSAP animations and dynamic team logos that need direct DOM access */
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import { gsap } from 'gsap';
 import { useDraftData } from './useDraftData';
 import { getTeamLogoPath } from '@/lib/utils/team-utils';
@@ -10,7 +10,10 @@ import { getTeamColors } from '@/lib/constants/team-colors';
 import DraftPickAnimation from './DraftPickAnimation';
 import NowOnClockAnimation from './NowOnClockAnimation';
 import DraftTradeAnimation, { type TradeAnimAsset } from './DraftTradeAnimation';
-import DraftInfoBarTicker from './DraftInfoBarTicker';
+import DraftInfoBarTicker, {
+  type DraftInfoBarTickerControlState,
+  type DraftInfoBarTickerHandle,
+} from './DraftInfoBarTicker';
 import RoundRecapOverlay from './RoundRecapOverlay';
 import EndOfRoundAnimation from './EndOfRoundAnimation';
 import StartOfRoundAnimation from './StartOfRoundAnimation';
@@ -47,7 +50,22 @@ function getYoutubeEmbedUrl(url: string): string | null {
   }
 }
 
-export default function DraftOverlayLive() {
+export type { DraftInfoBarTickerControlState, DraftInfoBarTickerHandle as DraftOverlayLiveHandle };
+
+type DraftOverlayLiveProps = {
+  onTickerControlStateChange?: (state: DraftInfoBarTickerControlState) => void;
+};
+
+const DraftOverlayLive = forwardRef<DraftInfoBarTickerHandle, DraftOverlayLiveProps>(function DraftOverlayLive({
+  onTickerControlStateChange,
+}, ref) {
+  const tickerRef = useRef<DraftInfoBarTickerHandle>(null);
+
+  useImperativeHandle(ref, () => ({
+    stepTicker: (direction) => tickerRef.current?.stepTicker(direction),
+    toggleTickerPause: () => tickerRef.current?.toggleTickerPause(),
+    getControlState: () => tickerRef.current?.getControlState() ?? { paused: false, slideLabel: 'Best Available' },
+  }), []);
   const {
     draft,
     currentTeam,
@@ -360,6 +378,13 @@ export default function DraftOverlayLive() {
     }
   }, [animPhase]);
 
+  const resetClockTransform = useCallback(() => {
+    const el = clockRef.current;
+    if (!el) return;
+    gsap.killTweensOf(el);
+    gsap.set(el, { clearProps: 'scale,transform' });
+  }, []);
+
   useEffect(() => {
     if (postIntroClockSeq === 0) return;
     const el = clockRef.current;
@@ -377,7 +402,7 @@ export default function DraftOverlayLive() {
             repeat: 3,
             ease: 'power2.inOut',
             onComplete: () => {
-              if (el) gsap.set(el, { clearProps: 'scale' });
+              if (el) gsap.set(el, { clearProps: 'scale,transform' });
             },
           },
         );
@@ -386,27 +411,36 @@ export default function DraftOverlayLive() {
     return () => {
       clearTimeout(t1);
       tween?.kill();
-      if (el) gsap.killTweensOf(el);
+      resetClockTransform();
     };
-  }, [postIntroClockSeq]);
+  }, [postIntroClockSeq, resetClockTransform]);
 
   useEffect(() => {
     if (displayRemainingSec < fullClockSec) setClockHudTeamPrimary(false);
   }, [displayRemainingSec, fullClockSec]);
 
+  // Freeze clock visuals when paused — leftover GSAP scale on the digit layer causes ghosting
+  useEffect(() => {
+    if (draft?.status === 'PAUSED') resetClockTransform();
+  }, [draft?.status, resetClockTransform]);
+
   // Pulse clock when low time (not while intro holds the clock at full)
   useEffect(() => {
-    if (animPhase === 'clock') return;
-    if (clockRef.current && displayRemainingSec <= 10 && displayRemainingSec > 0) {
-      gsap.to(clockRef.current, {
+    if (animPhase === 'clock' || draft?.status !== 'LIVE') return;
+    const el = clockRef.current;
+    if (el && displayRemainingSec <= 10 && displayRemainingSec > 0) {
+      gsap.to(el, {
         scale: 1.05,
         duration: 0.3,
         yoyo: true,
         repeat: 1,
         ease: 'power1.inOut',
+        onComplete: () => {
+          gsap.set(el, { clearProps: 'scale,transform' });
+        },
       });
     }
-  }, [displayRemainingSec, animPhase]);
+  }, [displayRemainingSec, animPhase, draft?.status]);
   const teamColors = currentTeam?.colors || ['#333', '#555', null];
   const teamLogo = currentTeam ? getTeamLogoPath(currentTeam.name) : null;
   const nextTeamsForClock = (draft?.upcoming || [])
@@ -488,7 +522,7 @@ export default function DraftOverlayLive() {
   return (
     <div className="w-full h-full bg-gradient-to-b from-zinc-950 to-zinc-900 p-3 flex flex-col">
       {/* Draft Board Grid */}
-      <div className="flex-1 mb-4 min-h-0 relative">
+      <div className="flex-1 min-h-0 relative">
         <div
           className="grid gap-[2px] h-full bg-zinc-900/80 rounded-lg overflow-hidden"
           style={{ gridTemplateColumns: '2.5rem repeat(4, 1fr)' }}
@@ -638,6 +672,16 @@ export default function DraftOverlayLive() {
         })()}
       </div>
 
+      {/* Draft event accent bar — between grid and bottom HUD */}
+      <div
+        className="shrink-0 w-full rounded-[2px]"
+        style={{
+          height: '6px',
+          background: eventColor1,
+        }}
+        aria-hidden
+      />
+
       {/* Bottom Bar: ClockBox + InfoBar — on-the-clock animation overlays both */}
       <div className="relative flex gap-0 items-stretch h-[184px] rounded-[4px]">
         {/* ClockBox */}
@@ -664,14 +708,15 @@ export default function DraftOverlayLive() {
 
           {/* Center: Timer + RD/PK as a tight centered pair */}
           <div className="flex-1 flex flex-col items-center justify-center gap-1">
-            <div
-              ref={clockRef}
-              className={`text-4xl font-bold font-mono ${displayRemainingSec <= 10 ? 'text-red-500' : ''}`}
-              style={{ color: clockDigitColor, textShadow: displayRemainingSec <= 10 ? undefined : eventGlow }}
-            >
-              {formatTime(displayRemainingSec)}
+            <div ref={clockRef} className="inline-flex items-center justify-center">
+              <span
+                className={`text-4xl font-bold font-mono tabular-nums leading-none ${displayRemainingSec <= 10 ? 'text-red-500' : ''}`}
+                style={{ color: clockDigitColor, textShadow: displayRemainingSec <= 10 ? undefined : eventGlow }}
+              >
+                {formatTime(displayRemainingSec)}
+              </span>
             </div>
-            <div className="text-sm text-center font-bold" style={{ color: eventColor1 }}>
+            <div className="text-base text-center font-bold" style={{ color: eventColor1 }}>
               RD {roundNumber} &nbsp; PK {pickInRound}
             </div>
           </div>
@@ -686,9 +731,9 @@ export default function DraftOverlayLive() {
             </div>
             <div className="flex flex-col items-center gap-0.5">
               <span className="text-[9px] text-zinc-400 uppercase tracking-wide">Next</span>
-              <div className="flex gap-1.5">
+              <div className="flex gap-2">
                 {nextTeamsForClock.map((t, i) => (
-                  <div key={i} className="w-9 h-9 bg-zinc-600 rounded overflow-hidden">
+                  <div key={i} className="w-12 h-12 bg-zinc-600 rounded overflow-hidden">
                     {t.logoPath && <img src={t.logoPath} alt={t.name} className="w-full h-full object-contain" />}
                   </div>
                 ))}
@@ -717,6 +762,7 @@ export default function DraftOverlayLive() {
           }}
         >
           <DraftInfoBarTicker
+            ref={tickerRef}
             draftId={draft?.id ?? null}
             picksPerRound={picksPerRound}
             onClockTeam={currentTeam?.name ?? null}
@@ -725,6 +771,7 @@ export default function DraftOverlayLive() {
             curOverall={draft?.curOverall}
             usingCustom={usingCustom}
             pendingPick={!!pendingPick}
+            onControlStateChange={onTickerControlStateChange}
           />
         </div>
         {animPhase === 'clock' && animDataRef.current?.nextTeamName && (() => {
@@ -853,4 +900,6 @@ export default function DraftOverlayLive() {
 
     </div>
   );
-}
+});
+
+export default DraftOverlayLive;

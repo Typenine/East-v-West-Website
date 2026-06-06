@@ -171,7 +171,8 @@ function sortByPick<T extends { pick?: number }>(items: T[]) {
   return [...items].sort((a, b) => parsePick(a.pick) - parsePick(b.pick));
 }
 
-const DEFAULT_PLAYERS = sortByPick(INITIAL.map((p) => ({ ...p }))).slice(0, 114);
+const sortedPlayers = sortByPick(INITIAL.map((p) => ({ ...p })));
+const DEFAULT_PLAYERS = sortedPlayers.filter((p, idx) => idx < 114 || p.pos === 'DEF');
 
 function computeTierBreaksFromAssignment(players: Array<{ id: string }>, customTiers: string[], playerCustomTier: Record<string, string>): Record<string, number> {
   const result: Record<string, number> = {};

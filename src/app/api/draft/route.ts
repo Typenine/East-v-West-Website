@@ -105,6 +105,51 @@ function sanitizeLogoForResponse(value: string | null | undefined): string | nul
   return isDataUrl(value) ? null : value;
 }
 
+type DraftAvailPlayer = { id: string; name: string; pos: string; nfl: string; college?: string | null };
+
+function draftRowToAvail(r: {
+  player_id: string;
+  name: string;
+  pos: string;
+  nfl: string | null;
+  meta?: unknown | null;
+}): DraftAvailPlayer {
+  let college: string | null = null;
+  if (r.meta && typeof r.meta === 'object') {
+    const m = r.meta as Record<string, unknown>;
+    const c = m.college ?? m.school;
+    if (typeof c === 'string' && c.trim()) college = c.trim();
+  }
+  return { id: r.player_id, name: r.name, pos: r.pos, nfl: r.nfl || '', college };
+}
+
+/** NFL team defenses always come from Sleeper — custom prospect pools typically omit DEF. */
+async function getSleeperDefensesAvailable(taken: Set<string>): Promise<DraftAvailPlayer[]> {
+  const players = await getAllPlayersCached();
+  return Object.values(players)
+    .filter((p: SleeperPlayer) => (p.position || '').toUpperCase() === 'DEF' && !taken.has(p.player_id))
+    .sort((a, b) => `${a.first_name} ${a.last_name}`.localeCompare(`${b.first_name} ${b.last_name}`))
+    .map((p) => ({
+      id: p.player_id,
+      name: `${p.first_name} ${p.last_name}`.trim(),
+      pos: 'DEF',
+      nfl: p.team || '',
+      college: p.college || null,
+    }));
+}
+
+async function buildCustomPoolAvailable(
+  rows: Awaited<ReturnType<typeof getDraftPlayers>>,
+  taken: Set<string>,
+): Promise<DraftAvailPlayer[]> {
+  const customIds = new Set(rows.map((r) => r.player_id));
+  const fromPool = rows
+    .filter((r) => !taken.has(r.player_id))
+    .map(draftRowToAvail);
+  const sleeperDefs = (await getSleeperDefensesAvailable(taken)).filter((d) => !customIds.has(d.id));
+  return [...fromPool, ...sleeperDefs];
+}
+
 function buildDraftRevision(
   overview: DraftOverview,
   pendingPick: Awaited<ReturnType<typeof getPendingPick>> | null
@@ -201,26 +246,20 @@ export async function GET(req: NextRequest) {
       if (pendingPick?.playerId) taken.add(pendingPick.playerId);
       const useCustom = (await countDraftPlayers(draftId)) > 0;
       resp.usingCustom = useCustom;
-      const allowed = new Set(['QB','RB','WR','TE','K','FB','RB/FB']);
+      const allowed = new Set(['QB','RB','WR','TE','K','DEF','FB','RB/FB']);
       if (useCustom) {
         const rows = await getDraftPlayers(draftId);
-        const avail = rows
-          .filter((r) => !taken.has(r.player_id))
-          .sort((a, b) => {
-            const ra = a.rank == null ? Number.POSITIVE_INFINITY : a.rank;
-            const rb = b.rank == null ? Number.POSITIVE_INFINITY : b.rank;
-            if (ra !== rb) return ra - rb;
-            return a.name.localeCompare(b.name);
-          });
-        resp.available = avail.slice(0, 500).map((r) => {
-          let college: string | null = null;
-          if (r.meta && typeof r.meta === 'object') {
-            const m = r.meta as Record<string, unknown>;
-            const c = m.college ?? m.school;
-            if (typeof c === 'string' && c.trim()) college = c.trim();
-          }
-          return { id: r.player_id, name: r.name, pos: r.pos, nfl: r.nfl || '', college };
+        const rankById = new Map(rows.map((r) => [r.player_id, r.rank]));
+        const merged = await buildCustomPoolAvailable(rows, taken);
+        merged.sort((a, b) => {
+          const ra = rankById.get(a.id);
+          const rb = rankById.get(b.id);
+          const rankA = ra == null ? Number.POSITIVE_INFINITY : ra;
+          const rankB = rb == null ? Number.POSITIVE_INFINITY : rb;
+          if (rankA !== rankB) return rankA - rankB;
+          return a.name.localeCompare(b.name);
         });
+        resp.available = merged.slice(0, 500);
       } else {
         const players = await getAllPlayersCached();
         const avail = Object.values(players).filter((p: SleeperPlayer) => {
@@ -567,29 +606,23 @@ export async function POST(req: NextRequest) {
       const useCustom = (await countDraftPlayers(draftId)) > 0;
       const q = typeof body.q === 'string' ? body.q.trim().toLowerCase() : '';
       const pos = typeof body.pos === 'string' ? body.pos.trim().toUpperCase() : '';
-      const allowed = new Set(['QB','RB','WR','TE','K','FB','RB/FB']);
+      const allowed = new Set(['QB','RB','WR','TE','K','DEF','FB','RB/FB']);
       if (useCustom) {
-        let list = (await getDraftPlayers(draftId)).filter((r) => !taken.has(r.player_id));
-        if (pos) list = list.filter((r) => (r.pos || '').toUpperCase() === pos);
-        if (q) list = list.filter((r) => r.name.toLowerCase().includes(q));
+        const rows = await getDraftPlayers(draftId);
+        const rankById = new Map(rows.map((r) => [r.player_id, r.rank]));
+        let list = await buildCustomPoolAvailable(rows, taken);
+        if (pos) list = list.filter((p) => (p.pos || '').toUpperCase() === pos);
+        if (q) list = list.filter((p) => p.name.toLowerCase().includes(q));
         list.sort((a, b) => {
-          const ra = a.rank == null ? Number.POSITIVE_INFINITY : a.rank;
-          const rb = b.rank == null ? Number.POSITIVE_INFINITY : b.rank;
-          if (ra !== rb) return ra - rb;
+          const ra = rankById.get(a.id);
+          const rb = rankById.get(b.id);
+          const rankA = ra == null ? Number.POSITIVE_INFINITY : ra;
+          const rankB = rb == null ? Number.POSITIVE_INFINITY : rb;
+          if (rankA !== rankB) return rankA - rankB;
           return a.name.localeCompare(b.name);
         });
         const limit = Math.max(1, Math.min(200, Number(body.limit || 50)));
-        return ok({
-          available: list.slice(0, limit).map((r) => {
-            let college: string | null = null;
-            if (r.meta && typeof r.meta === 'object') {
-              const m = r.meta as Record<string, unknown>;
-              const c = m.college ?? m.school;
-              if (typeof c === 'string' && c.trim()) college = c.trim();
-            }
-            return { id: r.player_id, name: r.name, pos: r.pos, nfl: r.nfl || '', college };
-          }),
-        });
+        return ok({ available: list.slice(0, limit) });
       } else {
         const players = await getAllPlayersCached();
         let list = Object.values(players).filter((p: SleeperPlayer) => allowed.has((p.position || '').toUpperCase()) && !taken.has(p.player_id));

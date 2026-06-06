@@ -26,7 +26,7 @@ import {
 import { gsap } from 'gsap';
 import { QueueListIcon } from '@heroicons/react/24/outline';
 
-const POSITIONS = ['QB', 'RB', 'WR', 'TE', 'K'];
+const POSITIONS = ['QB', 'RB', 'WR', 'TE', 'DEF', 'K'];
 
 function getYoutubeEmbedUrl(url: string): string | null {
   try {
@@ -39,7 +39,7 @@ function getYoutubeEmbedUrl(url: string): string | null {
 }
 
 const POS_COLORS: Record<string, string> = {
-  QB: '#C00000', RB: '#FFC000', WR: '#0070C0', TE: '#00B050', K: '#FF8C42',
+  QB: '#C00000', RB: '#FFC000', WR: '#0070C0', TE: '#00B050', DEF: '#4F4F4F', K: '#FF8C42',
 };
 
 type DraftPick = { overall: number; round: number; team: string; playerId: string; playerName?: string | null; playerPos?: string | null; playerNfl?: string | null; madeAt: string };

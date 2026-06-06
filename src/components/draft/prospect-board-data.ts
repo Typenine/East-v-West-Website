@@ -143,4 +143,5 @@ export function sortByPick<T extends { pick?: number }>(items: T[]) {
   return [...items].sort((a, b) => parsePick(a.pick) - parsePick(b.pick));
 }
 
-export const DEFAULT_PLAYERS = sortByPick(INITIAL_PLAYERS.map((p) => ({ ...p }))).slice(0, 114);
+const sortedPlayers = sortByPick(INITIAL_PLAYERS.map((p) => ({ ...p })));
+export const DEFAULT_PLAYERS = sortedPlayers.filter((p, idx) => idx < 114 || p.pos === 'DEF');

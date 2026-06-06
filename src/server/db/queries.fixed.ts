@@ -1279,11 +1279,14 @@ export async function resumeAfterAnimation(draftId: string): Promise<boolean> {
   const r = await db.execute(sql`
     SELECT clock_seconds, paused_remaining_secs
     FROM drafts
-    WHERE id = ${draftId}::uuid AND status = 'PAUSED' AND round_end_pause = false
+    WHERE id = ${draftId}::uuid
+      AND status = 'PAUSED'
+      AND round_end_pause = false
+      AND paused_remaining_secs >= clock_seconds
     LIMIT 1
   `);
   const row = (r as unknown as { rows?: Array<{ clock_seconds: number; paused_remaining_secs: number | null }> }).rows?.[0];
-  if (!row) return false; // already live or in round-end pause — no-op
+  if (!row) return false; // manual pause, round-end pause, or already live — no-op
   const secs = (row.paused_remaining_secs != null && row.paused_remaining_secs > 0)
     ? row.paused_remaining_secs
     : (row.clock_seconds || 60);
@@ -1293,7 +1296,10 @@ export async function resumeAfterAnimation(draftId: string): Promise<boolean> {
         clock_started_at = now(),
         deadline_ts = now() + (interval '1 second' * ${secs}),
         paused_remaining_secs = NULL
-    WHERE id = ${draftId}::uuid AND status = 'PAUSED' AND round_end_pause = false
+    WHERE id = ${draftId}::uuid
+      AND status = 'PAUSED'
+      AND round_end_pause = false
+      AND paused_remaining_secs >= clock_seconds
   `);
   return true;
 }
@@ -1305,7 +1311,9 @@ export async function pauseDraft(draftId: string) {
   await db.execute(sql`
     UPDATE drafts
     SET status = 'PAUSED',
-        paused_remaining_secs = GREATEST(0, EXTRACT(EPOCH FROM (deadline_ts - now()))::integer)
+        paused_remaining_secs = GREATEST(0, EXTRACT(EPOCH FROM (deadline_ts - now()))::integer),
+        clock_started_at = NULL,
+        deadline_ts = NULL
     WHERE id = ${draftId}::uuid
   `);
   return true;

@@ -40,6 +40,7 @@ interface DraftOverview {
   onClockTeam?: string | null;
   clockStartedAt?: string | null;
   deadlineTs?: string | null;
+  pausedRemainingSecs?: number | null;
   eventName?: string | null;
   eventLogoUrl?: string | null;
   eventColor1?: string | null;
@@ -120,6 +121,17 @@ export function useDraftData(basePollIntervalMs = 1000) {
   const lastUpdateMsRef = useRef<number>(Date.now());
   const [pollInterval, setPollInterval] = useState(basePollIntervalMs);
   const revisionRef = useRef<string | null>(null);
+  const liveFetchSeqRef = useRef(0);
+  const fullFetchSeqRef = useRef(0);
+
+  const syncPollInterval = useCallback((status: DraftOverview['status'] | undefined) => {
+    const next =
+      status === 'LIVE' ? 1000 :
+      status === 'PAUSED' || status === 'NOT_STARTED' ? 5000 :
+      status === 'COMPLETED' ? 10000 :
+      3000;
+    setPollInterval(next);
+  }, []);
 
   const hydrateFromFull = useCallback((json: {
     draft: DraftOverview | null;
@@ -187,13 +199,10 @@ export function useDraftData(basePollIntervalMs = 1000) {
       }
     }
 
-    lastUpdateMsRef.current = Date.now();
-    const newPollInterval =
-      draft?.status === 'LIVE' ? 1000 :
-      draft?.status === 'PAUSED' || draft?.status === 'NOT_STARTED' ? 5000 :
-      draft?.status === 'COMPLETED' ? 10000 :
-      3000;
-    setPollInterval(newPollInterval);
+    if (draft?.status === 'LIVE') {
+      lastUpdateMsRef.current = Date.now();
+    }
+    syncPollInterval(draft?.status);
 
     setState((prev) => ({
       ...prev,
@@ -213,12 +222,13 @@ export function useDraftData(basePollIntervalMs = 1000) {
       pendingPick,
       pendingTradeAnimation: draft?.pendingTradeAnimation ?? null,
     }));
-  }, []);
+  }, [syncPollInterval]);
 
   const fetchFullDraft = useCallback(async (includeAvailable = false) => {
+    const seq = ++fullFetchSeqRef.current;
     try {
       const res = await fetch(includeAvailable ? '/api/draft?include=available' : '/api/draft', { cache: 'no-store' });
-      if (!res.ok) return;
+      if (!res.ok || seq !== fullFetchSeqRef.current) return;
       const json = await res.json();
       hydrateFromFull({
         draft: (json.draft ?? null) as DraftOverview | null,
@@ -254,9 +264,10 @@ export function useDraftData(basePollIntervalMs = 1000) {
   pollIntervalRef.current = pollInterval;
 
   const fetchLive = useCallback(async () => {
+    const seq = ++liveFetchSeqRef.current;
     try {
       const res = await fetch('/api/draft?mode=live', { cache: 'no-store' });
-      if (!res.ok) return;
+      if (!res.ok || seq !== liveFetchSeqRef.current) return;
       const json = await res.json();
       const live = (json.live ?? null) as DraftLiveState | null;
       const remainingSec = (json.remainingSec ?? null) as number | null;
@@ -264,11 +275,13 @@ export function useDraftData(basePollIntervalMs = 1000) {
       const revision = typeof json.revision === 'string' ? json.revision : null;
 
       if (!live) {
+        if (seq !== liveFetchSeqRef.current) return;
         setState((prev) => ({ ...prev, draft: null, remainingSec: null, pendingPick: null }));
         return;
       }
 
-      lastUpdateMsRef.current = Date.now();
+      // Drop stale in-flight responses (e.g. LIVE payload arriving after a newer PAUSED poll).
+      if (seq !== liveFetchSeqRef.current) return;
       setState((prev) => ({
         ...prev,
         draft: prev.draft ? { ...prev.draft, ...live } : ({ ...live, recentPicks: [], upcoming: [], allPicks: [], allSlots: [] } as DraftOverview),
@@ -276,6 +289,11 @@ export function useDraftData(basePollIntervalMs = 1000) {
         pendingPick,
         pendingTradeAnimation: live.pendingTradeAnimation ?? null,
       }));
+
+      if (live.status === 'LIVE') {
+        lastUpdateMsRef.current = Date.now();
+      }
+      syncPollInterval(live.status);
 
       if (revision && revision !== revisionRef.current) {
         revisionRef.current = revision;
@@ -285,7 +303,7 @@ export function useDraftData(basePollIntervalMs = 1000) {
     } catch (err) {
       console.error('[useDraftData] live fetch error:', err);
     }
-  }, [fetchAvailable, fetchFullDraft]);
+  }, [fetchAvailable, fetchFullDraft, syncPollInterval]);
 
   // Initial load: hydrate full state once.
   useEffect(() => {
@@ -347,18 +365,22 @@ export function useDraftData(basePollIntervalMs = 1000) {
     void fetchAvailable();
   }, [state.lastPick?.overall, fetchAvailable]);
 
-  // Local countdown timer - tick every second to update display
+  // Local countdown timer — only tick while LIVE (paused clocks must stay frozen)
   const [, setTick] = useState(0);
   useEffect(() => {
-    const t = setInterval(() => setTick(x => x + 1), 1000);
+    if (state.draft?.status !== 'LIVE') return;
+    const t = setInterval(() => setTick((x) => x + 1), 1000);
     return () => clearInterval(t);
-  }, []);
+  }, [state.draft?.status]);
 
-  // Only count down locally when LIVE — paused/stopped clocks should stay frozen
-  const elapsedSinceUpdate = state.draft?.status === 'LIVE'
+  const isLive = state.draft?.status === 'LIVE';
+  const pausedFrozenSec = state.draft?.pausedRemainingSecs ?? state.remainingSec;
+  const elapsedSinceUpdate = isLive
     ? Math.floor((Date.now() - lastUpdateMsRef.current) / 1000)
     : 0;
-  const localRemainingSec = Math.max(0, (state.remainingSec ?? 0) - elapsedSinceUpdate);
+  const localRemainingSec = isLive
+    ? Math.max(0, (state.remainingSec ?? 0) - elapsedSinceUpdate)
+    : Math.max(0, pausedFrozenSec ?? 0);
 
   return {
     ...state,
