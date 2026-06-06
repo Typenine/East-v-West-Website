@@ -38,6 +38,8 @@ import type {
 import type { LeagueDraftData } from './sleeper-ingest';
 import { isEnhancedMemory } from './types';
 import { generateSection } from './llm/groq';
+import { composeAllTradeItems } from './trade-section-compose';
+
 import { buildStaticLeagueContext, LEAGUE_IDENTITY } from './league-knowledge';
 import { getEpisodeConfig } from './episodes';
 import {
@@ -1232,273 +1234,25 @@ async function buildWaiverItems(
   }));
 }
 
-async function buildTradeItems(events: DerivedData['events_scored'], memEntertainer: BotMemory, memAnalyst: BotMemory, enhancedContext = ''): Promise<TradeItem[]> {
+async function buildTradeItems(
+  events: DerivedData['events_scored'],
+  memEntertainer: BotMemory,
+  memAnalyst: BotMemory,
+  _enhancedContext = '',
+  episodeType = 'regular',
+  opts?: { dynastyRankings?: Array<{ name: string; pos: string; nfl: string; rank: number }>; rosterContext?: string },
+): Promise<TradeItem[]> {
   const tradeEvents = events.filter(e => e.type === 'trade');
-  
   if (tradeEvents.length === 0) return [];
-
-  // Build all trade contexts first
-  const tradeContexts = tradeEvents.map(e => {
-    const byTeam = e.details?.by_team || {};
-    const parties = e.parties || Object.keys(byTeam);
-
-    const isMultiTeamTrade = parties.length >= 3;
-    let tradeBreakdown = '';
-    for (const team of parties) {
-      const teamAssets = byTeam[team];
-      if (teamAssets) {
-        const gets = teamAssets.gets?.join(', ') || 'nothing';
-        const givesArr = teamAssets.gives || [];
-        const gives = givesArr.length > 0 ? givesArr.join(', ') : 'nothing';
-        tradeBreakdown += `\n${team}: RECEIVED ${gets} | SENT ${gives}`;
-      }
-    }
-    if (isMultiTeamTrade) {
-      tradeBreakdown += '\nIMPORTANT: Asset routing above is authoritative. Only grade each team on what appears in their SENT column.';
-    }
-
-    // Display headline (clean, for the template card header)
-    const tradeDisplayHeadline = e.details?.headline || `Trade between ${parties.join(' and ')}`;
-
-    // Full LLM context (includes data breakdown — only used for generation, not displayed)
-    const tradeContext = e.details?.headline
-      ? `${parties.join(' traded with ')}: ${e.details.headline}${tradeBreakdown}`
-      : `Trade between ${parties.join(' and ')}${tradeBreakdown}`;
-
-    return { event: e, parties, byTeam, tradeContext, tradeDisplayHeadline };
+  console.log('[Compose] Trades: using shared trade-section composer (TRADE FACTS + per-team grades)');
+  return composeAllTradeItems({
+    tradeEvents,
+    memEntertainer,
+    memAnalyst,
+    episodeType,
+    dynastyRankings: opts?.dynastyRankings,
+    rosterContext: opts?.rosterContext,
   });
-
-  // Personality context for both bots
-  const entPersonality = effectivePersonalityCtx(memEntertainer, enhancedContext, 'entertainer');
-  const anaPersonality = effectivePersonalityCtx(memAnalyst, enhancedContext, 'analyst');
-
-  // Phase 1: dedupe — prevent repeating last week's trade angles
-  const tradeDedupeEnt = buildDedupeContext(memEntertainer);
-  const tradeDedupeAna = buildDedupeContext(memAnalyst);
-
-  const teamTrustLine = (mem: BotMemory, team: string): string => {
-    const t = mem.teams[team];
-    if (!t) return '';
-    const parts: string[] = [];
-    if (t.trust !== 0) parts.push(`trust ${t.trust > 0 ? '+' : ''}${t.trust}`);
-    if (t.mood && t.mood !== 'Neutral') parts.push(`mood: ${t.mood}`);
-    if (t.frustration && t.frustration > 10) parts.push(`frustration: ${t.frustration}`);
-    return parts.length ? `Your history with ${team}: ${parts.join(', ')}.` : '';
-  };
-
-  const stripTradeSetup = (text: string, tradeHeadline: string): string => {
-    const trimmed = text.trim();
-    if (!trimmed) return trimmed;
-    const sentences = trimmed.match(/[^.!?]+[.!?]+|[^.!?]+$/g)?.map(s => s.trim()).filter(Boolean) ?? [trimmed];
-    if (sentences.length < 2) return trimmed;
-    const first = sentences[0].toLowerCase();
-    const headlineLower = tradeHeadline.toLowerCase();
-    const looksLikeIntro =
-      first.includes('trade') ||
-      first.includes('deal') ||
-      first.includes('three-team') ||
-      first.includes('multi-team') ||
-      first.includes('let\'s start') ||
-      first.includes('breaking this down') ||
-      (headlineLower.length > 0 && first.includes(headlineLower));
-    return looksLikeIntro ? sentences.slice(1).join(' ').trim() : trimmed;
-  };
-
-  const isCompleteTradeAnalysis = (text: string): boolean => {
-    const trimmed = text.trim();
-    if (trimmed.length < 180) return false;
-    if (!/[A-F][+-]?/i.test(trimmed)) return false;
-    const sentenceCount = (trimmed.match(/[.!?](?:\s|$)/g) ?? []).length;
-    return sentenceCount >= 3;
-  };
-
-  const finalizeTradeAnalysis = (text: string, party: string): string => {
-    const trimmed = stripTradeSetup(text, '').trim();
-    if (!trimmed || trimmed === '[Content removed by guardrails — please regenerate this section.]') {
-      return `${party} gets an incomplete read here, but the directional asset routing above is the authoritative breakdown. Based on that routing alone, this side needs a manual re-check before making a stronger claim. Grade: Incomplete.`;
-    }
-    return trimmed;
-  };
-
-  // Generate one Mason Reed intro per trade (sets the stage once, not repeated per team)
-  // Build all party analysis requests
-  const allPartyRequests: Array<{
-    tradeIdx: number;
-    party: string;
-    sideContext: string;
-    tradeContext: string;
-    isMultiTeam: boolean;
-    allParties: string[];
-  }> = [];
-
-  for (let i = 0; i < tradeContexts.length; i++) {
-    const { parties, byTeam, tradeContext } = tradeContexts[i];
-    const isMultiTeam = parties.length >= 3;
-
-    // For 3+ team trades, show every team's complete exchange with explicit routing
-    const fullExchangeBlock = isMultiTeam
-      ? `\nAUTHORITATIVE ${parties.length}-TEAM ASSET ROUTING:\n` +
-        parties.map(p => {
-          const a = byTeam[p];
-          const givesArr = a?.gives || [];
-          const givesStr = givesArr.length > 0 ? givesArr.join(', ') : 'nothing';
-          return `  ${p}: RECEIVED ${a?.gets?.join(', ') || 'nothing'} | SENT ${givesStr}`;
-        }).join('\n') +
-        '\nThe routing above is verified from Sleeper transaction data. Only penalize a team for assets listed in their SENT column.'
-      : '';
-
-    for (const party of parties) {
-      const teamAssets = byTeam[party];
-      const gets = teamAssets?.gets?.join(', ') || 'nothing confirmed';
-      const givesArr = teamAssets?.gives || [];
-      const gives = givesArr.length > 0 ? givesArr.join(', ') : 'nothing confirmed';
-
-      const entTrustLine = teamTrustLine(memEntertainer, party);
-      const anaTrustLine = teamTrustLine(memAnalyst, party);
-
-      // Phase 2: team card for this trade party
-      const partyCard = buildTeamCardContext(party, {
-        recentStance: memEntertainer.recentOutputLog?.recentStances?.[party],
-        dataConfidenceFilter: 'medium',
-      });
-
-      const sideContext = `Trade Analysis for ${party}:
-Full trade: ${tradeContext}
-${party}'s outcome: RECEIVED ${gets} | SENT ${gives}${fullExchangeBlock}
-Evaluate this trade FROM ${party.toUpperCase()}'S PERSPECTIVE ONLY. Only judge ${party} on what they SENT — not on assets sent by other teams.
-${entTrustLine ? `[Mason Reed's history: ${entTrustLine}]` : ''}
-${anaTrustLine ? `[Westy's history: ${anaTrustLine}]` : ''}${partyCard}`;
-
-      allPartyRequests.push({ tradeIdx: i, party, sideContext, tradeContext, isMultiTeam, allParties: parties });
-    }
-  }
-
-  // Generate all analyses in parallel (rate limiting handled by groq client)
-  const allResponses = await Promise.all(
-    allPartyRequests.map(async ({ party, sideContext, tradeContext, isMultiTeam, allParties }) => {
-      const otherTeams = allParties.filter(p => p !== party).join(' and ');
-
-      const gradeOpenRule =
-        `OPENING: First sentence = your verdict for ${party} only. No trade-section intro, no full-deal recap. ` +
-        `Mason and Westy publish side-by-side — do not introduce the trade for the other voice.\n`;
-      const entertainerConstraints = isMultiTeam
-        ? `Grade this ${allParties.length}-team trade for ${party} specifically (A+ to F). ` +
-          gradeOpenRule +
-          `Skip any trade introduction — jump straight into your verdict. ` +
-          `Write 2-3 paragraphs: first your gut reaction on where ${party} lands vs ${otherTeams} (winner/break-even/loser and why), then break down each asset they received and gave up with personality, then your final take on what this means for their season. ` +
-          `Only judge ${party} on what they SENT (listed in their SENT column above) — do NOT blame them for assets sent by other teams. End with your letter grade.`
-        : `Grade this trade for ${party} specifically (A+ to F). ` +
-          gradeOpenRule +
-          `Skip any trade setup — go straight to your verdict. ` +
-          `Write 2-3 paragraphs: first your gut reaction (heist, robbery, or fair deal?), then break down each asset they got and gave up with personality, then what this means for their dynasty outlook. ` +
-          `Let your history with this team color your take. End with your letter grade.`;
-
-      const analystConstraints = isMultiTeam
-        ? `Grade this ${allParties.length}-team trade for ${party} specifically (A+ to F). ` +
-          gradeOpenRule +
-          `Skip any trade introduction — go straight into your analysis. ` +
-          `Write 2-3 paragraphs: first the net value assessment (did ${party} win or lose vs ${otherTeams}?), then a detailed breakdown of each asset — age curve, dynasty value, positional scarcity — then the roster-fit and window analysis. ` +
-          `Do NOT penalize ${party} for assets sent by other teams in this deal. End with your letter grade.`
-        : `Grade this trade for ${party} specifically (A+ to F). ` +
-          gradeOpenRule +
-          `Skip any trade setup — go straight into your analysis. ` +
-          `Write 2-3 paragraphs: first the overall value verdict for ${party}, then a detailed breakdown of each asset received and surrendered (age, dynasty value, positional scarcity), then roster fit and championship window implications. ` +
-          `Factor in your prior read on this team if relevant. End with your letter grade.`;
-
-      const tradeSection = isMultiTeam ? `${allParties.length}-Team Trade Grade` : 'Trade Grade';
-      const perTeamTokens = isMultiTeam ? 1100 : 1000;
-      const [rawEntTrade, rawAnaTrade] = await Promise.all([
-        generateSection({
-          persona: 'entertainer',
-          sectionType: tradeSection,
-          context: sideContext + (entPersonality ? `\n${entPersonality}` : '') + tradeDedupeEnt,
-          constraints: entertainerConstraints,
-          maxTokens: perTeamTokens,
-          validate: isCompleteTradeAnalysis,
-        }),
-        generateSection({
-          persona: 'analyst',
-          sectionType: tradeSection,
-          context: sideContext + (anaPersonality ? `\n${anaPersonality}` : '') + tradeDedupeAna,
-          constraints: analystConstraints,
-          maxTokens: perTeamTokens,
-          validate: isCompleteTradeAnalysis,
-        }),
-      ]);
-      const entertainerResponse = finalizeTradeAnalysis(
-        stripTradeSetup(
-          guardText(rawEntTrade, { sectionType: 'Trade Grade', logPrefix: `[compose:TradeGrade:${party}:entertainer]` }),
-          tradeContext,
-        ),
-        party,
-      );
-      const analystResponse = finalizeTradeAnalysis(
-        stripTradeSetup(
-          guardText(rawAnaTrade, { sectionType: 'Trade Grade', logPrefix: `[compose:TradeGrade:${party}:analyst]` }),
-          tradeContext,
-        ),
-        party,
-      );
-
-      const extractGrade = (text: string): string => {
-        // Explicit label patterns — most reliable
-        const explicit = text.match(/\bgrade[:\s]+([A-F][+-]?)\b/i)
-          || text.match(/\bgiv(?:e|ing)\s+(?:this\s+)?(?:a\s+)?([A-F][+-]?)\b/i)
-          || text.match(/\b([A-F][+-]?)\s*[-–]\s*(?:grade|trade|deal)\b/i)
-          || text.match(/\btrade[:\s]+([A-F][+-]?)\b/i)
-          || text.match(/\bscore[:\s]+([A-F][+-]?)\b/i)
-          || text.match(/\b([A-F][+-]?)\s*(?:grade|rating)\b/i);
-        if (explicit) return explicit[1].toUpperCase();
-        // Grade on its own line (e.g. "A+" as a standalone line)
-        for (const line of text.split('\n')) {
-          const solo = line.trim().match(/^([A-F][+-]?)\.?$/);
-          if (solo) return solo[1].toUpperCase();
-        }
-        // Grade at the end of the text after punctuation (e.g. "solid pickup. B+")
-        const endMatch = text.trim().match(/[.!]\s*([A-F][+-]?)\.?\s*$/);
-        if (endMatch) return endMatch[1].toUpperCase();
-        if (/\bincomplete\b/i.test(text)) return 'INC';
-        return 'B';
-      };
-      const entertainer_grade = extractGrade(entertainerResponse);
-      const analyst_grade = extractGrade(analystResponse);
-      const grade = entertainer_grade;
-
-      return { entertainerResponse, analystResponse, grade, entertainer_grade, analyst_grade };
-    })
-  );
-
-  // Reconstruct trade items with analyses
-  const items: TradeItem[] = [];
-  let responseIdx = 0;
-
-  for (let i = 0; i < tradeContexts.length; i++) {
-    const { event: e, parties, tradeDisplayHeadline } = tradeContexts[i];
-    const analysis: Record<string, { grade: string; entertainer_grade?: string; analyst_grade?: string; deltaText: string; entertainer_paragraph: string; analyst_paragraph: string }> = {};
-
-    for (const party of parties) {
-      const { entertainerResponse, analystResponse, grade, entertainer_grade, analyst_grade } = allResponses[responseIdx++];
-      analysis[party] = {
-        grade,
-        entertainer_grade,
-        analyst_grade,
-        deltaText: `${party}'s side`,
-        entertainer_paragraph: entertainerResponse,
-        analyst_paragraph: analystResponse,
-      };
-    }
-
-    items.push({
-      event_id: e.event_id,
-      coverage_level: e.coverage_level,
-      reasons: e.reasons || [],
-      context: tradeDisplayHeadline,
-      teams: e.details?.by_team || null,
-      analysis,
-    });
-  }
-
-  return items;
 }
 
 async function buildSpotlight(pairs: DerivedData['matchup_pairs'], memEntertainer: BotMemory, memAnalyst: BotMemory, enhancedContext: string = '', week = 0): Promise<SpotlightSection | null> {
@@ -3477,6 +3231,8 @@ export interface ComposeNewsletterInput {
   isFirstEpisodeEver?: boolean;
   /** Called when a section completes — used for real-time progress tracking */
   onSectionComplete?: (sectionName: string) => void;
+  tradeDynastyRankings?: Array<{ name: string; pos: string; nfl: string; rank: number }>;
+  tradeRosterContext?: string;
 }
 
 export async function composeNewsletter(input: ComposeNewsletterInput, qualityReport?: { usedFallbacks: string[] }): Promise<Newsletter> {
@@ -3500,6 +3256,8 @@ export async function composeNewsletter(input: ComposeNewsletterInput, qualityRe
     preDraftRound2Slots,
     isFirstEpisodeEver = false,
     onSectionComplete,
+    tradeDynastyRankings,
+    tradeRosterContext,
   } = input;
 
   // Get episode configuration for section filtering
@@ -3597,7 +3355,7 @@ export async function composeNewsletter(input: ComposeNewsletterInput, qualityRe
   // Phase 2: Generate all remaining sections (queued serially by the LLM cascade)
   const [waiverItems, tradeItems, spotlight, finalWord, recaps, blurt] = await Promise.all([
     excludeSections.has('WaiversAndFA') ? Promise.resolve([]) : safeSection('WaiversAndFA', () => buildWaiverItems(events, { memEntertainer, memAnalyst, season }), []),
-    excludeSections.has('Trades') ? Promise.resolve([]) : safeSection('Trades', () => buildTradeItems(events, memEntertainer, memAnalyst, enhancedContextWithContinuity), []),
+    excludeSections.has('Trades') ? Promise.resolve([]) : safeSection('Trades', () => buildTradeItems(events, memEntertainer, memAnalyst, enhancedContextWithContinuity, episodeType, { dynastyRankings: tradeDynastyRankings, rosterContext: tradeRosterContext }), []),
     excludeSections.has('SpotlightTeam') ? Promise.resolve(null) : safeSection('Spotlight', () => buildSpotlight(pairs, memEntertainer, memAnalyst, enhancedContextWithContinuity, week), null),
     safeSection('FinalWord', () => buildFinalWord(week, episodeType, memEntertainer, memAnalyst, enhancedContextWithContinuity), fallbackFinalWord),
     excludeSections.has('MatchupRecaps') ? Promise.resolve([]) : safeSection('Recaps', () => buildRecaps(pairs, memEntertainer, memAnalyst, week, enhancedContextWithContinuity, qualityReport, pushbackCollector), []),

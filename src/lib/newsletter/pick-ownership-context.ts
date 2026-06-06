@@ -114,6 +114,57 @@ function enrichPickLabel(
   return arrowMatch ? `${entry.label} → ${arrowMatch[1]}` : entry.label;
 }
 
+type RosterPlayer = { first_name?: string; last_name?: string; position?: string };
+
+/** Per-team roster block for trade grading (positional needs). */
+export function buildLeagueRosterContext(
+  users: Array<{ user_id: string; display_name?: string; username?: string; metadata?: { team_name?: string } }>,
+  rosters: Array<{ roster_id: number; owner_id: string; players?: string[]; taxi?: string[] }>,
+  allPlayers: Record<string, RosterPlayer>,
+): string {
+  const userNameMap = new Map<string, string>();
+  const sleeperMap = new Map<string, string>();
+  for (const u of users) {
+    userNameMap.set(u.user_id, u.metadata?.team_name || u.display_name || u.username || `User ${u.user_id}`);
+    sleeperMap.set(u.user_id, u.username || u.display_name || u.user_id);
+  }
+  const lines: string[] = [];
+  for (const roster of rosters) {
+    const teamName = userNameMap.get(roster.owner_id) ?? `Roster ${roster.roster_id}`;
+    const sleeperName = sleeperMap.get(roster.owner_id) ?? '';
+    const activeIds = roster.players ?? [];
+    const taxiIds = roster.taxi ?? [];
+    const byPos = new Map<string, Array<{ name: string; taxi: boolean }>>();
+    const addPlayer = (pid: string, isTaxi: boolean) => {
+      const p = allPlayers[pid];
+      if (!p) return;
+      const pos = p.position ?? 'UNK';
+      const name = `${p.first_name ?? ''} ${p.last_name ?? ''}`.trim();
+      if (!name) return;
+      if (!byPos.has(pos)) byPos.set(pos, []);
+      byPos.get(pos)!.push({ name, taxi: isTaxi });
+    };
+    for (const pid of activeIds) addPlayer(pid, false);
+    for (const pid of taxiIds) addPlayer(pid, true);
+    const posOrder = ['QB', 'RB', 'WR', 'TE', 'K', 'DEF'];
+    const posLines: string[] = [];
+    for (const pos of posOrder) {
+      const players = byPos.get(pos);
+      if (players?.length) {
+        posLines.push(`  ${pos}: ${players.map(pl => (pl.taxi ? `${pl.name}*` : pl.name)).join(', ')}`);
+      }
+    }
+    for (const [pos, players] of byPos) {
+      if (!posOrder.includes(pos) && players.length > 0) {
+        posLines.push(`  ${pos}: ${players.map(pl => pl.name).join(', ')}`);
+      }
+    }
+    const taxiNote = taxiIds.length > 0 ? ' (*=taxi squad)' : '';
+    lines.push(`${teamName} [SL:${sleeperName}]${taxiNote}:\n${posLines.join('\n') || '  (no data)'}`);
+  }
+  return lines.join('\n\n');
+}
+
 /** Enrich pick strings in trade events (gets + gives) using draft slot DB. */
 export function enrichDerivedTradePickLabels(
   events: ScoredEvent[],

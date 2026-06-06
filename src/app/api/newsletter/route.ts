@@ -54,7 +54,7 @@ import {
 } from '@/server/db/newsletter-queries';
 import { getActiveOrLatestDraftId, countDraftPlayers, getDraftPlayers, getDraftRound1Slots, getDraftRound2Slots, getDraftSlotsDetailed, getDraftPickTradeHistory } from '@/server/db/queries';
 import { fetchNewsletterData } from '@/lib/newsletter';
-import { buildPickOwnershipContext, enrichDerivedTradePickLabels } from '@/lib/newsletter/pick-ownership-context';
+import { buildPickOwnershipContext, enrichDerivedTradePickLabels, buildLeagueRosterContext } from '@/lib/newsletter/pick-ownership-context';
 import { getHeadToHeadAllTime } from '@/lib/utils/headtohead';
 import { fetchTradesAllTime } from '@/lib/utils/trades';
 import { postToDiscordWebhook, buildNewsletterEmbed } from '@/lib/utils/discord';
@@ -1581,8 +1581,11 @@ export async function POST(request: NextRequest) {
     const isPreseasonEpisode = episodeType === 'preseason' || episodeType === 'pre_draft' || episodeType === 'post_draft' || episodeType === 'offseason';
     
     let enhancedContext: Awaited<ReturnType<typeof buildEnhancedContextFull>>;
-    
+    let syncDynastyRankings: DynastyRankingsEntry[] = [];
+    const syncTradeRosterContext = buildLeagueRosterContext(users, rosters, allPlayers);
+
     if (isPreseasonEpisode) {
+      syncDynastyRankings = await loadDynastyRankings().catch(() => [] as DynastyRankingsEntry[]);
       console.log(`[${episodeType}] Building historical context for special episode...`);
       const historicalContext = await buildPreseasonHistoricalContext(seasonNum, users);
       // Combine historical context with comprehensive league data and rules
@@ -1597,10 +1600,11 @@ export async function POST(request: NextRequest) {
       
       // Fetch external data + dynasty rankings in parallel
       console.log('[Newsletter] Fetching external data sources (ESPN, Sleeper trending, FantasyCalc)...');
-      const [externalData, syncDynastyRankings] = await Promise.all([
+      const [externalData, dynRankings] = await Promise.all([
         fetchAllExternalData(),
         loadDynastyRankings().catch(() => [] as DynastyRankingsEntry[]),
       ]);
+      syncDynastyRankings = dynRankings;
       const dynastyRankingsStr = buildDynastyOverviewContext(syncDynastyRankings);
       // Filter ESPN injuries to players on this league's rosters
       const externalDataString = buildExternalDataContext(externalData, syncRosterNames);
@@ -1717,6 +1721,8 @@ export async function POST(request: NextRequest) {
       preDraftSlots,
       preDraftRound2Slots,
       isFirstEpisodeEver: isFirstEpisodeEver ?? false,
+      tradeDynastyRankings: syncDynastyRankings.length > 0 ? syncDynastyRankings : undefined,
+      tradeRosterContext: syncTradeRosterContext || undefined,
       onSectionComplete: (sectionName) => {
         void updateStagedNewsletter(seasonNum, week, {
           currentSection: sectionName,

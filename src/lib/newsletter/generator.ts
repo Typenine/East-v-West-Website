@@ -6,6 +6,7 @@
 import type { Newsletter, BotMemory, ForecastData, CallbacksSection, WeeklyHotTake, RelationshipMemory } from './types';
 import type { LeagueDraftData } from './sleeper-ingest';
 import { buildDerived } from './derive';
+import { buildPickOwnershipContext, enrichDerivedTradePickLabels } from './pick-ownership-context';
 import { createEnhancedMemory, ensureEnhancedTeams, updateEnhancedMemoryAfterWeek, upgradeToEnhancedMemory, addInsideJoke, updateRecentOutputLog } from './memory';
 import { isEnhancedMemory } from './types';
 import { makeForecast, gradePendingPicks, type ForecastRecords } from './forecast';
@@ -125,6 +126,10 @@ export interface GenerateNewsletterInput {
   isFirstEpisodeEver?: boolean;
   /** Called when each section completes — used for real-time progress tracking */
   onSectionComplete?: (sectionName: string) => void;
+  /** Dynasty rankings for trade-section player value annotations */
+  tradeDynastyRankings?: Array<{ name: string; pos: string; nfl: string; rank: number }>;
+  /** Per-team roster blocks for trade positional-need context */
+  tradeRosterContext?: string;
 }
 
 export interface GenerateNewsletterResult {
@@ -191,6 +196,16 @@ export async function generateNewsletter(
       bracketGames: [], // Bracket games are derived from matchup_id mapping
     } : undefined,
   });
+
+  try {
+    const pickCtx = await buildPickOwnershipContext(season);
+    if (pickCtx?.pickLookup) {
+      enrichDerivedTradePickLabels(derived.events_scored, pickCtx.pickLookup);
+      console.log('[Generator] Trade pick labels enriched from draft tracker');
+    }
+  } catch (enrichErr) {
+    console.warn('[Generator] Pick label enrichment failed (non-fatal):', enrichErr instanceof Error ? enrichErr.message : String(enrichErr));
+  }
 
   // 2. Get team names for memory initialization
   // For preseason/special episodes, get team names from users since there are no matchups
@@ -464,6 +479,8 @@ export async function generateNewsletter(
       preDraftRound2Slots: input.preDraftRound2Slots,
       isFirstEpisodeEver: input.isFirstEpisodeEver,
       onSectionComplete: input.onSectionComplete,
+      tradeDynastyRankings: input.tradeDynastyRankings,
+      tradeRosterContext: input.tradeRosterContext,
     }, qualityReport);
 
     // 9. Render to HTML
