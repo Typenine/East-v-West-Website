@@ -370,6 +370,52 @@ export const phrasePools = pgTable('phrase_pools', {
   adminNotes: text('admin_notes'),
 });
 
+// ============ Rivalry Selection ============
+
+export const rivalryCycleStatusEnum = pgEnum('rivalry_cycle_status', [
+  'not_started', 'open', 'closed', 'calculated', 'published',
+]);
+
+export const rivalryPairStatusEnum = pgEnum('rivalry_pair_status', [
+  'proposed', 'active', 'archived',
+]);
+
+export const rivalryCycles = pgTable('rivalry_cycles', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  status: rivalryCycleStatusEnum('status').default('not_started').notNull(),
+  openedAt: timestamp('opened_at', { withTimezone: true }),
+  closedAt: timestamp('closed_at', { withTimezone: true }),
+  calculatedAt: timestamp('calculated_at', { withTimezone: true }),
+  publishedAt: timestamp('published_at', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+});
+
+export const rivalrySubmissions = pgTable('rivalry_submissions', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  cycleId: uuid('cycle_id').notNull(),
+  teamId: varchar('team_id', { length: 255 }).notNull(),
+  submittedAt: timestamp('submitted_at', { withTimezone: true }).notNull(),
+  scores: jsonb('scores').$type<Array<{ targetTeamId: string; score: number }>>().notNull(),
+  reopenedAt: timestamp('reopened_at', { withTimezone: true }),
+}, (t) => ({
+  cycleTeamIdx: index('rivalry_submissions_cycle_team_idx').on(t.cycleId, t.teamId),
+}));
+
+export const rivalryPairs = pgTable('rivalry_pairs', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  cycleId: uuid('cycle_id').notNull(),
+  teamAId: varchar('team_a_id', { length: 255 }).notNull(),
+  teamBId: varchar('team_b_id', { length: 255 }).notNull(),
+  teamAScoreForB: integer('team_a_score_for_b').notNull(),
+  teamBScoreForA: integer('team_b_score_for_a').notNull(),
+  combinedScore: integer('combined_score').notNull(),
+  isBloodFeud: integer('is_blood_feud').default(0).notNull(),
+  status: rivalryPairStatusEnum('status').default('proposed').notNull(),
+  lockedAt: timestamp('locked_at', { withTimezone: true }),
+}, (t) => ({
+  cycleIdx: index('rivalry_pairs_cycle_idx').on(t.cycleId),
+}));
+
 // Discord notification dedupe - tracks which events have been posted to Discord
 export const discordNotificationTypeEnum = pgEnum('discord_notification_type', [
   'trade_accepted',

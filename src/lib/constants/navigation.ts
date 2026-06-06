@@ -30,6 +30,7 @@ export const USER_NAV_CONFIG: UserNavItem[] = [
       { id: 'league.teams', label: 'Teams', href: '/teams' },
       { id: 'league.standings', label: 'Standings', href: '/standings' },
       { id: 'league.rules', label: 'Rules', href: '/rules' },
+      { id: 'league.rivalries', label: 'Rivalries', href: '/rivalries', description: 'Rivalry pairings & selection' },
     ],
   },
   {
