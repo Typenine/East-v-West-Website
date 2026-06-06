@@ -24,7 +24,7 @@ const C = {
 };
 
 const POS_COLORS: Record<string, string> = {
-  QB: '#c25852', RB: '#c4a020', WR: '#3d7eaa', TE: '#4a8e62', K: '#7b5ea7', FB: '#4a8e62',
+  QB: '#c25852', RB: '#c4a020', WR: '#3d7eaa', TE: '#4a8e62', K: '#7b5ea7', FB: '#4a8e62', DEF: '#8b5ebd',
 };
 
 type BoardPlayer = {
@@ -125,6 +125,38 @@ const INITIAL: BoardPlayer[] = [
   { id: 'ryan', tier: 7, name: 'Carsen Ryan', pos: 'TE', team: 'CLE', college: 'BYU', pick: 248, s: ['REC  — 2025: 45-620-3TD (13.8)', 'PR   — 2025: 1-14-0TD', 'MISC — UCLA → BYU transfer, productive receiving TE, not blocking-only'] },
   { id: 'nussmeier', tier: 7, name: 'Garrett Nussmeier', pos: 'QB', team: 'KC', college: 'LSU', pick: 249, s: ['PASS — 2025: 194-288, 1927 yds, 12 TD, 5 INT, 67.4%', 'RUSH — 2025: 29-(-57)-1TD', 'MISC — LSU QB, 9-game 2025 season, limited rushing value'] },
   { id: 'bentley', tier: 7, name: 'Dallen Bentley', pos: 'TE', team: 'DEN', college: 'Utah', pick: 256, s: ['REC  — 2025: 4-28-0TD', 'MISC — Snow College → Utah, developmental'] },
+  { id: 'def-ari', tier: 7, name: 'Arizona Cardinals Defense', pos: 'DEF', team: 'ARI', college: 'NFL Defense', pick: 260, s: ['2025 — Strong run defense with turnover upside.'] },
+  { id: 'def-atl', tier: 7, name: 'Atlanta Falcons Defense', pos: 'DEF', team: 'ATL', college: 'NFL Defense', pick: 261, s: ['2025 — Aggressive front seven with upside in sacks and takeaways.'] },
+  { id: 'def-bal', tier: 7, name: 'Baltimore Ravens Defense', pos: 'DEF', team: 'BAL', college: 'NFL Defense', pick: 262, s: ['2025 — Physical unit with big-play upside and strong red-zone coverage.'] },
+  { id: 'def-buf', tier: 7, name: 'Buffalo Bills Defense', pos: 'DEF', team: 'BUF', college: 'NFL Defense', pick: 263, s: ['2025 — Fast secondary and strong pressure package in obvious passing situations.'] },
+  { id: 'def-car', tier: 7, name: 'Carolina Panthers Defense', pos: 'DEF', team: 'CAR', college: 'NFL Defense', pick: 264, s: ['2025 — Improving unit with playmakers in the back end and on early downs.'] },
+  { id: 'def-chi', tier: 7, name: 'Chicago Bears Defense', pos: 'DEF', team: 'CHI', college: 'NFL Defense', pick: 265, s: ['2025 — Versatile front with upside to improve against the run.'] },
+  { id: 'def-cin', tier: 7, name: 'Cincinnati Bengals Defense', pos: 'DEF', team: 'CIN', college: 'NFL Defense', pick: 266, s: ['2025 — Opportunistic secondary plus disruptive edge play.'] },
+  { id: 'def-cle', tier: 7, name: 'Cleveland Browns Defense', pos: 'DEF', team: 'CLE', college: 'NFL Defense', pick: 267, s: ['2025 — Heavy front seven that excels at pressure and tackling.'] },
+  { id: 'def-dal', tier: 7, name: 'Dallas Cowboys Defense', pos: 'DEF', team: 'DAL', college: 'NFL Defense', pick: 268, s: ['2025 — Big-play defense with strong pass-rush upside and matchup flexibility.'] },
+  { id: 'def-den', tier: 7, name: 'Denver Broncos Defense', pos: 'DEF', team: 'DEN', college: 'NFL Defense', pick: 269, s: ['2025 — Fast unit with ability to create turnovers and defend the deep pass.'] },
+  { id: 'def-det', tier: 7, name: 'Detroit Lions Defense', pos: 'DEF', team: 'DET', college: 'NFL Defense', pick: 270, s: ['2025 — Physical group that can wreak havoc in short-yardage and red-zone situations.'] },
+  { id: 'def-gb', tier: 7, name: 'Green Bay Packers Defense', pos: 'DEF', team: 'GB', college: 'NFL Defense', pick: 271, s: ['2025 — Improved secondary paired with a disruptive edge rush.'] },
+  { id: 'def-hou', tier: 7, name: 'Houston Texans Defense', pos: 'DEF', team: 'HOU', college: 'NFL Defense', pick: 272, s: ['2025 — Young, ascending unit with high ceiling in turnovers and pressure.'] },
+  { id: 'def-ind', tier: 7, name: 'Indianapolis Colts Defense', pos: 'DEF', team: 'IND', college: 'NFL Defense', pick: 273, s: ['2025 — Strong linebacker play and consistent tackle production.'] },
+  { id: 'def-jax', tier: 7, name: 'Jacksonville Jaguars Defense', pos: 'DEF', team: 'JAX', college: 'NFL Defense', pick: 274, s: ['2025 — Explosive pass rush and stifling secondary in key moments.'] },
+  { id: 'def-kc', tier: 7, name: 'Kansas City Chiefs Defense', pos: 'DEF', team: 'KC', college: 'NFL Defense', pick: 275, s: ['2025 — Opportunistic unit with elite playmakers in coverage.'] },
+  { id: 'def-lv', tier: 7, name: 'Las Vegas Raiders Defense', pos: 'DEF', team: 'LV', college: 'NFL Defense', pick: 276, s: ['2025 — Fast group capable of creating turnovers and disguising coverages.'] },
+  { id: 'def-lac', tier: 7, name: 'Los Angeles Chargers Defense', pos: 'DEF', team: 'LAC', college: 'NFL Defense', pick: 277, s: ['2025 — Strong edge rush and improved secondary depth.'] },
+  { id: 'def-lar', tier: 7, name: 'Los Angeles Rams Defense', pos: 'DEF', team: 'LAR', college: 'NFL Defense', pick: 278, s: ['2025 — Physical front seven with upside in opponent pressure.'] },
+  { id: 'def-mia', tier: 7, name: 'Miami Dolphins Defense', pos: 'DEF', team: 'MIA', college: 'NFL Defense', pick: 279, s: ['2025 — Speed-first defense that thrives in turnovers and coverage.'] },
+  { id: 'def-min', tier: 7, name: 'Minnesota Vikings Defense', pos: 'DEF', team: 'MIN', college: 'NFL Defense', pick: 280, s: ['2025 — Strong run defense and effective blitz packages.'] },
+  { id: 'def-ne', tier: 7, name: 'New England Patriots Defense', pos: 'DEF', team: 'NE', college: 'NFL Defense', pick: 281, s: ['2025 — Disciplined group with strength in red-zone defense.'] },
+  { id: 'def-no', tier: 7, name: 'New Orleans Saints Defense', pos: 'DEF', team: 'NO', college: 'NFL Defense', pick: 282, s: ['2025 — Aggressive unit with multiple playmakers and turnover upside.'] },
+  { id: 'def-nyg', tier: 7, name: 'New York Giants Defense', pos: 'DEF', team: 'NYG', college: 'NFL Defense', pick: 283, s: ['2025 — Fast, disciplined defense improving against the pass.'] },
+  { id: 'def-nyj', tier: 7, name: 'New York Jets Defense', pos: 'DEF', team: 'NYJ', college: 'NFL Defense', pick: 284, s: ['2025 — High-pressure unit with strong edge rush and coverage depth.'] },
+  { id: 'def-phi', tier: 7, name: 'Philadelphia Eagles Defense', pos: 'DEF', team: 'PHI', college: 'NFL Defense', pick: 285, s: ['2025 — Elite front seven that excels at sacks and splash plays.'] },
+  { id: 'def-pit', tier: 7, name: 'Pittsburgh Steelers Defense', pos: 'DEF', team: 'PIT', college: 'NFL Defense', pick: 286, s: ['2025 — Physical unit with turnover upside and red-zone strength.'] },
+  { id: 'def-sea', tier: 7, name: 'Seattle Seahawks Defense', pos: 'DEF', team: 'SEA', college: 'NFL Defense', pick: 287, s: ['2025 — Disciplined secondary and opportunistic front.'] },
+  { id: 'def-sf', tier: 7, name: 'San Francisco 49ers Defense', pos: 'DEF', team: 'SF', college: 'NFL Defense', pick: 288, s: ['2025 — Loaded with playmakers and elite pass-rush talent.'] },
+  { id: 'def-tb', tier: 7, name: 'Tampa Bay Buccaneers Defense', pos: 'DEF', team: 'TB', college: 'NFL Defense', pick: 289, s: ['2025 — Turnover-prone unit with strong pressure numbers.'] },
+  { id: 'def-ten', tier: 7, name: 'Tennessee Titans Defense', pos: 'DEF', team: 'TEN', college: 'NFL Defense', pick: 290, s: ['2025 — Physical defense that can shut down the run and force mistakes.'] },
+  { id: 'def-was', tier: 7, name: 'Washington Commanders Defense', pos: 'DEF', team: 'WAS', college: 'NFL Defense', pick: 291, s: ['2025 — Aggressive front seven with strong turnover upside.'] },
 ];
 
 const BOARD_API_URL = '/api/team-prospect-draftboard';
@@ -139,7 +171,7 @@ function sortByPick<T extends { pick?: number }>(items: T[]) {
   return [...items].sort((a, b) => parsePick(a.pick) - parsePick(b.pick));
 }
 
-const DEFAULT_PLAYERS = sortByPick(INITIAL.map((p) => ({ ...p }))).slice(0, 82);
+const DEFAULT_PLAYERS = sortByPick(INITIAL.map((p) => ({ ...p }))).slice(0, 114);
 
 function computeTierBreaksFromAssignment(players: Array<{ id: string }>, customTiers: string[], playerCustomTier: Record<string, string>): Record<string, number> {
   const result: Record<string, number> = {};
@@ -714,7 +746,7 @@ export default function TeamProspectDraftboard() {
               <Search size={13} style={{ position: 'absolute', left: '9px', top: '50%', transform: 'translateY(-50%)', color: C.textDim, pointerEvents: 'none' }} />
               <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search players..." style={{ width: '100%', paddingLeft: '28px', padding: '7px 8px 7px 28px', background: C.bg, color: C.text, border: `1px solid ${C.border}`, borderRadius: '4px', fontSize: '12px' }} />
             </div>
-            {['ALL','QB','RB','WR','TE','K'].map(pos => (
+            {['ALL','QB','RB','WR','TE','K','DEF'].map(pos => (
               <button key={pos} onClick={() => setPosFilter(pos)}
                 style={{ background: posFilter === pos ? `${(POS_COLORS[pos] || C.primary)}33` : 'transparent', border: `1px solid ${posFilter === pos ? (POS_COLORS[pos] || C.primary) : C.border}`, color: posFilter === pos ? (POS_COLORS[pos] || C.accent) : C.textMuted, padding: '6px 12px', borderRadius: '3px', cursor: 'pointer', fontSize: '11px', letterSpacing: '1px', fontWeight: posFilter === pos ? 700 : 400 }}>
                 {pos}

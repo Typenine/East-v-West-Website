@@ -22,7 +22,7 @@ const C = {
 };
 
 const POS_COLORS: Record<string, string> = {
-  QB: '#c25852', RB: '#c4a020', WR: '#3d7eaa', TE: '#4a8e62', K: '#7b5ea7', FB: '#4a8e62',
+  QB: '#c25852', RB: '#c4a020', WR: '#3d7eaa', TE: '#4a8e62', K: '#7b5ea7', FB: '#4a8e62', DEF: '#8b5ebd',
 };
 
 type AvailPlayer = { id: string; name: string; pos: string; nfl: string; college?: string | null };
@@ -364,7 +364,7 @@ export default function TeamProspectDraftboardCompact({
           }}
         />
         <div style={{ display: 'flex', gap: '4px' }}>
-          {['ALL', 'QB', 'RB', 'WR', 'TE', 'K'].map(pos => (
+          {['ALL', 'QB', 'RB', 'WR', 'TE', 'K', 'DEF'].map(pos => (
             <button
               key={pos}
               onClick={() => setPosFilter(pos)}
