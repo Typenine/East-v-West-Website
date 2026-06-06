@@ -4,6 +4,9 @@
 
 import { useEffect, useRef } from 'react';
 import { gsap } from 'gsap';
+import { Dancing_Script } from 'next/font/google';
+
+const dancingScript = Dancing_Script({ subsets: ['latin'], weight: ['700'] });
 
 interface Props {
   roundNumber: number;
@@ -87,9 +90,8 @@ export default function EndOfRoundAnimation({ roundNumber, eventLogoUrl, eventCo
         style={{ overflow: 'hidden' }}
       >
         <span style={{
-          fontFamily: '"Georgia", "Times New Roman", serif',
-          fontStyle: 'italic',
-          fontWeight: 900,
+          fontFamily: dancingScript.style.fontFamily,
+          fontWeight: 700,
           fontSize: 'clamp(6rem, 18vw, 16rem)',
           color: ec,
           letterSpacing: '-0.03em',
