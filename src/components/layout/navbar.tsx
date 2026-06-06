@@ -364,6 +364,17 @@ export default function Navbar() {
     openDesktopMenu(id);
   }, [desktopMenuOpen, desktopMenuPinned, closeDesktopMenu, openDesktopMenu]);
 
+  const goHome = useCallback((e: React.MouseEvent<HTMLAnchorElement>) => {
+    e.stopPropagation();
+    closeDesktopMenu();
+    setMobileMenuOpen(false);
+    if (pathname === '/') {
+      e.preventDefault();
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+    // Off home: let the native href="/" navigate — do not preventDefault or router.push.
+  }, [pathname, closeDesktopMenu]);
+
   useEffect(() => () => cancelDesktopMenuClose(), [cancelDesktopMenuClose]);
 
   // Removed special homepage click-to-admin; admin sign-in now lives on /login
@@ -439,11 +450,14 @@ export default function Navbar() {
 
   useEffect(() => {
     const onDocClick = (e: MouseEvent) => {
-      if (!accountMenuRef.current) return;
-      if (!accountMenuRef.current.contains(e.target as Node)) {
+      const target = e.target as Node;
+      if (target instanceof Element && target.closest('[data-nav-home]')) {
+        return;
+      }
+      if (accountMenuRef.current && !accountMenuRef.current.contains(target)) {
         setAccountMenuOpen(false);
       }
-      if (desktopMenuRef.current && !desktopMenuRef.current.contains(e.target as Node)) {
+      if (desktopMenuRef.current && !desktopMenuRef.current.contains(target)) {
         closeDesktopMenu();
       }
     };
@@ -453,10 +467,11 @@ export default function Navbar() {
         setAccountMenuOpen(false);
       }
     };
-    document.addEventListener('mousedown', onDocClick);
+    // Use click (not mousedown) so link navigation isn't cancelled by a re-render mid-click.
+    document.addEventListener('click', onDocClick);
     document.addEventListener('keydown', onKeyDown);
     return () => {
-      document.removeEventListener('mousedown', onDocClick);
+      document.removeEventListener('click', onDocClick);
       document.removeEventListener('keydown', onKeyDown);
     };
   }, [closeDesktopMenu]);
@@ -482,9 +497,11 @@ export default function Navbar() {
       <div className="container mx-auto px-4">
         <div className="flex h-16 items-center justify-between">
           <div className="flex min-w-0 items-center gap-8">
-            <div className="shrink-0">
+            <div className="relative z-[60] shrink-0">
               <Link
                 href="/"
+                data-nav-home
+                onClick={goHome}
                 className="text-lg font-bold tracking-tight text-[var(--text)] transition-colors hover:text-accent sm:text-xl"
               >
                 East v. West
@@ -506,6 +523,20 @@ export default function Navbar() {
                   const isSuggestions = item.id === 'suggestions';
 
                   if (!hasChildren && item.href) {
+                    if (item.id === 'home') {
+                      return (
+                        <Link
+                          key={item.id}
+                          href="/"
+                          data-nav-home
+                          aria-current={isHrefActive(pathname, currentQuery, item.href) ? 'page' : undefined}
+                          className={navLinkClass(itemActive)}
+                          onClick={goHome}
+                        >
+                          {item.label}
+                        </Link>
+                      );
+                    }
                     return (
                       <Link
                         key={item.id}
@@ -515,6 +546,7 @@ export default function Navbar() {
                           navLinkClass(itemActive),
                           isSuggestions && !itemActive && 'text-accent hover:text-accent',
                         )}
+                        onClick={() => closeDesktopMenu()}
                       >
                         {item.label}
                       </Link>
@@ -542,31 +574,30 @@ export default function Navbar() {
                       </button>
 
                       {/* pt-3 bridges the gap between trigger and panel so hover is not lost */}
-                      <div
-                        id={`desktop-menu-${item.id}`}
-                        className={cn(
-                          'absolute left-0 top-full z-50 min-w-full pt-3',
-                          menuOpen ? 'block' : 'hidden',
-                        )}
-                        onMouseEnter={() => openDesktopMenu(item.id)}
-                      >
+                      {menuOpen ? (
                         <div
-                          className={cn(
-                            dropdownPanelClass,
-                            item.id === 'history' ? 'w-[22rem]' : item.id === 'draft' ? 'w-[16.5rem]' : 'w-[14.5rem]',
-                          )}
-                          role="menu"
+                          id={`desktop-menu-${item.id}`}
+                          className="absolute left-0 top-full z-50 min-w-full pt-3"
+                          onMouseEnter={() => openDesktopMenu(item.id)}
                         >
-                          <NavDropdownGroups
-                            parentId={item.id}
-                            items={item.children || []}
-                            pathname={pathname}
-                            searchParams={currentQuery}
-                            onNavigate={closeDesktopMenu}
-                            layout="desktop"
-                          />
+                          <div
+                            className={cn(
+                              dropdownPanelClass,
+                              item.id === 'history' ? 'w-[22rem]' : item.id === 'draft' ? 'w-[16.5rem]' : 'w-[14.5rem]',
+                            )}
+                            role="menu"
+                          >
+                            <NavDropdownGroups
+                              parentId={item.id}
+                              items={item.children || []}
+                              pathname={pathname}
+                              searchParams={currentQuery}
+                              onNavigate={closeDesktopMenu}
+                              layout="desktop"
+                            />
+                          </div>
                         </div>
-                      </div>
+                      ) : null}
                     </div>
                   );
                 })}
@@ -711,6 +742,20 @@ export default function Navbar() {
             const isSuggestions = item.id === 'suggestions';
 
             if (!hasChildren && item.href) {
+              if (item.id === 'home') {
+                return (
+                  <Link
+                    key={item.id}
+                    href="/"
+                    data-nav-home
+                    aria-current={isHrefActive(pathname, currentQuery, item.href) ? 'page' : undefined}
+                    className={cn(navLinkClass(itemActive), 'block w-full text-left')}
+                    onClick={goHome}
+                  >
+                    {item.label}
+                  </Link>
+                );
+              }
               return (
                 <Link
                   key={item.id}

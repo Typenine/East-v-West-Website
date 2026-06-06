@@ -1,8 +1,9 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 import { LEAGUE_IDS, TEAM_NAMES } from '@/lib/constants/league';
 import { getTeamsData } from '@/lib/utils/sleeper-api';
 import { getTeamColors, getTeamLogoPath } from '@/lib/utils/team-utils';
@@ -118,7 +119,16 @@ function TeamGrid({ teams, compact = false, className, teamLinks }: { teams: str
 }
 
 export default function HomeLeagueBanner() {
+  const pathname = usePathname();
   const [teamLinks, setTeamLinks] = useState<Record<string, string>>({});
+
+  const goHome = useCallback((e: React.MouseEvent<HTMLAnchorElement>) => {
+    e.stopPropagation();
+    if (pathname === '/') {
+      e.preventDefault();
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  }, [pathname]);
 
   useEffect(() => {
     let cancelled = false;
@@ -190,6 +200,8 @@ export default function HomeLeagueBanner() {
             <div className="grid place-items-center gap-1 w-full max-w-[92px] mx-auto">
               <Link
                 href="/"
+                data-nav-home
+                onClick={goHome}
                 className="w-full aspect-square rounded-[12px] border p-1.5 backdrop-blur-md flex items-center justify-center"
                 style={{
                   borderColor: 'rgba(191,153,68,0.52)',
@@ -218,6 +230,8 @@ export default function HomeLeagueBanner() {
             <div className="grid place-items-center gap-1 w-full lg:w-[clamp(92px,7.2vw,115px)] order-first lg:order-none mx-auto">
               <Link
                 href="/"
+                data-nav-home
+                onClick={goHome}
                 className="w-full aspect-square rounded-[12px] border p-1.5 sm:p-1.5 lg:p-2 backdrop-blur-md flex items-center justify-center"
                 style={{
                   borderColor: 'rgba(191,153,68,0.52)',
