@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server';
 import { hashPin } from '@/lib/server/auth';
-import { writeTeamPinWithError } from '@/lib/server/pins';
+import { readTeamPin, writeTeamPinWithError } from '@/lib/server/pins';
 import { getConfiguredAdminSecret, isAdminCookieValue } from '@/lib/auth/admin';
 
 export const runtime = 'nodejs';
@@ -24,7 +24,8 @@ export async function POST(req: NextRequest) {
     const pin = typeof body.pin === 'string' ? body.pin.trim() : '';
     if (!team || !/^[0-9]{4,12}$/.test(pin)) return Response.json({ error: 'bad_request' }, { status: 400 });
     const { hash, salt } = await hashPin(pin);
-    const rec = { hash, salt, pinVersion: Date.now(), updatedAt: new Date().toISOString() };
+    const prev = await readTeamPin(team);
+    const rec = { hash, salt, pinVersion: (prev?.pinVersion ?? 0) + 1, updatedAt: new Date().toISOString() };
     const res = await writeTeamPinWithError(team, rec);
     if (!res.ok) return Response.json({ error: `write_failed: ${res.error || 'unknown'}` }, { status: 500 });
     return Response.json({ ok: true });
