@@ -548,6 +548,71 @@ function PublishedView({ pairs }: { pairs: RivalryPair[] }) {
 
 // ─── admin panel ──────────────────────────────────────────────────────────────
 
+function downloadRivalryCSV(adminSubmissions: Array<{ teamId: string; scores: ScoreEntry[] }>) {
+  const q = (v: string | number) => `"${String(v).replace(/"/g, '""')}"`;
+  const subMap = new Map(adminSubmissions.map((s) => [s.teamId, s.scores]));
+  const lines: string[] = [];
+
+  // Section 1: score matrix — rows = submitter, columns = target team
+  lines.push(q('RIVALRY SCORE MATRIX'));
+  lines.push('');
+  lines.push([q('Submitter'), ...TEAM_NAMES.map(q), q('Total')].join(','));
+  for (const submitter of TEAM_NAMES) {
+    const scores = subMap.get(submitter);
+    const cells = TEAM_NAMES.map((target) => {
+      if (target === submitter) return q('-');
+      if (!scores) return q('not submitted');
+      const entry = scores.find((s) => s.targetTeamId === target);
+      return entry !== undefined ? String(entry.score) : q('');
+    });
+    const total = scores ? scores.reduce((s, e) => s + e.score, 0) : '';
+    lines.push([q(submitter), ...cells, String(total)].join(','));
+  }
+
+  // Section 2: all pair combined scores, sorted desc (mirrors greedy algorithm input)
+  lines.push('');
+  lines.push('');
+  lines.push(q('ALL PAIR COMBINED SCORES (sorted desc — greedy algorithm order)'));
+  lines.push('');
+  lines.push([q('Team A'), q('Team B'), q('A to B'), q('B to A'), q('Combined'), q('Blood Feud')].join(','));
+
+  type PairRow = { a: string; b: string; aToB: number | null; bToA: number | null; combined: number; bf: boolean };
+  const pairRows: PairRow[] = [];
+  for (let i = 0; i < TEAM_NAMES.length; i++) {
+    for (let j = i + 1; j < TEAM_NAMES.length; j++) {
+      const a = TEAM_NAMES[i], b = TEAM_NAMES[j];
+      const aToB = subMap.get(a)?.find((s) => s.targetTeamId === b)?.score ?? null;
+      const bToA = subMap.get(b)?.find((s) => s.targetTeamId === a)?.score ?? null;
+      pairRows.push({ a, b, aToB, bToA, combined: (aToB ?? 0) + (bToA ?? 0), bf: aToB === 100 && bToA === 100 });
+    }
+  }
+  pairRows.sort((x, y) => {
+    if (y.combined !== x.combined) return y.combined - x.combined;
+    return Math.max(y.aToB ?? 0, y.bToA ?? 0) - Math.max(x.aToB ?? 0, x.bToA ?? 0);
+  });
+  for (const row of pairRows) {
+    lines.push([
+      q(row.a), q(row.b),
+      row.aToB !== null ? String(row.aToB) : q('?'),
+      row.bToA !== null ? String(row.bToA) : q('?'),
+      String(row.combined),
+      q(row.bf ? 'YES (Blood Feud)' : 'No'),
+    ].join(','));
+  }
+
+  // UTF-8 BOM so Excel opens with correct encoding
+  const csv = '﻿' + lines.join('\r\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `rivalry-ballots-${new Date().toISOString().slice(0, 10)}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
 function AdminAllBallots({ adminSubmissions }: { adminSubmissions: Array<{ teamId: string; scores: ScoreEntry[] }> }) {
   const [open, setOpen] = useState(false);
   const [selectedTeam, setSelectedTeam] = useState<string | null>(null);
@@ -561,18 +626,29 @@ function AdminAllBallots({ adminSubmissions }: { adminSubmissions: Array<{ teamI
 
   return (
     <div className="mt-5">
-      <button
-        onClick={() => setOpen((p) => !p)}
-        className="flex items-center gap-2 text-sm font-semibold text-[var(--text)] mb-3"
-      >
-        <span
-          className="inline-block w-4 h-4 rounded border flex items-center justify-center text-xs"
-          style={{ borderColor: 'var(--border)' }}
+      <div className="flex items-center justify-between mb-3">
+        <button
+          onClick={() => setOpen((p) => !p)}
+          className="flex items-center gap-2 text-sm font-semibold text-[var(--text)]"
         >
-          {open ? '−' : '+'}
-        </span>
-        View All Submitted Ballots ({adminSubmissions.length})
-      </button>
+          <span
+            className="inline-block w-4 h-4 rounded border flex items-center justify-center text-xs"
+            style={{ borderColor: 'var(--border)' }}
+          >
+            {open ? '−' : '+'}
+          </span>
+          View All Submitted Ballots ({adminSubmissions.length})
+        </button>
+        {adminSubmissions.length > 0 && (
+          <button
+            onClick={() => downloadRivalryCSV(adminSubmissions)}
+            className="text-xs px-2.5 py-1 rounded font-medium border transition-opacity hover:opacity-75"
+            style={{ borderColor: 'var(--border)', color: 'var(--muted)' }}
+          >
+            Download CSV
+          </button>
+        )}
+      </div>
 
       {open && (
         <div className="rounded-[var(--radius-card)] border border-[var(--border)]" style={{ background: 'var(--surface)' }}>
@@ -806,7 +882,7 @@ function AdminPanel({
         </CardContent>
       </Card>
 
-      {/* All submitted ballots (collapsible, visible after close) */}
+      {/* All submitted ballots (collapsible, always visible to admin) */}
       {adminSubmissions && adminSubmissions.length > 0 && (
         <AdminAllBallots adminSubmissions={adminSubmissions} />
       )}

@@ -45,9 +45,9 @@ export async function GET() {
     }
   }
 
-  // Admin sees scores for all submissions only after cycle is closed
+  // Admin always sees all submitted ballot scores
   let adminSubmissions: Array<{ teamId: string; scores: { targetTeamId: string; score: number }[] }> | null = null;
-  if (isAdmin && (cycle.status === 'closed' || cycle.status === 'calculated' || cycle.status === 'published')) {
+  if (isAdmin) {
     adminSubmissions = allSubs.map((s) => ({ teamId: s.teamId, scores: s.scores }));
   }
 
