@@ -91,17 +91,13 @@ function isStoredPin(v: unknown): v is StoredPin {
 }
 
 export async function writeTeamPinWithError(team: string, value: StoredPin): Promise<{ ok: boolean; error?: string }> {
-  const key = teamBlobKey(team);
   try {
-    // Write-through to DB
-    try {
-      const slug = teamSlug(canonicalizeTeamName(team));
-      await setTeamPin(slug, { hash: value.hash, salt: value.salt, pinVersion: value.pinVersion, updatedAt: new Date(value.updatedAt) });
-    } catch {}
+    const slug = teamSlug(canonicalizeTeamName(team));
+    await setTeamPin(slug, { hash: value.hash, salt: value.salt, pinVersion: value.pinVersion, updatedAt: new Date(value.updatedAt) });
     return { ok: true };
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    try { console.error('[pins] Blob write failed', { team, key, err: msg }); } catch {}
+    console.error('[pins] DB write failed', { team, err: msg });
     return { ok: false, error: msg };
   }
 }

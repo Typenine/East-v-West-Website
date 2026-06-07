@@ -1,16 +1,19 @@
 import { NextRequest } from 'next/server';
 import { listAllTeamPins, writeTeamPin, readTeamPin, StoredPin } from '@/lib/server/pins';
 import { hashPin, verifyPin } from '@/lib/server/auth';
+import { isAdminCookieValue } from '@/lib/auth/admin';
 import { TEAM_NAMES } from '@/lib/constants/league';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 function requireAdmin(req: NextRequest): boolean {
+  if (isAdminCookieValue(req.cookies.get('evw_admin')?.value)) return true;
   const secret = process.env.ADMIN_SECRET || process.env.AUTH_SECRET;
-  if (!secret) return false;
-  const header = req.headers.get('x-admin-secret');
-  if (header && header === secret) return true;
+  if (secret) {
+    const header = req.headers.get('x-admin-secret');
+    if (header && header === secret) return true;
+  }
   return false;
 }
 
