@@ -18,6 +18,7 @@ export const dynamic = 'force-dynamic';
 
 const SITE_URL = process.env.SITE_URL ?? '';
 const DISCORD_VOTES_WEBHOOK_URL = process.env.DISCORD_VOTES_WEBHOOK_URL ?? '';
+const TEST_MODE = process.env.VOTES_TEST_MODE === 'true';
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -91,7 +92,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
   // Check 50% Discord reminder milestone
   try {
-    if (!poll.discordNotifiedReminder && DISCORD_VOTES_WEBHOOK_URL) {
+    if (!poll.discordNotifiedReminder && DISCORD_VOTES_WEBHOOK_URL && !TEST_MODE) {
       const voteCount = await getVoteCount(round.id);
       const totalEligible = TOTAL_ELIGIBLE[poll.eligibilityType] ?? 12;
       if (voteCount / totalEligible >= 0.5) {

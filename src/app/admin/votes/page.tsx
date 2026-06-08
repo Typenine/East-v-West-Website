@@ -182,6 +182,11 @@ export default function AdminVotesPage() {
 
   return (
     <div className="container mx-auto px-4 py-8 max-w-5xl">
+      {process.env.NEXT_PUBLIC_VOTES_TEST_MODE === 'true' && (
+        <div className="mb-4 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-300 dark:border-amber-700 px-4 py-2 text-sm text-amber-700 dark:text-amber-400 font-medium">
+          Test Mode — Discord notifications are suppressed
+        </div>
+      )}
       <SectionHeader
         title="Admin · Votes"
         subtitle="Create and manage league polls"

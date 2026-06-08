@@ -647,6 +647,12 @@ export default function Navbar() {
                           </button>
                           <button
                             className={dropdownItemClass(false)}
+                            onClick={() => { setAccountMenuOpen(false); router.push('/admin/votes'); }}
+                          >
+                            Admin: Votes
+                          </button>
+                          <button
+                            className={dropdownItemClass(false)}
                             onClick={() => { setAccountMenuOpen(false); router.push('/admin/taxi'); }}
                           >
                             Admin: Taxi

@@ -27,6 +27,7 @@ export const dynamic = 'force-dynamic';
 
 const SITE_URL = process.env.SITE_URL ?? '';
 const DISCORD_VOTES_WEBHOOK_URL = process.env.DISCORD_VOTES_WEBHOOK_URL ?? '';
+const TEST_MODE = process.env.VOTES_TEST_MODE === 'true';
 
 function isAdmin(req: NextRequest): boolean {
   try { return isAdminCookieValue(req.cookies.get('evw_admin')?.value); } catch { return false; }
@@ -123,7 +124,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       if (targetNum === 1) await updatePollStatus(id, 'open');
 
       // Discord open notification (first round only)
-      if (targetNum === 1 && !poll.discordNotifiedOpen && DISCORD_VOTES_WEBHOOK_URL) {
+      if (targetNum === 1 && !poll.discordNotifiedOpen && DISCORD_VOTES_WEBHOOK_URL && !TEST_MODE) {
         const link = `${SITE_URL}/votes/${id}`;
         await postToDiscordWebhook(DISCORD_VOTES_WEBHOOK_URL, {
           content: `A new vote is open: **${poll.title}**\n${link}`,
@@ -201,7 +202,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       const isLastRound = round.roundNumber === rounds.length;
       if (isLastRound) {
         // Post Discord results notification
-        if (!poll.discordNotifiedClosed && DISCORD_VOTES_WEBHOOK_URL) {
+        if (!poll.discordNotifiedClosed && DISCORD_VOTES_WEBHOOK_URL && !TEST_MODE) {
           const link = `${SITE_URL}/votes/${id}`;
           await postToDiscordWebhook(DISCORD_VOTES_WEBHOOK_URL, {
             content: `Results are in for **${poll.title}**.\n${link}`,
