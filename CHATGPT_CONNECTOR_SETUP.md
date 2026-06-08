@@ -360,8 +360,88 @@ Get my commissioner ops context, then write a pre-kickoff advisory for teams wit
 Get my commissioner ops context, then draft a lineup warning message for any affected teams.
 ```
 
-### Phase 9 — True iframe widgets (deferred)
-Full ChatGPT Apps SDK iframe widgets require a compiled React bundle (`text/html;profile=mcp-app`), `@modelcontextprotocol/ext-apps/server`, and a separate frontend build pipeline. All current functionality uses the Markdown card approach without new dependencies.
+### Phase 6B — Team Card widget
+Implemented. See the **Phase 6B** section below for full details, test prompts, and fallback behavior.
+
+---
+
+## Phase 6B — Team Card Widget (ChatGPT Apps SDK)
+
+`get_team_dashboard` now returns a true ChatGPT Apps SDK widget when called inside a ChatGPT client that supports MCP App resources. On supported clients, it renders an inline visual Team Card. On all other clients (or if the widget fails), the existing Markdown card is shown automatically.
+
+### What the Team Card widget shows
+
+| Section | Detail |
+|---|---|
+| Header | Team name, logo (with fallback), team-color gradient background |
+| Stats row | Current season record (W-L), Points For, Points Against, All-Time W-L, Championship count |
+| Championships | Gold badge per championship year (if any) |
+| Active Roster | Players grouped by position (QB/RB/WR/TE/K/DST…) with NFL team and colored injury dot |
+| Reserve Slots | IR count + Taxi squad count pills |
+| IR / Reserve | IR players listed with injury status dots |
+| Taxi Squad | Taxi players listed |
+| Freshness | "Live from Sleeper · HH:MM:SS AM/PM" |
+
+Injury dots: 🔴 Out/IR/PUP/Sus/Doubtful · 🟡 Questionable/Limited/DNP
+
+### How to test in ChatGPT
+
+Make sure your ChatGPT connector is pointed at `https://east-v-west-website.vercel.app/api/mcp-public`. Then try:
+
+**Test prompt 1 — explicit widget**
+```
+Use East v. West Fantasy League to show the Belltown Raptors team card.
+```
+
+**Test prompt 2 — another team**
+```
+Use East v. West Fantasy League to show Double Trouble's team card.
+```
+
+**Test prompt 3 — natural language**
+```
+Use East v. West Fantasy League to show the team dashboard for Minshew's Maniacs.
+```
+
+**Test prompt 4 — compare widget vs Markdown**
+```
+Show me the East v. West team dashboard for Red Pandas.
+```
+*(If your ChatGPT client supports MCP Apps, you will see the visual card. If not, you will see the Markdown table — both contain the same data.)*
+
+### Fallback behavior
+
+The `content[0].text` Markdown card is **always returned alongside the widget**. If:
+- The ChatGPT client does not support MCP App resources → Markdown card shown
+- The widget fails to load (CSP, network, iframe sandbox) → Markdown card shown
+- The widget times out waiting for data (8s timeout) → "No team data available" message shown in the iframe
+- The widget encounters a JS error → "Widget error: …" shown in the iframe
+
+**No data is ever lost.** The Markdown fallback always works.
+
+### Technical details
+
+| Item | Value |
+|---|---|
+| Widget file | `src/lib/mcp/widgets/team-card.ts` |
+| Resource URI | `ui://widget/team-card-v1.html` |
+| MIME type | `text/html;profile=mcp-app` |
+| MCP methods added | `resources/list`, `resources/read` |
+| Data source | `structuredContent` from `handleGetTeam()` — no new pipeline |
+| External dependencies | None (zero npm packages in widget, zero CDN calls) |
+| CSP fetch domains | None (all data via postMessage, logos served from same Vercel domain) |
+| New packages required | None |
+| Build changes | None |
+| Tool descriptor change | `get_team_dashboard` gains `_meta.ui.resourceUri` |
+| Version bump path | Change `team-card-v1` → `team-card-v2` in URI when making breaking markup changes |
+
+### Known limitations
+
+- **ChatGPT Plus/Team required.** Widget rendering requires a ChatGPT account and client version that supports MCP App resources (`text/html;profile=mcp-app`). Not all plans or clients expose this.
+- **No tabs or interactivity.** The v1 widget is read-only and displays all data at once. Tabs, filtering, and drill-down are deferred to v2.
+- **Logo fallback.** If a team logo fails to load (404 or network block), the `<img>` tag is hidden silently via `onerror`. The card still renders fully.
+- **Inline HTML string.** The widget lives as a TypeScript string constant. It is debuggable and easy to edit, but not compiled by Vite/esbuild. Complex UI interactions would eventually warrant a proper build pipeline.
+- **Widget receives data only via postMessage.** It cannot make additional tool calls. All data must be in the initial `structuredContent`.
 
 ---
 
@@ -370,7 +450,7 @@ Full ChatGPT Apps SDK iframe widgets require a compiled React bundle (`text/html
 | Tool name | Renders | What it answers |
 |---|---|---|
 | `get_current_standings` | 📊 Markdown table | Live current-season W-L + all-time career standings |
-| `get_team_dashboard` | 🏈 Markdown card | Record, full roster by position (active/IR/taxi), career stats, championships |
+| `get_team_dashboard` | 🏈 Visual widget + Markdown fallback | Record, roster by position (active/IR/taxi), career stats, championships — renders Team Card widget on supported clients |
 | `get_current_matchups` | 🏈 Markdown table | This week's matchups with scores and leader |
 | `get_league_info` | text | League name, format, scoring, payouts, roster config, dates, champions, rulebook |
 | `get_current_roster` | 🏈 Markdown card (single team) | Roster by position with NFL team + injury flags; all-teams returns JSON with hint |

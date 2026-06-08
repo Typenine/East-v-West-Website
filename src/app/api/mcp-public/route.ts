@@ -19,6 +19,7 @@
 
 import { NextResponse } from 'next/server';
 import { mcpMeta } from '@/lib/mcp/auth';
+import { TEAM_CARD_HTML, TEAM_CARD_WIDGET_URI, TEAM_CARD_RESOURCE } from '@/lib/mcp/widgets/team-card';
 import {
   handleGetLeagueInfo,
   handleGetStandings,
@@ -71,6 +72,9 @@ const PUBLIC_TOOLS = [
         name: { type: 'string', description: 'Team name or partial name (case-insensitive). E.g. "Belltown" or "Belltown Raptors".' },
       },
       required: ['name'],
+    },
+    _meta: {
+      ui: { resourceUri: TEAM_CARD_WIDGET_URI },
     },
   },
   {
@@ -201,7 +205,7 @@ const PUBLIC_TOOLS = [
     description: 'Advisory-only commissioner ops briefing. Returns: date-based reminders (draft, trade deadline, playoffs), weekly checklist, lineup watch (injured starters), IR slot review, taxi eligibility review, injury/status flags, relevant rulebook snippets, and draft owner messages ready for human review. Makes no rulings, sends nothing, modifies nothing.',
     inputSchema: { type: 'object', properties: {}, required: [] },
   },
-] as const;
+];
 
 // ─── Dispatch ──────────────────────────────────────────────────────────────────
 // Returns { structuredContent, markdown } for tools with rich rendering support,
@@ -337,6 +341,26 @@ export async function POST(request: Request) {
     return new NextResponse(null, { status: 204 });
   }
 
+  // ── resources/list ───────────────────────────────────────────────────────────
+  if (method === 'resources/list') {
+    return ok(id, { resources: [TEAM_CARD_RESOURCE] });
+  }
+
+  // ── resources/read ───────────────────────────────────────────────────────────
+  if (method === 'resources/read') {
+    const rp = (params ?? {}) as { uri?: string };
+    if (rp.uri === TEAM_CARD_WIDGET_URI) {
+      return ok(id, {
+        contents: [{
+          uri: TEAM_CARD_WIDGET_URI,
+          mimeType: 'text/html;profile=mcp-app',
+          text: TEAM_CARD_HTML,
+        }],
+      });
+    }
+    return err(id, -32602, `Resource not found: ${rp.uri}`);
+  }
+
   // ── tools/list ───────────────────────────────────────────────────────────────
   if (method === 'tools/list') {
     return ok(id, { tools: PUBLIC_TOOLS });
@@ -389,6 +413,7 @@ export async function GET() {
     note: 'All tools are read-only. No database access. Source: Sleeper public API + static league constants.',
     toolCount: PUBLIC_TOOLS.length,
     tools: PUBLIC_TOOLS.map((t) => t.name),
+    widgetResources: [TEAM_CARD_RESOURCE.uri],
     meta: mcpMeta('health', { dataSource: 'static' }),
   });
 }
