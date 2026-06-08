@@ -783,27 +783,39 @@ export async function handleGetWeeklyContext() {
 // Markdown string suitable for the MCP `content[].text` field. ChatGPT renders
 // this as a visual card in the chat thread alongside the structured JSON.
 
+const FRESHNESS = () =>
+  new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+
+const POS_ORDER = ['QB', 'RB', 'WR', 'TE', 'FLEX', 'SUPER_FLEX', 'K', 'DEF', 'DL', 'LB', 'DB'];
+
 export function formatStandingsMarkdown(
-  currentRows: Array<{ rank: number; team: string; wins: number; losses: number; ties: number; pf: number; championships: number }>,
+  currentRows: Array<{ rank: number; team: string; wins: number; losses: number; ties: number; pf: number; pa?: number; avgPf?: number; championships: number }>,
   season: string,
 ): string {
+  if (currentRows.length === 0) {
+    return `## 📊 East v. West Standings — ${season} Season\n\n*No standings data available yet.*\n\n*Live from Sleeper · ${FRESHNESS()}*`;
+  }
+
   const rows = currentRows
     .slice(0, 12)
-    .map((r) => {
-      const champ = r.championships > 0 ? ` 🏆×${r.championships}` : '';
-      const tie = r.ties > 0 ? `-${r.ties}` : '';
-      return `| ${r.rank} | ${r.team}${champ} | ${r.wins}-${r.losses}${tie} | ${r.pf} |`;
+    .map((r, i) => {
+      const leader = i === 0 ? ' ◀' : '';
+      const champ = r.championships > 0 ? ` 🏆${r.championships > 1 ? `×${r.championships}` : ''}` : '';
+      const tieStr = r.ties > 0 ? `-${r.ties}` : '';
+      const pfStr = r.pf.toFixed(1);
+      const avgStr = r.avgPf != null ? r.avgPf.toFixed(1) : '—';
+      return `| ${r.rank} | ${r.team}${champ}${leader} | ${r.wins}-${r.losses}${tieStr} | ${pfStr} | ${avgStr} |`;
     })
     .join('\n');
 
   return [
-    `## 📊 East v. West Standings — ${season} Season`,
+    `## 📊 East v. West — ${season} Standings`,
     '',
-    '| # | Team | W-L | PF |',
-    '|---|---|---|---|',
+    '| # | Team | W-L | PF | Avg |',
+    '|---|---|---|---:|---:|',
     rows,
     '',
-    `*Live from Sleeper · ${new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}*`,
+    `*◀ = current leader · 🏆 = championship(s) · Live from Sleeper · ${FRESHNESS()}*`,
   ].join('\n');
 }
 
@@ -811,60 +823,71 @@ export function formatTeamMarkdown(data: {
   team: {
     name: string;
     currentRecord: { season: string; wins: number; losses: number; ties: number; pf: number; pa: number };
-    allTimeStats: { regularSeason: { wins: number; losses: number; pf: number }; playoffs: { wins: number; losses: number } } | null;
+    allTimeStats: { regularSeason: { wins: number; losses: number; pf: number; pa?: number }; playoffs: { wins: number; losses: number } } | null;
     championships: number;
     championshipHistory: Array<{ year: number; finish: string }>;
   };
   roster: {
     active: Array<{ name: string; position: string | null; nflTeam: string | null; status: string | null }>;
-    ir: Array<{ name: string; position: string | null }>;
-    taxi: Array<{ name: string; position: string | null }>;
+    ir: Array<{ name: string; position: string | null; nflTeam?: string | null }>;
+    taxi: Array<{ name: string; position: string | null; nflTeam?: string | null }>;
   };
 }): string {
   const { team, roster } = data;
   const rec = team.currentRecord;
   const tieStr = rec.ties > 0 ? `-${rec.ties}` : '';
+
+  const champYears = team.championshipHistory
+    .filter((c) => c.finish.startsWith('1st'))
+    .map((c) => c.year)
+    .join(', ');
   const champStr = team.championships > 0
-    ? `🏆 ${team.championships}× Champion (${team.championshipHistory.filter((c) => c.finish.startsWith('1st')).map((c) => c.year).join(', ')})`
+    ? `🏆 ${team.championships}× Champion (${champYears})`
     : 'No championships yet';
 
   const byPos: Record<string, string[]> = {};
   for (const p of roster.active) {
     const pos = p.position ?? 'UNKN';
     if (!byPos[pos]) byPos[pos] = [];
-    const inj = p.status && p.status !== 'Active' ? ` *(${p.status})*` : '';
-    byPos[pos].push(`${p.name}${inj}`);
+    const nfl = p.nflTeam ? ` (${p.nflTeam})` : '';
+    const inj = p.status && p.status !== 'Active' ? ` — ⚠️ ${p.status}` : '';
+    byPos[pos].push(`${p.name}${nfl}${inj}`);
   }
   const rosterLines = Object.entries(byPos)
-    .sort(([a], [b]) => ['QB', 'RB', 'WR', 'TE', 'K', 'DEF'].indexOf(a) - ['QB', 'RB', 'WR', 'TE', 'K', 'DEF'].indexOf(b) || a.localeCompare(b))
+    .sort(([a], [b]) => {
+      const ai = POS_ORDER.indexOf(a);
+      const bi = POS_ORDER.indexOf(b);
+      if (ai === -1 && bi === -1) return a.localeCompare(b);
+      if (ai === -1) return 1;
+      if (bi === -1) return -1;
+      return ai - bi;
+    })
     .map(([pos, names]) => `**${pos}:** ${names.join(', ')}`)
     .join('\n');
 
-  const irLine = roster.ir.length > 0
-    ? `\n**IR:** ${roster.ir.map((p) => p.name).join(', ')}`
-    : '';
-  const taxiLine = roster.taxi.length > 0
-    ? `\n**Taxi:** ${roster.taxi.map((p) => p.name).join(', ')}`
-    : '';
-
-  const allTime = team.allTimeStats
-    ? `**Career:** ${team.allTimeStats.regularSeason.wins}-${team.allTimeStats.regularSeason.losses} regular season · ${team.allTimeStats.playoffs.wins}-${team.allTimeStats.playoffs.losses} playoffs`
-    : '';
-
-  return [
+  const lines: string[] = [
     `## 🏈 ${team.name}`,
     '',
-    `**${rec.season} Record:** ${rec.wins}-${rec.losses}${tieStr} · PF ${rec.pf} · PA ${rec.pa}`,
-    allTime,
-    `**${champStr}**`,
-    '',
-    '### Active Roster',
-    rosterLines,
-    irLine,
-    taxiLine,
-    '',
-    `*Live from Sleeper · ${new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}*`,
-  ].filter((l) => l !== undefined).join('\n');
+    `**${rec.season} Record:** ${rec.wins}-${rec.losses}${tieStr} | PF ${rec.pf.toFixed(1)} | PA ${rec.pa.toFixed(1)}`,
+  ];
+
+  if (team.allTimeStats) {
+    const rs = team.allTimeStats.regularSeason;
+    const pl = team.allTimeStats.playoffs;
+    lines.push(`**Career:** ${rs.wins}-${rs.losses} reg season | ${pl.wins}-${pl.losses} playoffs`);
+  }
+
+  lines.push(`**${champStr}**`, '', '### Active Roster', rosterLines);
+
+  if (roster.ir.length > 0) {
+    lines.push('', `**IR (${roster.ir.length}):** ${roster.ir.map((p) => `${p.name}${p.nflTeam ? ` (${p.nflTeam})` : ''}`).join(', ')}`);
+  }
+  if (roster.taxi.length > 0) {
+    lines.push(`**Taxi (${roster.taxi.length}):** ${roster.taxi.map((p) => `${p.name}${p.position ? ` · ${p.position}` : ''}`).join(', ')}`);
+  }
+
+  lines.push('', `*Live from Sleeper · ${FRESHNESS()}*`);
+  return lines.join('\n');
 }
 
 export function formatMatchupsMarkdown(
@@ -873,29 +896,398 @@ export function formatMatchupsMarkdown(
   season: string,
 ): string {
   if (matchups.length === 0) {
-    return `## 🏈 Week ${week} Matchups\n\n*No matchups found for this week.*`;
+    return `## 🏈 Week ${week} Matchups — ${season}\n\n*No matchups scheduled for this week.*\n\n*Live from Sleeper · ${FRESHNESS()}*`;
   }
 
-  const lines = matchups.map((m) => {
-    const score = m.played
-      ? `${m.away.points} – ${m.home.points}`
-      : 'vs';
-    const leader = m.played
-      ? (m.away.points > m.home.points ? `**${m.away.team}**` : m.home.points > m.away.points ? `**${m.home.team}**` : 'Tied')
-      : null;
-    const leaderStr = leader ? ` *(${leader} leads)*` : '';
-    return `| ${m.away.team} | ${score} | ${m.home.team} |${leaderStr}`;
+  const rows = matchups.map((m) => {
+    const bothZero = m.away.points === 0 && m.home.points === 0;
+    const statusLabel = bothZero ? 'Upcoming' : 'Live';
+
+    const awayPts = m.away.points.toFixed(1);
+    const homePts = m.home.points.toFixed(1);
+
+    let awayName = m.away.team;
+    let homeName = m.home.team;
+    let scoreStr: string;
+
+    if (bothZero) {
+      scoreStr = 'vs';
+    } else {
+      const awayWinning = m.away.points > m.home.points;
+      const homeWinning = m.home.points > m.away.points;
+      awayName = awayWinning ? `**${m.away.team}**` : m.away.team;
+      homeName = homeWinning ? `**${m.home.team}**` : m.home.team;
+      scoreStr = `${awayPts}–${homePts}`;
+    }
+
+    return `| ${awayName} | ${scoreStr} | ${homeName} | ${bothZero ? statusLabel : statusLabel} |`;
+  });
+
+  const allZero = matchups.every((m) => m.away.points === 0 && m.home.points === 0);
+  const weekLabel = allZero ? `Week ${week} — Upcoming` : `Week ${week} — In Progress / Final`;
+
+  return [
+    `## 🏈 ${season} ${weekLabel}`,
+    '',
+    '| Away | Score | Home | Status |',
+    '|---|:---:|---|---|',
+    ...rows,
+    '',
+    `*Bold = current leader · Live from Sleeper · ${FRESHNESS()}*`,
+  ].join('\n');
+}
+
+export function formatFranchiseMarkdown(
+  franchises: Array<{
+    team: string;
+    regularSeason: { wins: number; losses: number; ties: number; winPct: number; pf: number; avgPf: number };
+    playoffs: { wins: number; losses: number; winPct: number };
+    championships: number;
+    runnerUps: number;
+  }>,
+): string {
+  if (franchises.length === 0) {
+    return `## 🏆 East v. West All-Time Franchise Records\n\n*No data available.*`;
+  }
+
+  const rows = franchises.map((f, i) => {
+    const champ = f.championships > 0 ? ` 🏆×${f.championships}` : '';
+    const ru = f.runnerUps > 0 ? ` 🥈×${f.runnerUps}` : '';
+    const tieStr = f.regularSeason.ties > 0 ? `-${f.regularSeason.ties}` : '';
+    return `| ${i + 1} | ${f.team}${champ}${ru} | ${f.regularSeason.wins}-${f.regularSeason.losses}${tieStr} | ${f.regularSeason.winPct}% | ${f.regularSeason.avgPf.toFixed(1)} | ${f.playoffs.wins}-${f.playoffs.losses} |`;
   });
 
   return [
-    `## 🏈 Week ${week} Matchups — ${season}`,
+    '## 🏆 East v. West — All-Time Franchise Records',
     '',
-    '| Away | Score | Home |',
-    '|---|:---:|---|',
-    ...lines,
+    '| # | Team | W-L | Win% | Avg PF | Playoff W-L |',
+    '|---|---|---|---:|---:|---|',
+    ...rows,
     '',
-    `*Live from Sleeper · ${new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}*`,
+    `*Sorted by championships then win%. All regular seasons included. · ${FRESHNESS()}*`,
   ].join('\n');
+}
+
+export function formatWeeklyContextMarkdown(data: {
+  week: number;
+  season: string;
+  matchups: Array<{ matchupId: number; home: { team: string; points: number }; away: { team: string; points: number } }>;
+  standings: Array<{ rank: number; team: string; wins: number; losses: number; pf: number; championships: number }>;
+  recentTransactions: Array<{ team: string; type: string; added: string[]; dropped: string[]; faab?: number | null }>;
+}): string {
+  const { week, season, matchups, standings, recentTransactions } = data;
+
+  const matchupLines = matchups.length === 0
+    ? ['*No matchups scheduled.*']
+    : matchups.map((m) => {
+        const bothZero = m.away.points === 0 && m.home.points === 0;
+        if (bothZero) return `- ${m.away.team} vs ${m.home.team}`;
+        const awayWin = m.away.points > m.home.points;
+        const homeWin = m.home.points > m.away.points;
+        const awayStr = awayWin ? `**${m.away.team} ${m.away.points.toFixed(1)}**` : `${m.away.team} ${m.away.points.toFixed(1)}`;
+        const homeStr = homeWin ? `**${m.home.team} ${m.home.points.toFixed(1)}**` : `${m.home.team} ${m.home.points.toFixed(1)}`;
+        return `- ${awayStr} vs ${homeStr}`;
+      });
+
+  const standingLines = standings.slice(0, 6).map((s) => {
+    const champ = s.championships > 0 ? ' 🏆' : '';
+    return `${s.rank}. ${s.team}${champ} (${s.wins}-${s.losses}, ${s.pf.toFixed(0)} PF)`;
+  }).join(' · ');
+
+  const txLines = recentTransactions.slice(0, 6).map((t) => {
+    const faab = t.faab ? ` ($${t.faab} FAAB)` : '';
+    const adds = t.added.length > 0 ? `+${t.added.join(', ')}` : '';
+    const drops = t.dropped.length > 0 ? `−${t.dropped.join(', ')}` : '';
+    const moves = [adds, drops].filter(Boolean).join(' / ');
+    return `- **${t.team}:** ${moves}${faab}`;
+  });
+
+  return [
+    `## 📋 Week ${week} Content Briefing — ${season}`,
+    '',
+    '### Matchups',
+    ...matchupLines,
+    '',
+    '### Standings Snapshot (Top 6)',
+    standingLines,
+    '',
+    '### Recent Moves',
+    ...(txLines.length > 0 ? txLines : ['*No recent transactions.*']),
+    '',
+    `*Live from Sleeper · ${FRESHNESS()}*`,
+  ].join('\n');
+}
+
+export function formatDraftPicksMarkdown(
+  futurePicks: Array<{ season: string; round: number; originalTeam: string; currentOwner: string; traded: boolean }>,
+  teamFilter?: string,
+): string {
+  if (futurePicks.length === 0) {
+    const ctx = teamFilter ? ` involving **${teamFilter}**` : '';
+    return `## 🏈 Future Draft Pick Ownership${ctx}\n\n*No traded picks on record. Each team currently holds all of their own picks.*\n\n*Live from Sleeper · ${FRESHNESS()}*`;
+  }
+
+  // Group by season
+  const bySeason: Record<string, typeof futurePicks> = {};
+  for (const p of futurePicks) {
+    if (!bySeason[p.season]) bySeason[p.season] = [];
+    bySeason[p.season].push(p);
+  }
+
+  const ORDINAL = ['', '1st', '2nd', '3rd', '4th', '5th', '6th'];
+  const ord = (n: number) => ORDINAL[n] ?? `${n}th`;
+
+  const sections: string[] = [];
+  for (const season of Object.keys(bySeason).sort()) {
+    const picks = bySeason[season];
+    // Only show traded picks (different owner from original)
+    const traded = picks.filter((p) => p.traded);
+    const own = picks.filter((p) => !p.traded);
+
+    sections.push(`### ${season} Draft Picks`);
+
+    if (traded.length > 0) {
+      sections.push('**Traded picks (current owner ≠ original team):**');
+      sections.push('| Round | Original Team | Current Owner |');
+      sections.push('|---|---|---|');
+      for (const p of traded.sort((a, b) => a.round - b.round)) {
+        sections.push(`| ${ord(p.round)} | ${p.originalTeam} | **${p.currentOwner}** |`);
+      }
+    }
+
+    if (own.length > 0 && traded.length > 0) {
+      sections.push(`*${own.length} pick(s) still held by original owner.*`);
+    } else if (own.length > 0 && traded.length === 0) {
+      sections.push(`*All ${own.length} pick(s) held by original owners — no trades recorded for this year.*`);
+    }
+  }
+
+  const title = teamFilter ? `## 🏈 Draft Picks — ${teamFilter}` : '## 🏈 Future Draft Pick Ownership';
+
+  return [
+    title,
+    '',
+    ...sections,
+    '',
+    `*Live from Sleeper · ${FRESHNESS()}*`,
+  ].join('\n');
+}
+
+export function formatTradeHistoryMarkdown(
+  trades: Array<{
+    id: string;
+    season: string | null;
+    week: number | null;
+    date?: string;
+    teams: Array<{
+      name: string;
+      received: Array<{ name: string; position: string | null }>;
+      picks: string[];
+    }>;
+  }>,
+  teamFilter?: string,
+  limit = 10,
+): string {
+  if (trades.length === 0) {
+    const ctx = teamFilter ? ` involving **${teamFilter}**` : '';
+    return `## 🔄 Trade History${ctx}\n\n*No trades found.*\n\n*Source: Sleeper · ${FRESHNESS()}*`;
+  }
+
+  const shown = trades.slice(0, limit);
+  const title = teamFilter
+    ? `## 🔄 Trade History — ${teamFilter} (${shown.length} of ${trades.length})`
+    : `## 🔄 Recent Trades (${shown.length} of ${trades.length})`;
+
+  const ORDINAL_ROUND: Record<number, string> = { 1: '1st', 2: '2nd', 3: '3rd', 4: '4th', 5: '5th' };
+  const fmtAsset = (p: { name: string; position: string | null }) =>
+    p.position ? `${p.name} *(${p.position})*` : p.name;
+
+  const lines: string[] = [title, ''];
+
+  for (const trade of shown) {
+    const when = trade.season
+      ? trade.week ? `${trade.season} Wk ${trade.week}` : trade.season
+      : trade.date ?? 'Unknown date';
+
+    lines.push(`**${when}**`);
+
+    if (trade.teams.length === 2) {
+      const [a, b] = trade.teams;
+      const aAssets = [
+        ...a.received.map(fmtAsset),
+        ...a.picks.map((pk) => {
+          // Make pick names more readable: "2026 Mid 1st Round Pick" → "2026 1st (from ...)"
+          const roundMatch = pk.match(/\b([1-5])(?:st|nd|rd|th)?\s*round/i);
+          const round = roundMatch ? ORDINAL_ROUND[Number(roundMatch[1])] ?? roundMatch[1] : null;
+          const yearMatch = pk.match(/\b(20\d{2})\b/);
+          const year = yearMatch?.[1] ?? null;
+          return round && year ? `${year} ${round}-round pick` : pk;
+        }),
+      ];
+      const bAssets = [
+        ...b.received.map(fmtAsset),
+        ...b.picks.map((pk) => {
+          const roundMatch = pk.match(/\b([1-5])(?:st|nd|rd|th)?\s*round/i);
+          const round = roundMatch ? ORDINAL_ROUND[Number(roundMatch[1])] ?? roundMatch[1] : null;
+          const yearMatch = pk.match(/\b(20\d{2})\b/);
+          const year = yearMatch?.[1] ?? null;
+          return round && year ? `${year} ${round}-round pick` : pk;
+        }),
+      ];
+
+      lines.push(`| ${a.name} receives | ${b.name} receives |`);
+      lines.push('|---|---|');
+      const maxLen = Math.max(aAssets.length, bAssets.length, 1);
+      for (let i = 0; i < maxLen; i++) {
+        lines.push(`| ${aAssets[i] ?? '—'} | ${bAssets[i] ?? '—'} |`);
+      }
+    } else {
+      // 3-team trade fallback
+      for (const side of trade.teams) {
+        const assets = [
+          ...side.received.map(fmtAsset),
+          ...side.picks,
+        ].join(', ') || '—';
+        lines.push(`- **${side.name} receives:** ${assets}`);
+      }
+    }
+    lines.push('');
+  }
+
+  if (trades.length > limit) {
+    lines.push(`*Showing ${limit} most recent. Use \`limit\` or \`season\` params to filter.*`);
+  }
+  lines.push(`*Source: Sleeper · ${FRESHNESS()}*`);
+
+  return lines.join('\n');
+}
+
+export function formatRuleAnswerMarkdown(data: {
+  section?: { id: string; title: string; text: string };
+  sections?: Array<{ id: string; title: string; text: string; matchingLines?: string[] }>;
+  error?: string;
+  availableSections?: Array<{ id: string; title: string }>;
+}): string {
+  // Error state: section not found
+  if (data.error === 'section_not_found') {
+    const list = (data.availableSections ?? [])
+      .map((s) => `- \`${s.id}\` — ${s.title}`)
+      .join('\n');
+    return `## 📋 East v. West Rulebook\n\n*Section not found. Available sections:*\n\n${list}`;
+  }
+
+  // Single section direct lookup
+  if (data.section) {
+    const { title, text } = data.section;
+    // Show first 800 chars of text, trimmed at a sentence boundary
+    const trimmed = text.length > 800
+      ? text.slice(0, 800).replace(/\s+\S*$/, '') + '…'
+      : text;
+    return [
+      `## 📋 ${title}`,
+      '',
+      trimmed,
+      '',
+      `*East v. West Rulebook v3, ratified 2026-02-12 · ${FRESHNESS()}*`,
+    ].join('\n');
+  }
+
+  // Search results
+  const sections = data.sections ?? [];
+  if (sections.length === 0) {
+    return `## 📋 East v. West Rulebook\n\n*No matching rules found. Try a different keyword.*\n\n*${FRESHNESS()}*`;
+  }
+
+  const MAX_SECTIONS = 3;
+  const MAX_LINES_PER = 6;
+  const shown = sections.slice(0, MAX_SECTIONS);
+  const lines: string[] = ['## 📋 East v. West Rulebook — Matching Rules', ''];
+
+  for (const s of shown) {
+    lines.push(`### ${s.title}`);
+    if (s.matchingLines && s.matchingLines.length > 0) {
+      const excerpts = s.matchingLines.slice(0, MAX_LINES_PER);
+      for (const l of excerpts) {
+        lines.push(`> ${l.trim()}`);
+      }
+      if (s.matchingLines.length > MAX_LINES_PER) {
+        lines.push(`> *…${s.matchingLines.length - MAX_LINES_PER} more matching lines*`);
+      }
+    } else {
+      // No matchingLines (unfiltered full section) — show first 300 chars
+      const preview = s.text.length > 300
+        ? s.text.slice(0, 300).replace(/\s+\S*$/, '') + '…'
+        : s.text;
+      lines.push(preview);
+    }
+    lines.push('');
+  }
+
+  if (sections.length > MAX_SECTIONS) {
+    lines.push(`*${sections.length - MAX_SECTIONS} more section(s) matched — use \`section\` param for a direct lookup.*`);
+    lines.push('');
+  }
+
+  lines.push('*If interpretation is unclear, commissioner review may be needed.*');
+  lines.push(`*East v. West Rulebook v3, ratified 2026-02-12 · ${FRESHNESS()}*`);
+  return lines.join('\n');
+}
+
+export function formatRosterMarkdown(data: {
+  rosters: Array<{
+    team: string;
+    record: { wins: number; losses: number; ties: number } | null;
+    players: Array<{ name: string; position: string | null; nflTeam: string | null; status: string | null; slot: string }>;
+  }>;
+}): string | null {
+  // Only produce a card for single-team requests — all-teams is too large
+  if (data.rosters.length !== 1) return null;
+
+  const r = data.rosters[0];
+  const recStr = r.record
+    ? ` · ${r.record.wins}-${r.record.losses}${r.record.ties > 0 ? `-${r.record.ties}` : ''}`
+    : '';
+
+  const active = r.players.filter((p) => p.slot === 'active');
+  const ir = r.players.filter((p) => p.slot === 'ir');
+  const taxi = r.players.filter((p) => p.slot === 'taxi');
+
+  const byPos: Record<string, string[]> = {};
+  for (const p of active) {
+    const pos = p.position ?? 'UNKN';
+    if (!byPos[pos]) byPos[pos] = [];
+    const nfl = p.nflTeam ? ` (${p.nflTeam})` : '';
+    const inj = p.status && p.status !== 'Active' ? ` ⚠️ ${p.status}` : '';
+    byPos[pos].push(`${p.name}${nfl}${inj}`);
+  }
+
+  const rosterLines = Object.entries(byPos)
+    .sort(([a], [b]) => {
+      const ai = POS_ORDER.indexOf(a);
+      const bi = POS_ORDER.indexOf(b);
+      if (ai === -1 && bi === -1) return a.localeCompare(b);
+      if (ai === -1) return 1;
+      if (bi === -1) return -1;
+      return ai - bi;
+    })
+    .map(([pos, names]) => `**${pos}:** ${names.join(', ')}`)
+    .join('\n');
+
+  const lines: string[] = [
+    `## 🏈 ${r.team} — Current Roster${recStr}`,
+    '',
+    rosterLines,
+  ];
+
+  if (ir.length > 0) {
+    lines.push('', `**IR (${ir.length}):** ${ir.map((p) => `${p.name}${p.nflTeam ? ` (${p.nflTeam})` : ''}${p.status && p.status !== 'Active' ? ` ⚠️ ${p.status}` : ''}`).join(', ')}`);
+  }
+  if (taxi.length > 0) {
+    lines.push(`**Taxi (${taxi.length}):** ${taxi.map((p) => `${p.name}${p.position ? ` · ${p.position}` : ''}`).join(', ')}`);
+  }
+
+  lines.push('', `*Live from Sleeper · ${FRESHNESS()}*`);
+  return lines.join('\n');
 }
 
 // ─── error class ──────────────────────────────────────────────────────────────

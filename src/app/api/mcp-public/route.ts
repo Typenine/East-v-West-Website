@@ -35,6 +35,12 @@ import {
   formatStandingsMarkdown,
   formatTeamMarkdown,
   formatMatchupsMarkdown,
+  formatFranchiseMarkdown,
+  formatWeeklyContextMarkdown,
+  formatDraftPicksMarkdown,
+  formatTradeHistoryMarkdown,
+  formatRuleAnswerMarkdown,
+  formatRosterMarkdown,
   McpError,
 } from '@/lib/mcp/handlers';
 
@@ -220,26 +226,54 @@ async function dispatchTool(name: string, input: ToolInput): Promise<DispatchRes
     }
     case 'get_league_info':
       return { structuredContent: await handleGetLeagueInfo(), markdown: null };
-    case 'get_current_roster':
-      return { structuredContent: await handleGetRosters({ team: input.team as string | undefined }), markdown: null };
+    case 'get_current_roster': {
+      const data = await handleGetRosters({ team: input.team as string | undefined });
+      const md = formatRosterMarkdown(data as Parameters<typeof formatRosterMarkdown>[0]);
+      return {
+        structuredContent: data,
+        markdown: md ?? (
+          (data as { rosters: unknown[] }).rosters.length > 1
+            ? `*Showing all ${(data as { rosters: unknown[] }).rosters.length} team rosters as JSON. Use \`team\` param to get a formatted card for one team.*\n\n${JSON.stringify(data)}`
+            : JSON.stringify(data)
+        ),
+      };
+    }
     case 'search_players':
       return { structuredContent: await handleGetPlayer({ name: input.name as string | undefined, limit: input.limit as number | undefined }), markdown: null };
     case 'get_player_info':
       return { structuredContent: await handleGetPlayer({ id: input.id as string | undefined }), markdown: null };
     case 'get_recent_transactions':
       return { structuredContent: await handleGetTransactions({ limit: input.limit as number | undefined, team: input.team as string | undefined, season: input.season as string | undefined }), markdown: null };
-    case 'get_trade_history':
-      return { structuredContent: await handleGetTrades({ team: input.team as string | undefined, season: input.season as string | undefined, limit: input.limit as number | undefined }), markdown: null };
+    case 'get_trade_history': {
+      const teamArg = input.team as string | undefined;
+      const limitArg = input.limit as number | undefined;
+      const data = await handleGetTrades({ team: teamArg, season: input.season as string | undefined, limit: limitArg });
+      type TradeResult = { trades: Parameters<typeof formatTradeHistoryMarkdown>[0] };
+      const d = data as TradeResult;
+      return { structuredContent: data, markdown: formatTradeHistoryMarkdown(d.trades, teamArg, Math.min(limitArg ?? 8, 8)) };
+    }
     case 'get_draft_history':
       return { structuredContent: await handleGetDrafts({ season: input.season as string | undefined, team: input.team as string | undefined, type: input.type as string | undefined }), markdown: null };
-    case 'get_draft_picks':
-      return { structuredContent: await handleGetDrafts({ team: input.team as string | undefined, type: 'future' }), markdown: null };
-    case 'get_franchise_summary':
-      return { structuredContent: await handleGetFranchise({ team: input.team as string | undefined }), markdown: null };
-    case 'answer_rule_question':
-      return { structuredContent: await handleGetRules({ search: input.search as string | undefined, section: input.section as string | undefined }), markdown: null };
-    case 'get_weekly_content_context':
-      return { structuredContent: await handleGetWeeklyContext(), markdown: null };
+    case 'get_draft_picks': {
+      const teamArg = input.team as string | undefined;
+      const data = await handleGetDrafts({ team: teamArg, type: 'future' });
+      const d = data as { futurePickOwnership: Parameters<typeof formatDraftPicksMarkdown>[0] };
+      return { structuredContent: data, markdown: formatDraftPicksMarkdown(d.futurePickOwnership, teamArg) };
+    }
+    case 'get_franchise_summary': {
+      const data = await handleGetFranchise({ team: input.team as string | undefined });
+      const d = data as { franchises: Parameters<typeof formatFranchiseMarkdown>[0] };
+      return { structuredContent: data, markdown: formatFranchiseMarkdown(d.franchises) };
+    }
+    case 'answer_rule_question': {
+      const data = await handleGetRules({ search: input.search as string | undefined, section: input.section as string | undefined });
+      return { structuredContent: data, markdown: formatRuleAnswerMarkdown(data as Parameters<typeof formatRuleAnswerMarkdown>[0]) };
+    }
+    case 'get_weekly_content_context': {
+      const data = await handleGetWeeklyContext();
+      const d = data as Parameters<typeof formatWeeklyContextMarkdown>[0];
+      return { structuredContent: data, markdown: formatWeeklyContextMarkdown(d) };
+    }
     default:
       throw new McpError('method_not_found', `Unknown tool: ${name}`);
   }

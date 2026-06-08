@@ -175,30 +175,55 @@ Invoke-RestMethod `
 
 ---
 
-## Phase 5 — Proof of Concept: Rich Chat Cards
+## Phase 5 — Rich Chat Cards (Reliability Pass Complete)
 
-The `/api/mcp-public` endpoint now returns **Markdown-formatted responses** for three tools.
-ChatGPT renders these as clean visual cards in the chat thread (table, bold headers, live date stamp).
+The `/api/mcp-public` endpoint returns **Markdown-formatted responses** for five tools.
+ChatGPT renders these as clean visual cards in the chat thread (ranked tables, bold leaders, position-grouped rosters, live date stamp).
 
-> **Note on full iframe widgets:** The ChatGPT Apps SDK iframe widget system (embedded React components) requires a compiled frontend bundle registered as an MCP resource (`text/html;profile=mcp-app`) plus the `@modelcontextprotocol/ext-apps/server` package. That is a separate build pipeline and is Phase 6+. The Markdown card approach used here works right now with the existing endpoint.
+> **Note on true iframe widgets:** The ChatGPT Apps SDK iframe widget system requires a compiled React bundle registered as an MCP resource (`text/html;profile=mcp-app`) plus the `@modelcontextprotocol/ext-apps/server` package — a separate build pipeline. That is deferred to **Phase 7+**. The Markdown card approach works right now with the existing endpoint and no new dependencies.
+
+### Reliability fixes applied (Phase 5 pass)
+- Fixed Markdown table row alignment bug in matchups (leader label was breaking table parser)
+- Fixed double blank lines in team card IR/taxi sections
+- Empty state for every formatter (no card = no crash)
+- Standings: added Avg PF column, ◀ leader marker, rounded floats to 1 decimal
+- Team card: NFL team abbreviation next to each player, ⚠️ injury flags, position sort order
+- Matchups: "Upcoming" vs "Live" status column, bold current leader within table
 
 ### Tools with rich Markdown card rendering
 
 | Tool | Renders as |
 |---|---|
-| `get_current_standings` | Ranked table with W-L, PF, and 🏆 championship counts |
-| `get_team_dashboard` | Team header, season record, roster grouped by position, career stats |
-| `get_current_matchups` | Matchup table with scores and bold leader indicator |
+| `get_current_standings` | Ranked table with W-L, PF, Avg PF, ◀ leader, 🏆 championships |
+| `get_team_dashboard` | Record, career stats, roster by position with NFL team + injury flags |
+| `get_current_matchups` | Score table with bold leader, Upcoming/Live status |
+| `get_franchise_summary` | All-time ranked table with win%, avg PF, playoff record |
+| `get_weekly_content_context` | Briefing card: matchups + top-6 standings + recent moves |
 
-All other tools return structured JSON text that ChatGPT narrates conversationally.
+All other tools return structured JSON that ChatGPT narrates conversationally.
 
-### Test prompts for the Markdown cards
-
+### Phase 5 test prompts
 ```
 Show me the current standings.
 Show me the Belltown Raptors team card.
 What are this week's matchups?
+Show me the all-time franchise records.
+Give me a weekly briefing.
 ```
+
+### Phase 6A — Completed
+
+All four Phase 6A Markdown cards have been added:
+
+| Tool | Card behaviour |
+|---|---|
+| `get_draft_picks` | Traded picks grouped by draft year with original vs current owner table; untouched picks summarised as a single line |
+| `get_trade_history` | Two-column swap table per trade (Team A receives / Team B receives); 3-team trades use bullet fallback; capped at 8 trades in chat |
+| `answer_rule_question` | Section title + block-quote excerpts (max 3 sections, 6 lines each); full-section lookup shows first 800 chars; "commissioner review" note when ambiguous |
+| `get_current_roster` | Formatted card when a single `team` is provided (position-grouped, NFL team, ⚠️ injury flags, IR/taxi counts); all-teams call returns a hint to use the `team` param |
+
+### Phase 7 — True iframe widgets (deferred)
+Full ChatGPT Apps SDK iframe widgets require a compiled React bundle (`text/html;profile=mcp-app`), `@modelcontextprotocol/ext-apps/server`, and a separate frontend build pipeline. All current functionality uses the Markdown card approach which works right now without new dependencies.
 
 ---
 
@@ -210,16 +235,16 @@ What are this week's matchups?
 | `get_team_dashboard` | 🏈 Markdown card | Record, full roster by position (active/IR/taxi), career stats, championships |
 | `get_current_matchups` | 🏈 Markdown table | This week's matchups with scores and leader |
 | `get_league_info` | text | League name, format, scoring, payouts, roster config, dates, champions, rulebook |
-| `get_current_roster` | text | All rosters or one team's roster with names, positions, status, slot |
+| `get_current_roster` | 🏈 Markdown card (single team) | Roster by position with NFL team + injury flags; all-teams returns JSON with hint |
 | `search_players` | text | Player name search; league-owned players ranked first |
 | `get_player_info` | text | Single player profile + which fantasy team owns them |
 | `get_recent_transactions` | text | Waiver/FA pickups and drops, filterable by team/season |
-| `get_trade_history` | text | All trades with player names and pick descriptions |
+| `get_trade_history` | 🔄 Markdown swap table | Two-column trade card (Team A / Team B receives), capped at 8 in chat |
 | `get_draft_history` | text | Historical draft picks by season + future pick ownership |
-| `get_draft_picks` | text | Future pick ownership only |
-| `get_franchise_summary` | text | All-time franchise stats: W/L, win%, PF/PA, playoff record, championships |
-| `answer_rule_question` | text | Full rulebook plain text; keyword search and section lookup |
-| `get_weekly_content_context` | text | Matchups, standings, recent moves, champions — for weekly recap/preview |
+| `get_draft_picks` | 🏈 Markdown table | Future pick ownership grouped by year; traded picks highlighted |
+| `answer_rule_question` | 📋 Markdown excerpts | Rule section title + block-quote matching lines; commissioner note if ambiguous |
+| `get_franchise_summary` | 🏆 Markdown table | All-time franchise stats: W/L, win%, avg PF, playoff record, championships |
+| `get_weekly_content_context` | 📋 Markdown briefing | Matchups, top-6 standings, recent moves — weekly recap/preview card |
 
 ---
 
@@ -252,12 +277,20 @@ Once connected, try these (starred prompts trigger the Markdown card rendering):
 - "Show me all trades involving Bimg Bamg Boomg."
 - "What first-round picks does each team own?"
 - "Who did the Red Pandas trade away in 2025?"
+- "Show me recent trades."
+- "What picks does Belltown Raptors own?"
+- "Show me the draft pick ownership for 2027."
 
 **Rules**
 - "What does the rulebook say about taxi squads?"
 - "What is the trade deadline rule?"
 - "What are the FAAB waiver rules?"
 - "How does the toilet bowl work?"
+- "Look up the waivers-free-agents section of the rulebook."
+
+**Rosters (single team)**
+- "Show me the current roster for Double Trouble."
+- "Who is on IR for Elemental Heroes?"
 
 **Content / Weekly Recap**
 - "Give me a weekly recap context for this week."
