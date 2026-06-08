@@ -222,8 +222,94 @@ All four Phase 6A Markdown cards have been added:
 | `answer_rule_question` | Section title + block-quote excerpts (max 3 sections, 6 lines each); full-section lookup shows first 800 chars; "commissioner review" note when ambiguous |
 | `get_current_roster` | Formatted card when a single `team` is provided (position-grouped, NFL team, ⚠️ injury flags, IR/taxi counts); all-teams call returns a hint to use the `team` param |
 
-### Phase 7 — True iframe widgets (deferred)
-Full ChatGPT Apps SDK iframe widgets require a compiled React bundle (`text/html;profile=mcp-app`), `@modelcontextprotocol/ext-apps/server`, and a separate frontend build pipeline. All current functionality uses the Markdown card approach which works right now without new dependencies.
+---
+
+## Phase 7 — Content Studio
+
+`get_weekly_content_context` is now a full Content Studio briefing. One tool call gives ChatGPT everything it needs to draft league content — no additional tool calls required for most content types.
+
+### What the briefing includes
+
+| Section | Details |
+|---|---|
+| Matchups | Scores or upcoming pairings, `Upcoming/Live` status, story hook per game (mirror records, top-vs-bottom) |
+| Standings | Full 12-team table with W-L, PF, PA, avg PF, 🏆 champion flag |
+| Playoff race | Last team in, first team out, win/PF bubble gap, clinch note after Week 12 |
+| Recent trades | Last 5 trades this season — who received what |
+| Recent waivers | Last 8 waiver/FA moves this season with FAAB spend |
+| Injury flags | Non-Active players across all rosters (IR, Out, Doubtful, etc.) |
+| Suggested storylines | Computed from data: leader narrative, bubble matchup, close games, champion-falling storyline, trade alert |
+| Suggested headlines | 7 ready-to-edit headline options for preview, recap, trade, power rankings, waiver wire |
+| Missing data notes | Any sections that returned empty (e.g., off-season, no trades yet) |
+
+> **All output is DRAFT ONLY.** The briefing card carries a visible "DRAFT ONLY" warning. Nothing auto-posts to Discord or the website.
+
+### Commissioner Content Studio prompts
+
+Use these in ChatGPT after connecting the East v. West MCP:
+
+**Weekly preview**
+```
+Get my weekly content context, then write a Week [N] matchup preview for East v. West. 
+Lead with the Game of the Week. Use the story hooks. Keep it under 300 words.
+```
+
+**Weekly recap**
+```
+Get my weekly content context, then write a Week [N] recap. 
+Highlight the highest scorer, closest game, and any playoff implications. Draft only.
+```
+
+**Game of the Week blurb**
+```
+Get my weekly content context, then write a 2-paragraph Game of the Week blurb 
+for [Team A] vs [Team B]. Include their records and what's at stake.
+```
+
+**Trade recap**
+```
+Get my weekly content context, then write a trade breakdown for the most recent trade.
+Use a "Who Won?" format. Do not invent outcomes — flag anything speculative.
+```
+
+**Waiver wire recap**
+```
+Get my weekly content context, then write a waiver wire recap for this week.
+Highlight the biggest FAAB spend and most surprising adds. Keep it punchy.
+```
+
+**Power rankings**
+```
+Get my weekly content context, then draft power rankings for all 12 teams.
+Base them on record, PF, and recent trends. Add a one-line blurb per team.
+```
+
+**Playoff race update**
+```
+Get my weekly content context, then write a playoff race update.
+Focus on the bubble: who's in, who's out, and what it takes to change.
+```
+
+**Rivalry / storyline blurb**
+```
+Get my weekly content context, then write a rivalry-style matchup blurb for 
+[Team A] vs [Team B]. Use their all-time records and championship history.
+```
+
+**End-of-season awards**
+```
+Get my weekly content context, then get the franchise summary for all teams.
+Draft an end-of-season awards section: Most Improved, Best Trade, Unluckiest Team (most PF with fewest wins).
+```
+
+**Draft trip content**
+```
+Get the draft pick ownership and trade history, then write a pre-draft storyline 
+about who has the most ammunition and who traded away their future.
+```
+
+### Phase 8 — True iframe widgets (deferred)
+Full ChatGPT Apps SDK iframe widgets require a compiled React bundle (`text/html;profile=mcp-app`), `@modelcontextprotocol/ext-apps/server`, and a separate frontend build pipeline. All current functionality uses the Markdown card approach without new dependencies.
 
 ---
 
@@ -244,7 +330,7 @@ Full ChatGPT Apps SDK iframe widgets require a compiled React bundle (`text/html
 | `get_draft_picks` | 🏈 Markdown table | Future pick ownership grouped by year; traded picks highlighted |
 | `answer_rule_question` | 📋 Markdown excerpts | Rule section title + block-quote matching lines; commissioner note if ambiguous |
 | `get_franchise_summary` | 🏆 Markdown table | All-time franchise stats: W/L, win%, avg PF, playoff record, championships |
-| `get_weekly_content_context` | 📋 Markdown briefing | Matchups, top-6 standings, recent moves — weekly recap/preview card |
+| `get_weekly_content_context` | 📋 Content Studio briefing | Matchups + story hooks, full standings (PF/PA/avg), playoff race, recent trades, waivers, injuries, storylines, headlines |
 
 ---
 

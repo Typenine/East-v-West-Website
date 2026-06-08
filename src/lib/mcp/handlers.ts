@@ -680,9 +680,11 @@ export async function handleGetRules(input: { search?: string; section?: string 
 }
 
 // ─── tool: get_weekly_content_context ─────────────────────────────────────────
-// Returns everything a content writer or bot needs to write weekly recap or
-// preview content: current matchups, recent transactions, standings snapshot,
-// and league context. Designed to be fast — focuses on current-week live data.
+// Returns everything a content writer or bot needs to write weekly content:
+// matchups, standings with PF/PA/avg, recent trades, recent waiver moves,
+// injury flags, playoff race snapshot, suggested storylines and headlines,
+// franchise championship hooks, and missing-data notes.
+// All data is live from Sleeper — no new API calls beyond existing utilities.
 
 export async function handleGetWeeklyContext() {
   const leagueId = LEAGUE_IDS.CURRENT;
@@ -698,83 +700,249 @@ export async function handleGetWeeklyContext() {
     nflSeason = String((state as { season?: string | number }).season ?? '');
   } catch { /* use defaults */ }
 
-  const [matchups, teams, rosters] = await Promise.all([
+  const season = nflSeason || CURRENT_SEASON;
+
+  // Parallel fetches — all best-effort
+  const [matchupSlots, teams, rosters, allPlayers, ledger, allTrades] = await Promise.all([
     getLeagueMatchups(leagueId, week, opts).catch(() => [] as SleeperMatchup[]),
     getTeamsData(leagueId, opts).catch(() => []),
     getLeagueRosters(leagueId, opts).catch(() => []),
+    getAllPlayersCached().catch(() => ({} as Record<string, SleeperPlayer>)),
+    buildTransactionLedger().catch(() => []),
+    fetchTradesAllTime().catch(() => []),
   ]);
 
   const rosterIdToName = new Map<number, string>(teams.map((t) => [t.rosterId, t.teamName]));
+  const missingData: string[] = [];
 
-  // Current-week matchups with scores
+  // ── Matchups ─────────────────────────────────────────────────────────────────
   const byId = new Map<number, SleeperMatchup[]>();
-  for (const m of matchups) {
+  for (const m of matchupSlots) {
     const arr = byId.get(m.matchup_id) ?? [];
     arr.push(m);
     byId.set(m.matchup_id, arr);
   }
-  const weekMatchups = [];
+  const weekMatchups: Array<{
+    matchupId: number;
+    away: { team: string; points: number };
+    home: { team: string; points: number };
+    status: 'upcoming' | 'live' | 'final';
+    spread: number | null;
+    storyHook: string | null;
+  }> = [];
+
   for (const [matchupId, pair] of byId.entries()) {
     if (pair.length < 2) continue;
     const [a, b] = pair;
-    const aPts = Number(a.custom_points ?? a.points ?? 0);
-    const bPts = Number(b.custom_points ?? b.points ?? 0);
+    const aPts = Math.round(Number(a.custom_points ?? a.points ?? 0) * 100) / 100;
+    const bPts = Math.round(Number(b.custom_points ?? b.points ?? 0) * 100) / 100;
+    const status: 'upcoming' | 'live' | 'final' =
+      aPts === 0 && bPts === 0 ? 'upcoming' : 'live';
+    const spread = aPts > 0 || bPts > 0 ? Math.abs(aPts - bPts) : null;
     weekMatchups.push({
       matchupId,
-      home: { team: rosterIdToName.get(b.roster_id) ?? `Roster ${b.roster_id}`, points: Math.round(bPts * 100) / 100 },
-      away: { team: rosterIdToName.get(a.roster_id) ?? `Roster ${a.roster_id}`, points: Math.round(aPts * 100) / 100 },
+      away: { team: rosterIdToName.get(a.roster_id) ?? `Roster ${a.roster_id}`, points: aPts },
+      home: { team: rosterIdToName.get(b.roster_id) ?? `Roster ${b.roster_id}`, points: bPts },
+      status,
+      spread,
+      storyHook: null, // filled below
     });
   }
   weekMatchups.sort((a, b) => a.matchupId - b.matchupId);
+  if (matchupSlots.length === 0) missingData.push('Current-week matchup data not available.');
 
-  // Current standings snapshot from roster settings
+  // ── Standings (with PA and avg PF) ───────────────────────────────────────────
   const champs = champCounts();
-  const standingsSnapshot = rosters
+  type StandingRow = {
+    rank: number; team: string; wins: number; losses: number; ties: number;
+    pf: number; pa: number; avgPf: number; championships: number; isChampion: boolean;
+  };
+  const standings: StandingRow[] = rosters
     .map((r) => {
       const name = rosterIdToName.get(r.roster_id) ?? `Roster ${r.roster_id}`;
-      const s = r.settings as { wins?: number; losses?: number; fpts?: number; fpts_decimal?: number } | undefined;
+      const s = r.settings as {
+        wins?: number; losses?: number; ties?: number;
+        fpts?: number; fpts_decimal?: number;
+        fpts_against?: number; fpts_against_decimal?: number;
+      } | undefined;
       const pf = (s?.fpts ?? 0) + (s?.fpts_decimal ?? 0) / 100;
+      const pa = (s?.fpts_against ?? 0) + (s?.fpts_against_decimal ?? 0) / 100;
+      const gp = (s?.wins ?? 0) + (s?.losses ?? 0) + (s?.ties ?? 0);
       return {
         team: name,
-        wins: s?.wins ?? 0,
-        losses: s?.losses ?? 0,
+        wins: s?.wins ?? 0, losses: s?.losses ?? 0, ties: s?.ties ?? 0,
         pf: Math.round(pf * 100) / 100,
+        pa: Math.round(pa * 100) / 100,
+        avgPf: gp > 0 ? Math.round((pf / gp) * 100) / 100 : 0,
         championships: champs[name] ?? 0,
+        isChampion: (champs[name] ?? 0) > 0,
       };
     })
     .sort((a, b) => b.wins - a.wins || b.pf - a.pf)
     .map((r, i) => ({ rank: i + 1, ...r }));
 
-  // Recent transactions (last 10)
-  let recentTransactions: unknown[] = [];
-  try {
-    const ledger = await buildTransactionLedger();
-    recentTransactions = [...ledger]
-      .sort((a, b) => b.created - a.created)
-      .slice(0, 10)
-      .map((t) => ({
-        team: t.team, type: t.type, faab: t.faab,
-        added: t.added.map((p) => p.name ?? p.playerId),
-        dropped: t.dropped.map((p) => p.name ?? p.playerId),
-        createdAt: new Date(t.created).toISOString(),
-      }));
-  } catch { /* best effort */ }
+  if (rosters.length === 0) missingData.push('Standings data not available.');
+
+  // ── Playoff race ─────────────────────────────────────────────────────────────
+  const totalTeams = standings.length;
+  const playoffSpots = totalTeams >= 10 ? 6 : 4; // standard league defaults
+  const inPlayoffs = standings.filter((s) => s.rank <= playoffSpots);
+  const onBubble = standings.filter((s) => s.rank > playoffSpots && s.rank <= playoffSpots + 2);
+  const eliminated = standings.filter((s) => s.rank > playoffSpots + 2 && week >= 12);
+  const lastInSpot = standings[playoffSpots - 1] ?? null;
+  const firstOut = standings[playoffSpots] ?? null;
+  const bubbleGap = lastInSpot && firstOut
+    ? { wins: lastInSpot.wins - firstOut.wins, pf: Math.round((lastInSpot.pf - firstOut.pf) * 100) / 100 }
+    : null;
+
+  const playoffRace = {
+    playoffSpots,
+    inPlayoffs: inPlayoffs.map((s) => ({ team: s.team, rank: s.rank, wins: s.wins, losses: s.losses })),
+    onBubble: onBubble.map((s) => ({ team: s.team, rank: s.rank, wins: s.wins, losses: s.losses })),
+    eliminated: eliminated.map((s) => s.team),
+    bubbleGap,
+    clinchNote: week >= 13 ? 'Playoff seeding may be near-final.' : null,
+  };
+
+  // ── Recent trades (current season, last 5) ───────────────────────────────────
+  const recentTrades = [...allTrades]
+    .filter((t) => !season || String(t.season) === season)
+    .sort((a, b) => {
+      const ta = typeof a.created === 'number' ? a.created : Date.parse(a.date ?? '0');
+      const tb = typeof b.created === 'number' ? b.created : Date.parse(b.date ?? '0');
+      return tb - ta;
+    })
+    .slice(0, 5)
+    .map((t) => ({
+      week: t.week ?? null,
+      teams: t.teams.map((side) => ({
+        name: side.name,
+        received: side.assets.filter((a) => a.type === 'player').map((a) => ({ name: a.name, position: a.position ?? null })),
+        picks: side.assets.filter((a) => a.type === 'pick').map((a) => a.name),
+      })),
+    }));
+
+  // ── Recent waiver/FA moves (current season, last 8) ──────────────────────────
+  const recentWaivers = [...ledger]
+    .filter((t) => !season || t.season === season)
+    .sort((a, b) => b.created - a.created)
+    .slice(0, 8)
+    .map((t) => ({
+      team: t.team, type: t.type, week: t.week, faab: t.faab ?? null,
+      added: t.added.map((p) => p.name ?? p.playerId),
+      dropped: t.dropped.map((p) => p.name ?? p.playerId),
+    }));
+
+  if (ledger.length === 0) missingData.push('Transaction history not available.');
+
+  // ── Injury/notable context (non-Active players on active rosters) ─────────────
+  type InjuryNote = { team: string; player: string; position: string | null; status: string };
+  const injuries: InjuryNote[] = [];
+  for (const roster of rosters) {
+    const teamName = rosterIdToName.get(roster.roster_id) ?? `Roster ${roster.roster_id}`;
+    const playerIds: string[] = (roster as unknown as { players?: string[] }).players ?? [];
+    for (const pid of playerIds.slice(0, 30)) { // cap scan per team
+      const pl = allPlayers[pid];
+      if (!pl) continue;
+      const status = pl.injury_status ?? pl.status ?? '';
+      if (status && status !== 'Active' && status !== 'ACT') {
+        injuries.push({
+          team: teamName,
+          player: `${pl.first_name || ''} ${pl.last_name || ''}`.trim(),
+          position: pl.position ?? null,
+          status,
+        });
+      }
+    }
+  }
+  if (allPlayers && Object.keys(allPlayers).length === 0) missingData.push('Player database not available for injury context.');
+
+  // ── Suggested storylines (computed from data, not invented) ──────────────────
+  const storylines: string[] = [];
+
+  if (standings.length > 0) {
+    const leader = standings[0];
+    storylines.push(`${leader.team} leads the league at ${leader.wins}-${leader.losses} — are they pulling away or is the field closing?`);
+  }
+  if (bubbleGap) {
+    const lastIn = lastInSpot!;
+    const firstO = firstOut!;
+    const gapDesc = bubbleGap.wins === 0
+      ? `tied in wins but separated by ${bubbleGap.pf} PF`
+      : `${bubbleGap.wins} win(s) apart`;
+    storylines.push(`Playoff bubble: ${lastIn.team} (last in at #${lastIn.rank}) vs. ${firstO.team} (first out at #${firstO.rank}) — ${gapDesc}.`);
+  }
+  if (recentTrades.length > 0) {
+    const t = recentTrades[0];
+    if (t.teams.length === 2) {
+      storylines.push(`Trade alert: ${t.teams[0].name} and ${t.teams[1].name} made a deal${t.week ? ` in Week ${t.week}` : ''}. Who won?`);
+    }
+  }
+  const highScorer = weekMatchups.length > 0 && weekMatchups[0].status !== 'upcoming'
+    ? [...weekMatchups].sort((a, b) => Math.max(b.away.points, b.home.points) - Math.max(a.away.points, a.home.points))[0]
+    : null;
+  if (highScorer) {
+    const top = highScorer.away.points >= highScorer.home.points ? highScorer.away : highScorer.home;
+    storylines.push(`High-score watch: ${top.team} is putting up ${top.points} points this week.`);
+  }
+  const closeGame = weekMatchups.find((m) => m.spread !== null && m.spread < 10 && m.status === 'live');
+  if (closeGame) {
+    storylines.push(`Nail-biter: ${closeGame.away.team} vs ${closeGame.home.team} — separated by just ${closeGame.spread?.toFixed(1)} points.`);
+  }
+  const champTeam = standings.find((s) => s.isChampion && s.rank > playoffSpots);
+  if (champTeam) {
+    storylines.push(`Defending/past champion ${champTeam.team} is currently outside the playoff line at #${champTeam.rank}.`);
+  }
+  for (const m of weekMatchups) {
+    // Same record match
+    const aStanding = standings.find((s) => s.team === m.away.team);
+    const hStanding = standings.find((s) => s.team === m.home.team);
+    if (aStanding && hStanding && aStanding.wins === hStanding.wins && aStanding.losses === hStanding.losses) {
+      m.storyHook = `Mirror match: both teams are ${aStanding.wins}-${aStanding.losses}`;
+    } else if (aStanding && hStanding) {
+      const rankDiff = Math.abs(aStanding.rank - hStanding.rank);
+      if (rankDiff >= 6) {
+        const top = aStanding.rank < hStanding.rank ? aStanding : hStanding;
+        const bot = aStanding.rank < hStanding.rank ? hStanding : aStanding;
+        m.storyHook = `Top vs. bottom: #${top.rank} ${top.team} faces #${bot.rank} ${bot.team}`;
+      }
+    }
+  }
+
+  // ── Suggested headlines ───────────────────────────────────────────────────────
+  const season2 = season;
+  const suggestedHeadlines = [
+    `Week ${week} Preview: Who Controls Their Own Destiny?`,
+    `Week ${week} Recap: Scores, Highlights & Playoff Implications`,
+    `Game of the Week: ${weekMatchups[0] ? `${weekMatchups[0].away.team} vs ${weekMatchups[0].home.team}` : 'TBD'}`,
+    `Trade Breakdown: ${recentTrades[0]?.teams.map((t) => t.name).join(' and ') ?? 'Recent Activity'} — Picks and Winners`,
+    `Power Rankings: Week ${week} — ${season2} Edition`,
+    `Playoff Race Update: Who's In, Who's Out After Week ${week}?`,
+    `Waiver Wire Winners & Losers — Week ${week}`,
+  ];
 
   return {
     meta: mcpMeta('get_weekly_context', {
       week,
-      season: nflSeason || CURRENT_SEASON,
+      season,
       seasonType,
       dataSource: 'sleeper-live',
-      note: 'Designed for content creation. Contains current matchups, standings, and recent roster moves.',
+      contentDraftNote: 'DRAFT ONLY — do not auto-publish. All content should be reviewed before sharing.',
     }),
     week,
-    season: nflSeason || CURRENT_SEASON,
+    season,
     leagueName: 'East v. West Fantasy Football',
     matchups: weekMatchups,
-    standings: standingsSnapshot,
-    recentTransactions,
+    standings,
+    playoffRace,
+    recentTrades,
+    recentWaivers,
+    injuries: injuries.slice(0, 20), // cap at 20 to keep response manageable
     champions: CHAMPIONS,
+    suggestedStorylines: storylines,
+    suggestedHeadlines,
+    missingData: missingData.length > 0 ? missingData : null,
+    contentUsageNote: 'This data is a draft briefing for content creation only. Review all facts before publishing.',
   };
 }
 
@@ -971,51 +1139,161 @@ export function formatFranchiseMarkdown(
 export function formatWeeklyContextMarkdown(data: {
   week: number;
   season: string;
-  matchups: Array<{ matchupId: number; home: { team: string; points: number }; away: { team: string; points: number } }>;
-  standings: Array<{ rank: number; team: string; wins: number; losses: number; pf: number; championships: number }>;
-  recentTransactions: Array<{ team: string; type: string; added: string[]; dropped: string[]; faab?: number | null }>;
+  matchups: Array<{
+    matchupId: number;
+    away: { team: string; points: number };
+    home: { team: string; points: number };
+    status?: string;
+    spread?: number | null;
+    storyHook?: string | null;
+  }>;
+  standings: Array<{ rank: number; team: string; wins: number; losses: number; pf: number; pa?: number; avgPf?: number; championships: number }>;
+  playoffRace?: {
+    playoffSpots: number;
+    inPlayoffs: Array<{ team: string; rank: number; wins: number; losses: number }>;
+    onBubble: Array<{ team: string; rank: number; wins: number; losses: number }>;
+    bubbleGap?: { wins: number; pf: number } | null;
+  } | null;
+  recentTrades?: Array<{ week?: number | null; teams: Array<{ name: string; received: Array<{ name: string; position: string | null }>; picks: string[] }> }>;
+  recentWaivers?: Array<{ team: string; type: string; week?: number | null; faab?: number | null; added: string[]; dropped: string[] }>;
+  injuries?: Array<{ team: string; player: string; position: string | null; status: string }>;
+  suggestedStorylines?: string[];
+  suggestedHeadlines?: string[];
+  missingData?: string[] | null;
+  // legacy compat
+  recentTransactions?: Array<{ team: string; type: string; added: string[]; dropped: string[]; faab?: number | null }>;
 }): string {
-  const { week, season, matchups, standings, recentTransactions } = data;
+  const {
+    week, season, matchups, standings, playoffRace,
+    recentTrades, recentWaivers, injuries,
+    suggestedStorylines, suggestedHeadlines, missingData,
+    recentTransactions,
+  } = data;
 
-  const matchupLines = matchups.length === 0
-    ? ['*No matchups scheduled.*']
-    : matchups.map((m) => {
-        const bothZero = m.away.points === 0 && m.home.points === 0;
-        if (bothZero) return `- ${m.away.team} vs ${m.home.team}`;
-        const awayWin = m.away.points > m.home.points;
-        const homeWin = m.home.points > m.away.points;
-        const awayStr = awayWin ? `**${m.away.team} ${m.away.points.toFixed(1)}**` : `${m.away.team} ${m.away.points.toFixed(1)}`;
-        const homeStr = homeWin ? `**${m.home.team} ${m.home.points.toFixed(1)}**` : `${m.home.team} ${m.home.points.toFixed(1)}`;
-        return `- ${awayStr} vs ${homeStr}`;
-      });
+  const lines: string[] = [
+    `## 📋 East v. West — Week ${week} Content Briefing (${season})`,
+    '*DRAFT ONLY — review all facts before publishing.*',
+    '',
+  ];
 
-  const standingLines = standings.slice(0, 6).map((s) => {
+  // ── Matchups ────────────────────────────────────────────────────────────────
+  lines.push('### Matchups');
+  if (matchups.length === 0) {
+    lines.push('*No matchups scheduled.*');
+  } else {
+    for (const m of matchups) {
+      const bothZero = m.away.points === 0 && m.home.points === 0;
+      const awayWin = m.away.points > m.home.points;
+      const homeWin = m.home.points > m.away.points;
+      const awayStr = awayWin ? `**${m.away.team} ${m.away.points.toFixed(1)}**` : `${m.away.team}${bothZero ? '' : ` ${m.away.points.toFixed(1)}`}`;
+      const homeStr = homeWin ? `**${m.home.team} ${m.home.points.toFixed(1)}**` : `${m.home.team}${bothZero ? '' : ` ${m.home.points.toFixed(1)}`}`;
+      const vs = bothZero ? 'vs' : '—';
+      const hook = m.storyHook ? ` *(${m.storyHook})*` : '';
+      lines.push(`- ${awayStr} ${vs} ${homeStr}${hook}`);
+    }
+  }
+  lines.push('');
+
+  // ── Standings (top 8 with PF/PA/avg) ────────────────────────────────────────
+  lines.push('### Standings (Top 8)');
+  const standingLines = standings.slice(0, 8).map((s) => {
     const champ = s.championships > 0 ? ' 🏆' : '';
-    return `${s.rank}. ${s.team}${champ} (${s.wins}-${s.losses}, ${s.pf.toFixed(0)} PF)`;
-  }).join(' · ');
-
-  const txLines = recentTransactions.slice(0, 6).map((t) => {
-    const faab = t.faab ? ` ($${t.faab} FAAB)` : '';
-    const adds = t.added.length > 0 ? `+${t.added.join(', ')}` : '';
-    const drops = t.dropped.length > 0 ? `−${t.dropped.join(', ')}` : '';
-    const moves = [adds, drops].filter(Boolean).join(' / ');
-    return `- **${t.team}:** ${moves}${faab}`;
+    const avg = s.avgPf != null ? `, avg ${s.avgPf.toFixed(1)}` : '';
+    return `${s.rank}. **${s.team}**${champ} ${s.wins}-${s.losses} | PF ${s.pf.toFixed(0)}${avg}`;
   });
+  lines.push(...standingLines, '');
 
-  return [
-    `## 📋 Week ${week} Content Briefing — ${season}`,
-    '',
-    '### Matchups',
-    ...matchupLines,
-    '',
-    '### Standings Snapshot (Top 6)',
-    standingLines,
-    '',
-    '### Recent Moves',
-    ...(txLines.length > 0 ? txLines : ['*No recent transactions.*']),
-    '',
-    `*Live from Sleeper · ${FRESHNESS()}*`,
-  ].join('\n');
+  // ── Playoff race ─────────────────────────────────────────────────────────────
+  if (playoffRace && (playoffRace.onBubble.length > 0 || playoffRace.inPlayoffs.length > 0)) {
+    lines.push('### Playoff Race');
+    const lastIn = playoffRace.inPlayoffs[playoffRace.inPlayoffs.length - 1];
+    const firstOut = playoffRace.onBubble[0];
+    if (lastIn) lines.push(`**Last in (${playoffRace.playoffSpots} spots):** ${lastIn.team} (${lastIn.wins}-${lastIn.losses})`);
+    if (firstOut) lines.push(`**First out:** ${firstOut.team} (${firstOut.wins}-${firstOut.losses})`);
+    if (playoffRace.bubbleGap) {
+      const g = playoffRace.bubbleGap;
+      const gDesc = g.wins === 0 ? `tied on wins, ${g.pf > 0 ? '+' : ''}${g.pf} PF` : `${g.wins}W / ${g.pf > 0 ? '+' : ''}${g.pf} PF`;
+      lines.push(`**Bubble gap:** ${gDesc}`);
+    }
+    if (playoffRace.onBubble.length > 1) {
+      lines.push(`**Also on bubble:** ${playoffRace.onBubble.slice(1).map((t) => `${t.team} (${t.wins}-${t.losses})`).join(', ')}`);
+    }
+    lines.push('');
+  }
+
+  // ── Recent trades ─────────────────────────────────────────────────────────────
+  const trades = recentTrades ?? [];
+  if (trades.length > 0) {
+    lines.push('### Recent Trades');
+    for (const t of trades.slice(0, 4)) {
+      if (t.teams.length === 2) {
+        const [a, b] = t.teams;
+        const aGot = [...a.received.map((p) => p.name), ...a.picks].join(', ') || '—';
+        const bGot = [...b.received.map((p) => p.name), ...b.picks].join(', ') || '—';
+        const when = t.week ? ` (Wk ${t.week})` : '';
+        lines.push(`- **${a.name}** got: ${aGot}${when}`);
+        lines.push(`  **${b.name}** got: ${bGot}`);
+      }
+    }
+    lines.push('');
+  }
+
+  // ── Recent waiver/FA moves ────────────────────────────────────────────────────
+  const waivers = recentWaivers ?? recentTransactions?.map((t) => ({
+    team: t.team, type: t.type, week: null, faab: t.faab ?? null,
+    added: t.added, dropped: t.dropped,
+  })) ?? [];
+  if (waivers.length > 0) {
+    lines.push('### Recent Waiver / FA Moves');
+    for (const t of waivers.slice(0, 6)) {
+      const faab = t.faab ? ` ($${t.faab})` : '';
+      const adds = t.added.length > 0 ? `+${t.added.join(', ')}` : '';
+      const drops = t.dropped.length > 0 ? `−${t.dropped.join(', ')}` : '';
+      const moves = [adds, drops].filter(Boolean).join(' / ') || '—';
+      lines.push(`- **${t.team}:** ${moves}${faab}`);
+    }
+    lines.push('');
+  }
+
+  // ── Injury notes ──────────────────────────────────────────────────────────────
+  const inj = injuries ?? [];
+  if (inj.length > 0) {
+    lines.push('### Notable Injuries / Status');
+    for (const i of inj.slice(0, 8)) {
+      const pos = i.position ? ` (${i.position})` : '';
+      lines.push(`- **${i.player}**${pos} — ${i.status} *(${i.team})*`);
+    }
+    if (inj.length > 8) lines.push(`*…${inj.length - 8} more flagged players in structuredContent.*`);
+    lines.push('');
+  }
+
+  // ── Storylines ────────────────────────────────────────────────────────────────
+  if (suggestedStorylines && suggestedStorylines.length > 0) {
+    lines.push('### Suggested Storylines');
+    for (const s of suggestedStorylines.slice(0, 5)) {
+      lines.push(`- ${s}`);
+    }
+    lines.push('');
+  }
+
+  // ── Headlines ─────────────────────────────────────────────────────────────────
+  if (suggestedHeadlines && suggestedHeadlines.length > 0) {
+    lines.push('### Suggested Headlines');
+    for (const h of suggestedHeadlines.slice(0, 4)) {
+      lines.push(`- "${h}"`);
+    }
+    lines.push('');
+  }
+
+  // ── Missing data notes ────────────────────────────────────────────────────────
+  if (missingData && missingData.length > 0) {
+    lines.push('### ⚠️ Missing Data');
+    for (const note of missingData) lines.push(`- ${note}`);
+    lines.push('');
+  }
+
+  lines.push(`*Live from Sleeper · ${FRESHNESS()}*`);
+  return lines.join('\n');
 }
 
 export function formatDraftPicksMarkdown(

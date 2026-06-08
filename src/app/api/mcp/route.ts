@@ -249,7 +249,7 @@ const MCP_TOOLS = [
   },
   {
     name: 'get_weekly_content_context',
-    description: 'Returns everything needed to write weekly recap or preview content: current week matchups with scores, standings snapshot, recent roster moves (last 10 transactions), and league context. Optimised for speed — only fetches live current-week data.',
+    description: 'Content Studio briefing: current matchups (with story hooks), full standings (PF/PA/avg), playoff race snapshot, recent trades, recent waiver/FA moves, injury flags, suggested storylines, and suggested headlines. Use this as the context source before asking ChatGPT to write any league content draft.',
     inputSchema: {
       type: 'object',
       properties: {},
