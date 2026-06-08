@@ -34,6 +34,8 @@ function rowToPoll(r: Record<string, unknown>): Poll {
     discordNotifiedOpen: Boolean(r.discord_notified_open),
     discordNotifiedReminder: Boolean(r.discord_notified_reminder),
     discordNotifiedClosed: Boolean(r.discord_notified_closed),
+    confirmationMessage: r.confirmation_message ? String(r.confirmation_message) : null,
+    responseLimit: r.response_limit != null ? Number(r.response_limit) : null,
     createdAt: toIso(r.created_at) ?? new Date().toISOString(),
     closedAt: toIso(r.closed_at),
   };
@@ -49,6 +51,7 @@ function rowToRound(r: Record<string, unknown>): PollRound {
     survivorCount: r.survivor_count != null ? Number(r.survivor_count) : null,
     thresholdType: (r.threshold_type as PollRound['thresholdType']) ?? 'plurality',
     thresholdValue: r.threshold_value != null ? Number(r.threshold_value) : null,
+    shuffleOptions: Boolean(r.shuffle_options),
     resultsPublishedAt: toIso(r.results_published_at),
     openedAt: toIso(r.opened_at),
     closedAt: toIso(r.closed_at),
@@ -209,11 +212,13 @@ export async function createPoll(data: {
   anonymous: boolean;
   resultVisibility: string;
   deadline?: string | null;
+  confirmationMessage?: string | null;
+  responseLimit?: number | null;
 }): Promise<Poll | null> {
   try {
     const db = getDb();
     const rows = await db.execute(sql`
-      INSERT INTO polls (title, description, eligibility_type, linked_suggestion_ids, anonymous, result_visibility, deadline)
+      INSERT INTO polls (title, description, eligibility_type, linked_suggestion_ids, anonymous, result_visibility, deadline, confirmation_message, response_limit)
       VALUES (
         ${data.title},
         ${data.description ?? null},
@@ -221,7 +226,9 @@ export async function createPoll(data: {
         ${data.linkedSuggestionIds ? JSON.stringify(data.linkedSuggestionIds) : null}::text[],
         ${data.anonymous},
         ${data.resultVisibility},
-        ${data.deadline ? new Date(data.deadline) : null}
+        ${data.deadline ? new Date(data.deadline) : null},
+        ${data.confirmationMessage ?? null},
+        ${data.responseLimit ?? null}
       )
       RETURNING *
     `);
@@ -276,18 +283,20 @@ export async function createRound(data: {
   survivorCount?: number | null;
   thresholdType: string;
   thresholdValue?: number | null;
+  shuffleOptions?: boolean;
 }): Promise<PollRound | null> {
   try {
     const db = getDb();
     const rows = await db.execute(sql`
-      INSERT INTO poll_rounds (poll_id, round_number, vote_type, survivor_count, threshold_type, threshold_value)
+      INSERT INTO poll_rounds (poll_id, round_number, vote_type, survivor_count, threshold_type, threshold_value, shuffle_options)
       VALUES (
         ${data.pollId}::uuid,
         ${data.roundNumber},
         ${data.voteType},
         ${data.survivorCount ?? null},
         ${data.thresholdType},
-        ${data.thresholdValue ?? null}
+        ${data.thresholdValue ?? null},
+        ${data.shuffleOptions ?? false}
       )
       RETURNING *
     `);

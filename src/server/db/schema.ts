@@ -240,6 +240,8 @@ export const polls = pgTable('polls', {
   discordNotifiedOpen: boolean('discord_notified_open').default(false).notNull(),
   discordNotifiedReminder: boolean('discord_notified_reminder').default(false).notNull(),
   discordNotifiedClosed: boolean('discord_notified_closed').default(false).notNull(),
+  confirmationMessage: text('confirmation_message'),
+  responseLimit: integer('response_limit'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   closedAt: timestamp('closed_at'),
 }, (t) => ({
@@ -255,6 +257,7 @@ export const pollRounds = pgTable('poll_rounds', {
   survivorCount: integer('survivor_count'), // how many options advance to next round; null = final round
   thresholdType: varchar('threshold_type', { length: 50 }).default('plurality').notNull(), // plurality | majority | supermajority | admin_defined
   thresholdValue: integer('threshold_value'), // for admin_defined or person-vote majority override
+  shuffleOptions: boolean('shuffle_options').default(false).notNull(),
   resultsPublishedAt: timestamp('results_published_at'),
   openedAt: timestamp('opened_at'),
   closedAt: timestamp('closed_at'),
@@ -292,6 +295,60 @@ export const pollVoteSelections = pgTable('poll_vote_selections', {
   selected: boolean('selected').default(false), // select_one/multi/eliminate/yes_no
 }, (t) => ({
   voteIdx: index('poll_vote_selections_vote_idx').on(t.voteId),
+}));
+
+// Form questions attached to a poll (alongside or instead of voting rounds)
+export const pollQuestions = pgTable('poll_questions', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  pollId: uuid('poll_id').notNull().references(() => polls.id, { onDelete: 'cascade' }),
+  questionType: varchar('question_type', { length: 50 }).notNull(), // short_answer | paragraph | rating | multiple_choice | checkboxes | section_break
+  text: varchar('text', { length: 1000 }).notNull(),
+  description: text('description'),
+  required: boolean('required').default(true).notNull(),
+  shuffleOptions: boolean('shuffle_options').default(false).notNull(),
+  displayOrder: integer('display_order').default(0).notNull(),
+  ratingMin: integer('rating_min').default(1),
+  ratingMax: integer('rating_max').default(10),
+  ratingMinLabel: varchar('rating_min_label', { length: 100 }),
+  ratingMaxLabel: varchar('rating_max_label', { length: 100 }),
+  maxLength: integer('max_length'),
+  conditionQuestionId: uuid('condition_question_id'),
+  conditionOptionId: uuid('condition_option_id'),
+  conditionValue: varchar('condition_value', { length: 255 }),
+}, (t) => ({
+  pollQuestionsIdx: index('poll_questions_poll_idx').on(t.pollId),
+}));
+
+export const pollQuestionOptions = pgTable('poll_question_options', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  questionId: uuid('question_id').notNull().references(() => pollQuestions.id, { onDelete: 'cascade' }),
+  text: varchar('text', { length: 500 }).notNull(),
+  displayOrder: integer('display_order').default(0).notNull(),
+}, (t) => ({
+  pollQuestionOptionsIdx: index('poll_question_options_q_idx').on(t.questionId),
+}));
+
+export const pollResponses = pgTable('poll_responses', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  pollId: uuid('poll_id').notNull().references(() => polls.id, { onDelete: 'cascade' }),
+  voterId: varchar('voter_id', { length: 255 }).notNull(),
+  voterDisplay: varchar('voter_display', { length: 255 }),
+  submittedAt: timestamp('submitted_at').defaultNow().notNull(),
+}, (t) => ({
+  pollResponsesUq: uniqueIndex('poll_responses_poll_voter_uq').on(t.pollId, t.voterId),
+  pollResponsesIdx: index('poll_responses_poll_idx').on(t.pollId),
+}));
+
+export const pollResponseAnswers = pgTable('poll_response_answers', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  responseId: uuid('response_id').notNull().references(() => pollResponses.id, { onDelete: 'cascade' }),
+  questionId: uuid('question_id').notNull().references(() => pollQuestions.id, { onDelete: 'cascade' }),
+  textAnswer: text('text_answer'),
+  ratingValue: integer('rating_value'),
+  optionIds: text('option_ids').array(),
+}, (t) => ({
+  pollResponseAnswersUq: uniqueIndex('poll_response_answers_uq').on(t.responseId, t.questionId),
+  pollResponseAnswersIdx: index('poll_response_answers_resp_idx').on(t.responseId),
 }));
 
 // Staged newsletter generation - tracks progress of Tuesday→Wednesday builds

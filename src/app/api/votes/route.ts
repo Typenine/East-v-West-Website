@@ -10,6 +10,7 @@ import {
   createOptions,
   updateSuggestionVoteTag,
 } from '@/server/db/votes-queries';
+import { createQuestions, getResponseCount } from '@/server/db/poll-form-queries';
 import { TOTAL_ELIGIBLE } from '@/lib/votes/types';
 import type { PollListItem, RoundWithDetails } from '@/lib/votes/types';
 
@@ -43,7 +44,8 @@ export async function GET(req: NextRequest) {
         currentRound = { ...openRound, options, voteCount, totalEligible, resultsVisible };
       }
 
-      items.push({ poll, currentRound, roundCount: rounds.length });
+      const responseCount = await getResponseCount(poll.id);
+      items.push({ poll, currentRound, roundCount: rounds.length, responseCount });
     }
 
     return Response.json(items);
@@ -57,7 +59,11 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json();
-    const { title, description, eligibilityType, deadline, anonymous, resultVisibility, linkedSuggestionIds, rounds: roundDefs, round1Options } = body as {
+    const {
+      title, description, eligibilityType, deadline, anonymous, resultVisibility,
+      linkedSuggestionIds, rounds: roundDefs, round1Options,
+      confirmationMessage, responseLimit, questions: questionDefs,
+    } = body as {
       title: string;
       description?: string;
       eligibilityType: string;
@@ -65,16 +71,33 @@ export async function POST(req: NextRequest) {
       anonymous?: boolean;
       resultVisibility?: string;
       linkedSuggestionIds?: string[];
-      rounds: Array<{ voteType: string; survivorCount?: number; thresholdType: string; thresholdValue?: number }>;
+      rounds?: Array<{ voteType: string; survivorCount?: number; thresholdType: string; thresholdValue?: number; shuffleOptions?: boolean }>;
       round1Options?: Array<{ text: string; linkedSuggestionId?: string }>;
+      confirmationMessage?: string;
+      responseLimit?: number;
+      questions?: Array<{
+        questionType: string; text: string; description?: string; required?: boolean;
+        shuffleOptions?: boolean; displayOrder: number;
+        ratingMin?: number; ratingMax?: number; ratingMinLabel?: string; ratingMaxLabel?: string;
+        maxLength?: number; conditionQuestionId?: string; conditionOptionId?: string; conditionValue?: string;
+        options?: { text: string; displayOrder: number }[];
+      }>;
     };
 
     if (!title?.trim()) return Response.json({ error: 'Title is required.' }, { status: 400 });
-    if (!roundDefs?.length) return Response.json({ error: 'At least one round is required.' }, { status: 400 });
 
-    const firstRoundType = roundDefs[0]?.voteType;
-    if (firstRoundType !== 'yes_no' && (!round1Options || round1Options.length < 2)) {
-      return Response.json({ error: 'Round 1 requires at least 2 options.' }, { status: 400 });
+    // Polls can have rounds, questions, or both — but must have at least one
+    const hasRounds = roundDefs && roundDefs.length > 0;
+    const hasQuestions = questionDefs && questionDefs.length > 0;
+    if (!hasRounds && !hasQuestions) {
+      return Response.json({ error: 'Poll must have at least one round or one form question.' }, { status: 400 });
+    }
+
+    if (hasRounds) {
+      const firstRoundType = roundDefs![0]?.voteType;
+      if (firstRoundType !== 'yes_no' && (!round1Options || round1Options.length < 2)) {
+        return Response.json({ error: 'Round 1 requires at least 2 options.' }, { status: 400 });
+      }
     }
 
     // Create poll
@@ -86,13 +109,15 @@ export async function POST(req: NextRequest) {
       anonymous: Boolean(anonymous),
       resultVisibility: resultVisibility || 'admin_publish',
       deadline: deadline || null,
+      confirmationMessage: confirmationMessage?.trim() || null,
+      responseLimit: responseLimit ?? null,
     });
     if (!poll) return Response.json({ error: 'Failed to create poll.' }, { status: 500 });
 
     // Create rounds
     const createdRounds = [];
-    for (let i = 0; i < roundDefs.length; i++) {
-      const rd = roundDefs[i];
+    for (let i = 0; i < (roundDefs?.length ?? 0); i++) {
+      const rd = roundDefs![i];
       const round = await createRound({
         pollId: poll.id,
         roundNumber: i + 1,
@@ -100,6 +125,7 @@ export async function POST(req: NextRequest) {
         survivorCount: rd.survivorCount ?? null,
         thresholdType: rd.thresholdType || 'plurality',
         thresholdValue: rd.thresholdValue ?? null,
+        shuffleOptions: rd.shuffleOptions ?? false,
       });
       if (!round) return Response.json({ error: 'Failed to create round.' }, { status: 500 });
       createdRounds.push(round);
@@ -124,12 +150,15 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // Create form questions
+    const createdQuestions = hasQuestions ? await createQuestions(poll.id, questionDefs!) : [];
+
     // Update linked suggestion voteTags
     for (const sid of linkedSuggestionIds ?? []) {
       await updateSuggestionVoteTag(sid, 'voted_on').catch(() => {});
     }
 
-    return Response.json({ ok: true, poll, rounds: createdRounds }, { status: 201 });
+    return Response.json({ ok: true, poll, rounds: createdRounds, questions: createdQuestions }, { status: 201 });
   } catch {
     return Response.json({ error: 'Server error.' }, { status: 500 });
   }

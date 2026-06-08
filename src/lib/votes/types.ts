@@ -18,6 +18,8 @@ export interface Poll {
   discordNotifiedOpen: boolean;
   discordNotifiedReminder: boolean;
   discordNotifiedClosed: boolean;
+  confirmationMessage: string | null;
+  responseLimit: number | null;
   createdAt: string;
   closedAt: string | null;
 }
@@ -31,6 +33,7 @@ export interface PollRound {
   survivorCount: number | null;
   thresholdType: ThresholdType;
   thresholdValue: number | null;
+  shuffleOptions: boolean;
   resultsPublishedAt: string | null;
   openedAt: string | null;
   closedAt: string | null;
@@ -60,6 +63,77 @@ export interface PollVoteSelection {
   rank: number | null;
   selected: boolean | null;
 }
+
+// ── Form question types ────────────────────────────────────────────────────
+
+export type QuestionType = 'short_answer' | 'paragraph' | 'rating' | 'multiple_choice' | 'checkboxes' | 'section_break';
+
+export interface PollQuestionOption {
+  id: string;
+  questionId: string;
+  text: string;
+  displayOrder: number;
+}
+
+export interface PollQuestion {
+  id: string;
+  pollId: string;
+  questionType: QuestionType;
+  text: string;
+  description: string | null;
+  required: boolean;
+  shuffleOptions: boolean;
+  displayOrder: number;
+  ratingMin: number;
+  ratingMax: number;
+  ratingMinLabel: string | null;
+  ratingMaxLabel: string | null;
+  maxLength: number | null;
+  conditionQuestionId: string | null;
+  conditionOptionId: string | null;
+  conditionValue: string | null;
+  options: PollQuestionOption[];
+}
+
+export interface FormAnswer {
+  questionId: string;
+  textAnswer: string | null;
+  ratingValue: number | null;
+  optionIds: string[] | null;
+}
+
+export interface PollResponse {
+  id: string;
+  pollId: string;
+  voterId: string;
+  voterDisplay: string | null;
+  submittedAt: string;
+  answers: FormAnswer[];
+}
+
+// Aggregated results per question for display
+export interface RatingQuestionResult {
+  questionId: string;
+  type: 'rating';
+  average: number;
+  distribution: { value: number; count: number }[];
+  total: number;
+}
+
+export interface TextQuestionResult {
+  questionId: string;
+  type: 'text';
+  answers: { voterDisplay: string | null; text: string }[];
+}
+
+export interface ChoiceQuestionResult {
+  questionId: string;
+  type: 'choice';
+  counts: { optionId: string; text: string; count: number }[];
+  total: number;
+}
+
+export type FormQuestionResult = RatingQuestionResult | TextQuestionResult | ChoiceQuestionResult;
 
 // ── Ballot input from the API ──────────────────────────────────────────────
 
@@ -131,11 +205,16 @@ export interface PollListItem {
   poll: Poll;
   currentRound: RoundWithDetails | null;
   roundCount: number;
+  responseCount: number;
 }
 
 export interface PollDetail extends PollListItem {
   rounds: RoundWithDetails[];
   myBallot: BallotSelection[] | null;
+  questions: PollQuestion[];
+  myFormResponse: FormAnswer[] | null;
+  responseCount: number;
+  formResults: FormQuestionResult[] | null;
 }
 
 // ── Admin-only shapes (include voter identity) ─────────────────────────────

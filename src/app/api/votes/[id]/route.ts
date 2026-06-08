@@ -18,6 +18,13 @@ import {
   updateSuggestionVoteTag,
   getRoundById,
 } from '@/server/db/votes-queries';
+import {
+  getQuestionsForPoll,
+  getResponseByVoter,
+  getResponseCount,
+  getAllResponses,
+  buildFormResults,
+} from '@/server/db/poll-form-queries';
 import { computeRound, buildBallotMap } from '@/lib/votes/compute';
 import { TOTAL_ELIGIBLE } from '@/lib/votes/types';
 import type { PollDetail, RoundWithDetails, RoundResult } from '@/lib/votes/types';
@@ -87,12 +94,30 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     }
 
     const openRound = roundsWithDetails.find((r) => r.status === 'open') ?? null;
+
+    // Form questions + responses
+    const questions = await getQuestionsForPoll(poll.id);
+    const responseCount = await getResponseCount(poll.id);
+    const myFormResponse = voterId ? await getResponseByVoter(poll.id, voterId) : null;
+
+    // Aggregate form results when results are visible (use the poll-level visibility)
+    const pollResultsVisible = admin || poll.resultVisibility === 'immediate' || poll.status === 'closed';
+    let formResults = null;
+    if (questions.length && pollResultsVisible) {
+      const allResponses = await getAllResponses(poll.id);
+      formResults = await buildFormResults(questions, allResponses, poll.anonymous);
+    }
+
     const detail: PollDetail = {
       poll,
       currentRound: openRound,
       roundCount: rounds.length,
       rounds: roundsWithDetails,
       myBallot,
+      questions,
+      myFormResponse: myFormResponse?.answers ?? null,
+      responseCount,
+      formResults,
     };
 
     return Response.json(detail);
@@ -113,6 +138,17 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
     const rounds = await getRoundsForPoll(id);
     const totalEligible = TOTAL_ELIGIBLE[poll.eligibilityType] ?? 12;
+
+    // For form-only polls (no rounds): open/close directly
+    if (action === 'open_poll') {
+      await updatePollStatus(id, 'open');
+      return Response.json({ ok: true });
+    }
+
+    if (action === 'close_poll_now') {
+      await updatePollStatus(id, 'closed', new Date().toISOString());
+      return Response.json({ ok: true });
+    }
 
     if (action === 'open_round') {
       const targetNum = roundNumber ?? 1;
