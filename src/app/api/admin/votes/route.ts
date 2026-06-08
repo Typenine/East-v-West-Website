@@ -6,6 +6,7 @@ import {
   getOptionsForRound,
   getVoteCount,
 } from '@/server/db/votes-queries';
+import { getResponseCount } from '@/server/db/poll-form-queries';
 import { TOTAL_ELIGIBLE } from '@/lib/votes/types';
 
 export const runtime = 'nodejs';
@@ -33,7 +34,8 @@ export async function GET(req: NextRequest) {
         roundsWithDetails.push({ ...round, options, voteCount, totalEligible });
       }
 
-      result.push({ poll, rounds: roundsWithDetails, roundCount: rounds.length });
+      const responseCount = await getResponseCount(poll.id);
+      result.push({ poll, rounds: roundsWithDetails, roundCount: rounds.length, responseCount });
     }
 
     return Response.json(result);

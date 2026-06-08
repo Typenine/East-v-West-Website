@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import SectionHeader from '@/components/ui/SectionHeader';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
+import { Card, CardContent } from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
 import Input from '@/components/ui/Input';
 import Textarea from '@/components/ui/Textarea';
@@ -68,27 +68,39 @@ const THRESHOLD_LABELS: Record<string, string> = {
 
 const QUESTION_TYPES = [
   { value: 'short_answer', label: 'Short Answer', icon: '—' },
-  { value: 'paragraph', label: 'Paragraph', icon: '¶' },
-  { value: 'rating', label: 'Rating', icon: '★' },
+  { value: 'paragraph',    label: 'Paragraph',    icon: '¶' },
+  { value: 'rating',       label: 'Rating',       icon: '★' },
   { value: 'multiple_choice', label: 'Multiple Choice', icon: '◎' },
-  { value: 'checkboxes', label: 'Checkboxes', icon: '☑' },
+  { value: 'checkboxes',   label: 'Checkboxes',   icon: '☑' },
   { value: 'section_break', label: 'Section Break', icon: '÷' },
 ];
 
-const STATUS_COLORS: Record<string, string> = {
-  draft: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300',
-  open: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
-  closed: 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300',
-  pending: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400',
-};
-
 const STEP_LABELS = ['Basics', 'Rounds', 'Options', 'Survey'];
 
-// ── Small UI helpers ──────────────────────────────────────────────────────────
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function newQuestion(): QuestionDef {
+  return {
+    questionType: 'short_answer', text: '', description: '', required: true, shuffleOptions: false,
+    ratingMin: '1', ratingMax: '10', ratingMinLabel: '', ratingMaxLabel: '',
+    maxLength: '', conditionQuestionIndex: '', conditionOptionIndex: '', conditionValue: '',
+    options: [{ text: '' }, { text: '' }],
+  };
+}
+
+// ── Small UI components ───────────────────────────────────────────────────────
 
 function StatusBadge({ status }: { status: string }) {
+  const cfg: Record<string, { bg: string; dot: string }> = {
+    draft:   { bg: 'bg-zinc-500/15 text-zinc-400 border border-zinc-500/25',   dot: 'bg-zinc-400' },
+    open:    { bg: 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/25', dot: 'bg-emerald-400' },
+    closed:  { bg: 'bg-slate-500/15 text-slate-400 border border-slate-500/25', dot: 'bg-slate-400' },
+    pending: { bg: 'bg-amber-500/15 text-amber-400 border border-amber-500/25', dot: 'bg-amber-400' },
+  };
+  const { bg, dot } = cfg[status] ?? cfg.draft;
   return (
-    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold ${STATUS_COLORS[status] ?? STATUS_COLORS.draft}`}>
+    <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium ${bg}`}>
+      <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${dot} ${status === 'open' ? 'animate-pulse' : ''}`} />
       {status}
     </span>
   );
@@ -96,25 +108,29 @@ function StatusBadge({ status }: { status: string }) {
 
 function StepIndicator({ current, total, labels }: { current: number; total: number; labels: string[] }) {
   return (
-    <div className="flex items-center gap-0 mb-6">
+    <div className="flex items-start justify-center gap-0 mb-8">
       {Array.from({ length: total }, (_, i) => {
         const n = i + 1;
         const done = n < current;
         const active = n === current;
         return (
-          <div key={n} className="flex items-center">
-            <div className="flex flex-col items-center">
-              <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold border-2 transition-colors
-                ${done ? 'border-[var(--accent)] bg-[var(--accent)] text-white' : active ? 'border-[var(--accent)] text-[var(--accent)] bg-[var(--surface)]' : 'border-[var(--border)] text-[var(--muted)] bg-[var(--surface)]'}`}
+          <div key={n} className="flex items-start">
+            <div className="flex flex-col items-center gap-2">
+              <div className={`w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold border-2 transition-all duration-200
+                ${done   ? 'border-[var(--accent)] bg-[var(--accent)] text-white'
+                : active ? 'border-[var(--accent)] text-[var(--accent)] bg-[var(--surface)] ring-4 ring-[var(--accent)]/15'
+                :          'border-[var(--border)] text-[var(--muted)] bg-[var(--surface)]'}`}
               >
                 {done ? '✓' : n}
               </div>
-              <span className={`text-xs mt-1 whitespace-nowrap ${active ? 'text-[var(--accent)] font-semibold' : 'text-[var(--muted)]'}`}>
+              <span className={`text-xs font-medium whitespace-nowrap
+                ${active ? 'text-[var(--accent)]' : done ? 'text-[var(--text)]' : 'text-[var(--muted)]'}`}>
                 {labels[i]}
               </span>
             </div>
             {i < total - 1 && (
-              <div className={`h-0.5 w-8 sm:w-12 mb-4 mx-1 transition-colors ${done ? 'bg-[var(--accent)]' : 'bg-[var(--border)]'}`} />
+              <div className={`h-px w-10 sm:w-16 mt-[18px] mx-2 transition-colors duration-300
+                ${done ? 'bg-[var(--accent)]' : 'bg-[var(--border)]'}`} />
             )}
           </div>
         );
@@ -123,23 +139,27 @@ function StepIndicator({ current, total, labels }: { current: number; total: num
   );
 }
 
-function InlineError({ msg, onDismiss }: { msg: string; onDismiss: () => void }) {
+function AlertBanner({ msg, onDismiss }: { msg: string; onDismiss: () => void }) {
   return (
-    <div className="flex items-start gap-2 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 px-3 py-2 text-sm text-red-700 dark:text-red-400">
-      <span className="flex-1">{msg}</span>
-      <button onClick={onDismiss} className="shrink-0 text-red-400 hover:text-red-600">✕</button>
+    <div className="flex items-start gap-3 rounded-xl bg-red-500/10 border border-red-500/25 px-4 py-3 text-sm text-red-400">
+      <span className="mt-0.5 shrink-0 text-base">⚠</span>
+      <span className="flex-1 leading-snug">{msg}</span>
+      <button onClick={onDismiss} className="shrink-0 opacity-50 hover:opacity-100 transition-opacity text-xs mt-0.5">✕</button>
     </div>
   );
 }
 
-function VoteProgressBar({ value, max }: { value: number; max: number }) {
+function ProgressBar({ value, max }: { value: number; max: number }) {
   const pct = max > 0 ? Math.min(100, Math.round((value / max) * 100)) : 0;
   return (
-    <div className="flex items-center gap-2">
-      <div className="flex-1 h-1.5 rounded-full bg-[var(--surface-strong)] overflow-hidden">
-        <div className="h-full rounded-full bg-[var(--accent)] transition-all" style={{ width: `${pct}%` }} />
+    <div className="space-y-1.5">
+      <div className="flex items-center justify-between text-xs text-[var(--muted)]">
+        <span>{value} of {max} voted</span>
+        <span className="font-semibold tabular-nums">{pct}%</span>
       </div>
-      <span className="text-xs text-[var(--muted)] whitespace-nowrap">{value}/{max}</span>
+      <div className="h-1.5 rounded-full bg-[var(--surface-strong)] overflow-hidden">
+        <div className="h-full rounded-full bg-[var(--accent)] transition-all duration-500" style={{ width: `${pct}%` }} />
+      </div>
     </div>
   );
 }
@@ -147,90 +167,69 @@ function VoteProgressBar({ value, max }: { value: number; max: number }) {
 // ── Question card for the builder ─────────────────────────────────────────────
 
 function QuestionCard({ q, qi, total, questionDefs, onUpdate, onUpdateOption, onMove, onRemove }: {
-  q: QuestionDef;
-  qi: number;
-  total: number;
-  questionDefs: QuestionDef[];
+  q: QuestionDef; qi: number; total: number; questionDefs: QuestionDef[];
   onUpdate: (patch: Partial<QuestionDef>) => void;
   onUpdateOption: (oi: number, text: string) => void;
   onMove: (dir: -1 | 1) => void;
   onRemove: () => void;
 }) {
   const typeInfo = QUESTION_TYPES.find((t) => t.value === q.questionType);
-  const isChoice = q.questionType === 'multiple_choice' || q.questionType === 'checkboxes';
-  const isText = q.questionType === 'short_answer' || q.questionType === 'paragraph';
+  const isChoice  = q.questionType === 'multiple_choice' || q.questionType === 'checkboxes';
+  const isText    = q.questionType === 'short_answer' || q.questionType === 'paragraph';
   const isSection = q.questionType === 'section_break';
 
   return (
-    <div className="border border-[var(--border)] rounded-xl overflow-hidden">
+    <div className="rounded-xl border border-[var(--border)] overflow-hidden shadow-sm">
       {/* Card header */}
-      <div className="flex items-center justify-between px-4 py-2 bg-[var(--surface-strong)] border-b border-[var(--border)]">
-        <div className="flex items-center gap-2">
-          <span className="text-base">{typeInfo?.icon}</span>
-          <span className="text-xs font-semibold text-[var(--muted)] uppercase tracking-wide">{typeInfo?.label}</span>
+      <div className="flex items-center justify-between px-4 py-2.5 bg-[var(--surface-strong)] border-b border-[var(--border)]">
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="text-sm">{typeInfo?.icon}</span>
+          <span className="text-xs font-semibold text-[var(--muted)] uppercase tracking-wider">{typeInfo?.label}</span>
           {!isSection && (
-            <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${q.required ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' : 'bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400'}`}>
+            <span className={`text-[11px] px-1.5 py-0.5 rounded-full font-medium ${q.required ? 'bg-blue-500/15 text-blue-400' : 'bg-zinc-500/15 text-zinc-400'}`}>
               {q.required ? 'required' : 'optional'}
             </span>
           )}
         </div>
-        <div className="flex items-center gap-1">
-          <button
-            disabled={qi === 0}
-            onClick={() => onMove(-1)}
-            className="rounded px-1.5 py-0.5 text-xs text-[var(--muted)] hover:bg-[var(--surface)] disabled:opacity-30 disabled:cursor-default"
-            title="Move up"
-          >↑</button>
-          <button
-            disabled={qi === total - 1}
-            onClick={() => onMove(1)}
-            className="rounded px-1.5 py-0.5 text-xs text-[var(--muted)] hover:bg-[var(--surface)] disabled:opacity-30 disabled:cursor-default"
-            title="Move down"
-          >↓</button>
-          <button
-            onClick={onRemove}
-            className="rounded px-1.5 py-0.5 text-xs text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 hover:text-red-600"
-            title="Remove"
-          >Remove</button>
+        <div className="flex items-center gap-1 shrink-0">
+          <button disabled={qi === 0} onClick={() => onMove(-1)} title="Move up"
+            className="rounded px-1.5 py-0.5 text-xs text-[var(--muted)] hover:bg-[var(--surface)] disabled:opacity-30 disabled:cursor-default">↑</button>
+          <button disabled={qi === total - 1} onClick={() => onMove(1)} title="Move down"
+            className="rounded px-1.5 py-0.5 text-xs text-[var(--muted)] hover:bg-[var(--surface)] disabled:opacity-30 disabled:cursor-default">↓</button>
+          <button onClick={onRemove}
+            className="rounded px-1.5 py-0.5 text-xs text-red-400 hover:bg-red-500/10 transition-colors">Remove</button>
         </div>
       </div>
 
-      <div className="p-4 space-y-3">
+      <div className="p-4 space-y-4">
         {/* Type selector */}
         <div className="flex flex-wrap gap-1.5">
           {QUESTION_TYPES.map((t) => (
-            <button
-              key={t.value}
-              onClick={() => onUpdate({ questionType: t.value })}
+            <button key={t.value} onClick={() => onUpdate({ questionType: t.value })}
               className={`rounded-lg px-2.5 py-1 text-xs font-medium border transition-colors
                 ${q.questionType === t.value
                   ? 'border-[var(--accent)] bg-[var(--accent)]/10 text-[var(--accent)]'
-                  : 'border-[var(--border)] text-[var(--muted)] hover:border-[var(--accent)]/50 hover:text-[var(--text)]'
-                }`}
+                  : 'border-[var(--border)] text-[var(--muted)] hover:border-[var(--accent)]/40 hover:text-[var(--text)]'}`}
             >
               {t.icon} {t.label}
             </button>
           ))}
         </div>
 
-        {/* Text */}
         <div>
-          <Label>{isSection ? 'Section Title' : 'Question *'}</Label>
-          <Input
-            value={q.text}
-            onChange={(e) => onUpdate({ text: e.target.value })}
-            placeholder={isSection ? 'e.g., General Feedback' : 'e.g., How would you rate last season?'}
-          />
+          <Label>{isSection ? 'Section Title' : 'Question'} {!isSection && <span className="text-red-400">*</span>}</Label>
+          <Input value={q.text} onChange={(e) => onUpdate({ text: e.target.value })}
+            placeholder={isSection ? 'e.g., General Feedback' : 'e.g., How would you rate last season?'} />
         </div>
 
         {q.description !== undefined && (
           <div>
             <Label>Help text <span className="text-[var(--muted)] font-normal">(optional)</span></Label>
-            <Input value={q.description} onChange={(e) => onUpdate({ description: e.target.value })} placeholder="Shown below the question" />
+            <Input value={q.description} onChange={(e) => onUpdate({ description: e.target.value })}
+              placeholder="Shown below the question" />
           </div>
         )}
 
-        {/* Type-specific fields */}
         {q.questionType === 'rating' && (
           <div className="grid grid-cols-2 gap-3">
             <div><Label>Min</Label><Input type="number" value={q.ratingMin} onChange={(e) => onUpdate({ ratingMin: e.target.value })} /></div>
@@ -251,32 +250,28 @@ function QuestionCard({ q, qi, total, questionDefs, onUpdate, onUpdateOption, on
           <div className="space-y-2">
             <Label>Options</Label>
             {q.options.map((opt, oi) => (
-              <div key={oi} className="flex gap-2">
+              <div key={oi} className="flex gap-2 items-center">
+                <span className="text-xs text-[var(--muted)] w-5 text-right shrink-0">{oi + 1}.</span>
                 <Input value={opt.text} onChange={(e) => onUpdateOption(oi, e.target.value)} placeholder={`Option ${oi + 1}`} />
                 {q.options.length > 2 && (
-                  <button
-                    onClick={() => onUpdate({ options: q.options.filter((_, k) => k !== oi) })}
-                    className="text-[var(--muted)] hover:text-red-500 text-sm px-1"
-                  >✕</button>
+                  <button onClick={() => onUpdate({ options: q.options.filter((_, k) => k !== oi) })}
+                    className="text-[var(--muted)] hover:text-red-400 text-sm px-1 shrink-0 transition-colors">✕</button>
                 )}
               </div>
             ))}
-            <button
-              onClick={() => onUpdate({ options: [...q.options, { text: '' }] })}
-              className="text-xs text-[var(--accent)] hover:underline"
-            >+ Add option</button>
+            <button onClick={() => onUpdate({ options: [...q.options, { text: '' }] })}
+              className="text-xs text-[var(--accent)] hover:underline ml-7">+ Add option</button>
           </div>
         )}
 
-        {/* Toggles row */}
         {!isSection && (
-          <div className="flex flex-wrap gap-4 pt-1">
-            <label className="flex items-center gap-2 cursor-pointer text-sm">
+          <div className="flex flex-wrap gap-4 pt-1 border-t border-[var(--border)]">
+            <label className="flex items-center gap-2 cursor-pointer text-sm select-none">
               <input type="checkbox" checked={q.required} onChange={(e) => onUpdate({ required: e.target.checked })} className="accent-[var(--accent)]" />
               Required
             </label>
             {isChoice && (
-              <label className="flex items-center gap-2 cursor-pointer text-sm">
+              <label className="flex items-center gap-2 cursor-pointer text-sm select-none">
                 <input type="checkbox" checked={q.shuffleOptions} onChange={(e) => onUpdate({ shuffleOptions: e.target.checked })} className="accent-[var(--accent)]" />
                 Shuffle order
               </label>
@@ -284,22 +279,17 @@ function QuestionCard({ q, qi, total, questionDefs, onUpdate, onUpdateOption, on
           </div>
         )}
 
-        {/* Conditional logic */}
         {!isSection && qi > 0 && (
           <details className="border-t border-[var(--border)] pt-3">
             <summary className="cursor-pointer text-xs text-[var(--muted)] select-none hover:text-[var(--text)]">
-              Conditional logic {q.conditionQuestionIndex !== '' ? '(active)' : '(none)'}
+              Conditional logic {q.conditionQuestionIndex !== '' ? '· active' : '· none'}
             </summary>
             <div className="mt-2 space-y-2">
-              <Select
-                value={q.conditionQuestionIndex}
-                onChange={(e) => onUpdate({ conditionQuestionIndex: e.target.value, conditionOptionIndex: '', conditionValue: '' })}
-              >
-                <option value="">Always show this question</option>
+              <Select value={q.conditionQuestionIndex}
+                onChange={(e) => onUpdate({ conditionQuestionIndex: e.target.value, conditionOptionIndex: '', conditionValue: '' })}>
+                <option value="">Always show</option>
                 {questionDefs.slice(0, qi).map((pq, pqi) =>
-                  pq.text.trim()
-                    ? <option key={pqi} value={String(pqi)}>Q{pqi + 1}: {pq.text.slice(0, 45)}</option>
-                    : null
+                  pq.text.trim() ? <option key={pqi} value={String(pqi)}>Q{pqi + 1}: {pq.text.slice(0, 45)}</option> : null
                 )}
               </Select>
               {q.conditionQuestionIndex !== '' && (() => {
@@ -314,11 +304,8 @@ function QuestionCard({ q, qi, total, questionDefs, onUpdate, onUpdateOption, on
                   );
                 }
                 return (
-                  <Input
-                    value={q.conditionValue}
-                    onChange={(e) => onUpdate({ conditionValue: e.target.value })}
-                    placeholder={cq.questionType === 'rating' ? 'Show if rating equals… (e.g., 7)' : 'Show if answer equals this text'}
-                  />
+                  <Input value={q.conditionValue} onChange={(e) => onUpdate({ conditionValue: e.target.value })}
+                    placeholder={cq.questionType === 'rating' ? 'Show if rating equals… (e.g., 7)' : 'Show if answer contains this text'} />
                 );
               })()}
             </div>
@@ -329,44 +316,107 @@ function QuestionCard({ q, qi, total, questionDefs, onUpdate, onUpdateOption, on
   );
 }
 
-// ── Main Page ─────────────────────────────────────────────────────────────────
+// ── Round card for the builder ─────────────────────────────────────────────────
 
-function newQuestion(): QuestionDef {
-  return {
-    questionType: 'short_answer', text: '', description: '', required: true, shuffleOptions: false,
-    ratingMin: '1', ratingMax: '10', ratingMinLabel: '', ratingMaxLabel: '',
-    maxLength: '', conditionQuestionIndex: '', conditionOptionIndex: '', conditionValue: '',
-    options: [{ text: '' }, { text: '' }],
-  };
+function RoundCard({ r, i, total, onUpdate, onMove, onRemove }: {
+  r: RoundDef; i: number; total: number;
+  onUpdate: (patch: Partial<RoundDef>) => void;
+  onMove: (dir: -1 | 1) => void;
+  onRemove: () => void;
+}) {
+  return (
+    <div className="rounded-xl border border-[var(--border)] overflow-hidden shadow-sm">
+      <div className="flex items-center justify-between px-4 py-2.5 bg-[var(--surface-strong)] border-b border-[var(--border)]">
+        <div className="flex items-center gap-2">
+          <span className="w-6 h-6 rounded-full bg-[var(--accent)]/15 text-[var(--accent)] text-xs font-bold flex items-center justify-center">{i + 1}</span>
+          <span className="text-xs font-semibold text-[var(--muted)] uppercase tracking-wider">Round {i + 1}</span>
+        </div>
+        <div className="flex gap-1">
+          <button disabled={i === 0} onClick={() => onMove(-1)}
+            className="rounded px-1.5 py-0.5 text-xs text-[var(--muted)] hover:bg-[var(--surface)] disabled:opacity-30">↑</button>
+          <button disabled={i === total - 1} onClick={() => onMove(1)}
+            className="rounded px-1.5 py-0.5 text-xs text-[var(--muted)] hover:bg-[var(--surface)] disabled:opacity-30">↓</button>
+          <button onClick={onRemove}
+            className="rounded px-1.5 py-0.5 text-xs text-red-400 hover:bg-red-500/10 transition-colors">Remove</button>
+        </div>
+      </div>
+      <div className="p-4 grid sm:grid-cols-2 gap-4">
+        <div className="sm:col-span-2">
+          <Label>Vote type</Label>
+          <Select value={r.voteType} onChange={(e) => onUpdate({ voteType: e.target.value })}>
+            {Object.entries(VOTE_TYPE_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+          </Select>
+        </div>
+        {i < total - 1 && (
+          <div>
+            <Label>Survivors to next round</Label>
+            <Input type="number" min={1} value={r.survivorCount} placeholder="e.g., 3"
+              onChange={(e) => onUpdate({ survivorCount: e.target.value })} />
+          </div>
+        )}
+        <div className={i < total - 1 ? '' : 'sm:col-span-2'}>
+          <Label>Winning threshold</Label>
+          <Select value={r.thresholdType} onChange={(e) => onUpdate({ thresholdType: e.target.value })}>
+            {Object.entries(THRESHOLD_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+          </Select>
+        </div>
+        {r.thresholdType === 'admin_defined' && (
+          <div>
+            <Label>Required affirmative votes</Label>
+            <Input type="number" min={1} value={r.thresholdValue} onChange={(e) => onUpdate({ thresholdValue: e.target.value })} />
+          </div>
+        )}
+        <div className="sm:col-span-2">
+          <label className="flex items-center gap-2 cursor-pointer text-sm select-none">
+            <input type="checkbox" checked={r.shuffleOptions} onChange={(e) => onUpdate({ shuffleOptions: e.target.checked })} className="accent-[var(--accent)]" />
+            Shuffle option order for each voter
+          </label>
+        </div>
+      </div>
+    </div>
+  );
 }
 
+// ── Step description bar ───────────────────────────────────────────────────────
+
+function StepHint({ title, desc }: { title: string; desc: string }) {
+  return (
+    <div className="mb-5">
+      <h3 className="text-base font-semibold text-[var(--text)]">{title}</h3>
+      <p className="text-sm text-[var(--muted)] mt-0.5">{desc}</p>
+    </div>
+  );
+}
+
+// ── Main Page ─────────────────────────────────────────────────────────────────
+
 export default function AdminVotesPage() {
-  const [polls, setPolls] = useState<AdminPollEntry[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [actionBusy, setActionBusy] = useState<string | null>(null);
+  const [polls, setPolls]             = useState<AdminPollEntry[]>([]);
+  const [loading, setLoading]         = useState(true);
+  const [error, setError]             = useState<string | null>(null);
+  const [actionBusy, setActionBusy]   = useState<string | null>(null);
   const [actionErrors, setActionErrors] = useState<Record<string, string>>({});
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
-  const [closeConfirm, setCloseConfirm] = useState<string | null>(null);
+  const [closeConfirm, setCloseConfirm]   = useState<string | null>(null);
 
   // Builder
   const [showBuilder, setShowBuilder] = useState(false);
-  const [step, setStep] = useState(1);
-  const [buildError, setBuildError] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
+  const [step, setStep]               = useState(1);
+  const [buildError, setBuildError]   = useState<string | null>(null);
+  const [submitting, setSubmitting]   = useState(false);
   const builderRef = useRef<HTMLDivElement>(null);
 
   // Step 1
-  const [title, setTitle] = useState('');
-  const [description, setDescription] = useState('');
-  const [eligibilityType, setEligibilityType] = useState('team');
-  const [deadline, setDeadline] = useState('');
-  const [anonymous, setAnonymous] = useState(false);
-  const [resultVisibility, setResultVisibility] = useState('admin_publish');
+  const [title, setTitle]                         = useState('');
+  const [description, setDescription]             = useState('');
+  const [eligibilityType, setEligibilityType]     = useState('team');
+  const [deadline, setDeadline]                   = useState('');
+  const [anonymous, setAnonymous]                 = useState(false);
+  const [resultVisibility, setResultVisibility]   = useState('admin_publish');
   const [linkedSuggestionIds, setLinkedSuggestionIds] = useState<string[]>([]);
   const [confirmationMessage, setConfirmationMessage] = useState('');
-  const [responseLimit, setResponseLimit] = useState('');
-  const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
+  const [responseLimit, setResponseLimit]         = useState('');
+  const [suggestions, setSuggestions]             = useState<Suggestion[]>([]);
   const [suggestionsLoading, setSuggestionsLoading] = useState(false);
 
   // Step 2
@@ -386,7 +436,7 @@ export default function AdminVotesPage() {
       const res = await fetch('/api/admin/votes');
       if (!res.ok) { setError('Admin access required.'); return; }
       setPolls(await res.json());
-    } catch { setError('Failed to load.'); }
+    } catch { setError('Failed to load polls.'); }
     finally { setLoading(false); }
   }, []);
 
@@ -397,7 +447,9 @@ export default function AdminVotesPage() {
     setSuggestionsLoading(true);
     fetch('/api/suggestions')
       .then((r) => r.json())
-      .then((data: Suggestion[]) => setSuggestions(data.filter((s) => (s.endorsers?.length ?? 0) >= 3 && s.voteTag !== 'vote_passed' && s.voteTag !== 'vote_failed')))
+      .then((data: Suggestion[]) =>
+        setSuggestions(data.filter((s) => (s.endorsers?.length ?? 0) >= 3 && s.voteTag !== 'vote_passed' && s.voteTag !== 'vote_failed'))
+      )
       .catch(() => {})
       .finally(() => setSuggestionsLoading(false));
   }, [showBuilder]);
@@ -411,7 +463,6 @@ export default function AdminVotesPage() {
   function setActionError(pollId: string, msg: string) {
     setActionErrors((prev) => ({ ...prev, [pollId]: msg }));
   }
-
   function clearActionError(pollId: string) {
     setActionErrors((prev) => { const next = { ...prev }; delete next[pollId]; return next; });
   }
@@ -420,14 +471,18 @@ export default function AdminVotesPage() {
     clearActionError(pollId);
     setActionBusy(pollId);
     try {
-      const res = await fetch(`/api/votes/${pollId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      const res = await fetch(`/api/votes/${pollId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
       if (!res.ok) {
         const d = await res.json().catch(() => ({}));
-        setActionError(pollId, d.error ?? 'Action failed.');
+        setActionError(pollId, (d as { error?: string }).error ?? 'Action failed.');
       } else {
         await fetchPolls();
       }
-    } catch { setActionError(pollId, 'Network error.'); }
+    } catch { setActionError(pollId, 'Network error — please try again.'); }
     finally { setActionBusy(null); }
   }
 
@@ -438,7 +493,7 @@ export default function AdminVotesPage() {
       const res = await fetch(`/api/votes/${pollId}`, { method: 'DELETE' });
       if (!res.ok) setActionError(pollId, 'Failed to delete poll.');
       else { setDeleteConfirm(null); await fetchPolls(); }
-    } catch { setActionError(pollId, 'Network error.'); }
+    } catch { setActionError(pollId, 'Network error — please try again.'); }
     finally { setActionBusy(null); }
   }
 
@@ -471,29 +526,31 @@ export default function AdminVotesPage() {
     }
   }
 
+  function updateRound(i: number, patch: Partial<RoundDef>) {
+    setRounds((prev) => prev.map((r, j) => j === i ? { ...r, ...patch } : r));
+  }
+
+  function moveRound(i: number, dir: -1 | 1) {
+    const next = [...rounds];
+    [next[i], next[i + dir]] = [next[i + dir], next[i]];
+    setRounds(next);
+  }
+
   function updateQuestion(i: number, patch: Partial<QuestionDef>) {
     setQuestionDefs((prev) => prev.map((q, j) => j === i ? { ...q, ...patch } : q));
   }
 
   function moveQuestion(i: number, dir: -1 | 1) {
     const next = [...questionDefs];
-    const j = i + dir;
-    [next[i], next[j]] = [next[j], next[i]];
+    [next[i], next[i + dir]] = [next[i + dir], next[i]];
     setQuestionDefs(next);
-  }
-
-  function moveRound(i: number, dir: -1 | 1) {
-    const next = [...rounds];
-    const j = i + dir;
-    [next[i], next[j]] = [next[j], next[i]];
-    setRounds(next);
   }
 
   async function handleSubmit() {
     setBuildError(null);
     if (!title.trim()) { setBuildError('Title is required.'); setStep(1); return; }
 
-    const hasRounds = rounds.length > 0;
+    const hasRounds    = rounds.length > 0;
     const hasQuestions = questionDefs.some((q) => q.text.trim());
     if (!hasRounds && !hasQuestions) {
       setBuildError('Add at least one voting round or one form question.');
@@ -552,341 +609,446 @@ export default function AdminVotesPage() {
             };
           }),
       };
-      const res = await fetch('/api/votes', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-      const data = await res.json();
-      if (!res.ok) setBuildError(data.error ?? 'Failed to create poll.');
-      else { resetBuilder(); await fetchPolls(); }
-    } catch { setBuildError('Network error.'); }
-    finally { setSubmitting(false); }
+
+      const res = await fetch('/api/votes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+
+      if (!res.ok) {
+        const text = await res.text().catch(() => '');
+        let msg = `Failed to create poll (${res.status}).`;
+        try { msg = (JSON.parse(text) as { error?: string }).error ?? msg; } catch {}
+        setBuildError(msg);
+        return;
+      }
+
+      resetBuilder();
+      await fetchPolls();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      setBuildError(`Could not reach the server — check your connection and try again. (${message})`);
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   function getCurrentRoundForPoll(entry: AdminPollEntry) {
-    return entry.rounds.find((r) => r.status === 'open') ?? entry.rounds.find((r) => r.status === 'closed') ?? entry.rounds[0];
+    return entry.rounds.find((r) => r.status === 'open')
+      ?? entry.rounds.find((r) => r.status === 'closed')
+      ?? entry.rounds[0];
   }
 
-  // ── Render ───────────────────────────────────────────────────────────────────
+  // ── Render ────────────────────────────────────────────────────────────────────
 
   return (
     <div className="container mx-auto px-4 py-8 max-w-5xl">
+
       {process.env.NEXT_PUBLIC_VOTES_TEST_MODE === 'true' && (
-        <div className="mb-4 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-300 dark:border-amber-700 px-4 py-2 text-sm text-amber-700 dark:text-amber-400 font-medium">
-          Test Mode — Discord notifications are suppressed
+        <div className="mb-5 rounded-xl bg-amber-500/10 border border-amber-500/25 px-4 py-3 text-sm text-amber-400 font-medium flex items-center gap-2">
+          <span>⚗</span> Test mode — Discord notifications are suppressed
         </div>
       )}
 
       <SectionHeader
         title="Admin · Votes"
-        subtitle="Create and manage league polls"
-        actions={!showBuilder ? <Button onClick={() => setShowBuilder(true)}>+ New Poll</Button> : null}
+        subtitle="Create and manage league polls and surveys"
+        actions={
+          !showBuilder
+            ? <Button onClick={() => setShowBuilder(true)}>+ New Poll</Button>
+            : null
+        }
       />
 
-      {/* ── Poll Builder ── */}
+      {/* ── Poll Builder ───────────────────────────────────────────────────────── */}
       {showBuilder && (
-        <div ref={builderRef}><Card className="mb-8">
-          <CardHeader>
-            <div className="flex items-start justify-between">
-              <CardTitle>New Poll</CardTitle>
-              <button onClick={resetBuilder} className="text-xs text-[var(--muted)] hover:text-red-500 mt-0.5">✕ Cancel</button>
+        <div ref={builderRef}>
+          <Card className="mb-8">
+            {/* Builder header */}
+            <div className="px-6 pt-6 pb-4 border-b border-[var(--border)]">
+              <div className="flex items-start justify-between mb-6">
+                <div>
+                  <h2 className="text-lg font-semibold text-[var(--text)]">New Poll</h2>
+                  <p className="text-sm text-[var(--muted)] mt-0.5">Fill in each step, then publish when ready.</p>
+                </div>
+                <button
+                  onClick={resetBuilder}
+                  className="text-xs text-[var(--muted)] hover:text-red-400 transition-colors mt-0.5 px-2 py-1 rounded hover:bg-red-500/10"
+                >
+                  ✕ Cancel
+                </button>
+              </div>
+              <StepIndicator current={step} total={4} labels={STEP_LABELS} />
             </div>
-            <StepIndicator current={step} total={4} labels={STEP_LABELS} />
-          </CardHeader>
-          <CardContent className="space-y-5">
-            {buildError && <InlineError msg={buildError} onDismiss={() => setBuildError(null)} />}
 
-            {/* Step 1 — Basics */}
-            {step === 1 && (
-              <div className="space-y-5">
-                <div className="space-y-4">
-                  <div>
-                    <Label>Title <span className="text-red-500">*</span></Label>
-                    <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g., 2026 Draft Location Vote" autoFocus />
+            <CardContent className="px-6 py-6 space-y-5">
+              {buildError && <AlertBanner msg={buildError} onDismiss={() => setBuildError(null)} />}
+
+              {/* ── Step 1 — Basics ─────────────────────────────────────────── */}
+              {step === 1 && (
+                <div className="space-y-5">
+                  <StepHint
+                    title="Poll basics"
+                    desc="Give your poll a title and choose who's eligible to vote."
+                  />
+
+                  <div className="grid sm:grid-cols-2 gap-5">
+                    <div className="sm:col-span-2">
+                      <Label>Title <span className="text-red-400">*</span></Label>
+                      <Input
+                        value={title}
+                        onChange={(e) => setTitle(e.target.value)}
+                        placeholder="e.g., 2026 Draft Location Vote"
+                        autoFocus
+                      />
+                    </div>
+                    <div className="sm:col-span-2">
+                      <Label>Description <span className="text-[var(--muted)] font-normal">(optional)</span></Label>
+                      <Textarea
+                        value={description}
+                        onChange={(e) => setDescription(e.target.value)}
+                        placeholder="Background context for voters…"
+                        rows={2}
+                      />
+                    </div>
                   </div>
-                  <div>
-                    <Label>Description <span className="text-[var(--muted)] font-normal">(optional)</span></Label>
-                    <Textarea value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Context for voters" rows={2} />
-                  </div>
+
+                  {/* Eligibility pills */}
                   <div>
                     <Label>Who can vote?</Label>
-                    <div className="flex gap-4 mt-1">
-                      {(['team', 'person'] as const).map((t) => (
-                        <label key={t} className="flex items-center gap-2 cursor-pointer">
-                          <input type="radio" checked={eligibilityType === t} onChange={() => setEligibilityType(t)} className="accent-[var(--accent)]" />
-                          <span className="text-sm">{t === 'team' ? 'One vote per team (12)' : 'One vote per person (14)'}</span>
-                        </label>
+                    <div className="mt-2 flex gap-3">
+                      {([
+                        { value: 'team',   label: 'One vote per team',   sub: '12 eligible' },
+                        { value: 'person', label: 'One vote per person', sub: '14 eligible' },
+                      ] as const).map(({ value, label, sub }) => (
+                        <button
+                          key={value}
+                          type="button"
+                          onClick={() => setEligibilityType(value)}
+                          className={`flex-1 rounded-xl border-2 px-4 py-3 text-left transition-all
+                            ${eligibilityType === value
+                              ? 'border-[var(--accent)] bg-[var(--accent)]/8'
+                              : 'border-[var(--border)] hover:border-[var(--accent)]/40'
+                            }`}
+                        >
+                          <div className={`text-sm font-semibold ${eligibilityType === value ? 'text-[var(--accent)]' : 'text-[var(--text)]'}`}>{label}</div>
+                          <div className="text-xs text-[var(--muted)] mt-0.5">{sub}</div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Advanced settings */}
+                  <details className="rounded-xl border border-[var(--border)] overflow-hidden">
+                    <summary className="cursor-pointer px-4 py-3 text-sm font-medium bg-[var(--surface-strong)] hover:bg-[var(--surface)] select-none flex items-center gap-2">
+                      <span>⚙</span> Advanced settings
+                      <span className="text-xs text-[var(--muted)] font-normal ml-auto">deadline · visibility · confirmation…</span>
+                    </summary>
+                    <div className="p-4 space-y-4">
+                      <div className="grid sm:grid-cols-2 gap-4">
+                        <div>
+                          <Label>Deadline <span className="text-[var(--muted)] font-normal">(optional)</span></Label>
+                          <Input type="datetime-local" value={deadline} onChange={(e) => setDeadline(e.target.value)} />
+                        </div>
+                        <div>
+                          <Label>Response cap <span className="text-[var(--muted)] font-normal">(surveys)</span></Label>
+                          <Input type="number" min={1} value={responseLimit} onChange={(e) => setResponseLimit(e.target.value)} placeholder="Unlimited" />
+                        </div>
+                      </div>
+                      <div>
+                        <Label>Result visibility</Label>
+                        <Select value={resultVisibility} onChange={(e) => setResultVisibility(e.target.value)}>
+                          <option value="admin_publish">Show only when I publish (recommended)</option>
+                          <option value="all_voted">Show automatically after everyone votes</option>
+                          <option value="immediate">Show live as votes come in</option>
+                        </Select>
+                      </div>
+                      <label className="flex items-start gap-3 cursor-pointer text-sm select-none">
+                        <input type="checkbox" checked={anonymous} onChange={(e) => setAnonymous(e.target.checked)} className="accent-[var(--accent)] mt-0.5" />
+                        <div>
+                          <div className="font-medium">Anonymous results</div>
+                          <div className="text-xs text-[var(--muted)]">Members won&apos;t see who voted for what</div>
+                        </div>
+                      </label>
+                      <div>
+                        <Label>Confirmation message <span className="text-[var(--muted)] font-normal">(optional)</span></Label>
+                        <Textarea
+                          value={confirmationMessage}
+                          onChange={(e) => setConfirmationMessage(e.target.value)}
+                          placeholder="Shown after submission — e.g., 'Thanks for voting! Results post Tuesday.'"
+                          rows={2}
+                        />
+                      </div>
+                      <div>
+                        <Label>Link to suggestions <span className="text-[var(--muted)] font-normal">(optional)</span></Label>
+                        {suggestionsLoading ? (
+                          <p className="text-sm text-[var(--muted)] py-2">Loading eligible suggestions…</p>
+                        ) : suggestions.length === 0 ? (
+                          <p className="text-sm text-[var(--muted)] py-2">No eligible suggestions (need ≥ 3 endorsements, not yet voted).</p>
+                        ) : (
+                          <div className="space-y-1 max-h-40 overflow-y-auto rounded-lg border border-[var(--border)] p-2 mt-1">
+                            {suggestions.map((s) => (
+                              <label key={s.id} className="flex items-start gap-2 cursor-pointer text-sm p-1.5 rounded hover:bg-[var(--surface-strong)] select-none">
+                                <input
+                                  type="checkbox"
+                                  checked={linkedSuggestionIds.includes(s.id)}
+                                  onChange={(e) => setLinkedSuggestionIds(
+                                    e.target.checked ? [...linkedSuggestionIds, s.id] : linkedSuggestionIds.filter((x) => x !== s.id)
+                                  )}
+                                  className="accent-[var(--accent)] mt-0.5"
+                                />
+                                <span className="leading-snug">{s.title ?? s.content.slice(0, 80)}</span>
+                              </label>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </details>
+                </div>
+              )}
+
+              {/* ── Step 2 — Voting Rounds ───────────────────────────────────── */}
+              {step === 2 && (
+                <div className="space-y-4">
+                  <StepHint
+                    title="Voting rounds"
+                    desc="Add one or more voting rounds, or skip to create a survey-only poll. Round 2+ options are auto-populated from the previous round's survivors."
+                  />
+
+                  {rounds.length === 0 && (
+                    <div className="rounded-xl border border-dashed border-[var(--border)] px-6 py-10 text-center space-y-1">
+                      <p className="text-sm font-medium text-[var(--text)]">No voting rounds</p>
+                      <p className="text-xs text-[var(--muted)]">This will be a survey-only poll — add form questions in Step 4.</p>
+                    </div>
+                  )}
+
+                  <div className="space-y-3">
+                    {rounds.map((r, i) => (
+                      <RoundCard
+                        key={i}
+                        r={r} i={i} total={rounds.length}
+                        onUpdate={(patch) => updateRound(i, patch)}
+                        onMove={(dir) => moveRound(i, dir)}
+                        onRemove={() => setRounds(rounds.filter((_, j) => j !== i))}
+                      />
+                    ))}
+                  </div>
+
+                  <button
+                    onClick={() => setRounds([...rounds, { voteType: 'select_one', survivorCount: '', thresholdType: 'plurality', thresholdValue: '', shuffleOptions: false }])}
+                    className="flex items-center gap-1.5 text-sm text-[var(--accent)] hover:underline"
+                  >
+                    + Add round
+                  </button>
+                </div>
+              )}
+
+              {/* ── Step 3 — Round 1 Options ─────────────────────────────────── */}
+              {step === 3 && (
+                <div className="space-y-4">
+                  <StepHint
+                    title="Round 1 options"
+                    desc="Enter the choices voters will rank or select in the first round. Later rounds are populated automatically from survivors."
+                  />
+
+                  <div className="space-y-2">
+                    {options.map((opt, i) => (
+                      <div key={i} className="flex items-center gap-2">
+                        <span className="w-6 text-right text-xs text-[var(--muted)] shrink-0">{i + 1}.</span>
+                        <Input
+                          value={opt}
+                          onChange={(e) => { const a = [...options]; a[i] = e.target.value; setOptions(a); }}
+                          placeholder={`Option ${i + 1}`}
+                        />
+                        {options.length > 2 && (
+                          <button
+                            onClick={() => setOptions(options.filter((_, j) => j !== i))}
+                            className="text-[var(--muted)] hover:text-red-400 px-1 shrink-0 transition-colors"
+                          >✕</button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                  <button
+                    onClick={() => setOptions([...options, ''])}
+                    className="text-sm text-[var(--accent)] hover:underline ml-8"
+                  >
+                    + Add option
+                  </button>
+                </div>
+              )}
+
+              {/* ── Step 4 — Survey Questions ─────────────────────────────────── */}
+              {step === 4 && (
+                <div className="space-y-4">
+                  <StepHint
+                    title="Survey questions"
+                    desc="Optionally add questions that appear alongside the ballot on the same submission page."
+                  />
+
+                  {questionDefs.length === 0 && (
+                    <div className="rounded-xl border border-dashed border-[var(--border)] px-6 py-10 text-center space-y-1">
+                      <p className="text-sm font-medium text-[var(--text)]">No questions yet</p>
+                      <p className="text-xs text-[var(--muted)]">Use the buttons below to add a question, or skip to create the poll without a survey.</p>
+                    </div>
+                  )}
+
+                  <div className="space-y-3">
+                    {questionDefs.map((q, qi) => (
+                      <QuestionCard
+                        key={qi}
+                        q={q} qi={qi} total={questionDefs.length}
+                        questionDefs={questionDefs}
+                        onUpdate={(patch) => updateQuestion(qi, patch)}
+                        onUpdateOption={(oi, text) =>
+                          setQuestionDefs((prev) =>
+                            prev.map((qd, j) =>
+                              j === qi ? { ...qd, options: qd.options.map((o, k) => k === oi ? { text } : o) } : qd
+                            )
+                          )
+                        }
+                        onMove={(dir) => moveQuestion(qi, dir)}
+                        onRemove={() => setQuestionDefs(questionDefs.filter((_, j) => j !== qi))}
+                      />
+                    ))}
+                  </div>
+
+                  {/* Quick-add bar */}
+                  <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-strong)] p-3">
+                    <p className="text-xs text-[var(--muted)] mb-2 font-medium uppercase tracking-wider">Add question</p>
+                    <div className="flex flex-wrap gap-2">
+                      {QUESTION_TYPES.map((t) => (
+                        <button
+                          key={t.value}
+                          onClick={() => setQuestionDefs([...questionDefs, { ...newQuestion(), questionType: t.value }])}
+                          className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-xs font-medium text-[var(--muted)] hover:border-[var(--accent)] hover:text-[var(--accent)] transition-colors"
+                        >
+                          {t.icon} {t.label}
+                        </button>
                       ))}
                     </div>
                   </div>
                 </div>
+              )}
 
-                {/* Advanced settings */}
-                <details className="border border-[var(--border)] rounded-xl overflow-hidden">
-                  <summary className="cursor-pointer px-4 py-3 text-sm font-medium bg-[var(--surface-strong)] hover:bg-[var(--surface)] select-none">
-                    Settings — deadline, visibility, confirmation message…
-                  </summary>
-                  <div className="p-4 space-y-4">
-                    <div>
-                      <Label>Deadline <span className="text-[var(--muted)] font-normal">(optional)</span></Label>
-                      <Input type="datetime-local" value={deadline} onChange={(e) => setDeadline(e.target.value)} />
-                    </div>
-                    <div>
-                      <Label>Result visibility</Label>
-                      <Select value={resultVisibility} onChange={(e) => setResultVisibility(e.target.value)}>
-                        <option value="admin_publish">Show only when I publish (default)</option>
-                        <option value="all_voted">Show after everyone has voted</option>
-                        <option value="immediate">Show immediately as votes come in</option>
-                      </Select>
-                    </div>
-                    <label className="flex items-center gap-2 cursor-pointer text-sm">
-                      <input type="checkbox" checked={anonymous} onChange={(e) => setAnonymous(e.target.checked)} className="accent-[var(--accent)]" />
-                      Anonymous results (members can&apos;t see who voted for what)
-                    </label>
-                    <div>
-                      <Label>Confirmation message <span className="text-[var(--muted)] font-normal">(optional)</span></Label>
-                      <Textarea
-                        value={confirmationMessage}
-                        onChange={(e) => setConfirmationMessage(e.target.value)}
-                        placeholder="Shown after submission — e.g., 'Thanks for voting! Results will be posted Tuesday.'"
-                        rows={2}
-                      />
-                    </div>
-                    <div>
-                      <Label>Response cap <span className="text-[var(--muted)] font-normal">(optional, for survey forms)</span></Label>
-                      <Input type="number" min={1} value={responseLimit} onChange={(e) => setResponseLimit(e.target.value)} placeholder="Unlimited" />
-                    </div>
-                    <div>
-                      <Label>Link to suggestions <span className="text-[var(--muted)] font-normal">(optional)</span></Label>
-                      {suggestionsLoading ? (
-                        <p className="text-sm text-[var(--muted)]">Loading…</p>
-                      ) : suggestions.length === 0 ? (
-                        <p className="text-sm text-[var(--muted)]">No eligible suggestions (need ≥3 endorsements, not yet voted).</p>
-                      ) : (
-                        <div className="space-y-1 max-h-36 overflow-y-auto border border-[var(--border)] rounded-lg p-2">
-                          {suggestions.map((s) => (
-                            <label key={s.id} className="flex items-start gap-2 cursor-pointer text-sm p-1 rounded hover:bg-[var(--surface-strong)]">
-                              <input
-                                type="checkbox"
-                                checked={linkedSuggestionIds.includes(s.id)}
-                                onChange={(e) => setLinkedSuggestionIds(e.target.checked ? [...linkedSuggestionIds, s.id] : linkedSuggestionIds.filter((x) => x !== s.id))}
-                                className="accent-[var(--accent)] mt-0.5"
-                              />
-                              <span>{s.title ?? s.content.slice(0, 80)}</span>
-                            </label>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </details>
-              </div>
-            )}
-
-            {/* Step 2 — Voting Rounds */}
-            {step === 2 && (
-              <div className="space-y-4">
-                <p className="text-sm text-[var(--muted)]">
-                  Add voting rounds, or skip them entirely to create a survey-only poll.
-                  Options for rounds 2+ are auto-populated from the previous round&apos;s survivors.
-                </p>
-
-                {rounds.length === 0 && (
-                  <div className="rounded-xl border border-dashed border-[var(--border)] px-6 py-8 text-center text-sm text-[var(--muted)]">
-                    No voting rounds — this will be a survey-only poll.
-                    Add form questions in Step 4.
-                  </div>
-                )}
-
-                {rounds.map((r, i) => (
-                  <div key={i} className="border border-[var(--border)] rounded-xl overflow-hidden">
-                    <div className="flex items-center justify-between px-4 py-2 bg-[var(--surface-strong)] border-b border-[var(--border)]">
-                      <span className="text-xs font-semibold text-[var(--muted)] uppercase tracking-wide">Round {i + 1}</span>
-                      <div className="flex gap-1">
-                        <button disabled={i === 0} onClick={() => moveRound(i, -1)} className="rounded px-1.5 py-0.5 text-xs text-[var(--muted)] hover:bg-[var(--surface)] disabled:opacity-30">↑</button>
-                        <button disabled={i === rounds.length - 1} onClick={() => moveRound(i, 1)} className="rounded px-1.5 py-0.5 text-xs text-[var(--muted)] hover:bg-[var(--surface)] disabled:opacity-30">↓</button>
-                        <button onClick={() => setRounds(rounds.filter((_, j) => j !== i))} className="rounded px-1.5 py-0.5 text-xs text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20">Remove</button>
-                      </div>
-                    </div>
-                    <div className="p-4 space-y-3">
-                      <div>
-                        <Label>Vote type</Label>
-                        <Select value={r.voteType} onChange={(e) => { const a = [...rounds]; a[i] = { ...a[i], voteType: e.target.value }; setRounds(a); }}>
-                          {Object.entries(VOTE_TYPE_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-                        </Select>
-                      </div>
-                      {i < rounds.length - 1 && (
-                        <div>
-                          <Label>Survivors to next round</Label>
-                          <Input type="number" min={1} value={r.survivorCount} placeholder="e.g., 3" onChange={(e) => { const a = [...rounds]; a[i] = { ...a[i], survivorCount: e.target.value }; setRounds(a); }} />
-                        </div>
-                      )}
-                      <div>
-                        <Label>Winning threshold</Label>
-                        <Select value={r.thresholdType} onChange={(e) => { const a = [...rounds]; a[i] = { ...a[i], thresholdType: e.target.value }; setRounds(a); }}>
-                          {Object.entries(THRESHOLD_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-                        </Select>
-                      </div>
-                      {r.thresholdType === 'admin_defined' && (
-                        <div>
-                          <Label>Required affirmative votes</Label>
-                          <Input type="number" min={1} value={r.thresholdValue} onChange={(e) => { const a = [...rounds]; a[i] = { ...a[i], thresholdValue: e.target.value }; setRounds(a); }} />
-                        </div>
-                      )}
-                      <label className="flex items-center gap-2 cursor-pointer text-sm">
-                        <input type="checkbox" checked={r.shuffleOptions} onChange={(e) => { const a = [...rounds]; a[i] = { ...a[i], shuffleOptions: e.target.checked }; setRounds(a); }} className="accent-[var(--accent)]" />
-                        Shuffle option order (randomize per voter)
-                      </label>
-                    </div>
-                  </div>
-                ))}
-
-                <button
-                  onClick={() => setRounds([...rounds, { voteType: 'select_one', survivorCount: '', thresholdType: 'plurality', thresholdValue: '', shuffleOptions: false }])}
-                  className="text-sm text-[var(--accent)] hover:underline"
-                >
-                  + Add round
-                </button>
-              </div>
-            )}
-
-            {/* Step 3 — Round 1 Options */}
-            {step === 3 && (
-              <div className="space-y-3">
-                <p className="text-sm text-[var(--muted)]">
-                  Enter the options for Round 1. Later rounds are populated automatically from survivors.
-                </p>
-                {options.map((opt, i) => (
-                  <div key={i} className="flex gap-2">
-                    <Input value={opt} onChange={(e) => { const a = [...options]; a[i] = e.target.value; setOptions(a); }} placeholder={`Option ${i + 1}`} />
-                    {options.length > 2 && (
-                      <button onClick={() => setOptions(options.filter((_, j) => j !== i))} className="text-[var(--muted)] hover:text-red-500 px-1">✕</button>
-                    )}
-                  </div>
-                ))}
-                <button onClick={() => setOptions([...options, ''])} className="text-sm text-[var(--accent)] hover:underline">+ Add option</button>
-              </div>
-            )}
-
-            {/* Step 4 — Survey Questions */}
-            {step === 4 && (
-              <div className="space-y-4">
-                <p className="text-sm text-[var(--muted)]">
-                  Optionally add survey questions — they appear alongside the voting ballot on the same page.
-                </p>
-
-                {questionDefs.length === 0 && (
-                  <div className="rounded-xl border border-dashed border-[var(--border)] px-6 py-8 text-center text-sm text-[var(--muted)]">
-                    No questions yet. Add one below.
-                  </div>
-                )}
-
-                {questionDefs.map((q, qi) => (
-                  <QuestionCard
-                    key={qi}
-                    q={q}
-                    qi={qi}
-                    total={questionDefs.length}
-                    questionDefs={questionDefs}
-                    onUpdate={(patch) => updateQuestion(qi, patch)}
-                    onUpdateOption={(oi, text) => setQuestionDefs((prev) => prev.map((qd, j) => j === qi ? { ...qd, options: qd.options.map((o, k) => k === oi ? { text } : o) } : qd))}
-                    onMove={(dir) => moveQuestion(qi, dir)}
-                    onRemove={() => setQuestionDefs(questionDefs.filter((_, j) => j !== qi))}
-                  />
-                ))}
-
-                {/* Quick-add buttons */}
-                <div className="flex flex-wrap gap-2">
-                  {QUESTION_TYPES.map((t) => (
-                    <button
-                      key={t.value}
-                      onClick={() => setQuestionDefs([...questionDefs, { ...newQuestion(), questionType: t.value }])}
-                      className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs text-[var(--muted)] hover:border-[var(--accent)] hover:text-[var(--accent)] transition-colors"
-                    >
-                      + {t.label}
-                    </button>
-                  ))}
+              {/* ── Step navigation ──────────────────────────────────────────── */}
+              <div className="flex items-center justify-between pt-4 border-t border-[var(--border)]">
+                <div>
+                  {step > 1 && (
+                    <Button variant="ghost" onClick={backStep}>← Back</Button>
+                  )}
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button variant="ghost" onClick={resetBuilder}>Cancel</Button>
+                  {step < 4
+                    ? <Button onClick={advanceStep}>Next: {STEP_LABELS[step]} →</Button>
+                    : (
+                      <Button onClick={handleSubmit} disabled={submitting}>
+                        {submitting
+                          ? <span className="flex items-center gap-2"><span className="animate-spin text-base">⟳</span> Creating…</span>
+                          : 'Create Poll'}
+                      </Button>
+                    )
+                  }
                 </div>
               </div>
-            )}
-
-            {/* Navigation */}
-            <div className="flex items-center justify-between pt-2 border-t border-[var(--border)]">
-              <div className="flex gap-2">
-                {step > 1 && <Button variant="ghost" onClick={backStep}>← Back</Button>}
-              </div>
-              <div className="flex gap-2">
-                <Button variant="ghost" onClick={resetBuilder}>Cancel</Button>
-                {step < 4
-                  ? <Button onClick={advanceStep}>Continue →</Button>
-                  : <Button onClick={handleSubmit} disabled={submitting}>{submitting ? 'Creating…' : 'Create Poll'}</Button>
-                }
-              </div>
-            </div>
-          </CardContent>
-        </Card></div>
+            </CardContent>
+          </Card>
+        </div>
       )}
 
-      {/* ── Poll List ── */}
+      {/* ── Poll List ──────────────────────────────────────────────────────────── */}
       {loading ? (
-        <p className="text-[var(--muted)]">Loading…</p>
+        <div className="flex items-center gap-3 text-[var(--muted)] py-8">
+          <span className="animate-spin text-lg">⟳</span>
+          <span>Loading polls…</span>
+        </div>
       ) : error ? (
-        <p className="text-red-500">{error}</p>
+        <div className="rounded-xl bg-red-500/10 border border-red-500/25 px-5 py-4 text-red-400 text-sm flex items-center gap-2">
+          <span>⚠</span> {error}
+        </div>
       ) : polls.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-[var(--border)] px-6 py-12 text-center text-sm text-[var(--muted)]">
-          No polls yet. Hit &quot;+ New Poll&quot; to create one.
+        <div className="rounded-xl border border-dashed border-[var(--border)] px-6 py-16 text-center space-y-2">
+          <p className="text-base font-semibold text-[var(--text)]">No polls yet</p>
+          <p className="text-sm text-[var(--muted)]">Hit &quot;+ New Poll&quot; above to create one.</p>
         </div>
       ) : (
         <div className="space-y-3">
           {polls.map((entry) => {
             const { poll } = entry;
-            const currentRound = getCurrentRoundForPoll(entry);
-            const busy = actionBusy === poll.id;
-            const openRound = entry.rounds.find((r) => r.status === 'open');
+            const currentRound        = getCurrentRoundForPoll(entry);
+            const busy                = actionBusy === poll.id;
+            const openRound           = entry.rounds.find((r) => r.status === 'open');
             const closedNonFinalRound = entry.rounds.find((r) => r.status === 'closed' && r.roundNumber < entry.roundCount);
-            const closedFinalRound = entry.rounds.find((r) => r.status === 'closed' && r.roundNumber === entry.roundCount);
-            const nextPendingRound = entry.rounds.find((r) => r.status === 'pending' && r.roundNumber > 1);
-            const isFormOnly = entry.roundCount === 0;
-            const pollError = actionErrors[poll.id];
+            const closedFinalRound    = entry.rounds.find((r) => r.status === 'closed' && r.roundNumber === entry.roundCount);
+            const nextPendingRound    = entry.rounds.find((r) => r.status === 'pending' && r.roundNumber > 1);
+            const isFormOnly          = entry.roundCount === 0;
+            const pollError           = actionErrors[poll.id];
 
             return (
               <Card key={poll.id}>
-                <CardContent className="pt-4 space-y-3">
-                  {/* Error */}
-                  {pollError && <InlineError msg={pollError} onDismiss={() => clearActionError(poll.id)} />}
+                <CardContent className="p-5 space-y-4">
+                  {pollError && (
+                    <AlertBanner msg={pollError} onDismiss={() => clearActionError(poll.id)} />
+                  )}
 
-                  {/* Header row */}
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div className="min-w-0 space-y-1">
+                  <div className="flex flex-col sm:flex-row sm:items-start gap-4">
+                    {/* Left: info */}
+                    <div className="flex-1 min-w-0 space-y-2">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <span className="font-semibold">{poll.title}</span>
+                        <span className="font-semibold text-[var(--text)] truncate">{poll.title}</span>
                         <StatusBadge status={poll.status} />
-                        {isFormOnly && <span className="text-xs bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400 rounded-full px-2 py-0.5 font-medium">survey</span>}
-                        {poll.anonymous && <span className="text-xs text-[var(--muted)]">anon</span>}
-                        <span className="text-xs text-[var(--muted)]">{poll.eligibilityType === 'team' ? '12 teams' : '14 people'}</span>
+                        {isFormOnly && (
+                          <span className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-violet-500/15 text-violet-400 border border-violet-500/25">
+                            survey
+                          </span>
+                        )}
+                        {poll.anonymous && (
+                          <span className="text-xs text-[var(--muted)] border border-[var(--border)] rounded-full px-2 py-0.5">anon</span>
+                        )}
+                      </div>
+
+                      {/* Metadata row */}
+                      <div className="flex items-center gap-3 text-xs text-[var(--muted)] flex-wrap">
+                        <span>{poll.eligibilityType === 'team' ? '12 teams' : '14 people'}</span>
+                        {!isFormOnly && currentRound && (
+                          <>
+                            <span>·</span>
+                            <span>Round {currentRound.roundNumber}/{entry.roundCount}</span>
+                            <span>·</span>
+                            <span>{VOTE_TYPE_LABELS[currentRound.voteType] ?? currentRound.voteType}</span>
+                            <StatusBadge status={currentRound.status} />
+                          </>
+                        )}
+                        {poll.deadline && (
+                          <>
+                            <span>·</span>
+                            <span>Deadline: {new Date(poll.deadline).toLocaleString()}</span>
+                          </>
+                        )}
                       </div>
 
                       {/* Progress */}
-                      {currentRound && (
-                        <div className="flex items-center gap-2 text-xs text-[var(--muted)]">
-                          <span>R{currentRound.roundNumber}/{entry.roundCount}</span>
-                          <StatusBadge status={currentRound.status} />
-                          <span>{VOTE_TYPE_LABELS[currentRound.voteType] ?? currentRound.voteType}</span>
-                        </div>
-                      )}
-                      {currentRound && (
-                        <div className="w-48">
-                          <VoteProgressBar value={(currentRound as { voteCount?: number }).voteCount ?? 0} max={(currentRound as { totalEligible?: number }).totalEligible ?? 12} />
+                      {currentRound && !isFormOnly && (
+                        <div className="w-52 pt-1">
+                          <ProgressBar
+                            value={(currentRound as { voteCount?: number }).voteCount ?? 0}
+                            max={(currentRound as { totalEligible?: number }).totalEligible ?? 12}
+                          />
                         </div>
                       )}
                       {isFormOnly && entry.responseCount > 0 && (
-                        <p className="text-xs text-[var(--muted)]">{entry.responseCount} response{entry.responseCount !== 1 ? 's' : ''}</p>
-                      )}
-                      {poll.deadline && (
-                        <p className="text-xs text-[var(--muted)]">Deadline: {new Date(poll.deadline).toLocaleString()}</p>
+                        <p className="text-xs text-[var(--muted)]">
+                          {entry.responseCount} response{entry.responseCount !== 1 ? 's' : ''}
+                        </p>
                       )}
                     </div>
 
-                    {/* Actions */}
-                    <div className="flex flex-wrap gap-2 shrink-0">
-                      {/* Form-only */}
+                    {/* Right: actions */}
+                    <div className="flex flex-wrap gap-2 shrink-0 items-start">
+                      {/* Form-only actions */}
                       {isFormOnly && poll.status === 'draft' && (
                         <Button size="sm" onClick={() => doAction(poll.id, { action: 'open_poll' })} disabled={busy}>Open</Button>
                       )}
@@ -894,7 +1056,7 @@ export default function AdminVotesPage() {
                         <Button size="sm" variant="ghost" onClick={() => doAction(poll.id, { action: 'close_poll_now' })} disabled={busy}>Close</Button>
                       )}
 
-                      {/* Voting polls */}
+                      {/* Voting poll actions */}
                       {!isFormOnly && poll.status === 'draft' && (
                         <Button size="sm" onClick={() => doAction(poll.id, { action: 'open_round', roundNumber: 1 })} disabled={busy}>Open Round 1</Button>
                       )}
@@ -907,28 +1069,30 @@ export default function AdminVotesPage() {
                           </>
                         ) : (
                           <Button size="sm" variant="ghost" onClick={() => setCloseConfirm(poll.id)} disabled={busy}>
-                            Close Round {openRound.roundNumber}
+                            Close R{openRound.roundNumber}
                           </Button>
                         )
                       )}
                       {!isFormOnly && closedNonFinalRound && !openRound && nextPendingRound && (
                         <>
                           {closedNonFinalRound.resultsPublishedAt == null && (
-                            <Button size="sm" variant="ghost" onClick={() => doAction(poll.id, { action: 'publish_results', roundId: closedNonFinalRound.id })} disabled={busy}>
+                            <Button size="sm" variant="ghost"
+                              onClick={() => doAction(poll.id, { action: 'publish_results', roundId: closedNonFinalRound.id })}
+                              disabled={busy}>
                               Publish R{closedNonFinalRound.roundNumber}
                             </Button>
                           )}
-                          <Button
-                            size="sm"
+                          <Button size="sm"
                             onClick={() => doAction(poll.id, { action: 'advance_round' }).then(() => doAction(poll.id, { action: 'open_round', roundNumber: nextPendingRound.roundNumber }))}
-                            disabled={busy}
-                          >
+                            disabled={busy}>
                             Advance → R{nextPendingRound.roundNumber}
                           </Button>
                         </>
                       )}
                       {!isFormOnly && closedFinalRound && closedFinalRound.resultsPublishedAt == null && (
-                        <Button size="sm" onClick={() => doAction(poll.id, { action: 'publish_results', roundId: closedFinalRound.id })} disabled={busy}>
+                        <Button size="sm"
+                          onClick={() => doAction(poll.id, { action: 'publish_results', roundId: closedFinalRound.id })}
+                          disabled={busy}>
                           Publish Results
                         </Button>
                       )}
@@ -937,7 +1101,7 @@ export default function AdminVotesPage() {
                       <a
                         href={`/api/admin/votes/${poll.id}/export`}
                         download
-                        className="inline-flex items-center rounded-md border border-[var(--border)] px-2.5 py-1 text-xs font-medium hover:bg-[var(--surface-strong)] transition-colors"
+                        className="inline-flex items-center rounded-lg border border-[var(--border)] px-3 py-1 text-xs font-medium text-[var(--muted)] hover:bg-[var(--surface-strong)] hover:text-[var(--text)] transition-colors"
                       >
                         CSV
                       </a>
@@ -946,7 +1110,7 @@ export default function AdminVotesPage() {
                       {deleteConfirm === poll.id ? (
                         <>
                           <Button size="sm" variant="ghost" onClick={() => setDeleteConfirm(null)}>Cancel</Button>
-                          <Button size="sm" onClick={() => handleDelete(poll.id)} disabled={busy}>Confirm Delete</Button>
+                          <Button size="sm" variant="danger" onClick={() => handleDelete(poll.id)} disabled={busy}>Delete</Button>
                         </>
                       ) : (
                         <Button size="sm" variant="ghost" onClick={() => setDeleteConfirm(poll.id)} disabled={busy}>Delete</Button>
@@ -954,22 +1118,26 @@ export default function AdminVotesPage() {
                     </div>
                   </div>
 
-                  {/* Expanded round details */}
+                  {/* Expandable round details */}
                   {entry.rounds.some((r) => r.status !== 'pending') && (
-                    <details>
-                      <summary className="text-xs text-[var(--muted)] cursor-pointer hover:text-[var(--text)] select-none">Voter details</summary>
-                      <div className="mt-2 space-y-2 pl-2">
+                    <details className="border-t border-[var(--border)] pt-3">
+                      <summary className="text-xs text-[var(--muted)] cursor-pointer hover:text-[var(--text)] select-none">
+                        Voter details
+                      </summary>
+                      <div className="mt-3 space-y-3 pl-2">
                         {entry.rounds.filter((r) => r.status !== 'pending').map((r) => (
-                          <div key={r.id} className="text-xs space-y-1">
-                            <div className="flex items-center gap-2">
-                              <span className="font-medium">Round {r.roundNumber}</span>
+                          <div key={r.id} className="text-xs space-y-1.5">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="font-semibold">Round {r.roundNumber}</span>
                               <StatusBadge status={r.status} />
                               <span className="text-[var(--muted)]">{VOTE_TYPE_LABELS[r.voteType] ?? r.voteType}</span>
-                              <span className="text-[var(--muted)]">{(r as { voteCount?: number }).voteCount ?? 0}/{(r as { totalEligible?: number }).totalEligible ?? 12} voted</span>
+                              <span className="text-[var(--muted)]">
+                                {(r as { voteCount?: number }).voteCount ?? 0}/{(r as { totalEligible?: number }).totalEligible ?? 12} voted
+                              </span>
                             </div>
                             {r.options.length > 0 && (
                               <ul className="ml-4 space-y-0.5 text-[var(--muted)]">
-                                {r.options.map((opt) => <li key={opt.id}>• {opt.text}</li>)}
+                                {r.options.map((opt) => <li key={opt.id}>· {opt.text}</li>)}
                               </ul>
                             )}
                           </div>
