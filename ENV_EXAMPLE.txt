@@ -20,5 +20,10 @@ DISCORD_TRADE_BLOCK_WEBHOOK_URL=https://discord.com/api/webhooks/147241994734613
 # Sleeper league ID for trade monitoring
 SLEEPER_LEAGUE_ID=
 
+# MCP / ChatGPT Apps SDK integration
+# Set this to a strong random secret (e.g. openssl rand -hex 32).
+# All /api/mcp/* routes return 503 if this is unset and 403 if the key is wrong.
+MCP_API_KEY=
+
 # Site URL for links in Discord embeds
 SITE_URL=
