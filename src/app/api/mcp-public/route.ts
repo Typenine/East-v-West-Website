@@ -32,6 +32,9 @@ import {
   handleGetFranchise,
   handleGetRules,
   handleGetWeeklyContext,
+  formatStandingsMarkdown,
+  formatTeamMarkdown,
+  formatMatchupsMarkdown,
   McpError,
 } from '@/lib/mcp/handlers';
 
@@ -188,26 +191,57 @@ const PUBLIC_TOOLS = [
 ] as const;
 
 // ─── Dispatch ──────────────────────────────────────────────────────────────────
+// Returns { structuredContent, markdown } for tools with rich rendering support,
+// or { structuredContent: data, markdown: null } for all other tools.
 
 type ToolInput = Record<string, unknown>;
+type DispatchResult = { structuredContent: unknown; markdown: string | null };
 
-async function dispatchTool(name: string, input: ToolInput): Promise<unknown> {
+async function dispatchTool(name: string, input: ToolInput): Promise<DispatchResult> {
   switch (name) {
-    case 'get_league_info':           return handleGetLeagueInfo();
-    case 'get_current_standings':     return handleGetStandings();
-    case 'get_team_dashboard':        return handleGetTeam({ name: input.name as string | undefined });
-    case 'get_current_roster':        return handleGetRosters({ team: input.team as string | undefined });
-    case 'search_players':            return handleGetPlayer({ name: input.name as string | undefined, limit: input.limit as number | undefined });
-    case 'get_player_info':           return handleGetPlayer({ id: input.id as string | undefined });
-    case 'get_current_matchups':      return handleGetMatchups({ week: input.week as number | undefined });
-    case 'get_recent_transactions':   return handleGetTransactions({ limit: input.limit as number | undefined, team: input.team as string | undefined, season: input.season as string | undefined });
-    case 'get_trade_history':         return handleGetTrades({ team: input.team as string | undefined, season: input.season as string | undefined, limit: input.limit as number | undefined });
-    case 'get_draft_history':         return handleGetDrafts({ season: input.season as string | undefined, team: input.team as string | undefined, type: input.type as string | undefined });
-    case 'get_draft_picks':           return handleGetDrafts({ team: input.team as string | undefined, type: 'future' });
-    case 'get_franchise_summary':     return handleGetFranchise({ team: input.team as string | undefined });
-    case 'answer_rule_question':      return handleGetRules({ search: input.search as string | undefined, section: input.section as string | undefined });
-    case 'get_weekly_content_context':return handleGetWeeklyContext();
-    default: throw new McpError('method_not_found', `Unknown tool: ${name}`);
+    case 'get_current_standings': {
+      const data = await handleGetStandings();
+      const md = formatStandingsMarkdown(
+        (data as { currentSeasonStandings: Parameters<typeof formatStandingsMarkdown>[0] }).currentSeasonStandings,
+        (data as { meta: { currentSeason?: string } }).meta?.currentSeason ?? String(new Date().getFullYear()),
+      );
+      return { structuredContent: data, markdown: md };
+    }
+    case 'get_team_dashboard': {
+      const data = await handleGetTeam({ name: input.name as string | undefined });
+      const md = formatTeamMarkdown(data as Parameters<typeof formatTeamMarkdown>[0]);
+      return { structuredContent: data, markdown: md };
+    }
+    case 'get_current_matchups': {
+      const data = await handleGetMatchups({ week: input.week as number | undefined });
+      const d = data as { week: number; matchups: Parameters<typeof formatMatchupsMarkdown>[0]; meta: { nflSeason?: string } };
+      const md = formatMatchupsMarkdown(d.matchups, d.week, d.meta?.nflSeason ?? String(new Date().getFullYear()));
+      return { structuredContent: data, markdown: md };
+    }
+    case 'get_league_info':
+      return { structuredContent: await handleGetLeagueInfo(), markdown: null };
+    case 'get_current_roster':
+      return { structuredContent: await handleGetRosters({ team: input.team as string | undefined }), markdown: null };
+    case 'search_players':
+      return { structuredContent: await handleGetPlayer({ name: input.name as string | undefined, limit: input.limit as number | undefined }), markdown: null };
+    case 'get_player_info':
+      return { structuredContent: await handleGetPlayer({ id: input.id as string | undefined }), markdown: null };
+    case 'get_recent_transactions':
+      return { structuredContent: await handleGetTransactions({ limit: input.limit as number | undefined, team: input.team as string | undefined, season: input.season as string | undefined }), markdown: null };
+    case 'get_trade_history':
+      return { structuredContent: await handleGetTrades({ team: input.team as string | undefined, season: input.season as string | undefined, limit: input.limit as number | undefined }), markdown: null };
+    case 'get_draft_history':
+      return { structuredContent: await handleGetDrafts({ season: input.season as string | undefined, team: input.team as string | undefined, type: input.type as string | undefined }), markdown: null };
+    case 'get_draft_picks':
+      return { structuredContent: await handleGetDrafts({ team: input.team as string | undefined, type: 'future' }), markdown: null };
+    case 'get_franchise_summary':
+      return { structuredContent: await handleGetFranchise({ team: input.team as string | undefined }), markdown: null };
+    case 'answer_rule_question':
+      return { structuredContent: await handleGetRules({ search: input.search as string | undefined, section: input.section as string | undefined }), markdown: null };
+    case 'get_weekly_content_context':
+      return { structuredContent: await handleGetWeeklyContext(), markdown: null };
+    default:
+      throw new McpError('method_not_found', `Unknown tool: ${name}`);
   }
 }
 
@@ -274,15 +308,18 @@ export async function POST(request: Request) {
     }
 
     try {
-      const result = await dispatchTool(toolName, toolInput);
+      const { structuredContent, markdown } = await dispatchTool(toolName, toolInput);
       return ok(id, {
-        content: [{ type: 'text', text: JSON.stringify(result) }],
+        structuredContent,
+        content: markdown
+          ? [{ type: 'text', text: markdown }]
+          : [{ type: 'text', text: JSON.stringify(structuredContent) }],
         isError: false,
       });
     } catch (e) {
       if (e instanceof McpError) {
         return ok(id, {
-          content: [{ type: 'text', text: JSON.stringify({ error: e.code, message: e.message }) }],
+          content: [{ type: 'text', text: `**Error:** ${e.message}` }],
           isError: true,
         });
       }

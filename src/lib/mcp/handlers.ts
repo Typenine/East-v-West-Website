@@ -778,6 +778,126 @@ export async function handleGetWeeklyContext() {
   };
 }
 
+// ─── Markdown card formatters (for ChatGPT chat rendering) ────────────────────
+// These take the same structured data the handlers return and produce a compact
+// Markdown string suitable for the MCP `content[].text` field. ChatGPT renders
+// this as a visual card in the chat thread alongside the structured JSON.
+
+export function formatStandingsMarkdown(
+  currentRows: Array<{ rank: number; team: string; wins: number; losses: number; ties: number; pf: number; championships: number }>,
+  season: string,
+): string {
+  const rows = currentRows
+    .slice(0, 12)
+    .map((r) => {
+      const champ = r.championships > 0 ? ` 🏆×${r.championships}` : '';
+      const tie = r.ties > 0 ? `-${r.ties}` : '';
+      return `| ${r.rank} | ${r.team}${champ} | ${r.wins}-${r.losses}${tie} | ${r.pf} |`;
+    })
+    .join('\n');
+
+  return [
+    `## 📊 East v. West Standings — ${season} Season`,
+    '',
+    '| # | Team | W-L | PF |',
+    '|---|---|---|---|',
+    rows,
+    '',
+    `*Live from Sleeper · ${new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}*`,
+  ].join('\n');
+}
+
+export function formatTeamMarkdown(data: {
+  team: {
+    name: string;
+    currentRecord: { season: string; wins: number; losses: number; ties: number; pf: number; pa: number };
+    allTimeStats: { regularSeason: { wins: number; losses: number; pf: number }; playoffs: { wins: number; losses: number } } | null;
+    championships: number;
+    championshipHistory: Array<{ year: number; finish: string }>;
+  };
+  roster: {
+    active: Array<{ name: string; position: string | null; nflTeam: string | null; status: string | null }>;
+    ir: Array<{ name: string; position: string | null }>;
+    taxi: Array<{ name: string; position: string | null }>;
+  };
+}): string {
+  const { team, roster } = data;
+  const rec = team.currentRecord;
+  const tieStr = rec.ties > 0 ? `-${rec.ties}` : '';
+  const champStr = team.championships > 0
+    ? `🏆 ${team.championships}× Champion (${team.championshipHistory.filter((c) => c.finish.startsWith('1st')).map((c) => c.year).join(', ')})`
+    : 'No championships yet';
+
+  const byPos: Record<string, string[]> = {};
+  for (const p of roster.active) {
+    const pos = p.position ?? 'UNKN';
+    if (!byPos[pos]) byPos[pos] = [];
+    const inj = p.status && p.status !== 'Active' ? ` *(${p.status})*` : '';
+    byPos[pos].push(`${p.name}${inj}`);
+  }
+  const rosterLines = Object.entries(byPos)
+    .sort(([a], [b]) => ['QB', 'RB', 'WR', 'TE', 'K', 'DEF'].indexOf(a) - ['QB', 'RB', 'WR', 'TE', 'K', 'DEF'].indexOf(b) || a.localeCompare(b))
+    .map(([pos, names]) => `**${pos}:** ${names.join(', ')}`)
+    .join('\n');
+
+  const irLine = roster.ir.length > 0
+    ? `\n**IR:** ${roster.ir.map((p) => p.name).join(', ')}`
+    : '';
+  const taxiLine = roster.taxi.length > 0
+    ? `\n**Taxi:** ${roster.taxi.map((p) => p.name).join(', ')}`
+    : '';
+
+  const allTime = team.allTimeStats
+    ? `**Career:** ${team.allTimeStats.regularSeason.wins}-${team.allTimeStats.regularSeason.losses} regular season · ${team.allTimeStats.playoffs.wins}-${team.allTimeStats.playoffs.losses} playoffs`
+    : '';
+
+  return [
+    `## 🏈 ${team.name}`,
+    '',
+    `**${rec.season} Record:** ${rec.wins}-${rec.losses}${tieStr} · PF ${rec.pf} · PA ${rec.pa}`,
+    allTime,
+    `**${champStr}**`,
+    '',
+    '### Active Roster',
+    rosterLines,
+    irLine,
+    taxiLine,
+    '',
+    `*Live from Sleeper · ${new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}*`,
+  ].filter((l) => l !== undefined).join('\n');
+}
+
+export function formatMatchupsMarkdown(
+  matchups: Array<{ matchupId: number; home: { team: string; points: number }; away: { team: string; points: number }; played: boolean }>,
+  week: number,
+  season: string,
+): string {
+  if (matchups.length === 0) {
+    return `## 🏈 Week ${week} Matchups\n\n*No matchups found for this week.*`;
+  }
+
+  const lines = matchups.map((m) => {
+    const score = m.played
+      ? `${m.away.points} – ${m.home.points}`
+      : 'vs';
+    const leader = m.played
+      ? (m.away.points > m.home.points ? `**${m.away.team}**` : m.home.points > m.away.points ? `**${m.home.team}**` : 'Tied')
+      : null;
+    const leaderStr = leader ? ` *(${leader} leads)*` : '';
+    return `| ${m.away.team} | ${score} | ${m.home.team} |${leaderStr}`;
+  });
+
+  return [
+    `## 🏈 Week ${week} Matchups — ${season}`,
+    '',
+    '| Away | Score | Home |',
+    '|---|:---:|---|',
+    ...lines,
+    '',
+    `*Live from Sleeper · ${new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}*`,
+  ].join('\n');
+}
+
 // ─── error class ──────────────────────────────────────────────────────────────
 
 export class McpError extends Error {

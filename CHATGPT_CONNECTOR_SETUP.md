@@ -175,30 +175,57 @@ Invoke-RestMethod `
 
 ---
 
+## Phase 5 — Proof of Concept: Rich Chat Cards
+
+The `/api/mcp-public` endpoint now returns **Markdown-formatted responses** for three tools.
+ChatGPT renders these as clean visual cards in the chat thread (table, bold headers, live date stamp).
+
+> **Note on full iframe widgets:** The ChatGPT Apps SDK iframe widget system (embedded React components) requires a compiled frontend bundle registered as an MCP resource (`text/html;profile=mcp-app`) plus the `@modelcontextprotocol/ext-apps/server` package. That is a separate build pipeline and is Phase 6+. The Markdown card approach used here works right now with the existing endpoint.
+
+### Tools with rich Markdown card rendering
+
+| Tool | Renders as |
+|---|---|
+| `get_current_standings` | Ranked table with W-L, PF, and 🏆 championship counts |
+| `get_team_dashboard` | Team header, season record, roster grouped by position, career stats |
+| `get_current_matchups` | Matchup table with scores and bold leader indicator |
+
+All other tools return structured JSON text that ChatGPT narrates conversationally.
+
+### Test prompts for the Markdown cards
+
+```
+Show me the current standings.
+Show me the Belltown Raptors team card.
+What are this week's matchups?
+```
+
+---
+
 ## Available Tools (14 total)
 
-| Tool name | What it answers |
-|---|---|
-| `get_league_info` | League name, format, scoring, payouts, roster config, all important dates, champions by year, full rulebook |
-| `get_current_standings` | Live current-season W/L (from Sleeper) + all-time career standings |
-| `get_team_dashboard` | Single team: record, full roster (active/IR/taxi), all-time stats, championship history |
-| `get_current_roster` | All rosters or one team's roster with player names, positions, status, slot |
-| `search_players` | Player name search across full database; league-owned players ranked first |
-| `get_player_info` | Single player by Sleeper ID: profile + which fantasy team owns them |
-| `get_current_matchups` | This week's matchups with scores (or any past week with `week` param) |
-| `get_recent_transactions` | Waiver/FA pickups and drops, filterable by team and season |
-| `get_trade_history` | All trades with player names and pick descriptions, filterable by team/season |
-| `get_draft_history` | Historical draft picks by season + current future pick ownership |
-| `get_draft_picks` | Future pick ownership only (alias for `get_draft_history` with `type=future`) |
-| `get_franchise_summary` | All-time franchise stats: W/L, win%, PF/PA, playoff record, championships |
-| `answer_rule_question` | Full rulebook as plain text; supports keyword search and section lookup |
-| `get_weekly_content_context` | Everything for weekly recap/preview: matchups, standings, recent moves, champions |
+| Tool name | Renders | What it answers |
+|---|---|---|
+| `get_current_standings` | 📊 Markdown table | Live current-season W-L + all-time career standings |
+| `get_team_dashboard` | 🏈 Markdown card | Record, full roster by position (active/IR/taxi), career stats, championships |
+| `get_current_matchups` | 🏈 Markdown table | This week's matchups with scores and leader |
+| `get_league_info` | text | League name, format, scoring, payouts, roster config, dates, champions, rulebook |
+| `get_current_roster` | text | All rosters or one team's roster with names, positions, status, slot |
+| `search_players` | text | Player name search; league-owned players ranked first |
+| `get_player_info` | text | Single player profile + which fantasy team owns them |
+| `get_recent_transactions` | text | Waiver/FA pickups and drops, filterable by team/season |
+| `get_trade_history` | text | All trades with player names and pick descriptions |
+| `get_draft_history` | text | Historical draft picks by season + future pick ownership |
+| `get_draft_picks` | text | Future pick ownership only |
+| `get_franchise_summary` | text | All-time franchise stats: W/L, win%, PF/PA, playoff record, championships |
+| `answer_rule_question` | text | Full rulebook plain text; keyword search and section lookup |
+| `get_weekly_content_context` | text | Matchups, standings, recent moves, champions — for weekly recap/preview |
 
 ---
 
 ## Example Questions to Ask in ChatGPT
 
-Once connected, try these:
+Once connected, try these (starred prompts trigger the Markdown card rendering):
 
 **Standings & Records**
 - "Who is in first place right now?"
@@ -251,8 +278,8 @@ Custom connectors (MCP) require **ChatGPT Plus, Team, or Enterprise**. They are 
 3. After setting/changing the env var in Vercel, redeploy the project so it takes effect
 
 ### "ChatGPT says it connected but returns no results"
-- The `initialize` handshake succeeds without auth (by design for connection testing)
-- `tools/list` and `tools/call` require auth — double-check you entered the Bearer token correctly in ChatGPT's connector settings, with no extra spaces
+- The `/api/mcp-public` endpoint requires no auth — if ChatGPT prompts for a token, leave it blank or re-select **No Auth**
+- Try the PowerShell health check first; if that returns `authScheme: "none"` and `toolCount: 14`, the endpoint is live
 
 ### "Tool call returns isError: true"
 - `missing_param` — the tool requires an argument (e.g. `get_team_dashboard` needs `name`)
