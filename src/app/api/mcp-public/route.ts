@@ -212,7 +212,7 @@ const PUBLIC_TOOLS = [
 // or { structuredContent: data, markdown: null } for all other tools.
 
 type ToolInput = Record<string, unknown>;
-type DispatchResult = { structuredContent: unknown; markdown: string | null };
+type DispatchResult = { structuredContent: unknown; markdown: string | null; _meta?: Record<string, unknown> };
 
 async function dispatchTool(name: string, input: ToolInput): Promise<DispatchResult> {
   switch (name) {
@@ -227,7 +227,14 @@ async function dispatchTool(name: string, input: ToolInput): Promise<DispatchRes
     case 'get_team_dashboard': {
       const data = await handleGetTeam({ name: input.name as string | undefined });
       const md = formatTeamMarkdown(data as Parameters<typeof formatTeamMarkdown>[0]);
-      return { structuredContent: data, markdown: md };
+      return {
+        structuredContent: data,
+        markdown: md,
+        _meta: {
+          ui: { resourceUri: TEAM_CARD_WIDGET_URI },
+          'openai/outputTemplate': TEAM_CARD_WIDGET_URI,
+        },
+      };
     }
     case 'get_current_matchups': {
       const data = await handleGetMatchups({ week: input.week as number | undefined });
@@ -327,7 +334,7 @@ export async function POST(request: Request) {
   if (method === 'initialize') {
     return ok(id, {
       protocolVersion: '2025-03-26',
-      capabilities: { tools: {} },
+      capabilities: { tools: {}, resources: {} },
       serverInfo: {
         name: 'east-v-west-mcp-public',
         version: '1.0.0',
@@ -355,6 +362,16 @@ export async function POST(request: Request) {
           uri: TEAM_CARD_WIDGET_URI,
           mimeType: 'text/html;profile=mcp-app',
           text: TEAM_CARD_HTML,
+          _meta: {
+            ui: {
+              prefersBorder: true,
+              domain: 'https://east-v-west-website.vercel.app',
+              csp: {
+                resourceDomains: ['https://east-v-west-website.vercel.app'],
+              },
+            },
+            'openai/widgetDescription': 'East v. West Team Card — record, roster, championships, and injury flags.',
+          },
         }],
       });
     }
@@ -377,13 +394,14 @@ export async function POST(request: Request) {
     }
 
     try {
-      const { structuredContent, markdown } = await dispatchTool(toolName, toolInput);
+      const { structuredContent, markdown, _meta } = await dispatchTool(toolName, toolInput);
       return ok(id, {
         structuredContent,
         content: markdown
           ? [{ type: 'text', text: markdown }]
           : [{ type: 'text', text: JSON.stringify(structuredContent) }],
         isError: false,
+        ...(_meta ? { _meta } : {}),
       });
     } catch (e) {
       if (e instanceof McpError) {
