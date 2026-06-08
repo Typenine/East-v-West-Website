@@ -31,6 +31,7 @@ export const USER_NAV_CONFIG: UserNavItem[] = [
       { id: 'league.standings', label: 'Standings', href: '/standings' },
       { id: 'league.rules', label: 'Rules', href: '/rules' },
       { id: 'league.rivalries', label: 'Rivalries', href: '/rivalries', description: 'Rivalry pairings & selection' },
+      { id: 'league.votes', label: 'Votes', href: '/votes', description: 'League polls and official votes' },
     ],
   },
   {

@@ -1,4 +1,4 @@
-import { pgTable, uuid, varchar, text, timestamp, jsonb, pgEnum, index, integer, primaryKey } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, varchar, text, timestamp, jsonb, pgEnum, index, integer, primaryKey, boolean, uniqueIndex } from 'drizzle-orm/pg-core';
 
 export const roleEnum = pgEnum('user_role', ['admin', 'user']);
 export const suggestionStatusEnum = pgEnum('suggestion_status', ['draft', 'open', 'accepted', 'rejected']);
@@ -223,6 +223,75 @@ export const pendingPicks = pgTable('pending_picks', {
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 }, (t) => ({
   seasonWeekIdx: index('pending_picks_season_week_idx').on(t.season, t.week),
+}));
+
+// ============ League Votes ============
+
+export const polls = pgTable('polls', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  title: varchar('title', { length: 255 }).notNull(),
+  description: text('description'),
+  status: varchar('status', { length: 50 }).default('draft').notNull(), // draft | open | closed
+  eligibilityType: varchar('eligibility_type', { length: 50 }).default('team').notNull(), // team | person
+  linkedSuggestionIds: text('linked_suggestion_ids').array(),
+  anonymous: boolean('anonymous').default(false).notNull(),
+  resultVisibility: varchar('result_visibility', { length: 50 }).default('admin_publish').notNull(), // immediate | all_voted | admin_publish
+  deadline: timestamp('deadline'),
+  discordNotifiedOpen: boolean('discord_notified_open').default(false).notNull(),
+  discordNotifiedReminder: boolean('discord_notified_reminder').default(false).notNull(),
+  discordNotifiedClosed: boolean('discord_notified_closed').default(false).notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  closedAt: timestamp('closed_at'),
+}, (t) => ({
+  statusIdx: index('polls_status_idx').on(t.status),
+}));
+
+export const pollRounds = pgTable('poll_rounds', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  pollId: uuid('poll_id').notNull().references(() => polls.id, { onDelete: 'cascade' }),
+  roundNumber: integer('round_number').notNull(),
+  status: varchar('status', { length: 50 }).default('pending').notNull(), // pending | open | closed
+  voteType: varchar('vote_type', { length: 50 }).notNull(), // borda | irv | select_one | select_multi | eliminate | yes_no
+  survivorCount: integer('survivor_count'), // how many options advance to next round; null = final round
+  thresholdType: varchar('threshold_type', { length: 50 }).default('plurality').notNull(), // plurality | majority | supermajority | admin_defined
+  thresholdValue: integer('threshold_value'), // for admin_defined or person-vote majority override
+  resultsPublishedAt: timestamp('results_published_at'),
+  openedAt: timestamp('opened_at'),
+  closedAt: timestamp('closed_at'),
+}, (t) => ({
+  pollRoundIdx: index('poll_rounds_poll_idx').on(t.pollId, t.roundNumber),
+}));
+
+export const pollOptions = pgTable('poll_options', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  roundId: uuid('round_id').notNull().references(() => pollRounds.id, { onDelete: 'cascade' }),
+  text: varchar('text', { length: 1000 }).notNull(),
+  linkedSuggestionId: varchar('linked_suggestion_id', { length: 255 }),
+  carriedFromOptionId: uuid('carried_from_option_id'), // tracks lineage across rounds
+  displayOrder: integer('display_order').default(0).notNull(),
+}, (t) => ({
+  roundIdx: index('poll_options_round_idx').on(t.roundId),
+}));
+
+export const pollVotes = pgTable('poll_votes', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  roundId: uuid('round_id').notNull().references(() => pollRounds.id, { onDelete: 'cascade' }),
+  voterId: varchar('voter_id', { length: 255 }).notNull(), // team name (team vote) or userId (person vote)
+  voterDisplay: varchar('voter_display', { length: 255 }),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+}, (t) => ({
+  uniqueVote: uniqueIndex('poll_votes_round_voter_unique').on(t.roundId, t.voterId),
+  roundIdx: index('poll_votes_round_idx').on(t.roundId),
+}));
+
+export const pollVoteSelections = pgTable('poll_vote_selections', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  voteId: uuid('vote_id').notNull().references(() => pollVotes.id, { onDelete: 'cascade' }),
+  optionId: uuid('option_id').notNull().references(() => pollOptions.id, { onDelete: 'cascade' }),
+  rank: integer('rank'), // borda/irv: 1 = top choice
+  selected: boolean('selected').default(false), // select_one/multi/eliminate/yes_no
+}, (t) => ({
+  voteIdx: index('poll_vote_selections_vote_idx').on(t.voteId),
 }));
 
 // Staged newsletter generation - tracks progress of Tuesday→Wednesday builds
