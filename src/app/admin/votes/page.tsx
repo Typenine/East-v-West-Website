@@ -8,7 +8,7 @@ import Input from '@/components/ui/Input';
 import Textarea from '@/components/ui/Textarea';
 import Label from '@/components/ui/Label';
 import Select from '@/components/ui/Select';
-import type { Poll, PollRound, PollOption, PollListItem } from '@/lib/votes/types';
+import type { Poll, PollRound, PollOption } from '@/lib/votes/types';
 
 type Suggestion = { id: string; title?: string; content: string; endorsers?: string[]; voteTag?: string };
 
@@ -229,7 +229,7 @@ export default function AdminVotesPage() {
                 <div className="flex gap-6">
                   <label className="flex items-center gap-2 cursor-pointer">
                     <input type="checkbox" checked={anonymous} onChange={(e) => setAnonymous(e.target.checked)} />
-                    <span className="text-sm">Anonymous results (members can't see who voted)</span>
+                    <span className="text-sm">Anonymous results (members can&apos;t see who voted)</span>
                   </label>
                 </div>
                 <div>
