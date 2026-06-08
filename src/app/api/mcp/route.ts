@@ -33,6 +33,7 @@ import {
   handleGetFranchise,
   handleGetRules,
   handleGetWeeklyContext,
+  handleGetCommissionerOps,
   McpError,
 } from '@/lib/mcp/handlers';
 
@@ -256,6 +257,15 @@ const MCP_TOOLS = [
       required: [],
     },
   },
+  {
+    name: 'get_commissioner_ops_context',
+    description: 'Advisory-only commissioner ops briefing. Returns: date-based reminders (draft, trade deadline, playoffs), weekly checklist, lineup watch (injured starters), IR slot review, taxi eligibility review, injury/status flags, relevant rulebook snippets, and draft owner messages ready for human review. Makes no rulings, sends nothing, modifies nothing.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: [],
+    },
+  },
 ] as const;
 
 // ─── tool name → handler dispatch ─────────────────────────────────────────────
@@ -327,6 +337,9 @@ async function dispatchTool(name: string, input: ToolInput): Promise<unknown> {
 
     case 'get_weekly_content_context':
       return handleGetWeeklyContext();
+
+    case 'get_commissioner_ops_context':
+      return handleGetCommissionerOps();
 
     default:
       throw new McpError('method_not_found', `Unknown tool: ${name}`);

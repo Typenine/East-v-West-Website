@@ -308,12 +308,64 @@ Get the draft pick ownership and trade history, then write a pre-draft storyline
 about who has the most ammunition and who traded away their future.
 ```
 
-### Phase 8 — True iframe widgets (deferred)
+---
+
+## Phase 8 — Commissioner Ops Center
+
+`get_commissioner_ops_context` is an advisory-only tool for commissioner weekly workflow. It surfaces possible issues, reminders, and draft messages for human review. **It makes no rulings, sends nothing, and modifies nothing.**
+
+### What the ops briefing includes
+
+| Section | Details |
+|---|---|
+| 📅 Upcoming dates | All important dates within ±60 days: Draft, NFL Wk 1, Trade Deadline, Playoffs, New League Year. Color-coded 🔴/🟡/🟢 by urgency |
+| ✅ Weekly checklist | Auto-generated per-week action items based on current date, flags, and season phase |
+| ⚠️ Lineup watch | Players listed as starters this week who have a flagged injury/status — "Check before kickoff" |
+| 🏥 IR slot review | Players on the reserve/IR slot who show Active status — "Possible issue: needs review" |
+| 🚕 Taxi squad review | Taxi players with 2+ years NFL experience — "Possible eligibility issue: commissioner review recommended" |
+| 🩺 Injury/status watch | All non-Active players across all rosters, sorted by severity (Out/IR/PUP → Questionable/Limited → other) |
+| 💬 Draft owner messages | Pre-drafted reminder messages triggered by upcoming dates or flagged issues. Review before sending |
+| ⚠️ Missing data | Any failed fetches noted so you know what wasn't checked |
+
+> **All language is cautious.** Items are labeled "possible issue", "needs review", or "check before kickoff" — never definitive rulings. Commissioner judgment is always required.
+
+### Commissioner Ops test prompts
+
+```
+Get my commissioner ops context.
+```
+
+```
+Get my commissioner ops context, then give me a checklist for this week.
+```
+
+```
+Get my commissioner ops context, then draft a reminder message to send to all managers 
+about the trade deadline.
+```
+
+```
+Get my commissioner ops context, then summarize any possible IR or taxi issues I should review.
+```
+
+```
+Get my commissioner ops context, then tell me if any managers have injured players starting this week.
+```
+
+```
+Get my commissioner ops context, then write a pre-kickoff advisory for teams with questionable starters.
+```
+
+```
+Get my commissioner ops context, then draft a lineup warning message for any affected teams.
+```
+
+### Phase 9 — True iframe widgets (deferred)
 Full ChatGPT Apps SDK iframe widgets require a compiled React bundle (`text/html;profile=mcp-app`), `@modelcontextprotocol/ext-apps/server`, and a separate frontend build pipeline. All current functionality uses the Markdown card approach without new dependencies.
 
 ---
 
-## Available Tools (14 total)
+## Available Tools (15 total)
 
 | Tool name | Renders | What it answers |
 |---|---|---|
@@ -331,6 +383,7 @@ Full ChatGPT Apps SDK iframe widgets require a compiled React bundle (`text/html
 | `answer_rule_question` | 📋 Markdown excerpts | Rule section title + block-quote matching lines; commissioner note if ambiguous |
 | `get_franchise_summary` | 🏆 Markdown table | All-time franchise stats: W/L, win%, avg PF, playoff record, championships |
 | `get_weekly_content_context` | 📋 Content Studio briefing | Matchups + story hooks, full standings (PF/PA/avg), playoff race, recent trades, waivers, injuries, storylines, headlines |
+| `get_commissioner_ops_context` | 🛡️ Ops card | Checklist, lineup watch, IR/taxi review, injury flags, date reminders, draft owner messages — advisory only |
 
 ---
 

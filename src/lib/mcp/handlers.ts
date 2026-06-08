@@ -1568,6 +1568,389 @@ export function formatRosterMarkdown(data: {
   return lines.join('\n');
 }
 
+// ─── tool: get_commissioner_ops_context ───────────────────────────────────────
+// Advisory-only context for commissioner review. Returns possible issues,
+// reminders, and draft owner messages. Makes no rulings, sends no messages,
+// and modifies nothing. All items use cautious language: "possible", "needs
+// review", "check before kickoff".
+
+export async function handleGetCommissionerOps() {
+  const leagueId = LEAGUE_IDS.CURRENT;
+  const opts = { timeoutMs: 15000 };
+
+  let week = 1;
+  let seasonType = 'unknown';
+  let nflSeason = '';
+  try {
+    const state = await getNFLState(undefined, opts);
+    week = Number(state?.week ?? 1);
+    seasonType = (state as { season_type?: string }).season_type ?? 'unknown';
+    nflSeason = String((state as { season?: string | number }).season ?? '');
+  } catch { /* use defaults */ }
+
+  const season = nflSeason || CURRENT_SEASON;
+  const now = new Date();
+  const missingData: string[] = [];
+
+  // ── Parallel fetches ─────────────────────────────────────────────────────────
+  const [teams, rosters, allPlayers, matchupSlots] = await Promise.all([
+    getTeamsData(leagueId, opts).catch(() => []),
+    getLeagueRosters(leagueId, opts).catch(() => []),
+    getAllPlayersCached().catch(() => ({} as Record<string, SleeperPlayer>)),
+    getLeagueMatchups(leagueId, week, opts).catch(() => [] as SleeperMatchup[]),
+  ]);
+
+  const rosterIdToName = new Map<number, string>(teams.map((t) => [t.rosterId, t.teamName]));
+  if (rosters.length === 0) missingData.push('Roster data unavailable — IR/taxi/lineup checks skipped.');
+  if (Object.keys(allPlayers).length === 0) missingData.push('Player database unavailable — injury status checks skipped.');
+
+  // ── Date-based reminders ─────────────────────────────────────────────────────
+  type DateReminder = { event: string; date: string; daysAway: number; urgency: 'immediate' | 'soon' | 'upcoming' };
+  const dateReminders: DateReminder[] = [];
+
+  const importantDateEntries: Array<{ key: string; label: string; date: Date }> = [
+    { key: 'NEXT_DRAFT',      label: 'Annual Draft',           date: IMPORTANT_DATES.NEXT_DRAFT },
+    { key: 'NFL_WEEK_1',      label: 'NFL Week 1 Kickoff',     date: IMPORTANT_DATES.NFL_WEEK_1_START },
+    { key: 'TRADE_DEADLINE',  label: 'Trade Deadline (Wk 12)', date: IMPORTANT_DATES.TRADE_DEADLINE },
+    { key: 'PLAYOFFS_START',  label: 'Playoffs Start (Wk 15)', date: IMPORTANT_DATES.PLAYOFFS_START },
+    { key: 'NEW_LEAGUE_YEAR', label: 'New League Year',        date: IMPORTANT_DATES.NEW_LEAGUE_YEAR },
+  ];
+
+  for (const { label, date } of importantDateEntries) {
+    const msAway = date.getTime() - now.getTime();
+    const daysAway = Math.round(msAway / (1000 * 60 * 60 * 24));
+    if (daysAway > -7 && daysAway <= 60) { // show past 7 days through next 60 days
+      dateReminders.push({
+        event: label,
+        date: date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' }),
+        daysAway,
+        urgency: daysAway <= 2 ? 'immediate' : daysAway <= 7 ? 'soon' : 'upcoming',
+      });
+    }
+  }
+  dateReminders.sort((a, b) => a.daysAway - b.daysAway);
+
+  // ── Injury / status watch ─────────────────────────────────────────────────────
+  type InjuryFlag = { team: string; player: string; position: string | null; status: string; severity: 'high' | 'medium' | 'low' };
+  const HIGH_SEVERITY = new Set(['Out', 'IR', 'PUP-P', 'NFI-R', 'Sus', 'Doubtful']);
+  const MED_SEVERITY = new Set(['Questionable', 'DNP', 'Limited']);
+
+  const injuryFlags: InjuryFlag[] = [];
+  for (const roster of rosters) {
+    const teamName = rosterIdToName.get(roster.roster_id) ?? `Roster ${roster.roster_id}`;
+    const allPids: string[] = [
+      ...((roster as unknown as { players?: string[] }).players ?? []),
+    ];
+    for (const pid of allPids.slice(0, 40)) {
+      const pl = allPlayers[pid];
+      if (!pl) continue;
+      const status = (pl.injury_status ?? pl.status ?? '').trim();
+      if (!status || status === 'Active' || status === 'ACT') continue;
+      const severity: InjuryFlag['severity'] = HIGH_SEVERITY.has(status) ? 'high'
+        : MED_SEVERITY.has(status) ? 'medium' : 'low';
+      injuryFlags.push({
+        team: teamName,
+        player: `${pl.first_name || ''} ${pl.last_name || ''}`.trim(),
+        position: pl.position ?? null,
+        status,
+        severity,
+      });
+    }
+  }
+  injuryFlags.sort((a, b) => {
+    const sevOrder = { high: 0, medium: 1, low: 2 };
+    return sevOrder[a.severity] - sevOrder[b.severity];
+  });
+
+  // ── IR slot review (reserve[] contains players flagged for IR) ────────────────
+  type IrReviewItem = { team: string; player: string; position: string | null; status: string; note: string };
+  const irReview: IrReviewItem[] = [];
+  // Players on IR (reserve slot) who may have been activated but not moved
+  for (const roster of rosters) {
+    const teamName = rosterIdToName.get(roster.roster_id) ?? `Roster ${roster.roster_id}`;
+    const reserveIds: string[] = (roster as unknown as { reserve?: string[] }).reserve ?? [];
+    for (const pid of reserveIds) {
+      const pl = allPlayers[pid];
+      if (!pl) continue;
+      const status = (pl.injury_status ?? pl.status ?? '').trim();
+      const playerName = `${pl.first_name || ''} ${pl.last_name || ''}`.trim();
+      // Flag if IR player appears to be Active (possible needs to come off IR)
+      if (!status || status === 'Active' || status === 'ACT') {
+        irReview.push({
+          team: teamName,
+          player: playerName,
+          position: pl.position ?? null,
+          status: status || 'Active',
+          note: 'Possible issue: player is on IR slot but shows Active status. Needs review — may need to be moved to active roster.',
+        });
+      }
+    }
+  }
+
+  // ── Taxi squad review ─────────────────────────────────────────────────────────
+  // Sleeper stores taxi players in roster.taxi[]
+  // Flag if a taxi player has 2+ years of NFL experience (possible eligibility issue)
+  type TaxiReviewItem = { team: string; player: string; position: string | null; yearsExp: number | null; note: string };
+  const taxiReview: TaxiReviewItem[] = [];
+  for (const roster of rosters) {
+    const teamName = rosterIdToName.get(roster.roster_id) ?? `Roster ${roster.roster_id}`;
+    const taxiIds: string[] = (roster as unknown as { taxi?: string[] }).taxi ?? [];
+    for (const pid of taxiIds) {
+      const pl = allPlayers[pid];
+      if (!pl) continue;
+      const yearsExp = typeof pl.years_exp === 'number' ? pl.years_exp : null;
+      const playerName = `${pl.first_name || ''} ${pl.last_name || ''}`.trim();
+      // Dynasty standard: taxi eligibility typically requires 0–1 years experience
+      if (yearsExp !== null && yearsExp >= 2) {
+        taxiReview.push({
+          team: teamName,
+          player: playerName,
+          position: pl.position ?? null,
+          yearsExp,
+          note: `Possible issue: ${playerName} has ${yearsExp} years NFL experience on taxi squad. Check before kickoff — taxi eligibility may need commissioner review.`,
+        });
+      }
+    }
+  }
+
+  // ── Lineup watch (starters with injury flags) ─────────────────────────────────
+  // Cross-reference this week's matchup starters against injury flags
+  type LineupFlag = { team: string; player: string; position: string | null; status: string; slot: string };
+  const lineupFlags: LineupFlag[] = [];
+
+  const injuryStatusByPid = new Map<string, string>();
+  for (const roster of rosters) {
+    const allPids: string[] = (roster as unknown as { players?: string[] }).players ?? [];
+    for (const pid of allPids) {
+      const pl = allPlayers[pid];
+      if (!pl) continue;
+      const s = (pl.injury_status ?? pl.status ?? '').trim();
+      if (s && s !== 'Active' && s !== 'ACT') injuryStatusByPid.set(pid, s);
+    }
+  }
+
+  for (const slot of matchupSlots) {
+    const teamName = rosterIdToName.get(slot.roster_id) ?? `Roster ${slot.roster_id}`;
+    const starterIds: string[] = (slot as unknown as { starters?: string[] }).starters ?? [];
+    for (const pid of starterIds) {
+      if (!pid || pid === '0') continue;
+      const status = injuryStatusByPid.get(pid);
+      if (!status) continue;
+      const pl = allPlayers[pid];
+      if (!pl) continue;
+      lineupFlags.push({
+        team: teamName,
+        player: `${pl.first_name || ''} ${pl.last_name || ''}`.trim(),
+        position: pl.position ?? null,
+        status,
+        slot: 'starter',
+      });
+    }
+  }
+
+  // ── Relevant rulebook snippets ────────────────────────────────────────────────
+  const OPS_RULE_SECTIONS = ['rosters-lineups', 'competitive-integrity', 'trades', 'season-calendar', 'enforcement-penalties'];
+  const ruleSnippets = PARSED_RULES
+    .filter((s) => OPS_RULE_SECTIONS.includes(s.id))
+    .map((s) => {
+      const preview = s.text.length > 400
+        ? s.text.slice(0, 400).replace(/\s+\S*$/, '') + '…'
+        : s.text;
+      return { id: s.id, title: s.title, preview };
+    });
+
+  // ── Checklist ─────────────────────────────────────────────────────────────────
+  const checklist: string[] = [];
+
+  // Date-based
+  const tradeDeadlineSoon = dateReminders.find((d) => d.event.includes('Trade Deadline') && d.daysAway <= 14);
+  const draftSoon = dateReminders.find((d) => d.event.includes('Draft') && d.daysAway <= 30);
+  const playoffsSoon = dateReminders.find((d) => d.event.includes('Playoffs') && d.daysAway <= 14);
+  if (tradeDeadlineSoon) checklist.push(`Remind managers: Trade Deadline is ${tradeDeadlineSoon.daysAway <= 0 ? 'TODAY / PAST' : `in ${tradeDeadlineSoon.daysAway} days`} (${tradeDeadlineSoon.date})`);
+  if (draftSoon) checklist.push(`Draft approaching in ${draftSoon.daysAway} days — confirm host city, payment status, travel details`);
+  if (playoffsSoon) checklist.push(`Playoffs start in ${playoffsSoon.daysAway} days — review seeding and bracket`);
+
+  // Roster review
+  if (irReview.length > 0) checklist.push(`Review ${irReview.length} possible IR slot issue(s) — players showing Active while on IR`);
+  if (taxiReview.length > 0) checklist.push(`Review ${taxiReview.length} possible taxi eligibility issue(s) — players with 2+ years experience`);
+  if (lineupFlags.length > 0) checklist.push(`Check before kickoff: ${lineupFlags.length} injured/questionable player(s) listed as starters this week`);
+
+  // Always-present items
+  checklist.push(`Verify all ${teams.length} teams have submitted lineups before Week ${week} kickoff`);
+  checklist.push('Confirm any pending trades are reviewed before the deadline');
+  checklist.push('Check Sleeper for any unresolved disputes or messages');
+  if (seasonType === 'post') checklist.push('Post-season: confirm playoff bracket is correct and tiebreakers applied');
+
+  // ── Draft owner messages ──────────────────────────────────────────────────────
+  const ownerMessages: Array<{ subject: string; body: string }> = [];
+
+  if (tradeDeadlineSoon) {
+    ownerMessages.push({
+      subject: `Trade Deadline Reminder — ${tradeDeadlineSoon.date}`,
+      body: `Hey everyone! Just a reminder that the East v. West trade deadline is ${tradeDeadlineSoon.date}. All trades must be proposed and accepted on Sleeper before this time. No trades will be processed after the deadline. Make your moves now! — Commissioner`,
+    });
+  }
+
+  if (draftSoon) {
+    ownerMessages.push({
+      subject: `Draft Day is Coming — ${draftSoon.date}`,
+      body: `Managers! The East v. West Annual Draft is ${draftSoon.daysAway} days away. Please confirm your travel arrangements, settle any outstanding dues, and prepare your draft boards. Details to follow. — Commissioner`,
+    });
+  }
+
+  if (lineupFlags.length > 0) {
+    const flaggedTeams = [...new Set(lineupFlags.map((f) => f.team))];
+    ownerMessages.push({
+      subject: 'Lineup Check — Injured Starters This Week',
+      body: `Heads up to the following teams: ${flaggedTeams.join(', ')}. You may have injured or questionable players in your starting lineup this week. Please review and update before kickoff. Advisory only — this is not an official ruling. — Commissioner`,
+    });
+  }
+
+  if (irReview.length > 0) {
+    const irTeams = [...new Set(irReview.map((r) => r.team))];
+    ownerMessages.push({
+      subject: 'Possible IR Slot Issue — Needs Review',
+      body: `Advisory notice for: ${irTeams.join(', ')}. You may have a player on your IR slot who is showing as Active. This may need to be resolved. Commissioner review recommended before this week's games. — Commissioner`,
+    });
+  }
+
+  return {
+    meta: mcpMeta('get_commissioner_ops', {
+      week,
+      season,
+      seasonType,
+      currentDate: now.toISOString(),
+      dataSource: 'sleeper-live',
+      advisoryNote: 'ADVISORY ONLY — no rulings, no actions. All items require commissioner review.',
+    }),
+    week,
+    season,
+    currentDate: now.toISOString(),
+    leagueName: 'East v. West Fantasy Football',
+    dateReminders,
+    injuryFlags: injuryFlags.slice(0, 25),
+    irReview,
+    taxiReview,
+    lineupFlags,
+    checklist,
+    ownerMessages,
+    ruleSnippets,
+    missingData: missingData.length > 0 ? missingData : null,
+    advisoryNote: 'ADVISORY ONLY — no official rulings. All items marked "possible issue" or "needs review" require commissioner judgment.',
+  };
+}
+
+export function formatCommissionerOpsMarkdown(data: ReturnType<typeof handleGetCommissionerOps> extends Promise<infer T> ? T : never): string {
+  const {
+    week, season, currentDate, dateReminders,
+    injuryFlags, irReview, taxiReview, lineupFlags,
+    checklist, ownerMessages, missingData,
+  } = data;
+
+  const dateFmt = new Date(currentDate).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
+
+  const lines: string[] = [
+    `## 🛡️ Commissioner Ops — Review Only`,
+    `**Week ${week} · ${season} Season · ${dateFmt}**`,
+    '*Advisory only — commissioner review required for all flagged items.*',
+    '',
+  ];
+
+  // ── Upcoming dates ────────────────────────────────────────────────────────────
+  if (dateReminders.length > 0) {
+    lines.push('### 📅 Upcoming Dates');
+    for (const d of dateReminders) {
+      const icon = d.urgency === 'immediate' ? '🔴' : d.urgency === 'soon' ? '🟡' : '🟢';
+      const label = d.daysAway < 0 ? `${Math.abs(d.daysAway)}d ago` : d.daysAway === 0 ? 'TODAY' : `in ${d.daysAway}d`;
+      lines.push(`${icon} **${d.event}** — ${d.date} *(${label})*`);
+    }
+    lines.push('');
+  }
+
+  // ── Commissioner checklist ────────────────────────────────────────────────────
+  lines.push('### ✅ Weekly Checklist');
+  for (const item of checklist) {
+    lines.push(`- [ ] ${item}`);
+  }
+  lines.push('');
+
+  // ── Lineup watch ──────────────────────────────────────────────────────────────
+  if (lineupFlags.length > 0) {
+    lines.push('### ⚠️ Lineup Watch — Check Before Kickoff');
+    lines.push('*Possible issue: these players are listed as starters but have an injury/status flag.*');
+    for (const f of lineupFlags.slice(0, 10)) {
+      const pos = f.position ? ` (${f.position})` : '';
+      lines.push(`- **${f.player}**${pos} — ${f.status} · *${f.team}*`);
+    }
+    if (lineupFlags.length > 10) lines.push(`*…${lineupFlags.length - 10} more in structuredContent.*`);
+    lines.push('');
+  }
+
+  // ── IR slot review ────────────────────────────────────────────────────────────
+  if (irReview.length > 0) {
+    lines.push('### 🏥 IR Slot Review — Needs Review');
+    for (const item of irReview) {
+      lines.push(`- **${item.player}** *(${item.team})* — ${item.note}`);
+    }
+    lines.push('');
+  }
+
+  // ── Taxi squad review ─────────────────────────────────────────────────────────
+  if (taxiReview.length > 0) {
+    lines.push('### 🚕 Taxi Squad Review — Possible Eligibility Issues');
+    for (const item of taxiReview) {
+      lines.push(`- **${item.player}** *(${item.team})* — ${item.note}`);
+    }
+    lines.push('');
+  }
+
+  // ── Injury / status watch ─────────────────────────────────────────────────────
+  const highInj = injuryFlags.filter((f) => f.severity === 'high');
+  const medInj = injuryFlags.filter((f) => f.severity === 'medium');
+  if (highInj.length > 0 || medInj.length > 0) {
+    lines.push('### 🩺 Injury / Status Watch');
+    if (highInj.length > 0) {
+      lines.push('**High severity (Out / IR / PUP / Sus / Doubtful):**');
+      for (const f of highInj.slice(0, 8)) {
+        const pos = f.position ? ` (${f.position})` : '';
+        lines.push(`- **${f.player}**${pos} — ${f.status} · *${f.team}*`);
+      }
+      if (highInj.length > 8) lines.push(`*…${highInj.length - 8} more.*`);
+    }
+    if (medInj.length > 0) {
+      lines.push('**Medium severity (Questionable / Limited / DNP):**');
+      for (const f of medInj.slice(0, 6)) {
+        const pos = f.position ? ` (${f.position})` : '';
+        lines.push(`- **${f.player}**${pos} — ${f.status} · *${f.team}*`);
+      }
+      if (medInj.length > 6) lines.push(`*…${medInj.length - 6} more.*`);
+    }
+    lines.push('');
+  }
+
+  // ── Draft owner messages ──────────────────────────────────────────────────────
+  if (ownerMessages.length > 0) {
+    lines.push('### 💬 Draft Owner Messages');
+    lines.push('*Review before sending — these are drafts only, not sent automatically.*');
+    for (const msg of ownerMessages) {
+      lines.push('');
+      lines.push(`**Subject:** ${msg.subject}`);
+      lines.push(`> ${msg.body}`);
+    }
+    lines.push('');
+  }
+
+  // ── Missing data ──────────────────────────────────────────────────────────────
+  if (missingData && missingData.length > 0) {
+    lines.push('### ⚠️ Missing Data');
+    for (const note of missingData) lines.push(`- ${note}`);
+    lines.push('');
+  }
+
+  lines.push(`*Live from Sleeper · ${FRESHNESS()} · Advisory only — no official rulings*`);
+  return lines.join('\n');
+}
+
 // ─── error class ──────────────────────────────────────────────────────────────
 
 export class McpError extends Error {

@@ -41,6 +41,8 @@ import {
   formatTradeHistoryMarkdown,
   formatRuleAnswerMarkdown,
   formatRosterMarkdown,
+  handleGetCommissionerOps,
+  formatCommissionerOpsMarkdown,
   McpError,
 } from '@/lib/mcp/handlers';
 
@@ -194,6 +196,11 @@ const PUBLIC_TOOLS = [
     description: 'Content Studio briefing: current matchups (with story hooks), full standings (PF/PA/avg), playoff race snapshot, recent trades, recent waiver/FA moves, injury flags, suggested storylines, and suggested headlines. Use this as the context source before asking ChatGPT to write any league content draft.',
     inputSchema: { type: 'object', properties: {}, required: [] },
   },
+  {
+    name: 'get_commissioner_ops_context',
+    description: 'Advisory-only commissioner ops briefing. Returns: date-based reminders (draft, trade deadline, playoffs), weekly checklist, lineup watch (injured starters), IR slot review, taxi eligibility review, injury/status flags, relevant rulebook snippets, and draft owner messages ready for human review. Makes no rulings, sends nothing, modifies nothing.',
+    inputSchema: { type: 'object', properties: {}, required: [] },
+  },
 ] as const;
 
 // ─── Dispatch ──────────────────────────────────────────────────────────────────
@@ -273,6 +280,10 @@ async function dispatchTool(name: string, input: ToolInput): Promise<DispatchRes
       const data = await handleGetWeeklyContext();
       const d = data as Parameters<typeof formatWeeklyContextMarkdown>[0];
       return { structuredContent: data, markdown: formatWeeklyContextMarkdown(d) };
+    }
+    case 'get_commissioner_ops_context': {
+      const data = await handleGetCommissionerOps();
+      return { structuredContent: data, markdown: formatCommissionerOpsMarkdown(data) };
     }
     default:
       throw new McpError('method_not_found', `Unknown tool: ${name}`);
