@@ -22,7 +22,7 @@ import { getDb } from '@/server/db/client';
 import { newsletters } from '@/server/db/schema';
 import { eq, and } from 'drizzle-orm';
 import Anthropic from '@anthropic-ai/sdk';
-import { buildSystemPrompt } from '@/lib/newsletter/llm/groq';
+import { buildSystemPrompt, type PersonaType } from '@/lib/newsletter/llm/groq';
 import { renderHtml } from '@/lib/newsletter/template';
 import type { Newsletter } from '@/lib/newsletter/types';
 
@@ -99,7 +99,7 @@ export async function POST(req: NextRequest) {
     const db = getDb();
     await db
       .update(newsletters)
-      .set({ content: content as Parameters<typeof db.update>[0]['set']['content'] })
+      .set({ content: content as typeof newsletters.$inferInsert['content'] })
       .where(and(eq(newsletters.season, season), eq(newsletters.week, week)));
 
     console.log(`[Edit] save_section s${season}w${week} idx=${sectionIndex} bot=${bot}`);
@@ -136,7 +136,7 @@ export async function POST(req: NextRequest) {
     const currentText = String(sectionData[botField] ?? '');
 
     // ai_rewrite always calls Claude directly — use tier 1 persona prompt
-    const personaKey = bot === 'entertainer' ? 'entertainer' : 'analyst';
+    const personaKey: PersonaType = bot === 'entertainer' ? 'entertainer' : 'analyst';
     const fullPersona = buildSystemPrompt(personaKey, 1);
     const editInstruction = `The user wants you to make the following edit to this section: ${instruction}\nOnly change what the instruction specifies. Do not add headers or alter the format.`;
 
