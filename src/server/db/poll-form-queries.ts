@@ -129,7 +129,7 @@ export async function createQuestions(pollId: string, questions: QuestionInput[]
           condition_question_id, condition_option_id, condition_value
         ) VALUES (
           ${pollId}::uuid,
-          ${q.questionType},
+          ${q.questionType}::question_type,
           ${q.text},
           ${q.description ?? null},
           ${q.required ?? true},
@@ -261,7 +261,7 @@ export async function upsertResponse(
             ${a.questionId}::uuid,
             ${a.textAnswer ?? null},
             ${a.ratingValue ?? null},
-            ${a.optionIds ? JSON.stringify(a.optionIds) : null}::text[]
+            ${a.optionIds ? `{${a.optionIds.map((s) => `"${s}"`).join(',')}}` : null}::text[]
           )
         `);
       }

@@ -159,7 +159,9 @@ export async function POST(req: NextRequest) {
     }
 
     return Response.json({ ok: true, poll, rounds: createdRounds, questions: createdQuestions }, { status: 201 });
-  } catch {
-    return Response.json({ error: 'Server error.' }, { status: 500 });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error('[POST /api/votes]', msg);
+    return Response.json({ error: `Server error: ${msg}` }, { status: 500 });
   }
 }

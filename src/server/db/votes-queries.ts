@@ -222,10 +222,10 @@ export async function createPoll(data: {
       VALUES (
         ${data.title},
         ${data.description ?? null},
-        ${data.eligibilityType},
-        ${data.linkedSuggestionIds ? JSON.stringify(data.linkedSuggestionIds) : null}::text[],
+        ${data.eligibilityType}::eligibility_type,
+        ${data.linkedSuggestionIds ? `{${data.linkedSuggestionIds.map((s) => `"${s}"`).join(',')}}` : null}::text[],
         ${data.anonymous},
-        ${data.resultVisibility},
+        ${data.resultVisibility}::result_visibility,
         ${data.deadline ? new Date(data.deadline) : null},
         ${data.confirmationMessage ?? null},
         ${data.responseLimit ?? null}
@@ -234,7 +234,8 @@ export async function createPoll(data: {
     `);
     const r = (rows as unknown as Record<string, unknown>[])[0];
     return r ? rowToPoll(r) : null;
-  } catch {
+  } catch (err) {
+    console.error('[createPoll]', err instanceof Error ? err.message : err);
     return null;
   }
 }
@@ -243,9 +244,9 @@ export async function updatePollStatus(id: string, status: PollStatus, closedAt?
   try {
     const db = getDb();
     if (closedAt) {
-      await db.execute(sql`UPDATE polls SET status = ${status}, closed_at = ${new Date(closedAt)} WHERE id = ${id}::uuid`);
+      await db.execute(sql`UPDATE polls SET status = ${status}::poll_status, closed_at = ${new Date(closedAt)} WHERE id = ${id}::uuid`);
     } else {
-      await db.execute(sql`UPDATE polls SET status = ${status} WHERE id = ${id}::uuid`);
+      await db.execute(sql`UPDATE polls SET status = ${status}::poll_status WHERE id = ${id}::uuid`);
     }
     return true;
   } catch {
@@ -292,9 +293,9 @@ export async function createRound(data: {
       VALUES (
         ${data.pollId}::uuid,
         ${data.roundNumber},
-        ${data.voteType},
+        ${data.voteType}::vote_type,
         ${data.survivorCount ?? null},
-        ${data.thresholdType},
+        ${data.thresholdType}::threshold_type,
         ${data.thresholdValue ?? null},
         ${data.shuffleOptions ?? false}
       )
@@ -302,7 +303,8 @@ export async function createRound(data: {
     `);
     const r = (rows as unknown as Record<string, unknown>[])[0];
     return r ? rowToRound(r) : null;
-  } catch {
+  } catch (err) {
+    console.error('[createRound]', err instanceof Error ? err.message : err);
     return null;
   }
 }
@@ -315,11 +317,11 @@ export async function updateRoundStatus(
   try {
     const db = getDb();
     if (timestamps?.openedAt) {
-      await db.execute(sql`UPDATE poll_rounds SET status = ${status}, opened_at = ${new Date(timestamps.openedAt)} WHERE id = ${id}::uuid`);
+      await db.execute(sql`UPDATE poll_rounds SET status = ${status}::round_status, opened_at = ${new Date(timestamps.openedAt)} WHERE id = ${id}::uuid`);
     } else if (timestamps?.closedAt) {
-      await db.execute(sql`UPDATE poll_rounds SET status = ${status}, closed_at = ${new Date(timestamps.closedAt)} WHERE id = ${id}::uuid`);
+      await db.execute(sql`UPDATE poll_rounds SET status = ${status}::round_status, closed_at = ${new Date(timestamps.closedAt)} WHERE id = ${id}::uuid`);
     } else {
-      await db.execute(sql`UPDATE poll_rounds SET status = ${status} WHERE id = ${id}::uuid`);
+      await db.execute(sql`UPDATE poll_rounds SET status = ${status}::round_status WHERE id = ${id}::uuid`);
     }
     return true;
   } catch {
