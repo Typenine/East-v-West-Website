@@ -3,10 +3,11 @@
  * Implements the ProviderRequest → Promise<string> interface used by the cascade.
  *
  * Configuration (env vars):
- *   ANTHROPIC_API_KEY  — required
- *   ANTHROPIC_MODEL    — default: claude-sonnet-4-6
- *   LLM_TIMEOUT_MS     — per-call timeout, default: 120000
- *   LLM_MAX_RETRIES    — retry attempts on 429/529, default: 2
+ *   ANTHROPIC_API_KEY       — required
+ *   ANTHROPIC_MODEL         — default: claude-sonnet-4-6
+ *   LLM_TIMEOUT_MS          — per-call timeout, default: 150000 (extended thinking needs more time)
+ *   LLM_MAX_RETRIES         — retry attempts on 429/529, default: 5
+ *   CLAUDE_THINKING_ENABLED — set to "false" to globally disable extended thinking
  */
 
 import Anthropic from '@anthropic-ai/sdk';
@@ -23,16 +24,23 @@ export function resetAnthropicSessionTokens(): void {
 }
 
 const DEFAULT_MODEL = 'claude-sonnet-4-6';
-const DEFAULT_TIMEOUT_MS = 120_000;
-// 5 retries = backoffs of 5s, 10s, 20s, 40s, 60s = up to 135s of patience.
-// genPreDraftTrades (and other sections) run 4+ parallel LLM calls. If Claude
-// returns 529 on any one of them, the default 2-retry window (5+10=15s) was
-// too short — the other calls already consumed credits and their output is lost.
+// Extended thinking calls can take 30-60s on top of regular latency
+const DEFAULT_TIMEOUT_MS = 150_000;
 const DEFAULT_MAX_RETRIES = 5;
 
-// Claude paid tier output cap. Higher than Groq/Gemini free tiers.
-// Mock draft sections need up to 3500 tokens; 4096 gives headroom.
-const CLAUDE_MAX_OUTPUT_TOKENS = 4_096;
+// Claude Sonnet supports up to 64K output tokens on the paid tier.
+// 16K is our practical ceiling — mock drafts with extended thinking rarely exceed 8K.
+const CLAUDE_MAX_OUTPUT_TOKENS = 16_000;
+
+// Extended thinking: budget_tokens must be at least 1024 and less than max_tokens.
+// Claude 3.7+ supports interleaved thinking. We require >=1024 before enabling.
+const CLAUDE_MIN_THINKING_BUDGET = 1_024;
+// When thinking is enabled, output tokens are in addition to thinking tokens.
+// So max_tokens must cover BOTH thinking + text output.
+function buildThinkingMaxTokens(thinkingBudget: number, textBudget: number): number {
+  // max_tokens = thinking_budget + text budget with a small safety margin
+  return Math.min(thinkingBudget + textBudget + 512, CLAUDE_MAX_OUTPUT_TOKENS);
+}
 
 function sleep(ms: number): Promise<void> {
   return new Promise(r => setTimeout(r, ms));
@@ -46,10 +54,19 @@ export async function generateWithAnthropicProvider(req: ProviderRequest): Promi
   const timeoutMs = parseInt(process.env.LLM_TIMEOUT_MS ?? '', 10) || DEFAULT_TIMEOUT_MS;
   const maxRetries = parseInt(process.env.LLM_MAX_RETRIES ?? '', 10) || DEFAULT_MAX_RETRIES;
 
+  // Determine if extended thinking should be used for this call
+  const thinkingEnabled = process.env.CLAUDE_THINKING_ENABLED !== 'false';
+  const rawThinkingBudget = req.claudeThinkingBudget ?? 0;
+  const useThinking = thinkingEnabled && rawThinkingBudget >= CLAUDE_MIN_THINKING_BUDGET;
+  const thinkingBudget = useThinking ? rawThinkingBudget : 0;
+
   const client = new Anthropic({
     apiKey,
     timeout: timeoutMs,
-    maxRetries: 0, // retry loop handled below so we control backoff and logging
+    maxRetries: 0,
+    defaultHeaders: useThinking
+      ? { 'anthropic-beta': 'interleaved-thinking-2025-05-14' }
+      : undefined,
   });
 
   const section = req.sectionName ?? 'unknown';
@@ -58,18 +75,39 @@ export async function generateWithAnthropicProvider(req: ProviderRequest): Promi
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     const t0 = Date.now();
     try {
-      const message = await client.messages.create({
+      // When thinking is on, temperature must be 1 (API requirement) and
+      // max_tokens must accommodate both thinking blocks + text output.
+      const maxTokens = useThinking
+        ? buildThinkingMaxTokens(thinkingBudget, Math.min(req.maxTokens, CLAUDE_MAX_OUTPUT_TOKENS))
+        : Math.min(req.maxTokens, CLAUDE_MAX_OUTPUT_TOKENS);
+
+      const createParams: Anthropic.MessageCreateParamsNonStreaming = {
         model,
-        max_tokens: Math.min(req.maxTokens, CLAUDE_MAX_OUTPUT_TOKENS),
-        temperature: req.temperature,
+        max_tokens: maxTokens,
+        temperature: useThinking ? 1 : req.temperature,
         system: req.systemPrompt,
         messages: [{ role: 'user', content: req.userPrompt }],
-      });
+        ...(useThinking ? { thinking: { type: 'enabled' as const, budget_tokens: thinkingBudget } } : {}),
+      };
+
+      const message: Anthropic.Message = await client.messages.create({ ...createParams, stream: false });
 
       const durationMs = Date.now() - t0;
       const inputTokens = message.usage.input_tokens;
       const outputTokens = message.usage.output_tokens;
       const stopReason = message.stop_reason ?? 'unknown';
+      // cache_read_input_tokens is on the usage object when prompt caching is active
+      const cacheReadTokens = (message.usage as unknown as Record<string, unknown>).cache_read_input_tokens as number | undefined;
+
+      // Count thinking tokens separately for logging
+      const thinkingTokensUsed = useThinking
+        ? message.content
+            .filter((b): b is Anthropic.ThinkingBlock => b.type === 'thinking')
+            .reduce((sum: number, b: Anthropic.ThinkingBlock) => {
+              const bt = (b as unknown as { thinking_tokens?: number }).thinking_tokens;
+              return sum + (bt ?? 0);
+            }, 0)
+        : 0;
 
       // Accumulate session tokens for this process lifetime (per-step on Vercel)
       anthropicSessionTokens.inputTokens += inputTokens;
@@ -78,20 +116,27 @@ export async function generateWithAnthropicProvider(req: ProviderRequest): Promi
 
       console.log(
         `[Anthropic/${model}] section="${section}" stop=${stopReason}` +
-        ` in=${inputTokens} out=${outputTokens} total_in=${anthropicSessionTokens.inputTokens} total_out=${anthropicSessionTokens.outputTokens}` +
-        ` attempt=${attempt + 1}/${maxRetries + 1} ${durationMs}ms`,
+        ` in=${inputTokens} out=${outputTokens}` +
+        (thinkingTokensUsed ? ` thinking≈${thinkingTokensUsed}` : '') +
+        (cacheReadTokens ? ` cache_read=${cacheReadTokens}` : '') +
+        ` total_in=${anthropicSessionTokens.inputTokens} total_out=${anthropicSessionTokens.outputTokens}` +
+        ` attempt=${attempt + 1}/${maxRetries + 1} ${durationMs}ms` +
+        (useThinking ? ` [extended-thinking budget=${thinkingBudget}]` : ''),
       );
 
       if (stopReason === 'max_tokens') {
         throw new Error(
           `LLM_TRUNCATED_OUTPUT: Claude hit max_tokens for "${section}"` +
-          ` (model=${model}, outputTokens=${outputTokens}, maxTokens=${Math.min(req.maxTokens, CLAUDE_MAX_OUTPUT_TOKENS)})`,
+          ` (model=${model}, outputTokens=${outputTokens}, maxTokens=${maxTokens}` +
+          (useThinking ? `, thinkingBudget=${thinkingBudget}` : '') + ')' +
+          ' — consider raising claudeThinkingBudget or maxTokens',
         );
       }
 
-      const text = message.content
+      // Extract text blocks only — skip thinking blocks from the output
+      const text = (message.content as Anthropic.ContentBlock[])
         .filter((block): block is Anthropic.TextBlock => block.type === 'text')
-        .map(block => block.text)
+        .map((block: Anthropic.TextBlock) => block.text)
         .join('\n')
         .trim();
 

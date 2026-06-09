@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback, Component, ReactNode } from 'react';
+import EditModePanel from './EditModePanel';
 import Link from 'next/link';
 import SectionHeader from '@/components/ui/SectionHeader';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
@@ -62,23 +63,6 @@ function fmtElapsed(s: number) {
 
 interface ExistingNewsletter { generatedAt: string; fromCache: boolean }
 
-interface NewsletterSection {
-  type: string;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  [key: string]: any;
-}
-
-interface EditSectionState {
-  manualText: string;
-  aiInstruction: string;
-  aiPreview: string | null;
-  saving: boolean;
-  rewriting: boolean;
-  accepting: boolean;
-  error: string | null;
-  saved: boolean;
-}
-
 interface GenState {
   phase: 'idle' | 'starting' | 'running' | 'done' | 'failed';
   steps: string[];
@@ -112,7 +96,6 @@ function AdminNewsletterPageInner() {
   // NFL state
   const [nflSeason, setNflSeason] = useState('2025');
   const [nflWeek, setNflWeek] = useState<number | null>(null);
-  const [isOffseason, setIsOffseason] = useState(false);
 
   // Config
   const [season, setSeason] = useState('2025');
@@ -142,12 +125,8 @@ function AdminNewsletterPageInner() {
 
   // Edit Mode
   const [editMode, setEditMode] = useState(false);
-  const [editSections, setEditSections] = useState<NewsletterSection[]>([]);
-  const [editStates, setEditStates] = useState<Record<string, EditSectionState>>({});
-  const [expandedEdit, setExpandedEdit] = useState<string | null>(null);
-  const [finalizing, setFinalizing] = useState(false);
-  const [finalizeResult, setFinalizeResult] = useState<{ ok: boolean; message: string; html?: string } | null>(null);
   const [editHtml, setEditHtml] = useState<string | null>(null);
+  const [finalizeResult, setFinalizeResult] = useState<{ ok: boolean; message: string } | null>(null);
 
   // ── Auth ──────────────────────────────────────────────────────────────────
 
@@ -167,7 +146,6 @@ function AdminNewsletterPageInner() {
     fetch('https://api.sleeper.app/v1/state/nfl').then(r => r.json()).then(state => {
       const s = state.season || '2025';
       setNflSeason(s);
-      setIsOffseason(state.season_type !== 'regular');
       // Default season to current NFL season
       setSeason(s);
       if (state.season_type === 'regular') {
@@ -451,7 +429,7 @@ function AdminNewsletterPageInner() {
       const res = await fetch('/api/newsletter/publish', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ season: parseInt(season), week: parseInt(week) || 0, newsletter: gen.meta, html: gen.html }),
+        body: JSON.stringify({ season: parseInt(season), week: parseInt(week) || 0, newsletter: gen.meta, html: editHtml ?? gen.html }),
       });
       const data = await res.json() as { message?: string; error?: string };
       setPublishResult({ ok: res.ok, message: data.message ?? data.error ?? (res.ok ? 'Published!' : 'Failed') });
@@ -464,163 +442,33 @@ function AdminNewsletterPageInner() {
 
   // ── Edit Mode ─────────────────────────────────────────────────────────────
 
-  const openEditMode = () => {
-    if (!gen.html) return;
-    // Parse sections from the live newsletter JSON fetched during generation
-    fetch(`/api/newsletter?week=${needsWeek ? (parseInt(week) || 0) : 0}&season=${season}`, { cache: 'no-store', credentials: 'include' })
-      .then(r => r.json())
-      .then((data: { newsletter?: { sections?: NewsletterSection[] } }) => {
-        const sections = data.newsletter?.sections ?? [];
-        setEditSections(sections);
-        const states: Record<string, EditSectionState> = {};
-        sections.forEach((sec, idx) => {
-          const key = `${idx}`;
-          const secData = (sec.data && typeof sec.data === 'object' && !Array.isArray(sec.data)) ? sec.data as Record<string, unknown> : null;
-          states[key] = {
-            manualText: String(secData?.bot1_text ?? secData?.bot2_text ?? ''),
-            aiInstruction: '',
-            aiPreview: null,
-            saving: false,
-            rewriting: false,
-            accepting: false,
-            error: null,
-            saved: false,
-          };
-        });
-        setEditStates(states);
-        setEditMode(true);
-        setFinalizeResult(null);
-        setEditHtml(null);
-      })
-      .catch((err: unknown) => {
-        console.error('[Edit Mode] Failed to load newsletter sections:', err);
-        setGen(g => ({ ...g, error: 'Failed to load newsletter for editing. Please try again.' }));
-      });
+  const openEditMode = (fromExisting = false) => {
+    if (!fromExisting && !gen.html) return;
+    setEditMode(true);
+    setFinalizeResult(null);
+    setEditHtml(null);
+    // When opening from existing (no generation), populate gen.html from the DB
+    if (fromExisting && !gen.html) {
+      const wNum = needsWeek ? (parseInt(week) || 0) : 0;
+      fetch(`/api/newsletter?week=${wNum}&season=${season}`, { cache: 'no-store', credentials: 'include' })
+        .then(r => r.json())
+        .then((data: { html?: string; newsletter?: { meta?: unknown } }) => {
+          if (data.html) {
+            setGen(g => ({
+              ...g,
+              phase: 'done',
+              html: data.html!,
+              meta: (data.newsletter?.meta ?? null) as GenState['meta'],
+            }));
+          }
+        })
+        .catch(console.error);
+    }
   };
 
   const closeEditMode = () => {
     setEditMode(false);
     setFinalizeResult(null);
-  };
-
-  const getEditKey = (idx: number, bot: 'entertainer' | 'analyst') => `${idx}-${bot}`;
-
-  const getEditState = (idx: number, bot: 'entertainer' | 'analyst'): EditSectionState => {
-    const key = getEditKey(idx, bot);
-    const sec = editSections[idx];
-    const secData = (sec?.data && typeof sec.data === 'object' && !Array.isArray(sec.data)) ? sec.data as Record<string, unknown> : null;
-    return editStates[key] ?? {
-      manualText: String(secData?.[bot === 'entertainer' ? 'bot1_text' : 'bot2_text'] ?? ''),
-      aiInstruction: '', aiPreview: null, saving: false, rewriting: false, accepting: false, error: null, saved: false,
-    };
-  };
-
-  const patchEditState = (idx: number, bot: 'entertainer' | 'analyst', patch: Partial<EditSectionState>) => {
-    const key = getEditKey(idx, bot);
-    setEditStates(prev => ({ ...prev, [key]: { ...getEditState(idx, bot), ...prev[key], ...patch } }));
-  };
-
-  const handleManualSave = async (idx: number, bot: 'entertainer' | 'analyst') => {
-    const wNum = needsWeek ? (parseInt(week) || 0) : 0;
-    const state = getEditState(idx, bot);
-    patchEditState(idx, bot, { saving: true, error: null, saved: false });
-    try {
-      const res = await fetch('/api/newsletter/edit', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'save_section', season: parseInt(season), week: wNum, sectionIndex: idx, bot, text: state.manualText }),
-      });
-      const data = await res.json() as { success?: boolean; error?: string };
-      if (!res.ok || !data.success) throw new Error(data.error ?? 'Save failed');
-      // Update local section data (write into .data sub-object if present)
-      setEditSections(prev => {
-        const next = [...prev];
-        const field = bot === 'entertainer' ? 'bot1_text' : 'bot2_text';
-        const existing = next[idx];
-        if (existing?.data && typeof existing.data === 'object' && !Array.isArray(existing.data)) {
-          next[idx] = { ...existing, data: { ...(existing.data as Record<string, unknown>), [field]: state.manualText } };
-        } else {
-          next[idx] = { ...existing, [field]: state.manualText };
-        }
-        return next;
-      });
-      patchEditState(idx, bot, { saving: false, saved: true });
-    } catch (err) {
-      patchEditState(idx, bot, { saving: false, error: err instanceof Error ? err.message : 'Save failed' });
-    }
-  };
-
-  const handleAiRewrite = async (idx: number, bot: 'entertainer' | 'analyst') => {
-    const wNum = needsWeek ? (parseInt(week) || 0) : 0;
-    const state = getEditState(idx, bot);
-    if (!state.aiInstruction.trim()) return;
-    patchEditState(idx, bot, { rewriting: true, aiPreview: null, error: null });
-    try {
-      const res = await fetch('/api/newsletter/edit', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'ai_rewrite', season: parseInt(season), week: wNum, sectionIndex: idx, bot, instruction: state.aiInstruction }),
-      });
-      const data = await res.json() as { success?: boolean; preview?: string; error?: string };
-      if (!res.ok || !data.success) throw new Error(data.error ?? 'Rewrite failed');
-      patchEditState(idx, bot, { rewriting: false, aiPreview: data.preview ?? '' });
-    } catch (err) {
-      patchEditState(idx, bot, { rewriting: false, error: err instanceof Error ? err.message : 'Rewrite failed' });
-    }
-  };
-
-  const handleAcceptAiPreview = async (idx: number, bot: 'entertainer' | 'analyst') => {
-    const wNum = needsWeek ? (parseInt(week) || 0) : 0;
-    const state = getEditState(idx, bot);
-    if (!state.aiPreview) return;
-    patchEditState(idx, bot, { accepting: true, error: null });
-    try {
-      const res = await fetch('/api/newsletter/edit', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'save_section', season: parseInt(season), week: wNum, sectionIndex: idx, bot, text: state.aiPreview }),
-      });
-      const data = await res.json() as { success?: boolean; error?: string };
-      if (!res.ok || !data.success) throw new Error(data.error ?? 'Accept failed');
-      const field = bot === 'entertainer' ? 'bot1_text' : 'bot2_text';
-      setEditSections(prev => {
-        const next = [...prev];
-        const existing = next[idx];
-        if (existing?.data && typeof existing.data === 'object' && !Array.isArray(existing.data)) {
-          next[idx] = { ...existing, data: { ...(existing.data as Record<string, unknown>), [field]: state.aiPreview! } };
-        } else {
-          next[idx] = { ...existing, [field]: state.aiPreview! };
-        }
-        return next;
-      });
-      patchEditState(idx, bot, { accepting: false, manualText: state.aiPreview!, aiPreview: null, aiInstruction: '', saved: true });
-    } catch (err) {
-      patchEditState(idx, bot, { accepting: false, error: err instanceof Error ? err.message : 'Accept failed' });
-    }
-  };
-
-  const handleFinalize = async () => {
-    const wNum = needsWeek ? (parseInt(week) || 0) : 0;
-    setFinalizing(true);
-    setFinalizeResult(null);
-    try {
-      const res = await fetch('/api/newsletter/edit', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'finalize', season: parseInt(season), week: wNum }),
-      });
-      const data = await res.json() as { success?: boolean; html?: string; error?: string };
-      if (!res.ok || !data.success) throw new Error(data.error ?? 'Finalize failed');
-      setEditHtml(data.html ?? null);
-      if (data.html) {
-        setGen(g => ({ ...g, html: data.html! }));
-      }
-      setFinalizeResult({ ok: true, message: 'HTML re-rendered. Newsletter is ready to publish.' });
-    } catch (err) {
-      setFinalizeResult({ ok: false, message: err instanceof Error ? err.message : 'Finalize failed' });
-    } finally {
-      setFinalizing(false);
-    }
   };
 
   // ── Delete ────────────────────────────────────────────────────────────────
@@ -643,7 +491,7 @@ function AdminNewsletterPageInner() {
   // ── Auth guards ───────────────────────────────────────────────────────────
 
   if (authLoading) return (
-    <div className="container mx-auto px-4 py-8 text-center py-16 text-zinc-500">Checking auth...</div>
+    <div className="container mx-auto px-4 py-16 text-center text-zinc-500">Checking auth...</div>
   );
   if (!isAdmin) return (
     <div className="container mx-auto px-4 py-8">
@@ -797,10 +645,13 @@ function AdminNewsletterPageInner() {
                       </div>
                     </div>
                   </div>
-                  <div className="flex gap-2">
+                  <div className="flex gap-2 flex-wrap">
                     <Link href="/newsletter" className="flex-1">
                       <Button variant="secondary" size="sm" className="w-full text-xs">View →</Button>
                     </Link>
+                    {!editMode && (
+                      <Button variant="secondary" size="sm" className="text-xs" onClick={() => openEditMode(true)}>✏️ Edit</Button>
+                    )}
                     {!confirmDelete ? (
                       <Button variant="ghost" size="sm" className="text-red-400 hover:text-red-300 text-xs"
                         onClick={() => setConfirmDelete(true)}>🗑️ Delete</Button>
@@ -833,8 +684,19 @@ function AdminNewsletterPageInner() {
         <Card className="mb-4">
           <CardContent className="py-5">
             <div className="flex items-center justify-between mb-3">
-              <div className="text-sm font-medium text-white">
-                {gen.phase === 'starting' ? '📡 Fetching data & building context...' : `⚙️ Generating sections`}
+              <div>
+                <div className="text-sm font-medium text-white">
+                  {gen.phase === 'starting' ? '📡 Fetching data & building context...' : `⚙️ Generating sections`}
+                </div>
+                {gen.currentStep && (() => {
+                  const deepThinkingSteps = ['MockDraft_R1_Mason','MockDraft_R1_Westy','MockDraft_R2_Mason','MockDraft_R2_Westy','PowerRankings','PowerRankings_Preseason','Forecast'];
+                  const mediumThinkingSteps = ['Intro','FinalWord','DraftGrades_Summary'];
+                  const isDeep = deepThinkingSteps.some(s => gen.currentStep!.startsWith(s.split('_')[0]) && deepThinkingSteps.includes(gen.currentStep!));
+                  const isMedium = mediumThinkingSteps.includes(gen.currentStep!);
+                  if (isDeep) return <div className="text-[10px] text-amber-400/80 mt-0.5">🧠 Claude is reasoning deeply — this section may take 30–60s</div>;
+                  if (isMedium) return <div className="text-[10px] text-blue-400/60 mt-0.5">🧠 Claude is thinking…</div>;
+                  return null;
+                })()}
               </div>
               <div className="text-sm font-mono text-zinc-400">{fmtElapsed(gen.elapsed)} elapsed</div>
             </div>
@@ -936,10 +798,21 @@ function AdminNewsletterPageInner() {
               </div>
               <div className="flex items-center gap-2">
                 <Button variant="secondary" size="sm" onClick={() => {
-                  const blob = new Blob([gen.html!], { type: 'text/html' });
+                  const blob = new Blob([editHtml ?? gen.html!], { type: 'text/html' });
                   const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: `newsletter-s${season}-w${week}.html` });
                   a.click(); URL.revokeObjectURL(a.href);
                 }}>⬇️ Download</Button>
+                <Button variant="secondary" size="sm" onClick={async () => {
+                  try {
+                    await navigator.clipboard.writeText(editHtml ?? gen.html ?? '');
+                  } catch { /* fallback: select all in a temp textarea */
+                    const ta = document.createElement('textarea');
+                    ta.value = editHtml ?? gen.html ?? '';
+                    document.body.appendChild(ta); ta.select();
+                    document.execCommand('copy');
+                    document.body.removeChild(ta);
+                  }
+                }}>📋 Copy HTML</Button>
                 <Button variant="secondary" size="sm" onClick={() => {
                   const win = window.open('', '_blank');
                   if (!win) return;
@@ -948,7 +821,7 @@ function AdminNewsletterPageInner() {
                   win.addEventListener('load', () => win.print());
                 }}>🖨️ Print/PDF</Button>
                 {!editMode && (
-                  <Button variant="secondary" size="sm" onClick={openEditMode}>✏️ Edit Newsletter</Button>
+                  <Button variant="secondary" size="sm" onClick={() => openEditMode()}>✏️ Edit Newsletter</Button>
                 )}
                 {!publishResult?.ok && !editMode && (
                   <Button variant="primary" size="sm" onClick={handlePublish} disabled={publishing}>
@@ -982,143 +855,18 @@ function AdminNewsletterPageInner() {
 
       {/* Edit Mode Panel */}
       {editMode && gen.phase === 'done' && gen.html && (
-        <Card className="mt-4">
-          <CardHeader>
-            <div className="flex items-center justify-between flex-wrap gap-3">
-              <div>
-                <CardTitle className="text-base">✏️ Edit Mode</CardTitle>
-                <p className="text-xs text-zinc-400 mt-0.5">Edit sections manually or use AI rewrite. Finalize when done to re-render HTML, then Publish.</p>
-              </div>
-              <div className="flex items-center gap-2">
-                {finalizeResult?.ok ? (
-                  <Button variant="primary" size="sm" onClick={handlePublish} disabled={publishing}>
-                    {publishing ? 'Publishing...' : '🚀 Publish'}
-                  </Button>
-                ) : (
-                  <Button variant="primary" size="sm" onClick={handleFinalize} disabled={finalizing}>
-                    {finalizing ? 'Rendering...' : '✅ Finalize Edits'}
-                  </Button>
-                )}
-                <Button variant="ghost" size="sm" onClick={closeEditMode}>✕ Close</Button>
-              </div>
-            </div>
-            {finalizeResult && (
-              <div className={`mt-2 text-xs px-3 py-1.5 rounded ${finalizeResult.ok ? 'bg-emerald-900/40 text-emerald-300' : 'bg-red-900/40 text-red-300'}`}>
-                {finalizeResult.ok ? '✅' : '❌'} {finalizeResult.message}
-              </div>
-            )}
-          </CardHeader>
-          <CardContent className="py-3 space-y-2">
-            {editSections.map((sec, idx) => {
-              const sectionKey = `${idx}`;
-              const isExpanded = expandedEdit === sectionKey;
-              const bots: Array<'entertainer' | 'analyst'> = ['entertainer', 'analyst'];
-              return (
-                <div key={idx} className="border border-zinc-700 rounded-lg overflow-hidden">
-                  {/* Section accordion header */}
-                  <button
-                    onClick={() => setExpandedEdit(isExpanded ? null : sectionKey)}
-                    className="w-full flex items-center justify-between px-4 py-2.5 bg-zinc-800/60 hover:bg-zinc-800 text-left transition-colors"
-                  >
-                    <span className="text-sm font-medium text-zinc-200">{stepLabel(sec.type)}</span>
-                    <span className="text-xs text-zinc-500">{isExpanded ? '▲' : '▼'}</span>
-                  </button>
-
-                  {isExpanded && (
-                    <div className="divide-y divide-zinc-700/50">
-                      {/* Array-type sections (MatchupRecaps, Trades, WaiversAndFA, etc.) are not directly editable as flat text */}
-                      {Array.isArray(sec.data) && (
-                        <div className="p-4 text-xs text-zinc-500 italic">
-                          {sec.type} contains structured array data and cannot be edited as plain text in Edit Mode.
-                        </div>
-                      )}
-                      {!Array.isArray(sec.data) && bots.map(bot => {
-                        const botField = bot === 'entertainer' ? 'bot1_text' : 'bot2_text';
-                        const secData = (sec.data && typeof sec.data === 'object') ? sec.data as Record<string, unknown> : sec as Record<string, unknown>;
-                        const currentText = String(secData[botField] ?? '');
-                        if (!currentText) return null;
-                        const botKey = getEditKey(idx, bot);
-                        const est = editStates[botKey] ?? {
-                          manualText: currentText, aiInstruction: '', aiPreview: null,
-                          saving: false, rewriting: false, accepting: false, error: null, saved: false,
-                        };
-                        const botLabel = bot === 'entertainer' ? '🎙️ Mason' : '📊 Westy';
-                        return (
-                          <div key={bot} className="p-4 space-y-3">
-                            <div className="text-xs font-semibold text-zinc-400 uppercase tracking-wide">{botLabel}</div>
-
-                            {/* Current rendered text */}
-                            <div className="text-xs text-zinc-400 bg-zinc-900/60 rounded p-3 max-h-32 overflow-y-auto whitespace-pre-wrap">{currentText}</div>
-
-                            {/* Option A: Manual Edit */}
-                            <details className="group">
-                              <summary className="cursor-pointer text-xs text-blue-400 hover:text-blue-300 font-medium select-none">A — Manual Edit</summary>
-                              <div className="mt-2 space-y-2">
-                                <textarea
-                                  className="w-full text-xs bg-zinc-800 border border-zinc-600 rounded p-2 text-zinc-200 resize-y min-h-[100px] focus:outline-none focus:ring-1 focus:ring-blue-500"
-                                  value={est.manualText !== undefined ? est.manualText : currentText}
-                                  onChange={e => patchEditState(idx, bot, { manualText: e.target.value, saved: false })}
-                                />
-                                <div className="flex items-center gap-2">
-                                  <Button
-                                    size="sm"
-                                    variant="secondary"
-                                    onClick={() => handleManualSave(idx, bot)}
-                                    disabled={est.saving}
-                                  >
-                                    {est.saving ? 'Saving...' : 'Save Section'}
-                                  </Button>
-                                  {est.saved && <span className="text-xs text-emerald-400">✓ Saved</span>}
-                                  {est.error && <span className="text-xs text-red-400">{est.error}</span>}
-                                </div>
-                              </div>
-                            </details>
-
-                            {/* Option B: AI Rewrite */}
-                            <details className="group">
-                              <summary className="cursor-pointer text-xs text-amber-400 hover:text-amber-300 font-medium select-none">B — AI Rewrite</summary>
-                              <div className="mt-2 space-y-2">
-                                <input
-                                  type="text"
-                                  placeholder={`e.g. "fix bop pop's playoff record" or "make this less dramatic"`}
-                                  className="w-full text-xs bg-zinc-800 border border-zinc-600 rounded px-3 py-2 text-zinc-200 focus:outline-none focus:ring-1 focus:ring-amber-500"
-                                  value={est.aiInstruction}
-                                  onChange={e => patchEditState(idx, bot, { aiInstruction: e.target.value })}
-                                  onKeyDown={e => { if (e.key === 'Enter') handleAiRewrite(idx, bot); }}
-                                />
-                                <Button
-                                  size="sm"
-                                  variant="secondary"
-                                  onClick={() => handleAiRewrite(idx, bot)}
-                                  disabled={est.rewriting || !est.aiInstruction?.trim()}
-                                >
-                                  {est.rewriting ? 'Rewriting...' : 'Rewrite'}
-                                </Button>
-
-                                {est.aiPreview && (
-                                  <div className="space-y-2">
-                                    <div className="text-xs font-medium text-amber-400">Preview:</div>
-                                    <div className="text-xs text-zinc-300 bg-zinc-900/60 rounded p-3 max-h-40 overflow-y-auto whitespace-pre-wrap">{est.aiPreview}</div>
-                                    <div className="flex gap-2">
-                                      <Button size="sm" variant="primary" onClick={() => handleAcceptAiPreview(idx, bot)} disabled={est.accepting}>
-                                        {est.accepting ? 'Accepting...' : 'Accept'}
-                                      </Button>
-                                      <Button size="sm" variant="ghost" onClick={() => patchEditState(idx, bot, { aiPreview: null })}>Discard</Button>
-                                    </div>
-                                  </div>
-                                )}
-                              </div>
-                            </details>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </CardContent>
-        </Card>
+        <EditModePanel
+          season={season}
+          week={week}
+          needsWeek={needsWeek}
+          html={editHtml ?? gen.html}
+          onHtmlUpdate={html => { setEditHtml(html); setGen(g => ({ ...g, html })); }}
+          onClose={closeEditMode}
+          onPublish={handlePublish}
+          publishing={publishing}
+          finalizeResult={finalizeResult}
+          setFinalizeResult={setFinalizeResult}
+        />
       )}
 
     </div>

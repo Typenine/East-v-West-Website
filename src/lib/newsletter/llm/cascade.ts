@@ -28,6 +28,13 @@ export interface ProviderRequest {
   topP?: number;
   /** Gemini-only: thinking token budget. 0 = disabled, undefined = let provider decide. */
   thinkingBudget?: number;
+  /**
+   * Claude extended-thinking token budget (budget_tokens).
+   * Requires claude-3-7-sonnet or newer and the interleaved-thinking beta.
+   * 0 or undefined = disabled. 1024–16000 recommended for most sections.
+   * Deep analysis (MockDraft, Trades, PowerRankings) can go up to 10000.
+   */
+  claudeThinkingBudget?: number;
   /** Caller-supplied section label used in logs (e.g. "Mock Draft - Round 1"). */
   sectionName?: string;
 }
@@ -72,9 +79,10 @@ interface ProviderRateConfig {
 }
 
 const PROVIDER_RATE_CONFIG: Record<string, ProviderRateConfig> = {
-  // Claude paid tier — generous limits; 2s gap keeps well below RPM ceiling.
-  // TODO: Confirm exact RPM/TPM limits for your Anthropic tier and tighten if needed.
-  'anthropic':       { minGapMs: 2_000 },
+  // Claude paid tier — Sonnet supports 50 RPM / 40K TPM on the base paid tier.
+  // 500ms gap = up to 120 RPM theoretical; in practice sections are queued serially
+  // so we'll never hit that ceiling during a normal newsletter run.
+  'anthropic':       { minGapMs: 500 },
 
   // Gemini free tier — 15 RPM → one call every 4s to leave headroom.
   'gemini-2.5-flash': { minGapMs: 4_000 },
@@ -254,7 +262,9 @@ export async function generateWithCascade(req: CascadeRequest): Promise<CascadeR
       }
 
       cascadeMetrics[name] = (cascadeMetrics[name] ?? 0) + 1;
-      console.log(`[LLM] ${name} ✓`);
+      const thinkingNote = (name === 'anthropic' && req.claudeThinkingBudget && req.claudeThinkingBudget >= 1024)
+        ? ` [thinking=${req.claudeThinkingBudget}]` : '';
+      console.log(`[LLM] ${name} ✓${thinkingNote}`);
       return { content, provider: name };
 
     } catch (err) {

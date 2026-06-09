@@ -35,10 +35,37 @@ const BOT_FIELD_MAP: Record<string, 'bot1_text' | 'bot2_text'> = {
   analyst: 'bot2_text',
 };
 
-const BOT_TEMPERATURE: Record<string, number> = {
-  entertainer: 0.85,
-  analyst: 0.6,
-};
+
+/**
+ * Walk a dot-notation path on an object and set the leaf value.
+ * Supports numeric segments for array indices, e.g. "picks.0.mason.analysis".
+ * Creates intermediate objects/arrays as needed.
+ */
+function setNestedValue(obj: Record<string, unknown>, path: string, value: unknown): void {
+  const parts = path.split('.');
+  let cur: Record<string, unknown> = obj;
+  for (let i = 0; i < parts.length - 1; i++) {
+    const p = parts[i];
+    if (cur[p] === undefined || cur[p] === null) {
+      cur[p] = /^\d+$/.test(parts[i + 1]) ? [] : {};
+    }
+    cur = cur[p] as Record<string, unknown>;
+  }
+  cur[parts[parts.length - 1]] = value;
+}
+
+/**
+ * Walk a dot-notation path and return the leaf value (or undefined).
+ */
+function getNestedValue(obj: Record<string, unknown>, path: string): unknown {
+  const parts = path.split('.');
+  let cur: unknown = obj;
+  for (const p of parts) {
+    if (cur == null || typeof cur !== 'object') return undefined;
+    cur = (cur as Record<string, unknown>)[p];
+  }
+  return cur;
+}
 
 async function requireAdmin(): Promise<boolean> {
   const cookieStore = await cookies();
@@ -90,9 +117,16 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Invalid sectionIndex' }, { status: 400 });
     }
 
+    const fieldPath = typeof body.fieldPath === 'string' ? body.fieldPath : null;
     const section = content.sections[sectionIndex] as Record<string, unknown>;
     const sectionData = (section.data ?? section) as Record<string, unknown>;
-    sectionData[botField] = text;
+
+    if (fieldPath) {
+      // Deep path write — supports nested structures like Trades, MockDraft, MatchupRecaps
+      setNestedValue(sectionData, fieldPath, text);
+    } else {
+      sectionData[botField] = text;
+    }
     // Ensure mutation is visible on the parent object when data is a sub-object
     if ('data' in section) section.data = sectionData;
 
@@ -112,7 +146,6 @@ export async function POST(req: NextRequest) {
     const bot = String(body.bot ?? 'entertainer');
     const instruction = String(body.instruction ?? '').trim();
     const botField = BOT_FIELD_MAP[bot] ?? 'bot1_text';
-    const temperature = BOT_TEMPERATURE[bot] ?? 0.85;
 
     if (!instruction) {
       return NextResponse.json({ error: 'instruction is required for ai_rewrite' }, { status: 400 });
@@ -131,36 +164,68 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Invalid sectionIndex' }, { status: 400 });
     }
 
+    const fieldPath = typeof body.fieldPath === 'string' ? body.fieldPath : null;
+    const selectedText = typeof body.selectedText === 'string' && body.selectedText.trim() ? body.selectedText.trim() : null;
     const section = content.sections[sectionIndex] as Record<string, unknown>;
     const sectionData = (section.data ?? section) as Record<string, unknown>;
-    const currentText = String(sectionData[botField] ?? '');
+    // When selectedText is provided, rewrite only that snippet; otherwise rewrite the full field
+    const currentText = selectedText ?? (fieldPath
+      ? String(getNestedValue(sectionData, fieldPath) ?? '')
+      : String(sectionData[botField] ?? ''));
 
-    // ai_rewrite always calls Claude directly — use tier 1 persona prompt
+    // ai_rewrite always calls Claude directly — use tier 1 (Claude-native XML) persona prompt
     const personaKey: PersonaType = bot === 'entertainer' ? 'entertainer' : 'analyst';
     const fullPersona = buildSystemPrompt(personaKey, 1);
-    const editInstruction = `The user wants you to make the following edit to this section: ${instruction}\nOnly change what the instruction specifies. Do not add headers or alter the format.`;
 
-    const client = new Anthropic({ apiKey, timeout: 60_000 });
-    const message = await client.messages.create({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 1000,
-      temperature,
-      system: `${fullPersona}\n\n${editInstruction}`,
-      messages: [
-        {
-          role: 'user',
-          content: currentText,
-        },
-      ],
+    // Build a structured section context block.
+    // This is the raw structured data (trade parties, scores, picks etc.) from the DB.
+    // It is supplementary reference — the user's instruction is authoritative.
+    const sectionContextBlock = body.sectionContext != null
+      ? `\n\n<section_data_reference>\nThe following is the structured data stored for this section. Use it as supplementary reference ONLY. If the user's rewrite instruction contradicts this data, the instruction takes precedence — it is the authoritative correction.\n${JSON.stringify(body.sectionContext, null, 2).slice(0, 4000)}\n</section_data_reference>`
+      : '';
+
+    // System prompt: persona + editing rules + reference data
+    const systemPrompt = `${fullPersona}${sectionContextBlock}
+
+<edit_rules>
+- You are rewriting a specific piece of newsletter text per an explicit editor instruction.
+- The editor's instruction is GROUND TRUTH. If it corrects factual details (trade parties, who sent what, player names, scores), apply those corrections exactly — do not second-guess them using the section data.
+- Preserve the bot's voice, tone, and sentence rhythm. The rewrite should feel like the same person wrote it.
+- Do NOT add section headers, labels, or preambles. Output ONLY the rewritten text.
+- Do NOT change content outside what the instruction specifies.
+- Match the approximate length of the original unless the instruction asks for expansion or trimming.
+</edit_rules>`;
+
+    // User message: existing text + explicit instruction — clearly separated with XML
+    const userMessage = selectedText
+      ? `<existing_text>\n${currentText}\n</existing_text>\n\n<rewrite_instruction>\n${instruction}\n</rewrite_instruction>\n\nRewrite the text above following the instruction exactly. Output only the rewritten text.`
+      : `<existing_text>\n${currentText}\n</existing_text>\n\n<rewrite_instruction>\n${instruction}\n</rewrite_instruction>\n\nRewrite the full text above following the instruction exactly. Preserve voice and length unless told otherwise. Output only the rewritten text.`;
+
+    const client = new Anthropic({
+      apiKey,
+      timeout: 90_000,
+      defaultHeaders: { 'anthropic-beta': 'interleaved-thinking-2025-05-14' },
     });
+    const createParams: Anthropic.MessageCreateParamsNonStreaming = {
+      model: 'claude-sonnet-4-6',
+      max_tokens: 3072,  // thinking budget (1024) + text output (2048)
+      temperature: 1,    // required when thinking is enabled
+      system: systemPrompt,
+      messages: [{ role: 'user', content: userMessage }],
+      // Light thinking budget — enough to reason through complex trade flows
+      thinking: { type: 'enabled' as const, budget_tokens: 1024 },
+    };
+    const message: Anthropic.Message = await client.messages.create({ ...createParams, stream: false }) as unknown as Anthropic.Message;
 
-    const preview = message.content
+    const preview = (message.content as Anthropic.ContentBlock[])
       .filter((b): b is Anthropic.TextBlock => b.type === 'text')
       .map(b => b.text)
       .join('\n')
       .trim();
 
-    console.log(`[Edit] ai_rewrite s${season}w${week} idx=${sectionIndex} bot=${bot} — ${preview.length} chars`);
+    const inTokens  = message.usage.input_tokens;
+    const outTokens = message.usage.output_tokens;
+    console.log(`[Edit] ai_rewrite s${season}w${week} idx=${sectionIndex} bot=${bot} — ${preview.length} chars in=${inTokens} out=${outTokens}`);
     return NextResponse.json({ success: true, preview });
   }
 
@@ -169,7 +234,7 @@ export async function POST(req: NextRequest) {
     const row = await loadNewsletterRow(season, week);
     if (!row) return NextResponse.json({ error: 'Newsletter not found' }, { status: 404 });
 
-    const content = row.content as Newsletter;
+    const content = row.content as Newsletter & { _publishHistory?: Array<{ at: string; htmlLength: number }> };
     let html: string;
     try {
       html = renderHtml(content);
@@ -179,14 +244,19 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: `Render failed: ${msg}` }, { status: 500 });
     }
 
+    // Append a publish history entry (keep last 10)
+    const history = content._publishHistory ?? [];
+    history.push({ at: new Date().toISOString(), htmlLength: html.length });
+    content._publishHistory = history.slice(-10);
+
     const db = getDb();
     await db
       .update(newsletters)
-      .set({ html })
+      .set({ html, content: content as typeof newsletters.$inferInsert['content'] })
       .where(and(eq(newsletters.season, season), eq(newsletters.week, week)));
 
     console.log(`[Edit] finalize s${season}w${week} — HTML re-rendered (${html.length} chars)`);
-    return NextResponse.json({ success: true, html });
+    return NextResponse.json({ success: true, html, publishHistory: content._publishHistory });
   }
 
   return NextResponse.json({ error: `Unknown action: ${action}` }, { status: 400 });

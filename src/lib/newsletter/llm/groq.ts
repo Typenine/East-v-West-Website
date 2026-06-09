@@ -523,22 +523,62 @@ function getTierForProvider(provider: string): PromptTier {
 
 /**
  * Build the system prompt for a persona at the given provider tier.
- * Only the YOUR VOICE section changes between tiers.
- * All other sections (backstory, fixations, blind spots, contradictions,
- * league context, critical rule) are identical.
+ *
+ * Tier 1 (Claude): XML-tagged sections for maximum Claude comprehension.
+ * Tier 2 (Gemini): Compact flat-text version.
+ * Tier 3 (Groq/etc.): Original wording unchanged.
  */
 export function buildSystemPrompt(persona: PersonaType, tier: PromptTier): string {
+  if (tier === 1) {
+    return buildClaudeSystemPrompt(persona);
+  }
   if (persona === 'entertainer') {
-    const voice = tier === 1 ? MASON_VOICE_TIER1
-                : tier === 2 ? MASON_VOICE_TIER2
-                :              MASON_VOICE_TIER3;
+    const voice = tier === 2 ? MASON_VOICE_TIER2 : MASON_VOICE_TIER3;
     return MASON_SHARED + voice + MASON_SHARED_CLOSING;
   } else {
-    const voice = tier === 1 ? WESTY_VOICE_TIER1
-                : tier === 2 ? WESTY_VOICE_TIER2
-                :              WESTY_VOICE_TIER3;
+    const voice = tier === 2 ? WESTY_VOICE_TIER2 : WESTY_VOICE_TIER3;
     return WESTY_SHARED + voice + WESTY_SHARED_CLOSING;
   }
+}
+
+// ── Claude-native XML system prompt ──────────────────────────────────────────
+// Claude attends to XML-tagged sections far better than plain-text headers.
+// Each <persona_section> block is named so Claude can reference it internally.
+
+function buildClaudeSystemPrompt(persona: PersonaType): string {
+  const isMason = persona === 'entertainer';
+  const shared = isMason ? MASON_SHARED : WESTY_SHARED;
+  const voice  = isMason ? MASON_VOICE_TIER1 : WESTY_VOICE_TIER1;
+  const closing = isMason ? MASON_SHARED_CLOSING : WESTY_SHARED_CLOSING;
+
+  // Parse the shared block into XML-tagged sections for Claude
+  // We keep the original text but wrap major subsections in XML tags.
+  // This dramatically improves Claude's recall of long persona details.
+  const name = isMason ? 'Mason Reed' : 'Trent Weston';
+  const role = isMason ? 'The Entertainer' : 'The Analyst';
+
+  return `<persona name="${name}" role="${role}">
+<identity>
+${shared.trim()}
+</identity>
+
+<voice_and_style>
+${voice.trim()}
+</voice_and_style>
+
+<relationships_and_rules>
+${closing.trim()}
+</relationships_and_rules>
+</persona>
+
+<task_rules>
+- Write ONLY your assigned section content. No section headers, no preambles.
+- Stay in character at all times. Every word should sound like it came from ${name}, not a generic AI.
+- Only cite facts, stats, and events explicitly present in the CONTEXT provided. Never fabricate numbers.
+- Maintain awareness of what the other host said if their text appears in the context — respond to it directly, don't re-establish topics they already covered.
+- Vary sentence length. Short punchy lines for emotion; longer builds for analysis. Avoid monotonous rhythm.
+- Use section-specific constraints as hard requirements, not suggestions.
+</task_rules>`;
 }
 
 const PERSONA_TEMPERATURES: Record<PersonaType, number> = {
@@ -655,6 +695,73 @@ CHAMPIONSHIP MODE:
   },
 };
 
+// ============ Per-section Claude extended-thinking budgets ============
+// These control how many tokens Claude is allowed to "think silently" before writing.
+// 0 = disabled (fast, cheaper). Higher = better reasoning, slower, costs more.
+// Only applies when ANTHROPIC_API_KEY is active and CLAUDE_THINKING_ENABLED !== 'false'.
+// Requires claude-3-7-sonnet or newer (claude-sonnet-4-6 supports it).
+const CLAUDE_THINKING_BUDGET_BY_SECTION: Record<string, number> = {
+  // No thinking — short reactive content, single-sentence opinions
+  'Blurt': 0,
+  'Hot Take': 0,
+  'MVP Award': 0,
+  'Bust Award': 0,
+  'Blowout Commentary': 0,
+  'Nail-biter Commentary': 0,
+  'Hot Take Follow-up': 0,
+  'Prediction Callback': 0,
+  'Rivalry Hype': 0,
+  'ThemeInference': 0,
+
+  // Light thinking (1024) — simple analysis, recaps, one-paragraph opinions
+  'Matchup Recap': 1024,
+  'Waivers': 1024,
+  'Final Word': 1024,
+  'Spotlight': 1024,
+  'Draft Grade': 1024,
+  'Championship Pick': 1024,
+  'Season Preview - Bust Candidates': 1024,
+  'Season Preview - Sleepers': 1024,
+  'Debate Argument': 1024,
+  'Rivalry Breakdown': 1024,
+  'Playoff Odds': 1024,
+
+  // Medium thinking (3000) — multi-factor analysis, trade grades, intros
+  'Intro': 3000,
+  'Preseason Preview Intro': 3000,
+  'Post-Draft Grades Intro': 3000,
+  'Offseason Update Intro': 3000,
+  'Power Rankings Intro': 3000,
+  'Pre-Draft Preview Intro': 3000,
+  'Trade Grade': 3000,
+  '2-Team Trade Grade': 3000,
+  '3-Team Trade Grade': 3000,
+  'Offseason Trade Analysis': 3000,
+  'Offseason Trade Party Grades': 3000,
+  'Dynasty Analysis': 3000,
+  'Season Preview - Contenders': 3000,
+  'What-If Scenario': 3000,
+
+  // Deep thinking (6000) — rankings, forecasts, multi-round mock drafts
+  'Weekly Power Rankings': 6000,
+  'Power Rankings List': 6000,
+  'Forecast': 6000,
+  'Bold Predictions': 6000,
+  'Draft Grades - Overall Summary': 6000,
+  'Draft Preview - Team Needs': 6000,
+  'Draft Preview - Top Prospects': 6000,
+
+  // Max thinking (10000) — mock drafts where pick-by-pick reasoning matters most
+  'Mock Draft - Round 1': 10000,
+  'Mock Draft - Round 2': 10000,
+  'Draft Grades - Awards': 3000,
+  'Draft Preview - Mock Draft': 10000,
+};
+
+function getClaudeThinkingBudget(sectionType: string): number {
+  return CLAUDE_THINKING_BUDGET_BY_SECTION[sectionType] ?? 2000;
+}
+
 // ============ Per-section Gemini thinking budgets ============
 // Lower budgets = faster calls. Use 0 for simple one-liners, higher for deep analysis.
 // The cascade passes this through to the Gemini provider only; other providers ignore it.
@@ -732,7 +839,8 @@ export interface GenerateSectionOptions {
 }
 
 export async function generateSection(options: GenerateSectionOptions): Promise<string> {
-  const { persona, sectionType, context, constraints, maxTokens = 400, episodeType, validate, thinkingBudget } = options;
+  // Default maxTokens raised from Groq-era 400 to 800 since Claude can easily handle more
+  const { persona, sectionType, context, constraints, maxTokens = 800, episodeType, validate, thinkingBudget } = options;
   const temperature = PERSONA_TEMPERATURES[persona];
 
   // Determine the active primary provider using the shared cascade order (single source of truth).
@@ -744,10 +852,17 @@ export async function generateSection(options: GenerateSectionOptions): Promise<
   // Build system prompt with episode-specific additions if applicable
   let systemPrompt = buildSystemPrompt(persona, tier);
   if (episodeType && EPISODE_PROMPT_ADDITIONS[episodeType]) {
-    systemPrompt += '\n\n' + EPISODE_PROMPT_ADDITIONS[episodeType][persona];
+    // For Claude (tier 1), wrap episode mode in XML so it sits cleanly alongside the persona
+    const episodeAddition = EPISODE_PROMPT_ADDITIONS[episodeType][persona];
+    systemPrompt += tier === 1
+      ? `\n\n<episode_mode>\n${episodeAddition.trim()}\n</episode_mode>`
+      : '\n\n' + episodeAddition;
   }
   if (episodeType?.startsWith('playoffs')) {
-    systemPrompt += '\n\n' + EPISODE_PROMPT_ADDITIONS.playoffs[persona];
+    const playoffsAddition = EPISODE_PROMPT_ADDITIONS.playoffs[persona];
+    systemPrompt += tier === 1
+      ? `\n\n<episode_mode>\n${playoffsAddition.trim()}\n</episode_mode>`
+      : '\n\n' + playoffsAddition;
   }
   // Phase 3: wire admin voice overrides into the system prompt if any are active
   const adminOverrideCtx = getBotBrainOverrideContext(persona);
@@ -763,7 +878,16 @@ export async function generateSection(options: GenerateSectionOptions): Promise<
     ? 'Write your assigned commentary now. Follow the section contract exactly. Do not add a section header or introduction.'
     : 'Write your section now. Be concise but engaging. Do not include section headers - just the content.';
 
-  const userPrompt = `Generate the "${sectionType}" section for this fantasy football newsletter.
+  // For Claude (tier 1), wrap context and constraints in XML tags for better attention
+  const userPrompt = tier === 1
+    ? `Generate the "${sectionType}" section for this fantasy football newsletter.
+
+<context>
+${context}
+</context>
+
+${constraints ? `<constraints>\n${constraints}\n</constraints>\n\n` : ''}<instruction>${closingInstruction} Make it unmistakably yours.</instruction>`
+    : `Generate the "${sectionType}" section for this fantasy football newsletter.
 
 CONTEXT:
 ${context}
@@ -773,6 +897,7 @@ ${closingInstruction}
 Remember to use your signature style and voice. Make it feel like YOU wrote this.`;
 
   const budget = getThinkingBudget(sectionType, thinkingBudget);
+  const claudeBudget = getClaudeThinkingBudget(sectionType);
   const t0 = Date.now();
 
   const resp = await generateWithCascade({
@@ -783,11 +908,13 @@ Remember to use your signature style and voice. Make it feel like YOU wrote this
     topP: 0.9,
     validate,
     thinkingBudget: budget,
+    claudeThinkingBudget: claudeBudget,
     sectionName: sectionType,
   });
 
   const durationMs = Date.now() - t0;
-  console.log(`[Section] "${sectionType}" via ${resp.provider} (tier ${getTierForProvider(resp.provider)}) — ${resp.content.length} chars, thinking=${budget}, ${durationMs}ms`);
+  const thinkingNote = resp.provider === 'anthropic' && claudeBudget >= 1024 ? ` claude_thinking=${claudeBudget}` : '';
+  console.log(`[Section] "${sectionType}" via ${resp.provider} (tier ${getTierForProvider(resp.provider)}) — ${resp.content.length} chars, gemini_thinking=${budget}${thinkingNote}, ${durationMs}ms`);
 
   return resp.content;
 }
