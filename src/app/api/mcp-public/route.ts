@@ -65,7 +65,8 @@ const PUBLIC_TOOLS = [
   },
   {
     name: 'get_team_dashboard',
-    description: 'Returns a single team\'s full dashboard: current-season record, active/IR/taxi roster with player names and positions, all-time stats, and championship history.',
+    title: 'East v. West Team Card',
+    description: 'Returns a single team\'s full dashboard: current-season record, active/IR/taxi roster with player names and positions, all-time stats, and championship history. Renders a visual Team Card widget.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -73,8 +74,34 @@ const PUBLIC_TOOLS = [
       },
       required: ['name'],
     },
+    outputSchema: {
+      type: 'object',
+      properties: {
+        team: {
+          type: 'object',
+          properties: {
+            name: { type: 'string' },
+            logoUrl: { type: 'string' },
+            currentRecord: { type: 'object' },
+            allTimeStats: { type: 'object' },
+            championships: { type: 'number' },
+            championshipHistory: { type: 'array' },
+          },
+        },
+        roster: {
+          type: 'object',
+          properties: {
+            active: { type: 'array' },
+            ir: { type: 'array' },
+            taxi: { type: 'array' },
+          },
+        },
+      },
+    },
+    annotations: { readOnlyHint: true, openWorldHint: false, destructiveHint: false },
     _meta: {
       ui: { resourceUri: TEAM_CARD_WIDGET_URI },
+      'openai/outputTemplate': TEAM_CARD_WIDGET_URI,
     },
   },
   {
