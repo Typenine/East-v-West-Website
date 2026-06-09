@@ -31,6 +31,7 @@ export async function loadBotMemory(
     summaryMood: unknown;
     teams: unknown;
     enhancedData?: unknown;
+    editorialCorrections?: unknown;
   } | null = null;
   try {
     const rows = await db
@@ -43,8 +44,10 @@ export async function loadBotMemory(
     const anyErr = err as { code?: string; message?: string } | undefined;
     const msg = anyErr?.message ?? '';
     const code = anyErr?.code ?? '';
-    const missingEnhanced = code === '42703' || msg.toLowerCase().includes('enhanced_data');
-    if (!missingEnhanced) throw err;
+    const missingColumn = code === '42703' ||
+      msg.toLowerCase().includes('enhanced_data') ||
+      msg.toLowerCase().includes('editorial_corrections');
+    if (!missingColumn) throw err;
     // Backward-compat: select only legacy columns (no enhanced_data)
     const rows = await db
       .select({ updatedAt: botMemory.updatedAt, summaryMood: botMemory.summaryMood, teams: botMemory.teams })
@@ -90,6 +93,7 @@ export async function loadBotMemory(
       playerRelationships: (enhancedData.playerRelationships as BotMemory['playerRelationships']) || {},
       favoritePlayers: (enhancedData.favoritePlayers as string[]) || [],
       disappointments: (enhancedData.disappointments as string[]) || [],
+      editorialCorrections: (row.editorialCorrections as BotMemory['editorialCorrections']) || [],
     };
   }
   
@@ -160,6 +164,7 @@ export async function saveBotMemory(
           summaryMood: dbSummaryMood,
           teams: memory.teams,
           enhancedData: enhancedData,
+          editorialCorrections: (memory.editorialCorrections ?? []) as unknown as Array<Record<string, unknown>>,
           updatedAt: new Date(),
         })
         .where(eq(botMemory.id, existing[0].id));
@@ -167,9 +172,9 @@ export async function saveBotMemory(
       const anyErr = err as { code?: string; message?: string } | undefined;
       const msg = anyErr?.message ?? '';
       const code = anyErr?.code ?? '';
-      const missingEnhanced = code === '42703' || msg.toLowerCase().includes('enhanced_data');
+      const missingEnhanced = code === '42703' || msg.toLowerCase().includes('enhanced_data') || msg.toLowerCase().includes('editorial_corrections');
       if (!missingEnhanced) throw err;
-      // Retry without enhancedData for legacy schema
+      // Retry without new columns for legacy schema
       await db
         .update(botMemory)
         .set({
@@ -188,14 +193,15 @@ export async function saveBotMemory(
         summaryMood: dbSummaryMood,
         teams: memory.teams,
         enhancedData: enhancedData,
+        editorialCorrections: (memory.editorialCorrections ?? []) as unknown as Array<Record<string, unknown>>,
       });
     } catch (err) {
       const anyErr = err as { code?: string; message?: string } | undefined;
       const msg = anyErr?.message ?? '';
       const code = anyErr?.code ?? '';
-      const missingEnhanced = code === '42703' || msg.toLowerCase().includes('enhanced_data');
+      const missingEnhanced = code === '42703' || msg.toLowerCase().includes('enhanced_data') || msg.toLowerCase().includes('editorial_corrections');
       if (!missingEnhanced) throw err;
-      // Retry without enhancedData for legacy schema
+      // Retry without new columns for legacy schema
       await db.insert(botMemory).values({
         bot,
         season,

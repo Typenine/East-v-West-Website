@@ -1,11 +1,14 @@
 /**
  * Cascade LLM Orchestrator
- * Tries providers in order: Gemini 2.5 Flash → Gemini 2.0 Flash → Groq → Cerebras → OpenRouter
+ * Provider order: Anthropic Claude (primary) → Gemini 2.5 Flash → Gemini 2.0 Flash → Groq → Cerebras → OpenRouter
  * Falls through on rate-limit/quota errors; throws on auth errors.
  *
  * Provider cooldown: once a provider hits an RPM/TPM rate limit it is skipped
  * for 2 minutes; daily quota errors trigger a 25-hour cooldown. This prevents
  * wasting time hammering an exhausted provider on every cascade call.
+ *
+ * Per-provider min-gap: each provider has its own inter-call gap tuned to its tier.
+ * Claude values below are reasonable defaults — confirm against your actual API tier.
  */
 
 import { generateWithGeminiProvider }     from './providers/gemini-provider';
@@ -55,31 +58,63 @@ export function getCascadeMetricsSummary(): string {
     .join(' ');
 }
 
+// ============ Per-provider rate limit config ============
+// Tune these independently per provider/tier.
+// NOTE: Claude values below are reasonable starting defaults for a paid Sonnet tier.
+// Confirm against your actual Anthropic account limits at:
+//   https://console.anthropic.com/settings/limits
+// Gemini values are tuned for the free-tier (15 RPM / ~1M TPM).
+// Groq/Cerebras/OpenRouter values are conservative free-tier defaults.
+
+interface ProviderRateConfig {
+  /** Minimum ms between consecutive calls to this provider. */
+  minGapMs: number;
+}
+
+const PROVIDER_RATE_CONFIG: Record<string, ProviderRateConfig> = {
+  // Claude paid tier — generous limits; 2s gap keeps well below RPM ceiling.
+  // TODO: Confirm exact RPM/TPM limits for your Anthropic tier and tighten if needed.
+  'anthropic':       { minGapMs: 2_000 },
+
+  // Gemini free tier — 15 RPM → one call every 4s to leave headroom.
+  'gemini-2.5-flash': { minGapMs: 4_000 },
+  'gemini-2.0-flash': { minGapMs: 4_000 },
+
+  // Groq/Llama free tier — conservative to avoid 429s.
+  'groq':            { minGapMs: 16_000 },
+
+  // Cerebras and OpenRouter — conservative defaults; tune per your tier.
+  'cerebras':        { minGapMs: 8_000 },
+  'openrouter':      { minGapMs: 4_000 },
+};
+
+const DEFAULT_MIN_GAP_MS = 4_000;
+
+function getProviderMinGapMs(providerName: string): number {
+  return PROVIDER_RATE_CONFIG[providerName]?.minGapMs ?? DEFAULT_MIN_GAP_MS;
+}
+
 // ============ Serial call queue ============
 // All LLM calls share one promise chain so they execute one at a time,
 // regardless of how many concurrent Promise.all() calls exist in compose.ts.
+// The gap used is based on whichever provider is actually called next.
 
 let _lastCallTime = 0;
-// Gap between calls: 8s for Gemini free tier (15 RPM limit); 2s for Claude paid tier.
-// Reduced when LLM_PROVIDER=anthropic since Claude's rate limits are much more generous.
-function getMinGapMs(): number {
-  return process.env.LLM_PROVIDER === 'anthropic' ? 2_000 : 8_000;
-}
 let _callQueue: Promise<void> = Promise.resolve();
 
-async function enforceMinGap(): Promise<void> {
-  const minGap = getMinGapMs();
+function enforceMinGapForProvider(providerName: string): Promise<void> {
+  const minGap = getProviderMinGapMs(providerName);
   const mySlot = _callQueue.then(async () => {
     const since = Date.now() - _lastCallTime;
     if (_lastCallTime > 0 && since < minGap) {
       const wait = minGap - since;
-      console.log(`[LLM] Queue: waiting ${Math.round(wait / 1000)}s before next call...`);
+      console.log(`[LLM] Queue (${providerName}): waiting ${Math.round(wait / 1000)}s before next call...`);
       await sleep(wait);
     }
     _lastCallTime = Date.now();
   });
   _callQueue = mySlot.catch(() => {});
-  await mySlot;
+  return mySlot;
 }
 
 function sleep(ms: number): Promise<void> {
@@ -161,37 +196,39 @@ interface ProviderEntry {
   envKey: string;
 }
 
-const BASE_PROVIDERS: ProviderEntry[] = [
-  { name: 'gemini-2.5-flash', fn: generateWithGeminiProvider,    envKey: 'GEMINI_API_KEY' },
-  { name: 'gemini-2.0-flash', fn: generateWithGemini20Provider,  envKey: 'GEMINI_20_API_KEY' },
-  { name: 'groq',             fn: generateWithGroqProvider,       envKey: 'GROQ_API_KEY' },
-  { name: 'cerebras',         fn: generateWithCerebrasProvider,   envKey: 'CEREBRAS_API_KEY' },
-  { name: 'openrouter',       fn: generateWithOpenRouterProvider, envKey: 'OPENROUTER_API_KEY' },
+/**
+ * Canonical provider order shared with groq.ts for tier selection.
+ * Export only name+envKey — groq.ts does not need the provider fn.
+ */
+export const PROVIDER_ORDER: Array<{ name: string; envKey: string }> = [
+  { name: 'anthropic',        envKey: 'ANTHROPIC_API_KEY' },
+  { name: 'gemini-2.5-flash', envKey: 'GEMINI_API_KEY' },
+  { name: 'gemini-2.0-flash', envKey: 'GEMINI_20_API_KEY' },
+  { name: 'groq',             envKey: 'GROQ_API_KEY' },
+  { name: 'cerebras',         envKey: 'CEREBRAS_API_KEY' },
+  { name: 'openrouter',       envKey: 'OPENROUTER_API_KEY' },
 ];
 
-const ANTHROPIC_ENTRY: ProviderEntry = {
-  name: 'anthropic',
-  fn: generateWithAnthropicProvider,
-  envKey: 'ANTHROPIC_API_KEY',
-};
-
 /**
- * Build the ordered provider list for this call.
- * - LLM_PROVIDER=anthropic → Claude first, existing cascade as fallback
- * - LLM_PROVIDER unset/other → existing cascade first, Claude as final fallback
+ * Ordered cascade: Claude primary → Gemini 2.5 → Gemini 2.0 → Groq → Cerebras → OpenRouter.
+ * Claude is always first. The LLM_PROVIDER env var is no longer used to switch order.
  */
+const ORDERED_PROVIDERS: ProviderEntry[] = [
+  { name: 'anthropic',        fn: generateWithAnthropicProvider,  envKey: 'ANTHROPIC_API_KEY' },
+  { name: 'gemini-2.5-flash', fn: generateWithGeminiProvider,     envKey: 'GEMINI_API_KEY' },
+  { name: 'gemini-2.0-flash', fn: generateWithGemini20Provider,   envKey: 'GEMINI_20_API_KEY' },
+  { name: 'groq',             fn: generateWithGroqProvider,        envKey: 'GROQ_API_KEY' },
+  { name: 'cerebras',         fn: generateWithCerebrasProvider,    envKey: 'CEREBRAS_API_KEY' },
+  { name: 'openrouter',       fn: generateWithOpenRouterProvider,  envKey: 'OPENROUTER_API_KEY' },
+];
+
 function buildProviderList(): ProviderEntry[] {
-  if (process.env.LLM_PROVIDER === 'anthropic') {
-    return [ANTHROPIC_ENTRY, ...BASE_PROVIDERS];
-  }
-  return [...BASE_PROVIDERS, ANTHROPIC_ENTRY];
+  return ORDERED_PROVIDERS;
 }
 
 // ============ Main Cascade ============
 
 export async function generateWithCascade(req: CascadeRequest): Promise<CascadeResponse> {
-  await enforceMinGap();
-
   const activeProviders = buildProviderList().filter(p => !!process.env[p.envKey]);
 
   if (activeProviders.length === 0) {
@@ -205,6 +242,8 @@ export async function generateWithCascade(req: CascadeRequest): Promise<CascadeR
       console.log(`[LLM] ${name} cooling down (${remainingMin}min left), skipping`);
       continue;
     }
+
+    await enforceMinGapForProvider(name);
 
     try {
       const content = await fn(req);

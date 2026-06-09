@@ -193,6 +193,20 @@ export interface BotMemory {
   previousPowerRankings?: Record<string, number>; // team name → rank from prior week
   // Phase 1: recent-output dedupe log — prevents repeating labels, angles, phrases week-over-week
   recentOutputLog?: RecentOutputLog;
+  // Editorial corrections appended at publish time when an admin edits the newsletter
+  editorialCorrections?: EditorialCorrectionEntry[];
+}
+
+export interface EditorialCorrectionEntry {
+  season: number;
+  week: number;
+  source: 'editorial_review';
+  corrections: Array<{
+    section: string;
+    original: string;
+    published: string;
+    note: string;
+  }>;
 }
 
 // ============ Phase 1: Recent Output Dedupe ============

@@ -624,6 +624,24 @@ export function buildEnhancedContextString(data: EnhancedContextData): string {
       if (amStats.hotStreak > 2) lines.push(`  🔥 On a ${amStats.hotStreak}-game correct streak!`);
       if (amStats.hotStreak < -2) lines.push(`  😬 On a ${Math.abs(amStats.hotStreak)}-game wrong streak`);
     }
+    // Include editorial corrections if any exist (last 5 weeks to keep context bounded)
+    const allMemories = [data.entertainerMemory, data.analystMemory].filter(Boolean);
+    const shownCorrections = new Set<string>();
+    for (const mem of allMemories) {
+      if (!mem?.editorialCorrections?.length) continue;
+      const recent = mem.editorialCorrections.slice(-5);
+      for (const entry of recent) {
+        for (const c of entry.corrections) {
+          const key = `${entry.season}w${entry.week}:${c.section}`;
+          if (shownCorrections.has(key)) continue;
+          shownCorrections.add(key);
+          if (!lines.includes('--- EDITORIAL CORRECTIONS (past published edits) ---')) {
+            lines.push('--- EDITORIAL CORRECTIONS (past published edits) ---');
+          }
+          lines.push(`S${entry.season}W${entry.week} [${c.section}]: ${c.note}`);
+        }
+      }
+    }
     lines.push('');
   }
   

@@ -1020,6 +1020,27 @@ async function startStagedJob(opts: {
     updateEnhancedMemoryAfterWeek(memAna, derived, week);
     console.log(`[Staged] Bot memories evolved — Entertainer: ${memEnt.summaryMood}, Analyst: ${memAna.summaryMood}`);
 
+    // Append editorial corrections block to the context string so it reaches every generation step.
+    // Both bots share the same context string, so we include corrections from both memories here.
+    const correctionLines: string[] = [];
+    for (const mem of [memEnt, memAna]) {
+      if (!mem?.editorialCorrections?.length) continue;
+      const recent = mem.editorialCorrections.slice(-5);
+      for (const entry of recent) {
+        for (const c of entry.corrections) {
+          const key = `${entry.season}w${entry.week}:${c.section}`;
+          if (!correctionLines.some(l => l.includes(key))) {
+            if (correctionLines.length === 0) correctionLines.push('--- EDITORIAL CORRECTIONS (past published edits) ---');
+            correctionLines.push(`S${entry.season}W${entry.week} [${c.section}]: ${c.note}`);
+          }
+        }
+      }
+    }
+    if (correctionLines.length > 0) {
+      enhancedContextString = enhancedContextString + '\n\n' + correctionLines.join('\n');
+      console.log(`[Staged] Appended ${correctionLines.length - 1} editorial correction(s) to context`);
+    }
+
     // ── For pre_draft: fetch draft slot order and prospect pool ──
     let preDraftSlots: Array<{ slot: number; team: string }> | undefined;
     let preDraftRound2Slots: Array<{ slot: number; team: string }> | undefined;

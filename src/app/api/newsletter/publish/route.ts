@@ -9,6 +9,7 @@ import { cookies } from 'next/headers';
 import { isAdminCookieValue } from '@/lib/auth/admin';
 import { saveNewsletter } from '@/server/db/newsletter-queries';
 import { postToDiscordWebhook, buildNewsletterEmbed } from '@/lib/utils/discord';
+import { updateBotMemoryFromPublish } from '@/lib/newsletter/publish-memory';
 import { getDb } from '@/server/db/client';
 import { discordNotifications } from '@/server/db/schema';
 import { eq, and } from 'drizzle-orm';
@@ -78,6 +79,9 @@ export async function POST(req: NextRequest) {
         console.warn('[Publish] Discord notification error (non-fatal):', discordErr);
       }
     }
+
+    // Append editorial corrections to bot memory (non-fatal — runs after Discord webhook)
+    await updateBotMemoryFromPublish(Number(season), Number(week));
 
     return NextResponse.json({ success: true, message: `Season ${season} Week ${week} published successfully.` });
   } catch (err) {

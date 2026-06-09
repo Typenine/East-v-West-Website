@@ -194,6 +194,8 @@ export const botMemory = pgTable('bot_memory', {
   // Enhanced memory fields stored as JSONB for personality evolution
   // Includes: personality traits, emotional state, speech patterns, partner dynamics, predictions, hot takes, narratives
   enhancedData: jsonb('enhanced_data').$type<Record<string, unknown>>().default({}).notNull(),
+  // Editorial corrections from published newsletter diffs — appended on publish, read at generation time
+  editorialCorrections: jsonb('editorial_corrections').$type<Array<Record<string, unknown>>>().default([]),
 }, (t) => ({
   botSeasonIdx: index('bot_memory_bot_season_idx').on(t.bot, t.season),
 }));
