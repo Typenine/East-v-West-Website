@@ -80,3 +80,23 @@ Supporting changes:
   to the tracker.
 - `TradeTreeReport.tsx` (the old panel-based "tree") was removed;
   `TradeTreeCanvas.tsx` was already unused and untouched.
+
+## Multi-team trade routing (cards + newsletter)
+
+For 3+ team trades, "who sent what to where" is now explicit and structured
+instead of being inferred from decorated strings.
+
+- `src/lib/trades/asset-routing.ts` — shared pure helpers for asset identity
+  (player id / pick slot / pick original-owner keys) and `senderOfAsset`,
+  used by both the feed builder and the trade tree.
+- Trade cards: on multi-team trades every received asset carries a
+  `fromTeam` and renders a "← from {team}" line, so each piece's sender is
+  readable at a glance. Two-team trades stay clean (sender is implicit).
+- Newsletter: `derive.ts` now emits structured
+  `details.routing: { from, to, asset }[]` edges built directly from
+  Sleeper's authoritative sender/receiver ids (players via adds/drops, picks
+  via previous_owner_id → owner_id, FAAB via waiver_budget). The
+  PAIRWISE ROUTING block in `trade-facts.ts` prefers these exact edges and
+  only falls back to parsing "(from X)" / "→ Y" suffixes for older cached
+  events. This removes the regex-parsing fragility that made bots misread
+  3-team trades.

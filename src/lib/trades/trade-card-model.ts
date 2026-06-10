@@ -20,6 +20,8 @@ export type TradeCardAsset = {
   sub?: string;
   /** Original owner of a traded pick, when different from the receiving team */
   originalOwner?: string;
+  /** Team that sent this asset — set on 3+ team trades so routing is explicit */
+  fromTeam?: string;
   /** Deep link into the asset tracker, when resolvable */
   trackHref?: string;
   // Filter metadata

@@ -32,6 +32,13 @@ export interface UpcomingPair {
   teams: [string, string];
 }
 
+/** One direct transfer inside a trade: `from` sent `asset` to `to`. */
+export interface TradeRoutingEdge {
+  from: string;
+  to: string;
+  asset: string;
+}
+
 export interface ScoredEvent {
   event_id: string;
   type: 'trade' | 'waiver' | 'fa_add';
@@ -46,6 +53,8 @@ export interface ScoredEvent {
   details?: {
     headline?: string;
     by_team?: Record<string, { gets: string[]; gives: string[] }>;
+    /** Structured who-sent-what-to-whom edges (authoritative, built in code) */
+    routing?: TradeRoutingEdge[];
   };
   // Waiver/FA-specific
   team?: string;

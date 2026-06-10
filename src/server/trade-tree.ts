@@ -2,6 +2,7 @@ import type { Trade, TradeAsset } from '@/lib/utils/trades';
 import { getMergedTradesAllTime } from '@/server/trade-feed';
 import { getTeamLogoPath, getTeamColors } from '@/lib/utils/team-utils';
 import { readableAccentOnDark } from '@/lib/trades/trade-card-model';
+import { keysForAsset, keysIntersect, assetsGivenBy, senderOfAsset, normalizeKeyPart } from '@/lib/trades/asset-routing';
 import type {
   TradeTreeEdgeModel,
   TradeTreeModel,
@@ -23,43 +24,6 @@ export type TreeRootSelector =
   | { type: 'pick'; season: string; round: number; slot: number };
 
 const MAX_TRADE_DEPTH = 8;
-
-// ---------------------------------------------------------------------------
-// Asset identity
-// ---------------------------------------------------------------------------
-
-function norm(value: string | undefined): string {
-  return (value || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
-}
-
-/**
- * Stable matching keys for an asset. Picks get multiple keys (draft slot and
- * original owner) because different trades carry different metadata for the
- * same pick; a pick that became a player also matches that player's key so
- * lineage continues through the draft.
- */
-function keysForAsset(a: TradeAsset): string[] {
-  if (a.type === 'player') {
-    return a.playerId ? [`p:${a.playerId}`] : [`pn:${norm(a.name)}`];
-  }
-  if (a.type === 'pick') {
-    const season = String(a.year ?? a.pick?.season ?? '');
-    const round = Number(a.round ?? a.pick?.round);
-    if (!season || !Number.isFinite(round)) return [];
-    const keys: string[] = [];
-    const slot = a.draftSlot ?? a.pickInRound;
-    if (typeof slot === 'number') keys.push(`k:${season}-${round}-s${slot}`);
-    const owner = a.originalOwner ?? a.pick?.originalOwner;
-    if (owner) keys.push(`k:${season}-${round}-o${norm(owner)}`);
-    if (a.becamePlayerId) keys.push(`p:${a.becamePlayerId}`);
-    return keys;
-  }
-  return []; // FAAB is not followed onward
-}
-
-function keysIntersect(a: string[], b: string[]): boolean {
-  return a.some((k) => b.includes(k));
-}
 
 // ---------------------------------------------------------------------------
 // Trade event index: every (trade, giver, asset) movement, chronological
@@ -89,24 +53,23 @@ function sortTradesAscending(trades: Trade[]): Trade[] {
   });
 }
 
-/** Assets a team sent away in a trade (uses computed `gives` when present). */
-function assetsGivenBy(trade: Trade, teamName: string): TradeAsset[] {
-  const team = trade.teams.find((t) => t.name === teamName);
-  if (team?.gives && team.gives.length) return team.gives;
-  // Manual trades have no `gives`; for two-team trades the other side's
-  // received assets are what this team gave.
-  if (trade.teams.length === 2 && team) {
-    const other = trade.teams.find((t) => t.name !== teamName);
-    return other?.assets ?? [];
-  }
-  return [];
-}
-
-/** The team whose received assets include the given asset. */
+/**
+ * The team whose received assets include the given asset, confirmed against
+ * sender attribution. In 3+ team trades, scanning received assets alone can
+ * produce false positives (an asset received by a team but sent by a third
+ * participant), so the candidate is kept only when `senderOfAsset` resolves
+ * to this giver (or cannot resolve at all — e.g. legacy data with no `gives`).
+ */
 function receiverOf(trade: Trade, giverName: string, assetKeys: string[]): string | null {
   for (const team of trade.teams) {
     if (team.name === giverName) continue;
-    if (team.assets.some((a) => keysIntersect(keysForAsset(a), assetKeys))) return team.name;
+    const match = team.assets.find((a) => keysIntersect(keysForAsset(a), assetKeys));
+    if (!match) continue;
+    if (trade.teams.length > 2) {
+      const sender = senderOfAsset(trade, team.name, match);
+      if (sender && sender !== giverName) continue;
+    }
+    return team.name;
   }
   if (trade.teams.length === 2) {
     const other = trade.teams.find((t) => t.name !== giverName);
@@ -139,7 +102,10 @@ function buildEventIndex(trades: Trade[]): { events: TradeEvent[]; byKey: Map<st
           giver: team.name,
           receiver,
           assetKeys,
-          giverReceived: trade.teams.find((t) => t.name === team.name)?.assets ?? [],
+          // The return package belongs to the confirmed giver only:
+          // `assetsGivenBy` + the `receiverOf` sender cross-check above
+          // guarantee this event isn't emitted for a non-giving participant.
+          giverReceived: team.assets,
           packageMates,
         };
         events.push(event);
@@ -215,7 +181,7 @@ function teamRef(name: string): TreeTeamRef {
 
 function nodeIdFor(asset: TradeAsset): string {
   const keys = keysForAsset(asset);
-  return keys[0] ?? `asset:${norm(asset.name)}`;
+  return keys[0] ?? `asset:${normalizeKeyPart(asset.name)}`;
 }
 
 function baseNode(asset: TradeAsset): TradeTreeNodeModel {

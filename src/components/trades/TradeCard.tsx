@@ -117,6 +117,11 @@ function TeamPanel({
                     {asset.sub}
                   </div>
                 ) : null}
+                {asset.fromTeam ? (
+                  <div className="text-xs font-semibold leading-4" style={{ color: PANEL.muted }}>
+                    ← from {asset.fromTeam}
+                  </div>
+                ) : null}
                 {asset.originalOwner ? (
                   <div className="text-xs leading-4" style={{ color: PANEL.faint }}>
                     via {asset.originalOwner}

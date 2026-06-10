@@ -1,4 +1,5 @@
 import { fetchTradesAllTime, type Trade, type TradeAsset } from '@/lib/utils/trades';
+import { senderOfAsset, keysForAsset, keysIntersect, normalizeKeyPart } from '@/lib/trades/asset-routing';
 import { loadActiveManualTrades, type ManualTrade, type ManualTradeAsset } from '@/server/manual-trades-store';
 import { getTeamLogoPath, getTeamColors } from '@/lib/utils/team-utils';
 import {
@@ -76,14 +77,40 @@ async function buildMergedTrades(): Promise<Trade[]> {
   for (const t of sleeperTrades) byId.set(t.id, t);
   for (const m of manualTrades) {
     const id = m.overrideOf && typeof m.overrideOf === 'string' ? m.overrideOf : m.id;
-    byId.set(id, manualToTrade(m, id));
+    // When overriding a Sleeper trade, pass the original so per-team `gives`
+    // attribution survives the override (manual trades don't store `gives`,
+    // and without it 3+ team sender attribution degrades to inference).
+    byId.set(id, manualToTrade(m, id, byId.get(id)));
   }
 
   return Array.from(byId.values())
     .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 }
 
-function manualToTrade(m: ManualTrade, id: string): Trade {
+function manualToTrade(m: ManualTrade, id: string, base?: Trade): Trade {
+  const teams = m.teams.map((team) => ({
+    name: team.name,
+    assets: team.assets.map(manualAssetToTradeAsset),
+  })) as Trade['teams'];
+  // Inherit each team's `gives` from the overridden Sleeper trade, keeping
+  // only entries that still match an asset another team receives in the
+  // override. This is what keeps multi-team sender attribution correct
+  // (e.g. the May 3, 2026 Badgers / Cake Eaters / Lone Ginger trade where
+  // the 2026 1st came from The Lone Ginger).
+  if (base) {
+    for (const team of teams) {
+      const baseTeam = base.teams.find((t) => normalizeKeyPart(t.name) === normalizeKeyPart(team.name));
+      if (!baseTeam?.gives?.length) continue;
+      const gives = baseTeam.gives.filter((g) => {
+        const keys = keysForAsset(g);
+        if (!keys.length) return g.type === 'faab';
+        return teams.some(
+          (t) => t !== team && t.assets.some((a) => keysIntersect(keysForAsset(a), keys))
+        );
+      });
+      if (gives.length) team.gives = gives;
+    }
+  }
   return {
     id,
     date: m.date,
@@ -92,10 +119,7 @@ function manualToTrade(m: ManualTrade, id: string): Trade {
     season: (m.date || '').slice(0, 4) || undefined,
     week: null,
     created: null,
-    teams: m.teams.map((team) => ({
-      name: team.name,
-      assets: team.assets.map(manualAssetToTradeAsset),
-    })),
+    teams,
   };
 }
 
@@ -193,11 +217,21 @@ function toCardAsset(asset: TradeAsset, receivingTeam: string): TradeCardAsset {
 }
 
 function toCardModel(trade: Trade): TradeCardModel {
+  // On multi-team trades every asset gets explicit sender attribution so the
+  // card reads "who sent what to where" at a glance.
+  const isMultiTeam = trade.teams.length > 2;
   const teams: TradeCardTeam[] = trade.teams.map((team) => ({
     name: team.name,
     logo: getTeamLogoPath(team.name),
     accent: readableAccentOnDark(getTeamColors(team.name)),
-    assets: team.assets.map((a) => toCardAsset(a, team.name)),
+    assets: team.assets.map((a) => {
+      const card = toCardAsset(a, team.name);
+      if (isMultiTeam) {
+        const sender = senderOfAsset(trade, team.name, a);
+        if (sender) card.fromTeam = sender;
+      }
+      return card;
+    }),
   }));
 
   // Sleeper reports 'complete' at runtime; canonicalize so the UI's

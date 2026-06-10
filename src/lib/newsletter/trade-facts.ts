@@ -7,14 +7,24 @@
 
 export type ByTeam = Record<string, { gets?: string[]; gives?: string[] }>;
 
+/** One direct transfer inside a trade (mirrors TradeRoutingEdge in types.ts). */
+export type RoutingEdge = { from: string; to: string; asset: string };
+
 const FROM_SUFFIX_RE = /\s*\(from\s+([^)]+)\)\s*$/i;
 const TO_SUFFIX_RE = /\s*→\s*(.+?)\s*$/;
 
 /**
  * Pairwise asset flows for 3+ team trades — helps LLMs track who sent what to whom.
- * Parses (from X) / → Y suffixes produced by derive.ts for multi-team deals.
+ *
+ * Preferred source is the structured `routing` edges built in derive.ts
+ * directly from Sleeper's sender/receiver ids. When absent (older cached
+ * events), falls back to parsing the (from X) / → Y string suffixes.
  */
-export function buildTradeRoutingLedger(parties: string[], byTeam: ByTeam): string | null {
+export function buildTradeRoutingLedger(
+  parties: string[],
+  byTeam: ByTeam,
+  routing?: RoutingEdge[],
+): string | null {
   if (parties.length < 3) return null;
 
   const edges: string[] = [];
@@ -27,24 +37,30 @@ export function buildTradeRoutingLedger(parties: string[], byTeam: ByTeam): stri
     edges.push(`${from} → ${to}: ${asset}`);
   };
 
-  for (const team of parties) {
-    const side = byTeam[team];
-    if (!side) continue;
-
-    for (const raw of side.gets ?? []) {
-      const fromMatch = raw.match(FROM_SUFFIX_RE);
-      if (!fromMatch) continue;
-      const sender = fromMatch[1].trim();
-      const asset = raw.replace(FROM_SUFFIX_RE, '').trim();
-      pushEdge(sender, team, asset);
+  if (routing && routing.length > 0) {
+    for (const edge of routing) {
+      pushEdge(edge.from, edge.to, edge.asset);
     }
+  } else {
+    for (const team of parties) {
+      const side = byTeam[team];
+      if (!side) continue;
 
-    for (const raw of side.gives ?? []) {
-      const toMatch = raw.match(TO_SUFFIX_RE);
-      if (!toMatch) continue;
-      const receiver = toMatch[1].trim();
-      const asset = raw.replace(TO_SUFFIX_RE, '').trim();
-      pushEdge(team, receiver, asset);
+      for (const raw of side.gets ?? []) {
+        const fromMatch = raw.match(FROM_SUFFIX_RE);
+        if (!fromMatch) continue;
+        const sender = fromMatch[1].trim();
+        const asset = raw.replace(FROM_SUFFIX_RE, '').trim();
+        pushEdge(sender, team, asset);
+      }
+
+      for (const raw of side.gives ?? []) {
+        const toMatch = raw.match(TO_SUFFIX_RE);
+        if (!toMatch) continue;
+        const receiver = toMatch[1].trim();
+        const asset = raw.replace(TO_SUFFIX_RE, '').trim();
+        pushEdge(team, receiver, asset);
+      }
     }
   }
 
@@ -67,6 +83,8 @@ export function buildTradeFacts(
   byTeam: ByTeam,
   /** Optional annotation callback applied to each asset string (e.g. dynasty rank). */
   annotate: (assets: string[] | undefined) => string = defaultAnnotate,
+  /** Structured routing edges from derive.ts — preferred over string parsing. */
+  routing?: RoutingEdge[],
 ): string {
   const teamCount = parties.length;
 
@@ -94,7 +112,7 @@ export function buildTradeFacts(
     return `${team}\n  Gave:     ${gave}\n  Received: ${received}`;
   }).join('\n\n');
 
-  const routingLedger = buildTradeRoutingLedger(parties, byTeam);
+  const routingLedger = buildTradeRoutingLedger(parties, byTeam, routing);
 
   const footer = teamCount > 2
     ? routingLedger

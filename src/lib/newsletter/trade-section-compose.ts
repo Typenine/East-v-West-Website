@@ -65,7 +65,7 @@ export async function composeTradeItemFromEvent(input: ComposeTradeSectionInput)
   const byTeam = e.details?.by_team || {};
   const parties = e.parties || Object.keys(byTeam);
   const isMultiTeam = parties.length > 2;
-  const tradeFacts = buildTradeFacts(parties, byTeam, annotateTradePlayers);
+  const tradeFacts = buildTradeFacts(parties, byTeam, annotateTradePlayers, e.details?.routing);
   const tradeDisplayHeadline = e.details?.headline || `Trade between ${parties.join(' and ')}`;
 
   const polishTradeGrade = (text: string, logPrefix: string): string => {

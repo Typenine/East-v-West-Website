@@ -10,6 +10,7 @@ import type {
   ScoredEvent,
   DerivedData,
   RelevanceConfig,
+  TradeRoutingEdge,
 } from './types';
 import { RELEVANCE_CONFIG } from './config';
 
@@ -383,6 +384,7 @@ interface NormalizedEvent {
   details?: {
     headline?: string;
     by_team?: Record<string, { gets: string[]; gives: string[] }>;
+    routing?: TradeRoutingEdge[];
   };
 }
 
@@ -523,6 +525,45 @@ function normalizeTransactions(
         by_team[teamName] = { gets, gives };
       }
 
+      // Structured routing edges (who sent what to whom), built directly from
+      // Sleeper's authoritative sender/receiver ids — no string parsing.
+      // This is what multi-team trade prompts use as the source of truth.
+      const routing: TradeRoutingEdge[] = [];
+      const teamNameOf = (rid: number) => rostersIndex.get(rid)?.owner_name || `Roster ${rid}`;
+      if (t.adds) {
+        for (const [playerId, receiverId] of Object.entries(t.adds)) {
+          const name = resolvePlayerName(playerId);
+          if (name === 'Unknown Player') continue;
+          const senderId = Number(t.drops?.[playerId]);
+          if (!Number.isFinite(senderId)) continue;
+          routing.push({ from: teamNameOf(senderId), to: teamNameOf(Number(receiverId)), asset: name });
+        }
+      }
+      if (Array.isArray(t.draft_picks)) {
+        for (const raw of t.draft_picks) {
+          const pick = raw as RawPick;
+          const ownerId = Number(pick.owner_id);
+          const prevOwnerId = Number(pick.previous_owner_id);
+          if (!Number.isFinite(ownerId) || !Number.isFinite(prevOwnerId) || ownerId === prevOwnerId) continue;
+          const origRosterId = Number(pick.roster_id);
+          const slotOwnerName = rostersIndex.get(origRosterId)?.owner_name;
+          const slotSuffix = slotOwnerName && origRosterId !== prevOwnerId ? ` (${slotOwnerName}'s slot)` : '';
+          routing.push({
+            from: teamNameOf(prevOwnerId),
+            to: teamNameOf(ownerId),
+            asset: `${pick.season ?? '?'} Rd ${pick.round ?? '?'} Pick${slotSuffix}`,
+          });
+        }
+      }
+      if (Array.isArray((t as unknown as { waiver_budget?: unknown[] }).waiver_budget)) {
+        const budgets = (t as unknown as { waiver_budget: Array<{ sender: number; receiver: number; amount: number }> }).waiver_budget;
+        for (const budget of budgets) {
+          const amt = Number(budget.amount ?? 0) || 0;
+          if (amt <= 0) continue;
+          routing.push({ from: teamNameOf(budget.sender), to: teamNameOf(budget.receiver), asset: `$${amt} FAAB` });
+        }
+      }
+
       const headline = formatTradeHeadline(parties);
 
       events.push({
@@ -532,7 +573,7 @@ function normalizeTransactions(
         parties,
         assets_moved: addsCount + dropsCount + picksCount,
         picks_moved: picksCount,
-        details: { headline, by_team },
+        details: { headline, by_team, routing: routing.length ? routing : undefined },
       });
     } else if (type === 'waiver') {
       const faab = Number(t.waiver_bid || 0);
