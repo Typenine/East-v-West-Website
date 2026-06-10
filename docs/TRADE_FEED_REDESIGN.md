@@ -56,3 +56,27 @@ Freshness behavior is preserved: the client silently refreshes from
 `/api/trades/feed` when the tab regains focus or the payload is older than
 60s, and admin trade saves still bust the cache cross-tab (now via
 `?fresh=1`, which forces a server rebuild).
+
+## Trade tree redesign
+
+The tracker's "Tree" view previously rendered stacked summary panels, not a
+tree. It is now a real broadcast-style trade tree.
+
+| File | Role |
+| --- | --- |
+| `src/server/trade-tree.ts` | Lineage builder: finds every trade the root asset moved in, then recursively follows the return package — each received asset's next flip by the team that got it, including picks that became players and were traded again. Asset identity is matched across trades by player id and by pick (season/round/slot **and** season/round/original-owner, since different trades carry different pick metadata). A visited set keeps a trade from rendering twice when an asset circles back. |
+| `src/lib/trades/trade-tree-model.ts` | Client-safe tree view models (asset nodes, trade edges with team refs/accents/logos). |
+| `src/components/trade-tree/TradeTreeGraphic.tsx` | The visual tree: root asset on top, "TO {team} · date (w/ package mates)" connector pills that link to the trade, return-package branches below, CSS org-chart connector lines, horizontal scroll centered on the root. Any asset chip re-roots the tree; same dark broadcast palette as the trade cards. |
+
+Supporting changes:
+
+- `/api/trade-tree` now returns `{ graph, tree }` and reads from the shared
+  server-side trades cache (`getMergedTradesAllTime`) instead of re-running
+  the full Sleeper aggregation per request — the tracker went from many
+  seconds per query to ~hundreds of ms warm.
+- `/trades/tracker` defaults to the tree view, adds a player search box to
+  root a tree without needing a Track button, and keeps the List view.
+- `/trades/trees` (previously a permanently empty placeholder) now redirects
+  to the tracker.
+- `TradeTreeReport.tsx` (the old panel-based "tree") was removed;
+  `TradeTreeCanvas.tsx` was already unused and untouched.

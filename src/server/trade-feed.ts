@@ -22,23 +22,28 @@ import {
 
 const FEED_TTL_MS = 60 * 1000;
 
-let cache: { ts: number; payload: TradeFeedPayload } | null = null;
-let inflight: Promise<TradeFeedPayload> | null = null;
+let cache: { ts: number; trades: Trade[] } | null = null;
+let inflight: Promise<Trade[]> | null = null;
 
-export async function getTradeFeed(opts?: { fresh?: boolean }): Promise<TradeFeedPayload> {
+/**
+ * All trades (Sleeper across every season + manual), merged and sorted
+ * newest-first, behind the shared SWR cache. Reused by the trade feed and
+ * the trade tree builder so each consumer doesn't redo the aggregation.
+ */
+export async function getMergedTradesAllTime(opts?: { fresh?: boolean }): Promise<Trade[]> {
   const now = Date.now();
   if (!opts?.fresh && cache && now - cache.ts < FEED_TTL_MS) {
-    return cache.payload;
+    return cache.trades;
   }
   if (!inflight) {
-    inflight = buildFeed()
-      .then((payload) => {
-        cache = { ts: Date.now(), payload };
-        return payload;
+    inflight = buildMergedTrades()
+      .then((trades) => {
+        cache = { ts: Date.now(), trades };
+        return trades;
       })
       .catch((err) => {
         // Serve stale data on upstream failure rather than blanking the feed
-        if (cache) return cache.payload;
+        if (cache) return cache.trades;
         throw err;
       })
       .finally(() => {
@@ -47,11 +52,19 @@ export async function getTradeFeed(opts?: { fresh?: boolean }): Promise<TradeFee
   }
   // Stale-while-revalidate: serve the stale payload immediately while the
   // rebuild continues in the background (unless freshness was forced).
-  if (!opts?.fresh && cache) return cache.payload;
+  if (!opts?.fresh && cache) return cache.trades;
   return inflight;
 }
 
-async function buildFeed(): Promise<TradeFeedPayload> {
+export async function getTradeFeed(opts?: { fresh?: boolean }): Promise<TradeFeedPayload> {
+  const trades = await getMergedTradesAllTime(opts);
+  return {
+    generatedAt: cache?.ts ?? Date.now(),
+    trades: trades.map(toCardModel),
+  };
+}
+
+async function buildMergedTrades(): Promise<Trade[]> {
   const [sleeperTrades, manualTrades] = await Promise.all([
     fetchTradesAllTime(),
     loadActiveManualTrades().catch(() => [] as ManualTrade[]),
@@ -66,11 +79,8 @@ async function buildFeed(): Promise<TradeFeedPayload> {
     byId.set(id, manualToTrade(m, id));
   }
 
-  const trades = Array.from(byId.values())
-    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-    .map(toCardModel);
-
-  return { generatedAt: Date.now(), trades };
+  return Array.from(byId.values())
+    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 }
 
 function manualToTrade(m: ManualTrade, id: string): Trade {
@@ -190,13 +200,19 @@ function toCardModel(trade: Trade): TradeCardModel {
     assets: team.assets.map((a) => toCardAsset(a, team.name)),
   }));
 
+  // Sleeper reports 'complete' at runtime; canonicalize so the UI's
+  // completed/pending/vetoed handling works for both sources.
+  const rawStatus = String(trade.status).toLowerCase();
+  const status: TradeCardModel['status'] =
+    rawStatus === 'vetoed' ? 'vetoed' : rawStatus === 'pending' ? 'pending' : 'completed';
+
   return {
     id: trade.id,
     date: trade.date,
     dateLabel: formatDateLabel(trade.date),
     season: trade.season,
     week: typeof trade.week === 'number' ? trade.week : null,
-    status: trade.status,
+    status,
     teams,
   };
 }

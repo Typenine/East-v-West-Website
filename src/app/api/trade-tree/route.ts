@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getTradeSubgraphByRoot, RootSelector } from '@/lib/utils/trade-graph';
-import { fetchTradesAllTime } from '@/lib/utils/trades';
+import { getMergedTradesAllTime } from '@/server/trade-feed';
+import { buildAssetTradeTree } from '@/server/trade-tree';
+
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
 
 export async function GET(req: NextRequest) {
   try {
@@ -8,7 +12,7 @@ export async function GET(req: NextRequest) {
 
     const rootType = searchParams.get('rootType');
     const depthParam = searchParams.get('depth');
-    const depth = depthParam ? Math.max(1, Math.min(6, Number(depthParam) || 2)) : 2;
+    const depth = depthParam ? Math.max(1, Math.min(6, Number(depthParam) || 2)) : 4;
 
     let root: RootSelector | null = null;
 
@@ -30,10 +34,19 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'Missing or invalid rootType. Use player|pick' }, { status: 400 });
     }
 
-    const trades = await fetchTradesAllTime();
+    // Shared server-side cache (stale-while-revalidate) — no per-request
+    // re-aggregation of every season's transactions.
+    const trades = await getMergedTradesAllTime();
     const graph = getTradeSubgraphByRoot(trades, root, { depth });
+    const tree = await buildAssetTradeTree(root, { depth });
 
-    return NextResponse.json({ graph, meta: { depth } }, { status: 200 });
+    return NextResponse.json(
+      { graph, tree, meta: { depth } },
+      {
+        status: 200,
+        headers: { 'Cache-Control': 'public, s-maxage=60, stale-while-revalidate=300' },
+      }
+    );
   } catch (err) {
     console.error('Trade Tree API error:', err);
     return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
