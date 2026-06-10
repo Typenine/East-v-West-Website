@@ -1,57 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getObjectText, putObjectText } from '@/server/storage/r2';
 import { getConfiguredAdminSecret, isAdminCookieValue } from '@/lib/auth/admin';
+import {
+  loadAllManualTrades as loadAll,
+  saveAllManualTrades as saveAll,
+  type ManualTrade,
+  type ManualTradeTeam,
+} from '@/server/manual-trades-store';
 
-// In-memory fallback (dev/local only)
-let memoryStore: { trades: ManualTrade[]; ts: number } = { trades: [], ts: 0 };
-
-export type ManualTradeAsset =
-  | { type: 'player'; name: string; position?: string; team?: string; playerId?: string }
-  | { type: 'pick'; name: string; year?: string; round?: number; draftSlot?: number; originalOwner?: string; pickInRound?: number; became?: string; becamePosition?: string; becameTeam?: string; becamePlayerId?: string }
-  | { type: 'cash'; name: string; amount?: number };
-
-export type ManualTradeTeam = {
-  name: string;
-  assets: ManualTradeAsset[];
-};
-
-export type ManualTrade = {
-  id: string;                // manual-<timestamp>-<rand> or override target id
-  date: string;              // YYYY-MM-DD
-  status: 'completed' | 'pending' | 'vetoed';
-  teams: ManualTradeTeam[];
-  notes?: string;
-  overrideOf?: string | null; // Sleeper transaction_id if overriding
-  active?: boolean;           // soft delete flag
-  createdBy?: string;
-  createdAt?: string;
-  updatedAt?: string;
-};
-
-const BLOB_PATH = 'evw/manual_trades.json';
-
-async function loadAll(): Promise<ManualTrade[]> {
-  // R2 primary
-  try {
-    const txt = await getObjectText({ key: BLOB_PATH });
-    if (txt) {
-      const json = JSON.parse(txt);
-      if (Array.isArray(json)) return json as ManualTrade[];
-    }
-  } catch {}
-  // In-memory fallback (local only)
-  return memoryStore.trades || [];
-}
-
-async function saveAll(trades: ManualTrade[]) {
-  // R2 primary
-  try {
-    await putObjectText({ key: BLOB_PATH, text: JSON.stringify(trades, null, 2) });
-    return;
-  } catch {}
-  // In-memory fallback
-  memoryStore = { trades: trades.slice(), ts: Date.now() };
-}
+export type { ManualTradeAsset, ManualTradeTeam, ManualTrade } from '@/server/manual-trades-store';
 
 function isAdmin(req: NextRequest): boolean {
   const adminSecret = getConfiguredAdminSecret();

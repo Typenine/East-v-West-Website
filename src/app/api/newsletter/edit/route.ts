@@ -23,6 +23,7 @@ import { newsletters } from '@/server/db/schema';
 import { eq, and } from 'drizzle-orm';
 import Anthropic from '@anthropic-ai/sdk';
 import { buildSystemPrompt, type PersonaType } from '@/lib/newsletter/llm/groq';
+import { saveNewsletterSnapshot, listSnapshots, loadSnapshot } from '@/server/db/observability-queries';
 import { renderHtml } from '@/lib/newsletter/template';
 import type { Newsletter } from '@/lib/newsletter/types';
 
@@ -121,6 +122,11 @@ export async function POST(req: NextRequest) {
     const section = content.sections[sectionIndex] as Record<string, unknown>;
     const sectionData = (section.data ?? section) as Record<string, unknown>;
 
+    // Capture before-state for the edit history entry
+    const beforeText = fieldPath
+      ? String(getNestedValue(sectionData, fieldPath) ?? '')
+      : String(sectionData[botField] ?? '');
+
     if (fieldPath) {
       // Deep path write — supports nested structures like Trades, MockDraft, MatchupRecaps
       setNestedValue(sectionData, fieldPath, text);
@@ -130,14 +136,77 @@ export async function POST(req: NextRequest) {
     // Ensure mutation is visible on the parent object when data is a sub-object
     if ('data' in section) section.data = sectionData;
 
+    // ── Edit history: append a structured entry, keep last 50 ──
+    const contentWithHistory = content as Newsletter & {
+      _editHistory?: Array<{
+        at: string; sectionIndex: number; sectionType: string; bot: string;
+        fieldPath: string | null; editType: 'manual' | 'ai_rewrite_applied';
+        beforeChars: number; afterChars: number;
+      }>;
+    };
+    const history = contentWithHistory._editHistory ?? [];
+    history.push({
+      at: new Date().toISOString(),
+      sectionIndex,
+      sectionType: String((section as { type?: string }).type ?? 'unknown'),
+      bot,
+      fieldPath,
+      // The UI applies AI rewrites through save_section — callers pass viaAiRewrite to distinguish
+      editType: body.viaAiRewrite === true ? 'ai_rewrite_applied' : 'manual',
+      beforeChars: beforeText.length,
+      afterChars: text.length,
+    });
+    contentWithHistory._editHistory = history.slice(-50);
+
     const db = getDb();
     await db
       .update(newsletters)
-      .set({ content: content as typeof newsletters.$inferInsert['content'] })
+      .set({ content: contentWithHistory as typeof newsletters.$inferInsert['content'] })
       .where(and(eq(newsletters.season, season), eq(newsletters.week, week)));
 
-    console.log(`[Edit] save_section s${season}w${week} idx=${sectionIndex} bot=${bot}`);
+    console.log(`[Edit] save_section s${season}w${week} idx=${sectionIndex} bot=${bot}${body.viaAiRewrite ? ' (ai rewrite)' : ''}`);
     return NextResponse.json({ success: true });
+  }
+
+  // ── list_snapshots ─────────────────────────────────────────────────────────────────
+  if (action === 'list_snapshots') {
+    const snapshots = await listSnapshots(season, week);
+    return NextResponse.json({ success: true, snapshots });
+  }
+
+  // ── restore_snapshot ───────────────────────────────────────────────────────────
+  if (action === 'restore_snapshot') {
+    const snapshotId = String(body.snapshotId ?? '');
+    if (!snapshotId) return NextResponse.json({ error: 'snapshotId is required' }, { status: 400 });
+
+    const snapshot = await loadSnapshot(snapshotId);
+    if (!snapshot || snapshot.season !== season || snapshot.week !== week) {
+      return NextResponse.json({ error: 'Snapshot not found for this newsletter' }, { status: 404 });
+    }
+
+    const row = await loadNewsletterRow(season, week);
+    if (!row) return NextResponse.json({ error: 'Newsletter not found' }, { status: 404 });
+
+    // Snapshot the CURRENT state first so a restore is itself reversible
+    await saveNewsletterSnapshot({
+      season, week,
+      actionType: 'pre_restore',
+      note: `Auto-snapshot before restoring ${snapshotId}`,
+      content: row.content,
+      html: row.html,
+    });
+
+    const db = getDb();
+    await db
+      .update(newsletters)
+      .set({
+        content: snapshot.content as typeof newsletters.$inferInsert['content'],
+        ...(snapshot.html ? { html: snapshot.html } : {}),
+      })
+      .where(and(eq(newsletters.season, season), eq(newsletters.week, week)));
+
+    console.log(`[Edit] restore_snapshot s${season}w${week} ← ${snapshotId}`);
+    return NextResponse.json({ success: true, restoredFrom: snapshotId, message: 'Newsletter restored. Current state was snapshotted first.' });
   }
 
   // ── ai_rewrite ──────────────────────────────────────────────────────────────
@@ -234,7 +303,18 @@ export async function POST(req: NextRequest) {
     const row = await loadNewsletterRow(season, week);
     if (!row) return NextResponse.json({ error: 'Newsletter not found' }, { status: 404 });
 
-    const content = row.content as Newsletter & { _publishHistory?: Array<{ at: string; htmlLength: number }> };
+    const content = row.content as Newsletter & { _publishHistory?: Array<{ at: string; htmlLength: number }>; _generationMeta?: { runId?: string } };
+
+    // ── Rollback safety: snapshot the current content + HTML BEFORE re-rendering ──
+    await saveNewsletterSnapshot({
+      season, week,
+      runId: content._generationMeta?.runId ?? null,
+      actionType: 'finalize',
+      note: typeof body.note === 'string' ? body.note : null,
+      content: row.content,
+      html: row.html,
+    });
+
     let html: string;
     try {
       html = renderHtml(content);

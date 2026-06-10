@@ -818,8 +818,10 @@ async function startStagedJob(opts: {
   episodeType: string;
   isFirstEpisodeEver: boolean;
   forceRegenerate: boolean;
+  /** Bypass the pre-generation data validation gate (admin override). */
+  force?: boolean;
 }): Promise<Response> {
-  const { seasonNum, week, leagueId, episodeType, isFirstEpisodeEver } = opts;
+  const { seasonNum, week, leagueId, episodeType, isFirstEpisodeEver, force } = opts;
 
   try {
     console.log(`[Staged] Starting job for S${seasonNum}W${week} (${episodeType})`);
@@ -836,6 +838,41 @@ async function startStagedJob(opts: {
       transactions: transactions.map(t => ({ ...t, adds: t.adds ?? undefined, drops: t.drops ?? undefined })),
       allTransactions: allTransactions?.map(t => ({ ...t, adds: t.adds ?? undefined, drops: t.drops ?? undefined })),
     });
+
+    // ── Pre-generation data validation gate ──
+    // Fail early with a clear message if Sleeper data looks incomplete or stale,
+    // instead of generating a confident but flawed newsletter. force=true bypasses.
+    try {
+      const { validateGenerationInputs } = await import('@/lib/newsletter/validation-gate');
+      const gate = validateGenerationInputs({
+        season: seasonNum,
+        week,
+        episodeType,
+        users,
+        rosters: rosters as Array<{ players?: string[] | null }>,
+        matchups: matchups as Array<{ matchup_id?: number | null; points?: number | null }>,
+        matchupPairs: derived.matchup_pairs ?? [],
+      });
+      if (gate.warnings.length > 0) {
+        console.warn(`[Staged] Validation gate warnings: ${gate.warnings.join(' | ')}`);
+      }
+      if (!gate.ok && !force) {
+        console.error(`[Staged] Validation gate BLOCKED job: ${gate.errors.join(' | ')}`);
+        return NextResponse.json({
+          success: false,
+          status: 'validation_failed',
+          errors: gate.errors,
+          warnings: gate.warnings,
+          message: `League data looks incomplete — generation blocked. Fix the data issue or pass force:true to override. Problems: ${gate.errors.join('; ')}`,
+        }, { status: 422 });
+      }
+      if (!gate.ok && force) {
+        console.warn(`[Staged] Validation gate FAILED but force=true — proceeding anyway: ${gate.errors.join(' | ')}`);
+      }
+    } catch (gateErr) {
+      // Gate itself failing must not block generation
+      console.warn('[Staged] Validation gate errored (non-fatal):', gateErr instanceof Error ? gateErr.message : String(gateErr));
+    }
 
     // Enrich pick labels in derived events with slot numbers + original ownership from the draft tracker.
     // The Sleeper transaction only gives us "2026 Rd 1 Pick"; the DB tells us it's "1.08 originally bop pop's".
@@ -1323,6 +1360,36 @@ async function startStagedJob(opts: {
     const runId = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
     console.log(`[Staged] runId=${runId} S${seasonNum}W${week} (${episodeType})`);
 
+    // ── Persist the generation run + frozen context packet (fire-and-forget) ──
+    // The packet is what the models will see: if a section states a wrong fact,
+    // this record answers "was the data wrong, missing, or did the model hallucinate?"
+    try {
+      const { recordRunStart } = await import('@/server/db/observability-queries');
+      const stepsForCount = (await import('@/lib/newsletter/compose-step')).getGenerationSteps(episodeType, matchupCount, tradeCount, draftTeams);
+      void recordRunStart({
+        runId,
+        season: seasonNum,
+        week,
+        episodeType,
+        runType: 'staged',
+        totalSteps: stepsForCount.length,
+        contextPacket: {
+          fetchedAt: new Date().toISOString(),
+          enhancedContext: enhancedContextString,
+          teamCount: users.length,
+          rosterCount: rosters.length,
+          matchupPairCount: derived.matchup_pairs?.length ?? 0,
+          tradeCount,
+          eventsScored: derived.events_scored?.map(e => ({ type: e.type, id: e.event_id, parties: e.parties })) ?? [],
+          memoryMoods: { entertainer: memEnt?.summaryMood, analyst: memAna?.summaryMood },
+          hasDraftData: !!draftData,
+          prospectPoolSize: prospectPool?.length ?? 0,
+        },
+      });
+    } catch (obsErr) {
+      console.warn('[Staged] recordRunStart failed (non-fatal):', obsErr instanceof Error ? obsErr.message : String(obsErr));
+    }
+
     const jobMeta = {
       runId,
       episodeType,
@@ -1393,10 +1460,12 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json().catch(() => ({}));
-    const { week: weekOverride, season: seasonOverride, episodeType, forceRegenerate, preview, isFirstEpisodeEver, mode } = body as {
+    const { week: weekOverride, season: seasonOverride, episodeType, forceRegenerate, preview, isFirstEpisodeEver, mode, force } = body as {
       week?: number;
       season?: string;
       episodeType?: string;
+      /** Bypass the pre-generation data validation gate (staged mode only). */
+      force?: boolean;
       forceRegenerate?: boolean;
       preview?: boolean;
       /** Pass true only for the very first pre_draft newsletter — makes Mason/Westy introduce themselves */
@@ -1434,6 +1503,7 @@ export async function POST(request: NextRequest) {
         seasonNum, week, leagueId, episodeType: episodeType || 'regular',
         isFirstEpisodeEver: isFirstEpisodeEver ?? false,
         forceRegenerate: forceRegenerate ?? false,
+        force: force ?? false,
       });
     }
 

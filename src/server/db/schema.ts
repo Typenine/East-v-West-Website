@@ -395,6 +395,89 @@ export const newsletters = pgTable('newsletters', {
   seasonWeekIdx: index('newsletters_season_week_idx').on(t.season, t.week),
 }));
 
+// ============ Observability: generation runs, snapshots, MCP call log ============
+
+// One row per newsletter generation run (staged or sync). Durable record of what
+// happened so failures can be diagnosed after Vercel logs expire.
+export const generationRuns = pgTable('generation_runs', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  // Caller-supplied run id (matches the runId used in console logs), unique per run
+  runId: varchar('run_id', { length: 64 }).notNull().unique(),
+  season: integer('season').notNull(),
+  week: integer('week').notNull(),
+  episodeType: varchar('episode_type', { length: 64 }).notNull(),
+  runType: varchar('run_type', { length: 32 }).default('staged').notNull(), // 'staged' | 'sync' | 'retry'
+  status: varchar('status', { length: 32 }).default('running').notNull(), // 'running' | 'completed' | 'failed' | 'blocked'
+  startedAt: timestamp('started_at', { withTimezone: true }).defaultNow().notNull(),
+  finishedAt: timestamp('finished_at', { withTimezone: true }),
+  errorSummary: text('error_summary'),
+  // The assembled context/source packet the models saw, frozen at job start.
+  // Includes enhanced context string, derived data summary, memory snapshots, freshness info.
+  contextPacket: jsonb('context_packet'),
+  // Final validation result, coverage report, repetition warnings
+  validation: jsonb('validation'),
+  warnings: jsonb('warnings').$type<string[]>().default([]),
+  totalSteps: integer('total_steps'),
+  completedSteps: integer('completed_steps'),
+  failedSteps: jsonb('failed_steps').$type<string[]>().default([]),
+}, (t) => ({
+  runsSeasonWeekIdx: index('generation_runs_season_week_idx').on(t.season, t.week),
+  runsStartedIdx: index('generation_runs_started_idx').on(t.startedAt),
+}));
+
+// One row per section generated within a run. Records which provider/model/tier
+// wrote it, how long it took, token usage, and any warnings.
+export const generationRunSections = pgTable('generation_run_sections', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  runId: varchar('run_id', { length: 64 }).notNull(),
+  sectionName: varchar('section_name', { length: 128 }).notNull(),
+  status: varchar('status', { length: 32 }).notNull(), // 'ok' | 'failed' | 'retried'
+  provider: varchar('provider', { length: 64 }),
+  model: varchar('model', { length: 128 }),
+  tier: integer('tier'),
+  isFallback: boolean('is_fallback').default(false).notNull(),
+  durationMs: integer('duration_ms'),
+  inputTokens: integer('input_tokens'),
+  outputTokens: integer('output_tokens'),
+  retries: integer('retries').default(0).notNull(),
+  warnings: jsonb('warnings').$type<string[]>().default([]),
+  error: text('error'),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+}, (t) => ({
+  runSectionsRunIdx: index('generation_run_sections_run_idx').on(t.runId),
+}));
+
+// Full content snapshots taken before each finalize/restore so any version can be recovered.
+export const newsletterSnapshots = pgTable('newsletter_snapshots', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  season: integer('season').notNull(),
+  week: integer('week').notNull(),
+  runId: varchar('run_id', { length: 64 }),
+  actionType: varchar('action_type', { length: 32 }).notNull(), // 'finalize' | 'pre_restore' | 'manual'
+  note: text('note'),
+  content: jsonb('content').notNull(),
+  html: text('html'),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+}, (t) => ({
+  snapshotsSeasonWeekIdx: index('newsletter_snapshots_season_week_idx').on(t.season, t.week, t.createdAt),
+}));
+
+// MCP/bot tool call log — what the bot was asked and what came back (sanitized).
+export const mcpCallLog = pgTable('mcp_call_log', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tool: varchar('tool', { length: 128 }).notNull(),
+  // Sanitized/truncated args — never auth headers or secrets
+  args: jsonb('args'),
+  status: varchar('status', { length: 16 }).notNull(), // 'ok' | 'error'
+  durationMs: integer('duration_ms'),
+  responseBytes: integer('response_bytes'),
+  error: text('error'),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+}, (t) => ({
+  mcpLogCreatedIdx: index('mcp_call_log_created_idx').on(t.createdAt),
+  mcpLogToolIdx: index('mcp_call_log_tool_idx').on(t.tool),
+}));
+
 // Relationship memory — cross-bot shared state: debate pushbacks, themes, prediction lead
 export const relationshipMemory = pgTable('relationship_memory', {
   id: uuid('id').primaryKey().defaultRandom(),

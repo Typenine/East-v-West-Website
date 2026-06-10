@@ -40,6 +40,9 @@ import {
   type StepInput,
 } from '@/lib/newsletter/compose-step';
 import { renderHtml } from '@/lib/newsletter/template';
+import { resetSectionMetaBuffer, drainSectionMetaBuffer, type SectionGenerationMeta } from '@/lib/newsletter/llm/groq';
+import { recordSectionResult, recordRunFinish } from '@/server/db/observability-queries';
+import { buildCoverageReport } from '@/lib/newsletter/coverage-report';
 import type { DerivedData } from '@/lib/newsletter/types';
 import type { LeagueDraftData } from '@/lib/newsletter/sleeper-ingest';
 import { LEAGUE_IDS } from '@/lib/constants/league';
@@ -283,6 +286,7 @@ export async function POST(request: NextRequest) {
     if (guardResult) {
       console.warn(`[Step] Pre-finalization guard BLOCKED: ${guardResult.message}`);
       await updateStagedNewsletter(season, week, { status: 'failed', error: guardResult.message });
+      void recordRunFinish({ runId, status: 'blocked', errorSummary: guardResult.message, completedSteps: completedSteps.size, failedSteps: [...failedSteps] });
       return NextResponse.json(guardResult.response);
     }
     console.log(`[Step] Required-step guard passed — triggering final assembly`);
@@ -469,11 +473,42 @@ export async function POST(request: NextRequest) {
 
   // ── Generate the section ──
   console.log(`[Step] runId=${runId} generating "${nextStep}" S${season}W${week} (${episodeType})`);
+  resetSectionMetaBuffer();
+  const stepStartMs = Date.now();
   const result = await generateNewsletterSection(stepInput);
+  const llmMetas = drainSectionMetaBuffer();
+  const stepDurationMs = Date.now() - stepStartMs;
+
+  // Summarize provider usage for this step: a step may make multiple LLM calls
+  // (both bots). Report the weakest tier used; flag if any call hit a fallback provider.
+  const stepProvider = llmMetas.length > 0
+    ? llmMetas.reduce((worst, m) => (m.tier > worst.tier ? m : worst), llmMetas[0])
+    : null;
+  const anyFallback = llmMetas.some(m => m.isFallback);
+  const providerWarnings: string[] = [];
+  if (anyFallback) {
+    const fallbackProviders = [...new Set(llmMetas.filter(m => m.isFallback).map(m => m.provider))];
+    providerWarnings.push(`fallback provider(s) used: ${fallbackProviders.join(', ')}`);
+  }
+
+  // Compact per-step meta stored in staged state and embedded into the final newsletter
+  const stepMeta: SectionGenerationMeta | null = stepProvider ? {
+    ...stepProvider,
+    sectionName: nextStep,
+    isFallback: anyFallback,
+    durationMs: stepDurationMs,
+  } : null;
 
   const isRequired = requiredSteps.has(nextStep);
 
   if (!result.ok) {
+    // Persist failed-section record (fire-and-forget, never blocks)
+    void recordSectionResult({
+      runId, sectionName: nextStep, status: 'failed',
+      provider: stepProvider?.provider, tier: stepProvider?.tier,
+      isFallback: anyFallback, durationMs: stepDurationMs,
+      warnings: providerWarnings, error: result.error,
+    });
     const currentFailed = (derivedData.__failedSteps as string[]) ?? [];
     const newFailed = [...currentFailed, nextStep];
     await mergeStagedDerivedData(season, week, {
@@ -513,8 +548,20 @@ export async function POST(request: NextRequest) {
     });
   }
 
-  // ── Save section output and mark complete ──
-  await mergeStagedDerivedData(season, week, { sections: { ...sectionOutputs, [nextStep]: result.data } });
+  // ── Persist section observability record (fire-and-forget) ──
+  void recordSectionResult({
+    runId, sectionName: nextStep, status: 'ok',
+    provider: stepProvider?.provider, tier: stepProvider?.tier,
+    isFallback: anyFallback, durationMs: stepDurationMs,
+    warnings: providerWarnings,
+  });
+
+  // ── Save section output, provider meta, and mark complete ──
+  const existingMeta = (derivedData.__sectionMeta as Record<string, SectionGenerationMeta>) ?? {};
+  await mergeStagedDerivedData(season, week, {
+    sections: { ...sectionOutputs, [nextStep]: result.data },
+    ...(stepMeta ? { __sectionMeta: { ...existingMeta, [nextStep]: stepMeta } } : {}),
+  });
   const newCompleted = [...(staged.sectionsCompleted ?? []), nextStep];
   await updateStagedNewsletter(season, week, { currentSection: null, sectionsCompleted: newCompleted });
 
@@ -530,6 +577,7 @@ export async function POST(request: NextRequest) {
     if (guardResult) {
       console.warn(`[Step] Pre-finalization guard BLOCKED: ${guardResult.message}`);
       await updateStagedNewsletter(season, week, { status: 'failed', error: guardResult.message });
+      void recordRunFinish({ runId, status: 'blocked', errorSummary: guardResult.message, completedSteps: newCompleted.length, failedSteps: [...failedSteps] });
       return NextResponse.json(guardResult.response);
     }
     console.log(`[Step] Required-step guard passed — triggering final assembly`);
@@ -576,9 +624,15 @@ async function finalizeNewsletter(
   );
 
   if (!validation.passed) {
+    const errMsg = `Validation failed — missing: ${validation.missing.join(', ')}${validation.issues.length ? '; issues: ' + validation.issues.join(', ') : ''}`;
     await updateStagedNewsletter(season, week, {
       status: 'failed',
-      error: `Validation failed — missing: ${validation.missing.join(', ')}${validation.issues.length ? '; issues: ' + validation.issues.join(', ') : ''}`,
+      error: errMsg,
+    });
+    void recordRunFinish({
+      runId: jobRunId, status: 'failed', errorSummary: errMsg,
+      validation: validation as unknown as Record<string, unknown>,
+      completedSteps: completedSteps.length,
     });
     return NextResponse.json({
       done: false,
@@ -629,6 +683,33 @@ async function finalizeNewsletter(
     }
   }
 
+  // ── Embed per-section provider metadata into the newsletter content ──
+  // The edit UI reads _generationMeta to show provider/fallback badges per section.
+  const sectionMeta = (derivedData.__sectionMeta as Record<string, unknown>) ?? {};
+  const newsletterWithMeta = newsletter as typeof newsletter & {
+    _generationMeta?: { runId: string; sections: Record<string, unknown> };
+    _coverageReport?: ReturnType<typeof buildCoverageReport>;
+  };
+  newsletterWithMeta._generationMeta = { runId: jobRunId, sections: sectionMeta };
+
+  // ── Coverage & repetition report (pure-code, warning-only) ──
+  let coverageReport: ReturnType<typeof buildCoverageReport> | null = null;
+  try {
+    const teamNames = (derived.matchup_pairs ?? [])
+      .flatMap(p => [(p as { home?: { name?: string } }).home?.name, (p as { away?: { name?: string } }).away?.name])
+      .filter((n): n is string => typeof n === 'string' && n.length > 0);
+    const uniqueTeams = [...new Set(teamNames)];
+    if (uniqueTeams.length > 0) {
+      coverageReport = buildCoverageReport(newsletter.sections, uniqueTeams);
+      newsletterWithMeta._coverageReport = coverageReport;
+      if (coverageReport.warnings.length > 0) {
+        console.warn(`[Step] Coverage warnings: ${coverageReport.warnings.join(' | ')}`);
+      }
+    }
+  } catch (covErr) {
+    console.warn('[Step] Coverage report failed (non-fatal):', covErr instanceof Error ? covErr.message : String(covErr));
+  }
+
   // ── Render HTML ──
   let html = '';
   try {
@@ -643,11 +724,29 @@ async function finalizeNewsletter(
     season,
     week,
     leagueName,
-    newsletter as Parameters<typeof saveNewsletter>[3],
+    newsletterWithMeta as Parameters<typeof saveNewsletter>[3],
     html,
   );
 
   await updateStagedNewsletter(season, week, { status: 'completed' });
+
+  // ── Record run completion (fire-and-forget) ──
+  const fallbackSections = Object.entries(sectionMeta)
+    .filter(([, m]) => (m as { isFallback?: boolean })?.isFallback)
+    .map(([name]) => name);
+  const runWarnings = [
+    ...(coverageReport?.warnings ?? []),
+    ...(fallbackSections.length > 0 ? [`Sections written by fallback providers: ${fallbackSections.join(', ')}`] : []),
+    ...validation.issues,
+  ];
+  void recordRunFinish({
+    runId: jobRunId,
+    status: 'completed',
+    validation: validation as unknown as Record<string, unknown>,
+    warnings: runWarnings,
+    completedSteps: completedSteps.length,
+    failedSteps: (derivedData.__failedSteps as string[]) ?? [],
+  });
 
   console.log(`[Step] runId=${jobRunId} saved to DB — S${season}W${week} (${episodeType}), ${newsletter.sections.length} sections, ${html.length} HTML chars`);
   console.log(`[Step] Staged generation complete — Discord notification NOT posted (use Publish to announce)`);

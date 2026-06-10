@@ -838,6 +838,36 @@ export interface GenerateSectionOptions {
   thinkingBudget?: number;
 }
 
+// ============ Section generation metadata collector ============
+// Records which provider/tier wrote each LLM call so the step pipeline can
+// persist per-section provider visibility. Reset before each step, drained after.
+// Purely observational — never affects generation behavior.
+
+export interface SectionGenerationMeta {
+  sectionName: string;
+  provider: string;
+  tier: PromptTier;
+  /** True when a non-primary provider answered (primary = first cascade provider with a key). */
+  isFallback: boolean;
+  durationMs: number;
+  contentChars: number;
+  generatedAt: string;
+}
+
+let _sectionMetaBuffer: SectionGenerationMeta[] = [];
+
+/** Clear the metadata buffer. Call before generating a step. */
+export function resetSectionMetaBuffer(): void {
+  _sectionMetaBuffer = [];
+}
+
+/** Drain and return all metadata recorded since the last reset. */
+export function drainSectionMetaBuffer(): SectionGenerationMeta[] {
+  const out = _sectionMetaBuffer;
+  _sectionMetaBuffer = [];
+  return out;
+}
+
 export async function generateSection(options: GenerateSectionOptions): Promise<string> {
   // Default maxTokens raised from Groq-era 400 to 800 since Claude can easily handle more
   const { persona, sectionType, context, constraints, maxTokens = 800, episodeType, validate, thinkingBudget } = options;
@@ -915,6 +945,17 @@ Remember to use your signature style and voice. Make it feel like YOU wrote this
   const durationMs = Date.now() - t0;
   const thinkingNote = resp.provider === 'anthropic' && claudeBudget >= 1024 ? ` claude_thinking=${claudeBudget}` : '';
   console.log(`[Section] "${sectionType}" via ${resp.provider} (tier ${getTierForProvider(resp.provider)}) — ${resp.content.length} chars, gemini_thinking=${budget}${thinkingNote}, ${durationMs}ms`);
+
+  // Record provider metadata for observability (drained by the step pipeline)
+  _sectionMetaBuffer.push({
+    sectionName: sectionType,
+    provider: resp.provider,
+    tier: getTierForProvider(resp.provider),
+    isFallback: resp.provider !== activeProvider,
+    durationMs,
+    contentChars: resp.content.length,
+    generatedAt: new Date().toISOString(),
+  });
 
   return resp.content;
 }
