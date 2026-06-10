@@ -37,9 +37,9 @@ type TradeEvent = {
   receiver: string;
   /** Keys of the asset that moved giver -> receiver */
   assetKeys: string[];
-  /** What the giver received in return (the child branches) */
+  /** What the giver received in return from this receiver (the child branches) */
   giverReceived: TradeAsset[];
-  /** Labels of other assets the receiver got in the same trade */
+  /** Labels of other assets the receiver got from the same giver in the trade */
   packageMates: string[];
 };
 
@@ -92,9 +92,27 @@ function buildEventIndex(trades: Trade[]): { events: TradeEvent[]; byKey: Map<st
         const receiver = receiverOf(trade, team.name, assetKeys);
         if (!receiver) continue;
         const receiverTeam = trade.teams.find((t) => t.name === receiver);
+        const multiTeam = trade.teams.length > 2;
+        // In 3+ team trades, only assets actually sent by this giver belong
+        // on this edge. E.g. May 3, 2026 (Badgers / Cake Eaters / Lone
+        // Ginger): on the Cake Eaters -> Badgers edge, the 2026 1st the
+        // Badgers also received must NOT appear as a package mate — it came
+        // from The Lone Ginger.
         const packageMates = (receiverTeam?.assets ?? [])
           .filter((a) => !keysIntersect(keysForAsset(a), assetKeys))
+          .filter((a) => !multiTeam || senderOfAsset(trade, receiver, a) === team.name)
           .map((a) => assetDisplayLabel(a));
+        // Likewise, the return package is only what the giver received from
+        // this receiver (Brian Thomas came to the Cake Eaters from The Lone
+        // Ginger, so he is not part of the Badgers' return for Etienne).
+        // Assets whose sender can't be resolved are kept so legacy data
+        // doesn't lose lineage branches.
+        const giverReceived = multiTeam
+          ? team.assets.filter((a) => {
+              const sender = senderOfAsset(trade, team.name, a);
+              return sender === null || sender === receiver;
+            })
+          : team.assets;
         const event: TradeEvent = {
           index,
           tradeId: trade.id,
@@ -102,10 +120,7 @@ function buildEventIndex(trades: Trade[]): { events: TradeEvent[]; byKey: Map<st
           giver: team.name,
           receiver,
           assetKeys,
-          // The return package belongs to the confirmed giver only:
-          // `assetsGivenBy` + the `receiverOf` sender cross-check above
-          // guarantee this event isn't emitted for a non-giving participant.
-          giverReceived: team.assets,
+          giverReceived,
           packageMates,
         };
         events.push(event);
