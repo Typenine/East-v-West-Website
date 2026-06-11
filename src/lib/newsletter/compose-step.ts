@@ -865,7 +865,8 @@ async function repairMockDraftRound(
   const poolText = availablePool.map((p, i) =>
     `${i + 1}. ${p.name} (${p.pos}${p.rank !== null ? `, prospect rank #${p.rank}` : ', unranked'})`
   ).join('\n');
-  const orderText = slots.map((s, i) => `Pick ${round}.${String(i + 1).padStart(2, '0')}: ${s.team}`).join('\n');
+  // Use the slots' own numbers — half-round segments start mid-round (e.g. 1.07).
+  const orderText = slots.map(s => `Pick ${round}.${String(s.slot).padStart(2, '0')}: ${s.team}`).join('\n');
 
   // Mark picks as invalid if: (a) not in pool, OR (b) same player already seen (within-round dupe)
   // The second occurrence of a duplicate must be in invalidPicks so the repair replaces it
@@ -899,14 +900,16 @@ ${poolText}
 EXACT DRAFT ORDER — ROUND ${round}:
 ${orderText}`;
 
+  const firstSlot = String(slots[0]?.slot ?? 1).padStart(2, '0');
+  const lastSlot = String(slots[slots.length - 1]?.slot ?? slots.length).padStart(2, '0');
   const repairConstraint = `Replace every INVALID pick with a player from the ELIGIBLE PLAYERS list above.
 Keep all VALID picks exactly as listed — do not change them.
 DO NOT pick the same player twice. Every pick must use a DIFFERENT player from the eligible list.
 DO NOT use any player not in the ELIGIBLE list above.
 Output ALL ${slots.length} picks in this exact format:
-PICK ${round}.01 | [Exact Team] | [Player from eligible list] | [Position]
+PICK ${round}.${firstSlot} | [Exact Team] | [Player from eligible list] | [Position]
 [3-4 sentence analysis]
-(continue through PICK ${round}.${String(slots.length).padStart(2, '0')})`;
+(continue through PICK ${round}.${lastSlot})`;
 
   try {
     const repairedRaw = await generateSection({
@@ -968,6 +971,76 @@ function parseMockDraftPicksLocal(
   return result.filter(p => p.slot >= 1 && p.slot <= 12);
 }
 
+/** Pool minus players already picked — same fuzzy name matching as the R2 pool filter. */
+function excludePickedFromPool<T extends { name: string }>(pool: T[], pickedNames: string[]): T[] {
+  if (pickedNames.length === 0) return pool;
+  return pool.filter(p =>
+    !pickedNames.some(used =>
+      normalizePlayerName(used) === normalizePlayerName(p.name) ||
+      (normalizePlayerName(used).split(' ').pop() ?? '') === (normalizePlayerName(p.name).split(' ').pop() ?? '')
+    )
+  );
+}
+
+/**
+ * Generate + parse + validate + repair one contiguous segment of a mock draft
+ * round (e.g. picks 1.01–1.06). Rounds run as two segments so each LLM call
+ * finishes well inside the 150s provider timeout (a full 12-pick round with
+ * long per-pick analysis cannot) while keeping full analysis depth per pick.
+ */
+async function genMockDraftSegmentChecked(opts: {
+  round: number;
+  persona: 'entertainer' | 'analyst';
+  sectionType: string;
+  context: string;
+  constraints: string;
+  /** Segment slots with their real in-round numbers (e.g. 7..12). */
+  slots: Array<{ slot: number; team: string }>;
+  /** Pool to validate against — must already exclude previously picked players. */
+  validationPool: Array<{ name: string; pos: string; rank: number | null }>;
+  alreadyPicked: string[];
+  personaLabel: string;
+}): Promise<{ picks: ReturnType<typeof parseMockDraftPicksLocal>; raw: string }> {
+  const { round, slots, personaLabel } = opts;
+  const minSlot = slots[0].slot;
+  const maxSlot = slots[slots.length - 1].slot;
+
+  const raw = await generateSection({
+    persona: opts.persona,
+    sectionType: opts.sectionType,
+    context: opts.context,
+    constraints: opts.constraints,
+    maxTokens: 6000,
+    episodeType: 'pre_draft',
+    validate: (t) => (t.replace(/\*\*/g, '').match(/\bPICK\s+\d+\.\d+\s*\|/gim) || []).length >= Math.min(slots.length, Math.max(3, Math.floor(slots.length * 0.5))),
+  });
+
+  const inSegment = (p: { slot: number }) => p.slot >= minSlot && p.slot <= maxSlot;
+  const picks = parseMockDraftPicksLocal(raw).filter(inSegment);
+  const { invalidPlayers, orderMismatches, withinRoundDupes } =
+    validateMockDraftPicks(picks, opts.validationPool, slots, round);
+
+  if (orderMismatches.length > 0) {
+    console.warn(`[ComposeStep] MockDraft R${round} (${personaLabel}) segment ${minSlot}-${maxSlot} order mismatches: ${orderMismatches.join('; ')}`);
+  }
+
+  const missingSlots = slots
+    .filter(s => !picks.some(p => p.slot === s.slot))
+    .map(s => `slot ${round}.${String(s.slot).padStart(2, '0')} missing`);
+  const issues = [...invalidPlayers, ...withinRoundDupes, ...missingSlots];
+
+  if (issues.length > 0) {
+    console.warn(`[ComposeStep] MockDraft R${round} (${personaLabel}) segment ${minSlot}-${maxSlot} — ${issues.length} issue(s): ${issues.join(', ')}`);
+    const repaired = await repairMockDraftRound(round, picks, issues, opts.validationPool, slots, opts.alreadyPicked, opts.persona);
+    if (repaired) {
+      return { picks: repaired.picks.filter(inSegment), raw: repaired.raw };
+    }
+    throw new Error(`MockDraft R${round} (${personaLabel}) segment ${minSlot}-${maxSlot} repair failed: ${issues.join(', ')}`);
+  }
+
+  return { picks, raw };
+}
+
 async function genMockDraftR1(
   input: StepInput,
   persona: 'entertainer' | 'analyst',
@@ -989,86 +1062,92 @@ async function genMockDraftR1(
   console.log(`[ComposeStep] MockDraft R1 draft order: ${effectiveSlots.map(s => `${s.slot}.${s.team}`).join(', ')}`);
   console.log(`[ComposeStep] MockDraft R1 first 10 prospects: ${prospectPool.slice(0, 10).map(p => p.name).join(', ')}`);
 
-  const r1Order = effectiveSlots.map((s, i) => `Pick 1.${String(i + 1).padStart(2, '0')}: ${s.team}`).join('\n');
   const debutLine = isFirstEpisodeEver
     ? `FIRST EPISODE: Mason and Westy debut with the East v. West league.`
     : `Mason and Westy are established analysts for this league.`;
 
-  // Prospect pool goes FIRST — before league knowledge and enhanced context — so it is never truncated.
-  // Listed ALPHABETICALLY so the model can't just read top-to-bottom and call it a mock draft.
-  // Consensus rank is shown as reference data — one input among many, not a pick order.
-  const poolSorted = [...prospectPool].sort((a, b) => a.name.localeCompare(b.name));
-  const poolText = poolSorted.map(p =>
-    `- ${p.name} (${p.pos}${p.nfl ? `, drafted by ${p.nfl}` : ''}${p.rank !== null ? `, consensus rank #${p.rank} of ${prospectPool.length}` : ', unranked'})`
-  ).join('\n');
-  const poolHeader = `=== ELIGIBLE PLAYERS — ${season} NFL DRAFT PROSPECT POOL ===
+  const rosterCtxBlock = input.rosterContext
+    ? `=== CURRENT TEAM ROSTERS (use to judge positional needs for each pick) ===\n${input.rosterContext}\n=== END ROSTERS ===\n\n`
+    : '';
+
+  const masonOpinionRule = `⚠️ YOUR STYLE — MASON REED: You go on gut feel, hype, and upside. Consensus rankings are one input — not your bible. You'll agree with the consensus sometimes, but when your gut says something different, you go with it. You'll reach for a player you love. You'll fall a guy you think is overhyped. You might take a QB early if a team needs a franchise piece. The point is: you're making picks YOU believe in, not just reading a list out loud. Your analysis should sound like YOU, not like a ranking aggregator.`;
+  const westyOpinionRule = `⚠️ YOUR STYLE — WESTY: You are analytical, but you form your OWN views. Consensus rankings are a starting point — you also look at landing spot, NFL scheme fit, opportunity, and age curves. Sometimes you'll land on the same pick as consensus. Sometimes you'll diverge because your analysis tells you a player is over- or under-valued. The key is that every pick comes from your own evaluation, not from "who's ranked highest available." When you agree with consensus, explain why the data supports it. When you differ, explain why your read is different.`;
+
+  // The round runs as two segments (e.g. 1.01-1.06, then 1.07-1.12) so each
+  // call finishes inside the provider timeout with full analysis depth.
+  const numberedSlots = effectiveSlots.map((s, i) => ({ slot: i + 1, team: s.team }));
+  const halfSize = Math.ceil(numberedSlots.length / 2);
+  const segments = [numberedSlots.slice(0, halfSize), numberedSlots.slice(halfSize)].filter(seg => seg.length > 0);
+  const pad = (n: number) => String(n).padStart(2, '0');
+
+  const allPicks: ReturnType<typeof parseMockDraftPicksLocal> = [];
+  const rawParts: string[] = [];
+
+  for (const seg of segments) {
+    const segFirst = pad(seg[0].slot);
+    const segLast = pad(seg[seg.length - 1].slot);
+    const pickedSoFar = allPicks.map(p => p.player);
+    const segPool = excludePickedFromPool(prospectPool, pickedSoFar);
+
+    // Prospect pool goes FIRST — before league knowledge and enhanced context — so it is never truncated.
+    // Listed ALPHABETICALLY so the model can't just read top-to-bottom and call it a mock draft.
+    const poolSorted = [...segPool].sort((a, b) => a.name.localeCompare(b.name));
+    const poolText = poolSorted.map(p =>
+      `- ${p.name} (${p.pos}${p.nfl ? `, drafted by ${p.nfl}` : ''}${p.rank !== null ? `, consensus rank #${p.rank} of ${prospectPool.length}` : ', unranked'})`
+    ).join('\n');
+    const poolHeader = `=== ELIGIBLE PLAYERS — ${season} NFL DRAFT PROSPECT POOL${pickedSoFar.length > 0 ? ' (players you already picked this round removed)' : ''} ===
 Listed alphabetically. "Consensus rank" is aggregate market opinion — treat it as one data point, not a pick order.
 "Drafted by" is the prospect's CURRENT NFL team (live data — overrides anything you remember).
 You may ONLY select players from the list below. DO NOT use players from any previous draft class.
 
 ${poolText}
 
-=== END ELIGIBLE PLAYER LIST (${prospectPool.length} total) ===`;
+=== END ELIGIBLE PLAYER LIST (${segPool.length} total) ===`;
 
-  const rosterCtxBlock = input.rosterContext
-    ? `=== CURRENT TEAM ROSTERS (use to judge positional needs for each pick) ===\n${input.rosterContext}\n=== END ROSTERS ===\n\n`
-    : '';
+    const segOrder = seg.map(s => `Pick 1.${pad(s.slot)}: ${s.team}`).join('\n');
+    const priorPicksNote = allPicks.length > 0
+      ? `YOUR PICKS SO FAR THIS ROUND (already published — do NOT repeat these players; stay consistent with these calls):\n${allPicks.map(p => `  Pick 1.${pad(p.slot)} | ${p.team} | ${p.player} | ${p.position}`).join('\n')}\n\n`
+      : '';
 
-  const context = `${poolHeader}\n\n${leagueKnowledge}\n\n${rosterCtxBlock}---\n\n${season} EAST V. WEST ROOKIE DRAFT — MOCK DRAFT\n\n${debutLine}\n\nROUND 1 DRAFT ORDER (slot 1 = worst record, slot ${effectiveSlots.length} = champion):\n${r1Order}\n\n${enhancedContext.slice(0, 2000)}`;
+    const context = `${poolHeader}\n\n${leagueKnowledge}\n\n${rosterCtxBlock}---\n\n${season} EAST V. WEST ROOKIE DRAFT — MOCK DRAFT (Round 1, picks 1.${segFirst} through 1.${segLast})\n\n${debutLine}\n\n${priorPicksNote}DRAFT ORDER FOR THIS SEGMENT (slot 1 = worst record, slot ${numberedSlots.length} = champion):\n${segOrder}\n\n${enhancedContext.slice(0, 2000)}`;
 
-  const pickFmt = `EXACTLY this format for all ${effectiveSlots.length} picks:\n\nPICK 1.01 | ${effectiveSlots[0].team} | [Player Name from eligible list] | [Position]\n[6-8 sentence paragraph — roster situation, prospect profile, fit (see ANALYSIS RULE)]\n\nPICK 1.02 | ${effectiveSlots[1]?.team ?? 'Team 2'} | [Player Name from eligible list] | [Position]\n[6-8 sentence paragraph]\n\n(continue through PICK 1.${String(effectiveSlots.length).padStart(2, '0')})`;
+    const pickFmt = `EXACTLY this format for all ${seg.length} picks in this segment:\n\nPICK 1.${segFirst} | ${seg[0].team} | [Player Name from eligible list] | [Position]\n[6-8 sentence paragraph — roster situation, prospect profile, fit (see ANALYSIS RULE)]\n\n(continue through PICK 1.${segLast})`;
 
-  const masonOpinionRule = `⚠️ YOUR STYLE — MASON REED: You go on gut feel, hype, and upside. Consensus rankings are one input — not your bible. You'll agree with the consensus sometimes, but when your gut says something different, you go with it. You'll reach for a player you love. You'll fall a guy you think is overhyped. You might take a QB early if a team needs a franchise piece. The point is: you're making picks YOU believe in, not just reading a list out loud. Your analysis should sound like YOU, not like a ranking aggregator.`;
-  const westyOpinionRule = `⚠️ YOUR STYLE — WESTY: You are analytical, but you form your OWN views. Consensus rankings are a starting point — you also look at landing spot, NFL scheme fit, opportunity, and age curves. Sometimes you'll land on the same pick as consensus. Sometimes you'll diverge because your analysis tells you a player is over- or under-valued. The key is that every pick comes from your own evaluation, not from "who's ranked highest available." When you agree with consensus, explain why the data supports it. When you differ, explain why your read is different.`;
+    const constraint = [
+      `You are ${persona === 'entertainer' ? 'Mason Reed' : 'Westy'}. Write picks 1.${segFirst} through 1.${segLast} of YOUR Round 1 mock draft — not a reading of a rankings list.`,
+      ``,
+      persona === 'entertainer' ? masonOpinionRule : westyOpinionRule,
+      ``,
+      `⚠️ PRONOUN RULE: All NFL Draft prospects are male athletes. Always use he/him/his pronouns regardless of the player's name.`,
+      `⚠️ PLAYER RULE: Every player MUST appear in the ELIGIBLE PLAYERS list above. Do NOT use any other player.`,
+      `⚠️ ROSTER RULE: Before each pick, check that team's CURRENT ROSTER (listed above). Reference SPECIFIC players they already have — including recent acquisitions. A team that just traded for a QB doesn't need another; a team with Bowers doesn't need a TE.`,
+      `⚠️ POSITION RULE: TE is 1-deep (start only 1 TE per week) — TE depth is low priority. QB is premium in SuperFlex.`,
+      `⚠️ ANALYSIS RULE — every pick paragraph is 6-8 sentences and must cover all three beats:`,
+      `   (a) THE ROSTER: the team's current situation at the position — name 2-3 specific players they have (with the roles/ages shown in CURRENT TEAM ROSTERS) and say what hole or surplus that creates.`,
+      `   (b) THE PROSPECT: who this player is — his NFL landing spot ("drafted by" in the pool), what kind of player he is, and what his path to fantasy-relevant opportunity looks like on that NFL team.`,
+      `   (c) THE FIT: why THIS player for THIS team at THIS slot — their contention window, positional scarcity in SuperFlex, and value vs his consensus rank (reach? steal? say so and own it).`,
+      `   Vague one-liner praise is a failed pick. Each paragraph should read like a real draft-show breakdown.`,
+      ``,
+      pickFmt,
+    ].join('\n');
 
-  const constraint = [
-    `You are ${persona === 'entertainer' ? 'Mason Reed' : 'Westy'}. Write YOUR Round 1 mock draft — not a reading of a rankings list.`,
-    ``,
-    persona === 'entertainer' ? masonOpinionRule : westyOpinionRule,
-    ``,
-    `⚠️ PRONOUN RULE: All NFL Draft prospects are male athletes. Always use he/him/his pronouns regardless of the player's name.`,
-    `⚠️ PLAYER RULE: Every player MUST appear in the ELIGIBLE PLAYERS list above. Do NOT use any other player.`,
-    `⚠️ ROSTER RULE: Before each pick, check that team's CURRENT ROSTER (listed above). Reference SPECIFIC players they already have — including recent acquisitions. A team that just traded for a QB doesn't need another; a team with Bowers doesn't need a TE.`,
-    `⚠️ POSITION RULE: TE is 1-deep (start only 1 TE per week) — TE depth is low priority. QB is premium in SuperFlex.`,
-    `⚠️ ANALYSIS RULE — every pick paragraph is 6-8 sentences and must cover all three beats:`,
-    `   (a) THE ROSTER: the team's current situation at the position — name 2-3 specific players they have (with the roles/ages shown in CURRENT TEAM ROSTERS) and say what hole or surplus that creates.`,
-    `   (b) THE PROSPECT: who this player is — his NFL landing spot ("drafted by" in the pool), what kind of player he is, and what his path to fantasy-relevant opportunity looks like on that NFL team.`,
-    `   (c) THE FIT: why THIS player for THIS team at THIS slot — their contention window, positional scarcity in SuperFlex, and value vs his consensus rank (reach? steal? say so and own it).`,
-    `   Vague one-liner praise is a failed pick. Each paragraph should read like a real draft-show breakdown.`,
-    ``,
-    pickFmt,
-  ].join('\n');
-
-  const raw = await generateSection({
-    persona,
-    sectionType: 'Mock Draft - Round 1',
-    context,
-    constraints: constraint,
-    maxTokens: 9000,
-    episodeType: 'pre_draft',
-    validate: (t) => (t.replace(/\*\*/g, '').match(/\bPICK\s+\d+\.\d+\s*\|/gim) || []).length >= Math.max(4, Math.floor(effectiveSlots.length * 0.4)),
-  });
-
-  const picks = parseMockDraftPicksLocal(raw);
-  // Use sequential slot numbers (1..N) matching the draft order as presented to the LLM
-  const slotsForValidation = effectiveSlots.map((s, i) => ({ slot: i + 1, team: s.team }));
-  const { invalidPlayers, orderMismatches, withinRoundDupes } = validateMockDraftPicks(picks, prospectPool, slotsForValidation, 1);
-
-  if (orderMismatches.length > 0) {
-    console.warn(`[ComposeStep] MockDraft R1 (${personaLabel}) draft-order mismatches: ${orderMismatches.join('; ')}`);
+    const { picks, raw } = await genMockDraftSegmentChecked({
+      round: 1,
+      persona,
+      sectionType: 'Mock Draft - Round 1',
+      context,
+      constraints: constraint,
+      slots: seg,
+      validationPool: segPool,
+      alreadyPicked: pickedSoFar,
+      personaLabel,
+    });
+    allPicks.push(...picks);
+    rawParts.push(raw);
   }
 
-  const allR1Issues = [...invalidPlayers, ...withinRoundDupes];
-  if (allR1Issues.length > 0) {
-    if (withinRoundDupes.length > 0) console.warn(`[ComposeStep] MockDraft R1 (${personaLabel}) — ${withinRoundDupes.length} within-round dupes: ${withinRoundDupes.join(', ')}`);
-    if (invalidPlayers.length > 0) console.warn(`[ComposeStep] MockDraft R1 (${personaLabel}) — ${invalidPlayers.length} invalid players: ${invalidPlayers.join(', ')}`);
-    const repaired = await repairMockDraftRound(1, picks, allR1Issues, prospectPool, slotsForValidation, [], persona);
-    if (repaired) return repaired;
-    throw new Error(`MockDraft R1 (${personaLabel}) repair failed: ${allR1Issues.join(', ')}`);
-  }
-
-  console.log(`[ComposeStep] MockDraft_R1_${personaLabel} completed — ${picks.length} valid picks`);
-  return { picks, raw };
+  console.log(`[ComposeStep] MockDraft_R1_${personaLabel} completed — ${allPicks.length} valid picks (${segments.length} segments)`);
+  return { picks: allPicks, raw: rawParts.join('\n\n') };
 }
 
 async function genMockDraftR2(
@@ -1105,93 +1184,90 @@ async function genMockDraftR2(
   console.log(`[ComposeStep] MockDraft_R2_${personaLabel} started — ${round2Slots.length} picks, ${r2Pool.length} remaining eligible prospects`);
   console.log(`[ComposeStep] MockDraft R2 order: ${round2Slots.map((s, i) => `${i + 1}.${s.team}`).join(', ')}`);
 
-  // Alphabetical pool — same reasoning as R1: prevents the model from just reading a ranked list top-to-bottom
-  const r2PoolSorted = [...r2Pool].sort((a, b) => a.name.localeCompare(b.name));
-  const poolText = r2PoolSorted.map(p =>
-    `- ${p.name} (${p.pos}${p.nfl ? `, drafted by ${p.nfl}` : ''}${p.rank !== null ? `, consensus rank #${p.rank} of ${prospectPool.length}` : ', unranked'})`
-  ).join('\n');
-  const poolHeader = `=== ELIGIBLE PLAYERS — ROUND 2 (${season} prospect pool, Round 1 picks removed) ===
-Listed alphabetically. Consensus rank is reference data — not a pick order.
-"Drafted by" is the prospect's CURRENT NFL team (live data — overrides anything you remember).
-You may ONLY select players from this list. DO NOT repeat Round 1 picks.
-
-${poolText}
-
-=== END ELIGIBLE PLAYER LIST (${r2Pool.length} available) ===`;
-
   const r1Summary = r1Picks.length > 0
     ? `YOUR ROUND 1 PICKS (do NOT repeat these players):\n${r1Picks.map(p => `  Pick 1.${String(p.slot).padStart(2, '0')} | ${p.team} | ${p.player} | ${p.position}`).join('\n')}`
     : 'Round 1 unavailable — choose different players for each slot.';
-
-  const r2Order = round2Slots.map((s, i) => `Pick 2.${String(i + 1).padStart(2, '0')}: ${s.team}`).join('\n');
-  const pickFmt = `EXACTLY this format for all ${round2Slots.length} picks:\n\nPICK 2.01 | ${round2Slots[0].team} | [Player Name from eligible list] | [Position]\n[5-7 sentence paragraph — roster situation, prospect profile, fit (see ANALYSIS RULE)]\n\n(continue through PICK 2.${String(round2Slots.length).padStart(2, '0')})`;
 
   const rosterCtxBlock = input.rosterContext
     ? `=== CURRENT TEAM ROSTERS (use to judge positional needs for each pick) ===\n${input.rosterContext}\n=== END ROSTERS ===\n\n`
     : '';
 
-  const context = `${poolHeader}\n\n${leagueKnowledge}\n\n${rosterCtxBlock}${r1Summary}\n\nROUND 2 ORDER:\n${r2Order}\n\n${enhancedContext.slice(0, 2000)}`;
   const masonR2Rule = `⚠️ YOUR STYLE — MASON REED (Round 2): Round 2 is where your real opinions show. You'll agree with consensus on some picks and diverge on others — that's fine. What matters is that every pick is yours: your gut, your read on the player, your feel for what a team needs. Don't just take the highest available guy every time. But don't artificially reach either — if the best player really is the obvious pick for a team, take him and say why.`;
   const westyR2Rule = `⚠️ YOUR STYLE — WESTY (Round 2): Round 2 is where value often diverges from consensus — NFL opportunity, scheme fit, and roster situations matter more at this tier. Some picks will line up with consensus; others won't. What matters is that your analysis drives the decision, not the ranking number. When you agree with consensus, show the data behind it. When you differ, explain your reasoning.`;
 
-  const constraint = [
-    `Continue your mock draft into ROUND 2 as ${persona === 'entertainer' ? 'Mason Reed' : 'Westy'}.`,
-    r1Summary,
-    ``,
-    persona === 'entertainer' ? masonR2Rule : westyR2Rule,
-    ``,
-    `⚠️ PRONOUN RULE: All NFL Draft prospects are male athletes. Always use he/him/his pronouns.`,
-    `⚠️ PLAYER RULE: Every player MUST appear in the ELIGIBLE PLAYERS list above. Do NOT use any other player.`,
-    `⚠️ ROSTER RULE: Check each team's CURRENT ROSTER before picking. Reference specific players they already have.`,
-    `⚠️ POSITION RULE: TE is 1-deep. QB is premium in SuperFlex.`,
-    `⚠️ ANALYSIS RULE — every pick paragraph is 5-7 sentences and must cover all three beats:`,
-    `   (a) THE ROSTER: where this team stands after their Round 1 pick — name specific players they already have (with the roles/ages shown in CURRENT TEAM ROSTERS).`,
-    `   (b) THE PROSPECT: who this player is — NFL landing spot ("drafted by" in the pool), play style, and his realistic path to opportunity on that NFL team.`,
-    `   (c) THE FIT: why him for THIS team at THIS slot — window, SuperFlex scarcity, value vs consensus (reach or steal — say which and why).`,
-    ``,
-    pickFmt,
-  ].join('\n');
+  // Two segments per round — same timeout reasoning as Round 1.
+  const numberedSlots = round2Slots.map((s, i) => ({ slot: i + 1, team: s.team }));
+  const halfSize = Math.ceil(numberedSlots.length / 2);
+  const segments = [numberedSlots.slice(0, halfSize), numberedSlots.slice(halfSize)].filter(seg => seg.length > 0);
+  const pad = (n: number) => String(n).padStart(2, '0');
 
-  const raw = await generateSection({
-    persona,
-    sectionType: 'Mock Draft - Round 2',
-    context,
-    constraints: constraint,
-    maxTokens: 9000,
-    episodeType: 'pre_draft',
-    validate: (t) => (t.replace(/\*\*/g, '').match(/\bPICK\s+\d+\.\d+\s*\|/gim) || []).length >= Math.max(4, Math.floor(round2Slots.length * 0.4)),
-  });
+  const allPicks: ReturnType<typeof parseMockDraftPicksLocal> = [];
+  const rawParts: string[] = [];
 
-  const picks = parseMockDraftPicksLocal(raw);
-  const slotsForValidation = round2Slots.map((s, i) => ({ slot: i + 1, team: s.team }));
-  // Validate against r2Pool (R1 picks already removed) so pool-check also catches cross-round repeats
-  const { invalidPlayers, orderMismatches, withinRoundDupes } = validateMockDraftPicks(picks, r2Pool, slotsForValidation, 2);
+  for (const seg of segments) {
+    const segFirst = pad(seg[0].slot);
+    const segLast = pad(seg[seg.length - 1].slot);
+    const pickedThisRound = allPicks.map(p => p.player);
+    // r2Pool already excludes R1 picks; also exclude this round's earlier segment.
+    const segPool = excludePickedFromPool(r2Pool, pickedThisRound);
 
-  if (orderMismatches.length > 0) {
-    console.warn(`[ComposeStep] MockDraft R2 (${personaLabel}) draft-order mismatches: ${orderMismatches.join('; ')}`);
+    const poolSorted = [...segPool].sort((a, b) => a.name.localeCompare(b.name));
+    const poolText = poolSorted.map(p =>
+      `- ${p.name} (${p.pos}${p.nfl ? `, drafted by ${p.nfl}` : ''}${p.rank !== null ? `, consensus rank #${p.rank} of ${prospectPool.length}` : ', unranked'})`
+    ).join('\n');
+    const poolHeader = `=== ELIGIBLE PLAYERS — ROUND 2 (${season} prospect pool, all previously picked players removed) ===
+Listed alphabetically. Consensus rank is reference data — not a pick order.
+"Drafted by" is the prospect's CURRENT NFL team (live data — overrides anything you remember).
+You may ONLY select players from this list. DO NOT repeat any earlier pick.
+
+${poolText}
+
+=== END ELIGIBLE PLAYER LIST (${segPool.length} available) ===`;
+
+    const segOrder = seg.map(s => `Pick 2.${pad(s.slot)}: ${s.team}`).join('\n');
+    const priorR2Note = allPicks.length > 0
+      ? `YOUR ROUND 2 PICKS SO FAR (already published — do NOT repeat these players; stay consistent with these calls):\n${allPicks.map(p => `  Pick 2.${pad(p.slot)} | ${p.team} | ${p.player} | ${p.position}`).join('\n')}\n\n`
+      : '';
+
+    const context = `${poolHeader}\n\n${leagueKnowledge}\n\n${rosterCtxBlock}${r1Summary}\n\n${priorR2Note}ROUND 2 ORDER — THIS SEGMENT (picks 2.${segFirst} through 2.${segLast}):\n${segOrder}\n\n${enhancedContext.slice(0, 2000)}`;
+
+    const pickFmt = `EXACTLY this format for all ${seg.length} picks in this segment:\n\nPICK 2.${segFirst} | ${seg[0].team} | [Player Name from eligible list] | [Position]\n[5-7 sentence paragraph — roster situation, prospect profile, fit (see ANALYSIS RULE)]\n\n(continue through PICK 2.${segLast})`;
+
+    const constraint = [
+      `Continue your mock draft as ${persona === 'entertainer' ? 'Mason Reed' : 'Westy'} — ROUND 2, picks 2.${segFirst} through 2.${segLast}.`,
+      r1Summary,
+      ``,
+      persona === 'entertainer' ? masonR2Rule : westyR2Rule,
+      ``,
+      `⚠️ PRONOUN RULE: All NFL Draft prospects are male athletes. Always use he/him/his pronouns.`,
+      `⚠️ PLAYER RULE: Every player MUST appear in the ELIGIBLE PLAYERS list above. Do NOT use any other player.`,
+      `⚠️ ROSTER RULE: Check each team's CURRENT ROSTER before picking. Reference specific players they already have.`,
+      `⚠️ POSITION RULE: TE is 1-deep. QB is premium in SuperFlex.`,
+      `⚠️ ANALYSIS RULE — every pick paragraph is 5-7 sentences and must cover all three beats:`,
+      `   (a) THE ROSTER: where this team stands after their Round 1 pick — name specific players they already have (with the roles/ages shown in CURRENT TEAM ROSTERS).`,
+      `   (b) THE PROSPECT: who this player is — NFL landing spot ("drafted by" in the pool), play style, and his realistic path to opportunity on that NFL team.`,
+      `   (c) THE FIT: why him for THIS team at THIS slot — window, SuperFlex scarcity, value vs consensus (reach or steal — say which and why).`,
+      ``,
+      pickFmt,
+    ].join('\n');
+
+    const { picks, raw } = await genMockDraftSegmentChecked({
+      round: 2,
+      persona,
+      sectionType: 'Mock Draft - Round 2',
+      context,
+      constraints: constraint,
+      slots: seg,
+      validationPool: segPool,
+      alreadyPicked: [...r1PlayerNames, ...pickedThisRound],
+      personaLabel,
+    });
+    allPicks.push(...picks);
+    rawParts.push(raw);
   }
 
-  // Also explicitly check cross-round (R1) repeats in case pool check missed a near-match
-  const r1Dupes = picks.filter(p =>
-    r1PlayerNames.some(used =>
-      normalizePlayerName(used) === normalizePlayerName(p.player) ||
-      (normalizePlayerName(used).split(' ').pop() ?? '') === (normalizePlayerName(p.player).split(' ').pop() ?? '')
-    )
-  ).map(p => `${p.player} (R2 slot ${p.slot})`);
-
-  const allR2Issues = [...new Set([...invalidPlayers, ...withinRoundDupes, ...r1Dupes])];
-
-  if (allR2Issues.length > 0) {
-    if (withinRoundDupes.length > 0) console.warn(`[ComposeStep] MockDraft R2 (${personaLabel}) — within-round dupes: ${withinRoundDupes.join(', ')}`);
-    if (r1Dupes.length > 0) console.warn(`[ComposeStep] MockDraft R2 (${personaLabel}) — R1 repeats: ${r1Dupes.join(', ')}`);
-    if (invalidPlayers.length > 0) console.warn(`[ComposeStep] MockDraft R2 (${personaLabel}) — invalid players: ${invalidPlayers.join(', ')}`);
-    const repaired = await repairMockDraftRound(2, picks, allR2Issues, r2Pool, slotsForValidation, r1PlayerNames, persona);
-    if (repaired) return repaired;
-    throw new Error(`MockDraft R2 (${personaLabel}) repair failed — issues: ${allR2Issues.join(', ')}`);
-  }
-
-  console.log(`[ComposeStep] MockDraft_R2_${personaLabel} completed — ${picks.length} valid picks`);
-  return { picks, raw };
+  console.log(`[ComposeStep] MockDraft_R2_${personaLabel} completed — ${allPicks.length} valid picks (${segments.length} segments)`);
+  return { picks: allPicks, raw: rawParts.join('\n\n') };
 }
 
 async function genPreDraftTrades(input: StepInput): Promise<TradeItem[]> {

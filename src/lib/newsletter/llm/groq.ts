@@ -767,11 +767,17 @@ const CLAUDE_THINKING_BUDGET_BY_SECTION: Record<string, number> = {
   'Draft Preview - Team Needs': 6000,
   'Draft Preview - Top Prospects': 6000,
 
-  // Max thinking (10000) — mock drafts where pick-by-pick reasoning matters most
-  'Mock Draft - Round 1': 10000,
-  'Mock Draft - Round 2': 10000,
+  // Mock drafts run as two half-round segments (~6 picks per call, see
+  // compose-step genMockDraftR1/R2), so 4000 thinking per call is MORE
+  // per-pick reasoning than the old 10000-for-12-picks single call. Do not
+  // raise this much: thinking + text must finish inside the 150s per-call SDK
+  // timeout, and two segments + a possible repair share one 270s step window
+  // (regression: June 2026 pre-draft run 504'd on MockDraft_R1 three times
+  // when a single 10000-budget call exceeded the call timeout).
+  'Mock Draft - Round 1': 4000,
+  'Mock Draft - Round 2': 4000,
   'Draft Grades - Awards': 3000,
-  'Draft Preview - Mock Draft': 10000,
+  'Draft Preview - Mock Draft': 4000,
 };
 
 function getClaudeThinkingBudget(sectionType: string): number {
