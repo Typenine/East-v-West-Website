@@ -35,7 +35,8 @@ import {
 } from '@/lib/utils/sleeper-api';
 import { getTeamLogoPath } from '@/lib/utils/team-utils';
 import { buildTransactionLedger } from '@/lib/utils/transactions';
-import { fetchTradesAllTime } from '@/lib/utils/trades';
+import { fetchTradesAllTime, type Trade } from '@/lib/utils/trades';
+import { senderOfAsset } from '@/lib/trades/asset-routing';
 import { rulesHtmlSections } from '@/data/rules';
 
 // ─── shared helpers ────────────────────────────────────────────────────────────
@@ -497,6 +498,30 @@ export async function handleGetTransactions(input: { limit?: number; team?: stri
 
 // ─── tool: get_trade_history ───────────────────────────────────────────────────
 
+/**
+ * Slim a trade's teams for LLM consumption. On multi-team trades each asset
+ * carries explicit sender attribution (players get `from`, pick names get a
+ * "(from X)" suffix) — without it a bot can't tell which team sent which piece.
+ */
+export function slimTradeTeams(t: Trade) {
+  const multiTeam = t.teams.length > 2;
+  return t.teams.map((side) => ({
+    name: side.name,
+    received: side.assets
+      .filter((a) => a.type === 'player')
+      .map((a) => {
+        const from = multiTeam ? senderOfAsset(t, side.name, a) : null;
+        return { name: a.name, position: a.position ?? null, ...(from ? { from } : {}) };
+      }),
+    picks: side.assets
+      .filter((a) => a.type === 'pick')
+      .map((a) => {
+        const from = multiTeam ? senderOfAsset(t, side.name, a) : null;
+        return from ? `${a.name} (from ${from})` : a.name;
+      }),
+  }));
+}
+
 export async function handleGetTrades(input: { team?: string; season?: string; limit?: number }) {
   const limit = Math.min(Math.max(1, input.limit ?? 20), 50);
   const teamFilter = (input.team ?? '').toLowerCase().trim();
@@ -515,11 +540,7 @@ export async function handleGetTrades(input: { team?: string; season?: string; l
 
   const page = sorted.slice(0, limit).map((t) => ({
     id: t.id, season: t.season ?? null, week: t.week ?? null, date: t.date,
-    teams: t.teams.map((side) => ({
-      name: side.name,
-      received: side.assets.filter((a) => a.type === 'player').map((a) => ({ name: a.name, position: a.position ?? null })),
-      picks: side.assets.filter((a) => a.type === 'pick').map((a) => a.name),
-    })),
+    teams: slimTradeTeams(t),
   }));
 
   return {
@@ -815,11 +836,7 @@ export async function handleGetWeeklyContext() {
     .slice(0, 5)
     .map((t) => ({
       week: t.week ?? null,
-      teams: t.teams.map((side) => ({
-        name: side.name,
-        received: side.assets.filter((a) => a.type === 'player').map((a) => ({ name: a.name, position: a.position ?? null })),
-        picks: side.assets.filter((a) => a.type === 'pick').map((a) => a.name),
-      })),
+      teams: slimTradeTeams(t),
     }));
 
   // ── Recent waiver/FA moves (current season, last 8) ──────────────────────────
@@ -874,9 +891,12 @@ export async function handleGetWeeklyContext() {
   }
   if (recentTrades.length > 0) {
     const t = recentTrades[0];
-    if (t.teams.length === 2) {
-      storylines.push(`Trade alert: ${t.teams[0].name} and ${t.teams[1].name} made a deal${t.week ? ` in Week ${t.week}` : ''}. Who won?`);
-    }
+    const names = t.teams.map((side) => side.name);
+    const partners = names.length > 2
+      ? `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`
+      : names.join(' and ');
+    const label = names.length > 2 ? `pulled off a ${names.length}-team trade` : 'made a deal';
+    storylines.push(`Trade alert: ${partners} ${label}${t.week ? ` in Week ${t.week}` : ''}. Who won?`);
   }
   const highScorer = weekMatchups.length > 0 && weekMatchups[0].status !== 'upcoming'
     ? [...weekMatchups].sort((a, b) => Math.max(b.away.points, b.home.points) - Math.max(a.away.points, a.home.points))[0]
@@ -1154,7 +1174,7 @@ export function formatWeeklyContextMarkdown(data: {
     onBubble: Array<{ team: string; rank: number; wins: number; losses: number }>;
     bubbleGap?: { wins: number; pf: number } | null;
   } | null;
-  recentTrades?: Array<{ week?: number | null; teams: Array<{ name: string; received: Array<{ name: string; position: string | null }>; picks: string[] }> }>;
+  recentTrades?: Array<{ week?: number | null; teams: Array<{ name: string; received: Array<{ name: string; position: string | null; from?: string | null }>; picks: string[] }> }>;
   recentWaivers?: Array<{ team: string; type: string; week?: number | null; faab?: number | null; added: string[]; dropped: string[] }>;
   injuries?: Array<{ team: string; player: string; position: string | null; status: string }>;
   suggestedStorylines?: string[];
@@ -1226,13 +1246,23 @@ export function formatWeeklyContextMarkdown(data: {
   if (trades.length > 0) {
     lines.push('### Recent Trades');
     for (const t of trades.slice(0, 4)) {
+      const when = t.week ? ` (Wk ${t.week})` : '';
       if (t.teams.length === 2) {
         const [a, b] = t.teams;
         const aGot = [...a.received.map((p) => p.name), ...a.picks].join(', ') || '—';
         const bGot = [...b.received.map((p) => p.name), ...b.picks].join(', ') || '—';
-        const when = t.week ? ` (Wk ${t.week})` : '';
         lines.push(`- **${a.name}** got: ${aGot}${when}`);
         lines.push(`  **${b.name}** got: ${bGot}`);
+      } else {
+        // Multi-team trade — name the sender of every asset.
+        lines.push(`- **${t.teams.length}-team trade**${when}:`);
+        for (const side of t.teams) {
+          const got = [
+            ...side.received.map((p) => (p.from ? `${p.name} (from ${p.from})` : p.name)),
+            ...side.picks,
+          ].join(', ') || '—';
+          lines.push(`  **${side.name}** got: ${got}`);
+        }
       }
     }
     lines.push('');
@@ -1359,7 +1389,7 @@ export function formatTradeHistoryMarkdown(
     date?: string;
     teams: Array<{
       name: string;
-      received: Array<{ name: string; position: string | null }>;
+      received: Array<{ name: string; position: string | null; from?: string | null }>;
       picks: string[];
     }>;
   }>,
@@ -1420,10 +1450,12 @@ export function formatTradeHistoryMarkdown(
         lines.push(`| ${aAssets[i] ?? '—'} | ${bAssets[i] ?? '—'} |`);
       }
     } else {
-      // 3-team trade fallback
+      // Multi-team trade: every asset names its sender so the bot can tell
+      // which team gave up which piece (picks carry a baked "(from X)" suffix).
+      lines.push(`*${trade.teams.length}-team trade — "from" marks the team that sent each asset:*`);
       for (const side of trade.teams) {
         const assets = [
-          ...side.received.map(fmtAsset),
+          ...side.received.map((p) => (p.from ? `${fmtAsset(p)} (from ${p.from})` : fmtAsset(p))),
           ...side.picks,
         ].join(', ') || '—';
         lines.push(`- **${side.name} receives:** ${assets}`);

@@ -218,7 +218,7 @@ All four Phase 6A Markdown cards have been added:
 | Tool | Card behaviour |
 |---|---|
 | `get_draft_picks` | Traded picks grouped by draft year with original vs current owner table; untouched picks summarised as a single line |
-| `get_trade_history` | Two-column swap table per trade (Team A receives / Team B receives); 3-team trades use bullet fallback; capped at 8 trades in chat |
+| `get_trade_history` | Two-column swap table per trade (Team A receives / Team B receives); 3+-team trades list each team's haul with per-asset "(from X)" sender attribution; capped at 8 trades in chat |
 | `answer_rule_question` | Section title + block-quote excerpts (max 3 sections, 6 lines each); full-section lookup shows first 800 chars; "commissioner review" note when ambiguous |
 | `get_current_roster` | Formatted card when a single `team` is provided (position-grouped, NFL team, ⚠️ injury flags, IR/taxi counts); all-teams call returns a hint to use the `team` param |
 

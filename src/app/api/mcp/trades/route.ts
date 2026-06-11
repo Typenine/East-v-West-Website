@@ -13,6 +13,7 @@
 import { NextResponse } from 'next/server';
 import { requireMcpAuth, mcpMeta } from '@/lib/mcp/auth';
 import { fetchTradesAllTime } from '@/lib/utils/trades';
+import { slimTradeTeams } from '@/lib/mcp/handlers';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -55,21 +56,14 @@ export async function GET(request: Request) {
 
     const page = sorted.slice(0, limit);
 
-    // Slim each trade: keep teams, assets (player names + positions), season/week
+    // Slim each trade: keep teams, assets (player names + positions), season/week.
+    // Multi-team trades get per-asset sender attribution via slimTradeTeams.
     const slim = page.map((t) => ({
       id: t.id,
       season: t.season ?? null,
       week: t.week ?? null,
       date: t.date,
-      teams: t.teams.map((side) => ({
-        name: side.name,
-        received: side.assets
-          .filter((a) => a.type === 'player')
-          .map((a) => ({ name: a.name, position: a.position ?? null })),
-        picks: side.assets
-          .filter((a) => a.type === 'pick')
-          .map((a) => a.name),
-      })),
+      teams: slimTradeTeams(t),
     }));
 
     return NextResponse.json({

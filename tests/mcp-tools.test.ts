@@ -121,6 +121,31 @@ const mockTrades = [
       { name: 'Belltown Raptors', assets: [{ type: 'pick' as const, name: '2027 1st Round Pick', round: 1, year: '2027' }], gets: [], gives: [] },
     ],
   },
+  // 3-team trade: every received asset must be attributable to its sender.
+  {
+    id: 'trade2', date: '2026-05-03', season: '2026', week: null, created: Date.now() - 2 * 86400000,
+    status: 'completed' as const,
+    teams: [
+      {
+        name: 'Belleview Badgers',
+        assets: [{ type: 'pick' as const, name: '2026 1st Round Pick', round: 1, year: '2026', originalOwner: 'The Lone Ginger' }],
+        gets: [],
+        gives: [{ type: 'player' as const, name: 'Bijan Robinson', position: 'RB', playerId: '8138' }],
+      },
+      {
+        name: 'Mt. Lebanon Cake Eaters',
+        assets: [{ type: 'player' as const, name: 'Bijan Robinson', position: 'RB', playerId: '8138' }],
+        gets: [],
+        gives: [{ type: 'player' as const, name: 'Trey McBride', position: 'TE', playerId: '8130' }],
+      },
+      {
+        name: 'The Lone Ginger',
+        assets: [{ type: 'player' as const, name: 'Trey McBride', position: 'TE', playerId: '8130' }],
+        gets: [],
+        gives: [{ type: 'pick' as const, name: '2026 1st Round Pick', round: 1, year: '2026', originalOwner: 'The Lone Ginger' }],
+      },
+    ],
+  },
 ];
 
 // ─── Mock: @/lib/utils/sleeper-api ────────────────────────────────────────────
@@ -693,6 +718,36 @@ describe('get_trade_history', () => {
     const res = await handleGetTrades({ team: 'Double Trouble' });
     const dt = res.trades[0].teams.find((s) => s.name === 'Double Trouble');
     expect(dt?.received.some((p) => p.name === 'Justin Jefferson')).toBe(true);
+  });
+
+  it('3-team trade: received players carry `from` sender attribution', async () => {
+    const res = await handleGetTrades({ team: 'Belleview Badgers' });
+    const trade = res.trades.find((t) => t.teams.length === 3);
+    expect(trade).toBeDefined();
+    const cake = trade!.teams.find((s) => s.name === 'Mt. Lebanon Cake Eaters');
+    expect(cake?.received[0]).toMatchObject({ name: 'Bijan Robinson', from: 'Belleview Badgers' });
+    const ginger = trade!.teams.find((s) => s.name === 'The Lone Ginger');
+    expect(ginger?.received[0]).toMatchObject({ name: 'Trey McBride', from: 'Mt. Lebanon Cake Eaters' });
+  });
+
+  it('3-team trade: pick names carry a "(from X)" suffix', async () => {
+    const res = await handleGetTrades({ team: 'Belleview Badgers' });
+    const trade = res.trades.find((t) => t.teams.length === 3);
+    const badgers = trade!.teams.find((s) => s.name === 'Belleview Badgers');
+    expect(badgers?.picks[0]).toBe('2026 1st Round Pick (from The Lone Ginger)');
+  });
+
+  it('2-team trades stay unannotated (sender is unambiguous)', async () => {
+    const res = await handleGetTrades({ team: 'Double Trouble' });
+    const trade = res.trades.find((t) => t.teams.length === 2)!;
+    for (const side of trade.teams) {
+      for (const p of side.received) {
+        expect('from' in p).toBe(false);
+      }
+      for (const pick of side.picks) {
+        expect(pick).not.toContain('(from');
+      }
+    }
   });
 });
 
