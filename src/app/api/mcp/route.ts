@@ -20,6 +20,7 @@
 
 import { NextResponse } from 'next/server';
 import { requireMcpAuth } from '@/lib/mcp/auth';
+import { withMcpLogging } from '@/lib/mcp/call-logger';
 import {
   handleGetLeagueInfo,
   handleGetStandings,
@@ -413,7 +414,7 @@ export async function POST(request: Request) {
     }
 
     try {
-      const result = await dispatchTool(toolName, toolInput);
+      const result = await withMcpLogging(toolName, toolInput, () => dispatchTool(toolName, toolInput));
       return jsonrpcResult(id, {
         content: [{ type: 'text', text: JSON.stringify(result) }],
         isError: false,

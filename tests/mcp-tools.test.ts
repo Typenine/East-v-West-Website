@@ -507,7 +507,7 @@ describe('get_player_info (handleGetPlayer by id)', () => {
   });
 
   it('meta includes lookupType id', async () => {
-    const res = await handleGetPlayer({ id: '4034' }) as { meta: { lookupType: string } };
+    const res = await handleGetPlayer({ id: '4034' });
     expect(res.meta.lookupType).toBe('id');
   });
 });
@@ -901,9 +901,10 @@ describe('get_weekly_content_context', () => {
     }
   });
 
-  it('recentTransactions is capped at 10', async () => {
+  it('recentWaivers is capped at 8 and recentTrades at 5', async () => {
     const res = await handleGetWeeklyContext();
-    expect(res.recentTransactions.length).toBeLessThanOrEqual(10);
+    expect(res.recentWaivers.length).toBeLessThanOrEqual(8);
+    expect(res.recentTrades.length).toBeLessThanOrEqual(5);
   });
 
   it('matchups use real team names', async () => {
@@ -1046,8 +1047,8 @@ describe('Sleeper failure / missing data behavior', () => {
     const { buildTransactionLedger } = await import('@/lib/utils/transactions');
     vi.mocked(buildTransactionLedger).mockRejectedValueOnce(new Error('DB timeout'));
     const res = await handleGetWeeklyContext();
-    // recentTransactions should be empty array, not undefined or thrown
-    expect(res.recentTransactions).toBeInstanceOf(Array);
+    // recentWaivers should be empty array, not undefined or thrown
+    expect(res.recentWaivers).toBeInstanceOf(Array);
   });
 });
 
@@ -1067,11 +1068,12 @@ describe('metadata quality — source and freshness', () => {
       handleGetWeeklyContext(),
     ]);
     for (const res of responses) {
+      expect(res.meta).toBeDefined();
       expect(res.meta).toHaveProperty('tool');
       expect(res.meta).toHaveProperty('source');
       expect(res.meta).toHaveProperty('fetchedAt');
-      expect(typeof res.meta.tool).toBe('string');
-      expect(res.meta.source).toBe('east-v-west-api');
+      expect(typeof res.meta!.tool).toBe('string');
+      expect(res.meta!.source).toBe('east-v-west-api');
     }
   });
 

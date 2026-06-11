@@ -50,6 +50,91 @@ interface ChangedField {
   current: string;
 }
 
+// ── Run observability types (from /api/admin/diagnostics) ────────────────────
+
+interface RunSectionMeta {
+  sectionName: string;
+  status: string;
+  provider: string | null;
+  tier: number | null;
+  isFallback: boolean;
+  error: string | null;
+}
+
+interface RunInfo {
+  runId: string;
+  status: string;
+  warnings: string[] | null;
+  factAudit: FactAuditData | null;
+}
+
+interface FactAuditClaim {
+  section: string;
+  claim: string;
+  type: string;
+  risk: 'high' | 'medium' | 'low';
+  reason: string;
+}
+
+interface FactAuditData {
+  claims: FactAuditClaim[];
+  highRiskCount: number;
+  mediumRiskCount: number;
+  sectionsAudited: number;
+  model: string;
+  generatedAt: string;
+  error?: string;
+}
+
+/** Map run step names (Recap_0, Trade_1, Spotlight…) onto a newsletter section type. */
+function runSectionsForType(sectionType: string, runSections: RunSectionMeta[]): RunSectionMeta[] {
+  return runSections.filter(rs => {
+    if (rs.sectionName === sectionType) return true;
+    if (sectionType === 'MatchupRecaps') return /^Recap_\d+$/.test(rs.sectionName);
+    if (sectionType === 'Trades') return /^Trade_\d+$/.test(rs.sectionName);
+    if (sectionType === 'SpotlightTeam') return rs.sectionName === 'Spotlight';
+    return false;
+  });
+}
+
+const PROVIDER_BADGE: Record<string, { label: string; cls: string }> = {
+  'anthropic':        { label: 'Claude',     cls: 'bg-orange-900/50 text-orange-300 border-orange-700/50' },
+  'gemini-2.5-flash': { label: 'Gemini 2.5', cls: 'bg-blue-900/50 text-blue-300 border-blue-700/50' },
+  'gemini-2.0-flash': { label: 'Gemini 2.0', cls: 'bg-blue-900/50 text-blue-400 border-blue-800/50' },
+  'groq':             { label: 'Groq',       cls: 'bg-purple-900/50 text-purple-300 border-purple-700/50' },
+  'cerebras':         { label: 'Cerebras',   cls: 'bg-pink-900/50 text-pink-300 border-pink-700/50' },
+  'openrouter':       { label: 'OpenRouter', cls: 'bg-teal-900/50 text-teal-300 border-teal-700/50' },
+};
+
+function ProviderBadges({ metas }: { metas: RunSectionMeta[] }) {
+  if (metas.length === 0) return null;
+  const providers = [...new Set(metas.map(m => m.provider).filter((p): p is string => !!p))];
+  const anyFallback = metas.some(m => m.isFallback);
+  const anyFailed = metas.some(m => m.status === 'failed');
+  return (
+    <span className="flex items-center gap-1">
+      {providers.map(p => {
+        const badge = PROVIDER_BADGE[p] ?? { label: p, cls: 'bg-zinc-800 text-zinc-400 border-zinc-600' };
+        return (
+          <span key={p} className={`text-[9px] font-semibold uppercase tracking-wide border rounded px-1.5 py-0.5 ${badge.cls}`}>
+            {badge.label}
+          </span>
+        );
+      })}
+      {anyFallback && (
+        <span className="text-[9px] font-semibold uppercase tracking-wide border rounded px-1.5 py-0.5 bg-amber-900/50 text-amber-300 border-amber-700/50" title="A fallback provider wrote part of this section">
+          ⚠ fallback
+        </span>
+      )}
+      {anyFailed && (
+        <span className="text-[9px] font-semibold uppercase tracking-wide border rounded px-1.5 py-0.5 bg-red-900/50 text-red-300 border-red-700/50" title="A step in this section failed during generation">
+          ✗ failed step
+        </span>
+      )}
+    </span>
+  );
+}
+
 export interface EditModePanelProps {
   season: string;
   week: string;
@@ -283,6 +368,11 @@ export default function EditModePanel({
   const [showChangeSummary, setShowChangeSummary] = useState(false);
   const [showPreview, setShowPreview] = useState(true);
   const [publishHistory, setPublishHistory] = useState<Array<{ at: string; htmlLength: number }>>([]);
+  const [runInfo, setRunInfo] = useState<RunInfo | null>(null);
+  const [runSections, setRunSections] = useState<RunSectionMeta[]>([]);
+  const [factAudit, setFactAudit] = useState<FactAuditData | null>(null);
+  const [auditRunning, setAuditRunning] = useState(false);
+  const [showRunHealth, setShowRunHealth] = useState(false);
   const [selPopover, setSelPopover] = useState<SelectionPopover | null>(null);
   const taRefs = useRef<Record<string, HTMLTextAreaElement | null>>({});
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
@@ -311,6 +401,44 @@ export default function EditModePanel({
       .catch(console.error);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // ── Load run observability (provider badges, warnings, fact audit) ────────
+
+  useEffect(() => {
+    fetch(`/api/admin/diagnostics?season=${season}&week=${wNum}`, { cache: 'no-store', credentials: 'include' })
+      .then(r => r.json())
+      .then((data: { run?: RunInfo | null; sections?: RunSectionMeta[] }) => {
+        if (data.run) {
+          setRunInfo(data.run);
+          setFactAudit(data.run.factAudit ?? null);
+        }
+        setRunSections(data.sections ?? []);
+      })
+      .catch(() => { /* observability is optional — editor works without it */ });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handleRunFactAudit = async () => {
+    setAuditRunning(true);
+    try {
+      const res = await fetch('/api/newsletter/fact-audit', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ season: seasonNum, week: wNum, runId: runInfo?.runId }),
+      });
+      const data = await res.json() as { audit?: FactAuditData; error?: string };
+      if (!res.ok || !data.audit) throw new Error(data.error ?? 'Fact audit failed');
+      setFactAudit(data.audit);
+      setShowRunHealth(true);
+    } catch (err) {
+      setFactAudit({
+        claims: [], highRiskCount: 0, mediumRiskCount: 0, sectionsAudited: 0,
+        model: 'none', generatedAt: new Date().toISOString(),
+        error: err instanceof Error ? err.message : 'Fact audit failed',
+      });
+    } finally {
+      setAuditRunning(false);
+    }
+  };
 
   // ── Persist to localStorage on every state change ─────────────────────────
 
@@ -626,6 +754,18 @@ export default function EditModePanel({
             <div className="flex items-center gap-2 flex-wrap">
               <button
                 className="text-xs text-zinc-400 hover:text-zinc-200 border border-zinc-600 rounded px-2 py-1"
+                onClick={() => setShowRunHealth(p => !p)}
+              >
+                🩺 Run Health
+                {(runInfo?.warnings?.length ?? 0) > 0 && (
+                  <span className="ml-1 text-amber-400">({runInfo!.warnings!.length})</span>
+                )}
+                {(factAudit?.highRiskCount ?? 0) > 0 && (
+                  <span className="ml-1 text-red-400">⚑{factAudit!.highRiskCount}</span>
+                )}
+              </button>
+              <button
+                className="text-xs text-zinc-400 hover:text-zinc-200 border border-zinc-600 rounded px-2 py-1"
                 onClick={() => setShowPreview(p => !p)}
               >{showPreview ? '⬅ Hide Preview' : '➡ Show Preview'}</button>
               {finalizeResult?.ok ? (
@@ -653,6 +793,77 @@ export default function EditModePanel({
         </CardHeader>
 
         <CardContent className="py-3">
+          {/* ── Run health panel: coverage warnings + fact-audit flags ── */}
+          {showRunHealth && (
+            <div className="mb-4 border border-zinc-700 rounded-lg p-4 bg-zinc-900/60 space-y-3">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <div className="text-xs font-semibold text-zinc-200 uppercase tracking-wide">🩺 Run Health</div>
+                <div className="flex items-center gap-2">
+                  {runInfo && (
+                    <span className="text-[10px] text-zinc-500">
+                      run {runInfo.runId.slice(0, 12)}… · {runInfo.status}
+                    </span>
+                  )}
+                  <Button size="sm" variant="secondary" onClick={handleRunFactAudit} disabled={auditRunning}>
+                    {auditRunning ? 'Auditing…' : '🔍 Run Fact Audit'}
+                  </Button>
+                </div>
+              </div>
+
+              {/* Coverage / generation warnings */}
+              {(runInfo?.warnings?.length ?? 0) > 0 ? (
+                <div className="space-y-1">
+                  <div className="text-[10px] font-semibold text-amber-400 uppercase tracking-wide">Coverage & Generation Warnings</div>
+                  {runInfo!.warnings!.map((w, i) => (
+                    <div key={i} className="text-xs text-amber-200/90 bg-amber-900/20 border border-amber-800/30 rounded px-2 py-1">⚠ {w}</div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-xs text-zinc-500 italic">No coverage or generation warnings recorded for this run.</div>
+              )}
+
+              {/* Fact-audit results */}
+              {factAudit && (
+                <div className="space-y-1">
+                  <div className="text-[10px] font-semibold text-zinc-400 uppercase tracking-wide">
+                    Fact Audit · {factAudit.model} · {factAudit.sectionsAudited} sections ·{' '}
+                    <span className="text-red-400">{factAudit.highRiskCount} high</span> /{' '}
+                    <span className="text-amber-400">{factAudit.mediumRiskCount} medium</span>
+                  </div>
+                  {factAudit.error && (
+                    <div className="text-xs text-red-400">Audit error: {factAudit.error}</div>
+                  )}
+                  <div className="max-h-64 overflow-y-auto space-y-1">
+                    {factAudit.claims
+                      .filter(c => c.risk !== 'low')
+                      .map((c, i) => (
+                        <div
+                          key={i}
+                          className={`text-xs rounded px-2 py-1.5 border ${
+                            c.risk === 'high'
+                              ? 'bg-red-900/20 border-red-800/40 text-red-200'
+                              : 'bg-amber-900/15 border-amber-800/30 text-amber-200/90'
+                          }`}
+                        >
+                          <span className="font-semibold uppercase text-[9px] tracking-wide mr-1.5">
+                            {c.risk === 'high' ? '⚑ high' : '△ med'} · {c.type} · {stepLabel(c.section)}
+                          </span>
+                          <span className="text-zinc-300">&ldquo;{c.claim}&rdquo;</span>
+                          {c.reason && <span className="block text-[10px] text-zinc-500 mt-0.5">{c.reason}</span>}
+                        </div>
+                      ))}
+                    {factAudit.claims.filter(c => c.risk !== 'low').length === 0 && !factAudit.error && (
+                      <div className="text-xs text-emerald-400">✓ No high- or medium-risk claims flagged.</div>
+                    )}
+                  </div>
+                </div>
+              )}
+              {!factAudit && (
+                <div className="text-xs text-zinc-500 italic">No fact audit yet — run one to flag risky claims before publishing.</div>
+              )}
+            </div>
+          )}
+
           {/* Layout: editor left, HTML preview right */}
           <div className={`flex gap-4 ${showPreview ? 'flex-row' : 'flex-col'}`}>
 
@@ -693,7 +904,10 @@ export default function EditModePanel({
                         }}
                         className="w-full flex items-center justify-between px-4 py-2.5 bg-zinc-800/60 hover:bg-zinc-800 text-left transition-colors"
                       >
-                        <span className="text-sm font-medium text-zinc-200">{stepLabel(sec.type)}</span>
+                        <span className="flex items-center gap-2 min-w-0">
+                          <span className="text-sm font-medium text-zinc-200">{stepLabel(sec.type)}</span>
+                          <ProviderBadges metas={runSectionsForType(sec.type, runSections)} />
+                        </span>
                         <span className="text-xs text-zinc-500">
                           {fields.length > 0 ? `${fields.length} field${fields.length !== 1 ? 's' : ''}` : 'no text'}&nbsp;{isExpanded ? '▲' : '▼'}
                         </span>

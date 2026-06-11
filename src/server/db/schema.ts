@@ -416,6 +416,8 @@ export const generationRuns = pgTable('generation_runs', {
   contextPacket: jsonb('context_packet'),
   // Final validation result, coverage report, repetition warnings
   validation: jsonb('validation'),
+  // Post-generation fact-audit result: extracted claims with risk classification
+  factAudit: jsonb('fact_audit'),
   warnings: jsonb('warnings').$type<string[]>().default([]),
   totalSteps: integer('total_steps'),
   completedSteps: integer('completed_steps'),

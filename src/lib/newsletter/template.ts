@@ -1334,6 +1334,30 @@ function sectionPredictionCallbacks(d: import('./types').PredictionCallbackItem[
 
 // ============ Main Render Function ============
 
+// ============ Per-section render fallback ============
+// One section with malformed data must never blank the whole newsletter.
+// The placeholder is visible in admin/preview so the section can be
+// regenerated or hand-edited, while every other section renders normally.
+
+function sectionFallbackHtml(type: string): string {
+  return `
+  <article>
+    <div style="border:1px dashed #d1d5db;border-radius:6px;padding:28px 32px;background:#f9fafb;text-align:center;">
+      <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:12px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:#9ca3af;margin-bottom:8px;">${esc(type)}</div>
+      <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:14px;color:#6b7280;">[Section unavailable — regenerate this section or refresh to retry]</div>
+    </div>
+  </article>`;
+}
+
+function renderSectionSafe(type: string, render: () => string): string {
+  try {
+    return render();
+  } catch (err) {
+    console.error(`[Template] section "${type}" failed to render (using fallback):`, err instanceof Error ? err.message : String(err));
+    return sectionFallbackHtml(type);
+  }
+}
+
 export function renderHtml(newsletter: Newsletter): string {
   const { meta, sections } = newsletter;
   const week = meta.week;
@@ -1420,7 +1444,7 @@ export function renderHtml(newsletter: Newsletter): string {
     </div>
   </header>`;
 
-  const body = sections.map(s => {
+  const body = sections.map(s => renderSectionSafe(s.type, () => {
     switch (s.type) {
       case 'Intro': return sectionIntro(s.data, week, episodeType, meta.episodeTitle);
       case 'Callbacks': return sectionCallbacks(s.data);
@@ -1442,7 +1466,7 @@ export function renderHtml(newsletter: Newsletter): string {
       case 'PredictionCallbacks': return sectionPredictionCallbacks(s.data);
       default: return '';
     }
-  }).join('\n');
+  })).join('\n');
 
   return `<!doctype html>
 <html lang="en"><head>
@@ -1501,6 +1525,7 @@ export function renderNewsletterData(newsletter: Newsletter): {
 
   const htmlSections = sections.map(s => {
     let html = '';
+    try {
     switch (s.type) {
       case 'Intro': html = sectionIntro(s.data, week); break;
       case 'Callbacks': html = sectionCallbacks(s.data); break;
@@ -1528,6 +1553,10 @@ export function renderNewsletterData(newsletter: Newsletter): {
       // Phase 4 sections
       case 'ClancyInsert': html = sectionClancyInsert(s.data); break;
       case 'PredictionCallbacks': html = sectionPredictionCallbacks(s.data); break;
+    }
+    } catch (err) {
+      console.error(`[Template] section "${s.type}" failed to render (using fallback):`, err instanceof Error ? err.message : String(err));
+      html = sectionFallbackHtml(s.type);
     }
     return { type: s.type, html };
   });

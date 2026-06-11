@@ -85,7 +85,16 @@ export async function generateWithAnthropicProvider(req: ProviderRequest): Promi
         model,
         max_tokens: maxTokens,
         temperature: useThinking ? 1 : req.temperature,
-        system: req.systemPrompt,
+        // Prompt caching: persona/system prompts are stable across sections within a run,
+        // so mark them as an ephemeral cache breakpoint. Prompts under the model's minimum
+        // cacheable length (1024 tokens for Sonnet) are silently not cached — no error.
+        system: [
+          {
+            type: 'text' as const,
+            text: req.systemPrompt,
+            cache_control: { type: 'ephemeral' as const },
+          },
+        ],
         messages: [{ role: 'user', content: req.userPrompt }],
         ...(useThinking ? { thinking: { type: 'enabled' as const, budget_tokens: thinkingBudget } } : {}),
       };
@@ -96,8 +105,10 @@ export async function generateWithAnthropicProvider(req: ProviderRequest): Promi
       const inputTokens = message.usage.input_tokens;
       const outputTokens = message.usage.output_tokens;
       const stopReason = message.stop_reason ?? 'unknown';
-      // cache_read_input_tokens is on the usage object when prompt caching is active
-      const cacheReadTokens = (message.usage as unknown as Record<string, unknown>).cache_read_input_tokens as number | undefined;
+      // cache_read/creation_input_tokens are on the usage object when prompt caching is active
+      const usageRecord = message.usage as unknown as Record<string, unknown>;
+      const cacheReadTokens = usageRecord.cache_read_input_tokens as number | undefined;
+      const cacheWriteTokens = usageRecord.cache_creation_input_tokens as number | undefined;
 
       // Count thinking tokens separately for logging
       const thinkingTokensUsed = useThinking
@@ -119,6 +130,7 @@ export async function generateWithAnthropicProvider(req: ProviderRequest): Promi
         ` in=${inputTokens} out=${outputTokens}` +
         (thinkingTokensUsed ? ` thinking≈${thinkingTokensUsed}` : '') +
         (cacheReadTokens ? ` cache_read=${cacheReadTokens}` : '') +
+        (cacheWriteTokens ? ` cache_write=${cacheWriteTokens}` : '') +
         ` total_in=${anthropicSessionTokens.inputTokens} total_out=${anthropicSessionTokens.outputTokens}` +
         ` attempt=${attempt + 1}/${maxRetries + 1} ${durationMs}ms` +
         (useThinking ? ` [extended-thinking budget=${thinkingBudget}]` : ''),

@@ -71,7 +71,10 @@ function timingSafeEqual(a: string, b: string): boolean {
 }
 
 /** Standard metadata block included in all MCP responses. */
-export function mcpMeta(tool: string, extra?: Record<string, unknown>) {
+export function mcpMeta(
+  tool: string,
+  extra?: Record<string, unknown>,
+): { tool: string; source: string; fetchedAt: string } & Record<string, unknown> {
   return {
     tool,
     source: 'east-v-west-api',

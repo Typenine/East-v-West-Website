@@ -33,7 +33,7 @@ export interface CoverageReport {
 // ── Text extraction ──────────────────────────────────────────────────────────
 
 /** Recursively pull all string values out of a section's data payload. */
-function extractText(value: unknown, depth = 0): string[] {
+export function extractText(value: unknown, depth = 0): string[] {
   if (depth > 6 || value == null) return [];
   if (typeof value === 'string') return value.length > 20 ? [value] : [];
   if (Array.isArray(value)) return value.flatMap(v => extractText(v, depth + 1));

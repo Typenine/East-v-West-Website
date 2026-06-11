@@ -122,6 +122,33 @@ export async function recordSectionResult(input: SectionRecordInput): Promise<vo
   }
 }
 
+// ============ Fact Audit ============
+
+/** Attach a fact-audit result to an existing run. Fire-and-forget safe. */
+export async function saveFactAudit(runId: string, audit: Record<string, unknown>): Promise<void> {
+  try {
+    const db = getDb();
+    await db
+      .update(generationRuns)
+      .set({ factAudit: audit })
+      .where(eq(generationRuns.runId, runId));
+  } catch (err) {
+    console.warn('[Obs] saveFactAudit failed (non-fatal):', err instanceof Error ? err.message : String(err));
+  }
+}
+
+/** Most recent run for a given newsletter (any status). */
+export async function getLatestRunForWeek(season: number, week: number) {
+  const db = getDb();
+  const rows = await db
+    .select()
+    .from(generationRuns)
+    .where(and(eq(generationRuns.season, season), eq(generationRuns.week, week)))
+    .orderBy(desc(generationRuns.startedAt))
+    .limit(1);
+  return rows[0] ?? null;
+}
+
 // ============ Read APIs (admin diagnostics) ============
 
 export async function listRecentRuns(limit = 20) {
