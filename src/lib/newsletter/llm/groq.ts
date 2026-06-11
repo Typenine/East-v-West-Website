@@ -742,9 +742,16 @@ const CLAUDE_THINKING_BUDGET_BY_SECTION: Record<string, number> = {
   'Offseason Update Intro': 3000,
   'Power Rankings Intro': 3000,
   'Pre-Draft Preview Intro': 3000,
-  'Trade Grade': 3000,
-  '2-Team Trade Grade': 3000,
-  '3-Team Trade Grade': 3000,
+  // Trade grades: a 3-team trade runs 6 serialized grade calls in one 270s
+  // step window, so the per-call thinking budget is kept moderate. The
+  // routing/scope facts are deterministic context — the model doesn't need to
+  // derive them, just apply them.
+  'Trade Grade': 2048,
+  '2-Team Trade Grade': 2048,
+  '3-Team Trade Grade': 2048,
+  // Attribution-lint retries carry explicit corrections — they need compliance,
+  // not deep reasoning, and must stay fast to fit the step's 270s window.
+  'Trade Grade Retry': 1024,
   'Offseason Trade Analysis': 3000,
   'Offseason Trade Party Grades': 3000,
   'Dynasty Analysis': 3000,
@@ -809,6 +816,7 @@ const THINKING_BUDGET_BY_SECTION: Record<string, number> = {
   'Trade Grade': 2048,
   '2-Team Trade Grade': 2048,
   '3-Team Trade Grade': 2048,
+  'Trade Grade Retry': 1024,
   'Offseason Trade Analysis': 2048,
   'Offseason Trade Party Grades': 2048,
   'Intro': 2048,

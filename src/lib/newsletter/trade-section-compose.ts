@@ -126,11 +126,19 @@ export async function composeTradeItemFromEvent(input: ComposeTradeSectionInput)
     '- Contention window: rebuilders should be acquiring youth and picks; contenders should be acquiring now-production. Judge each side against THEIR window, not in a vacuum.',
   ].join('\n');
 
+  // generate-step runs under Vercel's 270s maxDuration and a 3-team trade is
+  // already ~6 serialized LLM calls. Lint-retry regenerations are a bonus, not
+  // a requirement — once the step has been running this long, skip them and
+  // fall back to deterministic sentence-stripping so the step never times out.
+  const RETRY_DEADLINE_MS = 150_000;
+  const composeStartedAt = Date.now();
+  const retryBudgetLeft = () => Date.now() - composeStartedAt < RETRY_DEADLINE_MS;
+
   /**
    * Generate a grade paragraph, then lint it for direction-flipped attribution
    * claims (the recurring "Badgers traded Thomas" failure). One retry with
-   * explicit corrections; if it still fails, keep the cleaner draft and strip
-   * the offending sentences deterministically.
+   * explicit corrections (time budget permitting); if it still fails, keep the
+   * cleaner draft and strip the offending sentences deterministically.
    */
   const generateGradeChecked = async (opts: {
     persona: 'entertainer' | 'analyst';
@@ -153,6 +161,13 @@ export async function composeTradeItemFromEvent(input: ComposeTradeSectionInput)
     const v1 = lint(first);
     if (v1.length === 0) return first;
 
+    if (!retryBudgetLeft()) {
+      console.warn(
+        `[trade:${opts.logName}] ${v1.length} attribution violation(s) but step time budget spent — stripping without retry`,
+      );
+      return stripViolatingSentences(first, v1);
+    }
+
     console.warn(
       `[trade:${opts.logName}] ${v1.length} attribution violation(s), retrying — ${v1.map(v => `${v.kind}:${v.asset}`).join(', ')}`,
     );
@@ -161,9 +176,11 @@ export async function composeTradeItemFromEvent(input: ComposeTradeSectionInput)
       ...v1.map(v => `- You wrote: "${v.sentence}" — WRONG. ${v.correction}`),
       'Rewrite your full response. Before writing any send/receive claim, verify it against PAIRWISE ROUTING and GRADING SCOPE above.',
     ].join('\n');
+    // 'Trade Grade Retry' uses a reduced thinking budget — the correction is
+    // explicit, so the retry doesn't need deep reasoning, just compliance.
     const second = await generateSection({
       persona: opts.persona,
-      sectionType: 'Trade Grade',
+      sectionType: 'Trade Grade Retry',
       context: opts.context,
       constraints: opts.constraints + '\n\n' + correction,
       maxTokens: 1100,
