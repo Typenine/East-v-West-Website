@@ -12,6 +12,8 @@ import {
   buildTradePartyScopeBlock,
   stripTradeGradeLeadIn,
   stripTradeIntroBoilerplate,
+  findTradeAttributionViolations,
+  stripViolatingSentences,
   type ByTeam,
 } from '../trade-facts';
 
@@ -204,6 +206,114 @@ describe('stripTradeGradeLeadIn', () => {
     const result = stripTradeGradeLeadIn(input);
     expect(result).not.toMatch(/when i first saw/i);
     expect(result).toContain('Belleview Badgers');
+  });
+});
+
+// ── findTradeAttributionViolations ────────────────────────────────────────────
+
+describe('findTradeAttributionViolations — Brian Thomas 3-team trade', () => {
+  // Mirrors the real May 2026 trade where bots kept saying the Badgers traded
+  // Brian Thomas when The Lone Ginger sent him to the Cake Eaters.
+  const parties = ['Belleview Badgers', 'Mt. Lebanon Cake Eaters', 'The Lone Ginger'];
+  const byTeam: ByTeam = {
+    'Belleview Badgers': {
+      gives: ['Romeo Doubs → Mt. Lebanon Cake Eaters', 'David Montgomery → The Lone Ginger'],
+      gets: ['Travis Etienne (from Mt. Lebanon Cake Eaters)', '2026 Rd 1 Pick (from The Lone Ginger)'],
+    },
+    'Mt. Lebanon Cake Eaters': {
+      gives: ['Travis Etienne → Belleview Badgers'],
+      gets: ['Romeo Doubs (from Belleview Badgers)', 'Brian Thomas (from The Lone Ginger)'],
+    },
+    'The Lone Ginger': {
+      gives: ['Brian Thomas → Mt. Lebanon Cake Eaters', '2026 Rd 1 Pick → Belleview Badgers'],
+      gets: ['David Montgomery (from Belleview Badgers)'],
+    },
+  };
+
+  it('flags the Badgers "trading" Brian Thomas (they never touched him)', () => {
+    const text = 'The Badgers traded away Brian Thomas and that hurts. Etienne gives them a real RB1.';
+    const v = findTradeAttributionViolations('Belleview Badgers', parties, byTeam, text);
+    expect(v).toHaveLength(1);
+    expect(v[0].kind).toBe('sent-another-teams-asset');
+    expect(v[0].asset).toBe('Brian Thomas');
+    expect(v[0].correction).toContain('The Lone Ginger');
+  });
+
+  it('flags a direction flip — Badgers "giving up" Etienne when they received him', () => {
+    const text = 'Giving up Travis Etienne is a gut punch for this roster.';
+    const v = findTradeAttributionViolations('Belleview Badgers', parties, byTeam, text);
+    expect(v).toHaveLength(1);
+    expect(v[0].kind).toBe('sent-what-they-received');
+    expect(v[0].correction).toContain('RECEIVED');
+  });
+
+  it('flags the reverse flip — "landing" a player they actually gave up', () => {
+    const text = 'They also landed Romeo Doubs, which deepens the WR room.';
+    const v = findTradeAttributionViolations('Belleview Badgers', parties, byTeam, text);
+    expect(v).toHaveLength(1);
+    expect(v[0].kind).toBe('received-what-they-sent');
+  });
+
+  it('flags a wrong sender claim', () => {
+    const text = 'They got Travis Etienne from The Lone Ginger, a clean win.';
+    const v = findTradeAttributionViolations('Belleview Badgers', parties, byTeam, text);
+    expect(v.some(x => x.kind === 'wrong-sender' && x.correction.includes('Mt. Lebanon Cake Eaters'))).toBe(true);
+  });
+
+  it('does NOT flag a correct sentence about another team sending an asset', () => {
+    const text = 'The Lone Ginger sent Brian Thomas packing, but that is their problem.';
+    const v = findTradeAttributionViolations('Belleview Badgers', parties, byTeam, text);
+    expect(v).toHaveLength(0);
+  });
+
+  it('does NOT flag correct attribution for the focus team', () => {
+    const text =
+      'Giving up Romeo Doubs and David Montgomery stings, but they landed Travis Etienne from Mt. Lebanon Cake Eaters and a 2026 first. Solid B+.';
+    const v = findTradeAttributionViolations('Belleview Badgers', parties, byTeam, text);
+    expect(v).toHaveLength(0);
+  });
+
+  it('uses routing edges for the correction sender when provided', () => {
+    const routing = [
+      { from: 'The Lone Ginger', to: 'Mt. Lebanon Cake Eaters', asset: 'Brian Thomas' },
+      { from: 'Mt. Lebanon Cake Eaters', to: 'Belleview Badgers', asset: 'Travis Etienne' },
+    ];
+    const text = 'Shipping out Travis Etienne was the cost of doing business.';
+    const v = findTradeAttributionViolations('Belleview Badgers', parties, byTeam, text, routing);
+    expect(v).toHaveLength(1);
+    expect(v[0].correction).toContain('Mt. Lebanon Cake Eaters');
+  });
+});
+
+describe('stripViolatingSentences', () => {
+  it('removes only the flagged sentences', () => {
+    const text = 'Good sentence one. Bad sentence here. Good sentence two.';
+    const out = stripViolatingSentences(text, [
+      { sentence: 'Bad sentence here.', asset: 'X', kind: 'sent-what-they-received', correction: '' },
+    ]);
+    expect(out).toBe('Good sentence one. Good sentence two.');
+  });
+
+  it('returns text unchanged with no violations', () => {
+    expect(stripViolatingSentences('Unchanged.', [])).toBe('Unchanged.');
+  });
+});
+
+describe('stripTradeGradeLeadIn — multi-sentence intros', () => {
+  it('strips two consecutive intro sentences', () => {
+    const input =
+      'What a blockbuster this trade is. When I first saw this deal I had to read it twice. ' +
+      'Belleview Badgers walk away winners and this is a clear A-.';
+    const result = stripTradeGradeLeadIn(input);
+    expect(result).not.toMatch(/blockbuster/i);
+    expect(result).not.toMatch(/read it twice/i);
+    expect(result).toContain('Belleview Badgers');
+  });
+
+  it('keeps a verdict-bearing first sentence even if it mentions the trade', () => {
+    const input = 'This trade is a clear win for the Badgers. The details back it up.';
+    const result = stripTradeGradeLeadIn(input);
+    expect(result).toContain('clear win');
   });
 });
 

@@ -528,16 +528,24 @@ function getTierForProvider(provider: string): PromptTier {
  * Tier 2 (Gemini): Compact flat-text version.
  * Tier 3 (Groq/etc.): Original wording unchanged.
  */
+// Shared data-freshness rule: the bots' training knowledge of NFL depth charts
+// and roles is months stale (e.g. describing a current starter as a backup).
+// Context data is fetched live from Sleeper at generation time.
+const DATA_FRESHNESS_RULE =
+  'DATA FRESHNESS: Your training knowledge of NFL rosters, depth charts, and player roles is OUT OF DATE. ' +
+  'The CONTEXT contains live data (NFL team, depth-chart role, age, injury status). When the context and your memory disagree, the context is right. ' +
+  'Never describe a player\'s current team or role from memory when the context provides it — a player listed as "QB1/starter" IS the starter, whatever you remember.';
+
 export function buildSystemPrompt(persona: PersonaType, tier: PromptTier): string {
   if (tier === 1) {
     return buildClaudeSystemPrompt(persona);
   }
   if (persona === 'entertainer') {
     const voice = tier === 2 ? MASON_VOICE_TIER2 : MASON_VOICE_TIER3;
-    return MASON_SHARED + voice + MASON_SHARED_CLOSING;
+    return MASON_SHARED + voice + MASON_SHARED_CLOSING + '\n\n' + DATA_FRESHNESS_RULE;
   } else {
     const voice = tier === 2 ? WESTY_VOICE_TIER2 : WESTY_VOICE_TIER3;
-    return WESTY_SHARED + voice + WESTY_SHARED_CLOSING;
+    return WESTY_SHARED + voice + WESTY_SHARED_CLOSING + '\n\n' + DATA_FRESHNESS_RULE;
   }
 }
 
@@ -575,6 +583,7 @@ ${closing.trim()}
 - Write ONLY your assigned section content. No section headers, no preambles.
 - Stay in character at all times. Every word should sound like it came from ${name}, not a generic AI.
 - Only cite facts, stats, and events explicitly present in the CONTEXT provided. Never fabricate numbers.
+- ${DATA_FRESHNESS_RULE}
 - Maintain awareness of what the other host said if their text appears in the context — respond to it directly, don't re-establish topics they already covered.
 - Vary sentence length. Short punchy lines for emotion; longer builds for analysis. Avoid monotonous rhythm.
 - Use section-specific constraints as hard requirements, not suggestions.

@@ -141,7 +141,7 @@ export async function POST(request: NextRequest) {
     let memEntertainer: BotMemory = freshMemory('entertainer', generatedAt);
     let memAnalyst:     BotMemory = freshMemory('analyst',     generatedAt);
     let forecastRecords: { entertainer: { w: number; l: number }; analyst: { w: number; l: number } } | null = null;
-    let prospectPool: Array<{ name: string; pos: string; rank: number | null }> | null = null;
+    let prospectPool: Array<{ name: string; pos: string; nfl?: string | null; rank: number | null }> | null = null;
     let rosterContext = '';
     let leagueName = 'East v. West';
     let storedUsers: unknown[]   = [];

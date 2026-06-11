@@ -1081,7 +1081,7 @@ async function startStagedJob(opts: {
     // ── For pre_draft: fetch draft slot order and prospect pool ──
     let preDraftSlots: Array<{ slot: number; team: string }> | undefined;
     let preDraftRound2Slots: Array<{ slot: number; team: string }> | undefined;
-    let prospectPool: Array<{ name: string; pos: string; rank: number | null }> | null = null;
+    let prospectPool: Array<{ name: string; pos: string; nfl: string | null; rank: number | null }> | null = null;
     if (episodeType === 'pre_draft') {
       // Use the same draft order algorithm as the website's draft order page (next-order route),
       // which correctly accounts for traded picks and playoff finishing order.
@@ -1104,6 +1104,7 @@ async function startStagedJob(opts: {
           // This gives correct prospect-class rankings regardless of what's in the DB.
           type FcEntry = { player?: { name?: string; position?: string; nflTeamAbbreviation?: string }; value?: number };
           let fcValueByName: Map<string, number> | null = null;
+          const fcTeamByName = new Map<string, string>();
 
           try {
             const fcRes = await fetch(
@@ -1117,6 +1118,7 @@ async function startStagedJob(opts: {
                 for (const entry of fcData) {
                   const name = (entry.player?.name ?? '').toLowerCase().trim();
                   if (name && entry.value != null) fcValueByName.set(name, Number(entry.value));
+                  if (name && entry.player?.nflTeamAbbreviation) fcTeamByName.set(name, entry.player.nflTeamAbbreviation);
                 }
                 console.log(`[Staged] pre_draft: loaded ${fcValueByName.size} FC dynasty values for rank derivation`);
               }
@@ -1167,7 +1169,15 @@ async function startStagedJob(opts: {
           }
           // If FC unavailable, fall back to DB ranks (sort nulls last)
           players.sort((a, b) => (a.rank ?? 9999) - (b.rank ?? 9999));
-          prospectPool = players.map(p => ({ name: p.name, pos: p.pos, rank: p.rank ?? null }));
+          // NFL landing spot: prefer the DB's nfl column, backfill from FantasyCalc.
+          // Post-NFL-draft this tells the bots where each prospect landed — essential
+          // for explaining opportunity/fit in the mock draft analysis.
+          prospectPool = players.map(p => ({
+            name: p.name,
+            pos: p.pos,
+            nfl: p.nfl || fcTeamByName.get(p.name.toLowerCase().trim()) || null,
+            rank: p.rank ?? null,
+          }));
 
           const unrankedAfter = prospectPool.filter(p => p.rank === null).length;
           console.log(`[Staged] pre_draft prospect pool loaded: ${prospectPool.length} players (${unrankedAfter} unranked)`);
@@ -1240,11 +1250,27 @@ async function startStagedJob(opts: {
 
         const byPos = new Map<string, Array<{ name: string; taxi: boolean }>>();
         const addPlayer = (pid: string, isTaxi: boolean) => {
-          const p = allPlayers[pid] as { first_name?: string; last_name?: string; position?: string } | undefined;
+          const p = allPlayers[pid] as {
+            first_name?: string; last_name?: string; position?: string;
+            team?: string | null; age?: number | null;
+            depth_chart_order?: number | null; injury_status?: string | null;
+          } | undefined;
           if (!p) return;
           const pos = p.position ?? 'UNK';
-          const name = `${p.first_name ?? ''} ${p.last_name ?? ''}`.trim();
-          if (!name) return;
+          const baseName = `${p.first_name ?? ''} ${p.last_name ?? ''}`.trim();
+          if (!baseName) return;
+          // Live NFL context per player: team, depth-chart role, age, injury.
+          // This is what keeps the bots from describing roles from stale
+          // training data (e.g. calling a current starter a "backup").
+          const bits: string[] = [];
+          const nfl = p.team || 'FA';
+          const depth = typeof p.depth_chart_order === 'number' && p.depth_chart_order > 0
+            ? `${pos}${p.depth_chart_order}${p.depth_chart_order === 1 ? '/starter' : ''}`
+            : '';
+          bits.push(depth ? `${nfl} ${depth}` : nfl);
+          if (typeof p.age === 'number' && p.age > 0) bits.push(`age ${p.age}`);
+          if (p.injury_status) bits.push(p.injury_status);
+          const name = `${baseName} (${bits.join(', ')})`;
           if (!byPos.has(pos)) byPos.set(pos, []);
           byPos.get(pos)!.push({ name, taxi: isTaxi });
         };
@@ -1270,8 +1296,11 @@ async function startStagedJob(opts: {
         const taxiNote = taxiIds.length > 0 ? ' (*=taxi squad)' : '';
         rosterLines.push(`${teamName} [SL:${sleeperName}]${taxiNote}:\n${posLines.join('\n') || '  (no data)'}`);
       }
-      rosterContext = rosterLines.join('\n\n');
-      console.log(`[Staged] Roster context built: ${rosterLines.length} teams (full rosters)`);
+      const rosterFreshnessNote =
+        `ROSTER DATA IS LIVE FROM SLEEPER (fetched today). Each player shows: (NFL team + depth-chart role, age, injury status). ` +
+        `"QB1/starter" means he is the CURRENT starter. This data overrides anything you remember about a player's role from training — depth charts change.`;
+      rosterContext = `${rosterFreshnessNote}\n\n${rosterLines.join('\n\n')}`;
+      console.log(`[Staged] Roster context built: ${rosterLines.length} teams (full rosters, with NFL role/age/injury)`);
     } catch (e) {
       console.warn('[Staged] Failed to build roster context:', e);
     }

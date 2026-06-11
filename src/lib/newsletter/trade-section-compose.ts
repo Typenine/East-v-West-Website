@@ -13,6 +13,8 @@ import {
   buildTradePartyScopeBlock,
   stripTradeGradeLeadIn,
   stripTradeIntroBoilerplate,
+  findTradeAttributionViolations,
+  stripViolatingSentences,
 } from './trade-facts';
 
 export type DynastyRankingRow = { name: string; pos: string; nfl: string; rank: number };
@@ -84,13 +86,17 @@ export async function composeTradeItemFromEvent(input: ComposeTradeSectionInput)
 
   const getTeamRoster = (teamName: string): string => {
     if (!rosterContext) return '';
-    const blocks = rosterContext.split('\n\n');
-    const match = blocks.find(block => {
-      const header = block.split('\n')[0].toLowerCase();
-      return header.includes(teamName.toLowerCase()) ||
-        header.includes(teamName.toLowerCase().split(/\s+/)[0]);
-    });
-    return match ? `\n\nCURRENT ROSTER (use to evaluate their need for each asset):\n${match}` : '';
+    // Only consider blocks that are actual team rosters (header ends in the
+    // "[SL:username]" marker) — the roster context also carries a freshness
+    // preamble that must never be returned as a team match.
+    const blocks = rosterContext.split('\n\n').filter(b => /\[SL:[^\]]*\]/i.test(b.split('\n')[0]));
+    const lower = teamName.toLowerCase();
+    const match =
+      blocks.find(block => block.split('\n')[0].toLowerCase().includes(lower)) ??
+      blocks.find(block => block.split('\n')[0].toLowerCase().includes(lower.split(/\s+/)[0]));
+    return match
+      ? `\n\nCURRENT ROSTER (live from Sleeper — each player shows NFL team/depth role, age, injury status; this overrides your training data):\n${match}`
+      : '';
   };
 
   const extractGrade = (text: string): string => {
@@ -109,6 +115,68 @@ export async function composeTradeItemFromEvent(input: ComposeTradeSectionInput)
   const tradeStepDedupeEnt = buildDedupeContext(memEntertainer);
   const tradeStepDedupeAna = buildDedupeContext(memAnalyst);
   const tradeStepPhaseCtx = buildPhaseRulesContext(getPhaseRules(episodeType));
+
+  // Shared fantasy-analysis grounding — format awareness + dynasty fundamentals.
+  const analysisPrinciples = [
+    'ANALYSIS PRINCIPLES (apply them — do not recite them):',
+    '- League format: 12-team SuperFlex dynasty, 0.5 PPR. QB is the premium position; TE is 1-deep (extra TEs carry little value).',
+    '- Age vs positional curve: RBs typically decline around 26-27, WRs around 29-30; QBs and TEs age gracefully. Weigh every player\'s age.',
+    '- CURRENT NFL ROLE: the roster data in context is live from Sleeper (NFL team, depth-chart role, age, injury status). It overrides anything you remember about a player from your training data — depth charts change.',
+    '- Pick value: a future 1st from a contender projects as a late 1st; from a rebuilder, an early 1st. Say which when grading pick swaps.',
+    '- Contention window: rebuilders should be acquiring youth and picks; contenders should be acquiring now-production. Judge each side against THEIR window, not in a vacuum.',
+  ].join('\n');
+
+  /**
+   * Generate a grade paragraph, then lint it for direction-flipped attribution
+   * claims (the recurring "Badgers traded Thomas" failure). One retry with
+   * explicit corrections; if it still fails, keep the cleaner draft and strip
+   * the offending sentences deterministically.
+   */
+  const generateGradeChecked = async (opts: {
+    persona: 'entertainer' | 'analyst';
+    context: string;
+    constraints: string;
+    party: string;
+    logName: string;
+  }): Promise<string> => {
+    const routing = e.details?.routing;
+    const lint = (text: string) =>
+      findTradeAttributionViolations(opts.party, parties, byTeam, text, routing);
+
+    const first = await generateSection({
+      persona: opts.persona,
+      sectionType: 'Trade Grade',
+      context: opts.context,
+      constraints: opts.constraints,
+      maxTokens: 1100,
+    });
+    const v1 = lint(first);
+    if (v1.length === 0) return first;
+
+    console.warn(
+      `[trade:${opts.logName}] ${v1.length} attribution violation(s), retrying — ${v1.map(v => `${v.kind}:${v.asset}`).join(', ')}`,
+    );
+    const correction = [
+      '⚠️ YOUR PREVIOUS DRAFT CONTAINED ATTRIBUTION ERRORS. Fix ALL of these:',
+      ...v1.map(v => `- You wrote: "${v.sentence}" — WRONG. ${v.correction}`),
+      'Rewrite your full response. Before writing any send/receive claim, verify it against PAIRWISE ROUTING and GRADING SCOPE above.',
+    ].join('\n');
+    const second = await generateSection({
+      persona: opts.persona,
+      sectionType: 'Trade Grade',
+      context: opts.context,
+      constraints: opts.constraints + '\n\n' + correction,
+      maxTokens: 1100,
+    });
+    const v2 = lint(second);
+    if (v2.length === 0) return second;
+
+    console.warn(
+      `[trade:${opts.logName}] retry still has ${v2.length} violation(s) — stripping offending sentences`,
+    );
+    const [text, viols] = v2.length <= v1.length ? [second, v2] : [first, v1];
+    return stripViolatingSentences(text, viols);
+  };
 
   const analysis: TradeItem['analysis'] = {};
   for (const party of parties) {
@@ -130,6 +198,8 @@ export async function composeTradeItemFromEvent(input: ComposeTradeSectionInput)
         : '',
       getTeamRoster(party),
       tradePartyCard,
+      '',
+      analysisPrinciples,
     ].filter(Boolean).join('\n');
 
     const fallbackAnalysis = `Grade: B. Analysis unavailable for this side of the trade.`;
@@ -163,9 +233,18 @@ export async function composeTradeItemFromEvent(input: ComposeTradeSectionInput)
         `  3. What does this mean for ${party}'s dynasty outlook?\n` +
         `Stick to assets listed under ${party} in TRADE FACTS. End with your letter grade.`;
 
+    // Westy publishes AFTER Mason and gets Mason's take in context, so he reacts
+    // instead of re-introducing the trade the reader just heard about.
+    const westyDebateRule =
+      `MASON'S TAKE on ${party} appears in your context. The reader has already seen it.\n` +
+      `Do NOT re-describe the trade or repeat his framing — get straight to YOUR verdict.\n` +
+      `Engage Mason directly at least once: name one specific claim of his you push back on with data, or — if he's right — concede it and take the analysis a level deeper.\n` +
+      `Bring at least one angle Mason missed entirely.\n`;
+
     const westyConstraint = isMultiTeam
       ? `You are Westy (Trent Weston). Grade this ${parties.length}-team trade for ${party} (A+ to F).\n` +
         gradeOpenRule +
+        westyDebateRule +
         `Do NOT open with a trade summary or introduction — the trade facts are already displayed above.\n` +
         `Do NOT use phrases like "Welcome to", "Let's break down", "This week's trade", "In this trade".\n` +
         `CRITICAL: Only discuss assets under ${party}'s Gave/Received in GRADING SCOPE. Never attribute another team's SENT assets to ${party}.\n` +
@@ -173,35 +252,39 @@ export async function composeTradeItemFromEvent(input: ComposeTradeSectionInput)
         `CRITICAL: Do NOT invent extra picks acquired in this deal — only picks under ${party}'s Received line count.\n` +
         `Write 2-3 paragraphs:\n` +
         `  1. Net value: did ${party} win or lose vs ${otherTeams}? State the verdict.\n` +
-        `  2. Break down each asset under ${party}'s "Gave" and "Received": age curve, dynasty value, positional scarcity, pick round/year cost. Use dynasty rankings shown if available.\n` +
+        `  2. Break down each asset under ${party}'s "Gave" and "Received": age curve, current NFL role, dynasty value, positional scarcity, pick round/year cost. Use dynasty rankings shown if available.\n` +
         `  3. Roster fit and championship window impact for ${party}.\n` +
         `Only penalize ${party} for assets listed under their "Gave". End with your letter grade.`
       : `You are Westy (Trent Weston). Grade this trade for ${party} (A+ to F).\n` +
         gradeOpenRule +
+        westyDebateRule +
         `Do NOT open with a trade summary or introduction — the trade facts are already displayed above.\n` +
         `Do NOT use phrases like "Welcome to", "Let's break down", "This week's trade", "In this trade".\n` +
         `Write 2-3 paragraphs:\n` +
         `  1. Net value verdict for ${party}: did they win or lose?\n` +
-        `  2. Break down each asset under ${party}'s "Gave" and "Received": age, dynasty value, positional scarcity. Use dynasty rankings if available.\n` +
+        `  2. Break down each asset under ${party}'s "Gave" and "Received": age, current NFL role, dynasty value, positional scarcity. Use dynasty rankings if available.\n` +
         `  3. Roster fit and championship window implications.\n` +
         `Stick to assets listed under ${party} in TRADE FACTS. End with your letter grade.`;
 
-    const [rawEntTrade, rawAnaTrade] = await Promise.all([
-      generateSection({
-        persona: 'entertainer',
-        sectionType: 'Trade Grade',
-        context: sideCtx + '\n\n' + tradeStepDedupeEnt + tradeStepPhaseCtx,
-        constraints: masonConstraint,
-        maxTokens: 1100,
-      }).catch(() => fallbackAnalysis),
-      generateSection({
-        persona: 'analyst',
-        sectionType: 'Trade Grade',
-        context: sideCtx + '\n\n' + tradeStepDedupeAna + tradeStepPhaseCtx,
-        constraints: westyConstraint,
-        maxTokens: 1100,
-      }).catch(() => fallbackAnalysis),
-    ]);
+    const rawEntTrade = await generateGradeChecked({
+      persona: 'entertainer',
+      context: sideCtx + '\n\n' + tradeStepDedupeEnt + tradeStepPhaseCtx,
+      constraints: masonConstraint,
+      party,
+      logName: `TradeGrade:${party}:mason`,
+    }).catch(() => fallbackAnalysis);
+
+    const masonTakeCtx =
+      `MASON'S TAKE ON ${party} (already published above your segment — react to it, do not repeat it):\n` +
+      `"""\n${rawEntTrade}\n"""`;
+
+    const rawAnaTrade = await generateGradeChecked({
+      persona: 'analyst',
+      context: sideCtx + '\n\n' + masonTakeCtx + '\n\n' + tradeStepDedupeAna + tradeStepPhaseCtx,
+      constraints: westyConstraint,
+      party,
+      logName: `TradeGrade:${party}:westy`,
+    }).catch(() => fallbackAnalysis);
 
     const entR = polishTradeGrade(
       guardText(rawEntTrade, { sectionType: 'Trade Grade', logPrefix: `[trade:TradeGrade:${party}:entertainer]` }),

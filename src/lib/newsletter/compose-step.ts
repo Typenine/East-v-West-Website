@@ -187,7 +187,7 @@ export interface StepInput {
    * For pre_draft: eligible prospect pool loaded from DB at job start.
    * Mock draft steps MUST use only players from this list. If null/empty, mock draft step fails hard.
    */
-  prospectPool?: Array<{ name: string; pos: string; rank: number | null }> | null;
+  prospectPool?: Array<{ name: string; pos: string; nfl?: string | null; rank: number | null }> | null;
   /**
    * Compact summary of already-completed section outputs (scores, intros, spotlights) for
    * cross-referencing. Lets FinalWord, Blurt, and Spotlight avoid repeating earlier content.
@@ -999,10 +999,11 @@ async function genMockDraftR1(
   // Consensus rank is shown as reference data — one input among many, not a pick order.
   const poolSorted = [...prospectPool].sort((a, b) => a.name.localeCompare(b.name));
   const poolText = poolSorted.map(p =>
-    `- ${p.name} (${p.pos}${p.rank !== null ? `, consensus rank #${p.rank} of ${prospectPool.length}` : ', unranked'})`
+    `- ${p.name} (${p.pos}${p.nfl ? `, drafted by ${p.nfl}` : ''}${p.rank !== null ? `, consensus rank #${p.rank} of ${prospectPool.length}` : ', unranked'})`
   ).join('\n');
   const poolHeader = `=== ELIGIBLE PLAYERS — ${season} NFL DRAFT PROSPECT POOL ===
 Listed alphabetically. "Consensus rank" is aggregate market opinion — treat it as one data point, not a pick order.
+"Drafted by" is the prospect's CURRENT NFL team (live data — overrides anything you remember).
 You may ONLY select players from the list below. DO NOT use players from any previous draft class.
 
 ${poolText}
@@ -1015,7 +1016,7 @@ ${poolText}
 
   const context = `${poolHeader}\n\n${leagueKnowledge}\n\n${rosterCtxBlock}---\n\n${season} EAST V. WEST ROOKIE DRAFT — MOCK DRAFT\n\n${debutLine}\n\nROUND 1 DRAFT ORDER (slot 1 = worst record, slot ${effectiveSlots.length} = champion):\n${r1Order}\n\n${enhancedContext.slice(0, 2000)}`;
 
-  const pickFmt = `EXACTLY this format for all ${effectiveSlots.length} picks:\n\nPICK 1.01 | ${effectiveSlots[0].team} | [Player Name from eligible list] | [Position]\n[4-5 sentence paragraph]\n\nPICK 1.02 | ${effectiveSlots[1]?.team ?? 'Team 2'} | [Player Name from eligible list] | [Position]\n[4-5 sentence paragraph]\n\n(continue through PICK 1.${String(effectiveSlots.length).padStart(2, '0')})`;
+  const pickFmt = `EXACTLY this format for all ${effectiveSlots.length} picks:\n\nPICK 1.01 | ${effectiveSlots[0].team} | [Player Name from eligible list] | [Position]\n[6-8 sentence paragraph — roster situation, prospect profile, fit (see ANALYSIS RULE)]\n\nPICK 1.02 | ${effectiveSlots[1]?.team ?? 'Team 2'} | [Player Name from eligible list] | [Position]\n[6-8 sentence paragraph]\n\n(continue through PICK 1.${String(effectiveSlots.length).padStart(2, '0')})`;
 
   const masonOpinionRule = `⚠️ YOUR STYLE — MASON REED: You go on gut feel, hype, and upside. Consensus rankings are one input — not your bible. You'll agree with the consensus sometimes, but when your gut says something different, you go with it. You'll reach for a player you love. You'll fall a guy you think is overhyped. You might take a QB early if a team needs a franchise piece. The point is: you're making picks YOU believe in, not just reading a list out loud. Your analysis should sound like YOU, not like a ranking aggregator.`;
   const westyOpinionRule = `⚠️ YOUR STYLE — WESTY: You are analytical, but you form your OWN views. Consensus rankings are a starting point — you also look at landing spot, NFL scheme fit, opportunity, and age curves. Sometimes you'll land on the same pick as consensus. Sometimes you'll diverge because your analysis tells you a player is over- or under-valued. The key is that every pick comes from your own evaluation, not from "who's ranked highest available." When you agree with consensus, explain why the data supports it. When you differ, explain why your read is different.`;
@@ -1029,7 +1030,11 @@ ${poolText}
     `⚠️ PLAYER RULE: Every player MUST appear in the ELIGIBLE PLAYERS list above. Do NOT use any other player.`,
     `⚠️ ROSTER RULE: Before each pick, check that team's CURRENT ROSTER (listed above). Reference SPECIFIC players they already have — including recent acquisitions. A team that just traded for a QB doesn't need another; a team with Bowers doesn't need a TE.`,
     `⚠️ POSITION RULE: TE is 1-deep (start only 1 TE per week) — TE depth is low priority. QB is premium in SuperFlex.`,
-    `⚠️ ANALYSIS RULE: Explain why YOU are making this pick for THIS team at THIS slot. If you're reaching, say why you love him. If you're falling a guy, say why you're skeptical. Name specific players the team already has. Vague praise is not enough.`,
+    `⚠️ ANALYSIS RULE — every pick paragraph is 6-8 sentences and must cover all three beats:`,
+    `   (a) THE ROSTER: the team's current situation at the position — name 2-3 specific players they have (with the roles/ages shown in CURRENT TEAM ROSTERS) and say what hole or surplus that creates.`,
+    `   (b) THE PROSPECT: who this player is — his NFL landing spot ("drafted by" in the pool), what kind of player he is, and what his path to fantasy-relevant opportunity looks like on that NFL team.`,
+    `   (c) THE FIT: why THIS player for THIS team at THIS slot — their contention window, positional scarcity in SuperFlex, and value vs his consensus rank (reach? steal? say so and own it).`,
+    `   Vague one-liner praise is a failed pick. Each paragraph should read like a real draft-show breakdown.`,
     ``,
     pickFmt,
   ].join('\n');
@@ -1039,7 +1044,7 @@ ${poolText}
     sectionType: 'Mock Draft - Round 1',
     context,
     constraints: constraint,
-    maxTokens: 6000,
+    maxTokens: 9000,
     episodeType: 'pre_draft',
     validate: (t) => (t.replace(/\*\*/g, '').match(/\bPICK\s+\d+\.\d+\s*\|/gim) || []).length >= Math.max(4, Math.floor(effectiveSlots.length * 0.4)),
   });
@@ -1103,10 +1108,11 @@ async function genMockDraftR2(
   // Alphabetical pool — same reasoning as R1: prevents the model from just reading a ranked list top-to-bottom
   const r2PoolSorted = [...r2Pool].sort((a, b) => a.name.localeCompare(b.name));
   const poolText = r2PoolSorted.map(p =>
-    `- ${p.name} (${p.pos}${p.rank !== null ? `, consensus rank #${p.rank} of ${prospectPool.length}` : ', unranked'})`
+    `- ${p.name} (${p.pos}${p.nfl ? `, drafted by ${p.nfl}` : ''}${p.rank !== null ? `, consensus rank #${p.rank} of ${prospectPool.length}` : ', unranked'})`
   ).join('\n');
   const poolHeader = `=== ELIGIBLE PLAYERS — ROUND 2 (${season} prospect pool, Round 1 picks removed) ===
 Listed alphabetically. Consensus rank is reference data — not a pick order.
+"Drafted by" is the prospect's CURRENT NFL team (live data — overrides anything you remember).
 You may ONLY select players from this list. DO NOT repeat Round 1 picks.
 
 ${poolText}
@@ -1118,7 +1124,7 @@ ${poolText}
     : 'Round 1 unavailable — choose different players for each slot.';
 
   const r2Order = round2Slots.map((s, i) => `Pick 2.${String(i + 1).padStart(2, '0')}: ${s.team}`).join('\n');
-  const pickFmt = `EXACTLY this format for all ${round2Slots.length} picks:\n\nPICK 2.01 | ${round2Slots[0].team} | [Player Name from eligible list] | [Position]\n[4-5 sentence paragraph]\n\n(continue through PICK 2.${String(round2Slots.length).padStart(2, '0')})`;
+  const pickFmt = `EXACTLY this format for all ${round2Slots.length} picks:\n\nPICK 2.01 | ${round2Slots[0].team} | [Player Name from eligible list] | [Position]\n[5-7 sentence paragraph — roster situation, prospect profile, fit (see ANALYSIS RULE)]\n\n(continue through PICK 2.${String(round2Slots.length).padStart(2, '0')})`;
 
   const rosterCtxBlock = input.rosterContext
     ? `=== CURRENT TEAM ROSTERS (use to judge positional needs for each pick) ===\n${input.rosterContext}\n=== END ROSTERS ===\n\n`
@@ -1138,7 +1144,10 @@ ${poolText}
     `⚠️ PLAYER RULE: Every player MUST appear in the ELIGIBLE PLAYERS list above. Do NOT use any other player.`,
     `⚠️ ROSTER RULE: Check each team's CURRENT ROSTER before picking. Reference specific players they already have.`,
     `⚠️ POSITION RULE: TE is 1-deep. QB is premium in SuperFlex.`,
-    `⚠️ ANALYSIS RULE: Reference their Round 1 pick AND existing roster. Explain why you're taking THIS player at THIS slot — is it a reach? a value pick? Why do you diverge from consensus here?`,
+    `⚠️ ANALYSIS RULE — every pick paragraph is 5-7 sentences and must cover all three beats:`,
+    `   (a) THE ROSTER: where this team stands after their Round 1 pick — name specific players they already have (with the roles/ages shown in CURRENT TEAM ROSTERS).`,
+    `   (b) THE PROSPECT: who this player is — NFL landing spot ("drafted by" in the pool), play style, and his realistic path to opportunity on that NFL team.`,
+    `   (c) THE FIT: why him for THIS team at THIS slot — window, SuperFlex scarcity, value vs consensus (reach or steal — say which and why).`,
     ``,
     pickFmt,
   ].join('\n');
@@ -1148,7 +1157,7 @@ ${poolText}
     sectionType: 'Mock Draft - Round 2',
     context,
     constraints: constraint,
-    maxTokens: 6000,
+    maxTokens: 9000,
     episodeType: 'pre_draft',
     validate: (t) => (t.replace(/\*\*/g, '').match(/\bPICK\s+\d+\.\d+\s*\|/gim) || []).length >= Math.max(4, Math.floor(round2Slots.length * 0.4)),
   });
