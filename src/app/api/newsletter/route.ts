@@ -1257,18 +1257,24 @@ async function startStagedJob(opts: {
           } | undefined;
           if (!p) return;
           const pos = p.position ?? 'UNK';
+          // K/DEF have near-zero dynasty value (league knowledge says ignore
+          // them) — dropping them keeps the roster context lean, which matters:
+          // this block is repeated in every mock-draft/trade LLM call and large
+          // contexts were driving TPM rate limits.
+          if (pos === 'K' || pos === 'DEF') return;
           const baseName = `${p.first_name ?? ''} ${p.last_name ?? ''}`.trim();
           if (!baseName) return;
-          // Live NFL context per player: team, depth-chart role, age, injury.
-          // This is what keeps the bots from describing roles from stale
-          // training data (e.g. calling a current starter a "backup").
+          // Live NFL context per player: team + depth role, age, injury. Kept
+          // compact ("BUF QB1, 29") — the format is explained once in the
+          // freshness note. This is what keeps the bots from describing roles
+          // from stale training data (e.g. calling a current starter a "backup").
           const bits: string[] = [];
           const nfl = p.team || 'FA';
           const depth = typeof p.depth_chart_order === 'number' && p.depth_chart_order > 0
-            ? `${pos}${p.depth_chart_order}${p.depth_chart_order === 1 ? '/starter' : ''}`
+            ? `${pos}${p.depth_chart_order}`
             : '';
           bits.push(depth ? `${nfl} ${depth}` : nfl);
-          if (typeof p.age === 'number' && p.age > 0) bits.push(`age ${p.age}`);
+          if (typeof p.age === 'number' && p.age > 0) bits.push(String(p.age));
           if (p.injury_status) bits.push(p.injury_status);
           const name = `${baseName} (${bits.join(', ')})`;
           if (!byPos.has(pos)) byPos.set(pos, []);
@@ -1297,8 +1303,9 @@ async function startStagedJob(opts: {
         rosterLines.push(`${teamName} [SL:${sleeperName}]${taxiNote}:\n${posLines.join('\n') || '  (no data)'}`);
       }
       const rosterFreshnessNote =
-        `ROSTER DATA IS LIVE FROM SLEEPER (fetched today). Each player shows: (NFL team + depth-chart role, age, injury status). ` +
-        `"QB1/starter" means he is the CURRENT starter. This data overrides anything you remember about a player's role from training — depth charts change.`;
+        `ROSTER DATA IS LIVE FROM SLEEPER (fetched today). Each player shows: (NFL team + depth-chart rank, age, injury status if any). ` +
+        `Depth rank 1 (e.g. "QB1", "RB1") means he is the CURRENT starter at that position. ` +
+        `This data overrides anything you remember about a player's role from training — depth charts change.`;
       rosterContext = `${rosterFreshnessNote}\n\n${rosterLines.join('\n\n')}`;
       console.log(`[Staged] Roster context built: ${rosterLines.length} teams (full rosters, with NFL role/age/injury)`);
     } catch (e) {

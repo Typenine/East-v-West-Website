@@ -752,8 +752,10 @@ const CLAUDE_THINKING_BUDGET_BY_SECTION: Record<string, number> = {
   // Attribution-lint retries carry explicit corrections — they need compliance,
   // not deep reasoning, and must stay fast to fit the step's 270s window.
   'Trade Grade Retry': 1024,
-  'Offseason Trade Analysis': 3000,
-  'Offseason Trade Party Grades': 3000,
+  // Short outputs (3-4 sentences / brief per-team grades) — deep thinking here
+  // wastes output-TPM budget that the mock draft segments need.
+  'Offseason Trade Analysis': 1024,
+  'Offseason Trade Party Grades': 2048,
   'Dynasty Analysis': 3000,
   'Season Preview - Contenders': 3000,
   'What-If Scenario': 3000,

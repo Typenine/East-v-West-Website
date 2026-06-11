@@ -72,6 +72,15 @@ export async function generateWithAnthropicProvider(req: ProviderRequest): Promi
   const section = req.sectionName ?? 'unknown';
   let lastErr: Error | null = null;
 
+  // Cumulative backoff cap: a 429 retry-after can be 60s+; five of them inside
+  // one call would sleep through the whole 270s generate-step window and 504
+  // the step. Past the cap we throw a rate-limit error so the cascade falls
+  // through to the next provider instead of sleeping here.
+  const MAX_TOTAL_BACKOFF_MS = 60_000;
+  let totalBackoffMs = 0;
+  const canBackoff = (ms: number) => totalBackoffMs + ms <= MAX_TOTAL_BACKOFF_MS;
+  const doBackoff = async (ms: number) => { totalBackoffMs += ms; await sleep(ms); };
+
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     const t0 = Date.now();
     try {
@@ -190,8 +199,8 @@ export async function generateWithAnthropicProvider(req: ProviderRequest): Promi
           ` attempt=${attempt + 1}/${maxRetries + 1} backoff=${Math.round(backoffMs / 1000)}s` +
           (retryAfterRaw ? ` (retry-after=${retryAfterRaw}s)` : ' (exponential)'),
         );
-        if (attempt < maxRetries) { await sleep(backoffMs); continue; }
-        throw new Error(`Anthropic 429 rate limited after ${maxRetries + 1} attempts`);
+        if (attempt < maxRetries && canBackoff(backoffMs)) { await doBackoff(backoffMs); continue; }
+        throw new Error(`Anthropic 429 rate limited (gave up after ${attempt + 1} attempts, ${Math.round(totalBackoffMs / 1000)}s total backoff)`);
       }
 
       // Overloaded (529) or InternalServerError (5xx) — retry with exponential backoff
@@ -203,16 +212,16 @@ export async function generateWithAnthropicProvider(req: ProviderRequest): Promi
           `[Anthropic/${model}] section="${section}" overloaded (${err instanceof Anthropic.APIError ? err.status : '529'})` +
           ` attempt=${attempt + 1}/${maxRetries + 1} backoff=${Math.round(backoffMs / 1000)}s`,
         );
-        if (attempt < maxRetries) { await sleep(backoffMs); continue; }
-        throw new Error(`Anthropic overloaded after ${maxRetries + 1} attempts: ${error.message}`);
+        if (attempt < maxRetries && canBackoff(backoffMs)) { await doBackoff(backoffMs); continue; }
+        throw new Error(`Anthropic overloaded (gave up after ${attempt + 1} attempts, ${Math.round(totalBackoffMs / 1000)}s total backoff): ${error.message}`);
       }
 
       // Other error — log and retry up to maxRetries
       console.error(
         `[Anthropic/${model}] section="${section}" attempt=${attempt + 1}/${maxRetries + 1} failed: ${error.message}`,
       );
-      if (attempt < maxRetries) {
-        await sleep(2_000 * (attempt + 1));
+      if (attempt < maxRetries && canBackoff(2_000 * (attempt + 1))) {
+        await doBackoff(2_000 * (attempt + 1));
         continue;
       }
     }

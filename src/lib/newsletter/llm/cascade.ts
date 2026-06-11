@@ -287,12 +287,16 @@ export async function generateWithCascade(req: CascadeRequest): Promise<CascadeR
     }
   }
 
-  // All providers skipped (all cooling). If any has a short-term cooldown (≤3 min),
-  // wait for the earliest one and retry — this recovers from RPM/TPM limits automatically.
+  // All providers skipped (all cooling). If any cooldown expires soon, wait for
+  // the earliest one and retry — this recovers from RPM/TPM limits automatically.
+  // The wait is capped at 45s: generate-step runs under a 270s function limit,
+  // and a longer sleep here (it used to allow up to 3 min) can 504 the whole
+  // step. Past the cap we throw instead — the step fails as a controlled,
+  // retryable 'step_failed' response rather than a gateway timeout.
   const shortTermExpiry = activeProviders
     .filter(p => {
       const until = providerCooldownUntil[p.name];
-      return until && (until - Date.now()) <= 3 * 60_000;
+      return until && (until - Date.now()) <= 45_000;
     })
     .map(p => providerCooldownUntil[p.name])
     .sort((a, b) => a - b)[0];
