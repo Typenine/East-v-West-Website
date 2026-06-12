@@ -291,6 +291,15 @@ async function resolvePickBecame(season: string, round: number, originalRosterId
   return info;
 }
 
+// Sleeper reports 'complete'; the Trade type (and manual trades) use 'completed'.
+// Unknown statuses (e.g. 'failed') map to 'pending' so they never pass completed checks.
+function normalizeTradeStatus(status: string | undefined): Trade['status'] {
+  const s = String(status ?? '').trim().toLowerCase();
+  if (s === 'complete' || s === 'completed') return 'completed';
+  if (s === 'vetoed') return 'vetoed';
+  return 'pending';
+}
+
 // Convert Sleeper transaction to our Trade format
 async function convertSleeperTradeToTrade(
   transaction: SleeperTransaction,
@@ -522,7 +531,7 @@ async function convertSleeperTradeToTrade(
     id: transaction.transaction_id,
     date: new Date(created || Number(transaction.created ?? Date.now())).toISOString().split('T')[0],
     teams: tradeTeams,
-    status: transaction.status as 'completed' | 'pending' | 'vetoed',
+    status: normalizeTradeStatus(transaction.status),
     relatedTrades: [], // We'll populate this later if needed
     season,
     week,
@@ -540,7 +549,8 @@ function getOrdinal(n: number): string {
 
 // Cache for converted trades
 const tradesCache: Record<string, Trade> = {};
-const TRADES_CACHE_VERSION = 'v3';
+// v4: trade status normalized ('complete' → 'completed') at conversion
+const TRADES_CACHE_VERSION = 'v4';
 const cacheKeyForTxn = (txnId: string) => `${TRADES_CACHE_VERSION}:${txnId}`;
 
 /* Sample trades removed - replaced with real Sleeper API data */

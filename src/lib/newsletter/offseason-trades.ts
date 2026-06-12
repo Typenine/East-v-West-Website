@@ -40,7 +40,12 @@ export function buildOffseasonTradeFacts(
 ): OffseasonTradeFact[] {
   const offseasonStart = new Date(`${currentSeason - 1}-12-20`);
   return trades
-    .filter(t => t.status === undefined || t.status === 'completed')
+    // Sleeper reports trade status as 'complete'; manual trades use 'completed'.
+    .filter(t => {
+      if (t.status === undefined) return true;
+      const s = String(t.status).trim().toLowerCase();
+      return s === 'complete' || s === 'completed';
+    })
     .filter(t => {
       if (t.season === String(currentSeason)) return true;
       if (t.date && new Date(t.date) >= offseasonStart) return true;
