@@ -51,7 +51,6 @@ export async function generateWithAnthropicProvider(req: ProviderRequest): Promi
   if (!apiKey) throw new Error('ANTHROPIC_API_KEY not set');
 
   const model = process.env.ANTHROPIC_MODEL || DEFAULT_MODEL;
-  const timeoutMs = parseInt(process.env.LLM_TIMEOUT_MS ?? '', 10) || DEFAULT_TIMEOUT_MS;
   const maxRetries = parseInt(process.env.LLM_MAX_RETRIES ?? '', 10) || DEFAULT_MAX_RETRIES;
 
   // Determine if extended thinking should be used for this call
@@ -59,6 +58,13 @@ export async function generateWithAnthropicProvider(req: ProviderRequest): Promi
   const rawThinkingBudget = req.claudeThinkingBudget ?? 0;
   const useThinking = thinkingEnabled && rawThinkingBudget >= CLAUDE_MIN_THINKING_BUDGET;
   const thinkingBudget = useThinking ? rawThinkingBudget : 0;
+
+  // The section thinking budgets (groq.ts) are sized against the 150s default
+  // timeout. A lower LLM_TIMEOUT_MS override silently breaks that contract and
+  // kills heavy sections (mock draft) mid-call, so thinking calls enforce the
+  // default as a floor; non-thinking calls honor the env value as-is.
+  const envTimeoutMs = parseInt(process.env.LLM_TIMEOUT_MS ?? '', 10) || DEFAULT_TIMEOUT_MS;
+  const timeoutMs = useThinking ? Math.max(envTimeoutMs, DEFAULT_TIMEOUT_MS) : envTimeoutMs;
 
   const client = new Anthropic({
     apiKey,

@@ -135,6 +135,13 @@ function sleep(ms: number): Promise<void> {
 
 const COOLDOWN_MS = 2 * 60 * 1000;       // 2 min — enough for RPM/TPM window reset
 const DAILY_COOLDOWN_MS = 25 * 60 * 60 * 1000; // 25 hours — daily quota exhaustion
+// Anthropic rate limits are rolling per-minute windows (RPM/ITPM/OTPM) — by the
+// time the provider has burned its in-call backoff and thrown, the window is
+// nearly reset. A short cooldown keeps Claude inside the end-of-cascade
+// recovery wait (45s) so the step retries it instead of failing outright.
+const RATE_LIMIT_COOLDOWN_MS_BY_PROVIDER: Record<string, number> = {
+  'anthropic': 45 * 1000,
+};
 const providerCooldownUntil: Record<string, number> = {};
 
 function isProviderCoolingDown(name: string): boolean {
@@ -148,9 +155,9 @@ function isProviderCoolingDown(name: string): boolean {
 }
 
 function setCooldown(name: string, daily = false): void {
-  const ms = daily ? DAILY_COOLDOWN_MS : COOLDOWN_MS;
+  const ms = daily ? DAILY_COOLDOWN_MS : (RATE_LIMIT_COOLDOWN_MS_BY_PROVIDER[name] ?? COOLDOWN_MS);
   providerCooldownUntil[name] = Date.now() + ms;
-  console.log(`[LLM] ${name} rate-limited — skipping for ${Math.round(ms / 60_000)} min${daily ? ' (daily quota)' : ''}`);
+  console.log(`[LLM] ${name} rate-limited — skipping for ${Math.round(ms / 1000)}s${daily ? ' (daily quota)' : ''}`);
 }
 
 function isDailyQuotaError(msg: string): boolean {
@@ -243,51 +250,64 @@ export async function generateWithCascade(req: CascadeRequest): Promise<CascadeR
     throw new Error('No LLM providers configured — check API keys in .env.local');
   }
 
-  for (const { name, fn } of activeProviders) {
-    // Skip providers that are cooling down from a recent rate limit
-    if (isProviderCoolingDown(name)) {
-      const remainingMin = Math.ceil((providerCooldownUntil[name] - Date.now()) / 60_000);
-      console.log(`[LLM] ${name} cooling down (${remainingMin}min left), skipping`);
-      continue;
-    }
+  // Last failure per provider in THIS cascade call — surfaced in the final
+  // error so "exhausted" failures say what actually went wrong per provider.
+  const lastFailure: Record<string, string> = {};
 
-    await enforceMinGapForProvider(name);
-
-    try {
-      const content = await fn(req);
-
-      if (req.validate && !req.validate(content)) {
-        console.warn(`[LLM] ${name} failed validation, trying next provider`);
+  /** One pass over the given providers. Returns a response or null if all failed. */
+  const tryProvidersOnce = async (label: string): Promise<CascadeResponse | null> => {
+    for (const { name, fn } of activeProviders) {
+      // Skip providers that are cooling down from a recent rate limit
+      if (isProviderCoolingDown(name)) {
+        const remainingSec = Math.ceil((providerCooldownUntil[name] - Date.now()) / 1000);
+        console.log(`[LLM] ${name} cooling down (${remainingSec}s left), skipping`);
         continue;
       }
 
-      cascadeMetrics[name] = (cascadeMetrics[name] ?? 0) + 1;
-      const thinkingNote = (name === 'anthropic' && req.claudeThinkingBudget && req.claudeThinkingBudget >= 1024)
-        ? ` [thinking=${req.claudeThinkingBudget}]` : '';
-      console.log(`[LLM] ${name} ✓${thinkingNote}`);
-      return { content, provider: name };
+      await enforceMinGapForProvider(name);
 
-    } catch (err) {
-      const error = err instanceof Error ? err : new Error(String(err));
-      const msg = error.message;
+      try {
+        const content = await fn(req);
 
-      if (isHardError(msg)) {
-        console.error(`[LLM] ${name} hard error (not retrying): ${msg}`);
-        throw error;
+        if (req.validate && !req.validate(content)) {
+          console.warn(`[LLM] ${name} failed validation${label}, trying next provider`);
+          lastFailure[name] = 'output failed validation';
+          continue;
+        }
+
+        cascadeMetrics[name] = (cascadeMetrics[name] ?? 0) + 1;
+        const thinkingNote = (name === 'anthropic' && req.claudeThinkingBudget && req.claudeThinkingBudget >= 1024)
+          ? ` [thinking=${req.claudeThinkingBudget}]` : '';
+        console.log(`[LLM] ${name} ✓${thinkingNote}${label}`);
+        return { content, provider: name };
+
+      } catch (err) {
+        const error = err instanceof Error ? err : new Error(String(err));
+        const msg = error.message;
+        lastFailure[name] = msg;
+
+        if (isHardError(msg)) {
+          console.error(`[LLM] ${name} hard error (not retrying): ${msg}`);
+          throw error;
+        }
+
+        if (isFallThroughError(msg)) {
+          console.warn(`[LLM] ${name} rate-limited/quota${label}: ${msg}`);
+          setCooldown(name, isDailyQuotaError(msg));
+          continue; // immediately try next provider — no point retrying a rate-limited one
+        }
+
+        // Unknown error (timeout, 5xx, network) — log and try next provider
+        console.warn(`[LLM] ${name} unknown error (trying next)${label}: ${msg}`);
       }
-
-      if (isFallThroughError(msg)) {
-        console.warn(`[LLM] ${name} rate-limited/quota: ${error.message}`);
-        setCooldown(name, isDailyQuotaError(msg));
-        continue; // immediately try next provider — no point retrying a rate-limited one
-      }
-
-      // Unknown error — log full message and try next provider
-      console.warn(`[LLM] ${name} unknown error (trying next): ${error.message}`);
     }
-  }
+    return null;
+  };
 
-  // All providers skipped (all cooling). If any cooldown expires soon, wait for
+  const firstPass = await tryProvidersOnce('');
+  if (firstPass) return firstPass;
+
+  // All providers failed or are cooling. If any cooldown expires soon, wait for
   // the earliest one and retry — this recovers from RPM/TPM limits automatically.
   // The wait is capped at 45s: generate-step runs under a 270s function limit,
   // and a longer sleep here (it used to allow up to 3 min) can 504 the whole
@@ -305,30 +325,24 @@ export async function generateWithCascade(req: CascadeRequest): Promise<CascadeR
     const waitMs = Math.max(shortTermExpiry - Date.now() + 500, 1);
     console.log(`[LLM] All providers cooling — waiting ${Math.round(waitMs / 1000)}s for earliest recovery`);
     await sleep(waitMs);
-
-    // One retry pass after waiting
-    for (const { name, fn } of activeProviders) {
-      if (isProviderCoolingDown(name)) continue;
-      try {
-        const content = await fn(req);
-        if (req.validate && !req.validate(content)) {
-          console.warn(`[LLM] ${name} failed validation after wait, trying next`);
-          continue;
-        }
-        cascadeMetrics[name] = (cascadeMetrics[name] ?? 0) + 1;
-        console.log(`[LLM] ${name} ✓ (after cooldown wait)`);
-        return { content, provider: name };
-      } catch (err) {
-        const error = err instanceof Error ? err : new Error(String(err));
-        if (isHardError(error.message)) throw error;
-        if (isFallThroughError(error.message)) {
-          setCooldown(name, isDailyQuotaError(error.message));
-          continue;
-        }
-        console.warn(`[LLM] ${name} unknown error after wait: ${error.message}`);
-      }
-    }
+    const retryPass = await tryProvidersOnce(' (after cooldown wait)');
+    if (retryPass) return retryPass;
+  } else if (activeProviders.some(p => !isProviderCoolingDown(p.name))) {
+    // No cooldown about to expire, but at least one provider failed with a
+    // transient non-rate-limit error (timeout, 529, network blip) and is NOT
+    // locked out. Give those one final attempt after a short pause instead of
+    // failing the step on a single hiccup.
+    console.log('[LLM] No provider cooling — retrying non-rate-limited providers once after 10s');
+    await sleep(10_000);
+    const lastResort = await tryProvidersOnce(' (final retry)');
+    if (lastResort) return lastResort;
   }
 
-  throw new Error('All LLM providers exhausted or cooling down — try again later');
+  const detail = activeProviders.map(p => {
+    const until = providerCooldownUntil[p.name];
+    const cooling = until && until > Date.now() ? ` [cooling ${Math.ceil((until - Date.now()) / 1000)}s]` : '';
+    const why = lastFailure[p.name] ? `: ${lastFailure[p.name].slice(0, 160)}` : '';
+    return `${p.name}${cooling}${why}`;
+  }).join(' | ');
+  throw new Error(`All LLM providers exhausted or cooling down — ${detail}`);
 }
