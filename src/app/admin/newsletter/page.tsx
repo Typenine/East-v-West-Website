@@ -47,12 +47,77 @@ function stepLabel(s: string): string {
   return s;
 }
 
-function estimateMinutes(episodeType: string): number {
-  const steps: Record<string, number> = {
-    regular: 13, trade_deadline: 12, playoffs_preview: 12, playoffs_round: 12,
-    championship: 11, season_finale: 11, preseason: 4, pre_draft: 7, post_draft: 15, offseason: 2,
-  };
-  return Math.ceil((steps[episodeType] ?? 10) * 45 / 60);
+// Per-step duration estimates (seconds), calibrated against measured prod runs
+// (observability data, June 2026): mock-draft steps average 146-183s (two extended-
+// thinking segments), Intro/PreDraftTrades ~40s, FinalWord ~29s. Steps without
+// direct measurements are scaled from those by their Claude thinking budgets.
+const STEP_EST_SECONDS: Record<string, number> = {
+  Intro: 40,
+  PreDraftTrades: 45,
+  MockDraft_R1_Mason: 180, MockDraft_R1_Westy: 180,
+  MockDraft_R2_Mason: 175, MockDraft_R2_Westy: 160,
+  PowerRankings: 90, PowerRankings_Preseason: 90,
+  SeasonPreview: 90,
+  WaiversAndFA: 40,
+  Spotlight: 30,
+  Blurt: 15,
+  Forecast: 75,
+  PredictionCallbacks: 30,
+  ClancyInsert: 10,
+  DraftGrades_Summary: 60,
+  FinalWord: 30,
+  SocialSummary: 15,
+};
+
+function stepEstSeconds(s: string): number {
+  if (STEP_EST_SECONDS[s] !== undefined) return STEP_EST_SECONDS[s];
+  if (/^Recap_\d+$/.test(s)) return 30;
+  if (/^Trade_\d+$/.test(s)) return 90;   // multiple serialized grade calls per trade
+  if (/^DraftGrade_\d+$/.test(s)) return 35;
+  return 45;
+}
+
+// Context build at job start (Sleeper fetches, derived data, DB write) before step 1
+const JOB_START_EST_SECONDS = 30;
+
+/**
+ * Pre-generation estimate: mirrors getGenerationSteps (compose-step.ts) with typical
+ * counts (6 matchups; 1-2 trades), summing the per-step estimates above.
+ */
+function estimateGenerationSeconds(episodeType: string): number {
+  const steps: string[] = ['Intro'];
+  const matchupCount = 6;
+  const tradeCount = episodeType === 'trade_deadline' ? 2 : 1;
+
+  if (episodeType === 'preseason') steps.push('PowerRankings_Preseason', 'SeasonPreview');
+
+  const isRegularOrPlayoff = ['regular', 'trade_deadline', 'playoffs_preview', 'playoffs_round', 'championship', 'season_finale'].includes(episodeType);
+  if (isRegularOrPlayoff) {
+    if (episodeType === 'regular') steps.push('PowerRankings');
+    for (let i = 0; i < matchupCount; i++) steps.push(`Recap_${i}`);
+    steps.push('WaiversAndFA');
+    for (let t = 0; t < tradeCount; t++) steps.push(`Trade_${t}`);
+    steps.push('Spotlight', 'Blurt');
+    if (['regular', 'trade_deadline', 'playoffs_preview', 'playoffs_round'].includes(episodeType)) steps.push('Forecast');
+    if (episodeType === 'regular') steps.push('PredictionCallbacks');
+    if (['championship', 'trade_deadline', 'playoffs_round', 'regular'].includes(episodeType)) steps.push('ClancyInsert');
+  }
+  if (episodeType === 'pre_draft') {
+    steps.push('PreDraftTrades', 'MockDraft_R1_Mason', 'MockDraft_R1_Westy', 'MockDraft_R2_Mason', 'MockDraft_R2_Westy', 'ClancyInsert');
+  }
+  if (episodeType === 'post_draft') {
+    for (let i = 0; i < 12; i++) steps.push(`DraftGrade_${i}`);
+    steps.push('DraftGrades_Summary', 'ClancyInsert');
+  }
+  steps.push('FinalWord');
+  if (isRegularOrPlayoff) steps.push('SocialSummary');
+
+  return JOB_START_EST_SECONDS + steps.reduce((sum, s) => sum + stepEstSeconds(s), 0);
+}
+
+function fmtEstimate(totalSeconds: number): string {
+  const min = Math.round(totalSeconds / 60);
+  return min < 1 ? '<1 min' : `~${min} min`;
 }
 
 function fmtElapsed(s: number) {
@@ -70,6 +135,8 @@ interface GenState {
   failed: Set<string>;
   failedRequired: Set<string>;
   currentStep: string | null;
+  /** gen.elapsed value at the moment currentStep started — drives per-step progress credit. */
+  currentStepStartElapsed: number;
   totalSteps: number;
   elapsed: number;
   error: string | null;
@@ -82,7 +149,7 @@ interface GenState {
 
 const INIT_GEN: GenState = {
   phase: 'idle', steps: [], done: new Set(), failed: new Set(), failedRequired: new Set(),
-  currentStep: null, totalSteps: 10, elapsed: 0, error: null,
+  currentStep: null, currentStepStartElapsed: 0, totalSteps: 10, elapsed: 0, error: null,
   html: null, meta: null, generatedAt: null, runId: null, optionalSkipped: 0,
 };
 
@@ -235,7 +302,12 @@ function AdminNewsletterPageInner() {
       const steps = startData.steps ?? [];
       const totalSteps = startData.totalSteps ?? steps.length;
       const runId = startData.runId ?? null;
-      setGen(g => ({ ...g, phase: 'running', steps, totalSteps, runId }));
+      // Mark step 1 as running immediately — the first step request is in flight
+      // from here, and mock-draft first steps can run 3+ minutes.
+      setGen(g => ({
+        ...g, phase: 'running', steps, totalSteps, runId,
+        currentStep: steps[0] ?? null, currentStepStartElapsed: g.elapsed,
+      }));
 
       // 2. Loop through generate-step until done
       let done = false;
@@ -308,12 +380,16 @@ function AdminNewsletterPageInner() {
             const newDone = new Set(g.done);
             const failed = stepData.status === 'step_failed' || stepData.status === 'step_failed_required';
             if (!failed) newDone.add(stepData.step!);
+            const nextCurrent = done ? null : (stepData.nextStep ?? null);
             return {
               ...g,
               done: newDone,
               failed: new Set(failedInRun),
               failedRequired: new Set(failedRequiredInRun),
-              currentStep: done ? null : (stepData.nextStep ?? null),
+              currentStep: nextCurrent,
+              // Reset the per-step clock only when the running step actually changes
+              // (a 504-resumed step keeps accruing on the same clock).
+              currentStepStartElapsed: nextCurrent !== g.currentStep ? g.elapsed : g.currentStepStartElapsed,
             };
           });
         }
@@ -350,7 +426,7 @@ function AdminNewsletterPageInner() {
 
   const handleRetry = async (stepName: string) => {
     const wNum = needsWeek ? (parseInt(week) || nflWeek || 1) : 0;
-    setGen(g => ({ ...g, currentStep: stepName, phase: 'running' }));
+    setGen(g => ({ ...g, currentStep: stepName, currentStepStartElapsed: 0, phase: 'running' }));
     startTimer();
 
     try {
@@ -377,7 +453,7 @@ function AdminNewsletterPageInner() {
         consecutiveErrors = 0;
 
         const stepData = await stepRes.json() as {
-          done?: boolean; step?: string; status?: string;
+          done?: boolean; step?: string; nextStep?: string; status?: string;
           failedSteps?: string[]; failedRequiredSteps?: string[];
           missingRequiredSteps?: string[];
         };
@@ -395,7 +471,12 @@ function AdminNewsletterPageInner() {
               newFailedReq.delete(stepData.step!);
             }
             if (stepData.failedSteps) for (const s of stepData.failedSteps) newFailed.add(s);
-            return { ...g, done: newDone, failed: newFailed, failedRequired: newFailedReq };
+            const nextCurrent = done ? null : (stepData.nextStep ?? null);
+            return {
+              ...g, done: newDone, failed: newFailed, failedRequired: newFailedReq,
+              currentStep: nextCurrent,
+              currentStepStartElapsed: nextCurrent !== g.currentStep ? g.elapsed : g.currentStepStartElapsed,
+            };
           });
         }
         if (done) break;
@@ -484,9 +565,24 @@ function AdminNewsletterPageInner() {
   // ── Helpers ───────────────────────────────────────────────────────────────
 
   const isGenerating = gen.phase === 'starting' || gen.phase === 'running';
-  const percent = gen.steps.length > 0
-    ? Math.round(5 + (gen.done.size / gen.steps.length) * 90)
-    : gen.phase === 'starting' ? 3 : gen.phase === 'done' ? 100 : 0;
+
+  // Duration-weighted progress: a mock-draft step (~3 min) moves the bar ~5x more
+  // than an Intro (~40s). The in-flight step earns partial credit from its elapsed
+  // time, capped at 95% of its estimate so the bar never overtakes reality.
+  const totalWeight = gen.steps.reduce((sum, s) => sum + stepEstSeconds(s), 0);
+  const handledWeight = gen.steps
+    .filter(s => gen.done.has(s) || gen.failed.has(s))
+    .reduce((sum, s) => sum + stepEstSeconds(s), 0);
+  const currentCredit = (gen.currentStep && !gen.done.has(gen.currentStep) && !gen.failed.has(gen.currentStep))
+    ? Math.min(Math.max(0, gen.elapsed - gen.currentStepStartElapsed), stepEstSeconds(gen.currentStep) * 0.95)
+    : 0;
+  const percent = gen.phase === 'done' ? 100
+    : gen.steps.length > 0 && totalWeight > 0
+      ? Math.round(5 + ((handledWeight + currentCredit) / totalWeight) * 95)
+      : gen.phase === 'starting' ? 3 : 0;
+  const remainingSeconds = gen.steps.length > 0
+    ? Math.max(0, totalWeight - handledWeight - currentCredit)
+    : estimateGenerationSeconds(episodeType);
 
   // ── Auth guards ───────────────────────────────────────────────────────────
 
@@ -614,7 +710,7 @@ function AdminNewsletterPageInner() {
                     </span>
                   ) : existing ? '🔄 Regenerate Newsletter' : '⚡ Generate Newsletter'}
                 </Button>
-                <span className="text-xs text-zinc-500 whitespace-nowrap">~{estimateMinutes(episodeType)} min</span>
+                <span className="text-xs text-zinc-500 whitespace-nowrap">{fmtEstimate(estimateGenerationSeconds(episodeType))}</span>
               </div>
             </CardContent>
           </Card>
@@ -689,16 +785,21 @@ function AdminNewsletterPageInner() {
                   {gen.phase === 'starting' ? '📡 Fetching data & building context...' : `⚙️ Generating sections`}
                 </div>
                 {gen.currentStep && (() => {
-                  const deepThinkingSteps = ['MockDraft_R1_Mason','MockDraft_R1_Westy','MockDraft_R2_Mason','MockDraft_R2_Westy','PowerRankings','PowerRankings_Preseason','Forecast'];
+                  const isMockDraft = /^MockDraft_/.test(gen.currentStep!);
+                  const deepThinkingSteps = ['PowerRankings','PowerRankings_Preseason','Forecast'];
                   const mediumThinkingSteps = ['Intro','FinalWord','DraftGrades_Summary'];
-                  const isDeep = deepThinkingSteps.some(s => gen.currentStep!.startsWith(s.split('_')[0]) && deepThinkingSteps.includes(gen.currentStep!));
-                  const isMedium = mediumThinkingSteps.includes(gen.currentStep!);
-                  if (isDeep) return <div className="text-[10px] text-amber-400/80 mt-0.5">🧠 Claude is reasoning deeply — this section may take 30–60s</div>;
-                  if (isMedium) return <div className="text-[10px] text-blue-400/60 mt-0.5">🧠 Claude is thinking…</div>;
+                  if (isMockDraft) return <div className="text-[10px] text-amber-400/80 mt-0.5">🧠 {stepLabel(gen.currentStep!)} — two deep-reasoning passes, ~3 min for this section</div>;
+                  if (deepThinkingSteps.includes(gen.currentStep!)) return <div className="text-[10px] text-amber-400/80 mt-0.5">🧠 Claude is reasoning deeply — this section may take 60–90s</div>;
+                  if (mediumThinkingSteps.includes(gen.currentStep!)) return <div className="text-[10px] text-blue-400/60 mt-0.5">🧠 Claude is thinking…</div>;
                   return null;
                 })()}
               </div>
-              <div className="text-sm font-mono text-zinc-400">{fmtElapsed(gen.elapsed)} elapsed</div>
+              <div className="text-sm font-mono text-zinc-400">
+                {fmtElapsed(gen.elapsed)} elapsed
+                {gen.phase === 'running' && gen.steps.length > 0 && (
+                  <span className="text-zinc-500"> · {fmtEstimate(remainingSeconds)} left</span>
+                )}
+              </div>
             </div>
 
             {/* Progress bar */}
@@ -736,7 +837,9 @@ function AdminNewsletterPageInner() {
             )}
 
             <div className="mt-3 text-xs text-zinc-500">
-              {gen.done.size}/{gen.totalSteps} complete · Keep this tab open while generation runs
+              {gen.done.size}/{gen.totalSteps} complete
+              {gen.failed.size > 0 && ` · ${gen.failed.size} skipped`}
+              {' '}· Keep this tab open while generation runs
             </div>
           </CardContent>
         </Card>
