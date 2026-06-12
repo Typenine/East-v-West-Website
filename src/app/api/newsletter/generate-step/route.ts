@@ -412,6 +412,19 @@ export async function POST(request: NextRequest) {
   // Load roster context built at job start (used by mock draft steps for team needs)
   const rosterContext = (derivedData.__rosterContext as string | undefined) ?? '';
 
+  // Mock-draft steps run two LLM segments (~100s each with extended thinking) and can
+  // exceed the function window when calls run long — Vercel kills the invocation (504)
+  // and nothing is recorded. Checkpoint each completed segment into staged state so the
+  // client's automatic retry resumes at the remaining segment instead of starting over.
+  const isMockDraftStep = /^MockDraft_R[12]_(Mason|Westy)$/.test(nextStep);
+  const checkpointKey = `__partial_${nextStep}`;
+  const mockDraftPartial = isMockDraftStep
+    ? (derivedData[checkpointKey] as StepInput['mockDraftPartial']) ?? null
+    : null;
+  if (mockDraftPartial) {
+    console.log(`[Step] runId=${runId} "${nextStep}" has a segment checkpoint (${mockDraftPartial.segmentsDone} segment(s) done) — resuming`);
+  }
+
   const stepInput: StepInput = {
     sectionName: nextStep,
     week,
@@ -434,6 +447,10 @@ export async function POST(request: NextRequest) {
     priorSectionSummary: priorSectionSummary || undefined,
     rosterContext: rosterContext || undefined,
     dynastyRankings,
+    mockDraftPartial,
+    onMockDraftSegment: isMockDraftStep
+      ? (state) => mergeStagedDerivedData(season, week, { [checkpointKey]: state })
+      : undefined,
   };
 
   // ── Phase 3: load admin personality overrides (mirrors sync route — non-fatal) ──
@@ -563,6 +580,7 @@ export async function POST(request: NextRequest) {
   await mergeStagedDerivedData(season, week, {
     sections: { ...sectionOutputs, [nextStep]: result.data },
     ...(stepMeta ? { __sectionMeta: { ...existingMeta, [nextStep]: stepMeta } } : {}),
+    ...(isMockDraftStep ? { [checkpointKey]: null } : {}),
   });
   const newCompleted = [...(staged.sectionsCompleted ?? []), nextStep];
   await updateStagedNewsletter(season, week, { currentSection: null, sectionsCompleted: newCompleted });
@@ -777,8 +795,10 @@ export async function GET(request: NextRequest) {
   }
   const { searchParams } = new URL(request.url);
   const season = parseInt(searchParams.get('season') ?? '0', 10);
-  const week = parseInt(searchParams.get('week') ?? '0', 10);
-  if (!season || !week) return NextResponse.json({ error: 'season and week required' }, { status: 400 });
+  // week 0 is valid — offseason episodes (pre_draft, post_draft) use it
+  const weekRaw = searchParams.get('week');
+  const week = parseInt(weekRaw ?? '', 10);
+  if (!season || weekRaw === null || isNaN(week)) return NextResponse.json({ error: 'season and week required' }, { status: 400 });
 
   const staged = await loadStagedNewsletter(season, week);
   if (!staged) return NextResponse.json({ status: 'not_found' });

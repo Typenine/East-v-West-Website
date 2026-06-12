@@ -173,6 +173,13 @@ export function getGenerationSteps(
 
 // ============ Shared input type ============
 
+/** Progress snapshot of a segmented mock-draft step, persisted between invocations. */
+export interface MockDraftSegmentCheckpoint {
+  picks: Array<{ slot: number; team: string; player: string; position: string; analysis: string }>;
+  rawParts: string[];
+  segmentsDone: number;
+}
+
 export interface StepInput {
   sectionName: string;
   week: number;
@@ -219,6 +226,17 @@ export interface StepInput {
    * in waiver and trade sections without bloating the base context string.
    */
   dynastyRankings?: Array<{ name: string; pos: string; nfl: string; rank: number }>;
+  /**
+   * Resume state for segmented mock-draft steps: segments completed by a previous
+   * invocation of this step that was killed mid-step (Vercel 504). Lets a retry
+   * skip straight to the remaining segment instead of replaying the whole round.
+   */
+  mockDraftPartial?: MockDraftSegmentCheckpoint | null;
+  /**
+   * Called after each completed mock-draft segment (except the last) so the step
+   * route can checkpoint progress to staged state before the next segment runs.
+   */
+  onMockDraftSegment?: (state: MockDraftSegmentCheckpoint) => Promise<void>;
   /**
    * Phase 1: pre-computed per-bot Phase 1 addendum strings.
    * If absent, the step computes them inline from memEntertainer / memAnalyst.
@@ -1099,7 +1117,19 @@ async function genMockDraftR1(
   const allPicks: ReturnType<typeof parseMockDraftPicksLocal> = [];
   const rawParts: string[] = [];
 
-  for (const seg of segments) {
+  // Resume from a checkpoint left by a previous invocation that was killed
+  // mid-step (function timeout) — skip segments that already completed.
+  let firstSegment = 0;
+  const partial = input.mockDraftPartial;
+  if (partial && partial.segmentsDone > 0 && partial.segmentsDone < segments.length) {
+    allPicks.push(...partial.picks);
+    rawParts.push(...partial.rawParts);
+    firstSegment = partial.segmentsDone;
+    console.log(`[ComposeStep] MockDraft_R1_${personaLabel} resuming from checkpoint — ${partial.segmentsDone}/${segments.length} segments done (${partial.picks.length} picks carried over)`);
+  }
+
+  for (let segIdx = firstSegment; segIdx < segments.length; segIdx++) {
+    const seg = segments[segIdx];
     const segFirst = pad(seg[0].slot);
     const segLast = pad(seg[seg.length - 1].slot);
     const pickedSoFar = allPicks.map(p => p.player);
@@ -1162,6 +1192,11 @@ ${poolText}
     });
     allPicks.push(...picks);
     rawParts.push(raw);
+
+    if (input.onMockDraftSegment && segIdx < segments.length - 1) {
+      await input.onMockDraftSegment({ picks: allPicks, rawParts, segmentsDone: segIdx + 1 })
+        .catch(e => console.warn(`[ComposeStep] MockDraft_R1_${personaLabel} segment checkpoint failed (non-fatal):`, e instanceof Error ? e.message : String(e)));
+    }
   }
 
   console.log(`[ComposeStep] MockDraft_R1_${personaLabel} completed — ${allPicks.length} valid picks (${segments.length} segments)`);
@@ -1222,7 +1257,18 @@ async function genMockDraftR2(
   const allPicks: ReturnType<typeof parseMockDraftPicksLocal> = [];
   const rawParts: string[] = [];
 
-  for (const seg of segments) {
+  // Resume from a checkpoint left by a previous invocation killed mid-step.
+  let firstSegment = 0;
+  const partial = input.mockDraftPartial;
+  if (partial && partial.segmentsDone > 0 && partial.segmentsDone < segments.length) {
+    allPicks.push(...partial.picks);
+    rawParts.push(...partial.rawParts);
+    firstSegment = partial.segmentsDone;
+    console.log(`[ComposeStep] MockDraft_R2_${personaLabel} resuming from checkpoint — ${partial.segmentsDone}/${segments.length} segments done (${partial.picks.length} picks carried over)`);
+  }
+
+  for (let segIdx = firstSegment; segIdx < segments.length; segIdx++) {
+    const seg = segments[segIdx];
     const segFirst = pad(seg[0].slot);
     const segLast = pad(seg[seg.length - 1].slot);
     const pickedThisRound = allPicks.map(p => p.player);
@@ -1283,6 +1329,11 @@ ${poolText}
     });
     allPicks.push(...picks);
     rawParts.push(raw);
+
+    if (input.onMockDraftSegment && segIdx < segments.length - 1) {
+      await input.onMockDraftSegment({ picks: allPicks, rawParts, segmentsDone: segIdx + 1 })
+        .catch(e => console.warn(`[ComposeStep] MockDraft_R2_${personaLabel} segment checkpoint failed (non-fatal):`, e instanceof Error ? e.message : String(e)));
+    }
   }
 
   console.log(`[ComposeStep] MockDraft_R2_${personaLabel} completed — ${allPicks.length} valid picks (${segments.length} segments)`);
