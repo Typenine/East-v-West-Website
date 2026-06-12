@@ -303,7 +303,9 @@ export function findTradeAttributionViolations(
         for (const name of matchable(ref)) {
           // Window stops at clause boundaries (, ; :) so a verb in one clause
           // can't claim an asset mentioned in the next ("gave up X, but landed Y").
-          const re = new RegExp(`\\b${verbs}\\b[^.!?,;:]{0,60}?\\b${escapeRe(name)}\\b`, 'i');
+          // Trailing lookahead instead of \b — names ending in "." (Jr.) have no
+          // word boundary before a following space, so \b would never match.
+          const re = new RegExp(`\\b${verbs}\\b[^.!?,;:]{0,60}?\\b${escapeRe(name)}(?=\\W|$)`, 'i');
           const m = re.exec(sentence);
           if (!m) continue;
           // Subject anchor: the team named most recently before the verb. In a
@@ -356,7 +358,7 @@ export function findTradeAttributionViolations(
       const actualSender = senderFor(ref.name, focusTeam, routing, ref.raw);
       if (!actualSender) continue;
       for (const name of matchable(ref)) {
-        const re = new RegExp(`\\b${escapeRe(name)}\\b[^.!?]{0,30}?\\bfrom\\b([^.!?]{0,50})`, 'i');
+        const re = new RegExp(`\\b${escapeRe(name)}(?=\\W|$)[^.!?]{0,30}?\\bfrom\\b([^.!?]{0,50})`, 'i');
         const m = re.exec(sentence);
         if (!m) continue;
         const claimed = lastTeamNamed(m[1]);

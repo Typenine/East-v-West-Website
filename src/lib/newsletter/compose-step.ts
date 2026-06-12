@@ -46,6 +46,16 @@ import { getPhaseRules, buildPhaseRulesContext } from './episodes';
 import { buildMatchupCardContext, buildTeamCardContext, computeRivalryScore } from './team-narratives';
 import { evaluateClancyTrigger, generateClancyInsert, buildClancySystemContext } from './guest-voice';
 import type { ClancyInsert, PredictionCallbackItem } from './types';
+import {
+  buildOffseasonTradesContextBlock,
+  byTeamForOffseasonTrade,
+  type OffseasonTradeFact,
+} from './offseason-trades';
+import {
+  findTradeAttributionViolations,
+  stripViolatingSentences,
+  type AttributionViolation,
+} from './trade-facts';
 // ============ Step catalog ============
 
 /**
@@ -187,7 +197,7 @@ export interface StepInput {
    * For pre_draft: eligible prospect pool loaded from DB at job start.
    * Mock draft steps MUST use only players from this list. If null/empty, mock draft step fails hard.
    */
-  prospectPool?: Array<{ name: string; pos: string; nfl?: string | null; rank: number | null }> | null;
+  prospectPool?: Array<{ name: string; pos: string; nfl?: string | null; rank: number | null; value?: number | null }> | null;
   /**
    * Compact summary of already-completed section outputs (scores, intros, spotlights) for
    * cross-referencing. Lets FinalWord, Blurt, and Spotlight avoid repeating earlier content.
@@ -198,6 +208,12 @@ export interface StepInput {
    * Lets mock draft bots reason about team needs when making picks.
    */
   rosterContext?: string;
+  /**
+   * For pre_draft: structured offseason trades (received/sent per team with routing
+   * suffixes). Drives the deterministic trade-facts block and the attribution lint
+   * in the PreDraftTrades step.
+   */
+  offseasonTrades?: OffseasonTradeFact[] | null;
   /**
    * Full dynasty rankings loaded from R2 at job start. Used for per-player rank lookups
    * in waiver and trade sections without bloating the base context string.
@@ -1093,10 +1109,11 @@ async function genMockDraftR1(
     // Listed ALPHABETICALLY so the model can't just read top-to-bottom and call it a mock draft.
     const poolSorted = [...segPool].sort((a, b) => a.name.localeCompare(b.name));
     const poolText = poolSorted.map(p =>
-      `- ${p.name} (${p.pos}${p.nfl ? `, drafted by ${p.nfl}` : ''}${p.rank !== null ? `, consensus rank #${p.rank} of ${prospectPool.length}` : ', unranked'})`
+      `- ${p.name} (${p.pos}${p.nfl ? `, drafted by ${p.nfl}` : ''}${p.rank !== null ? `, consensus rank #${p.rank} of ${prospectPool.length}${p.value ? `, market value ${p.value}` : ''}` : ', unranked'})`
     ).join('\n');
     const poolHeader = `=== ELIGIBLE PLAYERS — ${season} NFL DRAFT PROSPECT POOL${pickedSoFar.length > 0 ? ' (players you already picked this round removed)' : ''} ===
 Listed alphabetically. "Consensus rank" is aggregate market opinion — treat it as one data point, not a pick order.
+"Market value" is the SuperFlex dynasty market number behind the rank — compare values, not just ranks: a 200-point gap between two ranks is a tier break; a 10-point gap means the ranks are interchangeable.
 "Drafted by" is the prospect's CURRENT NFL team (live data — overrides anything you remember).
 You may ONLY select players from the list below. DO NOT use players from any previous draft class.
 
@@ -1122,6 +1139,7 @@ ${poolText}
       `⚠️ PLAYER RULE: Every player MUST appear in the ELIGIBLE PLAYERS list above. Do NOT use any other player.`,
       `⚠️ ROSTER RULE: Before each pick, check that team's CURRENT ROSTER (listed above). Reference SPECIFIC players they already have — including recent acquisitions. A team that just traded for a QB doesn't need another; a team with Bowers doesn't need a TE.`,
       `⚠️ POSITION RULE: TE is 1-deep (start only 1 TE per week) — TE depth is low priority. QB is premium in SuperFlex.`,
+      `⚠️ QB RULE: "QB premium" applies to QBs with a REAL path to an NFL starting job. Check the prospect's NFL landing spot ("drafted by") and his market value before reaching — a rookie QB drafted to sit behind an entrenched starter is a stash, not an early pick, and taking him over a higher-value WR/RB needs explicit justification.`,
       `⚠️ ANALYSIS RULE — every pick paragraph is 6-8 sentences and must cover all three beats:`,
       `   (a) THE ROSTER: the team's current situation at the position — name 2-3 specific players they have (with the roles/ages shown in CURRENT TEAM ROSTERS) and say what hole or surplus that creates.`,
       `   (b) THE PROSPECT: who this player is — his NFL landing spot ("drafted by" in the pool), what kind of player he is, and what his path to fantasy-relevant opportunity looks like on that NFL team.`,
@@ -1213,10 +1231,10 @@ async function genMockDraftR2(
 
     const poolSorted = [...segPool].sort((a, b) => a.name.localeCompare(b.name));
     const poolText = poolSorted.map(p =>
-      `- ${p.name} (${p.pos}${p.nfl ? `, drafted by ${p.nfl}` : ''}${p.rank !== null ? `, consensus rank #${p.rank} of ${prospectPool.length}` : ', unranked'})`
+      `- ${p.name} (${p.pos}${p.nfl ? `, drafted by ${p.nfl}` : ''}${p.rank !== null ? `, consensus rank #${p.rank} of ${prospectPool.length}${p.value ? `, market value ${p.value}` : ''}` : ', unranked'})`
     ).join('\n');
     const poolHeader = `=== ELIGIBLE PLAYERS — ROUND 2 (${season} prospect pool, all previously picked players removed) ===
-Listed alphabetically. Consensus rank is reference data — not a pick order.
+Listed alphabetically. Consensus rank is reference data — not a pick order. "Market value" shows the gaps behind the ranks — a big value drop between ranks is a tier break.
 "Drafted by" is the prospect's CURRENT NFL team (live data — overrides anything you remember).
 You may ONLY select players from this list. DO NOT repeat any earlier pick.
 
@@ -1243,6 +1261,7 @@ ${poolText}
       `⚠️ PLAYER RULE: Every player MUST appear in the ELIGIBLE PLAYERS list above. Do NOT use any other player.`,
       `⚠️ ROSTER RULE: Check each team's CURRENT ROSTER before picking. Reference specific players they already have.`,
       `⚠️ POSITION RULE: TE is 1-deep. QB is premium in SuperFlex.`,
+      `⚠️ QB RULE: QB premium only counts for QBs with a real path to NFL starting snaps — check the landing spot and market value before reaching for a clipboard-holder.`,
       `⚠️ ANALYSIS RULE — every pick paragraph is 5-7 sentences and must cover all three beats:`,
       `   (a) THE ROSTER: where this team stands after their Round 1 pick — name specific players they already have (with the roles/ages shown in CURRENT TEAM ROSTERS).`,
       `   (b) THE PROSPECT: who this player is — NFL landing spot ("drafted by" in the pool), play style, and his realistic path to opportunity on that NFL team.`,
@@ -1272,21 +1291,105 @@ ${poolText}
 
 async function genPreDraftTrades(input: StepInput): Promise<TradeItem[]> {
   const leagueKnowledge = buildStaticLeagueContext();
-  const { season, enhancedContext, memEntertainer, memAnalyst } = input;
+  const { season, enhancedContext, offseasonTrades } = input;
 
-  const context = `${leagueKnowledge}\n\n---\n\nPRE-DRAFT TRADE ANALYSIS — ${season}\nReview trades since late ${season - 1} (post-championship offseason through the present).\n${enhancedContext}\n\nCRITICAL: Only mention trades EXPLICITLY listed above. Do NOT invent trades.`;
+  // Deterministic facts block — per-team Received/Sent with routing for multi-team
+  // deals. When structured trades are available this is the source of truth; the
+  // prose context remains as supporting color.
+  const tradeFactsBlock = offseasonTrades && offseasonTrades.length > 0
+    ? buildOffseasonTradesContextBlock(offseasonTrades, season)
+    : '';
+
+  const context = `${leagueKnowledge}\n\n---\n\nPRE-DRAFT TRADE ANALYSIS — ${season}\nReview trades since late ${season - 1} (post-championship offseason through the present).\n${tradeFactsBlock ? `\n${tradeFactsBlock}\n` : ''}${enhancedContext}\n\nCRITICAL: Only mention trades EXPLICITLY listed above. Do NOT invent trades.${tradeFactsBlock ? ' The OFFSEASON TRADE FACTS block is authoritative for who sent and received every asset.' : ''}`;
 
   const partyGradeConstraint = (p: 'entertainer' | 'analyst') =>
-    `Grade each team involved in offseason trades separately.\nFormat EXACTLY:\n===TEAM: [Exact Team Name]===\nGRADE: [A+ to F]\n[2-3 sentence analysis]\n\nIf no trades exist, output exactly: NO_TRADES\n${p === 'analyst' ? 'Focus on analytical value and draft capital impact.' : 'Focus on bold opinion: who won, who got fleeced.'}`;
+    `Grade each team involved in offseason trades separately.\nFormat EXACTLY:\n===TEAM: [Exact Team Name]===\nGRADE: [A+ to F]\n[2-3 sentence analysis]\n\nIf no trades exist, output exactly: NO_TRADES\n` +
+    `⚠️ ATTRIBUTION: Before writing any "traded away / landed / sent / got" claim, check the team's "received" and "sent" lines in OFFSEASON TRADE FACTS. In a 3-team trade each asset has exactly ONE sender — "(from X)" on an asset names that sender; do not credit or blame any other team for it.\n` +
+    `${p === 'analyst' ? 'Focus on analytical value and draft capital impact.' : 'Focus on bold opinion: who won, who got fleeced.'}`;
 
-  const [masonOverview, westyOverview, masonGradesRaw, westyGradesRaw] = await Promise.all([
-    generateSection({ persona: 'entertainer', sectionType: 'Offseason Trade Analysis',     context, constraints: `3-4 sentences on key offseason trades. If none, acknowledge the quiet offseason. CRITICAL: Don't invent trades.`, maxTokens: 600, episodeType: 'pre_draft', validate: (t) => t.length >= 150 }),
-    generateSection({ persona: 'analyst',     sectionType: 'Offseason Trade Analysis',     context, constraints: `3-4 analytical sentences on offseason trades and draft capital impact. If none, note the quiet market. CRITICAL: Don't invent trades.`, maxTokens: 600, episodeType: 'pre_draft', validate: (t) => t.length >= 150 }),
-    generateSection({ persona: 'entertainer', sectionType: 'Offseason Trade Party Grades', context, constraints: partyGradeConstraint('entertainer'), maxTokens: 700, episodeType: 'pre_draft' }),
-    generateSection({ persona: 'analyst',     sectionType: 'Offseason Trade Party Grades', context, constraints: partyGradeConstraint('analyst'),     maxTokens: 700, episodeType: 'pre_draft' }),
+  // Attribution lint for a parsed grade block: check the paragraph about `team`
+  // against every offseason trade that team was part of.
+  const normalizeTeamKey = (s: string) => s.toLowerCase().replace(/\s+/g, ' ').trim();
+  const lintTeamBlock = (team: string, text: string): AttributionViolation[] => {
+    if (!offseasonTrades?.length) return [];
+    const violations: AttributionViolation[] = [];
+    for (const t of offseasonTrades) {
+      const parties = t.teams.map(x => x.name);
+      const focus = parties.find(p => normalizeTeamKey(p) === normalizeTeamKey(team));
+      if (!focus) continue;
+      violations.push(...findTradeAttributionViolations(focus, parties, byTeamForOffseasonTrade(t), text));
+    }
+    return violations;
+  };
+
+  type GradeBlock = { team: string; grade: string; analysis: string };
+  const lintAllBlocks = (blocks: GradeBlock[]): Array<{ block: GradeBlock; violations: AttributionViolation[] }> =>
+    blocks
+      .map(block => ({ block, violations: lintTeamBlock(block.team, block.analysis) }))
+      .filter(x => x.violations.length > 0);
+
+  // Generate grades, lint for direction-flipped attribution, retry once with
+  // explicit corrections, and deterministically strip any survivors.
+  const generateGradesChecked = async (persona: 'entertainer' | 'analyst', extraContext = ''): Promise<string> => {
+    const gradesCtx = context + (extraContext ? `\n\n${extraContext}` : '');
+    const first = await generateSection({
+      persona, sectionType: 'Offseason Trade Party Grades', context: gradesCtx,
+      constraints: partyGradeConstraint(persona), maxTokens: 700, episodeType: 'pre_draft',
+    });
+    let chosen = first;
+    let flagged = lintAllBlocks(parseBlocks(first));
+    if (flagged.length > 0) {
+      const allViolations = flagged.flatMap(f => f.violations);
+      console.warn(`[PreDraftTrades:${persona}] ${allViolations.length} attribution violation(s) — retrying with corrections: ${allViolations.map(v => `${v.kind}:${v.asset}`).join(', ')}`);
+      const correction = [
+        '⚠️ YOUR PREVIOUS DRAFT CONTAINED ATTRIBUTION ERRORS. Fix ALL of these:',
+        ...allViolations.map(v => `- You wrote: "${v.sentence}" — WRONG. ${v.correction}`),
+        'Rewrite your full response. Verify every send/receive claim against OFFSEASON TRADE FACTS before writing it.',
+      ].join('\n');
+      const second = await generateSection({
+        persona, sectionType: 'Offseason Trade Party Grades', context: gradesCtx,
+        constraints: partyGradeConstraint(persona) + '\n\n' + correction, maxTokens: 700, episodeType: 'pre_draft',
+      }).catch(() => first);
+      const flaggedSecond = lintAllBlocks(parseBlocks(second));
+      if (flaggedSecond.flatMap(f => f.violations).length <= allViolations.length) {
+        chosen = second;
+        flagged = flaggedSecond;
+      }
+    }
+    if (flagged.length === 0) return chosen;
+    // Last resort: strip the offending sentences inside the affected blocks
+    console.warn(`[PreDraftTrades:${persona}] stripping ${flagged.flatMap(f => f.violations).length} violating sentence(s) after retry`);
+    let out = chosen;
+    for (const { block, violations } of flagged) {
+      out = out.replace(block.analysis, stripViolatingSentences(block.analysis, violations));
+    }
+    return out;
+  };
+
+  // Mason publishes first; Westy reads Mason's takes and reacts instead of
+  // re-introducing the same trades the reader just heard about.
+  const [masonOverview, masonGradesRaw] = await Promise.all([
+    generateSection({ persona: 'entertainer', sectionType: 'Offseason Trade Analysis', context, constraints: `3-4 sentences on key offseason trades. If none, acknowledge the quiet offseason. CRITICAL: Don't invent trades.`, maxTokens: 600, episodeType: 'pre_draft', validate: (t) => t.length >= 150 }),
+    generateGradesChecked('entertainer'),
   ]);
 
-  const parseBlocks = (text: string): Array<{ team: string; grade: string; analysis: string }> => {
+  const masonTakeCtx =
+    `MASON'S PUBLISHED TAKES (the reader has already seen these directly above your segment):\n` +
+    `OVERVIEW:\n"""\n${masonOverview}\n"""\n` +
+    `TEAM GRADES:\n"""\n${masonGradesRaw}\n"""\n` +
+    `Do NOT re-introduce or re-summarize the trades — the reader just read Mason doing that. ` +
+    `React to him: push back on at least one specific claim with data, or concede it and go a level deeper. Bring an angle he missed.`;
+
+  const [westyOverview, westyGradesRaw] = await Promise.all([
+    generateSection({ persona: 'analyst', sectionType: 'Offseason Trade Analysis', context: `${context}\n\n${masonTakeCtx}`, constraints: `3-4 analytical sentences on offseason trades and draft capital impact. If none, note the quiet market. Respond to Mason's framing — do not restate it. CRITICAL: Don't invent trades.`, maxTokens: 600, episodeType: 'pre_draft', validate: (t) => t.length >= 150 }),
+    generateGradesChecked('analyst', masonTakeCtx),
+  ]);
+
+  return assemblePreDraftTradeItems({ season, masonOverview, westyOverview, masonGradesRaw, westyGradesRaw });
+}
+
+/** Parse ===TEAM:===/GRADE: blocks from a party-grades response. */
+function parseBlocks(text: string): Array<{ team: string; grade: string; analysis: string }> {
     if (/NO_TRADES/i.test(text)) return [];
     const results: Array<{ team: string; grade: string; analysis: string }> = [];
     const parts = text.split(/===TEAM:\s*([^=]+?)===/).slice(1);
@@ -1298,8 +1401,17 @@ async function genPreDraftTrades(input: StepInput): Promise<TradeItem[]> {
       results.push({ team, grade: gm ? gm[1].toUpperCase() : 'B', analysis: content.replace(/GRADE:\s*[A-F][+-]?\s*/i, '').trim() });
     }
     return results;
-  };
+}
 
+/** Merge both bots' overviews and per-team grade blocks into the single pre-draft TradeItem. */
+function assemblePreDraftTradeItems(args: {
+  season: number;
+  masonOverview: string;
+  westyOverview: string;
+  masonGradesRaw: string;
+  westyGradesRaw: string;
+}): TradeItem[] {
+  const { season, masonOverview, westyOverview, masonGradesRaw, westyGradesRaw } = args;
   const masonGrades = parseBlocks(masonGradesRaw);
   const westyGrades = parseBlocks(westyGradesRaw);
 

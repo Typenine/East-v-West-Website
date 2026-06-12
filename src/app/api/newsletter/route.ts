@@ -57,6 +57,7 @@ import { fetchNewsletterData } from '@/lib/newsletter';
 import { buildPickOwnershipContext, enrichDerivedTradePickLabels, buildLeagueRosterContext } from '@/lib/newsletter/pick-ownership-context';
 import { getHeadToHeadAllTime } from '@/lib/utils/headtohead';
 import { fetchTradesAllTime } from '@/lib/utils/trades';
+import { buildOffseasonTradeFacts, buildOffseasonTradesContextBlock, type OffseasonTradeFact } from '@/lib/newsletter/offseason-trades';
 import { postToDiscordWebhook, buildNewsletterEmbed } from '@/lib/utils/discord';
 import { getDb } from '@/server/db/client';
 import type { BotSettingsRow } from '@/server/db/personality-queries';
@@ -399,7 +400,8 @@ async function buildEnhancedContextFull(
 async function buildPreseasonHistoricalContext(
   currentSeason: number,
   users: Array<{ user_id: string; display_name?: string; username?: string; metadata?: { team_name?: string } }>
-): Promise<string> {
+): Promise<{ text: string; offseasonTrades: OffseasonTradeFact[] }> {
+  let offseasonTradeFacts: OffseasonTradeFact[] = [];
   try {
     // Build user map for team names
     const userMap = new Map<string, string>();
@@ -469,25 +471,12 @@ Base all analysis on PREVIOUS seasons' performance, NOT current season data.
       historicalContext += `- ${yr}: ${c.champion} (Champion)${runnerUp}${third}\n`;
     }
 
-    // Add current-year offseason trades (critical for pre_draft to avoid hallucination)
-    // Include trades from the current season's league OR trades since ~Dec 20 of the prior year
-    // (covers post-championship trades recorded in the outgoing season's league)
-    const offseasonStart = new Date(`${currentSeason - 1}-12-20`);
-    const currentYearTrades = allTrades.filter(t => {
-      if (t.season === String(currentSeason)) return true;
-      if (t.date && new Date(t.date) >= offseasonStart) return true;
-      return false;
-    });
-    historicalContext += `\n--- ${currentSeason} OFFSEASON TRADES ---\n`;
-    if (currentYearTrades.length > 0) {
-      for (const trade of currentYearTrades) {
-        const date = trade.date ? new Date(trade.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'Unknown date';
-        const teams = (trade.teams || []).map(tm => `${tm.name} (received: ${(tm.assets || []).map(a => a.name).join(', ') || 'unknown assets'})`).join(' ↔ ');
-        historicalContext += `- ${date}: ${teams}\n`;
-      }
-    } else {
-      historicalContext += `No trades have been made in the ${currentSeason} offseason yet. Every team still holds their original draft capital.\n`;
-    }
+    // Add current-year offseason trades (critical for pre_draft to avoid hallucination).
+    // Includes trades from the current season's league OR trades since ~Dec 20 of the
+    // prior year. The facts block lists Received AND Sent per team plus pairwise routing
+    // for multi-team deals, so bots never have to guess who sent which asset.
+    offseasonTradeFacts = buildOffseasonTradeFacts(allTrades, currentSeason);
+    historicalContext += `\n${buildOffseasonTradesContextBlock(offseasonTradeFacts, currentSeason)}\n`;
 
     // Add all-time trade activity summary
     if (allTrades.length > 0) {
@@ -624,10 +613,13 @@ When creating the preseason preview:
 6. DO NOT say "Week X" - this is a preseason preview, not a weekly recap
 `;
 
-    return historicalContext;
+    return { text: historicalContext, offseasonTrades: offseasonTradeFacts };
   } catch (error) {
     console.error('Failed to build preseason historical context:', error);
-    return `PRESEASON PREVIEW for ${currentSeason} season. Base analysis on historical performance.`;
+    return {
+      text: `PRESEASON PREVIEW for ${currentSeason} season. Base analysis on historical performance.`,
+      offseasonTrades: offseasonTradeFacts,
+    };
   }
 }
 
@@ -954,13 +946,17 @@ async function startStagedJob(opts: {
     const isPreseasonEp = ['preseason', 'pre_draft', 'post_draft', 'offseason'].includes(episodeType);
     let enhancedContextString = '';
     let stagedDynastyRankings: DynastyRankingsEntry[] = [];
+    let stagedOffseasonTrades: OffseasonTradeFact[] = [];
+    // Warnings raised during job setup (e.g. draft-order fallback) — surfaced in Run Health
+    const stagedJobWarnings: string[] = [];
 
     const comprehensiveData = await fetchComprehensiveLeagueData();
     const comprehensiveStr = buildComprehensiveContextString(comprehensiveData);
     const rulesStr = getLeagueRulesContext();
 
     if (isPreseasonEp) {
-      const histCtx = await buildPreseasonHistoricalContext(seasonNum, users);
+      const { text: histCtx, offseasonTrades } = await buildPreseasonHistoricalContext(seasonNum, users);
+      stagedOffseasonTrades = offseasonTrades;
       // Team name stability block — critical for pre_draft so bots know who owns which pick
       const preTeamNameBlock = (() => {
         const lines = ['=== CURRENT TEAM NAMES (may differ from historical records) ===',
@@ -1081,12 +1077,22 @@ async function startStagedJob(opts: {
     // ── For pre_draft: fetch draft slot order and prospect pool ──
     let preDraftSlots: Array<{ slot: number; team: string }> | undefined;
     let preDraftRound2Slots: Array<{ slot: number; team: string }> | undefined;
-    let prospectPool: Array<{ name: string; pos: string; nfl: string | null; rank: number | null }> | null = null;
+    let prospectPool: Array<{ name: string; pos: string; nfl: string | null; rank: number | null; value: number | null }> | null = null;
     if (episodeType === 'pre_draft') {
       // Use the same draft order algorithm as the website's draft order page (next-order route),
       // which correctly accounts for traded picks and playoff finishing order.
       const { getNewsletterDraftOrder } = await import('@/lib/newsletter/draft-order-helper');
-      const draftOrder = await getNewsletterDraftOrder(seasonNum) ?? await buildSimpleDraftSlotOrder(seasonNum);
+      const liveDraftOrder = await getNewsletterDraftOrder(seasonNum);
+      if (!liveDraftOrder) {
+        // The fallback order (DB draft_slots or prior-season standings) does NOT reflect
+        // traded pick ownership — surface this loudly so a wrong mock-draft order is
+        // visible in Run Health instead of silently shipping.
+        stagedJobWarnings.push(
+          `Draft order: live next-order lookup FAILED — fell back to DB/standings order, which may NOT reflect traded picks. Verify the mock draft order before publishing.`,
+        );
+        console.warn('[Staged] pre_draft: getNewsletterDraftOrder returned null — using buildSimpleDraftSlotOrder fallback (traded picks may be missing)');
+      }
+      const draftOrder = liveDraftOrder ?? await buildSimpleDraftSlotOrder(seasonNum);
       preDraftSlots = draftOrder.round1.length > 0 ? draftOrder.round1 : undefined;
       preDraftRound2Slots = draftOrder.round2;
       console.log(`[Staged] pre_draft slot order: ${preDraftSlots?.map(s => `${s.slot}.${s.team}`).join(', ') ?? 'none (will fallback to Team 1..12)'}`);
@@ -1105,6 +1111,9 @@ async function startStagedJob(opts: {
           type FcEntry = { player?: { name?: string; position?: string; nflTeamAbbreviation?: string }; value?: number };
           let fcValueByName: Map<string, number> | null = null;
           const fcTeamByName = new Map<string, string>();
+          // Raw FC market value per pool player — shown to the bots so they see value
+          // GAPS between ranks, not just ordinals (rank #3 vs #4 can be a cliff).
+          const prospectValueByName = new Map<string, number>();
 
           try {
             const fcRes = await fetch(
@@ -1155,6 +1164,9 @@ async function startStagedJob(opts: {
             // 1, 2, 3... ahead of legitimately high-value prospects — this is the root cause
             // of players like Barion Brown appearing as #1 overall despite minimal dynasty value.
             const withValues = players.map(p => ({ p, val: lookupValue(p.name) }));
+            for (const { p, val } of withValues) {
+              if (val > 0) prospectValueByName.set(p.name, val);
+            }
             const matched_list = withValues.filter(e => e.val > 0);
             const unmatched_list = withValues.filter(e => e.val === 0);
             matched_list.sort((a, b) => b.val - a.val);
@@ -1177,6 +1189,7 @@ async function startStagedJob(opts: {
             pos: p.pos,
             nfl: p.nfl || fcTeamByName.get(p.name.toLowerCase().trim()) || null,
             rank: p.rank ?? null,
+            value: prospectValueByName.get(p.name) ?? null,
           }));
 
           const unrankedAfter = prospectPool.filter(p => p.rank === null).length;
@@ -1456,6 +1469,10 @@ async function startStagedJob(opts: {
       __prospectPool: prospectPool,
       // Store roster context so mock draft and waiver steps know each team's positional depth
       __rosterContext: rosterContext,
+      // Structured offseason trades for the PreDraftTrades step (facts block + attribution lint)
+      __offseasonTrades: stagedOffseasonTrades.length > 0 ? stagedOffseasonTrades : null,
+      // Job-setup warnings (draft-order fallback etc.) — merged into run warnings at assembly
+      __jobWarnings: stagedJobWarnings.length > 0 ? stagedJobWarnings : null,
       // Store full dynasty rankings for per-player lookup in waiver/trade steps
       __dynastyRankings: stagedDynastyRankings.length > 0 ? stagedDynastyRankings : null,
       sections: {},
@@ -1714,7 +1731,7 @@ export async function POST(request: NextRequest) {
     if (isPreseasonEpisode) {
       syncDynastyRankings = await loadDynastyRankings().catch(() => [] as DynastyRankingsEntry[]);
       console.log(`[${episodeType}] Building historical context for special episode...`);
-      const historicalContext = await buildPreseasonHistoricalContext(seasonNum, users);
+      const { text: historicalContext } = await buildPreseasonHistoricalContext(seasonNum, users);
       // Combine historical context with comprehensive league data and rules
       enhancedContext = {
         standings: [], // No current standings for preseason

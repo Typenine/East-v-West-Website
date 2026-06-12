@@ -283,6 +283,21 @@ describe('findTradeAttributionViolations — Brian Thomas 3-team trade', () => {
     expect(v).toHaveLength(1);
     expect(v[0].correction).toContain('Mt. Lebanon Cake Eaters');
   });
+
+  it('still matches player names ending in a period ("Jr.")', () => {
+    // Trailing \b after "Jr." never matched (period→space has no word boundary),
+    // letting flipped claims about suffixed names slip through the lint.
+    const jrByTeam: ByTeam = {
+      'Belleview Badgers': { gives: ['2026 Rd 1 Pick → The Lone Ginger'], gets: [] },
+      'The Lone Ginger': { gives: ['Brian Thomas Jr. → Mt. Lebanon Cake Eaters'], gets: ['2026 Rd 1 Pick (from Belleview Badgers)'] },
+      'Mt. Lebanon Cake Eaters': { gives: [], gets: ['Brian Thomas Jr. (from The Lone Ginger)'] },
+    };
+    const text = 'The Badgers sent Brian Thomas Jr. to the Cake Eaters in this deal.';
+    const v = findTradeAttributionViolations('Belleview Badgers', parties, jrByTeam, text);
+    expect(v).toHaveLength(1);
+    expect(v[0].kind).toBe('sent-another-teams-asset');
+    expect(v[0].correction).toContain('The Lone Ginger');
+  });
 });
 
 describe('stripViolatingSentences', () => {

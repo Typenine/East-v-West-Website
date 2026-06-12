@@ -3,6 +3,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
+import { getValueAtPath, setValueAtPath } from '@/lib/newsletter/field-path';
+import { getEditableFields } from '@/lib/newsletter/editable-fields';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -26,10 +28,14 @@ interface EditFieldState {
   saved: boolean;
 }
 
-interface EditableField {
+interface SweepProposal {
+  sectionIndex: number;
   fieldPath: string;
   label: string;
-  bot: 'entertainer' | 'analyst';
+  before: string;
+  after: string;
+  reason: string;
+  status: 'pending' | 'applying' | 'applied' | 'error';
 }
 
 interface SelectionPopover {
@@ -165,136 +171,6 @@ function stepLabel(s: string): string {
   return s;
 }
 
-function getNestedValue(obj: unknown, path: string): unknown {
-  const parts = path.split('.');
-  let cur = obj;
-  for (const p of parts) {
-    if (cur == null || typeof cur !== 'object') return undefined;
-    cur = (cur as Record<string, unknown>)[p];
-  }
-  return cur;
-}
-
-function getEditableFields(sec: NewsletterSection): EditableField[] {
-  const fields: EditableField[] = [];
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const d = sec.data as any;
-  if (!d) return fields;
-
-  switch (sec.type) {
-    case 'Intro':
-      fields.push({ fieldPath: 'bot1_text', label: '🎙️ Mason', bot: 'entertainer' });
-      fields.push({ fieldPath: 'bot2_text', label: '📊 Westy', bot: 'analyst' });
-      break;
-    case 'FinalWord':
-    case 'SpotlightTeam':
-    case 'Blurt':
-      fields.push({ fieldPath: 'bot1', label: '🎙️ Mason', bot: 'entertainer' });
-      fields.push({ fieldPath: 'bot2', label: '📊 Westy', bot: 'analyst' });
-      break;
-    case 'MockDraft':
-      if (d.mason_intro) fields.push({ fieldPath: 'mason_intro', label: '🎙️ Mason Intro', bot: 'entertainer' });
-      if (d.westy_intro) fields.push({ fieldPath: 'westy_intro', label: '📊 Westy Intro', bot: 'analyst' });
-      if (Array.isArray(d.picks)) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (d.picks as Array<any>).forEach((pick: Record<string, unknown>, i: number) => {
-          const lbl = `Pick ${(pick.overall as number) ?? i + 1}`;
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          if ((pick.mason as any)?.analysis !== undefined)
-            fields.push({ fieldPath: `picks.${i}.mason.analysis`, label: `🎙️ ${lbl} — Mason`, bot: 'entertainer' });
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          if ((pick.westy as any)?.analysis !== undefined)
-            fields.push({ fieldPath: `picks.${i}.westy.analysis`, label: `📊 ${lbl} — Westy`, bot: 'analyst' });
-        });
-      }
-      break;
-    case 'Trades':
-      if (Array.isArray(d)) {
-        (d as Array<Record<string, unknown>>).forEach((trade, i) => {
-          // Use team names from the `teams` map if available, else fall back to context
-          const teamsMap = trade.teams as Record<string, unknown> | null | undefined;
-          const teamNames = teamsMap ? Object.keys(teamsMap).join(' / ') : null;
-          const tLabel = `Trade ${i + 1}${teamNames ? ` — ${teamNames}` : trade.context ? ` — ${String(trade.context).slice(0, 40)}` : ''}`;
-          const analysis = trade.analysis as Record<string, Record<string, string>> | undefined;
-          if (analysis) {
-            Object.entries(analysis).forEach(([teamKey, ta]) => {
-              if (ta.entertainer_paragraph !== undefined)
-                fields.push({ fieldPath: `${i}.analysis.${teamKey}.entertainer_paragraph`, label: `🎙️ ${tLabel} [${teamKey}]`, bot: 'entertainer' });
-              if (ta.analyst_paragraph !== undefined)
-                fields.push({ fieldPath: `${i}.analysis.${teamKey}.analyst_paragraph`, label: `📊 ${tLabel} [${teamKey}]`, bot: 'analyst' });
-            });
-          }
-        });
-      }
-      break;
-    case 'MatchupRecaps':
-      if (Array.isArray(d)) {
-        (d as Array<Record<string, unknown>>).forEach((recap, i) => {
-          const rLabel = `Recap ${i + 1}${recap.winner ? ` — ${recap.winner} vs ${recap.loser}` : ''}`;
-          if (recap.bot1 !== undefined)
-            fields.push({ fieldPath: `${i}.bot1`, label: `🎙️ ${rLabel} — Mason`, bot: 'entertainer' });
-          if (recap.bot2 !== undefined)
-            fields.push({ fieldPath: `${i}.bot2`, label: `📊 ${rLabel} — Westy`, bot: 'analyst' });
-          // Dialogue exchanges
-          if (Array.isArray(recap.dialogue)) {
-            (recap.dialogue as Array<Record<string, unknown>>).forEach((ex, j) => {
-              const spk = ex.speaker === 'entertainer' ? '🎙️ Mason' : '📊 Westy';
-              fields.push({
-                fieldPath: `${i}.dialogue.${j}.text`,
-                label: `${spk} (Recap ${i + 1} exchange ${j + 1})`,
-                bot: ex.speaker === 'entertainer' ? 'entertainer' : 'analyst',
-              });
-            });
-          }
-        });
-      }
-      break;
-    case 'WaiversAndFA':
-      if (Array.isArray(d)) {
-        (d as Array<Record<string, unknown>>).forEach((item, i) => {
-          const wLabel = `Waiver ${i + 1}${item.player ? ` — ${item.player}` : ''}`;
-          if (item.bot1 !== undefined)
-            fields.push({ fieldPath: `${i}.bot1`, label: `🎙️ ${wLabel} — Mason`, bot: 'entertainer' });
-          if (item.bot2 !== undefined)
-            fields.push({ fieldPath: `${i}.bot2`, label: `📊 ${wLabel} — Westy`, bot: 'analyst' });
-        });
-      }
-      break;
-    case 'DraftGrades':
-      if (Array.isArray(d?.grades)) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (d.grades as Array<any>).forEach((g: Record<string, unknown>, i: number) => {
-          const gLabel = `${g.team ?? `Team ${i + 1}`} (${g.grade ?? '?'})`;
-          if (g.bot1_analysis !== undefined)
-            fields.push({ fieldPath: `grades.${i}.bot1_analysis`, label: `🎙️ ${gLabel} — Mason`, bot: 'entertainer' });
-          if (g.bot2_analysis !== undefined)
-            fields.push({ fieldPath: `grades.${i}.bot2_analysis`, label: `📊 ${gLabel} — Westy`, bot: 'analyst' });
-        });
-        if (d.bot1_summary !== undefined) fields.push({ fieldPath: 'bot1_summary', label: '🎙️ Mason Summary', bot: 'entertainer' });
-        if (d.bot2_summary !== undefined) fields.push({ fieldPath: 'bot2_summary', label: '📊 Westy Summary', bot: 'analyst' });
-      }
-      break;
-    default: {
-      const keyMap: Array<[string, string, 'entertainer' | 'analyst']> = [
-        ['bot1_text', '🎙️ Mason', 'entertainer'], ['bot2_text', '📊 Westy', 'analyst'],
-        ['bot1', '🎙️ Mason', 'entertainer'], ['bot2', '📊 Westy', 'analyst'],
-        ['mason_intro', '🎙️ Mason Intro', 'entertainer'], ['westy_intro', '📊 Westy Intro', 'analyst'],
-        ['bot1_summary', '🎙️ Mason Summary', 'entertainer'], ['bot2_summary', '📊 Westy Summary', 'analyst'],
-        ['bot1_analysis', '🎙️ Mason Analysis', 'entertainer'], ['bot2_analysis', '📊 Westy Analysis', 'analyst'],
-        ['bot1_preview', '🎙️ Mason Preview', 'entertainer'], ['bot2_preview', '📊 Westy Preview', 'analyst'],
-        ['bot1_coronation', '🎙️ Mason', 'entertainer'], ['bot2_coronation', '📊 Westy', 'analyst'],
-        ['bot1_finalThoughts', '🎙️ Mason Final Thoughts', 'entertainer'], ['bot2_finalThoughts', '📊 Westy Final Thoughts', 'analyst'],
-        ['entertainer_commentary', '🎙️ Mason Commentary', 'entertainer'], ['analyst_commentary', '📊 Westy Commentary', 'analyst'],
-      ];
-      for (const [key, label, bot] of keyMap) {
-        if (typeof d[key] === 'string' && d[key]) fields.push({ fieldPath: key, label, bot });
-      }
-      break;
-    }
-  }
-  return fields;
-}
-
 /** Inline word-level diff — returns spans with old text in red, new in green */
 function renderDiff(oldText: string, newText: string): React.ReactNode {
   // Split into words for a simple word-diff
@@ -374,6 +250,11 @@ export default function EditModePanel({
   const [auditRunning, setAuditRunning] = useState(false);
   const [showRunHealth, setShowRunHealth] = useState(false);
   const [selPopover, setSelPopover] = useState<SelectionPopover | null>(null);
+  // Consistency sweep — propagate a factual correction across all sections
+  const [sweepNote, setSweepNote] = useState('');
+  const [sweepRunning, setSweepRunning] = useState(false);
+  const [sweepError, setSweepError] = useState<string | null>(null);
+  const [sweepProposals, setSweepProposals] = useState<SweepProposal[] | null>(null);
   const taRefs = useRef<Record<string, HTMLTextAreaElement | null>>({});
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const autoSaveTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
@@ -501,7 +382,7 @@ export default function EditModePanel({
     sections.forEach((sec, idx) => {
       const fields = getEditableFields(sec);
       fields.forEach(({ fieldPath, label }) => {
-        const liveText = String(getNestedValue(sec.data, fieldPath) ?? '');
+        const liveText = String(getValueAtPath(sec.data, fieldPath) ?? '');
         const st = getState(idx, fieldPath, liveText);
         if (st.saved && st.currentText !== st.manualText && st.manualText !== liveText) {
           result.push({ sectionLabel: stepLabel(sec.type), fieldLabel: label, original: st.currentText, current: st.manualText });
@@ -586,8 +467,80 @@ export default function EditModePanel({
         aiPreview: null, aiInstruction: '', saved: true,
         undoStack: [st.currentText, ...st.undoStack].slice(0, 5),
       });
+      // Pre-fill the consistency sweep note so a factual fix can be propagated
+      // to every other section with one click.
+      if (st.aiInstruction.trim()) setSweepNote(prev => prev.trim() ? prev : st.aiInstruction);
     } catch (err) {
       patch(idx, fp, { accepting: false, error: err instanceof Error ? err.message : 'Accept failed' });
+    }
+  };
+
+  // ── Consistency sweep — propagate a factual correction across sections ──────
+
+  const handleConsistencySweep = async () => {
+    if (!sweepNote.trim() || sweepRunning) return;
+    setSweepRunning(true);
+    setSweepError(null);
+    setSweepProposals(null);
+    try {
+      const res = await fetch('/api/newsletter/edit', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'consistency_sweep', season: seasonNum, week: wNum, note: sweepNote }),
+      });
+      const data = await res.json() as { success?: boolean; proposals?: Array<Omit<SweepProposal, 'status'>>; error?: string };
+      if (!res.ok || !data.success) throw new Error(data.error ?? 'Consistency check failed');
+      setSweepProposals((data.proposals ?? []).map(p => ({ ...p, status: 'pending' as const })));
+    } catch (err) {
+      setSweepError(err instanceof Error ? err.message : 'Consistency check failed');
+    } finally {
+      setSweepRunning(false);
+    }
+  };
+
+  const applySweepProposal = async (pi: number) => {
+    const proposal = sweepProposals?.[pi];
+    if (!proposal || proposal.status === 'applied' || proposal.status === 'applying') return;
+    const setStatus = (status: SweepProposal['status']) =>
+      setSweepProposals(prev => prev ? prev.map((p, i) => i === pi ? { ...p, status } : p) : prev);
+    setStatus('applying');
+    try {
+      const sec = sections[proposal.sectionIndex];
+      const bot = sec ? (getEditableFields(sec).find(f => f.fieldPath === proposal.fieldPath)?.bot ?? 'entertainer') : 'entertainer';
+      const res = await fetch('/api/newsletter/edit', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'save_section', season: seasonNum, week: wNum,
+          sectionIndex: proposal.sectionIndex, bot, fieldPath: proposal.fieldPath,
+          text: proposal.after, viaAiRewrite: true,
+        }),
+      });
+      const data = await res.json() as { success?: boolean; error?: string };
+      if (!res.ok || !data.success) throw new Error(data.error ?? 'Apply failed');
+      // Reflect the change locally so textareas show the new text immediately
+      setSections(prev => {
+        const next = prev.map(s => ({ ...s }));
+        const target = next[proposal.sectionIndex];
+        if (target?.data != null && typeof target.data === 'object') {
+          setValueAtPath(target.data as Record<string, unknown>, proposal.fieldPath, proposal.after);
+        }
+        return next;
+      });
+      // Sync any open editor state for this field
+      const key = fk(proposal.sectionIndex, proposal.fieldPath);
+      setStates(prev => prev[key]
+        ? { ...prev, [key]: { ...prev[key], currentText: proposal.after, manualText: proposal.after, saved: true } }
+        : prev);
+      setStatus('applied');
+    } catch {
+      setStatus('error');
+    }
+  };
+
+  const applyAllSweepProposals = async () => {
+    if (!sweepProposals) return;
+    for (let i = 0; i < sweepProposals.length; i++) {
+      // Sequential — parallel writes to the same JSON row would race
+      await applySweepProposal(i);
     }
   };
 
@@ -864,6 +817,68 @@ export default function EditModePanel({
             </div>
           )}
 
+          {/* ── Consistency sweep: propagate one factual correction everywhere ── */}
+          <div className="mb-4 border border-zinc-700 rounded-lg p-4 bg-zinc-900/60 space-y-3">
+            <div className="text-xs font-semibold text-zinc-200 uppercase tracking-wide">🔁 Consistency Check</div>
+            <p className="text-[11px] text-zinc-500">
+              Fixed a fact in one section? Describe the correction and AI will find every other section that contradicts it
+              (including trade grades) and propose matching fixes.
+            </p>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                placeholder='e.g. "Brian Thomas was sent by The Lone Ginger, not the Badgers"'
+                className="flex-1 text-xs bg-zinc-800 border border-zinc-600 rounded px-3 py-2 text-zinc-200 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                value={sweepNote}
+                onChange={e => setSweepNote(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') handleConsistencySweep(); }}
+              />
+              <Button size="sm" variant="secondary" onClick={handleConsistencySweep} disabled={sweepRunning || !sweepNote.trim()} className="shrink-0">
+                {sweepRunning ? 'Scanning all sections…' : '🔍 Check All Sections'}
+              </Button>
+            </div>
+            {sweepError && <div className="text-xs text-red-400">{sweepError}</div>}
+            {sweepProposals && (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="text-[11px] text-zinc-400">
+                    {sweepProposals.length === 0
+                      ? '✓ No contradictions found — the rest of the newsletter is consistent with this correction.'
+                      : `${sweepProposals.length} field${sweepProposals.length !== 1 ? 's' : ''} contradict${sweepProposals.length === 1 ? 's' : ''} the correction:`}
+                  </div>
+                  {sweepProposals.some(p => p.status === 'pending' || p.status === 'error') && (
+                    <Button size="sm" variant="primary" onClick={applyAllSweepProposals}>
+                      ✅ Apply All
+                    </Button>
+                  )}
+                </div>
+                <div className="max-h-80 overflow-y-auto space-y-2">
+                  {sweepProposals.map((p, pi) => (
+                    <div key={pi} className="text-xs border border-zinc-700 rounded p-3 space-y-1.5">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-medium text-zinc-300">{p.label}</span>
+                        <span className="shrink-0">
+                          {p.status === 'applied' && <span className="text-emerald-400">✓ Applied</span>}
+                          {p.status === 'applying' && <span className="text-zinc-400">Applying…</span>}
+                          {p.status === 'error' && <span className="text-red-400">Failed — </span>}
+                          {(p.status === 'pending' || p.status === 'error') && (
+                            <button className="ml-1 text-emerald-400 hover:text-emerald-300 font-medium" onClick={() => applySweepProposal(pi)}>
+                              {p.status === 'error' ? 'Retry' : 'Apply'}
+                            </button>
+                          )}
+                        </span>
+                      </div>
+                      {p.reason && <div className="text-[10px] text-zinc-500 italic">{p.reason}</div>}
+                      <div className="text-zinc-400 whitespace-pre-wrap leading-relaxed max-h-32 overflow-y-auto">
+                        {renderDiff(p.before, p.after)}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
           {/* Layout: editor left, HTML preview right */}
           <div className={`flex gap-4 ${showPreview ? 'flex-row' : 'flex-col'}`}>
 
@@ -919,7 +934,7 @@ export default function EditModePanel({
                             <div className="p-4 text-xs text-zinc-500 italic">No editable text fields in this section.</div>
                           )}
                           {fields.map(({ fieldPath: fp, label, bot }) => {
-                            const liveText = String(getNestedValue(sec.data, fp) ?? '');
+                            const liveText = String(getValueAtPath(sec.data, fp) ?? '');
                             const st = getState(idx, fp, liveText);
                             const displayText = st.manualText;
                             const wc = wordCount(displayText);
@@ -956,6 +971,7 @@ export default function EditModePanel({
                                   <textarea
                                     ref={el => { taRefs.current[fk(idx, fp)] = el; }}
                                     className="w-full text-xs bg-zinc-800 border border-zinc-600 rounded p-3 text-zinc-100 resize-y min-h-[80px] focus:outline-none focus:ring-1 focus:ring-blue-500 leading-relaxed"
+                                    placeholder="This field is empty — type text here, or use Ask AI below to write it for you."
                                     value={displayText}
                                     onChange={e => {
                                       patch(idx, fp, { manualText: e.target.value, saved: false });
@@ -989,7 +1005,9 @@ export default function EditModePanel({
                                       <input
                                         type="text"
                                         list={`hist-${fk(idx, fp)}`}
-                                        placeholder='Ask AI to rewrite whole field… e.g. "make this punchier"'
+                                        placeholder={displayText.trim()
+                                          ? 'Ask AI to rewrite whole field… e.g. "make this punchier"'
+                                          : 'Field is empty — tell AI what to write, e.g. "2 sentences on this trade from Mason’s angle"'}
                                         className="w-full text-xs bg-zinc-900 border border-zinc-600 rounded px-3 py-2 text-zinc-200 focus:outline-none focus:ring-1 focus:ring-amber-500"
                                         value={st.aiInstruction}
                                         onChange={e => patch(idx, fp, { aiInstruction: e.target.value })}

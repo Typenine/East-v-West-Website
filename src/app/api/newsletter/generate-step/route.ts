@@ -256,7 +256,8 @@ export async function POST(request: NextRequest) {
   const draftData = (derivedData.__draftData as LeagueDraftData | null) ?? null;
   const sectionOutputs = (derivedData.sections as Record<string, unknown>) ?? {};
   const forecastRecords = (derivedData.__forecastRecords as { entertainer: { w: number; l: number }; analyst: { w: number; l: number } } | null) ?? null;
-  const prospectPool = (derivedData.__prospectPool as Array<{ name: string; pos: string; nfl?: string | null; rank: number | null }> | null) ?? null;
+  const prospectPool = (derivedData.__prospectPool as Array<{ name: string; pos: string; nfl?: string | null; rank: number | null; value?: number | null }> | null) ?? null;
+  const offseasonTrades = (derivedData.__offseasonTrades as StepInput['offseasonTrades']) ?? null;
   const dynastyRankings = (derivedData.__dynastyRankings as Array<{ name: string; pos: string; nfl: string; rank: number }> | null) ?? undefined;
 
   const { episodeType, leagueName, matchupCount, tradeCount, preDraftSlots, preDraftRound2Slots, isFirstEpisodeEver, draftTeams } = jobMeta;
@@ -429,6 +430,7 @@ export async function POST(request: NextRequest) {
     mockDraftR1Westy: mockDraftR1Westy?.picks,
     forecastRecords,
     prospectPool,
+    offseasonTrades,
     priorSectionSummary: priorSectionSummary || undefined,
     rosterContext: rosterContext || undefined,
     dynastyRankings,
@@ -735,6 +737,7 @@ async function finalizeNewsletter(
     .filter(([, m]) => (m as { isFallback?: boolean })?.isFallback)
     .map(([name]) => name);
   const runWarnings = [
+    ...(((derivedData.__jobWarnings as string[] | null) ?? [])),
     ...(coverageReport?.warnings ?? []),
     ...(fallbackSections.length > 0 ? [`Sections written by fallback providers: ${fallbackSections.join(', ')}`] : []),
     ...validation.issues,

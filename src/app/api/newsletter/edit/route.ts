@@ -25,6 +25,8 @@ import Anthropic from '@anthropic-ai/sdk';
 import { buildSystemPrompt, type PersonaType } from '@/lib/newsletter/llm/groq';
 import { saveNewsletterSnapshot, listSnapshots, loadSnapshot } from '@/server/db/observability-queries';
 import { renderHtml } from '@/lib/newsletter/template';
+import { getValueAtPath, setValueAtPath } from '@/lib/newsletter/field-path';
+import { getEditableFields, getTradeGradeFields } from '@/lib/newsletter/editable-fields';
 import type { Newsletter } from '@/lib/newsletter/types';
 
 export const runtime = 'nodejs';
@@ -36,36 +38,35 @@ const BOT_FIELD_MAP: Record<string, 'bot1_text' | 'bot2_text'> = {
   analyst: 'bot2_text',
 };
 
-
 /**
- * Walk a dot-notation path on an object and set the leaf value.
- * Supports numeric segments for array indices, e.g. "picks.0.mason.analysis".
- * Creates intermediate objects/arrays as needed.
+ * Heal Trades sections damaged by the pre-fix dot-path bug: saving a field
+ * whose team-name segment contained a dot ("Mt. Lebanon Cake Eaters") created
+ * garbage nested keys ("Mt" → { " Lebanon Cake Eaters" → … }) inside the
+ * analysis map, which made sectionTrades throw and the whole section render
+ * as "[Section unavailable]". Drop analysis entries that don't look like real
+ * per-team analysis objects.
  */
-function setNestedValue(obj: Record<string, unknown>, path: string, value: unknown): void {
-  const parts = path.split('.');
-  let cur: Record<string, unknown> = obj;
-  for (let i = 0; i < parts.length - 1; i++) {
-    const p = parts[i];
-    if (cur[p] === undefined || cur[p] === null) {
-      cur[p] = /^\d+$/.test(parts[i + 1]) ? [] : {};
+function sanitizeTradesSections(content: Newsletter): string[] {
+  const removed: string[] = [];
+  for (const section of content.sections ?? []) {
+    if ((section as { type?: string }).type !== 'Trades') continue;
+    const data = (section as { data?: unknown }).data;
+    if (!Array.isArray(data)) continue;
+    for (const trade of data as Array<Record<string, unknown>>) {
+      const analysis = trade.analysis as Record<string, unknown> | undefined;
+      if (!analysis || typeof analysis !== 'object') continue;
+      for (const [key, value] of Object.entries(analysis)) {
+        const v = value as Record<string, unknown> | null;
+        const looksValid = v && typeof v === 'object' &&
+          (typeof v.entertainer_paragraph === 'string' || typeof v.analyst_paragraph === 'string');
+        if (!looksValid) {
+          delete analysis[key];
+          removed.push(key);
+        }
+      }
     }
-    cur = cur[p] as Record<string, unknown>;
   }
-  cur[parts[parts.length - 1]] = value;
-}
-
-/**
- * Walk a dot-notation path and return the leaf value (or undefined).
- */
-function getNestedValue(obj: Record<string, unknown>, path: string): unknown {
-  const parts = path.split('.');
-  let cur: unknown = obj;
-  for (const p of parts) {
-    if (cur == null || typeof cur !== 'object') return undefined;
-    cur = (cur as Record<string, unknown>)[p];
-  }
-  return cur;
+  return removed;
 }
 
 async function requireAdmin(): Promise<boolean> {
@@ -124,12 +125,12 @@ export async function POST(req: NextRequest) {
 
     // Capture before-state for the edit history entry
     const beforeText = fieldPath
-      ? String(getNestedValue(sectionData, fieldPath) ?? '')
+      ? String(getValueAtPath(sectionData, fieldPath) ?? '')
       : String(sectionData[botField] ?? '');
 
     if (fieldPath) {
       // Deep path write — supports nested structures like Trades, MockDraft, MatchupRecaps
-      setNestedValue(sectionData, fieldPath, text);
+      setValueAtPath(sectionData, fieldPath, text);
     } else {
       sectionData[botField] = text;
     }
@@ -239,8 +240,9 @@ export async function POST(req: NextRequest) {
     const sectionData = (section.data ?? section) as Record<string, unknown>;
     // When selectedText is provided, rewrite only that snippet; otherwise rewrite the full field
     const currentText = selectedText ?? (fieldPath
-      ? String(getNestedValue(sectionData, fieldPath) ?? '')
+      ? String(getValueAtPath(sectionData, fieldPath) ?? '')
       : String(sectionData[botField] ?? ''));
+    const isEmptyField = !currentText.trim();
 
     // ai_rewrite always calls Claude directly — use tier 1 (Claude-native XML) persona prompt
     const personaKey: PersonaType = bot === 'entertainer' ? 'entertainer' : 'analyst';
@@ -265,8 +267,12 @@ export async function POST(req: NextRequest) {
 - Match the approximate length of the original unless the instruction asks for expansion or trimming.
 </edit_rules>`;
 
-    // User message: existing text + explicit instruction — clearly separated with XML
-    const userMessage = selectedText
+    // User message: existing text + explicit instruction — clearly separated with XML.
+    // Empty fields get "write fresh" framing — asking to "rewrite" nothing makes the
+    // model reply conversationally ("there's nothing here to rewrite") instead of writing.
+    const userMessage = isEmptyField
+      ? `<writing_instruction>\n${instruction}\n</writing_instruction>\n\nThis newsletter field is currently empty. Write the text from scratch following the instruction, in your persona's voice, using the section data reference for facts. Aim for a typical newsletter-segment length (2-4 sentences unless the instruction asks for more). Output only the new text.`
+      : selectedText
       ? `<existing_text>\n${currentText}\n</existing_text>\n\n<rewrite_instruction>\n${instruction}\n</rewrite_instruction>\n\nRewrite the text above following the instruction exactly. Output only the rewritten text.`
       : `<existing_text>\n${currentText}\n</existing_text>\n\n<rewrite_instruction>\n${instruction}\n</rewrite_instruction>\n\nRewrite the full text above following the instruction exactly. Preserve voice and length unless told otherwise. Output only the rewritten text.`;
 
@@ -315,6 +321,12 @@ export async function POST(req: NextRequest) {
       html: row.html,
     });
 
+    // Heal any structure damage from the old dot-path bug before rendering
+    const prunedKeys = sanitizeTradesSections(content);
+    if (prunedKeys.length > 0) {
+      console.warn(`[Edit] finalize pruned ${prunedKeys.length} malformed trade-analysis entr${prunedKeys.length === 1 ? 'y' : 'ies'}: ${prunedKeys.join(', ')}`);
+    }
+
     let html: string;
     try {
       html = renderHtml(content);
@@ -337,6 +349,110 @@ export async function POST(req: NextRequest) {
 
     console.log(`[Edit] finalize s${season}w${week} — HTML re-rendered (${html.length} chars)`);
     return NextResponse.json({ success: true, html, publishHistory: content._publishHistory });
+  }
+
+  // ── consistency_sweep ───────────────────────────────────────────────────────
+  // Given a factual correction the editor made (e.g. "Brian Thomas was sent by
+  // The Lone Ginger, not the Badgers"), scan EVERY editable field in the
+  // newsletter for text that contradicts the corrected fact and propose minimal
+  // rewrites — including revised trade letter grades when the correction
+  // changes what a team actually gave or received. Returns proposals only;
+  // the client applies accepted ones via save_section.
+  if (action === 'consistency_sweep') {
+    const note = String(body.note ?? '').trim();
+    if (!note) {
+      return NextResponse.json({ error: 'note is required — describe the factual correction' }, { status: 400 });
+    }
+
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) {
+      return NextResponse.json({ error: 'ANTHROPIC_API_KEY not configured' }, { status: 503 });
+    }
+
+    const row = await loadNewsletterRow(season, week);
+    if (!row) return NextResponse.json({ error: 'Newsletter not found' }, { status: 404 });
+    const content = row.content as Newsletter;
+
+    // Digest of every editable field (and trade grades) with stable addresses
+    type DigestEntry = { sectionIndex: number; fieldPath: string; label: string; text: string };
+    const digest: DigestEntry[] = [];
+    (content.sections ?? []).forEach((sec, idx) => {
+      const section = sec as { type: string; data?: unknown };
+      for (const f of getEditableFields(section)) {
+        const text = String(getValueAtPath(section.data, f.fieldPath) ?? '');
+        if (text.trim()) {
+          digest.push({ sectionIndex: idx, fieldPath: f.fieldPath, label: `${section.type} · ${f.label}`, text: text.slice(0, 2400) });
+        }
+      }
+      for (const g of getTradeGradeFields(section)) {
+        digest.push({ sectionIndex: idx, fieldPath: g.fieldPath, label: `${section.type} · ${g.label} (letter grade)`, text: g.current });
+      }
+    });
+
+    if (digest.length === 0) {
+      return NextResponse.json({ success: true, proposals: [] });
+    }
+
+    const fieldsBlock = digest
+      .map((d, i) => `<field id="${i}" section="${d.sectionIndex}" path=${JSON.stringify(d.fieldPath)} label=${JSON.stringify(d.label)}>\n${d.text}\n</field>`)
+      .join('\n\n');
+
+    const sweepSystem = `You are the consistency editor for a fantasy-football newsletter written by two personas (Mason: loud entertainer; Westy: dry analyst).
+
+The human editor corrected a fact. Your job: find every field whose text contradicts the corrected fact and propose a minimal rewrite that fixes ONLY the contradiction while preserving each persona's voice, tone, and length. Do not rewrite text that is already consistent with the correction. Do not improve style.
+
+Letter-grade fields (label ends with "(letter grade)") hold a single grade like "B+". If the correction changes what a team actually gave up or received in a trade, propose an updated grade that follows from the writer's own logic in their paragraph; otherwise leave grades alone.
+
+Output STRICT JSON only — an array (possibly empty) of objects:
+[{"id": <field id number>, "newText": "<full replacement text>", "reason": "<one short sentence>"}]
+No markdown fences, no commentary.`;
+
+    const sweepUser = `<correction>\n${note}\n</correction>\n\n<newsletter_fields>\n${fieldsBlock}\n</newsletter_fields>\n\nReturn the JSON array of proposed fixes.`;
+
+    const client = new Anthropic({ apiKey, timeout: 120_000 });
+    const message = await client.messages.create({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 8192,
+      temperature: 1,
+      system: sweepSystem,
+      messages: [{ role: 'user', content: sweepUser }],
+      thinking: { type: 'enabled', budget_tokens: 2048 },
+    });
+
+    const rawText = (message.content as Anthropic.ContentBlock[])
+      .filter((b): b is Anthropic.TextBlock => b.type === 'text')
+      .map(b => b.text)
+      .join('\n')
+      .trim();
+
+    // Robust JSON extraction: take the outermost array
+    let parsed: Array<{ id?: number; newText?: string; reason?: string }> = [];
+    try {
+      const start = rawText.indexOf('[');
+      const end = rawText.lastIndexOf(']');
+      if (start >= 0 && end > start) parsed = JSON.parse(rawText.slice(start, end + 1));
+    } catch (parseErr) {
+      console.error('[Edit] consistency_sweep JSON parse failed:', parseErr, rawText.slice(0, 400));
+      return NextResponse.json({ error: 'Sweep response was not valid JSON — try again' }, { status: 502 });
+    }
+
+    const proposals = parsed
+      .filter(p => typeof p.id === 'number' && p.id >= 0 && p.id < digest.length && typeof p.newText === 'string')
+      .map(p => {
+        const d = digest[p.id!];
+        return {
+          sectionIndex: d.sectionIndex,
+          fieldPath: d.fieldPath,
+          label: d.label,
+          before: d.text,
+          after: p.newText!,
+          reason: p.reason ?? '',
+        };
+      })
+      .filter(p => p.after.trim() && p.after.trim() !== p.before.trim());
+
+    console.log(`[Edit] consistency_sweep s${season}w${week} — ${proposals.length} proposal(s) across ${digest.length} fields (in=${message.usage.input_tokens} out=${message.usage.output_tokens})`);
+    return NextResponse.json({ success: true, proposals });
   }
 
   return NextResponse.json({ error: `Unknown action: ${action}` }, { status: 400 });

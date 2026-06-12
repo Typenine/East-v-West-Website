@@ -141,7 +141,8 @@ export async function POST(request: NextRequest) {
     let memEntertainer: BotMemory = freshMemory('entertainer', generatedAt);
     let memAnalyst:     BotMemory = freshMemory('analyst',     generatedAt);
     let forecastRecords: { entertainer: { w: number; l: number }; analyst: { w: number; l: number } } | null = null;
-    let prospectPool: Array<{ name: string; pos: string; nfl?: string | null; rank: number | null }> | null = null;
+    let prospectPool: Array<{ name: string; pos: string; nfl?: string | null; rank: number | null; value?: number | null }> | null = null;
+    let sectionOffseasonTrades: import('@/lib/newsletter/offseason-trades').OffseasonTradeFact[] | null = null;
     let rosterContext = '';
     let leagueName = 'East v. West';
     let storedUsers: unknown[]   = [];
@@ -169,6 +170,7 @@ export async function POST(request: NextRequest) {
         draftTeams        = jobMeta.draftTeams          as typeof draftTeams;
         draftData         = dd.__draftData              ?? null;
         prospectPool      = (dd.__prospectPool as typeof prospectPool) ?? null;
+        sectionOffseasonTrades = (dd.__offseasonTrades as typeof sectionOffseasonTrades) ?? null;
         rosterContext     = (dd.__rosterContext as string)              ?? '';
         forecastRecords   = (dd.__forecastRecords as typeof forecastRecords) ?? null;
         const mEnt = dd.__memoryEntertainer as BotMemory | undefined;
@@ -272,28 +274,13 @@ export async function POST(request: NextRequest) {
       if (isPreseasonEp) {
         try {
           const { fetchTradesAllTime } = await import('@/lib/utils/trades');
+          const { buildOffseasonTradeFacts, buildOffseasonTradesContextBlock } = await import('@/lib/newsletter/offseason-trades');
           const allTrades = await fetchTradesAllTime();
-          const offseasonStart = new Date(`${season - 1}-12-20`);
-          const offseasonTrades = allTrades.filter(t => {
-            if (t.season === String(season)) return true;
-            if (t.date && new Date(t.date) >= offseasonStart) return true;
-            return false;
-          });
-          if (offseasonTrades.length > 0) {
-            offseasonTradesStr = `=== ${season} OFFSEASON TRADES ===\n` +
-              offseasonTrades.map(t => {
-                const date = t.date
-                  ? new Date(t.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-                  : 'Unknown date';
-                const teams = (t.teams ?? []).map((tm: { name: string; assets?: Array<{ name: string }> }) =>
-                  `${tm.name} (received: ${(tm.assets ?? []).map(a => a.name).join(', ') || 'unknown'})`
-                ).join(' ↔ ');
-                return `- ${date}: ${teams}`;
-              }).join('\n');
-          } else {
-            offseasonTradesStr = `=== ${season} OFFSEASON TRADES ===\nNo offseason trades recorded yet.`;
-          }
-          console.log(`[SectionLab] runId=${runId} offseason trades: ${offseasonTrades.length} found`);
+          // Sender-aware facts block (Received AND Sent per team + routing for
+          // multi-team trades) — same source of truth the staged job uses.
+          sectionOffseasonTrades = buildOffseasonTradeFacts(allTrades, season);
+          offseasonTradesStr = buildOffseasonTradesContextBlock(sectionOffseasonTrades, season);
+          console.log(`[SectionLab] runId=${runId} offseason trades: ${sectionOffseasonTrades.length} found`);
         } catch (tradesFetchErr) {
           console.warn(`[SectionLab] runId=${runId} offseason trades fetch failed:`, tradesFetchErr instanceof Error ? tradesFetchErr.message : String(tradesFetchErr));
         }
@@ -403,6 +390,7 @@ export async function POST(request: NextRequest) {
       draftData: draftData as import('@/lib/newsletter/sleeper-ingest').LeagueDraftData | null,
       draftTeams,
       prospectPool,
+      offseasonTrades: sectionOffseasonTrades,
       rosterContext: rosterContext || undefined,
       forecastRecords,
     };

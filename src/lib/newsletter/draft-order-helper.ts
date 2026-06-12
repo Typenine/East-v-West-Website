@@ -29,7 +29,8 @@ export async function getNewsletterDraftOrder(seasonNum: number): Promise<Newsle
     const res = await GET(req as unknown as NextRequest);
 
     if (!res.ok) {
-      console.warn(`[DraftOrder] next-order returned HTTP ${res.status} for season ${seasonNum}`);
+      const body = await res.text().catch(() => '');
+      console.warn(`[DraftOrder] next-order returned HTTP ${res.status} for season ${seasonNum}${body ? ` — ${body.slice(0, 300)}` : ''}`);
       return null;
     }
 

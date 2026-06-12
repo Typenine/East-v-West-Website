@@ -176,7 +176,7 @@ function authorByline(name: string, role: string): string {
 function renderBotText(raw: string): string {
   // Split on blank lines so the LLM's paragraph breaks are visible in HTML.
   // Each non-empty chunk becomes its own <p>. Inline newlines become <br>.
-  const paras = raw
+  const paras = String(raw ?? '')
     .split(/\n{2,}/)
     .map(chunk => chunk.trim())
     .filter(Boolean);
@@ -535,9 +535,11 @@ function sectionTrades(list: TradeItem[]): string {
       : '';
 
     const teamAnalysis = Object.entries(x.analysis || {}).map(([team, a]) => {
+      // Grades can be missing on malformed/legacy entries — never let this throw,
+      // one bad entry would blank the whole section via the render fallback.
       const gradeColor = (g: string) => g.startsWith('A') ? '#059669' : g.startsWith('B') ? '#0b5f98' : g.startsWith('C') ? '#92400e' : '#be161e';
-      const entGrade = a.entertainer_grade || a.grade;
-      const anaGrade = a.analyst_grade || a.grade;
+      const entGrade = String(a?.entertainer_grade || a?.grade || '–');
+      const anaGrade = String(a?.analyst_grade || a?.grade || '–');
       return `
       <div style="margin:20px 0;padding-top:20px;border-top:1px solid #e5e7eb;">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
