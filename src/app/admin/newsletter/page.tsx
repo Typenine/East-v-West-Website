@@ -294,7 +294,8 @@ function AdminNewsletterPageInner() {
       };
 
       if (!startRes.ok || !startData.success) {
-        setGen(g => ({ ...g, phase: 'failed', error: startData.error ?? startData.details ?? 'Failed to start job' }));
+        const errMsg = [startData.error, startData.details].filter(Boolean).join(' — ');
+        setGen(g => ({ ...g, phase: 'failed', error: errMsg || 'Failed to start job' }));
         stopTimer();
         return;
       }
