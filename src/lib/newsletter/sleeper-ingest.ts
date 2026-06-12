@@ -111,8 +111,8 @@ export async function fetchNewsletterData(
     await Promise.all([
       getLeagueUsers(leagueId),
       getLeagueRosters(leagueId),
-      getLeagueMatchups(leagueId, week),
-      getLeagueMatchups(leagueId, nextWeek).catch(() => [] as SleeperMatchup[]),
+      getLeagueMatchups(leagueId, week).then(d => Array.isArray(d) ? d : [] as SleeperMatchup[]).catch(() => [] as SleeperMatchup[]),
+      getLeagueMatchups(leagueId, nextWeek).then(d => Array.isArray(d) ? d : [] as SleeperMatchup[]).catch(() => [] as SleeperMatchup[]),
       fetchTransactions(leagueId, week),
       getAllPlayersCached(),
       getSleeperInjuriesCached().catch(() => []),
