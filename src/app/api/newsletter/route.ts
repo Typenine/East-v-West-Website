@@ -1536,7 +1536,7 @@ export async function POST(request: NextRequest) {
     const state = await getSleeperState();
     const season = seasonOverride || state.season;
     const seasonNum = parseInt(season, 10);
-    const week = weekOverride || state.week;
+    const week = weekOverride ?? state.week;
 
     const leagueId = getLeagueIdForSeason(String(season));
     if (!leagueId) {
