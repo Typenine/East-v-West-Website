@@ -1,15 +1,17 @@
-name: Newsletter Generation
+name: Newsletter Generation (DEPRECATED)
+
+# DEPRECATED — DO NOT RE-ENABLE THE SCHEDULE.
+# This workflow called POST /api/newsletter/cron, which has been disabled (HTTP 410)
+# and which used to AUTOPUBLISH newsletters. Scheduled generation now lives in
+# .github/workflows/newsletter-scheduler.yml (scripts/run-newsletter.mjs), which
+# saves DRAFTS only — it never autopublishes and never posts to Discord. Publishing
+# is an explicit admin action via the admin newsletter page / POST /api/newsletter/publish.
+#
+# The schedule triggers were removed so this never runs automatically. The manual
+# workflow_dispatch is retained only for historical/debugging use; the endpoint it
+# calls returns 410 and performs no writes.
 
 on:
-  schedule:
-    # Tuesday 6 AM ET (11:00 UTC) - Start staged generation
-    - cron: '0 11 * * 2'
-    # Tuesday 12 PM ET (17:00 UTC) - Continue generation
-    - cron: '0 17 * * 2'
-    # Tuesday 6 PM ET (23:00 UTC) - Continue generation
-    - cron: '0 23 * * 2'
-    # Wednesday 6 AM ET (11:00 UTC) - Finalize and publish
-    - cron: '0 11 * * 3'
   workflow_dispatch:
     inputs:
       week:

@@ -536,16 +536,26 @@ const DATA_FRESHNESS_RULE =
   'The CONTEXT contains live data (NFL team, depth-chart role, age, injury status). When the context and your memory disagree, the context is right. ' +
   'Never describe a player\'s current team or role from memory when the context provides it — a player listed as "QB1/starter" IS the starter, whatever you remember.';
 
+// Keeps internal valuation numbers out of public-facing copy. The context may include
+// FantasyCalc/KTC market values, dynasty asset values, and calculator scores — use them
+// to reason about who won a trade or how assets rank, but NEVER print the raw numbers.
+const VALUE_NUMBER_RULE =
+  'VALUE NUMBERS: You may be given internal trade/market/asset values, dynasty rankings, or calculator scores. ' +
+  'Use them ONLY to reason (who won a trade, how lopsided a deal is, relative asset tiers). ' +
+  'NEVER state these raw value numbers in your output — no "value of 2112", "2112 value", "market value: 2112", "trade value score", "calculator value", or "asset value of <number>". ' +
+  'Express the conclusion qualitatively instead (a steal, fair, lopsided, slight edge). ' +
+  'This restriction is ONLY about trade/market/asset valuation numbers — real football stats are encouraged: scores, win-loss records, weeks, years, draft picks, and FAAB dollar amounts are all fine to cite.';
+
 export function buildSystemPrompt(persona: PersonaType, tier: PromptTier): string {
   if (tier === 1) {
     return buildClaudeSystemPrompt(persona);
   }
   if (persona === 'entertainer') {
     const voice = tier === 2 ? MASON_VOICE_TIER2 : MASON_VOICE_TIER3;
-    return MASON_SHARED + voice + MASON_SHARED_CLOSING + '\n\n' + DATA_FRESHNESS_RULE;
+    return MASON_SHARED + voice + MASON_SHARED_CLOSING + '\n\n' + DATA_FRESHNESS_RULE + '\n\n' + VALUE_NUMBER_RULE;
   } else {
     const voice = tier === 2 ? WESTY_VOICE_TIER2 : WESTY_VOICE_TIER3;
-    return WESTY_SHARED + voice + WESTY_SHARED_CLOSING + '\n\n' + DATA_FRESHNESS_RULE;
+    return WESTY_SHARED + voice + WESTY_SHARED_CLOSING + '\n\n' + DATA_FRESHNESS_RULE + '\n\n' + VALUE_NUMBER_RULE;
   }
 }
 

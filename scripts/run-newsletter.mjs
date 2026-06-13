@@ -208,56 +208,32 @@ function strictFailIfDegraded(result) {
   return false;
 }
 
-async function main() {
-  const args = parseArgs(process.argv);
-  const now = new Date();
+// Map an editorial-queue item to a generation target.
+async function queueItemToTarget(item) {
+  const episodeType = item.episodeType || 'regular';
+  const isOffseason = EPISODE_WEEK_STORAGE[episodeType] !== undefined || episodeType === 'offseason';
+  const storageWeek = EPISODE_WEEK_STORAGE[episodeType] ?? (item.week ?? 0);
+  const week = isOffseason ? (item.week ?? 0) : (item.week ?? 0);
+  return { season: item.season, week, episodeType, storageWeek, reason: `queue:${item.id}` };
+}
 
-  console.log(`[Runner] Inputs resolved:`, {
-    season: args.season,
-    week: args.week,
-    episodeType: args.episodeType,
-    preview: args.preview,
-    force: args.force,
-  });
-
-  let target;
-  if (args.preview) {
-    const state = await getSleeperState();
-    const season = args.season ? parseInt(args.season, 10) : parseInt(state.season, 10);
-    const episodeType = args.episodeType || 'regular';
-    let week = (args.week !== null && Number.isFinite(args.week)) ? args.week : (parseInt(state.week, 10) || 1);
-    let storageWeek = week;
-    if (episodeType === 'preseason' || episodeType === 'pre_draft' || episodeType === 'post_draft') {
-      week = args.week ?? 0;
-      storageWeek = EPISODE_WEEK_STORAGE[episodeType] ?? 900;
-    }
-    target = { season, week, episodeType, storageWeek, reason: 'preview override' };
-  } else {
-    target = await resolveNewsletterRunTarget({
-      now,
-      force: args.force,
-      seasonArg: args.season,
-      weekArg: args.week,
-      episodeTypeArg: args.episodeType,
-    });
-
-    if (!target) {
-      console.log('[Runner] Outside of scheduling window. Exiting 0.');
-      process.exit(0);
-    }
-  }
-
+/**
+ * Generate a single target into a DRAFT (or write preview artifacts).
+ * Returns a status string; never calls process.exit so callers can loop.
+ *   'exists' | 'generated' | 'gated' | 'no_league' | 'preview'
+ */
+async function runTarget(target, { preview }) {
   console.log(`[Runner] Target resolved: season=${target.season}, week=${target.week}, episodeType=${target.episodeType}, storageWeek=${target.storageWeek} (${target.reason})`);
 
   const { loadNewsletter, saveNewsletter, loadBotMemory, saveBotMemory, loadForecastRecords, saveForecastRecords, loadPendingPicks, savePendingPicks, loadPreviousNewsletter, extractPredictionsFromNewsletter } = await importDb();
 
   // Idempotency check (skip for preview). includeDrafts:true so we don't clobber an
   // existing draft (possibly hand-edited) on every scheduled run.
-  if (!args.preview) {
+  if (!preview) {
     const existing = await loadNewsletter(target.season, target.storageWeek, { includeDrafts: true });
     if (existing) {
-      console.log('[Runner] Newsletter already exists for target (draft or published). Exiting 0.');
-      process.exit(0);
+      console.log('[Runner] Newsletter already exists for target (draft or published). Skipping.');
+      return 'exists';
     }
   }
 
@@ -266,7 +242,7 @@ async function main() {
   const leagueId = getLeagueIdForSeason(target.season);
   if (!leagueId) {
     console.error(`[Runner] No league ID found for season ${target.season}`);
-    process.exit(2);
+    return 'no_league';
   }
 
   // Fetch core data
@@ -385,22 +361,22 @@ async function main() {
     for (const w of playerIdWarnings) {
       console.warn(`  - ${w}`);
     }
-    if (!args.preview) {
-      // For publish runs, treat as quality failure
-      console.error('[Runner] Unresolved player IDs in publish run. Marking as fallbackUsed.');
+    if (!preview) {
+      // For draft runs, treat as quality failure
+      console.error('[Runner] Unresolved player IDs in draft run. Marking as fallbackUsed.');
       result.fallbackUsed = true;
       result.fallbackSections = result.fallbackSections || [];
       result.fallbackSections.push('player_id_resolution');
     }
   }
 
-  // Strict publish gating (only for non-preview)
-  if (!args.preview && strictFailIfDegraded(result)) {
-    console.error('[Runner] Strict publish gating failed (composeFailed or fallbackUsed). No writes. Exiting non-zero.');
-    process.exit(3);
+  // Strict quality gating (only for non-preview)
+  if (!preview && strictFailIfDegraded(result)) {
+    console.error('[Runner] Strict quality gating failed (composeFailed or fallbackUsed). No writes.');
+    return 'gated';
   }
 
-  if (args.preview) {
+  if (preview) {
     console.log('[Runner] PREVIEW MODE: not persisting memory or newsletter.');
     const artifactsDir = pathResolve(projectRoot, 'artifacts');
     await mkdir(artifactsDir, { recursive: true });
@@ -422,7 +398,7 @@ async function main() {
       console.log(`[Runner] ⚠️ Preview contains ${playerIdWarnings.length} quality warnings - see newsletter-preview.json`);
     }
     console.log(`Download artifact → open newsletter-preview.html`);
-    process.exit(0);
+    return 'preview';
   }
 
   // Persist memory and newsletter
@@ -440,6 +416,94 @@ async function main() {
   });
 
   console.log(`[Runner] Newsletter generated and saved as DRAFT. Season=${target.season}, Week=${target.storageWeek}, EpisodeType=${target.episodeType || 'regular'} (not published, no Discord)`);
+  return 'generated';
+}
+
+// Process editorial-calendar items whose scheduled time has arrived. Each is
+// generated into a DRAFT — never published, never Discord. Best-effort: a queue
+// failure is recorded on the item and does not abort the legacy schedule run.
+async function processDueQueue(now) {
+  let processed = 0;
+  try {
+    const { findDueQueueItems, updateQueueItem } = await import(
+      pathResolve(projectRoot, 'src', 'server', 'db', 'newsletter-queue-queries.ts')
+    );
+    const due = await findDueQueueItems(now);
+    if (!due.length) return 0;
+    console.log(`[Runner] Editorial queue: ${due.length} due item(s) to generate as drafts.`);
+    for (const item of due) {
+      const target = await queueItemToTarget(item);
+      try {
+        const status = await runTarget(target, { preview: false });
+        if (status === 'generated' || status === 'exists') {
+          await updateQueueItem(item.id, { status: 'generated', generatedAt: new Date(), error: null });
+          console.log(`[Runner] Queue item ${item.id} → ${status} (draft saved).`);
+        } else {
+          await updateQueueItem(item.id, { status: 'failed', error: `runTarget=${status}` });
+          console.warn(`[Runner] Queue item ${item.id} → failed (runTarget=${status}).`);
+        }
+        processed++;
+      } catch (e) {
+        await updateQueueItem(item.id, { status: 'failed', error: String(e?.message ?? e) }).catch(() => {});
+        console.error(`[Runner] Queue item ${item.id} threw:`, e?.message ?? e);
+      }
+    }
+  } catch (e) {
+    console.warn('[Runner] Editorial queue processing skipped (non-fatal):', e?.message ?? e);
+  }
+  return processed;
+}
+
+async function main() {
+  const args = parseArgs(process.argv);
+  const now = new Date();
+
+  console.log(`[Runner] Inputs resolved:`, {
+    season: args.season,
+    week: args.week,
+    episodeType: args.episodeType,
+    preview: args.preview,
+    force: args.force,
+  });
+
+  // Preview mode: single explicit target, write artifacts, no queue, no DB writes.
+  if (args.preview) {
+    const state = await getSleeperState();
+    const season = args.season ? parseInt(args.season, 10) : parseInt(state.season, 10);
+    const episodeType = args.episodeType || 'regular';
+    let week = (args.week !== null && Number.isFinite(args.week)) ? args.week : (parseInt(state.week, 10) || 1);
+    let storageWeek = week;
+    if (episodeType === 'preseason' || episodeType === 'pre_draft' || episodeType === 'post_draft') {
+      week = args.week ?? 0;
+      storageWeek = EPISODE_WEEK_STORAGE[episodeType] ?? 900;
+    }
+    const target = { season, week, episodeType, storageWeek, reason: 'preview override' };
+    await runTarget(target, { preview: true });
+    process.exit(0);
+  }
+
+  // Non-preview: first process any due editorial-calendar items into drafts.
+  const queueProcessed = await processDueQueue(now);
+
+  // Then run the legacy schedule-gated single target (fallback for un-queued cadence).
+  const target = await resolveNewsletterRunTarget({
+    now,
+    force: args.force,
+    seasonArg: args.season,
+    weekArg: args.week,
+    episodeTypeArg: args.episodeType,
+  });
+
+  if (!target) {
+    if (queueProcessed === 0) console.log('[Runner] Outside of scheduling window and no due queue items. Exiting 0.');
+    else console.log(`[Runner] Processed ${queueProcessed} queue item(s); no additional schedule target. Exiting 0.`);
+    process.exit(0);
+  }
+
+  const status = await runTarget(target, { preview: false });
+  if (status === 'no_league') process.exit(2);
+  if (status === 'gated') process.exit(3);
+  process.exit(0);
 }
 
 main().catch((err) => {

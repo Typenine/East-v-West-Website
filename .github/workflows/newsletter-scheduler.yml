@@ -1,5 +1,11 @@
 name: Newsletter Scheduler
 
+# Runs scripts/run-newsletter.mjs on a cadence. IMPORTANT: this only ever saves
+# DRAFTS (status:'draft') and processes due editorial-calendar items into drafts.
+# It NEVER autopublishes and NEVER posts to Discord — publishing is an explicit
+# admin action (admin newsletter page / POST /api/newsletter/publish).
+# (NEWSLETTER_STRICT_PUBLISH below is a quality gate on generation, not a publish switch.)
+
 on:
   workflow_dispatch:
     inputs:

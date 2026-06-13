@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback, Component, ReactNode } from 'react';
 import EditModePanel from './EditModePanel';
+import EditorialCalendar from './EditorialCalendar';
 import Link from 'next/link';
 import SectionHeader from '@/components/ui/SectionHeader';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
@@ -195,6 +196,10 @@ function AdminNewsletterPageInner() {
   const [editHtml, setEditHtml] = useState<string | null>(null);
   const [finalizeResult, setFinalizeResult] = useState<{ ok: boolean; message: string } | null>(null);
 
+  // "Generate now" from the editorial calendar: pre-fill config, then trigger a run
+  // once React has applied the new season/week/episodeType state.
+  const [pendingGen, setPendingGen] = useState(false);
+
   // ── Auth ──────────────────────────────────────────────────────────────────
 
   useEffect(() => {
@@ -220,8 +225,8 @@ function AdminNewsletterPageInner() {
         setNflWeek(state.week || 1);
         setWeek(w);
       } else {
-        // Offseason: find last published week
-        fetch(`/api/newsletter?list=true&season=${s}`).then(r => r.json()).then(data => {
+        // Offseason: find last newsletter (incl. drafts) to default the week
+        fetch(`/api/newsletter?list=true&season=${s}&draft=1`, { credentials: 'include' }).then(r => r.json()).then(data => {
           if (data.weeks?.length > 0) {
             const last = Math.max(...data.weeks);
             setNflWeek(last);
@@ -240,7 +245,7 @@ function AdminNewsletterPageInner() {
     setExisting(null);
     try {
       const wNum = needsWeek ? (parseInt(w) || 0) : 0;
-      const res = await fetch(`/api/newsletter?season=${s}&week=${wNum}`, { cache: 'no-store' });
+      const res = await fetch(`/api/newsletter?season=${s}&week=${wNum}&draft=1`, { cache: 'no-store', credentials: 'include' });
       if (res.ok) {
         const data = await res.json() as { success: boolean; html?: string; generatedAt?: string; fromCache?: boolean };
         if (data.success && data.html) {
@@ -401,7 +406,7 @@ function AdminNewsletterPageInner() {
 
       if (done) {
         // 3. Fetch assembled newsletter
-        const getRes = await fetch(`/api/newsletter?week=${wNum}&season=${season}`, { cache: 'no-store', credentials: 'include' });
+        const getRes = await fetch(`/api/newsletter?week=${wNum}&season=${season}&draft=1`, { cache: 'no-store', credentials: 'include' });
         const getData = await getRes.json() as { success?: boolean; html?: string; generatedAt?: string; newsletter?: { meta: { leagueName: string; week: number; season: number } } };
         if (getData.success && getData.html) {
           setExisting({ generatedAt: getData.generatedAt ?? '', fromCache: false });
@@ -422,6 +427,26 @@ function AdminNewsletterPageInner() {
       stopTimer();
     }
   };
+
+  // ── Editorial calendar: "Generate now" ────────────────────────────────────
+
+  const handleGenerateNow = (ep: string, s: string, w: string | null) => {
+    setEpisodeType(ep);
+    setSeason(s);
+    if (w != null) setWeek(w);
+    setPendingGen(true);
+    if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  // Fire the generation once the config state has been applied.
+  useEffect(() => {
+    if (!pendingGen) return;
+    if (isGenerating) return;
+    setPendingGen(false);
+    void handleGenerate();
+    // handleGenerate reads the latest season/week/episodeType from state.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingGen, season, week, episodeType]);
 
   // ── Retry a single failed section ─────────────────────────────────────────
 
@@ -485,7 +510,7 @@ function AdminNewsletterPageInner() {
       }
 
       if (done) {
-        const getRes = await fetch(`/api/newsletter?week=${wNum}&season=${season}`, { cache: 'no-store', credentials: 'include' });
+        const getRes = await fetch(`/api/newsletter?week=${wNum}&season=${season}&draft=1`, { cache: 'no-store', credentials: 'include' });
         const getData = await getRes.json() as { success?: boolean; html?: string; generatedAt?: string; newsletter?: { meta: { leagueName: string; week: number; season: number } } };
         if (getData.success && getData.html) {
           setGen(g => ({ ...g, phase: 'done', currentStep: null, html: getData.html ?? null, meta: getData.newsletter?.meta ?? null, generatedAt: getData.generatedAt ?? null }));
@@ -503,15 +528,21 @@ function AdminNewsletterPageInner() {
 
   // ── Publish ───────────────────────────────────────────────────────────────
 
-  const handlePublish = async () => {
+  // sendDiscord defaults ON (primary Publish announces); pass false for "Publish (no Discord)".
+  const handlePublish = async (sendDiscord = true) => {
     if (!gen.html || !gen.meta) return;
     setPublishing(true);
     setPublishResult(null);
     try {
+      const wNum = needsWeek ? (parseInt(week) || 0) : 0;
       const res = await fetch('/api/newsletter/publish', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ season: parseInt(season), week: parseInt(week) || 0, newsletter: gen.meta, html: editHtml ?? gen.html }),
+        credentials: 'include',
+        // The newsletter content is already saved as a draft in the DB; publishing
+        // flips its status. We pass the (possibly edited) html so any last-minute
+        // in-browser edit is reflected.
+        body: JSON.stringify({ season: parseInt(season), week: wNum, sendDiscord, html: editHtml ?? gen.html }),
       });
       const data = await res.json() as { message?: string; error?: string };
       setPublishResult({ ok: res.ok, message: data.message ?? data.error ?? (res.ok ? 'Published!' : 'Failed') });
@@ -532,7 +563,7 @@ function AdminNewsletterPageInner() {
     // When opening from existing (no generation), populate gen.html from the DB
     if (fromExisting && !gen.html) {
       const wNum = needsWeek ? (parseInt(week) || 0) : 0;
-      fetch(`/api/newsletter?week=${wNum}&season=${season}`, { cache: 'no-store', credentials: 'include' })
+      fetch(`/api/newsletter?week=${wNum}&season=${season}&draft=1`, { cache: 'no-store', credentials: 'include' })
         .then(r => r.json())
         .then((data: { html?: string; newsletter?: { meta?: unknown } }) => {
           if (data.html) {
@@ -928,9 +959,16 @@ function AdminNewsletterPageInner() {
                   <Button variant="secondary" size="sm" onClick={() => openEditMode()}>✏️ Edit Newsletter</Button>
                 )}
                 {!publishResult?.ok && !editMode && (
-                  <Button variant="primary" size="sm" onClick={handlePublish} disabled={publishing}>
-                    {publishing ? 'Publishing...' : '🚀 Publish'}
-                  </Button>
+                  <>
+                    <Button variant="secondary" size="sm" onClick={() => handlePublish(false)} disabled={publishing}
+                      title="Make this newsletter public without posting to Discord">
+                      {publishing ? '…' : 'Publish (no Discord)'}
+                    </Button>
+                    <Button variant="primary" size="sm" onClick={() => handlePublish(true)} disabled={publishing}
+                      title="Make this newsletter public and announce it in Discord">
+                      {publishing ? 'Publishing...' : '🚀 Publish + Discord'}
+                    </Button>
+                  </>
                 )}
                 {publishResult?.ok && (
                   <Link href="/newsletter">
@@ -972,6 +1010,9 @@ function AdminNewsletterPageInner() {
           setFinalizeResult={setFinalizeResult}
         />
       )}
+
+      {/* Editorial calendar / generation queue */}
+      <EditorialCalendar defaultSeason={season} onGenerateNow={handleGenerateNow} />
 
     </div>
   );

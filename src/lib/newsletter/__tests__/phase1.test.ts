@@ -198,6 +198,49 @@ describe('checkOutput', () => {
     expect(result.blocked).toBe(true);
     expect(result.text).toContain('[Content removed');
   });
+
+  // ── raw-value-disclosure guardrail ──────────────────────────────────────────
+  describe('raw-value-disclosure', () => {
+    const flagged = [
+      'This player carries a value of 2112 in dynasty leagues.',
+      'He brings a 2112 value to any contender.',
+      'The deal nets a market value: 2112 swing.',
+      'Their market value of 2400 dwarfs the return.',
+      'By trade value score, this is a clear win.',
+      'The calculator value says otherwise.',
+      'They got an asset value of 1850 in return.',
+      'Westy ran it through the KTC value and frowned.',
+      'That rookie is valued at 3000 right now.',
+    ];
+    for (const text of flagged) {
+      it(`flags: "${text.slice(0, 40)}..."`, () => {
+        const result = checkOutput(text);
+        const w = result.warnings.find(w => w.rule === 'raw-value-disclosure');
+        expect(w).toBeDefined();
+        expect(w?.severity).toBe('medium');
+        // medium severity must never block/replace text
+        expect(result.blocked).toBe(false);
+        expect(result.text).toBe(text);
+      });
+    }
+
+    const clean = [
+      'Double Trouble won 124.5 to 98.2 in a shootout.',
+      'They sit at 8-2 and look like contenders.',
+      'He dropped $23 of FAAB to grab the handcuff.',
+      'They landed the 1.08 pick in the deal.',
+      'Week 14 is going to be chaos.',
+      'The 2026 rookie class is loaded.',
+      'It was fair value all around for both sides.',
+      'The trade returned real value for both sides without a clear loser.',
+    ];
+    for (const text of clean) {
+      it(`does not flag: "${text.slice(0, 40)}..."`, () => {
+        const result = checkOutput(text);
+        expect(result.warnings.find(w => w.rule === 'raw-value-disclosure')).toBeUndefined();
+      });
+    }
+  });
 });
 
 // ── bot-brain ────────────────────────────────────────────────────────────────
