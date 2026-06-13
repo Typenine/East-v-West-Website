@@ -1,7 +1,13 @@
 "use client";
 
 import { useRouter, useSearchParams } from "next/navigation";
-import { cn } from "@/lib/utils/cn";
+import {
+  BroadcastPanel,
+  broadcastFieldClass,
+  broadcastFieldStyle,
+  broadcastLabelClass,
+  broadcastFaintTextStyle,
+} from "@/components/ui/BroadcastPanel";
 
 export default function GroupedToolbar({
   seasons,
@@ -22,8 +28,8 @@ export default function GroupedToolbar({
 
   function updateParam(key: string, value: string) {
     const params = new URLSearchParams(searchParams.toString());
-    if (value === "all") params.delete(key); else params.set(key, value);
-    // Reset pagination when filters change
+    if (value === "all") params.delete(key);
+    else params.set(key, value);
     if (["season", "team", "week", "position"].includes(key)) {
       params.delete("page");
     }
@@ -37,67 +43,84 @@ export default function GroupedToolbar({
   const positionOptions = ["all", ...((positions ?? []) as string[])];
 
   return (
-    <div className="mt-3 flex flex-wrap items-center gap-3 p-3 evw-surface border border-[var(--border)] rounded">
-      <div className="flex items-center gap-2">
-        <label htmlFor="group-season" className="text-xs text-[var(--muted)]">Season</label>
-        <select
+    <BroadcastPanel title="Filters" bodyClassName="!py-3">
+      <div className="flex flex-wrap items-end gap-3">
+        <ToolbarSelect
           id="group-season"
-          className={cn("evw-surface border border-[var(--border)] rounded px-2 py-1 text-sm")}
+          label="Season"
           value={season}
-          onChange={(e) => updateParam("season", e.target.value)}
-        >
-          {seasonOptions.map((opt) => (
-            <option key={opt} value={opt}>
-              {opt === "all" ? "All seasons" : opt}
-            </option>
-          ))}
-        </select>
-      </div>
-      <div className="flex items-center gap-2">
-        <label htmlFor="group-team" className="text-xs text-[var(--muted)]">Team</label>
-        <select
+          onChange={(value) => updateParam("season", value)}
+          options={seasonOptions.map((opt) => ({
+            value: opt,
+            label: opt === "all" ? "All seasons" : opt,
+          }))}
+        />
+        <ToolbarSelect
           id="group-team"
-          className={cn("evw-surface border border-[var(--border)] rounded px-2 py-1 text-sm")}
+          label="Team"
           value={team}
-          onChange={(e) => updateParam("team", e.target.value)}
-        >
-          {teamOptions.map((opt) => (
-            <option key={opt} value={opt}>
-              {opt === "all" ? "All teams" : opt}
-            </option>
-          ))}
-        </select>
-      </div>
-      <div className="flex items-center gap-2">
-        <label htmlFor="group-week" className="text-xs text-[var(--muted)]">Week</label>
-        <select
+          onChange={(value) => updateParam("team", value)}
+          options={teamOptions.map((opt) => ({
+            value: opt,
+            label: opt === "all" ? "All teams" : opt,
+          }))}
+        />
+        <ToolbarSelect
           id="group-week"
-          className={cn("evw-surface border border-[var(--border)] rounded px-2 py-1 text-sm")}
+          label="Week"
           value={week}
-          onChange={(e) => updateParam("week", e.target.value)}
-        >
-          {weekOptions.map((opt) => (
-            <option key={opt} value={opt}>
-              {opt === "all" ? "All weeks" : `Week ${opt}`}
-            </option>
-          ))}
-        </select>
-      </div>
-      <div className="flex items-center gap-2">
-        <label htmlFor="group-position" className="text-xs text-[var(--muted)]">Position</label>
-        <select
+          onChange={(value) => updateParam("week", value)}
+          options={weekOptions.map((opt) => ({
+            value: opt,
+            label: opt === "all" ? "All weeks" : `Week ${opt}`,
+          }))}
+        />
+        <ToolbarSelect
           id="group-position"
-          className={cn("evw-surface border border-[var(--border)] rounded px-2 py-1 text-sm")}
+          label="Position"
           value={position}
-          onChange={(e) => updateParam("position", e.target.value)}
-        >
-          {positionOptions.map((opt) => (
-            <option key={opt} value={opt}>
-              {opt === "all" ? "All positions" : opt}
-            </option>
-          ))}
-        </select>
+          onChange={(value) => updateParam("position", value)}
+          options={positionOptions.map((opt) => ({
+            value: opt,
+            label: opt === "all" ? "All positions" : opt,
+          }))}
+        />
       </div>
-    </div>
+    </BroadcastPanel>
+  );
+}
+
+function ToolbarSelect({
+  id,
+  label,
+  value,
+  onChange,
+  options,
+}: {
+  id: string;
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  options: { value: string; label: string }[];
+}) {
+  return (
+    <label htmlFor={id} className="flex flex-col gap-1">
+      <span className={broadcastLabelClass} style={broadcastFaintTextStyle}>
+        {label}
+      </span>
+      <select
+        id={id}
+        className={[broadcastFieldClass, "!w-auto"].join(" ")}
+        style={broadcastFieldStyle}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+      >
+        {options.map((opt) => (
+          <option key={opt.value} value={opt.value}>
+            {opt.label}
+          </option>
+        ))}
+      </select>
+    </label>
   );
 }

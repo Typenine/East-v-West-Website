@@ -3,12 +3,22 @@
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import SectionHeader from '@/components/ui/SectionHeader';
-import { getTeamColorStyle } from '@/lib/utils/team-utils';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
-import Label from '@/components/ui/Label';
 import Select from '@/components/ui/Select';
 import Textarea from '@/components/ui/Textarea';
 import Button from '@/components/ui/Button';
+import {
+  BroadcastPanel,
+  BroadcastSubmitButton,
+  broadcastFieldClass,
+  broadcastFieldStyle,
+  broadcastLabelClass,
+  broadcastMutedTextStyle,
+  broadcastFaintTextStyle,
+  broadcastScrollBoxStyle,
+} from '@/components/ui/BroadcastPanel';
+import SuggestionItemCard from '@/components/suggestions/SuggestionItemCard';
+import { SuggestionStatusBadge } from '@/components/suggestions/SuggestionStatusBadge';
+import { categoryAccent } from '@/lib/suggestions/category-accents';
 import { rulesHtmlSections } from '@/data/rules';
 
 const ENDORSEMENT_THRESHOLD = 3;
@@ -270,30 +280,74 @@ export default function SuggestionsPage() {
     }
   }
 
+  async function handleEndorse(suggestionId: string, endorse: boolean) {
+    if (!auth || !myTeam) return;
+    setEndorseBusy(suggestionId);
+    try {
+      const res = await fetch('/api/me/suggestions/endorse', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ suggestionId, endorse }),
+      });
+      if (res.ok) {
+        setItems((prev) =>
+          prev.map((it) => {
+            if (it.id !== suggestionId) return it;
+            const arr = Array.isArray(it.endorsers) ? [...it.endorsers] : [];
+            if (endorse) {
+              if (!arr.includes(myTeam)) arr.push(myTeam);
+            } else {
+              const idx2 = arr.indexOf(myTeam);
+              if (idx2 >= 0) arr.splice(idx2, 1);
+            }
+            return { ...it, endorsers: arr };
+          })
+        );
+      }
+    } finally {
+      setEndorseBusy(null);
+    }
+  }
+
+  const darkFieldClass = `${broadcastFieldClass} !shadow-none`;
+  const darkFieldStyle = broadcastFieldStyle;
+  const darkSelectClass = `${darkFieldClass} !bg-[rgba(255,255,255,0.06)] !border-[rgba(255,255,255,0.07)] !text-[#F4F6FB]`;
+  const darkTextareaClass = `${darkFieldClass} !bg-[rgba(255,255,255,0.06)] !border-[rgba(255,255,255,0.07)] !text-[#F4F6FB] placeholder:!text-[rgba(233,237,245,0.40)]`;
+
   return (
     <div className="container mx-auto px-4 py-8">
       <SectionHeader title="League Suggestions" />
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         <div className="lg:col-span-1">
-          <Card>
-            <CardContent>
+          <BroadcastPanel title="Submit" accent={categoryAccent('Other')} bodyClassName="!px-4 !py-4 sm:!px-5">
               <form onSubmit={onSubmit} className="space-y-4">
                 {drafts.map((d, idx) => {
                   const isRules = (d.category || '').toLowerCase() === 'rules';
                   return (
-                    <div key={idx} className="p-3 border border-[var(--border)] rounded-[var(--radius-card)]">
+                    <div
+                      key={idx}
+                      className="rounded-xl p-3"
+                      style={{
+                        ...broadcastScrollBoxStyle,
+                        borderLeft: `3px solid ${categoryAccent(d.category)}`,
+                      }}
+                    >
                       <div className="flex items-center justify-between mb-2">
-                        <Label>Suggestion {idx + 1}</Label>
+                        <span className={broadcastLabelClass} style={broadcastFaintTextStyle}>
+                          Suggestion {idx + 1}
+                        </span>
                         {drafts.length > 1 && (
                           <Button type="button" variant="ghost" onClick={() => setDrafts((prev) => prev.filter((_, i) => i !== idx))}>Remove</Button>
                         )}
                       </div>
                       <div className="mb-2">
-                        <Label className="mb-1 block">Category</Label>
+                        <span className={`${broadcastLabelClass} block`} style={broadcastFaintTextStyle}>Category</span>
                         <Select
                           value={d.category}
                           required
+                          className={darkSelectClass}
                           onChange={(e) => {
                             const v = e.target.value;
                             setDrafts((prev) => prev.map((it, i) => i === idx ? ({ ...it, category: v, rules: v.toLowerCase() === 'rules' ? { title: '', proposal: '', issue: '', fix: '', conclusion: '', sectionId: '', refTitle: '', refCode: '', effective: '' } : null }) : it));
@@ -306,8 +360,8 @@ export default function SuggestionsPage() {
                         </Select>
                       </div>
                       {auth && (
-                        <label className="flex items-center gap-2 text-sm mb-2">
-                          <input type="checkbox" checked={Boolean(d.endorse)} onChange={(e) => setDrafts((prev) => prev.map((it, i) => i === idx ? ({ ...it, endorse: e.target.checked }) : it))} />
+                        <label className="flex items-center gap-2 text-sm mb-2" style={broadcastMutedTextStyle}>
+                          <input type="checkbox" checked={Boolean(d.endorse)} onChange={(e) => setDrafts((prev) => prev.map((it, i) => i === idx ? ({ ...it, endorse: e.target.checked }) : it))} className="rounded accent-white" />
                           <span>Endorse this suggestion as {myTeam ? myTeam : 'my team'}</span>
                         </label>
                       )}
@@ -319,9 +373,10 @@ export default function SuggestionsPage() {
                             </div>
                           )}
                           <div>
-                            <Label className="mb-1 block">Title (for ballot)</Label>
+                            <span className={`${broadcastLabelClass} block`} style={broadcastFaintTextStyle}>Title (for ballot)</span>
                             <input
-                              className="w-full border border-[var(--border)] rounded px-2 py-1.5 text-sm bg-transparent"
+                              className={darkFieldClass}
+                              style={darkFieldStyle}
                               value={d.rules?.title || ''}
                               onChange={(e) => setDrafts((prev) => prev.map((it, i) => i === idx ? ({
                                 ...it,
@@ -332,9 +387,10 @@ export default function SuggestionsPage() {
                             />
                           </div>
                           <div>
-                            <Label className="mb-1 block">Rule Section</Label>
+                            <span className={`${broadcastLabelClass} block`} style={broadcastFaintTextStyle}>Rule Section</span>
                             <Select
                               value={d.rules?.sectionId || ''}
+                              className={darkSelectClass}
                               onChange={(e) => setDrafts((prev) => prev.map((it, i) => i === idx ? ({
                                 ...it,
                                 rules: { ...(it.rules || { title: '', proposal: '', issue: '', fix: '', conclusion: '', sectionId: '', refTitle: '', refCode: '', effective: '' }), sectionId: e.target.value, refTitle: '' }
@@ -348,16 +404,16 @@ export default function SuggestionsPage() {
                             </Select>
                           </div>
                           <div>
-                            <Label className="mb-1 block">Rule Item</Label>
+                            <span className={`${broadcastLabelClass} block`} style={broadcastFaintTextStyle}>Rule Item</span>
                             <Select
                               value={d.rules?.refTitle || ''}
+                              className={`${darkSelectClass} font-mono text-sm`}
                               onChange={(e) => setDrafts((prev) => prev.map((it, i) => i === idx ? ({
                                 ...it,
                                 rules: { ...(it.rules || { title: '', proposal: '', issue: '', fix: '', conclusion: '', sectionId: '', refTitle: '', refCode: '', effective: '' }), refTitle: e.target.value }
                               }) : it))}
                               required
                               disabled={!d.rules?.sectionId}
-                              className="font-mono text-sm"
                             >
                               <option value="">{d.rules?.sectionId ? 'Select rule item' : 'Select a section first'}</option>
                               {(d.rules?.sectionId ? itemsBySection[d.rules.sectionId] || [] : []).map((it) => (
@@ -367,14 +423,14 @@ export default function SuggestionsPage() {
                               ))}
                             </Select>
                             {d.rules?.refTitle && (
-                              <p className="text-xs text-[var(--muted)] mt-1">
+                              <p className="text-xs mt-1" style={broadcastMutedTextStyle}>
                                 Selected: {d.rules.refTitle}
                               </p>
                             )}
                           </div>
                           <div>
-                            <Label className="mb-1 block">Effective</Label>
-                            <Select value={d.rules?.effective || ''} onChange={(e) => setDrafts((prev) => prev.map((it, i) => i === idx ? ({ ...it, rules: { ...(it.rules || { title: '', proposal: '', issue: '', fix: '', conclusion: '', sectionId: '', refTitle: '', refCode: '', effective: '' }), effective: e.target.value } }) : it))}>
+                            <span className={`${broadcastLabelClass} block`} style={broadcastFaintTextStyle}>Effective</span>
+                            <Select value={d.rules?.effective || ''} className={darkSelectClass} onChange={(e) => setDrafts((prev) => prev.map((it, i) => i === idx ? ({ ...it, rules: { ...(it.rules || { title: '', proposal: '', issue: '', fix: '', conclusion: '', sectionId: '', refTitle: '', refCode: '', effective: '' }), effective: e.target.value } }) : it))}>
                               <option value="">Select when it would take effect</option>
                               {EFFECTIVE_OPTS.map((opt) => (
                                 <option key={opt} value={opt}>{opt}</option>
@@ -382,28 +438,29 @@ export default function SuggestionsPage() {
                             </Select>
                           </div>
                           <div>
-                            <Label className="mb-1 block">Proposal</Label>
-                            <Textarea rows={3} value={d.rules?.proposal || ''} onChange={(e) => setDrafts((prev) => prev.map((it, i) => i === idx ? ({ ...it, rules: { ...(it.rules || { title: '', proposal: '', issue: '', fix: '', conclusion: '', sectionId: '', refTitle: '', refCode: '', effective: '' }), proposal: e.target.value } }) : it))} required />
+                            <span className={`${broadcastLabelClass} block`} style={broadcastFaintTextStyle}>Proposal</span>
+                            <Textarea rows={3} className={darkTextareaClass} value={d.rules?.proposal || ''} onChange={(e) => setDrafts((prev) => prev.map((it, i) => i === idx ? ({ ...it, rules: { ...(it.rules || { title: '', proposal: '', issue: '', fix: '', conclusion: '', sectionId: '', refTitle: '', refCode: '', effective: '' }), proposal: e.target.value } }) : it))} required />
                           </div>
                           <div>
-                            <Label className="mb-1 block">Issue</Label>
-                            <Textarea rows={3} value={d.rules?.issue || ''} onChange={(e) => setDrafts((prev) => prev.map((it, i) => i === idx ? ({ ...it, rules: { ...(it.rules || { title: '', proposal: '', issue: '', fix: '', conclusion: '', sectionId: '', refTitle: '', refCode: '', effective: '' }), issue: e.target.value } }) : it))} required />
+                            <span className={`${broadcastLabelClass} block`} style={broadcastFaintTextStyle}>Issue</span>
+                            <Textarea rows={3} className={darkTextareaClass} value={d.rules?.issue || ''} onChange={(e) => setDrafts((prev) => prev.map((it, i) => i === idx ? ({ ...it, rules: { ...(it.rules || { title: '', proposal: '', issue: '', fix: '', conclusion: '', sectionId: '', refTitle: '', refCode: '', effective: '' }), issue: e.target.value } }) : it))} required />
                           </div>
                           <div>
-                            <Label className="mb-1 block">How it fixes</Label>
-                            <Textarea rows={3} value={d.rules?.fix || ''} onChange={(e) => setDrafts((prev) => prev.map((it, i) => i === idx ? ({ ...it, rules: { ...(it.rules || { title: '', proposal: '', issue: '', fix: '', conclusion: '', sectionId: '', refTitle: '', refCode: '', effective: '' }), fix: e.target.value } }) : it))} required />
+                            <span className={`${broadcastLabelClass} block`} style={broadcastFaintTextStyle}>How it fixes</span>
+                            <Textarea rows={3} className={darkTextareaClass} value={d.rules?.fix || ''} onChange={(e) => setDrafts((prev) => prev.map((it, i) => i === idx ? ({ ...it, rules: { ...(it.rules || { title: '', proposal: '', issue: '', fix: '', conclusion: '', sectionId: '', refTitle: '', refCode: '', effective: '' }), fix: e.target.value } }) : it))} required />
                           </div>
                           <div>
-                            <Label className="mb-1 block">Conclusion</Label>
-                            <Textarea rows={3} value={d.rules?.conclusion || ''} onChange={(e) => setDrafts((prev) => prev.map((it, i) => i === idx ? ({ ...it, rules: { ...(it.rules || { title: '', proposal: '', issue: '', fix: '', conclusion: '', sectionId: '', refTitle: '', refCode: '', effective: '' }), conclusion: e.target.value } }) : it))} required />
+                            <span className={`${broadcastLabelClass} block`} style={broadcastFaintTextStyle}>Conclusion</span>
+                            <Textarea rows={3} className={darkTextareaClass} value={d.rules?.conclusion || ''} onChange={(e) => setDrafts((prev) => prev.map((it, i) => i === idx ? ({ ...it, rules: { ...(it.rules || { title: '', proposal: '', issue: '', fix: '', conclusion: '', sectionId: '', refTitle: '', refCode: '', effective: '' }), conclusion: e.target.value } }) : it))} required />
                           </div>
                         </div>
                       ) : (
                         <div className="space-y-3">
                           <div>
-                            <Label className="mb-1 block">Title (required)</Label>
+                            <span className={`${broadcastLabelClass} block`} style={broadcastFaintTextStyle}>Title (required)</span>
                             <input
-                              className="w-full border border-[var(--border)] rounded px-2 py-1.5 text-sm bg-transparent"
+                              className={darkFieldClass}
+                              style={darkFieldStyle}
                               value={d.title || ''}
                               onChange={(e) => setDrafts((prev) => prev.map((it, i) => i === idx ? ({ ...it, title: e.target.value }) : it))}
                               placeholder="e.g., Add Flex Spot to Roster"
@@ -411,9 +468,10 @@ export default function SuggestionsPage() {
                             />
                           </div>
                           <div>
-                            <Label className="mb-1 block">Description</Label>
+                            <span className={`${broadcastLabelClass} block`} style={broadcastFaintTextStyle}>Description</span>
                             <Textarea
                               rows={6}
+                              className={darkTextareaClass}
                               value={d.content}
                               onChange={(e) => setDrafts((prev) => prev.map((it, i) => i === idx ? ({ ...it, content: e.target.value }) : it))}
                               minLength={3}
@@ -433,12 +491,11 @@ export default function SuggestionsPage() {
 
                 {error && <p className="text-sm text-[var(--danger)]">{error}</p>}
 
-                <Button type="submit" disabled={submitting}>
+                <BroadcastSubmitButton accent={categoryAccent('Other')} disabled={submitting}>
                   {submitting ? 'Submitting…' : drafts.length > 1 ? 'Submit Suggestions' : 'Submit Suggestion'}
-                </Button>
+                </BroadcastSubmitButton>
               </form>
-            </CardContent>
-          </Card>
+          </BroadcastPanel>
         </div>
 
         <div className="lg:col-span-2 space-y-6">
@@ -465,365 +522,179 @@ export default function SuggestionsPage() {
             if (ballotQueue.length === 0) return null;
 
             return (
-              <Card>
-                <CardHeader>
-                  <CardTitle>🗳️ Ballot Queue ({ballotQueue.length})</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <p className="text-sm text-[var(--muted)] mb-3">
+              <BroadcastPanel
+                title="Ballot Queue"
+                accent="#34d399"
+                meta={`${ballotQueue.length} eligible`}
+                bodyClassName="space-y-3"
+              >
+                  <p className="text-sm" style={broadcastMutedTextStyle}>
                     These suggestions have reached {ENDORSEMENT_THRESHOLD} endorsements and are eligible for voting.
                   </p>
                   <ol className="space-y-2 list-none">
                     {ballotQueue.map((s, index) => (
                       <li key={s.id} className="flex gap-3">
-                        <span className="flex-shrink-0 font-bold text-[var(--muted)] w-6">{index + 1}.</span>
+                        <span className="flex-shrink-0 font-bold w-6 tabular-nums" style={broadcastFaintTextStyle}>{index + 1}.</span>
                         <Link
                           href={`/suggestions/${s.id}`}
-                          className="flex-1 block p-3 rounded-lg border border-[var(--border)] evw-surface hover:border-[var(--accent)] transition-colors"
+                          className="flex-1 block rounded-xl p-3 transition-colors hover:brightness-110"
+                          style={{
+                            background: 'rgba(255,255,255,0.03)',
+                            boxShadow: `inset 0 0 0 1px rgba(255,255,255,0.07)`,
+                            borderLeft: `3px solid ${categoryAccent(s.category)}`,
+                          }}
                         >
-                          <div className="flex items-center justify-between">
-                            <span className="font-medium">{s.title || `Suggestion #${s.id.slice(0, 8)}`}</span>
-                            {s.voteTag === 'voted_on' && (
-                              <span className="text-xs px-2 py-0.5 rounded-full border" style={{ borderColor: '#0b5f98', color: '#0b5f98' }}>
-                                VOTING
-                              </span>
-                            )}
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="font-medium" style={{ color: '#F4F6FB' }}>{s.title || `Suggestion #${s.id.slice(0, 8)}`}</span>
+                            {s.voteTag === 'voted_on' ? <SuggestionStatusBadge variant="voted_on">Voting</SuggestionStatusBadge> : null}
                           </div>
-                          {s.content && (
-                            <p className="text-sm text-[var(--muted)] mt-1 line-clamp-2">
+                          {s.content ? (
+                            <p className="text-sm mt-1 line-clamp-2" style={broadcastMutedTextStyle}>
                               {s.content.slice(0, 120)}{s.content.length > 120 ? '…' : ''}
                             </p>
-                          )}
-                          {s.ballotAddedAt && (
-                            <p className="text-xs text-[var(--muted)] mt-2">
+                          ) : null}
+                          {s.ballotAddedAt ? (
+                            <p className="text-xs mt-2" style={broadcastFaintTextStyle}>
                               Added to ballot: {new Date(s.ballotAddedAt).toLocaleString()}
                             </p>
-                          )}
+                          ) : null}
                         </Link>
                       </li>
                     ))}
                   </ol>
-                </CardContent>
-              </Card>
+              </BroadcastPanel>
             );
           })()}
 
-          <Card>
-            <CardHeader>
-              <div className="flex items-center justify-between flex-wrap gap-2">
-                <CardTitle>Active Proposals</CardTitle>
-                <div className="flex items-center gap-2">
-                  <Label className="text-sm">Sort:</Label>
-                  <Select
-                    value={sortBy}
-                    onChange={(e) => setSortBy(e.target.value as SortOption)}
-                    className="text-sm py-1"
-                  >
-                    <option value="newest">Newest first</option>
-                    <option value="oldest">Oldest first</option>
-                    <option value="closest_to_ballot">Closest to ballot</option>
-                  </Select>
-                </div>
+          <div className="space-y-4">
+              <div className="flex items-center justify-end gap-2 flex-wrap">
+                <span className={broadcastLabelClass} style={broadcastFaintTextStyle}>Sort</span>
+                <Select
+                  value={sortBy}
+                  onChange={(e) => setSortBy(e.target.value as SortOption)}
+                  className={`${darkSelectClass} !w-auto text-sm py-1`}
+                  fullWidth={false}
+                >
+                  <option value="newest">Newest first</option>
+                  <option value="oldest">Oldest first</option>
+                  <option value="closest_to_ballot">Closest to ballot</option>
+                </Select>
               </div>
-            </CardHeader>
-            <CardContent>
               {loading ? (
-                <p className="text-[var(--muted)]">Loading…</p>
+                <p style={broadcastMutedTextStyle}>Loading…</p>
               ) : (() => {
-                // Separate active from closed proposals
                 const activeItems = items.filter((s) => !s.voteTag || s.voteTag === 'voted_on');
                 const closedItems = items.filter((s) => s.voteTag === 'vote_passed' || s.voteTag === 'vote_failed');
-                
+
                 if (activeItems.length === 0 && closedItems.length === 0) {
-                  return <p className="text-[var(--muted)]">No suggestions yet. Be the first to submit one!</p>;
+                  return <p style={broadcastMutedTextStyle}>No suggestions yet. Be the first to submit one!</p>;
                 }
-                
+
+                const getEligibleCount = (s: Suggestion) =>
+                  (s.endorsers || []).filter((t) => t !== s.proposerTeam).length;
+
                 return (
                   <>
                     {activeItems.length > 0 && (
-                      <ul className="space-y-4">
-                  {(() => {
-                    // Helper to compute eligible endorsement count (excludes proposer)
-                    const getEligibleCount = (s: Suggestion) => {
-                      const endorsers = s.endorsers || [];
-                      return endorsers.filter((t) => t !== s.proposerTeam).length;
-                    };
-
-                    // Group ACTIVE items only by groupId (or single)
-                    const groups = new Map<string, Suggestion[]>();
-                    for (const s of activeItems) {
-                      const key = s.groupId ? `g:${s.groupId}` : `s:${s.id}`;
-                      if (!groups.has(key)) groups.set(key, []);
-                      groups.get(key)!.push(s);
-                    }
-                    const ordered = Array.from(groups.values()).map((arr) => arr.sort((a, b) => (a.groupPos || 0) - (b.groupPos || 0)));
-
-                    // Apply sorting to ACTIVE proposals only
-                    if (sortBy === 'newest') {
-                      ordered.sort((a, b) => Date.parse(b[0].createdAt) - Date.parse(a[0].createdAt));
-                    } else if (sortBy === 'oldest') {
-                      ordered.sort((a, b) => Date.parse(a[0].createdAt) - Date.parse(b[0].createdAt));
-                    } else if (sortBy === 'closest_to_ballot') {
-                      // Sort by most endorsements first (closest to threshold)
-                      ordered.sort((a, b) => {
-                        const aCount = getEligibleCount(a[0]);
-                        const bCount = getEligibleCount(b[0]);
-                        return bCount - aCount; // Most endorsements first
-                      });
-                    }
-                    return ordered.map((arr, gi) => {
-                      // Group container uses first item sponsor styling
-                      const first = arr[0];
-                      const style = first.sponsorTeam ? getTeamColorStyle(first.sponsorTeam) : null;
-                      const secondary = first.sponsorTeam ? getTeamColorStyle(first.sponsorTeam, 'secondary') : null;
-                      const groupStyle: React.CSSProperties | undefined = style ? { borderLeftColor: (secondary?.backgroundColor as string), borderLeftWidth: 4, borderLeftStyle: 'solid' } : undefined;
-                      return (
-                        <li key={`grp-${gi}`} className="evw-surface border border-[var(--border)] rounded-[var(--radius-card)] p-3" style={groupStyle}>
-                          <div className="mb-2 text-sm text-[var(--muted)]">{new Date(first.createdAt).toLocaleString()}</div>
-                          <div className="space-y-4">
-                            {arr.map((s, idx) => {
-                              const isAccepted = s.status === 'accepted';
-                              const isVague = Boolean(s.vague);
-                              const myEndorsed = !!(auth && myTeam && s.endorsers && s.endorsers.includes(myTeam));
-                              // Compute eligible endorsement count (excludes proposer)
-                              const eligibleCount = getEligibleCount(s);
-                              const needsMore = Math.max(0, ENDORSEMENT_THRESHOLD - eligibleCount);
-                              const isBallotEligible = eligibleCount >= ENDORSEMENT_THRESHOLD;
-                              return (
-                                <div id={s.id} key={s.id} className="p-3 rounded-[var(--radius-card)] border border-[var(--border)]" style={{ ...(isAccepted ? { boxShadow: 'inset 0 0 0 2px #16a34a33' } : {}), ...(isVague ? { boxShadow: `${isAccepted ? 'inset 0 0 0 2px #16a34a33,' : ''} inset 0 0 0 2px #f59e0b55` } : {}) }}>
-                                  <div className="flex items-center justify-between mb-1 gap-2">
-                                    <Link href={`/suggestions/${s.id}`} className="font-medium hover:underline">
-                                      {s.title ? s.title : `Suggestion ${idx + 1}`}
-                                    </Link>
-                                    <div className="flex items-center gap-2 flex-shrink-0">
-                                      {/* Endorsement counter */}
-                                      <span
-                                        className="text-xs px-2 py-0.5 rounded-full border font-medium"
-                                        style={{
-                                          borderColor: isBallotEligible ? '#16a34a' : 'var(--border)',
-                                          color: isBallotEligible ? '#16a34a' : 'var(--muted)',
-                                          backgroundColor: isBallotEligible ? '#16a34a10' : 'transparent',
-                                        }}
-                                        title={needsMore > 0 ? `Needs ${needsMore} more endorsement${needsMore > 1 ? 's' : ''}` : 'Ballot eligible'}
-                                      >
-                                        {eligibleCount}/{ENDORSEMENT_THRESHOLD}
-                                      </span>
-                                      {s.category && (
-                                        <span className="text-xs px-2 py-0.5 rounded-full border border-[var(--border)] evw-surface text-[var(--text)]">{s.category}</span>
-                                      )}
-                                      {s.voteTag === 'voted_on' && (
-                                        <span className="text-xs px-2 py-0.5 rounded-full border" style={{ borderColor: '#0b5f98', color: '#0b5f98' }}>VOTED ON</span>
-                                      )}
-                                      {s.voteTag === 'vote_passed' && (
-                                        <span className="text-xs px-2 py-0.5 rounded-full border" style={{ borderColor: '#16a34a', color: '#16a34a' }}>VOTE PASSED</span>
-                                      )}
-                                      {s.voteTag === 'vote_failed' && (
-                                        <span className="text-xs px-2 py-0.5 rounded-full border" style={{ borderColor: '#be161e', color: '#be161e' }}>VOTE FAILED</span>
-                                      )}
-                                      {isVague && (
-                                        <span className="text-xs px-2 py-0.5 rounded-full border" style={{ borderColor: '#f59e0b', color: '#f59e0b' }}>Needs Clarification</span>
-                                      )}
-                                    </div>
-                                  </div>
-                                  {/* Needs X more indicator */}
-                                  {needsMore > 0 && !s.voteTag && (
-                                    <div className="text-xs text-[var(--muted)] mb-2">
-                                      Needs {needsMore} more endorsement{needsMore > 1 ? 's' : ''}
-                                    </div>
-                                  )}
-                                  {(() => {
-                                    const lines = String(s.content || '').split('\n');
-                                    const renderLine = (ln: string, key: number) => {
-                                      const m = ln.match(/^(Rule|Effective|Proposal|Issue|How it fixes|Conclusion):\s*(.*)$/i);
-                                      if (m) {
-                                        return (
-                                          <div key={key} className="text-[var(--text)]">
-                                            <strong>{m[1]}:</strong> {m[2]}
-                                          </div>
-                                        );
-                                      }
-                                      return <div key={key} className="text-[var(--text)]">{ln}</div>;
-                                    };
-                                    return <div>{isAccepted ? <div>✅</div> : null}{lines.map((ln, i) => renderLine(ln, i))}</div>;
-                                  })()}
-                                  {isAccepted && (
-                                    <div className="mt-1 text-xs text-[var(--muted)]">Marked added{s.resolvedAt ? ` on ${new Date(s.resolvedAt).toLocaleDateString()}` : ''}</div>
-                                  )}
-                                  {(s.proposerTeam || (s.endorsers && s.endorsers.length > 0) || s.sponsorTeam) && (
-                                    <div className="mt-2 flex flex-wrap gap-2 items-center">
-                                      {s.proposerTeam && (
-                                        <span className="text-xs px-2 py-0.5 rounded-full border" style={{ borderColor: getTeamColorStyle(s.proposerTeam)?.backgroundColor as string, color: getTeamColorStyle(s.proposerTeam)?.backgroundColor as string }}>
-                                          Proposed by {s.proposerTeam}
-                                        </span>
-                                      )}
-                                      {s.endorsers && s.endorsers.length > 0 && (
-                                        <span className="text-xs text-[var(--muted)]">Endorsed by</span>
-                                      )}
-                                      {s.endorsers?.map((t) => (
-                                        <span key={t} className="text-xs px-2 py-0.5 rounded-full border" style={{ borderColor: getTeamColorStyle(t)?.backgroundColor as string, color: getTeamColorStyle(t)?.backgroundColor as string }}>{t}</span>
-                                      ))}
-                                      {!s.endorsers?.length && s.sponsorTeam && (
-                                        <span className="text-xs px-2 py-0.5 rounded-full border" style={{ borderColor: (getTeamColorStyle(first.sponsorTeam || '')?.backgroundColor as string), color: (getTeamColorStyle(first.sponsorTeam || '')?.backgroundColor as string) }}>
-                                          Endorsed by {s.sponsorTeam}
-                                        </span>
-                                      )}
-                                    </div>
-                                  )}
-                                  <div className="mt-3 flex items-center gap-3">
-                                    <span className="text-sm text-[var(--muted)]">Up: {tallies[s.id]?.up || 0}</span>
-                                    <span className="text-sm text-[var(--muted)]">Down: {tallies[s.id]?.down || 0}</span>
-                                    {(auth || isAdmin) && (
-                                      <div className="ml-auto flex gap-2">
-                                        <Button
-                                          type="button"
-                                          onClick={() => auth ? vote(s.id, 1) : undefined}
-                                          aria-label="Thumbs up"
-                                          title={isAdmin && adminVotes[s.id]?.up?.length ? `Up votes: ${adminVotes[s.id].up.join(', ')}` : undefined}
-                                          disabled={!auth}
-                                          variant={myVotes[s.id] === 1 ? 'primary' : 'ghost'}
-                                        >👍</Button>
-                                        <Button
-                                          type="button"
-                                          onClick={() => auth ? vote(s.id, -1) : undefined}
-                                          aria-label="Thumbs down"
-                                          title={isAdmin && adminVotes[s.id]?.down?.length ? `Down votes: ${adminVotes[s.id].down.join(', ')}` : undefined}
-                                          disabled={!auth}
-                                          variant={myVotes[s.id] === -1 ? 'danger' : 'ghost'}
-                                        >👎</Button>
-                                        {(() => {
-                                          const canEndorse = !isVague && !s.voteTag && !(s.proposerTeam === myTeam);
-                                          return (
-                                            <Button
-                                              type="button"
-                                              onClick={async () => {
-                                                if (!auth || !myTeam || !canEndorse) return;
-                                                setEndorseBusy(s.id);
-                                                try {
-                                                  const res = await fetch('/api/me/suggestions/endorse', {
-                                                    method: 'PUT',
-                                                    headers: { 'Content-Type': 'application/json' },
-                                                    credentials: 'include',
-                                                    body: JSON.stringify({ suggestionId: s.id, endorse: !myEndorsed }),
-                                                  });
-                                                  if (res.ok) {
-                                                    setItems((prev) => prev.map((it) => {
-                                                      if (it.id !== s.id) return it;
-                                                      const arr = Array.isArray(it.endorsers) ? [...it.endorsers] : [];
-                                                      if (!myEndorsed) {
-                                                        if (!arr.includes(myTeam)) arr.push(myTeam);
-                                                      } else {
-                                                        const idx2 = arr.indexOf(myTeam);
-                                                        if (idx2 >= 0) arr.splice(idx2, 1);
-                                                      }
-                                                      return { ...it, endorsers: arr } as Suggestion;
-                                                    }));
-                                                  }
-                                                } finally {
-                                                  setEndorseBusy(null);
-                                                }
-                                              }}
-                                              disabled={!auth || endorseBusy === s.id || !canEndorse}
-                                              variant={myEndorsed ? 'primary' : 'ghost'}
-                                              aria-label={myEndorsed ? 'Unendorse' : 'Endorse'}
-                                              title={
-                                                !canEndorse
-                                                  ? (s.proposerTeam === myTeam ? 'Cannot endorse your own proposal' : 'Cannot endorse (voted on or needs clarification)')
-                                                  : (myEndorsed ? 'Unendorse this suggestion' : 'Endorse this suggestion')
-                                              }
-                                            >⭐</Button>
-                                          );
-                                        })()}
-                                      </div>
-                                    )}
-                                  </div>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        </li>
-                      );
-                    });
-                  })()}
+                      <ul className="space-y-4 list-none">
+                        {(() => {
+                          const groups = new Map<string, Suggestion[]>();
+                          for (const s of activeItems) {
+                            const key = s.groupId ? `g:${s.groupId}` : `s:${s.id}`;
+                            if (!groups.has(key)) groups.set(key, []);
+                            groups.get(key)!.push(s);
+                          }
+                          const ordered = Array.from(groups.values()).map((arr) =>
+                            arr.sort((a, b) => (a.groupPos || 0) - (b.groupPos || 0))
+                          );
+                          if (sortBy === 'newest') {
+                            ordered.sort((a, b) => Date.parse(b[0].createdAt) - Date.parse(a[0].createdAt));
+                          } else if (sortBy === 'oldest') {
+                            ordered.sort((a, b) => Date.parse(a[0].createdAt) - Date.parse(b[0].createdAt));
+                          } else if (sortBy === 'closest_to_ballot') {
+                            ordered.sort((a, b) => getEligibleCount(b[0]) - getEligibleCount(a[0]));
+                          }
+                          return ordered.map((arr, gi) => {
+                            const first = arr[0];
+                            return (
+                              <li key={`grp-${gi}`} className="list-none">
+                                <BroadcastPanel
+                                  accent={categoryAccent(first.category)}
+                                  title={first.category || 'Proposal'}
+                                  meta={new Date(first.createdAt).toLocaleString()}
+                                  bodyClassName="space-y-4 !py-4"
+                                >
+                                  {arr.map((s, idx) => (
+                                    <SuggestionItemCard
+                                      key={s.id}
+                                      suggestion={s}
+                                      index={idx}
+                                      auth={auth}
+                                      myTeam={myTeam}
+                                      isAdmin={isAdmin}
+                                      tallies={tallies}
+                                      myVotes={myVotes}
+                                      adminVotes={adminVotes}
+                                      endorseBusy={endorseBusy}
+                                      endorsementThreshold={ENDORSEMENT_THRESHOLD}
+                                      onVote={vote}
+                                      onEndorse={handleEndorse}
+                                    />
+                                  ))}
+                                </BroadcastPanel>
+                              </li>
+                            );
+                          });
+                        })()}
                       </ul>
                     )}
-                    
-                    {/* Closed Proposals Section */}
+
                     {closedItems.length > 0 && (
-                      <details className="mt-6">
-                        <summary className="cursor-pointer text-sm font-medium text-[var(--muted)] hover:text-[var(--text)] mb-3">
+                      <details className="mt-2">
+                        <summary className="cursor-pointer text-sm font-medium mb-3" style={broadcastMutedTextStyle}>
                           ▶ Voted / Closed ({closedItems.length})
                         </summary>
-                        <ul className="space-y-4 mt-3">
+                        <ul className="space-y-4 mt-3 list-none">
                           {(() => {
-                            // Helper to compute eligible endorsement count (excludes proposer)
-                            const getEligibleCount = (s: Suggestion) => {
-                              const endorsers = s.endorsers || [];
-                              return endorsers.filter((t) => t !== s.proposerTeam).length;
-                            };
-                            
-                            // Group closed items
                             const closedGroups = new Map<string, Suggestion[]>();
                             for (const s of closedItems) {
                               const key = s.groupId ? `g:${s.groupId}` : `s:${s.id}`;
                               if (!closedGroups.has(key)) closedGroups.set(key, []);
                               closedGroups.get(key)!.push(s);
                             }
-                            const closedOrdered = Array.from(closedGroups.values()).map((arr) => arr.sort((a, b) => (a.groupPos || 0) - (b.groupPos || 0)));
-                            // Sort by newest first
+                            const closedOrdered = Array.from(closedGroups.values()).map((arr) =>
+                              arr.sort((a, b) => (a.groupPos || 0) - (b.groupPos || 0))
+                            );
                             closedOrdered.sort((a, b) => Date.parse(b[0].createdAt) - Date.parse(a[0].createdAt));
-                            
                             return closedOrdered.map((arr, gi) => {
                               const first = arr[0];
-                              const style = first.sponsorTeam ? getTeamColorStyle(first.sponsorTeam) : null;
-                              const secondary = first.sponsorTeam ? getTeamColorStyle(first.sponsorTeam, 'secondary') : null;
-                              const groupStyle: React.CSSProperties | undefined = style ? { borderLeftColor: (secondary?.backgroundColor as string), borderLeftWidth: 4, borderLeftStyle: 'solid' } : undefined;
                               return (
-                                <li key={`closed-grp-${gi}`} className="evw-surface border border-[var(--border)] rounded-[var(--radius-card)] p-3 opacity-60" style={groupStyle}>
-                                  <div className="mb-2 text-sm text-[var(--muted)]">{new Date(first.createdAt).toLocaleString()}</div>
-                                  <div className="space-y-4">
-                                    {arr.map((s, idx) => {
-                                      const isAccepted = s.status === 'accepted';
-                                      const eligibleCount = getEligibleCount(s);
-                                      return (
-                                        <div id={s.id} key={s.id} className="p-3 rounded-[var(--radius-card)] border border-[var(--border)]" style={{ ...(isAccepted ? { boxShadow: 'inset 0 0 0 2px #16a34a33' } : {}) }}>
-                                          <div className="flex items-center justify-between mb-1 gap-2">
-                                            <Link href={`/suggestions/${s.id}`} className="font-medium hover:underline">
-                                              {s.title ? s.title : `Suggestion ${idx + 1}`}
-                                            </Link>
-                                            <div className="flex items-center gap-2 flex-shrink-0">
-                                              <span className="text-xs px-2 py-0.5 rounded-full border border-[var(--border)] text-[var(--muted)]">
-                                                {eligibleCount}/{ENDORSEMENT_THRESHOLD}
-                                              </span>
-                                              {s.category && (
-                                                <span className="text-xs px-2 py-0.5 rounded-full border border-[var(--border)] evw-surface text-[var(--text)]">{s.category}</span>
-                                              )}
-                                              {s.voteTag === 'vote_passed' && (
-                                                <span className="text-xs px-2 py-0.5 rounded-full border" style={{ borderColor: '#16a34a', color: '#16a34a' }}>VOTE PASSED</span>
-                                              )}
-                                              {s.voteTag === 'vote_failed' && (
-                                                <span className="text-xs px-2 py-0.5 rounded-full border" style={{ borderColor: '#be161e', color: '#be161e' }}>VOTE FAILED</span>
-                                              )}
-                                            </div>
-                                          </div>
-                                          {(() => {
-                                            const lines = String(s.content || '').split('\n');
-                                            const renderLine = (ln: string, key: number) => {
-                                              const m = ln.match(/^(Rule|Effective|Proposal|Issue|How it fixes|Conclusion):\s*(.*)$/i);
-                                              if (m) {
-                                                return (
-                                                  <div key={key} className="text-[var(--text)]">
-                                                    <strong>{m[1]}:</strong> {m[2]}
-                                                  </div>
-                                                );
-                                              }
-                                              return <div key={key} className="text-[var(--text)]">{ln}</div>;
-                                            };
-                                            return <div>{isAccepted ? <div>✅</div> : null}{lines.map((ln, i) => renderLine(ln, i))}</div>;
-                                          })()}
-                                        </div>
-                                      );
-                                    })}
-                                  </div>
+                                <li key={`closed-grp-${gi}`} className="list-none">
+                                  <BroadcastPanel
+                                    accent={categoryAccent(first.category)}
+                                    title={first.category || 'Closed'}
+                                    meta={new Date(first.createdAt).toLocaleString()}
+                                    bodyClassName="space-y-4 !py-4 opacity-75"
+                                  >
+                                    {arr.map((s, idx) => (
+                                      <SuggestionItemCard
+                                        key={s.id}
+                                        suggestion={s}
+                                        index={idx}
+                                        dimmed
+                                        auth={auth}
+                                        myTeam={myTeam}
+                                        isAdmin={isAdmin}
+                                        tallies={tallies}
+                                        myVotes={myVotes}
+                                        adminVotes={adminVotes}
+                                        endorseBusy={endorseBusy}
+                                        endorsementThreshold={ENDORSEMENT_THRESHOLD}
+                                        onVote={vote}
+                                        onEndorse={handleEndorse}
+                                      />
+                                    ))}
+                                  </BroadcastPanel>
                                 </li>
                               );
                             });
@@ -834,8 +705,7 @@ export default function SuggestionsPage() {
                   </>
                 );
               })()}
-            </CardContent>
-          </Card>
+          </div>
         </div>
       </div>
     </div>

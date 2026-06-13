@@ -1,7 +1,6 @@
 import { Suspense } from "react";
 import SectionHeader from "@/components/ui/SectionHeader";
-import Card, { CardContent } from "@/components/ui/Card";
-import TransactionsTable from "@/components/transactions/TransactionsTable";
+import TransactionsTable, { TransactionsTableShell } from "@/components/transactions/TransactionsTable";
 import TransactionsFilters from "@/components/transactions/TransactionsFilters";
 import TransactionsViewTabs from "@/components/transactions/TransactionsViewTabs";
 import GroupedByYear from "@/components/transactions/GroupedByYear";
@@ -138,14 +137,14 @@ export default async function TransactionsPage({
           <Suspense fallback={null}>
             <TransactionsFilters summary={summary} seasons={seasons} teams={teams} positions={positions} activeType={effectiveType} />
           </Suspense>
-        <Card className="mt-4">
-          <CardContent className="p-0">
-            <TransactionsTable data={paged} sortKey={sortKey} direction={sortDirection} />
-            <Suspense fallback={null}>
-              <TransactionsPagination total={transactions.length} page={page} perPage={perPage} />
-            </Suspense>
-          </CardContent>
-        </Card>
+          <div className="mt-5">
+            <TransactionsTableShell>
+              <TransactionsTable data={paged} sortKey={sortKey} direction={sortDirection} />
+              <Suspense fallback={null}>
+                <TransactionsPagination total={transactions.length} page={page} perPage={perPage} />
+              </Suspense>
+            </TransactionsTableShell>
+          </div>
         </>
       )}
       {view !== 'all' && (
@@ -153,20 +152,10 @@ export default async function TransactionsPage({
           <Suspense fallback={null}>
             <GroupedToolbar seasons={seasons} teams={teams} positions={positions} />
           </Suspense>
-          {view === 'year' && (
-            <Card className="mt-4">
-              <CardContent className="p-0">
-                <GroupedByYear data={transactions} />
-              </CardContent>
-            </Card>
-          )}
-          {view === 'team' && (
-            <Card className="mt-4">
-              <CardContent className="p-0">
-                <GroupedByTeam data={transactions} />
-              </CardContent>
-            </Card>
-          )}
+          <div className="mt-5">
+            {view === 'year' && <GroupedByYear data={transactions} />}
+            {view === 'team' && <GroupedByTeam data={transactions} />}
+          </div>
         </>
       )}
     </div>

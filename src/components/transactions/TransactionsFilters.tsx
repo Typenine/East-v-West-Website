@@ -2,8 +2,20 @@
 
 import { useMemo } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { cn } from "@/lib/utils/cn";
 import type { TransactionsSummary } from "@/lib/utils/transactions";
+import {
+  BroadcastPanel,
+  PANEL,
+  broadcastChipButtonClass,
+  broadcastFaintTextStyle,
+  broadcastFieldClass,
+  broadcastFieldStyle,
+  broadcastLabelClass,
+  broadcastMutedTextStyle,
+  broadcastBodyTextStyle,
+} from "@/components/ui/BroadcastPanel";
+
+const selectClass = [broadcastFieldClass, "!w-auto"].join(" ");
 
 export default function TransactionsFilters({
   summary,
@@ -41,7 +53,6 @@ export default function TransactionsFilters({
     } else {
       params.set(key, value);
     }
-    // Reset pagination when filters change
     if (["season", "team", "week", "position", "type"].includes(key)) {
       params.delete("page");
     }
@@ -64,79 +75,66 @@ export default function TransactionsFilters({
   }
 
   return (
-    <div className="flex flex-col gap-4 mt-4">
+    <BroadcastPanel title="Filters" bodyClassName="space-y-4">
       <div className="flex flex-wrap gap-2">
-        <select
-          className="evw-surface border border-[var(--border)] rounded px-3 py-2"
+        <FilterSelect
+          label="Season"
           value={activeSeason}
-          onChange={(e) => updateParam("season", e.target.value)}
-        >
-          {seasonOptions.map((opt) => (
-            <option key={opt} value={opt}>
-              {opt === "all" ? "All seasons" : opt}
-            </option>
-          ))}
-        </select>
-        <select
-          className="evw-surface border border-[var(--border)] rounded px-3 py-2"
+          onChange={(value) => updateParam("season", value)}
+          options={seasonOptions.map((opt) => ({
+            value: opt,
+            label: opt === "all" ? "All seasons" : opt,
+          }))}
+        />
+        <FilterSelect
+          label="Team"
           value={activeTeam}
-          onChange={(e) => updateParam("team", e.target.value)}
-        >
-          {teamOptions.map((opt) => (
-            <option key={opt} value={opt}>
-              {opt === "all" ? "All teams" : opt}
-            </option>
-          ))}
-        </select>
-        <select
-          className="evw-surface border border-[var(--border)] rounded px-3 py-2"
+          onChange={(value) => updateParam("team", value)}
+          options={teamOptions.map((opt) => ({
+            value: opt,
+            label: opt === "all" ? "All teams" : opt,
+          }))}
+        />
+        <FilterSelect
+          label="Week"
           value={activeWeek}
-          onChange={(e) => updateParam("week", e.target.value)}
-        >
-          {weekOptions.map((opt) => (
-            <option key={opt} value={opt}>
-              {opt === "all" ? "All weeks" : `Week ${opt}`}
-            </option>
-          ))}
-        </select>
-        <select
-          className="evw-surface border border-[var(--border)] rounded px-3 py-2"
+          onChange={(value) => updateParam("week", value)}
+          options={weekOptions.map((opt) => ({
+            value: opt,
+            label: opt === "all" ? "All weeks" : `Week ${opt}`,
+          }))}
+        />
+        <FilterSelect
+          label="Position"
           value={activePosition}
-          onChange={(e) => updateParam("position", e.target.value)}
-        >
-          {positionOptions.map((opt) => (
-            <option key={opt} value={opt}>
-              {opt === "all" ? "All positions" : opt}
-            </option>
-          ))}
-        </select>
-        <select
-          className="evw-surface border border-[var(--border)] rounded px-3 py-2"
+          onChange={(value) => updateParam("position", value)}
+          options={positionOptions.map((opt) => ({
+            value: opt,
+            label: opt === "all" ? "All positions" : opt,
+          }))}
+        />
+        <FilterSelect
+          label="Type"
           value={activeType}
-          onChange={(e) => updateParam("type", e.target.value)}
-        >
-          <option value="fa_waiver">FA &amp; Waivers</option>
-          <option value="all">All types</option>
-          <option value="waiver">Waivers only</option>
-          <option value="free_agent">Free Agents only</option>
-          <option value="trade">Trades only</option>
-        </select>
+          onChange={(value) => updateParam("type", value)}
+          options={[
+            { value: "fa_waiver", label: "FA & Waivers" },
+            { value: "all", label: "All types" },
+            { value: "waiver", label: "Waivers only" },
+            { value: "free_agent", label: "Free Agents only" },
+            { value: "trade", label: "Trades only" },
+          ]}
+        />
         <button
           type="button"
-          className={cn(
-            "px-3 py-2 rounded border",
-            sort === "created" ? "border-[var(--accent)] text-[var(--accent)]" : "border-[var(--border)]"
-          )}
+          className={broadcastChipButtonClass(sort === "created")}
           onClick={() => handleSort("created")}
         >
           Date {sort === "created" ? `(${direction === "desc" ? "↓" : "↑"})` : ""}
         </button>
         <button
           type="button"
-          className={cn(
-            "px-3 py-2 rounded border",
-            sort === "faab" ? "border-[var(--accent)] text-[var(--accent)]" : "border-[var(--border)]"
-          )}
+          className={broadcastChipButtonClass(sort === "faab")}
           onClick={() => handleSort("faab")}
         >
           FAAB {sort === "faab" ? `(${direction === "desc" ? "↓" : "↑"})` : ""}
@@ -146,46 +144,101 @@ export default function TransactionsFilters({
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
         <SummaryCard title="Total FAAB Spent" value={`$${summary.totalFaab.toFixed(0)}`} />
         <SummaryCard title="Transactions" value={summary.count.toLocaleString()} />
-        <div className="evw-surface border border-[var(--border)] rounded p-3">
-          <h3 className="text-sm font-semibold mb-2">Top Spenders</h3>
+        <div
+          className="rounded border p-3"
+          style={{ background: "rgba(255,255,255,0.03)", borderColor: PANEL.hairline }}
+        >
+          <h3 className={broadcastLabelClass} style={broadcastFaintTextStyle}>
+            Top Spenders
+          </h3>
           {summary.totalsByTeam.length ? (
-            <ul className="space-y-1 max-h-40 overflow-auto text-sm">
+            <ul className="space-y-1 max-h-40 overflow-auto text-sm" style={broadcastBodyTextStyle}>
               {summary.totalsByTeam.slice(0, 10).map((entry) => (
-                <li key={entry.team} className="flex justify-between">
-                  <span>{entry.team}</span>
-                  <span>${entry.faab}</span>
+                <li key={entry.team} className="flex justify-between gap-3">
+                  <span className="truncate">{entry.team}</span>
+                  <span className="shrink-0 tabular-nums" style={broadcastMutedTextStyle}>
+                    ${entry.faab}
+                  </span>
                 </li>
               ))}
             </ul>
           ) : (
-            <p className="text-sm text-[var(--muted)]">No FAAB spending yet.</p>
+            <p className="text-sm" style={broadcastMutedTextStyle}>
+              No FAAB spending yet.
+            </p>
           )}
         </div>
-        <div className="evw-surface border border-[var(--border)] rounded p-3 md:col-span-3">
-          <h3 className="text-sm font-semibold mb-2">FAAB by Season</h3>
+        <div
+          className="rounded border p-3 md:col-span-3"
+          style={{ background: "rgba(255,255,255,0.03)", borderColor: PANEL.hairline }}
+        >
+          <h3 className={broadcastLabelClass} style={broadcastFaintTextStyle}>
+            FAAB by Season
+          </h3>
           {summary.totalsBySeason.length ? (
-            <div className="flex flex-wrap gap-3 text-sm">
+            <div className="flex flex-wrap gap-3 text-sm" style={broadcastBodyTextStyle}>
               {summary.totalsBySeason.map((entry) => (
                 <div key={entry.season} className="flex items-center gap-2">
                   <span className="font-medium">{entry.season}</span>
-                  <span>${entry.faab}</span>
+                  <span style={broadcastMutedTextStyle}>${entry.faab}</span>
                 </div>
               ))}
             </div>
           ) : (
-            <p className="text-sm text-[var(--muted)]">No FAAB spending recorded.</p>
+            <p className="text-sm" style={broadcastMutedTextStyle}>
+              No FAAB spending recorded.
+            </p>
           )}
         </div>
       </div>
-    </div>
+    </BroadcastPanel>
+  );
+}
+
+function FilterSelect({
+  label,
+  value,
+  onChange,
+  options,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  options: { value: string; label: string }[];
+}) {
+  return (
+    <label className="flex flex-col gap-1">
+      <span className={broadcastLabelClass} style={broadcastFaintTextStyle}>
+        {label}
+      </span>
+      <select
+        className={selectClass}
+        style={broadcastFieldStyle}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+      >
+        {options.map((opt) => (
+          <option key={opt.value} value={opt.value}>
+            {opt.label}
+          </option>
+        ))}
+      </select>
+    </label>
   );
 }
 
 function SummaryCard({ title, value }: { title: string; value: string }) {
   return (
-    <div className="evw-surface border border-[var(--border)] rounded p-3">
-      <p className="text-xs text-[var(--muted)] uppercase tracking-wide mb-1">{title}</p>
-      <p className="text-lg font-semibold">{value}</p>
+    <div
+      className="rounded border p-3"
+      style={{ background: "rgba(255,255,255,0.03)", borderColor: PANEL.hairline }}
+    >
+      <p className={broadcastLabelClass} style={broadcastFaintTextStyle}>
+        {title}
+      </p>
+      <p className="text-lg font-semibold tabular-nums" style={broadcastBodyTextStyle}>
+        {value}
+      </p>
     </div>
   );
 }

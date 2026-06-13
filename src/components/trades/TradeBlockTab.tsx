@@ -2,12 +2,8 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
-import Label from '@/components/ui/Label';
-import Textarea from '@/components/ui/Textarea';
-import Button from '@/components/ui/Button';
-import Select from '@/components/ui/Select';
 import TradeBlockCard from '@/components/trades/TradeBlockCard';
+import TradeBlockEditPanel, { TradeBlockEditPanelPlaceholder } from '@/components/trades/TradeBlockEditPanel';
 import { TradeCardSkeleton } from '@/components/trades/TradeCard';
 
 export type TradeAsset =
@@ -33,7 +29,7 @@ export type MeTradeBlock = { tradeBlock: TradeAsset[]; tradeWants?: TradeWants }
 
 export type AuthMe = { authenticated: boolean; claims?: Record<string, unknown> };
 
-const WANT_POSITIONS = ['QB','RB','WR','TE','K','DEF','1st','2nd','3rd'];
+const WANT_POSITIONS = ['QB', 'RB', 'WR', 'TE', 'K', 'DEF', '1st', '2nd', '3rd'];
 
 export default function TradeBlockTab() {
   const [rows, setRows] = useState<TeamRow[]>([]);
@@ -291,153 +287,39 @@ export default function TradeBlockTab() {
 
       {/* Edit panel */}
       <div className="lg:col-span-1">
-        <Card>
-          <CardHeader>
-            <CardTitle>Edit My Trade Block</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {!auth ? (
-              <p className="text-[var(--muted)] text-sm">Sign in to manage your trade block.</p>
-            ) : !myAssets ? (
-              <p className="text-[var(--muted)]">Loading your assets…</p>
-            ) : (
-              <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); saveMine(); }}>
-                {/* Players */}
-                <div>
-                  <Label className="mb-1 block">Players</Label>
-                  <div className="max-h-64 overflow-auto space-y-1 border border-[var(--border)] rounded-[var(--radius-card)] p-2">
-                    {myAssets.players.length === 0 ? (
-                      <div className="text-sm text-[var(--muted)]">No players found.</div>
-                    ) : (
-                      myAssets.players.map((pid) => (
-                        <label key={pid} className="flex items-center gap-2 text-sm">
-                          <input type="checkbox" checked={!!selPlayers[pid]} onChange={(e) => setSelPlayers((s) => ({ ...s, [pid]: e.target.checked }))} />
-                          <span>
-                            {playerNames[pid]?.position ? `${playerNames[pid].position} - ` : ''}
-                            {playerNames[pid]?.name || pid}
-                            {playerNames[pid]?.team ? ` (${playerNames[pid].team})` : ''}
-                          </span>
-                        </label>
-                      ))
-                    )}
-                  </div>
-                </div>
-
-                {/* Picks */}
-                <div className="space-y-4">
-                  {(() => {
-                    const picksByYear = myAssets.picks.reduce<Record<number, { year: number; round: number; originalTeam: string }[]>>((acc, p) => {
-                      if (!acc[p.year]) acc[p.year] = [];
-                      acc[p.year].push(p);
-                      return acc;
-                    }, {});
-                    const years = (myAssets.years && myAssets.years.length > 0)
-                      ? myAssets.years
-                      : Object.keys(picksByYear).map(Number).sort((a, b) => a - b);
-                    if (years.length === 0) {
-                      return (
-                        <div>
-                          <Label className="mb-1 block">Picks</Label>
-                          <div className="text-sm text-[var(--muted)]">No picks owned.</div>
-                        </div>
-                      );
-                    }
-                    return years.map((year) => (
-                      <div key={year}>
-                        <Label className="mb-1 block">Picks ({year})</Label>
-                        <div className="space-y-1 border border-[var(--border)] rounded-[var(--radius-card)] p-2">
-                          {[...(picksByYear[year] || [])].sort((a, b) => a.round - b.round || pickSlot(a) - pickSlot(b)).map((p) => {
-                            const key = `${p.year}-${p.round}-${p.originalTeam}`;
-                            return (
-                              <label key={key} className="flex items-center gap-2 text-sm">
-                                <input type="checkbox" checked={!!selPicks[key]} onChange={(e) => setSelPicks((s) => ({ ...s, [key]: e.target.checked }))} />
-                                <span>{p.year} {pickLabel(p, myTeam || '')}</span>
-                              </label>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    ));
-                  })()}
-                </div>
-
-                {/* FAAB */}
-                <div>
-                  <Label className="mb-1 block">FAAB</Label>
-                  <div className="flex items-center gap-2">
-                    <input type="checkbox" checked={faabOn} onChange={(e) => setFaabOn(e.target.checked)} />
-                    <input
-                      type="number"
-                      min={0}
-                      max={myAssets.faab}
-                      value={faabAmt}
-                      onChange={(e) => setFaabAmt(Number(e.target.value))}
-                      disabled={!faabOn}
-                      className="border border-[var(--border)] rounded px-2 py-1 text-sm w-24"
-                      aria-label="FAAB amount"
-                    />
-                    <span className="text-xs text-[var(--muted)]">Available: ${myAssets.faab}</span>
-                  </div>
-                </div>
-
-                {/* Contact Preferences */}
-                <div>
-                  <Label className="mb-1 block">Preferred Contact</Label>
-                  <div className="flex items-center gap-2">
-                    <Select
-                      size="sm"
-                      fullWidth={false}
-                      value={contactMethod || ''}
-                      onChange={(e) => setContactMethod((e.target.value || undefined) as TradeWants['contactMethod'])}
-                    >
-                      <option value="">No preference</option>
-                      <option value="text">Text</option>
-                      <option value="discord">Discord</option>
-                      <option value="snap">Snap</option>
-                      <option value="sleeper">Sleeper</option>
-                    </Select>
-                    {contactMethod === 'text' && (
-                      <input
-                        type="tel"
-                        placeholder="Phone number"
-                        className="border border-[var(--border)] rounded px-2 py-1 text-sm"
-                        value={phone}
-                        onChange={(e) => setPhone(e.target.value)}
-                      />
-                    )}
-                    {contactMethod === 'snap' && (
-                      <input
-                        type="text"
-                        placeholder="Snap username"
-                        className="border border-[var(--border)] rounded px-2 py-1 text-sm"
-                        value={snap}
-                        onChange={(e) => setSnap(e.target.value)}
-                      />
-                    )}
-                  </div>
-                </div>
-
-                {/* Wants */}
-                <div>
-                  <Label className="mb-1 block">What are you looking for?</Label>
-                  <Textarea rows={3} value={wantsText} onChange={(e) => setWantsText(e.target.value)} placeholder="e.g., WR depth, 2026 picks" />
-                  <div className="mt-2 flex flex-wrap gap-3">
-                    {WANT_POSITIONS.map((p) => (
-                      <label key={p} className="flex items-center gap-2 text-sm">
-                        <input type="checkbox" checked={!!wantsPos[p]} onChange={(e) => setWantsPos((s) => ({ ...s, [p]: e.target.checked }))} />
-                        <span>{p}</span>
-                      </label>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="flex justify-end">
-                  <Button type="submit" disabled={saving}>{saving ? 'Saving…' : 'Save Trade Block'}</Button>
-                </div>
-              </form>
-            )}
-          </CardContent>
-        </Card>
+        {!auth ? (
+          <TradeBlockEditPanelPlaceholder message="Sign in to manage your trade block." />
+        ) : !myAssets ? (
+          <TradeBlockEditPanelPlaceholder message="Loading your assets…" accentTeam={myTeam} />
+        ) : (
+          <TradeBlockEditPanel
+            myTeam={myTeam}
+            myAssets={myAssets}
+            playerNames={playerNames}
+            selPlayers={selPlayers}
+            setSelPlayers={setSelPlayers}
+            selPicks={selPicks}
+            setSelPicks={setSelPicks}
+            faabOn={faabOn}
+            setFaabOn={setFaabOn}
+            faabAmt={faabAmt}
+            setFaabAmt={setFaabAmt}
+            wantsText={wantsText}
+            setWantsText={setWantsText}
+            wantsPos={wantsPos}
+            setWantsPos={setWantsPos}
+            contactMethod={contactMethod}
+            setContactMethod={setContactMethod}
+            phone={phone}
+            setPhone={setPhone}
+            snap={snap}
+            setSnap={setSnap}
+            saving={saving}
+            pickLabel={(a) => pickLabel(a, myTeam || '')}
+            pickSlot={pickSlot}
+            onSave={saveMine}
+          />
+        )}
       </div>
     </div>
   );

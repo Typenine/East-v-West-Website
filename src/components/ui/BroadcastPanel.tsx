@@ -1,0 +1,209 @@
+'use client';
+
+import { useState, type HTMLAttributes, type ReactNode } from 'react';
+import Image from 'next/image';
+import { getTeamLogoPath, getTeamColors } from '@/lib/utils/team-utils';
+import { readableAccentOnDark } from '@/lib/trades/trade-card-model';
+import { TRADE_CARD_PANEL as PANEL } from '@/lib/trades/trade-card-panel';
+
+export { PANEL };
+
+const DEFAULT_ACCENT = '#9CA3AF';
+
+export function teamAccent(team?: string | null): string {
+  if (!team) return DEFAULT_ACCENT;
+  return readableAccentOnDark(getTeamColors(team));
+}
+
+export function BroadcastTeamLogo({
+  team,
+  accent,
+  size = 'md',
+}: {
+  team: string;
+  accent: string;
+  size?: 'sm' | 'md';
+}) {
+  const [failed, setFailed] = useState(false);
+  const logo = getTeamLogoPath(team);
+  const outer = size === 'sm' ? 'h-9 w-9' : 'h-12 w-12';
+  const inner = size === 'sm' ? 'h-7 w-7' : 'h-10 w-10';
+  const px = size === 'sm' ? 36 : 48;
+  return (
+    <div
+      className={`relative flex ${outer} shrink-0 items-center justify-center overflow-hidden rounded-full`}
+      style={{
+        background: 'rgba(255,255,255,0.06)',
+        boxShadow: `inset 0 0 0 1px rgba(255,255,255,0.10), 0 0 0 2px ${accent}33`,
+      }}
+      aria-hidden="true"
+    >
+      {failed ? (
+        <span className={`${size === 'sm' ? 'text-sm' : 'text-lg'} font-extrabold`} style={{ color: accent }}>
+          {team.charAt(0).toUpperCase()}
+        </span>
+      ) : (
+        <Image
+          src={logo}
+          alt=""
+          width={px}
+          height={px}
+          sizes={`${px}px`}
+          loading="lazy"
+          className={`${inner} object-contain`}
+          onError={() => setFailed(true)}
+        />
+      )}
+    </div>
+  );
+}
+
+export function BroadcastAccentBadge({
+  accent,
+  children,
+  className,
+}: {
+  accent: string;
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <span
+      className={[
+        'inline-flex h-5 shrink-0 items-center justify-center rounded px-1.5 text-[10px] font-bold uppercase tracking-wide',
+        className,
+      ]
+        .filter(Boolean)
+        .join(' ')}
+      style={{
+        color: accent,
+        background: `${accent}1f`,
+        boxShadow: `inset 0 0 0 1px ${accent}40`,
+      }}
+    >
+      {children}
+    </span>
+  );
+}
+
+export function BroadcastSectionLabel({ accent, children }: { accent: string; children: ReactNode }) {
+  return (
+    <div
+      className="text-[10px] font-bold uppercase tracking-[0.22em] mb-2"
+      style={{ color: accent }}
+    >
+      {children}
+    </div>
+  );
+}
+
+type BroadcastPanelProps = {
+  accent?: string;
+  title: string;
+  meta?: ReactNode;
+  children: ReactNode;
+  className?: string;
+  bodyClassName?: string;
+} & Pick<HTMLAttributes<HTMLElement>, 'id'>;
+
+export function BroadcastPanel({
+  accent = DEFAULT_ACCENT,
+  title,
+  meta,
+  children,
+  className,
+  bodyClassName,
+  id,
+}: BroadcastPanelProps) {
+  return (
+    <article
+      id={id}
+      className={[
+        'overflow-hidden rounded-2xl transition-shadow duration-200',
+        className,
+      ]
+        .filter(Boolean)
+        .join(' ')}
+      style={{
+        background: PANEL.card,
+        boxShadow: `inset 0 0 0 1px ${PANEL.border}, 0 4px 18px rgba(0,0,0,0.30)`,
+      }}
+    >
+      <div className="h-[3px] w-full" style={{ background: accent }} aria-hidden="true" />
+      <div
+        className="flex items-center justify-between gap-3 px-5 py-3 sm:px-6"
+        style={{ background: PANEL.headerBg, borderBottom: `1px solid ${PANEL.hairline}` }}
+      >
+        <span
+          className="text-[11px] font-extrabold uppercase tracking-[0.3em]"
+          style={{ color: PANEL.text }}
+        >
+          {title}
+        </span>
+        {meta ? (
+          <div className="text-xs font-semibold tabular-nums" style={{ color: PANEL.muted }}>
+            {meta}
+          </div>
+        ) : null}
+      </div>
+      <div className={['px-5 py-4 sm:px-6', bodyClassName].filter(Boolean).join(' ')}>
+        {children}
+      </div>
+    </article>
+  );
+}
+
+export const broadcastLabelClass =
+  'block text-[10px] font-bold uppercase tracking-[0.18em] mb-1.5';
+export const broadcastFieldClass =
+  'block w-full rounded border px-3 py-2 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-white/30 disabled:opacity-50';
+export const broadcastFieldStyle = {
+  background: 'rgba(255,255,255,0.06)',
+  borderColor: PANEL.hairline,
+  color: PANEL.text,
+} as const;
+export const broadcastScrollBoxClass = 'max-h-64 overflow-auto space-y-1 rounded border p-2';
+export const broadcastScrollBoxStyle = {
+  background: 'rgba(255,255,255,0.03)',
+  borderColor: PANEL.hairline,
+} as const;
+export const broadcastMutedTextStyle = { color: PANEL.muted } as const;
+export const broadcastFaintTextStyle = { color: PANEL.faint } as const;
+export const broadcastBodyTextStyle = { color: PANEL.text } as const;
+
+export function broadcastChipButtonClass(active: boolean): string {
+  return [
+    'rounded border px-3 py-2 text-sm transition-colors',
+    active ? 'border-white/40 text-white' : 'border-transparent text-[rgba(233,237,245,0.58)] hover:text-white hover:border-white/20',
+  ].join(' ');
+}
+
+export function BroadcastSubmitButton({
+  accent,
+  children,
+  disabled,
+  type = 'submit',
+  onClick,
+}: {
+  accent: string;
+  children: ReactNode;
+  disabled?: boolean;
+  type?: 'submit' | 'button';
+  onClick?: () => void;
+}) {
+  return (
+    <button
+      type={type}
+      disabled={disabled}
+      onClick={onClick}
+      className="rounded px-4 py-2 text-sm font-bold uppercase tracking-wider transition-opacity disabled:opacity-50 disabled:cursor-not-allowed hover:opacity-90"
+      style={{
+        color: PANEL.text,
+        background: `${accent}33`,
+        boxShadow: `inset 0 0 0 1px ${accent}66`,
+      }}
+    >
+      {children}
+    </button>
+  );
+}
