@@ -32,6 +32,7 @@ export type SeasonRecapData = {
     opponentRosterId: number;
   }>;
   lastPlace?: { teamName: string; rosterId?: number };
+  toiletBowlLoser?: { teamName: string; rosterId?: number };
   tenthPlaceWinner?: { teamName: string; rosterId?: number };
 };
 
@@ -273,6 +274,16 @@ export default function SeasonRecapGrid({
           <TeamRecapLink
             teamName={recap.lastPlace.teamName}
             rosterId={recap.lastPlace.rosterId}
+            label="Regular season"
+          />
+        </BroadcastPanel>
+      ) : null}
+
+      {recap.toiletBowlLoser ? (
+        <BroadcastPanel title="Toilet Bowl" accent={teamAccent(recap.toiletBowlLoser.teamName)}>
+          <TeamRecapLink
+            teamName={recap.toiletBowlLoser.teamName}
+            rosterId={recap.toiletBowlLoser.rosterId}
             label="Losers bracket final"
           />
         </BroadcastPanel>

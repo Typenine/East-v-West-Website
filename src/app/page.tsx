@@ -253,6 +253,7 @@ export default async function Home({ searchParams }: { searchParams?: Promise<Re
     weeklyHighsLeader?: { teamName: string; count: number };
     weeklyHighsTopTeams?: Array<{ teamName: string; rosterId?: number; count: number }>;
     lastPlace?: { teamName: string; rosterId?: number };
+    toiletBowlLoser?: { teamName: string; rosterId?: number };
     tenthPlaceWinner?: { teamName: string; rosterId?: number };
     regularSeasonWinner?: { teamName: string; rosterId: number; wins: number; fpts: number };
     pfLeader?: { teamName: string; rosterId: number; fpts: number };
@@ -326,6 +327,8 @@ export default async function Home({ searchParams }: { searchParams?: Promise<Re
             if (rw) recap.regularSeasonWinner = { teamName: rw.teamName, rosterId: rw.rosterId, wins: rw.wins ?? 0, fpts: rw.fpts ?? 0 };
             const pfTop = [...teamsRecap].sort((a, b) => (b.fpts ?? 0) - (a.fpts ?? 0))[0];
             if (pfTop) recap.pfLeader = { teamName: pfTop.teamName, rosterId: pfTop.rosterId, fpts: pfTop.fpts ?? 0 };
+            const rsLast = sortedByRecord[sortedByRecord.length - 1];
+            if (rsLast) recap.lastPlace = { teamName: rsLast.teamName, rosterId: rsLast.rosterId };
           }
         } catch {}
       }
@@ -335,7 +338,7 @@ export default async function Home({ searchParams }: { searchParams?: Promise<Re
         if (top) recap.topWeek = { teamName: top.teamName, rosterId: top.rosterId, week: top.week, points: top.points, opponentTeamName: top.opponentTeamName, opponentRosterId: top.opponentRosterId };
         recap.topWeeks3 = sortedWeeks.slice(0, 3).map((w) => ({ teamName: w.teamName, rosterId: w.rosterId, week: w.week, points: w.points, opponentTeamName: w.opponentTeamName, opponentRosterId: w.opponentRosterId }));
       }
-      // Derive Last Place (losers final loser) and 10th Place Winner (classification game winner) from losers bracket
+      // Derive Toilet Bowl loser and 10th Place Winner from losers bracket
       if (recapBrackets && (recapBrackets.losers || []).length > 0) {
         const lb = recapBrackets.losers as SleeperBracketGameWithScore[];
         const byRound: Record<number, SleeperBracketGameWithScore[]> = {};
@@ -368,7 +371,7 @@ export default async function Home({ searchParams }: { searchParams?: Promise<Re
             const lRid = (wRid != null) ? ((wRid === losersFinal.t1) ? (losersFinal.t2 ?? null) : (losersFinal.t1 ?? null)) : null;
             if (lRid != null) {
               const nmMap = recapNameMap as Map<number, string>;
-              recap.lastPlace = { teamName: nmMap.get(lRid) || `Roster ${lRid}`, rosterId: lRid || undefined };
+              recap.toiletBowlLoser = { teamName: nmMap.get(lRid) || `Roster ${lRid}`, rosterId: lRid || undefined };
             }
           }
           // Tenth place game winner: directly locate the game between rosterIds seeded #9 and #10
