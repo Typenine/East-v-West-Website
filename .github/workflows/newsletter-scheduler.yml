@@ -30,6 +30,11 @@ on:
         required: false
         type: boolean
   schedule:
+    # Hourly: drains the editorial-calendar queue. Each run processes any queued items
+    # whose scheduled time has passed into DRAFTS, then early-exits when the legacy
+    # schedule window doesn't apply. Cheap — a run with no due items does almost nothing.
+    # (GitHub cron is not minute-precise; queued items fire within ~1h of their time.)
+    - cron: '0 * * * *'
     # In-season retries: every 6 hours on Wednesday (UTC). Runner will gate by league timezone (ET) as needed
     - cron: '0 */6 * * 3'
     # Offseason checks (3x/week). Runner will no-op except on exact target days
