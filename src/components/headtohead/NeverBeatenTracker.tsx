@@ -1,7 +1,7 @@
-"use client";
+'use client';
 
-import TeamBadge from "@/components/teams/TeamBadge";
-import { getTeamColors } from "@/lib/utils/team-utils";
+import { BroadcastTeamLogo, BroadcastAccentBadge, BroadcastSectionLabel } from '@/components/ui/BroadcastPanel';
+import { PANEL, broadcastBodyTextStyle, broadcastFaintTextStyle, broadcastMutedTextStyle, teamAccent } from '@/lib/ui/broadcast-styles';
 
 export interface NeverBeatenEntry {
   team: string;
@@ -11,7 +11,6 @@ export interface NeverBeatenEntry {
 }
 
 export default function NeverBeatenTracker({ list }: { list: NeverBeatenEntry[] }) {
-  // Group by team
   const grouped = new Map<string, NeverBeatenEntry[]>();
   for (const item of list) {
     const arr = grouped.get(item.team) || [];
@@ -23,35 +22,68 @@ export default function NeverBeatenTracker({ list }: { list: NeverBeatenEntry[] 
 
   if (teams.length === 0) {
     return (
-      <div className="p-4 text-sm text-[var(--muted)]">Every team has beaten every opponent at least once 🎉</div>
+      <div
+        className="rounded-xl px-4 py-8 text-center text-sm"
+        style={{
+          background: 'rgba(255,255,255,0.03)',
+          boxShadow: `inset 0 0 0 1px ${PANEL.hairline}`,
+          ...broadcastMutedTextStyle,
+        }}
+      >
+        Every team has beaten every opponent at least once 🎉
+      </div>
     );
   }
 
   return (
-    <div className="divide-y divide-[var(--border)]">
+    <div className="space-y-3">
       {teams.map((team) => {
-        const entries = (grouped.get(team) || []).sort((x, y) => y.meetings - x.meetings || x.vs.localeCompare(y.vs));
+        const entries = (grouped.get(team) || []).sort(
+          (x, y) => y.meetings - x.meetings || x.vs.localeCompare(y.vs),
+        );
+        const accent = teamAccent(team);
         return (
-          <div key={team} className="py-3">
-            <div className="flex items-center gap-3 mb-2">
-              <TeamBadge team={team} size="lg" />
-              <span className="text-sm text-[var(--muted)]">Never beaten</span>
+          <div
+            key={team}
+            className="rounded-xl px-4 py-3.5"
+            style={{
+              background: 'rgba(255,255,255,0.03)',
+              boxShadow: `inset 0 0 0 1px ${PANEL.hairline}`,
+              borderLeft: `3px solid ${accent}`,
+            }}
+          >
+            <div className="mb-3 flex items-center gap-3">
+              <BroadcastTeamLogo team={team} accent={accent} size="sm" />
+              <div className="min-w-0">
+                <BroadcastSectionLabel accent={accent}>Never beaten</BroadcastSectionLabel>
+                <div className="truncate text-sm font-semibold" style={broadcastBodyTextStyle}>
+                  {team}
+                </div>
+              </div>
+              <BroadcastAccentBadge accent={accent} className="ml-auto">
+                {entries.length} opp{entries.length === 1 ? '' : 's'}
+              </BroadcastAccentBadge>
             </div>
             <div className="flex flex-wrap gap-2">
               {entries.map((e) => {
-                const colors = getTeamColors(e.vs);
-                const bg = colors.secondary + '22';
-                const border = colors.secondary;
+                const vsAccent = teamAccent(e.vs);
                 return (
                   <span
                     key={`${team}-${e.vs}`}
-                    className="inline-flex items-center gap-2 px-2.5 py-1 rounded border text-sm"
-                    style={{ backgroundColor: bg, borderColor: border }}
+                    className="inline-flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm"
+                    style={{
+                      background: `${vsAccent}14`,
+                      boxShadow: `inset 0 0 0 1px ${vsAccent}44`,
+                    }}
                     title={`Last met: ${e.lastMeeting ? `${e.lastMeeting.year} W${e.lastMeeting.week}` : '—'}`}
                   >
-                    <TeamBadge team={e.vs} size="sm" />
-                    <span className="font-medium">{e.vs}</span>
-                    <span className="text-[var(--muted)]">0–{e.meetings}</span>
+                    <BroadcastTeamLogo team={e.vs} accent={vsAccent} size="sm" />
+                    <span className="font-medium" style={broadcastBodyTextStyle}>
+                      {e.vs}
+                    </span>
+                    <span className="text-xs tabular-nums" style={broadcastFaintTextStyle}>
+                      0–{e.meetings}
+                    </span>
                   </span>
                 );
               })}

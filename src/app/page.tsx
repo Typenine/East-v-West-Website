@@ -1,4 +1,3 @@
-import Image from 'next/image';
 import Link from 'next/link';
 import CountdownTimer from '@/components/ui/countdown-timer';
 import MatchupCard from '@/components/ui/matchup-card';
@@ -8,22 +7,14 @@ import { getCurrentPhase, hasRegularSeasonStarted, getRecapYear } from '@/lib/ut
 import EmptyState from '@/components/ui/empty-state';
 import SectionHeader from '@/components/ui/SectionHeader';
 import LinkButton from '@/components/ui/LinkButton';
-import Card, { CardContent } from '@/components/ui/Card';
 import { Tabs } from '@/components/ui/Tabs';
 import HeadToHeadGrid from '@/components/headtohead/HeadToHeadGrid';
 import NeverBeatenTracker from '@/components/headtohead/NeverBeatenTracker';
 import { getHeadToHeadAllTime } from '@/lib/utils/headtohead';
 import TaxiBanner from '@/components/taxi/TaxiBanner';
 import SeasonRecapGrid from '@/components/home/SeasonRecapGrid';
-import { getTeamLogoPath, getTeamColors } from '@/lib/utils/team-utils';
-
-function hexToRgba(hex: string, alpha = 1): string {
-  const clean = hex.replace('#', '');
-  const r = parseInt(clean.substring(0, 2), 16);
-  const g = parseInt(clean.substring(2, 4), 16);
-  const b = parseInt(clean.substring(4, 6), 16);
-  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
-}
+import PlayoffBracketPanel from '@/components/brackets/PlayoffBracketPanel';
+import { BroadcastPanel } from '@/components/ui/BroadcastPanel';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 20; // ISR: refresh at most every 20s to reduce API churn and flakiness
@@ -589,142 +580,25 @@ export default async function Home({ searchParams }: { searchParams?: Promise<Re
         ) : isPlayoffs ? (
           <>
             <SectionHeader title="Playoff brackets" />
-            <div className="flex flex-col gap-6 mt-6">
-              {[{ id: 'winners', title: 'Winners Bracket', data: winnersBracket }, { id: 'losers', title: 'Losers Bracket', data: losersBracket }].map((b) => (
-                <Card key={b.id} className="w-full">
-                  <CardContent>
-                    <h3 className="text-lg font-semibold mb-3">{b.title}</h3>
-                    {b.data.length === 0 ? (
-                      <p className="text-[var(--muted)]">No games yet.</p>
-                    ) : (
-                      (() => {
-                        const byRound: Record<number, SleeperBracketGameWithScore[]> = {};
-                        b.data.forEach((g) => {
-                          const r = g.r ?? 0;
-                          if (!byRound[r]) byRound[r] = [];
-                          byRound[r].push(g);
-                        });
-                        const roundNums = Object.keys(byRound).map(n => Number(n)).sort((a,b) => a - b);
-                        roundNums.forEach(r => byRound[r].sort((a,b) => (a.m ?? 0) - (b.m ?? 0)));
-
-                        const nameFor = (rid?: number | null) => {
-                          if (rid == null) return 'BYE';
-                          return bracketNameMap.get(rid) || `Roster ${rid}`;
-                        };
-                        const TeamRow = ({ rid, isWinner, score }: { rid?: number | null; isWinner: boolean; score?: number | null }) => {
-                          const nm = rid != null ? nameFor(rid) : 'BYE';
-                          const seed = rid != null ? (seedByRosterId.get(rid) ?? null) : null;
-                          const color = nm && nm !== 'BYE' ? getTeamColors(nm)?.primary : undefined;
-                          return (
-                            <div className={`flex items-center justify-between gap-2 ${isWinner ? 'font-semibold text-[var(--accent)]' : ''}`}>
-                              <div className="min-w-0 flex-1 flex items-center gap-2">
-                                {nm !== 'BYE' && rid != null ? (
-                                  <Link href={`/teams/${rid}`} className="flex items-center gap-2 min-w-0 hover:underline" title={nm}>
-                                    <div className="w-5 h-5 rounded-full overflow-hidden border" style={{ borderColor: color || 'var(--border)' }}>
-                                      <Image src={getTeamLogoPath(nm)} alt={nm} width={20} height={20} className="object-contain w-5 h-5" />
-                                    </div>
-                                    <span className="truncate">{seed ? `#${seed} ` : ''}{nm}</span>
-                                  </Link>
-                                ) : (
-                                  <span className="block truncate text-[var(--muted)]" title="BYE">BYE</span>
-                                )}
-                              </div>
-                              {score != null && (
-                                <span className="shrink-0 ml-2 text-xs px-1.5 py-0.5 rounded border border-[var(--border)] text-[var(--muted)]">{score.toFixed(2)}</span>
-                              )}
-                            </div>
-                          );
-                        };
-                        const maxRound = roundNums.length ? roundNums[roundNums.length - 1] : 0;
-                        // Determine proper Championship and 3rd Place labeling only for winners bracket
-                        const semiWinners: Array<number> = [];
-                        const semiLosers: Array<number> = [];
-                        if ((b.id === 'winners') && roundNums.length >= 2) {
-                          const semiRound = roundNums[roundNums.length - 2];
-                          const semis = byRound[semiRound] || [];
-                          for (const s of semis) {
-                            const w = s.w ?? ((s.t1_points != null && s.t2_points != null) ? ((s.t1_points > s.t2_points) ? s.t1 : s.t2) : null);
-                            const l = w != null ? ((w === s.t1) ? s.t2 : s.t1) : null;
-                            if (w != null) semiWinners.push(w);
-                            if (l != null) semiLosers.push(l);
-                          }
-                        }
-                        const isPair = (pair: [number | null | undefined, number | null | undefined], set: Set<number>) => {
-                          const [a,b] = pair;
-                          if (a == null || b == null) return false;
-                          return set.has(a) && set.has(b) && set.size === 2;
-                        };
-                        const winnersSet = semiWinners.length === 2 ? new Set<number>(semiWinners) : null;
-                        const losersSet = semiLosers.length === 2 ? new Set<number>(semiLosers) : null;
-                        const labelFor = (g: SleeperBracketGameWithScore, rNum: number): string | undefined => {
-                          if (rNum !== maxRound) return undefined;
-                          if (b.id === 'losers') return 'Final';
-                          if (winnersSet && isPair([g.t1 ?? null, g.t2 ?? null], winnersSet)) return 'Championship';
-                          if (losersSet && isPair([g.t1 ?? null, g.t2 ?? null], losersSet)) return '3rd Place';
-                          return undefined; // Other placement games (5th/7th) remain unlabeled
-                        };
-                        const MATCH_H = 84; // px
-                        const GAP = 24; // px
-                        const roundTitle = (r: number) => {
-                          if (r === maxRound) return 'Finals';
-                          if (r === maxRound - 1) return 'Semifinals';
-                          return `Round ${r}`;
-                        };
-                        return (
-                          <div className="overflow-x-auto">
-                            <div className="flex items-start gap-8">
-                              {roundNums.map((r, rIdx) => {
-                                const mtFirst = rIdx === 0 ? 0 : ((MATCH_H + GAP) * Math.pow(2, rIdx - 1)) / 2;
-                                const mtBetween = rIdx === 0 ? GAP : ((MATCH_H + GAP) * Math.pow(2, rIdx - 1));
-                                const matches = byRound[r];
-                                const n = matches.length;
-                                const colHeight = mtFirst + n * MATCH_H + Math.max(0, n - 1) * mtBetween;
-                                // Round column element (header outside measured height)
-                                const roundCol = (
-                                  <div key={`${b.id}-round-${r}`} className="min-w-[260px]">
-                                    <h4 className="font-semibold text-[var(--muted)] mb-2">{roundTitle(r)}</h4>
-                                    <div style={{ height: colHeight }}>
-                                      {matches.map((g, idx) => (
-                                        <div key={`${b.id}-${r}-${g.m}`} style={{ marginTop: idx === 0 ? mtFirst : mtBetween }}>
-                                          <div className="border rounded p-3 h-[84px] relative flex flex-col justify-between overflow-hidden">
-                                            {(() => { const ml = labelFor(g, r); return ml ? <div className="absolute top-1 left-2 text-[10px] px-1.5 py-0.5 rounded border bg-[var(--surface)] text-[var(--muted)]">{ml}</div> : null; })()}
-                                            <TeamRow rid={g.t1 ?? null} isWinner={g.w != null && g.t1 != null && g.w === g.t1} score={g.t1_points ?? null} />
-                                            <TeamRow rid={g.t2 ?? null} isWinner={g.w != null && g.t2 != null && g.w === g.t2} score={g.t2_points ?? null} />
-                                          </div>
-                                        </div>
-                                      ))}
-                                    </div>
-                                  </div>
-                                );
-                                // Connector column (between this round and next)
-                                const connCol = (rIdx < roundNums.length - 1) ? (
-                                  <div key={`${b.id}-conn-${r}`} className="relative w-16" style={{ height: colHeight }}>
-                                    {Array.from({ length: Math.floor(n / 2) }, (_, k) => {
-                                      const i1 = 2 * k;
-                                      const i2 = i1 + 1;
-                                      const y1 = mtFirst + i1 * (MATCH_H + GAP) + MATCH_H / 2;
-                                      const y2 = mtFirst + i2 * (MATCH_H + GAP) + MATCH_H / 2;
-                                      const mid = (y1 + y2) / 2;
-                                      return (
-                                        <div key={`${b.id}-connseg-${r}-${k}`}>
-                                          <div style={{ position: 'absolute', left: '50%', top: `${y1}px`, height: `${y2 - y1}px`, width: 2, transform: 'translateX(-50%)', background: 'var(--border)' }} />
-                                          <div style={{ position: 'absolute', top: `${mid}px`, left: 0, right: '50%', height: 2, transform: 'translateY(-50%)', background: 'var(--border)' }} />
-                                          <div style={{ position: 'absolute', top: `${mid}px`, left: '50%', right: 0, height: 2, transform: 'translateY(-50%)', background: 'var(--border)' }} />
-                                        </div>
-                                      );
-                                    })}
-                                  </div>
-                                ) : null;
-                                return [roundCol, connCol];
-                              })}
-                            </div>
-                          </div>
-                        );
-                      })()
-                    )}
-                  </CardContent>
-                </Card>
-              ))}
+            <div className="space-y-8 mt-6">
+              <PlayoffBracketPanel
+                title="Official Playoffs"
+                games={winnersBracket}
+                variant="winners"
+                nameMap={bracketNameMap}
+                seedMap={seedByRosterId}
+                keyPrefix="home-winners"
+                emptyMessage="No games yet."
+              />
+              <PlayoffBracketPanel
+                title="Toilet Bowl"
+                games={losersBracket}
+                variant="losers"
+                nameMap={bracketNameMap}
+                seedMap={seedByRosterId}
+                keyPrefix="home-losers"
+                emptyMessage="No games yet."
+              />
             </div>
 
           </>
@@ -735,139 +609,25 @@ export default async function Home({ searchParams }: { searchParams?: Promise<Re
             {/* Recap Playoff Brackets */}
             <div className="mt-8">
               <SectionHeader title="Playoff brackets (recap)" />
-              <div className="flex flex-col gap-6 mt-4">
-                {[{ id: 'winners-recap', title: 'Winners Bracket', data: recapWinnersBracket }, { id: 'losers-recap', title: 'Losers Bracket', data: recapLosersBracket }].map((b) => (
-                  <Card key={b.id} className="w-full">
-                    <CardContent>
-                      <h3 className="text-lg font-semibold mb-3">{b.title}</h3>
-                      {b.data.length === 0 ? (
-                        <p className="text-[var(--muted)]">No games.</p>
-                      ) : (
-                        (() => {
-                          const byRound: Record<number, SleeperBracketGameWithScore[]> = {};
-                          b.data.forEach((g) => {
-                            const r = g.r ?? 0;
-                            if (!byRound[r]) byRound[r] = [];
-                            byRound[r].push(g);
-                          });
-                          const roundNums = Object.keys(byRound).map(n => Number(n)).sort((a,b) => a - b);
-                          roundNums.forEach(r => byRound[r].sort((a,b) => (a.m ?? 0) - (b.m ?? 0)));
-                          const nameFor = (rid?: number | null) => {
-                            if (rid == null) return 'BYE';
-                            return recapBracketNameMap.get(rid) || `Roster ${rid}`;
-                          };
-                          const TeamRow = ({ rid, isWinner, score }: { rid?: number | null; isWinner: boolean; score?: number | null }) => {
-                            const nm = rid != null ? nameFor(rid) : 'BYE';
-                            const seed = rid != null ? (seedByRosterIdRecap.get(rid) ?? null) : null;
-                            const color = nm && nm !== 'BYE' ? getTeamColors(nm)?.primary : undefined;
-                            return (
-                              <div className={`flex items-center justify-between gap-2 ${isWinner ? 'font-semibold text-[var(--accent)]' : ''}`}>
-                                <div className="min-w-0 flex-1 flex items-center gap-2">
-                                  {nm !== 'BYE' && rid != null ? (
-                                    <Link href={`/teams/${rid}`} className="flex items-center gap-2 min-w-0 hover:underline" title={nm}>
-                                      <div className="w-5 h-5 rounded-full overflow-hidden border" style={{ borderColor: color || 'var(--border)' }}>
-                                        <Image src={getTeamLogoPath(nm)} alt={nm} width={20} height={20} className="object-contain w-5 h-5" />
-                                      </div>
-                                      <span className="truncate">{seed ? `#${seed} ` : ''}{nm}</span>
-                                    </Link>
-                                  ) : (
-                                    <span className="block truncate text-[var(--muted)]" title="BYE">BYE</span>
-                                  )}
-                                </div>
-                                {score != null && (
-                                  <span className="shrink-0 ml-2 text-xs px-1.5 py-0.5 rounded border border-[var(--border)] text-[var(--muted)]">{score.toFixed(2)}</span>
-                                )}
-                              </div>
-                            );
-                          };
-                          const maxRound = roundNums.length ? roundNums[roundNums.length - 1] : 0;
-                          // Proper Championship and 3rd Place labeling for winners recap only
-                          const semiWinners: Array<number> = [];
-                          const semiLosers: Array<number> = [];
-                          if ((b.id === 'winners-recap') && roundNums.length >= 2) {
-                            const semiRound = roundNums[roundNums.length - 2];
-                            const semis = byRound[semiRound] || [];
-                            for (const s of semis) {
-                              const w = s.w ?? ((s.t1_points != null && s.t2_points != null) ? ((s.t1_points > s.t2_points) ? s.t1 : s.t2) : null);
-                              const l = w != null ? ((w === s.t1) ? s.t2 : s.t1) : null;
-                              if (w != null) semiWinners.push(w);
-                              if (l != null) semiLosers.push(l);
-                            }
-                          }
-                          const winnersSet = semiWinners.length === 2 ? new Set<number>(semiWinners) : null;
-                          const losersSet = semiLosers.length === 2 ? new Set<number>(semiLosers) : null;
-                          const isPair = (pair: [number | null | undefined, number | null | undefined], set: Set<number>) => {
-                            const [a,b] = pair;
-                            if (a == null || b == null) return false;
-                            return set.has(a) && set.has(b) && set.size === 2;
-                          };
-                          const labelFor = (g: SleeperBracketGameWithScore, rNum: number): string | undefined => {
-                            if (rNum !== maxRound) return undefined;
-                            if (b.id === 'losers-recap') return 'Final';
-                            if (winnersSet && isPair([g.t1 ?? null, g.t2 ?? null], winnersSet)) return 'Championship';
-                            if (losersSet && isPair([g.t1 ?? null, g.t2 ?? null], losersSet)) return '3rd Place';
-                            return undefined;
-                          };
-                          const MATCH_H = 72; // px
-                          const GAP = 24; // px
-                          const roundTitle = (r: number) => {
-                            if (r === maxRound) return 'Finals';
-                            if (r === maxRound - 1) return 'Semifinals';
-                            return `Round ${r}`;
-                          };
-                          return (
-                            <div className="overflow-x-auto">
-                              <div className="flex items-start gap-8">
-                                {roundNums.map((r, rIdx) => {
-                                  const mtFirst = rIdx === 0 ? 0 : ((MATCH_H + GAP) * Math.pow(2, rIdx - 1)) / 2;
-                                  const mtBetween = rIdx === 0 ? GAP : ((MATCH_H + GAP) * Math.pow(2, rIdx - 1));
-                                  const matches = byRound[r];
-                                  const n = matches.length;
-                                  const colHeight = mtFirst + n * MATCH_H + Math.max(0, n - 1) * mtBetween;
-                                  const roundCol = (
-                                    <div key={`${b.id}-round-${r}`} className="min-w-[260px]">
-                                      <h4 className="font-semibold text-[var(--muted)] mb-2">{roundTitle(r)}</h4>
-                                      <div style={{ height: colHeight }}>
-                                        {matches.map((g, idx) => (
-                                          <div key={`${b.id}-${r}-${g.m}`} style={{ marginTop: idx === 0 ? mtFirst : mtBetween }}>
-                                            <div className="border rounded p-3 h-[72px] relative flex flex-col justify-between overflow-hidden">
-                                              {(() => { const ml = labelFor(g, r); return ml ? <div className="absolute -top-2 left-2 text-[10px] px-1.5 py-0.5 rounded border bg-[var(--surface)] text-[var(--muted)]">{ml}</div> : null; })()}
-                                              <TeamRow rid={g.t1 ?? null} isWinner={g.w != null && g.t1 != null && g.w === g.t1} score={g.t1_points ?? null} />
-                                              <TeamRow rid={g.t2 ?? null} isWinner={g.w != null && g.t2 != null && g.w === g.t2} score={g.t2_points ?? null} />
-                                            </div>
-                                          </div>
-                                        ))}
-                                      </div>
-                                    </div>
-                                  );
-                                  const connCol = (rIdx < roundNums.length - 1) ? (
-                                    <div key={`${b.id}-conn-${r}`} className="relative w-16" style={{ height: colHeight }}>
-                                      {Array.from({ length: Math.floor(n / 2) }, (_, k) => {
-                                        const i1 = 2 * k;
-                                        const i2 = i1 + 1;
-                                        const y1 = mtFirst + i1 * (MATCH_H + GAP) + MATCH_H / 2;
-                                        const y2 = mtFirst + i2 * (MATCH_H + GAP) + MATCH_H / 2;
-                                        const mid = (y1 + y2) / 2;
-                                        return (
-                                          <div key={`${b.id}-connseg-${r}-${k}`}>
-                                            <div style={{ position: 'absolute', left: '50%', top: `${y1}px`, height: `${y2 - y1}px`, width: 2, transform: 'translateX(-50%)', background: 'var(--border)' }} />
-                                            <div style={{ position: 'absolute', top: `${mid}px`, left: 0, right: '50%', height: 2, transform: 'translateY(-50%)', background: 'var(--border)' }} />
-                                            <div style={{ position: 'absolute', top: `${mid}px`, left: '50%', right: 0, height: 2, transform: 'translateY(-50%)', background: 'var(--border)' }} />
-                                          </div>
-                                        );
-                                      })}
-                                    </div>
-                                  ) : null;
-                                  return [roundCol, connCol];
-                                })}
-                              </div>
-                            </div>
-                          );
-                        })()
-                      )}
-                    </CardContent>
-                  </Card>
-                ))}
+              <div className="space-y-8 mt-4">
+                <PlayoffBracketPanel
+                  title="Official Playoffs"
+                  games={recapWinnersBracket}
+                  variant="winners"
+                  nameMap={recapBracketNameMap}
+                  seedMap={seedByRosterIdRecap}
+                  keyPrefix="recap-winners"
+                  emptyMessage="No games."
+                />
+                <PlayoffBracketPanel
+                  title="Toilet Bowl"
+                  games={recapLosersBracket}
+                  variant="losers"
+                  nameMap={recapBracketNameMap}
+                  seedMap={seedByRosterIdRecap}
+                  keyPrefix="recap-losers"
+                  emptyMessage="No games."
+                />
               </div>
             </div>
           </>
@@ -876,18 +636,21 @@ export default async function Home({ searchParams }: { searchParams?: Promise<Re
       
       {/* Head-to-Head (All-time) */}
       <section className="mb-10 sm:mb-12">
-        <SectionHeader title="Head-to-head (All-time)" subtitle="* = no regular-season wins yet; blue = playing this week" />
-        <Card className="mt-4">
-          <CardContent>
-            <Tabs
-              initialId="grid"
-              tabs={[
-                { id: 'grid', label: 'Grid', content: <HeadToHeadGrid teams={h2h.teams} matrix={h2h.matrix} highlightKeys={h2hHighlightKeys} /> },
-                { id: 'tracker', label: 'Tracker', content: <NeverBeatenTracker list={h2h.neverBeaten} /> },
-              ]}
-            />
-          </CardContent>
-        </Card>
+        <SectionHeader title="Head-to-head (All-time)" />
+        <BroadcastPanel
+          accent="#6366f1"
+          title="All-time matrix"
+          meta="Grid & tracker"
+          className="mt-4"
+        >
+          <Tabs
+            initialId="grid"
+            tabs={[
+              { id: 'grid', label: 'Grid', content: <HeadToHeadGrid teams={h2h.teams} matrix={h2h.matrix} highlightKeys={h2hHighlightKeys} /> },
+              { id: 'tracker', label: 'Tracker', content: <NeverBeatenTracker list={h2h.neverBeaten} /> },
+            ]}
+          />
+        </BroadcastPanel>
       </section>
       
       {/* Data Exports */}

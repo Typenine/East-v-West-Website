@@ -3,9 +3,8 @@ import {
   BroadcastAccentBadge,
   BroadcastSectionLabel,
   BroadcastTeamLogo,
-  PANEL,
-  teamAccent,
 } from '@/components/ui/BroadcastPanel';
+import { PANEL, teamAccent } from '@/lib/ui/broadcast-styles';
 import { formatTransactionDate, transactionTypeLabel } from '@/components/transactions/transaction-format';
 
 export default function TransactionCard({ txn }: { txn: LeagueTransaction }) {
