@@ -1,6 +1,7 @@
 import type { LeagueTransaction } from '@/lib/utils/transactions';
 import TransactionCard from '@/components/transactions/TransactionCard';
-import { BroadcastPanel, broadcastMutedTextStyle, teamAccent } from '@/components/ui/BroadcastPanel';
+import { BroadcastPanel } from '@/components/ui/BroadcastPanel';
+import { broadcastMutedTextStyle, teamAccent } from '@/lib/ui/broadcast-styles';
 
 export default function GroupedByYear({ data }: { data: LeagueTransaction[] }) {
   const bySeason = new Map<string, LeagueTransaction[]>();

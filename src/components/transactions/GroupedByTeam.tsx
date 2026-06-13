@@ -1,6 +1,7 @@
 import type { LeagueTransaction } from '@/lib/utils/transactions';
 import TransactionCard from '@/components/transactions/TransactionCard';
-import { BroadcastPanel, BroadcastTeamLogo, broadcastMutedTextStyle, teamAccent } from '@/components/ui/BroadcastPanel';
+import { BroadcastPanel, BroadcastTeamLogo } from '@/components/ui/BroadcastPanel';
+import { broadcastMutedTextStyle, teamAccent } from '@/lib/ui/broadcast-styles';
 
 export default function GroupedByTeam({ data }: { data: LeagueTransaction[] }) {
   const byTeam = new Map<string, LeagueTransaction[]>();

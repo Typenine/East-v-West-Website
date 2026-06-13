@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import type { LeagueTransaction } from '@/lib/utils/transactions';
 import TransactionCard from '@/components/transactions/TransactionCard';
-import { PANEL, broadcastMutedTextStyle } from '@/components/ui/BroadcastPanel';
+import { PANEL, broadcastMutedTextStyle } from '@/lib/ui/broadcast-styles';
 
 export default function TransactionsTable({
   data,

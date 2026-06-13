@@ -5,12 +5,14 @@ import {
   BroadcastSectionLabel,
   BroadcastTeamLogo,
   BroadcastAccentBadge,
+} from '@/components/ui/BroadcastPanel';
+import {
   PANEL,
   broadcastBodyTextStyle,
   broadcastFaintTextStyle,
   broadcastMutedTextStyle,
   teamAccent,
-} from '@/components/ui/BroadcastPanel';
+} from '@/lib/ui/broadcast-styles';
 
 export type SeasonRecapData = {
   podium?: { champion: string; runnerUp: string; thirdPlace: string };

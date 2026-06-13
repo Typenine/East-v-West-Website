@@ -1,7 +1,7 @@
 'use client';
 
 import type { ReactNode } from 'react';
-import { PANEL } from '@/components/ui/BroadcastPanel';
+import { PANEL } from '@/lib/ui/broadcast-styles';
 
 const STATUS_STYLES: Record<string, { color: string; bg: string; border: string }> = {
   voting: { color: '#93c5fd', bg: 'rgba(59,130,246,0.14)', border: 'rgba(59,130,246,0.35)' },
