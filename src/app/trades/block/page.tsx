@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { Suspense, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Image from 'next/image';
 import SectionHeader from '@/components/ui/SectionHeader';
@@ -46,7 +46,7 @@ const POS_COLORS: Record<string, string> = {
   '3rd': '#f97316',
 };
 
-export default function TradeBlockPage() {
+function TradeBlockPageContent() {
   const [rows, setRows] = useState<TeamRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -596,5 +596,17 @@ export default function TradeBlockPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function TradeBlockPage() {
+  return (
+    <Suspense fallback={
+      <div className="container mx-auto px-4 py-8">
+        <p className="text-[var(--muted)]">Loading trade block…</p>
+      </div>
+    }>
+      <TradeBlockPageContent />
+    </Suspense>
   );
 }
