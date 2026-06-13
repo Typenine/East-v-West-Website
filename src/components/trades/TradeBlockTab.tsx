@@ -2,13 +2,13 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
-import Image from 'next/image';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import Label from '@/components/ui/Label';
 import Textarea from '@/components/ui/Textarea';
 import Button from '@/components/ui/Button';
-import { getTeamLogoPath, getTeamColorStyle } from '@/lib/utils/team-utils';
 import Select from '@/components/ui/Select';
+import TradeBlockCard from '@/components/trades/TradeBlockCard';
+import { TradeCardSkeleton } from '@/components/trades/TradeCard';
 
 export type TradeAsset =
   | { type: 'player'; playerId: string }
@@ -257,138 +257,36 @@ export default function TradeBlockTab() {
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
       <div className="lg:col-span-2">
-        <Card>
-          <CardHeader>
-            <CardTitle>League Trade Block</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {loading ? (
-              <p className="text-[var(--muted)]">Loading…</p>
-            ) : error ? (
-              <p className="text-[var(--danger)]">{error}</p>
-            ) : rows.length === 0 ? (
-              <p className="text-[var(--muted)]">No teams have posted trade blocks yet.</p>
-            ) : (
-              <ul className="space-y-6">
-                {rows.map((row) => {
-                  const s1 = getTeamColorStyle(row.team);
-                  const primaryBg = s1.backgroundColor as string;
-                  const primaryFg = s1.color as string;
-                  const secondaryBg = getTeamColorStyle(row.team, 'secondary').backgroundColor as string;
-                  const isHighlighted = highlightTeam
-                    ? row.team.trim().toLowerCase() === decodeURIComponent(highlightTeam).trim().toLowerCase()
-                    : false;
-                  return (
-                    <li
-                      id={`trade-block-team-${encodeURIComponent(row.team)}`}
-                      key={row.team}
-                      className={`border border-[var(--border)] rounded-[var(--radius-card)] p-4 scroll-mt-24${isHighlighted ? ' ring-2 ring-[var(--accent)] ring-offset-2 ring-offset-[var(--background)]' : ''}`}
-                      style={{ borderLeftColor: secondaryBg, borderLeftWidth: 4, borderLeftStyle: 'solid' }}
-                    >
-                      {/* Header + Wants in one contiguous primary-colored panel */}
-                      <div className="rounded-t-[var(--radius-card)] -mx-4 -mt-4 px-4 pt-2 pb-3 mb-3" style={{ backgroundColor: primaryBg, color: primaryFg, borderTopColor: secondaryBg, borderTopWidth: 4, borderTopStyle: 'solid' }}>
-                        <div className="flex items-center gap-3">
-                          <div className="w-8 h-8 rounded-full flex items-center justify-center overflow-hidden" style={{ ...s1, borderColor: secondaryBg, borderWidth: 2, borderStyle: 'solid' }}>
-                            <Image src={getTeamLogoPath(row.team)} alt="" width={24} height={24} />
-                          </div>
-                          <div className="font-bold" style={{ color: primaryFg }}>{row.team}</div>
-                          <div className="ml-auto text-xs" style={{ color: primaryFg, opacity: 0.8 }} title={row.updatedAt || undefined}>{row.updatedAt ? new Date(row.updatedAt).toLocaleString() : '—'}</div>
-                        </div>
-                        {row.tradeWants && (row.tradeWants.text || (row.tradeWants.positions && row.tradeWants.positions.length > 0) || row.tradeWants.contactMethod) ? (
-                          <div className="mt-3">
-                            <div className="text-xs uppercase tracking-wide mb-1" style={{ opacity: 0.9 }}>Wants</div>
-                            {row.tradeWants.text && <div className="text-sm mb-1">{row.tradeWants.text}</div>}
-                            {row.tradeWants.positions && row.tradeWants.positions.length > 0 && (
-                              <div className="flex flex-wrap gap-2">
-                                {row.tradeWants.positions.map((p) => (
-                                  <span
-                                    key={p}
-                                    className="text-xs px-2 py-0.5 rounded-full border"
-                                    style={{ borderColor: primaryFg, color: primaryFg }}
-                                  >
-                                    {p}
-                                  </span>
-                                ))}
-                              </div>
-                            )}
-                            {row.tradeWants.contactMethod && (
-                              <div className="mt-2 text-xs" style={{ color: primaryFg }}>
-                                <span className="tracking-wide" style={{ opacity: 0.9 }}>Preferred Contact: </span>
-                                {row.tradeWants.contactMethod === 'text' && (
-                                  <span>Text{row.tradeWants.phone ? ` (${row.tradeWants.phone})` : ''}</span>
-                                )}
-                                {row.tradeWants.contactMethod === 'discord' && (
-                                  <span>Discord</span>
-                                )}
-                                {row.tradeWants.contactMethod === 'snap' && (
-                                  <span>Snap{row.tradeWants.snap ? ` (${row.tradeWants.snap})` : ''}</span>
-                                )}
-                                {row.tradeWants.contactMethod === 'sleeper' && (
-                                  <span>Sleeper</span>
-                                )}
-                              </div>
-                            )}
-                          </div>
-                        ) : null}
-                      </div>
-                    <div className="border-t border-[var(--border)] my-2" />
-                    {row.tradeBlock.length === 0 ? (
-                      <div className="text-[var(--muted)] text-sm">No assets listed.</div>
-                    ) : (
-                      <>
-                        <div
-                          className="mt-2 mb-1 text-xs uppercase tracking-wide"
-                          style={{ color: getTeamColorStyle(row.team).backgroundColor }}
-                        >
-                          On the Block
-                        </div>
-                        <ul className="space-y-1">
-                          {sortedBlock(row.tradeBlock).map((a, idx) => (
-                            <li key={idx} className="flex items-center justify-between">
-                              {a.type === 'player' ? (
-                                <span>
-                                  {playerNames[a.playerId]?.position ? `${playerNames[a.playerId].position} - ` : ''}
-                                  {playerNames[a.playerId]?.name || a.playerId}
-                                  {playerNames[a.playerId]?.team ? ` (${playerNames[a.playerId].team})` : ''}
-                                </span>
-                              ) : a.type === 'pick' ? (
-                                <span className="flex items-center gap-1.5 flex-wrap">
-                                  <span
-                                    className="inline-flex items-center text-[10px] px-1.5 py-0.5 rounded-full border mr-1"
-                                    style={{ borderColor: getTeamColorStyle(row.team).backgroundColor, color: getTeamColorStyle(row.team).backgroundColor }}
-                                  >
-                                    {a.year}
-                                  </span>
-                                  <span className="font-semibold">{pickLabel(a, row.team)}</span>
-                                </span>
-                              ) : (
-                                (() => {
-                                  const col = getTeamColorStyle(row.team).backgroundColor as string;
-                                  return (
-                                    <span>
-                                      <span
-                                        className="inline-flex items-center text-[10px] px-1.5 py-0.5 rounded-full border mr-1"
-                                        style={{ borderColor: col, color: col }}
-                                      >
-                                        FAAB
-                                      </span>
-                                      {typeof a.amount === 'number' ? `$${a.amount}` : ''}
-                                    </span>
-                                  );
-                                })()
-                              )}
-                            </li>
-                          ))}
-                        </ul>
-                      </>
-                    )}
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-          </CardContent>
-        </Card>
+        {loading ? (
+          <div className="space-y-5" role="status" aria-live="polite" aria-busy="true">
+            <TradeCardSkeleton />
+            <TradeCardSkeleton />
+          </div>
+        ) : error ? (
+          <p className="text-[var(--danger)]">{error}</p>
+        ) : rows.length === 0 ? (
+          <p className="text-[var(--muted)]">No teams have posted trade blocks yet.</p>
+        ) : (
+          <ul className="space-y-5">
+            {rows.map((row) => {
+              const isHighlighted = highlightTeam
+                ? row.team.trim().toLowerCase() === decodeURIComponent(highlightTeam).trim().toLowerCase()
+                : false;
+              return (
+                <TradeBlockCard
+                  key={row.team}
+                  team={row.team}
+                  tradeBlock={sortedBlock(row.tradeBlock)}
+                  tradeWants={row.tradeWants}
+                  updatedAt={row.updatedAt}
+                  playerNames={playerNames}
+                  pickLabel={(a) => pickLabel(a, row.team)}
+                  isHighlighted={isHighlighted}
+                />
+              );
+            })}
+          </ul>
+        )}
       </div>
 
       {/* Edit panel */}
