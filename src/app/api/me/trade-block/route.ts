@@ -91,8 +91,11 @@ export async function PUT(req: NextRequest) {
   if (!ok) return Response.json({ error: 'Persist failed' }, { status: 500 });
   
   // Post trade block update immediately to Discord (best-effort, don't block response)
+  let discordPosted: boolean | null = null;
   try {
     const { computeDiff, buildTradeBlockReport, getTradeBlockBaseUrl, getLeagueMarketContext } = await import('@/lib/server/trade-block-narrative');
+    const { buildTradeBlockDiscordEmbed } = await import('@/lib/server/trade-block-discord');
+    const { recordTradeBlockWebhookAttempt } = await import('@/lib/server/trade-block-webhook-log');
 
     // Sanitize oldBlock: strip assets the team no longer owns (traded away) so they
     // don't appear as "manually removed from trade block" in the Discord message.
@@ -105,12 +108,12 @@ export async function PUT(req: NextRequest) {
     });
 
     const diff = await computeDiff(sanitizedOldBlock, filtered, oldWants as TradeWants | null, newWants);
-    const baseUrl = getTradeBlockBaseUrl();
+    const baseUrl = getTradeBlockBaseUrl() ?? 'https://eastvswest.win';
     const leagueContext = await getLeagueMarketContext().catch(() => undefined);
     
     const currentPlayers = filtered.filter((a) => a.type === 'player');
     
-    const message = await buildTradeBlockReport({
+    const report = await buildTradeBlockReport({
       teamName: ident.team,
       diff,
       currentPlayers,
@@ -119,29 +122,41 @@ export async function PUT(req: NextRequest) {
       leagueContext,
     });
     
-    if (message) {
+    if (report) {
       const webhookUrl = process.env.DISCORD_TRADE_BLOCK_WEBHOOK_URL;
       if (webhookUrl) {
-        const tradeBlockUrl = baseUrl ? `${baseUrl}/trades/block` : 'https://eastvswest.win/trades/block';
-        const urlSuffix = `\n\n${tradeBlockUrl}`;
-        const descriptionText = message.endsWith(urlSuffix)
-          ? message.slice(0, -urlSuffix.length).trim()
-          : message.trim();
-        await postToDiscordWebhook(webhookUrl, {
-          embeds: [{
-            author: { name: ident.team },
-            description: descriptionText,
-            url: tradeBlockUrl,
-            color: 0xbe161e,
-            footer: { text: 'East v. West · Trade Block' },
-            timestamp: new Date().toISOString(),
-          }],
-        }).catch((e) => console.error('Discord webhook error:', e));
+        const embed = buildTradeBlockDiscordEmbed(report, baseUrl);
+        const result = await postToDiscordWebhook(webhookUrl, { embeds: [embed] });
+        discordPosted = result.success;
+        await recordTradeBlockWebhookAttempt({
+          team: ident.team,
+          updatedAt,
+          success: result.success,
+          error: result.error,
+          report,
+        });
+        if (!result.success) {
+          console.error('[trade-block] Discord webhook failed:', result.error);
+        }
+      } else {
+        discordPosted = false;
       }
     }
   } catch (e) {
     console.error('Trade block webhook error:', e);
+    discordPosted = false;
+    try {
+      const { recordTradeBlockWebhookAttempt } = await import('@/lib/server/trade-block-webhook-log');
+      await recordTradeBlockWebhookAttempt({
+        team: ident.team,
+        updatedAt,
+        success: false,
+        error: e instanceof Error ? e.message : String(e),
+      });
+    } catch {
+      /* ignore logging failure */
+    }
   }
   
-  return Response.json({ ok: true, tradeBlock: doc.tradeBlock, tradeWants: doc.tradeWants });
+  return Response.json({ ok: true, tradeBlock: doc.tradeBlock, tradeWants: doc.tradeWants, discordPosted });
 }

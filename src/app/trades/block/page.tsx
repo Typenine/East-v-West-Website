@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import Image from 'next/image';
 import SectionHeader from '@/components/ui/SectionHeader';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
@@ -71,6 +72,20 @@ export default function TradeBlockPage() {
 
   const [slotByOriginalTeam, setSlotByOriginalTeam] = useState<Record<string, number>>({});
   const [draftOrderSeason, setDraftOrderSeason] = useState<number>(0);
+
+  const searchParams = useSearchParams();
+  const highlightTeam = searchParams.get('team');
+
+  useEffect(() => {
+    if (!highlightTeam || loading || rows.length === 0) return;
+    const normalized = decodeURIComponent(highlightTeam).trim().toLowerCase();
+    const match = rows.find((r) => r.team.trim().toLowerCase() === normalized);
+    if (!match) return;
+    const id = `trade-block-team-${encodeURIComponent(match.team)}`;
+    requestAnimationFrame(() => {
+      document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  }, [highlightTeam, loading, rows]);
 
   useEffect(() => {
     (async () => {
@@ -277,8 +292,16 @@ export default function TradeBlockPage() {
                     const s2 = getTeamColorStyle(row.team, 'secondary');
                     const secondaryBg = s2.backgroundColor as string;
                     const secondaryFg = s2.color as string;
+                    const isHighlighted = highlightTeam
+                      ? row.team.trim().toLowerCase() === decodeURIComponent(highlightTeam).trim().toLowerCase()
+                      : false;
                     return (
-                      <li key={row.team} className="border border-[var(--border)] rounded-[var(--radius-card)] p-4" style={{ borderLeftColor: secondaryBg, borderLeftWidth: 4, borderLeftStyle: 'solid' }}>
+                      <li
+                        id={`trade-block-team-${encodeURIComponent(row.team)}`}
+                        key={row.team}
+                        className={`border border-[var(--border)] rounded-[var(--radius-card)] p-4 scroll-mt-24${isHighlighted ? ' ring-2 ring-[var(--accent)] ring-offset-2 ring-offset-[var(--background)]' : ''}`}
+                        style={{ borderLeftColor: secondaryBg, borderLeftWidth: 4, borderLeftStyle: 'solid' }}
+                      >
                         <div className="rounded-t-[var(--radius-card)] -mx-4 -mt-4 px-4 py-2 mb-3" style={{ backgroundColor: primaryBg, color: primaryFg, borderTopColor: secondaryBg, borderTopWidth: 4, borderTopStyle: 'solid' }}>
                           <div className="flex items-center gap-3">
                             <div className="w-8 h-8 rounded-full flex items-center justify-center overflow-hidden" style={{ ...s1, borderColor: secondaryBg, borderWidth: 2, borderStyle: 'solid' }}>

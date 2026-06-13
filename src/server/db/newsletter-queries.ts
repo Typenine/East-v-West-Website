@@ -349,15 +349,23 @@ export interface NewsletterData {
   generatedAt: string;
 }
 
+export type NewsletterStatus = 'draft' | 'published';
+
 export async function loadNewsletter(
   season: number,
-  week: number
+  week: number,
+  opts?: { includeDrafts?: boolean }
 ): Promise<NewsletterData | null> {
   const db = getDb();
+  // Public callers (default) only ever see published newsletters. Admin callers
+  // pass includeDrafts:true to view/edit drafts.
+  const where = opts?.includeDrafts
+    ? and(eq(newsletters.season, season), eq(newsletters.week, week))
+    : and(eq(newsletters.season, season), eq(newsletters.week, week), eq(newsletters.status, 'published'));
   const rows = await db
     .select()
     .from(newsletters)
-    .where(and(eq(newsletters.season, season), eq(newsletters.week, week)))
+    .where(where)
     .limit(1);
 
   if (!rows.length) return null;
@@ -375,11 +383,19 @@ export async function saveNewsletter(
   week: number,
   leagueName: string,
   content: NewsletterData['newsletter'],
-  html: string
+  html: string,
+  opts?: { status?: NewsletterStatus; episodeType?: string }
 ): Promise<void> {
   const db = getDb();
 
-  // Delete existing newsletter for this week (if regenerating)
+  // IMPORTANT: generation paths must NOT autopublish. Default status is 'draft' so
+  // that callers who don't opt in stay private. Making a newsletter public is done
+  // exclusively via publishNewsletter() (the explicit admin publish action).
+  const status: NewsletterStatus = opts?.status ?? 'draft';
+
+  // Delete existing newsletter for this week (if regenerating). Regeneration
+  // intentionally resets to the supplied status (draft by default) — a regenerated
+  // newsletter is never auto-published.
   await db
     .delete(newsletters)
     .where(and(eq(newsletters.season, season), eq(newsletters.week, week)));
@@ -391,15 +407,96 @@ export async function saveNewsletter(
     leagueName,
     content,
     html,
+    status,
+    episodeType: opts?.episodeType,
+    publishedAt: status === 'published' ? new Date() : null,
+    updatedAt: new Date(),
   });
 }
 
-export async function listNewsletterWeeks(season: number): Promise<number[]> {
+/**
+ * Flip an existing newsletter from draft → published (the explicit admin action).
+ * Idempotent: re-publishing only refreshes updatedAt and never duplicates side
+ * effects. Discord is handled by the caller, NOT here.
+ */
+export async function publishNewsletter(
+  season: number,
+  week: number,
+  opts?: { html?: string }
+): Promise<{ found: boolean; alreadyPublished: boolean }> {
   const db = getDb();
+  const rows = await db
+    .select({ status: newsletters.status, publishedAt: newsletters.publishedAt })
+    .from(newsletters)
+    .where(and(eq(newsletters.season, season), eq(newsletters.week, week)))
+    .limit(1);
+
+  if (!rows.length) return { found: false, alreadyPublished: false };
+
+  const alreadyPublished = rows[0].status === 'published';
+
+  await db
+    .update(newsletters)
+    .set({
+      status: 'published',
+      // Preserve the original publish time on re-publish.
+      publishedAt: rows[0].publishedAt ?? new Date(),
+      updatedAt: new Date(),
+      ...(opts?.html ? { html: opts.html } : {}),
+    })
+    .where(and(eq(newsletters.season, season), eq(newsletters.week, week)));
+
+  return { found: true, alreadyPublished };
+}
+
+/** Record that the published newsletter was announced to Discord. */
+export async function markNewsletterDiscordPosted(season: number, week: number): Promise<void> {
+  const db = getDb();
+  await db
+    .update(newsletters)
+    .set({ discordPostedAt: new Date() })
+    .where(and(eq(newsletters.season, season), eq(newsletters.week, week)))
+    .catch(() => {});
+}
+
+/** Lightweight status read for admin display (no content/html). */
+export async function getNewsletterStatusMeta(
+  season: number,
+  week: number
+): Promise<{ status: NewsletterStatus; publishedAt: string | null; discordPostedAt: string | null; updatedAt: string | null } | null> {
+  const db = getDb();
+  const rows = await db
+    .select({
+      status: newsletters.status,
+      publishedAt: newsletters.publishedAt,
+      discordPostedAt: newsletters.discordPostedAt,
+      updatedAt: newsletters.updatedAt,
+    })
+    .from(newsletters)
+    .where(and(eq(newsletters.season, season), eq(newsletters.week, week)))
+    .limit(1);
+  if (!rows.length) return null;
+  const r = rows[0];
+  return {
+    status: (r.status as NewsletterStatus) ?? 'published',
+    publishedAt: r.publishedAt?.toISOString() ?? null,
+    discordPostedAt: r.discordPostedAt?.toISOString() ?? null,
+    updatedAt: r.updatedAt?.toISOString() ?? null,
+  };
+}
+
+export async function listNewsletterWeeks(
+  season: number,
+  opts?: { includeDrafts?: boolean }
+): Promise<number[]> {
+  const db = getDb();
+  const where = opts?.includeDrafts
+    ? eq(newsletters.season, season)
+    : and(eq(newsletters.season, season), eq(newsletters.status, 'published'));
   const rows = await db
     .select({ week: newsletters.week })
     .from(newsletters)
-    .where(eq(newsletters.season, season));
+    .where(where);
 
   return rows.map(r => r.week).sort((a, b) => a - b);
 }

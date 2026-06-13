@@ -739,13 +739,16 @@ async function finalizeNewsletter(
     html = `<html><body><pre>${JSON.stringify(newsletter, null, 2)}</pre></body></html>`;
   }
 
-  // ── Save newsletter to DB ──
+  // ── Save newsletter to DB as a DRAFT ──
+  // Staged generation NEVER autopublishes. The newsletter stays private until an
+  // admin explicitly publishes it (POST /api/newsletter/publish). No Discord here.
   await saveNewsletter(
     season,
     week,
     leagueName,
     newsletterWithMeta as Parameters<typeof saveNewsletter>[3],
     html,
+    { status: 'draft', episodeType },
   );
 
   await updateStagedNewsletter(season, week, { status: 'completed' });

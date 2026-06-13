@@ -1,6 +1,26 @@
 import { TradeAsset, TradeWants } from './user-store';
-import { getAllPlayersCached, getTeamsData, getRegularSeasonRecords } from '@/lib/utils/sleeper-api';
-import { LEAGUE_IDS, CURRENT_SEASON, getLeagueIdForSeason } from '@/lib/constants/league';
+import { getAllPlayersCached } from '@/lib/utils/sleeper-api';
+import {
+  formatTradeBlockPickLabel,
+  loadPickSlotMap,
+  type PickSlotMap,
+} from '@/lib/server/draft-slot-order';
+import { formatValueTier, getPlayerValuesBySleeperId } from '@/lib/server/trade-values-cache';
+
+export type TradeBlockReportResult = {
+  teamName: string;
+  title: string;
+  narrative: string;
+  added: string[];
+  removed: string[];
+  wantsBefore?: string;
+  wantsAfter?: string;
+  wantsTagsAdded?: string[];
+  faabLabel?: string;
+  contactLabel?: string;
+  hashtag?: string;
+  updatedAt: string;
+};
 
 const DEBUG = process.env.TRADE_BLOCK_DEBUG === '1' || process.env.TRADE_BLOCK_DEBUG === 'true';
 
@@ -48,62 +68,29 @@ function assetToKey(asset: TradeAsset): string {
   return '';
 }
 
-type PickSlotMap = { season: number; slotByTeam: Record<string, number> };
-
-async function loadPickSlotMap(): Promise<PickSlotMap | null> {
-  try {
-    const targetSeason = Number(CURRENT_SEASON);
-    // Slots are determined by prior-season standings (worst team = slot 1)
-    const sourceLeagueSeason = String(targetSeason - 1);
-    const standingsLeagueId = getLeagueIdForSeason(sourceLeagueSeason) || LEAGUE_IDS.CURRENT;
-
-    const [rawTeams, regularRecords] = await Promise.all([
-      getTeamsData(standingsLeagueId),
-      getRegularSeasonRecords(standingsLeagueId).catch(() => null),
-    ]);
-
-    const teams = regularRecords
-      ? rawTeams.map((t) => { const r = regularRecords.get(t.rosterId); return r ? { ...t, wins: r.wins, losses: r.losses, ties: r.ties } : t; })
-      : rawTeams;
-
-    const sorted = [...teams].sort((a, b) => {
-      if (a.wins !== b.wins) return a.wins - b.wins;
-      if (a.losses !== b.losses) return b.losses - a.losses;
-      if (a.fpts !== b.fpts) return a.fpts - b.fpts;
-      if (a.fptsAgainst !== b.fptsAgainst) return a.fptsAgainst - b.fptsAgainst;
-      return a.teamName.localeCompare(b.teamName);
-    });
-
-    const slotByTeam: Record<string, number> = {};
-    sorted.forEach((team, index) => { slotByTeam[team.teamName] = index + 1; });
-
-    return { season: targetSeason, slotByTeam };
-  } catch {
-    return null;
-  }
-}
-
-function formatPickLabel(asset: { year: number; round: number; originalTeam?: string }, ownerTeam: string, slotMap: PickSlotMap | null): string {
-  const round = asset.round === 1 ? '1st' : asset.round === 2 ? '2nd' : asset.round === 3 ? '3rd' : `${asset.round}th`;
-  const slot = (slotMap && asset.year === slotMap.season && asset.originalTeam)
-    ? slotMap.slotByTeam[asset.originalTeam]
-    : undefined;
-  const pickPart = slot != null ? `${round} Round Pick ${slot}` : `${round} Round`;
-  const origPart = asset.originalTeam && asset.originalTeam !== ownerTeam ? ` (${asset.originalTeam})` : '';
-  return `${asset.year} ${pickPart}${origPart}`;
-}
-
-async function assetToLabel(asset: TradeAsset, players: Record<string, { first_name?: string; last_name?: string; position?: string; team?: string }>, ownerTeam: string, slotMap: PickSlotMap | null): Promise<string> {
+async function assetToLabel(
+  asset: TradeAsset,
+  players: Record<string, { first_name?: string; last_name?: string; position?: string; team?: string }>,
+  ownerTeam: string,
+  slotMap: PickSlotMap | null,
+  playerValues: Map<string, number>,
+): Promise<string> {
   if (asset.type === 'player') {
     const player = players[asset.playerId];
     if (player) {
-      const name = `${player.first_name ?? ''} ${player.last_name ?? ''}`.trim();
-      return name || asset.playerId;
+      const name = `${player.first_name ?? ''} ${player.last_name ?? ''}`.trim() || asset.playerId;
+      const pos = player.position || '';
+      const nfl = player.team || '';
+      const meta = [pos, nfl].filter(Boolean).join(', ');
+      const base = meta ? `${name} (${meta})` : name;
+      const val = playerValues.get(asset.playerId);
+      const tier = val != null ? formatValueTier(val) : null;
+      return tier ? `${base} · ${tier}` : base;
     }
     return asset.playerId;
   }
   if (asset.type === 'pick') {
-    return formatPickLabel(asset, ownerTeam, slotMap);
+    return formatTradeBlockPickLabel(asset, ownerTeam, slotMap);
   }
   if (asset.type === 'faab') {
     return `$${asset.amount ?? 0} FAAB`;
@@ -111,10 +98,64 @@ async function assetToLabel(asset: TradeAsset, players: Record<string, { first_n
   return 'Unknown';
 }
 
+function contactMethodLabel(method: string | undefined): string | undefined {
+  if (!method) return undefined;
+  const labels: Record<string, string> = {
+    text: 'Text message (see trade block page)',
+    discord: 'Discord',
+    snap: 'Snapchat (see trade block page)',
+    sleeper: 'Sleeper DM',
+  };
+  return labels[method] ?? method;
+}
+
+function resolveEmbedTitle(diff: DiffResult): string {
+  const faabAdded = diff.faabChanged && diff.faabAfter != null && diff.faabBefore == null;
+  const faabRemoved = diff.faabChanged && diff.faabBefore != null && diff.faabAfter == null;
+  const hasAdd = diff.addedPlayers.length > 0 || diff.addedPicks.length > 0 || faabAdded;
+  const hasRemove = diff.removedPlayers.length > 0 || diff.removedPicks.length > 0 || faabRemoved;
+  const wantsOnly =
+    !hasAdd &&
+    !hasRemove &&
+    (diff.lookingForChanged || diff.addedPositions.length > 0 || diff.addedPickTags.length > 0);
+  const metaOnly = !hasAdd && !hasRemove && !wantsOnly && (diff.faabChanged || diff.contactChanged);
+
+  if (hasAdd && !hasRemove) return '📤 On the Block';
+  if (hasRemove && !hasAdd) return '📥 Off the Block';
+  if (hasAdd && hasRemove) return '🔄 Block Updated';
+  if (wantsOnly) return '🎯 Wants Updated';
+  if (metaOnly) return '📋 Trade Block Updated';
+  return '🔔 Trade Block Update';
+}
+
+function buildNarrativeOnly(parts: string[]): string {
+  return parts.filter(Boolean).join(' ').trim();
+}
+
 function pickToLabel(asset: TradeAsset, ownerTeam: string, slotMap: PickSlotMap | null): string {
   if (asset.type !== 'pick') return '';
-  return formatPickLabel(asset, ownerTeam, slotMap);
+  return formatTradeBlockPickLabel(asset, ownerTeam, slotMap);
 }
+
+const FAAB_TEMPLATES = {
+  add: [
+    'Sources say {team} are also open to moving ${amount} FAAB.',
+    'Per sources, {team} have made ${amount} FAAB available in trade talks.',
+  ],
+  remove: [
+    'Sources say {team} are no longer shopping their FAAB.',
+    '{team} have pulled FAAB off the block, per league sources.',
+  ],
+  update: [
+    'Sources say {team} adjusted their FAAB ask to ${amount}.',
+    'Per sources, {team} are now listening on ${amount} FAAB.',
+  ],
+};
+
+const CONTACT_TEMPLATES = [
+  'A {team} source says preferred contact is now via {method}.',
+  'Per someone close to the {team}, reach out on {method} for trade talks.',
+];
 
 const POSITIONAL_TAGS = new Set(['QB', 'RB', 'WR', 'TE', 'K', 'DEF']);
 const PICK_TAGS = new Set(['1ST', '2ND', '3RD']);
@@ -601,7 +642,8 @@ async function selectHeadliners(
   removedPlayers: TradeAsset[],
   players: Record<string, { first_name?: string; last_name?: string; position?: string; team?: string }>,
   ownerTeam: string,
-  slotMap: PickSlotMap | null
+  slotMap: PickSlotMap | null,
+  playerValues: Map<string, number>,
 ): Promise<string[]> {
   // Build set of player IDs already mentioned in the message
   const alreadyMentioned = new Set<string>();
@@ -628,12 +670,12 @@ async function selectHeadliners(
 
   const labels: string[] = [];
   for (const asset of candidates) {
-    labels.push(await assetToLabel(asset, players, ownerTeam, slotMap));
+    labels.push(await assetToLabel(asset, players, ownerTeam, slotMap, playerValues));
   }
   return labels;
 }
 
-export async function buildTradeBlockReport(ctx: NarrativeContext): Promise<string | null> {
+export async function buildTradeBlockReport(ctx: NarrativeContext): Promise<TradeBlockReportResult | null> {
   const { teamName, diff, currentPlayers, baseUrl, updatedAt, leagueContext } = ctx;
 
   const hasPlayerChanges = diff.addedPlayers.length > 0 || diff.removedPlayers.length > 0;
@@ -645,9 +687,10 @@ export async function buildTradeBlockReport(ctx: NarrativeContext): Promise<stri
     return null;
   }
 
-  const [players, slotMap] = await Promise.all([
+  const [players, slotMap, playerValues] = await Promise.all([
     getAllPlayersCached().catch(() => ({} as Record<string, { first_name?: string; last_name?: string; position?: string; team?: string }>)),
     loadPickSlotMap().catch(() => null),
+    getPlayerValuesBySleeperId().catch(() => new Map<string, number>()),
   ]);
 
   const seed = simpleHash(`${teamName}|${updatedAt}|${JSON.stringify(diff)}`);
@@ -659,6 +702,7 @@ export async function buildTradeBlockReport(ctx: NarrativeContext): Promise<stri
 
   if (DEBUG) {
     console.log(`[trade-block-narrative][${teamName}] seed: ${seed}`);
+    console.log(`[trade-block-narrative][${teamName}] pick slots loaded:`, Boolean(slotMap));
     console.log(`[trade-block-narrative][${teamName}] diff:`, {
       addedPlayers: diff.addedPlayers.length,
       removedPlayers: diff.removedPlayers.length,
@@ -678,8 +722,8 @@ export async function buildTradeBlockReport(ctx: NarrativeContext): Promise<stri
     parts.push(pickTemplate(OPENERS, rng));
   }
 
-  const addedPlayerLabels = await Promise.all(diff.addedPlayers.map((a) => assetToLabel(a, players, teamName, slotMap)));
-  const removedPlayerLabels = await Promise.all(diff.removedPlayers.map((a) => assetToLabel(a, players, teamName, slotMap)));
+  const addedPlayerLabels = await Promise.all(diff.addedPlayers.map((a) => assetToLabel(a, players, teamName, slotMap, playerValues)));
+  const removedPlayerLabels = await Promise.all(diff.removedPlayers.map((a) => assetToLabel(a, players, teamName, slotMap, playerValues)));
   const addedPickLabels = diff.addedPicks.map(a => pickToLabel(a, teamName, slotMap));
   const removedPickLabels = diff.removedPicks.map(a => pickToLabel(a, teamName, slotMap));
 
@@ -777,7 +821,7 @@ export async function buildTradeBlockReport(ctx: NarrativeContext): Promise<stri
   // SUPPORTING DETAILS: Headliners (if context exists) and market intel
   // Only add headliners if we have lookingFor or tags (provides context for what's available)
   if (contextParts.length > 0 && currentPlayers.length > 0) {
-    const headliners = await selectHeadliners(diff.addedPlayers, currentPlayers, diff.removedPlayers, players, teamName, slotMap);
+    const headliners = await selectHeadliners(diff.addedPlayers, currentPlayers, diff.removedPlayers, players, teamName, slotMap, playerValues);
     if (headliners.length > 0) {
       const headlinerList = formatList(headliners);
       const verb = headliners.length === 1 ? 'is' : 'are';
@@ -841,17 +885,44 @@ export async function buildTradeBlockReport(ctx: NarrativeContext): Promise<stri
       contextParts.push(marketInsights[0]);
     }
   }
+
+  // FAAB changes
+  if (diff.faabChanged) {
+    if (diff.faabAfter != null && diff.faabBefore == null) {
+      const tpl = pickTemplate(FAAB_TEMPLATES.add, rng);
+      contextParts.push(tpl.replace('{team}', teamName).replace('{amount}', String(diff.faabAfter)));
+    } else if (diff.faabAfter == null && diff.faabBefore != null) {
+      contextParts.push(pickTemplate(FAAB_TEMPLATES.remove, rng).replace('{team}', teamName));
+    } else if (diff.faabAfter != null) {
+      contextParts.push(
+        pickTemplate(FAAB_TEMPLATES.update, rng)
+          .replace('{team}', teamName)
+          .replace('{amount}', String(diff.faabAfter)),
+      );
+    }
+  }
+
+  // Contact preference changes (method only — never post phone/snap in Discord)
+  if (diff.contactChanged && diff.contactAfter) {
+    const method = contactMethodLabel(diff.contactAfter) ?? diff.contactAfter;
+    contextParts.push(
+      pickTemplate(CONTACT_TEMPLATES, rng).replace('{team}', teamName).replace('{method}', method),
+    );
+  }
   
   // ASSEMBLE: Main news → Context → Closer
   parts.push(...mainNews);
   parts.push(...contextParts);
 
-  // Check if we have any substantive content (not just opener/closer)
-  // This prevents posting empty messages when only contact/faab changed
-  const hasSubstantiveContent = hasPlayerChanges || hasPickChanges || hasTagChanges || 
-    (diff.lookingForChanged && diff.lookingForAfter);
+  const hasSubstantiveContent =
+    hasPlayerChanges ||
+    hasPickChanges ||
+    hasTagChanges ||
+    diff.faabChanged ||
+    diff.contactChanged ||
+    (diff.lookingForChanged && (diff.lookingForAfter || diff.lookingForBefore));
   
-  if (!hasSubstantiveContent || parts.length === 0) {
+  if (!hasSubstantiveContent || (mainNews.length === 0 && contextParts.length === 0)) {
     if (DEBUG) {
       console.log(`[trade-block-narrative][${teamName}] No substantive content, skipping message`);
     }
@@ -861,17 +932,57 @@ export async function buildTradeBlockReport(ctx: NarrativeContext): Promise<stri
   if (useCloser && rng() > 0.5) {
     parts.push(pickTemplate(CLOSERS, rng));
   }
-  
-  const tradeBlockUrl = baseUrl ? `${baseUrl}/trades/block` : '/trades/block';
-  const hashtag = TEAM_HASHTAGS[teamName] || '';
-  const hashtagSuffix = hashtag ? ` ${hashtag}` : '';
-  const message = parts.join(' ') + hashtagSuffix + `\n\n${tradeBlockUrl}`;
 
-  if (DEBUG) {
-    console.log(`[trade-block-narrative][${teamName}] message:`, message);
+  const added = [...addedPlayerLabels, ...addedPickLabels];
+  if (diff.faabChanged && diff.faabAfter != null && !added.some((l) => l.includes('FAAB'))) {
+    added.push(`$${diff.faabAfter} FAAB`);
   }
 
-  return message;
+  const removed = [...removedPlayerLabels, ...removedPickLabels];
+
+  const wantsTagsAdded = [
+    ...diff.addedPositions,
+    ...formatPickTags(diff.addedPickTags),
+  ];
+
+  let faabLabel: string | undefined;
+  if (diff.faabChanged) {
+    if (diff.faabAfter != null) faabLabel = `$${diff.faabAfter} available`;
+    else if (diff.faabBefore != null) faabLabel = 'No longer available';
+  } else if (diff.faabAfter != null) {
+    faabLabel = `$${diff.faabAfter} on block`;
+  }
+
+  const contactLabel =
+    diff.contactAfter != null
+      ? contactMethodLabel(diff.contactAfter)
+      : diff.contactChanged
+        ? 'Not specified'
+        : undefined;
+
+  const hashtag = TEAM_HASHTAGS[teamName] || undefined;
+  const narrative = buildNarrativeOnly(parts);
+
+  const result: TradeBlockReportResult = {
+    teamName,
+    title: resolveEmbedTitle(diff),
+    narrative,
+    added,
+    removed,
+    wantsBefore: diff.lookingForChanged ? diff.lookingForBefore : undefined,
+    wantsAfter: diff.lookingForChanged ? diff.lookingForAfter : undefined,
+    wantsTagsAdded: wantsTagsAdded.length > 0 ? wantsTagsAdded : undefined,
+    faabLabel,
+    contactLabel: diff.contactChanged || diff.contactAfter ? contactLabel : undefined,
+    hashtag,
+    updatedAt,
+  };
+
+  if (DEBUG) {
+    console.log(`[trade-block-narrative][${teamName}] report:`, result);
+  }
+
+  return result;
 }
 
 export function getTradeBlockBaseUrl(): string | null {

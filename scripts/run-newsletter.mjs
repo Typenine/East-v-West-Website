@@ -1,9 +1,14 @@
 #!/usr/bin/env node
 /**
  * Automated Newsletter Runner (no HTTP)
- * - Respects schedule gating and strict publish gating
- * - Idempotent: checks DB for existing newsletter before writing
+ * - Respects schedule gating and strict quality gating
+ * - Idempotent: checks DB for an existing newsletter (incl. drafts) before writing
  * - Free-tier safe by default (NEWSLETTER_MAX_CONCURRENCY=1)
+ *
+ * IMPORTANT: This runner NEVER publishes. Generated newsletters are saved as
+ * DRAFTS (status:'draft') and are not publicly visible until an admin explicitly
+ * publishes them via the admin UI / POST /api/newsletter/publish. It also never
+ * posts to Discord. Both side effects are reserved for the explicit publish action.
  */
 
 import process from 'node:process';
@@ -246,11 +251,12 @@ async function main() {
 
   const { loadNewsletter, saveNewsletter, loadBotMemory, saveBotMemory, loadForecastRecords, saveForecastRecords, loadPendingPicks, savePendingPicks, loadPreviousNewsletter, extractPredictionsFromNewsletter } = await importDb();
 
-  // Idempotency check (skip for preview)
+  // Idempotency check (skip for preview). includeDrafts:true so we don't clobber an
+  // existing draft (possibly hand-edited) on every scheduled run.
   if (!args.preview) {
-    const existing = await loadNewsletter(target.season, target.storageWeek);
+    const existing = await loadNewsletter(target.season, target.storageWeek, { includeDrafts: true });
     if (existing) {
-      console.log('[Runner] Newsletter already exists for target. Exiting 0.');
+      console.log('[Runner] Newsletter already exists for target (draft or published). Exiting 0.');
       process.exit(0);
     }
   }
@@ -427,9 +433,13 @@ async function main() {
     savePendingPicks(target.season, result.pendingPicks),
   ]);
 
-  await saveNewsletter(target.season, target.storageWeek, league.name || 'East v. West', result.newsletter, result.html);
+  // Save as DRAFT — never autopublish. Admin publishes manually later.
+  await saveNewsletter(target.season, target.storageWeek, league.name || 'East v. West', result.newsletter, result.html, {
+    status: 'draft',
+    episodeType: target.episodeType || 'regular',
+  });
 
-  console.log(`[Runner] Newsletter generated and saved. Season=${target.season}, Week=${target.storageWeek}, EpisodeType=${target.episodeType || 'regular'}`);
+  console.log(`[Runner] Newsletter generated and saved as DRAFT. Season=${target.season}, Week=${target.storageWeek}, EpisodeType=${target.episodeType || 'regular'} (not published, no Discord)`);
 }
 
 main().catch((err) => {

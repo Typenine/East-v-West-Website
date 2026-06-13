@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server';
 import { loadDraftOwnershipForSeason } from '@/lib/server/trade-assets';
 import type { NextDraftOwnership } from '@/lib/server/trade-assets';
-import { getTeamsData, getLeagueWinnersBracket, getRegularSeasonRecords, type SleeperBracketGame, derivePodiumFromWinnersBracketByYear } from '@/lib/utils/sleeper-api';
+import { buildPlayoffAwareSlotOrder } from '@/lib/server/draft-slot-order';
+import { getTeamsData } from '@/lib/utils/sleeper-api';
 import { CURRENT_SEASON, LEAGUE_IDS, getLeagueIdForSeason } from '@/lib/constants/league';
 
 export async function GET(req: Request) {
@@ -108,177 +109,23 @@ export async function GET(req: Request) {
           }
         : (ownershipFromActiveLeague || ownershipFromStandingsLeague);
 
-    const [rawTeams, regularRecords] = await Promise.all([
+    const [rawTeams, slotOrderEntries] = await Promise.all([
       getTeamsData(standingsLeagueId),
-      getRegularSeasonRecords(standingsLeagueId).catch(() => null),
+      buildPlayoffAwareSlotOrder(targetSeason),
     ]);
     if (!ownership) {
       return NextResponse.json({ error: 'ownership_unavailable' }, { status: 503 });
     }
 
     const tradeSummaries = ownership.tradeSummaries ?? {};
-    // Override wins/losses with regular-season-only counts (Sleeper roster totals include consolation games)
-    const teams = regularRecords
-      ? rawTeams.map((t) => { const r = regularRecords.get(t.rosterId); return r ? { ...t, wins: r.wins, losses: r.losses, ties: r.ties } : t; })
-      : rawTeams;
+    const teams = rawTeams;
     const teamByRosterId = new Map(teams.map((t) => [t.rosterId, t] as const));
-
-    // Comparator: worse regular-season standing first
-    const byStandingAsc = (a: typeof teams[number], b: typeof teams[number]) => {
-      if (a.wins !== b.wins) return a.wins - b.wins;
-      if (a.losses !== b.losses) return b.losses - a.losses;
-      if (a.fpts !== b.fpts) return a.fpts - b.fpts;
-      if (a.fptsAgainst !== b.fptsAgainst) return a.fptsAgainst - b.fptsAgainst;
-      return a.teamName.localeCompare(b.teamName);
-    };
-
-    // Use winners bracket to determine playoff participants and finalists
-    let slotOrder: Array<{ slot: number; rosterId: number; team: string; record: { wins: number; losses: number; ties: number; fpts: number; fptsAgainst: number } }> = [];
-    try {
-      const winners: SleeperBracketGame[] = await getLeagueWinnersBracket(standingsLeagueId, { forceFresh: true }).catch(() => []);
-      const participantIds = new Set<number>();
-      for (const g of winners) {
-        if (g.t1 != null) participantIds.add(g.t1);
-        if (g.t2 != null) participantIds.add(g.t2);
-      }
-
-      // Map loser -> elimination round (round they lost)
-      const eliminatedInRound = new Map<number, number>();
-      for (const g of winners) {
-        const r = g.r ?? 0;
-        if (g.t1 != null && g.t2 != null && g.w != null) {
-          const loser = g.w === g.t1 ? g.t2 : g.t1;
-          if (loser != null && !eliminatedInRound.has(loser)) eliminatedInRound.set(loser, r);
-        }
-      }
-
-      // Identify finalists and third-place game using semifinal winners/losers
-      let champId: number | null = null;
-      let runnerId: number | null = null;
-      let thirdWinnerId: number | null = null;
-      let thirdLoserId: number | null = null;
-      let maxRound = 0;
-      if (winners.length > 0) {
-        maxRound = Math.max(...winners.map((g) => g.r ?? 0));
-        const semiRound = maxRound - 1;
-        const lastRoundGames = winners.filter((g) => (g.r ?? 0) === maxRound && g.t1 != null && g.t2 != null);
-        const semiGames = winners.filter((g) => (g.r ?? 0) === semiRound && g.t1 != null && g.t2 != null);
-        const semiWinners = new Set<number>();
-        const semiLosers = new Set<number>();
-        for (const sg of semiGames) {
-          if (sg.w != null) semiWinners.add(sg.w);
-          const loser = sg.l ?? (sg.w === sg.t1 ? sg.t2 ?? null : sg.t1 ?? null);
-          if (loser != null) semiLosers.add(loser);
-        }
-        const finalGame = lastRoundGames.find((g) => (semiWinners.has(g.t1 as number) && semiWinners.has(g.t2 as number)) && g.w != null);
-        const thirdGame = lastRoundGames.find((g) => (semiLosers.has(g.t1 as number) && semiLosers.has(g.t2 as number)) && g.w != null);
-        if (finalGame) {
-          champId = finalGame.w ?? null;
-          runnerId = finalGame.l ?? (finalGame.w === finalGame.t1 ? (finalGame.t2 ?? null) : (finalGame.t1 ?? null));
-        }
-        if (thirdGame) {
-          thirdWinnerId = thirdGame.w ?? null;
-          thirdLoserId = thirdGame.l ?? (thirdGame.w === thirdGame.t1 ? (thirdGame.t2 ?? null) : (thirdGame.t1 ?? null));
-        }
-      }
-
-      // Fallback: derive podium by year if finalists not detected
-      if ((champId == null || runnerId == null) && ownership?.season) {
-        const yearStr = String(Number(ownership.season) - 1);
-        try {
-          const podium = await derivePodiumFromWinnersBracketByYear(yearStr, { forceFresh: true });
-          if (podium) {
-            const nameToRoster = new Map(teams.map((t) => [t.teamName, t.rosterId] as const));
-            if (champId == null && podium.champion && nameToRoster.has(podium.champion)) {
-              champId = nameToRoster.get(podium.champion)!;
-            }
-            if (runnerId == null && podium.runnerUp && nameToRoster.has(podium.runnerUp)) {
-              runnerId = nameToRoster.get(podium.runnerUp)!;
-            }
-          }
-        } catch {}
-      }
-
-      if (participantIds.size > 0 && champId != null && runnerId != null) {
-        const byRoster = new Map(teams.map((t) => [t.rosterId, t] as const));
-        const nonPlayoff = teams.filter((t) => !participantIds.has(t.rosterId)).sort(byStandingAsc);
-        const playoffNonFinalists = teams.filter((t) => participantIds.has(t.rosterId) && t.rosterId !== champId && t.rosterId !== runnerId);
-        // Bucket playoff non-finalists by elimination round, lowest round first
-        const rounds = Array.from(new Set(playoffNonFinalists.map((t) => eliminatedInRound.get(t.rosterId) ?? Number.MAX_SAFE_INTEGER)))
-          .filter((r) => Number.isFinite(r))
-          .sort((a, b) => (a as number) - (b as number)) as number[];
-        const playoffOrdered: Array<typeof teams[number]> = [];
-        const semiRound = maxRound > 0 ? maxRound - 1 : -1;
-        for (const r of rounds) {
-          const bucket = playoffNonFinalists.filter((t) => (eliminatedInRound.get(t.rosterId) ?? Number.MAX_SAFE_INTEGER) === r);
-          if (r === semiRound && thirdWinnerId != null && thirdLoserId != null) {
-            bucket.sort((a, b) => {
-              const aId = a.rosterId;
-              const bId = b.rosterId;
-              const aTP = aId === thirdWinnerId || aId === thirdLoserId;
-              const bTP = bId === thirdWinnerId || bId === thirdLoserId;
-              if (aTP && bTP) {
-                if (aId === thirdLoserId && bId === thirdWinnerId) return -1; // 4th place first
-                if (aId === thirdWinnerId && bId === thirdLoserId) return 1;  // then 3rd place
-              }
-              return byStandingAsc(a, b);
-            });
-          } else {
-            bucket.sort(byStandingAsc);
-          }
-          playoffOrdered.push(...bucket);
-        }
-        // Ensure semifinal losers (third-place game participants) occupy picks 9–10 in loser/winner order
-        let playoffOrderedAdjusted = playoffOrdered;
-        if (thirdWinnerId != null && thirdLoserId != null) {
-          const withoutThirds = playoffOrdered.filter((t) => t.rosterId !== thirdLoserId && t.rosterId !== thirdWinnerId);
-          const thirdLoserTeam = byRoster.get(thirdLoserId);
-          const thirdWinnerTeam = byRoster.get(thirdWinnerId);
-          if (thirdLoserTeam && thirdWinnerTeam) {
-            playoffOrderedAdjusted = [...withoutThirds, thirdLoserTeam, thirdWinnerTeam];
-          }
-        }
-        const finalists = [byRoster.get(runnerId)!, byRoster.get(champId)!];
-
-        const ordered = [
-          ...nonPlayoff,
-          ...playoffOrderedAdjusted,
-          finalists[0], // runner-up gets pick 11
-          finalists[1], // champion gets pick 12
-        ].filter(Boolean);
-
-        slotOrder = ordered.map((team, index) => ({
-          slot: index + 1,
-          rosterId: team!.rosterId,
-          team: team!.teamName,
-          record: {
-            wins: team!.wins,
-            losses: team!.losses,
-            ties: team!.ties,
-            fpts: team!.fpts,
-            fptsAgainst: team!.fptsAgainst,
-          },
-        }));
-      }
-    } catch {
-      // fall back to record-only ordering
-    }
-
-    if (slotOrder.length === 0) {
-      const fallback = [...teams].sort(byStandingAsc);
-      slotOrder = fallback.map((team, index) => ({
-        slot: index + 1,
-        rosterId: team.rosterId,
-        team: team.teamName,
-        record: {
-          wins: team.wins,
-          losses: team.losses,
-          ties: team.ties,
-          fpts: team.fpts,
-          fptsAgainst: team.fptsAgainst,
-        },
-      }));
-    }
+    const slotOrder = slotOrderEntries.map((entry) => ({
+      slot: entry.slot,
+      rosterId: entry.rosterId,
+      team: entry.team,
+      record: entry.record,
+    }));
 
     const slotByRoster = new Map<number, number>();
     for (const entry of slotOrder) slotByRoster.set(entry.rosterId, entry.slot);

@@ -89,6 +89,25 @@ const PERSONAL_ATTACK_PATTERNS = [
   /\b(stupidest?|dumbest?|worst)\s+(?:owner|manager|team|move)\b/i,
 ];
 
+// Raw trade/market/asset value disclosure. Internal value numbers (FantasyCalc /
+// KTC market values, calculator scores, dynasty asset values) may inform the bots'
+// reasoning but must never appear as raw numbers in public-facing text. These
+// patterns flag value-word↔number adjacency and fixed calculator terms WITHOUT
+// catching normal football stats: scores (124.5), records (8-2), FAAB ($23),
+// draft picks (1.08), weeks (Week 14), or years (2026) carry no "value" word.
+const VALUE_DISCLOSURE_PATTERNS: RegExp[] = [
+  // "value of 2112", "value of ~2,112", "valued at 2112"
+  /\bvalu(?:e\s+of|ed\s+at)\s+(?:about|around|roughly|~|\$)*\s*\d/i,
+  // "<number> value" e.g. "2112 value" (require 2+ digits so "a 1 value" prose is rare)
+  /\b\d{2,}[\d,.]*\s+value\b/i,
+  // "market/trade/asset/dynasty value: 2112" or "... value of 2112" or "... value 2112"
+  /\b(?:market|trade|asset|dynasty|player|pick)\s+value\b\s*(?:of|:|=)?\s*(?:about|around|roughly|~|\$)*\s*\d/i,
+  // Fixed calculator/score terms — flag even without an adjacent number
+  /\btrade\s+value\s+score\b/i,
+  /\bcalculator\s+value\b/i,
+  /\b(?:ktc|keeptradecut|fantasy\s*calc)\s+value\b/i,
+];
+
 const SECTION_WORD_LIMITS: Record<string, number> = {
   Intro: 450,
   FinalWord: 350,
@@ -155,6 +174,19 @@ const RULES: Rule[] = [
       return null;
     },
     suggestion: 'Criticize the team or decision, not the person.',
+  },
+  {
+    id: 'raw-value-disclosure',
+    severity: 'medium',
+    description: 'Exposes a raw trade/market/asset value number or calculator score',
+    check: (text) => {
+      for (const pat of VALUE_DISCLOSURE_PATTERNS) {
+        const m = text.match(pat);
+        if (m) return m[0];
+      }
+      return null;
+    },
+    suggestion: 'Do not state raw trade/market/asset value numbers or calculator scores in public text. Describe the gap qualitatively (lopsided, fair, a steal) instead. Normal stats (scores, records, FAAB, picks, weeks, years) are fine.',
   },
   {
     id: 'excessive-length',

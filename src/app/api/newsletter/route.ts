@@ -58,11 +58,9 @@ import { buildPickOwnershipContext, enrichDerivedTradePickLabels, buildLeagueRos
 import { getHeadToHeadAllTime } from '@/lib/utils/headtohead';
 import { fetchTradesAllTime } from '@/lib/utils/trades';
 import { buildOffseasonTradeFacts, buildOffseasonTradesContextBlock, type OffseasonTradeFact } from '@/lib/newsletter/offseason-trades';
-import { postToDiscordWebhook, buildNewsletterEmbed } from '@/lib/utils/discord';
-import { getDb } from '@/server/db/client';
 import type { BotSettingsRow } from '@/server/db/personality-queries';
-import { discordNotifications } from '@/server/db/schema';
-import { eq, and } from 'drizzle-orm';
+// NOTE: Discord/DB-write imports were removed — generation no longer posts to Discord
+// or writes published rows. The Discord announcement lives in /api/newsletter/publish.
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -736,6 +734,10 @@ export async function GET(request: NextRequest) {
   const listParam = searchParams.get('list');
   const progressParam = searchParams.get('progress');
 
+  // Drafts are only ever exposed to authenticated admins that explicitly ask for
+  // them (?draft=1). Public visitors always get published newsletters only.
+  const includeDrafts = searchParams.get('draft') === '1' && (await isAdmin(request));
+
   try {
     // Get current NFL state
     const state = await getSleeperState();
@@ -758,7 +760,7 @@ export async function GET(request: NextRequest) {
 
     // If list=true, just return available weeks
     if (listParam === 'true') {
-      const weeks = await listNewsletterWeeks(seasonNum);
+      const weeks = await listNewsletterWeeks(seasonNum, { includeDrafts });
       return NextResponse.json({
         success: true,
         season: seasonNum,
@@ -769,7 +771,7 @@ export async function GET(request: NextRequest) {
     const week = weekParam ? parseInt(weekParam, 10) : state.week;
 
     // Load from database
-    const stored = await loadNewsletter(seasonNum, week);
+    const stored = await loadNewsletter(seasonNum, week, { includeDrafts });
 
     if (stored) {
       return NextResponse.json({
@@ -1561,8 +1563,10 @@ export async function POST(request: NextRequest) {
     }
 
     // ── SYNC MODE (default): check cache unless force regenerate ──
+    // Admin-only generation path — includeDrafts so an existing draft is returned
+    // instead of being needlessly regenerated.
     if (!forceRegenerate) {
-      const existing = await loadNewsletter(seasonNum, week);
+      const existing = await loadNewsletter(seasonNum, week, { includeDrafts: true });
       if (existing) {
         return NextResponse.json({
           success: true,
@@ -1959,58 +1963,24 @@ export async function POST(request: NextRequest) {
       console.warn(`[Newsletter] Quality gate: ${playerIdWarnings.length} unresolved player ID(s) found in HTML:`, playerIdWarnings);
     }
 
-    // Save newsletter to database (memory was already persisted above)
-    await saveNewsletter(seasonNum, week, leagueNameFromIngest || 'East v. West', result.newsletter as { meta: { leagueName: string; week: number; date: string; season: number }; sections: Array<{ type: string; data: unknown }> }, result.html);
+    // Save newsletter to database as a DRAFT (memory was already persisted above).
+    // Generation NEVER autopublishes — the newsletter is not publicly visible until
+    // an admin explicitly publishes it via POST /api/newsletter/publish.
+    await saveNewsletter(
+      seasonNum, week, leagueNameFromIngest || 'East v. West',
+      result.newsletter as { meta: { leagueName: string; week: number; date: string; season: number }; sections: Array<{ type: string; data: unknown }> },
+      result.html,
+      { status: 'draft', episodeType: episodeType || 'regular' },
+    );
 
     // Mark staged generation as completed (best-effort)
     void updateStagedNewsletter(seasonNum, week, { status: 'completed' }).catch(() => {});
 
-    console.log(`Newsletter generated and saved for Season ${season} Week ${week}${result.composeFailed ? ' (with fallback content)' : ''}`);
+    console.log(`Newsletter generated and saved as DRAFT for Season ${season} Week ${week}${result.composeFailed ? ' (with fallback content)' : ''}`);
 
-    // Post to Discord if webhook is configured and not already posted
-    const discordWebhookUrl = process.env.DISCORD_NEWSLETTER_WEBHOOK_URL;
-    const siteUrl = process.env.SITE_URL || 'https://eastvswest.football';
-    if (discordWebhookUrl) {
-      try {
-        const db = getDb();
-        const dedupeKey = `${seasonNum}-${week}`;
-        
-        // Check if already posted
-        const existing = await db
-          .select()
-          .from(discordNotifications)
-          .where(and(
-            eq(discordNotifications.notificationType, 'newsletter_published'),
-            eq(discordNotifications.dedupeKey, dedupeKey)
-          ))
-          .limit(1)
-          .catch(() => []);
-        
-        if (existing.length === 0) {
-          const embed = buildNewsletterEmbed({
-            season: seasonNum,
-            week,
-            siteUrl,
-          });
-          
-          const discordResult = await postToDiscordWebhook(discordWebhookUrl, { embeds: [embed] });
-          if (discordResult.success) {
-            await db.insert(discordNotifications).values({
-              notificationType: 'newsletter_published',
-              dedupeKey,
-              meta: { season: seasonNum, week },
-            }).catch(() => {});
-            console.log(`[Newsletter] Posted to Discord for Season ${seasonNum} Week ${week}`);
-          } else {
-            console.warn(`[Newsletter] Discord post failed: ${discordResult.error}`);
-          }
-        } else {
-          console.log(`[Newsletter] Already posted to Discord for Season ${seasonNum} Week ${week}`);
-        }
-      } catch (discordErr) {
-        console.warn('[Newsletter] Discord notification error (non-fatal):', discordErr);
-      }
-    }
+    // NOTE: Discord is intentionally NOT posted here. Generation must never trigger a
+    // webhook. The Discord announcement happens only from the explicit publish action
+    // (POST /api/newsletter/publish with sendDiscord).
 
     // Type-safe section access
     type NewsletterSection = { type: string; data: unknown };
