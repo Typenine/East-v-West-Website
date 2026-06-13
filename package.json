@@ -55,6 +55,7 @@
     "drizzle-kit": "0.26.0",
     "eslint": "^9",
     "eslint-config-next": "15.4.6",
+    "playwright": "^1.60.0",
     "tailwindcss": "^4",
     "tsx": "^4.19.2",
     "typescript": "^5",

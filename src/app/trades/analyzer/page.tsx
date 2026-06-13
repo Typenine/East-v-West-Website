@@ -30,11 +30,14 @@ interface SelectedAsset {
 }
 
 interface AnalysisResult {
-  rawRatio: number;
-  adjustedRatio: number;
+  ratio: number;
   verdict: string;
   winner: 'A' | 'B' | null;
-  diff: number;
+  diff: number;          // effective-value gap between sides
+  effA: number;          // effective total, Side A
+  effB: number;          // effective total, Side B
+  rawA: number;          // raw market total, Side A
+  rawB: number;          // raw market total, Side B
   sideAGrade: string;
   sideBGrade: string;
   notes: string[];
@@ -50,20 +53,24 @@ function getDisplayValue(asset: SelectedAsset, source: ValueSource): number {
   return asset.value;
 }
 
+// Monotonic by design: as a trade tilts further from fair (ratio → 0), the winner's
+// grade never drops and the loser's never rises. ratio is min(eff)/max(eff) ∈ [0,1].
 function getGradeLetter(ratio: number, isWinner: boolean): string {
-  if (ratio >= 0.95) return 'A';
-  if (ratio >= 0.90) return isWinner ? 'A-' : 'B+';
-  if (ratio >= 0.80) return isWinner ? 'B+' : 'B';
-  if (ratio >= 0.70) return isWinner ? 'B' : 'C+';
-  if (ratio >= 0.60) return isWinner ? 'B-' : 'C';
-  return isWinner ? 'A' : 'D';
+  if (ratio >= 0.92) return 'A';                 // fair zone — both sides
+  if (isWinner) return ratio >= 0.80 ? 'A' : 'A+';
+  if (ratio >= 0.80) return 'B+';
+  if (ratio >= 0.65) return 'B';
+  if (ratio >= 0.50) return 'C+';
+  if (ratio >= 0.40) return 'C';
+  if (ratio >= 0.30) return 'D';
+  return 'F';
 }
 
 function gradeColor(grade: string): string {
-  if (grade === 'A' || grade === 'A-') return '#22c55e';
+  if (grade === 'A+' || grade === 'A' || grade === 'A-') return '#22c55e';
   if (grade === 'B+' || grade === 'B') return '#eab308';
   if (grade === 'B-' || grade === 'C+') return '#f97316';
-  if (grade === 'C' || grade === 'D') return '#ef4444';
+  if (grade === 'C' || grade === 'D' || grade === 'F') return '#ef4444';
   return 'var(--muted)';
 }
 
@@ -93,33 +100,24 @@ function assetFromValue(v: TradeValue, isPick: boolean): SelectedAsset {
   };
 }
 
-// 1. Stud premium — applied to any player meeting the threshold (not just the single best).
-//    Slightly reduced per-tier vs single-player version since multiple players can qualify.
-function studMultiplier(value: number): number {
-  if (value >= 8500) return 1.13;
-  if (value >= 7000) return 1.09;
-  if (value >= 5500) return 1.06;
-  if (value >= 4000) return 1.03;
+// Stud premium — applied to any player meeting the threshold (not just the single best).
+// Thresholds are calibrated on the "avg" 0-10000 scale; callers pass a per-source-normalized
+// value (raw × studScale) so the same elite tier triggers regardless of which source is active.
+// (Age is intentionally NOT modeled — FC/KTC already price it into the raw value.)
+function studMultiplier(normValue: number): number {
+  if (normValue >= 8500) return 1.13;
+  if (normValue >= 7000) return 1.09;
+  if (normValue >= 5500) return 1.06;
+  if (normValue >= 4000) return 1.03;
   return 1.0;
 }
 
-// 2. Dynasty age curve — same current value ≠ same trade value. Upside matters.
-//    KTC/FC partially price this in but not fully; this adds dynasty-specific forward weight.
-function ageFactor(age: number | undefined): number {
-  if (age == null || age <= 0) return 1.0;
-  if (age <= 22) return 1.08;
-  if (age <= 24) return 1.04;
-  if (age <= 26) return 1.0;
-  if (age <= 28) return 0.95;
-  if (age <= 30) return 0.88;
-  return 0.80;
-}
-
-// 3. Depth discount — combines position-order cost (clutter) with value-relative cost (throwaway pieces).
-//    Takes whichever is more restrictive, so 4 benchwarmers and a 3rd roster piece both get penalized.
-function depthDiscount(idx: number, rawValue: number, dealBest: number): number {
+// Depth discount — combines position-order cost (clutter) with value-relative cost (throwaway pieces).
+// Takes whichever is more restrictive. The value ratio is relative to the SIDE'S OWN best player,
+// so a fine player isn't penalized merely because the other side happens to hold a bigger stud.
+function depthDiscount(idx: number, rawValue: number, sideBest: number): number {
   const posDiscount = idx <= 1 ? 1.0 : idx === 2 ? 0.92 : idx === 3 ? 0.85 : 0.78;
-  const ratio = dealBest > 0 ? rawValue / dealBest : 1;
+  const ratio = sideBest > 0 ? rawValue / sideBest : 1;
   const valDiscount = ratio >= 0.70 ? 1.0
     : ratio >= 0.50 ? 0.94
     : ratio >= 0.30 ? 0.86
@@ -128,94 +126,44 @@ function depthDiscount(idx: number, rawValue: number, dealBest: number): number 
   return Math.min(posDiscount, valDiscount);
 }
 
+// Single source of truth for a side's effective value. Stud premium rewards concentrated value;
+// depth discount penalizes clutter/throwaway pieces. Together these capture the consolidation
+// effect, so no separate consolidation bonus is needed anywhere downstream.
 function effectiveTotal(
   assets: SelectedAsset[],
   source: ValueSource,
-  dealBest: number,
-): { total: number; premiumAssets: string[]; discountApplied: boolean } {
-  if (!assets.length) return { total: 0, premiumAssets: [], discountApplied: false };
+  studScale: number,
+): { total: number; perPlayer: Map<string, number> } {
+  const perPlayer = new Map<string, number>();
+  if (!assets.length) return { total: 0, perPlayer };
   const sorted = [...assets].sort((a, b) => getDisplayValue(b, source) - getDisplayValue(a, source));
-  const premiumAssets: string[] = [];
-  let discountApplied = false;
+  const sideBest = getDisplayValue(sorted[0], source);
 
-  const total = sorted.reduce((sum, asset, idx) => {
+  let total = 0;
+  sorted.forEach((asset, idx) => {
     const raw = getDisplayValue(asset, source);
-    let v = raw;
+    const v = raw * studMultiplier(raw * studScale) * depthDiscount(idx, raw, sideBest);
+    perPlayer.set(asset.key, Math.round(v));
+    total += v;
+  });
 
-    // Age is already priced into KTC/FC raw values — applying it again double-counts.
-    // Age differences are surfaced in the notes chip, not the effective math.
-
-    // Stud premium for any qualifying player
-    const sm = studMultiplier(raw);
-    if (sm > 1.0) { v *= sm; premiumAssets.push(asset.name); }
-
-    // Depth discount
-    const dd = depthDiscount(idx, raw, dealBest);
-    if (dd < 1.0) discountApplied = true;
-    v *= dd;
-
-    return sum + v;
-  }, 0);
-
-  return { total, premiumAssets, discountApplied };
+  return { total: Math.round(total), perPlayer };
 }
 
-// Returns the adjusted effective value per player (mirrors effectiveTotal logic) for display purposes.
-function computePerPlayerEffectives(sideA: SelectedAsset[], sideB: SelectedAsset[], source: ValueSource): Map<string, number> {
-  const allAssets = [...sideA, ...sideB];
-  if (!allAssets.length) return new Map();
-  const dealBest = Math.max(...allAssets.map((a) => getDisplayValue(a, source)));
-  const result = new Map<string, number>();
-  for (const side of [sideA, sideB]) {
-    const sorted = [...side].sort((a, b) => getDisplayValue(b, source) - getDisplayValue(a, source));
-    sorted.forEach((asset, idx) => {
-      const raw = getDisplayValue(asset, source);
-      let v = raw;
-      v *= studMultiplier(raw);
-      v *= depthDiscount(idx, raw, dealBest);
-      result.set(asset.key, Math.round(v));
-    });
-  }
-  return result;
-}
+function analyzeTrade(sideA: SelectedAsset[], sideB: SelectedAsset[], source: ValueSource, studScale: number): AnalysisResult {
+  const rawA = sideA.reduce((s, a) => s + getDisplayValue(a, source), 0);
+  const rawB = sideB.reduce((s, a) => s + getDisplayValue(a, source), 0);
 
-function analyzeTrade(sideA: SelectedAsset[], sideB: SelectedAsset[], source: ValueSource): AnalysisResult {
-  const rawTotalA = sideA.reduce((s, a) => s + getDisplayValue(a, source), 0);
-  const rawTotalB = sideB.reduce((s, a) => s + getDisplayValue(a, source), 0);
-
-  if (sideA.length === 0 || sideB.length === 0 || (rawTotalA === 0 && rawTotalB === 0)) {
-    return { rawRatio: 1, adjustedRatio: 1, verdict: 'Add assets to analyze', winner: null, diff: 0, sideAGrade: '—', sideBGrade: '—', notes: [], counterHint: null };
+  if (sideA.length === 0 || sideB.length === 0 || (rawA === 0 && rawB === 0)) {
+    return { ratio: 1, verdict: 'Add assets to analyze', winner: null, diff: 0, effA: rawA, effB: rawB, rawA, rawB, sideAGrade: '—', sideBGrade: '—', notes: [], counterHint: null };
   }
 
-  const dealBest = Math.max(...[...sideA, ...sideB].map((a) => getDisplayValue(a, source)));
-
-  const { total: effA, premiumAssets: premA, discountApplied: discA } = effectiveTotal(sideA, source, dealBest);
-  const { total: effB, premiumAssets: premB, discountApplied: discB } = effectiveTotal(sideB, source, dealBest);
+  const effA = effectiveTotal(sideA, source, studScale).total;
+  const effB = effectiveTotal(sideB, source, studScale).total;
 
   const notes: string[] = [];
 
-  const max = Math.max(effA, effB, 1);
-  const rawRatio = Math.min(effA, effB) / max;
-  let adjustedRatio = rawRatio;
-
-  // Best player advantage (affects ratio only, no note)
-  const bestA = Math.max(...sideA.map((a) => getDisplayValue(a, source)));
-  const bestB = Math.max(...sideB.map((a) => getDisplayValue(a, source)));
-  const bestSide = bestA >= bestB ? 'A' : 'B';
-  if (Math.abs(bestA - bestB) > 1500) {
-    if ((bestSide === 'A' && effA >= effB) || (bestSide === 'B' && effB >= effA))
-      adjustedRatio = Math.max(0, adjustedRatio - 0.03);
-  }
-
-  // Piece imbalance bonus (affects ratio only, no note)
-  const pieceDiff = Math.abs(sideA.length - sideB.length);
-  if (pieceDiff >= 1) {
-    const consolidationBonus = Math.min(0.09, pieceDiff * 0.03);
-    adjustedRatio = Math.min(1.0, adjustedRatio + consolidationBonus);
-  }
-
-  const picksA = sideA.filter((a) => a.isPick).length;
-  const picksB = sideB.filter((a) => a.isPick).length;
+  const ratio = Math.min(effA, effB) / Math.max(effA, effB, 1);
 
   const ageA = getAvgAge(sideA);
   const ageB = getAvgAge(sideB);
@@ -223,23 +171,22 @@ function analyzeTrade(sideA: SelectedAsset[], sideB: SelectedAsset[], source: Va
     notes.push(`Side ${ageA < ageB ? 'A' : 'B'} gets younger (avg ${Math.min(ageA, ageB).toFixed(1)} vs ${Math.max(ageA, ageB).toFixed(1)})`);
 
   const winner: 'A' | 'B' | null = effA > effB ? 'A' : effB > effA ? 'B' : null;
-  // 4. Fix: use effective diff so counter hint winner is consistent with verdict
   const diff = Math.abs(effA - effB);
 
   let verdict: string;
-  if (adjustedRatio >= 0.92) verdict = 'Fair Trade';
-  else if (adjustedRatio >= 0.80) verdict = 'Slight Edge';
-  else if (adjustedRatio >= 0.65) verdict = 'Uneven';
+  if (ratio >= 0.92) verdict = 'Fair Trade';
+  else if (ratio >= 0.80) verdict = 'Slight Edge';
+  else if (ratio >= 0.65) verdict = 'Uneven';
   else verdict = 'One-Sided';
 
-  const sideAGrade = getGradeLetter(adjustedRatio, winner === 'A' || winner === null);
-  const sideBGrade = getGradeLetter(adjustedRatio, winner === 'B' || winner === null);
+  const sideAGrade = getGradeLetter(ratio, winner === 'A' || winner === null);
+  const sideBGrade = getGradeLetter(ratio, winner === 'B' || winner === null);
 
   let counterHint: string | null = null;
-  if (adjustedRatio < 0.80 && winner && diff > 0)
+  if (ratio < 0.80 && winner && diff > 0)
     counterHint = `Side ${winner === 'A' ? 'B' : 'A'} is short ~${formatValue(Math.round(diff))} pts. Adding or swapping a player would help balance this.`;
 
-  return { rawRatio, adjustedRatio, verdict, winner, diff, sideAGrade, sideBGrade, notes, counterHint };
+  return { ratio, verdict, winner, diff, effA, effB, rawA, rawB, sideAGrade, sideBGrade, notes, counterHint };
 }
 
 // --- Helpers ---
@@ -502,37 +449,20 @@ function ValueSourceToggle({ source, onChange, ktcAvailable }: { source: ValueSo
   );
 }
 
-// Consolidation display rate: matches KTC's observed ~40% for mid-tier, ~28-35% for elite.
-// Applied to the fewer-piece side to show their structural advantage.
-function consolidationDisplayRate(rawTotal: number): number {
-  if (rawTotal >= 7000) return 0.30;
-  if (rawTotal >= 4000) return 0.35;
-  return 0.40;
-}
-
-function TradeSide({ label, color, assets, values, excluded, source, grade, effectiveValues, tradeActive, isFewer, pieceDiff, onAdd, onRemove, onClear }: {
+function TradeSide({ label, color, assets, values, excluded, source, grade, effTotal, onAdd, onRemove, onClear }: {
   label: string; color: string; assets: SelectedAsset[]; values: TradeValue[];
   excluded: Set<string>; source: ValueSource; grade: string;
-  effectiveValues?: Map<string, number>;
-  tradeActive: boolean;
-  isFewer: boolean;
-  pieceDiff: number;
+  effTotal: number;
   onAdd: (a: SelectedAsset) => void; onRemove: (k: string) => void; onClear: () => void;
 }) {
   const rawTotal = assets.reduce((s, a) => s + getDisplayValue(a, source), 0);
 
-  // Display adjustment: stud premium + consolidation rate (both always positive).
-  // Age is NOT included — raw values already price it in.
-  const studBoost = assets.reduce((s, a) => {
-    const raw = getDisplayValue(a, source);
-    return s + (studMultiplier(raw) - 1.0) * raw;
-  }, 0);
-  const consolidationBoost = (tradeActive && isFewer && pieceDiff >= 1)
-    ? rawTotal * consolidationDisplayRate(rawTotal) * Math.min(1.5, pieceDiff)
-    : 0;
-  const displayAdjustment = Math.round(studBoost + consolidationBoost);
-  const showAdjustment = tradeActive && assets.length > 0 && displayAdjustment >= 100;
-  const displayTotal = showAdjustment ? rawTotal + displayAdjustment : rawTotal;
+  // The side's headline number is its effective value — the same figure that drives the
+  // verdict, fairness bar, and grade. The adjustment chip shows how far effective sits from
+  // raw market value: a positive delta from stud premium, a negative one from depth/clutter.
+  const adjustment = assets.length > 0 ? effTotal - rawTotal : 0;
+  const showAdjustment = assets.length > 0 && Math.abs(adjustment) >= 100;
+  const displayTotal = assets.length > 0 ? effTotal : rawTotal;
 
   const posSummary = buildPosSummary(assets);
   const avgAge = getAvgAge(assets);
@@ -575,9 +505,9 @@ function TradeSide({ label, color, assets, values, excluded, source, grade, effe
         {assets.map((a) => <AssetChip key={a.key} asset={a} source={source} sideTotal={rawTotal} barColor={color} onRemove={() => onRemove(a.key)} />)}
         {showAdjustment && (
           <div className="flex items-center justify-between px-3 py-2 rounded-[var(--radius-card)] border border-dashed border-[var(--border)] bg-[var(--surface-strong)] opacity-80">
-            <span className="text-xs text-[var(--muted)] italic">Value Adjustment</span>
-            <span className="text-xs font-semibold" style={{ color: '#22c55e' }}>
-              +{formatValue(displayAdjustment)}
+            <span className="text-xs text-[var(--muted)] italic">{adjustment >= 0 ? 'Stud premium' : 'Depth discount'}</span>
+            <span className="text-xs font-semibold" style={{ color: adjustment >= 0 ? '#22c55e' : '#f97316' }}>
+              {adjustment >= 0 ? '+' : '−'}{formatValue(Math.abs(adjustment))}
             </span>
           </div>
         )}
@@ -586,19 +516,19 @@ function TradeSide({ label, color, assets, values, excluded, source, grade, effe
   );
 }
 
-function FairnessMeter({ analysis, totalA, totalB, allAssets }: { analysis: AnalysisResult; totalA: number; totalB: number; allAssets: SelectedAsset[] }) {
+function FairnessMeter({ analysis, allAssets }: { analysis: AnalysisResult; allAssets: SelectedAsset[] }) {
   if (analysis.verdict === 'Add assets to analyze')
     return <div className="text-center py-4 text-sm text-[var(--muted)]">Add assets to both sides to see the analysis</div>;
 
-  const { adjustedRatio, verdict, winner, diff, notes, counterHint } = analysis;
-  const grand = totalA + totalB;
-  const pctA = grand > 0 ? Math.round((totalA / grand) * 100) : 50;
+  const { ratio, verdict, winner, diff, notes, counterHint, effA, effB } = analysis;
+  const grand = effA + effB;
+  const pctA = grand > 0 ? Math.round((effA / grand) * 100) : 50;
   const pctB = 100 - pctA;
 
   let verdictColor = '#22c55e';
-  if (adjustedRatio < 0.65) verdictColor = '#ef4444';
-  else if (adjustedRatio < 0.80) verdictColor = '#f97316';
-  else if (adjustedRatio < 0.92) verdictColor = '#eab308';
+  if (ratio < 0.65) verdictColor = '#ef4444';
+  else if (ratio < 0.80) verdictColor = '#f97316';
+  else if (ratio < 0.92) verdictColor = '#eab308';
 
   return (
     <div className="py-2">
@@ -614,8 +544,8 @@ function FairnessMeter({ analysis, totalA, totalB, allAssets }: { analysis: Anal
         </div>
       </div>
       <div className="flex justify-between text-xs text-[var(--muted)] mb-4">
-        <span style={{ color: 'var(--accent)' }}>Side A · {formatValue(totalA)}</span>
-        <span style={{ color: 'var(--danger)' }}>Side B · {formatValue(totalB)}</span>
+        <span style={{ color: 'var(--accent)' }}>Side A · {formatValue(effA)}</span>
+        <span style={{ color: 'var(--danger)' }}>Side B · {formatValue(effB)}</span>
       </div>
 
       {/* Verdict */}
@@ -755,12 +685,12 @@ function PositionBreakdown({ sideA, sideB, source }: { sideA: SelectedAsset[]; s
 
 // --- Roster suggestion panel: team-specific balance suggestions ---
 
-function RosterSuggestionPanel({ analysis, values, sideA, sideB, rawDiff, onAddA, onAddB }: {
+function RosterSuggestionPanel({ analysis, values, sideA, sideB, gap, onAddA, onAddB }: {
   analysis: AnalysisResult;
   values: TradeValue[];
   sideA: SelectedAsset[];
   sideB: SelectedAsset[];
-  rawDiff: number;
+  gap: number;
   onAddA: (a: SelectedAsset) => void;
   onAddB: (a: SelectedAsset) => void;
 }) {
@@ -789,22 +719,22 @@ function RosterSuggestionPanel({ analysis, values, sideA, sideB, rawDiff, onAddA
 
   const tolerance = 0.35;
   const rosterMatches = useMemo(() => {
-    if (!roster.length || rawDiff <= 0) return [];
-    const min = rawDiff * (1 - tolerance), max = rawDiff * (1 + tolerance);
+    if (!roster.length || gap <= 0) return [];
+    const min = gap * (1 - tolerance), max = gap * (1 + tolerance);
     return roster
       .map((p) => ({ ...p, tv: valMap.get(p.id) }))
       .filter((p) => p.tv && !excluded.has(p.id) && p.tv.value >= min && p.tv.value <= max)
-      .sort((a, b) => Math.abs(a.tv!.value - rawDiff) - Math.abs(b.tv!.value - rawDiff))
+      .sort((a, b) => Math.abs(a.tv!.value - gap) - Math.abs(b.tv!.value - gap))
       .slice(0, 6);
-  }, [roster, valMap, excluded, rawDiff]);
+  }, [roster, valMap, excluded, gap]);
 
-  if (analysis.adjustedRatio >= 0.80 || !analysis.winner) return null;
+  if (analysis.ratio >= 0.80 || !analysis.winner) return null;
   const shortSide = analysis.winner === 'A' ? 'B' : 'A';
 
   return (
     <div className="mt-4 rounded-[var(--radius-card)] bg-[var(--surface)] border border-[var(--border)] p-4 md:p-5 shadow-[var(--shadow-soft)]">
       <h2 className="text-xs font-semibold text-[var(--muted)] uppercase tracking-wide mb-3">
-        Balance Side {shortSide} · needs ~{formatValue(Math.round(rawDiff))} pts from a roster
+        Balance Side {shortSide} · needs ~{formatValue(Math.round(gap))} pts from a roster
       </h2>
       <select value={team} onChange={(e) => loadTeam(e.target.value)}
         className="w-full max-w-xs rounded-[var(--radius-card)] bg-[var(--surface-strong)] border border-[var(--border)] px-3 py-1.5 text-sm text-[var(--text)] focus:outline-none focus:border-[var(--accent)] mb-3">
@@ -814,7 +744,7 @@ function RosterSuggestionPanel({ analysis, values, sideA, sideB, rawDiff, onAddA
 
       {busy && <div className="text-xs text-[var(--muted)]">Loading roster…</div>}
       {team && !busy && rosterMatches.length === 0 && (
-        <div className="text-xs text-[var(--muted)] opacity-60">No players on this roster match the gap (~{formatValue(Math.round(rawDiff))} pts ±35%).</div>
+        <div className="text-xs text-[var(--muted)] opacity-60">No players on this roster match the gap (~{formatValue(Math.round(gap))} pts ±35%).</div>
       )}
       {rosterMatches.length > 0 && (
         <>
@@ -857,7 +787,7 @@ function TradeAnalyzerContent() {
   const [sideB, setSideB] = useState<SelectedAsset[]>([]);
   const [source, setSource] = useState<ValueSource>('avg');
   const [isAdmin, setIsAdmin] = useState(false);
-  const [dataSources, setDataSources] = useState<{ fantasyCalc: boolean; keepTradeCut: boolean; fcCount?: number; ktcCount?: number } | null>(null);
+  const [dataSources, setDataSources] = useState<{ fantasyCalc: boolean; keepTradeCut: boolean; fcCount?: number; ktcCount?: number; ktcMatchRate?: number } | null>(null);
   const [suggestDismissed, setSuggestDismissed] = useState(false);
   const urlInitialized = useRef(false);
 
@@ -910,31 +840,44 @@ function TradeAnalyzerContent() {
   }, [sideA, sideB, router]);
 
   const excluded = useMemo(() => { const s = new Set<string>(); for (const a of [...sideA, ...sideB]) s.add(a.key); return s; }, [sideA, sideB]);
-  const analysis = useMemo(() => analyzeTrade(sideA, sideB, source), [sideA, sideB, source]);
-  const playerEffectives = useMemo(() => computePerPlayerEffectives(sideA, sideB, source), [sideA, sideB, source]);
-  const totalA = sideA.reduce((s, a) => s + getDisplayValue(a, source), 0);
-  const totalB = sideB.reduce((s, a) => s + getDisplayValue(a, source), 0);
 
-  // Suggestions: when both sides have assets, target the gap (what the losing side needs to add).
-  // When only one side has assets, suggest comparable players for reference.
+  // Per-source normalization for the stud premium: map each source's top player to ~9999 so the
+  // premium thresholds (tuned on the avg scale) fire on the same player tier under FC/KTC/avg.
+  const studScale = useMemo(() => {
+    let m = 0;
+    for (const v of values) {
+      if (v.isPick) continue;
+      const dv = source === 'fc' ? (v.fcValue ?? v.value) : source === 'ktc' ? (v.ktcValue ?? v.value) : v.value;
+      if (dv > m) m = dv;
+    }
+    return m > 0 ? 9999 / m : 1;
+  }, [values, source]);
+
+  const analysis = useMemo(() => analyzeTrade(sideA, sideB, source, studScale), [sideA, sideB, source, studScale]);
+  const totalA = analysis.rawA;
+  const totalB = analysis.rawB;
+
+  // Suggestions: when both sides have assets, target the effective gap (what the losing side
+  // needs to add). When only one side has assets, suggest comparable players for reference.
   const suggestions = useMemo(() => {
     const all = [...sideA, ...sideB];
     if (all.length === 0 || values.length === 0) return [];
     const getVal = (v: TradeValue) =>
       source === 'fc' ? (v.fcValue ?? v.value) : source === 'ktc' ? (v.ktcValue ?? v.value) : v.value;
+    const oneSide = sideA.length > 0 ? sideA : sideB;
     const target = sideA.length > 0 && sideB.length > 0
-      ? Math.abs(totalA - totalB)
-      : sideA.length > 0 ? totalA : totalB;
+      ? analysis.diff
+      : effectiveTotal(oneSide, source, studScale).total;
     return values
       .filter((v) => !excluded.has(v.sleeperId) && getVal(v) > 0)
       .sort((a, b) => Math.abs(getVal(a) - target) - Math.abs(getVal(b) - target))
       .slice(0, 8);
-  }, [sideA, sideB, totalA, totalB, values, excluded, source]);
+  }, [sideA, sideB, analysis.diff, values, excluded, source, studScale]);
 
   const suggestionMode: 'balance' | 'compare' = sideA.length > 0 && sideB.length > 0 ? 'balance' : 'compare';
-  // Which side is behind and needs the suggested player
+  // Which side is behind (on effective value) and needs the suggested player
   const needsSide: 'A' | 'B' | null = suggestionMode === 'balance'
-    ? (totalA >= totalB ? 'B' : 'A')
+    ? (analysis.winner === 'A' ? 'B' : analysis.winner === 'B' ? 'A' : null)
     : null;
 
   const showSuggestions = suggestions.length > 0 && !suggestDismissed;
@@ -981,7 +924,7 @@ function TradeAnalyzerContent() {
                 <span className={`w-2 h-2 rounded-full ${dataSources.fantasyCalc ? 'bg-green-500' : 'bg-red-500'}`} />
                 <span>FC {dataSources.fcCount != null ? `(${dataSources.fcCount})` : ''}</span>
                 <span className={`w-2 h-2 rounded-full ml-1 ${dataSources.keepTradeCut ? 'bg-green-500' : 'bg-red-500'}`} />
-                <span>KTC {dataSources.ktcCount != null ? `(${dataSources.ktcCount})` : ''}</span>
+                <span>KTC {dataSources.ktcCount != null ? `(${dataSources.ktcCount})` : ''}{dataSources.ktcMatchRate != null ? ` · ${dataSources.ktcMatchRate}% matched` : ''}</span>
               </div>
             )}
             <ValueSourceToggle source={source} onChange={setSource} ktcAvailable={!!(dataSources?.ktcCount && dataSources.ktcCount > 0)} />
@@ -991,27 +934,17 @@ function TradeAnalyzerContent() {
 
       <div className="rounded-[var(--radius-card)] bg-[var(--surface)] border border-[var(--border)] p-4 md:p-6 shadow-[var(--shadow-soft)]">
         <div className="flex flex-col md:flex-row gap-6">
-          {(() => {
-            const tradeActive = sideA.length > 0 && sideB.length > 0;
-            const pd = Math.abs(sideA.length - sideB.length);
-            return (
-              <>
-                <TradeSide label="Side A" color="var(--accent)" assets={sideA} values={values} excluded={excluded} source={source}
-                  grade={analysis.sideAGrade} effectiveValues={playerEffectives} tradeActive={tradeActive}
-                  isFewer={sideA.length < sideB.length} pieceDiff={pd}
-                  onAdd={(a) => setSideA((p) => [...p, a])} onRemove={(k) => setSideA((p) => p.filter((x) => x.key !== k))} onClear={() => setSideA([])} />
-                <div className="hidden md:flex items-center"><div className="w-px h-full bg-[var(--border)]" /></div>
-                <div className="md:hidden border-t border-[var(--border)]" />
-                <TradeSide label="Side B" color="var(--danger)" assets={sideB} values={values} excluded={excluded} source={source}
-                  grade={analysis.sideBGrade} effectiveValues={playerEffectives} tradeActive={tradeActive}
-                  isFewer={sideB.length < sideA.length} pieceDiff={pd}
-                  onAdd={(a) => setSideB((p) => [...p, a])} onRemove={(k) => setSideB((p) => p.filter((x) => x.key !== k))} onClear={() => setSideB([])} />
-              </>
-            );
-          })()}
+          <TradeSide label="Side A" color="var(--accent)" assets={sideA} values={values} excluded={excluded} source={source}
+            grade={analysis.sideAGrade} effTotal={analysis.effA}
+            onAdd={(a) => setSideA((p) => [...p, a])} onRemove={(k) => setSideA((p) => p.filter((x) => x.key !== k))} onClear={() => setSideA([])} />
+          <div className="hidden md:flex items-center"><div className="w-px h-full bg-[var(--border)]" /></div>
+          <div className="md:hidden border-t border-[var(--border)]" />
+          <TradeSide label="Side B" color="var(--danger)" assets={sideB} values={values} excluded={excluded} source={source}
+            grade={analysis.sideBGrade} effTotal={analysis.effB}
+            onAdd={(a) => setSideB((p) => [...p, a])} onRemove={(k) => setSideB((p) => p.filter((x) => x.key !== k))} onClear={() => setSideB([])} />
         </div>
         <div className="mt-6 pt-4 border-t border-[var(--border)]">
-          <FairnessMeter analysis={analysis} totalA={totalA} totalB={totalB} allAssets={[...sideA, ...sideB]} />
+          <FairnessMeter analysis={analysis} allAssets={[...sideA, ...sideB]} />
         </div>
       </div>
 
@@ -1025,7 +958,7 @@ function TradeAnalyzerContent() {
           values={values}
           sideA={sideA}
           sideB={sideB}
-          rawDiff={Math.abs(totalA - totalB)}
+          gap={analysis.diff}
           onAddA={(a) => setSideA((p) => [...p, a])}
           onAddB={(a) => setSideB((p) => [...p, a])}
         />

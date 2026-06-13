@@ -30,14 +30,15 @@ interface KTCPlayer {
   position: string;
   team: string;
   age?: number;
-  value: number; // superflex value, already extracted from HTML
+  value: number; // superflex value (from KTC's window.playersArray via scripts/refresh-ktc.ts)
 }
 
 export type { TradeValue };
 
 // --- Cache ---
 
-let cache: { ts: number; data: Record<string, TradeValue>; sources: { fantasyCalc: boolean; keepTradeCut: boolean; fcCount: number; ktcCount: number } } | null = null; // bump to bust: v5
+interface ValueSources { fantasyCalc: boolean; keepTradeCut: boolean; fcCount: number; ktcCount: number; ktcMatched: number; ktcMatchRate: number }
+let cache: { ts: number; data: Record<string, TradeValue>; sources: ValueSources } | null = null; // bump to bust: v6
 const CACHE_TTL = 6 * 60 * 60 * 1000; // 6 hours
 
 // --- Fetchers ---
@@ -146,9 +147,16 @@ async function fetchKTC(): Promise<KTCPlayer[]> {
 
 // --- Helpers ---
 
-/** Normalize a player name for fuzzy matching across sources */
+/** Normalize a player name for fuzzy matching across sources.
+ *  Strips punctuation and common generational suffixes (Jr/Sr/II–IV) so that
+ *  e.g. "Travis Etienne Jr." (FC) matches "Travis Etienne" (KTC). */
 function normalizeName(name: string): string {
-  return name.toLowerCase().replace(/['.,-]/g, '').replace(/\s+/g, ' ').trim();
+  return name
+    .toLowerCase()
+    .replace(/['.,-]/g, '')
+    .replace(/\b(jr|sr|ii|iii|iv)\b/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 // --- Standardized draft pick system ---
@@ -224,12 +232,24 @@ const TIER_SLOTS: Record<string, [number, number]> = {
   Late: [9, 12],
 };
 
+/** Map a numbered pick slot (1-12) to its tier. KTC only prices picks by tier, so a numbered
+ *  slot pick ("2026 1.06") borrows the KTC value of its tier ("2026 Mid 1st"). */
+function slotToTier(slot: number): string {
+  for (const [tier, [min, max]] of Object.entries(TIER_SLOTS)) {
+    if (slot >= min && slot <= max) return tier;
+  }
+  return 'Late';
+}
+
 /** After merging source data, ensure we have a complete set of standard picks.
- *  numberedPicks: map from "YYYY_R" → list of { slot, value } from real numbered picks (e.g. 1.01–1.12).
- *  Tier values are computed as the average of their slot group rather than using hardcoded defaults. */
+ *  numberedPicks: map from "YYYY_R" → list of { slot, value } from real numbered FC picks (e.g. 1.01–1.12).
+ *  ktcByPickKey: standardized-key → KTC value for KTC's "YYYY Early/Mid/Late Nth" rookie picks.
+ *  Tier values blend FC (numbered-slot average) and KTC where both exist, falling back to
+ *  whichever source is present, and finally to hardcoded defaults with a future-year discount. */
 function ensureStandardPicks(
   result: Record<string, TradeValue>,
   numberedPicks: Map<string, { slot: number; value: number }[]>,
+  ktcByPickKey: Map<string, number>,
 ): void {
   // Default pick values used only when no source data exists at all
   const defaultRoundValues: Record<number, Record<string, number>> = {
@@ -251,21 +271,32 @@ function ensureStandardPicks(
 
       for (const tier of PICK_TIERS) {
         const key = standardPickKey(year, round, tier);
+        const ktcVal = ktcByPickKey.get(key) ?? null;
+
+        // Pick already came from FC: backfill its KTC value if FC didn't match one by key.
         if (result[key]) {
           result[key].name = standardPickName(year, round, tier);
+          if (ktcVal !== null && result[key].ktcValue === null) {
+            result[key].ktcValue = ktcVal;
+            result[key].value = result[key].fcValue !== null
+              ? Math.round((result[key].fcValue + ktcVal) / 2)
+              : ktcVal;
+          }
           continue;
         }
 
-        // Average the actual numbered picks that fall in this tier's slot range
+        // No FC entry for this key — derive an FC value from numbered slot picks if any.
         const [minSlot, maxSlot] = TIER_SLOTS[tier];
         const tierPicks = slotData.filter((p) => p.slot >= minSlot && p.slot <= maxSlot);
+        const fcDerived = tierPicks.length > 0
+          ? Math.round(tierPicks.reduce((s, p) => s + p.value, 0) / tierPicks.length)
+          : null;
+
         let value: number;
-        if (tierPicks.length > 0) {
-          value = Math.round(tierPicks.reduce((s, p) => s + p.value, 0) / tierPicks.length);
-        } else {
-          // Fall back to hardcoded defaults with future-year discount
-          value = Math.round((defaultRoundValues[round]?.[tier] ?? 500) * discount);
-        }
+        if (fcDerived !== null && ktcVal !== null) value = Math.round((fcDerived + ktcVal) / 2);
+        else if (ktcVal !== null) value = ktcVal;
+        else if (fcDerived !== null) value = fcDerived;
+        else value = Math.round((defaultRoundValues[round]?.[tier] ?? 500) * discount);
 
         result[key] = {
           name: standardPickName(year, round, tier),
@@ -273,8 +304,8 @@ function ensureStandardPicks(
           position: 'PICK',
           team: '',
           value,
-          fcValue: null,
-          ktcValue: null,
+          fcValue: fcDerived,
+          ktcValue: ktcVal,
           rank: rank++,
           trend: 0,
           isPick: true,
@@ -286,18 +317,39 @@ function ensureStandardPicks(
 
 // --- Merge logic ---
 
-function mergeValues(fc: FantasyCalcPlayer[], ktc: KTCPlayer[]): Record<string, TradeValue> {
+interface MergeStats { playerCount: number; ktcMatched: number }
+
+function mergeValues(fc: FantasyCalcPlayer[], ktc: KTCPlayer[]): { values: Record<string, TradeValue>; stats: MergeStats } {
   const result: Record<string, TradeValue> = {};
 
   // Both FC and KTC already use a 0-10000 native scale — use raw values directly.
   // Normalizing them independently would collapse both to identical numbers.
+  // Players are matched by normalized name. KTC picks come in two shapes:
+  //  - numbered slot picks ("2026 Pick 1.01") → matched 1:1 with FC's slot picks
+  //  - tier picks ("2026 Mid 1st") → matched to our standardized tier keys
   const ktcByName = new Map<string, number>();
+  const ktcByPickKey = new Map<string, number>();
+  const ktcBySlot = new Map<string, number>(); // "YYYY_R_SS" → value
   for (const p of ktc) {
-    ktcByName.set(normalizeName(p.playerName), p.value);
+    if (isPick(p.playerName)) {
+      const num = parseNumberedPick(p.playerName);
+      if (num) {
+        const slotKey = `${num.year}_${num.round}_${num.slot}`;
+        if (!ktcBySlot.has(slotKey)) ktcBySlot.set(slotKey, p.value);
+      } else {
+        const pk = pickKey(p.playerName);
+        if (pk && !ktcByPickKey.has(pk)) ktcByPickKey.set(pk, p.value);
+      }
+    } else {
+      ktcByName.set(normalizeName(p.playerName), p.value);
+    }
   }
 
   // Collect numbered picks (e.g. "2026 1.08") grouped by "YYYY_R" for tier averaging
   const numberedPicks = new Map<string, { slot: number; value: number }[]>();
+
+  let playerCount = 0;
+  let ktcMatched = 0;
 
   // FC is the primary source — Sleeper IDs come from FC
   for (let i = 0; i < fc.length; i++) {
@@ -306,9 +358,29 @@ function mergeValues(fc: FantasyCalcPlayer[], ktc: KTCPlayer[]): Record<string, 
     const pick = isPick(name);
     const key = pick ? (pickKey(name) || `fc_pick_${i}`) : (p.player.sleeperId || `fc_${p.player.id}`);
 
+    // Resolve the KTC value for this FC entry:
+    //  - players: by normalized name
+    //  - numbered slot picks: exact KTC slot value, else fall back to the tier's KTC value
+    //  - tier picks: by standardized tier key
+    const numbered = pick ? parseNumberedPick(name) : null;
     const fcVal = p.value; // raw FC value, 0-10000 scale
-    const ktcVal = ktcByName.get(normalizeName(name)) ?? null;
+    let ktcVal: number | null;
+    if (!pick) {
+      ktcVal = ktcByName.get(normalizeName(name)) ?? null;
+    } else if (numbered) {
+      ktcVal = ktcBySlot.get(`${numbered.year}_${numbered.round}_${numbered.slot}`)
+        ?? ktcByPickKey.get(standardPickKey(numbered.year, numbered.round, slotToTier(numbered.slot)))
+        ?? null;
+    } else {
+      const pk = pickKey(name);
+      ktcVal = pk ? (ktcByPickKey.get(pk) ?? null) : null;
+    }
     const avgValue = ktcVal !== null ? Math.round((fcVal + ktcVal) / 2) : fcVal;
+
+    if (!pick) {
+      playerCount++;
+      if (ktcVal !== null) ktcMatched++;
+    }
 
     result[key] = {
       name,
@@ -324,21 +396,18 @@ function mergeValues(fc: FantasyCalcPlayer[], ktc: KTCPlayer[]): Record<string, 
       isPick: pick,
     };
 
-    // If this is a numbered pick (R.SS format), collect it for tier averaging
-    if (pick) {
-      const parsed = parseNumberedPick(name);
-      if (parsed) {
-        const mapKey = `${parsed.year}_${parsed.round}`;
-        if (!numberedPicks.has(mapKey)) numberedPicks.set(mapKey, []);
-        numberedPicks.get(mapKey)!.push({ slot: parsed.slot, value: avgValue });
-      }
+    // If this is a numbered pick (R.SS format), collect its pure FC value for tier averaging
+    if (numbered) {
+      const mapKey = `${numbered.year}_${numbered.round}`;
+      if (!numberedPicks.has(mapKey)) numberedPicks.set(mapKey, []);
+      numberedPicks.get(mapKey)!.push({ slot: numbered.slot, value: fcVal });
     }
   }
 
-  // Ensure a complete set of standardized picks, using real slot data for tier averages
-  ensureStandardPicks(result, numberedPicks);
+  // Ensure a complete set of standardized picks, blending FC slot data and KTC pick values
+  ensureStandardPicks(result, numberedPicks, ktcByPickKey);
 
-  return result;
+  return { values: result, stats: { playerCount, ktcMatched } };
 }
 
 // --- Route Handler ---
@@ -380,9 +449,20 @@ export async function GET() {
     return NextResponse.json({ error: 'Both value sources unavailable' }, { status: 502 });
   }
 
-  const merged = mergeValues(fc, ktc);
+  const { values: merged, stats } = mergeValues(fc, ktc);
 
-  const sources = { fantasyCalc: fcOk, keepTradeCut: ktcOk, fcCount: fc.length, ktcCount: ktc.length };
+  const ktcMatchRate = stats.playerCount > 0 ? Math.round((stats.ktcMatched / stats.playerCount) * 100) : 0;
+  const sources: ValueSources = {
+    fantasyCalc: fcOk,
+    keepTradeCut: ktcOk,
+    fcCount: fc.length,
+    ktcCount: ktc.length,
+    ktcMatched: stats.ktcMatched,
+    ktcMatchRate,
+  };
+  if (ktcOk) {
+    console.log(`[trade-analyzer] FC↔KTC name match: ${stats.ktcMatched}/${stats.playerCount} players (${ktcMatchRate}%)`);
+  }
   cache = { ts: Date.now(), data: merged, sources };
 
   return NextResponse.json({
