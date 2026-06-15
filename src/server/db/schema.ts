@@ -425,6 +425,8 @@ export const newsletterQueue = pgTable('newsletter_queue', {
   // Set when the queued item has been generated into a draft.
   generatedAt: timestamp('generated_at', { withTimezone: true }),
   error: text('error'),
+  // Number of generation attempts. Drives bounded auto-retry of failed items.
+  attempts: integer('attempts').default(0).notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 }, (t) => ({

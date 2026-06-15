@@ -84,15 +84,27 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       if (!q) continue;
 
       let cell = '';
-      if (q.questionType === 'short_answer' || q.questionType === 'paragraph') {
+      if (q.questionType === 'short_answer' || q.questionType === 'paragraph' || q.questionType === 'date' || q.questionType === 'time' || q.questionType === 'number' || q.questionType === 'email') {
         cell = answer.textAnswer ?? '';
       } else if (q.questionType === 'rating') {
         cell = answer.ratingValue != null ? String(answer.ratingValue) : '';
-      } else if (q.questionType === 'multiple_choice') {
+      } else if (q.questionType === 'multiple_choice' || q.questionType === 'yes_no' || q.questionType === 'dropdown') {
         const optId = answer.optionIds?.[0];
-        cell = optId ? (q.options.find((o) => o.id === optId)?.text ?? '') : '';
+        const label = optId ? (q.options.find((o) => o.id === optId)?.text ?? '') : '';
+        cell = answer.textAnswer ? `${label} — ${answer.textAnswer}` : label;
       } else if (q.questionType === 'checkboxes') {
-        cell = (answer.optionIds ?? []).map((oid) => q.options.find((o) => o.id === oid)?.text ?? oid).join(', ');
+        const labels = (answer.optionIds ?? []).map((oid) => q.options.find((o) => o.id === oid)?.text ?? oid).join(', ');
+        cell = answer.textAnswer ? `${labels} — ${answer.textAnswer}` : labels;
+      } else if (q.questionType === 'multiple_choice_grid' || q.questionType === 'checkbox_grid') {
+        const raw = answer.textAnswer ?? '';
+        cell = raw;
+      } else if (q.questionType === 'file_upload') {
+        try {
+          const f = JSON.parse(answer.textAnswer ?? '{}') as { filename?: string };
+          cell = f.filename ?? '';
+        } catch {
+          cell = '';
+        }
       }
       entry.formAnswers.set(answer.questionId, cell);
     }

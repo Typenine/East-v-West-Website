@@ -1016,6 +1016,38 @@ function excludePickedFromPool<T extends { name: string }>(pool: T[], pickedName
   );
 }
 
+type ProspectEntry = { name: string; pos: string; nfl?: string | null; rank: number | null; value?: number | null };
+
+/**
+ * Group prospects into value TIERS without ever exposing the raw market-value numbers
+ * to the model. Tier 1 = most valuable; a new tier begins when the value drops more
+ * than ~8% from the previous prospect. The bots reason in tiers + consensus ranks and
+ * therefore can't parrot raw calculator numbers (e.g. "market value of 6,670 points").
+ */
+function buildProspectTierMap(pool: ProspectEntry[]): Map<string, number> {
+  const withValue = pool
+    .filter(p => typeof p.value === 'number' && (p.value as number) > 0)
+    .sort((a, b) => (b.value as number) - (a.value as number));
+  const tierByName = new Map<string, number>();
+  let tier = 1;
+  let prev: number | null = null;
+  for (const p of withValue) {
+    const v = p.value as number;
+    if (prev !== null && (prev - v) / prev > 0.08) tier++;
+    tierByName.set(p.name, tier);
+    prev = v;
+  }
+  return tierByName;
+}
+
+/** Prospect line for the eligible-player list: rank + qualitative tier, never a raw value. */
+function formatProspectLine(p: ProspectEntry, total: number, tierByName: Map<string, number>): string {
+  const base = `${p.name} (${p.pos}${p.nfl ? `, drafted by ${p.nfl}` : ''}`;
+  if (p.rank === null) return `- ${base}, unranked)`;
+  const tier = tierByName.get(p.name);
+  return `- ${base}, consensus rank #${p.rank} of ${total}${tier ? `, tier ${tier}` : ''})`;
+}
+
 /**
  * Generate + parse + validate + repair one contiguous segment of a mock draft
  * round (e.g. picks 1.01–1.06). Rounds run as two segments so each LLM call

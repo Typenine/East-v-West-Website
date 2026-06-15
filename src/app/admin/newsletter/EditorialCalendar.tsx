@@ -31,7 +31,10 @@ interface QueueItem {
   note: string | null;
   generatedAt: string | null;
   error: string | null;
+  attempts: number;
 }
+
+const MAX_ATTEMPTS = 3;
 
 const STATUS_STYLES: Record<QueueItem['status'], string> = {
   queued: 'bg-blue-900/40 text-blue-300 border-blue-700',
@@ -249,6 +252,11 @@ export default function EditorialCalendar({ defaultSeason, onGenerateNow }: Prop
                 </span>
                 {item.note && <span className="text-xs text-zinc-500 italic truncate max-w-[200px]">{item.note}</span>}
                 {item.error && <span className="text-xs text-red-400 truncate max-w-[260px]" title={item.error}>⚠ {item.error}</span>}
+                {item.status === 'failed' && (
+                  <span className="text-[11px] text-zinc-500" title="Bounded auto-retry: the runner reattempts failed items until this limit, then waits for a manual Retry.">
+                    {item.attempts < MAX_ATTEMPTS ? `auto-retry ${item.attempts}/${MAX_ATTEMPTS}` : `gave up after ${MAX_ATTEMPTS} tries`}
+                  </span>
+                )}
                 <div className="ml-auto flex items-center gap-1.5">
                   {(item.status === 'failed' || item.status === 'skipped') && (
                     <Button variant="secondary" size="sm" className="text-xs text-amber-300"

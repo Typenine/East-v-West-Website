@@ -92,11 +92,12 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: `Invalid status: ${body.status}` }, { status: 400 });
     }
     patch.status = body.status as QueueStatus;
-    // Re-queuing (Retry) clears the prior failure/result so the next runner pass
-    // treats it as fresh.
+    // Re-queuing (Retry) clears the prior failure/result AND resets the retry budget so
+    // the next runner pass treats it as fresh.
     if (body.status === 'queued') {
       patch.error = null;
       patch.generatedAt = null;
+      patch.attempts = 0;
     }
   }
   if (body.scheduledFor !== undefined) {

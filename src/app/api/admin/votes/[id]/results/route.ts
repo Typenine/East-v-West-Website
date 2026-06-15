@@ -7,6 +7,12 @@ import {
   getAllVotesWithSelections,
 } from '@/server/db/votes-queries';
 import { computeRound, buildBallotMap } from '@/lib/votes/compute';
+import {
+  getQuestionsForPoll,
+  getAllResponses,
+  getResponseCount,
+  buildFormResults,
+} from '@/server/db/poll-form-queries';
 import type { AdminRoundResults } from '@/lib/votes/types';
 
 export const runtime = 'nodejs';
@@ -51,5 +57,18 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     });
   }
 
-  return Response.json({ poll, rounds: roundResults });
+  const questions = await getQuestionsForPoll(id);
+  const responses = await getAllResponses(id);
+  const responseCount = await getResponseCount(id);
+  const formResults = questions.length
+    ? await buildFormResults(questions, responses, poll.anonymous)
+    : [];
+
+  return Response.json({
+    poll,
+    rounds: roundResults,
+    questions,
+    formResults,
+    responseCount,
+  });
 }

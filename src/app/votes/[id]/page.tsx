@@ -21,6 +21,26 @@ import type {
   TextQuestionResult,
   ChoiceQuestionResult,
 } from '@/lib/votes/types';
+import { isConditionMet } from '@/lib/votes/validate-answer';
+import {
+  ShortAnswerQ,
+  ParagraphQ,
+  EmailQ,
+  NumberQ,
+  DateQ,
+  TimeQ,
+  RatingQ,
+  DropdownQ,
+  MultipleChoiceQ,
+  CheckboxesQ,
+  YesNoQ,
+  McGridQ,
+  CbGridQ,
+  FileUploadQ,
+  formatAnswerDisplay,
+} from '@/components/votes/FormQuestionFields';
+import { parseMcGridAnswer, parseCbGridAnswer, serializeGridAnswer } from '@/lib/votes/grid-answers';
+import { parseFileAnswer } from '@/lib/votes/file-answer';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -47,17 +67,6 @@ function shuffled<T>(arr: T[]): T[] {
     [a[i], a[j]] = [a[j], a[i]];
   }
   return a;
-}
-
-function isConditionMet(q: PollQuestion, formAnswers: Record<string, FormAnswer>): boolean {
-  if (!q.conditionQuestionId) return true;
-  const prior = formAnswers[q.conditionQuestionId];
-  if (!prior) return false;
-  if (q.conditionOptionId) return prior.optionIds?.includes(q.conditionOptionId) ?? false;
-  if (q.conditionValue) {
-    return prior.textAnswer === q.conditionValue || String(prior.ratingValue) === q.conditionValue;
-  }
-  return false;
 }
 
 function StatusBadge({ status }: { status: string }) {
@@ -319,148 +328,6 @@ function RoundResultDisplay({ result, round }: { result: BordaResult | IRVResult
   return <PluralityResultDisplay result={result} round={round} />;
 }
 
-// ── Form Question Components ──────────────────────────────────────────────────
-
-function ShortAnswerQ({ q, value, onChange, disabled }: {
-  q: PollQuestion;
-  value: string;
-  onChange: (v: string) => void;
-  disabled?: boolean;
-}) {
-  return (
-    <div className="space-y-1.5">
-      {q.maxLength && (
-        <p className="text-xs text-[var(--muted)] text-right">{value.length}/{q.maxLength}</p>
-      )}
-      <input
-        type="text"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        maxLength={q.maxLength ?? undefined}
-        disabled={disabled}
-        placeholder="Your answer"
-        className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--focus)] disabled:opacity-50"
-      />
-    </div>
-  );
-}
-
-function ParagraphQ({ q, value, onChange, disabled }: {
-  q: PollQuestion;
-  value: string;
-  onChange: (v: string) => void;
-  disabled?: boolean;
-}) {
-  return (
-    <div className="space-y-1.5">
-      {q.maxLength && (
-        <p className="text-xs text-[var(--muted)] text-right">{value.length}/{q.maxLength}</p>
-      )}
-      <textarea
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        maxLength={q.maxLength ?? undefined}
-        disabled={disabled}
-        placeholder="Your answer"
-        rows={4}
-        className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--focus)] disabled:opacity-50 resize-y"
-      />
-    </div>
-  );
-}
-
-function RatingQ({ q, value, onChange, disabled }: {
-  q: PollQuestion;
-  value: number | null;
-  onChange: (v: number) => void;
-  disabled?: boolean;
-}) {
-  const vals = Array.from({ length: q.ratingMax - q.ratingMin + 1 }, (_, i) => q.ratingMin + i);
-  return (
-    <div className="space-y-2">
-      <div className="flex gap-2 flex-wrap">
-        {vals.map((v) => (
-          <button
-            key={v}
-            onClick={() => !disabled && onChange(v)}
-            disabled={disabled}
-            className={`w-10 h-10 rounded-lg border-2 text-sm font-semibold transition-colors
-              ${value === v
-                ? 'border-[var(--accent)] bg-[var(--accent)] text-white'
-                : 'border-[var(--border)] hover:border-[var(--accent)] hover:text-[var(--accent)]'
-              } disabled:opacity-50 disabled:cursor-default`}
-          >
-            {v}
-          </button>
-        ))}
-      </div>
-      {(q.ratingMinLabel || q.ratingMaxLabel) && (
-        <div className="flex justify-between text-xs text-[var(--muted)]">
-          <span>{q.ratingMinLabel ?? q.ratingMin}</span>
-          <span>{q.ratingMaxLabel ?? q.ratingMax}</span>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function MultipleChoiceQ({ q, displayOptions, value, onChange, disabled }: {
-  q: PollQuestion;
-  displayOptions: typeof q.options;
-  value: string | null;
-  onChange: (optionId: string) => void;
-  disabled?: boolean;
-}) {
-  return (
-    <div className="space-y-2">
-      {displayOptions.map((opt) => (
-        <label key={opt.id} className="flex items-center gap-3 cursor-pointer group">
-          <input
-            type="radio"
-            name={`q-${q.id}`}
-            checked={value === opt.id}
-            onChange={() => !disabled && onChange(opt.id)}
-            disabled={disabled}
-            className="accent-[var(--accent)]"
-          />
-          <span className="text-sm group-hover:text-[var(--accent)] transition-colors">{opt.text}</span>
-        </label>
-      ))}
-    </div>
-  );
-}
-
-function CheckboxesQ({ q, displayOptions, value, onChange, disabled }: {
-  q: PollQuestion;
-  displayOptions: typeof q.options;
-  value: string[];
-  onChange: (optionIds: string[]) => void;
-  disabled?: boolean;
-}) {
-  function toggle(optId: string) {
-    if (disabled) return;
-    const next = value.includes(optId) ? value.filter((id) => id !== optId) : [...value, optId];
-    onChange(next);
-  }
-
-  return (
-    <div className="space-y-2">
-      {displayOptions.map((opt) => (
-        <label key={opt.id} className="flex items-center gap-3 cursor-pointer group">
-          <input
-            type="checkbox"
-            checked={value.includes(opt.id)}
-            onChange={() => toggle(opt.id)}
-            disabled={disabled}
-            className="accent-[var(--accent)]"
-          />
-          <span className="text-sm group-hover:text-[var(--accent)] transition-colors">{opt.text}</span>
-        </label>
-      ))}
-    </div>
-  );
-}
-
 // ── Form Results Components ───────────────────────────────────────────────────
 
 function RatingResultDisplay({ result }: { result: RatingQuestionResult }) {
@@ -521,6 +388,31 @@ function ChoiceResultDisplay({ result }: { result: ChoiceQuestionResult }) {
 function FormResultDisplay({ result }: { result: FormQuestionResult }) {
   if (result.type === 'rating') return <RatingResultDisplay result={result} />;
   if (result.type === 'text') return <TextResultDisplay result={result} />;
+  if (result.type === 'grid') {
+    return (
+      <div className="space-y-2 text-sm">
+        {result.rows.map((row) => (
+          <div key={row.rowId}>
+            <p className="font-medium text-xs">{row.text}</p>
+            {row.columnCounts.map((c) => (
+              <div key={c.optionId} className="flex justify-between text-xs text-[var(--muted)]">
+                <span>{c.text}</span><span>{c.count}</span>
+              </div>
+            ))}
+          </div>
+        ))}
+      </div>
+    );
+  }
+  if (result.type === 'file') {
+    return (
+      <ul className="text-sm space-y-1">
+        {result.files.map((f, i) => (
+          <li key={i}>{f.voterDisplay ? `${f.voterDisplay}: ` : ''}{f.filename}</li>
+        ))}
+      </ul>
+    );
+  }
   return <ChoiceResultDisplay result={result} />;
 }
 
@@ -777,22 +669,22 @@ export default function VoteDetailPage() {
         </Card>
       )}
 
-      {/* Form Questions */}
+      {/* Questions */}
       {questions.length > 0 && (
         <Card className="mb-6">
           <CardHeader>
-            <CardTitle className="text-base">Survey Questions</CardTitle>
+            <CardTitle className="text-base">Questions</CardTitle>
           </CardHeader>
           <CardContent className="space-y-6">
             {!isLoggedIn && poll.status === 'open' && (
               <div className="rounded-lg bg-[var(--surface-strong)] px-4 py-3 text-sm text-[var(--muted)]">
-                <Link href="/login" className="text-[var(--accent)] underline">Log in</Link> to answer the survey questions.
+                <Link href="/login" className="text-[var(--accent)] underline">Log in</Link> to answer the questions.
               </div>
             )}
 
             {isLoggedIn && hasSubmittedForm && !formBusy && (
               <div className="flex items-center justify-between rounded-lg bg-green-50 dark:bg-green-900/20 px-4 py-3 text-sm text-green-700 dark:text-green-400 font-medium">
-                <span>Survey response submitted ✓</span>
+                <span>Response submitted ✓</span>
                 {poll.status === 'open' && (
                   <button
                     onClick={() => setHasSubmittedForm(false)}
@@ -843,20 +735,54 @@ export default function VoteDetailPage() {
                   {!disabled && (
                     <>
                       {q.questionType === 'short_answer' && (
-                        <ShortAnswerQ q={q} value={answer?.textAnswer ?? ''} onChange={(v) => updateFormAnswer(q.id, { textAnswer: v })} />
+                        <ShortAnswerQ q={q} value={answer?.textAnswer ?? ''} onChange={(v) => updateFormAnswer(q.id, { textAnswer: v })} disabled={disabled} />
                       )}
                       {q.questionType === 'paragraph' && (
-                        <ParagraphQ q={q} value={answer?.textAnswer ?? ''} onChange={(v) => updateFormAnswer(q.id, { textAnswer: v })} />
+                        <ParagraphQ q={q} value={answer?.textAnswer ?? ''} onChange={(v) => updateFormAnswer(q.id, { textAnswer: v })} disabled={disabled} />
+                      )}
+                      {q.questionType === 'email' && (
+                        <EmailQ value={answer?.textAnswer ?? ''} onChange={(v) => updateFormAnswer(q.id, { textAnswer: v })} disabled={disabled} />
+                      )}
+                      {q.questionType === 'number' && (
+                        <NumberQ q={q} value={answer?.textAnswer ?? ''} onChange={(v) => updateFormAnswer(q.id, { textAnswer: v })} disabled={disabled} />
+                      )}
+                      {q.questionType === 'date' && (
+                        <DateQ value={answer?.textAnswer ?? ''} onChange={(v) => updateFormAnswer(q.id, { textAnswer: v })} disabled={disabled} />
+                      )}
+                      {q.questionType === 'time' && (
+                        <TimeQ value={answer?.textAnswer ?? ''} onChange={(v) => updateFormAnswer(q.id, { textAnswer: v })} disabled={disabled} />
                       )}
                       {q.questionType === 'rating' && (
-                        <RatingQ q={q} value={answer?.ratingValue ?? null} onChange={(v) => updateFormAnswer(q.id, { ratingValue: v })} />
+                        <RatingQ q={q} value={answer?.ratingValue ?? null} onChange={(v) => updateFormAnswer(q.id, { ratingValue: v })} disabled={disabled} />
+                      )}
+                      {q.questionType === 'yes_no' && (
+                        <YesNoQ
+                          displayOptions={displayOpts}
+                          value={answer?.optionIds?.[0] ?? null}
+                          onChange={(optId) => updateFormAnswer(q.id, { optionIds: [optId] })}
+                          disabled={disabled}
+                        />
+                      )}
+                      {q.questionType === 'dropdown' && (
+                        <DropdownQ
+                          q={q}
+                          displayOptions={displayOpts}
+                          value={answer?.optionIds?.[0] ?? null}
+                          otherText={answer?.textAnswer ?? ''}
+                          onChange={(optId) => updateFormAnswer(q.id, { optionIds: [optId] })}
+                          onOtherTextChange={(v) => updateFormAnswer(q.id, { textAnswer: v })}
+                          disabled={disabled}
+                        />
                       )}
                       {q.questionType === 'multiple_choice' && (
                         <MultipleChoiceQ
                           q={q}
                           displayOptions={displayOpts}
                           value={answer?.optionIds?.[0] ?? null}
+                          otherText={answer?.textAnswer ?? ''}
                           onChange={(optId) => updateFormAnswer(q.id, { optionIds: [optId] })}
+                          onOtherTextChange={(v) => updateFormAnswer(q.id, { textAnswer: v })}
+                          disabled={disabled}
                         />
                       )}
                       {q.questionType === 'checkboxes' && (
@@ -864,16 +790,45 @@ export default function VoteDetailPage() {
                           q={q}
                           displayOptions={displayOpts}
                           value={answer?.optionIds ?? []}
+                          otherText={answer?.textAnswer ?? ''}
                           onChange={(ids) => updateFormAnswer(q.id, { optionIds: ids })}
+                          onOtherTextChange={(v) => updateFormAnswer(q.id, { textAnswer: v })}
+                          disabled={disabled}
+                        />
+                      )}
+                      {q.questionType === 'multiple_choice_grid' && (
+                        <McGridQ
+                          q={q}
+                          columns={displayOpts}
+                          value={parseMcGridAnswer(answer?.textAnswer)}
+                          onChange={(grid) => updateFormAnswer(q.id, { textAnswer: serializeGridAnswer(grid) })}
+                          disabled={disabled}
+                        />
+                      )}
+                      {q.questionType === 'checkbox_grid' && (
+                        <CbGridQ
+                          q={q}
+                          columns={displayOpts}
+                          value={parseCbGridAnswer(answer?.textAnswer)}
+                          onChange={(grid) => updateFormAnswer(q.id, { textAnswer: serializeGridAnswer(grid) })}
+                          disabled={disabled}
+                        />
+                      )}
+                      {q.questionType === 'file_upload' && (
+                        <FileUploadQ
+                          q={q}
+                          pollId={id}
+                          value={parseFileAnswer(answer?.textAnswer)}
+                          onChange={(json) => updateFormAnswer(q.id, { textAnswer: json })}
+                          disabled={disabled}
                         />
                       )}
                     </>
                   )}
 
-                  {/* Read-only display of prior answer */}
                   {disabled && hasSubmittedForm && answer && (
                     <div className="rounded-lg bg-[var(--surface-strong)] px-3 py-2 text-sm text-[var(--muted)]">
-                      {answer.textAnswer ?? (answer.ratingValue != null ? `Rating: ${answer.ratingValue}` : (answer.optionIds?.map((id) => q.options.find((o) => o.id === id)?.text ?? id).join(', ') ?? '—'))}
+                      {formatAnswerDisplay(q, answer)}
                     </div>
                   )}
                 </div>
@@ -885,7 +840,7 @@ export default function VoteDetailPage() {
             {/* Form-only submit (no voting round) */}
             {isLoggedIn && !hasSubmittedForm && poll.status === 'open' && questions.length > 0 && (!currentRound || currentRound.status !== 'open') && (
               <Button onClick={handleFormSubmit} disabled={formBusy}>
-                {formBusy ? 'Submitting…' : 'Submit Survey'}
+                {formBusy ? 'Submitting…' : 'Submit responses'}
               </Button>
             )}
           </CardContent>

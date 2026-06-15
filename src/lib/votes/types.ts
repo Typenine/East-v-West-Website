@@ -66,7 +66,29 @@ export interface PollVoteSelection {
 
 // ── Form question types ────────────────────────────────────────────────────
 
-export type QuestionType = 'short_answer' | 'paragraph' | 'rating' | 'multiple_choice' | 'checkboxes' | 'section_break';
+export type QuestionType =
+  | 'short_answer'
+  | 'paragraph'
+  | 'rating'
+  | 'multiple_choice'
+  | 'checkboxes'
+  | 'dropdown'
+  | 'yes_no'
+  | 'date'
+  | 'time'
+  | 'number'
+  | 'email'
+  | 'multiple_choice_grid'
+  | 'checkbox_grid'
+  | 'file_upload'
+  | 'section_break';
+
+export interface PollQuestionGridRow {
+  id: string;
+  questionId: string;
+  text: string;
+  displayOrder: number;
+}
 
 export interface PollQuestionOption {
   id: string;
@@ -84,8 +106,8 @@ export interface PollQuestion {
   required: boolean;
   shuffleOptions: boolean;
   displayOrder: number;
-  ratingMin: number;
-  ratingMax: number;
+  ratingMin: number | null;
+  ratingMax: number | null;
   ratingMinLabel: string | null;
   ratingMaxLabel: string | null;
   maxLength: number | null;
@@ -93,6 +115,7 @@ export interface PollQuestion {
   conditionOptionId: string | null;
   conditionValue: string | null;
   options: PollQuestionOption[];
+  gridRows: PollQuestionGridRow[];
 }
 
 export interface FormAnswer {
@@ -133,7 +156,26 @@ export interface ChoiceQuestionResult {
   total: number;
 }
 
-export type FormQuestionResult = RatingQuestionResult | TextQuestionResult | ChoiceQuestionResult;
+export interface GridQuestionResult {
+  questionId: string;
+  type: 'grid';
+  gridType: 'multiple_choice_grid' | 'checkbox_grid';
+  rows: { rowId: string; text: string; columnCounts: { optionId: string; text: string; count: number }[] }[];
+  total: number;
+}
+
+export interface FileQuestionResult {
+  questionId: string;
+  type: 'file';
+  files: { voterDisplay: string | null; filename: string; key: string; contentType: string }[];
+}
+
+export type FormQuestionResult =
+  | RatingQuestionResult
+  | TextQuestionResult
+  | ChoiceQuestionResult
+  | GridQuestionResult
+  | FileQuestionResult;
 
 // ── Ballot input from the API ──────────────────────────────────────────────
 

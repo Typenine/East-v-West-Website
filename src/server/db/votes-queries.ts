@@ -254,6 +254,41 @@ export async function updatePollStatus(id: string, status: PollStatus, closedAt?
   }
 }
 
+export async function updatePollFormMetadata(
+  id: string,
+  data: {
+    title?: string;
+    description?: string | null;
+    deadline?: string | null;
+    anonymous?: boolean;
+    resultVisibility?: string;
+    confirmationMessage?: string | null;
+    responseLimit?: number | null;
+    linkedSuggestionIds?: string[] | null;
+  },
+): Promise<boolean> {
+  try {
+    const db = getDb();
+    const poll = await getPollById(id);
+    if (!poll) return false;
+    await db.execute(sql`
+      UPDATE polls SET
+        title = ${data.title ?? poll.title},
+        description = ${data.description !== undefined ? data.description : poll.description},
+        deadline = ${data.deadline !== undefined ? (data.deadline ? new Date(data.deadline) : null) : (poll.deadline ? new Date(poll.deadline) : null)},
+        anonymous = ${data.anonymous ?? poll.anonymous},
+        result_visibility = ${(data.resultVisibility ?? poll.resultVisibility)}::result_visibility,
+        confirmation_message = ${data.confirmationMessage !== undefined ? data.confirmationMessage : poll.confirmationMessage},
+        response_limit = ${data.responseLimit !== undefined ? data.responseLimit : poll.responseLimit},
+        linked_suggestion_ids = ${data.linkedSuggestionIds !== undefined ? (data.linkedSuggestionIds ? `{${data.linkedSuggestionIds.map((s) => `"${s}"`).join(',')}}` : null) : (poll.linkedSuggestionIds ? `{${poll.linkedSuggestionIds.map((s) => `"${s}"`).join(',')}}` : null)}::text[]
+      WHERE id = ${id}::uuid
+    `);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function markDiscordNotified(id: string, field: 'open' | 'reminder' | 'closed'): Promise<boolean> {
   try {
     const db = getDb();

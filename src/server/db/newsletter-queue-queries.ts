@@ -6,7 +6,7 @@
  * never posts Discord.
  */
 
-import { and, or, eq, lte, asc, desc, inArray } from 'drizzle-orm';
+import { and, or, eq, lt, lte, asc, desc, inArray } from 'drizzle-orm';
 import { getDb } from './client';
 import { newsletterQueue } from './schema';
 
@@ -15,6 +15,10 @@ export type QueueStatus = 'queued' | 'generating' | 'generated' | 'skipped' | 'f
 // A 'generating' item whose updatedAt is older than this is assumed to be from a
 // crashed/killed runner and is reclaimed for regeneration on the next pass.
 const STALE_GENERATING_MS = 30 * 60 * 1000;
+
+// Bounded auto-retry: a 'failed' item is re-attempted on subsequent runs until it has
+// been tried this many times, then it's left alone (manual Retry resets the count).
+export const MAX_QUEUE_ATTEMPTS = 3;
 
 export interface QueueItem {
   id: string;
@@ -26,6 +30,7 @@ export interface QueueItem {
   note: string | null;
   generatedAt: string | null;
   error: string | null;
+  attempts: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -41,6 +46,7 @@ function toQueueItem(row: typeof newsletterQueue.$inferSelect): QueueItem {
     note: row.note ?? null,
     generatedAt: row.generatedAt?.toISOString() ?? null,
     error: row.error ?? null,
+    attempts: row.attempts ?? 0,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
@@ -82,7 +88,7 @@ export async function createQueueItem(input: {
 
 export async function updateQueueItem(
   id: string,
-  patch: { status?: QueueStatus; scheduledFor?: Date; note?: string | null; generatedAt?: Date | null; error?: string | null }
+  patch: { status?: QueueStatus; scheduledFor?: Date; note?: string | null; generatedAt?: Date | null; error?: string | null; attempts?: number }
 ): Promise<QueueItem | null> {
   const db = getDb();
   const set: Record<string, unknown> = { updatedAt: new Date() };
@@ -91,6 +97,7 @@ export async function updateQueueItem(
   if (patch.note !== undefined) set.note = patch.note;
   if (patch.generatedAt !== undefined) set.generatedAt = patch.generatedAt;
   if (patch.error !== undefined) set.error = patch.error;
+  if (patch.attempts !== undefined) set.attempts = patch.attempts;
   const rows = await db
     .update(newsletterQueue)
     .set(set)
@@ -106,9 +113,11 @@ export async function deleteQueueItem(id: string): Promise<boolean> {
 }
 
 /**
- * Items the runner should process: queued items whose scheduled time has arrived, PLUS
- * any 'generating' item left stranded by a crashed run (updatedAt older than the stale
- * threshold) so a dead run never permanently strands an item.
+ * Items the runner should process:
+ *  - 'queued' items whose scheduled time has arrived;
+ *  - 'failed' items that haven't exhausted their retry budget (bounded auto-retry, so a
+ *    transient failure self-heals on the next run instead of stranding the item);
+ *  - 'generating' items left stranded by a crashed run (updatedAt past the stale window).
  */
 export async function findDueQueueItems(now: Date = new Date()): Promise<QueueItem[]> {
   const db = getDb();
@@ -118,6 +127,7 @@ export async function findDueQueueItems(now: Date = new Date()): Promise<QueueIt
     .from(newsletterQueue)
     .where(or(
       and(eq(newsletterQueue.status, 'queued'), lte(newsletterQueue.scheduledFor, now)),
+      and(eq(newsletterQueue.status, 'failed'), lt(newsletterQueue.attempts, MAX_QUEUE_ATTEMPTS), lte(newsletterQueue.scheduledFor, now)),
       and(eq(newsletterQueue.status, 'generating'), lte(newsletterQueue.updatedAt, staleBefore)),
     ))
     .orderBy(asc(newsletterQueue.scheduledFor));

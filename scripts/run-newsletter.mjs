@@ -440,24 +440,30 @@ async function processDueQueue(now) {
     console.log(`[Runner] Editorial queue: ${due.length} due item(s).`);
     if (!due.length) return 0;
     for (const item of due) {
-      console.log(`[Runner] Queue item ${item.id}: ${item.episodeType} S${item.season}${item.week != null ? `W${item.week}` : ''} (scheduled ${item.scheduledFor}) — generating draft…`);
+      // Each attempt bumps the counter so a failing item retries a bounded number of
+      // times (see MAX_QUEUE_ATTEMPTS in newsletter-queue-queries) instead of looping
+      // forever. The counter is written on the FINAL failed status (always a valid enum
+      // value) so the bound holds even if the cosmetic 'generating' mark below is a no-op.
+      const nextAttempts = (item.attempts ?? 0) + 1;
+      console.log(`[Runner] Queue item ${item.id}: ${item.episodeType} S${item.season}${item.week != null ? `W${item.week}` : ''} (scheduled ${item.scheduledFor}, attempt ${nextAttempts}) — generating draft…`);
       const target = await queueItemToTarget(item);
       try {
-        // Mark in-progress so the admin UI shows it actively working (not just "queued").
-        // This also refreshes updatedAt, which the stale-generating reclaim keys off of.
-        await updateQueueItem(item.id, { status: 'generating', error: null }).catch(() => {});
+        // Mark in-progress so the admin UI shows it actively working. Best-effort and
+        // cosmetic — if the 'generating' enum value isn't deployed yet this is a no-op
+        // and generation still proceeds.
+        await updateQueueItem(item.id, { status: 'generating' }).catch(() => {});
         const status = await runTarget(target, { preview: false });
         if (status === 'generated' || status === 'exists') {
           await updateQueueItem(item.id, { status: 'generated', generatedAt: new Date(), error: null });
           console.log(`[Runner] Queue item ${item.id} → ${status} (draft saved).`);
         } else {
-          await updateQueueItem(item.id, { status: 'failed', error: `runTarget=${status}` });
-          console.warn(`[Runner] Queue item ${item.id} → failed (runTarget=${status}).`);
+          await updateQueueItem(item.id, { status: 'failed', error: `runTarget=${status}`, attempts: nextAttempts });
+          console.warn(`[Runner] Queue item ${item.id} → failed (runTarget=${status}, attempt ${nextAttempts}/${3}).`);
         }
         processed++;
       } catch (e) {
-        await updateQueueItem(item.id, { status: 'failed', error: String(e?.message ?? e) }).catch(() => {});
-        console.error(`[Runner] Queue item ${item.id} threw:`, e?.message ?? e);
+        await updateQueueItem(item.id, { status: 'failed', error: String(e?.message ?? e), attempts: nextAttempts }).catch(() => {});
+        console.error(`[Runner] Queue item ${item.id} threw (attempt ${nextAttempts}):`, e?.message ?? e);
       }
     }
   } catch (e) {

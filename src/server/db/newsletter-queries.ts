@@ -501,6 +501,62 @@ export async function listNewsletterWeeks(
   return rows.map(r => r.week).sort((a, b) => a - b);
 }
 
+export interface NewsletterMeta {
+  season: number;
+  week: number;
+  leagueName: string;
+  episodeType: string | null;
+  status: NewsletterStatus;
+  generatedAt: string;
+  publishedAt: string | null;
+  discordPostedAt: string | null;
+  updatedAt: string | null;
+}
+
+/**
+ * Summary metadata for every saved newsletter in a season — enough to tell drafts
+ * apart in the admin list without loading the (heavy) content/html. Public callers
+ * (default) only see published; admin passes includeDrafts.
+ */
+export async function listNewslettersMeta(
+  season: number,
+  opts?: { includeDrafts?: boolean }
+): Promise<NewsletterMeta[]> {
+  const db = getDb();
+  const where = opts?.includeDrafts
+    ? eq(newsletters.season, season)
+    : and(eq(newsletters.season, season), eq(newsletters.status, 'published'));
+  const rows = await db
+    .select({
+      season: newsletters.season,
+      week: newsletters.week,
+      leagueName: newsletters.leagueName,
+      episodeType: newsletters.episodeType,
+      status: newsletters.status,
+      generatedAt: newsletters.generatedAt,
+      publishedAt: newsletters.publishedAt,
+      discordPostedAt: newsletters.discordPostedAt,
+      updatedAt: newsletters.updatedAt,
+    })
+    .from(newsletters)
+    .where(where);
+
+  return rows
+    .map(r => ({
+      season: r.season,
+      week: r.week,
+      leagueName: r.leagueName,
+      episodeType: r.episodeType ?? null,
+      status: (r.status as NewsletterStatus) ?? 'published',
+      generatedAt: r.generatedAt.toISOString(),
+      publishedAt: r.publishedAt?.toISOString() ?? null,
+      discordPostedAt: r.discordPostedAt?.toISOString() ?? null,
+      updatedAt: r.updatedAt?.toISOString() ?? null,
+    }))
+    // Newest first by generation time.
+    .sort((a, b) => b.generatedAt.localeCompare(a.generatedAt));
+}
+
 /**
  * Load previous newsletter for callbacks/references
  * Returns the newsletter from the previous week if it exists

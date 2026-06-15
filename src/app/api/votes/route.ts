@@ -10,7 +10,7 @@ import {
   createOptions,
   updateSuggestionVoteTag,
 } from '@/server/db/votes-queries';
-import { createQuestions, getResponseCount } from '@/server/db/poll-form-queries';
+import { createQuestions, getResponseCount, applyQuestionConditions } from '@/server/db/poll-form-queries';
 import { TOTAL_ELIGIBLE } from '@/lib/votes/types';
 import type { PollListItem, RoundWithDetails } from '@/lib/votes/types';
 
@@ -79,7 +79,8 @@ export async function POST(req: NextRequest) {
         questionType: string; text: string; description?: string; required?: boolean;
         shuffleOptions?: boolean; displayOrder: number;
         ratingMin?: number; ratingMax?: number; ratingMinLabel?: string; ratingMaxLabel?: string;
-        maxLength?: number; conditionQuestionId?: string; conditionOptionId?: string; conditionValue?: string;
+        maxLength?: number | null; conditionQuestionId?: string; conditionOptionId?: string; conditionValue?: string;
+        conditionQuestionIndex?: number; conditionOptionIndex?: number;
         options?: { text: string; displayOrder: number }[];
       }>;
     };
@@ -152,6 +153,9 @@ export async function POST(req: NextRequest) {
 
     // Create form questions
     const createdQuestions = hasQuestions ? await createQuestions(poll.id, questionDefs!) : [];
+    if (hasQuestions && createdQuestions.length) {
+      await applyQuestionConditions(createdQuestions, questionDefs!);
+    }
 
     // Update linked suggestion voteTags
     for (const sid of linkedSuggestionIds ?? []) {

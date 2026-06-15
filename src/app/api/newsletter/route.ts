@@ -758,13 +758,19 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    // If list=true, just return available weeks
+    // If list=true, return available weeks (public page) + full per-newsletter
+    // metadata (admin list). `items` respects includeDrafts just like `weeks`.
     if (listParam === 'true') {
-      const weeks = await listNewsletterWeeks(seasonNum, { includeDrafts });
+      const { listNewslettersMeta } = await import('@/server/db/newsletter-queries');
+      const [weeks, items] = await Promise.all([
+        listNewsletterWeeks(seasonNum, { includeDrafts }),
+        listNewslettersMeta(seasonNum, { includeDrafts }),
+      ]);
       return NextResponse.json({
         success: true,
         season: seasonNum,
         weeks,
+        items,
       });
     }
 

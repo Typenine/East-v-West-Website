@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useCallback, Component, ReactNode } from 'react';
 import EditModePanel from './EditModePanel';
 import EditorialCalendar from './EditorialCalendar';
+import SavedNewsletters from './SavedNewsletters';
 import Link from 'next/link';
 import SectionHeader from '@/components/ui/SectionHeader';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
@@ -199,6 +200,9 @@ function AdminNewsletterPageInner() {
   // "Generate now" from the editorial calendar: pre-fill config, then trigger a run
   // once React has applied the new season/week/episodeType state.
   const [pendingGen, setPendingGen] = useState(false);
+
+  // Bumped after generate/publish/delete so the Saved Newsletters list refreshes promptly.
+  const [savedReload, setSavedReload] = useState(0);
 
   // ── Auth ──────────────────────────────────────────────────────────────────
 
@@ -438,6 +442,17 @@ function AdminNewsletterPageInner() {
     if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
+  // Load a saved newsletter into the generator config (no generation) so the Status
+  // panel / Edit / Publish above operate on it.
+  const handleOpenSaved = (s: string, w: number, ep: string) => {
+    setEpisodeType(ep);
+    setSeason(s);
+    setWeek(String(w));
+    setGen(INIT_GEN);
+    setPublishResult(null);
+    if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
   // Fire the generation once the config state has been applied.
   useEffect(() => {
     if (!pendingGen) return;
@@ -546,6 +561,7 @@ function AdminNewsletterPageInner() {
       });
       const data = await res.json() as { message?: string; error?: string };
       setPublishResult({ ok: res.ok, message: data.message ?? data.error ?? (res.ok ? 'Published!' : 'Failed') });
+      if (res.ok) setSavedReload(k => k + 1);
     } catch (err) {
       setPublishResult({ ok: false, message: err instanceof Error ? err.message : 'Publish failed' });
     } finally {
@@ -590,7 +606,7 @@ function AdminNewsletterPageInner() {
     const wNum = needsWeek ? (parseInt(week) || 0) : 0;
     try {
       const res = await fetch(`/api/newsletter?week=${wNum}&season=${season}`, { method: 'DELETE' });
-      if (res.ok) { setExisting(null); setConfirmDelete(false); setGen(INIT_GEN); }
+      if (res.ok) { setExisting(null); setConfirmDelete(false); setGen(INIT_GEN); setSavedReload(k => k + 1); }
     } catch { /* ignore */ }
   };
 
@@ -1010,6 +1026,9 @@ function AdminNewsletterPageInner() {
           setFinalizeResult={setFinalizeResult}
         />
       )}
+
+      {/* Saved newsletters — type / week / generated / status, at a glance */}
+      <SavedNewsletters season={season} onSelect={handleOpenSaved} reloadKey={savedReload} />
 
       {/* Editorial calendar / generation queue */}
       <EditorialCalendar defaultSeason={season} onGenerateNow={handleGenerateNow} />
