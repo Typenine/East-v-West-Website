@@ -24,6 +24,18 @@ import {
 } from '@/components/admin/votes/types';
 import { buildSubmitBody, validateBuilderState } from '@/lib/votes/poll-builder';
 
+async function parseApiJson(res: Response): Promise<unknown> {
+  const text = await res.text();
+  if (!text.trim()) return {};
+  try {
+    return JSON.parse(text) as unknown;
+  } catch {
+    throw new Error(
+      'The server returned an unexpected response (not JSON). If you are admin-only without a team login, refresh and try again — or log in with your team PIN.',
+    );
+  }
+}
+
 export type PollCreateResult = { published: boolean };
 
 type CreatePollWizardProps = {
@@ -52,10 +64,9 @@ async function publishNewPoll(pollId: string, state: BuilderState): Promise<void
     body: JSON.stringify(body),
   });
   if (!res.ok) {
-    const data = await res.json().catch(() => ({}));
+    const data = (await parseApiJson(res)) as { error?: string };
     throw new Error(
-      (data as { error?: string }).error ??
-        'Poll saved as draft, but publishing failed. Use Publish poll on the card below.',
+      data.error ?? 'Poll saved as draft, but publishing failed. Use Publish poll on the card below.',
     );
   }
 }
@@ -535,8 +546,8 @@ export default function CreatePollWizard({
           }),
         });
         if (!res.ok) {
-          const data = await res.json().catch(() => ({}));
-          throw new Error((data as { error?: string }).error ?? 'Failed to save poll.');
+          const data = (await parseApiJson(res)) as { error?: string };
+          throw new Error(data.error ?? 'Failed to save poll.');
         }
         (onSaved ?? onCreated)();
         return;
@@ -546,11 +557,10 @@ export default function CreatePollWizard({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(buildSubmitBody(state)),
       });
+      const data = (await parseApiJson(res)) as { error?: string; poll?: { id: string } };
       if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error((data as { error?: string }).error ?? 'Failed to create poll.');
+        throw new Error(data.error ?? 'Failed to create poll.');
       }
-      const data = (await res.json()) as { poll?: { id: string } };
       const pollIdCreated = data.poll?.id;
       if (intent === 'publish') {
         if (!pollIdCreated) throw new Error('Poll created but id missing — publish from the poll card.');

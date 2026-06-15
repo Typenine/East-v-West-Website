@@ -63,9 +63,11 @@ export async function middleware(req: NextRequest) {
     return NextResponse.redirect(new URL('/', req.url));
   }
 
-  // Other protected paths: require session
+  // Other protected paths: require session (admins may manage polls via API without a team session)
   const isProtected = PROTECTED_PREFIXES.some(p => pathname === p || pathname.startsWith(p + '/'));
+  const isVotesApi = pathname === '/api/votes' || pathname.startsWith('/api/votes/');
   if (isProtected && !sessionToken) {
+    if (isAdmin && isVotesApi) return NextResponse.next();
     const url = new URL('/login', req.url);
     url.searchParams.set('next', pathname + (search || ''));
     return NextResponse.redirect(url);
@@ -79,6 +81,7 @@ export const config = {
     '/trade-block/:path*',
     '/vote/:path*',
     '/api/trade-block/:path*',
+    '/api/votes',
     '/api/votes/:path*',
     '/draft/room',
     '/draft/room/:path*',
