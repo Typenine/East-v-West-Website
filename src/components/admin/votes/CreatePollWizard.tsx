@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import Input from '@/components/ui/Input';
 import Textarea from '@/components/ui/Textarea';
 import Label from '@/components/ui/Label';
@@ -24,17 +24,41 @@ import {
 } from '@/components/admin/votes/types';
 import { buildSubmitBody, validateBuilderState } from '@/lib/votes/poll-builder';
 
+export type PollCreateResult = { published: boolean };
+
 type CreatePollWizardProps = {
   suggestions: Suggestion[];
   suggestionsLoading: boolean;
   onCancel: () => void;
-  onCreated: () => void;
+  onCreated: (result?: PollCreateResult) => void;
   mode?: 'create' | 'edit';
   pollId?: string;
   initialState?: BuilderState;
   canEditQuestions?: boolean;
   onSaved?: () => void;
 };
+
+function usesFormalRounds(state: BuilderState): boolean {
+  return state.useFormalRounds && state.rounds.length > 0;
+}
+
+async function publishNewPoll(pollId: string, state: BuilderState): Promise<void> {
+  const body = usesFormalRounds(state)
+    ? { action: 'open_round', roundNumber: 1 }
+    : { action: 'open_poll' };
+  const res = await fetch(`/api/votes/${pollId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(
+      (data as { error?: string }).error ??
+        'Poll saved as draft, but publishing failed. Use Publish poll on the card below.',
+    );
+  }
+}
 
 function QuestionEditor({
   q,
@@ -296,6 +320,116 @@ function QuestionEditor({
   );
 }
 
+const QUICK_QUESTION_TYPES = ['yes_no', 'multiple_choice', 'short_answer', 'paragraph', 'section_break'] as const;
+
+function questionTypeGroups() {
+  const groups = new Map<string, (typeof POLL_QUESTION_TYPES)[number][]>();
+  for (const t of POLL_QUESTION_TYPES) {
+    const list = groups.get(t.group) ?? [];
+    list.push(t);
+    groups.set(t.group, list);
+  }
+  return groups;
+}
+
+function QuestionTypePicker({
+  onAdd,
+  label,
+  compact,
+}: {
+  onAdd: (type: string) => void;
+  label?: string;
+  compact?: boolean;
+}) {
+  const groups = questionTypeGroups();
+  const quickTypes = POLL_QUESTION_TYPES.filter((t) =>
+    (QUICK_QUESTION_TYPES as readonly string[]).includes(t.value),
+  );
+
+  return (
+    <div className="space-y-2">
+      {label ? <p className="text-xs font-medium text-[var(--muted)]">{label}</p> : null}
+      <div className="flex flex-wrap items-center gap-2">
+        {quickTypes.map((t) => (
+          <button
+            key={t.value}
+            type="button"
+            onClick={() => onAdd(t.value)}
+            className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs font-medium hover:border-[var(--accent)] hover:text-[var(--accent)] transition-colors"
+          >
+            + {t.label}
+          </button>
+        ))}
+        <Select
+          value=""
+          fullWidth={false}
+          size="sm"
+          onChange={(e) => {
+            if (e.target.value) onAdd(e.target.value);
+          }}
+          className="min-w-[11rem]"
+        >
+          <option value="">More types…</option>
+          {[...groups.entries()].map(([group, types]) => (
+            <optgroup key={group} label={group}>
+              {types.map((t) => (
+                <option key={t.value} value={t.value}>
+                  {t.label}
+                </option>
+              ))}
+            </optgroup>
+          ))}
+        </Select>
+      </div>
+      {!compact ? (
+        <details className="text-xs">
+          <summary className="cursor-pointer text-[var(--muted)] hover:text-[var(--text)] select-none">
+            Show all question types
+          </summary>
+          <div className="flex flex-wrap gap-2 pt-2">
+            {POLL_QUESTION_TYPES.map((t) => (
+              <button
+                key={t.value}
+                type="button"
+                onClick={() => onAdd(t.value)}
+                className="rounded-lg border border-[var(--border)] px-2.5 py-1 text-xs hover:border-[var(--accent)] hover:text-[var(--accent)] transition-colors"
+                title={t.hint}
+              >
+                + {t.label}
+              </button>
+            ))}
+          </div>
+        </details>
+      ) : null}
+    </div>
+  );
+}
+
+function InsertQuestionBelow({ onAdd }: { onAdd: (type: string) => void }) {
+  return (
+    <div className="flex items-center gap-3 py-1">
+      <div className="flex-1 border-t border-dashed border-[var(--border)]" />
+      <Select
+        value=""
+        fullWidth={false}
+        size="sm"
+        onChange={(e) => {
+          if (e.target.value) onAdd(e.target.value);
+        }}
+        className="min-w-[9rem]"
+      >
+        <option value="">+ Insert below</option>
+        {POLL_QUESTION_TYPES.map((t) => (
+          <option key={t.value} value={t.value}>
+            {t.label}
+          </option>
+        ))}
+      </Select>
+      <div className="flex-1 border-t border-dashed border-[var(--border)]" />
+    </div>
+  );
+}
+
 function RoundEditor({
   r,
   i,
@@ -358,10 +492,21 @@ export default function CreatePollWizard({
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const isEdit = mode === 'edit';
+  const questionRefs = useRef<(HTMLDivElement | null)[]>([]);
+  const scrollToIndex = useRef<number | null>(null);
 
   const patch = (p: Partial<BuilderState>) => setState((prev) => ({ ...prev, ...p }));
 
-  const handleSubmit = async () => {
+  useEffect(() => {
+    const idx = scrollToIndex.current;
+    if (idx == null) return;
+    scrollToIndex.current = null;
+    requestAnimationFrame(() => {
+      questionRefs.current[idx]?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  }, [state.questions.length]);
+
+  const handleSubmit = async (intent: 'draft' | 'publish' = 'draft') => {
     const err = isEdit && !canEditQuestions
       ? (!state.title.trim() ? 'Add a poll title.' : null)
       : validateBuilderState(isEdit ? { ...state, useFormalRounds: false } : state);
@@ -405,7 +550,13 @@ export default function CreatePollWizard({
         const data = await res.json().catch(() => ({}));
         throw new Error((data as { error?: string }).error ?? 'Failed to create poll.');
       }
-      onCreated();
+      const data = (await res.json()) as { poll?: { id: string } };
+      const pollIdCreated = data.poll?.id;
+      if (intent === 'publish') {
+        if (!pollIdCreated) throw new Error('Poll created but id missing — publish from the poll card.');
+        await publishNewPoll(pollIdCreated, state);
+      }
+      onCreated({ published: intent === 'publish' });
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to save poll.');
     } finally {
@@ -413,8 +564,12 @@ export default function CreatePollWizard({
     }
   };
 
-  const addQuestion = (type: string) => {
-    patch({ questions: [...state.questions, newQuestion(type)] });
+  const addQuestionAt = (type: string, afterIndex?: number) => {
+    const insertAt = afterIndex == null ? state.questions.length : afterIndex + 1;
+    const next = [...state.questions];
+    next.splice(insertAt, 0, newQuestion(type));
+    scrollToIndex.current = insertAt;
+    patch({ questions: next });
   };
 
   return (
@@ -425,7 +580,7 @@ export default function CreatePollWizard({
           <p className="text-sm text-[var(--muted)] mt-1">
             {isEdit && !canEditQuestions
               ? 'Responses exist — you can edit title, description, and settings. Questions are locked.'
-              : 'Google Forms–style surveys with mixed question types — plus league voting (IRV, anonymity, team eligibility).'}
+              : 'Save as draft to review privately, or publish when members should see it on the Vote page.'}
           </p>
         </div>
         <button type="button" onClick={onCancel} className="text-xs text-[var(--muted)] hover:text-red-400 px-2 py-1">Cancel</button>
@@ -472,46 +627,46 @@ export default function CreatePollWizard({
       </SectionBlock>
 
       {(!isEdit || canEditQuestions) && (
-      <SectionBlock title="Questions" description="Build your poll one question at a time. Mix types freely.">
-        <div className="flex flex-wrap gap-2 pb-1">
-          {POLL_QUESTION_TYPES.map((t) => (
-            <button
-              key={t.value}
-              type="button"
-              onClick={() => addQuestion(t.value)}
-              className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs font-medium hover:border-[var(--accent)] hover:text-[var(--accent)] transition-colors"
-            >
-              + {t.label}
-            </button>
+      <SectionBlock title="Questions" description="Add questions at the top or bottom — or insert between any two. The bar stays visible while you scroll.">
+        <div className="sticky top-0 z-10 -mx-1 px-1 py-2.5 mb-3 bg-[var(--background)]/95 backdrop-blur-sm border-b border-[var(--border)] rounded-lg">
+          <QuestionTypePicker onAdd={(type) => addQuestionAt(type)} label="Add question" compact />
+        </div>
+
+        <div className="space-y-1">
+          {state.questions.map((q, qi) => (
+            <Fragment key={qi}>
+              <div ref={(el) => { questionRefs.current[qi] = el; }}>
+                <QuestionEditor
+                  q={q}
+                  index={qi}
+                  total={state.questions.length}
+                  priorQuestions={state.questions.slice(0, qi)}
+                  onUpdate={(p) =>
+                    patch({
+                      questions: state.questions.map((qd, j) => (j === qi ? { ...qd, ...p } : qd)),
+                    })
+                  }
+                  onMove={(dir) => {
+                    const next = [...state.questions];
+                    [next[qi], next[qi + dir]] = [next[qi + dir], next[qi]];
+                    patch({ questions: next });
+                  }}
+                  onRemove={() => patch({ questions: state.questions.filter((_, j) => j !== qi) })}
+                  onDuplicate={() => {
+                    const next = [...state.questions];
+                    next.splice(qi + 1, 0, duplicateQuestion(q));
+                    scrollToIndex.current = qi + 1;
+                    patch({ questions: next });
+                  }}
+                />
+              </div>
+              <InsertQuestionBelow onAdd={(type) => addQuestionAt(type, qi)} />
+            </Fragment>
           ))}
         </div>
 
-        <div className="space-y-3">
-          {state.questions.map((q, qi) => (
-            <QuestionEditor
-              key={qi}
-              q={q}
-              index={qi}
-              total={state.questions.length}
-              priorQuestions={state.questions.slice(0, qi)}
-              onUpdate={(p) =>
-                patch({
-                  questions: state.questions.map((qd, j) => (j === qi ? { ...qd, ...p } : qd)),
-                })
-              }
-              onMove={(dir) => {
-                const next = [...state.questions];
-                [next[qi], next[qi + dir]] = [next[qi + dir], next[qi]];
-                patch({ questions: next });
-              }}
-              onRemove={() => patch({ questions: state.questions.filter((_, j) => j !== qi) })}
-              onDuplicate={() => {
-                const next = [...state.questions];
-                next.splice(qi + 1, 0, duplicateQuestion(q));
-                patch({ questions: next });
-              }}
-            />
-          ))}
+        <div className="pt-4 mt-2 border-t border-dashed border-[var(--border)]">
+          <QuestionTypePicker onAdd={(type) => addQuestionAt(type)} label="Add another question" />
         </div>
       </SectionBlock>
       )}
@@ -640,11 +795,33 @@ export default function CreatePollWizard({
         </div>
       </SectionBlock>
 
-      <div className="sticky bottom-0 pt-3 pb-1 bg-[var(--background)]/95 backdrop-blur-sm border-t border-[var(--border)] flex justify-end gap-2">
-        <Button type="button" variant="ghost" onClick={onCancel}>Cancel</Button>
-        <Button type="button" onClick={() => void handleSubmit()} disabled={submitting}>
-          {submitting ? 'Saving…' : isEdit ? 'Save changes' : 'Create draft poll'}
-        </Button>
+      <div className="sticky bottom-0 pt-3 pb-1 bg-[var(--background)]/95 backdrop-blur-sm border-t border-[var(--border)] flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        {!isEdit ? (
+          <p className="text-xs text-[var(--muted)]">
+            <span className="font-medium text-[var(--text)]">Draft</span> — admins only.
+            <span className="mx-1.5">·</span>
+            <span className="font-medium text-[var(--text)]">Publish</span> — visible on Vote page.
+          </p>
+        ) : (
+          <span />
+        )}
+        <div className="flex justify-end gap-2">
+          <Button type="button" variant="ghost" onClick={onCancel} disabled={submitting}>Cancel</Button>
+          {isEdit ? (
+            <Button type="button" onClick={() => void handleSubmit('draft')} disabled={submitting}>
+              {submitting ? 'Saving…' : 'Save changes'}
+            </Button>
+          ) : (
+            <>
+              <Button type="button" variant="ghost" onClick={() => void handleSubmit('draft')} disabled={submitting}>
+                {submitting ? 'Saving…' : 'Save draft'}
+              </Button>
+              <Button type="button" onClick={() => void handleSubmit('publish')} disabled={submitting}>
+                {submitting ? 'Publishing…' : 'Publish poll'}
+              </Button>
+            </>
+          )}
+        </div>
       </div>
     </div>
   );

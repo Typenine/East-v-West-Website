@@ -8,6 +8,7 @@ import {
   createPoll,
   createRound,
   createOptions,
+  deletePoll,
   updateSuggestionVoteTag,
 } from '@/server/db/votes-queries';
 import { createQuestions, getResponseCount, applyQuestionConditions } from '@/server/db/poll-form-queries';
@@ -152,8 +153,23 @@ export async function POST(req: NextRequest) {
     }
 
     // Create form questions
-    const createdQuestions = hasQuestions ? await createQuestions(poll.id, questionDefs!) : [];
-    if (hasQuestions && createdQuestions.length) {
+    let createdQuestions: Awaited<ReturnType<typeof createQuestions>> = [];
+    if (hasQuestions) {
+      try {
+        createdQuestions = await createQuestions(poll.id, questionDefs!);
+      } catch (err) {
+        await deletePoll(poll.id);
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error('[POST /api/votes] createQuestions', msg);
+        return Response.json(
+          { error: `Failed to save poll questions: ${msg}. If this mentions an enum type, run npm run db:migrate.` },
+          { status: 500 },
+        );
+      }
+      if (createdQuestions.length !== questionDefs!.length) {
+        await deletePoll(poll.id);
+        return Response.json({ error: 'Failed to save all poll questions.' }, { status: 500 });
+      }
       await applyQuestionConditions(createdQuestions, questionDefs!);
     }
 

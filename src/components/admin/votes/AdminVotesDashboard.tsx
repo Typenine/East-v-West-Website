@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import SectionHeader from '@/components/ui/SectionHeader';
 import { Card, CardContent } from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
@@ -9,10 +9,34 @@ import AdminPollCard from '@/components/admin/votes/AdminPollCard';
 import AdminPollResults from '@/components/admin/votes/AdminPollResults';
 import type { AdminPollEntry, BuilderState, Suggestion } from '@/components/admin/votes/types';
 
+function PollListSection({
+  title,
+  description,
+  entries,
+  renderCard,
+}: {
+  title: string;
+  description?: string;
+  entries: AdminPollEntry[];
+  renderCard: (entry: AdminPollEntry) => ReactNode;
+}) {
+  if (!entries.length) return null;
+  return (
+    <section className="space-y-3">
+      <div>
+        <h3 className="text-sm font-semibold text-[var(--text)]">{title}</h3>
+        {description ? <p className="text-xs text-[var(--muted)] mt-0.5">{description}</p> : null}
+      </div>
+      <div className="space-y-4">{entries.map((entry) => renderCard(entry))}</div>
+    </section>
+  );
+}
+
 export default function AdminVotesDashboard() {
   const [polls, setPolls] = useState<AdminPollEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [actionBusy, setActionBusy] = useState<string | null>(null);
   const [actionErrors, setActionErrors] = useState<Record<string, string>>({});
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
@@ -33,9 +57,10 @@ export default function AdminVotesDashboard() {
     try {
       setLoading(true);
       setError(null);
-      const res = await fetch('/api/admin/votes');
+      const res = await fetch('/api/admin/votes', { cache: 'no-store' });
       if (!res.ok) {
-        setError('Admin access required.');
+        const data = await res.json().catch(() => ({}));
+        setError((data as { error?: string }).error ?? 'Admin access required.');
         return;
       }
       setPolls(await res.json());
@@ -136,6 +161,41 @@ export default function AdminVotesDashboard() {
     setEditState(null);
   }
 
+  function renderPollCard(entry: AdminPollEntry) {
+    return (
+      <AdminPollCard
+        key={entry.poll.id}
+        entry={entry}
+        busy={actionBusy === entry.poll.id}
+        error={actionErrors[entry.poll.id] ?? null}
+        deleteConfirm={deleteConfirm === entry.poll.id}
+        closeConfirm={closeConfirm === entry.poll.id}
+        onClearError={() =>
+          setActionErrors((prev) => {
+            const next = { ...prev };
+            delete next[entry.poll.id];
+            return next;
+          })
+        }
+        onDeleteConfirm={() => setDeleteConfirm(entry.poll.id)}
+        onDeleteCancel={() => setDeleteConfirm(null)}
+        onDelete={() => void handleDelete(entry.poll.id)}
+        onCloseConfirm={() => setCloseConfirm(entry.poll.id)}
+        onCloseCancel={() => setCloseConfirm(null)}
+        onAction={(body) => doAction(entry.poll.id, body)}
+        onEdit={() => void openEdit(entry.poll.id)}
+        onViewResults={() => {
+          setResultsPollId(entry.poll.id);
+          setResultsPollTitle(entry.poll.title);
+        }}
+      />
+    );
+  }
+
+  const draftPolls = polls.filter((e) => e.poll.status === 'draft');
+  const livePolls = polls.filter((e) => e.poll.status === 'open');
+  const closedPolls = polls.filter((e) => e.poll.status === 'closed');
+
   return (
     <div className="container mx-auto px-4 py-8 max-w-5xl">
       {process.env.NEXT_PUBLIC_VOTES_TEST_MODE === 'true' && (
@@ -144,9 +204,18 @@ export default function AdminVotesDashboard() {
         </div>
       )}
 
+      {successMessage ? (
+        <div className="mb-5 rounded-xl bg-emerald-500/10 border border-emerald-500/25 px-4 py-3 text-sm text-emerald-400 flex items-start justify-between gap-3">
+          <span>{successMessage}</span>
+          <button type="button" className="text-emerald-300/80 hover:text-emerald-200 shrink-0" onClick={() => setSuccessMessage(null)} aria-label="Dismiss">
+            ✕
+          </button>
+        </div>
+      ) : null}
+
       <SectionHeader
         title="Admin · Votes"
-        subtitle="Google Forms–style surveys plus league ballots (IRV, anonymity, team votes)"
+        subtitle="Create drafts privately, then publish when members should see polls on the Vote page"
         actions={!showBuilder ? <Button onClick={() => setShowBuilder(true)}>+ New poll</Button> : null}
       />
 
@@ -158,8 +227,13 @@ export default function AdminVotesDashboard() {
                 suggestions={suggestions}
                 suggestionsLoading={suggestionsLoading}
                 onCancel={() => setShowBuilder(false)}
-                onCreated={() => {
+                onCreated={(result) => {
                   setShowBuilder(false);
+                  setSuccessMessage(
+                    result?.published
+                      ? 'Poll published — members can see and respond on the Vote page.'
+                      : 'Draft saved — only you see it here until you click Publish poll.',
+                  );
                   void fetchPolls();
                 }}
               />
@@ -209,39 +283,29 @@ export default function AdminVotesDashboard() {
       ) : polls.length === 0 ? (
         <div className="rounded-xl border border-dashed border-[var(--border)] px-6 py-16 text-center space-y-3">
           <p className="text-base font-semibold text-[var(--text)]">No polls yet</p>
-          <p className="text-sm text-[var(--muted)]">Start with one question — mix Yes/No, multiple choice, text, and ratings in the same poll.</p>
-          <Button onClick={() => setShowBuilder(true)}>Create your first poll</Button>
+          <p className="text-sm text-[var(--muted)]">Save a draft to build privately, or publish when you are ready for members to vote.</p>
+          <Button onClick={() => setShowBuilder(true)}>Create a poll</Button>
         </div>
       ) : (
-        <div className="space-y-4">
-          {polls.map((entry) => (
-            <AdminPollCard
-              key={entry.poll.id}
-              entry={entry}
-              busy={actionBusy === entry.poll.id}
-              error={actionErrors[entry.poll.id] ?? null}
-              deleteConfirm={deleteConfirm === entry.poll.id}
-              closeConfirm={closeConfirm === entry.poll.id}
-              onClearError={() =>
-                setActionErrors((prev) => {
-                  const next = { ...prev };
-                  delete next[entry.poll.id];
-                  return next;
-                })
-              }
-              onDeleteConfirm={() => setDeleteConfirm(entry.poll.id)}
-              onDeleteCancel={() => setDeleteConfirm(null)}
-              onDelete={() => void handleDelete(entry.poll.id)}
-              onCloseConfirm={() => setCloseConfirm(entry.poll.id)}
-              onCloseCancel={() => setCloseConfirm(null)}
-              onAction={(body) => doAction(entry.poll.id, body)}
-              onEdit={() => void openEdit(entry.poll.id)}
-              onViewResults={() => {
-                setResultsPollId(entry.poll.id);
-                setResultsPollTitle(entry.poll.title);
-              }}
-            />
-          ))}
+        <div className="space-y-8">
+          <PollListSection
+            title="Drafts"
+            description="Not visible on the Vote page — publish when ready."
+            entries={draftPolls}
+            renderCard={renderPollCard}
+          />
+          <PollListSection
+            title="Live"
+            description="Published and accepting responses on the Vote page."
+            entries={livePolls}
+            renderCard={renderPollCard}
+          />
+          <PollListSection
+            title="Closed"
+            description="No longer accepting responses."
+            entries={closedPolls}
+            renderCard={renderPollCard}
+          />
         </div>
       )}
     </div>

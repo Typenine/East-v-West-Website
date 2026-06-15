@@ -1,4 +1,5 @@
 import { getDb } from './client';
+import { firstRowFromExecute, rowsFromExecute } from './execute-rows';
 import { sql } from 'drizzle-orm';
 import type {
   PollQuestion,
@@ -95,7 +96,7 @@ export async function getQuestionsForPoll(pollId: string): Promise<PollQuestion[
     const qRows = await db.execute(sql`
       SELECT * FROM poll_questions WHERE poll_id = ${pollId}::uuid ORDER BY display_order ASC
     `);
-    const questions = qRows as unknown as Record<string, unknown>[];
+    const questions = rowsFromExecute(qRows);
     if (!questions.length) return [];
 
     // Eager-load all options for these questions in one query
@@ -103,14 +104,14 @@ export async function getQuestionsForPoll(pollId: string): Promise<PollQuestion[
     const optRows = await db.execute(
       sql.raw(`SELECT * FROM poll_question_options WHERE question_id IN (${ids}) ORDER BY display_order ASC`),
     );
-    const allOptions = (optRows as unknown as Record<string, unknown>[]).map(rowToQuestionOption);
+    const allOptions = rowsFromExecute(optRows).map(rowToQuestionOption);
 
     let allGridRows: PollQuestionGridRow[] = [];
     try {
       const gridRows = await db.execute(
         sql.raw(`SELECT * FROM poll_question_grid_rows WHERE question_id IN (${ids}) ORDER BY display_order ASC`),
       );
-      allGridRows = (gridRows as unknown as Record<string, unknown>[]).map(rowToGridRow);
+      allGridRows = rowsFromExecute(gridRows).map(rowToGridRow);
     } catch {
       allGridRows = [];
     }
@@ -170,79 +171,77 @@ function ratingBoundsForInsert(q: QuestionInput): { min: number | null; max: num
 export async function createQuestions(pollId: string, questions: QuestionInput[]): Promise<PollQuestion[]> {
   if (!questions.length) return [];
   const results: PollQuestion[] = [];
-  try {
-    const db = getDb();
-    for (const q of questions) {
-      const { min: ratingMin, max: ratingMax } = ratingBoundsForInsert(q);
-      const qRows = await db.execute(sql`
-        INSERT INTO poll_questions (
-          poll_id, question_type, text, description, required, shuffle_options, display_order,
-          rating_min, rating_max, rating_min_label, rating_max_label, max_length,
-          condition_question_id, condition_option_id, condition_value
-        ) VALUES (
-          ${pollId}::uuid,
-          ${q.questionType}::question_type,
-          ${q.text},
-          ${q.description ?? null},
-          ${q.required ?? true},
-          ${q.shuffleOptions ?? false},
-          ${q.displayOrder},
-          ${ratingMin},
-          ${ratingMax},
-          ${q.ratingMinLabel ?? null},
-          ${q.ratingMaxLabel ?? null},
-          ${maxLengthForInsert(q)},
-          ${(q.conditionQuestionId ?? null) as string | null}::uuid,
-          ${(q.conditionOptionId ?? null) as string | null}::uuid,
-          ${q.conditionValue ?? null}
-        )
-        RETURNING *
-      `);
-      const qRow = (qRows as unknown as Record<string, unknown>[])[0];
-      if (!qRow) continue;
-
-      const options: PollQuestionOption[] = [];
-      if (q.options?.length) {
-        for (const opt of q.options) {
-          const oRows = await db.execute(sql`
-            INSERT INTO poll_question_options (question_id, text, display_order)
-            VALUES (${String(qRow.id)}::uuid, ${opt.text}, ${opt.displayOrder})
-            RETURNING *
-          `);
-          const oRow = (oRows as unknown as Record<string, unknown>[])[0];
-          if (oRow) options.push(rowToQuestionOption(oRow));
-        }
-      } else if (q.questionType === 'yes_no') {
-        for (const [idx, text] of ['Yes', 'No'].entries()) {
-          const oRows = await db.execute(sql`
-            INSERT INTO poll_question_options (question_id, text, display_order)
-            VALUES (${String(qRow.id)}::uuid, ${text}, ${idx})
-            RETURNING *
-          `);
-          const oRow = (oRows as unknown as Record<string, unknown>[])[0];
-          if (oRow) options.push(rowToQuestionOption(oRow));
-        }
-      } else if (q.questionType === 'dropdown' && !q.options?.length) {
-        // dropdown always needs options; skip auto if empty
-      }
-
-      const gridRows: PollQuestionGridRow[] = [];
-      if (q.gridRows?.length) {
-        for (const row of q.gridRows) {
-          const gRows = await db.execute(sql`
-            INSERT INTO poll_question_grid_rows (question_id, text, display_order)
-            VALUES (${String(qRow.id)}::uuid, ${row.text}, ${row.displayOrder})
-            RETURNING *
-          `);
-          const gRow = (gRows as unknown as Record<string, unknown>[])[0];
-          if (gRow) gridRows.push(rowToGridRow(gRow));
-        }
-      }
-
-      results.push(rowToQuestion(qRow, options, gridRows));
+  const db = getDb();
+  for (const q of questions) {
+    const { min: ratingMin, max: ratingMax } = ratingBoundsForInsert(q);
+    const qRows = await db.execute(sql`
+      INSERT INTO poll_questions (
+        poll_id, question_type, text, description, required, shuffle_options, display_order,
+        rating_min, rating_max, rating_min_label, rating_max_label, max_length,
+        condition_question_id, condition_option_id, condition_value
+      ) VALUES (
+        ${pollId}::uuid,
+        ${q.questionType}::question_type,
+        ${q.text},
+        ${q.description ?? null},
+        ${q.required ?? true},
+        ${q.shuffleOptions ?? false},
+        ${q.displayOrder},
+        ${ratingMin},
+        ${ratingMax},
+        ${q.ratingMinLabel ?? null},
+        ${q.ratingMaxLabel ?? null},
+        ${maxLengthForInsert(q)},
+        ${(q.conditionQuestionId ?? null) as string | null}::uuid,
+        ${(q.conditionOptionId ?? null) as string | null}::uuid,
+        ${q.conditionValue ?? null}
+      )
+      RETURNING *
+    `);
+    const qRow = firstRowFromExecute(qRows);
+    if (!qRow) {
+      throw new Error(`Failed to insert question: ${q.text.slice(0, 80)}`);
     }
-  } catch {
-    // partial results returned; caller handles
+
+    const options: PollQuestionOption[] = [];
+    if (q.options?.length) {
+      for (const opt of q.options) {
+        const oRows = await db.execute(sql`
+          INSERT INTO poll_question_options (question_id, text, display_order)
+          VALUES (${String(qRow.id)}::uuid, ${opt.text}, ${opt.displayOrder})
+          RETURNING *
+        `);
+        const oRow = firstRowFromExecute(oRows);
+        if (oRow) options.push(rowToQuestionOption(oRow));
+      }
+    } else if (q.questionType === 'yes_no') {
+      for (const [idx, text] of ['Yes', 'No'].entries()) {
+        const oRows = await db.execute(sql`
+          INSERT INTO poll_question_options (question_id, text, display_order)
+          VALUES (${String(qRow.id)}::uuid, ${text}, ${idx})
+          RETURNING *
+        `);
+        const oRow = firstRowFromExecute(oRows);
+        if (oRow) options.push(rowToQuestionOption(oRow));
+      }
+    } else if (q.questionType === 'dropdown' && !q.options?.length) {
+      // dropdown always needs options; skip auto if empty
+    }
+
+    const gridRows: PollQuestionGridRow[] = [];
+    if (q.gridRows?.length) {
+      for (const row of q.gridRows) {
+        const gRows = await db.execute(sql`
+          INSERT INTO poll_question_grid_rows (question_id, text, display_order)
+          VALUES (${String(qRow.id)}::uuid, ${row.text}, ${row.displayOrder})
+          RETURNING *
+        `);
+        const gRow = firstRowFromExecute(gRows);
+        if (gRow) gridRows.push(rowToGridRow(gRow));
+      }
+    }
+
+    results.push(rowToQuestion(qRow, options, gridRows));
   }
   return results;
 }
@@ -315,7 +314,7 @@ export async function getResponseCount(pollId: string): Promise<number> {
   try {
     const db = getDb();
     const rows = await db.execute(sql`SELECT COUNT(*) as cnt FROM poll_responses WHERE poll_id = ${pollId}::uuid`);
-    return Number((rows as unknown as Record<string, unknown>[])[0]?.cnt ?? 0);
+    return Number(firstRowFromExecute(rows)?.cnt ?? 0);
   } catch {
     return 0;
   }
@@ -327,13 +326,13 @@ export async function getResponseByVoter(pollId: string, voterId: string): Promi
     const rRows = await db.execute(sql`
       SELECT * FROM poll_responses WHERE poll_id = ${pollId}::uuid AND voter_id = ${voterId} LIMIT 1
     `);
-    const rRow = (rRows as unknown as Record<string, unknown>[])[0];
+    const rRow = firstRowFromExecute(rRows);
     if (!rRow) return null;
 
     const aRows = await db.execute(sql`
       SELECT * FROM poll_response_answers WHERE response_id = ${String(rRow.id)}::uuid
     `);
-    const answers = (aRows as unknown as Record<string, unknown>[]).map(rowToAnswer);
+    const answers = rowsFromExecute(aRows).map(rowToAnswer);
     return rowToResponse(rRow, answers);
   } catch {
     return null;
@@ -346,14 +345,14 @@ export async function getAllResponses(pollId: string): Promise<PollResponse[]> {
     const rRows = await db.execute(sql`
       SELECT * FROM poll_responses WHERE poll_id = ${pollId}::uuid ORDER BY submitted_at ASC
     `);
-    const responses = rRows as unknown as Record<string, unknown>[];
+    const responses = rowsFromExecute(rRows);
     if (!responses.length) return [];
 
     const ids = responses.map((r) => `'${String(r.id)}'`).join(',');
     const aRows = await db.execute(
       sql.raw(`SELECT * FROM poll_response_answers WHERE response_id IN (${ids})`),
     );
-    const aRowsTyped = aRows as unknown as Record<string, unknown>[];
+    const aRowsTyped = rowsFromExecute(aRows);
     return responses.map((r) => {
       const respId = String(r.id);
       const answers = aRowsTyped
@@ -389,7 +388,7 @@ export async function upsertResponse(
         VALUES (${pollId}::uuid, ${voterId}, ${voterDisplay})
         RETURNING id
       `);
-      const responseId = String((rRows as unknown as Record<string, unknown>[])[0]?.id ?? '');
+      const responseId = String(firstRowFromExecute(rRows)?.id ?? '');
       if (!responseId) throw new Error('no response id');
 
       // Insert answers

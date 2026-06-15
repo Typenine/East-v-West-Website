@@ -1,4 +1,5 @@
 import { getDb } from './client';
+import { firstRowFromExecute, rowsFromExecute } from './execute-rows';
 import { sql } from 'drizzle-orm';
 import type {
   Poll,
@@ -95,7 +96,7 @@ export async function getPollById(id: string): Promise<Poll | null> {
   try {
     const db = getDb();
     const rows = await db.execute(sql`SELECT * FROM polls WHERE id = ${id}::uuid LIMIT 1`);
-    const r = (rows as unknown as Record<string, unknown>[])[0];
+    const r = firstRowFromExecute(rows);
     return r ? rowToPoll(r) : null;
   } catch {
     return null;
@@ -108,7 +109,7 @@ export async function listPolls(includeDraft = false): Promise<Poll[]> {
     const rows = includeDraft
       ? await db.execute(sql`SELECT * FROM polls ORDER BY created_at DESC`)
       : await db.execute(sql`SELECT * FROM polls WHERE status != 'draft' ORDER BY created_at DESC`);
-    return (rows as unknown as Record<string, unknown>[]).map(rowToPoll);
+    return rowsFromExecute(rows).map(rowToPoll);
   } catch {
     return [];
   }
@@ -118,7 +119,7 @@ export async function getRoundsForPoll(pollId: string): Promise<PollRound[]> {
   try {
     const db = getDb();
     const rows = await db.execute(sql`SELECT * FROM poll_rounds WHERE poll_id = ${pollId}::uuid ORDER BY round_number ASC`);
-    return (rows as unknown as Record<string, unknown>[]).map(rowToRound);
+    return rowsFromExecute(rows).map(rowToRound);
   } catch {
     return [];
   }
@@ -128,7 +129,7 @@ export async function getCurrentOpenRound(pollId: string): Promise<PollRound | n
   try {
     const db = getDb();
     const rows = await db.execute(sql`SELECT * FROM poll_rounds WHERE poll_id = ${pollId}::uuid AND status = 'open' ORDER BY round_number ASC LIMIT 1`);
-    const r = (rows as unknown as Record<string, unknown>[])[0];
+    const r = firstRowFromExecute(rows);
     return r ? rowToRound(r) : null;
   } catch {
     return null;
@@ -139,7 +140,7 @@ export async function getOptionsForRound(roundId: string): Promise<PollOption[]>
   try {
     const db = getDb();
     const rows = await db.execute(sql`SELECT * FROM poll_options WHERE round_id = ${roundId}::uuid ORDER BY display_order ASC`);
-    return (rows as unknown as Record<string, unknown>[]).map(rowToOption);
+    return rowsFromExecute(rows).map(rowToOption);
   } catch {
     return [];
   }
@@ -149,7 +150,7 @@ export async function getVoteCount(roundId: string): Promise<number> {
   try {
     const db = getDb();
     const rows = await db.execute(sql`SELECT COUNT(*) as cnt FROM poll_votes WHERE round_id = ${roundId}::uuid`);
-    return Number((rows as unknown as Record<string, unknown>[])[0]?.cnt ?? 0);
+    return Number(firstRowFromExecute(rows)?.cnt ?? 0);
   } catch {
     return 0;
   }
@@ -159,7 +160,7 @@ export async function getVoterIds(roundId: string): Promise<string[]> {
   try {
     const db = getDb();
     const rows = await db.execute(sql`SELECT voter_id FROM poll_votes WHERE round_id = ${roundId}::uuid`);
-    return (rows as unknown as Record<string, unknown>[]).map((r) => String(r.voter_id));
+    return rowsFromExecute(rows).map((r) => String(r.voter_id));
   } catch {
     return [];
   }
@@ -172,11 +173,11 @@ export async function getMyVote(
   try {
     const db = getDb();
     const voteRows = await db.execute(sql`SELECT * FROM poll_votes WHERE round_id = ${roundId}::uuid AND voter_id = ${voterId} LIMIT 1`);
-    const voteRow = (voteRows as unknown as Record<string, unknown>[])[0];
+    const voteRow = firstRowFromExecute(voteRows);
     if (!voteRow) return null;
     const vote = rowToVote(voteRow);
     const selRows = await db.execute(sql`SELECT * FROM poll_vote_selections WHERE vote_id = ${vote.id}::uuid ORDER BY rank ASC NULLS LAST`);
-    const selections = (selRows as unknown as Record<string, unknown>[]).map(rowToSelection);
+    const selections = rowsFromExecute(selRows).map(rowToSelection);
     return { ...vote, selections };
   } catch {
     return null;
@@ -189,11 +190,11 @@ export async function getAllVotesWithSelections(
   try {
     const db = getDb();
     const voteRows = await db.execute(sql`SELECT * FROM poll_votes WHERE round_id = ${roundId}::uuid ORDER BY created_at ASC`);
-    const votes = (voteRows as unknown as Record<string, unknown>[]).map(rowToVote);
+    const votes = rowsFromExecute(voteRows).map(rowToVote);
     const result: Array<PollVote & { selections: PollVoteSelection[] }> = [];
     for (const vote of votes) {
       const selRows = await db.execute(sql`SELECT * FROM poll_vote_selections WHERE vote_id = ${vote.id}::uuid ORDER BY rank ASC NULLS LAST`);
-      const selections = (selRows as unknown as Record<string, unknown>[]).map(rowToSelection);
+      const selections = rowsFromExecute(selRows).map(rowToSelection);
       result.push({ ...vote, selections });
     }
     return result;
@@ -232,7 +233,7 @@ export async function createPoll(data: {
       )
       RETURNING *
     `);
-    const r = (rows as unknown as Record<string, unknown>[])[0];
+    const r = firstRowFromExecute(rows);
     return r ? rowToPoll(r) : null;
   } catch (err) {
     console.error('[createPoll]', err instanceof Error ? err.message : err);
@@ -336,7 +337,7 @@ export async function createRound(data: {
       )
       RETURNING *
     `);
-    const r = (rows as unknown as Record<string, unknown>[])[0];
+    const r = firstRowFromExecute(rows);
     return r ? rowToRound(r) : null;
   } catch (err) {
     console.error('[createRound]', err instanceof Error ? err.message : err);
@@ -378,7 +379,7 @@ export async function getRoundById(id: string): Promise<PollRound | null> {
   try {
     const db = getDb();
     const rows = await db.execute(sql`SELECT * FROM poll_rounds WHERE id = ${id}::uuid LIMIT 1`);
-    const r = (rows as unknown as Record<string, unknown>[])[0];
+    const r = firstRowFromExecute(rows);
     return r ? rowToRound(r) : null;
   } catch {
     return null;
@@ -411,7 +412,7 @@ export async function createOptions(
         )
         RETURNING *
       `);
-      const r = (rows as unknown as Record<string, unknown>[])[0];
+      const r = firstRowFromExecute(rows);
       if (r) created.push(rowToOption(r));
     }
   } catch {}
@@ -439,7 +440,7 @@ export async function upsertVote(
       VALUES (${roundId}::uuid, ${voterId}, ${voterDisplay})
       RETURNING id
     `);
-    const voteId = String((voteRows as unknown as Record<string, unknown>[])[0]?.id ?? '');
+    const voteId = String(firstRowFromExecute(voteRows)?.id ?? '');
     if (!voteId) { await db.execute(sql`ROLLBACK`); return false; }
 
     // Insert selections

@@ -39,7 +39,8 @@ export async function GET(req: NextRequest) {
     }
 
     return Response.json(result);
-  } catch {
-    return Response.json([], { status: 200 });
+  } catch (err) {
+    console.error('[GET /api/admin/votes]', err instanceof Error ? err.message : err);
+    return Response.json({ error: 'Failed to load polls.' }, { status: 500 });
   }
 }

@@ -49,13 +49,15 @@ function computeNextAction(entry: AdminPollEntry): NextAction | null {
   const nextPending = entry.rounds.find((r) => r.status === 'pending' && r.roundNumber > 1);
 
   if (isFormOnly) {
-    if (poll.status === 'draft') return { label: 'Open survey', variant: 'primary', body: { action: 'open_poll' }, hint: 'Members can start responding' };
-    if (poll.status === 'open') return { label: 'Close survey', variant: 'ghost', body: { action: 'close_poll_now' } };
+    if (poll.status === 'draft') {
+      return { label: 'Publish poll', variant: 'primary', body: { action: 'open_poll' }, hint: 'Makes this visible on the Vote page' };
+    }
+    if (poll.status === 'open') return { label: 'Close poll', variant: 'ghost', body: { action: 'close_poll_now' }, hint: 'Stops new responses' };
     return null;
   }
 
   if (poll.status === 'draft') {
-    return { label: 'Open round 1', variant: 'primary', body: { action: 'open_round', roundNumber: 1 }, hint: 'Starts voting and notifies Discord' };
+    return { label: 'Publish round 1', variant: 'primary', body: { action: 'open_round', roundNumber: 1 }, hint: 'Opens voting and notifies Discord' };
   }
   if (openRound) {
     return { label: `Close round ${openRound.roundNumber}`, variant: 'primary', body: { action: 'close_round' }, hint: 'Stop accepting votes for this round' };
@@ -92,8 +94,8 @@ function WorkflowStrip({ poll, entry }: { poll: AdminPollEntry['poll']; entry: A
 
   const steps = isFormOnly
     ? [
-        { id: 'draft', label: 'Draft', done: poll.status !== 'draft' },
-        { id: 'open', label: 'Open', done: poll.status === 'open' || poll.status === 'closed', active: poll.status === 'open' },
+        { id: 'draft', label: 'Draft', done: poll.status !== 'draft', active: poll.status === 'draft' },
+        { id: 'published', label: 'Published', done: poll.status === 'open' || poll.status === 'closed', active: poll.status === 'open' },
         { id: 'closed', label: 'Closed', done: poll.status === 'closed', active: poll.status === 'closed' },
       ]
     : [
@@ -180,6 +182,12 @@ export default function AdminPollCard({
             {poll.description ? <p className="text-sm text-[var(--muted)] line-clamp-2">{poll.description}</p> : null}
 
             <WorkflowStrip poll={poll} entry={entry} />
+
+            {poll.status === 'draft' ? (
+              <p className="text-xs text-amber-400/90 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2">
+                Draft — members cannot see this on the Vote page until you publish it.
+              </p>
+            ) : null}
 
             <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-[var(--muted)]">
               <span>{poll.eligibilityType === 'team' ? '12 teams' : '14 people'}</span>
