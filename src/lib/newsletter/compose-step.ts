@@ -830,7 +830,7 @@ Ranks 1–12, rank 1 = best team. Use exact team names from the league context.`
 
 // ============ Mock draft prospect validation & repair ============
 
-type ProspectEntry = { name: string; pos: string; rank: number | null };
+type ProspectEntry = { name: string; pos: string; nfl?: string | null; rank: number | null; value?: number | null };
 type MockPick = { slot: number; team: string; player: string; position: string; analysis: string };
 
 function normalizePlayerName(name: string): string {
@@ -1015,8 +1015,6 @@ function excludePickedFromPool<T extends { name: string }>(pool: T[], pickedName
     )
   );
 }
-
-type ProspectEntry = { name: string; pos: string; nfl?: string | null; rank: number | null; value?: number | null };
 
 /**
  * Group prospects into value TIERS without ever exposing the raw market-value numbers
