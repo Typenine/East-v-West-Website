@@ -53,6 +53,12 @@ export default function SignInForm({ defaultNext = '/', onSuccess, variant = 'pa
     setHydrated(true);
   }, []);
 
+  useEffect(() => {
+    if (!adminOpen) return;
+    const id = requestAnimationFrame(() => adminRef.current?.focus());
+    return () => cancelAnimationFrame(id);
+  }, [adminOpen]);
+
   const handleLogin = useCallback(async () => {
     if (!activeTeam || !pin) return;
     try {
@@ -163,10 +169,7 @@ export default function SignInForm({ defaultNext = '/', onSuccess, variant = 'pa
               className="rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-white/30 transition-transform hover:scale-105"
               aria-label="Admin sign-in"
               title="Admin"
-              onClick={() => {
-                setAdminOpen(true);
-                setTimeout(() => adminRef.current?.focus(), 0);
-              }}
+              onClick={() => setAdminOpen(true)}
             >
               <span
                 className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-full"

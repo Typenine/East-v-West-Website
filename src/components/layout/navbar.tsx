@@ -303,6 +303,7 @@ export default function Navbar() {
   const desktopMenuRef = useRef<HTMLDivElement | null>(null);
   const desktopMenuCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const accountMenuRef = useRef<HTMLDivElement | null>(null);
+  const adminPinRef = useRef<HTMLInputElement | null>(null);
   const currentPinRef = useRef<HTMLInputElement | null>(null);
   const newPinRef = useRef<HTMLInputElement | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
@@ -430,6 +431,12 @@ export default function Navbar() {
       .catch(() => { if (mounted) setIsAdmin(false); });
     return () => { mounted = false; };
   }, [pathname]);
+
+  useEffect(() => {
+    if (!adminOpen) return;
+    const id = requestAnimationFrame(() => adminPinRef.current?.focus());
+    return () => cancelAnimationFrame(id);
+  }, [adminOpen]);
 
   // Apply team-themed colors (gradient/buttons) when signed in
   useEffect(() => {
@@ -878,13 +885,13 @@ export default function Navbar() {
         <div>
           <Label htmlFor="admin-pin">Enter PIN</Label>
           <input
+            ref={adminPinRef}
             id="admin-pin"
             type="password"
             inputMode="numeric"
             autoComplete="one-time-code"
             className="w-full evw-surface border border-[var(--border)] rounded px-3 py-2"
             placeholder="PIN"
-            autoFocus
             maxLength={6}
             value={pin}
             onChange={(e) => setPin(e.target.value.replace(/[^0-9]/g, '').slice(0, 6))}
@@ -946,19 +953,7 @@ export default function Navbar() {
             maxLength={12}
             ref={currentPinRef}
             value={currentPin}
-            onChange={(e) => {
-              const v = e.target.value.replace(/[^0-9]/g, '').slice(0, 12);
-              setCurrentPin(v);
-              // Keep focus in this field in case a manager tries to steal it
-              requestAnimationFrame(() => {
-                const el = currentPinRef.current;
-                if (el) {
-                  const end = el.value.length;
-                  try { el.setSelectionRange(end, end); } catch {}
-                  el.focus();
-                }
-              });
-            }}
+            onChange={(e) => setCurrentPin(e.target.value.replace(/[^0-9]/g, '').slice(0, 12))}
           />
         </div>
         <div>
@@ -981,19 +976,7 @@ export default function Navbar() {
             maxLength={12}
             ref={newPinRef}
             value={newPin}
-            onChange={(e) => {
-              const v = e.target.value.replace(/[^0-9]/g, '').slice(0, 12);
-              setNewPin(v);
-              // Force focus to remain in New PIN field
-              requestAnimationFrame(() => {
-                const el = newPinRef.current;
-                if (el) {
-                  const end = el.value.length;
-                  try { el.setSelectionRange(end, end); } catch {}
-                  el.focus();
-                }
-              });
-            }}
+            onChange={(e) => setNewPin(e.target.value.replace(/[^0-9]/g, '').slice(0, 12))}
           />
         </div>
         {changeMsg && <div className="text-sm" role="status">{changeMsg}</div>}

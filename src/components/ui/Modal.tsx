@@ -19,6 +19,8 @@ export function Modal({
 }) {
   const panelRef = useRef<HTMLDivElement | null>(null);
   const titleIdRef = useRef<string>(`modal-title-${Math.random().toString(36).slice(2)}`);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
 
   // Close on ESC and keep focus trapped within the dialog
   useEffect(() => {
@@ -28,7 +30,7 @@ export function Modal({
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         e.preventDefault();
-        onClose();
+        onCloseRef.current();
       }
       if (e.key === "Tab") {
         const root = panelRef.current;
@@ -62,7 +64,7 @@ export function Modal({
       document.removeEventListener("keydown", handleKeyDown);
       previouslyFocused?.focus?.();
     };
-  }, [open, onClose, autoFocusPanel]);
+  }, [open, autoFocusPanel]);
 
   if (!open) return null;
 

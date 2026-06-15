@@ -19,6 +19,8 @@ export function Drawer({
 }) {
   const panelRef = useRef<HTMLDivElement | null>(null);
   const titleIdRef = useRef<string>(`drawer-title-${Math.random().toString(36).slice(2)}`);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
 
   useEffect(() => {
     if (!open) return;
@@ -29,7 +31,7 @@ export function Drawer({
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         e.preventDefault();
-        onClose();
+        onCloseRef.current();
       }
       if (e.key === "Tab") {
         const root = panelRef.current;
@@ -58,7 +60,7 @@ export function Drawer({
       previouslyFocused?.focus?.();
       document.body.style.overflow = prevOverflow;
     };
-  }, [open, onClose]);
+  }, [open]);
 
   if (!open) return null;
   const sideMargin = side === "right" ? "ml-auto" : "mr-auto";
