@@ -24,7 +24,7 @@ import {
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-const VALID_STATUSES: QueueStatus[] = ['queued', 'generated', 'skipped', 'failed', 'published', 'archived'];
+const VALID_STATUSES: QueueStatus[] = ['queued', 'generating', 'generated', 'skipped', 'failed', 'published', 'archived'];
 
 async function requireAdmin(): Promise<boolean> {
   const cookieStore = await cookies();

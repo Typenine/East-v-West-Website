@@ -427,16 +427,25 @@ async function runTarget(target, { preview }) {
 // failure is recorded on the item and does not abort the legacy schedule run.
 async function processDueQueue(now) {
   let processed = 0;
+  // Unmissable marker so the GitHub Actions log unambiguously shows whether this run
+  // even reached the queue and which DB it's talking to. A stuck-"queued" item with
+  // NONE of these lines in the log = the workflow isn't running this code at all.
+  const dbHint = (process.env.DATABASE_URL || '').replace(/:\/\/[^@]*@/, '://***@').slice(0, 60);
+  console.log(`[Runner] ===== EDITORIAL QUEUE CHECK ===== now=${now.toISOString()} db=${dbHint || '(DATABASE_URL unset!)'}`);
   try {
     const { findDueQueueItems, updateQueueItem } = await import(
       pathResolve(projectRoot, 'src', 'server', 'db', 'newsletter-queue-queries.ts')
     );
     const due = await findDueQueueItems(now);
+    console.log(`[Runner] Editorial queue: ${due.length} due item(s).`);
     if (!due.length) return 0;
-    console.log(`[Runner] Editorial queue: ${due.length} due item(s) to generate as drafts.`);
     for (const item of due) {
+      console.log(`[Runner] Queue item ${item.id}: ${item.episodeType} S${item.season}${item.week != null ? `W${item.week}` : ''} (scheduled ${item.scheduledFor}) — generating draft…`);
       const target = await queueItemToTarget(item);
       try {
+        // Mark in-progress so the admin UI shows it actively working (not just "queued").
+        // This also refreshes updatedAt, which the stale-generating reclaim keys off of.
+        await updateQueueItem(item.id, { status: 'generating', error: null }).catch(() => {});
         const status = await runTarget(target, { preview: false });
         if (status === 'generated' || status === 'exists') {
           await updateQueueItem(item.id, { status: 'generated', generatedAt: new Date(), error: null });
@@ -452,7 +461,10 @@ async function processDueQueue(now) {
       }
     }
   } catch (e) {
-    console.warn('[Runner] Editorial queue processing skipped (non-fatal):', e?.message ?? e);
+    // Loud + distinctive: an error HERE (import / DB / missing table) is why items get
+    // stuck "queued" with no per-item error. Surfaced at error level so it's visible
+    // in `preview_logs level:error` and the GitHub Actions run log.
+    console.error('[Runner] ⚠️ QUEUE PROCESSING ERROR — due items may be stuck "queued". Check the runner DATABASE_URL points at the same DB as the site and that newsletter_queue exists:', e?.message ?? e);
   }
   return processed;
 }

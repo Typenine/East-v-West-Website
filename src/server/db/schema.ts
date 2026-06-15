@@ -410,7 +410,7 @@ export const newsletters = pgTable('newsletters', {
 // scheduled generation time. At the scheduled time the runner generates the
 // newsletter and saves it as a DRAFT (never autopublishes, never posts Discord).
 export const newsletterQueueStatusEnum = pgEnum('newsletter_queue_status', [
-  'queued', 'generated', 'skipped', 'failed', 'published', 'archived',
+  'queued', 'generating', 'generated', 'skipped', 'failed', 'published', 'archived',
 ]);
 
 export const newsletterQueue = pgTable('newsletter_queue', {

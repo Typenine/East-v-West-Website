@@ -6,11 +6,15 @@
  * never posts Discord.
  */
 
-import { and, eq, lte, asc, desc, inArray } from 'drizzle-orm';
+import { and, or, eq, lte, asc, desc, inArray } from 'drizzle-orm';
 import { getDb } from './client';
 import { newsletterQueue } from './schema';
 
-export type QueueStatus = 'queued' | 'generated' | 'skipped' | 'failed' | 'published' | 'archived';
+export type QueueStatus = 'queued' | 'generating' | 'generated' | 'skipped' | 'failed' | 'published' | 'archived';
+
+// A 'generating' item whose updatedAt is older than this is assumed to be from a
+// crashed/killed runner and is reclaimed for regeneration on the next pass.
+const STALE_GENERATING_MS = 30 * 60 * 1000;
 
 export interface QueueItem {
   id: string;
@@ -101,13 +105,21 @@ export async function deleteQueueItem(id: string): Promise<boolean> {
   return true;
 }
 
-/** Queued items whose scheduled time has arrived — candidates for draft generation. */
+/**
+ * Items the runner should process: queued items whose scheduled time has arrived, PLUS
+ * any 'generating' item left stranded by a crashed run (updatedAt older than the stale
+ * threshold) so a dead run never permanently strands an item.
+ */
 export async function findDueQueueItems(now: Date = new Date()): Promise<QueueItem[]> {
   const db = getDb();
+  const staleBefore = new Date(now.getTime() - STALE_GENERATING_MS);
   const rows = await db
     .select()
     .from(newsletterQueue)
-    .where(and(eq(newsletterQueue.status, 'queued'), lte(newsletterQueue.scheduledFor, now)))
+    .where(or(
+      and(eq(newsletterQueue.status, 'queued'), lte(newsletterQueue.scheduledFor, now)),
+      and(eq(newsletterQueue.status, 'generating'), lte(newsletterQueue.updatedAt, staleBefore)),
+    ))
     .orderBy(asc(newsletterQueue.scheduledFor));
   return rows.map(toQueueItem);
 }

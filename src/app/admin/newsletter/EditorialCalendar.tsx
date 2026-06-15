@@ -27,7 +27,7 @@ interface QueueItem {
   week: number | null;
   episodeType: string;
   scheduledFor: string;
-  status: 'queued' | 'generated' | 'skipped' | 'failed' | 'published' | 'archived';
+  status: 'queued' | 'generating' | 'generated' | 'skipped' | 'failed' | 'published' | 'archived';
   note: string | null;
   generatedAt: string | null;
   error: string | null;
@@ -35,6 +35,7 @@ interface QueueItem {
 
 const STATUS_STYLES: Record<QueueItem['status'], string> = {
   queued: 'bg-blue-900/40 text-blue-300 border-blue-700',
+  generating: 'bg-amber-900/40 text-amber-300 border-amber-600',
   generated: 'bg-emerald-900/40 text-emerald-300 border-emerald-700',
   skipped: 'bg-zinc-800 text-zinc-400 border-zinc-700',
   failed: 'bg-red-900/40 text-red-300 border-red-700',
@@ -63,6 +64,7 @@ export default function EditorialCalendar({ defaultSeason, onGenerateNow }: Prop
   const [loading, setLoading] = useState(true);
   const [showArchived, setShowArchived] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
   // New-item form
   const [formEpisode, setFormEpisode] = useState('regular');
@@ -73,23 +75,35 @@ export default function EditorialCalendar({ defaultSeason, onGenerateNow }: Prop
   const [saving, setSaving] = useState(false);
   const formNeedsWeek = !WEEKLESS.includes(formEpisode);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
+  // silent=true skips the loading spinner — used by the auto-refresh poll so the list
+  // updates in place without flashing "Loading queue…".
+  const load = useCallback(async (opts?: { silent?: boolean }) => {
+    if (!opts?.silent) setLoading(true);
     try {
       const res = await fetch('/api/newsletter/queue', { cache: 'no-store', credentials: 'include' });
       const data = await res.json() as { success?: boolean; items?: QueueItem[]; error?: string };
-      if (data.success && data.items) setItems(data.items);
-      else setError(data.error || 'Failed to load queue');
+      if (data.success && data.items) { setItems(data.items); setError(null); setLastUpdated(new Date()); }
+      else if (!opts?.silent) setError(data.error || 'Failed to load queue');
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to load queue');
+      if (!opts?.silent) setError(e instanceof Error ? e.message : 'Failed to load queue');
     } finally {
-      setLoading(false);
+      if (!opts?.silent) setLoading(false);
     }
   }, []);
 
   useEffect(() => { load(); }, [load]);
   useEffect(() => { setFormSeason(defaultSeason); }, [defaultSeason]);
+
+  // Auto-refresh: queue items flip queued → generated/failed when the GitHub runner
+  // finishes (which can happen at any time, independent of this tab). Poll every 15s
+  // so the status updates without a manual page refresh. Pauses when the tab is hidden.
+  useEffect(() => {
+    const id = setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+      load({ silent: true });
+    }, 15000);
+    return () => clearInterval(id);
+  }, [load]);
 
   const addItem = async () => {
     if (!formWhen) { setError('Pick a scheduled date/time.'); return; }
@@ -142,10 +156,17 @@ export default function EditorialCalendar({ defaultSeason, onGenerateNow }: Prop
       <CardHeader>
         <div className="flex items-center justify-between">
           <CardTitle className="text-base">🗓️ Editorial Calendar</CardTitle>
-          <label className="flex items-center gap-1.5 text-xs text-zinc-400 cursor-pointer">
-            <input type="checkbox" checked={showArchived} onChange={e => setShowArchived(e.target.checked)} className="rounded" />
-            Show archived
-          </label>
+          <div className="flex items-center gap-3">
+            <span className="flex items-center gap-1.5 text-[11px] text-zinc-500" title="Auto-refreshes every 15s">
+              <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+              {lastUpdated ? `updated ${lastUpdated.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' })}` : 'live'}
+              <button onClick={() => load()} className="ml-1 underline hover:text-zinc-300" title="Refresh now">↻</button>
+            </span>
+            <label className="flex items-center gap-1.5 text-xs text-zinc-400 cursor-pointer">
+              <input type="checkbox" checked={showArchived} onChange={e => setShowArchived(e.target.checked)} className="rounded" />
+              Show archived
+            </label>
+          </div>
         </div>
         <p className="text-xs text-zinc-500 mt-1">
           Plan episodes by type + generation time. At the scheduled time the runner generates a <strong>draft</strong> — it never autopublishes and never posts Discord. Publish manually when ready.
@@ -200,8 +221,9 @@ export default function EditorialCalendar({ defaultSeason, onGenerateNow }: Prop
           <div className="space-y-2">
             {visible.map(item => (
               <div key={item.id} className="flex items-center gap-3 flex-wrap border border-zinc-800 rounded-lg px-3 py-2">
-                <span className={`inline-flex items-center px-2 py-0.5 rounded border text-[11px] font-medium ${STATUS_STYLES[item.status]}`}>
-                  {item.status}
+                <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded border text-[11px] font-medium ${STATUS_STYLES[item.status]}${item.status === 'generating' ? ' animate-pulse' : ''}`}>
+                  {item.status === 'generating' && <span className="inline-block animate-spin leading-none">↻</span>}
+                  {item.status === 'generating' ? 'generating…' : item.status}
                 </span>
                 <span className="text-sm text-white">{episodeLabel(item.episodeType)}</span>
                 <span className="text-xs text-zinc-400">
