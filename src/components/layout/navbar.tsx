@@ -742,6 +742,65 @@ export default function Navbar() {
         aria-labelledby="mobile-menu-button"
       >
         <div className="space-y-2 px-3 py-3">
+          <div className="pb-3 mb-1 border-b border-[var(--border)]">
+            {sessionTeam || isAdmin ? (
+              <div className="flex items-center gap-3">
+                <button
+                  aria-label="Account menu"
+                  className="rounded-full overflow-hidden border border-[var(--border)] w-10 h-10 shrink-0"
+                  style={sessionTeam ? { borderColor: getTeamColors(sessionTeam).secondary, borderWidth: 2 } : undefined}
+                  onClick={() => {
+                    setMobileMenuOpen(false);
+                    if (sessionTeam) setChangeOpen(true);
+                  }}
+                  title={sessionTeam || (isAdmin ? 'Admin' : '')}
+                >
+                  {sessionTeam ? (
+                    <Image src={getTeamLogoPath(sessionTeam)} alt={sessionTeam} width={40} height={40} />
+                  ) : (
+                    <Image src="/assets/teams/East v West Logos/Official East v. West Logo.png" alt="Admin" width={40} height={40} />
+                  )}
+                </button>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-semibold text-[var(--text)] truncate">
+                    {sessionTeam || (isAdmin ? 'Admin' : 'Account')}
+                  </p>
+                  {sessionTeam ? (
+                    <button
+                      type="button"
+                      className="text-xs text-[var(--muted)] hover:text-[var(--text)] underline-offset-2 hover:underline"
+                      onClick={() => {
+                        setMobileMenuOpen(false);
+                        setChangeOpen(true);
+                      }}
+                    >
+                      Change PIN
+                    </button>
+                  ) : null}
+                </div>
+                <div className="flex shrink-0 items-center gap-1">
+                  {sessionTeam ? (
+                    <Button size="sm" variant="ghost" onClick={() => { setMobileMenuOpen(false); handleLogout(); }}>Logout</Button>
+                  ) : null}
+                  {isAdmin ? (
+                    <Button size="sm" variant="ghost" onClick={() => { setMobileMenuOpen(false); handleAdminLogout(); }}>Admin Logout</Button>
+                  ) : null}
+                </div>
+              </div>
+            ) : (
+              <LinkButton
+                href={`/login?next=${encodeURIComponent(pathname)}`}
+                variant="primary"
+                size="lg"
+                fullWidth
+                className="min-h-[48px] justify-center"
+                onClick={() => setMobileMenuOpen(false)}
+              >
+                Log In
+              </LinkButton>
+            )}
+          </div>
+
           {filteredNavConfig.map((item) => {
             const itemActive = isNavItemActive(item, pathname, currentQuery);
             const hasChildren = Boolean(item.children && item.children.length > 0);
@@ -810,42 +869,6 @@ export default function Navbar() {
               </div>
             );
           })}
-          <div className="pt-2 border-t border-[var(--border)] space-y-2">
-            <div className="flex items-center justify-between">
-            {sessionTeam || isAdmin ? (
-              <>
-                <div className="flex items-center gap-2">
-                  <button
-                    aria-label="Account menu"
-                    className="rounded-full overflow-hidden border border-[var(--border)] w-8 h-8"
-                    style={sessionTeam ? { borderColor: getTeamColors(sessionTeam).secondary, borderWidth: 2 } : undefined}
-                    onClick={() => {
-                      setMobileMenuOpen(false);
-                      if (sessionTeam) setChangeOpen(true);
-                    }}
-                    title={sessionTeam || (isAdmin ? 'Admin' : '')}
-                  >
-                    {sessionTeam ? (
-                      <Image src={getTeamLogoPath(sessionTeam)} alt={sessionTeam} width={32} height={32} />
-                    ) : (
-                      <Image src="/assets/teams/East v West Logos/Official East v. West Logo.png" alt="Admin" width={32} height={32} />
-                    )}
-                  </button>
-                  {sessionTeam && (
-                    <Button size="sm" variant="ghost" onClick={() => { setMobileMenuOpen(false); handleLogout(); }}>Logout</Button>
-                  )}
-                  {isAdmin && (
-                    <Button size="sm" variant="ghost" onClick={() => { setMobileMenuOpen(false); handleAdminLogout(); }}>Admin Logout</Button>
-                  )}
-                </div>
-              </>
-            ) : (
-              <LinkButton href={`/login?next=${encodeURIComponent(pathname)}`} variant="ghost" size="sm" className="w-full text-left" onClick={() => setMobileMenuOpen(false)}>
-                Log In
-              </LinkButton>
-            )}
-            </div>
-          </div>
         </div>
       </div>
     </nav>
