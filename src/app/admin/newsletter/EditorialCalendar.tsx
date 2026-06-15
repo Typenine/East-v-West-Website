@@ -135,17 +135,35 @@ export default function EditorialCalendar({ defaultSeason, onGenerateNow }: Prop
   };
 
   const patchStatus = async (id: string, status: QueueItem['status']) => {
-    await fetch('/api/newsletter/queue', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify({ id, status }),
-    }).catch(() => {});
+    setError(null);
+    try {
+      const res = await fetch('/api/newsletter/queue', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ id, status }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setError(`Couldn't set status to "${status}": ${(data as { error?: string }).error ?? `HTTP ${res.status}`}`);
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : `Failed to update item`);
+    }
     await load();
   };
 
   const removeItem = async (id: string) => {
-    await fetch(`/api/newsletter/queue?id=${encodeURIComponent(id)}`, { method: 'DELETE', credentials: 'include' }).catch(() => {});
+    setError(null);
+    try {
+      const res = await fetch(`/api/newsletter/queue?id=${encodeURIComponent(id)}`, { method: 'DELETE', credentials: 'include' });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setError(`Couldn't delete: ${(data as { error?: string }).error ?? `HTTP ${res.status}`}`);
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : `Failed to delete item`);
+    }
     await load();
   };
 

@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import { TEAM_NAMES } from '@/lib/constants/league';
 import { getTeamColors } from '@/lib/utils/team-utils';
@@ -131,6 +132,8 @@ export default function SignInForm({ defaultNext = '/', onSuccess, variant = 'pa
     );
   }
 
+  const showPinActions = (step === 'welcome' || step === 'enterPin') && Boolean(activeTeam);
+
   const isPicker = step === 'pickTeam';
   const wrapperClass =
     variant === 'page'
@@ -140,13 +143,49 @@ export default function SignInForm({ defaultNext = '/', onSuccess, variant = 'pa
       : 'w-full';
 
   return (
-    <div className={wrapperClass}>
+    <div
+      className={[
+        wrapperClass,
+        showPinActions ? 'pb-[calc(5.5rem+env(safe-area-inset-bottom))] sm:pb-0' : '',
+      ]
+        .filter(Boolean)
+        .join(' ')}
+    >
       <BroadcastPanel
         accent={accent}
         title="Sign In"
         meta={step === 'welcome' ? 'Welcome back' : step === 'enterPin' ? 'Enter PIN' : 'Pick team'}
       >
-        <form onSubmit={onPinFormSubmit} className="space-y-5">
+        <form id="sign-in-form" onSubmit={onPinFormSubmit} className="space-y-5">
+          <div className="flex items-center justify-center">
+            <button
+              type="button"
+              className="rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-white/30 transition-transform hover:scale-105"
+              aria-label="Admin sign-in"
+              title="Admin"
+              onClick={() => {
+                setAdminOpen(true);
+                setTimeout(() => adminRef.current?.focus(), 0);
+              }}
+            >
+              <span
+                className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-full"
+                style={{
+                  background: 'rgba(255,255,255,0.06)',
+                  boxShadow: `inset 0 0 0 1px ${PANEL.hairline}, 0 0 0 2px rgba(186,16,16,0.25)`,
+                }}
+              >
+                <Image
+                  src="/assets/teams/East v West Logos/Official East v. West Logo.png"
+                  alt="League admin"
+                  width={56}
+                  height={56}
+                  className="object-contain"
+                />
+              </span>
+            </button>
+          </div>
+
           {step === 'welcome' && activeTeam && teamColors ? (
             <div
               className="flex flex-col items-center gap-4 rounded-2xl px-4 py-6 sm:px-6 sm:py-8 text-center"
@@ -243,42 +282,36 @@ export default function SignInForm({ defaultNext = '/', onSuccess, variant = 'pa
               {error}
             </div>
           ) : null}
-
-          {(step === 'welcome' || step === 'enterPin') && activeTeam ? (
-            <div
-              className="sticky bottom-0 -mx-5 px-5 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:-mx-6 sm:px-6"
-              style={{
-                background: `linear-gradient(to top, ${PANEL.card} 70%, transparent)`,
-              }}
-            >
-              <Button
-                type="submit"
-                variant="primary"
-                size="lg"
-                fullWidth
-                disabled={!pin || loading}
-                className="min-h-[48px]"
-              >
-                {loading ? 'Signing in…' : 'Sign In'}
-              </Button>
-            </div>
-          ) : null}
         </form>
-
-        <div className="mt-6 pt-4 text-center" style={{ borderTop: `1px solid ${PANEL.hairline}` }}>
-          <button
-            type="button"
-            onClick={() => {
-              setAdminOpen(true);
-              setTimeout(() => adminRef.current?.focus(), 0);
-            }}
-            className="text-xs font-medium uppercase tracking-wider min-h-[44px] px-3 transition-opacity hover:opacity-80"
-            style={{ color: PANEL.faint }}
-          >
-            Commissioner sign-in
-          </button>
-        </div>
       </BroadcastPanel>
+
+      {(step === 'welcome' || step === 'enterPin') && activeTeam ? (
+        <div
+          className={[
+            'z-40',
+            'fixed inset-x-0 bottom-0',
+            'px-4 pt-3',
+            'pb-[max(0.75rem,env(safe-area-inset-bottom))]',
+            'border-t border-[var(--border)]',
+            'bg-[var(--background)]/95 backdrop-blur-md',
+            'sm:static sm:mt-4 sm:px-0 sm:pt-0 sm:pb-0 sm:border-0 sm:bg-transparent sm:backdrop-blur-none',
+          ].join(' ')}
+        >
+          <div className={wrapperClass}>
+            <Button
+              type="submit"
+              form="sign-in-form"
+              variant="primary"
+              size="lg"
+              fullWidth
+              disabled={!pin || loading}
+              className="min-h-[52px] text-base shadow-lg sm:shadow-none"
+            >
+              {loading ? 'Signing in…' : 'Sign In'}
+            </Button>
+          </div>
+        </div>
+      ) : null}
 
       <Modal
         open={adminOpen}
@@ -287,7 +320,7 @@ export default function SignInForm({ defaultNext = '/', onSuccess, variant = 'pa
           setAdminPin('');
           setAdminError(null);
         }}
-        title="Commissioner sign-in"
+        title="Admin sign-in"
         autoFocusPanel={false}
       >
         <div className="space-y-3">
