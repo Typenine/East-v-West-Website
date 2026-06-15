@@ -12,9 +12,14 @@ export const LEAGUE_IDS = {
 
 export const CURRENT_SEASON = '2026';
 
-export function getLeagueIdForSeason(season: string): string | null {
-  if (season === CURRENT_SEASON) return LEAGUE_IDS.CURRENT;
-  const prev = LEAGUE_IDS.PREVIOUS[season as keyof typeof LEAGUE_IDS.PREVIOUS];
+// Accepts a string or number season. Coerces internally so callers can pass a
+// numeric season (e.g. a DB integer column) without silently getting null — the
+// comparison against CURRENT_SEASON (a string) is otherwise strict and would fail
+// for the current season when given a number. See run-newsletter.mjs queue path.
+export function getLeagueIdForSeason(season: string | number): string | null {
+  const s = String(season);
+  if (s === CURRENT_SEASON) return LEAGUE_IDS.CURRENT;
+  const prev = LEAGUE_IDS.PREVIOUS[s as keyof typeof LEAGUE_IDS.PREVIOUS];
   return prev || null;
 }
 

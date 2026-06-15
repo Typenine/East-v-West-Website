@@ -239,7 +239,10 @@ async function runTarget(target, { preview }) {
 
   const { getLeagueIdForSeason, fetchComprehensiveLeagueData, buildComprehensiveContextString, fetchCurrentWeekContext, buildCurrentStandingsContext, buildTransactionsContext, getLeagueRulesContext, fetchAllExternalData, buildExternalDataContext, generateNewsletter, setPlayerNameCache, scanForUnresolvedPlayerIds } = await importNewsletter();
 
-  const leagueId = getLeagueIdForSeason(target.season);
+  // getLeagueIdForSeason compares strictly against CURRENT_SEASON (a string), so the
+  // season MUST be passed as a string. target.season is numeric (DB integer column),
+  // so coerce here — otherwise the current season never matches and we get no_league.
+  const leagueId = getLeagueIdForSeason(String(target.season));
   if (!leagueId) {
     console.error(`[Runner] No league ID found for season ${target.season}`);
     return 'no_league';

@@ -210,6 +210,13 @@ export default function EditorialCalendar({ defaultSeason, onGenerateNow }: Prop
                 {item.note && <span className="text-xs text-zinc-500 italic truncate max-w-[200px]">{item.note}</span>}
                 {item.error && <span className="text-xs text-red-400 truncate max-w-[260px]" title={item.error}>⚠ {item.error}</span>}
                 <div className="ml-auto flex items-center gap-1.5">
+                  {(item.status === 'failed' || item.status === 'skipped') && (
+                    <Button variant="secondary" size="sm" className="text-xs text-amber-300"
+                      title="Re-queue this item so the next scheduled run retries it"
+                      onClick={() => patchStatus(item.id, 'queued')}>
+                      ↻ Retry
+                    </Button>
+                  )}
                   <Button variant="secondary" size="sm" className="text-xs"
                     onClick={() => onGenerateNow(item.episodeType, String(item.season), item.week != null ? String(item.week) : null)}>
                     Generate now
