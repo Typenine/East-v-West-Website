@@ -256,7 +256,7 @@ export async function POST(request: NextRequest) {
   const draftData = (derivedData.__draftData as LeagueDraftData | null) ?? null;
   const sectionOutputs = (derivedData.sections as Record<string, unknown>) ?? {};
   const forecastRecords = (derivedData.__forecastRecords as { entertainer: { w: number; l: number }; analyst: { w: number; l: number } } | null) ?? null;
-  const prospectPool = (derivedData.__prospectPool as Array<{ name: string; pos: string; nfl?: string | null; rank: number | null; value?: number | null }> | null) ?? null;
+  const prospectPool = (derivedData.__prospectPool as Array<{ name: string; pos: string; nfl?: string | null; college?: string | null; rank: number | null; value?: number | null }> | null) ?? null;
   const offseasonTrades = (derivedData.__offseasonTrades as StepInput['offseasonTrades']) ?? null;
   const dynastyRankings = (derivedData.__dynastyRankings as Array<{ name: string; pos: string; nfl: string; rank: number }> | null) ?? undefined;
 

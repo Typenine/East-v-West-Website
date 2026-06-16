@@ -368,26 +368,43 @@ export const TEAM_CARD_HTML = `<!DOCTYPE html>
 
   function tryExtractData(msg){
     if(!msg||typeof msg!=='object') return null;
-    // JSON-RPC tool-result: { jsonrpc:'2.0', method:'ui/notifications/tool-result', params:{structuredContent:{...}} }
+    console.log('[team-card] msg:',msg.type||msg.method||'(raw)');
+    // Pattern 1: MCP JSON-RPC notification (ui/notifications/tool-result)
     if(msg.jsonrpc==='2.0'&&msg.method==='ui/notifications/tool-result'){
       var p=msg.params||{};
-      return p.structuredContent||p;
+      var d1=p.structuredContent||(p.team&&p.roster?p:null);
+      if(d1) return d1;
     }
-    // Direct structuredContent envelope
-    if(msg.structuredContent&&typeof msg.structuredContent==='object') return msg.structuredContent;
-    // Raw team data at top level
+    // Pattern 2: OpenAI Apps SDK tool_result / mcp_tool_result envelope
+    if(msg.type==='tool_result'||msg.type==='mcp_tool_result'){
+      var r=msg.result||msg;
+      if(r.structuredContent&&r.structuredContent.team) return r.structuredContent;
+      if(r.team&&r.roster) return r;
+    }
+    // Pattern 3: OpenAI Apps SDK app_action set_data
+    if(msg.type==='app_action'&&msg.action==='set_data'&&msg.data&&msg.data.team) return msg.data;
+    // Pattern 4: Direct structuredContent envelope
+    if(msg.structuredContent&&typeof msg.structuredContent==='object'&&msg.structuredContent.team) return msg.structuredContent;
+    // Pattern 5: MCP result wrapper { result: { structuredContent: {...} } }
+    if(msg.result&&msg.result.structuredContent&&msg.result.structuredContent.team) return msg.result.structuredContent;
+    // Pattern 6: Raw team data at top level
     if(msg.team&&msg.roster) return msg;
-    // Nested under data key
+    // Pattern 7: Nested under data key
     if(msg.data&&msg.data.team&&msg.data.roster) return msg.data;
+    // Pattern 8: params wrapper
+    if(msg.params&&msg.params.structuredContent&&msg.params.structuredContent.team) return msg.params.structuredContent;
     return null;
   }
 
   function handleMessage(event){
-    if(event.source!==window.parent) return;
+    // Accept messages from parent or top frame — handles nested iframe structures in ChatGPT
+    if(event.source&&event.source!==window.parent&&event.source!==window.top) return;
     var data=tryExtractData(event.data);
     if(data===null) return;
+    console.log('[team-card] rendering:',data&&data.team&&data.team.name);
     try{ render(data); }
     catch(e){
+      console.error('[team-card] render error:',e);
       document.getElementById('state-loading').style.display='none';
       var el=document.getElementById('state-error');
       el.textContent='Widget error: '+String(e);
@@ -395,16 +412,19 @@ export const TEAM_CARD_HTML = `<!DOCTYPE html>
     }
   }
 
-  window.addEventListener('message',handleMessage,{passive:true});
+  window.addEventListener('message',handleMessage);
 
-  // Timeout fallback — if no data arrives in 8s show empty state
+  // Signal readiness to host frame so it knows the widget is mounted
+  try{ window.parent.postMessage({type:'widget_ready',widget:'team-card-v1'},'*'); }catch(e){}
+
+  // Timeout fallback — if no data arrives in 12s show empty state
   setTimeout(function(){
     if(document.getElementById('card').style.display==='none'
       &&document.getElementById('state-error').style.display==='none'){
       document.getElementById('state-loading').style.display='none';
       document.getElementById('state-empty').style.display='flex';
     }
-  },8000);
+  },12000);
 })();
 </script>
 </body>

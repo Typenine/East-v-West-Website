@@ -204,7 +204,7 @@ export interface StepInput {
    * For pre_draft: eligible prospect pool loaded from DB at job start.
    * Mock draft steps MUST use only players from this list. If null/empty, mock draft step fails hard.
    */
-  prospectPool?: Array<{ name: string; pos: string; nfl?: string | null; rank: number | null; value?: number | null }> | null;
+  prospectPool?: Array<{ name: string; pos: string; nfl?: string | null; college?: string | null; rank: number | null; value?: number | null; stats?: string[] | null; nflPick?: number | null; verdict?: string | null }> | null;
   /**
    * Compact summary of already-completed section outputs (scores, intros, spotlights) for
    * cross-referencing. Lets FinalWord, Blurt, and Spotlight avoid repeating earlier content.
@@ -830,7 +830,7 @@ Ranks 1–12, rank 1 = best team. Use exact team names from the league context.`
 
 // ============ Mock draft prospect validation & repair ============
 
-type ProspectEntry = { name: string; pos: string; nfl?: string | null; rank: number | null; value?: number | null };
+type ProspectEntry = { name: string; pos: string; nfl?: string | null; college?: string | null; rank: number | null; value?: number | null; stats?: string[] | null; nflPick?: number | null; verdict?: string | null };
 type MockPick = { slot: number; team: string; player: string; position: string; analysis: string };
 
 function normalizePlayerName(name: string): string {
@@ -1038,9 +1038,12 @@ function buildProspectTierMap(pool: ProspectEntry[]): Map<string, number> {
   return tierByName;
 }
 
-/** Prospect line for the eligible-player list: rank + qualitative tier, never a raw value. */
+/** Prospect line for the eligible-player list: rank + qualitative tier + college, never a raw value. */
 function formatProspectLine(p: ProspectEntry, total: number, tierByName: Map<string, number>): string {
-  const base = `${p.name} (${p.pos}${p.nfl ? `, drafted by ${p.nfl}` : ''}`;
+  const parts: string[] = [p.pos];
+  if (p.nfl) parts.push(`drafted by ${p.nfl}`);
+  if (p.college) parts.push(`${p.college}`);
+  const base = `${p.name} (${parts.join(', ')}`;
   if (p.rank === null) return `- ${base}, unranked)`;
   const tier = tierByName.get(p.name);
   return `- ${base}, consensus rank #${p.rank} of ${total}${tier ? `, tier ${tier}` : ''})`;
@@ -1168,13 +1171,12 @@ async function genMockDraftR1(
     // Prospect pool goes FIRST — before league knowledge and enhanced context — so it is never truncated.
     // Listed ALPHABETICALLY so the model can't just read top-to-bottom and call it a mock draft.
     const poolSorted = [...segPool].sort((a, b) => a.name.localeCompare(b.name));
-    const poolText = poolSorted.map(p =>
-      `- ${p.name} (${p.pos}${p.nfl ? `, drafted by ${p.nfl}` : ''}${p.rank !== null ? `, consensus rank #${p.rank} of ${prospectPool.length}${p.value ? `, market value ${p.value}` : ''}` : ', unranked'})`
-    ).join('\n');
+    const tierByName = buildProspectTierMap(segPool);
+    const poolText = poolSorted.map(p => formatProspectLine(p, prospectPool.length, tierByName)).join('\n');
     const poolHeader = `=== ELIGIBLE PLAYERS — ${season} NFL DRAFT PROSPECT POOL${pickedSoFar.length > 0 ? ' (players you already picked this round removed)' : ''} ===
-Listed alphabetically. "Consensus rank" is aggregate market opinion — treat it as one data point, not a pick order.
-"Market value" is the SuperFlex dynasty market number behind the rank — compare values, not just ranks: a 200-point gap between two ranks is a tier break; a 10-point gap means the ranks are interchangeable.
-"Drafted by" is the prospect's CURRENT NFL team (live data — overrides anything you remember).
+Listed alphabetically. "Consensus rank" is aggregate market opinion — treat it as one reference point, not a pick order. "Tier" groups players with similar dynasty value; a new tier = a meaningful drop-off.
+"Drafted by" is the prospect's CURRENT NFL team (live data — overrides anything you remember). "College" is where the prospect played in college.
+⚠️ DATA RULE: Never quote raw market values, calculator scores, or point totals in your analysis. Use the player's tier, rank, NFL landing spot, college background, and what you know about his game to explain picks. Sound like a person, not a spreadsheet.
 You may ONLY select players from the list below. DO NOT use players from any previous draft class.
 
 ${poolText}
@@ -1199,12 +1201,12 @@ ${poolText}
       `⚠️ PLAYER RULE: Every player MUST appear in the ELIGIBLE PLAYERS list above. Do NOT use any other player.`,
       `⚠️ ROSTER RULE: Before each pick, check that team's CURRENT ROSTER (listed above). Reference SPECIFIC players they already have — including recent acquisitions. A team that just traded for a QB doesn't need another; a team with Bowers doesn't need a TE.`,
       `⚠️ POSITION RULE: TE is 1-deep (start only 1 TE per week) — TE depth is low priority. QB is premium in SuperFlex.`,
-      `⚠️ QB RULE: "QB premium" applies to QBs with a REAL path to an NFL starting job. Check the prospect's NFL landing spot ("drafted by") and his market value before reaching — a rookie QB drafted to sit behind an entrenched starter is a stash, not an early pick, and taking him over a higher-value WR/RB needs explicit justification.`,
+      `⚠️ QB RULE: "QB premium" applies to QBs with a REAL path to an NFL starting job. Check the prospect's NFL landing spot ("drafted by") and his tier before reaching — a rookie QB drafted to sit behind an entrenched starter is a stash, not an early pick, and taking him over a higher-tier WR/RB needs explicit justification.`,
       `⚠️ ANALYSIS RULE — every pick paragraph is 6-8 sentences and must cover all three beats:`,
       `   (a) THE ROSTER: the team's current situation at the position — name 2-3 specific players they have (with the roles/ages shown in CURRENT TEAM ROSTERS) and say what hole or surplus that creates.`,
-      `   (b) THE PROSPECT: who this player is — his NFL landing spot ("drafted by" in the pool), what kind of player he is, and what his path to fantasy-relevant opportunity looks like on that NFL team.`,
-      `   (c) THE FIT: why THIS player for THIS team at THIS slot — their contention window, positional scarcity in SuperFlex, and value vs his consensus rank (reach? steal? say so and own it).`,
-      `   Vague one-liner praise is a failed pick. Each paragraph should read like a real draft-show breakdown.`,
+      `   (b) THE PROSPECT: who this player is — his college ("college" in the pool), NFL landing spot ("drafted by" in the pool), what kind of player he is, and what his path to fantasy-relevant opportunity looks like on that NFL team. Ground your take in real details: college production, athletic profile, NFL scheme fit, depth chart situation.`,
+      `   (c) THE FIT: why THIS player for THIS team at THIS slot — their contention window, positional scarcity in SuperFlex, and whether this is a reach, a steal, or right on value (say which and own it). Use his tier and rank as reference, not raw numbers.`,
+      `   Vague one-liner praise is a failed pick. Each paragraph should read like a real draft-show breakdown — specific, grounded, human.`,
       ``,
       pickFmt,
     ].join('\n');
@@ -1306,12 +1308,12 @@ async function genMockDraftR2(
     const segPool = excludePickedFromPool(r2Pool, pickedThisRound);
 
     const poolSorted = [...segPool].sort((a, b) => a.name.localeCompare(b.name));
-    const poolText = poolSorted.map(p =>
-      `- ${p.name} (${p.pos}${p.nfl ? `, drafted by ${p.nfl}` : ''}${p.rank !== null ? `, consensus rank #${p.rank} of ${prospectPool.length}${p.value ? `, market value ${p.value}` : ''}` : ', unranked'})`
-    ).join('\n');
+    const r2TierByName = buildProspectTierMap(segPool);
+    const poolText = poolSorted.map(p => formatProspectLine(p, prospectPool.length, r2TierByName)).join('\n');
     const poolHeader = `=== ELIGIBLE PLAYERS — ROUND 2 (${season} prospect pool, all previously picked players removed) ===
-Listed alphabetically. Consensus rank is reference data — not a pick order. "Market value" shows the gaps behind the ranks — a big value drop between ranks is a tier break.
-"Drafted by" is the prospect's CURRENT NFL team (live data — overrides anything you remember).
+Listed alphabetically. Consensus rank is reference data — not a pick order. "Tier" groups players with similar dynasty value; a new tier = a meaningful drop-off.
+"Drafted by" is the prospect's CURRENT NFL team (live data — overrides anything you remember). "College" is where the prospect played college ball.
+⚠️ DATA RULE: Never quote raw market values, calculator scores, or point totals. Use tier, rank, NFL landing spot, college background, and the player's game to explain picks. Sound like a person, not a spreadsheet.
 You may ONLY select players from this list. DO NOT repeat any earlier pick.
 
 ${poolText}
@@ -1337,11 +1339,11 @@ ${poolText}
       `⚠️ PLAYER RULE: Every player MUST appear in the ELIGIBLE PLAYERS list above. Do NOT use any other player.`,
       `⚠️ ROSTER RULE: Check each team's CURRENT ROSTER before picking. Reference specific players they already have.`,
       `⚠️ POSITION RULE: TE is 1-deep. QB is premium in SuperFlex.`,
-      `⚠️ QB RULE: QB premium only counts for QBs with a real path to NFL starting snaps — check the landing spot and market value before reaching for a clipboard-holder.`,
+      `⚠️ QB RULE: QB premium only counts for QBs with a real path to NFL starting snaps — check the landing spot and his tier before reaching for a clipboard-holder.`,
       `⚠️ ANALYSIS RULE — every pick paragraph is 5-7 sentences and must cover all three beats:`,
       `   (a) THE ROSTER: where this team stands after their Round 1 pick — name specific players they already have (with the roles/ages shown in CURRENT TEAM ROSTERS).`,
-      `   (b) THE PROSPECT: who this player is — NFL landing spot ("drafted by" in the pool), play style, and his realistic path to opportunity on that NFL team.`,
-      `   (c) THE FIT: why him for THIS team at THIS slot — window, SuperFlex scarcity, value vs consensus (reach or steal — say which and why).`,
+      `   (b) THE PROSPECT: who this player is — college background ("college" in the pool), NFL landing spot ("drafted by" in the pool), play style, and his realistic path to opportunity on that NFL team. Ground it in specifics: college production, athletic traits, NFL depth chart.`,
+      `   (c) THE FIT: why him for THIS team at THIS slot — window, SuperFlex scarcity, value vs consensus (reach or steal — say which and own it). Use his tier and rank as reference, never raw calculator numbers.`,
       ``,
       pickFmt,
     ].join('\n');

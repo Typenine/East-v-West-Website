@@ -65,8 +65,12 @@ const PUBLIC_TOOLS = [
   },
   {
     name: 'get_team_dashboard',
-    title: 'East v. West Team Card',
-    description: 'Returns a single team\'s full dashboard: current-season record, active/IR/taxi roster with player names and positions, all-time stats, and championship history. Renders a visual Team Card widget.',
+    description: 'Returns a single team\'s full dashboard: current-season record, active/IR/taxi roster with player names and positions, all-time stats, and championship history. Renders a visual Team Card widget on supported clients. Accepts partial names and aliases (e.g. "double", "dt", "cake eaters", "beer", "belltown", "badgers").',
+    annotations: {
+      readOnlyHint: true,
+      openWorldHint: false,
+      destructiveHint: false,
+    },
     inputSchema: {
       type: 'object',
       properties: {
@@ -74,34 +78,19 @@ const PUBLIC_TOOLS = [
       },
       required: ['name'],
     },
-    outputSchema: {
+  },
+  {
+    name: 'show_team_card',
+    description: 'Renders a visual Team Card UI for one East v. West team. Shows the team logo, current-season record, points for/against, active roster grouped by position, IR and taxi slots, and championship history in a styled visual component. Use this when the user says "show", "display", "view", "pull up", "render", or "open" a team card. Accepts partial names and aliases (e.g. "double", "dt", "cake eaters", "beer", "belltown", "badgers").',
+    annotations: {
+      'openai/outputTemplate': { uri: TEAM_CARD_WIDGET_URI },
+    },
+    inputSchema: {
       type: 'object',
       properties: {
-        team: {
-          type: 'object',
-          properties: {
-            name: { type: 'string' },
-            logoUrl: { type: 'string' },
-            currentRecord: { type: 'object' },
-            allTimeStats: { type: 'object' },
-            championships: { type: 'number' },
-            championshipHistory: { type: 'array' },
-          },
-        },
-        roster: {
-          type: 'object',
-          properties: {
-            active: { type: 'array' },
-            ir: { type: 'array' },
-            taxi: { type: 'array' },
-          },
-        },
+        name: { type: 'string', description: 'Team name or alias (partial, case-insensitive). E.g. "Double Trouble", "double", "dt", "Belltown", "cake eaters".' },
       },
-    },
-    annotations: { readOnlyHint: true, openWorldHint: false, destructiveHint: false },
-    _meta: {
-      ui: { resourceUri: TEAM_CARD_WIDGET_URI },
-      'openai/outputTemplate': TEAM_CARD_WIDGET_URI,
+      required: ['name'],
     },
   },
   {
@@ -257,10 +246,16 @@ async function dispatchTool(name: string, input: ToolInput): Promise<DispatchRes
       return {
         structuredContent: data,
         markdown: md,
-        _meta: {
-          ui: { resourceUri: TEAM_CARD_WIDGET_URI },
-          'openai/outputTemplate': TEAM_CARD_WIDGET_URI,
-        },
+        _meta: { 'openai/outputTemplate': { uri: TEAM_CARD_WIDGET_URI } },
+      };
+    }
+    case 'show_team_card': {
+      const data = await handleGetTeam({ name: input.name as string | undefined });
+      const md = formatTeamMarkdown(data as Parameters<typeof formatTeamMarkdown>[0]);
+      return {
+        structuredContent: data,
+        markdown: md,
+        _meta: { 'openai/outputTemplate': { uri: TEAM_CARD_WIDGET_URI } },
       };
     }
     case 'get_current_matchups': {

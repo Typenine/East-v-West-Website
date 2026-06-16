@@ -1147,3 +1147,113 @@ describe('metadata quality — source and freshness', () => {
     expect(res.meta.dataSource).toBe('sleeper-live');
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('Team Card widget data contracts', () => {
+  it('roster players can have null nflTeam — widget must not crash', async () => {
+    const orig = (mockPlayers['4034'] as { team: string | null }).team;
+    (mockPlayers['4034'] as { team: string | null }).team = null;
+    const res = await handleGetTeam({ name: 'Double Trouble' });
+    const all = [...res.roster.active, ...res.roster.ir, ...res.roster.taxi];
+    const mahomes = all.find((p) => p.name === 'Patrick Mahomes');
+    expect(mahomes).toBeDefined();
+    expect(mahomes!.nflTeam).toBeNull();
+    (mockPlayers['4034'] as { team: string | null }).team = orig;
+  });
+
+  it('roster players can have null status — widget must not crash', async () => {
+    const orig = (mockPlayers['5844'] as { status: string | null }).status;
+    (mockPlayers['5844'] as { status: string | null }).status = null;
+    const res = await handleGetTeam({ name: 'Double Trouble' });
+    const all = [...res.roster.active, ...res.roster.ir, ...res.roster.taxi];
+    const jefferson = all.find((p) => p.name.includes('Jefferson'));
+    expect(jefferson).toBeDefined();
+    expect(jefferson!.status).toBeNull();
+    (mockPlayers['5844'] as { status: string | null }).status = orig;
+  });
+
+  it('ir and taxi are always arrays (never null/undefined)', async () => {
+    const res = await handleGetTeam({ name: 'Double Trouble' });
+    expect(Array.isArray(res.roster.ir)).toBe(true);
+    expect(Array.isArray(res.roster.taxi)).toBe(true);
+  });
+
+  it('allTimeStats is null (not undefined) when split records are missing', async () => {
+    const { getSplitRecordsAllTime } = await import('@/lib/utils/sleeper-api');
+    vi.mocked(getSplitRecordsAllTime).mockResolvedValueOnce({});
+    const res = await handleGetTeam({ name: 'Double Trouble' });
+    expect(res.team.allTimeStats).toBeNull();
+  });
+
+  it('championshipHistory is always an array, never null', async () => {
+    for (const name of TEAM_NAMES) {
+      const res = await handleGetTeam({ name });
+      expect(Array.isArray(res.team.championshipHistory)).toBe(true);
+    }
+  });
+
+  it('championships count is a non-negative number for all 12 teams', async () => {
+    for (const name of TEAM_NAMES) {
+      const res = await handleGetTeam({ name });
+      expect(typeof res.team.championships).toBe('number');
+      expect(res.team.championships).toBeGreaterThanOrEqual(0);
+    }
+  });
+
+  it('logoUrl is a non-empty string for all 12 teams', async () => {
+    for (const name of TEAM_NAMES) {
+      const res = await handleGetTeam({ name });
+      expect(typeof res.team.logoUrl).toBe('string');
+      expect(res.team.logoUrl.length).toBeGreaterThan(0);
+    }
+  });
+
+  it('all 12 teams have required top-level shape for widget rendering', async () => {
+    for (const name of TEAM_NAMES) {
+      const res = await handleGetTeam({ name });
+      expect(res.team).toHaveProperty('name');
+      expect(res.team).toHaveProperty('logoUrl');
+      expect(res.team).toHaveProperty('currentRecord');
+      expect(res.team.currentRecord).toHaveProperty('wins');
+      expect(res.team.currentRecord).toHaveProperty('losses');
+      expect(res.team.currentRecord).toHaveProperty('pf');
+      expect(res.team.currentRecord).toHaveProperty('pa');
+      expect(res.team).toHaveProperty('championships');
+      expect(res.team).toHaveProperty('championshipHistory');
+      expect(res.roster).toHaveProperty('active');
+      expect(res.roster).toHaveProperty('ir');
+      expect(res.roster).toHaveProperty('taxi');
+    }
+  });
+
+  it('every player in active/ir/taxi has all required widget fields', async () => {
+    const res = await handleGetTeam({ name: 'Double Trouble' });
+    const all = [...res.roster.active, ...res.roster.ir, ...res.roster.taxi];
+    for (const p of all) {
+      expect(p).toHaveProperty('id');
+      expect(p).toHaveProperty('name');
+      expect(p).toHaveProperty('position');
+      expect(p).toHaveProperty('nflTeam');
+      expect(p).toHaveProperty('status');
+      expect(p).toHaveProperty('slot');
+      expect(typeof p.id).toBe('string');
+      expect(typeof p.name).toBe('string');
+      expect(['active', 'ir', 'taxi']).toContain(p.slot);
+    }
+  });
+
+  it('a player with no matching Sleeper record uses pid as name fallback', async () => {
+    const { getLeagueRosters } = await import('@/lib/utils/sleeper-api');
+    vi.mocked(getLeagueRosters).mockResolvedValueOnce(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      mockRosters.map((r, i) => i === 1 ? { ...r, players: ['UNKNOWN_PID_99999'] } : r) as any
+    );
+    const res = await handleGetTeam({ name: 'Double Trouble' });
+    const all = [...res.roster.active, ...res.roster.ir, ...res.roster.taxi];
+    const ghost = all.find((p) => p.id === 'UNKNOWN_PID_99999');
+    expect(ghost).toBeDefined();
+    expect(typeof ghost!.name).toBe('string');
+    expect(ghost!.name.length).toBeGreaterThan(0);
+  });
+});

@@ -367,7 +367,9 @@ Implemented. See the **Phase 6B** section below for full details, test prompts, 
 
 ## Phase 6B — Team Card Widget (ChatGPT Apps SDK)
 
-`get_team_dashboard` now returns a true ChatGPT Apps SDK widget when called inside a ChatGPT client that supports MCP App resources. On supported clients, it renders an inline visual Team Card. On all other clients (or if the widget fails), the existing Markdown card is shown automatically.
+`show_team_card` (and `get_team_dashboard` for backward compatibility) return a true ChatGPT Apps SDK widget when called inside a ChatGPT client that supports MCP App resources. On supported clients, it renders an inline visual Team Card. On all other clients (or if the widget fails), the existing Markdown card is shown automatically.
+
+**Phase 6B Fix (2025-06):** Corrected `openai/outputTemplate` from a bare URI string to the required `{ uri: string }` object format. Added `show_team_card` to the public route with a proper `annotations.openai/outputTemplate` tool annotation. Expanded widget `tryExtractData` to cover 8 message patterns. Relaxed `event.source` guard to handle nested iframe structures. Increased timeout to 12 s.
 
 ### What the Team Card widget shows
 
@@ -432,7 +434,7 @@ The `content[0].text` Markdown card is **always returned alongside the widget**.
 | CSP fetch domains | None (all data via postMessage, logos served from same Vercel domain) |
 | New packages required | None |
 | Build changes | None |
-| Tool descriptor change | `get_team_dashboard` gains `_meta.ui.resourceUri` |
+| Tool descriptor change | `show_team_card` added to public route with `annotations.openai/outputTemplate: { uri }` |
 | Version bump path | Change `team-card-v1` → `team-card-v2` in URI when making breaking markup changes |
 
 ### Known limitations
@@ -451,6 +453,7 @@ The `content[0].text` Markdown card is **always returned alongside the widget**.
 |---|---|---|
 | `get_current_standings` | 📊 Markdown table | Live current-season W-L + all-time career standings |
 | `get_team_dashboard` | 🏈 Visual widget + Markdown fallback | Record, roster by position (active/IR/taxi), career stats, championships — renders Team Card widget on supported clients |
+| `show_team_card` | 🏈 Visual widget + Markdown fallback | Same as get_team_dashboard but intended for explicit "show me" requests; preferred widget trigger |
 | `get_current_matchups` | 🏈 Markdown table | This week's matchups with scores and leader |
 | `get_league_info` | text | League name, format, scoring, payouts, roster config, dates, champions, rulebook |
 | `get_current_roster` | 🏈 Markdown card (single team) | Roster by position with NFL team + injury flags; all-teams returns JSON with hint |
@@ -531,7 +534,7 @@ Custom connectors (MCP) require **ChatGPT Plus, Team, or Enterprise**. They are 
 
 ### "ChatGPT says it connected but returns no results"
 - The `/api/mcp-public` endpoint requires no auth — if ChatGPT prompts for a token, leave it blank or re-select **No Auth**
-- Try the PowerShell health check first; if that returns `authScheme: "none"` and `toolCount: 14`, the endpoint is live
+- Try the PowerShell health check first; if that returns `authScheme: "none"` and `toolCount: 15`, the endpoint is live
 
 ### "Tool call returns isError: true"
 - `missing_param` — the tool requires an argument (e.g. `get_team_dashboard` needs `name`)

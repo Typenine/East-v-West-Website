@@ -1085,7 +1085,7 @@ async function startStagedJob(opts: {
     // ── For pre_draft: fetch draft slot order and prospect pool ──
     let preDraftSlots: Array<{ slot: number; team: string }> | undefined;
     let preDraftRound2Slots: Array<{ slot: number; team: string }> | undefined;
-    let prospectPool: Array<{ name: string; pos: string; nfl: string | null; rank: number | null; value: number | null }> | null = null;
+    let prospectPool: Array<{ name: string; pos: string; nfl: string | null; college: string | null; rank: number | null; value: number | null; }> | null = null;
     if (episodeType === 'pre_draft') {
       // Use the same draft order algorithm as the website's draft order page (next-order route),
       // which correctly accounts for traded picks and playoff finishing order.
@@ -1192,13 +1192,18 @@ async function startStagedJob(opts: {
           // NFL landing spot: prefer the DB's nfl column, backfill from FantasyCalc.
           // Post-NFL-draft this tells the bots where each prospect landed — essential
           // for explaining opportunity/fit in the mock draft analysis.
-          prospectPool = players.map(p => ({
-            name: p.name,
-            pos: p.pos,
-            nfl: p.nfl || fcTeamByName.get(p.name.toLowerCase().trim()) || null,
-            rank: p.rank ?? null,
-            value: prospectValueByName.get(p.name) ?? null,
-          }));
+          prospectPool = players.map(p => {
+            const meta = p.meta && typeof p.meta === 'object' ? (p.meta as Record<string, unknown>) : null;
+            const college = meta ? ((meta.college ?? meta.school) as string | null) ?? null : null;
+            return {
+              name: p.name,
+              pos: p.pos,
+              nfl: p.nfl || fcTeamByName.get(p.name.toLowerCase().trim()) || null,
+              college: college ? String(college).trim() || null : null,
+              rank: p.rank ?? null,
+              value: prospectValueByName.get(p.name) ?? null,
+            };
+          });
 
           const unrankedAfter = prospectPool.filter(p => p.rank === null).length;
           console.log(`[Staged] pre_draft prospect pool loaded: ${prospectPool.length} players (${unrankedAfter} unranked)`);
