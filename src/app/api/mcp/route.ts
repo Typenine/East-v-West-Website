@@ -499,7 +499,7 @@ export async function POST(request: Request) {
 
     try {
       const result = await withMcpLogging(toolName, toolInput, () => dispatchTool(toolName, toolInput));
-      // show_team_card: include structuredContent + _meta to trigger the Team Card widget.
+      // show_team_card: structuredContent + _meta triggers the Team Card widget.
       if (toolName === 'show_team_card') {
         return jsonrpcResult(id, {
           content: [{ type: 'text', text: JSON.stringify(result) }],
@@ -507,6 +507,16 @@ export async function POST(request: Request) {
           _meta: {
             'openai/outputTemplate': { uri: TEAM_CARD_WIDGET_URI },
           },
+          isError: false,
+        });
+      }
+      // get_team_dashboard: also include structuredContent so the widget renders
+      // correctly if triggered by a cached manifest that still has the annotation.
+      // No _meta here — we deliberately do not ask for the widget on a plain data call.
+      if (toolName === 'get_team_dashboard') {
+        return jsonrpcResult(id, {
+          content: [{ type: 'text', text: JSON.stringify(result) }],
+          structuredContent: result,
           isError: false,
         });
       }

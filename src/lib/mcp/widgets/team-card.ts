@@ -281,8 +281,8 @@ export const TEAM_CARD_HTML = `<!DOCTYPE html>
     var wins=cr.wins!=null?cr.wins:'—';
     var losses=cr.losses!=null?cr.losses:'—';
     var ties=cr.ties!=null&&cr.ties>0?' / '+cr.ties+'T':'';
-    var pf=cr.pf!=null?cr.pf.toFixed(1):'—';
-    var pa=cr.pa!=null?cr.pa.toFixed(1):'—';
+    var pf=cr.pf!=null?Number(cr.pf).toFixed(1):'—';
+    var pa=cr.pa!=null?Number(cr.pa).toFixed(1):'—';
 
     // All-time
     var at=team.allTimeStats&&team.allTimeStats.regularSeason;
@@ -366,20 +366,32 @@ export const TEAM_CARD_HTML = `<!DOCTYPE html>
     document.getElementById('state-loading').style.display='none';
   }
 
+  function tryExtractData(msg){
+    if(!msg||typeof msg!=='object') return null;
+    // JSON-RPC tool-result: { jsonrpc:'2.0', method:'ui/notifications/tool-result', params:{structuredContent:{...}} }
+    if(msg.jsonrpc==='2.0'&&msg.method==='ui/notifications/tool-result'){
+      var p=msg.params||{};
+      return p.structuredContent||p;
+    }
+    // Direct structuredContent envelope
+    if(msg.structuredContent&&typeof msg.structuredContent==='object') return msg.structuredContent;
+    // Raw team data at top level
+    if(msg.team&&msg.roster) return msg;
+    // Nested under data key
+    if(msg.data&&msg.data.team&&msg.data.roster) return msg.data;
+    return null;
+  }
+
   function handleMessage(event){
     if(event.source!==window.parent) return;
-    var msg=event.data;
-    if(!msg||msg.jsonrpc!=='2.0') return;
-    if(msg.method==='ui/notifications/tool-result'){
-      var params=msg.params||{};
-      var sc=params.structuredContent||params;
-      try{ render(sc); }
-      catch(e){
-        document.getElementById('state-loading').style.display='none';
-        var el=document.getElementById('state-error');
-        el.textContent='Widget error: '+String(e);
-        el.style.display='flex';
-      }
+    var data=tryExtractData(event.data);
+    if(data===null) return;
+    try{ render(data); }
+    catch(e){
+      document.getElementById('state-loading').style.display='none';
+      var el=document.getElementById('state-error');
+      el.textContent='Widget error: '+String(e);
+      el.style.display='flex';
     }
   }
 
