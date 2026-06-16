@@ -721,13 +721,12 @@ export default function EditModePanel({
                 className="text-xs text-zinc-400 hover:text-zinc-200 border border-zinc-600 rounded px-2 py-1"
                 onClick={() => setShowPreview(p => !p)}
               >{showPreview ? '⬅ Hide Preview' : '➡ Show Preview'}</button>
-              {finalizeResult?.ok ? (
+              <Button variant="primary" size="sm" onClick={handleFinalize} disabled={finalizing}>
+                {finalizing ? 'Rendering…' : '✅ Finalize Edits'}
+              </Button>
+              {finalizeResult?.ok && (
                 <Button variant="primary" size="sm" onClick={onPublish} disabled={publishing}>
                   {publishing ? 'Publishing…' : '🚀 Publish'}
-                </Button>
-              ) : (
-                <Button variant="primary" size="sm" onClick={handleFinalize} disabled={finalizing}>
-                  {finalizing ? 'Rendering…' : '✅ Finalize Edits'}
                 </Button>
               )}
               <Button variant="ghost" size="sm" onClick={onClose}>✕ Close</Button>
