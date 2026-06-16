@@ -1085,7 +1085,7 @@ async function startStagedJob(opts: {
     // ── For pre_draft: fetch draft slot order and prospect pool ──
     let preDraftSlots: Array<{ slot: number; team: string }> | undefined;
     let preDraftRound2Slots: Array<{ slot: number; team: string }> | undefined;
-    let prospectPool: Array<{ name: string; pos: string; nfl: string | null; college: string | null; rank: number | null; value: number | null; }> | null = null;
+    let prospectPool: Array<{ name: string; pos: string; nfl: string | null; college: string | null; rank: number | null; value: number | null; stats: string[] | null; nflPick: number | null; verdict: string | null }> | null = null;
     if (episodeType === 'pre_draft') {
       // Use the same draft order algorithm as the website's draft order page (next-order route),
       // which correctly accounts for traded picks and playoff finishing order.
@@ -1192,16 +1192,37 @@ async function startStagedJob(opts: {
           // NFL landing spot: prefer the DB's nfl column, backfill from FantasyCalc.
           // Post-NFL-draft this tells the bots where each prospect landed — essential
           // for explaining opportunity/fit in the mock draft analysis.
+          // Load scouting data from the prospect draftboard (INITIAL_PLAYERS stats + scouting-reports.json verdicts)
+          const { INITIAL_PLAYERS } = await import('@/components/draft/prospect-board-data');
+          let scoutingReports: Record<string, { verdict?: string; shortReport?: string }> = {};
+          try {
+            const fs = await import('fs');
+            const path = await import('path');
+            const scoutingPath = path.join(process.cwd(), 'public', 'scouting-reports.json');
+            scoutingReports = JSON.parse(fs.readFileSync(scoutingPath, 'utf-8')) as Record<string, { verdict?: string }>;
+          } catch { /* scouting reports are optional */ }
+
+          // Build lookup maps by normalized name
+          const normalizeForLookup = (n: string) => n.toLowerCase().replace(/[^a-z\s]/g, '').replace(/\s+/g, ' ').trim();
+          const boardByName = new Map(INITIAL_PLAYERS.map(bp => [normalizeForLookup(bp.name), bp]));
+          const scoutByName = new Map(INITIAL_PLAYERS.map(bp => [normalizeForLookup(bp.name), scoutingReports[bp.id]]));
+
           prospectPool = players.map(p => {
             const meta = p.meta && typeof p.meta === 'object' ? (p.meta as Record<string, unknown>) : null;
             const college = meta ? ((meta.college ?? meta.school) as string | null) ?? null : null;
+            const normName = normalizeForLookup(p.name);
+            const board = boardByName.get(normName);
+            const scout = scoutByName.get(normName);
             return {
               name: p.name,
               pos: p.pos,
               nfl: p.nfl || fcTeamByName.get(p.name.toLowerCase().trim()) || null,
-              college: college ? String(college).trim() || null : null,
+              college: college ? String(college).trim() || null : (board?.college ?? null),
               rank: p.rank ?? null,
               value: prospectValueByName.get(p.name) ?? null,
+              stats: board?.s ?? null,
+              nflPick: board?.pick ?? null,
+              verdict: board && board.tier <= 2 ? (scout?.shortReport ?? scout?.verdict ?? null) : (scout?.verdict ?? null),
             };
           });
 

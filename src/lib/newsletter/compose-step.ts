@@ -1038,15 +1038,29 @@ function buildProspectTierMap(pool: ProspectEntry[]): Map<string, number> {
   return tierByName;
 }
 
-/** Prospect line for the eligible-player list: rank + qualitative tier + college, never a raw value. */
+/** Prospect line for the eligible-player list: rank + qualitative tier + college + stats, never a raw value. */
 function formatProspectLine(p: ProspectEntry, total: number, tierByName: Map<string, number>): string {
   const parts: string[] = [p.pos];
-  if (p.nfl) parts.push(`drafted by ${p.nfl}`);
-  if (p.college) parts.push(`${p.college}`);
-  const base = `${p.name} (${parts.join(', ')}`;
-  if (p.rank === null) return `- ${base}, unranked)`;
+  if (p.nfl) parts.push(`drafted by ${p.nfl}${p.nflPick ? ` (pick #${p.nflPick})` : ''}`);
+  if (p.college) parts.push(p.college);
   const tier = tierByName.get(p.name);
-  return `- ${base}, consensus rank #${p.rank} of ${total}${tier ? `, tier ${tier}` : ''})`;
+  const rankSuffix = p.rank !== null ? `, consensus rank #${p.rank} of ${total}${tier ? `, tier ${tier}` : ''}` : ', unranked';
+  const header = `- ${p.name} (${parts.join(', ')}${rankSuffix})`;
+  const lines: string[] = [header];
+  if (p.stats && p.stats.length > 0) {
+    for (const stat of p.stats) lines.push(`    ${stat}`);
+  }
+  if (p.verdict) {
+    const isMultiParagraph = p.verdict.includes('\n\n');
+    if (isMultiParagraph) {
+      lines.push(`  --- SCOUTING REPORT ---`);
+      lines.push(`  ${p.verdict.replace(/\n/g, '\n  ')}`);
+      lines.push(`  --- END SCOUTING REPORT ---`);
+    } else {
+      lines.push(`    SCOUT: ${p.verdict}`);
+    }
+  }
+  return lines.join('\n');
 }
 
 /**

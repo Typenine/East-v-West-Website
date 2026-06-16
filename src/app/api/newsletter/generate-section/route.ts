@@ -141,7 +141,7 @@ export async function POST(request: NextRequest) {
     let memEntertainer: BotMemory = freshMemory('entertainer', generatedAt);
     let memAnalyst:     BotMemory = freshMemory('analyst',     generatedAt);
     let forecastRecords: { entertainer: { w: number; l: number }; analyst: { w: number; l: number } } | null = null;
-    let prospectPool: Array<{ name: string; pos: string; nfl?: string | null; college?: string | null; rank: number | null; value?: number | null }> | null = null;
+    let prospectPool: Array<{ name: string; pos: string; nfl?: string | null; college?: string | null; rank: number | null; value?: number | null; stats?: string[] | null; nflPick?: number | null; verdict?: string | null }> | null = null;
     let sectionOffseasonTrades: import('@/lib/newsletter/offseason-trades').OffseasonTradeFact[] | null = null;
     let rosterContext = '';
     let leagueName = 'East v. West';
