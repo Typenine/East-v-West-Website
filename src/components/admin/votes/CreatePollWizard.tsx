@@ -767,9 +767,14 @@ export default function CreatePollWizard({
             <option value="immediate">Live as responses come in</option>
           </Select>
         </div>
-        <label className="flex items-center gap-2 text-sm cursor-pointer">
-          <input type="checkbox" checked={state.anonymous} onChange={(e) => patch({ anonymous: e.target.checked })} className="accent-[var(--accent)]" />
-          Anonymous results
+        <label className="flex items-start gap-2 text-sm cursor-pointer">
+          <input type="checkbox" checked={state.anonymous} onChange={(e) => patch({ anonymous: e.target.checked })} className="accent-[var(--accent)] mt-0.5" />
+          <span>
+            <span className="font-medium">Anonymous responses</span>
+            <span className="block text-xs text-[var(--muted)] mt-0.5">
+              Hides who wrote each text answer from members. Totals (e.g. 8 voted Yes) still show unless you set results to &quot;When I publish&quot; and publish after closing.
+            </span>
+          </span>
         </label>
         <div>
           <Label>Confirmation message</Label>

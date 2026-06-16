@@ -11,6 +11,7 @@
  */
 
 import { mcpMeta } from '@/lib/mcp/auth';
+import { resolveTeam } from '@/lib/mcp/team-resolver';
 import {
   LEAGUE_IDS,
   TEAM_NAMES,
@@ -193,6 +194,8 @@ export async function handleGetStandings() {
     meta: mcpMeta('get_standings', {
       currentSeason: CURRENT_SEASON,
       note: 'currentSeasonStandings = live Sleeper W/L. allTimeStandings = career record.',
+      fetchedAt: new Date().toISOString(),
+      cacheStatus: 'live',
     }),
     currentSeasonStandings: currentRows,
     allTimeStandings: allTimeRows,
@@ -203,7 +206,7 @@ export async function handleGetStandings() {
 // ─── tool: get_team_dashboard ──────────────────────────────────────────────────
 
 export async function handleGetTeam(input: { name?: string }) {
-  const nameParam = (input.name ?? '').trim().toLowerCase();
+  const nameParam = (input.name ?? '').trim();
   if (!nameParam) throw new McpError('missing_param', 'Provide a team name');
 
   const leagueId = LEAGUE_IDS.CURRENT;
@@ -221,10 +224,14 @@ export async function handleGetTeam(input: { name?: string }) {
     }>)),
   ]);
 
-  const team = teams.find((t) => t.teamName.toLowerCase().includes(nameParam));
-  if (!team) {
-    throw new McpError('not_found', `No team matching "${input.name}". Available: ${teams.map((t) => t.teamName).sort().join(', ')}`);
+  const resolution = resolveTeam(nameParam, teams.map((t) => t.teamName));
+  if (!resolution.matchedTeam) {
+    const hint = resolution.candidates.length > 1
+      ? `Multiple partial matches: ${resolution.candidates.join(', ')}. Be more specific.`
+      : `Available teams: ${teams.map((t) => t.teamName).sort().join(', ')}`;
+    throw new McpError('not_found', `No team matching "${input.name}". ${hint}`);
   }
+  const team = teams.find((t) => t.teamName === resolution.matchedTeam)!;
 
   const rosterById = new Map<number, SleeperRoster>(rosters.map((r) => [r.roster_id, r]));
   const r = rosterById.get(team.rosterId);
@@ -270,7 +277,8 @@ export async function handleGetTeam(input: { name?: string }) {
     .sort((a, b) => a.year - b.year);
 
   return {
-    meta: mcpMeta('get_team', { team: team.teamName, dataSource: 'sleeper-live + static' }),
+    meta: mcpMeta('get_team', { team: team.teamName, dataSource: 'sleeper-live + static', cacheStatus: 'live', fetchedAt: new Date().toISOString() }),
+    matchResolution: { requestedTeam: nameParam, matchedTeam: resolution.matchedTeam, confidence: resolution.confidence },
     team: {
       name: team.teamName,
       logoUrl: getTeamLogoPath(team.teamName),
@@ -302,7 +310,7 @@ export async function handleGetTeam(input: { name?: string }) {
 // ─── tool: get_current_roster ─────────────────────────────────────────────────
 
 export async function handleGetRosters(input: { team?: string }) {
-  const teamFilter = (input.team ?? '').toLowerCase().trim();
+  const teamFilter = (input.team ?? '').trim();
   const leagueId = LEAGUE_IDS.CURRENT;
   const opts = { timeoutMs: 15000 };
 
@@ -314,9 +322,17 @@ export async function handleGetRosters(input: { team?: string }) {
 
   const rosterById = new Map<number, SleeperRoster>(rosters.map((r) => [r.roster_id, r]));
 
+  let resolvedRosterTeam: string | null = null;
+  if (teamFilter) {
+    const res = resolveTeam(teamFilter, teams.map((t) => t.teamName));
+    resolvedRosterTeam = res.matchedTeam;
+  }
+
   const result = [];
   for (const team of teams) {
-    if (teamFilter && !team.teamName.toLowerCase().includes(teamFilter)) continue;
+    if (resolvedRosterTeam !== null) {
+      if (team.teamName !== resolvedRosterTeam) continue;
+    } else if (teamFilter && !team.teamName.toLowerCase().includes(teamFilter)) continue;
     const r = rosterById.get(team.rosterId);
     const irSet = new Set<string>(r?.reserve ?? []);
     const taxiSet = new Set<string>(r?.taxi ?? []);
@@ -346,7 +362,7 @@ export async function handleGetRosters(input: { team?: string }) {
   result.sort((a, b) => a.team.localeCompare(b.team));
 
   return {
-    meta: mcpMeta('get_rosters', { leagueId, teamCount: result.length }),
+    meta: mcpMeta('get_rosters', { leagueId, teamCount: result.length, teamFilter: resolvedRosterTeam ?? (teamFilter || null), fetchedAt: new Date().toISOString(), cacheStatus: 'live' }),
     rosters: result,
   };
 }
@@ -463,7 +479,7 @@ export async function handleGetMatchups(input: { week?: number }) {
   result.sort((a, b) => a.matchupId - b.matchupId);
 
   return {
-    meta: mcpMeta('get_matchups', { leagueId, week, nflSeason, seasonType }),
+    meta: mcpMeta('get_matchups', { leagueId, week, nflSeason, seasonType, fetchedAt: new Date().toISOString(), cacheStatus: 'live' }),
     week,
     matchups: result,
   };
@@ -474,13 +490,20 @@ export async function handleGetMatchups(input: { week?: number }) {
 export async function handleGetTransactions(input: { limit?: number; team?: string; season?: string }) {
   const MAX = 100;
   const limit = Math.min(Math.max(1, input.limit ?? 25), MAX);
-  const teamFilter = (input.team ?? '').toLowerCase().trim();
+  const teamFilter = (input.team ?? '').trim();
   const seasonFilter = (input.season ?? '').trim();
 
   const ledger = await buildTransactionLedger();
   let filtered = ledger;
   if (seasonFilter) filtered = filtered.filter((t) => t.season === seasonFilter);
-  if (teamFilter) filtered = filtered.filter((t) => t.team.toLowerCase().includes(teamFilter));
+  if (teamFilter) {
+    const allTeamNames = [...new Set(ledger.map((t) => t.team))];
+    const res = resolveTeam(teamFilter, allTeamNames.length > 0 ? allTeamNames : [...TEAM_NAMES]);
+    const matchedTeam = res.matchedTeam;
+    filtered = filtered.filter((t) =>
+      matchedTeam ? t.team === matchedTeam : t.team.toLowerCase().includes(teamFilter.toLowerCase())
+    );
+  }
 
   const page = [...filtered].sort((a, b) => b.created - a.created).slice(0, limit);
   const slim = page.map((t) => ({
@@ -491,7 +514,7 @@ export async function handleGetTransactions(input: { limit?: number; team?: stri
   }));
 
   return {
-    meta: mcpMeta('get_transactions', { totalMatched: filtered.length, returned: slim.length, limit }),
+    meta: mcpMeta('get_transactions', { totalMatched: filtered.length, returned: slim.length, limit, teamFilter: teamFilter || null, fetchedAt: new Date().toISOString() }),
     transactions: slim,
   };
 }
@@ -524,13 +547,22 @@ export function slimTradeTeams(t: Trade) {
 
 export async function handleGetTrades(input: { team?: string; season?: string; limit?: number }) {
   const limit = Math.min(Math.max(1, input.limit ?? 20), 50);
-  const teamFilter = (input.team ?? '').toLowerCase().trim();
+  const teamFilter = (input.team ?? '').trim();
   const seasonFilter = (input.season ?? '').trim();
 
   const allTrades = await fetchTradesAllTime();
   let filtered = allTrades;
   if (seasonFilter) filtered = filtered.filter((t) => String(t.season) === seasonFilter);
-  if (teamFilter) filtered = filtered.filter((t) => t.teams.some((s) => s.name.toLowerCase().includes(teamFilter)));
+  if (teamFilter) {
+    const allTeamNames = [...new Set(allTrades.flatMap((t) => t.teams.map((s) => s.name)))];
+    const res = resolveTeam(teamFilter, allTeamNames.length > 0 ? allTeamNames : [...TEAM_NAMES]);
+    const matchedTeam = res.matchedTeam;
+    filtered = filtered.filter((t) =>
+      matchedTeam
+        ? t.teams.some((s) => s.name === matchedTeam)
+        : t.teams.some((s) => s.name.toLowerCase().includes(teamFilter.toLowerCase()))
+    );
+  }
 
   const sorted = [...filtered].sort((a, b) => {
     const ta = typeof a.created === 'number' ? a.created : Date.parse(a.date ?? '0');
@@ -544,7 +576,7 @@ export async function handleGetTrades(input: { team?: string; season?: string; l
   }));
 
   return {
-    meta: mcpMeta('get_trades', { totalMatched: filtered.length, returned: page.length, limit }),
+    meta: mcpMeta('get_trades', { totalMatched: filtered.length, returned: page.length, limit, teamFilter: teamFilter || null, fetchedAt: new Date().toISOString() }),
     trades: page,
   };
 }
@@ -553,9 +585,19 @@ export async function handleGetTrades(input: { team?: string; season?: string; l
 
 export async function handleGetDrafts(input: { season?: string; team?: string; type?: string }) {
   const seasonFilter = (input.season ?? '').trim();
-  const teamFilter = (input.team ?? '').toLowerCase().trim();
+  const teamRaw = (input.team ?? '').trim();
   const typeFilter = (input.type ?? '').toLowerCase().trim();
   const opts = { timeoutMs: 20000 };
+
+  let resolvedDraftTeam: string | null = null;
+  let teamFilter = teamRaw.toLowerCase();
+  if (teamRaw) {
+    const res = resolveTeam(teamRaw, [...TEAM_NAMES]);
+    if (res.matchedTeam) {
+      resolvedDraftTeam = res.matchedTeam;
+      teamFilter = res.matchedTeam.toLowerCase();
+    }
+  }
 
   const yearToLeague = await buildYearToLeagueMapUnique(opts);
   const seasons = Object.keys(yearToLeague).filter((y) => !seasonFilter || y === seasonFilter).sort();
@@ -620,7 +662,7 @@ export async function handleGetDrafts(input: { season?: string; team?: string; t
   }
 
   return {
-    meta: mcpMeta('get_drafts', { seasonsQueried: seasons, filters: { season: seasonFilter || null, team: teamFilter || null } }),
+    meta: mcpMeta('get_drafts', { seasonsQueried: seasons, filters: { season: seasonFilter || null, team: resolvedDraftTeam ?? (teamRaw || null) }, fetchedAt: new Date().toISOString() }),
     historicalPicks: historyBySeason,
     futurePickOwnership: futurePicks,
   };
@@ -629,12 +671,19 @@ export async function handleGetDrafts(input: { season?: string; team?: string; t
 // ─── tool: get_franchise_summary ──────────────────────────────────────────────
 
 export async function handleGetFranchise(input: { team?: string }) {
-  const teamFilter = (input.team ?? '').toLowerCase().trim();
+  const teamRaw = (input.team ?? '').trim();
   const splits = await getSplitRecordsAllTime({ timeoutMs: 20000 });
   const champs = champCounts();
   const runnerUps: Record<string, number> = {};
   for (const c of Object.values(CHAMPIONS)) {
     if (c.runnerUp && c.runnerUp !== 'TBD') runnerUps[c.runnerUp] = (runnerUps[c.runnerUp] ?? 0) + 1;
+  }
+
+  let teamFilter = teamRaw.toLowerCase();
+  if (teamRaw) {
+    const splitTeamNames = Object.values(splits).map((s) => s.teamName);
+    const res = resolveTeam(teamRaw, splitTeamNames);
+    if (res.matchedTeam) teamFilter = res.matchedTeam.toLowerCase();
   }
 
   const franchises = Object.entries(splits)
@@ -663,7 +712,7 @@ export async function handleGetFranchise(input: { team?: string }) {
     .sort((a, b) => b.championships - a.championships || b.regularSeason.winPct - a.regularSeason.winPct);
 
   return {
-    meta: mcpMeta('get_franchise', { teamCount: franchises.length }),
+    meta: mcpMeta('get_franchise', { teamCount: franchises.length, teamFilter: teamRaw || null, fetchedAt: new Date().toISOString() }),
     franchises,
   };
 }
@@ -682,7 +731,7 @@ export async function handleGetRules(input: { search?: string; section?: string 
         availableSections: PARSED_RULES.map((s) => ({ id: s.id, title: s.title })),
       };
     }
-    return { meta: mcpMeta('get_rules', { lookup: 'section', sectionId }), section: found };
+    return { meta: mcpMeta('get_rules', { lookup: 'section', sectionId, fetchedAt: new Date().toISOString(), cacheStatus: 'static' }), section: found };
   }
 
   const results = searchRaw
@@ -695,7 +744,7 @@ export async function handleGetRules(input: { search?: string; section?: string 
   });
 
   return {
-    meta: mcpMeta('get_rules', { search: searchRaw || null, matchedSections: sections.length, totalSections: PARSED_RULES.length }),
+    meta: mcpMeta('get_rules', { search: searchRaw || null, matchedSections: sections.length, totalSections: PARSED_RULES.length, fetchedAt: new Date().toISOString(), cacheStatus: 'static' }),
     sections,
   };
 }
@@ -1980,6 +2029,551 @@ export function formatCommissionerOpsMarkdown(data: ReturnType<typeof handleGetC
   }
 
   lines.push(`*Live from Sleeper · ${FRESHNESS()} · Advisory only — no official rulings*`);
+  return lines.join('\n');
+}
+
+// ─── tool: get_league_overview ───────────────────────────────────────────────
+
+const PICK_ORDINAL = ['', '1st', '2nd', '3rd', '4th', '5th', '6th'];
+const OVERVIEW_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let _overviewCache: { ts: number; data: any } | null = null;
+
+export async function handleGetLeagueOverview() {
+  const now = Date.now();
+  if (_overviewCache && now - _overviewCache.ts < OVERVIEW_CACHE_TTL) {
+    return _overviewCache.data;
+  }
+  const leagueId = LEAGUE_IDS.CURRENT;
+  const opts = { timeoutMs: 22000 };
+  const warnings: string[] = [];
+
+  const [teams, rosters, allPlayers, splits] = await Promise.all([
+    getTeamsData(leagueId, opts).catch((e: Error) => { warnings.push(`Teams fetch failed: ${e.message}`); return []; }),
+    getLeagueRosters(leagueId, opts).catch((e: Error) => { warnings.push(`Rosters fetch failed: ${e.message}`); return [] as SleeperRoster[]; }),
+    getAllPlayersCached().catch((e: Error) => { warnings.push(`Player DB failed: ${e.message}`); return {} as Record<string, SleeperPlayer>; }),
+    getSplitRecordsAllTime(opts).catch((e: Error) => { warnings.push(`All-time records failed: ${e.message}`); return {} as Record<string, { teamName: string; regular: { wins: number; losses: number; ties: number; pf: number; pa: number }; playoffs: { wins: number; losses: number; ties: number; pf: number; pa: number }; toilet: { wins: number; losses: number; ties: number; pf: number; pa: number } }>; }),
+  ]);
+
+  type TradedPickRaw = { season?: string | number; round?: number; roster_id?: number; owner_id?: number };
+  let tradedPicks: TradedPickRaw[] = [];
+  try {
+    const resp = await fetch(`https://api.sleeper.app/v1/league/${leagueId}/traded_picks`, {
+      cache: 'no-store', signal: AbortSignal.timeout(8000),
+    });
+    if (resp.ok) tradedPicks = (await resp.json()) as TradedPickRaw[];
+  } catch (e) {
+    warnings.push(`Future picks fetch failed: ${e instanceof Error ? e.message : String(e)}`);
+  }
+
+  const rosterById = new Map<number, SleeperRoster>(rosters.map((r) => [r.roster_id, r]));
+  const rosterIdToName = new Map<number, string>(teams.map((t) => [t.rosterId, t.teamName]));
+  const champs = champCounts();
+  const runnerUpCounts: Record<string, number> = {};
+  for (const c of Object.values(CHAMPIONS)) {
+    if (c.runnerUp && c.runnerUp !== 'TBD') runnerUpCounts[c.runnerUp] = (runnerUpCounts[c.runnerUp] ?? 0) + 1;
+  }
+
+  const picksByOwner: Record<string, Array<{ season: string; round: number; originalTeam: string; traded: boolean; display: string }>> = {};
+  for (const tp of tradedPicks) {
+    try {
+      const season = String(tp.season ?? '');
+      const origTeam = rosterIdToName.get(Number(tp.roster_id)) ?? `Roster ${tp.roster_id}`;
+      const ownerTeam = rosterIdToName.get(Number(tp.owner_id)) ?? `Roster ${tp.owner_id}`;
+      const round = Number(tp.round ?? 0);
+      const ord = PICK_ORDINAL[round] ?? `${round}th`;
+      const traded = origTeam !== ownerTeam;
+      const display = traded ? `${season} ${ord} from ${origTeam}` : `${season} ${ord} (own)`;
+      if (!picksByOwner[ownerTeam]) picksByOwner[ownerTeam] = [];
+      picksByOwner[ownerTeam].push({ season, round, originalTeam: origTeam, traded, display });
+    } catch (e) {
+      warnings.push(`Skipped one pick entry: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
+  const overview = teams.map((team) => {
+    const r = rosterById.get(team.rosterId);
+    const irSet = new Set<string>(r?.reserve ?? []);
+    const taxiSet = new Set<string>(r?.taxi ?? []);
+    const allIds: string[] = r?.players ?? team.players ?? [];
+
+    const players = allIds.filter(Boolean).map((pid) => {
+      const p = allPlayers[pid] as SleeperPlayer | undefined;
+      const slot = irSet.has(pid) ? 'ir' : taxiSet.has(pid) ? 'taxi' : 'active';
+      return {
+        playerId: pid,
+        playerName: p ? `${p.first_name || ''} ${p.last_name || ''}`.trim() || pid : pid,
+        position: p?.position ?? null,
+        nflTeam: p?.team ?? null,
+        injuryStatus: p?.injury_status ?? p?.status ?? null,
+        slot,
+      };
+    });
+
+    const rs = r?.settings as { wins?: number; losses?: number; ties?: number; fpts?: number; fpts_decimal?: number; fpts_against?: number; fpts_against_decimal?: number } | undefined;
+    const pf = rs ? (rs.fpts ?? 0) + (rs.fpts_decimal ?? 0) / 100 : 0;
+    const pa = rs ? (rs.fpts_against ?? 0) + (rs.fpts_against_decimal ?? 0) / 100 : 0;
+
+    const splitKey = Object.keys(splits).find(
+      (k) => splits[k].teamName.toLowerCase() === team.teamName.toLowerCase()
+    );
+    const split = splitKey ? splits[splitKey] : null;
+    const regG = split ? split.regular.wins + split.regular.losses + split.regular.ties : 0;
+
+    const champHistory = Object.entries(CHAMPIONS)
+      .filter(([, c]) =>
+        c.champion === team.teamName ||
+        c.runnerUp === team.teamName ||
+        (c as { thirdPlace?: string }).thirdPlace === team.teamName,
+      )
+      .map(([year, c]) => ({
+        year: Number(year),
+        finish: c.champion === team.teamName ? '1st (Champion)'
+          : c.runnerUp === team.teamName ? '2nd (Runner-up)' : '3rd Place',
+      }))
+      .sort((a, b) => a.year - b.year);
+
+    const futurePicks = (picksByOwner[team.teamName] ?? [])
+      .sort((a, b) => a.season.localeCompare(b.season) || a.round - b.round);
+
+    return {
+      teamId: team.rosterId,
+      rosterId: team.rosterId,
+      teamName: team.teamName,
+      logoUrl: getTeamLogoPath(team.teamName),
+      currentSeason: {
+        season: CURRENT_SEASON,
+        wins: rs?.wins ?? 0,
+        losses: rs?.losses ?? 0,
+        ties: rs?.ties ?? 0,
+        pf: Math.round(pf * 100) / 100,
+        pa: Math.round(pa * 100) / 100,
+      },
+      allTimeStats: split ? {
+        regularSeason: {
+          wins: split.regular.wins, losses: split.regular.losses, ties: split.regular.ties,
+          winPct: regG > 0 ? Math.round((split.regular.wins / regG) * 1000) / 10 : 0,
+          pf: Math.round(split.regular.pf * 100) / 100,
+          pa: Math.round(split.regular.pa * 100) / 100,
+        },
+        playoffs: { wins: split.playoffs.wins, losses: split.playoffs.losses },
+      } : null,
+      championships: champs[team.teamName] ?? 0,
+      runnerUps: runnerUpCounts[team.teamName] ?? 0,
+      championshipHistory: champHistory,
+      roster: {
+        active: players.filter((p) => p.slot === 'active'),
+        ir: players.filter((p) => p.slot === 'ir'),
+        taxi: players.filter((p) => p.slot === 'taxi'),
+      },
+      futurePicks,
+      pickCount: futurePicks.length,
+      firstRoundPickCount: futurePicks.filter((p) => p.round === 1).length,
+    };
+  });
+
+  overview.sort((a, b) => b.currentSeason.wins - a.currentSeason.wins || b.currentSeason.pf - a.currentSeason.pf);
+
+  const overviewResult = {
+    ok: true,
+    warnings: warnings.length > 0 ? warnings : undefined,
+    data: {
+      fetchedAt: new Date().toISOString(),
+      source: 'sleeper-live + static-constants',
+      cacheStatus: 'live' as const,
+      season: CURRENT_SEASON,
+      teamCount: overview.length,
+      teams: overview,
+    },
+  };
+  _overviewCache = { ts: Date.now(), data: overviewResult };
+  return overviewResult;
+}
+
+// ─── tool: get_position_rooms ──────────────────────────────────────────────────
+
+const POS_ORDER_ROOMS = ['QB', 'RB', 'WR', 'TE', 'K', 'DST', 'DL', 'LB', 'DB'];
+
+export async function handleGetPositionRooms(input: { team?: string; position?: string }) {
+  const posFilter = (input.position ?? '').toUpperCase().trim();
+  const leagueId = LEAGUE_IDS.CURRENT;
+  const opts = { timeoutMs: 15000 };
+  const warnings: string[] = [];
+
+  const [teams, rosters, allPlayers] = await Promise.all([
+    getTeamsData(leagueId, opts).catch((e: Error) => { warnings.push(`Teams failed: ${e.message}`); return []; }),
+    getLeagueRosters(leagueId, opts).catch((e: Error) => { warnings.push(`Rosters failed: ${e.message}`); return [] as SleeperRoster[]; }),
+    getAllPlayersCached().catch((e: Error) => { warnings.push(`Players failed: ${e.message}`); return {} as Record<string, SleeperPlayer>; }),
+  ]);
+
+  const rosterById = new Map<number, SleeperRoster>(rosters.map((r) => [r.roster_id, r]));
+
+  let resolvedTeamName: string | null = null;
+  if (input.team) {
+    const resolution = resolveTeam(input.team, teams.map((t) => t.teamName));
+    if (!resolution.matchedTeam) {
+      warnings.push(resolution.candidates.length > 1
+        ? `Ambiguous team "${input.team}" — matched: ${resolution.candidates.join(', ')}. Showing all teams.`
+        : `No team matching "${input.team}". Showing all teams.`);
+    } else {
+      resolvedTeamName = resolution.matchedTeam;
+    }
+  }
+
+  const result = teams
+    .filter((t) => !resolvedTeamName || t.teamName === resolvedTeamName)
+    .map((team) => {
+      const r = rosterById.get(team.rosterId);
+      const irSet = new Set<string>(r?.reserve ?? []);
+      const taxiSet = new Set<string>(r?.taxi ?? []);
+      const activeIds = (r?.players ?? team.players ?? []).filter(
+        (pid) => pid && !irSet.has(pid) && !taxiSet.has(pid)
+      );
+
+      const byPos: Record<string, Array<{ playerId: string; playerName: string; position: string; nflTeam: string | null; injuryStatus: string | null }>> = {};
+
+      for (const pid of activeIds) {
+        const p = allPlayers[pid] as SleeperPlayer | undefined;
+        const pos = p?.position ?? 'UNKN';
+        if (posFilter && pos !== posFilter) continue;
+        if (!byPos[pos]) byPos[pos] = [];
+        byPos[pos].push({
+          playerId: pid,
+          playerName: p ? `${p.first_name || ''} ${p.last_name || ''}`.trim() || pid : pid,
+          position: pos,
+          nflTeam: p?.team ?? null,
+          injuryStatus: p?.injury_status ?? p?.status ?? null,
+        });
+      }
+
+      const sortedRooms = Object.entries(byPos)
+        .sort(([a], [b]) => {
+          const ai = POS_ORDER_ROOMS.indexOf(a);
+          const bi = POS_ORDER_ROOMS.indexOf(b);
+          if (ai === -1 && bi === -1) return a.localeCompare(b);
+          if (ai === -1) return 1; if (bi === -1) return -1;
+          return ai - bi;
+        })
+        .reduce<Record<string, typeof byPos[string]>>((acc, [pos, ps]) => { acc[pos] = ps; return acc; }, {});
+
+      const summary: Record<string, number> = {};
+      for (const [pos, ps] of Object.entries(byPos)) summary[pos] = ps.length;
+
+      return {
+        teamName: team.teamName,
+        rosterId: team.rosterId,
+        positionRooms: sortedRooms,
+        summary,
+      };
+    });
+
+  return {
+    ok: true,
+    warnings: warnings.length > 0 ? warnings : undefined,
+    data: {
+      fetchedAt: new Date().toISOString(),
+      source: 'sleeper-live',
+      season: CURRENT_SEASON,
+      positionFilter: posFilter || null,
+      teamFilter: resolvedTeamName,
+      teams: result,
+    },
+  };
+}
+
+// ─── tool: compare_teams ──────────────────────────────────────────────────────
+
+export async function handleCompareTeams(input: { team1?: string; team2?: string }) {
+  if (!input.team1) throw new McpError('missing_param', 'Provide team1');
+  if (!input.team2) throw new McpError('missing_param', 'Provide team2');
+
+  const leagueId = LEAGUE_IDS.CURRENT;
+  const opts = { timeoutMs: 18000 };
+  const warnings: string[] = [];
+
+  const [teams, rosters, allPlayers, splits] = await Promise.all([
+    getTeamsData(leagueId, opts).catch(() => []),
+    getLeagueRosters(leagueId, opts).catch(() => [] as SleeperRoster[]),
+    getAllPlayersCached().catch(() => ({} as Record<string, SleeperPlayer>)),
+    getSplitRecordsAllTime(opts).catch(() => ({} as Record<string, { teamName: string; regular: { wins: number; losses: number; ties: number; pf: number; pa: number }; playoffs: { wins: number; losses: number; ties: number; pf: number; pa: number }; toilet: { wins: number; losses: number; ties: number; pf: number; pa: number } }>)),
+  ]);
+
+  const teamNames = teams.map((t) => t.teamName);
+  const res1 = resolveTeam(input.team1, teamNames);
+  const res2 = resolveTeam(input.team2, teamNames);
+
+  if (!res1.matchedTeam) {
+    throw new McpError('not_found', `No team matching "${input.team1}". ${res1.candidates.length > 1 ? `Multiple matches: ${res1.candidates.join(', ')}` : `Available: ${teamNames.join(', ')}` }`);
+  }
+  if (!res2.matchedTeam) {
+    throw new McpError('not_found', `No team matching "${input.team2}". ${res2.candidates.length > 1 ? `Multiple matches: ${res2.candidates.join(', ')}` : `Available: ${teamNames.join(', ')}` }`);
+  }
+  if (res1.matchedTeam === res2.matchedTeam) {
+    throw new McpError('invalid_input', `Both names resolved to the same team: "${res1.matchedTeam}". Provide two different teams.`);
+  }
+
+  if (res1.confidence !== 'exact') warnings.push(`"${input.team1}" resolved to "${res1.matchedTeam}" (${res1.confidence}).`);
+  if (res2.confidence !== 'exact') warnings.push(`"${input.team2}" resolved to "${res2.matchedTeam}" (${res2.confidence}).`);
+
+  const rosterById = new Map<number, SleeperRoster>(rosters.map((r) => [r.roster_id, r]));
+  const champs = champCounts();
+
+  function buildSnapshot(teamName: string) {
+    const team = teams.find((t) => t.teamName === teamName)!;
+    const r = rosterById.get(team.rosterId);
+    const irSet = new Set<string>(r?.reserve ?? []);
+    const taxiSet = new Set<string>(r?.taxi ?? []);
+    const allIds: string[] = r?.players ?? team.players ?? [];
+
+    const players = allIds.filter(Boolean).map((pid) => {
+      const p = allPlayers[pid] as SleeperPlayer | undefined;
+      return {
+        playerId: pid,
+        playerName: p ? `${p.first_name || ''} ${p.last_name || ''}`.trim() || pid : pid,
+        position: p?.position ?? null,
+        nflTeam: p?.team ?? null,
+        injuryStatus: p?.injury_status ?? p?.status ?? null,
+        slot: irSet.has(pid) ? 'ir' : taxiSet.has(pid) ? 'taxi' : 'active',
+      };
+    });
+
+    const rs = r?.settings as { wins?: number; losses?: number; ties?: number; fpts?: number; fpts_decimal?: number; fpts_against?: number; fpts_against_decimal?: number } | undefined;
+    const pf = rs ? (rs.fpts ?? 0) + (rs.fpts_decimal ?? 0) / 100 : 0;
+    const pa = rs ? (rs.fpts_against ?? 0) + (rs.fpts_against_decimal ?? 0) / 100 : 0;
+
+    const splitKey = Object.keys(splits).find((k) => splits[k].teamName.toLowerCase() === teamName.toLowerCase());
+    const split = splitKey ? splits[splitKey] : null;
+
+    const champHistory = Object.entries(CHAMPIONS)
+      .filter(([, c]) => c.champion === teamName || c.runnerUp === teamName || (c as { thirdPlace?: string }).thirdPlace === teamName)
+      .map(([year, c]) => ({ year: Number(year), finish: c.champion === teamName ? '1st (Champion)' : c.runnerUp === teamName ? '2nd (Runner-up)' : '3rd Place' }))
+      .sort((a, b) => a.year - b.year);
+
+    const active = players.filter((p) => p.slot === 'active');
+    const byPos: Record<string, string[]> = {};
+    for (const p of active) {
+      const pos = p.position ?? 'UNKN';
+      if (!byPos[pos]) byPos[pos] = [];
+      byPos[pos].push(p.playerName);
+    }
+
+    return {
+      teamName, rosterId: team.rosterId, logoUrl: getTeamLogoPath(teamName),
+      currentSeason: { season: CURRENT_SEASON, wins: rs?.wins ?? 0, losses: rs?.losses ?? 0, ties: rs?.ties ?? 0, pf: Math.round(pf * 100) / 100, pa: Math.round(pa * 100) / 100 },
+      allTimeStats: split ? { regularSeason: { wins: split.regular.wins, losses: split.regular.losses }, playoffs: { wins: split.playoffs.wins, losses: split.playoffs.losses } } : null,
+      championships: champs[teamName] ?? 0,
+      championshipHistory: champHistory,
+      positionRooms: byPos,
+      roster: { active, ir: players.filter((p) => p.slot === 'ir'), taxi: players.filter((p) => p.slot === 'taxi') },
+    };
+  }
+
+  return {
+    ok: true,
+    warnings: warnings.length > 0 ? warnings : undefined,
+    data: {
+      fetchedAt: new Date().toISOString(),
+      source: 'sleeper-live + static-constants',
+      team1: buildSnapshot(res1.matchedTeam),
+      team2: buildSnapshot(res2.matchedTeam),
+    },
+  };
+}
+
+// ─── tool: get_future_pick_board ──────────────────────────────────────────────
+
+export async function handleGetFuturePickBoard() {
+  const leagueId = LEAGUE_IDS.CURRENT;
+  const opts = { timeoutMs: 15000 };
+  const warnings: string[] = [];
+
+  const teams = await getTeamsData(leagueId, opts).catch((e: Error) => {
+    warnings.push(`Teams fetch failed: ${e.message}`);
+    return [];
+  });
+
+  const rosterIdToName = new Map<number, string>(teams.map((t) => [t.rosterId, t.teamName]));
+  type TradedPickRaw = { season?: string | number; round?: number; roster_id?: number; owner_id?: number };
+  let tradedPicks: TradedPickRaw[] = [];
+  try {
+    const resp = await fetch(`https://api.sleeper.app/v1/league/${leagueId}/traded_picks`, {
+      cache: 'no-store', signal: AbortSignal.timeout(8000),
+    });
+    if (resp.ok) tradedPicks = (await resp.json()) as TradedPickRaw[];
+  } catch (e) {
+    warnings.push(`Future picks fetch failed: ${e instanceof Error ? e.message : String(e)}`);
+  }
+
+  const byOwner: Record<string, Array<{ season: string; round: number; originalTeam: string; currentOwner: string; traded: boolean; display: string }>> = {};
+  for (const t of teams) byOwner[t.teamName] = [];
+
+  for (const tp of tradedPicks) {
+    try {
+      const season = String(tp.season ?? '');
+      const origTeam = rosterIdToName.get(Number(tp.roster_id)) ?? `Roster ${tp.roster_id}`;
+      const ownerTeam = rosterIdToName.get(Number(tp.owner_id)) ?? `Roster ${tp.owner_id}`;
+      const round = Number(tp.round ?? 0);
+      const ord = PICK_ORDINAL[round] ?? `${round}th`;
+      const traded = origTeam !== ownerTeam;
+      const display = traded ? `${season} ${ord} from ${origTeam}` : `${season} ${ord} (own)`;
+      if (!byOwner[ownerTeam]) byOwner[ownerTeam] = [];
+      byOwner[ownerTeam].push({ season, round, originalTeam: origTeam, currentOwner: ownerTeam, traded, display });
+    } catch (e) {
+      warnings.push(`Skipped one pick: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
+  const board = Object.entries(byOwner)
+    .map(([teamName, picks]) => {
+      const sorted = picks.sort((a, b) => a.season.localeCompare(b.season) || a.round - b.round);
+      return {
+        teamName,
+        rosterId: teams.find((t) => t.teamName === teamName)?.rosterId ?? null,
+        picks: sorted,
+        totalPicks: sorted.length,
+        firstRoundPicks: sorted.filter((p) => p.round === 1).length,
+        tradedPicksOwned: sorted.filter((p) => p.traded).length,
+      };
+    })
+    .sort((a, b) => b.totalPicks - a.totalPicks || b.firstRoundPicks - a.firstRoundPicks);
+
+  return {
+    ok: true,
+    warnings: warnings.length > 0 ? warnings : undefined,
+    data: {
+      fetchedAt: new Date().toISOString(),
+      source: 'sleeper-live',
+      cacheStatus: 'live',
+      leagueNote: 'Includes only traded picks tracked by Sleeper. Each team also retains all of their own un-traded picks.',
+      board,
+    },
+  };
+}
+
+// ─── markdown formatters for new tools ───────────────────────────────────────
+
+export function formatLeagueOverviewMarkdown(data: unknown): string {
+  const r = data as { data?: { season: string; fetchedAt: string; teams: Array<{ teamName: string; currentSeason: { wins: number; losses: number; pf: number; pa: number }; championships: number; pickCount: number; firstRoundPickCount: number; roster: { active: unknown[]; ir: unknown[]; taxi: unknown[] } }> } };
+  if (!r?.data) return '⚠️ League overview data unavailable.';
+  const { season, teams, fetchedAt } = r.data;
+  const lines: string[] = [
+    `## 🏆 East v. West League Overview — ${season}`,
+    `*${teams.length} teams · Live from Sleeper · ${new Date(fetchedAt).toLocaleString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })} ET*`,
+    '',
+    '### 📊 Current Standings',
+    '| # | Team | W-L | PF | PA | 🏆 |',
+    '|---|------|-----|-----|-----|-----|',
+  ];
+  teams.forEach((t, i) => {
+    const champ = t.championships > 0 ? `${t.championships}x` : '—';
+    lines.push(`| ${i + 1} | **${t.teamName}** | ${t.currentSeason.wins}-${t.currentSeason.losses} | ${t.currentSeason.pf} | ${t.currentSeason.pa} | ${champ} |`);
+  });
+  lines.push('');
+  const draftRich = [...teams].sort((a, b) => b.pickCount - a.pickCount).slice(0, 6).filter((t) => t.pickCount > 0);
+  if (draftRich.length > 0) {
+    lines.push('### 🎯 Draft Capital Leaders');
+    for (const t of draftRich) lines.push(`- **${t.teamName}** — ${t.pickCount} picks (${t.firstRoundPickCount} 1sts)`);
+    lines.push('');
+  }
+  lines.push('### 📋 Roster Sizes (active / IR / taxi)');
+  for (const t of teams) lines.push(`- **${t.teamName}**: ${t.roster.active.length} active, ${t.roster.ir.length} IR, ${t.roster.taxi.length} taxi`);
+  lines.push('');
+  lines.push(`*Live from Sleeper · ${FRESHNESS()}*`);
+  return lines.join('\n');
+}
+
+export function formatPositionRoomsMarkdown(data: unknown): string {
+  const r = data as { data?: { positionFilter: string | null; teamFilter: string | null; fetchedAt: string; teams: Array<{ teamName: string; positionRooms: Record<string, Array<{ playerName: string; injuryStatus?: string | null }>> }> } };
+  if (!r?.data) return '⚠️ Position room data unavailable.';
+  const { positionFilter, teamFilter, teams, fetchedAt } = r.data;
+  const title = positionFilter ? `${positionFilter} Rooms` : 'All Position Rooms';
+  const lines: string[] = [
+    `## 🏈 ${title} — ${teamFilter ?? 'League-wide'}`,
+    `*Active rosters only · ${new Date(fetchedAt).toLocaleString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })} ET*`,
+    '',
+  ];
+  for (const t of teams) {
+    lines.push(`### ${t.teamName}`);
+    const rooms = Object.entries(t.positionRooms);
+    if (rooms.length === 0) {
+      lines.push('*No players.*');
+    } else {
+      for (const [pos, players] of rooms) {
+        const names = players.map((p) => `${p.playerName}${p.injuryStatus ? ` *(${p.injuryStatus})*` : ''}`).join(', ');
+        lines.push(`- **${pos}** (${players.length}): ${names}`);
+      }
+    }
+    lines.push('');
+  }
+  lines.push(`*Live from Sleeper · ${FRESHNESS()}*`);
+  return lines.join('\n');
+}
+
+export function formatCompareTeamsMarkdown(data: unknown): string {
+  type Snap = { teamName: string; currentSeason: { wins: number; losses: number; pf: number; pa: number }; allTimeStats: { regularSeason: { wins: number; losses: number }; playoffs: { wins: number; losses: number } } | null; championships: number; positionRooms: Record<string, string[]>; roster: { ir: unknown[]; taxi: unknown[] } };
+  const r = data as { warnings?: string[]; data?: { team1: Snap; team2: Snap } };
+  if (!r?.data) return '⚠️ Comparison data unavailable.';
+  const { team1: t1, team2: t2 } = r.data;
+  const lines: string[] = [
+    `## ⚔️ ${t1.teamName}  vs.  ${t2.teamName}`,
+    '',
+    '### 📊 Current Season',
+    `| Stat | ${t1.teamName} | ${t2.teamName} |`,
+    '|------|---|---|',
+    `| Record | ${t1.currentSeason.wins}-${t1.currentSeason.losses} | ${t2.currentSeason.wins}-${t2.currentSeason.losses} |`,
+    `| PF | ${t1.currentSeason.pf} | ${t2.currentSeason.pf} |`,
+    `| PA | ${t1.currentSeason.pa} | ${t2.currentSeason.pa} |`,
+    `| Championships | ${t1.championships} | ${t2.championships} |`,
+    '',
+  ];
+  if (t1.allTimeStats && t2.allTimeStats) {
+    lines.push('### 📈 All-Time');
+    lines.push(`| Stat | ${t1.teamName} | ${t2.teamName} |`);
+    lines.push('|------|---|---|');
+    lines.push(`| Reg W-L | ${t1.allTimeStats.regularSeason.wins}-${t1.allTimeStats.regularSeason.losses} | ${t2.allTimeStats.regularSeason.wins}-${t2.allTimeStats.regularSeason.losses} |`);
+    lines.push(`| Playoff W-L | ${t1.allTimeStats.playoffs.wins}-${t1.allTimeStats.playoffs.losses} | ${t2.allTimeStats.playoffs.wins}-${t2.allTimeStats.playoffs.losses} |`);
+    lines.push('');
+  }
+  function fmtRooms(rooms: Record<string, string[]>): string[] {
+    return Object.entries(rooms).map(([pos, names]) => `- **${pos}**: ${names.join(', ')}`);
+  }
+  lines.push(`### 🏈 ${t1.teamName} Active Roster`);
+  const r1 = fmtRooms(t1.positionRooms);
+  lines.push(...(r1.length ? r1 : ['*No active players.*']));
+  if (t1.roster.ir.length) lines.push(`- *IR: ${t1.roster.ir.length} player(s)*`);
+  if (t1.roster.taxi.length) lines.push(`- *Taxi: ${t1.roster.taxi.length} player(s)*`);
+  lines.push('');
+  lines.push(`### 🏈 ${t2.teamName} Active Roster`);
+  const r2 = fmtRooms(t2.positionRooms);
+  lines.push(...(r2.length ? r2 : ['*No active players.*']));
+  if (t2.roster.ir.length) lines.push(`- *IR: ${t2.roster.ir.length} player(s)*`);
+  if (t2.roster.taxi.length) lines.push(`- *Taxi: ${t2.roster.taxi.length} player(s)*`);
+  lines.push('');
+  if (r.warnings?.length) lines.push(`*⚠️ ${r.warnings.join(' ')}*`);
+  lines.push(`*Live from Sleeper · ${FRESHNESS()}*`);
+  return lines.join('\n');
+}
+
+export function formatFuturePickBoardMarkdown(data: unknown): string {
+  const r = data as { data?: { leagueNote: string; board: Array<{ teamName: string; totalPicks: number; firstRoundPicks: number; picks: Array<{ display: string }> }> } };
+  if (!r?.data) return '⚠️ Pick board data unavailable.';
+  const { board, leagueNote } = r.data;
+  const lines: string[] = [
+    '## 🎯 Future Pick Board',
+    '*Sorted by total picks held · Traded picks only (each team also retains all un-traded own picks)*',
+    '',
+  ];
+  for (const entry of board) {
+    if (entry.totalPicks === 0) {
+      lines.push(`**${entry.teamName}** — no traded picks tracked`);
+    } else {
+      lines.push(`**${entry.teamName}** — ${entry.totalPicks} picks (${entry.firstRoundPicks} 1st-round)`);
+      for (const pick of entry.picks) lines.push(`  - ${pick.display}`);
+    }
+    lines.push('');
+  }
+  lines.push(`*${leagueNote}*`);
+  lines.push(`*Live from Sleeper · ${FRESHNESS()}*`);
   return lines.join('\n');
 }
 

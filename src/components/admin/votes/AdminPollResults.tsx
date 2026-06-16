@@ -27,6 +27,7 @@ type AdminPollResultsProps = {
 };
 
 function GridResultBlock({ result, question }: { result: GridQuestionResult; question?: PollQuestion }) {
+  if (result.total === 0) return <p className="text-sm text-[var(--muted)]">No responses yet.</p>;
   const max = Math.max(...result.rows.flatMap((r) => r.columnCounts.map((c) => c.count)), 1);
   return (
     <div className="space-y-3 overflow-x-auto">
@@ -51,7 +52,7 @@ function GridResultBlock({ result, question }: { result: GridQuestionResult; que
   );
 }
 
-function FileResultBlock({ result, pollId }: { result: FileQuestionResult; pollId: string }) {
+function FileResultBlock({ result, pollId, anonymous }: { result: FileQuestionResult; pollId: string; anonymous: boolean }) {
   async function download(key: string) {
     const res = await fetch(`/api/admin/votes/${pollId}/file?key=${encodeURIComponent(key)}`);
     const data = await res.json();
@@ -65,7 +66,7 @@ function FileResultBlock({ result, pollId }: { result: FileQuestionResult; pollI
       {result.files.map((f, i) => (
         <li key={i} className="flex items-center justify-between gap-2 text-sm rounded-lg bg-[var(--surface-strong)] px-3 py-2">
           <span>
-            {f.voterDisplay ? <span className="text-xs text-[var(--muted)] block">{f.voterDisplay}</span> : null}
+            {f.voterDisplay && !anonymous ? <span className="text-xs text-[var(--muted)] block">{f.voterDisplay}</span> : null}
             {f.filename}
           </span>
           <button type="button" onClick={() => void download(f.key)} className="text-xs text-[var(--accent)] hover:underline shrink-0">
@@ -77,10 +78,11 @@ function FileResultBlock({ result, pollId }: { result: FileQuestionResult; pollI
   );
 }
 
-function FormResultBlock({ result, question, pollId }: { result: FormQuestionResult; question?: PollQuestion; pollId: string }) {
+function FormResultBlock({ result, question, pollId, anonymous }: { result: FormQuestionResult; question?: PollQuestion; pollId: string; anonymous: boolean }) {
   if (result.type === 'grid') return <GridResultBlock result={result} question={question} />;
-  if (result.type === 'file') return <FileResultBlock result={result} pollId={pollId} />;
+  if (result.type === 'file') return <FileResultBlock result={result} pollId={pollId} anonymous={anonymous} />;
   if (result.type === 'rating') {
+    if (result.total === 0) return <p className="text-sm text-[var(--muted)]">No responses yet.</p>;
     return (
       <p className="text-sm">
         Average <strong>{result.average}</strong> · {result.total} response{result.total !== 1 ? 's' : ''}
@@ -88,6 +90,7 @@ function FormResultBlock({ result, question, pollId }: { result: FormQuestionRes
     );
   }
   if (result.type === 'choice') {
+    if (result.total === 0) return <p className="text-sm text-[var(--muted)]">No responses yet.</p>;
     return (
       <ul className="text-sm space-y-1">
         {result.counts.map((c) => (
@@ -96,11 +99,12 @@ function FormResultBlock({ result, question, pollId }: { result: FormQuestionRes
       </ul>
     );
   }
+  if (!result.answers.length) return <p className="text-sm text-[var(--muted)]">No responses yet.</p>;
   return (
     <ul className="text-sm space-y-1 max-h-40 overflow-y-auto">
       {result.answers.map((a, i) => (
         <li key={i} className="rounded bg-[var(--surface-strong)] px-2 py-1">
-          {a.voterDisplay ? <span className="text-xs text-[var(--muted)]">{a.voterDisplay}: </span> : null}
+          {a.voterDisplay && !anonymous ? <span className="text-xs text-[var(--muted)]">{a.voterDisplay}: </span> : null}
           {a.text}
         </li>
       ))}
@@ -118,7 +122,7 @@ export default function AdminPollResults({ pollId, pollTitle, onClose }: AdminPo
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`/api/admin/votes/${pollId}/results`);
+      const res = await fetch(`/api/admin/votes/${pollId}/results`, { cache: 'no-store' });
       if (!res.ok) throw new Error('Failed to load results.');
       setData(await res.json());
     } catch (e) {
@@ -167,7 +171,23 @@ export default function AdminPollResults({ pollId, pollTitle, onClose }: AdminPo
           {error ? <p className="text-sm text-red-500">{error}</p> : null}
           {data && !loading ? (
             <>
-              <p className="text-xs text-[var(--muted)]">{data.responseCount} survey response{data.responseCount !== 1 ? 's' : ''}</p>
+              <div className="flex flex-wrap items-center gap-2 text-xs">
+                <span className="text-[var(--muted)]">
+                  {data.responseCount} survey response{data.responseCount !== 1 ? 's' : ''}
+                </span>
+                {data.poll.anonymous ? (
+                  <span className="rounded-full border border-violet-500/30 bg-violet-500/10 px-2 py-0.5 text-violet-300">
+                    Anonymous — voter names hidden from members
+                  </span>
+                ) : (
+                  <span className="rounded-full border border-[var(--border)] px-2 py-0.5 text-[var(--muted)]">
+                    Named responses — text answers show who submitted
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-[var(--muted)]">
+                You always see totals here as commissioner. Anonymous hides <strong>who</strong> answered on the member Vote page; use &quot;When I publish&quot; to hide <strong>counts</strong> until you publish results.
+              </p>
               {(tab === 'survey' || !hasRounds) && hasSurvey ? (
                 data.formResults.length === 0 ? (
                   <p className="text-sm text-[var(--muted)]">No survey responses yet.</p>
@@ -180,7 +200,7 @@ export default function AdminPollResults({ pollId, pollTitle, onClose }: AdminPo
                       return (
                         <div key={q.id} className="rounded-xl border border-[var(--border)] p-4 space-y-2">
                           <p className="text-sm font-semibold">{q.text}</p>
-                          <FormResultBlock result={r} question={q} pollId={pollId} />
+                          <FormResultBlock result={r} question={q} pollId={pollId} anonymous={data.poll.anonymous} />
                         </div>
                       );
                     })

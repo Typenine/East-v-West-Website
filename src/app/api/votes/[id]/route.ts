@@ -15,6 +15,7 @@ import {
   createOptions,
   deletePoll,
   markDiscordNotified,
+  publishPollSurveyResults,
   updateSuggestionVoteTag,
   getRoundById,
 } from '@/server/db/votes-queries';
@@ -27,6 +28,7 @@ import {
 } from '@/server/db/poll-form-queries';
 import { computeRound, buildBallotMap } from '@/lib/votes/compute';
 import { TOTAL_ELIGIBLE } from '@/lib/votes/types';
+import { surveyResultsVisibleToMembers } from '@/lib/votes/results-visibility';
 import type { PollDetail, RoundWithDetails, RoundResult } from '@/lib/votes/types';
 
 export const runtime = 'nodejs';
@@ -100,8 +102,10 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     const responseCount = await getResponseCount(poll.id);
     const myFormResponse = voterId ? await getResponseByVoter(poll.id, voterId) : null;
 
-    // Aggregate form results when results are visible (use the poll-level visibility)
-    const pollResultsVisible = admin || poll.resultVisibility === 'immediate' || poll.status === 'closed';
+    // Aggregate form results for members only when visibility rules allow
+    const pollResultsVisible =
+      admin ||
+      (questions.length > 0 && surveyResultsVisibleToMembers(poll, responseCount, totalEligible));
     let formResults = null;
     if (questions.length && pollResultsVisible) {
       const allResponses = await getAllResponses(poll.id);
@@ -268,6 +272,18 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
     if (action === 'close_poll') {
       await updatePollStatus(id, 'closed', new Date().toISOString());
+      return Response.json({ ok: true });
+    }
+
+    if (action === 'publish_survey_results') {
+      if (rounds.length > 0) {
+        return Response.json({ error: 'Use round publish for ballot polls.' }, { status: 409 });
+      }
+      if (poll.status !== 'closed') {
+        return Response.json({ error: 'Close the survey before publishing results.' }, { status: 409 });
+      }
+      const ok = await publishPollSurveyResults(id);
+      if (!ok) return Response.json({ error: 'Failed to publish survey results.' }, { status: 500 });
       return Response.json({ ok: true });
     }
 

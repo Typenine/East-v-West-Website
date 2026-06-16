@@ -20,6 +20,7 @@ export interface Poll {
   discordNotifiedClosed: boolean;
   confirmationMessage: string | null;
   responseLimit: number | null;
+  resultsPublishedAt: string | null;
   createdAt: string;
   closedAt: string | null;
 }

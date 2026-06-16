@@ -37,6 +37,7 @@ function rowToPoll(r: Record<string, unknown>): Poll {
     discordNotifiedClosed: Boolean(r.discord_notified_closed),
     confirmationMessage: r.confirmation_message ? String(r.confirmation_message) : null,
     responseLimit: r.response_limit != null ? Number(r.response_limit) : null,
+    resultsPublishedAt: toIso(r.results_published_at),
     createdAt: toIso(r.created_at) ?? new Date().toISOString(),
     closedAt: toIso(r.closed_at),
   };
@@ -277,13 +278,23 @@ export async function updatePollFormMetadata(
         title = ${data.title ?? poll.title},
         description = ${data.description !== undefined ? data.description : poll.description},
         deadline = ${data.deadline !== undefined ? (data.deadline ? new Date(data.deadline) : null) : (poll.deadline ? new Date(poll.deadline) : null)},
-        anonymous = ${data.anonymous ?? poll.anonymous},
-        result_visibility = ${(data.resultVisibility ?? poll.resultVisibility)}::result_visibility,
+        anonymous = ${data.anonymous !== undefined ? data.anonymous : poll.anonymous},
+        result_visibility = ${(data.resultVisibility !== undefined ? data.resultVisibility : poll.resultVisibility)}::result_visibility,
         confirmation_message = ${data.confirmationMessage !== undefined ? data.confirmationMessage : poll.confirmationMessage},
         response_limit = ${data.responseLimit !== undefined ? data.responseLimit : poll.responseLimit},
         linked_suggestion_ids = ${data.linkedSuggestionIds !== undefined ? (data.linkedSuggestionIds ? `{${data.linkedSuggestionIds.map((s) => `"${s}"`).join(',')}}` : null) : (poll.linkedSuggestionIds ? `{${poll.linkedSuggestionIds.map((s) => `"${s}"`).join(',')}}` : null)}::text[]
       WHERE id = ${id}::uuid
     `);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function publishPollSurveyResults(id: string): Promise<boolean> {
+  try {
+    const db = getDb();
+    await db.execute(sql`UPDATE polls SET results_published_at = NOW() WHERE id = ${id}::uuid`);
     return true;
   } catch {
     return false;

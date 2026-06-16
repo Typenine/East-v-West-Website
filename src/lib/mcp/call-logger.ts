@@ -27,11 +27,26 @@ export async function withMcpLogging<T>(
       responseBytes = undefined;
     }
 
+    const durationMs = Date.now() - t0;
+    const latencyTier = durationMs < 500 ? 'fast' : durationMs < 2000 ? 'normal' : 'slow';
+
+    const logMeta: Record<string, unknown> = { tool, status: 'ok', durationMs, latencyTier, responseBytes };
+    if (result && typeof result === 'object') {
+      const r = result as Record<string, unknown>;
+      const mr = r.matchResolution as Record<string, unknown> | undefined;
+      if (mr?.matchedTeam) { logMeta.resolvedTeam = mr.matchedTeam; logMeta.matchConfidence = mr.confidence; }
+      const d = r.data as Record<string, unknown> | undefined;
+      const cacheStatus = d?.cacheStatus ?? (r.meta as Record<string, unknown> | undefined)?.cacheStatus;
+      if (cacheStatus) logMeta.cacheStatus = cacheStatus;
+      if (Array.isArray(r.warnings) && r.warnings.length > 0) logMeta.warningCount = r.warnings.length;
+    }
+    console.log('[mcp]', JSON.stringify(logMeta));
+
     await recordMcpCall({
       tool,
       args,
       status: 'ok',
-      durationMs: Date.now() - t0,
+      durationMs,
       responseBytes,
     });
 

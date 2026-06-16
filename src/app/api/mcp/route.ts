@@ -21,6 +21,7 @@
 import { NextResponse } from 'next/server';
 import { requireMcpAuth } from '@/lib/mcp/auth';
 import { withMcpLogging } from '@/lib/mcp/call-logger';
+import { TEAM_CARD_WIDGET_URI, TEAM_CARD_HTML, TEAM_CARD_RESOURCE } from '@/lib/mcp/widgets/team-card';
 import {
   handleGetLeagueInfo,
   handleGetStandings,
@@ -35,6 +36,10 @@ import {
   handleGetRules,
   handleGetWeeklyContext,
   handleGetCommissionerOps,
+  handleGetLeagueOverview,
+  handleGetPositionRooms,
+  handleCompareTeams,
+  handleGetFuturePickBoard,
   McpError,
 } from '@/lib/mcp/handlers';
 
@@ -46,31 +51,55 @@ export const dynamic = 'force-dynamic';
 const MCP_TOOLS = [
   {
     name: 'get_league_info',
-    description: 'Returns league identity, format, scoring settings, payout structure, roster configuration, important dates, and all-time champions. Fully static — no Sleeper API call required.',
-    inputSchema: {
-      type: 'object',
-      properties: {},
-      required: [],
-    },
+    description:
+      'Returns static East v. West league information: rules (full plain text), scoring settings (0.5 PPR SuperFlex), payout structure, roster configuration, important calendar dates, and all-time champions. No live Sleeper API call. ' +
+      'Use for: league-format questions, rules lookups, payout questions, season structure, historical champions. Do not use for live standings or rosters. ' +
+      'Examples: "What is the scoring format?", "When is the trade deadline?", "How do playoffs work?", "What are the league payouts?", "When is the next draft?"',
+    inputSchema: { type: 'object', properties: {}, required: [] },
   },
   {
     name: 'get_current_standings',
-    description: 'Returns current-season W/L standings (live from Sleeper) and all-time career standings. currentSeasonStandings is the live view; allTimeStandings is the career record. Includes championship counts.',
-    inputSchema: {
-      type: 'object',
-      properties: {},
-      required: [],
-    },
+    description:
+      'Returns current-season W/L standings (live from Sleeper) and all-time career standings across all seasons. Includes rank, record, PF/PA, average PPG, and championship counts per team. ' +
+      'Use for: who is leading the league, playoff race questions, career record comparisons. ' +
+      'Examples: "Who is in first place?", "What are the current standings?", "Who has the best all-time record?", "Is Double Trouble in a playoff spot?"',
+    inputSchema: { type: 'object', properties: {}, required: [] },
   },
   {
     name: 'get_team_dashboard',
-    description: 'Returns a single team\'s full dashboard: current-season record, active/IR/taxi roster with player names and positions, all-time stats, and championship history.',
+    description:
+      'Returns structured JSON data for one East v. West team: current-season record (W/L, PF, PA), full roster grouped by slot (active/IR/taxi) with player names, positions, NFL teams, and injury status, all-time stats, and championship history. Data-only — no visual UI card. ' +
+      'Use for data questions about a specific team when no visual rendering is needed. Use show_team_card when the user says "show", "display", "pull up", or "render" a team card. ' +
+      'Accepts partial names and aliases (e.g. "double", "dt", "cake eaters", "beer", "belltown", "badgers", "bop", "pandas"). ' +
+      'Examples: "What is Double Trouble\'s record?", "Who is on Belltown\'s roster?", "Show Detroit Dawgs franchise history."',
     inputSchema: {
       type: 'object',
       properties: {
         name: {
           type: 'string',
-          description: 'Team name or partial name (case-insensitive). E.g. "Belltown" or "Belltown Raptors".',
+          description: 'Team name or alias (partial, case-insensitive). E.g. "Double Trouble", "double", "dt", "Belltown", "cake eaters".',
+        },
+      },
+      required: ['name'],
+    },
+  },
+  {
+    name: 'show_team_card',
+    description:
+      'Renders a visual Team Card UI for one East v. West team. Shows the team logo, current-season record, points for/against, active roster grouped by position, IR and taxi slots, and championship history in a styled visual component. ' +
+      'Use this when the user says "show", "display", "view", "pull up", "render", or "open" a team card, team dashboard, or team profile. ' +
+      'Do not use for data-only answers — use get_team_dashboard instead. ' +
+      'Accepts partial names and aliases (e.g. "double", "dt", "cake eaters", "beer", "belltown", "badgers"). ' +
+      'Examples: "Show Double Trouble\'s team card.", "Display the Belltown Raptors.", "Pull up Belleview Badgers.", "Show me the team card for bop pop.", "Open the Double Trouble dashboard."',
+    annotations: {
+      'openai/outputTemplate': { uri: TEAM_CARD_WIDGET_URI },
+    },
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: {
+          type: 'string',
+          description: 'Team name or alias (partial, case-insensitive). E.g. "Double Trouble", "double", "dt", "Belltown", "cake eaters".',
         },
       },
       required: ['name'],
@@ -78,194 +107,208 @@ const MCP_TOOLS = [
   },
   {
     name: 'get_current_roster',
-    description: 'Returns current-season rosters for all teams or a single team. Each player includes name, position, NFL team, injury status, and slot (active/ir/taxi). Never returns the full player database.',
+    description:
+      'Returns current-season rosters for all teams or one team. Each player includes Sleeper player ID, name, position, NFL team, injury status, and slot (active/ir/taxi). Lighter than get_team_dashboard — best for league-wide roster scans. ' +
+      'Use for: injury surveys across teams, who is on IR league-wide, light single-team roster lookups, taxi squad surveys. ' +
+      'Examples: "Show all rostered RBs.", "Who is on IR right now?", "List all taxi squad players.", "Who is on Belltown\'s roster?"',
     inputSchema: {
       type: 'object',
       properties: {
-        team: {
-          type: 'string',
-          description: 'Optional team name filter (partial, case-insensitive).',
-        },
+        team: { type: 'string', description: 'Optional team name filter (partial, case-insensitive).' },
       },
       required: [],
     },
   },
   {
     name: 'search_players',
-    description: 'Searches for players by name across the full Sleeper player database. Returns best matches first — league-owned players are ranked higher. Use this when you don\'t know the player\'s Sleeper ID.',
+    description:
+      'Searches the full Sleeper player database (~100K players) by name. Returns best matches with league-owned players ranked first. Use when you need to find a player but do not know their Sleeper ID. ' +
+      'Examples: "Search for Patrick Mahomes.", "Find Justin Jefferson.", "Is CeeDee Lamb in this league?", "Who owns Ja\'Marr Chase?"',
     inputSchema: {
       type: 'object',
       properties: {
-        name: {
-          type: 'string',
-          description: 'Partial or full player name to search for. E.g. "Mahomes" or "Patrick Mahomes".',
-        },
-        limit: {
-          type: 'number',
-          description: 'Max results to return (default 5, max 20).',
-        },
+        name: { type: 'string', description: 'Partial or full player name. E.g. "Mahomes" or "Patrick Mahomes".' },
+        limit: { type: 'number', description: 'Max results (default 5, max 20).' },
       },
       required: ['name'],
     },
   },
   {
     name: 'get_player_info',
-    description: 'Returns a single player\'s profile by Sleeper player ID: position, NFL team, injury status, experience, and which fantasy team currently owns them (if any).',
+    description:
+      'Returns a single player\'s profile by Sleeper player ID: position, NFL team, injury status, years of experience, and which East v. West team owns them (if any). Use search_players first if you do not know the ID. ' +
+      'Examples: "Look up player ID 4034.", "What team owns Davante Adams?", "What is Josh Allen\'s status?"',
     inputSchema: {
       type: 'object',
       properties: {
-        id: {
-          type: 'string',
-          description: 'Sleeper player ID (numeric string, e.g. "4034"). Use search_players first if you don\'t know the ID.',
-        },
+        id: { type: 'string', description: 'Sleeper player ID (numeric string, e.g. "4034").' },
       },
       required: ['id'],
     },
   },
   {
     name: 'get_current_matchups',
-    description: 'Returns this week\'s fantasy matchups with team names and current/final scores. Defaults to the current NFL week from Sleeper state.',
+    description:
+      'Returns this week\'s fantasy matchups with team names and current/final scores. Defaults to the current NFL week. ' +
+      'Examples: "What are the matchups this week?", "What is Double Trouble\'s score?", "Show Week 8 matchups.", "Who is playing who?"',
     inputSchema: {
       type: 'object',
       properties: {
-        week: {
-          type: 'number',
-          description: 'Optional NFL week override (1–17). Defaults to current week.',
-        },
+        week: { type: 'number', description: 'Optional NFL week override (1–17). Defaults to current week.' },
       },
       required: [],
     },
   },
   {
     name: 'get_recent_transactions',
-    description: 'Returns recent waiver and free-agent transactions: players added/dropped, FAAB spent, and acquiring team. Focused and limited to avoid large payloads.',
+    description:
+      'Returns recent waiver and free-agent transactions: players added/dropped, FAAB spent, and acquiring team. Filterable by team and season. ' +
+      'Use for: waiver wire news, FAAB spend tracking, who added or dropped a specific player. ' +
+      'Examples: "Who has been added off waivers?", "What did Double Trouble spend on FAAB?", "Show recent transactions for Belltown."',
     inputSchema: {
       type: 'object',
       properties: {
-        limit: {
-          type: 'number',
-          description: 'Max transactions to return (default 25, max 100).',
-        },
-        team: {
-          type: 'string',
-          description: 'Filter to a specific team (partial, case-insensitive).',
-        },
-        season: {
-          type: 'string',
-          description: 'Filter to a specific season year, e.g. "2025".',
-        },
+        limit: { type: 'number', description: 'Max rows (default 25, max 100).' },
+        team: { type: 'string', description: 'Filter by team name (partial, case-insensitive).' },
+        season: { type: 'string', description: 'Filter by season year, e.g. "2025".' },
       },
       required: [],
     },
   },
   {
     name: 'get_trade_history',
-    description: 'Returns slim trade history with player names, positions, and pick descriptions for each side of every trade. Filterable by team and season.',
+    description:
+      'Returns slim trade history with player names, positions, and pick descriptions per trade side. Filterable by team and season. ' +
+      'Use for: trade history for a team, historical trade analysis, checking what was traded. ' +
+      'Examples: "Show all trades involving Double Trouble.", "What trades happened in 2025?", "Did Belltown trade any picks?"',
     inputSchema: {
       type: 'object',
       properties: {
-        team: {
-          type: 'string',
-          description: 'Filter to trades involving a team (partial, case-insensitive).',
-        },
-        season: {
-          type: 'string',
-          description: 'Filter to a specific season year, e.g. "2025".',
-        },
-        limit: {
-          type: 'number',
-          description: 'Max trades to return (default 20, max 50).',
-        },
+        team: { type: 'string', description: 'Filter to trades involving a team (partial, case-insensitive).' },
+        season: { type: 'string', description: 'Filter by season year, e.g. "2025".' },
+        limit: { type: 'number', description: 'Max trades (default 20, max 50).' },
       },
       required: [],
     },
   },
   {
     name: 'get_draft_history',
-    description: 'Returns draft history by season (completed picks with player names and positions) and current future-pick ownership (traded picks for upcoming drafts). Filterable by season, team, and type.',
+    description:
+      'Returns historical draft picks by season (completed picks with player names, positions, round) and current future-pick ownership (traded picks for upcoming drafts). Filterable by season, team, and type. ' +
+      'Use for: draft recap questions, who was taken in a round, historical pick tracking. Use get_future_pick_board for a visual pick board. ' +
+      'Examples: "Show the 2025 draft.", "Who did Belltown draft?", "What picks were traded for 2026?"',
     inputSchema: {
       type: 'object',
       properties: {
-        season: {
-          type: 'string',
-          description: 'Filter to a specific season year, e.g. "2025".',
-        },
-        team: {
-          type: 'string',
-          description: 'Filter picks owned by or from a team (partial, case-insensitive).',
-        },
-        type: {
-          type: 'string',
-          enum: ['history', 'future'],
-          description: '"history" = completed picks only, "future" = future pick ownership only. Omit for both.',
-        },
+        season: { type: 'string', description: 'Season year, e.g. "2025".' },
+        team: { type: 'string', description: 'Filter by team (partial, case-insensitive).' },
+        type: { type: 'string', enum: ['history', 'future'], description: '"history" = completed picks, "future" = pick ownership. Omit for both.' },
       },
       required: [],
     },
   },
   {
     name: 'get_draft_picks',
-    description: 'Returns current future draft pick ownership for a team or all teams. Use this to answer "what picks does [team] have?" Use get_draft_history with type=future for the same data.',
+    description:
+      'Returns current future draft pick ownership for all teams or one team. Use get_future_pick_board for a team-by-team pick board with totals and rankings. ' +
+      'Examples: "What picks does Belleview own?", "Show Double Trouble\'s future picks.", "Who owns Belltown\'s 2027 first-rounder?"',
     inputSchema: {
       type: 'object',
       properties: {
-        team: {
-          type: 'string',
-          description: 'Filter to picks owned by or from a specific team (partial, case-insensitive).',
-        },
+        team: { type: 'string', description: 'Filter by team (partial, case-insensitive).' },
       },
       required: [],
     },
   },
   {
     name: 'get_franchise_summary',
-    description: 'Returns all-time franchise stats per team: regular-season and playoff W/L records, win percentage, points for/against, and championship/runner-up counts. Filterable by team.',
+    description:
+      'Returns all-time franchise stats per team: regular-season and playoff W/L records, win percentage, PF/PA, championship and runner-up counts. Sorted by championships then win%. ' +
+      'Use for: all-time records, most successful teams historically, playoff history. ' +
+      'Examples: "Who has the best all-time win percentage?", "Show franchise records.", "Who has won the most championships?"',
     inputSchema: {
       type: 'object',
       properties: {
-        team: {
-          type: 'string',
-          description: 'Optional team name filter (partial, case-insensitive).',
-        },
+        team: { type: 'string', description: 'Optional team filter (partial, case-insensitive).' },
       },
       required: [],
     },
   },
   {
     name: 'answer_rule_question',
-    description: 'Returns league rules as clean plain text. Supports keyword search (e.g. search="waiver") and direct section lookup (e.g. section="waivers-free-agents"). Returns matching line excerpts when searching. Source: East v. West Rulebook v3, ratified 2026-02-12.',
+    description:
+      'Returns East v. West league rules as clean plain text. Supports keyword search and direct section lookup. Source: Rulebook v3, ratified 2026-02-12. ' +
+      'Use for: specific rule questions, "is this allowed?", commissioner rulings, disputes. ' +
+      'Examples: "What are the waiver wire rules?", "Can I trade draft picks?", "What is the taxi squad rule?", "How are tiebreakers handled?"',
     inputSchema: {
       type: 'object',
       properties: {
-        search: {
-          type: 'string',
-          description: 'Keyword to search across rule titles and text (case-insensitive). E.g. "waiver", "trade deadline", "taxi".',
-        },
-        section: {
-          type: 'string',
-          description: 'Exact section id for direct lookup. E.g. "waivers-free-agents". Call with no args first to see available section ids.',
-        },
+        search: { type: 'string', description: 'Keyword to search (case-insensitive). E.g. "waiver", "trade deadline", "taxi".' },
+        section: { type: 'string', description: 'Section ID for direct lookup, e.g. "waivers-free-agents". Omit to list all sections.' },
       },
       required: [],
     },
   },
   {
     name: 'get_weekly_content_context',
-    description: 'Content Studio briefing: current matchups (with story hooks), full standings (PF/PA/avg), playoff race snapshot, recent trades, recent waiver/FA moves, injury flags, suggested storylines, and suggested headlines. Use this as the context source before asking ChatGPT to write any league content draft.',
+    description:
+      'Content Studio briefing: current matchups with story hooks, full standings with PF/PA and averages, playoff race snapshot, recent trades, recent waiver moves, injury flags, suggested storylines, and suggested headlines. Use as the source of truth before writing any league content, recaps, newsletters, or social posts. ' +
+      'Examples: "Write a Week 8 preview.", "Draft a league newsletter.", "Give me storylines for this week.", "Write a power rankings post."',
+    inputSchema: { type: 'object', properties: {}, required: [] },
+  },
+  {
+    name: 'get_commissioner_ops_context',
+    description:
+      'Advisory-only commissioner ops briefing. Returns: date-based reminders, weekly checklist, lineup watch (injured starters), IR slot review, taxi eligibility review, and draft owner message drafts. Makes no rulings, sends nothing, modifies nothing. All items require commissioner judgment. ' +
+      'Examples: "What does the commissioner need to do this week?", "Are there roster compliance issues?", "Draft a trade deadline reminder."',
+    inputSchema: { type: 'object', properties: {}, required: [] },
+  },
+  {
+    name: 'get_league_overview',
+    description:
+      'Returns a comprehensive snapshot of the entire East v. West league: every team with current-season record, PF/PA, all-time stats, championship history, full active/IR/taxi roster, and future draft pick ownership. ' +
+      'This is the primary tool for league-wide analysis and multi-team comparison questions. Call this before any question spanning more than two teams. ' +
+      'Do not use for single-team deep dives — use get_team_dashboard or show_team_card. ' +
+      'Examples: "Show the league overview.", "Who has the best roster?", "Who has the most draft capital?", "Show every team\'s QB room.", "Which team has the most depth?", "Give me a full league asset summary."',
+    inputSchema: { type: 'object', properties: {}, required: [] },
+  },
+  {
+    name: 'get_position_rooms',
+    description:
+      'Returns a position-group breakdown across all teams (or one team). Groups active rostered players by position (QB, RB, WR, TE) per team, with injury flags and NFL team info. Includes depth counts per position. ' +
+      'Use for: positional comparisons, identifying best depth at a position, surveying a position league-wide. ' +
+      'Examples: "Show each team\'s QBs.", "Who has the best WR room?", "What does Belltown\'s RB room look like?", "Which teams are QB-heavy?", "Show all league QBs."',
     inputSchema: {
       type: 'object',
-      properties: {},
+      properties: {
+        team: { type: 'string', description: 'Optional team filter (partial, case-insensitive). Omit for league-wide view.' },
+        position: { type: 'string', description: 'Optional position filter, e.g. "QB", "WR", "RB", "TE". Omit for all.' },
+      },
       required: [],
     },
   },
   {
-    name: 'get_commissioner_ops_context',
-    description: 'Advisory-only commissioner ops briefing. Returns: date-based reminders (draft, trade deadline, playoffs), weekly checklist, lineup watch (injured starters), IR slot review, taxi eligibility review, injury/status flags, relevant rulebook snippets, and draft owner messages ready for human review. Makes no rulings, sends nothing, modifies nothing.',
+    name: 'compare_teams',
+    description:
+      'Returns a structured side-by-side comparison of exactly two East v. West teams. Includes current-season record, PF/PA, all-time stats, championship history, position-grouped roster breakdown, and future draft picks for each team. ' +
+      'Use when the user asks to compare two specific teams. Accepts partial names and aliases. ' +
+      'Examples: "Compare Double Trouble and Belltown Raptors.", "Who has a better roster, Belleview or Detroit?", "Double Trouble vs bop pop.", "Which team is better positioned to contend?"',
     inputSchema: {
       type: 'object',
-      properties: {},
-      required: [],
+      properties: {
+        team1: { type: 'string', description: 'First team name or alias (partial, case-insensitive).' },
+        team2: { type: 'string', description: 'Second team name or alias (partial, case-insensitive).' },
+      },
+      required: ['team1', 'team2'],
     },
+  },
+  {
+    name: 'get_future_pick_board',
+    description:
+      'Returns all future draft pick ownership organized by team, sorted by total picks held. Shows traded picks with human-readable display strings like "2027 1st from Belleview Badgers". Includes total pick count and first-round pick count per team. ' +
+      'Use for: draft capital questions, pick board overviews, finding teams with the most first-rounders. ' +
+      'Examples: "Show the future pick board.", "Who has the most first-round picks?", "Which teams are draft-capital rich?", "Who has the most picks in 2027?"',
+    inputSchema: { type: 'object', properties: {}, required: [] },
   },
 ] as const;
 
@@ -342,6 +385,27 @@ async function dispatchTool(name: string, input: ToolInput): Promise<unknown> {
     case 'get_commissioner_ops_context':
       return handleGetCommissionerOps();
 
+    case 'show_team_card':
+      return handleGetTeam({ name: input.name as string | undefined });
+
+    case 'get_league_overview':
+      return handleGetLeagueOverview();
+
+    case 'get_position_rooms':
+      return handleGetPositionRooms({
+        team: input.team as string | undefined,
+        position: input.position as string | undefined,
+      });
+
+    case 'compare_teams':
+      return handleCompareTeams({
+        team1: input.team1 as string | undefined,
+        team2: input.team2 as string | undefined,
+      });
+
+    case 'get_future_pick_board':
+      return handleGetFuturePickBoard();
+
     default:
       throw new McpError('method_not_found', `Unknown tool: ${name}`);
   }
@@ -384,11 +448,11 @@ export async function POST(request: Request) {
   if (method === 'initialize') {
     return jsonrpcResult(id, {
       protocolVersion: '2025-03-26',
-      capabilities: { tools: {} },
+      capabilities: { tools: {}, resources: {} },
       serverInfo: {
         name: 'east-v-west-mcp',
-        version: '2.0.0',
-        description: 'Read-only MCP server for East v. West dynasty fantasy league. Provides live standings, rosters, matchups, transactions, trades, draft picks, and league rules.',
+        version: '3.0.0',
+        description: 'Read-only MCP server for East v. West dynasty fantasy league. Tools: standings, rosters, matchups, transactions, trades, draft picks, league rules, team cards, league overview, position rooms, team comparisons, future pick board, weekly content briefing, and commissioner ops.',
       },
     });
   }
@@ -403,6 +467,26 @@ export async function POST(request: Request) {
     return jsonrpcResult(id, { tools: MCP_TOOLS });
   }
 
+  // ── resources/list ────────────────────────────────────────────────────────
+  if (method === 'resources/list') {
+    return jsonrpcResult(id, { resources: [TEAM_CARD_RESOURCE] });
+  }
+
+  // ── resources/read ────────────────────────────────────────────────────────
+  if (method === 'resources/read') {
+    const p = (params ?? {}) as { uri?: string };
+    if (p.uri === TEAM_CARD_WIDGET_URI) {
+      return jsonrpcResult(id, {
+        contents: [{
+          uri: TEAM_CARD_WIDGET_URI,
+          mimeType: TEAM_CARD_RESOURCE.mimeType,
+          text: TEAM_CARD_HTML,
+        }],
+      });
+    }
+    return jsonrpcError(id, -32602, `Unknown resource URI: ${p.uri ?? '(none)'}`);
+  }
+
   // ── tools/call ─────────────────────────────────────────────────────────────
   if (method === 'tools/call') {
     const p = (params ?? {}) as { name?: string; arguments?: ToolInput };
@@ -415,6 +499,17 @@ export async function POST(request: Request) {
 
     try {
       const result = await withMcpLogging(toolName, toolInput, () => dispatchTool(toolName, toolInput));
+      // show_team_card: include structuredContent + _meta to trigger the Team Card widget.
+      if (toolName === 'show_team_card') {
+        return jsonrpcResult(id, {
+          content: [{ type: 'text', text: JSON.stringify(result) }],
+          structuredContent: result,
+          _meta: {
+            'openai/outputTemplate': { uri: TEAM_CARD_WIDGET_URI },
+          },
+          isError: false,
+        });
+      }
       return jsonrpcResult(id, {
         content: [{ type: 'text', text: JSON.stringify(result) }],
         isError: false,
@@ -442,7 +537,7 @@ export async function POST(request: Request) {
 export async function GET() {
   return NextResponse.json({
     name: 'east-v-west-mcp',
-    version: '2.0.0',
+    version: '3.0.0',
     protocol: 'MCP HTTP Transport 2025-03-26',
     description: 'Read-only MCP server for East v. West dynasty fantasy league.',
     endpoint: 'POST /api/mcp',

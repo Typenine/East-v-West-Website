@@ -893,6 +893,13 @@ export default function VoteDetailPage() {
       )}
 
       {/* Closed poll — full form results */}
+      {poll.status === 'closed' && !showFormResults && poll.resultVisibility === 'admin_publish' && !poll.resultsPublishedAt && (
+        <Card className="mb-6">
+          <CardContent className="pt-4">
+            <p className="text-sm text-[var(--muted)]">Results will be published by the commissioner.</p>
+          </CardContent>
+        </Card>
+      )}
       {poll.status === 'closed' && showFormResults && (
         <Card>
           <CardHeader>

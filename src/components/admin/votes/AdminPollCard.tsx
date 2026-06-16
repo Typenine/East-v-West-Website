@@ -53,6 +53,18 @@ function computeNextAction(entry: AdminPollEntry): NextAction | null {
       return { label: 'Publish poll', variant: 'primary', body: { action: 'open_poll' }, hint: 'Makes this visible on the Vote page' };
     }
     if (poll.status === 'open') return { label: 'Close poll', variant: 'ghost', body: { action: 'close_poll_now' }, hint: 'Stops new responses' };
+    if (
+      poll.status === 'closed' &&
+      poll.resultVisibility === 'admin_publish' &&
+      !poll.resultsPublishedAt
+    ) {
+      return {
+        label: 'Publish survey results',
+        variant: 'primary',
+        body: { action: 'publish_survey_results' },
+        hint: 'Members can then see response totals on the Vote page',
+      };
+    }
     return null;
   }
 
@@ -89,14 +101,17 @@ function WorkflowStrip({ poll, entry }: { poll: AdminPollEntry['poll']; entry: A
   const openRound = entry.rounds.find((r) => r.status === 'open');
   const allClosed = !isFormOnly && entry.rounds.length > 0 && entry.rounds.every((r) => r.status === 'closed');
   const published = isFormOnly
-    ? poll.status === 'closed'
+    ? poll.resultsPublishedAt != null || poll.resultVisibility !== 'admin_publish'
     : entry.rounds.some((r) => r.resultsPublishedAt != null) && poll.status === 'closed';
 
   const steps = isFormOnly
     ? [
         { id: 'draft', label: 'Draft', done: poll.status !== 'draft', active: poll.status === 'draft' },
         { id: 'published', label: 'Published', done: poll.status === 'open' || poll.status === 'closed', active: poll.status === 'open' },
-        { id: 'closed', label: 'Closed', done: poll.status === 'closed', active: poll.status === 'closed' },
+        { id: 'closed', label: 'Closed', done: poll.status === 'closed', active: poll.status === 'closed' && !published },
+        ...(poll.resultVisibility === 'admin_publish'
+          ? [{ id: 'results', label: 'Results live', done: published, active: published && poll.status === 'closed' }]
+          : []),
       ]
     : [
         { id: 'draft', label: 'Draft', done: poll.status !== 'draft', active: poll.status === 'draft' },
