@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useEffect, useMemo, useRef, useCallback, Suspense, type ReactNode } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback, Suspense, type ReactNode, type RefObject } from 'react';
+import { createPortal } from 'react-dom';
 import { useRouter, useSearchParams } from 'next/navigation';
 import type { TradeValue } from '@/lib/types/trade-analyzer';
 import SectionHeader from '@/components/ui/SectionHeader';
@@ -227,6 +228,98 @@ const ANALYZER_FIELD_STYLE = {
   color: PANEL.text,
 } as const;
 
+function useIsMobile() {
+  const [isMobile, setIsMobile] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 767px)');
+    const update = () => setIsMobile(mq.matches);
+    update();
+    mq.addEventListener('change', update);
+    return () => mq.removeEventListener('change', update);
+  }, []);
+  return isMobile;
+}
+
+function useClickOutside(ref: RefObject<HTMLElement | null>, handler: () => void, enabled: boolean) {
+  useEffect(() => {
+    if (!enabled) return;
+    let remove: (() => void) | undefined;
+    const timer = window.setTimeout(() => {
+      const onPointerDown = (e: PointerEvent) => {
+        if (ref.current?.contains(e.target as Node)) return;
+        handler();
+      };
+      document.addEventListener('pointerdown', onPointerDown);
+      remove = () => document.removeEventListener('pointerdown', onPointerDown);
+    }, 0);
+    return () => {
+      clearTimeout(timer);
+      remove?.();
+    };
+  }, [enabled, handler, ref]);
+}
+
+function AnalyzerMobileSheet({ open, onClose, title, children, placement = 'bottom' }: { open: boolean; onClose: () => void; title: string; children: ReactNode; placement?: 'bottom' | 'top' }) {
+  useEffect(() => {
+    if (!open) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = prev; };
+  }, [open]);
+
+  if (!open || typeof document === 'undefined') return null;
+
+  const isTop = placement === 'top';
+
+  return createPortal(
+    <div className={`fixed inset-0 z-[200] flex flex-col ${isTop ? 'justify-start pt-[max(0.5rem,env(safe-area-inset-top))]' : 'justify-end'}`}>
+      <button type="button" className="absolute inset-0 bg-black/60" aria-label="Close menu" onClick={onClose} />
+      <div
+        className={`relative flex w-full flex-col overflow-hidden border ${isTop ? 'mx-3 max-h-[min(70vh,28rem)] rounded-2xl' : 'max-h-[min(85vh,32rem)] rounded-t-2xl border-t'}`}
+        style={ANALYZER_DROPDOWN_STYLE}
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+      >
+        <div className="flex shrink-0 items-center justify-between gap-3 border-b px-4 py-3" style={{ borderColor: 'rgba(255,255,255,0.12)' }}>
+          <span className="text-sm font-bold uppercase tracking-wider" style={broadcastBodyTextStyle}>{title}</span>
+          <button type="button" onClick={onClose} className="px-2 py-1 text-2xl leading-none" style={broadcastFaintTextStyle} aria-label="Close">×</button>
+        </div>
+        <div className="flex-1 overflow-y-auto overscroll-contain py-1 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
+          {children}
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
+function AnalyzerDropdownSurface({
+  open,
+  onClose,
+  title,
+  isMobile,
+  children,
+  mobilePlacement = 'bottom',
+}: {
+  open: boolean;
+  onClose: () => void;
+  title: string;
+  isMobile: boolean;
+  children: ReactNode;
+  mobilePlacement?: 'bottom' | 'top';
+}) {
+  if (!open) return null;
+  if (isMobile) {
+    return (
+      <AnalyzerMobileSheet open={open} onClose={onClose} title={title} placement={mobilePlacement}>
+        {children}
+      </AnalyzerMobileSheet>
+    );
+  }
+  return <AnalyzerDropdownMenu>{children}</AnalyzerDropdownMenu>;
+}
+
 function AnalyzerDropdownMenu({ children, className }: { children: ReactNode; className?: string }) {
   return (
     <div
@@ -246,7 +339,7 @@ function AnalyzerDropdownItem({ children, onClick }: { children: ReactNode; onCl
     <button
       type="button"
       onClick={onClick}
-      className="w-full text-left px-3 py-2.5 transition-colors hover:bg-white/10 focus-visible:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/25"
+      className="w-full min-h-11 touch-manipulation text-left px-3 py-3 transition-colors hover:bg-white/10 active:bg-white/15 focus-visible:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/25"
     >
       {children}
     </button>
@@ -259,7 +352,7 @@ function AnalyzerMenuTrigger({ children, onClick, active }: { children: ReactNod
       type="button"
       onClick={onClick}
       aria-expanded={active}
-      className="w-full rounded-md border px-3 py-2.5 text-sm font-semibold text-left transition-colors hover:bg-white/[0.12] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/30"
+      className="w-full min-h-11 touch-manipulation rounded-md border px-3 py-2.5 text-sm font-semibold text-left transition-colors hover:bg-white/[0.12] active:bg-white/[0.16] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/30"
       style={{
         background: active ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.09)',
         borderColor: active ? 'rgba(255,255,255,0.30)' : 'rgba(255,255,255,0.18)',
@@ -277,7 +370,7 @@ function AnalyzerFieldInput(props: React.ComponentProps<'input'>) {
     <input
       {...rest}
       className={[
-        'block w-full rounded-md border px-3 py-2.5 text-sm placeholder:text-[rgba(233,237,245,0.5)] focus:outline-none focus-visible:ring-2 focus-visible:ring-white/30',
+        'block w-full min-h-11 touch-manipulation rounded-md border px-3 py-2.5 text-base sm:text-sm placeholder:text-[rgba(233,237,245,0.5)] focus:outline-none focus-visible:ring-2 focus-visible:ring-white/30',
         className,
       ].filter(Boolean).join(' ')}
       style={{ ...ANALYZER_FIELD_STYLE, ...style }}
@@ -409,6 +502,7 @@ function PlayerSearch({ values, excluded, source, onSelect }: {
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const isMobile = useIsMobile();
 
   const filtered = useMemo(() => {
     if (!query.trim()) return [];
@@ -416,51 +510,55 @@ function PlayerSearch({ values, excluded, source, onSelect }: {
     return values.filter((v) => !excluded.has(v.sleeperId) && !v.isPick && v.name.toLowerCase().includes(q)).slice(0, 20);
   }, [query, values, excluded]);
 
-  useEffect(() => {
-    const h = (e: MouseEvent) => { if (!containerRef.current?.contains(e.target as Node)) setOpen(false); };
-    document.addEventListener('mousedown', h);
-    return () => document.removeEventListener('mousedown', h);
-  }, []);
+  const close = useCallback(() => setOpen(false), []);
+  const showResults = open && query.trim().length > 0;
+  useClickOutside(containerRef, close, showResults && !isMobile);
 
   const getVal = useCallback((v: TradeValue) =>
     source === 'fc' ? (v.fcValue ?? v.value) : source === 'ktc' ? (v.ktcValue ?? v.value) : v.value,
   [source]);
 
+  const resultList = (
+    <>
+      {filtered.length === 0 ? (
+        <div className="px-3 py-4 text-sm" style={broadcastMutedTextStyle}>No players found</div>
+      ) : (
+        filtered.map((v) => (
+          <AnalyzerDropdownItem key={v.sleeperId} onClick={() => { onSelect(assetFromValue(v, false)); setQuery(''); setOpen(false); }}>
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="flex items-center gap-1.5 text-sm font-semibold" style={broadcastBodyTextStyle}>
+                  <span className="truncate">{v.name}</span>
+                  {v.trend > 100 && <span className="text-xs text-green-400">↑</span>}
+                  {v.trend < -100 && <span className="text-xs" style={{ color: 'var(--danger)' }}>↓</span>}
+                </div>
+                <div className="text-xs mt-0.5" style={{ color: 'rgba(233,237,245,0.72)' }}>
+                  {v.position} · {v.team || 'FA'}{v.age ? ` · ${v.age.toFixed(0)}y` : ''}
+                </div>
+              </div>
+              <span className="shrink-0 text-sm font-bold tabular-nums" style={{ color: 'var(--accent)' }}>{formatValue(getVal(v))}</span>
+            </div>
+          </AnalyzerDropdownItem>
+        ))
+      )}
+    </>
+  );
+
   return (
     <div ref={containerRef} className="relative z-20">
       <AnalyzerFieldInput
-        type="text"
+        type="search"
+        enterKeyHint="search"
+        autoComplete="off"
+        autoCorrect="off"
         value={query}
         onChange={(e) => { setQuery(e.target.value); setOpen(true); }}
         onFocus={() => setOpen(true)}
         placeholder="Search players..."
       />
-      {open && query.trim() && filtered.length === 0 && (
-        <AnalyzerDropdownMenu>
-          <div className="px-3 py-3 text-sm" style={broadcastMutedTextStyle}>No players found</div>
-        </AnalyzerDropdownMenu>
-      )}
-      {open && filtered.length > 0 && (
-        <AnalyzerDropdownMenu>
-          {filtered.map((v) => (
-            <AnalyzerDropdownItem key={v.sleeperId} onClick={() => { onSelect(assetFromValue(v, false)); setQuery(''); setOpen(false); }}>
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="flex items-center gap-1.5 text-sm font-semibold" style={broadcastBodyTextStyle}>
-                    <span className="truncate">{v.name}</span>
-                    {v.trend > 100 && <span className="text-xs text-green-400">↑</span>}
-                    {v.trend < -100 && <span className="text-xs" style={{ color: 'var(--danger)' }}>↓</span>}
-                  </div>
-                  <div className="text-xs mt-0.5" style={{ color: 'rgba(233,237,245,0.72)' }}>
-                    {v.position} · {v.team || 'FA'}{v.age ? ` · ${v.age.toFixed(0)}y` : ''}
-                  </div>
-                </div>
-                <span className="shrink-0 text-sm font-bold tabular-nums" style={{ color: 'var(--accent)' }}>{formatValue(getVal(v))}</span>
-              </div>
-            </AnalyzerDropdownItem>
-          ))}
-        </AnalyzerDropdownMenu>
-      )}
+      <AnalyzerDropdownSurface open={showResults} onClose={close} title="Search players" isMobile={isMobile} mobilePlacement="top">
+        {resultList}
+      </AnalyzerDropdownSurface>
     </div>
   );
 }
@@ -472,6 +570,13 @@ function pickRound(sleeperId: string): number {
   const m = sleeperId.match(/PICK_\d{4}_(\d)_/);
   return m ? parseInt(m[1]) : 99;
 }
+function pickSlot(sleeperId: string): number | null {
+  const m = sleeperId.match(/PICK_\d{4}_\d+_(\d{2})$/);
+  return m ? parseInt(m[1], 10) : null;
+}
+function isTierPickId(sleeperId: string): boolean {
+  return /PICK_\d{4}_\d+_(EARLY|MID|LATE)$/.test(sleeperId);
+}
 function pickTierRank(sleeperId: string): number {
   const m = sleeperId.match(/_(EARLY|MID|LATE)$/);
   return m ? (TIER_RANK[m[1]] ?? 3) : 3;
@@ -482,8 +587,24 @@ interface PickYearGroup { year: string; rounds: PickRoundGroup[]; }
 
 function PickSelector({ values, excluded, onSelect }: { values: TradeValue[]; excluded: Set<string>; onSelect: (a: SelectedAsset) => void; }) {
   const grouped = useMemo(() => {
+    const allPicks = values.filter((v) => v.isPick && !excluded.has(v.sleeperId));
+    const numbered = allPicks.filter((v) => pickSlot(v.sleeperId) !== null);
+    const tier = allPicks.filter((v) => isTierPickId(v.sleeperId));
+
+    // Prefer numbered slot picks (1.01, 1.02, …); use tier picks only when no slots exist for that year/round.
+    const numberedYearRounds = new Set(
+      numbered.map((p) => `${p.name.match(/^(\d{4})/)?.[1] ?? 'Other'}_${pickRound(p.sleeperId)}`),
+    );
+    const picksToShow = [
+      ...numbered,
+      ...tier.filter((p) => {
+        const year = p.name.match(/^(\d{4})/)?.[1] ?? 'Other';
+        return !numberedYearRounds.has(`${year}_${pickRound(p.sleeperId)}`);
+      }),
+    ];
+
     const byYear = new Map<string, Map<number, TradeValue[]>>();
-    for (const p of values.filter((v) => v.isPick && !excluded.has(v.sleeperId) && /(EARLY|MID|LATE)$/.test(v.sleeperId))) {
+    for (const p of picksToShow) {
       const year = p.name.match(/^(\d{4})/)?.[1] ?? 'Other';
       const round = pickRound(p.sleeperId);
       if (!byYear.has(year)) byYear.set(year, new Map());
@@ -496,9 +617,14 @@ function PickSelector({ values, excluded, onSelect }: { values: TradeValue[]; ex
       const byRound = byYear.get(year)!;
       const rounds: PickRoundGroup[] = [];
       for (const round of Array.from(byRound.keys()).sort((a, b) => a - b)) {
-        const picks = byRound.get(round)!.sort((a, b) =>
-          pickTierRank(a.sleeperId) - pickTierRank(b.sleeperId) || b.value - a.value
-        );
+        const picks = byRound.get(round)!.sort((a, b) => {
+          const slotA = pickSlot(a.sleeperId);
+          const slotB = pickSlot(b.sleeperId);
+          if (slotA !== null && slotB !== null) return slotA - slotB;
+          if (slotA !== null) return -1;
+          if (slotB !== null) return 1;
+          return pickTierRank(a.sleeperId) - pickTierRank(b.sleeperId) || b.value - a.value;
+        });
         rounds.push({ round, label: ROUND_LABEL[round] ?? `Round ${round}`, picks });
       }
       years.push({ year, rounds });
@@ -508,45 +634,54 @@ function PickSelector({ values, excluded, onSelect }: { values: TradeValue[]; ex
 
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const h = (e: MouseEvent) => { if (!ref.current?.contains(e.target as Node)) setOpen(false); };
-    document.addEventListener('mousedown', h);
-    return () => document.removeEventListener('mousedown', h);
-  }, []);
+  const isMobile = useIsMobile();
+  const close = useCallback(() => setOpen(false), []);
+  useClickOutside(ref, close, open && !isMobile);
 
   if (!grouped.length) return null;
-  return (
-    <div ref={ref} className="relative z-20 min-w-0">
-      <AnalyzerMenuTrigger active={open} onClick={() => setOpen(!open)}>
-        + Draft Pick
-      </AnalyzerMenuTrigger>
-      {open && (
-        <AnalyzerDropdownMenu>
-          {grouped.map((g) => (
-            <div key={g.year}>
-              <AnalyzerDropdownSection>{g.year} Picks</AnalyzerDropdownSection>
-              {g.rounds.map((rg) => (
-                <div key={rg.round}>
-                  <div
-                    className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider border-b"
-                    style={{ color: 'var(--accent)', background: 'rgba(11,95,152,0.22)', borderColor: 'rgba(255,255,255,0.08)' }}
-                  >
-                    {rg.label}
+
+  const pickList = (
+    <>
+      {grouped.map((g) => (
+        <div key={g.year}>
+          <AnalyzerDropdownSection>{g.year} Picks</AnalyzerDropdownSection>
+          {g.rounds.map((rg) => (
+            <div key={rg.round}>
+              <div
+                className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider border-b"
+                style={{ color: 'var(--accent)', background: 'rgba(11,95,152,0.22)', borderColor: 'rgba(255,255,255,0.08)' }}
+              >
+                {rg.label}
+              </div>
+              {rg.picks.map((v) => {
+                const slot = pickSlot(v.sleeperId);
+                const label = slot !== null
+                  ? `${rg.round}.${String(slot).padStart(2, '0')}`
+                  : v.name.replace(/^\d{4}\s*/, '');
+                return (
+                <AnalyzerDropdownItem key={v.sleeperId} onClick={() => { onSelect(assetFromValue(v, true)); setOpen(false); }}>
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-sm font-medium" style={broadcastBodyTextStyle}>{label}</span>
+                    <span className="shrink-0 text-sm font-bold tabular-nums" style={{ color: 'var(--accent)' }}>{formatValue(v.value)}</span>
                   </div>
-                  {rg.picks.map((v) => (
-                    <AnalyzerDropdownItem key={v.sleeperId} onClick={() => { onSelect(assetFromValue(v, true)); setOpen(false); }}>
-                      <div className="flex items-center justify-between gap-3">
-                        <span className="text-sm font-medium" style={broadcastBodyTextStyle}>{v.name.replace(/^\d{4}\s*/, '')}</span>
-                        <span className="shrink-0 text-sm font-bold tabular-nums" style={{ color: 'var(--accent)' }}>{formatValue(v.value)}</span>
-                      </div>
-                    </AnalyzerDropdownItem>
-                  ))}
-                </div>
-              ))}
+                </AnalyzerDropdownItem>
+                );
+              })}
             </div>
           ))}
-        </AnalyzerDropdownMenu>
-      )}
+        </div>
+      ))}
+    </>
+  );
+
+  return (
+    <div ref={ref} className="relative z-20 min-w-0">
+      <AnalyzerMenuTrigger active={open} onClick={() => setOpen((v) => !v)}>
+        + Draft Pick
+      </AnalyzerMenuTrigger>
+      <AnalyzerDropdownSurface open={open} onClose={close} title="Draft picks" isMobile={isMobile}>
+        {pickList}
+      </AnalyzerDropdownSurface>
     </div>
   );
 }
@@ -557,12 +692,9 @@ function RosterPicker({ values, excluded, onAdd }: { values: TradeValue[]; exclu
   const [roster, setRoster] = useState<{ id: string; name: string; pos: string }[]>([]);
   const [busy, setBusy] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const h = (e: MouseEvent) => { if (!ref.current?.contains(e.target as Node)) setOpen(false); };
-    document.addEventListener('mousedown', h);
-    return () => document.removeEventListener('mousedown', h);
-  }, []);
+  const isMobile = useIsMobile();
+  const close = useCallback(() => setOpen(false), []);
+  useClickOutside(ref, close, open && !isMobile);
 
   const valMap = useMemo(() => { const m = new Map<string, TradeValue>(); for (const v of values) m.set(v.sleeperId, v); return m; }, [values]);
 
@@ -577,31 +709,35 @@ function RosterPicker({ values, excluded, onAdd }: { values: TradeValue[]; exclu
 
   const matched = useMemo(() => roster.map((p) => ({ ...p, tv: valMap.get(p.id) })).filter((p) => p.tv && !excluded.has(p.id)), [roster, valMap, excluded]);
 
+  const rosterList = (
+    <>
+      <TeamPickerList selected={team} onSelect={loadTeam} />
+      {busy && <div className="px-3 py-4 text-sm text-center" style={broadcastMutedTextStyle}>Loading roster…</div>}
+      {!busy && team && matched.length === 0 && (
+        <div className="px-3 py-4 text-sm text-center" style={broadcastMutedTextStyle}>No matched players found</div>
+      )}
+      {matched.map((p) => (
+        <AnalyzerDropdownItem key={p.id} onClick={() => { onAdd(assetFromValue(p.tv!, false)); setOpen(false); }}>
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="text-sm font-semibold truncate" style={broadcastBodyTextStyle}>{p.name}</div>
+              <div className="text-xs mt-0.5" style={{ color: 'rgba(233,237,245,0.72)' }}>{p.pos}</div>
+            </div>
+            <span className="shrink-0 text-sm font-bold tabular-nums" style={{ color: 'var(--accent)' }}>{formatValue(p.tv!.value)}</span>
+          </div>
+        </AnalyzerDropdownItem>
+      ))}
+    </>
+  );
+
   return (
     <div ref={ref} className="relative z-20 min-w-0">
-      <AnalyzerMenuTrigger active={open} onClick={() => setOpen(!open)}>
+      <AnalyzerMenuTrigger active={open} onClick={() => setOpen((v) => !v)}>
         Load from roster…
       </AnalyzerMenuTrigger>
-      {open && (
-        <AnalyzerDropdownMenu>
-          <TeamPickerList selected={team} onSelect={loadTeam} />
-          {busy && <div className="px-3 py-3 text-sm text-center" style={broadcastMutedTextStyle}>Loading roster…</div>}
-          {!busy && team && matched.length === 0 && (
-            <div className="px-3 py-3 text-sm text-center" style={broadcastMutedTextStyle}>No matched players found</div>
-          )}
-          {matched.map((p) => (
-            <AnalyzerDropdownItem key={p.id} onClick={() => { onAdd(assetFromValue(p.tv!, false)); setOpen(false); }}>
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="text-sm font-semibold truncate" style={broadcastBodyTextStyle}>{p.name}</div>
-                  <div className="text-xs mt-0.5" style={{ color: 'rgba(233,237,245,0.72)' }}>{p.pos}</div>
-                </div>
-                <span className="shrink-0 text-sm font-bold tabular-nums" style={{ color: 'var(--accent)' }}>{formatValue(p.tv!.value)}</span>
-              </div>
-            </AnalyzerDropdownItem>
-          ))}
-        </AnalyzerDropdownMenu>
-      )}
+      <AnalyzerDropdownSurface open={open} onClose={close} title="Load from roster" isMobile={isMobile}>
+        {rosterList}
+      </AnalyzerDropdownSurface>
     </div>
   );
 }
@@ -674,7 +810,7 @@ function TradeSide({ label, color, assets, values, excluded, source, grade, effT
 
       <div className="space-y-2 mb-3">
         <PlayerSearch values={values} excluded={excluded} source={source} onSelect={onAdd} />
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
           <PickSelector values={values} excluded={excluded} onSelect={onAdd} />
           <RosterPicker values={values} excluded={excluded} onAdd={onAdd} />
         </div>
