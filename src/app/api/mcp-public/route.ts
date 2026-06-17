@@ -44,6 +44,10 @@ import {
   formatRosterMarkdown,
   handleGetCommissionerOps,
   formatCommissionerOpsMarkdown,
+  handleAnalyzeTrade,
+  handleGetPlayerValues,
+  formatAnalyzeTradeMarkdown,
+  formatPlayerValuesMarkdown,
   McpError,
 } from '@/lib/mcp/handlers';
 
@@ -221,6 +225,48 @@ const PUBLIC_TOOLS = [
     description: 'Advisory-only commissioner ops briefing. Returns: date-based reminders (draft, trade deadline, playoffs), weekly checklist, lineup watch (injured starters), IR slot review, taxi eligibility review, injury/status flags, relevant rulebook snippets, and draft owner messages ready for human review. Makes no rulings, sends nothing, modifies nothing.',
     inputSchema: { type: 'object', properties: {}, required: [] },
   },
+  {
+    name: 'analyze_trade',
+    description: 'Evaluates a dynasty trade using real-time FantasyCalc + KeepTradeCut values (12-team SuperFlex, PPR). Given two lists of players and/or picks, returns a verdict (Fair Trade / Slight Edge / Uneven / One-Sided), letter grade for each side (A+ to F), effective values with stud premium and depth discount, age delta notes, and a counter-offer hint when a side is short. Use this whenever a league member asks "is this trade fair?", "who wins this trade?", or "should I accept this offer?".',
+    annotations: { readOnlyHint: true, openWorldHint: false, destructiveHint: false },
+    inputSchema: {
+      type: 'object',
+      properties: {
+        side_a: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Players and/or picks Side A gives up. Use full or partial player names (e.g. "Justin Jefferson", "Jefferson") or pick descriptions (e.g. "2026 early 1st", "2027 mid 2nd").',
+        },
+        side_b: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Players and/or picks Side B gives up (what Side A receives in return).',
+        },
+        source: {
+          type: 'string',
+          enum: ['avg', 'fc', 'ktc'],
+          description: 'Value source to use: "avg" (FantasyCalc + KTC average, default), "fc" (FantasyCalc only), "ktc" (KeepTradeCut only).',
+        },
+      },
+      required: ['side_a', 'side_b'],
+    },
+  },
+  {
+    name: 'get_player_values',
+    description: 'Returns dynasty trade values for up to 12 specific players or picks. Values come from FantasyCalc and KeepTradeCut (12-team SuperFlex PPR, 0–10,000 scale). Also returns 30-day trend (↑/↓), overall rank, and age. Use this when a league member asks "what is [player] worth?", "how does [player A] compare to [player B] in value?", or "what\'s the value of a 2027 first-round pick?".',
+    annotations: { readOnlyHint: true, openWorldHint: false, destructiveHint: false },
+    inputSchema: {
+      type: 'object',
+      properties: {
+        players: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Player names or pick descriptions to look up (max 12). E.g. ["Justin Jefferson", "CeeDee Lamb", "2026 early 1st"].',
+        },
+      },
+      required: ['players'],
+    },
+  },
 ];
 
 // ─── Dispatch ──────────────────────────────────────────────────────────────────
@@ -317,6 +363,18 @@ async function dispatchTool(name: string, input: ToolInput): Promise<DispatchRes
     case 'get_commissioner_ops_context': {
       const data = await handleGetCommissionerOps();
       return { structuredContent: data, markdown: formatCommissionerOpsMarkdown(data) };
+    }
+    case 'analyze_trade': {
+      const data = await handleAnalyzeTrade({
+        side_a: input.side_a as string[],
+        side_b: input.side_b as string[],
+        source: input.source as 'avg' | 'fc' | 'ktc' | undefined,
+      });
+      return { structuredContent: data, markdown: formatAnalyzeTradeMarkdown(data) };
+    }
+    case 'get_player_values': {
+      const data = await handleGetPlayerValues({ players: input.players as string[] });
+      return { structuredContent: data, markdown: formatPlayerValuesMarkdown(data) };
     }
     default:
       throw new McpError('method_not_found', `Unknown tool: ${name}`);

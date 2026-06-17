@@ -39,6 +39,13 @@ import { buildTransactionLedger } from '@/lib/utils/transactions';
 import { fetchTradesAllTime, type Trade } from '@/lib/utils/trades';
 import { senderOfAsset } from '@/lib/trades/asset-routing';
 import { rulesHtmlSections } from '@/data/rules';
+import { getTradeValues, resolveAssets } from '@/lib/trade-analyzer/values';
+import {
+  analyzeTrade,
+  buildPosSummary,
+  getDisplayValue,
+  type ValueSource,
+} from '@/lib/trade-analyzer/analysis';
 
 // ─── shared helpers ────────────────────────────────────────────────────────────
 
@@ -2574,6 +2581,218 @@ export function formatFuturePickBoardMarkdown(data: unknown): string {
   }
   lines.push(`*${leagueNote}*`);
   lines.push(`*Live from Sleeper · ${FRESHNESS()}*`);
+  return lines.join('\n');
+}
+
+// ─── trade analyzer ───────────────────────────────────────────────────────────
+
+export async function handleAnalyzeTrade(input: {
+  side_a: string[];
+  side_b: string[];
+  source?: ValueSource;
+}) {
+  const { side_a, side_b, source = 'avg' } = input;
+  if (!side_a?.length || !side_b?.length)
+    throw new McpError('missing_param', 'Both side_a and side_b must be non-empty arrays of player/pick names.');
+
+  const values = await getTradeValues();
+  const { assets: assetsA, unmatched: unmatchedA } = resolveAssets(side_a, values);
+  const { assets: assetsB, unmatched: unmatchedB } = resolveAssets(side_b, values);
+
+  const result = analyzeTrade(assetsA, assetsB, source);
+
+  const perPlayerA = assetsA.map((a) => ({
+    name: a.name,
+    position: a.position,
+    nflTeam: a.nflTeam,
+    value: getDisplayValue(a, source),
+    fcValue: a.fcValue,
+    ktcValue: a.ktcValue,
+    isPick: a.isPick,
+    trend: a.trend,
+  }));
+
+  const perPlayerB = assetsB.map((a) => ({
+    name: a.name,
+    position: a.position,
+    nflTeam: a.nflTeam,
+    value: getDisplayValue(a, source),
+    fcValue: a.fcValue,
+    ktcValue: a.ktcValue,
+    isPick: a.isPick,
+    trend: a.trend,
+  }));
+
+  return {
+    analysis: result,
+    sideA: {
+      assets: perPlayerA,
+      posSummary: buildPosSummary(assetsA),
+      rawTotal: result.rawA,
+      effectiveTotal: result.effA,
+      grade: result.sideAGrade,
+    },
+    sideB: {
+      assets: perPlayerB,
+      posSummary: buildPosSummary(assetsB),
+      rawTotal: result.rawB,
+      effectiveTotal: result.effB,
+      grade: result.sideBGrade,
+    },
+    unmatched: { sideA: unmatchedA, sideB: unmatchedB },
+    source,
+    meta: {
+      tool: 'analyze_trade',
+      source: 'east-v-west-api',
+      valueSources: 'FantasyCalc + KeepTradeCut (avg)',
+      fetchedAt: new Date().toISOString(),
+    },
+  };
+}
+
+export async function handleGetPlayerValues(input: { players: string[] }) {
+  const { players } = input;
+  if (!players?.length)
+    throw new McpError('missing_param', 'players must be a non-empty array of player or pick names.');
+  if (players.length > 12)
+    throw new McpError('invalid_param', 'Maximum 12 players per request. Split into multiple calls if needed.');
+
+  const values = await getTradeValues();
+  const results: Array<{
+    query: string;
+    found: boolean;
+    name?: string;
+    position?: string;
+    nflTeam?: string;
+    value?: number;
+    fcValue?: number | null;
+    ktcValue?: number | null;
+    rank?: number;
+    trend?: number;
+    age?: number;
+    isPick?: boolean;
+  }> = [];
+
+  for (const query of players) {
+    const { assets, unmatched } = resolveAssets([query], values);
+    if (assets.length > 0) {
+      const a = assets[0];
+      const raw = Object.values(values).find((v) => v.sleeperId === a.key);
+      results.push({
+        query,
+        found: true,
+        name: a.name,
+        position: a.position,
+        nflTeam: a.nflTeam,
+        value: a.value,
+        fcValue: a.fcValue,
+        ktcValue: a.ktcValue,
+        rank: raw?.rank,
+        trend: a.trend,
+        age: a.age,
+        isPick: a.isPick,
+      });
+    } else {
+      results.push({ query: unmatched[0] ?? query, found: false });
+    }
+  }
+
+  return {
+    players: results,
+    meta: {
+      tool: 'get_player_values',
+      source: 'east-v-west-api',
+      valueSources: 'FantasyCalc + KeepTradeCut (avg)',
+      scale: '0–10,000 (higher = more valuable)',
+      fetchedAt: new Date().toISOString(),
+    },
+  };
+}
+
+// ─── trade analyzer markdown formatters ───────────────────────────────────────
+
+export function formatAnalyzeTradeMarkdown(data: ReturnType<typeof handleAnalyzeTrade> extends Promise<infer T> ? T : never): string {
+  const { analysis: r, sideA, sideB, unmatched, source } = data;
+
+  const gradeEmoji = (g: string) =>
+    g.startsWith('A') ? '🟢' : g.startsWith('B') ? '🟡' : g === '—' ? '⚪' : '🔴';
+
+  const assetLine = (a: { name: string; position: string; nflTeam: string; value: number; trend: number; isPick: boolean }) => {
+    const trend = a.trend > 100 ? ' ↑' : a.trend < -100 ? ' ↓' : '';
+    const pos = a.isPick ? 'PICK' : a.position;
+    return `  - **${a.name}** (${pos}${a.nflTeam ? ` · ${a.nflTeam}` : ''}) — ${a.value.toLocaleString()}${trend}`;
+  };
+
+  const lines: string[] = [
+    `## ⚖️ Trade Analysis — ${r.verdict}`,
+    '',
+    `| | Side A | Side B |`,
+    `|---|---|---|`,
+    `| **Grade** | ${gradeEmoji(sideA.grade)} **${sideA.grade}** | ${gradeEmoji(sideB.grade)} **${sideB.grade}** |`,
+    `| **Effective Value** | ${r.effA.toLocaleString()} | ${r.effB.toLocaleString()} |`,
+    `| **Raw Market Total** | ${r.rawA.toLocaleString()} | ${r.rawB.toLocaleString()} |`,
+    `| **Assets** | ${sideA.posSummary || '—'} | ${sideB.posSummary || '—'} |`,
+    '',
+  ];
+
+  if (r.winner) {
+    lines.push(`**Winner: Side ${r.winner}** by ~${r.diff.toLocaleString()} effective pts (ratio ${(r.ratio * 100).toFixed(0)}%)`);
+  } else {
+    lines.push(`**Fair trade** — both sides within 92% of each other.`);
+  }
+
+  if (r.notes.length) {
+    lines.push('');
+    for (const n of r.notes) lines.push(`> ${n}`);
+  }
+
+  if (r.counterHint) {
+    lines.push('');
+    lines.push(`💡 *${r.counterHint}*`);
+  }
+
+  lines.push('', '### Side A');
+  for (const a of sideA.assets) lines.push(assetLine(a));
+
+  lines.push('', '### Side B');
+  for (const a of sideB.assets) lines.push(assetLine(a));
+
+  const allUnmatched = [...(unmatched.sideA ?? []), ...(unmatched.sideB ?? [])];
+  if (allUnmatched.length) {
+    lines.push('', `⚠️ *Could not find values for: ${allUnmatched.join(', ')}. Try a more specific name.*`);
+  }
+
+  lines.push('', `*Values: ${source === 'fc' ? 'FantasyCalc' : source === 'ktc' ? 'KeepTradeCut' : 'FC + KTC average'} · Dynasty SF · ${FRESHNESS()}*`);
+  return lines.join('\n');
+}
+
+export function formatPlayerValuesMarkdown(data: ReturnType<typeof handleGetPlayerValues> extends Promise<infer T> ? T : never): string {
+  const { players } = data;
+  const found = players.filter((p) => p.found);
+  const notFound = players.filter((p) => !p.found);
+
+  const trendStr = (t?: number) => (t ?? 0) > 100 ? ' ↑' : (t ?? 0) < -100 ? ' ↓' : '';
+
+  const lines: string[] = ['## 📊 Dynasty Trade Values'];
+
+  if (found.length) {
+    lines.push('', '| Player | Pos | NFL Team | Value | FC | KTC | Rank | Trend |');
+    lines.push('|---|---|---|---|---|---|---|---|');
+    for (const p of found) {
+      const fc = p.fcValue != null ? p.fcValue.toLocaleString() : '—';
+      const ktc = p.ktcValue != null ? p.ktcValue.toLocaleString() : '—';
+      const rank = p.rank != null ? `#${p.rank}` : '—';
+      const trend = trendStr(p.trend);
+      const pos = p.isPick ? 'PICK' : (p.position ?? '—');
+      lines.push(`| **${p.name}** | ${pos} | ${p.nflTeam || '—'} | **${(p.value ?? 0).toLocaleString()}** | ${fc} | ${ktc} | ${rank} | ${trend || '—'} |`);
+    }
+  }
+
+  if (notFound.length) {
+    lines.push('', `⚠️ *No value found for: ${notFound.map((p) => p.query).join(', ')}. Try a more specific name or check spelling.*`);
+  }
+
+  lines.push('', `*Source: FantasyCalc + KTC average · Dynasty SF · ${FRESHNESS()}*`);
   return lines.join('\n');
 }
 

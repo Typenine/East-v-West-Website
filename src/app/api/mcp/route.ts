@@ -40,6 +40,8 @@ import {
   handleGetPositionRooms,
   handleCompareTeams,
   handleGetFuturePickBoard,
+  handleAnalyzeTrade,
+  handleGetPlayerValues,
   McpError,
 } from '@/lib/mcp/handlers';
 
@@ -310,6 +312,55 @@ const MCP_TOOLS = [
       'Examples: "Show the future pick board.", "Who has the most first-round picks?", "Which teams are draft-capital rich?", "Who has the most picks in 2027?"',
     inputSchema: { type: 'object', properties: {}, required: [] },
   },
+  {
+    name: 'analyze_trade',
+    description:
+      'Evaluates a dynasty trade using real-time FantasyCalc + KeepTradeCut values (12-team SuperFlex, PPR). ' +
+      'Given two lists of players and/or picks, returns a verdict (Fair Trade / Slight Edge / Uneven / One-Sided), ' +
+      'letter grade per side (A+ to F), effective values with stud premium and depth discount, age delta notes, ' +
+      'and a counter-offer hint when a side is short. ' +
+      'Use whenever someone asks "is this trade fair?", "who wins this trade?", or "should I accept this?". ' +
+      'Examples: "Analyze: I give CeeDee Lamb for Justin Jefferson + 2026 early 1st.", "Is Ja\'Marr Chase for Davante Adams + 2027 2nd fair?"',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        side_a: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Players and/or picks Side A gives up. Full or partial names accepted.',
+        },
+        side_b: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Players and/or picks Side B gives up (what Side A receives).',
+        },
+        source: {
+          type: 'string',
+          enum: ['avg', 'fc', 'ktc'],
+          description: 'Value source: "avg" (default), "fc" (FantasyCalc only), "ktc" (KeepTradeCut only).',
+        },
+      },
+      required: ['side_a', 'side_b'],
+    },
+  },
+  {
+    name: 'get_player_values',
+    description:
+      'Returns dynasty trade values for up to 12 players or picks from FantasyCalc + KTC (12-team SF PPR, 0–10k scale). ' +
+      'Includes 30-day trend, overall rank, position, age. ' +
+      'Use when asked "what is [player] worth?", "rank these players by value", or "what\'s a 2027 first worth?".',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        players: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Player names or pick descriptions to look up (max 12).',
+        },
+      },
+      required: ['players'],
+    },
+  },
 ] as const;
 
 // ─── tool name → handler dispatch ─────────────────────────────────────────────
@@ -405,6 +456,16 @@ async function dispatchTool(name: string, input: ToolInput): Promise<unknown> {
 
     case 'get_future_pick_board':
       return handleGetFuturePickBoard();
+
+    case 'analyze_trade':
+      return handleAnalyzeTrade({
+        side_a: input.side_a as string[],
+        side_b: input.side_b as string[],
+        source: input.source as 'avg' | 'fc' | 'ktc' | undefined,
+      });
+
+    case 'get_player_values':
+      return handleGetPlayerValues({ players: input.players as string[] });
 
     default:
       throw new McpError('method_not_found', `Unknown tool: ${name}`);
