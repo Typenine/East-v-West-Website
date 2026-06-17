@@ -10,14 +10,9 @@ import {
   BroadcastSectionLabel,
   BroadcastSubmitButton,
   PANEL,
-  broadcastFieldClass,
-  broadcastFieldStyle,
   broadcastFaintTextStyle,
   broadcastMutedTextStyle,
   broadcastBodyTextStyle,
-  broadcastScrollBoxClass,
-  broadcastScrollBoxStyle,
-  broadcastChipButtonClass,
 } from '@/components/ui/BroadcastPanel';
 import Chip from '@/components/ui/Chip';
 
@@ -220,13 +215,126 @@ const PANEL_SHELL_STYLE = {
   boxShadow: `inset 0 0 0 1px ${PANEL.border}, 0 4px 18px rgba(0,0,0,0.30)`,
 } as const;
 
+const ANALYZER_DROPDOWN_STYLE = {
+  background: '#131822',
+  borderColor: 'rgba(255,255,255,0.16)',
+  boxShadow: '0 18px 48px rgba(0,0,0,0.55), inset 0 0 0 1px rgba(255,255,255,0.08)',
+} as const;
+
+const ANALYZER_FIELD_STYLE = {
+  background: '#1a2030',
+  borderColor: 'rgba(255,255,255,0.18)',
+  color: PANEL.text,
+} as const;
+
+function AnalyzerDropdownMenu({ children, className }: { children: ReactNode; className?: string }) {
+  return (
+    <div
+      className={[
+        'absolute z-[100] mt-2 left-0 w-max min-w-full max-w-[min(calc(100vw-2rem),24rem)] max-h-80 overflow-y-auto rounded-lg border py-1',
+        className,
+      ].filter(Boolean).join(' ')}
+      style={ANALYZER_DROPDOWN_STYLE}
+    >
+      {children}
+    </div>
+  );
+}
+
+function AnalyzerDropdownItem({ children, onClick }: { children: ReactNode; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="w-full text-left px-3 py-2.5 transition-colors hover:bg-white/10 focus-visible:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/25"
+    >
+      {children}
+    </button>
+  );
+}
+
+function AnalyzerMenuTrigger({ children, onClick, active }: { children: ReactNode; onClick: () => void; active?: boolean }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-expanded={active}
+      className="w-full rounded-md border px-3 py-2.5 text-sm font-semibold text-left transition-colors hover:bg-white/[0.12] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/30"
+      style={{
+        background: active ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.09)',
+        borderColor: active ? 'rgba(255,255,255,0.30)' : 'rgba(255,255,255,0.18)',
+        color: PANEL.text,
+      }}
+    >
+      {children}
+    </button>
+  );
+}
+
+function AnalyzerFieldInput(props: React.ComponentProps<'input'>) {
+  const { className, style, ...rest } = props;
+  return (
+    <input
+      {...rest}
+      className={[
+        'block w-full rounded-md border px-3 py-2.5 text-sm placeholder:text-[rgba(233,237,245,0.5)] focus:outline-none focus-visible:ring-2 focus-visible:ring-white/30',
+        className,
+      ].filter(Boolean).join(' ')}
+      style={{ ...ANALYZER_FIELD_STYLE, ...style }}
+    />
+  );
+}
+
+function AnalyzerDropdownSection({ children }: { children: ReactNode }) {
+  return (
+    <div
+      className="px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider sticky top-0 z-[1] border-b"
+      style={{ color: PANEL.text, background: '#131822', borderColor: 'rgba(255,255,255,0.10)' }}
+    >
+      {children}
+    </div>
+  );
+}
+
+function TeamPickerInline({ selected, onSelect }: { selected: string; onSelect: (team: string) => void }) {
+  return (
+    <div className="mb-4 rounded-lg border overflow-hidden" style={ANALYZER_DROPDOWN_STYLE}>
+      <AnalyzerDropdownSection>Select team</AnalyzerDropdownSection>
+      <div className="max-h-40 overflow-y-auto">
+        {TEAM_NAMES.map((t) => (
+          <AnalyzerDropdownItem key={t} onClick={() => onSelect(t)}>
+            <span className={`text-sm ${selected === t ? 'font-bold text-white' : 'font-medium'}`} style={selected === t ? undefined : broadcastBodyTextStyle}>
+              {t}
+            </span>
+          </AnalyzerDropdownItem>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function TeamPickerList({ selected, onSelect }: { selected: string; onSelect: (team: string) => void }) {
+  return (
+    <div className="max-h-44 overflow-y-auto border-b" style={{ borderColor: 'rgba(255,255,255,0.10)' }}>
+      <AnalyzerDropdownSection>Choose team</AnalyzerDropdownSection>
+      {TEAM_NAMES.map((t) => (
+        <AnalyzerDropdownItem key={t} onClick={() => onSelect(t)}>
+          <span className={`text-sm ${selected === t ? 'font-bold text-white' : 'font-medium'}`} style={selected === t ? undefined : broadcastBodyTextStyle}>
+            {t}
+          </span>
+        </AnalyzerDropdownItem>
+      ))}
+    </div>
+  );
+}
+
 function AnalyzerMainPanel({ title, meta, children }: { title: string; meta?: ReactNode; children: ReactNode }) {
   return (
     <article
-      className="overflow-hidden rounded-2xl transition-shadow duration-200 hover:shadow-[0_8px_30px_rgba(0,0,0,0.45)]"
+      className="rounded-2xl transition-shadow duration-200 hover:shadow-[0_8px_30px_rgba(0,0,0,0.45)]"
       style={PANEL_SHELL_STYLE}
     >
-      <div className="h-[3px] w-full accent-gradient" aria-hidden="true" />
+      <div className="h-[3px] w-full" style={{ background: 'var(--accent)' }} aria-hidden="true" />
       <div
         className="flex items-center justify-between gap-3 px-5 py-3 sm:px-6"
         style={{ background: PANEL.headerBg, borderBottom: `1px solid ${PANEL.hairline}` }}
@@ -240,7 +348,7 @@ function AnalyzerMainPanel({ title, meta, children }: { title: string; meta?: Re
           </div>
         ) : null}
       </div>
-      <div className="px-5 py-4 sm:px-6">{children}</div>
+      <div className="px-5 py-4 sm:px-6 overflow-visible">{children}</div>
     </article>
   );
 }
@@ -319,33 +427,39 @@ function PlayerSearch({ values, excluded, source, onSelect }: {
   [source]);
 
   return (
-    <div ref={containerRef} className="relative">
-      <input
+    <div ref={containerRef} className="relative z-20">
+      <AnalyzerFieldInput
         type="text"
         value={query}
         onChange={(e) => { setQuery(e.target.value); setOpen(true); }}
-        onFocus={() => query.trim() && setOpen(true)}
+        onFocus={() => setOpen(true)}
         placeholder="Search players..."
-        className={broadcastFieldClass}
-        style={broadcastFieldStyle}
       />
+      {open && query.trim() && filtered.length === 0 && (
+        <AnalyzerDropdownMenu>
+          <div className="px-3 py-3 text-sm" style={broadcastMutedTextStyle}>No players found</div>
+        </AnalyzerDropdownMenu>
+      )}
       {open && filtered.length > 0 && (
-        <div
-          className={`absolute z-50 mt-1 w-full max-h-60 overflow-y-auto ${broadcastScrollBoxClass}`}
-          style={broadcastScrollBoxStyle}
-        >
+        <AnalyzerDropdownMenu>
           {filtered.map((v) => (
-            <button key={v.sleeperId} onClick={() => { onSelect(assetFromValue(v, false)); setQuery(''); setOpen(false); }}
-              className="w-full text-left px-3 py-2 transition-colors border-b last:border-b-0 hover:bg-white/5"
-              style={{ borderColor: PANEL.hairline }}>
-              <span className="text-sm font-medium" style={broadcastBodyTextStyle}>{v.name}</span>
-              {v.trend > 100 && <span className="text-xs ml-1 text-green-400">↑</span>}
-              {v.trend < -100 && <span className="text-xs ml-1" style={{ color: 'var(--danger)' }}>↓</span>}
-              <span className="ml-2 text-xs" style={broadcastMutedTextStyle}>{v.position} · {v.team || 'FA'}{v.age ? ` · ${v.age.toFixed(0)}y` : ''}</span>
-              <span className="float-right text-xs font-semibold tabular-nums text-accent">{formatValue(getVal(v))}</span>
-            </button>
+            <AnalyzerDropdownItem key={v.sleeperId} onClick={() => { onSelect(assetFromValue(v, false)); setQuery(''); setOpen(false); }}>
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-1.5 text-sm font-semibold" style={broadcastBodyTextStyle}>
+                    <span className="truncate">{v.name}</span>
+                    {v.trend > 100 && <span className="text-xs text-green-400">↑</span>}
+                    {v.trend < -100 && <span className="text-xs" style={{ color: 'var(--danger)' }}>↓</span>}
+                  </div>
+                  <div className="text-xs mt-0.5" style={{ color: 'rgba(233,237,245,0.72)' }}>
+                    {v.position} · {v.team || 'FA'}{v.age ? ` · ${v.age.toFixed(0)}y` : ''}
+                  </div>
+                </div>
+                <span className="shrink-0 text-sm font-bold tabular-nums" style={{ color: 'var(--accent)' }}>{formatValue(getVal(v))}</span>
+              </div>
+            </AnalyzerDropdownItem>
           ))}
-        </div>
+        </AnalyzerDropdownMenu>
       )}
     </div>
   );
@@ -402,36 +516,36 @@ function PickSelector({ values, excluded, onSelect }: { values: TradeValue[]; ex
 
   if (!grouped.length) return null;
   return (
-    <div ref={ref} className="relative min-w-0">
-      <button type="button" onClick={() => setOpen(!open)} className={`w-full ${broadcastChipButtonClass(false)}`}>
+    <div ref={ref} className="relative z-20 min-w-0">
+      <AnalyzerMenuTrigger active={open} onClick={() => setOpen(!open)}>
         + Draft Pick
-      </button>
+      </AnalyzerMenuTrigger>
       {open && (
-        <div
-          className={`absolute z-50 mt-1 w-full max-h-72 overflow-y-auto ${broadcastScrollBoxClass}`}
-          style={broadcastScrollBoxStyle}
-        >
+        <AnalyzerDropdownMenu>
           {grouped.map((g) => (
             <div key={g.year}>
-              <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest sticky top-0" style={{ ...broadcastFaintTextStyle, background: PANEL.card, borderBottom: `1px solid ${PANEL.hairline}` }}>{g.year} Picks</div>
+              <AnalyzerDropdownSection>{g.year} Picks</AnalyzerDropdownSection>
               {g.rounds.map((rg) => (
                 <div key={rg.round}>
-                  <div className="px-3 py-1 text-[9px] font-semibold uppercase tracking-wider border-b" style={{ color: 'var(--accent)', background: 'rgba(11,95,152,0.12)', borderColor: PANEL.hairline }}>
+                  <div
+                    className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider border-b"
+                    style={{ color: 'var(--accent)', background: 'rgba(11,95,152,0.22)', borderColor: 'rgba(255,255,255,0.08)' }}
+                  >
                     {rg.label}
                   </div>
                   {rg.picks.map((v) => (
-                    <button key={v.sleeperId} onClick={() => { onSelect(assetFromValue(v, true)); setOpen(false); }}
-                      className="w-full text-left px-3 py-1.5 hover:bg-white/5 transition-colors border-b last:border-b-0"
-                      style={{ borderColor: PANEL.hairline }}>
-                      <span className="text-sm" style={broadcastBodyTextStyle}>{v.name.replace(/^\d{4}\s*/, '')}</span>
-                      <span className="float-right text-xs font-semibold tabular-nums text-accent">{formatValue(v.value)}</span>
-                    </button>
+                    <AnalyzerDropdownItem key={v.sleeperId} onClick={() => { onSelect(assetFromValue(v, true)); setOpen(false); }}>
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-sm font-medium" style={broadcastBodyTextStyle}>{v.name.replace(/^\d{4}\s*/, '')}</span>
+                        <span className="shrink-0 text-sm font-bold tabular-nums" style={{ color: 'var(--accent)' }}>{formatValue(v.value)}</span>
+                      </div>
+                    </AnalyzerDropdownItem>
                   ))}
                 </div>
               ))}
             </div>
           ))}
-        </div>
+        </AnalyzerDropdownMenu>
       )}
     </div>
   );
@@ -464,37 +578,29 @@ function RosterPicker({ values, excluded, onAdd }: { values: TradeValue[]; exclu
   const matched = useMemo(() => roster.map((p) => ({ ...p, tv: valMap.get(p.id) })).filter((p) => p.tv && !excluded.has(p.id)), [roster, valMap, excluded]);
 
   return (
-    <div ref={ref} className="relative min-w-0">
-      <button type="button" onClick={() => setOpen(!open)} className={`w-full ${broadcastChipButtonClass(false)}`}>
+    <div ref={ref} className="relative z-20 min-w-0">
+      <AnalyzerMenuTrigger active={open} onClick={() => setOpen(!open)}>
         Load from roster…
-      </button>
+      </AnalyzerMenuTrigger>
       {open && (
-        <div
-          className={`absolute z-50 mt-1 w-full overflow-hidden ${broadcastScrollBoxClass}`}
-          style={broadcastScrollBoxStyle}
-        >
-          <div className="p-2 border-b" style={{ borderColor: PANEL.hairline }}>
-            <select value={team} onChange={(e) => loadTeam(e.target.value)}
-              className={broadcastFieldClass}
-              style={broadcastFieldStyle}>
-              <option value="">Select a team…</option>
-              {TEAM_NAMES.map((t) => <option key={t} value={t}>{t}</option>)}
-            </select>
-          </div>
-          {busy && <div className="px-3 py-3 text-xs text-center" style={broadcastMutedTextStyle}>Loading…</div>}
-          {!busy && team && matched.length === 0 && <div className="px-3 py-3 text-xs text-center" style={broadcastMutedTextStyle}>No matched players found</div>}
-          <div className="max-h-52 overflow-y-auto">
-            {matched.map((p) => (
-              <button key={p.id} onClick={() => onAdd(assetFromValue(p.tv!, false))}
-                className="w-full text-left px-3 py-1.5 hover:bg-white/5 transition-colors border-b last:border-b-0"
-                style={{ borderColor: PANEL.hairline }}>
-                <span className="text-sm font-medium" style={broadcastBodyTextStyle}>{p.name}</span>
-                <span className="ml-2 text-xs" style={broadcastMutedTextStyle}>{p.pos}</span>
-                <span className="float-right text-xs font-semibold tabular-nums text-accent">{formatValue(p.tv!.value)}</span>
-              </button>
-            ))}
-          </div>
-        </div>
+        <AnalyzerDropdownMenu>
+          <TeamPickerList selected={team} onSelect={loadTeam} />
+          {busy && <div className="px-3 py-3 text-sm text-center" style={broadcastMutedTextStyle}>Loading roster…</div>}
+          {!busy && team && matched.length === 0 && (
+            <div className="px-3 py-3 text-sm text-center" style={broadcastMutedTextStyle}>No matched players found</div>
+          )}
+          {matched.map((p) => (
+            <AnalyzerDropdownItem key={p.id} onClick={() => { onAdd(assetFromValue(p.tv!, false)); setOpen(false); }}>
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="text-sm font-semibold truncate" style={broadcastBodyTextStyle}>{p.name}</div>
+                  <div className="text-xs mt-0.5" style={{ color: 'rgba(233,237,245,0.72)' }}>{p.pos}</div>
+                </div>
+                <span className="shrink-0 text-sm font-bold tabular-nums" style={{ color: 'var(--accent)' }}>{formatValue(p.tv!.value)}</span>
+              </div>
+            </AnalyzerDropdownItem>
+          ))}
+        </AnalyzerDropdownMenu>
       )}
     </div>
   );
@@ -542,7 +648,7 @@ function TradeSide({ label, color, assets, values, excluded, source, grade, effT
   const gc = gradeColor(grade);
 
   return (
-    <div className="flex-1 min-w-0">
+    <div className="flex-1 min-w-0 relative z-20">
       <div className="flex items-center justify-between gap-2 mb-2">
         <div className="min-w-0">
           <BroadcastSectionLabel accent={color}>{label}</BroadcastSectionLabel>
@@ -808,14 +914,9 @@ function RosterSuggestionPanel({ analysis, values, sideA, sideB, gap, onAddA, on
       accent="var(--danger)"
       className="mt-5"
     >
-      <select value={team} onChange={(e) => loadTeam(e.target.value)}
-        className={`${broadcastFieldClass} max-w-xs mb-3`}
-        style={broadcastFieldStyle}>
-        <option value="">Select a team to check their roster…</option>
-        {TEAM_NAMES.map((t) => <option key={t} value={t}>{t}</option>)}
-      </select>
+      <TeamPickerInline selected={team} onSelect={loadTeam} />
 
-      {busy && <div className="text-xs" style={broadcastMutedTextStyle}>Loading roster…</div>}
+      {busy && <div className="text-sm" style={broadcastMutedTextStyle}>Loading roster…</div>}
       {team && !busy && rosterMatches.length === 0 && (
         <div className="text-xs" style={broadcastFaintTextStyle}>No players on this roster match the gap (~{formatValue(Math.round(gap))} pts ±35%).</div>
       )}
@@ -1087,7 +1188,7 @@ function TradeAnalyzerContent() {
         className="fixed bottom-0 left-0 right-0 z-40 border-t"
         style={{ ...PANEL_SHELL_STYLE, borderTopColor: PANEL.border, backdropFilter: 'blur(12px)' }}
       >
-        <div className="h-[2px] w-full accent-gradient" aria-hidden="true" />
+        <div className="h-[2px] w-full" style={{ background: 'var(--accent)' }} aria-hidden="true" />
         <div className="container mx-auto px-4 py-2.5 flex items-center gap-3">
           <div className="shrink-0 hidden sm:block">
             <div className="text-[10px] font-bold uppercase tracking-[0.22em]" style={broadcastFaintTextStyle}>
