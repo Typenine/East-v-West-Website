@@ -49,8 +49,26 @@ export interface MatchResult {
 }
 
 /** Try to find the best-matching TradeValue for a user-supplied name.
- *  Search order: exact → prefix → contains. Returns null if no match. */
+ *  Search order: slot-notation → exact → prefix → contains. Returns null if no match. */
 export function fuzzyFindValue(query: string, values: Record<string, TradeValue>): TradeValue | null {
+  // 0. Pick slot notation like "2026 1.01" or "1.01" — must run before normalizeName strips the dot.
+  const rawSlot = query.trim().match(/(?:(\d{4})[^\d]*)?\b(\d)\.0*(\d{1,2})\b/);
+  if (rawSlot) {
+    const [, yearStr, roundStr, slotStr] = rawSlot;
+    const round = parseInt(roundStr ?? '');
+    const slot = parseInt(slotStr ?? '');
+    if (round >= 1 && round <= 4 && slot >= 1 && slot <= 12) {
+      const slotPadded = String(slot).padStart(2, '0');
+      if (yearStr) {
+        const numKey = `PICK_${yearStr}_${round}_${slotPadded}`;
+        if (values[numKey]) return values[numKey];
+        const tier = slot <= 4 ? 'EARLY' : slot <= 8 ? 'MID' : 'LATE';
+        const tierKey = `PICK_${yearStr}_${round}_${tier}`;
+        if (values[tierKey]) return values[tierKey];
+      }
+    }
+  }
+
   const q = normalizeName(query);
   const all = Object.values(values);
 

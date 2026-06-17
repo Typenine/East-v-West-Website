@@ -39,13 +39,14 @@ export function getDisplayValue(asset: TradeAsset, source: ValueSource): number 
   return asset.value;
 }
 
-// Monotonic: as ratio → 0 (more lopsided), winner's grade never drops, loser's never rises.
+// Winner always caps at 'A' (you got a fair-or-better deal). Loser grade drops as trade tilts.
+// Thresholds aligned with verdict bands: 0.95 = Fair, 0.85 = Slight Edge, 0.70 = Uneven.
 export function getGradeLetter(ratio: number, isWinner: boolean): string {
-  if (ratio >= 0.92) return 'A';
-  if (isWinner) return ratio >= 0.80 ? 'A' : 'A+';
-  if (ratio >= 0.80) return 'B+';
-  if (ratio >= 0.65) return 'B';
-  if (ratio >= 0.50) return 'C+';
+  if (ratio >= 0.95) return 'A';          // fair zone — both sides
+  if (isWinner) return 'A';              // winner always caps at A
+  if (ratio >= 0.85) return 'B+';
+  if (ratio >= 0.70) return 'B';
+  if (ratio >= 0.55) return 'C+';
   if (ratio >= 0.40) return 'C';
   if (ratio >= 0.30) return 'D';
   return 'F';
@@ -89,12 +90,16 @@ function depthDiscount(idx: number, rawValue: number, sideBest: number): number 
     : ratio >= 0.30 ? 0.86
     : ratio >= 0.15 ? 0.74
     : 0.62;
-  return Math.min(posDiscount, valDiscount);
+  // Only apply the position-order penalty when the asset is meaningfully below the side's best.
+  // Near-equal-value pieces (ratio ≥ 0.85) should not be penalized for being "3rd in order".
+  const effectivePosPenalty = ratio >= 0.85 ? 1.0 : posDiscount;
+  return Math.min(effectivePosPenalty, valDiscount);
 }
 
 export function effectiveTotal(
   assets: TradeAsset[],
   source: ValueSource,
+  studScale: number = 1,
 ): { total: number; perPlayer: Map<string, number> } {
   const perPlayer = new Map<string, number>();
   if (!assets.length) return { total: 0, perPlayer };
@@ -103,7 +108,7 @@ export function effectiveTotal(
   let total = 0;
   sorted.forEach((asset, idx) => {
     const raw = getDisplayValue(asset, source);
-    const v = raw * studMultiplier(raw) * depthDiscount(idx, raw, sideBest);
+    const v = raw * studMultiplier(raw * studScale) * depthDiscount(idx, raw, sideBest);
     perPlayer.set(asset.key, Math.round(v));
     total += v;
   });
@@ -114,6 +119,7 @@ export function analyzeTrade(
   sideA: TradeAsset[],
   sideB: TradeAsset[],
   source: ValueSource = 'avg',
+  studScale: number = 1,
 ): AnalysisResult {
   const rawA = sideA.reduce((s, a) => s + getDisplayValue(a, source), 0);
   const rawB = sideB.reduce((s, a) => s + getDisplayValue(a, source), 0);
@@ -126,8 +132,8 @@ export function analyzeTrade(
     };
   }
 
-  const effA = effectiveTotal(sideA, source).total;
-  const effB = effectiveTotal(sideB, source).total;
+  const effA = effectiveTotal(sideA, source, studScale).total;
+  const effB = effectiveTotal(sideB, source, studScale).total;
   const notes: string[] = [];
   const ratio = Math.min(effA, effB) / Math.max(effA, effB, 1);
 
@@ -140,15 +146,15 @@ export function analyzeTrade(
   const diff = Math.abs(effA - effB);
 
   const verdict =
-    ratio >= 0.92 ? 'Fair Trade'
-    : ratio >= 0.80 ? 'Slight Edge'
-    : ratio >= 0.65 ? 'Uneven'
+    ratio >= 0.95 ? 'Fair Trade'
+    : ratio >= 0.85 ? 'Slight Edge'
+    : ratio >= 0.70 ? 'Uneven'
     : 'One-Sided';
 
   const sideAGrade = getGradeLetter(ratio, winner === 'A' || winner === null);
   const sideBGrade = getGradeLetter(ratio, winner === 'B' || winner === null);
 
-  const counterHint = ratio < 0.80 && winner && diff > 0
+  const counterHint = ratio < 0.85 && winner && diff > 0
     ? `Side ${winner === 'A' ? 'B' : 'A'} is short ~${diff.toLocaleString()} pts. Adding or swapping a player would help balance this.`
     : null;
 

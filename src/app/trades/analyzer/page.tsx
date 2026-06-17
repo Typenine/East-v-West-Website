@@ -3,6 +3,11 @@
 import { useState, useEffect, useMemo, useRef, useCallback, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import type { TradeValue } from '@/lib/types/trade-analyzer';
+import SectionHeader from '@/components/ui/SectionHeader';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
+import Chip from '@/components/ui/Chip';
+import Button from '@/components/ui/Button';
+import Input from '@/components/ui/Input';
 
 // --- League teams (mirrored from constants to keep this client-only) ---
 const TEAM_NAMES = [
@@ -53,14 +58,14 @@ function getDisplayValue(asset: SelectedAsset, source: ValueSource): number {
   return asset.value;
 }
 
-// Monotonic by design: as a trade tilts further from fair (ratio → 0), the winner's
-// grade never drops and the loser's never rises. ratio is min(eff)/max(eff) ∈ [0,1].
+// Winner always caps at 'A' (you got a fair-or-better deal). Loser grade drops as trade tilts.
+// Thresholds aligned with verdict bands: 0.95 = Fair, 0.85 = Slight Edge, 0.70 = Uneven.
 function getGradeLetter(ratio: number, isWinner: boolean): string {
-  if (ratio >= 0.92) return 'A';                 // fair zone — both sides
-  if (isWinner) return ratio >= 0.80 ? 'A' : 'A+';
-  if (ratio >= 0.80) return 'B+';
-  if (ratio >= 0.65) return 'B';
-  if (ratio >= 0.50) return 'C+';
+  if (ratio >= 0.95) return 'A';          // fair zone — both sides
+  if (isWinner) return 'A';              // winner always caps at A
+  if (ratio >= 0.85) return 'B+';
+  if (ratio >= 0.70) return 'B';
+  if (ratio >= 0.55) return 'C+';
   if (ratio >= 0.40) return 'C';
   if (ratio >= 0.30) return 'D';
   return 'F';
@@ -123,7 +128,10 @@ function depthDiscount(idx: number, rawValue: number, sideBest: number): number 
     : ratio >= 0.30 ? 0.86
     : ratio >= 0.15 ? 0.74
     : 0.62;
-  return Math.min(posDiscount, valDiscount);
+  // Only apply the position-order penalty when the asset is meaningfully below the side's best.
+  // Near-equal-value pieces (ratio ≥ 0.85) should not be penalized for being "3rd in order".
+  const effectivePosPenalty = ratio >= 0.85 ? 1.0 : posDiscount;
+  return Math.min(effectivePosPenalty, valDiscount);
 }
 
 // Single source of truth for a side's effective value. Stud premium rewards concentrated value;
@@ -174,16 +182,16 @@ function analyzeTrade(sideA: SelectedAsset[], sideB: SelectedAsset[], source: Va
   const diff = Math.abs(effA - effB);
 
   let verdict: string;
-  if (ratio >= 0.92) verdict = 'Fair Trade';
-  else if (ratio >= 0.80) verdict = 'Slight Edge';
-  else if (ratio >= 0.65) verdict = 'Uneven';
+  if (ratio >= 0.95) verdict = 'Fair Trade';
+  else if (ratio >= 0.85) verdict = 'Slight Edge';
+  else if (ratio >= 0.70) verdict = 'Uneven';
   else verdict = 'One-Sided';
 
   const sideAGrade = getGradeLetter(ratio, winner === 'A' || winner === null);
   const sideBGrade = getGradeLetter(ratio, winner === 'B' || winner === null);
 
   let counterHint: string | null = null;
-  if (ratio < 0.80 && winner && diff > 0)
+  if (ratio < 0.85 && winner && diff > 0)
     counterHint = `Side ${winner === 'A' ? 'B' : 'A'} is short ~${formatValue(Math.round(diff))} pts. Adding or swapping a player would help balance this.`;
 
   return { ratio, verdict, winner, diff, effA, effB, rawA, rawB, sideAGrade, sideBGrade, notes, counterHint };
@@ -209,7 +217,7 @@ function AssetChip({ asset, source, sideTotal, barColor, onRemove }: {
   const dv = getDisplayValue(asset, source);
   const pct = sideTotal > 0 ? Math.min(100, Math.round((dv / sideTotal) * 100)) : 0;
   return (
-    <div className="rounded-[var(--radius-card)] bg-[var(--surface)] border border-[var(--border)] px-3 py-2 shadow-[var(--shadow-soft)]">
+    <div className="evw-surface border border-[var(--border)] rounded-[var(--radius-card)] px-3 py-2 shadow-[var(--shadow-soft)]">
       <div className="flex items-center gap-2">
         <div className="flex-1 min-w-0">
           <div className="flex items-center text-sm font-medium text-[var(--text)]">
@@ -261,15 +269,15 @@ function PlayerSearch({ values, excluded, source, onSelect }: {
 
   return (
     <div ref={containerRef} className="relative">
-      <input
-        type="text" value={query}
+      <Input
+        type="text"
+        value={query}
         onChange={(e) => { setQuery(e.target.value); setOpen(true); }}
         onFocus={() => query.trim() && setOpen(true)}
         placeholder="Search players..."
-        className="w-full rounded-[var(--radius-card)] bg-[var(--surface)] border border-[var(--border)] px-3 py-2 text-sm text-[var(--text)] placeholder:text-[var(--muted)] focus:outline-none focus:border-[var(--accent)] transition-colors"
       />
       {open && filtered.length > 0 && (
-        <div className="absolute z-50 mt-1 w-full max-h-60 overflow-y-auto rounded-[var(--radius-card)] bg-[var(--surface-strong)] border border-[var(--border)] shadow-xl">
+        <div className="absolute z-50 mt-1 w-full max-h-60 overflow-y-auto evw-surface border border-[var(--border)] rounded-[var(--radius-card)] shadow-xl">
           {filtered.map((v) => (
             <button key={v.sleeperId} onClick={() => { onSelect(assetFromValue(v, false)); setQuery(''); setOpen(false); }}
               className="w-full text-left px-3 py-2 hover:bg-[var(--surface)] transition-colors border-b border-[var(--border)] last:border-b-0">
@@ -304,7 +312,7 @@ interface PickYearGroup { year: string; rounds: PickRoundGroup[]; }
 function PickSelector({ values, excluded, onSelect }: { values: TradeValue[]; excluded: Set<string>; onSelect: (a: SelectedAsset) => void; }) {
   const grouped = useMemo(() => {
     const byYear = new Map<string, Map<number, TradeValue[]>>();
-    for (const p of values.filter((v) => v.isPick && !excluded.has(v.sleeperId))) {
+    for (const p of values.filter((v) => v.isPick && !excluded.has(v.sleeperId) && /(EARLY|MID|LATE)$/.test(v.sleeperId))) {
       const year = p.name.match(/^(\d{4})/)?.[1] ?? 'Other';
       const round = pickRound(p.sleeperId);
       if (!byYear.has(year)) byYear.set(year, new Map());
@@ -337,13 +345,12 @@ function PickSelector({ values, excluded, onSelect }: { values: TradeValue[]; ex
 
   if (!grouped.length) return null;
   return (
-    <div ref={ref} className="relative">
-      <button onClick={() => setOpen(!open)}
-        className="w-full rounded-[var(--radius-card)] bg-[var(--surface)] border border-[var(--border)] px-3 py-2 text-sm text-[var(--muted)] hover:text-[var(--text)] hover:border-[var(--accent)] transition-colors text-left">
-        + Add Draft Pick
-      </button>
+    <div ref={ref} className="relative min-w-0">
+      <Button type="button" variant="secondary" size="sm" fullWidth onClick={() => setOpen(!open)}>
+        + Draft Pick
+      </Button>
       {open && (
-        <div className="absolute z-50 mt-1 w-full max-h-72 overflow-y-auto rounded-[var(--radius-card)] bg-[var(--surface-strong)] border border-[var(--border)] shadow-xl">
+        <div className="absolute z-50 mt-1 w-full max-h-72 overflow-y-auto evw-surface border border-[var(--border)] rounded-[var(--radius-card)] shadow-xl">
           {grouped.map((g) => (
             <div key={g.year}>
               <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest text-[var(--muted)] bg-[var(--surface)] border-b border-[var(--border)] sticky top-0">{g.year} Picks</div>
@@ -397,13 +404,12 @@ function RosterPicker({ values, excluded, onAdd }: { values: TradeValue[]; exclu
   const matched = useMemo(() => roster.map((p) => ({ ...p, tv: valMap.get(p.id) })).filter((p) => p.tv && !excluded.has(p.id)), [roster, valMap, excluded]);
 
   return (
-    <div ref={ref} className="relative">
-      <button onClick={() => setOpen(!open)}
-        className="w-full rounded-[var(--radius-card)] bg-[var(--surface)] border border-[var(--border)] px-3 py-2 text-sm text-[var(--muted)] hover:text-[var(--text)] hover:border-[var(--accent)] transition-colors text-left">
+    <div ref={ref} className="relative min-w-0">
+      <Button type="button" variant="secondary" size="sm" fullWidth onClick={() => setOpen(!open)}>
         Load from roster…
-      </button>
+      </Button>
       {open && (
-        <div className="absolute z-50 mt-1 w-full rounded-[var(--radius-card)] bg-[var(--surface-strong)] border border-[var(--border)] shadow-xl">
+        <div className="absolute z-50 mt-1 w-full evw-surface border border-[var(--border)] rounded-[var(--radius-card)] shadow-xl">
           <div className="p-2 border-b border-[var(--border)]">
             <select value={team} onChange={(e) => loadTeam(e.target.value)}
               className="w-full rounded bg-[var(--surface)] border border-[var(--border)] px-2 py-1.5 text-sm text-[var(--text)] focus:outline-none focus:border-[var(--accent)]">
@@ -430,20 +436,22 @@ function RosterPicker({ values, excluded, onAdd }: { values: TradeValue[]; exclu
 }
 
 function ValueSourceToggle({ source, onChange, ktcAvailable }: { source: ValueSource; onChange: (s: ValueSource) => void; ktcAvailable: boolean }) {
-  const disabled = (s: ValueSource) => !ktcAvailable && (s === 'ktc' || s === 'avg');
+  const isDisabled = (s: ValueSource) => !ktcAvailable && (s === 'ktc' || s === 'avg');
   return (
-    <div className="flex rounded-[var(--radius-card)] border border-[var(--border)] overflow-hidden text-xs">
+    <div className="flex items-center gap-1.5" role="group" aria-label="Value source">
       {(['avg', 'ktc', 'fc'] as ValueSource[]).map((s) => (
-        <button key={s} onClick={() => !disabled(s) && onChange(s)}
-          title={disabled(s) ? 'KTC unavailable (blocked by server)' : undefined}
-          className={`px-3 py-1.5 font-medium transition-colors uppercase${disabled(s) ? ' cursor-not-allowed' : ''}`}
-          style={disabled(s)
-            ? { background: 'var(--surface)', color: 'var(--border)', cursor: 'not-allowed' }
-            : source === s
-              ? { background: 'var(--accent)', color: '#fff' }
-              : { background: 'var(--surface)', color: 'var(--muted)' }}>
+        <Chip
+          key={s}
+          variant="accent"
+          size="sm"
+          selected={source === s}
+          disabled={isDisabled(s)}
+          title={isDisabled(s) ? 'KTC unavailable (blocked by server)' : undefined}
+          onClick={() => !isDisabled(s) && onChange(s)}
+          className={isDisabled(s) ? 'opacity-40 cursor-not-allowed' : 'uppercase'}
+        >
           {s}
-        </button>
+        </Chip>
       ))}
     </div>
   );
@@ -470,34 +478,36 @@ function TradeSide({ label, color, assets, values, excluded, source, grade, effT
 
   return (
     <div className="flex-1 min-w-0">
-      <div className="flex items-center justify-between mb-2">
-        <div className="flex items-center gap-2">
-          <div className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: color }} />
-          <h3 className="text-sm font-semibold text-[var(--text)] uppercase tracking-wide">{label}</h3>
+      <div className="flex items-center justify-between gap-2 mb-1.5">
+        <div className="flex items-center gap-2 min-w-0">
+          <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: color }} />
+          <h3 className="text-sm font-semibold text-[var(--text)] uppercase tracking-wide truncate">{label}</h3>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5 shrink-0">
           {grade !== '—' && (
-            <span className="text-sm font-bold px-2 py-0.5 rounded-full" style={{ color: gc, backgroundColor: gc + '22', border: `1px solid ${gc}55` }}>
+            <span className="text-xs font-bold px-2 py-0.5 rounded-full" style={{ color: gc, backgroundColor: gc + '22', border: `1px solid ${gc}55` }}>
               {grade}
             </span>
           )}
-          <span className="text-sm font-bold" style={{ color }}>{formatValue(displayTotal)}</span>
+          <span className="text-sm font-bold tabular-nums" style={{ color }}>{formatValue(displayTotal)}</span>
           {assets.length > 0 && (
-            <button onClick={onClear} className="text-xs text-[var(--muted)] hover:text-[var(--danger)] transition-colors">Clear</button>
+            <button onClick={onClear} className="text-xs text-[var(--muted)] hover:text-[var(--danger)] transition-colors ml-0.5">Clear</button>
           )}
         </div>
       </div>
 
       {posSummary && (
-        <div className="text-[11px] text-[var(--muted)] mb-2 opacity-80">
+        <div className="text-[11px] text-[var(--muted)] mb-2.5 opacity-80">
           {posSummary}{avgAge !== null && ` · Avg age ${avgAge.toFixed(1)}`}
         </div>
       )}
 
       <div className="space-y-2 mb-3">
         <PlayerSearch values={values} excluded={excluded} source={source} onSelect={onAdd} />
-        <PickSelector values={values} excluded={excluded} onSelect={onAdd} />
-        <RosterPicker values={values} excluded={excluded} onAdd={onAdd} />
+        <div className="grid grid-cols-2 gap-2">
+          <PickSelector values={values} excluded={excluded} onSelect={onAdd} />
+          <RosterPicker values={values} excluded={excluded} onAdd={onAdd} />
+        </div>
       </div>
 
       <div className="space-y-2 min-h-[80px]">
@@ -531,8 +541,7 @@ function FairnessMeter({ analysis, allAssets }: { analysis: AnalysisResult; allA
   else if (ratio < 0.92) verdictColor = '#eab308';
 
   return (
-    <div className="py-2">
-      {/* Side-by-side value bar */}
+    <div>
       <div className="flex h-7 rounded-full overflow-hidden mb-1">
         <div className="flex items-center justify-end pr-2 transition-all duration-500 text-xs font-bold text-white/90"
           style={{ width: `${pctA}%`, backgroundColor: 'var(--accent)' }}>
@@ -543,14 +552,13 @@ function FairnessMeter({ analysis, allAssets }: { analysis: AnalysisResult; allA
           {pctB > 18 && `${pctB}%`}
         </div>
       </div>
-      <div className="flex justify-between text-xs text-[var(--muted)] mb-4">
+      <div className="flex justify-between text-xs text-[var(--muted)] mb-5">
         <span style={{ color: 'var(--accent)' }}>Side A · {formatValue(effA)}</span>
         <span style={{ color: 'var(--danger)' }}>Side B · {formatValue(effB)}</span>
       </div>
 
-      {/* Verdict */}
       <div className="text-center">
-        <div className="text-2xl font-bold" style={{ color: verdictColor }}>{verdict}</div>
+        <div className="text-3xl font-extrabold tracking-tight" style={{ color: verdictColor }}>{verdict}</div>
         {winner && diff > 0 && (
           <div className="text-sm text-[var(--muted)] mt-1">
             Side {winner} wins by <span className="font-semibold text-[var(--text)]">{formatValue(diff)}</span>
@@ -590,9 +598,9 @@ function ShareButton({ sideA, sideB }: { sideA: SelectedAsset[]; sideB: Selected
     setCopied(true); setTimeout(() => setCopied(false), 2000);
   }
   return (
-    <button onClick={copy} className="px-4 py-2 text-sm rounded-[var(--radius-card)] border border-[var(--border)] text-[var(--muted)] hover:text-[var(--text)] hover:border-[var(--accent)] transition-colors">
+    <Button type="button" variant="secondary" onClick={copy}>
       {copied ? '✓ Link copied!' : 'Share trade link'}
-    </button>
+    </Button>
   );
 }
 
@@ -655,8 +663,11 @@ function PositionBreakdown({ sideA, sideB, source }: { sideA: SelectedAsset[]; s
   if (!allPos.length) return null;
 
   return (
-    <div className="mt-4 rounded-[var(--radius-card)] bg-[var(--surface)] border border-[var(--border)] p-4 md:p-5 shadow-[var(--shadow-soft)]">
-      <h2 className="text-xs font-semibold text-[var(--muted)] uppercase tracking-wide mb-3">Position Breakdown</h2>
+    <Card className="mt-4">
+      <CardHeader>
+        <CardTitle className="text-xs font-semibold text-[var(--muted)] uppercase tracking-wide">Position Breakdown</CardTitle>
+      </CardHeader>
+      <CardContent className="pt-0">
       <div className="space-y-2">
         {allPos.map((pos) => {
           const a = ga.get(pos) ?? { count: 0, value: 0 };
@@ -679,7 +690,8 @@ function PositionBreakdown({ sideA, sideB, source }: { sideA: SelectedAsset[]; s
           );
         })}
       </div>
-    </div>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -732,10 +744,13 @@ function RosterSuggestionPanel({ analysis, values, sideA, sideB, gap, onAddA, on
   const shortSide = analysis.winner === 'A' ? 'B' : 'A';
 
   return (
-    <div className="mt-4 rounded-[var(--radius-card)] bg-[var(--surface)] border border-[var(--border)] p-4 md:p-5 shadow-[var(--shadow-soft)]">
-      <h2 className="text-xs font-semibold text-[var(--muted)] uppercase tracking-wide mb-3">
-        Balance Side {shortSide} · needs ~{formatValue(Math.round(gap))} pts from a roster
-      </h2>
+    <Card className="mt-4">
+      <CardHeader>
+        <CardTitle className="text-xs font-semibold text-[var(--muted)] uppercase tracking-wide">
+          Balance Side {shortSide} · needs ~{formatValue(Math.round(gap))} pts from a roster
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="pt-0">
       <select value={team} onChange={(e) => loadTeam(e.target.value)}
         className="w-full max-w-xs rounded-[var(--radius-card)] bg-[var(--surface-strong)] border border-[var(--border)] px-3 py-1.5 text-sm text-[var(--text)] focus:outline-none focus:border-[var(--accent)] mb-3">
         <option value="">Select a team to check their roster…</option>
@@ -757,19 +772,20 @@ function RosterSuggestionPanel({ analysis, values, sideA, sideB, gap, onAddA, on
                   <div className="text-[10px] text-[var(--muted)]">{p.pos} · <span style={{ color: 'var(--accent)' }}>{formatValue(p.tv!.value)}</span></div>
                 </div>
                 <div className="flex flex-col gap-0.5 shrink-0">
-                  <button onClick={() => onAddA(assetFromValue(p.tv!, false))}
-                    className="text-xs font-bold w-5 h-5 flex items-center justify-center rounded-full"
-                    style={{ background: 'var(--accent)', color: '#fff' }}>+A</button>
-                  <button onClick={() => onAddB(assetFromValue(p.tv!, false))}
-                    className="text-xs font-bold w-5 h-5 flex items-center justify-center rounded-full"
-                    style={{ background: 'var(--danger)', color: '#fff' }}>+B</button>
+                  <Button type="button" size="sm" onClick={() => onAddA(assetFromValue(p.tv!, false))}
+                    className="!w-5 !h-5 !p-0 !min-w-0 rounded-full text-[10px] font-bold"
+                    style={{ background: 'var(--accent)', color: '#fff' }}>+A</Button>
+                  <Button type="button" size="sm" onClick={() => onAddB(assetFromValue(p.tv!, false))}
+                    className="!w-5 !h-5 !p-0 !min-w-0 rounded-full text-[10px] font-bold"
+                    style={{ background: 'var(--danger)', color: '#fff' }}>+B</Button>
                 </div>
               </div>
             ))}
           </div>
         </>
       )}
-    </div>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -889,36 +905,38 @@ function TradeAnalyzerContent() {
 
   if (loading) return (
     <div className="container mx-auto px-4 py-8">
-      <h1 className="text-2xl font-bold text-[var(--text)] mb-6">Trade Analyzer</h1>
-      <div className="flex items-center justify-center py-20">
-        <div className="animate-spin rounded-full h-8 w-8 border-2 border-[var(--accent)] border-t-transparent" />
-        <span className="ml-3 text-[var(--muted)]">Loading trade values…</span>
-      </div>
+      <SectionHeader title="Trade Analyzer" subtitle="Dynasty · Superflex · 12-Team · PPR" />
+      <Card>
+        <CardContent className="flex items-center justify-center py-20">
+          <div className="animate-spin rounded-full h-8 w-8 border-2 border-[var(--accent)] border-t-transparent" />
+          <span className="ml-3 text-[var(--muted)]">Loading trade values…</span>
+        </CardContent>
+      </Card>
     </div>
   );
 
   if (error) return (
     <div className="container mx-auto px-4 py-8">
-      <h1 className="text-2xl font-bold text-[var(--text)] mb-6">Trade Analyzer</h1>
-      <div className="rounded-[var(--radius-card)] bg-[var(--surface)] border border-[var(--danger)] p-6 text-center">
-        <p style={{ color: 'var(--danger)' }}>{error}</p>
-        <button onClick={() => window.location.reload()}
-          className="mt-3 px-4 py-2 rounded-[var(--radius-card)] border border-[var(--danger)] text-sm hover:opacity-80 transition-colors"
-          style={{ color: 'var(--danger)' }}>Retry</button>
-      </div>
+      <SectionHeader title="Trade Analyzer" subtitle="Dynasty · Superflex · 12-Team · PPR" />
+      <Card className="border-[var(--danger)]">
+        <CardContent className="text-center py-8">
+          <p style={{ color: 'var(--danger)' }}>{error}</p>
+          <Button type="button" variant="secondary" className="mt-4" onClick={() => window.location.reload()}>
+            Retry
+          </Button>
+        </CardContent>
+      </Card>
     </div>
   );
 
   return (
     <>
-    <div className={`container mx-auto px-4 py-8${showSuggestions ? ' pb-28' : ''}`}>
-      <div className="flex flex-wrap items-start justify-between gap-3 mb-6">
-        <div>
-          <h1 className="text-2xl font-bold text-[var(--text)]">Trade Analyzer</h1>
-          <p className="text-sm text-[var(--muted)] mt-1">Dynasty · Superflex · 12-Team · PPR</p>
-        </div>
-        {isAdmin && (
-          <div className="flex items-center gap-2">
+    <div className={`container mx-auto px-4 py-8${showSuggestions ? ' pb-24' : ''}`}>
+      <SectionHeader
+        title="Trade Analyzer"
+        subtitle="Dynasty · Superflex · 12-Team · PPR"
+        actions={isAdmin ? (
+          <div className="flex flex-wrap items-center justify-end gap-2">
             {dataSources && (
               <div className="flex items-center gap-1.5 text-[10px] text-[var(--muted)]">
                 <span className={`w-2 h-2 rounded-full ${dataSources.fantasyCalc ? 'bg-green-500' : 'bg-red-500'}`} />
@@ -929,24 +947,32 @@ function TradeAnalyzerContent() {
             )}
             <ValueSourceToggle source={source} onChange={setSource} ktcAvailable={!!(dataSources?.ktcCount && dataSources.ktcCount > 0)} />
           </div>
-        )}
-      </div>
+        ) : undefined}
+      />
 
-      <div className="rounded-[var(--radius-card)] bg-[var(--surface)] border border-[var(--border)] p-4 md:p-6 shadow-[var(--shadow-soft)]">
-        <div className="flex flex-col md:flex-row gap-6">
+      <Card>
+        <CardContent className="md:p-6">
+        <div className="flex flex-col md:flex-row md:items-stretch gap-6">
           <TradeSide label="Side A" color="var(--accent)" assets={sideA} values={values} excluded={excluded} source={source}
             grade={analysis.sideAGrade} effTotal={analysis.effA}
             onAdd={(a) => setSideA((p) => [...p, a])} onRemove={(k) => setSideA((p) => p.filter((x) => x.key !== k))} onClear={() => setSideA([])} />
-          <div className="hidden md:flex items-center"><div className="w-px h-full bg-[var(--border)]" /></div>
+          <div className="hidden md:flex items-center justify-center shrink-0 px-1">
+            <span className="text-xs font-semibold text-[var(--muted)] uppercase tracking-wider px-3 py-1.5 rounded-full border border-[var(--border)] bg-[var(--surface-strong)]">
+              VS
+            </span>
+          </div>
           <div className="md:hidden border-t border-[var(--border)]" />
           <TradeSide label="Side B" color="var(--danger)" assets={sideB} values={values} excluded={excluded} source={source}
             grade={analysis.sideBGrade} effTotal={analysis.effB}
             onAdd={(a) => setSideB((p) => [...p, a])} onRemove={(k) => setSideB((p) => p.filter((x) => x.key !== k))} onClear={() => setSideB([])} />
         </div>
         <div className="mt-6 pt-4 border-t border-[var(--border)]">
-          <FairnessMeter analysis={analysis} allAssets={[...sideA, ...sideB]} />
+          <div className="rounded-[var(--radius-card)] bg-[var(--surface-strong)] p-4 md:p-5">
+            <FairnessMeter analysis={analysis} allAssets={[...sideA, ...sideB]} />
+          </div>
         </div>
-      </div>
+        </CardContent>
+      </Card>
 
       {(sideA.length > 0 || sideB.length > 0) && (
         <PositionBreakdown sideA={sideA} sideB={sideB} source={source} />
@@ -965,8 +991,11 @@ function TradeAnalyzerContent() {
       )}
 
       {(sideA.length > 0 || sideB.length > 0) && (
-        <div className="mt-4 rounded-[var(--radius-card)] bg-[var(--surface)] border border-[var(--border)] p-4 md:p-6 shadow-[var(--shadow-soft)]">
-          <h2 className="text-sm font-semibold text-[var(--muted)] uppercase tracking-wide mb-4">Value Breakdown</h2>
+        <Card className="mt-4">
+          <CardHeader>
+            <CardTitle className="text-sm font-semibold text-[var(--muted)] uppercase tracking-wide">Value Breakdown</CardTitle>
+          </CardHeader>
+          <CardContent className="pt-0">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {[{ side: sideA, total: totalA, color: 'var(--accent)', label: 'A' }, { side: sideB, total: totalB, color: 'var(--danger)', label: 'B' }].map(({ side, total, color, label }) => (
               <div key={label}>
@@ -983,16 +1012,16 @@ function TradeAnalyzerContent() {
               </div>
             ))}
           </div>
-        </div>
+          </CardContent>
+        </Card>
       )}
 
       {(sideA.length > 0 || sideB.length > 0) && (
         <div className="mt-4 flex justify-center gap-3 flex-wrap">
           <ShareButton sideA={sideA} sideB={sideB} />
-          <button onClick={() => { setSideA([]); setSideB([]); }}
-            className="px-4 py-2 text-sm rounded-[var(--radius-card)] border border-[var(--border)] text-[var(--muted)] hover:text-[var(--text)] hover:border-[var(--text)] transition-colors">
+          <Button type="button" variant="secondary" onClick={() => { setSideA([]); setSideB([]); }}>
             Reset Trade
-          </button>
+          </Button>
         </div>
       )}
 
@@ -1003,9 +1032,9 @@ function TradeAnalyzerContent() {
 
     {/* Suggestion strip — sticky bottom, non-intrusive */}
     {showSuggestions && (
-      <div className="fixed bottom-0 left-0 right-0 z-40 border-t border-[var(--border)] shadow-2xl"
-        style={{ background: 'var(--surface-strong)', backdropFilter: 'blur(12px)' }}>
-        <div className="container mx-auto px-4 py-3 flex items-center gap-3">
+      <div className="fixed bottom-0 left-0 right-0 z-40 border-t border-[var(--border)] shadow-2xl evw-surface"
+        style={{ backdropFilter: 'blur(12px)' }}>
+        <div className="container mx-auto px-4 py-2.5 flex items-center gap-3">
           <div className="shrink-0 hidden sm:block">
             <div className="text-[10px] font-bold uppercase tracking-widest text-[var(--muted)]">
               {suggestionMode === 'balance' ? 'Balance trade' : 'Compare'}
@@ -1019,8 +1048,7 @@ function TradeAnalyzerContent() {
               const val = source === 'fc' ? (v.fcValue ?? v.value) : source === 'ktc' ? (v.ktcValue ?? v.value) : v.value;
               return (
                 <div key={v.sleeperId}
-                  className="flex items-center gap-2 rounded-[var(--radius-card)] border border-[var(--border)] px-2.5 py-1.5 shrink-0"
-                  style={{ background: 'var(--surface)' }}>
+                  className="flex items-center gap-2 rounded-full border border-[var(--border)] px-2.5 py-1.5 shrink-0 evw-surface">
                   <div className="min-w-0">
                     <div className="text-sm font-semibold text-[var(--text)] whitespace-nowrap">
                       {v.isPick ? v.name.replace(/^\d{4}\s*/, '') : v.name}
@@ -1031,24 +1059,28 @@ function TradeAnalyzerContent() {
                     </div>
                   </div>
                   <div className="flex flex-col gap-0.5 ml-1">
-                    <button
+                    <Button
+                      type="button"
+                      size="sm"
                       onClick={() => setSideA((p) => [...p, assetFromValue(v, v.isPick)])}
-                      className="text-sm font-bold w-6 h-6 flex items-center justify-center rounded-full transition-opacity hover:opacity-90"
+                      className="!w-6 !h-6 !p-0 !min-w-0 rounded-full text-xs font-bold"
                       style={{
                         background: 'var(--accent)', color: '#fff',
                         opacity: needsSide === 'B' ? 0.25 : 1,
                       }}>
                       +
-                    </button>
-                    <button
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
                       onClick={() => setSideB((p) => [...p, assetFromValue(v, v.isPick)])}
-                      className="text-sm font-bold w-6 h-6 flex items-center justify-center rounded-full transition-opacity hover:opacity-90"
+                      className="!w-6 !h-6 !p-0 !min-w-0 rounded-full text-xs font-bold"
                       style={{
                         background: 'var(--danger)', color: '#fff',
                         opacity: needsSide === 'A' ? 0.25 : 1,
                       }}>
                       +
-                    </button>
+                    </Button>
                   </div>
                 </div>
               );
@@ -1056,7 +1088,7 @@ function TradeAnalyzerContent() {
           </div>
           <button
             onClick={() => setSuggestDismissed(true)}
-            className="text-[var(--muted)] hover:text-[var(--text)] transition-colors text-xl leading-none shrink-0"
+            className="text-[var(--muted)] hover:text-[var(--text)] transition-colors text-xl leading-none shrink-0 p-1"
             aria-label="Dismiss suggestions">
             ×
           </button>
@@ -1071,9 +1103,12 @@ export default function TradeAnalyzerPage() {
   return (
     <Suspense fallback={
       <div className="container mx-auto px-4 py-8">
-        <div className="flex items-center justify-center py-20">
-          <div className="animate-spin rounded-full h-8 w-8 border-2 border-[var(--accent)] border-t-transparent" />
-        </div>
+        <SectionHeader title="Trade Analyzer" subtitle="Dynasty · Superflex · 12-Team · PPR" />
+        <Card>
+          <CardContent className="flex items-center justify-center py-20">
+            <div className="animate-spin rounded-full h-8 w-8 border-2 border-[var(--accent)] border-t-transparent" />
+          </CardContent>
+        </Card>
       </div>
     }>
       <TradeAnalyzerContent />

@@ -161,7 +161,6 @@ function normalizeName(name: string): string {
 
 // --- Standardized draft pick system ---
 
-const PICK_YEARS = ['2026', '2027', '2028', '2029', '2030'];
 const PICK_ROUNDS = [1, 2, 3, 4];
 const PICK_TIERS = ['Early', 'Mid', 'Late'] as const;
 
@@ -221,7 +220,7 @@ function parseNumberedPick(name: string): { year: string; round: number; slot: n
   if (!slotMatch) return null;
   const round = parseInt(slotMatch[1]);
   const slot = parseInt(slotMatch[2]);
-  if (round < 1 || round > 4 || slot < 1 || slot > 36) return null;
+  if (round < 1 || round > 4 || slot < 1 || slot > 12) return null;
   return { year, round, slot };
 }
 
@@ -231,6 +230,11 @@ const TIER_SLOTS: Record<string, [number, number]> = {
   Mid: [5, 8],
   Late: [9, 12],
 };
+
+/** Generate a stable deterministic key for a numbered slot pick like "2026 1.06" → "PICK_2026_1_06". */
+function numberedPickKey(year: string, round: number, slot: number): string {
+  return `PICK_${year}_${round}_${String(slot).padStart(2, '0')}`;
+}
 
 /** Map a numbered pick slot (1-12) to its tier. KTC only prices picks by tier, so a numbered
  *  slot pick ("2026 1.06") borrows the KTC value of its tier ("2026 Mid 1st"). */
@@ -259,6 +263,7 @@ function ensureStandardPicks(
     4: { Early: 1000, Mid: 700, Late: 400 },
   };
   const currentYear = new Date().getFullYear();
+  const PICK_YEARS = Array.from({ length: 5 }, (_, i) => String(currentYear + i));
 
   let rank = Object.keys(result).length + 1;
 
@@ -356,13 +361,16 @@ function mergeValues(fc: FantasyCalcPlayer[], ktc: KTCPlayer[]): { values: Recor
     const p = fc[i];
     const name = p.player.name || '';
     const pick = isPick(name);
-    const key = pick ? (pickKey(name) || `fc_pick_${i}`) : (p.player.sleeperId || `fc_${p.player.id}`);
+    // numbered must be computed before key so slot picks get a stable deterministic key
+    const numbered = pick ? parseNumberedPick(name) : null;
+    const key = pick
+      ? (numbered ? numberedPickKey(numbered.year, numbered.round, numbered.slot) : (pickKey(name) || `fc_pick_${i}`))
+      : (p.player.sleeperId || `fc_${p.player.id}`);
 
     // Resolve the KTC value for this FC entry:
     //  - players: by normalized name
     //  - numbered slot picks: exact KTC slot value, else fall back to the tier's KTC value
     //  - tier picks: by standardized tier key
-    const numbered = pick ? parseNumberedPick(name) : null;
     const fcVal = p.value; // raw FC value, 0-10000 scale
     let ktcVal: number | null;
     if (!pick) {
