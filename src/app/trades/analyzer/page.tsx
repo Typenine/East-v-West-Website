@@ -974,9 +974,11 @@ function TradeAnalyzerContent() {
       <BroadcastPanel title="Error" accent="var(--danger)">
         <div className="text-center py-8">
           <p style={{ color: 'var(--danger)' }}>{error}</p>
-          <BroadcastSubmitButton accent="var(--danger)" type="button" className="mt-4" onClick={() => window.location.reload()}>
-            Retry
-          </BroadcastSubmitButton>
+          <div className="mt-4">
+            <BroadcastSubmitButton accent="var(--danger)" type="button" onClick={() => window.location.reload()}>
+              Retry
+            </BroadcastSubmitButton>
+          </div>
         </div>
       </BroadcastPanel>
     </div>
