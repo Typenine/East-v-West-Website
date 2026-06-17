@@ -39,7 +39,7 @@ import { buildTransactionLedger } from '@/lib/utils/transactions';
 import { fetchTradesAllTime, type Trade } from '@/lib/utils/trades';
 import { senderOfAsset } from '@/lib/trades/asset-routing';
 import { rulesHtmlSections } from '@/data/rules';
-import { getTradeValues, resolveAssets } from '@/lib/trade-analyzer/values';
+import { getTradeValues, resolveAssets, fuzzyFindValue } from '@/lib/trade-analyzer/values';
 import {
   analyzeTrade,
   buildPosSummary,
@@ -2793,6 +2793,337 @@ export function formatPlayerValuesMarkdown(data: ReturnType<typeof handleGetPlay
   }
 
   lines.push('', `*Source: FantasyCalc + KTC average · Dynasty SF · ${FRESHNESS()}*`);
+  return lines.join('\n');
+}
+
+// ─── tool: get_trade_block ────────────────────────────────────────────────────
+
+const TRADE_BLOCKS_BASE = 'https://east-v-west-website.vercel.app';
+const PICK_ORD_TB = ['', '1st', '2nd', '3rd', '4th', '5th'];
+
+export async function handleGetTradeBlock(input: { team?: string }) {
+  const teamFilter = (input.team ?? '').trim().toLowerCase();
+
+  const [tbRes, allPlayers] = await Promise.all([
+    fetch(`${TRADE_BLOCKS_BASE}/api/teams/trade-blocks`, {
+      cache: 'no-store',
+      signal: AbortSignal.timeout(12_000),
+    }),
+    getAllPlayersCached().catch(() => ({} as Record<string, SleeperPlayer>)),
+  ]);
+  if (!tbRes.ok) throw new McpError('upstream_error', `Trade block API returned ${tbRes.status}`);
+
+  type RawAsset =
+    | { type: 'player'; playerId: string }
+    | { type: 'pick'; year: number; round: number; originalTeam?: string }
+    | { type: 'faab'; amount?: number };
+  const json = (await tbRes.json()) as {
+    teams: Array<{
+      team: string;
+      tradeBlock: RawAsset[];
+      tradeWants: { text?: string; positions?: string[] } | null;
+      updatedAt: string | null;
+    }>;
+  };
+
+  const teams = json.teams
+    .filter((t) => !teamFilter || t.team.toLowerCase().includes(teamFilter))
+    .map((t) => {
+      const assets = (t.tradeBlock ?? []).map((a) => {
+        if (a.type === 'player') {
+          const p = allPlayers[a.playerId] as SleeperPlayer | undefined;
+          const name = p ? `${p.first_name ?? ''} ${p.last_name ?? ''}`.trim() || a.playerId : a.playerId;
+          return { type: 'player' as const, playerId: a.playerId, name, position: p?.position ?? null, nflTeam: p?.team ?? null, injuryStatus: p?.injury_status ?? p?.status ?? null };
+        }
+        if (a.type === 'pick') {
+          const ord = PICK_ORD_TB[a.round] ?? `${a.round}th`;
+          const suffix = a.originalTeam && a.originalTeam !== t.team ? ` (from ${a.originalTeam})` : '';
+          return { type: 'pick' as const, display: `${a.year} ${ord}${suffix}`, year: a.year, round: a.round, originalTeam: a.originalTeam ?? null };
+        }
+        return { type: 'faab' as const, display: `$${(a as { amount?: number }).amount ?? '?'} FAAB` };
+      });
+      return {
+        team: t.team,
+        assets,
+        assetCount: assets.length,
+        wants: t.tradeWants?.text ?? null,
+        wantedPositions: t.tradeWants?.positions ?? [],
+        updatedAt: t.updatedAt,
+      };
+    });
+
+  const active = teams.filter((t) => t.assetCount > 0);
+  return {
+    ok: true,
+    data: {
+      fetchedAt: new Date().toISOString(),
+      source: 'east-v-west-trade-blocks',
+      teamFilter: teamFilter || null,
+      teamsWithAssets: active.length,
+      teams: active.length > 0 ? active : teams,
+    },
+  };
+}
+
+export function formatTradeBlockMarkdown(data: ReturnType<typeof handleGetTradeBlock> extends Promise<infer T> ? T : never): string {
+  if (!data?.data) return '⚠️ Trade block data unavailable.';
+  const { teams, teamsWithAssets } = data.data;
+
+  const lines: string[] = [
+    `## 📋 League Trade Block`,
+    `*${teamsWithAssets} team${teamsWithAssets !== 1 ? 's' : ''} with assets listed · ${FRESHNESS()}*`,
+    '',
+  ];
+
+  if (teams.length === 0) {
+    lines.push('*No teams currently have assets on the trade block.*');
+    return lines.join('\n');
+  }
+
+  for (const t of teams) {
+    lines.push(`### ${t.team}`);
+    if (t.assets.length === 0) {
+      lines.push('*No assets listed.*');
+    } else {
+      for (const a of t.assets) {
+        if (a.type === 'player') {
+          const inj = a.injuryStatus ? ` *(${a.injuryStatus})*` : '';
+          lines.push(`- **${a.name}** (${a.position ?? '?'}${a.nflTeam ? ` · ${a.nflTeam}` : ''})${inj}`);
+        } else if (a.type === 'pick') {
+          lines.push(`- 🎯 ${a.display}`);
+        } else {
+          lines.push(`- 💰 ${(a as { display: string }).display}`);
+        }
+      }
+    }
+    if (t.wants) lines.push(`*Wants: ${t.wants}*`);
+    if (t.wantedPositions.length) lines.push(`*Looking for: ${t.wantedPositions.join(', ')}*`);
+    lines.push('');
+  }
+
+  return lines.join('\n');
+}
+
+// ─── tool: get_power_rankings ─────────────────────────────────────────────────
+
+export async function handleGetPowerRankings() {
+  const leagueId = LEAGUE_IDS.CURRENT;
+  const opts = { timeoutMs: 15000 };
+
+  const [teams, rosters, state] = await Promise.all([
+    getTeamsData(leagueId, opts).catch(() => []),
+    getLeagueRosters(leagueId, opts).catch(() => [] as SleeperRoster[]),
+    getNFLState().catch(() => null),
+  ]);
+
+  const currentWeek = (state as { week?: number } | null)?.week ?? 1;
+  const recentWeeks = Array.from(
+    new Set([Math.max(1, currentWeek - 2), Math.max(1, currentWeek - 1), currentWeek])
+  );
+
+  const weekMatchups = await Promise.all(
+    recentWeeks.map((w) => getLeagueMatchups(leagueId, w, opts).catch(() => [] as SleeperMatchup[]))
+  );
+
+  const rosterById = new Map<number, SleeperRoster>(rosters.map((r) => [r.roster_id, r]));
+
+  // Count recent wins per roster_id
+  const recentWinsMap = new Map<number, number>();
+  for (const wk of weekMatchups) {
+    const byMatchup = new Map<number, SleeperMatchup[]>();
+    for (const m of wk) {
+      if (!byMatchup.has(m.matchup_id)) byMatchup.set(m.matchup_id, []);
+      byMatchup.get(m.matchup_id)!.push(m);
+    }
+    for (const pair of byMatchup.values()) {
+      if (pair.length !== 2) continue;
+      const [a, b] = pair;
+      const winner = (a.points ?? 0) >= (b.points ?? 0) ? a : b;
+      recentWinsMap.set(winner.roster_id, (recentWinsMap.get(winner.roster_id) ?? 0) + 1);
+    }
+  }
+
+  const stats = teams.map((team) => {
+    const r = rosterById.get(team.rosterId);
+    const rs = r?.settings as { wins?: number; losses?: number; ties?: number; fpts?: number; fpts_decimal?: number } | undefined;
+    const wins = rs?.wins ?? 0;
+    const losses = rs?.losses ?? 0;
+    const ties = rs?.ties ?? 0;
+    const games = wins + losses + ties;
+    const pf = (rs?.fpts ?? 0) + (rs?.fpts_decimal ?? 0) / 100;
+    const winPct = games > 0 ? wins / games : 0.5;
+    const rw = recentWinsMap.get(team.rosterId) ?? 0;
+    const recentWPct = recentWeeks.length > 0 ? rw / recentWeeks.length : 0.5;
+    return { teamName: team.teamName, wins, losses, ties, pf, winPct, recentWins: rw, recentWPct };
+  });
+
+  const sortedByPF = [...stats].sort((a, b) => b.pf - a.pf);
+  const pfRank = new Map(sortedByPF.map((t, i) => [t.teamName, i]));
+  const maxRank = Math.max(stats.length - 1, 1);
+
+  const scored = stats.map((t) => {
+    const pfPct = (maxRank - (pfRank.get(t.teamName) ?? 0)) / maxRank;
+    const score = Math.round(t.winPct * 40 + pfPct * 30 + t.recentWPct * 30);
+    const tier = score >= 75 ? 'Elite' : score >= 55 ? 'Contender' : score >= 40 ? 'Fringe' : 'Rebuilding';
+    return { ...t, pfPercentile: Math.round(pfPct * 100), score, tier };
+  }).sort((a, b) => b.score - a.score || b.pf - a.pf);
+
+  return {
+    ok: true,
+    data: {
+      fetchedAt: new Date().toISOString(),
+      source: 'sleeper-live',
+      season: CURRENT_SEASON,
+      week: currentWeek,
+      method: 'record(40%) + PF-percentile(30%) + last-3-weeks(30%)',
+      rankings: scored.map((t, i) => ({
+        rank: i + 1,
+        teamName: t.teamName,
+        score: t.score,
+        tier: t.tier,
+        record: `${t.wins}-${t.losses}${t.ties > 0 ? `-${t.ties}` : ''}`,
+        pf: Math.round(t.pf * 10) / 10,
+        pfPercentile: t.pfPercentile,
+        recentForm: `${t.recentWins}-${recentWeeks.length - t.recentWins} (last ${recentWeeks.length} wks)`,
+      })),
+    },
+  };
+}
+
+export function formatPowerRankingsMarkdown(data: ReturnType<typeof handleGetPowerRankings> extends Promise<infer T> ? T : never): string {
+  if (!data?.data) return '⚠️ Power rankings data unavailable.';
+  const { rankings, week, season, method } = data.data;
+
+  const tierEmoji = (tier: string) =>
+    tier === 'Elite' ? '🟢' : tier === 'Contender' ? '🟡' : tier === 'Fringe' ? '🟠' : '🔴';
+
+  const lines: string[] = [
+    `## ⚡ Power Rankings — ${season} Week ${week}`,
+    `*Formula: ${method}*`,
+    '',
+    '| Rank | Team | Score | Tier | Record | PF | Recent |',
+    '|------|------|-------|------|--------|----|--------|',
+  ];
+
+  for (const r of rankings) {
+    lines.push(`| **${r.rank}** | ${r.teamName} | **${r.score}** | ${tierEmoji(r.tier)} ${r.tier} | ${r.record} | ${r.pf} | ${r.recentForm} |`);
+  }
+
+  lines.push('', `*Live from Sleeper · ${FRESHNESS()}*`);
+  return lines.join('\n');
+}
+
+// ─── tool: analyze_roster ─────────────────────────────────────────────────────
+
+const SKILL_POS = ['QB', 'RB', 'WR', 'TE'];
+
+export async function handleAnalyzeRoster(input: { name?: string }) {
+  if (!input.name?.trim()) throw new McpError('missing_param', 'Provide a team name.');
+  const leagueId = LEAGUE_IDS.CURRENT;
+  const opts = { timeoutMs: 15000 };
+
+  const [teams, rosters, allPlayers, values] = await Promise.all([
+    getTeamsData(leagueId, opts),
+    getLeagueRosters(leagueId, opts),
+    getAllPlayersCached(),
+    getTradeValues().catch(() => null),
+  ]);
+
+  const teamNames = teams.map((t) => t.teamName);
+  const { matchedTeam } = resolveTeam(input.name.trim(), teamNames);
+  if (!matchedTeam) throw new McpError('not_found', `No team matching "${input.name}". Available: ${teamNames.join(', ')}`);
+
+  const team = teams.find((t) => t.teamName === matchedTeam)!;
+  const r = rosters.find((ros) => ros.roster_id === team.rosterId);
+  const irSet = new Set<string>(r?.reserve ?? []);
+  const taxiSet = new Set<string>(r?.taxi ?? []);
+  const activeIds = (r?.players ?? team.players ?? []).filter((pid) => pid && !irSet.has(pid) && !taxiSet.has(pid));
+
+  const byPos: Record<string, Array<{ name: string; value: number | null; rank: number | null; trend: number | null; nflTeam: string | null }>> = {};
+  let totalValue = 0;
+
+  for (const pid of activeIds) {
+    const p = allPlayers[pid] as SleeperPlayer | undefined;
+    const pos = p?.position ?? 'UNKN';
+    if (!SKILL_POS.includes(pos)) continue;
+    const name = p ? `${p.first_name ?? ''} ${p.last_name ?? ''}`.trim() || pid : pid;
+
+    let val: import('@/lib/types/trade-analyzer').TradeValue | undefined;
+    if (values) {
+      val = Object.values(values).find((v) => v.sleeperId === pid)
+        ?? (fuzzyFindValue(name, values) ?? undefined);
+    }
+
+    if (!byPos[pos]) byPos[pos] = [];
+    byPos[pos].push({ name, value: val?.value ?? null, rank: val?.rank ?? null, trend: val?.trend ?? null, nflTeam: p?.team ?? null });
+    totalValue += val?.value ?? 0;
+  }
+
+  for (const pos of Object.keys(byPos)) byPos[pos].sort((a, b) => (b.value ?? 0) - (a.value ?? 0));
+
+  const posSum: Record<string, { count: number; totalValue: number; topPlayer: string | null }> = {};
+  for (const pos of SKILL_POS) {
+    const players = byPos[pos] ?? [];
+    const posTotal = players.reduce((s, p) => s + (p.value ?? 0), 0);
+    posSum[pos] = { count: players.length, totalValue: Math.round(posTotal), topPlayer: players[0]?.name ?? null };
+  }
+
+  const byStrength = SKILL_POS.filter((pos) => posSum[pos].count > 0).sort((a, b) => posSum[b].totalValue - posSum[a].totalValue);
+
+  return {
+    ok: true,
+    data: {
+      fetchedAt: new Date().toISOString(),
+      source: 'sleeper-live + trade-values',
+      teamName: matchedTeam,
+      totalDynastyValue: Math.round(totalValue),
+      positionSummary: posSum,
+      positions: byPos,
+      strengths: byStrength.slice(0, 2),
+      weaknesses: byStrength.slice(-2).reverse(),
+      valuesAvailable: values !== null,
+    },
+  };
+}
+
+export function formatAnalyzeRosterMarkdown(data: ReturnType<typeof handleAnalyzeRoster> extends Promise<infer T> ? T : never): string {
+  if (!data?.data) return '⚠️ Roster analysis data unavailable.';
+  const { teamName, totalDynastyValue, positionSummary, positions, strengths, weaknesses, valuesAvailable } = data.data;
+
+  const trendStr = (t: number | null) => (t ?? 0) > 100 ? ' ↑' : (t ?? 0) < -100 ? ' ↓' : '';
+
+  const lines: string[] = [
+    `## 🏈 Roster Analysis — ${teamName}`,
+    `*Total dynasty value: **${totalDynastyValue.toLocaleString()}** pts · ${valuesAvailable ? 'FC + KTC avg' : 'values unavailable'} · ${FRESHNESS()}*`,
+    '',
+    '### Position Breakdown',
+    '| Position | # Players | Total Value | Top Player |',
+    '|----------|-----------|-------------|------------|',
+  ];
+
+  for (const pos of SKILL_POS) {
+    const s = positionSummary[pos];
+    if (!s || s.count === 0) {
+      lines.push(`| ${pos} | 0 | — | — |`);
+    } else {
+      lines.push(`| **${pos}** | ${s.count} | **${s.totalValue.toLocaleString()}** | ${s.topPlayer ?? '—'} |`);
+    }
+  }
+
+  lines.push('', `**Strengths:** ${strengths.join(', ') || '—'}`, `**Needs:** ${weaknesses.join(', ') || '—'}`, '');
+
+  for (const pos of SKILL_POS) {
+    const players = positions[pos];
+    if (!players?.length) continue;
+    lines.push(`### ${pos} Room`);
+    for (const p of players) {
+      const valStr = p.value != null ? ` — ${p.value.toLocaleString()}${trendStr(p.trend)}` : '';
+      const rankStr = p.rank != null ? ` (#${p.rank} overall)` : '';
+      lines.push(`- **${p.name}**${p.nflTeam ? ` (${p.nflTeam})` : ''}${valStr}${rankStr}`);
+    }
+    lines.push('');
+  }
+
   return lines.join('\n');
 }
 

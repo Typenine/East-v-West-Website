@@ -44,10 +44,24 @@ import {
   formatRosterMarkdown,
   handleGetCommissionerOps,
   formatCommissionerOpsMarkdown,
+  handleGetLeagueOverview,
+  handleGetPositionRooms,
+  handleCompareTeams,
+  handleGetFuturePickBoard,
+  formatLeagueOverviewMarkdown,
+  formatPositionRoomsMarkdown,
+  formatCompareTeamsMarkdown,
+  formatFuturePickBoardMarkdown,
   handleAnalyzeTrade,
   handleGetPlayerValues,
+  handleGetTradeBlock,
+  handleGetPowerRankings,
+  handleAnalyzeRoster,
   formatAnalyzeTradeMarkdown,
   formatPlayerValuesMarkdown,
+  formatTradeBlockMarkdown,
+  formatPowerRankingsMarkdown,
+  formatAnalyzeRosterMarkdown,
   McpError,
 } from '@/lib/mcp/handlers';
 
@@ -226,6 +240,74 @@ const PUBLIC_TOOLS = [
     inputSchema: { type: 'object', properties: {}, required: [] },
   },
   {
+    name: 'get_league_overview',
+    description: 'Returns a comprehensive snapshot of all 12 East v. West teams: current-season record, PF/PA, all-time stats, championship history, full active/IR/taxi roster, and future draft pick ownership. Use this for any question spanning more than two teams or requiring league-wide context.',
+    annotations: { readOnlyHint: true, openWorldHint: false, destructiveHint: false },
+    inputSchema: { type: 'object', properties: {}, required: [] },
+  },
+  {
+    name: 'get_position_rooms',
+    description: 'Returns a position-group breakdown (QB/RB/WR/TE) per team across the league, or for one specific team. Shows active players only, with injury flags. Use for positional depth comparisons, identifying the best QB rooms, surveying a position league-wide.',
+    annotations: { readOnlyHint: true, openWorldHint: false, destructiveHint: false },
+    inputSchema: {
+      type: 'object',
+      properties: {
+        team: { type: 'string', description: 'Optional team name filter (partial, case-insensitive).' },
+        position: { type: 'string', description: 'Optional position filter, e.g. "QB", "WR", "RB", "TE".' },
+      },
+      required: [],
+    },
+  },
+  {
+    name: 'compare_teams',
+    description: 'Returns a structured side-by-side comparison of exactly two East v. West teams: current-season record, PF/PA, all-time stats, championship history, and position-grouped active roster for each. Accepts partial names and aliases.',
+    annotations: { readOnlyHint: true, openWorldHint: false, destructiveHint: false },
+    inputSchema: {
+      type: 'object',
+      properties: {
+        team1: { type: 'string', description: 'First team name or alias (partial, case-insensitive).' },
+        team2: { type: 'string', description: 'Second team name or alias (partial, case-insensitive).' },
+      },
+      required: ['team1', 'team2'],
+    },
+  },
+  {
+    name: 'get_future_pick_board',
+    description: 'Returns all future draft pick ownership organized by team, sorted by total picks held. Shows traded picks with human-readable labels like "2027 1st from Belleview Badgers". Use for draft capital questions and pick board overviews.',
+    annotations: { readOnlyHint: true, openWorldHint: false, destructiveHint: false },
+    inputSchema: { type: 'object', properties: {}, required: [] },
+  },
+  {
+    name: 'get_trade_block',
+    description: 'Returns the current league-wide trade block: which players and picks each team is offering, and what they say they want in return. Use when a league member asks "who is available?", "what is [team] offering?", "who is on the trade block?", or before analyzing a trade to see if the right pieces are available.',
+    annotations: { readOnlyHint: true, openWorldHint: false, destructiveHint: false },
+    inputSchema: {
+      type: 'object',
+      properties: {
+        team: { type: 'string', description: 'Optional: filter to a specific team (partial, case-insensitive).' },
+      },
+      required: [],
+    },
+  },
+  {
+    name: 'get_power_rankings',
+    description: 'Returns calculated dynasty power rankings for all 12 teams, scored by a blend of current record, total points for, and recent 3-week performance. Returns rank, score, tier label (Elite/Contender/Fringe/Rebuilding), and key context per team. Use when asked "who is the best team right now?", "show power rankings", or "rank all teams".',
+    annotations: { readOnlyHint: true, openWorldHint: false, destructiveHint: false },
+    inputSchema: { type: 'object', properties: {}, required: [] },
+  },
+  {
+    name: 'analyze_roster',
+    description: 'Evaluates a single team\'s dynasty roster using real-time FantasyCalc + KTC trade values. Returns total dynasty value, value by position group (QB/RB/WR/TE), positional strengths and weaknesses, and how the team compares to the league average. Use when asked "how good is [team]\'s roster?", "what is [team] worth?", or "rate [team]\'s dynasty value".',
+    annotations: { readOnlyHint: true, openWorldHint: false, destructiveHint: false },
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'Team name or alias (partial, case-insensitive). E.g. "Double Trouble", "double", "Belltown".' },
+      },
+      required: ['name'],
+    },
+  },
+  {
     name: 'analyze_trade',
     description: 'Evaluates a dynasty trade using real-time FantasyCalc + KeepTradeCut values (12-team SuperFlex, PPR). Given two lists of players and/or picks, returns a verdict (Fair Trade / Slight Edge / Uneven / One-Sided), letter grade for each side (A+ to F), effective values with stud premium and depth discount, age delta notes, and a counter-offer hint when a side is short. Use this whenever a league member asks "is this trade fair?", "who wins this trade?", or "should I accept this offer?".',
     annotations: { readOnlyHint: true, openWorldHint: false, destructiveHint: false },
@@ -363,6 +445,34 @@ async function dispatchTool(name: string, input: ToolInput): Promise<DispatchRes
     case 'get_commissioner_ops_context': {
       const data = await handleGetCommissionerOps();
       return { structuredContent: data, markdown: formatCommissionerOpsMarkdown(data) };
+    }
+    case 'get_league_overview': {
+      const data = await handleGetLeagueOverview();
+      return { structuredContent: data, markdown: formatLeagueOverviewMarkdown(data) };
+    }
+    case 'get_position_rooms': {
+      const data = await handleGetPositionRooms({ team: input.team as string | undefined, position: input.position as string | undefined });
+      return { structuredContent: data, markdown: formatPositionRoomsMarkdown(data) };
+    }
+    case 'compare_teams': {
+      const data = await handleCompareTeams({ team1: input.team1 as string | undefined, team2: input.team2 as string | undefined });
+      return { structuredContent: data, markdown: formatCompareTeamsMarkdown(data) };
+    }
+    case 'get_future_pick_board': {
+      const data = await handleGetFuturePickBoard();
+      return { structuredContent: data, markdown: formatFuturePickBoardMarkdown(data) };
+    }
+    case 'get_trade_block': {
+      const data = await handleGetTradeBlock({ team: input.team as string | undefined });
+      return { structuredContent: data, markdown: formatTradeBlockMarkdown(data) };
+    }
+    case 'get_power_rankings': {
+      const data = await handleGetPowerRankings();
+      return { structuredContent: data, markdown: formatPowerRankingsMarkdown(data) };
+    }
+    case 'analyze_roster': {
+      const data = await handleAnalyzeRoster({ name: input.name as string | undefined });
+      return { structuredContent: data, markdown: formatAnalyzeRosterMarkdown(data) };
     }
     case 'analyze_trade': {
       const data = await handleAnalyzeTrade({

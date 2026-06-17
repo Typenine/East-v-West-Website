@@ -42,6 +42,9 @@ import {
   handleGetFuturePickBoard,
   handleAnalyzeTrade,
   handleGetPlayerValues,
+  handleGetTradeBlock,
+  handleGetPowerRankings,
+  handleAnalyzeRoster,
   McpError,
 } from '@/lib/mcp/handlers';
 
@@ -313,6 +316,39 @@ const MCP_TOOLS = [
     inputSchema: { type: 'object', properties: {}, required: [] },
   },
   {
+    name: 'get_trade_block',
+    description:
+      'Returns the current league-wide trade block: which players and picks each team is offering, and what they want in return. ' +
+      'Use when asked "who is on the trade block?", "what is [team] offering?", or before analyzing a trade to see if the right assets exist.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        team: { type: 'string', description: 'Optional team name filter (partial, case-insensitive).' },
+      },
+      required: [],
+    },
+  },
+  {
+    name: 'get_power_rankings',
+    description:
+      'Returns calculated power rankings for all 12 teams, scored by record(40%) + PF-percentile(30%) + last-3-weeks(30%). ' +
+      'Returns rank, score, tier (Elite/Contender/Fringe/Rebuilding), record, PF, and recent form per team.',
+    inputSchema: { type: 'object', properties: {}, required: [] },
+  },
+  {
+    name: 'analyze_roster',
+    description:
+      'Evaluates a team\'s dynasty roster using real-time FantasyCalc + KTC trade values. Returns total dynasty value, per-position breakdown, strengths and weaknesses. ' +
+      'Use when asked "how good is [team]\'s roster?", "what position does [team] need?", or "rate [team]\'s dynasty value".',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'Team name or alias (partial, case-insensitive).' },
+      },
+      required: ['name'],
+    },
+  },
+  {
     name: 'analyze_trade',
     description:
       'Evaluates a dynasty trade using real-time FantasyCalc + KeepTradeCut values (12-team SuperFlex, PPR). ' +
@@ -456,6 +492,15 @@ async function dispatchTool(name: string, input: ToolInput): Promise<unknown> {
 
     case 'get_future_pick_board':
       return handleGetFuturePickBoard();
+
+    case 'get_trade_block':
+      return handleGetTradeBlock({ team: input.team as string | undefined });
+
+    case 'get_power_rankings':
+      return handleGetPowerRankings();
+
+    case 'analyze_roster':
+      return handleAnalyzeRoster({ name: input.name as string | undefined });
 
     case 'analyze_trade':
       return handleAnalyzeTrade({
