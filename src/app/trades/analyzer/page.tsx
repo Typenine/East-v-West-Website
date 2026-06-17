@@ -1,13 +1,25 @@
 'use client';
 
-import { useState, useEffect, useMemo, useRef, useCallback, Suspense } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback, Suspense, type ReactNode } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import type { TradeValue } from '@/lib/types/trade-analyzer';
 import SectionHeader from '@/components/ui/SectionHeader';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
+import {
+  BroadcastPanel,
+  BroadcastAccentBadge,
+  BroadcastSectionLabel,
+  BroadcastSubmitButton,
+  PANEL,
+  broadcastFieldClass,
+  broadcastFieldStyle,
+  broadcastFaintTextStyle,
+  broadcastMutedTextStyle,
+  broadcastBodyTextStyle,
+  broadcastScrollBoxClass,
+  broadcastScrollBoxStyle,
+  broadcastChipButtonClass,
+} from '@/components/ui/BroadcastPanel';
 import Chip from '@/components/ui/Chip';
-import Button from '@/components/ui/Button';
-import Input from '@/components/ui/Input';
 
 // --- League teams (mirrored from constants to keep this client-only) ---
 const TEAM_NAMES = [
@@ -203,10 +215,40 @@ function formatValue(v: number): string {
   return v.toLocaleString();
 }
 
+const PANEL_SHELL_STYLE = {
+  background: PANEL.card,
+  boxShadow: `inset 0 0 0 1px ${PANEL.border}, 0 4px 18px rgba(0,0,0,0.30)`,
+} as const;
+
+function AnalyzerMainPanel({ title, meta, children }: { title: string; meta?: ReactNode; children: ReactNode }) {
+  return (
+    <article
+      className="overflow-hidden rounded-2xl transition-shadow duration-200 hover:shadow-[0_8px_30px_rgba(0,0,0,0.45)]"
+      style={PANEL_SHELL_STYLE}
+    >
+      <div className="h-[3px] w-full accent-gradient" aria-hidden="true" />
+      <div
+        className="flex items-center justify-between gap-3 px-5 py-3 sm:px-6"
+        style={{ background: PANEL.headerBg, borderBottom: `1px solid ${PANEL.hairline}` }}
+      >
+        <span className="text-[11px] font-extrabold uppercase tracking-[0.3em]" style={broadcastBodyTextStyle}>
+          {title}
+        </span>
+        {meta ? (
+          <div className="text-xs font-semibold tabular-nums" style={broadcastMutedTextStyle}>
+            {meta}
+          </div>
+        ) : null}
+      </div>
+      <div className="px-5 py-4 sm:px-6">{children}</div>
+    </article>
+  );
+}
+
 // --- Components ---
 
 function TrendArrow({ trend }: { trend: number }) {
-  if (trend > 100) return <span className="text-xs font-bold ml-1" style={{ color: '#22c55e' }}>↑</span>;
+  if (trend > 100) return <span className="text-xs font-bold ml-1 text-green-400">↑</span>;
   if (trend < -100) return <span className="text-xs font-bold ml-1" style={{ color: 'var(--danger)' }}>↓</span>;
   return null;
 }
@@ -216,25 +258,34 @@ function AssetChip({ asset, source, sideTotal, barColor, onRemove }: {
 }) {
   const dv = getDisplayValue(asset, source);
   const pct = sideTotal > 0 ? Math.min(100, Math.round((dv / sideTotal) * 100)) : 0;
+  const posLabel = asset.isPick ? 'Pick' : asset.position;
   return (
-    <div className="evw-surface border border-[var(--border)] rounded-[var(--radius-card)] px-3 py-2 shadow-[var(--shadow-soft)]">
-      <div className="flex items-center gap-2">
+    <div
+      className="rounded border px-3 py-2.5"
+      style={{ background: 'rgba(255,255,255,0.04)', borderColor: PANEL.hairline }}
+    >
+      <div className="flex items-start gap-2">
+        {!asset.isPick && (
+          <BroadcastAccentBadge accent={barColor} className="mt-0.5 w-11">
+            {posLabel}
+          </BroadcastAccentBadge>
+        )}
         <div className="flex-1 min-w-0">
-          <div className="flex items-center text-sm font-medium text-[var(--text)]">
+          <div className="flex items-center text-sm font-semibold leading-5" style={broadcastBodyTextStyle}>
             <span className="truncate">{asset.name}</span>
             {!asset.isPick && <TrendArrow trend={asset.trend} />}
           </div>
-          <div className="text-xs text-[var(--muted)]">
-            {asset.isPick ? 'Draft Pick' : `${asset.position} · ${asset.nflTeam || 'FA'}${asset.age ? ` · Age ${asset.age.toFixed(0)}` : ''}`}
-            <span className="ml-2 font-medium" style={{ color: barColor }}>{formatValue(dv)}</span>
-            {sideTotal > 0 && <span className="ml-1 opacity-50">{pct}%</span>}
+          <div className="text-xs leading-4 mt-0.5" style={broadcastMutedTextStyle}>
+            {asset.isPick ? 'Draft Pick' : `${asset.nflTeam || 'FA'}${asset.age ? ` · Age ${asset.age.toFixed(0)}` : ''}`}
+            <span className="ml-2 font-semibold tabular-nums" style={{ color: barColor }}>{formatValue(dv)}</span>
+            {sideTotal > 0 && <span className="ml-1 opacity-60">{pct}%</span>}
           </div>
         </div>
-        <button onClick={onRemove} className="text-[var(--muted)] hover:text-[var(--danger)] transition-colors text-lg leading-none shrink-0" aria-label={`Remove ${asset.name}`}>×</button>
+        <button onClick={onRemove} className="transition-colors text-lg leading-none shrink-0 p-0.5" style={broadcastFaintTextStyle} aria-label={`Remove ${asset.name}`}>×</button>
       </div>
       {sideTotal > 0 && (
-        <div className="mt-1.5 h-1 rounded-full bg-[var(--surface-strong)] overflow-hidden">
-          <div className="h-full rounded-full transition-all duration-500" style={{ width: `${pct}%`, backgroundColor: barColor, opacity: 0.7 }} />
+        <div className="mt-2 h-1 rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.08)' }}>
+          <div className="h-full rounded-full transition-all duration-500" style={{ width: `${pct}%`, backgroundColor: barColor, opacity: 0.85 }} />
         </div>
       )}
     </div>
@@ -269,23 +320,29 @@ function PlayerSearch({ values, excluded, source, onSelect }: {
 
   return (
     <div ref={containerRef} className="relative">
-      <Input
+      <input
         type="text"
         value={query}
         onChange={(e) => { setQuery(e.target.value); setOpen(true); }}
         onFocus={() => query.trim() && setOpen(true)}
         placeholder="Search players..."
+        className={broadcastFieldClass}
+        style={broadcastFieldStyle}
       />
       {open && filtered.length > 0 && (
-        <div className="absolute z-50 mt-1 w-full max-h-60 overflow-y-auto evw-surface border border-[var(--border)] rounded-[var(--radius-card)] shadow-xl">
+        <div
+          className={`absolute z-50 mt-1 w-full max-h-60 overflow-y-auto ${broadcastScrollBoxClass}`}
+          style={broadcastScrollBoxStyle}
+        >
           {filtered.map((v) => (
             <button key={v.sleeperId} onClick={() => { onSelect(assetFromValue(v, false)); setQuery(''); setOpen(false); }}
-              className="w-full text-left px-3 py-2 hover:bg-[var(--surface)] transition-colors border-b border-[var(--border)] last:border-b-0">
-              <span className="text-sm text-[var(--text)]">{v.name}</span>
-              {v.trend > 100 && <span className="text-xs ml-1" style={{ color: '#22c55e' }}>↑</span>}
+              className="w-full text-left px-3 py-2 transition-colors border-b last:border-b-0 hover:bg-white/5"
+              style={{ borderColor: PANEL.hairline }}>
+              <span className="text-sm font-medium" style={broadcastBodyTextStyle}>{v.name}</span>
+              {v.trend > 100 && <span className="text-xs ml-1 text-green-400">↑</span>}
               {v.trend < -100 && <span className="text-xs ml-1" style={{ color: 'var(--danger)' }}>↓</span>}
-              <span className="ml-2 text-xs text-[var(--muted)]">{v.position} · {v.team || 'FA'}{v.age ? ` · ${v.age.toFixed(0)}y` : ''}</span>
-              <span className="float-right text-xs font-medium" style={{ color: 'var(--accent)' }}>{formatValue(getVal(v))}</span>
+              <span className="ml-2 text-xs" style={broadcastMutedTextStyle}>{v.position} · {v.team || 'FA'}{v.age ? ` · ${v.age.toFixed(0)}y` : ''}</span>
+              <span className="float-right text-xs font-semibold tabular-nums text-accent">{formatValue(getVal(v))}</span>
             </button>
           ))}
         </div>
@@ -346,25 +403,28 @@ function PickSelector({ values, excluded, onSelect }: { values: TradeValue[]; ex
   if (!grouped.length) return null;
   return (
     <div ref={ref} className="relative min-w-0">
-      <Button type="button" variant="secondary" size="sm" fullWidth onClick={() => setOpen(!open)}>
+      <button type="button" onClick={() => setOpen(!open)} className={`w-full ${broadcastChipButtonClass(false)}`}>
         + Draft Pick
-      </Button>
+      </button>
       {open && (
-        <div className="absolute z-50 mt-1 w-full max-h-72 overflow-y-auto evw-surface border border-[var(--border)] rounded-[var(--radius-card)] shadow-xl">
+        <div
+          className={`absolute z-50 mt-1 w-full max-h-72 overflow-y-auto ${broadcastScrollBoxClass}`}
+          style={broadcastScrollBoxStyle}
+        >
           {grouped.map((g) => (
             <div key={g.year}>
-              <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest text-[var(--muted)] bg-[var(--surface)] border-b border-[var(--border)] sticky top-0">{g.year} Picks</div>
+              <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest sticky top-0" style={{ ...broadcastFaintTextStyle, background: PANEL.card, borderBottom: `1px solid ${PANEL.hairline}` }}>{g.year} Picks</div>
               {g.rounds.map((rg) => (
                 <div key={rg.round}>
-                  <div className="px-3 py-1 text-[9px] font-semibold uppercase tracking-wider border-b border-[var(--border)]"
-                    style={{ color: 'var(--accent)', background: 'color-mix(in srgb, var(--accent) 6%, var(--surface-strong))' }}>
+                  <div className="px-3 py-1 text-[9px] font-semibold uppercase tracking-wider border-b" style={{ color: 'var(--accent)', background: 'rgba(11,95,152,0.12)', borderColor: PANEL.hairline }}>
                     {rg.label}
                   </div>
                   {rg.picks.map((v) => (
                     <button key={v.sleeperId} onClick={() => { onSelect(assetFromValue(v, true)); setOpen(false); }}
-                      className="w-full text-left px-3 py-1.5 hover:bg-[var(--surface)] transition-colors border-b border-[var(--border)] last:border-b-0">
-                      <span className="text-sm text-[var(--text)]">{v.name.replace(/^\d{4}\s*/, '')}</span>
-                      <span className="float-right text-xs font-medium" style={{ color: 'var(--accent)' }}>{formatValue(v.value)}</span>
+                      className="w-full text-left px-3 py-1.5 hover:bg-white/5 transition-colors border-b last:border-b-0"
+                      style={{ borderColor: PANEL.hairline }}>
+                      <span className="text-sm" style={broadcastBodyTextStyle}>{v.name.replace(/^\d{4}\s*/, '')}</span>
+                      <span className="float-right text-xs font-semibold tabular-nums text-accent">{formatValue(v.value)}</span>
                     </button>
                   ))}
                 </div>
@@ -405,27 +465,32 @@ function RosterPicker({ values, excluded, onAdd }: { values: TradeValue[]; exclu
 
   return (
     <div ref={ref} className="relative min-w-0">
-      <Button type="button" variant="secondary" size="sm" fullWidth onClick={() => setOpen(!open)}>
+      <button type="button" onClick={() => setOpen(!open)} className={`w-full ${broadcastChipButtonClass(false)}`}>
         Load from roster…
-      </Button>
+      </button>
       {open && (
-        <div className="absolute z-50 mt-1 w-full evw-surface border border-[var(--border)] rounded-[var(--radius-card)] shadow-xl">
-          <div className="p-2 border-b border-[var(--border)]">
+        <div
+          className={`absolute z-50 mt-1 w-full overflow-hidden ${broadcastScrollBoxClass}`}
+          style={broadcastScrollBoxStyle}
+        >
+          <div className="p-2 border-b" style={{ borderColor: PANEL.hairline }}>
             <select value={team} onChange={(e) => loadTeam(e.target.value)}
-              className="w-full rounded bg-[var(--surface)] border border-[var(--border)] px-2 py-1.5 text-sm text-[var(--text)] focus:outline-none focus:border-[var(--accent)]">
+              className={broadcastFieldClass}
+              style={broadcastFieldStyle}>
               <option value="">Select a team…</option>
               {TEAM_NAMES.map((t) => <option key={t} value={t}>{t}</option>)}
             </select>
           </div>
-          {busy && <div className="px-3 py-3 text-xs text-[var(--muted)] text-center">Loading…</div>}
-          {!busy && team && matched.length === 0 && <div className="px-3 py-3 text-xs text-[var(--muted)] text-center">No matched players found</div>}
+          {busy && <div className="px-3 py-3 text-xs text-center" style={broadcastMutedTextStyle}>Loading…</div>}
+          {!busy && team && matched.length === 0 && <div className="px-3 py-3 text-xs text-center" style={broadcastMutedTextStyle}>No matched players found</div>}
           <div className="max-h-52 overflow-y-auto">
             {matched.map((p) => (
               <button key={p.id} onClick={() => onAdd(assetFromValue(p.tv!, false))}
-                className="w-full text-left px-3 py-1.5 hover:bg-[var(--surface)] transition-colors border-b border-[var(--border)] last:border-b-0">
-                <span className="text-sm text-[var(--text)]">{p.name}</span>
-                <span className="ml-2 text-xs text-[var(--muted)]">{p.pos}</span>
-                <span className="float-right text-xs font-medium" style={{ color: 'var(--accent)' }}>{formatValue(p.tv!.value)}</span>
+                className="w-full text-left px-3 py-1.5 hover:bg-white/5 transition-colors border-b last:border-b-0"
+                style={{ borderColor: PANEL.hairline }}>
+                <span className="text-sm font-medium" style={broadcastBodyTextStyle}>{p.name}</span>
+                <span className="ml-2 text-xs" style={broadcastMutedTextStyle}>{p.pos}</span>
+                <span className="float-right text-xs font-semibold tabular-nums text-accent">{formatValue(p.tv!.value)}</span>
               </button>
             ))}
           </div>
@@ -478,26 +543,25 @@ function TradeSide({ label, color, assets, values, excluded, source, grade, effT
 
   return (
     <div className="flex-1 min-w-0">
-      <div className="flex items-center justify-between gap-2 mb-1.5">
-        <div className="flex items-center gap-2 min-w-0">
-          <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: color }} />
-          <h3 className="text-sm font-semibold text-[var(--text)] uppercase tracking-wide truncate">{label}</h3>
+      <div className="flex items-center justify-between gap-2 mb-2">
+        <div className="min-w-0">
+          <BroadcastSectionLabel accent={color}>{label}</BroadcastSectionLabel>
         </div>
         <div className="flex items-center gap-1.5 shrink-0">
           {grade !== '—' && (
-            <span className="text-xs font-bold px-2 py-0.5 rounded-full" style={{ color: gc, backgroundColor: gc + '22', border: `1px solid ${gc}55` }}>
+            <BroadcastAccentBadge accent={gc} className="!h-6 px-2">
               {grade}
-            </span>
+            </BroadcastAccentBadge>
           )}
-          <span className="text-sm font-bold tabular-nums" style={{ color }}>{formatValue(displayTotal)}</span>
+          <span className="text-sm font-extrabold tabular-nums tracking-tight" style={{ color }}>{formatValue(displayTotal)}</span>
           {assets.length > 0 && (
-            <button onClick={onClear} className="text-xs text-[var(--muted)] hover:text-[var(--danger)] transition-colors ml-0.5">Clear</button>
+            <button onClick={onClear} className="text-[10px] font-bold uppercase tracking-wider transition-opacity hover:opacity-80 ml-0.5" style={broadcastFaintTextStyle}>Clear</button>
           )}
         </div>
       </div>
 
       {posSummary && (
-        <div className="text-[11px] text-[var(--muted)] mb-2.5 opacity-80">
+        <div className="text-[11px] mb-2.5" style={broadcastFaintTextStyle}>
           {posSummary}{avgAge !== null && ` · Avg age ${avgAge.toFixed(1)}`}
         </div>
       )}
@@ -511,12 +575,12 @@ function TradeSide({ label, color, assets, values, excluded, source, grade, effT
       </div>
 
       <div className="space-y-2 min-h-[80px]">
-        {assets.length === 0 && <div className="text-center text-[var(--muted)] text-sm py-6 opacity-60">Add players or picks</div>}
+        {assets.length === 0 && <div className="text-center text-sm py-6" style={broadcastMutedTextStyle}>Add players or picks</div>}
         {assets.map((a) => <AssetChip key={a.key} asset={a} source={source} sideTotal={rawTotal} barColor={color} onRemove={() => onRemove(a.key)} />)}
         {showAdjustment && (
-          <div className="flex items-center justify-between px-3 py-2 rounded-[var(--radius-card)] border border-dashed border-[var(--border)] bg-[var(--surface-strong)] opacity-80">
-            <span className="text-xs text-[var(--muted)] italic">{adjustment >= 0 ? 'Stud premium' : 'Depth discount'}</span>
-            <span className="text-xs font-semibold" style={{ color: adjustment >= 0 ? '#22c55e' : '#f97316' }}>
+          <div className="flex items-center justify-between px-3 py-2 rounded border border-dashed" style={{ borderColor: PANEL.hairline, background: 'rgba(255,255,255,0.03)' }}>
+            <span className="text-xs italic" style={broadcastFaintTextStyle}>{adjustment >= 0 ? 'Stud premium' : 'Depth discount'}</span>
+            <span className="text-xs font-semibold tabular-nums" style={{ color: adjustment >= 0 ? '#4ade80' : '#fb923c' }}>
               {adjustment >= 0 ? '+' : '−'}{formatValue(Math.abs(adjustment))}
             </span>
           </div>
@@ -528,21 +592,21 @@ function TradeSide({ label, color, assets, values, excluded, source, grade, effT
 
 function FairnessMeter({ analysis, allAssets }: { analysis: AnalysisResult; allAssets: SelectedAsset[] }) {
   if (analysis.verdict === 'Add assets to analyze')
-    return <div className="text-center py-4 text-sm text-[var(--muted)]">Add assets to both sides to see the analysis</div>;
+    return <div className="text-center py-4 text-sm" style={broadcastMutedTextStyle}>Add assets to both sides to see the analysis</div>;
 
   const { ratio, verdict, winner, diff, notes, counterHint, effA, effB } = analysis;
   const grand = effA + effB;
   const pctA = grand > 0 ? Math.round((effA / grand) * 100) : 50;
   const pctB = 100 - pctA;
 
-  let verdictColor = '#22c55e';
-  if (ratio < 0.65) verdictColor = '#ef4444';
-  else if (ratio < 0.80) verdictColor = '#f97316';
-  else if (ratio < 0.92) verdictColor = '#eab308';
+  let verdictColor = '#4ade80';
+  if (ratio < 0.65) verdictColor = '#f87171';
+  else if (ratio < 0.80) verdictColor = '#fb923c';
+  else if (ratio < 0.92) verdictColor = '#facc15';
 
   return (
     <div>
-      <div className="flex h-7 rounded-full overflow-hidden mb-1">
+      <div className="flex h-7 rounded-full overflow-hidden mb-1 ring-1 ring-white/10">
         <div className="flex items-center justify-end pr-2 transition-all duration-500 text-xs font-bold text-white/90"
           style={{ width: `${pctA}%`, backgroundColor: 'var(--accent)' }}>
           {pctA > 18 && `${pctA}%`}
@@ -552,24 +616,23 @@ function FairnessMeter({ analysis, allAssets }: { analysis: AnalysisResult; allA
           {pctB > 18 && `${pctB}%`}
         </div>
       </div>
-      <div className="flex justify-between text-xs text-[var(--muted)] mb-5">
+      <div className="flex justify-between text-xs mb-5" style={broadcastMutedTextStyle}>
         <span style={{ color: 'var(--accent)' }}>Side A · {formatValue(effA)}</span>
         <span style={{ color: 'var(--danger)' }}>Side B · {formatValue(effB)}</span>
       </div>
 
       <div className="text-center">
-        <div className="text-3xl font-extrabold tracking-tight" style={{ color: verdictColor }}>{verdict}</div>
+        <div className="text-3xl font-extrabold uppercase tracking-[0.12em]" style={{ color: verdictColor }}>{verdict}</div>
         {winner && diff > 0 && (
-          <div className="text-sm text-[var(--muted)] mt-1">
-            Side {winner} wins by <span className="font-semibold text-[var(--text)]">{formatValue(diff)}</span>
+          <div className="text-sm mt-1" style={broadcastMutedTextStyle}>
+            Side {winner} wins by <span className="font-semibold" style={broadcastBodyTextStyle}>{formatValue(diff)}</span>
           </div>
         )}
 
-        {/* Notes as chips */}
         {notes.length > 0 && (
           <div className="mt-3 flex flex-wrap justify-center gap-2">
             {notes.map((n, i) => (
-              <span key={i} className="text-xs px-2.5 py-1 rounded-full bg-[var(--surface-strong)] border border-[var(--border)] text-[var(--muted)]">
+              <span key={i} className="text-xs px-2.5 py-1 rounded border" style={{ ...broadcastFaintTextStyle, borderColor: PANEL.hairline, background: 'rgba(255,255,255,0.04)' }}>
                 {n}
               </span>
             ))}
@@ -577,7 +640,7 @@ function FairnessMeter({ analysis, allAssets }: { analysis: AnalysisResult; allA
         )}
 
         {counterHint && (
-          <div className="mt-3 mx-auto max-w-sm px-4 py-2 rounded-[var(--radius-card)] bg-[var(--surface-strong)] border border-[var(--border)] text-xs text-[var(--muted)] text-left">
+          <div className="mt-3 mx-auto max-w-sm px-4 py-2 rounded border text-xs text-left" style={{ ...broadcastMutedTextStyle, borderColor: PANEL.hairline, background: 'rgba(255,255,255,0.03)' }}>
             💡 {counterHint}
           </div>
         )}
@@ -598,9 +661,9 @@ function ShareButton({ sideA, sideB }: { sideA: SelectedAsset[]; sideB: Selected
     setCopied(true); setTimeout(() => setCopied(false), 2000);
   }
   return (
-    <Button type="button" variant="secondary" onClick={copy}>
+    <BroadcastSubmitButton accent="var(--accent)" type="button" onClick={copy}>
       {copied ? '✓ Link copied!' : 'Share trade link'}
-    </Button>
+    </BroadcastSubmitButton>
   );
 }
 
@@ -630,7 +693,7 @@ function ConfidenceBadge({ assets }: { assets: SelectedAsset[] }) {
 
   return (
     <div className="mt-2 flex justify-center">
-      <span className="text-xs px-3 py-1 rounded-full text-center" style={{ color, backgroundColor: color + '18', border: `1px solid ${color}44` }}>
+      <span className="text-xs px-3 py-1 rounded text-center border" style={{ color, backgroundColor: color + '18', borderColor: color + '44' }}>
         ⚠ {lines.join(' · ')}{extra}
       </span>
     </div>
@@ -663,35 +726,30 @@ function PositionBreakdown({ sideA, sideB, source }: { sideA: SelectedAsset[]; s
   if (!allPos.length) return null;
 
   return (
-    <Card className="mt-4">
-      <CardHeader>
-        <CardTitle className="text-xs font-semibold text-[var(--muted)] uppercase tracking-wide">Position Breakdown</CardTitle>
-      </CardHeader>
-      <CardContent className="pt-0">
+    <BroadcastPanel title="Position Breakdown" accent="var(--accent)" className="mt-5">
       <div className="space-y-2">
         {allPos.map((pos) => {
           const a = ga.get(pos) ?? { count: 0, value: 0 };
           const b = gb.get(pos) ?? { count: 0, value: 0 };
           return (
             <div key={pos} className="grid items-center gap-x-3 text-sm" style={{ gridTemplateColumns: '2.5rem 1fr auto 1fr' }}>
-              <span className="text-xs font-bold text-[var(--muted)] uppercase text-center">{pos}</span>
+              <BroadcastAccentBadge accent="var(--accent)" className="!w-10 justify-center">{pos}</BroadcastAccentBadge>
               <div className="text-right">
                 {a.count > 0
-                  ? <><span style={{ color: 'var(--accent)' }}>{a.count}×</span><span className="text-[var(--muted)] text-xs ml-1">{formatValue(a.value)}</span></>
-                  : <span className="text-[var(--muted)] opacity-20 text-xs">—</span>}
+                  ? <><span style={{ color: 'var(--accent)' }}>{a.count}×</span><span className="text-xs ml-1 tabular-nums" style={broadcastMutedTextStyle}>{formatValue(a.value)}</span></>
+                  : <span className="text-xs opacity-20" style={broadcastFaintTextStyle}>—</span>}
               </div>
-              <span className="text-xs text-[var(--muted)] opacity-25">vs</span>
+              <span className="text-[10px] font-bold uppercase tracking-wider" style={broadcastFaintTextStyle}>vs</span>
               <div>
                 {b.count > 0
-                  ? <><span style={{ color: 'var(--danger)' }}>{b.count}×</span><span className="text-[var(--muted)] text-xs ml-1">{formatValue(b.value)}</span></>
-                  : <span className="text-[var(--muted)] opacity-20 text-xs">—</span>}
+                  ? <><span style={{ color: 'var(--danger)' }}>{b.count}×</span><span className="text-xs ml-1 tabular-nums" style={broadcastMutedTextStyle}>{formatValue(b.value)}</span></>
+                  : <span className="text-xs opacity-20" style={broadcastFaintTextStyle}>—</span>}
               </div>
             </div>
           );
         })}
       </div>
-      </CardContent>
-    </Card>
+    </BroadcastPanel>
   );
 }
 
@@ -744,48 +802,43 @@ function RosterSuggestionPanel({ analysis, values, sideA, sideB, gap, onAddA, on
   const shortSide = analysis.winner === 'A' ? 'B' : 'A';
 
   return (
-    <Card className="mt-4">
-      <CardHeader>
-        <CardTitle className="text-xs font-semibold text-[var(--muted)] uppercase tracking-wide">
-          Balance Side {shortSide} · needs ~{formatValue(Math.round(gap))} pts from a roster
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="pt-0">
+    <BroadcastPanel
+      title={`Balance Side ${shortSide}`}
+      meta={`~${formatValue(Math.round(gap))} pts`}
+      accent="var(--danger)"
+      className="mt-5"
+    >
       <select value={team} onChange={(e) => loadTeam(e.target.value)}
-        className="w-full max-w-xs rounded-[var(--radius-card)] bg-[var(--surface-strong)] border border-[var(--border)] px-3 py-1.5 text-sm text-[var(--text)] focus:outline-none focus:border-[var(--accent)] mb-3">
+        className={`${broadcastFieldClass} max-w-xs mb-3`}
+        style={broadcastFieldStyle}>
         <option value="">Select a team to check their roster…</option>
         {TEAM_NAMES.map((t) => <option key={t} value={t}>{t}</option>)}
       </select>
 
-      {busy && <div className="text-xs text-[var(--muted)]">Loading roster…</div>}
+      {busy && <div className="text-xs" style={broadcastMutedTextStyle}>Loading roster…</div>}
       {team && !busy && rosterMatches.length === 0 && (
-        <div className="text-xs text-[var(--muted)] opacity-60">No players on this roster match the gap (~{formatValue(Math.round(gap))} pts ±35%).</div>
+        <div className="text-xs" style={broadcastFaintTextStyle}>No players on this roster match the gap (~{formatValue(Math.round(gap))} pts ±35%).</div>
       )}
       {rosterMatches.length > 0 && (
         <>
-          <div className="text-xs font-semibold text-[var(--muted)] uppercase tracking-wider mb-2">From {team}</div>
+          <BroadcastSectionLabel accent="var(--danger)">From {team}</BroadcastSectionLabel>
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
             {rosterMatches.map((p) => (
-              <div key={p.id} className="flex items-center justify-between rounded-[var(--radius-card)] bg-[var(--surface-strong)] border border-[var(--border)] px-2.5 py-2">
+              <div key={p.id} className="flex items-center justify-between rounded border px-2.5 py-2" style={{ background: 'rgba(255,255,255,0.04)', borderColor: PANEL.hairline }}>
                 <div className="min-w-0 mr-2">
-                  <div className="text-xs font-semibold text-[var(--text)] truncate">{p.name}</div>
-                  <div className="text-[10px] text-[var(--muted)]">{p.pos} · <span style={{ color: 'var(--accent)' }}>{formatValue(p.tv!.value)}</span></div>
+                  <div className="text-xs font-semibold truncate" style={broadcastBodyTextStyle}>{p.name}</div>
+                  <div className="text-[10px] tabular-nums" style={broadcastMutedTextStyle}>{p.pos} · <span className="text-accent">{formatValue(p.tv!.value)}</span></div>
                 </div>
                 <div className="flex flex-col gap-0.5 shrink-0">
-                  <Button type="button" size="sm" onClick={() => onAddA(assetFromValue(p.tv!, false))}
-                    className="!w-5 !h-5 !p-0 !min-w-0 rounded-full text-[10px] font-bold"
-                    style={{ background: 'var(--accent)', color: '#fff' }}>+A</Button>
-                  <Button type="button" size="sm" onClick={() => onAddB(assetFromValue(p.tv!, false))}
-                    className="!w-5 !h-5 !p-0 !min-w-0 rounded-full text-[10px] font-bold"
-                    style={{ background: 'var(--danger)', color: '#fff' }}>+B</Button>
+                  <BroadcastSubmitButton accent="var(--accent)" type="button" onClick={() => onAddA(assetFromValue(p.tv!, false))}>+A</BroadcastSubmitButton>
+                  <BroadcastSubmitButton accent="var(--danger)" type="button" onClick={() => onAddB(assetFromValue(p.tv!, false))}>+B</BroadcastSubmitButton>
                 </div>
               </div>
             ))}
           </div>
         </>
       )}
-      </CardContent>
-    </Card>
+    </BroadcastPanel>
   );
 }
 
@@ -906,26 +959,26 @@ function TradeAnalyzerContent() {
   if (loading) return (
     <div className="container mx-auto px-4 py-8">
       <SectionHeader title="Trade Analyzer" subtitle="Dynasty · Superflex · 12-Team · PPR" />
-      <Card>
-        <CardContent className="flex items-center justify-center py-20">
+      <BroadcastPanel title="Loading" accent="var(--accent)">
+        <div className="flex items-center justify-center py-16">
           <div className="animate-spin rounded-full h-8 w-8 border-2 border-[var(--accent)] border-t-transparent" />
-          <span className="ml-3 text-[var(--muted)]">Loading trade values…</span>
-        </CardContent>
-      </Card>
+          <span className="ml-3" style={broadcastMutedTextStyle}>Loading trade values…</span>
+        </div>
+      </BroadcastPanel>
     </div>
   );
 
   if (error) return (
     <div className="container mx-auto px-4 py-8">
       <SectionHeader title="Trade Analyzer" subtitle="Dynasty · Superflex · 12-Team · PPR" />
-      <Card className="border-[var(--danger)]">
-        <CardContent className="text-center py-8">
+      <BroadcastPanel title="Error" accent="var(--danger)">
+        <div className="text-center py-8">
           <p style={{ color: 'var(--danger)' }}>{error}</p>
-          <Button type="button" variant="secondary" className="mt-4" onClick={() => window.location.reload()}>
+          <BroadcastSubmitButton accent="var(--danger)" type="button" className="mt-4" onClick={() => window.location.reload()}>
             Retry
-          </Button>
-        </CardContent>
-      </Card>
+          </BroadcastSubmitButton>
+        </div>
+      </BroadcastPanel>
     </div>
   );
 
@@ -950,29 +1003,30 @@ function TradeAnalyzerContent() {
         ) : undefined}
       />
 
-      <Card>
-        <CardContent className="md:p-6">
+      <AnalyzerMainPanel title="Build Trade">
         <div className="flex flex-col md:flex-row md:items-stretch gap-6">
           <TradeSide label="Side A" color="var(--accent)" assets={sideA} values={values} excluded={excluded} source={source}
             grade={analysis.sideAGrade} effTotal={analysis.effA}
             onAdd={(a) => setSideA((p) => [...p, a])} onRemove={(k) => setSideA((p) => p.filter((x) => x.key !== k))} onClear={() => setSideA([])} />
           <div className="hidden md:flex items-center justify-center shrink-0 px-1">
-            <span className="text-xs font-semibold text-[var(--muted)] uppercase tracking-wider px-3 py-1.5 rounded-full border border-[var(--border)] bg-[var(--surface-strong)]">
+            <span
+              className="text-[10px] font-bold uppercase tracking-[0.22em] px-3 py-1.5 rounded-full border"
+              style={{ color: PANEL.faint, borderColor: PANEL.hairline, background: 'rgba(255,255,255,0.04)' }}
+            >
               VS
             </span>
           </div>
-          <div className="md:hidden border-t border-[var(--border)]" />
+          <div className="md:hidden border-t" style={{ borderColor: PANEL.hairline }} />
           <TradeSide label="Side B" color="var(--danger)" assets={sideB} values={values} excluded={excluded} source={source}
             grade={analysis.sideBGrade} effTotal={analysis.effB}
             onAdd={(a) => setSideB((p) => [...p, a])} onRemove={(k) => setSideB((p) => p.filter((x) => x.key !== k))} onClear={() => setSideB([])} />
         </div>
-        <div className="mt-6 pt-4 border-t border-[var(--border)]">
-          <div className="rounded-[var(--radius-card)] bg-[var(--surface-strong)] p-4 md:p-5">
+        <div className="mt-6 pt-4 border-t" style={{ borderColor: PANEL.hairline }}>
+          <div className="rounded border p-4 md:p-5" style={{ background: 'rgba(255,255,255,0.03)', borderColor: PANEL.hairline }}>
             <FairnessMeter analysis={analysis} allAssets={[...sideA, ...sideB]} />
           </div>
         </div>
-        </CardContent>
-      </Card>
+      </AnalyzerMainPanel>
 
       {(sideA.length > 0 || sideB.length > 0) && (
         <PositionBreakdown sideA={sideA} sideB={sideB} source={source} />
@@ -991,96 +1045,93 @@ function TradeAnalyzerContent() {
       )}
 
       {(sideA.length > 0 || sideB.length > 0) && (
-        <Card className="mt-4">
-          <CardHeader>
-            <CardTitle className="text-sm font-semibold text-[var(--muted)] uppercase tracking-wide">Value Breakdown</CardTitle>
-          </CardHeader>
-          <CardContent className="pt-0">
+        <BroadcastPanel title="Value Breakdown" accent="var(--accent)" className="mt-5">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {[{ side: sideA, total: totalA, color: 'var(--accent)', label: 'A' }, { side: sideB, total: totalB, color: 'var(--danger)', label: 'B' }].map(({ side, total, color, label }) => (
               <div key={label}>
-                <div className="text-xs font-semibold mb-2" style={{ color }}>SIDE {label} — {formatValue(total)} total</div>
-                <div className="space-y-1">
+                <BroadcastSectionLabel accent={color}>Side {label} · {formatValue(total)} total</BroadcastSectionLabel>
+                <div className="space-y-1.5">
                   {side.map((a) => (
-                    <div key={a.key} className="flex justify-between text-sm">
-                      <span className="text-[var(--text)] truncate">{a.name}</span>
-                      <span className="text-[var(--muted)] ml-2 shrink-0">{formatValue(getDisplayValue(a, source))}</span>
+                    <div key={a.key} className="flex justify-between text-sm gap-2">
+                      <span className="truncate font-medium" style={broadcastBodyTextStyle}>{a.name}</span>
+                      <span className="shrink-0 tabular-nums" style={broadcastMutedTextStyle}>{formatValue(getDisplayValue(a, source))}</span>
                     </div>
                   ))}
-                  {side.length === 0 && <div className="text-xs text-[var(--muted)] opacity-50">No assets</div>}
+                  {side.length === 0 && <div className="text-xs" style={broadcastFaintTextStyle}>No assets</div>}
                 </div>
               </div>
             ))}
           </div>
-          </CardContent>
-        </Card>
+        </BroadcastPanel>
       )}
 
       {(sideA.length > 0 || sideB.length > 0) && (
-        <div className="mt-4 flex justify-center gap-3 flex-wrap">
+        <div className="mt-5 flex justify-center gap-3 flex-wrap">
           <ShareButton sideA={sideA} sideB={sideB} />
-          <Button type="button" variant="secondary" onClick={() => { setSideA([]); setSideB([]); }}>
+          <BroadcastSubmitButton accent="var(--danger)" type="button" onClick={() => { setSideA([]); setSideB([]); }}>
             Reset Trade
-          </Button>
+          </BroadcastSubmitButton>
         </div>
       )}
 
-      <div className="mt-4 text-center text-xs text-[var(--muted)] opacity-60">
+      <div className="mt-5 text-center text-xs" style={broadcastFaintTextStyle}>
         Values from FantasyCalc &amp; KeepTradeCut · Updated every 6 hours
       </div>
     </div>
 
     {/* Suggestion strip — sticky bottom, non-intrusive */}
     {showSuggestions && (
-      <div className="fixed bottom-0 left-0 right-0 z-40 border-t border-[var(--border)] shadow-2xl evw-surface"
-        style={{ backdropFilter: 'blur(12px)' }}>
+      <div
+        className="fixed bottom-0 left-0 right-0 z-40 border-t"
+        style={{ ...PANEL_SHELL_STYLE, borderTopColor: PANEL.border, backdropFilter: 'blur(12px)' }}
+      >
+        <div className="h-[2px] w-full accent-gradient" aria-hidden="true" />
         <div className="container mx-auto px-4 py-2.5 flex items-center gap-3">
           <div className="shrink-0 hidden sm:block">
-            <div className="text-[10px] font-bold uppercase tracking-widest text-[var(--muted)]">
+            <div className="text-[10px] font-bold uppercase tracking-[0.22em]" style={broadcastFaintTextStyle}>
               {suggestionMode === 'balance' ? 'Balance trade' : 'Compare'}
             </div>
             {suggestionMode === 'balance' && needsSide && (
-              <div className="text-[9px] text-[var(--muted)] opacity-60">add to Side {needsSide}</div>
+              <div className="text-[9px] mt-0.5" style={broadcastFaintTextStyle}>add to Side {needsSide}</div>
             )}
           </div>
           <div className="flex gap-2 flex-1 overflow-x-auto pb-0.5">
             {suggestions.map((v) => {
               const val = source === 'fc' ? (v.fcValue ?? v.value) : source === 'ktc' ? (v.ktcValue ?? v.value) : v.value;
               return (
-                <div key={v.sleeperId}
-                  className="flex items-center gap-2 rounded-full border border-[var(--border)] px-2.5 py-1.5 shrink-0 evw-surface">
+                <div
+                  key={v.sleeperId}
+                  className="flex items-center gap-2 rounded border px-2.5 py-1.5 shrink-0"
+                  style={{ background: 'rgba(255,255,255,0.04)', borderColor: PANEL.hairline }}
+                >
                   <div className="min-w-0">
-                    <div className="text-sm font-semibold text-[var(--text)] whitespace-nowrap">
+                    <div className="text-sm font-semibold whitespace-nowrap" style={broadcastBodyTextStyle}>
                       {v.isPick ? v.name.replace(/^\d{4}\s*/, '') : v.name}
                     </div>
-                    <div className="text-xs text-[var(--muted)] whitespace-nowrap">
+                    <div className="text-xs whitespace-nowrap tabular-nums" style={broadcastMutedTextStyle}>
                       {v.isPick ? 'Pick' : `${v.position}${v.team ? ` · ${v.team}` : ''}`}
-                      {' · '}<span style={{ color: 'var(--accent)' }}>{formatValue(val)}</span>
+                      {' · '}<span className="text-accent">{formatValue(val)}</span>
                     </div>
                   </div>
                   <div className="flex flex-col gap-0.5 ml-1">
-                    <Button
-                      type="button"
-                      size="sm"
-                      onClick={() => setSideA((p) => [...p, assetFromValue(v, v.isPick)])}
-                      className="!w-6 !h-6 !p-0 !min-w-0 rounded-full text-xs font-bold"
-                      style={{
-                        background: 'var(--accent)', color: '#fff',
-                        opacity: needsSide === 'B' ? 0.25 : 1,
-                      }}>
-                      +
-                    </Button>
-                    <Button
-                      type="button"
-                      size="sm"
-                      onClick={() => setSideB((p) => [...p, assetFromValue(v, v.isPick)])}
-                      className="!w-6 !h-6 !p-0 !min-w-0 rounded-full text-xs font-bold"
-                      style={{
-                        background: 'var(--danger)', color: '#fff',
-                        opacity: needsSide === 'A' ? 0.25 : 1,
-                      }}>
-                      +
-                    </Button>
+                    <div style={{ opacity: needsSide === 'B' ? 0.25 : 1 }}>
+                      <BroadcastSubmitButton
+                        accent="var(--accent)"
+                        type="button"
+                        onClick={() => setSideA((p) => [...p, assetFromValue(v, v.isPick)])}
+                      >
+                        +
+                      </BroadcastSubmitButton>
+                    </div>
+                    <div style={{ opacity: needsSide === 'A' ? 0.25 : 1 }}>
+                      <BroadcastSubmitButton
+                        accent="var(--danger)"
+                        type="button"
+                        onClick={() => setSideB((p) => [...p, assetFromValue(v, v.isPick)])}
+                      >
+                        +
+                      </BroadcastSubmitButton>
+                    </div>
                   </div>
                 </div>
               );
@@ -1088,7 +1139,8 @@ function TradeAnalyzerContent() {
           </div>
           <button
             onClick={() => setSuggestDismissed(true)}
-            className="text-[var(--muted)] hover:text-[var(--text)] transition-colors text-xl leading-none shrink-0 p-1"
+            className="transition-opacity hover:opacity-80 text-xl leading-none shrink-0 p-1"
+            style={broadcastFaintTextStyle}
             aria-label="Dismiss suggestions">
             ×
           </button>
@@ -1104,11 +1156,11 @@ export default function TradeAnalyzerPage() {
     <Suspense fallback={
       <div className="container mx-auto px-4 py-8">
         <SectionHeader title="Trade Analyzer" subtitle="Dynasty · Superflex · 12-Team · PPR" />
-        <Card>
-          <CardContent className="flex items-center justify-center py-20">
+        <BroadcastPanel title="Loading" accent="var(--accent)">
+          <div className="flex items-center justify-center py-16">
             <div className="animate-spin rounded-full h-8 w-8 border-2 border-[var(--accent)] border-t-transparent" />
-          </CardContent>
-        </Card>
+          </div>
+        </BroadcastPanel>
       </div>
     }>
       <TradeAnalyzerContent />
