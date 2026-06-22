@@ -50,7 +50,11 @@ export const IMPORTANT_DATES = {
   // Playoffs start at Week 15 kickoff (TNF)
   PLAYOFFS_START: new Date('2026-12-17T20:20:00-05:00'), // Week 15 TNF 2026
   NEW_LEAGUE_YEAR: new Date('2027-02-07T18:30:00-05:00'), // After Super Bowl LXI
-  NEXT_DRAFT: new Date('2026-07-18T13:00:00-04:00')        // Next draft date
+  NEXT_DRAFT: new Date('2026-07-18T13:00:00-04:00'),       // Next draft date
+  // FA bidding reopens first Monday after all NFL preseason Week 1 games conclude (rulebook §4.5(b))
+  FA_BIDDING_START: new Date('2026-08-17T00:00:00-05:00'), // First Monday after preseason Week 1 2026
+  // The following league-year values are used by the countdown resolver to roll forward correctly
+  NEXT_LEAGUE_YEAR_DRAFT: new Date('2027-07-18T13:00:00-04:00'), // Placeholder; update when 2027 draft is set
 };
 
 // Champions by year

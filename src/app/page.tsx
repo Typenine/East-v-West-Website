@@ -1,27 +1,66 @@
 import Link from 'next/link';
-import CountdownTimer from '@/components/ui/countdown-timer';
 import MatchupCard from '@/components/ui/matchup-card';
-import { IMPORTANT_DATES, LEAGUE_IDS, CHAMPIONS } from '@/lib/constants/league';
-import { getLeagueMatchups, getTeamsData, getNFLState, derivePodiumFromWinnersBracketByYear, getSeasonAwardsUsingLeagueScoring, getWeeklyHighsBySeason, getLeaguePlayoffBracketsWithScores, getRosterIdToTeamNameMap, buildYearToLeagueMapUnique, type SleeperBracketGameWithScore, type WeeklyHighByWeekEntry } from '@/lib/utils/sleeper-api';
-import { getCurrentPhase, hasRegularSeasonStarted, getRecapYear } from '@/lib/utils/phase-resolver';
+import { LEAGUE_IDS } from '@/lib/constants/league';
+import {
+  getLeagueMatchups,
+  getTeamsData,
+  getNFLState,
+  derivePodiumFromWinnersBracketByYear,
+  getSeasonAwardsUsingLeagueScoring,
+  getWeeklyHighsBySeason,
+  getLeaguePlayoffBracketsWithScores,
+  getRosterIdToTeamNameMap,
+  buildYearToLeagueMapUnique,
+  getLeagueRosters,
+  getAllPlayersCached,
+  type SleeperBracketGameWithScore,
+  type WeeklyHighByWeekEntry,
+} from '@/lib/utils/sleeper-api';
+import { getRecapYear } from '@/lib/utils/phase-resolver';
+import { getHomepagePhase } from '@/lib/utils/countdown-resolver';
 import EmptyState from '@/components/ui/empty-state';
 import SectionHeader from '@/components/ui/SectionHeader';
-import LinkButton from '@/components/ui/LinkButton';
-import { Tabs } from '@/components/ui/Tabs';
-import HeadToHeadGrid from '@/components/headtohead/HeadToHeadGrid';
-import NeverBeatenTracker from '@/components/headtohead/NeverBeatenTracker';
-import { getHeadToHeadAllTime } from '@/lib/utils/headtohead';
 import TaxiBanner from '@/components/taxi/TaxiBanner';
 import SeasonRecapGrid from '@/components/home/SeasonRecapGrid';
 import PlayoffBracketPanel from '@/components/brackets/PlayoffBracketPanel';
+import HomepageCountdowns from '@/components/home/HomepageCountdowns';
+import CompactSeasonRecap from '@/components/home/CompactSeasonRecap';
+import HistoricalSpotlight from '@/components/home/HistoricalSpotlight';
+import AroundTheLeague from '@/components/home/AroundTheLeague';
+import LeaguePulse from '@/components/home/LeaguePulse';
 import { BroadcastPanel } from '@/components/ui/BroadcastPanel';
+import { getHeadToHeadAllTime } from '@/lib/utils/headtohead';
+import { requireTeamUser } from '@/lib/server/session';
 
 export const dynamic = 'force-dynamic';
-export const revalidate = 20; // ISR: refresh at most every 20s to reduce API churn and flakiness
+// Longer revalidate during offseason; kept short for regular season/playoffs where live data matters.
+// Dynamic means this is respected only for ISR fallback, not for every request.
+export const revalidate = 60;
 
-export default async function Home({ searchParams }: { searchParams?: Promise<Record<string, string | string[] | undefined>> }) {
+export default async function Home({
+  searchParams,
+}: {
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  // ── Auth (server-side, reserved for future My Team card) ─────────────────
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const _authUser = await requireTeamUser().catch(() => null);
+
+  // ── Homepage phase ─────────────────────────────────────────────────────────
+  const phase = getHomepagePhase();
+  const isRegularSeasonOrLater =
+    phase === 'regular_season' ||
+    phase === 'post_deadline_pre_postseason' ||
+    phase === 'postseason';
+  const isPostseason = phase === 'postseason';
+  const isRegularSeason = phase === 'regular_season' || phase === 'post_deadline_pre_postseason';
+
+  // ── Shared state ───────────────────────────────────────────────────────────
   let leagueId = LEAGUE_IDS.CURRENT;
   let yearMap: Record<string, string> = {};
+  let seasonYear = '2026';
+  let recapYear = seasonYear;
+
   const currentWeekMatchups: Array<{
     homeTeam: string;
     awayTeam: string;
@@ -33,264 +72,252 @@ export default async function Home({ searchParams }: { searchParams?: Promise<Re
     matchupId: number;
     kickoffTime?: string;
   }> = [];
+
   const MAX_REGULAR_WEEKS = 14;
-  let defaultWeek = 1;
-  let isRegularSeason = true;
-  let seasonYear = '2025';
-  let seasonTypeStr = 'regular';
-  let isPlayoffs = false;
-  let winnersBracket: SleeperBracketGameWithScore[] = [];
-  let bracketNameMap = new Map<number, string>();
-  let losersBracket: SleeperBracketGameWithScore[] = [];
-  let recapYear = seasonYear;
-  const sp = (await (searchParams ?? Promise.resolve({}))) as Record<string, string | string[] | undefined>;
-  const requestedWeekRaw = sp.week;
-  const requestedWeekStr = Array.isArray(requestedWeekRaw) ? requestedWeekRaw[0] : requestedWeekRaw;
-  const requestedWeekNum = typeof requestedWeekStr === 'string' ? Number(requestedWeekStr) : NaN;
-  const hasUserOverride = Number.isFinite(requestedWeekNum) && requestedWeekNum >= 1 && requestedWeekNum <= MAX_REGULAR_WEEKS;
   let selectedWeek = 1;
+
+  let winnersBracket: SleeperBracketGameWithScore[] = [];
+  let losersBracket: SleeperBracketGameWithScore[] = [];
+  let bracketNameMap = new Map<number, string>();
+  const seedByRosterId = new Map<number, number>();
+
+  // Roster player IDs (for AroundTheLeague client component)
+  let allPlayerIds: string[] = [];
+  // Position counts per team (for LeaguePulse roster construction)
+  const positionCounts: Record<string, Record<string, number>> = {};
+
+  const sp = (await (searchParams ?? Promise.resolve({}))) as Record<
+    string,
+    string | string[] | undefined
+  >;
+  const requestedWeekRaw = sp.week;
+  const requestedWeekStr = Array.isArray(requestedWeekRaw)
+    ? requestedWeekRaw[0]
+    : requestedWeekRaw;
+  const requestedWeekNum =
+    typeof requestedWeekStr === 'string' ? Number(requestedWeekStr) : NaN;
+  const hasUserOverride =
+    Number.isFinite(requestedWeekNum) &&
+    requestedWeekNum >= 1 &&
+    requestedWeekNum <= MAX_REGULAR_WEEKS;
+
   try {
-    // Get current NFL state first, then resolve the active league ID dynamically for that season
-    const nflState = await getNFLState().catch(() => ({ week: 1, display_week: 1, season_type: 'regular' }));
-    const seasonType = (nflState as { season_type?: string }).season_type ?? 'regular';
-    seasonTypeStr = seasonType;
-    const hasScores = (nflState as { season_has_scores?: boolean }).season_has_scores;
+    const nflState = await getNFLState().catch(() => ({
+      week: 1,
+      display_week: 1,
+      season_type: 'regular',
+    }));
     seasonYear = String((nflState as { season?: string | number }).season ?? seasonYear);
     try {
-      yearMap = await buildYearToLeagueMapUnique().catch(() => ({} as Record<string, string>));
+      yearMap = await buildYearToLeagueMapUnique().catch(
+        () => ({} as Record<string, string>)
+      );
       leagueId = yearMap[seasonYear] || leagueId;
-    } catch {}
-    const teams = await getTeamsData(leagueId).catch(() => [] as Array<{ rosterId: number; teamName: string }>);
-    // Use phase resolver to determine recap year
+    } catch { /* use default */ }
+
     const nflSeasonYear = Number(seasonYear);
     recapYear = String(getRecapYear(nflSeasonYear));
-    const week1Ts = new Date(IMPORTANT_DATES.NFL_WEEK_1_START).getTime();
-    const playoffsStartTs = new Date(IMPORTANT_DATES.PLAYOFFS_START).getTime();
-    const now = new Date();
-    const nowTs = now.getTime();
-    const beforeWeek1 = Number.isFinite(week1Ts) && nowTs < week1Ts;
-    const afterPlayoffsStart = Number.isFinite(playoffsStartTs) && nowTs >= playoffsStartTs;
-    // Playoffs are active based on NFL season state and PLAYOFFS_START.
-    // Super Bowl date does not affect playoffs/offseason gating; recap flip is driven by championship completion below.
-    isPlayoffs = (seasonTypeStr === 'post' || afterPlayoffsStart);
-    isRegularSeason = seasonType === 'regular' && !beforeWeek1 && !afterPlayoffsStart;
-    if (!isRegularSeason || hasScores === false) {
-      defaultWeek = 1;
-    } else {
-      const dowET = new Intl.DateTimeFormat('en-US', { weekday: 'short', timeZone: 'America/New_York' }).format(now);
-      const raw = Number(((nflState as { week?: number }).week ?? (nflState as { display_week?: number }).display_week ?? 1));
-      const baseWeek = Number.isFinite(raw) ? raw : 1;
-      if (dowET === 'Mon' || dowET === 'Tue') {
-        defaultWeek = Math.max(1, baseWeek - 1);
-      } else {
-        defaultWeek = baseWeek; // Wed–Sun follow Sleeper's week/display_week
-      }
-    if (isPlayoffs) {
-      try {
-        const [brackets, nameMap] = await Promise.all([
-          getLeaguePlayoffBracketsWithScores(leagueId, { forceFresh: true }).catch(() => ({ winners: [], losers: [] })),
-          getRosterIdToTeamNameMap(leagueId).catch(() => new Map<number, string>()),
-        ]);
-        winnersBracket = (brackets as { winners?: SleeperBracketGameWithScore[] }).winners || [];
-        losersBracket = (brackets as { losers?: SleeperBracketGameWithScore[] }).losers || [];
-        bracketNameMap = nameMap as Map<number, string>;
-        // If winners bracket final is decided, consider playoffs complete -> show offseason recap
-        try {
-          const byRound: Record<number, SleeperBracketGameWithScore[]> = {};
-          for (const g of winnersBracket) {
-            const r = (g as { r?: number }).r ?? 0;
-            (byRound[r] ||= []).push(g);
-          }
-          const rounds = Object.keys(byRound).map((n) => Number(n));
-          if (rounds.length > 0) {
-            const maxR = Math.max(...rounds);
-            const lastRound = byRound[maxR] || [];
-            const final = lastRound.find((g) => (g as unknown as { w?: number | null }).w != null);
-            const finalHasScores = lastRound.some((g) => (g as { t1_points?: number | null }).t1_points != null || (g as { t2_points?: number | null }).t2_points != null);
-            if (final || finalHasScores) {
-              isPlayoffs = false;
-            }
-          }
-        } catch {}
-        // Fallback: derive champion directly; if present, flip to offseason
-        if (isPlayoffs) {
-          try {
-            const pod = await derivePodiumFromWinnersBracketByYear(recapYear).catch(() => null);
-            if (pod && pod.champion && pod.champion !== 'TBD') {
-              isPlayoffs = false;
-            }
-          } catch {}
-        }
-        // If the playoffs window is active but no bracket data exists, fall back to offseason recap display
-        if ((winnersBracket.length === 0) && (losersBracket.length === 0)) {
-          isPlayoffs = false;
-        }
-      } catch {}
-    }
-    }
-    // If we are in playoffs and brackets haven't been loaded (due to gating), load them now and fall back if empty
-    if (isPlayoffs && winnersBracket.length === 0 && losersBracket.length === 0) {
-      try {
-        const [brackets, nameMap] = await Promise.all([
-          getLeaguePlayoffBracketsWithScores(leagueId, { forceFresh: true }).catch(() => ({ winners: [], losers: [] })),
-          getRosterIdToTeamNameMap(leagueId).catch(() => new Map<number, string>()),
-        ]);
-        winnersBracket = (brackets as { winners?: SleeperBracketGameWithScore[] }).winners || [];
-        losersBracket = (brackets as { losers?: SleeperBracketGameWithScore[] }).losers || [];
-        bracketNameMap = nameMap as Map<number, string>;
-        // Detect championship completion again after fresh fetch
-        try {
-          const byRound2: Record<number, SleeperBracketGameWithScore[]> = {};
-          for (const g of winnersBracket) {
-            const r = (g as { r?: number }).r ?? 0;
-            (byRound2[r] ||= []).push(g);
-          }
-          const rounds2 = Object.keys(byRound2).map((n) => Number(n));
-          if (rounds2.length > 0) {
-            const maxR2 = Math.max(...rounds2);
-            const lastRound2 = byRound2[maxR2] || [];
-            const final2 = lastRound2.find((g) => (g as unknown as { w?: number | null }).w != null);
-            const final2HasScores = lastRound2.some((g) => (g as { t1_points?: number | null }).t1_points != null || (g as { t2_points?: number | null }).t2_points != null);
-            if (final2 || final2HasScores) {
-              isPlayoffs = false;
-            }
-          }
-        } catch {}
-        if (isPlayoffs) {
-          try {
-            const pod2 = await derivePodiumFromWinnersBracketByYear(recapYear).catch(() => null);
-            const fallbackYear = String(Number(recapYear) - 1);
-            const pod2b = pod2 ?? await derivePodiumFromWinnersBracketByYear(fallbackYear).catch(() => null);
-            if (pod2b && pod2b.champion && pod2b.champion !== 'TBD') {
-              isPlayoffs = false;
-            }
-          } catch {}
-        }
-        if ((winnersBracket.length === 0) && (losersBracket.length === 0)) {
-          isPlayoffs = false;
-        }
-      } catch {}
-    }
-    // Clamp default to regular-season bounds
-    defaultWeek = Math.min(Math.max(1, defaultWeek), MAX_REGULAR_WEEKS);
-    // Apply user override if valid
-    selectedWeek = hasUserOverride ? (requestedWeekNum as number) : defaultWeek;
 
-    const matchups = await getLeagueMatchups(leagueId, selectedWeek);
-    // If the current week hasn't started (all 0-0) OR Sleeper returns empty, show previous week's matchups instead
-    const hasAnyPoints = matchups.some((m) => ((m as { custom_points?: number; points?: number }).custom_points ?? m.points ?? 0) > 0);
-    let mus = matchups;
-    // Only allow fallback to previous week on Mon/Tue Eastern, and only if we advanced past defaultWeek
-    if (!hasUserOverride) {
+    // Matchup data (only during regular season)
+    if (isRegularSeason) {
+      const nflStateTyped = nflState as { week?: number; display_week?: number };
+      const rawWeek = Number(nflStateTyped.week ?? nflStateTyped.display_week ?? 1);
+      const baseWeek = Number.isFinite(rawWeek) ? rawWeek : 1;
+      const hasScores = (nflState as { season_has_scores?: boolean }).season_has_scores;
+      let defaultWeek = hasScores === false ? 1 : baseWeek;
       const now = new Date();
-      const dowET = new Intl.DateTimeFormat('en-US', { weekday: 'short', timeZone: 'America/New_York' }).format(now);
-      const allowFallbackToPrev = dowET === 'Mon' || dowET === 'Tue';
-      if (allowFallbackToPrev && selectedWeek > defaultWeek && (matchups.length === 0 || !hasAnyPoints) && selectedWeek > 1) {
-        const prevWeek = selectedWeek - 1;
-        const prev = await getLeagueMatchups(leagueId, prevWeek);
-        // Use previous only if it has any entries
-        if (prev.length > 0) {
-          selectedWeek = prevWeek;
-          mus = prev;
+      const dowET = new Intl.DateTimeFormat('en-US', {
+        weekday: 'short',
+        timeZone: 'America/New_York',
+      }).format(now);
+      if (dowET === 'Mon' || dowET === 'Tue') defaultWeek = Math.max(1, baseWeek - 1);
+      defaultWeek = Math.min(Math.max(1, defaultWeek), MAX_REGULAR_WEEKS);
+      selectedWeek = hasUserOverride ? (requestedWeekNum as number) : defaultWeek;
+
+      const teams = await getTeamsData(leagueId).catch(
+        () => [] as Array<{ rosterId: number; teamName: string; wins?: number; fpts?: number }>
+      );
+      const rosterIdToName = new Map<number, string>(
+        teams.map((t) => [t.rosterId, t.teamName])
+      );
+
+      const matchups = await getLeagueMatchups(leagueId, selectedWeek);
+      const hasAnyPoints = matchups.some(
+        (m) => ((m as { custom_points?: number; points?: number }).custom_points ?? m.points ?? 0) > 0
+      );
+      let mus = matchups;
+      if (!hasUserOverride) {
+        if ((dowET === 'Mon' || dowET === 'Tue') && selectedWeek > defaultWeek && !hasAnyPoints && selectedWeek > 1) {
+          const prev = await getLeagueMatchups(leagueId, selectedWeek - 1);
+          if (prev.length > 0) { selectedWeek = selectedWeek - 1; mus = prev; }
         }
       }
-    }
-    const rosterIdToName = new Map<number, string>(
-      teams.map((t) => [t.rosterId, t.teamName])
-    );
-    const groups = new Map<number, { roster_id: number; points: number; matchup_id: number }[]>();
-    for (const m of mus) {
-      const arr = groups.get(m.matchup_id) || [];
-      // Use points reported by Sleeper
-      const pts = (m.custom_points ?? m.points ?? 0);
-      arr.push({ roster_id: m.roster_id, points: pts, matchup_id: m.matchup_id });
-      groups.set(m.matchup_id, arr);
-    }
-    for (const arr of groups.values()) {
-      if (arr.length >= 2) {
-        const [a, b] = arr; // arbitrary away/home
-        const includeScores = (b.points ?? 0) > 0 || (a.points ?? 0) > 0;
-        currentWeekMatchups.push({
-          homeTeam: rosterIdToName.get(b.roster_id) ?? `Roster ${b.roster_id}`,
-          awayTeam: rosterIdToName.get(a.roster_id) ?? `Roster ${a.roster_id}`,
-          homeRosterId: b.roster_id,
-          awayRosterId: a.roster_id,
-          homeScore: includeScores ? b.points : undefined,
-          awayScore: includeScores ? a.points : undefined,
-          week: selectedWeek,
-          matchupId: a.matchup_id,
-        });
+
+      const groups = new Map<number, { roster_id: number; points: number; matchup_id: number }[]>();
+      for (const m of mus) {
+        const arr = groups.get(m.matchup_id) || [];
+        arr.push({ roster_id: m.roster_id, points: m.custom_points ?? m.points ?? 0, matchup_id: m.matchup_id });
+        groups.set(m.matchup_id, arr);
       }
+      for (const arr of groups.values()) {
+        if (arr.length >= 2) {
+          const [a, b] = arr;
+          const includeScores = (b.points ?? 0) > 0 || (a.points ?? 0) > 0;
+          currentWeekMatchups.push({
+            homeTeam: rosterIdToName.get(b.roster_id) ?? `Roster ${b.roster_id}`,
+            awayTeam: rosterIdToName.get(a.roster_id) ?? `Roster ${a.roster_id}`,
+            homeRosterId: b.roster_id,
+            awayRosterId: a.roster_id,
+            homeScore: includeScores ? b.points : undefined,
+            awayScore: includeScores ? a.points : undefined,
+            week: selectedWeek,
+            matchupId: a.matchup_id,
+          });
+        }
+      }
+
+      // Seeds
+      const sortedForSeeds = [...teams].sort(
+        (a, b) => (b.wins ?? 0) - (a.wins ?? 0) || (b.fpts ?? 0) - (a.fpts ?? 0)
+      );
+      sortedForSeeds.forEach((t, i) => seedByRosterId.set(t.rosterId, i + 1));
     }
-  } catch {
-    // If Sleeper data isn't available yet, render with empty state below
-    const now = new Date();
-    const nowTs = now.getTime();
-    const week1Ts = new Date(IMPORTANT_DATES.NFL_WEEK_1_START).getTime();
-    const playoffsStartTs = new Date(IMPORTANT_DATES.PLAYOFFS_START).getTime();
-    const newYearTs = new Date(IMPORTANT_DATES.NEW_LEAGUE_YEAR).getTime();
-    const beforeWeek1 = Number.isFinite(week1Ts) && nowTs < week1Ts;
-    const afterPlayoffsStart = Number.isFinite(playoffsStartTs) && nowTs >= playoffsStartTs;
-    const withinSeasonWindow = Number.isFinite(newYearTs) && nowTs < (newYearTs + 48 * 60 * 60 * 1000);
-    isPlayoffs = afterPlayoffsStart && withinSeasonWindow;
-    isRegularSeason = !beforeWeek1 && !afterPlayoffsStart;
-  }
-  // Seeds by rosterId (based on final regular-season standings for current league)
-  const seedByRosterId = new Map<number, number>();
-  try {
-    const sortedForSeeds = [...(await getTeamsData(leagueId).catch(() => [] as Array<{ rosterId: number; wins?: number; fpts?: number }>))]
-      .sort((a, b) => (b.wins ?? 0) - (a.wins ?? 0) || (b.fpts ?? 0) - (a.fpts ?? 0));
-    sortedForSeeds.forEach((t, i) => seedByRosterId.set(t.rosterId, i + 1));
-  } catch {}
-  // Recap brackets and seeding for offseason view
+
+    // Playoff bracket data
+    if (isPostseason) {
+      const [brackets, nameMap] = await Promise.all([
+        getLeaguePlayoffBracketsWithScores(leagueId, { forceFresh: true }).catch(() => ({
+          winners: [] as SleeperBracketGameWithScore[],
+          losers: [] as SleeperBracketGameWithScore[],
+        })),
+        getRosterIdToTeamNameMap(leagueId).catch(() => new Map<number, string>()),
+      ]);
+      winnersBracket = (brackets as { winners?: SleeperBracketGameWithScore[] }).winners || [];
+      losersBracket = (brackets as { losers?: SleeperBracketGameWithScore[] }).losers || [];
+      bracketNameMap = nameMap as Map<number, string>;
+    }
+
+    // Roster data (all phases — needed for AroundTheLeague and LeaguePulse)
+    try {
+      const [rosters, nameMap, playerMap] = await Promise.all([
+        getLeagueRosters(leagueId).catch(() => []),
+        getRosterIdToTeamNameMap(leagueId).catch(() => new Map<number, string>()),
+        // 12-hour cache — cheap after first load; gives us positions for LeaguePulse
+        getAllPlayersCached(12 * 60 * 60 * 1000).catch(() => ({} as Record<string, { position?: string }>)),
+      ]);
+      const rIdToTeam = new Map<number, string>(nameMap);
+
+      const playerIdSet = new Set<string>();
+      for (const roster of rosters) {
+        const teamName = rIdToTeam.get(roster.roster_id) || `Roster ${roster.roster_id}`;
+        const counts: Record<string, number> = {};
+        const allIds = [
+          ...(roster.players || []),
+          ...(roster.taxi || []),
+          ...(roster.reserve || []),
+        ];
+        for (const pid of allIds) {
+          playerIdSet.add(pid);
+          const pos = (playerMap[pid] as { position?: string } | undefined)?.position;
+          if (pos) counts[pos] = (counts[pos] ?? 0) + 1;
+        }
+        positionCounts[teamName] = counts;
+      }
+      allPlayerIds = Array.from(playerIdSet);
+    } catch { /* leave allPlayerIds empty */ }
+  } catch { /* fallback: use phase-only logic */ }
+
+  // ── Season recap data (offseason phases) ─────────────────────────────────
+  const recap: {
+    podium?: { champion: string; runnerUp: string; thirdPlace: string };
+    awards?: { mvp?: { name: string; points: number; teamName?: string }; roy?: { name: string; points: number; teamName?: string } };
+    weeklyHighsTopTeams?: Array<{ teamName: string; rosterId?: number; count: number }>;
+    regularSeasonWinner?: { teamName: string; rosterId: number; wins: number; fpts: number };
+    pfLeader?: { teamName: string; rosterId: number; fpts: number };
+    topWeeks3?: Array<{ teamName: string; rosterId: number; week: number; points: number; opponentTeamName: string; opponentRosterId: number }>;
+    lastPlace?: { teamName: string; rosterId?: number };
+    toiletBowlLoser?: { teamName: string; rosterId?: number };
+    tenthPlaceWinner?: { teamName: string; rosterId?: number };
+  } = {};
   let recapWinnersBracket: SleeperBracketGameWithScore[] = [];
   let recapLosersBracket: SleeperBracketGameWithScore[] = [];
   let recapBracketNameMap = new Map<number, string>();
   const seedByRosterIdRecap = new Map<number, number>();
-  const recap: {
-    podium?: { champion: string; runnerUp: string; thirdPlace: string };
-    awards?: { mvp?: { name: string; points: number; teamName?: string }; roy?: { name: string; points: number; teamName?: string } };
-    weeklyHighsLeader?: { teamName: string; count: number };
-    weeklyHighsTopTeams?: Array<{ teamName: string; rosterId?: number; count: number }>;
-    lastPlace?: { teamName: string; rosterId?: number };
-    toiletBowlLoser?: { teamName: string; rosterId?: number };
-    tenthPlaceWinner?: { teamName: string; rosterId?: number };
-    regularSeasonWinner?: { teamName: string; rosterId: number; wins: number; fpts: number };
-    pfLeader?: { teamName: string; rosterId: number; fpts: number };
-    topWeek?: { teamName: string; rosterId: number; week: number; points: number; opponentTeamName: string; opponentRosterId: number };
-    topWeeks3?: Array<{ teamName: string; rosterId: number; week: number; points: number; opponentTeamName: string; opponentRosterId: number }>;
-  } = {};
-  if (!isRegularSeason && !isPlayoffs) {
+  const showFullRecap = !isRegularSeasonOrLater;
+
+  if (showFullRecap) {
     try {
-      const leagueIdRecap = yearMap[recapYear] || LEAGUE_IDS.PREVIOUS[recapYear as keyof typeof LEAGUE_IDS.PREVIOUS];
-      const [podiumDerived, awards, weeklyHighs, recapBrackets, recapNameMap] = await Promise.all([
-        derivePodiumFromWinnersBracketByYear(recapYear).catch(() => null),
-        getSeasonAwardsUsingLeagueScoring(recapYear, leagueIdRecap ?? leagueId, 14).catch(() => null),
-        getWeeklyHighsBySeason(recapYear).catch(() => [] as WeeklyHighByWeekEntry[]),
-        leagueIdRecap ? getLeaguePlayoffBracketsWithScores(leagueIdRecap, { forceFresh: true }).catch(() => ({ winners: [] as SleeperBracketGameWithScore[], losers: [] as SleeperBracketGameWithScore[] })) : Promise.resolve({ winners: [] as SleeperBracketGameWithScore[], losers: [] as SleeperBracketGameWithScore[] }),
-        leagueIdRecap ? getRosterIdToTeamNameMap(leagueIdRecap).catch(() => new Map<number, string>()) : Promise.resolve(new Map<number, string>()),
-      ]);
-      recapWinnersBracket = (recapBrackets?.winners || []) as SleeperBracketGameWithScore[];
-      recapLosersBracket = (recapBrackets?.losers || []) as SleeperBracketGameWithScore[];
+      const recapLeagueId =
+        yearMap[recapYear] ||
+        LEAGUE_IDS.PREVIOUS[recapYear as keyof typeof LEAGUE_IDS.PREVIOUS];
+      const leagueIdForRecap = recapLeagueId ?? leagueId;
+
+      const [podiumDerived, awards, weeklyHighs, recapBrackets, recapNameMap] =
+        await Promise.all([
+          derivePodiumFromWinnersBracketByYear(recapYear).catch(() => null),
+          getSeasonAwardsUsingLeagueScoring(recapYear, leagueIdForRecap, 14).catch(() => null),
+          getWeeklyHighsBySeason(recapYear).catch(() => [] as WeeklyHighByWeekEntry[]),
+          recapLeagueId
+            ? getLeaguePlayoffBracketsWithScores(recapLeagueId, { forceFresh: true }).catch(
+                () => ({
+                  winners: [] as SleeperBracketGameWithScore[],
+                  losers: [] as SleeperBracketGameWithScore[],
+                })
+              )
+            : Promise.resolve({ winners: [] as SleeperBracketGameWithScore[], losers: [] as SleeperBracketGameWithScore[] }),
+          recapLeagueId
+            ? getRosterIdToTeamNameMap(recapLeagueId).catch(() => new Map<number, string>())
+            : Promise.resolve(new Map<number, string>()),
+        ]);
+
+      recapWinnersBracket = recapBrackets?.winners || [];
+      recapLosersBracket = recapBrackets?.losers || [];
       recapBracketNameMap = recapNameMap as Map<number, string>;
-      if (leagueIdRecap) {
-        const teamsRecap = await getTeamsData(leagueIdRecap).catch(() => [] as Array<{ rosterId: number; wins?: number; fpts?: number }>);
-        const sortedRecap = [...teamsRecap].sort((a, b) => (b.wins ?? 0) - (a.wins ?? 0) || (b.fpts ?? 0) - (a.fpts ?? 0));
+
+      if (recapLeagueId) {
+        const teamsRecap = await getTeamsData(recapLeagueId).catch(() => []);
+        const sortedRecap = [...teamsRecap].sort(
+          (a, b) => (b.wins ?? 0) - (a.wins ?? 0) || (b.fpts ?? 0) - (a.fpts ?? 0)
+        );
         sortedRecap.forEach((t, i) => seedByRosterIdRecap.set(t.rosterId, i + 1));
+
+        if (teamsRecap.length > 0) {
+          const rw = sortedRecap[0];
+          if (rw)
+            recap.regularSeasonWinner = {
+              teamName: rw.teamName,
+              rosterId: rw.rosterId,
+              wins: rw.wins ?? 0,
+              fpts: rw.fpts ?? 0,
+            };
+          const pfTop = [...teamsRecap].sort((a, b) => (b.fpts ?? 0) - (a.fpts ?? 0))[0];
+          if (pfTop)
+            recap.pfLeader = { teamName: pfTop.teamName, rosterId: pfTop.rosterId, fpts: pfTop.fpts ?? 0 };
+          const rsLast = sortedRecap[sortedRecap.length - 1];
+          if (rsLast) recap.lastPlace = { teamName: rsLast.teamName, rosterId: rsLast.rosterId };
+        }
       }
-      const base = (CHAMPIONS as Record<string, { champion?: string; runnerUp?: string; thirdPlace?: string }>)[recapYear] || {};
-      const mergedPodium = {
+
+      const { CHAMPIONS } = await import('@/lib/constants/league');
+      const base =
+        (CHAMPIONS as Record<string, { champion?: string; runnerUp?: string; thirdPlace?: string }>)[recapYear] || {};
+      recap.podium = {
         champion: (podiumDerived?.champion ?? base.champion ?? 'TBD') as string,
         runnerUp: (podiumDerived?.runnerUp ?? base.runnerUp ?? 'TBD') as string,
         thirdPlace: (podiumDerived?.thirdPlace ?? base.thirdPlace ?? 'TBD') as string,
       };
-      recap.podium = mergedPodium;
+
       if (awards) {
         recap.awards = {
-          mvp: awards.mvp && awards.mvp[0] ? { name: awards.mvp[0].name, points: awards.mvp[0].points, teamName: (awards.mvp[0].teamName ?? undefined) as string | undefined } : undefined,
-          roy: awards.roy && awards.roy[0] ? { name: awards.roy[0].name, points: awards.roy[0].points, teamName: (awards.roy[0].teamName ?? undefined) as string | undefined } : undefined,
+          mvp: awards.mvp?.[0]
+            ? { name: awards.mvp[0].name, points: awards.mvp[0].points, teamName: awards.mvp[0].teamName ?? undefined }
+            : undefined,
+          roy: awards.roy?.[0]
+            ? { name: awards.roy[0].name, points: awards.roy[0].points, teamName: awards.roy[0].teamName ?? undefined }
+            : undefined,
         };
       }
+
       const weeklyHighsRows = (weeklyHighs as WeeklyHighByWeekEntry[]) || [];
       if (weeklyHighsRows.length > 0) {
         const counts = new Map<string, number>();
@@ -298,182 +325,143 @@ export default async function Home({ searchParams }: { searchParams?: Promise<Re
           const key = row.teamName || 'Unknown Team';
           counts.set(key, (counts.get(key) || 0) + 1);
         }
-        let bestTeam = '—';
-        let bestCount = 0;
-        for (const [tn, c] of counts.entries()) {
-          if (c > bestCount) {
-            bestTeam = tn;
-            bestCount = c;
-          }
-        }
-        recap.weeklyHighsLeader = { teamName: bestTeam, count: bestCount };
-        // Top 3 teams by weekly-high wins
         const agg: Array<{ teamName: string; count: number; rosterId?: number }> = [];
         const invert = new Map<string, number>();
         recapBracketNameMap.forEach((nm, rid) => invert.set(nm, rid));
         for (const [tn, c] of counts.entries()) {
           agg.push({ teamName: tn, count: c, rosterId: invert.get(tn) });
         }
-        agg.sort((a,b) => b.count - a.count || a.teamName.localeCompare(b.teamName));
+        agg.sort((a, b) => b.count - a.count || a.teamName.localeCompare(b.teamName));
         recap.weeklyHighsTopTeams = agg.slice(0, 3);
-      }
-      // Additional recap stats
-      if (leagueIdRecap) {
-        try {
-          const teamsRecap = await getTeamsData(leagueIdRecap).catch(() => [] as Array<{ rosterId: number; teamName: string; wins?: number; fpts?: number }>);
-          if (teamsRecap.length > 0) {
-            const sortedByRecord = [...teamsRecap].sort((a, b) => (b.wins ?? 0) - (a.wins ?? 0) || (b.fpts ?? 0) - (a.fpts ?? 0));
-            const rw = sortedByRecord[0];
-            if (rw) recap.regularSeasonWinner = { teamName: rw.teamName, rosterId: rw.rosterId, wins: rw.wins ?? 0, fpts: rw.fpts ?? 0 };
-            const pfTop = [...teamsRecap].sort((a, b) => (b.fpts ?? 0) - (a.fpts ?? 0))[0];
-            if (pfTop) recap.pfLeader = { teamName: pfTop.teamName, rosterId: pfTop.rosterId, fpts: pfTop.fpts ?? 0 };
-            const rsLast = sortedByRecord[sortedByRecord.length - 1];
-            if (rsLast) recap.lastPlace = { teamName: rsLast.teamName, rosterId: rsLast.rosterId };
-          }
-        } catch {}
-      }
-      if (weeklyHighsRows.length > 0) {
+
         const sortedWeeks = [...weeklyHighsRows].sort((a, b) => (b.points ?? 0) - (a.points ?? 0));
-        const top = sortedWeeks[0];
-        if (top) recap.topWeek = { teamName: top.teamName, rosterId: top.rosterId, week: top.week, points: top.points, opponentTeamName: top.opponentTeamName, opponentRosterId: top.opponentRosterId };
-        recap.topWeeks3 = sortedWeeks.slice(0, 3).map((w) => ({ teamName: w.teamName, rosterId: w.rosterId, week: w.week, points: w.points, opponentTeamName: w.opponentTeamName, opponentRosterId: w.opponentRosterId }));
+        recap.topWeeks3 = sortedWeeks.slice(0, 3).map((w) => ({
+          teamName: w.teamName,
+          rosterId: w.rosterId,
+          week: w.week,
+          points: w.points,
+          opponentTeamName: w.opponentTeamName,
+          opponentRosterId: w.opponentRosterId,
+        }));
       }
-      // Derive Toilet Bowl loser and 10th Place Winner from losers bracket
-      if (recapBrackets && (recapBrackets.losers || []).length > 0) {
+
+      // Toilet Bowl / 10th place from losers bracket
+      if (recapBrackets?.losers?.length > 0) {
         const lb = recapBrackets.losers as SleeperBracketGameWithScore[];
         const byRound: Record<number, SleeperBracketGameWithScore[]> = {};
-        for (const g of lb) {
-          const r = g.r ?? 0;
-          if (!byRound[r]) byRound[r] = [];
-          byRound[r].push(g);
-        }
-        const rounds = Object.keys(byRound).map((n) => Number(n));
+        for (const g of lb) { const r = g.r ?? 0; (byRound[r] ||= []).push(g); }
+        const rounds = Object.keys(byRound).map(Number);
         if (rounds.length > 0) {
           const maxRound = Math.max(...rounds);
-          const last = byRound[maxRound] || [];
-          // Choose the losers final as the game with the highest average seed (worst teams)
           const avgSeed = (g: SleeperBracketGameWithScore) => {
             const s1 = g.t1 != null ? (seedByRosterIdRecap.get(g.t1) ?? 99) : 99;
             const s2 = g.t2 != null ? (seedByRosterIdRecap.get(g.t2) ?? 99) : 99;
             return (s1 + s2) / 2;
           };
-          const sortedLast = [...last].sort((a,b) => avgSeed(b) - avgSeed(a));
-          const losersFinal = sortedLast[0];
+          const last = (byRound[maxRound] || []).sort((a, b) => avgSeed(b) - avgSeed(a));
+          const losersFinal = last[0];
           if (losersFinal) {
             let wRid: number | null = null;
             if (losersFinal.t1_points != null && losersFinal.t2_points != null) {
-              if (losersFinal.t1_points > losersFinal.t2_points) wRid = losersFinal.t1 ?? null;
-              else if (losersFinal.t2_points > losersFinal.t1_points) wRid = losersFinal.t2 ?? null;
-              else wRid = (losersFinal.w ?? (losersFinal.t1 ?? null));
-            } else {
-              wRid = losersFinal.w ?? null;
-            }
-            const lRid = (wRid != null) ? ((wRid === losersFinal.t1) ? (losersFinal.t2 ?? null) : (losersFinal.t1 ?? null)) : null;
+              wRid = losersFinal.t1_points > losersFinal.t2_points ? (losersFinal.t1 ?? null) : (losersFinal.t2 ?? null);
+            } else { wRid = losersFinal.w ?? null; }
+            const lRid = wRid != null ? (wRid === losersFinal.t1 ? (losersFinal.t2 ?? null) : (losersFinal.t1 ?? null)) : null;
             if (lRid != null) {
-              const nmMap = recapNameMap as Map<number, string>;
-              recap.toiletBowlLoser = { teamName: nmMap.get(lRid) || `Roster ${lRid}`, rosterId: lRid || undefined };
+              const nm = recapNameMap as Map<number, string>;
+              recap.toiletBowlLoser = { teamName: nm.get(lRid) || `Roster ${lRid}`, rosterId: lRid || undefined };
             }
           }
-          // Tenth place game winner: directly locate the game between rosterIds seeded #9 and #10
-          let rid9: number | null = null;
-          let rid10: number | null = null;
+          // 10th place
+          let rid9: number | null = null, rid10: number | null = null;
           for (const [rid, seed] of seedByRosterIdRecap.entries()) {
             if (seed === 9) rid9 = rid;
             if (seed === 10) rid10 = rid;
           }
-          const involves910 = (g: SleeperBracketGameWithScore) => {
-            if (rid9 == null || rid10 == null) return false;
-            const a = g.t1 ?? null;
-            const b = g.t2 ?? null;
-            return (a === rid9 && b === rid10) || (a === rid10 && b === rid9);
-          };
-          // Prefer the latest round where 9 plays 10; if none found, fall back to seed-based check; if still none, pick lowest average seed game
-          const direct910 = lb.filter(involves910);
-          const matchIs910BySeed = (g: SleeperBracketGameWithScore) => {
-            const s1 = g.t1 != null ? (seedByRosterIdRecap.get(g.t1) ?? null) : null;
-            const s2 = g.t2 != null ? (seedByRosterIdRecap.get(g.t2) ?? null) : null;
-            const set = new Set([s1, s2]);
-            return set.has(9) && set.has(10) && set.size === 2;
-          };
-          const all910BySeed = direct910.length === 0 ? lb.filter(matchIs910BySeed) : [];
-          const tenthGame = direct910.length > 0
-            ? [...direct910].sort((a, b) => (b.r ?? 0) - (a.r ?? 0) || (b.m ?? 0) - (a.m ?? 0))[0]
-            : (all910BySeed.length > 0
-                ? [...all910BySeed].sort((a, b) => (b.r ?? 0) - (a.r ?? 0) || (b.m ?? 0) - (a.m ?? 0))[0]
-                : ([...lb].sort((a, b) => avgSeed(a) - avgSeed(b))[0] || null));
+          const tenthGame = lb.find(
+            (g) => (g.t1 === rid9 && g.t2 === rid10) || (g.t1 === rid10 && g.t2 === rid9)
+          );
           if (tenthGame) {
             let wRid: number | null = null;
             if (tenthGame.t1_points != null && tenthGame.t2_points != null) {
-              if (tenthGame.t1_points > tenthGame.t2_points) wRid = tenthGame.t1 ?? null;
-              else if (tenthGame.t2_points > tenthGame.t1_points) wRid = tenthGame.t2 ?? null;
-              else wRid = (tenthGame.w ?? (tenthGame.t1 ?? null));
-            } else {
-              wRid = tenthGame.w ?? null;
-            }
+              wRid = tenthGame.t1_points > tenthGame.t2_points ? (tenthGame.t1 ?? null) : (tenthGame.t2 ?? null);
+            } else { wRid = tenthGame.w ?? null; }
             if (wRid != null) {
-              const nmMap = recapNameMap as Map<number, string>;
-              recap.tenthPlaceWinner = { teamName: nmMap.get(wRid) || `Roster ${wRid}`, rosterId: wRid || undefined };
+              const nm = recapNameMap as Map<number, string>;
+              recap.tenthPlaceWinner = { teamName: nm.get(wRid) || `Roster ${wRid}`, rosterId: wRid || undefined };
             }
           }
         }
       }
-    } catch {}
+    } catch { /* show empty recap */ }
   }
-  // Offseason primary countdown selection based on phase
-  const phase = getCurrentPhase();
-  const seasonStarted = hasRegularSeasonStarted();
-  let offPrimaryDate = IMPORTANT_DATES.NFL_WEEK_1_START;
-  let offPrimaryTitle = 'Season starts in';
-  
-  if (phase === 'post_championship_pre_draft') {
-    // During post-championship pre-draft, show season countdown
-    offPrimaryDate = IMPORTANT_DATES.NFL_WEEK_1_START;
-    offPrimaryTitle = 'Season starts in';
-  } else if (phase === 'post_draft_pre_season') {
-    offPrimaryDate = IMPORTANT_DATES.NFL_WEEK_1_START;
-    offPrimaryTitle = seasonStarted ? 'Season in progress' : 'Season starts in';
-  }
-  // Taxi flags (league-wide): fetch lightweight flags on SSR for speed
-  let taxiFlags: { generatedAt: string; lastRunAt?: string; runType?: string; season?: number; week?: number; actual: Array<{ team: string; type: string; message: string }>; potential: Array<{ team: string; type: string; message: string }> } = { generatedAt: '', actual: [], potential: [] };
+
+  // ── Taxi flags ─────────────────────────────────────────────────────────────
+  let taxiFlags: {
+    generatedAt: string;
+    lastRunAt?: string;
+    runType?: string;
+    season?: number;
+    week?: number;
+    actual: Array<{ team: string; type: string; message: string }>;
+    potential: Array<{ team: string; type: string; message: string }>;
+  } = { generatedAt: '', actual: [], potential: [] };
   try {
-    const rf = await fetch('/api/taxi/flags', { next: { revalidate: 20 } });
+    const rf = await fetch('/api/taxi/flags', { next: { revalidate: 60 } });
     if (rf.ok) {
-      const j = await rf.json().catch(() => null) as null | { generatedAt?: string; lastRunAt?: string; runType?: string; season?: number; week?: number; actual?: Array<{ team: string; type: string; message: string }>; potential?: Array<{ team: string; type: string; message: string }> };
+      const j = await rf.json().catch(() => null) as null | {
+        generatedAt?: string; lastRunAt?: string; runType?: string;
+        season?: number; week?: number;
+        actual?: Array<{ team: string; type: string; message: string }>;
+        potential?: Array<{ team: string; type: string; message: string }>;
+      };
       if (j) {
         taxiFlags = {
           generatedAt: j.generatedAt || new Date().toISOString(),
-          lastRunAt: j.lastRunAt,
-          runType: j.runType,
-          season: j.season,
-          week: j.week,
+          lastRunAt: j.lastRunAt, runType: j.runType, season: j.season, week: j.week,
           actual: Array.isArray(j.actual) ? j.actual : [],
           potential: Array.isArray(j.potential) ? j.potential : [],
         };
       }
     }
-  } catch {}
-  // Final fallback removed to keep SSR fast. Client will refresh banner post-hydration if needed.
-  // Head-to-head all-time data
-  let h2h: { teams: string[]; matrix: Record<string, Record<string, import("@/lib/utils/headtohead").H2HCell>>; neverBeaten: Array<{ team: string; vs: string; meetings: number; lastMeeting?: { year: string; week: number } }> } = { teams: [], matrix: {}, neverBeaten: [] };
+  } catch { /* leave empty */ }
+
+  // ── Historical H2H data (for HistoricalSpotlight) ─────────────────────────
+  let h2h: Awaited<ReturnType<typeof getHeadToHeadAllTime>> = { teams: [], matrix: {}, neverBeaten: [] };
   try {
     h2h = await getHeadToHeadAllTime();
-  } catch {}
-  // Build highlight keys for pairs playing this week where the row team has never beaten the opponent (but have met before)
-  const h2hHighlightKeys: string[] = [];
-  const key = (a: string, b: string) => `${a}||${b}`;
-  for (const mu of currentWeekMatchups) {
-    const a = mu.awayTeam;
-    const b = mu.homeTeam;
-    const c1 = h2h.matrix[a]?.[b];
-    const c2 = h2h.matrix[b]?.[a];
-    if (c1 && c1.meetings > 0 && c1.wins.total === 0) h2hHighlightKeys.push(key(a, b));
-    if (c2 && c2.meetings > 0 && c2.wins.total === 0) h2hHighlightKeys.push(key(b, a));
-  }
-  const exportTs = Date.now().toString();
-  const withFreshExportUrl = (path: string) => `${path}?ts=${exportTs}`;
+  } catch { /* empty */ }
+
+  // ── Trade block summary data (for LeaguePulse – server-side load) ─────────
+  let tradeRows: import('@/components/trades/TradeBlockTab').TeamRow[] = [];
+  try {
+    const { TEAM_NAMES } = await import('@/lib/constants/league');
+    const { getUserIdForTeam } = await import('@/lib/server/user-identity');
+    const { readUserDoc } = await import('@/lib/server/user-store');
+    tradeRows = await Promise.all(
+      TEAM_NAMES.map(async (team) => {
+        try {
+          const userId = getUserIdForTeam(team);
+          const doc = await readUserDoc(userId, team);
+          return {
+            team,
+            tradeBlock: Array.isArray(doc.tradeBlock) ? doc.tradeBlock : [],
+            tradeWants: doc.tradeWants ?? null,
+            updatedAt: doc.updatedAt || null,
+          };
+        } catch {
+          return { team, tradeBlock: [], tradeWants: null, updatedAt: null };
+        }
+      })
+    );
+  } catch { /* leave empty */ }
+
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // Render
+  // ──────────────────────────────────────────────────────────────────────────
   return (
     <div className="home-page relative overflow-hidden">
-      {/* Home-only background treatment (kept local to this page). */}
+      {/* Background treatment */}
       <div
         aria-hidden
         className="pointer-events-none absolute inset-0 z-0 home-aurora-motion"
@@ -495,124 +483,24 @@ export default async function Home({ searchParams }: { searchParams?: Promise<Re
           backgroundSize: '100% 4px',
         }}
       />
+
       <div className="container mx-auto px-4 sm:px-5 py-6 sm:py-8 relative z-10">
 
-      {/* Countdowns Section */}
-      <section className="mb-10 sm:mb-12">
-        <SectionHeader title="Key dates" />
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {isRegularSeason ? (
-            <>
-              <CountdownTimer
-                targetDate={IMPORTANT_DATES.TRADE_DEADLINE} 
-                title="Trade deadline in"
-                emphasis
-              />
-              <CountdownTimer 
-                targetDate={IMPORTANT_DATES.PLAYOFFS_START} 
-                title="Playoffs start in"
-                emphasis
-              />
-            </>
-          ) : (
-            <>
-              <CountdownTimer targetDate={offPrimaryDate} title={offPrimaryTitle} emphasis />
-              <CountdownTimer 
-                targetDate={IMPORTANT_DATES.NEXT_DRAFT} 
-                title="Next draft in"
-                emphasis
-              />
-            </>
-          )}
-        </div>
-      </section>
-      
-      {/* Taxi Tracker summary */}
-      <TaxiBanner initial={taxiFlags} />
+        {/* ── 1. Key dates (always first) ────────────────────────────────── */}
+        <HomepageCountdowns />
 
-      {/* Current Week Preview */}
-      <section className="mb-10 sm:mb-12">
-        {isRegularSeason ? (
-          <>
-            <SectionHeader title={`Week ${selectedWeek} matchups`} />
-            {/* Week selector: 1..14 clickable links */}
-            <div className="mb-6 flex flex-wrap gap-2" aria-label="Select week">
-              {Array.from({ length: MAX_REGULAR_WEEKS }, (_, i) => i + 1).map((w) => {
-                const isActive = w === selectedWeek;
-                return (
-                  <Link
-                    key={w}
-                    href={`/?week=${w}`}
-                    prefetch={false}
-                    aria-label={`Show Week ${w}`}
-                    className={`px-3 py-1 rounded-md text-sm border transition-colors ${
-                      isActive
-                        ? 'bg-[var(--accent)] text-white border-[var(--accent)]'
-                        : 'evw-surface text-[var(--text)] border-[var(--border)] hover:bg-[color-mix(in_srgb,white_5%,transparent)]'
-                    }`}
-                  >
-                    {w}
-                  </Link>
-                );
-              })}
-            </div>
-            {currentWeekMatchups.length > 0 ? (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                {currentWeekMatchups.map((matchup, index) => (
-                  <MatchupCard 
-                    key={index}
-                    homeTeam={matchup.homeTeam}
-                    awayTeam={matchup.awayTeam}
-                    homeRosterId={matchup.homeRosterId}
-                    awayRosterId={matchup.awayRosterId}
-                    homeScore={matchup.homeScore}
-                    awayScore={matchup.awayScore}
-                    kickoffTime={matchup.kickoffTime}
-                    week={matchup.week}
-                    matchupId={matchup.matchupId}
-                  />
-                ))}
-              </div>
-            ) : (
-              <EmptyState 
-                title={`No Week ${selectedWeek} matchups`}
-                message={`Matchups for Week ${selectedWeek} are not yet available from Sleeper. Check back closer to kickoff.`}
-              />
-            )}
-          </>
-        ) : isPlayoffs ? (
-          <>
-            <SectionHeader title="Playoff brackets" />
-            <div className="space-y-8 mt-6">
-              <PlayoffBracketPanel
-                title="Official Playoffs"
-                games={winnersBracket}
-                variant="winners"
-                nameMap={bracketNameMap}
-                seedMap={seedByRosterId}
-                keyPrefix="home-winners"
-                emptyMessage="No games yet."
-              />
-              <PlayoffBracketPanel
-                title="Toilet Bowl"
-                games={losersBracket}
-                variant="losers"
-                nameMap={bracketNameMap}
-                seedMap={seedByRosterId}
-                keyPrefix="home-losers"
-                emptyMessage="No games yet."
-              />
-            </div>
+        {/* ── 2. Taxi banner (always second) ─────────────────────────────── */}
+        <TaxiBanner initial={taxiFlags} />
 
-          </>
-        ) : (
+        {/* ── Phase-specific content ──────────────────────────────────────── */}
+
+        {/* Phase 1: post-championship pre-draft — recap is primary */}
+        {phase === 'post_championship_pre_draft' && (
           <>
-            <SectionHeader title={`Season recap (${recapYear})`} />
-            <SeasonRecapGrid recap={recap} rosterNameMap={recapBracketNameMap} />
-            {/* Recap Playoff Brackets */}
-            <div className="mt-8">
-              <SectionHeader title="Playoff brackets (recap)" />
-              <div className="space-y-8 mt-4">
+            <section className="mb-10 sm:mb-12">
+              <SectionHeader title={`Season recap (${recapYear})`} />
+              <SeasonRecapGrid recap={recap} rosterNameMap={recapBracketNameMap} />
+              <div className="mt-8 space-y-8">
                 <PlayoffBracketPanel
                   title="Official Playoffs"
                   games={recapWinnersBracket}
@@ -632,74 +520,149 @@ export default async function Home({ searchParams }: { searchParams?: Promise<Re
                   emptyMessage="No games."
                 />
               </div>
-            </div>
+            </section>
+
+            <LeaguePulse tradeRows={tradeRows} positionCounts={positionCounts} />
+            <AroundTheLeague playerIds={allPlayerIds} />
+            <HistoricalSpotlight h2h={h2h} />
+            <CompactDraftLink />
           </>
         )}
-      </section>
-      
-      {/* Head-to-Head (All-time) */}
-      <section className="mb-10 sm:mb-12">
-        <SectionHeader title="Head-to-head (All-time)" />
-        <BroadcastPanel
-          accent="#6366f1"
-          title="All-time matrix"
-          meta="Grid & tracker"
-          className="mt-4"
-        >
-          <Tabs
-            initialId="grid"
-            tabs={[
-              { id: 'grid', label: 'Grid', content: <HeadToHeadGrid teams={h2h.teams} matrix={h2h.matrix} highlightKeys={h2hHighlightKeys} /> },
-              { id: 'tracker', label: 'Tracker', content: <NeverBeatenTracker list={h2h.neverBeaten} /> },
-            ]}
-          />
-        </BroadcastPanel>
-      </section>
-      
-      {/* Data Exports */}
-      <section>
-        <SectionHeader title="Data exports" />
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <LinkButton
-            href={withFreshExportUrl('/api/export/all')}
-            aria-label="Download full league export JSON including rosters, rules, drafts, history, and trades"
-            variant="primary"
-          >
-            Export everything (.json)
-          </LinkButton>
-          <LinkButton
-            href={withFreshExportUrl('/api/export/rosters')}
-            aria-label="Download rosters and teams JSON across seasons"
-          >
-            Rosters & Teams (.json)
-          </LinkButton>
-          <LinkButton
-            href={withFreshExportUrl('/api/export/rules')}
-            aria-label="Download league rules and settings JSON"
-          >
-            Rules & Settings (.json)
-          </LinkButton>
-          <LinkButton
-            href={withFreshExportUrl('/api/export/drafts')}
-            aria-label="Download drafts and picks JSON across seasons"
-          >
-            Drafts & Picks (.json)
-          </LinkButton>
-          <LinkButton
-            href={withFreshExportUrl('/api/export/history')}
-            aria-label="Download league history and records JSON"
-          >
-            History & Records (.json)
-          </LinkButton>
-          <LinkButton
-            href={withFreshExportUrl('/api/export/trades')}
-            aria-label="Download trades and transactions JSON"
-          >
-            Trades & Transactions (.json)
-          </LinkButton>
-        </div>
-      </section>
+
+        {/* Phase 2: post-draft, pre-FA bidding */}
+        {phase === 'post_draft_pre_fa' && (
+          <>
+            <LeaguePulse tradeRows={tradeRows} positionCounts={positionCounts} />
+            <AroundTheLeague playerIds={allPlayerIds} />
+            <CompactSeasonRecap recap={recap} year={recapYear} />
+            <CompactDraftLink />
+          </>
+        )}
+
+        {/* Phase 3: FA bidding open, pre-season */}
+        {phase === 'fa_open_pre_season' && (
+          <>
+            <LeaguePulse tradeRows={tradeRows} positionCounts={positionCounts} />
+            <AroundTheLeague playerIds={allPlayerIds} />
+            <CompactSeasonRecap recap={recap} year={recapYear} />
+          </>
+        )}
+
+        {/* Phase 4: regular season (including post-deadline) */}
+        {(phase === 'regular_season' || phase === 'post_deadline_pre_postseason') && (
+          <>
+            {/* This Week matchups */}
+            <section className="mb-10 sm:mb-12">
+              <SectionHeader title={`Week ${selectedWeek} matchups`} />
+              <div className="mb-6 flex flex-wrap gap-2" aria-label="Select week">
+                {Array.from({ length: MAX_REGULAR_WEEKS }, (_, i) => i + 1).map((w) => {
+                  const isActive = w === selectedWeek;
+                  return (
+                    <Link
+                      key={w}
+                      href={`/?week=${w}`}
+                      prefetch={false}
+                      aria-label={`Show Week ${w}`}
+                      className={`px-3 py-1 rounded-md text-sm border transition-colors ${
+                        isActive
+                          ? 'bg-[var(--accent)] text-white border-[var(--accent)]'
+                          : 'evw-surface text-[var(--text)] border-[var(--border)] hover:bg-[color-mix(in_srgb,white_5%,transparent)]'
+                      }`}
+                    >
+                      {w}
+                    </Link>
+                  );
+                })}
+              </div>
+              {currentWeekMatchups.length > 0 ? (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {currentWeekMatchups.map((matchup, index) => (
+                    <MatchupCard
+                      key={index}
+                      homeTeam={matchup.homeTeam}
+                      awayTeam={matchup.awayTeam}
+                      homeRosterId={matchup.homeRosterId}
+                      awayRosterId={matchup.awayRosterId}
+                      homeScore={matchup.homeScore}
+                      awayScore={matchup.awayScore}
+                      kickoffTime={matchup.kickoffTime}
+                      week={matchup.week}
+                      matchupId={matchup.matchupId}
+                    />
+                  ))}
+                </div>
+              ) : (
+                <EmptyState
+                  title={`No Week ${selectedWeek} matchups`}
+                  message={`Matchups for Week ${selectedWeek} are not yet available from Sleeper. Check back closer to kickoff.`}
+                />
+              )}
+            </section>
+
+            <LeaguePulse tradeRows={tradeRows} positionCounts={positionCounts} />
+            <AroundTheLeague playerIds={allPlayerIds} />
+          </>
+        )}
+
+        {/* Phase 6: postseason */}
+        {phase === 'postseason' && (
+          <>
+            <section className="mb-10 sm:mb-12">
+              <SectionHeader title="Playoff brackets" />
+              <div className="space-y-8 mt-6">
+                <PlayoffBracketPanel
+                  title="Official Playoffs"
+                  games={winnersBracket}
+                  variant="winners"
+                  nameMap={bracketNameMap}
+                  seedMap={seedByRosterId}
+                  keyPrefix="home-winners"
+                  emptyMessage="No games yet."
+                />
+                <PlayoffBracketPanel
+                  title="Toilet Bowl"
+                  games={losersBracket}
+                  variant="losers"
+                  nameMap={bracketNameMap}
+                  seedMap={seedByRosterId}
+                  keyPrefix="home-losers"
+                  emptyMessage="No games yet."
+                />
+              </div>
+            </section>
+
+            <LeaguePulse tradeRows={tradeRows} positionCounts={positionCounts} />
+            <AroundTheLeague playerIds={allPlayerIds} />
+          </>
+        )}
+
+        {/* Historical Spotlight for phases 2 & 3 (phase 1 already renders it above) */}
+        {(phase === 'post_draft_pre_fa' || phase === 'fa_open_pre_season') && (
+          <HistoricalSpotlight h2h={h2h} />
+        )}
+
       </div>
     </div>
+  );
+}
+
+/** Small compact link to Draft Central — shown in offseason phases. */
+function CompactDraftLink() {
+  return (
+    <section className="mb-10 sm:mb-12">
+      <BroadcastPanel accent="#6366f1" title="Draft Central">
+        <p className="text-sm mb-3" style={{ color: 'rgba(233,237,245,0.7)' }}>
+          Full draft order, pick ownership, prospect boards, scouting reports,
+          and draft-trip details are all in Draft Central.
+        </p>
+        <Link
+          href="/draft"
+          className="inline-block rounded-lg px-4 py-2 text-sm font-semibold transition-colors"
+          style={{ background: '#6366f1', color: '#fff' }}
+        >
+          Open Draft Central →
+        </Link>
+      </BroadcastPanel>
+    </section>
   );
 }
