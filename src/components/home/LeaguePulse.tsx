@@ -1,8 +1,16 @@
+'use client';
+
+import type { ReactNode } from 'react';
 import Link from 'next/link';
 import SectionHeader from '@/components/ui/SectionHeader';
 import { BroadcastPanel } from '@/components/ui/BroadcastPanel';
-import { broadcastBodyTextStyle, broadcastMutedTextStyle, broadcastFaintTextStyle, PANEL } from '@/components/ui/BroadcastPanel';
-import type { TeamRow } from '@/components/trades/TradeBlockTab';
+import {
+  broadcastBodyTextStyle,
+  broadcastMutedTextStyle,
+  broadcastFaintTextStyle,
+  PANEL,
+} from '@/lib/ui/broadcast-styles';
+import type { TeamRow } from '@/types/trade-block';
 
 // Position labels for display
 const POS_LABELS: Record<string, string> = {
@@ -218,7 +226,7 @@ function RosterConstructionSummary({ positionCounts }: RosterConstructionProps) 
 export type LeaguePulseProps = {
   tradeRows: TeamRow[];
   positionCounts: Record<string, Record<string, number>>;
-  h2hSpotlight?: React.ReactNode;
+  h2hSpotlight?: ReactNode;
 };
 
 export default function LeaguePulse({ tradeRows, positionCounts, h2hSpotlight }: LeaguePulseProps) {

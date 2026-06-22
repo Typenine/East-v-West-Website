@@ -1,7 +1,9 @@
+'use client';
+
 import Link from 'next/link';
 import SectionHeader from '@/components/ui/SectionHeader';
 import { BroadcastPanel, BroadcastTeamLogo } from '@/components/ui/BroadcastPanel';
-import { broadcastBodyTextStyle, broadcastMutedTextStyle, teamAccent } from '@/components/ui/BroadcastPanel';
+import { broadcastBodyTextStyle, broadcastMutedTextStyle, teamAccent } from '@/lib/ui/broadcast-styles';
 import type { SeasonRecapData } from './SeasonRecapGrid';
 
 export default function CompactSeasonRecap({

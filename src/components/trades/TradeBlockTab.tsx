@@ -6,20 +6,8 @@ import TradeBlockCard from '@/components/trades/TradeBlockCard';
 import TradeBlockEditPanel, { TradeBlockEditPanelPlaceholder } from '@/components/trades/TradeBlockEditPanel';
 import { TradeCardSkeleton } from '@/components/trades/TradeCard';
 
-export type TradeAsset =
-  | { type: 'player'; playerId: string }
-  | { type: 'pick'; year: number; round: number; originalTeam: string }
-  | { type: 'faab'; amount?: number };
-
-export type TradeWants = {
-  text?: string;
-  positions?: string[];
-  contactMethod?: 'text' | 'discord' | 'snap' | 'sleeper';
-  phone?: string;
-  snap?: string;
-};
-
-export type TeamRow = { team: string; tradeBlock: TradeAsset[]; tradeWants: TradeWants | null; updatedAt: string | null };
+export type { TradeAsset, TradeWants, TeamRow } from '@/types/trade-block';
+import type { TradeAsset, TradeWants, TeamRow } from '@/types/trade-block';
 
 export type PlayersLookup = Record<string, { name: string; position?: string; team?: string }>;
 

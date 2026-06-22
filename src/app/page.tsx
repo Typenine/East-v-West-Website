@@ -28,7 +28,8 @@ import CompactSeasonRecap from '@/components/home/CompactSeasonRecap';
 import HistoricalSpotlight from '@/components/home/HistoricalSpotlight';
 import AroundTheLeague from '@/components/home/AroundTheLeague';
 import LeaguePulse from '@/components/home/LeaguePulse';
-import { BroadcastPanel } from '@/components/ui/BroadcastPanel';
+import CompactDraftLink from '@/components/home/CompactDraftLink';
+import type { TeamRow } from '@/types/trade-block';
 import { getHeadToHeadAllTime } from '@/lib/utils/headtohead';
 import { requireTeamUser } from '@/lib/server/session';
 
@@ -432,7 +433,7 @@ export default async function Home({
   } catch { /* empty */ }
 
   // ── Trade block summary data (for LeaguePulse – server-side load) ─────────
-  let tradeRows: import('@/components/trades/TradeBlockTab').TeamRow[] = [];
+  let tradeRows: TeamRow[] = [];
   try {
     const { TEAM_NAMES } = await import('@/lib/constants/league');
     const { getUserIdForTeam } = await import('@/lib/server/user-identity');
@@ -643,26 +644,5 @@ export default async function Home({
 
       </div>
     </div>
-  );
-}
-
-/** Small compact link to Draft Central — shown in offseason phases. */
-function CompactDraftLink() {
-  return (
-    <section className="mb-10 sm:mb-12">
-      <BroadcastPanel accent="#6366f1" title="Draft Central">
-        <p className="text-sm mb-3" style={{ color: 'rgba(233,237,245,0.7)' }}>
-          Full draft order, pick ownership, prospect boards, scouting reports,
-          and draft-trip details are all in Draft Central.
-        </p>
-        <Link
-          href="/draft"
-          className="inline-block rounded-lg px-4 py-2 text-sm font-semibold transition-colors"
-          style={{ background: '#6366f1', color: '#fff' }}
-        >
-          Open Draft Central →
-        </Link>
-      </BroadcastPanel>
-    </section>
   );
 }

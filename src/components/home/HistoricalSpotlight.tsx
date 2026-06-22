@@ -1,7 +1,15 @@
+'use client';
+
 import Link from 'next/link';
 import SectionHeader from '@/components/ui/SectionHeader';
 import { BroadcastPanel, BroadcastTeamLogo } from '@/components/ui/BroadcastPanel';
-import { broadcastBodyTextStyle, broadcastMutedTextStyle, broadcastFaintTextStyle, teamAccent, PANEL } from '@/components/ui/BroadcastPanel';
+import {
+  broadcastBodyTextStyle,
+  broadcastMutedTextStyle,
+  broadcastFaintTextStyle,
+  teamAccent,
+  PANEL,
+} from '@/lib/ui/broadcast-styles';
 import type { H2HCell } from '@/lib/utils/headtohead';
 
 type H2HData = {
