@@ -73,12 +73,12 @@ export const getTeamLogoPath = (teamName: string): string => {
   // Keys use ASCII apostrophes — Sleeper may send Unicode apostrophes, so we also
   // try a normalized lookup if the direct lookup fails.
   const logoMap: Record<string, string> = {
-    'Belleview Badgers': 'Belleview Badgers Primary Logo.png',
+    'Belleview Badgers': 'Belleview Badgers Primary Logo-transparent.png',
     'Belltown Raptors': 'Belltown Raptors logo.png',
     'Minshew\'s Maniacs': 'Minshew\'s Maniacs Logo.png',
-    'Double Trouble': 'Double Trouble logo.png',
-    'Mt. Lebanon Cake Eaters': 'Cake Eaters Logo Final Version (1).png',
-    'The Lone Ginger': 'Lone Ginger Logo.png',
+    'Double Trouble': 'Double Trouble logo22.png',
+    'Mt. Lebanon Cake Eaters': 'Cake Eaters Logo Final Version (1)-transparent.png',
+    'The Lone Ginger': 'Lone Ginger Logo-transparent.png',
     'bop pop': 'bop pop logo.png',
     'Red Pandas': 'Red Pandas Primary Logo (2).png',
     'BeerNeverBrokeMyHeart': 'Beer Never Broke My Heart Logo.png',

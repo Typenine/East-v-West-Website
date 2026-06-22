@@ -43,7 +43,6 @@ export default function TeamBadge({
             width={px}
             height={px}
             className="object-contain"
-            style={{ background: 'transparent' }}
             onError={() => setImgOk(false)}
           />
         ) : (

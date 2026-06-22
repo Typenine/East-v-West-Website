@@ -101,7 +101,6 @@ export default function TeamsPage() {
                   width={100}
                   height={100}
                   className="object-contain p-2"
-                  style={{ background: 'transparent' }}
                   onError={handleImageError}
                 />
               </div>

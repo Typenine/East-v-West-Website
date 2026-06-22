@@ -62,7 +62,6 @@ export default function SignInTeamLogo({ team, size = 'md', className }: SignInT
             sizes={`${dims.px}px`}
             priority={size === 'hero'}
             className={`${dims.inner} object-contain drop-shadow-sm`}
-            style={{ background: 'transparent' }}
             onError={() => setFailed(true)}
           />
         )}

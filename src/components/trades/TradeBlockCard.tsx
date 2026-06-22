@@ -32,7 +32,6 @@ function BlockTeamLogo({ team, accent }: { team: string; accent: string }) {
           sizes="48px"
           loading="lazy"
           className="h-10 w-10 object-contain"
-          style={{ background: 'transparent' }}
           onError={() => setFailed(true)}
         />
       )}
