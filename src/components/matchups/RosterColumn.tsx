@@ -558,7 +558,7 @@ export default function RosterColumn({
       >
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center overflow-hidden">
-            <Image src={getTeamLogoPath(colorTeam)} alt={colorTeam} width={28} height={28} className="object-contain" />
+            <Image src={getTeamLogoPath(colorTeam)} alt={colorTeam} width={28} height={28} className="object-contain" style={{ background: 'transparent' }} />
           </div>
           <CardTitle className="text-current">{title}</CardTitle>
           <div className="ml-auto flex items-center gap-4">

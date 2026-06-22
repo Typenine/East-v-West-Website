@@ -57,6 +57,7 @@ export function BroadcastTeamLogo({
           sizes={`${px}px`}
           loading="lazy"
           className={`${inner} object-contain`}
+          style={{ background: 'transparent' }}
           onError={() => setFailed(true)}
         />
       )}

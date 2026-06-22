@@ -89,7 +89,7 @@ export default function PlayoffBracketBoard({
               style={{ color: textColor }}
             >
               <div
-                className="w-[42px] h-[42px] rounded-full overflow-hidden border shrink-0 bg-white/20"
+                className="w-[42px] h-[42px] rounded-full overflow-hidden border shrink-0 bg-white/10"
                 style={{ borderColor: 'rgba(255,255,255,0.4)' }}
               >
                 <Image
@@ -98,6 +98,7 @@ export default function PlayoffBracketBoard({
                   width={42}
                   height={42}
                   className="object-contain w-[42px] h-[42px]"
+                  style={{ background: 'transparent' }}
                 />
               </div>
               <span className="truncate text-xs font-medium">

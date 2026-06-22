@@ -267,6 +267,7 @@ export default function StandingsPage() {
                         width={24}
                         height={24}
                         className="object-contain"
+                        style={{ background: 'transparent' }}
                         onError={(e) => {
                           const target = e.target as HTMLImageElement;
                           target.style.display = 'none';

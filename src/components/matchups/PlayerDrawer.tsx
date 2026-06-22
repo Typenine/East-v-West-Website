@@ -217,7 +217,7 @@ export default function PlayerDrawer({ open, onClose, player, season, week, curr
       <div className="absolute right-0 top-0 h-full w-full sm:w-[420px] evw-surface border-l border-[var(--border)] p-4 overflow-y-auto">
         <div className="flex items-center gap-3 mb-3">
           <div className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center overflow-hidden">
-            <Image src={getTeamLogoPath(player.team || '')} alt={player.team || ''} width={32} height={32} className="object-contain" />
+            <Image src={getTeamLogoPath(player.team || '')} alt={player.team || ''} width={32} height={32} className="object-contain" style={{ background: 'transparent' }} />
           </div>
           <div className="min-w-0">
             <div className="font-semibold truncate">{player.name}</div>

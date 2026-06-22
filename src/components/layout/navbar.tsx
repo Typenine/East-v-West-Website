@@ -625,9 +625,9 @@ export default function Navbar() {
                     aria-expanded={accountMenuOpen}
                   >
                     {sessionTeam ? (
-                      <Image src={getTeamLogoPath(sessionTeam)} alt={sessionTeam} width={32} height={32} />
+                      <Image src={getTeamLogoPath(sessionTeam)} alt={sessionTeam} width={32} height={32} style={{ background: 'transparent' }} />
                     ) : (
-                      <Image src="/assets/teams/East v West Logos/Official East v. West Logo.png" alt="Admin" width={32} height={32} />
+                      <Image src="/assets/teams/East v West Logos/Official East v. West Logo.png" alt="Admin" width={32} height={32} style={{ background: 'transparent' }} />
                     )}
                   </button>
                   {accountMenuOpen && (
@@ -763,9 +763,9 @@ export default function Navbar() {
                   title={sessionTeam || (isAdmin ? 'Admin' : '')}
                 >
                   {sessionTeam ? (
-                    <Image src={getTeamLogoPath(sessionTeam)} alt={sessionTeam} width={40} height={40} />
+                    <Image src={getTeamLogoPath(sessionTeam)} alt={sessionTeam} width={40} height={40} style={{ background: 'transparent' }} />
                   ) : (
-                    <Image src="/assets/teams/East v West Logos/Official East v. West Logo.png" alt="Admin" width={40} height={40} />
+                    <Image src="/assets/teams/East v West Logos/Official East v. West Logo.png" alt="Admin" width={40} height={40} style={{ background: 'transparent' }} />
                   )}
                 </button>
                 <div className="min-w-0 flex-1">
