@@ -11,7 +11,7 @@ import {
 } from '@/components/ui/BroadcastPanel';
 
 interface CountdownTimerProps {
-  targetDate: Date;
+  targetDate: Date | string;
   title: string;
   className?: string;
   emphasis?: boolean;
