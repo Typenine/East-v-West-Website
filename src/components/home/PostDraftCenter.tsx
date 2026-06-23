@@ -52,7 +52,7 @@ export default function PostDraftCenter({ rookieClassByTeam, positionCounts }: P
         <BroadcastPanel accent="#06b6d4" title="Draft results" meta="2026 rookie draft complete">
           <div className="space-y-3">
             <p className="text-sm" style={broadcastBodyTextStyle}>
-              The 2026 rookie draft is complete. Review each team's rookie class,
+              The 2026 rookie draft is complete. Review each team&apos;s rookie class,
               prospect evaluations, and pick history.
             </p>
             <div className="flex flex-wrap gap-2">
