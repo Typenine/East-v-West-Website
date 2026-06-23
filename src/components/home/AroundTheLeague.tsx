@@ -6,7 +6,16 @@ import SectionHeader from '@/components/ui/SectionHeader';
 import { BroadcastPanel } from '@/components/ui/BroadcastPanel';
 import { broadcastBodyTextStyle, broadcastMutedTextStyle, broadcastFaintTextStyle, PANEL } from '@/components/ui/BroadcastPanel';
 
-type NewsMatch = { playerId: string; name: string; confidence?: string };
+type NewsMatch = {
+  playerId: string;
+  name: string;
+  position?: string;
+  nflTeam?: string;
+  evTeam?: string;
+  evTeamSlug?: string;
+  confidence?: string;
+};
+
 type NewsItem = {
   title: string;
   link: string;
@@ -73,8 +82,26 @@ function CategoryBadge({ category }: { category?: string }) {
   );
 }
 
+function EVOwnerBadge({ match }: { match: NewsMatch }) {
+  if (!match.evTeam) return null;
+  return (
+    <Link
+      href={match.evTeamSlug ? `/teams/${match.evTeamSlug}` : '/teams'}
+      className="inline-block rounded px-1.5 py-0.5 text-[10px] font-semibold hover:underline"
+      style={{ background: 'rgba(99,102,241,0.15)', color: '#818cf8', border: '1px solid rgba(99,102,241,0.3)' }}
+    >
+      {match.evTeam}
+    </Link>
+  );
+}
+
 function NewsCard({ item }: { item: NewsItem }) {
-  const playerNames = item.matches.map((m) => m.name).join(', ');
+  // Group matches by EV team so each owner appears once
+  const evTeams = new Map<string, NewsMatch>();
+  for (const m of item.matches) {
+    if (m.evTeam && !evTeams.has(m.evTeam)) evTeams.set(m.evTeam, m);
+  }
+
   return (
     <li
       className="rounded-xl p-3"
@@ -98,9 +125,26 @@ function NewsCard({ item }: { item: NewsItem }) {
       >
         {item.title}
       </a>
-      {playerNames && (
-        <div className="text-xs mb-1" style={broadcastMutedTextStyle}>
-          {playerNames}
+      {/* Player names with position */}
+      {item.matches.length > 0 && (
+        <div className="text-xs mb-1.5 flex flex-wrap gap-1 items-center" style={broadcastMutedTextStyle}>
+          {item.matches.slice(0, 3).map((m, i) => (
+            <span key={m.playerId}>
+              {m.name}{m.position ? ` (${m.position})` : ''}
+              {i < Math.min(item.matches.length, 3) - 1 ? ', ' : ''}
+            </span>
+          ))}
+          {item.matches.length > 3 && (
+            <span style={broadcastFaintTextStyle}>+{item.matches.length - 3} more</span>
+          )}
+        </div>
+      )}
+      {/* EV team owner badges */}
+      {evTeams.size > 0 && (
+        <div className="flex flex-wrap gap-1 mb-1.5">
+          {Array.from(evTeams.values()).slice(0, 3).map((m) => (
+            <EVOwnerBadge key={m.playerId} match={m} />
+          ))}
         </div>
       )}
       <div className="text-[10px]" style={broadcastFaintTextStyle}>
@@ -110,39 +154,48 @@ function NewsCard({ item }: { item: NewsItem }) {
   );
 }
 
-type FilterKey = 'all' | 'injury' | 'transaction' | 'trade' | 'depth_chart_role' | 'rookie_development';
+type FilterKey = 'all' | 'my_team' | 'injury' | 'transaction' | 'trade' | 'depth_chart_role' | 'rookie_development';
 
-const FILTERS: Array<{ key: FilterKey; label: string }> = [
-  { key: 'all', label: 'All' },
-  { key: 'injury', label: 'Injuries' },
-  { key: 'transaction', label: 'Transactions' },
-  { key: 'trade', label: 'Trades' },
-  { key: 'depth_chart_role', label: 'Depth chart' },
-  { key: 'rookie_development', label: 'Rookies' },
-];
+type Props = {
+  /** Team name of the signed-in user (if any), for My Team filter */
+  myTeam?: string | null;
+};
 
-export default function AroundTheLeague({ playerIds }: { playerIds: string[] }) {
+export default function AroundTheLeague({ myTeam }: Props) {
   const [items, setItems] = useState<NewsItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<FilterKey>('all');
 
   useEffect(() => {
-    if (playerIds.length === 0) { setLoading(false); return; }
-    const ids = playerIds.slice(0, 200).join(','); // cap to avoid URL length issues
-    fetch(`/api/roster-news?playerIds=${encodeURIComponent(ids)}&limit=30&sinceHours=168`)
+    const params = new URLSearchParams({ limit: '40', sinceHours: '168' });
+    // My Team filter: pass teamFilter param to server; server resolves roster
+    if (filter === 'my_team' && myTeam) {
+      params.set('teamFilter', myTeam);
+    }
+    fetch(`/api/league-news?${params}`)
       .then((r) => r.ok ? r.json() : Promise.reject())
       .then((j: NewsResponse) => setItems(j.items || []))
       .catch(() => setItems([]))
       .finally(() => setLoading(false));
-  }, [playerIds.join(',')]); // eslint-disable-line react-hooks/exhaustive-deps
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filter, myTeam]);
 
-  const filtered = filter === 'all'
-    ? items
-    : filter === 'transaction'
-      ? items.filter((it) => ['nfl_transaction', 'contract'].includes(it.category ?? ''))
-      : filter === 'trade'
-        ? items.filter((it) => ['trade', 'trade_rumor'].includes(it.category ?? ''))
-        : items.filter((it) => it.category === filter);
+  const FILTERS: Array<{ key: FilterKey; label: string }> = [
+    { key: 'all', label: 'All' },
+    ...(myTeam ? [{ key: 'my_team' as FilterKey, label: 'My team' }] : []),
+    { key: 'injury', label: 'Injuries' },
+    { key: 'transaction', label: 'Transactions' },
+    { key: 'trade', label: 'Trades' },
+    { key: 'depth_chart_role', label: 'Depth chart' },
+    { key: 'rookie_development', label: 'Rookies' },
+  ];
+
+  const filtered = (() => {
+    if (filter === 'all' || filter === 'my_team') return items;
+    if (filter === 'transaction') return items.filter((it) => ['nfl_transaction', 'contract'].includes(it.category ?? ''));
+    if (filter === 'trade') return items.filter((it) => ['trade', 'trade_rumor'].includes(it.category ?? ''));
+    return items.filter((it) => it.category === filter);
+  })();
 
   return (
     <section className="mb-10 sm:mb-12">
@@ -189,7 +242,7 @@ export default function AroundTheLeague({ playerIds }: { playerIds: string[] }) 
         </BroadcastPanel>
       ) : (
         <ul className="space-y-3">
-          {filtered.slice(0, 15).map((item, i) => (
+          {filtered.slice(0, 20).map((item, i) => (
             <NewsCard key={`${item.link}-${i}`} item={item} />
           ))}
         </ul>

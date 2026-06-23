@@ -25,12 +25,12 @@ function getDayOfYear(d: Date): number {
 }
 
 /** Pick which spotlight to show based on the current day-of-year (rotates weekly). */
-function pickSpotlightType(h2h: H2HData, now: Date): 'rivalry' | 'never_beaten' | 'all_time_leader' | 'recent_form' {
+function pickSpotlightType(h2h: H2HData, now: Date): 'rivalry' | 'never_beaten' | 'all_time_leader' | 'closest_rivalry' {
   const week = Math.floor(getDayOfYear(now) / 7) % 4;
   if (week === 0 && h2h.neverBeaten.length > 0) return 'never_beaten';
   if (week === 1) return 'rivalry';
   if (week === 2) return 'all_time_leader';
-  return 'recent_form';
+  return 'closest_rivalry';
 }
 
 function RivalrySpotlight({ h2h }: { h2h: H2HData }) {
@@ -148,11 +148,61 @@ function AllTimeLeaderSpotlight({ h2h }: { h2h: H2HData }) {
   );
 }
 
-function RecentFormSpotlight({ h2h }: { h2h: H2HData }) {
-  // Show the team with the best current-season win percentage (regular season wins vs total)
-  // Since we only have all-time data, show the team with the most wins all time as a proxy
-  // for "dominant recent form" — this is safe and doesn't require live data.
-  return <AllTimeLeaderSpotlight h2h={h2h} />;
+/**
+ * Closest Rivalry: the pair whose all-time record is most evenly matched
+ * (smallest absolute win difference relative to total games played).
+ */
+function ClosestRivalrySpotlight({ h2h }: { h2h: H2HData }) {
+  let bestPair: { team: string; vs: string; cell: H2HCell } | null = null;
+  let smallestDiff = Infinity;
+
+  for (const team of h2h.teams) {
+    for (const vs of h2h.teams) {
+      if (team >= vs) continue;
+      const cell = h2h.matrix[team]?.[vs];
+      if (!cell || cell.meetings < 2) continue; // need at least 2 meetings
+      const diff = Math.abs(cell.wins.total - cell.losses.total);
+      if (diff < smallestDiff) {
+        smallestDiff = diff;
+        bestPair = { team, vs, cell };
+      }
+    }
+  }
+
+  if (!bestPair) return <RivalrySpotlight h2h={h2h} />;
+
+  const { team, vs, cell } = bestPair;
+  const accentA = teamAccent(team);
+  const accentB = teamAccent(vs);
+  return (
+    <BroadcastPanel
+      accent="#a78bfa"
+      title="Closest rivalry"
+      meta={`${cell.meetings} meetings · ${Math.abs(cell.wins.total - cell.losses.total)}-game difference`}
+    >
+      <div className="flex items-center justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <BroadcastTeamLogo team={team} accent={accentA} size="sm" />
+          <div>
+            <div className="text-sm font-semibold" style={broadcastBodyTextStyle}>{team}</div>
+            <div className="text-xs" style={broadcastMutedTextStyle}>{cell.wins.total}W–{cell.losses.total}L</div>
+          </div>
+        </div>
+        <div className="text-lg font-extrabold" style={{ color: PANEL.faint }}>vs</div>
+        <div className="flex items-center gap-3 flex-row-reverse">
+          <BroadcastTeamLogo team={vs} accent={accentB} size="sm" />
+          <div className="text-right">
+            <div className="text-sm font-semibold" style={broadcastBodyTextStyle}>{vs}</div>
+            <div className="text-xs" style={broadcastMutedTextStyle}>{cell.losses.total}W–{cell.wins.total}L</div>
+          </div>
+        </div>
+      </div>
+      <div className="mt-3 text-center text-xs" style={broadcastFaintTextStyle}>
+        The most evenly matched head-to-head in league history ·{' '}
+        <Link href="/history" className="underline hover:text-white">Full history</Link>
+      </div>
+    </BroadcastPanel>
+  );
 }
 
 export default function HistoricalSpotlight({ h2h }: { h2h: H2HData }) {
@@ -167,7 +217,7 @@ export default function HistoricalSpotlight({ h2h }: { h2h: H2HData }) {
   } else if (type === 'all_time_leader') {
     content = <AllTimeLeaderSpotlight h2h={h2h} />;
   } else {
-    content = <RecentFormSpotlight h2h={h2h} />;
+    content = <ClosestRivalrySpotlight h2h={h2h} />;
   }
 
   if (!content) return null;

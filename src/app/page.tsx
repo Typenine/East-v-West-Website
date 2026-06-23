@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import MatchupCard from '@/components/ui/matchup-card';
-import { LEAGUE_IDS } from '@/lib/constants/league';
+import { LEAGUE_IDS, CHAMPIONS } from '@/lib/constants/league';
 import {
   getLeagueMatchups,
   getTeamsData,
@@ -15,6 +15,7 @@ import {
   getAllPlayersCached,
   type SleeperBracketGameWithScore,
   type WeeklyHighByWeekEntry,
+  type SleeperPlayer,
 } from '@/lib/utils/sleeper-api';
 import { getRecapYear } from '@/lib/utils/phase-resolver';
 import { getHomepagePhase } from '@/lib/utils/countdown-resolver';
@@ -29,13 +30,17 @@ import HistoricalSpotlight from '@/components/home/HistoricalSpotlight';
 import AroundTheLeague from '@/components/home/AroundTheLeague';
 import LeaguePulse from '@/components/home/LeaguePulse';
 import CompactDraftLink from '@/components/home/CompactDraftLink';
+import PostDraftCenter from '@/components/home/PostDraftCenter';
+import PreseasonCenter from '@/components/home/PreseasonCenter';
+import PlayoffRacePanel, { type StandingsTeam } from '@/components/home/PlayoffRacePanel';
+import PlayoffCenter from '@/components/home/PlayoffCenter';
+import MyTeamCard, { type MyTeamData } from '@/components/home/MyTeamCard';
+import LeagueOverviewCard from '@/components/home/LeagueOverviewCard';
 import type { TeamRow } from '@/types/trade-block';
 import { getHeadToHeadAllTime } from '@/lib/utils/headtohead';
 import { requireTeamUser } from '@/lib/server/session';
 
 export const dynamic = 'force-dynamic';
-// Longer revalidate during offseason; kept short for regular season/playoffs where live data matters.
-// Dynamic means this is respected only for ISR fallback, not for every request.
 export const revalidate = 60;
 
 export default async function Home({
@@ -43,11 +48,10 @@ export default async function Home({
 }: {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  // ── Auth (server-side, reserved for future My Team card) ─────────────────
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const _authUser = await requireTeamUser().catch(() => null);
+  // ── Auth ──────────────────────────────────────────────────────────────────
+  const authUser = await requireTeamUser().catch(() => null);
 
-  // ── Homepage phase ─────────────────────────────────────────────────────────
+  // ── Homepage phase ────────────────────────────────────────────────────────
   const phase = getHomepagePhase();
   const isRegularSeasonOrLater =
     phase === 'regular_season' ||
@@ -55,12 +59,11 @@ export default async function Home({
     phase === 'postseason';
   const isPostseason = phase === 'postseason';
   const isRegularSeason = phase === 'regular_season' || phase === 'post_deadline_pre_postseason';
+  const isPostDeadline = phase === 'post_deadline_pre_postseason';
 
-  // ── Shared state ───────────────────────────────────────────────────────────
+  // ── Shared state ──────────────────────────────────────────────────────────
   let leagueId = LEAGUE_IDS.CURRENT;
   let yearMap: Record<string, string> = {};
-  let seasonYear = '2026';
-  let recapYear = seasonYear;
 
   const currentWeekMatchups: Array<{
     homeTeam: string;
@@ -82,10 +85,15 @@ export default async function Home({
   let bracketNameMap = new Map<number, string>();
   const seedByRosterId = new Map<number, number>();
 
-  // Roster player IDs (for AroundTheLeague client component)
-  let allPlayerIds: string[] = [];
-  // Position counts per team (for LeaguePulse roster construction)
+  // Player IDs (unused directly now — news fetched server-side via /api/league-news)
   const positionCounts: Record<string, Record<string, number>> = {};
+  const playerPositions: Record<string, string> = {};
+
+  // Standings for League Pulse phase-awareness and Playoff Race
+  let standings: StandingsTeam[] = [];
+
+  // My Team data (assembled server-side)
+  let myTeamData: MyTeamData | null = null;
 
   const sp = (await (searchParams ?? Promise.resolve({}))) as Record<
     string,
@@ -102,13 +110,16 @@ export default async function Home({
     requestedWeekNum >= 1 &&
     requestedWeekNum <= MAX_REGULAR_WEEKS;
 
+  // Recap year (does not depend on NFL state; driven purely by IMPORTANT_DATES)
+  const recapYear = String(getRecapYear());
+
   try {
     const nflState = await getNFLState().catch(() => ({
       week: 1,
       display_week: 1,
       season_type: 'regular',
     }));
-    seasonYear = String((nflState as { season?: string | number }).season ?? seasonYear);
+    const seasonYear = String((nflState as { season?: string | number }).season ?? '2026');
     try {
       yearMap = await buildYearToLeagueMapUnique().catch(
         () => ({} as Record<string, string>)
@@ -116,10 +127,7 @@ export default async function Home({
       leagueId = yearMap[seasonYear] || leagueId;
     } catch { /* use default */ }
 
-    const nflSeasonYear = Number(seasonYear);
-    recapYear = String(getRecapYear(nflSeasonYear));
-
-    // Matchup data (only during regular season)
+    // Matchup data (regular season phases)
     if (isRegularSeason) {
       const nflStateTyped = nflState as { week?: number; display_week?: number };
       const rawWeek = Number(nflStateTyped.week ?? nflStateTyped.display_week ?? 1);
@@ -136,7 +144,7 @@ export default async function Home({
       selectedWeek = hasUserOverride ? (requestedWeekNum as number) : defaultWeek;
 
       const teams = await getTeamsData(leagueId).catch(
-        () => [] as Array<{ rosterId: number; teamName: string; wins?: number; fpts?: number }>
+        () => [] as Array<{ rosterId: number; teamName: string; wins?: number; losses?: number; ties?: number; fpts?: number }>
       );
       const rosterIdToName = new Map<number, string>(
         teams.map((t) => [t.rosterId, t.teamName])
@@ -177,11 +185,19 @@ export default async function Home({
         }
       }
 
-      // Seeds
+      // Seeds + standings
       const sortedForSeeds = [...teams].sort(
         (a, b) => (b.wins ?? 0) - (a.wins ?? 0) || (b.fpts ?? 0) - (a.fpts ?? 0)
       );
       sortedForSeeds.forEach((t, i) => seedByRosterId.set(t.rosterId, i + 1));
+      standings = sortedForSeeds.map((t, i) => ({
+        teamName: t.teamName,
+        rosterId: t.rosterId,
+        wins: t.wins ?? 0,
+        losses: t.losses ?? 0,
+        fpts: t.fpts ?? 0,
+        seed: i + 1,
+      }));
     }
 
     // Playoff bracket data
@@ -198,37 +214,81 @@ export default async function Home({
       bracketNameMap = nameMap as Map<number, string>;
     }
 
-    // Roster data (all phases — needed for AroundTheLeague and LeaguePulse)
+    // Roster data (all phases — needed for LeaguePulse and My Team card)
     try {
       const [rosters, nameMap, playerMap] = await Promise.all([
         getLeagueRosters(leagueId).catch(() => []),
         getRosterIdToTeamNameMap(leagueId).catch(() => new Map<number, string>()),
-        // 12-hour cache — cheap after first load; gives us positions for LeaguePulse
-        getAllPlayersCached(12 * 60 * 60 * 1000).catch(() => ({} as Record<string, { position?: string }>)),
+        getAllPlayersCached(12 * 60 * 60 * 1000).catch(() => ({} as Record<string, SleeperPlayer>)),
       ]);
       const rIdToTeam = new Map<number, string>(nameMap);
 
-      const playerIdSet = new Set<string>();
+      // Build playerPositions lookup (used by LeaguePulse trade matching)
+      for (const [pid, player] of Object.entries(playerMap as Record<string, SleeperPlayer>)) {
+        if (player.position) playerPositions[pid] = player.position;
+      }
+
+      // Standings for non-regular-season phases (post_deadline, postseason, offseason)
+      if (standings.length === 0) {
+        try {
+          const teamsData = await getTeamsData(leagueId).catch(() => []);
+          const sorted = [...teamsData].sort(
+            (a, b) => (b.wins ?? 0) - (a.wins ?? 0) || (b.fpts ?? 0) - (a.fpts ?? 0)
+          );
+          sorted.forEach((t, i) => seedByRosterId.set(t.rosterId, i + 1));
+          standings = sorted.map((t, i) => ({
+            teamName: t.teamName,
+            rosterId: t.rosterId,
+            wins: t.wins ?? 0,
+            losses: t.losses ?? 0,
+            fpts: t.fpts ?? 0,
+            seed: i + 1,
+          }));
+        } catch { /* leave empty */ }
+      }
+
       for (const roster of rosters) {
         const teamName = rIdToTeam.get(roster.roster_id) || `Roster ${roster.roster_id}`;
         const counts: Record<string, number> = {};
-        const allIds = [
-          ...(roster.players || []),
-          ...(roster.taxi || []),
-          ...(roster.reserve || []),
-        ];
-        for (const pid of allIds) {
-          playerIdSet.add(pid);
-          const pos = (playerMap[pid] as { position?: string } | undefined)?.position;
-          if (pos) counts[pos] = (counts[pos] ?? 0) + 1;
+
+        // Sleeper: roster.players already contains taxi and reserve members.
+        // Deduplicate before counting to avoid inflating position totals.
+        const uniquePids = new Set<string>(roster.players || []);
+        for (const pid of [...(roster.taxi || []), ...(roster.reserve || [])]) uniquePids.add(pid);
+
+        const VALID_POSITIONS = new Set(['QB', 'RB', 'WR', 'TE', 'K', 'DEF', 'DST', 'LB', 'DB', 'DL', 'DT', 'CB', 'S', 'DE']);
+        for (const pid of uniquePids) {
+          const player = (playerMap as Record<string, SleeperPlayer>)[pid];
+          const pos = player?.position;
+          if (pos && VALID_POSITIONS.has(pos)) counts[pos] = (counts[pos] ?? 0) + 1;
         }
         positionCounts[teamName] = counts;
+
+        // Assemble My Team data for signed-in user
+        if (authUser && authUser.team === teamName) {
+          const seed = seedByRosterId.get(roster.roster_id);
+          const teamsDataRecord = standings.find((s) => s.teamName === teamName);
+          myTeamData = {
+            teamName,
+            rosterCount: uniquePids.size,
+            taxiCount: (roster.taxi || []).length,
+            irCount: (roster.reserve || []).length,
+            wins: teamsDataRecord?.wins ?? roster.settings?.wins ?? 0,
+            losses: teamsDataRecord?.losses ?? roster.settings?.losses ?? 0,
+            fpts: teamsDataRecord?.fpts ?? roster.settings?.fpts ?? 0,
+            seed,
+            tradeBlock: [],
+            tradeWants: null,
+            tradeBlockUpdatedAt: null,
+            tradeBlockPlayerIds: [],
+            tradeBlockPickCount: 0,
+          };
+        }
       }
-      allPlayerIds = Array.from(playerIdSet);
-    } catch { /* leave allPlayerIds empty */ }
+    } catch { /* leave defaults */ }
   } catch { /* fallback: use phase-only logic */ }
 
-  // ── Season recap data (offseason phases) ─────────────────────────────────
+  // ── Season recap data (offseason phases) ──────────────────────────────────
   const recap: {
     podium?: { champion: string; runnerUp: string; thirdPlace: string };
     awards?: { mvp?: { name: string; points: number; teamName?: string }; roy?: { name: string; points: number; teamName?: string } };
@@ -259,7 +319,7 @@ export default async function Home({
           getSeasonAwardsUsingLeagueScoring(recapYear, leagueIdForRecap, 14).catch(() => null),
           getWeeklyHighsBySeason(recapYear).catch(() => [] as WeeklyHighByWeekEntry[]),
           recapLeagueId
-            ? getLeaguePlayoffBracketsWithScores(recapLeagueId, { forceFresh: true }).catch(
+            ? getLeaguePlayoffBracketsWithScores(recapLeagueId).catch(
                 () => ({
                   winners: [] as SleeperBracketGameWithScore[],
                   losers: [] as SleeperBracketGameWithScore[],
@@ -299,7 +359,6 @@ export default async function Home({
         }
       }
 
-      const { CHAMPIONS } = await import('@/lib/constants/league');
       const base =
         (CHAMPIONS as Record<string, { champion?: string; runnerUp?: string; thirdPlace?: string }>)[recapYear] || {};
       recap.podium = {
@@ -346,7 +405,6 @@ export default async function Home({
         }));
       }
 
-      // Toilet Bowl / 10th place from losers bracket
       if (recapBrackets?.losers?.length > 0) {
         const lb = recapBrackets.losers as SleeperBracketGameWithScore[];
         const byRound: Record<number, SleeperBracketGameWithScore[]> = {};
@@ -372,7 +430,6 @@ export default async function Home({
               recap.toiletBowlLoser = { teamName: nm.get(lRid) || `Roster ${lRid}`, rosterId: lRid || undefined };
             }
           }
-          // 10th place
           let rid9: number | null = null, rid10: number | null = null;
           for (const [rid, seed] of seedByRosterIdRecap.entries()) {
             if (seed === 9) rid9 = rid;
@@ -426,13 +483,7 @@ export default async function Home({
     }
   } catch { /* leave empty */ }
 
-  // ── Historical H2H data (for HistoricalSpotlight) ─────────────────────────
-  let h2h: Awaited<ReturnType<typeof getHeadToHeadAllTime>> = { teams: [], matrix: {}, neverBeaten: [] };
-  try {
-    h2h = await getHeadToHeadAllTime();
-  } catch { /* empty */ }
-
-  // ── Trade block summary data (for LeaguePulse – server-side load) ─────────
+  // ── Trade block data ──────────────────────────────────────────────────────
   let tradeRows: TeamRow[] = [];
   try {
     const { TEAM_NAMES } = await import('@/lib/constants/league');
@@ -443,12 +494,23 @@ export default async function Home({
         try {
           const userId = getUserIdForTeam(team);
           const doc = await readUserDoc(userId, team);
-          return {
+          const row: TeamRow = {
             team,
             tradeBlock: Array.isArray(doc.tradeBlock) ? doc.tradeBlock : [],
             tradeWants: doc.tradeWants ?? null,
             updatedAt: doc.updatedAt || null,
           };
+          // Attach trade block to My Team data if this is the auth user's team
+          if (myTeamData && myTeamData.teamName === team) {
+            myTeamData.tradeBlock = row.tradeBlock;
+            myTeamData.tradeWants = row.tradeWants;
+            myTeamData.tradeBlockUpdatedAt = row.updatedAt;
+            myTeamData.tradeBlockPlayerIds = row.tradeBlock
+              .filter((a) => a.type === 'player')
+              .map((a) => (a as { playerId: string }).playerId);
+            myTeamData.tradeBlockPickCount = row.tradeBlock.filter((a) => a.type === 'pick').length;
+          }
+          return row;
         } catch {
           return { team, tradeBlock: [], tradeWants: null, updatedAt: null };
         }
@@ -456,10 +518,18 @@ export default async function Home({
     );
   } catch { /* leave empty */ }
 
+  // ── H2H historical data ───────────────────────────────────────────────────
+  let h2h: Awaited<ReturnType<typeof getHeadToHeadAllTime>> = { teams: [], matrix: {}, neverBeaten: [] };
+  try {
+    h2h = await getHeadToHeadAllTime();
+  } catch { /* empty */ }
 
-  // ──────────────────────────────────────────────────────────────────────────
+  // Defending champion for League Overview card
+  const defendingChampion = CHAMPIONS[recapYear as keyof typeof CHAMPIONS]?.champion || undefined;
+
+  // ─────────────────────────────────────────────────────────────────────────
   // Render
-  // ──────────────────────────────────────────────────────────────────────────
+  // ─────────────────────────────────────────────────────────────────────────
   return (
     <div className="home-page relative overflow-hidden">
       {/* Background treatment */}
@@ -487,15 +557,28 @@ export default async function Home({
 
       <div className="container mx-auto px-4 sm:px-5 py-6 sm:py-8 relative z-10">
 
-        {/* ── 1. Key dates (always first) ────────────────────────────────── */}
+        {/* ── 1. Key dates (always first) ──────────────────────────────── */}
         <HomepageCountdowns />
 
-        {/* ── 2. Taxi banner (always second) ─────────────────────────────── */}
+        {/* ── 2. Taxi banner (always second) ───────────────────────────── */}
         <TaxiBanner initial={taxiFlags} />
 
-        {/* ── Phase-specific content ──────────────────────────────────────── */}
+        {/* ── 3. My Team / League Overview card ────────────────────────── */}
+        <section className="mb-10 sm:mb-12">
+          {myTeamData ? (
+            <MyTeamCard data={myTeamData} phase={phase} />
+          ) : (
+            <LeagueOverviewCard
+              phase={phase}
+              recapYear={recapYear}
+              defendingChampion={defendingChampion}
+            />
+          )}
+        </section>
 
-        {/* Phase 1: post-championship pre-draft — recap is primary */}
+        {/* ── Phase-specific content ────────────────────────────────────── */}
+
+        {/* Phase 1: post-championship pre-draft — full recap primary */}
         {phase === 'post_championship_pre_draft' && (
           <>
             <section className="mb-10 sm:mb-12">
@@ -523,8 +606,14 @@ export default async function Home({
               </div>
             </section>
 
-            <LeaguePulse tradeRows={tradeRows} positionCounts={positionCounts} />
-            <AroundTheLeague playerIds={allPlayerIds} />
+            <LeaguePulse
+              tradeRows={tradeRows}
+              positionCounts={positionCounts}
+              playerPositions={playerPositions}
+              phase={phase}
+              standings={standings}
+            />
+            <AroundTheLeague myTeam={authUser?.team ?? null} />
             <HistoricalSpotlight h2h={h2h} />
             <CompactDraftLink />
           </>
@@ -533,9 +622,17 @@ export default async function Home({
         {/* Phase 2: post-draft, pre-FA bidding */}
         {phase === 'post_draft_pre_fa' && (
           <>
-            <LeaguePulse tradeRows={tradeRows} positionCounts={positionCounts} />
-            <AroundTheLeague playerIds={allPlayerIds} />
+            <PostDraftCenter positionCounts={positionCounts} />
+            <LeaguePulse
+              tradeRows={tradeRows}
+              positionCounts={positionCounts}
+              playerPositions={playerPositions}
+              phase={phase}
+              standings={standings}
+            />
+            <AroundTheLeague myTeam={authUser?.team ?? null} />
             <CompactSeasonRecap recap={recap} year={recapYear} />
+            <HistoricalSpotlight h2h={h2h} />
             <CompactDraftLink />
           </>
         )}
@@ -543,16 +640,29 @@ export default async function Home({
         {/* Phase 3: FA bidding open, pre-season */}
         {phase === 'fa_open_pre_season' && (
           <>
-            <LeaguePulse tradeRows={tradeRows} positionCounts={positionCounts} />
-            <AroundTheLeague playerIds={allPlayerIds} />
+            <PreseasonCenter
+              taxiAlerts={[
+                ...taxiFlags.actual.map((a) => ({ ...a, type: 'actual' })),
+                ...taxiFlags.potential.map((p) => ({ ...p, type: 'potential' })),
+              ]}
+              positionCounts={positionCounts}
+            />
+            <LeaguePulse
+              tradeRows={tradeRows}
+              positionCounts={positionCounts}
+              playerPositions={playerPositions}
+              phase={phase}
+              standings={standings}
+            />
+            <AroundTheLeague myTeam={authUser?.team ?? null} />
             <CompactSeasonRecap recap={recap} year={recapYear} />
+            <HistoricalSpotlight h2h={h2h} />
           </>
         )}
 
-        {/* Phase 4: regular season (including post-deadline) */}
-        {(phase === 'regular_season' || phase === 'post_deadline_pre_postseason') && (
+        {/* Phase 4: regular season (before trade deadline) */}
+        {phase === 'regular_season' && (
           <>
-            {/* This Week matchups */}
             <section className="mb-10 sm:mb-12">
               <SectionHeader title={`Week ${selectedWeek} matchups`} />
               <div className="mb-6 flex flex-wrap gap-2" aria-label="Select week">
@@ -600,14 +710,86 @@ export default async function Home({
               )}
             </section>
 
-            <LeaguePulse tradeRows={tradeRows} positionCounts={positionCounts} />
-            <AroundTheLeague playerIds={allPlayerIds} />
+            <LeaguePulse
+              tradeRows={tradeRows}
+              positionCounts={positionCounts}
+              playerPositions={playerPositions}
+              phase={phase}
+              standings={standings}
+            />
+            <AroundTheLeague myTeam={authUser?.team ?? null} />
           </>
         )}
 
-        {/* Phase 6: postseason */}
-        {phase === 'postseason' && (
+        {/* Phase 5: after trade deadline, before postseason — Playoff Race + matchups */}
+        {isPostDeadline && (
           <>
+            {standings.length > 0 && <PlayoffRacePanel standings={standings} />}
+
+            {/* Also show current-week matchups during this phase */}
+            {currentWeekMatchups.length > 0 && (
+              <section className="mb-10 sm:mb-12">
+                <SectionHeader title={`Week ${selectedWeek} matchups`} />
+                <div className="mb-6 flex flex-wrap gap-2" aria-label="Select week">
+                  {Array.from({ length: MAX_REGULAR_WEEKS }, (_, i) => i + 1).map((w) => {
+                    const isActive = w === selectedWeek;
+                    return (
+                      <Link
+                        key={w}
+                        href={`/?week=${w}`}
+                        prefetch={false}
+                        aria-label={`Show Week ${w}`}
+                        className={`px-3 py-1 rounded-md text-sm border transition-colors ${
+                          isActive
+                            ? 'bg-[var(--accent)] text-white border-[var(--accent)]'
+                            : 'evw-surface text-[var(--text)] border-[var(--border)] hover:bg-[color-mix(in_srgb,white_5%,transparent)]'
+                        }`}
+                      >
+                        {w}
+                      </Link>
+                    );
+                  })}
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {currentWeekMatchups.map((matchup, index) => (
+                    <MatchupCard
+                      key={index}
+                      homeTeam={matchup.homeTeam}
+                      awayTeam={matchup.awayTeam}
+                      homeRosterId={matchup.homeRosterId}
+                      awayRosterId={matchup.awayRosterId}
+                      homeScore={matchup.homeScore}
+                      awayScore={matchup.awayScore}
+                      kickoffTime={matchup.kickoffTime}
+                      week={matchup.week}
+                      matchupId={matchup.matchupId}
+                    />
+                  ))}
+                </div>
+              </section>
+            )}
+
+            <LeaguePulse
+              tradeRows={tradeRows}
+              positionCounts={positionCounts}
+              playerPositions={playerPositions}
+              phase={phase}
+              standings={standings}
+            />
+            <AroundTheLeague myTeam={authUser?.team ?? null} />
+          </>
+        )}
+
+        {/* Phase 6: postseason — Playoff Center + full brackets */}
+        {isPostseason && (
+          <>
+            <PlayoffCenter
+              winnersBracket={winnersBracket}
+              losersBracket={losersBracket}
+              nameMap={bracketNameMap}
+              seedMap={seedByRosterId}
+            />
+
             <section className="mb-10 sm:mb-12">
               <SectionHeader title="Playoff brackets" />
               <div className="space-y-8 mt-6">
@@ -632,15 +814,19 @@ export default async function Home({
               </div>
             </section>
 
-            <LeaguePulse tradeRows={tradeRows} positionCounts={positionCounts} />
-            <AroundTheLeague playerIds={allPlayerIds} />
+            <LeaguePulse
+              tradeRows={tradeRows}
+              positionCounts={positionCounts}
+              playerPositions={playerPositions}
+              phase={phase}
+              standings={standings}
+            />
+            <AroundTheLeague myTeam={authUser?.team ?? null} />
           </>
         )}
 
         {/* Historical Spotlight for phases 2 & 3 (phase 1 already renders it above) */}
-        {(phase === 'post_draft_pre_fa' || phase === 'fa_open_pre_season') && (
-          <HistoricalSpotlight h2h={h2h} />
-        )}
+        {/* Phase 2 and 3 render it inline in their blocks above */}
 
       </div>
     </div>

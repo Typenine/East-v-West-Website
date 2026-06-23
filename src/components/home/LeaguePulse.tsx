@@ -11,6 +11,8 @@ import {
   PANEL,
 } from '@/lib/ui/broadcast-styles';
 import type { TeamRow } from '@/types/trade-block';
+import type { HomepagePhase } from '@/lib/utils/countdown-resolver';
+import type { StandingsTeam } from './PlayoffRacePanel';
 
 // Position labels for display
 const POS_LABELS: Record<string, string> = {
@@ -18,12 +20,15 @@ const POS_LABELS: Record<string, string> = {
   '1st': '1st-round picks', '2nd': '2nd-round picks', '3rd': '3rd-round picks',
 };
 
+// ── Trade Market ─────────────────────────────────────────────────────────────
+
 type TradeMarketSummaryProps = {
   rows: TeamRow[];
+  /** playerId → position (e.g. "WR", "RB") — used for player-position matching */
+  playerPositions: Record<string, string>;
 };
 
-/** Derive trade-market signals from trade-block rows without any value judgements. */
-function TradeMarketSummary({ rows }: TradeMarketSummaryProps) {
+function TradeMarketSummary({ rows, playerPositions }: TradeMarketSummaryProps) {
   const activeBlocks = rows.filter((r) => r.tradeBlock.length > 0);
   const totalPlayers = activeBlocks.reduce(
     (s, r) => s + r.tradeBlock.filter((a) => a.type === 'player').length, 0
@@ -43,29 +48,40 @@ function TradeMarketSummary({ rows }: TradeMarketSummaryProps) {
     .sort((a, b) => b[1] - a[1])
     .slice(0, 3);
 
-  // Rule-based market matches: team A wants position P, team B has a player at P listed
+  // Rule-based market matches: team A wants position P, team B has a player/pick at P listed.
+  // Players on the trade block are matched to their position via playerPositions.
   const matches: Array<{ buyer: string; seller: string; position: string }> = [];
   for (const buyer of rows) {
     const wants = buyer.tradeWants?.positions ?? [];
     if (wants.length === 0) continue;
     for (const seller of rows) {
       if (seller.team === buyer.team) continue;
-      for (const asset of seller.tradeBlock) {
-        if (asset.type !== 'player') continue;
-        // We don't have position data here; surface the pair for display
-        // A real implementation would join against player roster data
-        // For now we surface pairs where wants text overlap with pick/player listings
-      }
-      // Check if seller has picks that match want types
       for (const want of wants) {
+        if (matches.length >= 4) break;
         const wantLower = want.toLowerCase();
-        if (wantLower === '1st' || wantLower === '2nd' || wantLower === '3rd') {
+
+        // Check if seller has a pick matching the wanted round
+        const isPickWant = wantLower === '1st' || wantLower === '2nd' || wantLower === '3rd';
+        if (isPickWant) {
+          const wantedRound = parseInt(want[0], 10);
           const hasPick = seller.tradeBlock.some(
-            (a) => a.type === 'pick' && (a as { round: number }).round === parseInt(want[0])
+            (a) => a.type === 'pick' && (a as { round: number }).round === wantedRound
           );
-          if (hasPick && matches.length < 3) {
-            matches.push({ buyer: buyer.team, seller: seller.team, position: want });
+          if (hasPick && !matches.some((m) => m.buyer === buyer.team && m.seller === seller.team)) {
+            matches.push({ buyer: buyer.team, seller: seller.team, position: `${want}-round pick` });
           }
+          continue;
+        }
+
+        // Check if seller has a player at the wanted position
+        const wantUpper = want.toUpperCase();
+        const hasPlayer = seller.tradeBlock.some((a) => {
+          if (a.type !== 'player') return false;
+          const pos = playerPositions[(a as { playerId: string }).playerId];
+          return pos?.toUpperCase() === wantUpper;
+        });
+        if (hasPlayer && !matches.some((m) => m.buyer === buyer.team && m.seller === seller.team && m.position === wantUpper)) {
+          matches.push({ buyer: buyer.team, seller: seller.team, position: wantUpper });
         }
       }
     }
@@ -129,9 +145,9 @@ function TradeMarketSummary({ rows }: TradeMarketSummaryProps) {
               {matches.map((m, i) => (
                 <li key={i} className="text-xs" style={broadcastMutedTextStyle}>
                   <span className="font-semibold" style={broadcastBodyTextStyle}>{m.buyer}</span>
-                  {' '}wants {m.position} ·{' '}
+                  {' '}wants {POS_LABELS[m.position] ?? m.position} ·{' '}
                   <span className="font-semibold" style={broadcastBodyTextStyle}>{m.seller}</span>
-                  {' '}has {m.position} listed
+                  {' '}has one listed
                 </li>
               ))}
             </ul>
@@ -172,8 +188,9 @@ function TradeMarketSummary({ rows }: TradeMarketSummaryProps) {
   );
 }
 
+// ── Roster Construction ──────────────────────────────────────────────────────
+
 type RosterConstructionProps = {
-  /** Map of teamName → positionCounts */
   positionCounts: Record<string, Record<string, number>>;
 };
 
@@ -182,7 +199,6 @@ function RosterConstructionSummary({ positionCounts }: RosterConstructionProps) 
   if (teams.length === 0) return null;
 
   const positions = ['QB', 'RB', 'WR', 'TE'];
-  // Find teams with most/fewest of each position
   const extremes: Array<{ pos: string; most: string; mostCount: number; fewest: string; fewestCount: number }> = [];
   for (const pos of positions) {
     let mostTeam = '', mostCount = 0, fewestTeam = '', fewestCount = Infinity;
@@ -194,9 +210,8 @@ function RosterConstructionSummary({ positionCounts }: RosterConstructionProps) 
     if (mostTeam) extremes.push({ pos, most: mostTeam, mostCount, fewest: fewestTeam, fewestCount: fewestCount === Infinity ? 0 : fewestCount });
   }
 
-  const accent = '#6366f1';
   return (
-    <BroadcastPanel accent={accent} title="Roster construction" meta="Position counts">
+    <BroadcastPanel accent="#6366f1" title="Roster construction" meta="Position counts">
       <ul className="space-y-2">
         {extremes.map(({ pos, most, mostCount, fewest, fewestCount }) => (
           <li key={pos} className="grid grid-cols-[2rem_1fr] gap-2 items-start">
@@ -223,18 +238,131 @@ function RosterConstructionSummary({ positionCounts }: RosterConstructionProps) 
   );
 }
 
+// ── Playoff Race (post-deadline phase) ───────────────────────────────────────
+
+function PlayoffRaceSummary({ standings }: { standings: StandingsTeam[] }) {
+  const cutline = 6;
+  const inField = standings.filter((t) => t.seed <= cutline);
+  const justOut = standings.filter((t) => t.seed === cutline + 1);
+  const lastIn = standings.find((t) => t.seed === cutline);
+  const firstOut = justOut[0];
+
+  return (
+    <BroadcastPanel accent="#10b981" title="Playoff race" meta={`Top ${cutline} seeds advance`}>
+      <div className="space-y-3">
+        <div>
+          <div className="text-[10px] font-bold uppercase tracking-[0.18em] mb-1.5" style={broadcastFaintTextStyle}>
+            In the field ({inField.length}/{cutline})
+          </div>
+          <ul className="space-y-1">
+            {inField.map((t) => (
+              <li key={t.rosterId} className="flex items-center justify-between text-xs">
+                <span style={broadcastBodyTextStyle}>{t.teamName}</span>
+                <span className="tabular-nums" style={broadcastMutedTextStyle}>{t.wins}–{t.losses}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+        {firstOut && (
+          <div>
+            <div className="text-[10px] font-bold uppercase tracking-[0.18em] mb-1" style={broadcastFaintTextStyle}>
+              First out
+            </div>
+            <div className="text-xs" style={broadcastMutedTextStyle}>
+              <span className="font-semibold" style={broadcastBodyTextStyle}>{firstOut.teamName}</span>
+              {' '}{firstOut.wins}–{firstOut.losses}
+              {lastIn && lastIn.wins !== firstOut.wins && (
+                <span className="ml-1">
+                  ({lastIn.wins - firstOut.wins}W back)
+                </span>
+              )}
+            </div>
+          </div>
+        )}
+        <Link href="/standings" className="block text-xs underline hover:text-white" style={broadcastFaintTextStyle}>
+          Full standings →
+        </Link>
+      </div>
+    </BroadcastPanel>
+  );
+}
+
+// ── Postseason Summary ────────────────────────────────────────────────────────
+
+function PostseasonSummary({ standings }: { standings: StandingsTeam[] }) {
+  const cutline = 6;
+  const playoff = standings.filter((t) => t.seed <= cutline);
+  const consolation = standings.filter((t) => t.seed > cutline);
+  return (
+    <BroadcastPanel accent="#f59e0b" title="Playoff field" meta="Active playoff teams">
+      <div className="space-y-2">
+        <ul className="space-y-1">
+          {playoff.map((t) => (
+            <li key={t.rosterId} className="flex items-center justify-between text-xs">
+              <span style={broadcastBodyTextStyle}>{t.teamName}</span>
+              <span className="tabular-nums" style={broadcastMutedTextStyle}>{t.wins}–{t.losses}</span>
+            </li>
+          ))}
+        </ul>
+        {consolation.length > 0 && (
+          <>
+            <div className="text-[10px] uppercase tracking-widest font-bold mt-2" style={broadcastFaintTextStyle}>
+              Consolation bracket
+            </div>
+            <ul className="space-y-1">
+              {consolation.slice(0, 3).map((t) => (
+                <li key={t.rosterId} className="flex items-center justify-between text-xs" style={broadcastMutedTextStyle}>
+                  <span>{t.teamName}</span>
+                  <span className="tabular-nums">{t.wins}–{t.losses}</span>
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
+        <Link href="/brackets" className="block text-xs underline hover:text-white mt-2" style={broadcastFaintTextStyle}>
+          Playoff brackets →
+        </Link>
+      </div>
+    </BroadcastPanel>
+  );
+}
+
+// ── LeaguePulse ──────────────────────────────────────────────────────────────
+
 export type LeaguePulseProps = {
   tradeRows: TeamRow[];
   positionCounts: Record<string, Record<string, number>>;
+  playerPositions?: Record<string, string>;
+  phase?: HomepagePhase;
+  standings?: StandingsTeam[];
   h2hSpotlight?: ReactNode;
 };
 
-export default function LeaguePulse({ tradeRows, positionCounts, h2hSpotlight }: LeaguePulseProps) {
+export default function LeaguePulse({
+  tradeRows,
+  positionCounts,
+  playerPositions = {},
+  phase,
+  standings = [],
+  h2hSpotlight,
+}: LeaguePulseProps) {
+  const isPostDeadline = phase === 'post_deadline_pre_postseason';
+  const isPostseason = phase === 'postseason';
+  const showTradeMarket = !isPostDeadline && !isPostseason;
+
   return (
     <section className="mb-10 sm:mb-12">
       <SectionHeader title="League pulse" />
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <TradeMarketSummary rows={tradeRows} />
+        {showTradeMarket ? (
+          <TradeMarketSummary rows={tradeRows} playerPositions={playerPositions} />
+        ) : isPostDeadline && standings.length > 0 ? (
+          <PlayoffRaceSummary standings={standings} />
+        ) : isPostseason && standings.length > 0 ? (
+          <PostseasonSummary standings={standings} />
+        ) : (
+          <TradeMarketSummary rows={tradeRows} playerPositions={playerPositions} />
+        )}
         <RosterConstructionSummary positionCounts={positionCounts} />
         {h2hSpotlight && (
           <div className="lg:col-span-2">
