@@ -26,12 +26,11 @@ type Props = {
 export default function PlayoffRacePanel({ standings, playoffSpots = 6 }: Props) {
   if (standings.length === 0) return null;
 
-  const inPlayoffs = standings.filter((t) => t.seed <= playoffSpots);
-  const onTheBubble = standings.filter((t) => t.seed > playoffSpots && t.seed <= playoffSpots + 2);
-  const eliminated = standings.filter((t) => t.seed > playoffSpots + 2);
+  const inPlayoffs    = standings.filter((t) => t.seed <= playoffSpots);
+  const onTheBubble   = standings.filter((t) => t.seed > playoffSpots && t.seed <= playoffSpots + 2);
+  const outsideField  = standings.filter((t) => t.seed > playoffSpots + 2);
 
-  // Calculate cutline gap (difference between last playoff team and first out)
-  const lastIn = standings.find((t) => t.seed === playoffSpots);
+  const lastIn   = standings.find((t) => t.seed === playoffSpots);
   const firstOut = standings.find((t) => t.seed === playoffSpots + 1);
   const cutlineGapWins = lastIn && firstOut ? lastIn.wins - firstOut.wins : null;
 
@@ -76,41 +75,52 @@ export default function PlayoffRacePanel({ standings, playoffSpots = 6 }: Props)
           </div>
         </BroadcastPanel>
 
-        {/* Bubble + eliminated */}
+        {/* Bubble + outside the field */}
         <div className="space-y-4">
           {onTheBubble.length > 0 && (
-            <BroadcastPanel accent="#f59e0b" title="On the bubble" meta={cutlineGapWins !== null ? `${cutlineGapWins}W gap to cutline` : undefined}>
+            <BroadcastPanel
+              accent="#f59e0b"
+              title="On the bubble"
+              meta={cutlineGapWins !== null ? `${cutlineGapWins}W gap to cutline` : undefined}
+            >
               <ul className="space-y-1.5">
-                {onTheBubble.map((team) => (
-                  <li key={team.rosterId} className="flex items-center gap-2">
-                    <span
-                      className="text-[10px] font-bold tabular-nums w-5 text-center shrink-0"
-                      style={{ color: PANEL.faint }}
-                    >
-                      {team.seed}
-                    </span>
-                    <span className="flex-1 text-xs font-medium truncate" style={broadcastBodyTextStyle}>
-                      {team.teamName}
-                    </span>
-                    <span className="text-xs tabular-nums shrink-0" style={broadcastMutedTextStyle}>
-                      {team.wins}–{team.losses}
-                    </span>
-                    <span className="text-xs shrink-0" style={{ color: '#f59e0b' }}>
-                      {firstOut && team.seed === playoffSpots + 1
-                        ? `${lastIn ? lastIn.wins - team.wins : '?'}W back`
-                        : ''}
-                    </span>
-                  </li>
-                ))}
+                {onTheBubble.map((team) => {
+                  const winsBack = lastIn ? Math.max(0, lastIn.wins - team.wins) : null;
+                  return (
+                    <li key={team.rosterId} className="flex items-center gap-2">
+                      <span
+                        className="text-[10px] font-bold tabular-nums w-5 text-center shrink-0"
+                        style={{ color: PANEL.faint }}
+                      >
+                        {team.seed}
+                      </span>
+                      <span className="flex-1 text-xs font-medium truncate" style={broadcastBodyTextStyle}>
+                        {team.teamName}
+                      </span>
+                      <span className="text-xs tabular-nums shrink-0" style={broadcastMutedTextStyle}>
+                        {team.wins}–{team.losses}
+                      </span>
+                      {winsBack !== null && winsBack > 0 && (
+                        <span className="text-xs shrink-0" style={{ color: '#f59e0b' }}>
+                          {winsBack}W back
+                        </span>
+                      )}
+                    </li>
+                  );
+                })}
               </ul>
             </BroadcastPanel>
           )}
 
-          {eliminated.length > 0 && (
-            <BroadcastPanel accent="#6b7280" title="Eliminated" meta="Out of playoff contention">
+          {outsideField.length > 0 && (
+            <BroadcastPanel accent="#6b7280" title="Outside the field">
               <ul className="space-y-1">
-                {eliminated.map((team) => (
-                  <li key={team.rosterId} className="flex items-center justify-between gap-2 text-xs" style={broadcastMutedTextStyle}>
+                {outsideField.map((team) => (
+                  <li
+                    key={team.rosterId}
+                    className="flex items-center justify-between gap-2 text-xs"
+                    style={broadcastMutedTextStyle}
+                  >
                     <span className="truncate">{team.teamName}</span>
                     <span className="tabular-nums shrink-0">{team.wins}–{team.losses}</span>
                   </li>

@@ -15,11 +15,66 @@ type Props = {
   losersBracket: SleeperBracketGameWithScore[];
   nameMap: Map<number, string>;
   seedMap: Map<number, number>;
+  season?: number | string;
 };
 
-function getRound(games: SleeperBracketGameWithScore[]) {
+/**
+ * Find the current active round in a bracket.
+ *
+ * A round is active when it contains at least one game where both participants
+ * are assigned and no winner has been recorded yet (i.e., the game is live or
+ * pending). Future rounds that have no participants are not considered active.
+ *
+ * If every populated round is complete, return the last populated round.
+ * Returns null when the bracket is empty.
+ */
+function getCurrentRound(games: SleeperBracketGameWithScore[]): number | null {
   if (games.length === 0) return null;
-  return Math.max(...games.map((g) => g.r ?? 0));
+
+  const rounds = [...new Set(games.map((g) => g.r).filter((r): r is number => r != null))].sort(
+    (a, b) => a - b,
+  );
+
+  // Find the lowest round that has at least one game with both participants but no winner
+  for (const round of rounds) {
+    const roundGames = games.filter((g) => g.r === round);
+    const hasActiveGame = roundGames.some((g) => g.t1 != null && g.t2 != null && g.w == null);
+    if (hasActiveGame) return round;
+  }
+
+  // All populated rounds are complete — return the last round that had participants
+  for (let i = rounds.length - 1; i >= 0; i--) {
+    const round = rounds[i];
+    const hasParticipant = games.some((g) => g.r === round && (g.t1 != null || g.t2 != null));
+    if (hasParticipant) return round;
+  }
+
+  return null;
+}
+
+/**
+ * Determine if the final round is complete and return the champion's roster ID.
+ * Requires both participants assigned AND a winner recorded in the highest round.
+ */
+function resolveChampion(
+  games: SleeperBracketGameWithScore[],
+): number | null {
+  if (games.length === 0) return null;
+
+  const rounds = [...new Set(games.map((g) => g.r).filter((r): r is number => r != null))].sort(
+    (a, b) => a - b,
+  );
+  if (rounds.length === 0) return null;
+
+  const finalRound = rounds[rounds.length - 1];
+  const finalGames = games.filter((g) => g.r === finalRound);
+
+  // All final-round games must have both participants and a winner
+  const allComplete = finalGames.every((g) => g.t1 != null && g.t2 != null && g.w != null);
+  if (!allComplete || finalGames.length === 0) return null;
+
+  // Return the winner of the championship game
+  return finalGames[0].w ?? null;
 }
 
 function getTeamName(rosterId: number | null | undefined, nameMap: Map<number, string>) {
@@ -66,24 +121,32 @@ function ActiveMatchup({
   );
 }
 
-export default function PlayoffCenter({ winnersBracket, losersBracket, nameMap, seedMap }: Props) {
-  const currentRound = getRound(winnersBracket);
-  const currentLoserRound = getRound(losersBracket);
+export default function PlayoffCenter({ winnersBracket, losersBracket, nameMap, seedMap, season }: Props) {
+  const currentRound      = getCurrentRound(winnersBracket);
+  const currentLoserRound = getCurrentRound(losersBracket);
 
-  const activeWinnerGames = winnersBracket.filter((g) => g.r === currentRound && g.t1 != null && g.t2 != null);
-  const activeLoserGames = losersBracket.filter((g) => g.r === currentLoserRound && g.t1 != null && g.t2 != null);
+  const activeWinnerGames = winnersBracket.filter(
+    (g) => g.r === currentRound && g.t1 != null && g.t2 != null,
+  );
+  const activeLoserGames = losersBracket.filter(
+    (g) => g.r === currentLoserRound && g.t1 != null && g.t2 != null,
+  );
 
-  // Determine champion if any game in round 3+ has a winner
-  const finalGame = winnersBracket
-    .filter((g) => (g.r ?? 0) >= 3)
-    .sort((a, b) => (b.r ?? 0) - (a.r ?? 0))[0];
-  const championRosterId = finalGame?.w ?? null;
-  const championName = championRosterId != null ? getTeamName(championRosterId, nameMap) : null;
+  const championRosterId = resolveChampion(winnersBracket);
+  const championName     = championRosterId != null ? getTeamName(championRosterId, nameMap) : null;
 
-  const roundLabels: Record<number, string> = { 1: 'Quarterfinals', 2: 'Semifinals', 3: 'Championship' };
-  const roundLabel = currentRound != null ? (roundLabels[currentRound] ?? `Round ${currentRound}`) : 'Playoffs';
+  const roundLabels: Record<number, string> = {
+    1: 'Quarterfinals',
+    2: 'Semifinals',
+    3: 'Championship',
+  };
+  const roundLabel = currentRound != null
+    ? (roundLabels[currentRound] ?? `Round ${currentRound}`)
+    : 'Playoffs';
 
-  void seedMap; // available for future use (seeding display)
+  const seasonLabel = season != null ? String(season) : '';
+
+  void seedMap; // available for future seed display
 
   return (
     <section className="mb-10 sm:mb-12">
@@ -100,15 +163,21 @@ export default function PlayoffCenter({ winnersBracket, losersBracket, nameMap, 
         {/* Winners bracket status */}
         <BroadcastPanel
           accent="#f59e0b"
-          title={championName ? '🏆 Champion' : roundLabel}
-          meta={championName ? '2026 East v. West Champion' : 'Official playoffs'}
+          title={championName ? 'Champion' : roundLabel}
+          meta={
+            championName
+              ? [seasonLabel, 'East v. West Champion'].filter(Boolean).join(' ')
+              : 'Official playoffs'
+          }
         >
           {championName ? (
             <div className="flex items-center gap-3">
               <BroadcastTeamLogo team={championName} accent={teamAccent(championName)} size="md" />
               <div>
                 <div className="text-base font-bold" style={broadcastBodyTextStyle}>{championName}</div>
-                <div className="text-xs" style={broadcastMutedTextStyle}>2026 East v. West Champion</div>
+                <div className="text-xs" style={broadcastMutedTextStyle}>
+                  {[seasonLabel, 'East v. West Champion'].filter(Boolean).join(' ')}
+                </div>
               </div>
             </div>
           ) : (

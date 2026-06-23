@@ -2,6 +2,21 @@ import { NextRequest, NextResponse } from 'next/server';
 import { fetchAllRss, RssItem } from '@/lib/feeds/rss-fetcher';
 import { RSS_SOURCES, SourceProfile } from '@/lib/feeds/rss-sources';
 import { getAllPlayersCached, SleeperPlayer } from '@/lib/utils/sleeper-api';
+import {
+  classifyStory,
+  isListicleOrRoundup,
+  isWatchOrTVGuide,
+  isBettingContent,
+  normalizeText,
+  type StoryCategory,
+} from '@/lib/news/news-classifier';
+import {
+  escapeRegExp,
+  canonicalizeUrl,
+  containsPhrase,
+  stripSuffixes,
+  NICKNAMES,
+} from '@/lib/news/news-matching';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -12,193 +27,11 @@ function clamp(n: number, min: number, max: number) {
   return Math.max(min, Math.min(max, n));
 }
 
-function escapeRegExp(s: string) {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
-function normalizeText(s: string): string {
-  return (s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim().replace(/\s+/g, ' ');
-}
-
-function canonicalizeUrl(url: string | null | undefined): string | null {
-  try {
-    if (!url) return null;
-    const u = new URL(url);
-    const host = u.host.toLowerCase();
-    const path = u.pathname.replace(/\/+$/, '');
-    return `${u.protocol}//${host}${path}`;
-  } catch {
-    const s = String(url || '').trim();
-    return s ? s.toLowerCase() : null;
-  }
-}
-
-function containsPhrase(hayNorm: string, phraseNorm: string): boolean {
-  if (!hayNorm || !phraseNorm) return false;
-  const re = new RegExp(`(^|\\s)${escapeRegExp(phraseNorm)}(\\s|$)`);
-  return re.test(hayNorm);
-}
-
-function stripSuffixes(name: string): string {
-  const parts = normalizeText(name).split(' ');
-  const suffixes = new Set(['jr', 'sr', 'ii', 'iii', 'iv', 'v']);
-  return parts.filter((p) => !suffixes.has(p)).join(' ').trim();
-}
-
-// ── Noise filters ──────────────────────────────────────────────────────────────
-
-function isWatchOrTVGuide(title: string, description: string): boolean {
-  const hay = `${normalizeText(title)} ${normalizeText(description)}`;
-  return ['how to watch','what channel','tv channel','watch live','live stream',
-    'streaming info','stream info','tv info','time tv streaming','broadcast info',
-    'radio broadcast','start time and tv','where to watch'].some((p) => hay.includes(p));
-}
-
-function isBettingContent(title: string, description: string): boolean {
-  const hay = `${normalizeText(title)} ${normalizeText(description)}`;
-  return ['betting','odds','parlay','parlays','spread','point spread','prop bet',
-    'prop bets','props','lines','moneyline','over under','gambling'].some((p) => hay.includes(p));
-}
-
-/**
- * Heuristic: returns true if the headline looks like a listicle, roundup, or
- * mock draft — content where player mentions are incidental.
- */
-function isListicleOrRoundup(title: string): boolean {
-  const t = normalizeText(title);
-  return (
-    /\b(top \d+|best \d+|\d+ players|\d+ things|rankings|ranked|mock draft|power rankings|grades|report card|every team|all 32|nfl picks)\b/.test(t)
-  );
-}
-
-// ── Story classification ───────────────────────────────────────────────────────
-
-export type StoryCategory =
-  | 'injury'
-  | 'practice_availability'
-  | 'nfl_transaction'
-  | 'contract'
-  | 'trade'
-  | 'trade_rumor'
-  | 'suspension'
-  | 'depth_chart_role'
-  | 'retirement'
-  | 'rookie_development'
-  | 'performance'
-  | 'general_analysis';
-
-const CATEGORY_RULES: Array<{ category: StoryCategory; patterns: RegExp[] }> = [
-  {
-    category: 'injury',
-    patterns: [
-      /\b(injur|injured|injury|hurt|fracture|sprain|torn|surgery|hamstring|achilles|concussion|placed on ir|ir list|out for season|questionable|doubtful|ruled out|limited practice|did not practice|dnp)\b/i,
-    ],
-  },
-  {
-    category: 'practice_availability',
-    patterns: [
-      /\b(limited practice|did not practice|dnp|full practice|returned to practice|practice report|questionable|probable|doubtful|ruled out|game time decision|gtd)\b/i,
-    ],
-  },
-  {
-    category: 'suspension',
-    patterns: [
-      /\b(suspend|suspension|banned|ban|discipline|violation)\b/i,
-    ],
-  },
-  {
-    category: 'retirement',
-    patterns: [
-      /\b(retire|retirement|retires|retiring|call it a career|hang up his cleats)\b/i,
-    ],
-  },
-  {
-    category: 'trade',
-    patterns: [
-      /\b(traded|trade complete|acquired via trade|dealt to|exchange|swap)\b/i,
-    ],
-  },
-  {
-    category: 'trade_rumor',
-    patterns: [
-      /\b(trade rumors?|trade talks?|exploring a trade|on the trade block|could be traded|being shopped|trade interest|trade candidate|trade target|linked to)\b/i,
-    ],
-  },
-  {
-    category: 'contract',
-    patterns: [
-      /\b(signed|re-signed|contract extension|extension|deal|agreement|free agent signing|released|waived|claimed|cut |drops? |let go)\b/i,
-    ],
-  },
-  {
-    category: 'nfl_transaction',
-    patterns: [
-      /\b(practice squad|promoted|signed to practice|activated|claimed on waivers|waiver claim|released|cut |waived )\b/i,
-    ],
-  },
-  {
-    category: 'depth_chart_role',
-    patterns: [
-      /\b(starter|starting role|depth chart|benched|named starter|will start|lead back|target share|snap count|usage|taking over|replacing|backup|third.string)\b/i,
-    ],
-  },
-  {
-    category: 'rookie_development',
-    patterns: [
-      /\b(rookie|first.year|draft pick|undrafted|making his nfl|nfl debut)\b/i,
-    ],
-  },
-  {
-    category: 'performance',
-    patterns: [
-      /\b(touchdown|100 yards|career.high|breakout|struggled|dominant|fantasy points|big game|stat line)\b/i,
-    ],
-  },
-];
-
-function classifyStory(title: string, description: string): StoryCategory {
-  const hay = `${title} ${description}`;
-  // injury takes priority over practice (overlap is common)
-  for (const { category, patterns } of CATEGORY_RULES) {
-    if (patterns.some((re) => re.test(hay))) return category;
-  }
-  return 'general_analysis';
-}
-
 // ── Match confidence ───────────────────────────────────────────────────────────
 
 export type MatchConfidence = 'high' | 'medium' | 'low';
 
-// ── Nickname mapping ───────────────────────────────────────────────────────────
-
-const NICKNAMES: Record<string, string[]> = {
-  william: ['bill', 'will', 'billy'],
-  robert: ['rob', 'bob', 'bobby', 'robbie'],
-  richard: ['rich', 'rick', 'ricky'],
-  edward: ['ed', 'eddie'],
-  james: ['jim', 'jimmy', 'jamie'],
-  john: ['jack', 'johnny'],
-  matthew: ['matt'],
-  michael: ['mike', 'mikey'],
-  joseph: ['joe', 'joey'],
-  daniel: ['dan', 'danny'],
-  andrew: ['andy', 'drew'],
-  anthony: ['tony'],
-  nicholas: ['nick', 'nico'],
-  thomas: ['tom', 'tommy'],
-  patrick: ['pat'],
-  steven: ['steve', 'stevie'],
-  alexander: ['alex'],
-  samuel: ['sam', 'sammy'],
-  benjamin: ['ben', 'benny'],
-  christopher: ['chris'],
-  nathaniel: ['nate', 'nathan'],
-  philip: ['phil'],
-  gregory: ['greg'],
-  kenneth: ['ken', 'kenny'],
-  ronald: ['ron', 'ronnie'],
-  timothy: ['tim', 'timmy'],
-};
+export type { StoryCategory };
 
 // ── Source profile index ───────────────────────────────────────────────────────
 
