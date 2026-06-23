@@ -545,7 +545,7 @@ function PlayerSearch({ values, excluded, source, onSelect }: {
   );
 
   return (
-    <div ref={containerRef} className="relative z-20">
+    <div ref={containerRef} className={`relative ${showResults ? 'z-40' : 'z-20'}`}>
       <AnalyzerFieldInput
         type="search"
         enterKeyHint="search"

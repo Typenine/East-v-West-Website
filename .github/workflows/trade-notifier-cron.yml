@@ -1,0 +1,56 @@
+name: Trade Notifier Cron
+
+# Polls Sleeper for new trades and posts them to Discord via GET /api/cron/trade-notifier.
+# Runs on GitHub Actions (not Vercel cron) to match this repo's other recurring jobs and to
+# allow a sub-hourly cadence that the Vercel Hobby plan's cron limits don't permit.
+#
+# Required GitHub secrets:
+#   - VERCEL_URL   : production base URL, e.g. https://eastvswest.football (no trailing slash)
+#                    (optional if TRADE_NOTIFIER_URL is set)
+#   - CRON_SECRET  : matches the deployment's CRON_SECRET env var (isCronAuthorized)
+#   - TRADE_NOTIFIER_URL (optional): full endpoint URL; overrides VERCEL_URL if set
+#
+# The endpoint is idempotent — it dedupes posted trades in the discord_notifications table —
+# so frequent polling is safe and will not double-post.
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+
+# Avoid overlapping runs if one poll is slow.
+concurrency:
+  group: trade-notifier-cron
+  cancel-in-progress: false
+
+jobs:
+  run-trade-notifier:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call Trade Notifier Endpoint
+        env:
+          VERCEL_URL: ${{ secrets.VERCEL_URL }}
+          TRADE_NOTIFIER_URL: ${{ secrets.TRADE_NOTIFIER_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -n "$TRADE_NOTIFIER_URL" ]; then
+            URL="$TRADE_NOTIFIER_URL"
+          elif [ -n "$VERCEL_URL" ]; then
+            URL="${VERCEL_URL%/}/api/cron/trade-notifier"
+          else
+            echo "Set either TRADE_NOTIFIER_URL or VERCEL_URL secret" >&2
+            exit 1
+          fi
+          if [ -z "$CRON_SECRET" ]; then
+            echo "CRON_SECRET secret is not set" >&2
+            exit 1
+          fi
+          http_code=$(curl -s -o /tmp/resp.txt -w "%{http_code}" -X GET "$URL" \
+            -H "x-cron-secret: $CRON_SECRET" \
+            -H "Authorization: Bearer $CRON_SECRET")
+          echo "HTTP $http_code"
+          cat /tmp/resp.txt || true
+          echo
+          if [ "$http_code" -ge 400 ]; then
+            exit 1
+          fi
