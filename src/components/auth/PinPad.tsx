@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback } from 'react';
+import { useCallback, useEffect, useRef, type KeyboardEvent } from 'react';
 import { PANEL } from '@/lib/ui/broadcast-styles';
 
 const MAX_PIN_LENGTH = 12;
@@ -14,6 +14,8 @@ type PinPadProps = {
 };
 
 export default function PinPad({ value, onChange, disabled, id, accent = PANEL.text }: PinPadProps) {
+  const padRef = useRef<HTMLDivElement | null>(null);
+
   const append = useCallback(
     (digit: string) => {
       if (disabled || value.length >= MAX_PIN_LENGTH) return;
@@ -30,7 +32,42 @@ export default function PinPad({ value, onChange, disabled, id, accent = PANEL.t
   const clear = useCallback(() => {
     if (disabled) return;
     onChange('');
-  }, [disabled, onChange, value]);
+  }, [disabled, onChange]);
+
+  const handleKeyDown = useCallback(
+    (event: KeyboardEvent<HTMLDivElement>) => {
+      if (disabled) return;
+
+      if (/^[0-9]$/.test(event.key)) {
+        event.preventDefault();
+        append(event.key);
+        return;
+      }
+
+      if (event.key === 'Backspace') {
+        event.preventDefault();
+        backspace();
+        return;
+      }
+
+      if (event.key === 'Delete') {
+        event.preventDefault();
+        clear();
+        return;
+      }
+
+      if (event.key === 'Enter' && value.length > 0) {
+        event.preventDefault();
+        event.currentTarget.closest('form')?.requestSubmit();
+      }
+    },
+    [append, backspace, clear, disabled, value.length],
+  );
+
+  useEffect(() => {
+    if (disabled) return;
+    padRef.current?.focus();
+  }, [disabled]);
 
   const keys = ['1', '2', '3', '4', '5', '6', '7', '8', '9', 'clear', '0', 'back'];
 
@@ -39,7 +76,15 @@ export default function PinPad({ value, onChange, disabled, id, accent = PANEL.t
   } as const;
 
   return (
-    <div id={id} className="space-y-4">
+    <div
+      ref={padRef}
+      id={id}
+      tabIndex={disabled ? -1 : 0}
+      role="group"
+      aria-label="PIN keypad. Type numbers or use the buttons."
+      onKeyDown={handleKeyDown}
+      className="space-y-4 focus:outline-none"
+    >
       <div
         className="flex items-center justify-center gap-2.5 min-h-[44px] rounded-xl py-3"
         style={{
