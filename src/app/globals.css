@@ -52,6 +52,17 @@ html[data-theme="dark"] {
   --muted: #9AA5B1;
   --focus: var(--accent);
   --on-brand: #ffffff;
+
+  /* aurora background strength (per-blob alpha + saturation) */
+  --aurora-1: 18%;
+  --aurora-2: 18%;
+  --aurora-3: 10%;
+  --aurora-saturate: 120%;
+
+  /* homepage card surface (translucent over the dark canvas for depth) */
+  --home-surface-bg: color-mix(in srgb, var(--surface) 88%, transparent);
+  --home-surface-border: color-mix(in srgb, var(--border) 82%, transparent);
+  --home-surface-shadow: 0 8px 24px rgba(0,0,0,0.24), 0 0 0 1px rgba(255,255,255,0.02) inset;
 }
 
 /* Light theme */
@@ -64,6 +75,20 @@ html[data-theme="light"] {
   --muted: #475467;
   --focus: var(--accent);
   --on-brand: #ffffff;
+
+  /* Softer, neutral-tinted card shadow so cards read crisp on white */
+  --shadow-soft: 0 1px 2px rgba(16,24,40,0.06), 0 4px 12px rgba(16,24,40,0.08);
+
+  /* Faint aurora — full-strength red/gold turns muddy over a near-white bg */
+  --aurora-1: 7%;
+  --aurora-2: 7%;
+  --aurora-3: 4%;
+  --aurora-saturate: 100%;
+
+  /* Opaque card surface (no aurora bleed-through) + soft, neutral elevation */
+  --home-surface-bg: var(--surface);
+  --home-surface-border: var(--border);
+  --home-surface-shadow: 0 1px 2px rgba(16,24,40,0.05), 0 6px 16px rgba(16,24,40,0.08);
 }
 
 /* Tailwind theme mapping removed to avoid unknown at-rule lints. If needed, configure via Tailwind config. */
@@ -85,10 +110,10 @@ body::before {
   z-index: -1;
   pointer-events: none;
   background:
-    radial-gradient(900px 600px at 15% 0%, color-mix(in srgb, var(--danger) 18%, transparent) 0%, transparent 60%),
-    radial-gradient(800px 520px at 85% 5%, color-mix(in srgb, var(--gold) 18%, transparent) 0%, transparent 60%),
-    radial-gradient(1200px 900px at 50% 120%, color-mix(in srgb, var(--danger) 10%, transparent) 0%, transparent 70%);
-  filter: saturate(120%);
+    radial-gradient(900px 600px at 15% 0%, color-mix(in srgb, var(--danger) var(--aurora-1), transparent) 0%, transparent 60%),
+    radial-gradient(800px 520px at 85% 5%, color-mix(in srgb, var(--gold) var(--aurora-2), transparent) 0%, transparent 60%),
+    radial-gradient(1200px 900px at 50% 120%, color-mix(in srgb, var(--danger) var(--aurora-3), transparent) 0%, transparent 70%);
+  filter: saturate(var(--aurora-saturate));
 }
 
 @keyframes homeAuroraDrift {
@@ -105,9 +130,9 @@ body::before {
 
 /* Homepage-only surface depth tuning */
 .home-page .evw-surface {
-  background-color: color-mix(in srgb, var(--surface) 88%, transparent);
-  border-color: color-mix(in srgb, var(--border) 82%, transparent);
-  box-shadow: 0 8px 24px rgba(0,0,0,0.24), 0 0 0 1px rgba(255,255,255,0.02) inset;
+  background-color: var(--home-surface-bg);
+  border-color: var(--home-surface-border);
+  box-shadow: var(--home-surface-shadow);
 }
 
 /* Utilities tailored to tokens */
