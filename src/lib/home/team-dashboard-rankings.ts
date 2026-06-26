@@ -42,8 +42,13 @@ function rosterAgeData(
 } {
   const positionAgeValues: PositionAgeValues = { QB: [], RB: [], WR: [], TE: [] };
   const allAges: number[] = [];
+  const rosteredPlayerIds = new Set<string>([
+    ...(roster?.players || []),
+    ...(roster?.taxi || []),
+    ...(roster?.reserve || []),
+  ]);
 
-  for (const id of Array.from(new Set(roster?.players || []))) {
+  for (const id of rosteredPlayerIds) {
     const player = playerMap[id] as TeamDashboardLoosePlayer | undefined;
     const position = dashboardPosition(player?.position);
     const age = dashboardNumber(player?.age, NaN);
@@ -220,12 +225,14 @@ export function buildDashboardDraftAndRanks(args: {
   const teamAgeData = ageRows.find((row) => row.team === teamName);
   const potentialPoints = sleeperStat(teamRoster?.settings, 'ppts');
 
-  const allLeagueAges = ageRows.flatMap((row) => row.allAges);
+  const teamAverageAges = ageRows.flatMap((row) =>
+    row.averageAge == null ? [] : [row.averageAge]
+  );
   const leaguePositionAges: TeamDashboardPositionAges = {
-    QB: average(ageRows.flatMap((row) => row.positionAgeValues.QB)),
-    RB: average(ageRows.flatMap((row) => row.positionAgeValues.RB)),
-    WR: average(ageRows.flatMap((row) => row.positionAgeValues.WR)),
-    TE: average(ageRows.flatMap((row) => row.positionAgeValues.TE)),
+    QB: average(ageRows.flatMap((row) => row.positionAges.QB == null ? [] : [row.positionAges.QB])),
+    RB: average(ageRows.flatMap((row) => row.positionAges.RB == null ? [] : [row.positionAges.RB])),
+    WR: average(ageRows.flatMap((row) => row.positionAges.WR == null ? [] : [row.positionAges.WR])),
+    TE: average(ageRows.flatMap((row) => row.positionAges.TE == null ? [] : [row.positionAges.TE])),
   };
 
   const ranks: TeamDashboardRanks = {
@@ -248,7 +255,7 @@ export function buildDashboardDraftAndRanks(args: {
     leagueAverages: {
       pointsFor: average(pointsRows.map((row) => row.value)),
       maxPoints: average(potentialPointRows.map((row) => row.value).filter((value) => value > 0)),
-      averageAge: average(allLeagueAges),
+      averageAge: average(teamAverageAges),
       positionAges: leaguePositionAges,
     },
     leagueComparisons: {
