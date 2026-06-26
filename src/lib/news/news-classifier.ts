@@ -1,31 +1,9 @@
 /**
- * Shared news classification module.
+ * Shared news classification and quality filters.
  *
- * Imported by /api/roster-news and /api/league-news so both routes use
- * identical classification rules. Tests import from here too — no duplicate
- * implementations in test files.
- *
- * Category precedence (first match wins):
- *   injury             – actual injury terms (torn, surgery, placed on IR…)
- *   practice_availability – practice status terms only (DNP, limited, GTD…)
- *   suspension
- *   retirement
- *   trade              – completed trades
- *   trade_rumor        – rumour / speculation
- *   nfl_transaction    – PS moves, waivers, releases, activations, cuts
- *   contract           – signings, extensions, multi-year deals
- *   depth_chart_role
- *   rookie_development
- *   performance
- *   general_analysis   – fallback
- *
- * Key design choices:
- *   - practice terms (DNP, limited, GTD, questionable…) are NOT in the injury
- *     rule. A story about "knee injury AND did not practice" still classifies
- *     as injury because the injury term fires first.
- *   - nfl_transaction precedes contract so roster releases, waivers, and PS
- *     moves are not mislabelled as contract stories.
- *   - Released/Waived in nfl_transaction; Contract extension/Re-signed in contract.
+ * Categories are intentionally conservative. The headline is the primary source
+ * of truth. A short description excerpt is only allowed to supply medical,
+ * availability, suspension, or retirement context.
  */
 
 export type StoryCategory =
@@ -46,62 +24,54 @@ type CategoryRule = { category: StoryCategory; patterns: RegExp[] };
 
 export const CATEGORY_RULES: readonly CategoryRule[] = [
   {
-    // Actual injury terms only — practice-status words deliberately excluded
-    // so "limited practice" alone does not fire this rule.
     category: 'injury',
     patterns: [
-      /\b(injur|injured|injury|hurt|fracture|sprain|torn|surgery|hamstring|achilles|concussion|placed on ir|ir list|out for season|diagnosed with|season.ending)\b/i,
+      /\b(injur|injured|injury|hurt|fracture|sprain|torn|tear(?:s|ing)?|surgery|hamstring|achilles|concussion|placed on ir|ir list|out for season|diagnosed with|season.ending)\b/i,
     ],
   },
   {
-    // Practice-status terms reach this rule only when no injury keyword matched.
-    // "questionable / doubtful / ruled out" are game-status designations that
-    // belong here rather than under injury when no explicit injury term is present.
     category: 'practice_availability',
     patterns: [
-      /\b(limited practice|did not practice|dnp|full practice|returned to practice|practice report|game.?time decision|gtd|questionable|probable|doubtful|ruled out)\b/i,
+      /\b(limited (?:in )?practice|did not practice|dnp|full practice|returned to practice|practice report|game.?time decision|gtd|questionable|probable|doubtful|ruled out)\b/i,
     ],
   },
   {
     category: 'suspension',
-    patterns: [
-      /\b(suspend|suspension|banned|ban|discipline|violation)\b/i,
-    ],
+    patterns: [/\b(suspend|suspension|banned|ban|discipline|violation)\b/i],
   },
   {
     category: 'retirement',
-    patterns: [
-      /\b(retire|retirement|retires|retiring|call it a career|hang up his cleats)\b/i,
-    ],
+    patterns: [/\b(retire|retirement|retires|retiring|call it a career|hang up his cleats)\b/i],
   },
   {
-    // Completed trades — checked before trade_rumor
     category: 'trade',
     patterns: [
-      /\b(traded|trade complete|acquired via trade|dealt to|exchange|swap)\b/i,
+      /\btraded\b/i,
+      /\btrade (?:complete|completed|official|agreed|agreement)\b/i,
+      /\b(?:acquire[sd]?|land(?:s|ed)?|obtain(?:s|ed)?)\b.{0,60}\b(?:via|in)\s+(?:a\s+)?trade\b/i,
+      /\btrades?\b.{1,80}\bto\b/i,
+      /\bdealt to\b/i,
+      /\bacquired via trade\b/i,
+      /\bexchange\b/i,
+      /\bswap(?:ped)?\b/i,
     ],
   },
   {
-    // Rumour / speculation — only reached when no completed-trade keyword matched
     category: 'trade_rumor',
     patterns: [
       /\b(trade rumors?|trade talks?|exploring a trade|on the trade block|could be traded|being shopped|trade interest|trade candidate|trade target|linked to)\b/i,
     ],
   },
   {
-    // PS moves, waivers, releases, activations, IR activations — before contract
-    // so a normal roster release is not mislabelled as a contract story.
     category: 'nfl_transaction',
     patterns: [
       /\b(practice squad|promoted to active|signed to practice|activated from ir|claimed on waivers|waiver claim|waived|released|release|cut|ir activation)\b/i,
     ],
   },
   {
-    // Signings, extensions, deals — reached only when no nfl_transaction keyword matched.
-    // "released" and "waived" are intentionally absent here; they belong in nfl_transaction.
     category: 'contract',
     patterns: [
-      /\b(signed|re-signed|contract extension|new contract|multi.year deal|agreement|free agent signing)\b/i,
+      /\b(signed|re-signed|contract extension|new contract|multi.year deal|agreement|free agent signing|one.year deal|two.year deal|three.year deal)\b/i,
     ],
   },
   {
@@ -112,42 +82,86 @@ export const CATEGORY_RULES: readonly CategoryRule[] = [
   },
   {
     category: 'rookie_development',
-    patterns: [
-      /\b(rookie|first.year|draft pick|undrafted|making his nfl|nfl debut)\b/i,
-    ],
+    patterns: [/\b(rookie|first.year|draft pick|undrafted|making his nfl|nfl debut)\b/i],
   },
   {
     category: 'performance',
     patterns: [
-      /\b(touchdown|100 yards|career.high|breakout|struggled|dominant|fantasy points|big game|stat line)\b/i,
+      /\b(touchdown|100 yards|career.high|breakout|struggled|dominant|fantasy points|big game|stat line|multi.?touchdown|three.?touchdown)\b/i,
     ],
   },
 ];
 
-/**
- * Classify a news story. Returns the first matching category or 'general_analysis'.
- *
- * @param title       Story headline.
- * @param description Story body / summary.
- */
-export function classifyStory(title: string, description: string): StoryCategory {
-  const hay = `${title} ${description}`;
+function classifyText(text: string): StoryCategory {
   for (const { category, patterns } of CATEGORY_RULES) {
-    if (patterns.some((re) => re.test(hay))) return category;
+    if (patterns.some((re) => re.test(text))) return category;
   }
   return 'general_analysis';
 }
 
-// ── Noise filters (exported for reuse in routes and tests) ────────────────────
+function descriptionExcerpt(description: string, maxChars = 360): string {
+  const clean = (description || '').replace(/\s+/g, ' ').trim();
+  return clean.slice(0, maxChars);
+}
+
+const SAFE_DESCRIPTION_FALLBACKS = new Set<StoryCategory>([
+  'injury',
+  'practice_availability',
+  'suspension',
+  'retirement',
+]);
+
+/**
+ * Classify a story with the headline as the source of truth.
+ *
+ * Full RSS article bodies often contain related links and navigation text. To
+ * avoid false tags, only a short description excerpt can provide a fallback,
+ * and only for medical/status categories.
+ */
+export function classifyStory(title: string, description: string): StoryCategory {
+  if (isPromotionalOrPoll(title, description)) return 'general_analysis';
+
+  const headlineCategory = classifyText(title || '');
+  if (headlineCategory !== 'general_analysis') return headlineCategory;
+
+  const fallbackCategory = classifyText(descriptionExcerpt(description));
+  return SAFE_DESCRIPTION_FALLBACKS.has(fallbackCategory)
+    ? fallbackCategory
+    : 'general_analysis';
+}
+
+// ── Noise and quality filters ──────────────────────────────────────────────────
 
 export function normalizeText(s: string): string {
   return (s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim().replace(/\s+/g, ' ');
 }
 
 /**
- * Returns true for listicle/roundup headlines where player mentions are
- * incidental rather than the primary subject.
+ * Fan polls, contests, and vote prompts are promotional engagement content, not
+ * roster news. These stories frequently mention a team defense and caused false
+ * fantasy-owner tags.
  */
+export function isPromotionalOrPoll(title: string, description: string): boolean {
+  const t = normalizeText(title);
+  const hay = `${t} ${normalizeText(description).slice(0, 240)}`;
+
+  return [
+    /^vote for\b/,
+    /^vote now\b/,
+    /^poll\b/,
+    /^fan vote\b/,
+    /\bvote for (?:the|your|a)\b/,
+    /\bchoose (?:the|your) (?:top|best|favorite|favourite)\b/,
+    /\bwhich play\b.{0,60}\b(best|favorite|favourite|top)\b/,
+    /\bplay of the (?:week|game)\b.{0,60}\bvote\b/,
+    /\bfan of the year\b/,
+    /\bsweepstakes\b/,
+    /\benter to win\b/,
+    /^quiz\b/,
+    /^photo gallery\b/,
+  ].some((pattern) => pattern.test(hay));
+}
+
 export function isListicleOrRoundup(title: string): boolean {
   const t = normalizeText(title);
   return /\b(top \d+|best \d+|\d+ players|\d+ things|rankings|ranked|mock draft|power rankings|grades|report card|every team|all 32|nfl picks)\b/.test(t);

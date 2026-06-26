@@ -4,7 +4,12 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import SectionHeader from '@/components/ui/SectionHeader';
 import { BroadcastPanel } from '@/components/ui/BroadcastPanel';
-import { broadcastBodyTextStyle, broadcastMutedTextStyle, broadcastFaintTextStyle, PANEL } from '@/components/ui/BroadcastPanel';
+import {
+  broadcastBodyTextStyle,
+  broadcastMutedTextStyle,
+  broadcastFaintTextStyle,
+  PANEL,
+} from '@/components/ui/BroadcastPanel';
 
 type NewsMatch = {
   playerId: string;
@@ -27,6 +32,9 @@ type NewsItem = {
 };
 
 type NewsResponse = { count: number; items: NewsItem[] };
+
+const INITIAL_STORY_COUNT = 5;
+const STORY_INCREMENT = 5;
 
 function timeAgo(dateStr: string | null): string {
   if (!dateStr) return '';
@@ -84,19 +92,21 @@ function CategoryBadge({ category }: { category?: string }) {
 
 function EVOwnerBadge({ match }: { match: NewsMatch }) {
   if (!match.evTeam) return null;
+  const ownershipLabel = `${match.name} is rostered by ${match.evTeam}`;
   return (
     <Link
       href={match.evTeamSlug ? `/teams/${match.evTeamSlug}` : '/teams'}
       className="inline-block rounded px-1.5 py-0.5 text-[10px] font-semibold hover:underline"
       style={{ background: 'rgba(99,102,241,0.15)', color: '#818cf8', border: '1px solid rgba(99,102,241,0.3)' }}
+      title={ownershipLabel}
+      aria-label={ownershipLabel}
     >
-      {match.evTeam}
+      Rostered by {match.evTeam}
     </Link>
   );
 }
 
 function NewsCard({ item }: { item: NewsItem }) {
-  // Group matches by EV team so each owner appears once
   const evTeams = new Map<string, NewsMatch>();
   for (const m of item.matches) {
     if (m.evTeam && !evTeams.has(m.evTeam)) evTeams.set(m.evTeam, m);
@@ -125,7 +135,6 @@ function NewsCard({ item }: { item: NewsItem }) {
       >
         {item.title}
       </a>
-      {/* Player names with position */}
       {item.matches.length > 0 && (
         <div className="text-xs mb-1.5 flex flex-wrap gap-1 items-center" style={broadcastMutedTextStyle}>
           {item.matches.slice(0, 3).map((m, i) => (
@@ -139,7 +148,6 @@ function NewsCard({ item }: { item: NewsItem }) {
           )}
         </div>
       )}
-      {/* EV team owner badges */}
       {evTeams.size > 0 && (
         <div className="flex flex-wrap gap-1 mb-1.5">
           {Array.from(evTeams.values()).slice(0, 3).map((m) => (
@@ -157,7 +165,6 @@ function NewsCard({ item }: { item: NewsItem }) {
 type FilterKey = 'all' | 'my_team' | 'injury' | 'transaction' | 'trade' | 'depth_chart_role' | 'rookie_development';
 
 type Props = {
-  /** Team name of the signed-in user (if any), for My Team filter */
   myTeam?: string | null;
 };
 
@@ -165,19 +172,30 @@ export default function AroundTheLeague({ myTeam }: Props) {
   const [items, setItems] = useState<NewsItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<FilterKey>('all');
+  const [visibleCount, setVisibleCount] = useState(INITIAL_STORY_COUNT);
 
   useEffect(() => {
+    const controller = new AbortController();
     const params = new URLSearchParams({ limit: '40', sinceHours: '168' });
-    // My Team filter: pass teamFilter param to server; server resolves roster
+
     if (filter === 'my_team' && myTeam) {
       params.set('teamFilter', myTeam);
     }
-    fetch(`/api/league-news?${params}`)
+
+    setLoading(true);
+    setVisibleCount(INITIAL_STORY_COUNT);
+
+    fetch(`/api/league-news?${params}`, { signal: controller.signal })
       .then((r) => r.ok ? r.json() : Promise.reject())
       .then((j: NewsResponse) => setItems(j.items || []))
-      .catch(() => setItems([]))
-      .finally(() => setLoading(false));
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+      .catch((error) => {
+        if (error?.name !== 'AbortError') setItems([]);
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false);
+      });
+
+    return () => controller.abort();
   }, [filter, myTeam]);
 
   const FILTERS: Array<{ key: FilterKey; label: string }> = [
@@ -197,6 +215,9 @@ export default function AroundTheLeague({ myTeam }: Props) {
     return items.filter((it) => it.category === filter);
   })();
 
+  const visibleItems = filtered.slice(0, visibleCount);
+  const remainingCount = Math.max(0, filtered.length - visibleCount);
+
   return (
     <section className="mb-10 sm:mb-12">
       <SectionHeader
@@ -209,12 +230,14 @@ export default function AroundTheLeague({ myTeam }: Props) {
         }
       />
 
-      {/* Filters */}
       <div className="flex flex-wrap gap-2 mb-4">
         {FILTERS.map(({ key, label }) => (
           <button
             key={key}
-            onClick={() => setFilter(key)}
+            onClick={() => {
+              setFilter(key);
+              setVisibleCount(INITIAL_STORY_COUNT);
+            }}
             className={`px-3 py-1 rounded-md text-sm border transition-colors ${
               filter === key
                 ? 'bg-[var(--accent)] text-white border-[var(--accent)]'
@@ -241,11 +264,36 @@ export default function AroundTheLeague({ myTeam }: Props) {
           </div>
         </BroadcastPanel>
       ) : (
-        <ul className="space-y-3">
-          {filtered.slice(0, 20).map((item, i) => (
-            <NewsCard key={`${item.link}-${i}`} item={item} />
-          ))}
-        </ul>
+        <>
+          <ul className="space-y-3">
+            {visibleItems.map((item, i) => (
+              <NewsCard key={`${item.link}-${i}`} item={item} />
+            ))}
+          </ul>
+
+          {filtered.length > INITIAL_STORY_COUNT && (
+            <div className="mt-4 flex justify-center">
+              {remainingCount > 0 ? (
+                <button
+                  type="button"
+                  onClick={() => setVisibleCount((count) => count + STORY_INCREMENT)}
+                  className="rounded-md border border-[var(--border)] px-4 py-2 text-sm font-semibold text-[var(--text)] hover:opacity-80 transition-opacity"
+                  aria-expanded={visibleCount > INITIAL_STORY_COUNT}
+                >
+                  Show {Math.min(STORY_INCREMENT, remainingCount)} more
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setVisibleCount(INITIAL_STORY_COUNT)}
+                  className="rounded-md border border-[var(--border)] px-4 py-2 text-sm font-semibold text-[var(--text)] hover:opacity-80 transition-opacity"
+                >
+                  Show fewer
+                </button>
+              )}
+            </div>
+          )}
+        </>
       )}
     </section>
   );
