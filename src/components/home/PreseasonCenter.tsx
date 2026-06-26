@@ -39,7 +39,7 @@ export default function PreseasonCenter({ taxiAlerts, positionCounts }: Props) {
             </p>
             <div className="flex flex-wrap gap-2">
               <Link
-                href="/trade-block"
+                href="/trades/block"
                 className="rounded px-3 py-1.5 text-sm font-medium hover:text-[var(--panel-text)] transition-colors"
                 style={{ background: PANEL.tintMedium, color: PANEL.text, border: `1px solid ${PANEL.hairline}` }}
               >

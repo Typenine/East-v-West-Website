@@ -8,6 +8,11 @@ const nextConfig: NextConfig = {
         destination: '/trades/block',
         permanent: true,
       },
+      {
+        source: '/brackets',
+        destination: '/history?tab=brackets',
+        permanent: true,
+      },
     ];
   },
   outputFileTracingIncludes: {

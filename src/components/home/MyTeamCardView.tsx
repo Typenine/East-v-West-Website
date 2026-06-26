@@ -210,7 +210,7 @@ export default function MyTeamCardView({ model }: { model: MyTeamDashboardModel 
             Open team dashboard
           </Link>
           <Link
-            href="/trade-block"
+            href="/trades/block"
             className="rounded-md px-3 py-2 text-xs font-semibold"
             style={{ background: PANEL.tintMedium, color: PANEL.text, border: `1px solid ${PANEL.hairline}` }}
           >

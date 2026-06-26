@@ -35,7 +35,7 @@ export default function LeagueOverviewCard({ phase, recapYear, defendingChampion
     { label: 'Teams', href: '/teams' },
     { label: 'Standings', href: '/standings' },
     { label: 'Draft Central', href: '/draft' },
-    { label: 'Trade block', href: '/trade-block' },
+    { label: 'Trade block', href: '/trades/block' },
     { label: 'History', href: '/history' },
   ];
 
