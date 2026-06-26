@@ -58,7 +58,7 @@ export const LEAGUE_CALENDARS: ReadonlyArray<LeagueCalendar> = [
     season: 2026,
     // After Super Bowl LX (2025 NFL season, played February 2026)
     leagueYearStart:    new Date('2026-02-09T18:30:00-05:00'),
-    rookieDraft:        new Date('2026-07-10T13:00:00-04:00'),
+    rookieDraft:        new Date('2026-07-18T13:00:00-04:00'),
     // First Monday after preseason Week 1 2026 (rulebook §4.5(b))
     faBiddingStart:     new Date('2026-08-17T00:00:00-05:00'),
     regularSeasonStart: new Date('2026-09-10T20:20:00-04:00'),
