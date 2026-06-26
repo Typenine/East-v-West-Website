@@ -97,18 +97,16 @@ export function useMyTeamDashboard(data: MyTeamData, phase: HomepagePhase) {
     if (activeBlock.length > 0 && isTeamDataStale(tradeBlockUpdatedAt, 14)) {
       rows.push({
         severity: 'warning',
-        title: 'Trade block may be stale',
-        detail: `Last updated ${teamTimeAgo(tradeBlockUpdatedAt)}. Confirm the listed assets and team needs.`,
+        title: 'Trade block is stale',
+        detail: `The team last updated this trade block ${teamTimeAgo(tradeBlockUpdatedAt)}. Confirm the listed assets and team needs.`,
       });
     }
     return rows;
   }, [dashboard, activeBlock.length, tradeBlockUpdatedAt]);
 
-  const status: TeamDashboardSeverity = alerts.some((alert) => alert.severity === 'critical')
-    ? 'critical'
-    : alerts.some((alert) => alert.severity === 'warning')
-      ? 'warning'
-      : dashboard?.status || 'good';
+  // The header status reflects roster and lineup readiness only. Trade-block
+  // freshness remains visible as a separate management reminder below.
+  const status: TeamDashboardSeverity = dashboard?.status || 'good';
 
   return {
     data,

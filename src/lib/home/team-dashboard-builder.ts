@@ -12,6 +12,7 @@ import {
   teamAssetsFromContext,
   type TeamAssets,
 } from '@/lib/server/trade-assets';
+import { getPlayerValuesBySleeperId } from '@/lib/server/trade-values-cache';
 import { getActiveOrLatestDraftId, getDraftOverview } from '@/server/db/queries';
 import type {
   TeamDashboardLooseRoster,
@@ -32,11 +33,12 @@ import {
 
 export async function buildTeamDashboard(teamName: string): Promise<TeamDashboardResponse> {
   const phase = getHomepagePhase();
-  const [ctx, playerMap, teamsData, nflState, transactions] = await Promise.all([
+  const [ctx, playerMap, playerValues, teamsData, nflState, transactions] = await Promise.all([
     loadTradeBlockLeagueContext(),
     getAllPlayersCached(12 * 60 * 60 * 1000).catch(
       () => ({} as Record<string, SleeperPlayer>)
     ),
+    getPlayerValuesBySleeperId().catch(() => new Map<string, number>()),
     getTeamsData(LEAGUE_IDS.CURRENT).catch(() => []),
     getNFLState().catch(() => ({ week: 1, display_week: 1 })),
     getLeagueTransactionsAllWeeks(LEAGUE_IDS.CURRENT).catch(() => []),
@@ -65,6 +67,7 @@ export async function buildTeamDashboard(teamName: string): Promise<TeamDashboar
   const rosterDashboard = buildDashboardRoster({
     roster,
     playerMap,
+    playerValues,
     activeLimit,
     starterCount: starterPositions.length,
     taxiLimit,
