@@ -9,6 +9,7 @@ import {
 
 export type { MyTeamData } from '@/components/home/useMyTeamDashboard';
 
+// Thin entry point. Team dashboard loading and rendering live in the dedicated hook and view.
 export default function MyTeamCard({
   data,
   phase,
