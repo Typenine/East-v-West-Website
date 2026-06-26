@@ -18,9 +18,17 @@ import {
   summarizeDashboardTransaction,
 } from '@/lib/home/team-dashboard-helpers';
 
+function dynastyCoreRole(player: TeamDashboardPlayer, value: number): string {
+  if (value >= 7000) return 'Elite dynasty asset';
+  if (value >= 4500) return 'Core dynasty asset';
+  if (value > 0) return 'Dynasty asset';
+  return dashboardCoreRole(player);
+}
+
 export function buildDashboardRoster(args: {
   roster: TeamDashboardLooseRoster;
   playerMap: Record<string, SleeperPlayer>;
+  playerValues: Map<string, number>;
   activeLimit: number;
   starterCount: number;
   taxiLimit: number;
@@ -31,6 +39,7 @@ export function buildDashboardRoster(args: {
   const {
     roster,
     playerMap,
+    playerValues,
     activeLimit,
     starterCount,
     taxiLimit,
@@ -41,6 +50,11 @@ export function buildDashboardRoster(args: {
   const taxiIds = new Set((roster.taxi || []).filter(Boolean));
   const reserveIds = new Set((roster.reserve || []).filter(Boolean));
   const starterIds = new Set((roster.starters || []).filter((id) => id && id !== '0'));
+  const inSeason = [
+    'regular_season',
+    'post_deadline_pre_postseason',
+    'postseason',
+  ].includes(phase);
   const allIds = new Set<string>((roster.players || []).filter(Boolean));
   for (const id of taxiIds) allIds.add(id);
   for (const id of reserveIds) allIds.add(id);
@@ -57,7 +71,9 @@ export function buildDashboardRoster(args: {
       age: Number.isFinite(ageValue) ? ageValue : null,
       yearsExp: Number.isFinite(yearsExpValue) ? yearsExpValue : null,
       injuryStatus: player?.injury_status || null,
-      isStarter: starterIds.has(id),
+      // Sleeper's starter array can be months old during the offseason. Only use
+      // it when lineups are currently meaningful.
+      isStarter: inSeason && starterIds.has(id),
       onTaxi: taxiIds.has(id),
       onIR: reserveIds.has(id),
     };
@@ -66,11 +82,6 @@ export function buildDashboardRoster(args: {
   const activePlayers = players.filter((player) => !player.onTaxi && !player.onIR);
   const openSpots = Math.max(0, activeLimit - activePlayers.length);
   const cutsRequired = Math.max(0, activePlayers.length - activeLimit);
-  const inSeason = [
-    'regular_season',
-    'post_deadline_pre_postseason',
-    'postseason',
-  ].includes(phase);
   const emptyLineupSlots = inSeason ? Math.max(0, starterCount - starterIds.size) : 0;
   const allowedReserveStatus = /IR|OUT|PUP|NFI|SUSP|NA|COVID/i;
   const irIneligible = inSeason
@@ -83,18 +94,30 @@ export function buildDashboardRoster(args: {
   for (const player of players) {
     positionCounts[player.position] = (positionCounts[player.position] || 0) + 1;
   }
+
+  // FantasyCalc dynasty values are the primary ranking signal. This prevents
+  // stale offseason lineup slots from elevating a low-value player over a true
+  // cornerstone such as Brock Bowers. The existing heuristic remains a fallback
+  // when the value feed is unavailable.
   const corePlayers = players
     .filter((player) => ['QB', 'RB', 'WR', 'TE'].includes(player.position))
-    .sort((a, b) => dashboardCoreScore(b) - dashboardCoreScore(a))
+    .sort((a, b) => {
+      const valueDifference = (playerValues.get(b.id) || 0) - (playerValues.get(a.id) || 0);
+      return valueDifference || dashboardCoreScore(b) - dashboardCoreScore(a);
+    })
     .slice(0, 3)
-    .map((player) => ({ ...player, role: dashboardCoreRole(player) }));
+    .map((player) => ({
+      ...player,
+      role: dynastyCoreRole(player, playerValues.get(player.id) || 0),
+    }));
   const rookies = players
     .filter((player) => player.yearsExp === 0)
-    .sort(
-      (a, b) =>
-        Number(b.isStarter) - Number(a.isStarter)
-        || dashboardCoreScore(b) - dashboardCoreScore(a)
-    )
+    .sort((a, b) => {
+      const valueDifference = (playerValues.get(b.id) || 0) - (playerValues.get(a.id) || 0);
+      return valueDifference
+        || Number(b.isStarter) - Number(a.isStarter)
+        || dashboardCoreScore(b) - dashboardCoreScore(a);
+    })
     .slice(0, 4);
 
   const alerts: TeamDashboardAlert[] = [];

@@ -5,6 +5,7 @@ import {
   PANEL,
 } from '@/lib/ui/broadcast-styles';
 import {
+  isTeamDataStale,
   TEAM_NEWS_CATEGORY_LABELS,
   teamTimeAgo,
 } from '@/components/home/MyTeamCardParts';
@@ -33,6 +34,8 @@ export default function MyTeamSecondaryPanels({
   tradeBlockUpdatedAt: string | null;
   news: MyTeamNewsItem[];
 }) {
+  const tradeBlockIsStale = tradeAssetCount > 0 && isTeamDataStale(tradeBlockUpdatedAt, 14);
+
   return (
     <div className="grid md:grid-cols-2 gap-3">
       <div
@@ -47,8 +50,11 @@ export default function MyTeamSecondaryPanels({
             Your trade block
           </div>
           {tradeBlockUpdatedAt && (
-            <span className="text-[9px]" style={broadcastFaintTextStyle}>
-              Updated {teamTimeAgo(tradeBlockUpdatedAt)}
+            <span
+              className="text-[9px]"
+              style={tradeBlockIsStale ? { color: '#f59e0b' } : broadcastFaintTextStyle}
+            >
+              {tradeBlockIsStale ? 'Stale · ' : ''}Last updated by team {teamTimeAgo(tradeBlockUpdatedAt)}
             </span>
           )}
         </div>
