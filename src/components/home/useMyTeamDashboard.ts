@@ -8,6 +8,7 @@ import type {
   TeamDashboardResponse,
   TeamDashboardSeverity,
 } from '@/lib/home/team-dashboard-types';
+import type { LineupOptimizerResponse } from '@/lib/fantasy/lineup-types';
 import { compactTeamName } from '@/components/home/MyTeamCardParts';
 import type { MyTeamNewsItem } from '@/components/home/MyTeamSecondaryPanels';
 
@@ -34,15 +35,18 @@ type PlayerNameResponse = {
 
 export function useMyTeamDashboard(data: MyTeamData, phase: HomepagePhase) {
   const [dashboard, setDashboard] = useState<TeamDashboardResponse | null>(null);
+  const [lineup, setLineup] = useState<LineupOptimizerResponse | null>(null);
   const [news, setNews] = useState<MyTeamNewsItem[]>([]);
   const [tradePlayerNames, setTradePlayerNames] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
+  const [lineupLoading, setLineupLoading] = useState(true);
   const { teamName, tradeBlock, tradeWants } = data;
   const tradePlayerIdsKey = data.tradeBlockPlayerIds.join(',');
 
   useEffect(() => {
     const controller = new AbortController();
     setLoading(true);
+    setLineupLoading(true);
 
     fetch('/api/home/my-team', { signal: controller.signal, cache: 'no-store' })
       .then((response) =>
@@ -56,6 +60,20 @@ export function useMyTeamDashboard(data: MyTeamData, phase: HomepagePhase) {
       })
       .finally(() => {
         if (!controller.signal.aborted) setLoading(false);
+      });
+
+    fetch('/api/home/lineup-optimizer', { signal: controller.signal, cache: 'no-store' })
+      .then((response) =>
+        response.ok
+          ? response.json()
+          : Promise.reject(new Error('Lineup projections unavailable'))
+      )
+      .then((lineupResponse) => setLineup(lineupResponse as LineupOptimizerResponse))
+      .catch((error) => {
+        if (error?.name !== 'AbortError') setLineup(null);
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLineupLoading(false);
       });
 
     fetch(
@@ -74,7 +92,7 @@ export function useMyTeamDashboard(data: MyTeamData, phase: HomepagePhase) {
   }, [teamName]);
 
   useEffect(() => {
-    const ids = data.tradeBlockPlayerIds;
+    const ids = tradePlayerIdsKey ? tradePlayerIdsKey.split(',').filter(Boolean) : [];
     if (!ids.length) {
       setTradePlayerNames({});
       return;
@@ -134,8 +152,6 @@ export function useMyTeamDashboard(data: MyTeamData, phase: HomepagePhase) {
     })
     .filter((label): label is string => Boolean(label));
 
-  // Team attention is limited to roster and lineup issues. Trade-block age is
-  // displayed only as neutral metadata and never creates an alert.
   const alerts = dashboard?.alerts || [];
   const status: TeamDashboardSeverity = dashboard?.status || 'good';
 
@@ -143,8 +159,10 @@ export function useMyTeamDashboard(data: MyTeamData, phase: HomepagePhase) {
     data,
     phase,
     dashboard,
+    lineup,
     news,
     loading,
+    lineupLoading,
     alerts,
     status,
     activeBlock,

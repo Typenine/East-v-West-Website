@@ -17,6 +17,7 @@ import {
   TeamStatBox,
 } from '@/components/home/MyTeamCardParts';
 import MyTeamPhaseFocus from '@/components/home/MyTeamPhaseFocus';
+import MyTeamLineupOptimizer from '@/components/home/MyTeamLineupOptimizer';
 import MyTeamSecondaryPanels from '@/components/home/MyTeamSecondaryPanels';
 import MyTeamDetails from '@/components/home/MyTeamDetails';
 import type { MyTeamDashboardModel } from '@/components/home/useMyTeamDashboard';
@@ -38,8 +39,10 @@ export default function MyTeamCardView({ model }: { model: MyTeamDashboardModel 
     data,
     phase,
     dashboard,
+    lineup,
     news,
     loading,
+    lineupLoading,
     alerts,
     status,
     activeBlock,
@@ -150,6 +153,12 @@ export default function MyTeamCardView({ model }: { model: MyTeamDashboardModel 
           accent={accent}
           fallbackTaxi={taxiCount}
           fallbackIr={irCount}
+        />
+
+        <MyTeamLineupOptimizer
+          lineup={lineup}
+          loading={lineupLoading}
+          accent={accent}
         />
 
         {dashboard && ranks && (
