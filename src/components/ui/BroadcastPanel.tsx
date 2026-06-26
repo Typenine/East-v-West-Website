@@ -39,8 +39,8 @@ export function BroadcastTeamLogo({
     <div
       className={`relative flex ${outer} shrink-0 items-center justify-center overflow-hidden rounded-full`}
       style={{
-        background: 'rgba(255,255,255,0.06)',
-        boxShadow: `inset 0 0 0 1px rgba(255,255,255,0.10), 0 0 0 2px ${accent}33`,
+        background: PANEL.tintMedium,
+        boxShadow: `inset 0 0 0 1px ${PANEL.tintStronger}, 0 0 0 2px ${accent}33`,
       }}
       aria-hidden="true"
     >
@@ -132,7 +132,7 @@ export function BroadcastPanel({
         .join(' ')}
       style={{
         background: PANEL.card,
-        boxShadow: `inset 0 0 0 1px ${PANEL.border}, 0 4px 18px rgba(0,0,0,0.30)`,
+        boxShadow: `inset 0 0 0 1px ${PANEL.border}, ${PANEL.shadow}`,
       }}
     >
       <div className="h-[3px] w-full" style={{ background: accent }} aria-hidden="true" />

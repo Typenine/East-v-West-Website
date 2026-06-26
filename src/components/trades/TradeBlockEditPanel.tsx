@@ -234,7 +234,7 @@ export default function TradeBlockEditPanel({
               onChange={(e) =>
                 setContactMethod((e.target.value || undefined) as TradeWants['contactMethod'])
               }
-              className="!bg-[rgba(255,255,255,0.06)] !border-[rgba(255,255,255,0.07)] !text-[#F4F6FB] !shadow-none"
+              className="!bg-[var(--panel-tint-medium)] !border-[var(--panel-hairline)] !text-[var(--panel-text)] !shadow-none"
             >
               <option value="">No preference</option>
               <option value="text">Text</option>
@@ -270,7 +270,7 @@ export default function TradeBlockEditPanel({
             value={wantsText}
             onChange={(e) => setWantsText(e.target.value)}
             placeholder="e.g., WR depth, 2026 picks"
-            className="!bg-[rgba(255,255,255,0.06)] !border-[rgba(255,255,255,0.07)] !text-[#F4F6FB] !shadow-none placeholder:!text-[rgba(233,237,245,0.40)]"
+            className="!bg-[var(--panel-tint-medium)] !border-[var(--panel-hairline)] !text-[var(--panel-text)] !shadow-none placeholder:!text-[var(--panel-faint)]"
           />
           <div className="mt-2 flex flex-wrap gap-3">
             {WANT_POSITIONS.map((p) => (

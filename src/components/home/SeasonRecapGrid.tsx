@@ -51,7 +51,7 @@ function RecapRow({
     <div
       className={['rounded-xl px-3 py-2.5', className].filter(Boolean).join(' ')}
       style={{
-        background: 'rgba(255,255,255,0.03)',
+        background: PANEL.tintSoft,
         boxShadow: `inset 0 0 0 1px ${PANEL.hairline}`,
         borderLeft: `3px solid ${accent}`,
       }}

@@ -10,8 +10,8 @@ const STATUS_STYLES: Record<string, { color: string; bg: string; border: string 
   vote_failed: { color: '#fca5a5', bg: 'rgba(239,68,68,0.14)', border: 'rgba(239,68,68,0.35)' },
   vague: { color: '#fcd34d', bg: 'rgba(245,158,11,0.14)', border: 'rgba(245,158,11,0.35)' },
   ballot: { color: '#86efac', bg: 'rgba(34,197,94,0.14)', border: 'rgba(34,197,94,0.35)' },
-  category: { color: PANEL.text, bg: 'rgba(255,255,255,0.06)', border: PANEL.hairline },
-  endorsement: { color: PANEL.muted, bg: 'rgba(255,255,255,0.04)', border: PANEL.hairline },
+  category: { color: PANEL.text, bg: PANEL.tintMedium, border: PANEL.hairline },
+  endorsement: { color: PANEL.muted, bg: PANEL.tint, border: PANEL.hairline },
   endorsement_ready: { color: '#86efac', bg: 'rgba(34,197,94,0.12)', border: 'rgba(34,197,94,0.35)' },
 };
 

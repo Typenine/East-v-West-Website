@@ -39,7 +39,7 @@ function SeedBadge({ seed }: { seed?: number }) {
   return (
     <span
       className="inline-block rounded px-1.5 py-0.5 text-[10px] font-bold tabular-nums"
-      style={{ background: 'rgba(255,255,255,0.10)', color: PANEL.text }}
+      style={{ background: PANEL.tintStronger, color: PANEL.text }}
     >
       #{seed} seed
     </span>
@@ -98,7 +98,7 @@ export default function MyTeamCard({ data, phase }: Props) {
         {/* Roster summary */}
         <div
           className="grid grid-cols-3 gap-2 rounded-lg p-2"
-          style={{ background: 'rgba(255,255,255,0.04)', border: `1px solid ${PANEL.hairline}` }}
+          style={{ background: PANEL.tint, border: `1px solid ${PANEL.hairline}` }}
         >
           <div className="text-center">
             <div className="text-lg font-extrabold tabular-nums" style={broadcastBodyTextStyle}>{rosterCount}</div>
@@ -123,16 +123,16 @@ export default function MyTeamCard({ data, phase }: Props) {
             {tradeBlockPickCount > 0 ? (
               <p className="text-xs" style={broadcastMutedTextStyle}>
                 {tradeBlockPickCount} pick{tradeBlockPickCount !== 1 ? 's' : ''} on trade block ·{' '}
-                <Link href={`/teams/${teamSlug}`} className="underline hover:text-white">
+                <Link href={`/teams/${teamSlug}`} className="underline hover:text-[var(--panel-text)]">
                   View full roster →
                 </Link>
               </p>
             ) : (
-              <Link href={`/teams/${teamSlug}`} className="text-xs underline hover:text-white" style={broadcastMutedTextStyle}>
+              <Link href={`/teams/${teamSlug}`} className="text-xs underline hover:text-[var(--panel-text)]" style={broadcastMutedTextStyle}>
                 View draft capital →
               </Link>
             )}
-            <Link href="/draft" className="block text-xs underline hover:text-white" style={broadcastFaintTextStyle}>
+            <Link href="/draft" className="block text-xs underline hover:text-[var(--panel-text)]" style={broadcastFaintTextStyle}>
               Draft Central →
             </Link>
           </div>
@@ -146,7 +146,7 @@ export default function MyTeamCard({ data, phase }: Props) {
             <p className="text-xs" style={broadcastMutedTextStyle}>
               Roster at {rosterCount} · Taxi squad at {taxiCount}
             </p>
-            <Link href={`/teams/${teamSlug}`} className="text-xs underline hover:text-white" style={broadcastFaintTextStyle}>
+            <Link href={`/teams/${teamSlug}`} className="text-xs underline hover:text-[var(--panel-text)]" style={broadcastFaintTextStyle}>
               View full roster →
             </Link>
           </div>
@@ -165,7 +165,7 @@ export default function MyTeamCard({ data, phase }: Props) {
               {activeBlock.length} asset{activeBlock.length !== 1 ? 's' : ''} listed
               {wantedPositions.length > 0 && ` · Wants: ${wantedPositions.slice(0, 3).join(', ')}`}
             </p>
-            <Link href="/trade-block" className="text-xs underline hover:text-white" style={{ color: '#10b981' }}>
+            <Link href="/trade-block" className="text-xs underline hover:text-[var(--panel-text)]" style={{ color: '#10b981' }}>
               Edit trade block →
             </Link>
           </div>
@@ -175,7 +175,7 @@ export default function MyTeamCard({ data, phase }: Props) {
         {activeBlock.length === 0 && (
           <div className="text-xs" style={broadcastFaintTextStyle}>
             Nothing on your trade block.{' '}
-            <Link href="/trade-block" className="underline hover:text-white">Add assets →</Link>
+            <Link href="/trade-block" className="underline hover:text-[var(--panel-text)]">Add assets →</Link>
           </div>
         )}
 
@@ -183,15 +183,15 @@ export default function MyTeamCard({ data, phase }: Props) {
         <div className="flex flex-wrap gap-1.5 pt-1">
           <Link
             href={`/teams/${teamSlug}`}
-            className="rounded px-2 py-0.5 text-xs hover:text-white transition-colors"
-            style={{ background: 'rgba(255,255,255,0.06)', color: PANEL.text, border: `1px solid ${PANEL.hairline}` }}
+            className="rounded px-2 py-0.5 text-xs hover:text-[var(--panel-text)] transition-colors"
+            style={{ background: PANEL.tintMedium, color: PANEL.text, border: `1px solid ${PANEL.hairline}` }}
           >
             Full team →
           </Link>
           <Link
             href="/standings"
-            className="rounded px-2 py-0.5 text-xs hover:text-white transition-colors"
-            style={{ background: 'rgba(255,255,255,0.06)', color: PANEL.text, border: `1px solid ${PANEL.hairline}` }}
+            className="rounded px-2 py-0.5 text-xs hover:text-[var(--panel-text)] transition-colors"
+            style={{ background: PANEL.tintMedium, color: PANEL.text, border: `1px solid ${PANEL.hairline}` }}
           >
             Standings →
           </Link>

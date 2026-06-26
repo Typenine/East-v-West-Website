@@ -128,7 +128,7 @@ export default function MatchupCard({
         <TeamLine team={homeTeam} rosterId={homeRosterId} accent={homeAccent} score={hasScores ? homeScore : undefined} />
 
         {!hasScores && kickoffTime ? (
-          <div className="mt-3 rounded-xl px-3 py-2 text-center text-sm" style={{ background: 'rgba(255,255,255,0.03)', boxShadow: `inset 0 0 0 1px ${PANEL.hairline}` }}>
+          <div className="mt-3 rounded-xl px-3 py-2 text-center text-sm" style={{ background: PANEL.tintSoft, boxShadow: `inset 0 0 0 1px ${PANEL.hairline}` }}>
             <span style={broadcastFaintTextStyle}>Kickoff </span>
             <span style={broadcastMutedTextStyle}>{kickoffTime}</span>
           </div>
@@ -138,7 +138,7 @@ export default function MatchupCard({
           <div className="flex justify-end pt-3">
             <Link
               href={`/matchups/${week}/${matchupId}`}
-              className="text-xs font-semibold uppercase tracking-wider hover:text-white transition-colors"
+              className="text-xs font-semibold uppercase tracking-wider hover:text-[var(--panel-text)] transition-colors"
               style={broadcastMutedTextStyle}
               aria-label={`View matchup details for Week ${week}`}
             >

@@ -73,7 +73,7 @@ function RivalrySpotlight({ h2h }: { h2h: H2HData }) {
       </div>
       <div className="mt-3 text-center text-xs" style={broadcastFaintTextStyle}>
         Full history on the{' '}
-        <Link href="/history" className="underline hover:text-white">History page</Link>
+        <Link href="/history" className="underline hover:text-[var(--panel-text)]">History page</Link>
       </div>
     </BroadcastPanel>
   );
@@ -105,7 +105,7 @@ function NeverBeatenSpotlight({ h2h }: { h2h: H2HData }) {
         </ul>
       )}
       <div className="mt-3 text-xs" style={broadcastFaintTextStyle}>
-        <Link href="/history" className="underline hover:text-white">See full history →</Link>
+        <Link href="/history" className="underline hover:text-[var(--panel-text)]">See full history →</Link>
       </div>
     </BroadcastPanel>
   );
@@ -142,7 +142,7 @@ function AllTimeLeaderSpotlight({ h2h }: { h2h: H2HData }) {
         ))}
       </ul>
       <div className="mt-3 text-xs" style={broadcastFaintTextStyle}>
-        <Link href="/history" className="underline hover:text-white">Full head-to-head grid →</Link>
+        <Link href="/history" className="underline hover:text-[var(--panel-text)]">Full head-to-head grid →</Link>
       </div>
     </BroadcastPanel>
   );
@@ -199,7 +199,7 @@ function ClosestRivalrySpotlight({ h2h }: { h2h: H2HData }) {
       </div>
       <div className="mt-3 text-center text-xs" style={broadcastFaintTextStyle}>
         The most evenly matched head-to-head in league history ·{' '}
-        <Link href="/history" className="underline hover:text-white">Full history</Link>
+        <Link href="/history" className="underline hover:text-[var(--panel-text)]">Full history</Link>
       </div>
     </BroadcastPanel>
   );

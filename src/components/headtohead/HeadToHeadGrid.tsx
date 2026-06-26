@@ -114,7 +114,7 @@ export default function HeadToHeadGrid({
                 <tr
                   key={rowTeam}
                   style={{
-                    background: rowComplete ? 'rgba(234,179,8,0.06)' : rowIdx % 2 === 1 ? 'rgba(255,255,255,0.015)' : undefined,
+                    background: rowComplete ? 'rgba(234,179,8,0.06)' : rowIdx % 2 === 1 ? PANEL.tintSoft : undefined,
                     borderBottom: `1px solid ${PANEL.hairline}`,
                   }}
                 >
@@ -144,7 +144,7 @@ export default function HeadToHeadGrid({
                           key={`${rowTeam}-${colTeam}`}
                           className="p-2 text-center align-middle"
                           style={{
-                            background: 'rgba(255,255,255,0.03)',
+                            background: PANEL.tintSoft,
                             color: PANEL.faint,
                           }}
                         >

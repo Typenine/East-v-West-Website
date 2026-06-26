@@ -14,8 +14,8 @@ function BlockTeamLogo({ team, accent }: { team: string; accent: string }) {
     <div
       className="relative flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full"
       style={{
-        background: 'rgba(255,255,255,0.06)',
-        boxShadow: `inset 0 0 0 1px rgba(255,255,255,0.10), 0 0 0 2px ${accent}33`,
+        background: PANEL.tintMedium,
+        boxShadow: `inset 0 0 0 1px ${PANEL.tintStronger}, 0 0 0 2px ${accent}33`,
       }}
       aria-hidden="true"
     >

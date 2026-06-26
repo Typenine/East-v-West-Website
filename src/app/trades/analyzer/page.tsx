@@ -213,18 +213,18 @@ function formatValue(v: number): string {
 
 const PANEL_SHELL_STYLE = {
   background: PANEL.card,
-  boxShadow: `inset 0 0 0 1px ${PANEL.border}, 0 4px 18px rgba(0,0,0,0.30)`,
+  boxShadow: `inset 0 0 0 1px ${PANEL.border}, ${PANEL.shadow}`,
 } as const;
 
 const ANALYZER_DROPDOWN_STYLE = {
-  background: '#131822',
-  borderColor: 'rgba(255,255,255,0.16)',
-  boxShadow: '0 18px 48px rgba(0,0,0,0.55), inset 0 0 0 1px rgba(255,255,255,0.08)',
+  background: PANEL.surface,
+  borderColor: PANEL.border,
+  boxShadow: `${PANEL.shadow}, inset 0 0 0 1px ${PANEL.border}`,
 } as const;
 
 const ANALYZER_FIELD_STYLE = {
-  background: '#1a2030',
-  borderColor: 'rgba(255,255,255,0.18)',
+  background: PANEL.field,
+  borderColor: PANEL.border,
   color: PANEL.text,
 } as const;
 
@@ -281,7 +281,7 @@ function AnalyzerMobileSheet({ open, onClose, title, children, placement = 'bott
         aria-modal="true"
         aria-label={title}
       >
-        <div className="flex shrink-0 items-center justify-between gap-3 border-b px-4 py-3" style={{ borderColor: 'rgba(255,255,255,0.12)' }}>
+        <div className="flex shrink-0 items-center justify-between gap-3 border-b px-4 py-3" style={{ borderColor: PANEL.hairline }}>
           <span className="text-sm font-bold uppercase tracking-wider" style={broadcastBodyTextStyle}>{title}</span>
           <button type="button" onClick={onClose} className="px-2 py-1 text-2xl leading-none" style={broadcastFaintTextStyle} aria-label="Close">×</button>
         </div>
@@ -339,7 +339,7 @@ function AnalyzerDropdownItem({ children, onClick }: { children: ReactNode; onCl
     <button
       type="button"
       onClick={onClick}
-      className="w-full min-h-11 touch-manipulation text-left px-3 py-3 transition-colors hover:bg-white/10 active:bg-white/15 focus-visible:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/25"
+      className="w-full min-h-11 touch-manipulation text-left px-3 py-3 transition-colors hover:bg-[var(--panel-tint-strong)] active:bg-[var(--panel-tint-stronger)] focus-visible:bg-[var(--panel-tint-strong)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--accent)]"
     >
       {children}
     </button>
@@ -352,10 +352,10 @@ function AnalyzerMenuTrigger({ children, onClick, active }: { children: ReactNod
       type="button"
       onClick={onClick}
       aria-expanded={active}
-      className="w-full min-h-11 touch-manipulation rounded-md border px-3 py-2.5 text-sm font-semibold text-left transition-colors hover:bg-white/[0.12] active:bg-white/[0.16] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/30"
+      className="w-full min-h-11 touch-manipulation rounded-md border px-3 py-2.5 text-sm font-semibold text-left transition-colors hover:bg-[var(--panel-tint-stronger)] active:bg-[var(--panel-tint-stronger)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
       style={{
-        background: active ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.09)',
-        borderColor: active ? 'rgba(255,255,255,0.30)' : 'rgba(255,255,255,0.18)',
+        background: active ? PANEL.tintStronger : PANEL.tintStrong,
+        borderColor: active ? PANEL.border : PANEL.hairline,
         color: PANEL.text,
       }}
     >
@@ -370,7 +370,7 @@ function AnalyzerFieldInput(props: React.ComponentProps<'input'>) {
     <input
       {...rest}
       className={[
-        'block w-full min-h-11 touch-manipulation rounded-md border px-3 py-2.5 text-base sm:text-sm placeholder:text-[rgba(233,237,245,0.5)] focus:outline-none focus-visible:ring-2 focus-visible:ring-white/30',
+        'block w-full min-h-11 touch-manipulation rounded-md border px-3 py-2.5 text-base sm:text-sm placeholder:text-[var(--panel-faint)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]',
         className,
       ].filter(Boolean).join(' ')}
       style={{ ...ANALYZER_FIELD_STYLE, ...style }}
@@ -382,7 +382,7 @@ function AnalyzerDropdownSection({ children }: { children: ReactNode }) {
   return (
     <div
       className="px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider sticky top-0 z-[1] border-b"
-      style={{ color: PANEL.text, background: '#131822', borderColor: 'rgba(255,255,255,0.10)' }}
+      style={{ color: PANEL.text, background: PANEL.surface, borderColor: PANEL.hairline }}
     >
       {children}
     </div>
@@ -396,7 +396,7 @@ function TeamPickerInline({ selected, onSelect }: { selected: string; onSelect: 
       <div className="max-h-40 overflow-y-auto">
         {TEAM_NAMES.map((t) => (
           <AnalyzerDropdownItem key={t} onClick={() => onSelect(t)}>
-            <span className={`text-sm ${selected === t ? 'font-bold text-white' : 'font-medium'}`} style={selected === t ? undefined : broadcastBodyTextStyle}>
+            <span className={`text-sm ${selected === t ? 'font-bold text-[var(--panel-text)]' : 'font-medium'}`} style={selected === t ? undefined : broadcastBodyTextStyle}>
               {t}
             </span>
           </AnalyzerDropdownItem>
@@ -408,11 +408,11 @@ function TeamPickerInline({ selected, onSelect }: { selected: string; onSelect: 
 
 function TeamPickerList({ selected, onSelect }: { selected: string; onSelect: (team: string) => void }) {
   return (
-    <div className="max-h-44 overflow-y-auto border-b" style={{ borderColor: 'rgba(255,255,255,0.10)' }}>
+    <div className="max-h-44 overflow-y-auto border-b" style={{ borderColor: PANEL.hairline }}>
       <AnalyzerDropdownSection>Choose team</AnalyzerDropdownSection>
       {TEAM_NAMES.map((t) => (
         <AnalyzerDropdownItem key={t} onClick={() => onSelect(t)}>
-          <span className={`text-sm ${selected === t ? 'font-bold text-white' : 'font-medium'}`} style={selected === t ? undefined : broadcastBodyTextStyle}>
+          <span className={`text-sm ${selected === t ? 'font-bold text-[var(--panel-text)]' : 'font-medium'}`} style={selected === t ? undefined : broadcastBodyTextStyle}>
             {t}
           </span>
         </AnalyzerDropdownItem>
@@ -463,7 +463,7 @@ function AssetChip({ asset, source, sideTotal, barColor, onRemove }: {
   return (
     <div
       className="rounded border px-3 py-2.5"
-      style={{ background: 'rgba(255,255,255,0.04)', borderColor: PANEL.hairline }}
+      style={{ background: PANEL.tint, borderColor: PANEL.hairline }}
     >
       <div className="flex items-start gap-2">
         {!asset.isPick && (
@@ -485,7 +485,7 @@ function AssetChip({ asset, source, sideTotal, barColor, onRemove }: {
         <button onClick={onRemove} className="transition-colors text-lg leading-none shrink-0 p-0.5" style={broadcastFaintTextStyle} aria-label={`Remove ${asset.name}`}>×</button>
       </div>
       {sideTotal > 0 && (
-        <div className="mt-2 h-1 rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.08)' }}>
+        <div className="mt-2 h-1 rounded-full overflow-hidden" style={{ background: PANEL.tintStrong }}>
           <div className="h-full rounded-full transition-all duration-500" style={{ width: `${pct}%`, backgroundColor: barColor, opacity: 0.85 }} />
         </div>
       )}
@@ -532,7 +532,7 @@ function PlayerSearch({ values, excluded, source, onSelect }: {
                   {v.trend > 100 && <span className="text-xs text-green-400">↑</span>}
                   {v.trend < -100 && <span className="text-xs" style={{ color: 'var(--danger)' }}>↓</span>}
                 </div>
-                <div className="text-xs mt-0.5" style={{ color: 'rgba(233,237,245,0.72)' }}>
+                <div className="text-xs mt-0.5" style={{ color: PANEL.muted }}>
                   {v.position} · {v.team || 'FA'}{v.age ? ` · ${v.age.toFixed(0)}y` : ''}
                 </div>
               </div>
@@ -721,7 +721,7 @@ function RosterPicker({ values, excluded, onAdd }: { values: TradeValue[]; exclu
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
               <div className="text-sm font-semibold truncate" style={broadcastBodyTextStyle}>{p.name}</div>
-              <div className="text-xs mt-0.5" style={{ color: 'rgba(233,237,245,0.72)' }}>{p.pos}</div>
+              <div className="text-xs mt-0.5" style={{ color: PANEL.muted }}>{p.pos}</div>
             </div>
             <span className="shrink-0 text-sm font-bold tabular-nums" style={{ color: 'var(--accent)' }}>{formatValue(p.tv!.value)}</span>
           </div>
@@ -820,7 +820,7 @@ function TradeSide({ label, color, assets, values, excluded, source, grade, effT
         {assets.length === 0 && <div className="text-center text-sm py-6" style={broadcastMutedTextStyle}>Add players or picks</div>}
         {assets.map((a) => <AssetChip key={a.key} asset={a} source={source} sideTotal={rawTotal} barColor={color} onRemove={() => onRemove(a.key)} />)}
         {showAdjustment && (
-          <div className="flex items-center justify-between px-3 py-2 rounded border border-dashed" style={{ borderColor: PANEL.hairline, background: 'rgba(255,255,255,0.03)' }}>
+          <div className="flex items-center justify-between px-3 py-2 rounded border border-dashed" style={{ borderColor: PANEL.hairline, background: PANEL.tintSoft }}>
             <span className="text-xs italic" style={broadcastFaintTextStyle}>{adjustment >= 0 ? 'Stud premium' : 'Depth discount'}</span>
             <span className="text-xs font-semibold tabular-nums" style={{ color: adjustment >= 0 ? '#4ade80' : '#fb923c' }}>
               {adjustment >= 0 ? '+' : '−'}{formatValue(Math.abs(adjustment))}
@@ -874,7 +874,7 @@ function FairnessMeter({ analysis, allAssets }: { analysis: AnalysisResult; allA
         {notes.length > 0 && (
           <div className="mt-3 flex flex-wrap justify-center gap-2">
             {notes.map((n, i) => (
-              <span key={i} className="text-xs px-2.5 py-1 rounded border" style={{ ...broadcastFaintTextStyle, borderColor: PANEL.hairline, background: 'rgba(255,255,255,0.04)' }}>
+              <span key={i} className="text-xs px-2.5 py-1 rounded border" style={{ ...broadcastFaintTextStyle, borderColor: PANEL.hairline, background: PANEL.tint }}>
                 {n}
               </span>
             ))}
@@ -882,7 +882,7 @@ function FairnessMeter({ analysis, allAssets }: { analysis: AnalysisResult; allA
         )}
 
         {counterHint && (
-          <div className="mt-3 mx-auto max-w-sm px-4 py-2 rounded border text-xs text-left" style={{ ...broadcastMutedTextStyle, borderColor: PANEL.hairline, background: 'rgba(255,255,255,0.03)' }}>
+          <div className="mt-3 mx-auto max-w-sm px-4 py-2 rounded border text-xs text-left" style={{ ...broadcastMutedTextStyle, borderColor: PANEL.hairline, background: PANEL.tintSoft }}>
             💡 {counterHint}
           </div>
         )}
@@ -1061,7 +1061,7 @@ function RosterSuggestionPanel({ analysis, values, sideA, sideB, gap, onAddA, on
           <BroadcastSectionLabel accent="var(--danger)">From {team}</BroadcastSectionLabel>
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
             {rosterMatches.map((p) => (
-              <div key={p.id} className="flex items-center justify-between rounded border px-2.5 py-2" style={{ background: 'rgba(255,255,255,0.04)', borderColor: PANEL.hairline }}>
+              <div key={p.id} className="flex items-center justify-between rounded border px-2.5 py-2" style={{ background: PANEL.tint, borderColor: PANEL.hairline }}>
                 <div className="min-w-0 mr-2">
                   <div className="text-xs font-semibold truncate" style={broadcastBodyTextStyle}>{p.name}</div>
                   <div className="text-[10px] tabular-nums" style={broadcastMutedTextStyle}>{p.pos} · <span className="text-accent">{formatValue(p.tv!.value)}</span></div>
@@ -1250,7 +1250,7 @@ function TradeAnalyzerContent() {
           <div className="hidden md:flex items-center justify-center shrink-0 px-1">
             <span
               className="text-[10px] font-bold uppercase tracking-[0.22em] px-3 py-1.5 rounded-full border"
-              style={{ color: PANEL.faint, borderColor: PANEL.hairline, background: 'rgba(255,255,255,0.04)' }}
+              style={{ color: PANEL.faint, borderColor: PANEL.hairline, background: PANEL.tint }}
             >
               VS
             </span>
@@ -1261,7 +1261,7 @@ function TradeAnalyzerContent() {
             onAdd={(a) => setSideB((p) => [...p, a])} onRemove={(k) => setSideB((p) => p.filter((x) => x.key !== k))} onClear={() => setSideB([])} />
         </div>
         <div className="mt-6 pt-4 border-t" style={{ borderColor: PANEL.hairline }}>
-          <div className="rounded border p-4 md:p-5" style={{ background: 'rgba(255,255,255,0.03)', borderColor: PANEL.hairline }}>
+          <div className="rounded border p-4 md:p-5" style={{ background: PANEL.tintSoft, borderColor: PANEL.hairline }}>
             <FairnessMeter analysis={analysis} allAssets={[...sideA, ...sideB]} />
           </div>
         </div>
@@ -1341,7 +1341,7 @@ function TradeAnalyzerContent() {
                 <div
                   key={v.sleeperId}
                   className="flex items-center gap-2 rounded border px-2.5 py-1.5 shrink-0"
-                  style={{ background: 'rgba(255,255,255,0.04)', borderColor: PANEL.hairline }}
+                  style={{ background: PANEL.tint, borderColor: PANEL.hairline }}
                 >
                   <div className="min-w-0">
                     <div className="text-sm font-semibold whitespace-nowrap" style={broadcastBodyTextStyle}>

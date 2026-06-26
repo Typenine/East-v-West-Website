@@ -8,9 +8,9 @@ import type { TradeCardModel, TradeCardTeam } from '@/lib/trades/trade-card-mode
 import { TRADE_CARD_PANEL as PANEL } from '@/lib/trades/trade-card-panel';
 
 /**
- * Broadcast-style trade card — a premium editorial layer that intentionally
- * stands apart from the rest of the site theme. Fixed dark paneling, team
- * colors as accents only, fixed-size logo containers (no layout shift).
+ * Broadcast-style trade card — a premium editorial layer with its own paneling
+ * (theme-aware via the shared --panel-* tokens: dark in dark mode, light in
+ * light mode), team colors as accents only, fixed-size logo containers.
  */
 
 function TeamLogo({ team, priority }: { team: TradeCardTeam; priority?: boolean }) {
@@ -19,8 +19,8 @@ function TeamLogo({ team, priority }: { team: TradeCardTeam; priority?: boolean 
     <div
       className="relative flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full"
       style={{
-        background: 'rgba(255,255,255,0.06)',
-        boxShadow: `inset 0 0 0 1px rgba(255,255,255,0.10), 0 0 0 2px ${team.accent}33`,
+        background: PANEL.tintMedium,
+        boxShadow: `inset 0 0 0 1px ${PANEL.tintStronger}, 0 0 0 2px ${team.accent}33`,
       }}
       aria-hidden="true"
     >
@@ -261,7 +261,7 @@ export function TradeCard({ trade, priority, deferRender, editHref }: TradeCardP
           style={{ borderTop: `1px solid ${PANEL.hairline}` }}
         >
           <span
-            className="text-xs font-semibold uppercase tracking-wider transition-colors group-hover:text-white"
+            className="text-xs font-semibold uppercase tracking-wider transition-colors group-hover:text-[var(--panel-text)]"
             style={{ color: PANEL.muted }}
           >
             View trade details →
@@ -273,7 +273,7 @@ export function TradeCard({ trade, priority, deferRender, editHref }: TradeCardP
 }
 
 export function TradeCardSkeleton() {
-  const bar = { background: 'rgba(255,255,255,0.08)' } as const;
+  const bar = { background: PANEL.tintStrong } as const;
   return (
     <div
       className="animate-pulse overflow-hidden rounded-2xl"

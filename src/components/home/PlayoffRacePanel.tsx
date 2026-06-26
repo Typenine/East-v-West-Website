@@ -71,7 +71,7 @@ export default function PlayoffRacePanel({ standings, playoffSpots = 6 }: Props)
             })}
           </ul>
           <div className="mt-3 text-xs" style={broadcastFaintTextStyle}>
-            <Link href="/standings" className="underline hover:text-white">Full standings →</Link>
+            <Link href="/standings" className="underline hover:text-[var(--panel-text)]">Full standings →</Link>
           </div>
         </BroadcastPanel>
 

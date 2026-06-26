@@ -127,7 +127,7 @@ function TradeMarketSummary({ rows, playerPositions }: TradeMarketSummaryProps) 
                 <span
                   key={pos}
                   className="rounded px-2 py-0.5 text-xs font-semibold"
-                  style={{ background: 'rgba(255,255,255,0.08)', color: PANEL.text }}
+                  style={{ background: PANEL.tintStrong, color: PANEL.text }}
                 >
                   {POS_LABELS[pos] ?? pos} ({count})
                 </span>
@@ -164,7 +164,7 @@ function TradeMarketSummary({ rows, playerPositions }: TradeMarketSummaryProps) 
                 <li key={r.team} className="text-xs" style={broadcastMutedTextStyle}>
                   <Link
                     href={`/trade-block?team=${encodeURIComponent(r.team)}`}
-                    className="underline hover:text-white"
+                    className="underline hover:text-[var(--panel-text)]"
                   >
                     {r.team}
                   </Link>
@@ -177,7 +177,7 @@ function TradeMarketSummary({ rows, playerPositions }: TradeMarketSummaryProps) 
         <div className="pt-1">
           <Link
             href="/trade-block"
-            className="text-xs underline hover:text-white"
+            className="text-xs underline hover:text-[var(--panel-text)]"
             style={broadcastFaintTextStyle}
           >
             View all trade blocks →
@@ -217,7 +217,7 @@ function RosterConstructionSummary({ positionCounts }: RosterConstructionProps) 
           <li key={pos} className="grid grid-cols-[2rem_1fr] gap-2 items-start">
             <span
               className="rounded text-[10px] font-bold px-1 py-0.5 text-center"
-              style={{ background: 'rgba(255,255,255,0.08)', color: PANEL.text }}
+              style={{ background: PANEL.tintStrong, color: PANEL.text }}
             >
               {pos}
             </span>
@@ -232,7 +232,7 @@ function RosterConstructionSummary({ positionCounts }: RosterConstructionProps) 
         ))}
       </ul>
       <div className="mt-3 text-xs" style={broadcastFaintTextStyle}>
-        <Link href="/teams" className="underline hover:text-white">View all rosters →</Link>
+        <Link href="/teams" className="underline hover:text-[var(--panel-text)]">View all rosters →</Link>
       </div>
     </BroadcastPanel>
   );
@@ -279,7 +279,7 @@ function PlayoffRaceSummary({ standings }: { standings: StandingsTeam[] }) {
             </div>
           </div>
         )}
-        <Link href="/standings" className="block text-xs underline hover:text-white" style={broadcastFaintTextStyle}>
+        <Link href="/standings" className="block text-xs underline hover:text-[var(--panel-text)]" style={broadcastFaintTextStyle}>
           Full standings →
         </Link>
       </div>
@@ -319,7 +319,7 @@ function PostseasonSummary({ standings }: { standings: StandingsTeam[] }) {
             </ul>
           </>
         )}
-        <Link href="/brackets" className="block text-xs underline hover:text-white mt-2" style={broadcastFaintTextStyle}>
+        <Link href="/brackets" className="block text-xs underline hover:text-[var(--panel-text)] mt-2" style={broadcastFaintTextStyle}>
           Playoff brackets →
         </Link>
       </div>

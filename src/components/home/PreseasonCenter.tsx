@@ -40,15 +40,15 @@ export default function PreseasonCenter({ taxiAlerts, positionCounts }: Props) {
             <div className="flex flex-wrap gap-2">
               <Link
                 href="/trade-block"
-                className="rounded px-3 py-1.5 text-sm font-medium hover:text-white transition-colors"
-                style={{ background: 'rgba(255,255,255,0.06)', color: PANEL.text, border: `1px solid ${PANEL.hairline}` }}
+                className="rounded px-3 py-1.5 text-sm font-medium hover:text-[var(--panel-text)] transition-colors"
+                style={{ background: PANEL.tintMedium, color: PANEL.text, border: `1px solid ${PANEL.hairline}` }}
               >
                 Trade block →
               </Link>
               <Link
                 href="/teams"
-                className="rounded px-3 py-1.5 text-sm font-medium hover:text-white transition-colors"
-                style={{ background: 'rgba(255,255,255,0.06)', color: PANEL.text, border: `1px solid ${PANEL.hairline}` }}
+                className="rounded px-3 py-1.5 text-sm font-medium hover:text-[var(--panel-text)] transition-colors"
+                style={{ background: PANEL.tintMedium, color: PANEL.text, border: `1px solid ${PANEL.hairline}` }}
               >
                 Team rosters →
               </Link>
@@ -70,7 +70,7 @@ export default function PreseasonCenter({ taxiAlerts, positionCounts }: Props) {
               ))}
             </ul>
             <div className="mt-2 text-xs" style={broadcastFaintTextStyle}>
-              <Link href="/teams" className="underline hover:text-white">Full rosters →</Link>
+              <Link href="/teams" className="underline hover:text-[var(--panel-text)]">Full rosters →</Link>
             </div>
           </BroadcastPanel>
         )}

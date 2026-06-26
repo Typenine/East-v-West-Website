@@ -65,8 +65,8 @@ export default function PostDraftCenter({ rookieClassByTeam, positionCounts }: P
               </Link>
               <Link
                 href="/teams"
-                className="rounded px-3 py-1.5 text-sm font-medium transition-colors hover:text-white"
-                style={{ background: 'rgba(255,255,255,0.06)', color: PANEL.text, border: `1px solid ${PANEL.hairline}` }}
+                className="rounded px-3 py-1.5 text-sm font-medium transition-colors hover:text-[var(--panel-text)]"
+                style={{ background: PANEL.tintMedium, color: PANEL.text, border: `1px solid ${PANEL.hairline}` }}
               >
                 Team rosters →
               </Link>
@@ -82,7 +82,7 @@ export default function PostDraftCenter({ rookieClassByTeam, positionCounts }: P
                 <li key={pos} className="flex items-center gap-2">
                   <span
                     className="rounded text-[10px] font-bold px-1.5 py-0.5 text-center w-8"
-                    style={{ background: 'rgba(255,255,255,0.08)', color: PANEL.text }}
+                    style={{ background: PANEL.tintStrong, color: PANEL.text }}
                   >
                     {pos}
                   </span>
@@ -95,7 +95,7 @@ export default function PostDraftCenter({ rookieClassByTeam, positionCounts }: P
               ))}
             </ul>
             <div className="mt-3 text-xs" style={broadcastFaintTextStyle}>
-              <Link href="/teams" className="underline hover:text-white">Full roster comparison →</Link>
+              <Link href="/teams" className="underline hover:text-[var(--panel-text)]">Full roster comparison →</Link>
             </div>
           </BroadcastPanel>
         )}

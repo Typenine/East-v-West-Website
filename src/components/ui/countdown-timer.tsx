@@ -40,8 +40,8 @@ function CountdownGrid({
           key={unit.label}
           className={`flex flex-col rounded-xl ${emphasis ? 'px-2 py-3 sm:px-3 sm:py-4' : 'px-2 py-2.5'}`}
           style={{
-            background: 'rgba(255,255,255,0.04)',
-            boxShadow: `inset 0 0 0 1px ${PANEL.hairline}, inset 0 1px 0 rgba(255,255,255,0.06)`,
+            background: PANEL.tint,
+            boxShadow: `inset 0 0 0 1px ${PANEL.hairline}, inset 0 1px 0 ${PANEL.insetTop}`,
             borderTop: `2px solid ${COUNTDOWN_ACCENT}55`,
           }}
         >
@@ -89,7 +89,7 @@ export default function CountdownTimer({
       className="rounded-xl py-4 text-center text-2xl font-extrabold uppercase tracking-wider"
       style={{
         ...broadcastBodyTextStyle,
-        background: 'rgba(255,255,255,0.04)',
+        background: PANEL.tint,
         boxShadow: `inset 0 0 0 1px ${PANEL.hairline}`,
         borderTop: `2px solid ${COUNTDOWN_ACCENT}`,
       }}

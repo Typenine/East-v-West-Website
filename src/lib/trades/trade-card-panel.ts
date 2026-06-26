@@ -1,10 +1,24 @@
-/** Fixed broadcast palette shared by trade cards and trade block cards. */
+/**
+ * Broadcast palette shared by trade cards, trade block cards, and the home/
+ * transactions "broadcast" panels. Values resolve to theme-aware CSS variables
+ * (defined in globals.css) so the cards flip from dark to light with the theme.
+ */
 export const TRADE_CARD_PANEL = {
-  card: 'linear-gradient(180deg, #181D2A 0%, #0D1118 100%)',
-  border: 'rgba(255,255,255,0.09)',
-  hairline: 'rgba(255,255,255,0.07)',
-  headerBg: 'rgba(255,255,255,0.025)',
-  text: '#F4F6FB',
-  muted: 'rgba(233,237,245,0.58)',
-  faint: 'rgba(233,237,245,0.40)',
+  card: 'var(--panel-card)',
+  border: 'var(--panel-border)',
+  hairline: 'var(--panel-hairline)',
+  headerBg: 'var(--panel-header-bg)',
+  text: 'var(--panel-text)',
+  muted: 'var(--panel-muted)',
+  faint: 'var(--panel-faint)',
+  shadow: 'var(--panel-shadow)',
+  insetTop: 'var(--panel-inset-top)',
+  surface: 'var(--panel-surface)',
+  field: 'var(--panel-field)',
+  /** Inner-cell tint scale (lighten on dark / darken on light). */
+  tintSoft: 'var(--panel-tint-soft)',
+  tint: 'var(--panel-tint)',
+  tintMedium: 'var(--panel-tint-medium)',
+  tintStrong: 'var(--panel-tint-strong)',
+  tintStronger: 'var(--panel-tint-stronger)',
 } as const;

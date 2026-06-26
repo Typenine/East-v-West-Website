@@ -146,7 +146,7 @@ export default function TransactionsFilters({
         <SummaryCard title="Transactions" value={summary.count.toLocaleString()} />
         <div
           className="rounded border p-3"
-          style={{ background: "rgba(255,255,255,0.03)", borderColor: PANEL.hairline }}
+          style={{ background: PANEL.tintSoft, borderColor: PANEL.hairline }}
         >
           <h3 className={broadcastLabelClass} style={broadcastFaintTextStyle}>
             Top Spenders
@@ -170,7 +170,7 @@ export default function TransactionsFilters({
         </div>
         <div
           className="rounded border p-3 md:col-span-3"
-          style={{ background: "rgba(255,255,255,0.03)", borderColor: PANEL.hairline }}
+          style={{ background: PANEL.tintSoft, borderColor: PANEL.hairline }}
         >
           <h3 className={broadcastLabelClass} style={broadcastFaintTextStyle}>
             FAAB by Season
@@ -231,7 +231,7 @@ function SummaryCard({ title, value }: { title: string; value: string }) {
   return (
     <div
       className="rounded border p-3"
-      style={{ background: "rgba(255,255,255,0.03)", borderColor: PANEL.hairline }}
+      style={{ background: PANEL.tintSoft, borderColor: PANEL.hairline }}
     >
       <p className={broadcastLabelClass} style={broadcastFaintTextStyle}>
         {title}

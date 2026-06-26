@@ -1,6 +1,6 @@
 'use client';
 
-import { Fragment, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Input from '@/components/ui/Input';
 import Textarea from '@/components/ui/Textarea';
 import Label from '@/components/ui/Label';
@@ -71,6 +71,120 @@ async function publishNewPoll(pollId: string, state: BuilderState): Promise<void
   }
 }
 
+/** Grouped <optgroup> question-type selector used inside each question card. */
+function QuestionTypeSelect({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (type: string) => void;
+}) {
+  const groups = questionTypeGroups();
+  return (
+    <Select value={value} onChange={(e) => onChange(e.target.value)}>
+      {[...groups.entries()].map(([group, types]) => (
+        <optgroup key={group} label={group}>
+          {types.map((t) => (
+            <option key={t.value} value={t.value}>
+              {t.label}
+            </option>
+          ))}
+        </optgroup>
+      ))}
+    </Select>
+  );
+}
+
+/** Compact, read-only depiction of how a question's answer area will look. */
+function AnswerPreview({ q }: { q: QuestionDef }) {
+  const type = q.questionType;
+  if (questionNeedsGrid(type)) {
+    const rows = q.gridRows.filter((r) => r.text.trim()).length || q.gridRows.length;
+    const cols = q.options.filter((o) => o.text.trim()).length || q.options.length;
+    return <p className="mt-1 text-xs text-[var(--muted)]">{rows} rows × {cols} columns</p>;
+  }
+  if (questionNeedsOptions(type) || type === 'yes_no') {
+    const multi = type === 'checkboxes' || type === 'checkbox_grid';
+    const opts = q.options.map((o) => o.text.trim()).filter(Boolean);
+    const shown = (opts.length ? opts : ['Option 1', 'Option 2']).slice(0, 4);
+    return (
+      <ul className="mt-1.5 space-y-1">
+        {shown.map((o, i) => (
+          <li key={i} className="flex items-center gap-2 text-xs text-[var(--muted)]">
+            <span className={`inline-block h-3 w-3 shrink-0 border border-[var(--muted)] opacity-60 ${multi ? 'rounded-[3px]' : 'rounded-full'}`} />
+            <span className="truncate">{o}</span>
+          </li>
+        ))}
+        {opts.length > 4 ? <li className="pl-5 text-xs text-[var(--muted)]">+{opts.length - 4} more</li> : null}
+      </ul>
+    );
+  }
+  const hints: Record<string, string> = {
+    short_answer: 'Short answer text',
+    paragraph: 'Long answer text',
+    number: 'Numeric answer',
+    email: 'Email address',
+    date: 'Calendar date',
+    time: 'Time of day',
+    file_upload: 'File upload',
+    rating: `Scale ${q.ratingMin || '1'}–${q.ratingMax || '10'}`,
+  };
+  return <p className="mt-1 text-xs italic text-[var(--muted)]">{hints[type] ?? 'Answer'}</p>;
+}
+
+/** Collapsed summary card — click anywhere to open it for editing. */
+function CollapsedQuestion({
+  q,
+  index,
+  onActivate,
+}: {
+  q: QuestionDef;
+  index: number;
+  onActivate: () => void;
+}) {
+  const typeMeta = POLL_QUESTION_TYPES.find((t) => t.value === q.questionType);
+  const isSection = q.questionType === 'section_break';
+
+  if (isSection) {
+    return (
+      <button
+        type="button"
+        onClick={onActivate}
+        className="w-full rounded-xl border border-[var(--border)] bg-[var(--surface-strong)] px-4 py-3 text-left transition-colors hover:border-[var(--accent)]"
+      >
+        <div className="text-[10px] font-semibold uppercase tracking-wider text-[var(--muted)]">Section</div>
+        <div className="mt-0.5 text-sm font-semibold text-[var(--text)]">{q.text.trim() || 'Untitled section'}</div>
+        {q.description.trim() ? <div className="mt-0.5 text-xs text-[var(--muted)]">{q.description}</div> : null}
+      </button>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={onActivate}
+      className="group w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-4 py-3 text-left transition-colors hover:border-[var(--accent)]"
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs text-[var(--muted)]">{index + 1}.</span>
+            <span className={`truncate text-sm font-medium ${q.text.trim() ? 'text-[var(--text)]' : 'italic text-[var(--muted)]'}`}>
+              {q.text.trim() || 'Untitled question'}
+            </span>
+            {q.required ? <span className="text-red-400">*</span> : null}
+          </div>
+          {q.description.trim() ? <div className="mt-0.5 truncate text-xs text-[var(--muted)]">{q.description}</div> : null}
+          <AnswerPreview q={q} />
+        </div>
+        <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wider text-[var(--muted)]">
+          {typeMeta?.label}
+        </span>
+      </div>
+    </button>
+  );
+}
+
 function QuestionEditor({
   q,
   index,
@@ -90,7 +204,6 @@ function QuestionEditor({
   onRemove: () => void;
   onDuplicate: () => void;
 }) {
-  const typeMeta = POLL_QUESTION_TYPES.find((t) => t.value === q.questionType);
   const isSection = q.questionType === 'section_break';
   const isGrid = questionNeedsGrid(q.questionType);
   const showOptions = ((questionNeedsOptions(q.questionType) && !isGrid) || q.questionType === 'yes_no');
@@ -108,42 +221,24 @@ function QuestionEditor({
       : [];
 
   return (
-    <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] overflow-hidden">
-      <div className="flex items-center justify-between gap-2 px-4 py-2.5 bg-[var(--surface-strong)] border-b border-[var(--border)]">
-        <span className="text-xs font-bold uppercase tracking-wider text-[var(--muted)]">
-          Question {index + 1}
-          {typeMeta ? ` · ${typeMeta.label}` : ''}
-        </span>
-        <div className="flex gap-1">
-          <button type="button" disabled={index === 0} onClick={() => onMove(-1)} className="text-xs px-2 py-1 rounded disabled:opacity-30">↑</button>
-          <button type="button" disabled={index === total - 1} onClick={() => onMove(1)} className="text-xs px-2 py-1 rounded disabled:opacity-30">↓</button>
-          <button type="button" onClick={onDuplicate} className="text-xs px-2 py-1 rounded hover:bg-[var(--surface-strong)]">Duplicate</button>
-          {total > 1 ? (
-            <button type="button" onClick={onRemove} className="text-xs px-2 py-1 rounded text-red-400 hover:bg-red-500/10">Remove</button>
-          ) : null}
-        </div>
-      </div>
-
+    <div className="overflow-hidden rounded-xl border border-[var(--border)] border-l-[3px] border-l-[var(--accent)] bg-[var(--surface)] shadow-[var(--shadow-soft)]">
       <div className="p-4 space-y-3">
-        <div>
-          <Label>Question type</Label>
-          <Select
-            value={q.questionType}
-            onChange={(e) => onUpdate(applyQuestionTypeDefaults(q, e.target.value))}
-          >
-            {POLL_QUESTION_TYPES.map((t) => (
-              <option key={t.value} value={t.value}>{t.label} — {t.hint}</option>
-            ))}
-          </Select>
-        </div>
-
-        <div>
-          <Label>{isSection ? 'Section title' : 'Question'} {!isSection && <span className="text-red-400">*</span>}</Label>
-          <Input
-            value={q.text}
-            onChange={(e) => onUpdate({ text: e.target.value })}
-            placeholder={isSection ? 'e.g. Travel & lodging' : 'What do you want to ask?'}
-          />
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+          <div className="min-w-0 flex-1">
+            <Label>{isSection ? 'Section title' : 'Question'} {!isSection && <span className="text-red-400">*</span>}</Label>
+            <Input
+              value={q.text}
+              onChange={(e) => onUpdate({ text: e.target.value })}
+              placeholder={isSection ? 'e.g. Travel & lodging' : 'What do you want to ask?'}
+            />
+          </div>
+          <div className="w-full sm:w-52 sm:shrink-0">
+            <Label>Type</Label>
+            <QuestionTypeSelect
+              value={q.questionType}
+              onChange={(type) => onUpdate(applyQuestionTypeDefaults(q, type))}
+            />
+          </div>
         </div>
 
         {!isSection && (
@@ -320,18 +415,65 @@ function QuestionEditor({
           </div>
         )}
 
-        {!isSection && (
-          <label className="flex items-center gap-2 text-sm cursor-pointer">
-            <input type="checkbox" checked={q.required} onChange={(e) => onUpdate({ required: e.target.checked })} className="accent-[var(--accent)]" />
-            Required question
-          </label>
-        )}
+      </div>
+
+      <div className="flex items-center justify-between gap-2 border-t border-[var(--border)] bg-[var(--surface-strong)] px-3 py-2">
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            disabled={index === 0}
+            onClick={() => onMove(-1)}
+            title="Move up"
+            className="rounded px-2 py-1 text-sm text-[var(--muted)] hover:bg-[var(--surface)] hover:text-[var(--text)] disabled:opacity-30 disabled:hover:bg-transparent"
+          >
+            ↑
+          </button>
+          <button
+            type="button"
+            disabled={index === total - 1}
+            onClick={() => onMove(1)}
+            title="Move down"
+            className="rounded px-2 py-1 text-sm text-[var(--muted)] hover:bg-[var(--surface)] hover:text-[var(--text)] disabled:opacity-30 disabled:hover:bg-transparent"
+          >
+            ↓
+          </button>
+        </div>
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={onDuplicate}
+            className="rounded px-2.5 py-1 text-xs text-[var(--muted)] hover:bg-[var(--surface)] hover:text-[var(--text)]"
+          >
+            Duplicate
+          </button>
+          {total > 1 ? (
+            <button
+              type="button"
+              onClick={onRemove}
+              className="rounded px-2.5 py-1 text-xs text-red-400 hover:bg-red-500/10"
+            >
+              Delete
+            </button>
+          ) : null}
+          {!isSection && (
+            <>
+              <span className="mx-1 h-5 w-px bg-[var(--border)]" />
+              <label className="flex cursor-pointer items-center gap-2 px-1 text-sm">
+                Required
+                <input
+                  type="checkbox"
+                  checked={q.required}
+                  onChange={(e) => onUpdate({ required: e.target.checked })}
+                  className="accent-[var(--accent)]"
+                />
+              </label>
+            </>
+          )}
+        </div>
       </div>
     </div>
   );
 }
-
-const QUICK_QUESTION_TYPES = ['yes_no', 'multiple_choice', 'short_answer', 'paragraph', 'section_break'] as const;
 
 function questionTypeGroups() {
   const groups = new Map<string, (typeof POLL_QUESTION_TYPES)[number][]>();
@@ -341,104 +483,6 @@ function questionTypeGroups() {
     groups.set(t.group, list);
   }
   return groups;
-}
-
-function QuestionTypePicker({
-  onAdd,
-  label,
-  compact,
-}: {
-  onAdd: (type: string) => void;
-  label?: string;
-  compact?: boolean;
-}) {
-  const groups = questionTypeGroups();
-  const quickTypes = POLL_QUESTION_TYPES.filter((t) =>
-    (QUICK_QUESTION_TYPES as readonly string[]).includes(t.value),
-  );
-
-  return (
-    <div className="space-y-2">
-      {label ? <p className="text-xs font-medium text-[var(--muted)]">{label}</p> : null}
-      <div className="flex flex-wrap items-center gap-2">
-        {quickTypes.map((t) => (
-          <button
-            key={t.value}
-            type="button"
-            onClick={() => onAdd(t.value)}
-            className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs font-medium hover:border-[var(--accent)] hover:text-[var(--accent)] transition-colors"
-          >
-            + {t.label}
-          </button>
-        ))}
-        <Select
-          value=""
-          fullWidth={false}
-          size="sm"
-          onChange={(e) => {
-            if (e.target.value) onAdd(e.target.value);
-          }}
-          className="min-w-[11rem]"
-        >
-          <option value="">More types…</option>
-          {[...groups.entries()].map(([group, types]) => (
-            <optgroup key={group} label={group}>
-              {types.map((t) => (
-                <option key={t.value} value={t.value}>
-                  {t.label}
-                </option>
-              ))}
-            </optgroup>
-          ))}
-        </Select>
-      </div>
-      {!compact ? (
-        <details className="text-xs">
-          <summary className="cursor-pointer text-[var(--muted)] hover:text-[var(--text)] select-none">
-            Show all question types
-          </summary>
-          <div className="flex flex-wrap gap-2 pt-2">
-            {POLL_QUESTION_TYPES.map((t) => (
-              <button
-                key={t.value}
-                type="button"
-                onClick={() => onAdd(t.value)}
-                className="rounded-lg border border-[var(--border)] px-2.5 py-1 text-xs hover:border-[var(--accent)] hover:text-[var(--accent)] transition-colors"
-                title={t.hint}
-              >
-                + {t.label}
-              </button>
-            ))}
-          </div>
-        </details>
-      ) : null}
-    </div>
-  );
-}
-
-function InsertQuestionBelow({ onAdd }: { onAdd: (type: string) => void }) {
-  return (
-    <div className="flex items-center gap-3 py-1">
-      <div className="flex-1 border-t border-dashed border-[var(--border)]" />
-      <Select
-        value=""
-        fullWidth={false}
-        size="sm"
-        onChange={(e) => {
-          if (e.target.value) onAdd(e.target.value);
-        }}
-        className="min-w-[9rem]"
-      >
-        <option value="">+ Insert below</option>
-        {POLL_QUESTION_TYPES.map((t) => (
-          <option key={t.value} value={t.value}>
-            {t.label}
-          </option>
-        ))}
-      </Select>
-      <div className="flex-1 border-t border-dashed border-[var(--border)]" />
-    </div>
-  );
 }
 
 function RoundEditor({
@@ -502,6 +546,7 @@ export default function CreatePollWizard({
   const [state, setState] = useState<BuilderState>(initialState ?? initialBuilderState());
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(0);
   const isEdit = mode === 'edit';
   const questionRefs = useRef<(HTMLDivElement | null)[]>([]);
   const scrollToIndex = useRef<number | null>(null);
@@ -574,11 +619,38 @@ export default function CreatePollWizard({
     }
   };
 
-  const addQuestionAt = (type: string, afterIndex?: number) => {
-    const insertAt = afterIndex == null ? state.questions.length : afterIndex + 1;
+  // New questions are inserted right after whichever card you're editing (or at
+  // the end), then become the active/expanded one — matching Google Forms.
+  const addQuestion = (type = 'multiple_choice') => {
+    const base = Math.min(activeIndex, state.questions.length - 1);
+    const insertAt = state.questions.length === 0 ? 0 : base + 1;
     const next = [...state.questions];
     next.splice(insertAt, 0, newQuestion(type));
     scrollToIndex.current = insertAt;
+    setActiveIndex(insertAt);
+    patch({ questions: next });
+  };
+
+  const moveQuestion = (qi: number, dir: -1 | 1) => {
+    const j = qi + dir;
+    if (j < 0 || j >= state.questions.length) return;
+    const next = [...state.questions];
+    [next[qi], next[j]] = [next[j], next[qi]];
+    setActiveIndex(j);
+    patch({ questions: next });
+  };
+
+  const removeQuestion = (qi: number) => {
+    const next = state.questions.filter((_, j) => j !== qi);
+    setActiveIndex(Math.max(0, Math.min(qi, next.length - 1)));
+    patch({ questions: next });
+  };
+
+  const duplicateQuestionAt = (qi: number) => {
+    const next = [...state.questions];
+    next.splice(qi + 1, 0, duplicateQuestion(state.questions[qi]));
+    scrollToIndex.current = qi + 1;
+    setActiveIndex(qi + 1);
     patch({ questions: next });
   };
 
@@ -637,15 +709,11 @@ export default function CreatePollWizard({
       </SectionBlock>
 
       {(!isEdit || canEditQuestions) && (
-      <SectionBlock title="Questions" description="Add questions at the top or bottom — or insert between any two. The bar stays visible while you scroll.">
-        <div className="sticky top-0 z-10 -mx-1 px-1 py-2.5 mb-3 bg-[var(--background)]/95 backdrop-blur-sm border-b border-[var(--border)] rounded-lg">
-          <QuestionTypePicker onAdd={(type) => addQuestionAt(type)} label="Add question" compact />
-        </div>
-
-        <div className="space-y-1">
+      <SectionBlock title="Questions" description="Click a question to edit it. Use the Type menu inside a question to change how it's answered.">
+        <div className="space-y-2.5">
           {state.questions.map((q, qi) => (
-            <Fragment key={qi}>
-              <div ref={(el) => { questionRefs.current[qi] = el; }}>
+            <div key={qi} ref={(el) => { questionRefs.current[qi] = el; }}>
+              {qi === activeIndex ? (
                 <QuestionEditor
                   q={q}
                   index={qi}
@@ -656,27 +724,24 @@ export default function CreatePollWizard({
                       questions: state.questions.map((qd, j) => (j === qi ? { ...qd, ...p } : qd)),
                     })
                   }
-                  onMove={(dir) => {
-                    const next = [...state.questions];
-                    [next[qi], next[qi + dir]] = [next[qi + dir], next[qi]];
-                    patch({ questions: next });
-                  }}
-                  onRemove={() => patch({ questions: state.questions.filter((_, j) => j !== qi) })}
-                  onDuplicate={() => {
-                    const next = [...state.questions];
-                    next.splice(qi + 1, 0, duplicateQuestion(q));
-                    scrollToIndex.current = qi + 1;
-                    patch({ questions: next });
-                  }}
+                  onMove={(dir) => moveQuestion(qi, dir)}
+                  onRemove={() => removeQuestion(qi)}
+                  onDuplicate={() => duplicateQuestionAt(qi)}
                 />
-              </div>
-              <InsertQuestionBelow onAdd={(type) => addQuestionAt(type, qi)} />
-            </Fragment>
+              ) : (
+                <CollapsedQuestion q={q} index={qi} onActivate={() => setActiveIndex(qi)} />
+              )}
+            </div>
           ))}
         </div>
 
-        <div className="pt-4 mt-2 border-t border-dashed border-[var(--border)]">
-          <QuestionTypePicker onAdd={(type) => addQuestionAt(type)} label="Add another question" />
+        <div className="flex flex-wrap items-center gap-2 pt-3 mt-3 border-t border-dashed border-[var(--border)]">
+          <Button type="button" variant="secondary" size="sm" onClick={() => addQuestion('multiple_choice')}>
+            + Add question
+          </Button>
+          <Button type="button" variant="ghost" size="sm" onClick={() => addQuestion('section_break')}>
+            + Add section
+          </Button>
         </div>
       </SectionBlock>
       )}

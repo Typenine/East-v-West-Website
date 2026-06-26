@@ -312,8 +312,8 @@ export default function SuggestionsPage() {
 
   const darkFieldClass = `${broadcastFieldClass} !shadow-none`;
   const darkFieldStyle = broadcastFieldStyle;
-  const darkSelectClass = `${darkFieldClass} !bg-[rgba(255,255,255,0.06)] !border-[rgba(255,255,255,0.07)] !text-[#F4F6FB]`;
-  const darkTextareaClass = `${darkFieldClass} !bg-[rgba(255,255,255,0.06)] !border-[rgba(255,255,255,0.07)] !text-[#F4F6FB] placeholder:!text-[rgba(233,237,245,0.40)]`;
+  const darkSelectClass = `${darkFieldClass} !bg-[var(--panel-tint-medium)] !border-[var(--panel-hairline)] !text-[var(--panel-text)]`;
+  const darkTextareaClass = `${darkFieldClass} !bg-[var(--panel-tint-medium)] !border-[var(--panel-hairline)] !text-[var(--panel-text)] placeholder:!text-[var(--panel-faint)]`;
 
   return (
     <div className="container mx-auto px-4 py-8">
@@ -539,13 +539,13 @@ export default function SuggestionsPage() {
                           href={`/suggestions/${s.id}`}
                           className="flex-1 block rounded-xl p-3 transition-colors hover:brightness-110"
                           style={{
-                            background: 'rgba(255,255,255,0.03)',
-                            boxShadow: `inset 0 0 0 1px rgba(255,255,255,0.07)`,
+                            background: 'var(--panel-tint-soft)',
+                            boxShadow: `inset 0 0 0 1px var(--panel-hairline)`,
                             borderLeft: `3px solid ${categoryAccent(s.category)}`,
                           }}
                         >
                           <div className="flex items-center justify-between gap-2">
-                            <span className="font-medium" style={{ color: '#F4F6FB' }}>{s.title || `Suggestion #${s.id.slice(0, 8)}`}</span>
+                            <span className="font-medium" style={{ color: 'var(--panel-text)' }}>{s.title || `Suggestion #${s.id.slice(0, 8)}`}</span>
                             {s.voteTag === 'voted_on' ? <SuggestionStatusBadge variant="voted_on">Voting</SuggestionStatusBadge> : null}
                           </div>
                           {s.content ? (

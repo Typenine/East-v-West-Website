@@ -63,6 +63,27 @@ html[data-theme="dark"] {
   --home-surface-bg: color-mix(in srgb, var(--surface) 88%, transparent);
   --home-surface-border: color-mix(in srgb, var(--border) 82%, transparent);
   --home-surface-shadow: 0 8px 24px rgba(0,0,0,0.24), 0 0 0 1px rgba(255,255,255,0.02) inset;
+
+  /* Broadcast panel palette (sports-graphics cards: countdowns, recap, trades,
+     transactions). Theme-aware so the cards flip light in light mode. */
+  --panel-card: linear-gradient(180deg, #181D2A 0%, #0D1118 100%);
+  --panel-border: rgba(255,255,255,0.09);
+  --panel-hairline: rgba(255,255,255,0.07);
+  --panel-header-bg: rgba(255,255,255,0.025);
+  --panel-text: #F4F6FB;
+  --panel-muted: rgba(233,237,245,0.58);
+  --panel-faint: rgba(233,237,245,0.40);
+  --panel-shadow: 0 4px 18px rgba(0,0,0,0.30);
+  --panel-inset-top: rgba(255,255,255,0.06);
+  /* Solid panel surfaces (dropdowns, fields) — distinct from the gradient card. */
+  --panel-surface: #131822;
+  --panel-field: #1a2030;
+  /* Inner-cell tints: lighten the panel surface (white overlay on dark). */
+  --panel-tint-soft: rgba(255,255,255,0.03);
+  --panel-tint: rgba(255,255,255,0.04);
+  --panel-tint-medium: rgba(255,255,255,0.06);
+  --panel-tint-strong: rgba(255,255,255,0.08);
+  --panel-tint-stronger: rgba(255,255,255,0.10);
 }
 
 /* Light theme */
@@ -89,6 +110,25 @@ html[data-theme="light"] {
   --home-surface-bg: var(--surface);
   --home-surface-border: var(--border);
   --home-surface-shadow: 0 1px 2px rgba(16,24,40,0.05), 0 6px 16px rgba(16,24,40,0.08);
+
+  /* Broadcast panel palette — light variant. Cards become white with dark
+     text; inner-cell tints darken the surface (black overlay on light). */
+  --panel-card: linear-gradient(180deg, #ffffff 0%, #f6f8fc 100%);
+  --panel-border: rgba(16,24,40,0.10);
+  --panel-hairline: rgba(16,24,40,0.08);
+  --panel-header-bg: rgba(16,24,40,0.025);
+  --panel-text: #0B1020;
+  --panel-muted: rgba(11,16,32,0.64);
+  --panel-faint: rgba(11,16,32,0.46);
+  --panel-shadow: 0 1px 2px rgba(16,24,40,0.05), 0 6px 16px rgba(16,24,40,0.08);
+  --panel-inset-top: rgba(16,24,40,0.04);
+  --panel-surface: #ffffff;
+  --panel-field: #f3f5f9;
+  --panel-tint-soft: rgba(16,24,40,0.025);
+  --panel-tint: rgba(16,24,40,0.035);
+  --panel-tint-medium: rgba(16,24,40,0.05);
+  --panel-tint-strong: rgba(16,24,40,0.07);
+  --panel-tint-stronger: rgba(16,24,40,0.09);
 }
 
 /* Tailwind theme mapping removed to avoid unknown at-rule lints. If needed, configure via Tailwind config. */

@@ -78,9 +78,9 @@ export default function LeagueOverviewCard({ phase, recapYear, defendingChampion
               <Link
                 key={href}
                 href={href}
-                className="rounded px-2.5 py-1 text-xs font-medium transition-colors hover:text-white"
+                className="rounded px-2.5 py-1 text-xs font-medium transition-colors hover:text-[var(--panel-text)]"
                 style={{
-                  background: 'rgba(255,255,255,0.06)',
+                  background: PANEL.tintMedium,
                   color: PANEL.text,
                   border: `1px solid ${PANEL.hairline}`,
                 }}
@@ -93,7 +93,7 @@ export default function LeagueOverviewCard({ phase, recapYear, defendingChampion
 
         {/* Login CTA */}
         <div className="text-xs pt-1" style={broadcastMutedTextStyle}>
-          <Link href="/login" className="underline hover:text-white">Sign in</Link>
+          <Link href="/login" className="underline hover:text-[var(--panel-text)]">Sign in</Link>
           {' '}to view your personalized team dashboard.
         </div>
       </div>

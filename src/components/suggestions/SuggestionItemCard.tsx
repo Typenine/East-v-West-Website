@@ -95,7 +95,7 @@ export default function SuggestionItemCard({
       id={s.id}
       className={['rounded-xl p-4', dimmed ? 'opacity-60' : ''].filter(Boolean).join(' ')}
       style={{
-        background: 'rgba(255,255,255,0.03)',
+        background: PANEL.tintSoft,
         boxShadow: `inset 0 0 0 1px ${PANEL.hairline}${isVague ? ', inset 0 0 0 1px rgba(245,158,11,0.35)' : ''}${isAccepted ? ', inset 0 0 0 1px rgba(34,197,94,0.25)' : ''}`,
         borderLeft: `3px solid ${accent}`,
       }}

@@ -2,12 +2,13 @@
 
 import Link from 'next/link';
 import { BroadcastPanel } from '@/components/ui/BroadcastPanel';
+import { broadcastMutedTextStyle } from '@/lib/ui/broadcast-styles';
 
 export default function CompactDraftLink() {
   return (
     <section className="mb-10 sm:mb-12">
       <BroadcastPanel accent="#6366f1" title="Draft Central">
-        <p className="text-sm mb-3" style={{ color: 'rgba(233,237,245,0.7)' }}>
+        <p className="text-sm mb-3" style={broadcastMutedTextStyle}>
           Full draft order, pick ownership, prospect boards, scouting reports,
           and draft-trip details are all in Draft Central.
         </p>

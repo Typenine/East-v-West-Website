@@ -190,7 +190,7 @@ export default function SuggestionDetailPage() {
 
         <div
           className="rounded-xl p-4"
-          style={{ background: 'rgba(255,255,255,0.03)', boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.07)' }}
+          style={{ background: 'var(--panel-tint-soft)', boxShadow: 'inset 0 0 0 1px var(--panel-hairline)' }}
         >
           <div className="flex items-center justify-between gap-3 flex-wrap">
             <div>
@@ -258,7 +258,7 @@ export default function SuggestionDetailPage() {
         </div>
 
         {auth ? (
-          <div className="pt-4" style={{ borderTop: '1px solid rgba(255,255,255,0.07)' }}>
+          <div className="pt-4" style={{ borderTop: '1px solid var(--panel-hairline)' }}>
             <BroadcastSubmitButton accent={accent} disabled={endorseBusy || !canEndorse} type="button" onClick={handleEndorse}>
               ⭐ {myEndorsed ? 'Unendorse' : 'Endorse'}
             </BroadcastSubmitButton>

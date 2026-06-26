@@ -100,7 +100,7 @@ function ActiveMatchup({
   return (
     <div
       className="rounded-lg p-2.5"
-      style={{ background: 'rgba(255,255,255,0.04)', border: `1px solid ${PANEL.hairline}` }}
+      style={{ background: PANEL.tint, border: `1px solid ${PANEL.hairline}` }}
     >
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-2 min-w-0">
@@ -192,7 +192,7 @@ export default function PlayoffCenter({ winnersBracket, losersBracket, nameMap, 
                 </p>
               )}
               <div className="pt-1 text-xs" style={broadcastFaintTextStyle}>
-                <Link href="/brackets" className="underline hover:text-white">View full bracket →</Link>
+                <Link href="/brackets" className="underline hover:text-[var(--panel-text)]">View full bracket →</Link>
               </div>
             </div>
           )}
@@ -212,7 +212,7 @@ export default function PlayoffCenter({ winnersBracket, losersBracket, nameMap, 
                 </p>
               )}
               <div className="pt-1 text-xs" style={broadcastFaintTextStyle}>
-                <Link href="/brackets" className="underline hover:text-white">View toilet bowl bracket →</Link>
+                <Link href="/brackets" className="underline hover:text-[var(--panel-text)]">View toilet bowl bracket →</Link>
               </div>
             </div>
           </BroadcastPanel>
