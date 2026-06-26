@@ -41,10 +41,12 @@ export default function MyTeamPhaseFocus({
               <div className="text-[10px] uppercase tracking-widest font-bold" style={broadcastFaintTextStyle}>
                 Draft command center
               </div>
-              <div className="text-sm font-bold mt-0.5" style={broadcastBodyTextStyle}>
-                {dashboard?.draft.picks.length || 0} owned pick
-                {dashboard?.draft.picks.length === 1 ? '' : 's'}
-              </div>
+              {dashboard && (
+                <div className="text-sm font-bold mt-0.5" style={broadcastBodyTextStyle}>
+                  {dashboard.draft.picks.length} owned pick
+                  {dashboard.draft.picks.length === 1 ? '' : 's'}
+                </div>
+              )}
             </div>
             {dashboard?.draft.rank && (
               <span
@@ -55,7 +57,11 @@ export default function MyTeamPhaseFocus({
               </span>
             )}
           </div>
-          {visibleDraftPicks.length > 0 ? (
+          {!dashboard ? (
+            <div className="text-xs" style={broadcastMutedTextStyle}>
+              Loading draft ownership…
+            </div>
+          ) : visibleDraftPicks.length > 0 ? (
             <div className="flex flex-wrap gap-1.5">
               {visibleDraftPicks.map((pick, index) => (
                 <span
@@ -78,7 +84,7 @@ export default function MyTeamPhaseFocus({
             </div>
           ) : (
             <div className="text-xs" style={broadcastMutedTextStyle}>
-              Draft ownership is still loading.
+              No owned picks were found.
             </div>
           )}
         </div>
@@ -87,7 +93,7 @@ export default function MyTeamPhaseFocus({
       {(isPostDraft || isPreseason) && (
         <div>
           <div className="text-[10px] uppercase tracking-widest font-bold" style={broadcastFaintTextStyle}>
-            {isPostDraft ? 'Post-draft roster build' : 'Preseason readines{'}
+            {isPostDraft ? 'Post-draft roster build' : 'Preseason readiness'}
           </div>
           <div className="mt-2 grid sm:grid-cols-2 gap-2">
             <div>

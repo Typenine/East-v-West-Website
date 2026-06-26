@@ -32,6 +32,7 @@ export default function MyTeamCardView({ model }: { model: MyTeamDashboardModel 
     activeBlock,
     wantedPositions,
     tradeLabels,
+    tradeLabelsLoading,
     teamPath,
   } = model;
   const {
@@ -187,6 +188,7 @@ export default function MyTeamCardView({ model }: { model: MyTeamDashboardModel 
 
         <MyTeamSecondaryPanels
           tradeLabels={tradeLabels}
+          tradeLabelsLoading={tradeLabelsLoading}
           tradeAssetCount={activeBlock.length}
           wantedPositions={wantedPositions}
           tradeWantsText={tradeWants?.text}
