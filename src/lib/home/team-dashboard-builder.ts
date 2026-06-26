@@ -151,6 +151,7 @@ export async function buildTeamDashboard(teamName: string): Promise<TeamDashboar
       positionAges: rankDashboard.positionAges,
       leagueAverages: rankDashboard.leagueAverages,
       ranks: rankDashboard.ranks,
+      leagueComparisons: rankDashboard.leagueComparisons,
     },
     matchup,
     draft: {

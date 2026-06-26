@@ -1,6 +1,7 @@
 import type { SleeperPlayer } from '@/lib/utils/sleeper-api';
 import type { TeamAssets } from '@/lib/server/trade-assets';
 import type {
+  TeamDashboardComparisonRow,
   TeamDashboardDraftPick,
   TeamDashboardLoosePlayer,
   TeamDashboardLooseRoster,
@@ -64,6 +65,25 @@ function rosterAgeData(
   };
 }
 
+function sortedComparisonRows(
+  rows: Array<{ team: string; value: number | null; count?: number }>,
+  ranks: Map<string, number>
+): TeamDashboardComparisonRow[] {
+  return rows
+    .map((row) => ({
+      team: row.team,
+      rank: ranks.get(row.team) || null,
+      value: row.value,
+      count: row.count,
+    }))
+    .sort((a, b) => {
+      if (a.rank == null && b.rank == null) return a.team.localeCompare(b.team);
+      if (a.rank == null) return 1;
+      if (b.rank == null) return -1;
+      return a.rank - b.rank || a.team.localeCompare(b.team);
+    });
+}
+
 export function buildDashboardDraftAndRanks(args: {
   teamName: string;
   currentYear: number;
@@ -119,9 +139,10 @@ export function buildDashboardDraftAndRanks(args: {
     (a, b) => a.year - b.year || a.round - b.round || a.label.localeCompare(b.label)
   );
 
-  const draftScores: Array<{ team: string; value: number }> = [];
+  const draftScores: Array<{ team: string; value: number; count: number }> = [];
   for (const [currentTeam, assets] of allAssets.entries()) {
     let value = 0;
+    let count = 0;
     const teamExactSlots = exactSlots.filter((slot) => slot.team === currentTeam);
     for (const slot of teamExactSlots) {
       const slotNumber = ((slot.overall - 1) % leagueSize) + 1;
@@ -132,6 +153,7 @@ export function buildDashboardDraftAndRanks(args: {
         currentYear,
         leagueSize
       );
+      count += 1;
     }
     for (const pick of assets.picks) {
       if (teamExactSlots.length && pick.year === exactDraftYear) continue;
@@ -142,8 +164,9 @@ export function buildDashboardDraftAndRanks(args: {
         currentYear,
         leagueSize
       );
+      count += 1;
     }
-    draftScores.push({ team: currentTeam, value });
+    draftScores.push({ team: currentTeam, value, count });
   }
   const draftRanks = rankDashboardValues(draftScores, 'desc');
 
@@ -157,6 +180,24 @@ export function buildDashboardDraftAndRanks(args: {
     ),
     'asc'
   );
+  const positionAgeRanks: Record<AgePosition, Map<string, number>> = {
+    QB: rankDashboardValues(
+      ageRows.flatMap((row) => row.positionAges.QB == null ? [] : [{ team: row.team, value: row.positionAges.QB }]),
+      'asc'
+    ),
+    RB: rankDashboardValues(
+      ageRows.flatMap((row) => row.positionAges.RB == null ? [] : [{ team: row.team, value: row.positionAges.RB }]),
+      'asc'
+    ),
+    WR: rankDashboardValues(
+      ageRows.flatMap((row) => row.positionAges.WR == null ? [] : [{ team: row.team, value: row.positionAges.WR }]),
+      'asc'
+    ),
+    TE: rankDashboardValues(
+      ageRows.flatMap((row) => row.positionAges.TE == null ? [] : [{ team: row.team, value: row.positionAges.TE }]),
+      'asc'
+    ),
+  };
 
   const recordRows = teams.map((team) => ({
     team: team.teamName,
@@ -209,6 +250,34 @@ export function buildDashboardDraftAndRanks(args: {
       maxPoints: average(potentialPointRows.map((row) => row.value).filter((value) => value > 0)),
       averageAge: average(allLeagueAges),
       positionAges: leaguePositionAges,
+    },
+    leagueComparisons: {
+      averageAge: sortedComparisonRows(
+        ageRows.map((row) => ({ team: row.team, value: row.averageAge })),
+        youthRanks
+      ),
+      positionAges: {
+        QB: sortedComparisonRows(
+          ageRows.map((row) => ({ team: row.team, value: row.positionAges.QB })),
+          positionAgeRanks.QB
+        ),
+        RB: sortedComparisonRows(
+          ageRows.map((row) => ({ team: row.team, value: row.positionAges.RB })),
+          positionAgeRanks.RB
+        ),
+        WR: sortedComparisonRows(
+          ageRows.map((row) => ({ team: row.team, value: row.positionAges.WR })),
+          positionAgeRanks.WR
+        ),
+        TE: sortedComparisonRows(
+          ageRows.map((row) => ({ team: row.team, value: row.positionAges.TE })),
+          positionAgeRanks.TE
+        ),
+      },
+      draftCapital: sortedComparisonRows(
+        draftScores.map((row) => ({ team: row.team, value: row.value, count: row.count })),
+        draftRanks
+      ),
     },
     seed: recordRanks.get(teamName) || null,
   };

@@ -13,13 +13,9 @@ import {
   TeamAlertRow,
   teamTimeAgo,
 } from '@/components/home/MyTeamCardParts';
+import { MyTeamPositionAgeComparisons } from '@/components/home/MyTeamLeagueComparisons';
 
 const POSITION_ORDER = ['QB', 'RB', 'WR', 'TE', 'K', 'DEF', 'DL', 'LB', 'DB'];
-const AGE_POSITIONS = ['QB', 'RB', 'WR', 'TE'] as const;
-
-function formatAge(value: number | null): string {
-  return value == null ? '—' : `${value.toFixed(1)} yrs`;
-}
 
 export default function MyTeamDetails({
   dashboard,
@@ -82,30 +78,11 @@ export default function MyTeamDetails({
         )}
 
         {dashboard && (
-          <div>
-            <div className="text-[10px] uppercase tracking-widest font-bold mb-2" style={broadcastFaintTextStyle}>
-              Average age by position
-            </div>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-              {AGE_POSITIONS.map((position) => (
-                <div
-                  key={position}
-                  className="rounded-md px-2.5 py-2"
-                  style={{ background: PANEL.tintMedium, border: `1px solid ${PANEL.hairline}` }}
-                >
-                  <div className="text-[9px] uppercase tracking-wide" style={broadcastFaintTextStyle}>
-                    {position}
-                  </div>
-                  <div className="text-xs font-bold mt-0.5" style={broadcastBodyTextStyle}>
-                    {formatAge(dashboard.standings.positionAges[position])}
-                  </div>
-                  <div className="text-[9px] mt-0.5" style={broadcastMutedTextStyle}>
-                    League avg {formatAge(dashboard.standings.leagueAverages.positionAges[position])}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
+          <MyTeamPositionAgeComparisons
+            dashboard={dashboard}
+            teamName={teamName}
+            accent={accent}
+          />
         )}
 
         {picksByYear.length ? (

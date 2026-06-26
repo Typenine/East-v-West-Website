@@ -37,6 +37,21 @@ export type TeamDashboardPositionAges = {
   TE: number | null;
 };
 
+export type TeamDashboardAgePosition = keyof TeamDashboardPositionAges;
+
+export type TeamDashboardComparisonRow = {
+  team: string;
+  rank: number | null;
+  value: number | null;
+  count?: number;
+};
+
+export type TeamDashboardLeagueComparisons = {
+  averageAge: TeamDashboardComparisonRow[];
+  positionAges: Record<TeamDashboardAgePosition, TeamDashboardComparisonRow[]>;
+  draftCapital: TeamDashboardComparisonRow[];
+};
+
 export type TeamDashboardRanks = {
   record: number | null;
   points: number | null;
@@ -84,6 +99,7 @@ export type TeamDashboardResponse = {
       positionAges: TeamDashboardPositionAges;
     };
     ranks: TeamDashboardRanks;
+    leagueComparisons: TeamDashboardLeagueComparisons;
   };
   matchup: null | {
     week: number;

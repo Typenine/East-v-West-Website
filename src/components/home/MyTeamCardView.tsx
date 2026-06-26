@@ -9,30 +9,17 @@ import {
 } from '@/lib/ui/broadcast-styles';
 import {
   formatTeamRecord,
-  ordinalPlacement,
   TEAM_STATUS_META,
   TeamAlertRow,
   TeamPlayerTile,
-  TeamRankBox,
   TeamStatBox,
 } from '@/components/home/MyTeamCardParts';
 import MyTeamPhaseFocus from '@/components/home/MyTeamPhaseFocus';
 import MyTeamLineupOptimizer from '@/components/home/MyTeamLineupOptimizer';
+import { MyTeamLeaguePosition } from '@/components/home/MyTeamLeagueComparisons';
 import MyTeamSecondaryPanels from '@/components/home/MyTeamSecondaryPanels';
 import MyTeamDetails from '@/components/home/MyTeamDetails';
 import type { MyTeamDashboardModel } from '@/components/home/useMyTeamDashboard';
-
-function formatAverage(value: number | null | undefined): string {
-  return value == null ? '—' : value.toFixed(1);
-}
-
-function placementDetail(rank: number | null | undefined, leagueSize: number): string {
-  return rank ? `${ordinalPlacement(rank)} of ${leagueSize}` : 'Not ranked';
-}
-
-function agePlacementDetail(rank: number | null | undefined, leagueSize: number): string {
-  return rank ? `${ordinalPlacement(rank)}-youngest of ${leagueSize}` : 'Age rank unavailable';
-}
 
 export default function MyTeamCardView({ model }: { model: MyTeamDashboardModel }) {
   const {
@@ -75,8 +62,6 @@ export default function MyTeamCardView({ model }: { model: MyTeamDashboardModel 
   const displayPoints = dashboard?.standings.pointsFor ?? fpts;
   const displaySeed = dashboard?.standings.seed ?? seed ?? null;
   const season = dashboard?.standings.season;
-  const ranks = dashboard?.standings.ranks;
-  const leagueSize = ranks?.leagueSize || 12;
   const isPreDraft = phase === 'post_championship_pre_draft';
   const actionableAlerts = alerts.filter(
     (alert) => alert.severity === 'critical' || alert.severity === 'warning'
@@ -161,48 +146,15 @@ export default function MyTeamCardView({ model }: { model: MyTeamDashboardModel 
           accent={accent}
         />
 
-        {dashboard && ranks && (
-          <div>
-            <div className="text-[10px] uppercase tracking-widest font-bold mb-2" style={broadcastFaintTextStyle}>
-              League position
-            </div>
-            <div className="grid grid-cols-2 lg:grid-cols-5 gap-1.5">
-              <TeamRankBox
-                label={`${dashboard.standings.season} record`}
-                value={formatTeamRecord(displayWins, displayLosses)}
-                detail={placementDetail(ranks.record, leagueSize)}
-              />
-              <TeamRankBox
-                label={`${dashboard.standings.season} points scored`}
-                value={displayPoints.toFixed(1)}
-                detail={`${placementDetail(ranks.points, leagueSize)} · league avg ${formatAverage(dashboard.standings.leagueAverages.pointsFor)}`}
-              />
-              <TeamRankBox
-                label={`${dashboard.standings.season} potential points`}
-                value={dashboard.standings.maxPoints == null ? '—' : dashboard.standings.maxPoints.toFixed(1)}
-                detail={dashboard.standings.maxPoints == null
-                  ? 'Season total unavailable'
-                  : `Season total · ${placementDetail(ranks.maxPoints, leagueSize)} · league avg ${formatAverage(dashboard.standings.leagueAverages.maxPoints)}`}
-                title="Season-to-date total from the highest-scoring legal lineup available from the full roster each week. This is not a projection."
-              />
-              <TeamRankBox
-                label="Average age"
-                value={dashboard.standings.averageAge == null
-                  ? '—'
-                  : `${dashboard.standings.averageAge.toFixed(1)} years`}
-                detail={dashboard.standings.averageAge == null
-                  ? 'QB, RB, WR and TE age unavailable'
-                  : `${agePlacementDetail(ranks.youth, leagueSize)} · league avg ${formatAverage(dashboard.standings.leagueAverages.averageAge)}`}
-                title="Average age of rostered QBs, RBs, WRs and TEs."
-              />
-              <TeamRankBox
-                label="Draft capital"
-                value={`${dashboard.draft.picks.length} owned pick${dashboard.draft.picks.length === 1 ? '' : 's'}`}
-                detail={placementDetail(ranks.draftCapital, leagueSize)}
-                title="League rank weights pick year, round and exact slot when the draft order is available."
-              />
-            </div>
-          </div>
+        {dashboard && (
+          <MyTeamLeaguePosition
+            dashboard={dashboard}
+            displayWins={displayWins}
+            displayLosses={displayLosses}
+            displayPoints={displayPoints}
+            teamName={teamName}
+            accent={accent}
+          />
         )}
 
         {actionableAlerts.length > 0 && (
