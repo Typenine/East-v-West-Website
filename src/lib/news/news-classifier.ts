@@ -65,19 +65,23 @@ export const CATEGORY_RULES: readonly CategoryRule[] = [
   {
     category: 'nfl_transaction',
     patterns: [
-      /\b(practice squad|promoted to active|signed to practice|activated from ir|claimed on waivers|waiver claim|waived|released|release|cut|ir activation)\b/i,
+      /\b(practice squad|promoted to active|signed to practice|activated from ir|claimed on waivers|waiver claim|waived|released|release|ir activation|reserve\/?left squad|reserve left squad|reserve list)\b/i,
+      /\b(?:cuts|cut by|was cut|has been cut|have been cut|got cut)\b/i,
+      /\bcut (?:the|a|an|veteran|rookie|receiver|quarterback|running back|wide receiver|tight end|player|defender|linebacker|cornerback|safety|offensive lineman)\b/i,
     ],
   },
   {
     category: 'contract',
     patterns: [
       /\b(signed|re-signed|contract extension|new contract|multi.year deal|agreement|free agent signing|one.year deal|two.year deal|three.year deal)\b/i,
+      /\b(?:agree|agrees|agreed) to (?:a )?(?:\d+[- ]year )?extension\b/i,
+      /\bextension worth\b/i,
     ],
   },
   {
     category: 'depth_chart_role',
     patterns: [
-      /\b(starter|starting role|depth chart|benched|named starter|will start|lead back|target share|snap count|usage|taking over|replacing|backup|third.string)\b/i,
+      /\b(starter|starting role|depth chart|benched|named starter|will start|lead back|target share|snap count|usage|taking over|replacing|backup|third.string|roster bubble|roster spot)\b/i,
     ],
   },
   {
