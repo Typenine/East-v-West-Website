@@ -5,7 +5,6 @@ import {
   PANEL,
 } from '@/lib/ui/broadcast-styles';
 import {
-  isTeamDataStale,
   TEAM_NEWS_CATEGORY_LABELS,
   teamTimeAgo,
 } from '@/components/home/MyTeamCardParts';
@@ -21,6 +20,7 @@ export type MyTeamNewsItem = {
 
 export default function MyTeamSecondaryPanels({
   tradeLabels,
+  tradeLabelsLoading,
   tradeAssetCount,
   wantedPositions,
   tradeWantsText,
@@ -28,14 +28,13 @@ export default function MyTeamSecondaryPanels({
   news,
 }: {
   tradeLabels: string[];
+  tradeLabelsLoading: boolean;
   tradeAssetCount: number;
   wantedPositions: string[];
   tradeWantsText?: string;
   tradeBlockUpdatedAt: string | null;
   news: MyTeamNewsItem[];
 }) {
-  const tradeBlockIsStale = tradeAssetCount > 0 && isTeamDataStale(tradeBlockUpdatedAt, 14);
-
   return (
     <div className="grid md:grid-cols-2 gap-3">
       <div
@@ -50,18 +49,17 @@ export default function MyTeamSecondaryPanels({
             Your trade block
           </div>
           {tradeBlockUpdatedAt && (
-            <span
-              className="text-[9px]"
-              style={tradeBlockIsStale ? { color: '#f59e0b' } : broadcastFaintTextStyle}
-            >
-              {tradeBlockIsStale ? 'Stale · ' : ''}Last updated by team {teamTimeAgo(tradeBlockUpdatedAt)}
+            <span className="text-[9px]" style={broadcastFaintTextStyle}>
+              Last updated by team {teamTimeAgo(tradeBlockUpdatedAt)}
             </span>
           )}
         </div>
-        {tradeLabels.length ? (
+        {tradeAssetCount > 0 ? (
           <>
             <div className="text-xs font-semibold mt-2" style={broadcastBodyTextStyle}>
-              {tradeLabels.join(' · ')}
+              {tradeLabelsLoading
+                ? 'Loading listed player names…'
+                : tradeLabels.join(' · ')}
             </div>
             <div className="text-[11px] mt-1" style={broadcastMutedTextStyle}>
               {tradeAssetCount} asset{tradeAssetCount === 1 ? '' : 's'} listed
