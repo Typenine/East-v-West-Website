@@ -1,5 +1,7 @@
 // League constants for East v. West fantasy football league
 
+import { LEAGUE_CALENDARS } from './league-calendar';
+
 // Sleeper League IDs
 export const LEAGUE_IDS = {
   CURRENT: '1312872384503484416', // 2026
@@ -42,23 +44,26 @@ export const TEAM_NAMES = [
 // Current year for copyright and other displays
 export const CURRENT_YEAR = new Date().getFullYear();
 
-// Important dates - UPDATE THESE ANNUALLY
+// IMPORTANT_DATES is retained for existing consumers, but all values now come
+// from the same year-aware calendar used by the homepage countdown resolver.
+// This prevents Draft Central, APIs, newsletters, and homepage phases from
+// drifting onto separate hardcoded dates.
+const currentCalendar =
+  LEAGUE_CALENDARS.find((calendar) => calendar.season === Number(CURRENT_SEASON)) ??
+  LEAGUE_CALENDARS[0];
+const nextCalendar =
+  LEAGUE_CALENDARS.find((calendar) => calendar.season === Number(CURRENT_SEASON) + 1) ??
+  currentCalendar;
+
 export const IMPORTANT_DATES = {
-  NFL_WEEK_1_START: new Date('2026-09-10T20:20:00-04:00'), // NFL Week 1 kickoff (2026 season)
-  // Trade deadline is end of the final game of Week 12 (approx end of MNF)
-  TRADE_DEADLINE: new Date('2026-11-30T23:45:00-05:00'), // Week 12 Monday 2026
-  // Playoffs start at Week 15 kickoff (TNF)
-  PLAYOFFS_START: new Date('2026-12-17T20:20:00-05:00'), // Week 15 TNF 2026
-  NEW_LEAGUE_YEAR: new Date('2027-02-07T18:30:00-05:00'), // After Super Bowl LXI
-  NEXT_DRAFT: new Date('2026-07-10T13:00:00-04:00'),       // 2026 rookie draft — July 10, 1:00 PM ET
-  // FA bidding reopens first Monday after all NFL preseason Week 1 games conclude (rulebook §4.5(b))
-  FA_BIDDING_START: new Date('2026-08-17T00:00:00-05:00'), // First Monday after preseason Week 1 2026
-  // The following league-year values roll forward the cycle after NEW_LEAGUE_YEAR fires.
-  // Update these each year when the next draft date is confirmed.
-  NEXT_LEAGUE_YEAR_DRAFT: new Date('2027-07-10T13:00:00-04:00'), // 2027 rookie draft — July 10, 1:00 PM ET
-  // Placeholder for 2027 NFL Week 1 (typically 2nd Thursday of September).
-  // Update when the 2027 NFL schedule is released.
-  NEXT_LEAGUE_YEAR_SEASON_START: new Date('2027-09-09T20:20:00-04:00'), // Placeholder: 2027 NFL Week 1
+  NFL_WEEK_1_START: currentCalendar.regularSeasonStart,
+  TRADE_DEADLINE: currentCalendar.tradeDeadline,
+  PLAYOFFS_START: currentCalendar.postseasonStart,
+  NEW_LEAGUE_YEAR: currentCalendar.nextLeagueYearStart,
+  NEXT_DRAFT: currentCalendar.rookieDraft,
+  FA_BIDDING_START: currentCalendar.faBiddingStart,
+  NEXT_LEAGUE_YEAR_DRAFT: nextCalendar.rookieDraft,
+  NEXT_LEAGUE_YEAR_SEASON_START: nextCalendar.regularSeasonStart,
 };
 
 // Champions by year

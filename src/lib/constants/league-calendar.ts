@@ -23,7 +23,7 @@ export type LeagueCalendar = {
   rookieDraft: Date;
   /** FA bidding opens — first Monday after preseason Week 1. */
   faBiddingStart: Date;
-  /** NFL Week 1 Thursday Night Football kickoff. */
+  /** NFL regular-season opening kickoff. */
   regularSeasonStart: Date;
   /** End of Week 12 Monday Night Football (official East v. West trade deadline). */
   tradeDeadline: Date;
@@ -61,7 +61,8 @@ export const LEAGUE_CALENDARS: ReadonlyArray<LeagueCalendar> = [
     rookieDraft:        new Date('2026-07-18T13:00:00-04:00'),
     // First Monday after preseason Week 1 2026 (rulebook §4.5(b))
     faBiddingStart:     new Date('2026-08-17T00:00:00-05:00'),
-    regularSeasonStart: new Date('2026-09-10T20:20:00-04:00'),
+    // 2026 NFL Kickoff Game: Patriots at Seahawks, Wednesday night
+    regularSeasonStart: new Date('2026-09-09T20:20:00-04:00'),
     // End of Week 12 Monday Night Football 2026
     tradeDeadline:      new Date('2026-11-30T23:45:00-05:00'),
     // Week 15 Thursday Night Football 2026
@@ -72,7 +73,7 @@ export const LEAGUE_CALENDARS: ReadonlyArray<LeagueCalendar> = [
   {
     season: 2027,
     leagueYearStart:    new Date('2027-02-07T18:30:00-05:00'),
-    // July 10 confirmed as draft day (same day pattern as 2026)
+    // July 10 confirmed as draft day
     rookieDraft:        new Date('2027-07-10T13:00:00-04:00'),
     // Estimates below — update when the 2027 NFL schedule is officially released
     faBiddingStart:     new Date('2027-08-16T00:00:00-05:00'),
