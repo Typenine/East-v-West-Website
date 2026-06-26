@@ -79,29 +79,34 @@ export default function HomepageCountdowns() {
     <section className="mb-10 sm:mb-12">
       <SectionHeader
         title="Key dates"
-        subtitle="Event times adjust to the selected zone. The countdown is the same worldwide."
-        actions={(
-          <div className="flex items-center gap-2">
-            <label htmlFor="countdown-time-zone" className="text-xs font-semibold text-[var(--muted)] whitespace-nowrap">
-              Time zone
-            </label>
-            <Select
-              id="countdown-time-zone"
-              size="sm"
-              fullWidth={false}
-              value={selectedTimeZone}
-              onChange={(event) => handleTimeZoneChange(event.target.value)}
-              aria-label="Countdown time zone"
-            >
-              {TIME_ZONE_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </Select>
-          </div>
-        )}
+        subtitle="Event times use your selected zone. Countdowns are the same worldwide."
+        className="!mb-3"
       />
+
+      <div className="mb-6 flex flex-col gap-1.5 sm:flex-row sm:items-center sm:justify-end sm:gap-2">
+        <label
+          htmlFor="countdown-time-zone"
+          className="text-xs font-semibold text-[var(--muted)]"
+        >
+          Time zone
+        </label>
+        <div className="w-full sm:w-auto sm:min-w-[13rem]">
+          <Select
+            id="countdown-time-zone"
+            size="sm"
+            value={selectedTimeZone}
+            onChange={(event) => handleTimeZoneChange(event.target.value)}
+            aria-label="Countdown time zone"
+          >
+            {TIME_ZONE_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </Select>
+        </div>
+      </div>
+
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div>
           <CountdownTimer targetDate={card1.targetDate.toISOString()} title={card1.title} emphasis />
