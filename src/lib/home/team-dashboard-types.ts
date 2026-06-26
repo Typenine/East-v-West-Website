@@ -30,13 +30,19 @@ export type TeamDashboardDraftPick = {
   exact: boolean;
 };
 
+export type TeamDashboardPositionAges = {
+  QB: number | null;
+  RB: number | null;
+  WR: number | null;
+  TE: number | null;
+};
+
 export type TeamDashboardRanks = {
   record: number | null;
   points: number | null;
   maxPoints: number | null;
   youth: number | null;
   draftCapital: number | null;
-  power: number | null;
   leagueSize: number;
 };
 
@@ -60,14 +66,23 @@ export type TeamDashboardResponse = {
     positionCounts: Record<string, number>;
     players: TeamDashboardPlayer[];
     rookies: TeamDashboardPlayer[];
-    corePlayers: Array<TeamDashboardPlayer & { role: string }>;
+    corePlayers: TeamDashboardPlayer[];
   };
   standings: {
+    season: number;
     wins: number;
     losses: number;
     pointsFor: number;
     maxPoints: number | null;
     seed: number | null;
+    averageAge: number | null;
+    positionAges: TeamDashboardPositionAges;
+    leagueAverages: {
+      pointsFor: number | null;
+      maxPoints: number | null;
+      averageAge: number | null;
+      positionAges: TeamDashboardPositionAges;
+    };
     ranks: TeamDashboardRanks;
   };
   matchup: null | {

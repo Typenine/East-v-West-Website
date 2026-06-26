@@ -1,18 +1,17 @@
 import type { SleeperPlayer } from '@/lib/utils/sleeper-api';
-import type { HomepagePhase } from '@/lib/utils/countdown-resolver';
 import type { TeamAssets } from '@/lib/server/trade-assets';
 import type {
   TeamDashboardDraftPick,
   TeamDashboardLoosePlayer,
   TeamDashboardLooseRoster,
   TeamDashboardLooseTeam,
+  TeamDashboardPositionAges,
   TeamDashboardRanks,
 } from '@/lib/home/team-dashboard-types';
 import {
   dashboardDraftPickValue,
   dashboardNumber,
   dashboardPosition,
-  dashboardPowerPercent,
   rankDashboardValues,
   roundOrdinal,
   sleeperStat,
@@ -23,10 +22,51 @@ type DashboardDraftOverview = null | {
   allSlots?: Array<{ overall: number; round: number; team: string }>;
 };
 
+const AGE_POSITIONS = ['QB', 'RB', 'WR', 'TE'] as const;
+type AgePosition = (typeof AGE_POSITIONS)[number];
+type PositionAgeValues = Record<AgePosition, number[]>;
+
+function average(values: number[]): number | null {
+  return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null;
+}
+
+function rosterAgeData(
+  roster: TeamDashboardLooseRoster | undefined,
+  playerMap: Record<string, SleeperPlayer>
+): {
+  averageAge: number | null;
+  positionAges: TeamDashboardPositionAges;
+  allAges: number[];
+  positionAgeValues: PositionAgeValues;
+} {
+  const positionAgeValues: PositionAgeValues = { QB: [], RB: [], WR: [], TE: [] };
+  const allAges: number[] = [];
+
+  for (const id of Array.from(new Set(roster?.players || []))) {
+    const player = playerMap[id] as TeamDashboardLoosePlayer | undefined;
+    const position = dashboardPosition(player?.position);
+    const age = dashboardNumber(player?.age, NaN);
+    if (!AGE_POSITIONS.includes(position as AgePosition) || !Number.isFinite(age)) continue;
+    positionAgeValues[position as AgePosition].push(age);
+    allAges.push(age);
+  }
+
+  return {
+    averageAge: average(allAges),
+    positionAges: {
+      QB: average(positionAgeValues.QB),
+      RB: average(positionAgeValues.RB),
+      WR: average(positionAgeValues.WR),
+      TE: average(positionAgeValues.TE),
+    },
+    allAges,
+    positionAgeValues,
+  };
+}
+
 export function buildDashboardDraftAndRanks(args: {
   teamName: string;
   currentYear: number;
-  phase: HomepagePhase;
   teams: TeamDashboardLooseTeam[];
   rosters: TeamDashboardLooseRoster[];
   nameMap: Map<number, string>;
@@ -37,7 +77,6 @@ export function buildDashboardDraftAndRanks(args: {
   const {
     teamName,
     currentYear,
-    phase,
     teams,
     rosters,
     nameMap,
@@ -108,21 +147,16 @@ export function buildDashboardDraftAndRanks(args: {
   }
   const draftRanks = rankDashboardValues(draftScores, 'desc');
 
-  const averageAgeRows = Array.from(nameMap.entries()).map(([rosterId, currentTeam]) => {
+  const ageRows = Array.from(nameMap.entries()).map(([rosterId, currentTeam]) => {
     const roster = rosters.find((entry) => entry.roster_id === rosterId);
-    const ages = Array.from(new Set(roster?.players || []))
-      .map((id) => playerMap[id] as TeamDashboardLoosePlayer | undefined)
-      .filter((player) =>
-        player && ['QB', 'RB', 'WR', 'TE'].includes(dashboardPosition(player.position))
-      )
-      .map((player) => dashboardNumber(player?.age, NaN))
-      .filter(Number.isFinite);
-    return {
-      team: currentTeam,
-      value: ages.length ? ages.reduce((sum, age) => sum + age, 0) / ages.length : 99,
-    };
+    return { team: currentTeam, ...rosterAgeData(roster, playerMap) };
   });
-  const youthRanks = rankDashboardValues(averageAgeRows, 'asc');
+  const youthRanks = rankDashboardValues(
+    ageRows.flatMap((row) =>
+      row.averageAge == null ? [] : [{ team: row.team, value: row.averageAge }]
+    ),
+    'asc'
+  );
 
   const recordRows = teams.map((team) => ({
     team: team.teamName,
@@ -132,45 +166,33 @@ export function buildDashboardDraftAndRanks(args: {
     team: team.teamName,
     value: dashboardNumber(team.fpts),
   }));
-  const maxPointRows = Array.from(nameMap.entries()).map(([rosterId, currentTeam]) => {
+  const potentialPointRows = Array.from(nameMap.entries()).map(([rosterId, currentTeam]) => {
     const roster = rosters.find((entry) => entry.roster_id === rosterId);
     return { team: currentTeam, value: sleeperStat(roster?.settings, 'ppts') };
   });
   const recordRanks = rankDashboardValues(recordRows, 'desc');
   const pointsRanks = rankDashboardValues(pointsRows, 'desc');
-  const maxPointRanks = rankDashboardValues(maxPointRows, 'desc');
+  const potentialPointRanks = rankDashboardValues(potentialPointRows, 'desc');
 
-  const regularWeights = [
-    'regular_season',
-    'post_deadline_pre_postseason',
-    'postseason',
-  ].includes(phase);
-  const powerRows = Array.from(nameMap.values()).map((currentTeam) => {
-    const value = regularWeights
-      ? dashboardPowerPercent(recordRanks.get(currentTeam), leagueSize) * 0.32
-        + dashboardPowerPercent(pointsRanks.get(currentTeam), leagueSize) * 0.25
-        + dashboardPowerPercent(maxPointRanks.get(currentTeam), leagueSize) * 0.18
-        + dashboardPowerPercent(draftRanks.get(currentTeam), leagueSize) * 0.13
-        + dashboardPowerPercent(youthRanks.get(currentTeam), leagueSize) * 0.12
-      : dashboardPowerPercent(draftRanks.get(currentTeam), leagueSize) * 0.34
-        + dashboardPowerPercent(youthRanks.get(currentTeam), leagueSize) * 0.24
-        + dashboardPowerPercent(pointsRanks.get(currentTeam), leagueSize) * 0.18
-        + dashboardPowerPercent(maxPointRanks.get(currentTeam), leagueSize) * 0.14
-        + dashboardPowerPercent(recordRanks.get(currentTeam), leagueSize) * 0.10;
-    return { team: currentTeam, value };
-  });
-  const powerRanks = rankDashboardValues(powerRows, 'desc');
   const teamRosterId = Array.from(nameMap.entries()).find(([, name]) => name === teamName)?.[0];
   const teamRoster = rosters.find((entry) => entry.roster_id === teamRosterId);
-  const maxPoints = sleeperStat(teamRoster?.settings, 'ppts');
+  const teamAgeData = ageRows.find((row) => row.team === teamName);
+  const potentialPoints = sleeperStat(teamRoster?.settings, 'ppts');
+
+  const allLeagueAges = ageRows.flatMap((row) => row.allAges);
+  const leaguePositionAges: TeamDashboardPositionAges = {
+    QB: average(ageRows.flatMap((row) => row.positionAgeValues.QB)),
+    RB: average(ageRows.flatMap((row) => row.positionAgeValues.RB)),
+    WR: average(ageRows.flatMap((row) => row.positionAgeValues.WR)),
+    TE: average(ageRows.flatMap((row) => row.positionAgeValues.TE)),
+  };
 
   const ranks: TeamDashboardRanks = {
     record: recordRanks.get(teamName) || null,
     points: pointsRanks.get(teamName) || null,
-    maxPoints: maxPoints > 0 ? maxPointRanks.get(teamName) || null : null,
+    maxPoints: potentialPoints > 0 ? potentialPointRanks.get(teamName) || null : null,
     youth: youthRanks.get(teamName) || null,
     draftCapital: draftRanks.get(teamName) || null,
-    power: powerRanks.get(teamName) || null,
     leagueSize,
   };
 
@@ -179,7 +201,15 @@ export function buildDashboardDraftAndRanks(args: {
     exactCurrentYear: exactTeamSlots.length > 0,
     draftRank: draftRanks.get(teamName) || null,
     ranks,
-    maxPoints: maxPoints > 0 ? maxPoints : null,
+    maxPoints: potentialPoints > 0 ? potentialPoints : null,
+    averageAge: teamAgeData?.averageAge ?? null,
+    positionAges: teamAgeData?.positionAges ?? { QB: null, RB: null, WR: null, TE: null },
+    leagueAverages: {
+      pointsFor: average(pointsRows.map((row) => row.value)),
+      maxPoints: average(potentialPointRows.map((row) => row.value).filter((value) => value > 0)),
+      averageAge: average(allLeagueAges),
+      positionAges: leaguePositionAges,
+    },
     seed: recordRanks.get(teamName) || null,
   };
 }

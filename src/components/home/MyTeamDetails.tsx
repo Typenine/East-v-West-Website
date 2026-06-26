@@ -15,6 +15,11 @@ import {
 } from '@/components/home/MyTeamCardParts';
 
 const POSITION_ORDER = ['QB', 'RB', 'WR', 'TE', 'K', 'DEF', 'DL', 'LB', 'DB'];
+const AGE_POSITIONS = ['QB', 'RB', 'WR', 'TE'] as const;
+
+function formatAge(value: number | null): string {
+  return value == null ? '—' : `${value.toFixed(1)} yrs`;
+}
 
 export default function MyTeamDetails({
   dashboard,
@@ -27,6 +32,15 @@ export default function MyTeamDetails({
   teamName: string;
   accent: string;
 }) {
+  const picksByYear = dashboard
+    ? Array.from(new Set(dashboard.draft.picks.map((pick) => pick.year)))
+        .sort((a, b) => a - b)
+        .map((year) => ({
+          year,
+          picks: dashboard.draft.picks.filter((pick) => pick.year === year),
+        }))
+    : [];
+
   return (
     <details
       className="group rounded-lg"
@@ -67,23 +81,59 @@ export default function MyTeamDetails({
           </div>
         )}
 
-        {dashboard?.draft.picks.length ? (
+        {dashboard && (
           <div>
             <div className="text-[10px] uppercase tracking-widest font-bold mb-2" style={broadcastFaintTextStyle}>
-              All owned draft picks
+              Average age by position
             </div>
-            <div className="flex flex-wrap gap-1.5">
-              {dashboard.draft.picks.map((pick, index) => (
-                <span
-                  key={`${pick.label}-${index}`}
-                  className="rounded px-2 py-1 text-[10px] font-semibold"
-                  style={{ background: `${accent}14`, color: accent }}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              {AGE_POSITIONS.map((position) => (
+                <div
+                  key={position}
+                  className="rounded-md px-2.5 py-2"
+                  style={{ background: PANEL.tintMedium, border: `1px solid ${PANEL.hairline}` }}
                 >
-                  {pick.label}
-                  {pick.originalTeam && pick.originalTeam !== teamName
-                    ? ` · orig. ${compactTeamName(pick.originalTeam)}`
-                    : ''}
-                </span>
+                  <div className="text-[9px] uppercase tracking-wide" style={broadcastFaintTextStyle}>
+                    {position}
+                  </div>
+                  <div className="text-xs font-bold mt-0.5" style={broadcastBodyTextStyle}>
+                    {formatAge(dashboard.standings.positionAges[position])}
+                  </div>
+                  <div className="text-[9px] mt-0.5" style={broadcastMutedTextStyle}>
+                    League avg {formatAge(dashboard.standings.leagueAverages.positionAges[position])}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {picksByYear.length ? (
+          <div>
+            <div className="text-[10px] uppercase tracking-widest font-bold mb-2" style={broadcastFaintTextStyle}>
+              Draft capital by year
+            </div>
+            <div className="space-y-2">
+              {picksByYear.map(({ year, picks }) => (
+                <div key={year} className="flex flex-col sm:flex-row sm:items-center gap-1.5 sm:gap-3">
+                  <div className="w-12 shrink-0 text-xs font-bold" style={broadcastBodyTextStyle}>
+                    {year}
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {picks.map((pick, index) => (
+                      <span
+                        key={`${pick.label}-${index}`}
+                        className="rounded px-2 py-1 text-[10px] font-semibold"
+                        style={{ background: `${accent}14`, color: accent }}
+                      >
+                        {pick.exact ? pick.label : `${pick.round}${pick.round === 1 ? 'st' : pick.round === 2 ? 'nd' : pick.round === 3 ? 'rd' : 'th'}`}
+                        {pick.originalTeam && pick.originalTeam !== teamName
+                          ? ` · orig. ${compactTeamName(pick.originalTeam)}`
+                          : ''}
+                      </span>
+                    ))}
+                  </div>
+                </div>
               ))}
             </div>
           </div>

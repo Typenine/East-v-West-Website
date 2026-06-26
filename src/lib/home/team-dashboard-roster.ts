@@ -9,7 +9,6 @@ import type {
   TeamDashboardSeverity,
 } from '@/lib/home/team-dashboard-types';
 import {
-  dashboardCoreRole,
   dashboardCoreScore,
   dashboardInjurySeverity,
   dashboardNumber,
@@ -17,13 +16,6 @@ import {
   dashboardPosition,
   summarizeDashboardTransaction,
 } from '@/lib/home/team-dashboard-helpers';
-
-function dynastyCoreRole(player: TeamDashboardPlayer, value: number): string {
-  if (value >= 7000) return 'Elite dynasty asset';
-  if (value >= 4500) return 'Core dynasty asset';
-  if (value > 0) return 'Dynasty asset';
-  return dashboardCoreRole(player);
-}
 
 export function buildDashboardRoster(args: {
   roster: TeamDashboardLooseRoster;
@@ -71,8 +63,6 @@ export function buildDashboardRoster(args: {
       age: Number.isFinite(ageValue) ? ageValue : null,
       yearsExp: Number.isFinite(yearsExpValue) ? yearsExpValue : null,
       injuryStatus: player?.injury_status || null,
-      // Sleeper's starter array can be months old during the offseason. Only use
-      // it when lineups are currently meaningful.
       isStarter: inSeason && starterIds.has(id),
       onTaxi: taxiIds.has(id),
       onIR: reserveIds.has(id),
@@ -95,21 +85,13 @@ export function buildDashboardRoster(args: {
     positionCounts[player.position] = (positionCounts[player.position] || 0) + 1;
   }
 
-  // FantasyCalc dynasty values are the primary ranking signal. This prevents
-  // stale offseason lineup slots from elevating a low-value player over a true
-  // cornerstone such as Brock Bowers. The existing heuristic remains a fallback
-  // when the value feed is unavailable.
   const corePlayers = players
     .filter((player) => ['QB', 'RB', 'WR', 'TE'].includes(player.position))
     .sort((a, b) => {
       const valueDifference = (playerValues.get(b.id) || 0) - (playerValues.get(a.id) || 0);
       return valueDifference || dashboardCoreScore(b) - dashboardCoreScore(a);
     })
-    .slice(0, 3)
-    .map((player) => ({
-      ...player,
-      role: dynastyCoreRole(player, playerValues.get(player.id) || 0),
-    }));
+    .slice(0, 3);
   const rookies = players
     .filter((player) => player.yearsExp === 0)
     .sort((a, b) => {
@@ -188,28 +170,12 @@ export function buildDashboardRoster(args: {
       detail: `${taxiIds.size}/${taxiLimit} taxi spots are occupied.`,
     });
   }
-  if (openSpots > 0 && cutsRequired === 0) {
-    alerts.push({
-      severity: 'info',
-      title: `${openSpots} open active roster spot${openSpots === 1 ? '' : 's'}`,
-      detail: 'The team can add players without making a corresponding cut.',
-    });
-  }
-  if (!alerts.length) {
-    alerts.push({
-      severity: 'good',
-      title: 'Roster is currently compliant',
-      detail: 'No lineup, roster-limit, taxi, or reserve issues were detected.',
-    });
-  }
 
   const status: TeamDashboardSeverity = alerts.some((alert) => alert.severity === 'critical')
     ? 'critical'
     : alerts.some((alert) => alert.severity === 'warning')
       ? 'warning'
-      : alerts.some((alert) => alert.severity === 'info')
-        ? 'info'
-        : 'good';
+      : 'good';
 
   return {
     active: activePlayers.length,

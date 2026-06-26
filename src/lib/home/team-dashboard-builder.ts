@@ -92,7 +92,6 @@ export async function buildTeamDashboard(teamName: string): Promise<TeamDashboar
   const rankDashboard = buildDashboardDraftAndRanks({
     teamName,
     currentYear,
-    phase,
     teams,
     rosters,
     nameMap: ctx.nameMap,
@@ -141,12 +140,16 @@ export async function buildTeamDashboard(teamName: string): Promise<TeamDashboar
       corePlayers: rosterDashboard.corePlayers,
     },
     standings: {
+      season: currentYear,
       wins: dashboardNumber(teamStanding?.wins ?? roster.settings?.wins),
       losses: dashboardNumber(teamStanding?.losses ?? roster.settings?.losses),
       pointsFor: dashboardNumber(teamStanding?.fpts)
         || sleeperStat(roster.settings, 'fpts'),
       maxPoints: rankDashboard.maxPoints,
       seed: rankDashboard.seed,
+      averageAge: rankDashboard.averageAge,
+      positionAges: rankDashboard.positionAges,
+      leagueAverages: rankDashboard.leagueAverages,
       ranks: rankDashboard.ranks,
     },
     matchup,

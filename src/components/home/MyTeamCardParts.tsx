@@ -39,6 +39,17 @@ export function formatTeamRecord(wins: number, losses: number) {
   return `${wins}–${losses}`;
 }
 
+export function ordinalPlacement(value: number | null | undefined): string {
+  if (!value) return 'Not ranked';
+  const mod100 = value % 100;
+  const mod10 = value % 10;
+  if (mod100 >= 11 && mod100 <= 13) return `${value}th`;
+  if (mod10 === 1) return `${value}st`;
+  if (mod10 === 2) return `${value}nd`;
+  if (mod10 === 3) return `${value}rd`;
+  return `${value}th`;
+}
+
 export function teamTimeAgo(dateStr: string | null): string {
   if (!dateStr) return '';
   const diff = Date.now() - new Date(dateStr).getTime();
@@ -70,10 +81,6 @@ export function isTeamDataStale(date: string | null, days: number): boolean {
   const timestamp = new Date(date).getTime();
   return Number.isFinite(timestamp)
     && Date.now() - timestamp > days * 24 * 60 * 60 * 1000;
-}
-
-function rankLabel(rank: number | null | undefined, leagueSize: number): string {
-  return rank ? `#${rank} of ${leagueSize}` : 'Not ranked';
 }
 
 export function TeamStatBox({
@@ -108,23 +115,29 @@ export function TeamStatBox({
 
 export function TeamRankBox({
   label,
-  rank,
-  leagueSize,
+  value,
+  detail,
+  title,
 }: {
   label: string;
-  rank: number | null | undefined;
-  leagueSize: number;
+  value: string;
+  detail: string;
+  title?: string;
 }) {
   return (
     <div
-      className="rounded-md px-2 py-1.5"
+      className="rounded-md px-2.5 py-2"
+      title={title}
       style={{ background: PANEL.tint, border: `1px solid ${PANEL.hairline}` }}
     >
       <div className="text-[9px] uppercase tracking-wide" style={broadcastFaintTextStyle}>
         {label}
       </div>
-      <div className="text-xs font-bold mt-0.5" style={broadcastBodyTextStyle}>
-        {rankLabel(rank, leagueSize)}
+      <div className="text-sm font-bold mt-0.5 tabular-nums" style={broadcastBodyTextStyle}>
+        {value}
+      </div>
+      <div className="text-[10px] mt-0.5 leading-snug" style={broadcastMutedTextStyle}>
+        {detail}
       </div>
     </div>
   );
@@ -159,7 +172,7 @@ export function TeamPlayerTile({
   player,
   accent,
 }: {
-  player: TeamDashboardPlayer & { role?: string };
+  player: TeamDashboardPlayer;
   accent: string;
 }) {
   return (
@@ -182,11 +195,6 @@ export function TeamPlayerTile({
           {player.nflTeam ? ` · ${player.nflTeam}` : ''}
           {player.age ? ` · age ${player.age}` : ''}
         </div>
-        {player.role && (
-          <div className="text-[10px] font-semibold mt-0.5" style={{ color: accent }}>
-            {player.role}
-          </div>
-        )}
       </div>
       {player.injuryStatus && (
         <span
