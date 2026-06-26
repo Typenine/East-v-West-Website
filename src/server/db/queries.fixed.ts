@@ -230,6 +230,7 @@ export type DraftOverview = {
   deadlineTs?: string | null;
   pausedRemainingSecs?: number | null;
   roundEndPause?: boolean | null;
+  pauseReason?: 'manual' | 'pick_animation' | 'round_end' | 'trade_animation' | 'pending_pick' | null;
   eventName?: string | null;
   eventLogoUrl?: string | null;
   eventColor1?: string | null;
@@ -240,6 +241,10 @@ export type DraftOverview = {
   upcoming: Array<{ overall: number; round: number; team: string }>;
   allSlots: Array<{ overall: number; round: number; team: string }>;
 };
+
+export type CommitPickResult =
+  | { ok: true; completed: boolean }
+  | { ok: false; error: 'stale_request' | 'player_taken' | 'wrong_team' | 'wrong_state' | 'no_slot' };
 
 let _tablesEnsured = false;
 
@@ -265,7 +270,8 @@ export async function ensureDraftTables() {
       event_logo_url text,
       event_color_1 varchar(16),
       event_color_2 varchar(16),
-      pending_trade_animation jsonb NULL
+      pending_trade_animation jsonb NULL,
+      pause_reason varchar(32) NULL
     )
   `);
   // Migration: add paused_remaining_secs if missing
@@ -277,6 +283,9 @@ export async function ensureDraftTables() {
   await db.execute(sql`ALTER TABLE drafts ADD COLUMN IF NOT EXISTS event_logo_url text`).catch(() => {});
   await db.execute(sql`ALTER TABLE drafts ADD COLUMN IF NOT EXISTS event_color_1 varchar(16)`).catch(() => {});
   await db.execute(sql`ALTER TABLE drafts ADD COLUMN IF NOT EXISTS event_color_2 varchar(16)`).catch(() => {});
+  // Migration: add explicit pause_reason column (enum values: 'manual' | 'pick_animation' | 'round_end' | 'trade_animation')
+  // NULL means LIVE (not paused) or legacy rows without a recorded reason.
+  await db.execute(sql`ALTER TABLE drafts ADD COLUMN IF NOT EXISTS pause_reason varchar(32) NULL`).catch(() => {});
   await db.execute(sql`
     CREATE TABLE IF NOT EXISTS draft_slots (
       draft_id uuid NOT NULL,
@@ -462,7 +471,262 @@ export async function ensureDraftTables() {
   // Migrations for existing tables (idempotent, errors silenced)
   await db.execute(sql`ALTER TABLE drafts ADD COLUMN IF NOT EXISTS pending_trade_animation jsonb NULL`).catch(() => {});
   await db.execute(sql`ALTER TABLE draft_roster_snapshots ALTER COLUMN player_nfl TYPE varchar(64)`).catch(() => {});
+  // Uniqueness constraints that prevent duplicate picks and concurrent race conditions
+  await ensureDraftPickConstraints();
   _tablesEnsured = true;
+}
+
+// ── Draft pick uniqueness constraints (idempotent migration) ──────────────────
+// Called from ensureDraftTables so constraints are always present before picks.
+async function ensureDraftPickConstraints(): Promise<void> {
+  const db = getDb();
+  // Remove duplicate picks before adding constraints.
+  // Keep the pick with the lexicographically-lowest UUID (consistent tiebreak).
+  // These deletes are no-ops if the table is clean.
+  await db.execute(sql`
+    DELETE FROM draft_picks a
+    USING draft_picks b
+    WHERE a.draft_id = b.draft_id
+      AND a.overall = b.overall
+      AND a.id::text > b.id::text
+  `).catch(() => {});
+  await db.execute(sql`
+    DELETE FROM draft_picks a
+    USING draft_picks b
+    WHERE a.draft_id = b.draft_id
+      AND a.player_id = b.player_id
+      AND a.id::text > b.id::text
+  `).catch(() => {});
+  // One committed pick per slot in a draft.
+  await db.execute(sql`
+    CREATE UNIQUE INDEX IF NOT EXISTS uq_draft_picks_draft_overall
+    ON draft_picks(draft_id, overall)
+  `).catch(() => {});
+  // One committed pick per player in a draft.
+  await db.execute(sql`
+    CREATE UNIQUE INDEX IF NOT EXISTS uq_draft_picks_draft_player
+    ON draft_picks(draft_id, player_id)
+  `).catch(() => {});
+  // Only one PENDING pick per slot in a draft. The partial index only covers
+  // rows where status = 'pending', so approved/rejected rows are unaffected.
+  await db.execute(sql`
+    CREATE UNIQUE INDEX IF NOT EXISTS uq_pending_picks_draft_overall
+    ON draft_pending_picks(draft_id, overall)
+    WHERE status = 'pending'
+  `).catch(() => {});
+}
+
+// ── commitPick — the single authoritative path for committing a draft pick ────
+//
+// Uses a single atomic CTE so that the slot check, player-taken check, INSERT,
+// and cursor advancement all happen inside one PostgreSQL statement. The
+// unique constraints on draft_picks(draft_id, overall) and
+// draft_picks(draft_id, player_id) serve as the ultimate concurrency guard:
+// if two requests race past the WHERE conditions, ON CONFLICT DO NOTHING
+// lets only one INSERT land and the other gets stale_request / player_taken.
+//
+// All successful picks—commissioner-approved, admin force-pick, forced auto-pick,
+// and custom-pool fallback—must go through this function so that cursor
+// advancement, round-end pausing, and draft completion are always consistent.
+export async function commitPick(params: {
+  draftId: string;
+  team: string;
+  playerId: string;
+  playerName?: string | null;
+  playerPos?: string | null;
+  playerNfl?: string | null;
+  madeBy: string;
+  expectedOverall?: number | null;
+}): Promise<CommitPickResult> {
+  await ensureDraftTables();
+  const db = getDb();
+  const pickId = randomUUID();
+  const expectedOverall = params.expectedOverall ?? null;
+  const playerNfl =
+    params.playerNfl != null && String(params.playerNfl).length > 255
+      ? String(params.playerNfl).slice(0, 255)
+      : (params.playerNfl ?? null);
+
+  try {
+    const result = await db.execute(sql`
+      WITH
+        draft_state AS (
+          SELECT
+            d.status,
+            d.cur_overall,
+            d.clock_seconds,
+            s.team      AS slot_team,
+            s.overall   AS slot_overall,
+            s.round     AS slot_round,
+            EXISTS(
+              SELECT 1 FROM draft_picks dp
+              WHERE dp.draft_id = d.id AND dp.player_id = ${params.playerId}
+            ) AS player_taken
+          FROM drafts d
+          JOIN draft_slots s
+            ON s.draft_id = d.id AND s.overall = d.cur_overall
+          WHERE d.id = ${params.draftId}::uuid
+          LIMIT 1
+        ),
+        inserted_pick AS (
+          INSERT INTO draft_picks
+            (id, draft_id, overall, round, team,
+             player_id, player_name, player_pos, player_nfl, made_by)
+          SELECT
+            ${pickId}::uuid,
+            ${params.draftId}::uuid,
+            ds.slot_overall,
+            ds.slot_round,
+            ds.slot_team,
+            ${params.playerId},
+            ${params.playerName ?? null},
+            ${params.playerPos ?? null},
+            ${playerNfl},
+            ${params.madeBy}
+          FROM draft_state ds
+          WHERE ds.status = 'LIVE'
+            AND ds.slot_team = ${params.team}
+            AND NOT ds.player_taken
+            AND (
+              ${expectedOverall}::int IS NULL
+              OR ds.cur_overall = ${expectedOverall}::int
+            )
+          ON CONFLICT DO NOTHING
+          RETURNING overall, round
+        ),
+        next_slot AS (
+          SELECT s.overall AS next_overall, s.round AS next_round
+          FROM draft_slots s
+          WHERE s.draft_id = ${params.draftId}::uuid
+            AND s.overall > (SELECT slot_overall FROM draft_state LIMIT 1)
+            AND NOT EXISTS (
+              SELECT 1 FROM draft_picks dp
+              WHERE dp.draft_id = s.draft_id AND dp.overall = s.overall
+            )
+          ORDER BY s.overall ASC
+          LIMIT 1
+        ),
+        updated_draft AS (
+          UPDATE drafts
+          SET
+            cur_overall = COALESCE(
+              (SELECT next_overall FROM next_slot),
+              (SELECT overall   FROM inserted_pick)
+            ),
+            status = CASE
+              WHEN NOT EXISTS (SELECT 1 FROM next_slot)
+                THEN 'COMPLETED'
+              WHEN (SELECT next_round FROM next_slot)
+                 > (SELECT round FROM inserted_pick)
+                THEN 'PAUSED'
+              ELSE 'LIVE'
+            END,
+            pause_reason = CASE
+              WHEN NOT EXISTS (SELECT 1 FROM next_slot)     THEN NULL
+              WHEN (SELECT next_round FROM next_slot)
+                 > (SELECT round FROM inserted_pick)        THEN 'round_end'
+              ELSE NULL
+            END,
+            round_end_pause = (
+              EXISTS (SELECT 1 FROM next_slot)
+              AND (SELECT next_round FROM next_slot)
+                > (SELECT round FROM inserted_pick)
+            ),
+            paused_remaining_secs = CASE
+              WHEN EXISTS (SELECT 1 FROM next_slot)
+               AND (SELECT next_round FROM next_slot)
+                 > (SELECT round FROM inserted_pick)
+                THEN (SELECT clock_seconds FROM draft_state)
+              ELSE NULL
+            END,
+            clock_started_at = CASE
+              WHEN NOT EXISTS (SELECT 1 FROM next_slot)   THEN NULL
+              WHEN (SELECT next_round FROM next_slot)
+                 > (SELECT round FROM inserted_pick)      THEN NULL
+              ELSE now()
+            END,
+            deadline_ts = CASE
+              WHEN NOT EXISTS (SELECT 1 FROM next_slot)   THEN NULL
+              WHEN (SELECT next_round FROM next_slot)
+                 > (SELECT round FROM inserted_pick)      THEN NULL
+              ELSE now() + (interval '1 second'
+                           * (SELECT clock_seconds FROM draft_state))
+            END,
+            completed_at = CASE
+              WHEN NOT EXISTS (SELECT 1 FROM next_slot) THEN now()
+              ELSE NULL
+            END
+          WHERE id = ${params.draftId}::uuid
+            AND EXISTS (SELECT 1 FROM inserted_pick)
+          RETURNING id
+        )
+      SELECT
+        (SELECT status       FROM draft_state)  AS initial_status,
+        (SELECT slot_team    FROM draft_state)  AS slot_team,
+        (SELECT player_taken FROM draft_state)  AS player_taken,
+        (SELECT cur_overall  FROM draft_state)  AS draft_overall,
+        EXISTS (SELECT 1 FROM inserted_pick)    AS pick_inserted,
+        NOT EXISTS (SELECT 1 FROM next_slot)    AS draft_completed
+    `);
+
+    type CommitRow = {
+      initial_status: string | null;
+      slot_team: string | null;
+      player_taken: boolean | number | string | null;
+      draft_overall: number | string | null;
+      pick_inserted: boolean | number | string | null;
+      draft_completed: boolean | number | string | null;
+    };
+    const row = (result as unknown as { rows?: CommitRow[] }).rows?.[0];
+    if (!row) return { ok: false, error: 'no_slot' };
+
+    const toBool = (v: boolean | number | string | null | undefined): boolean =>
+      v === true || v === 1 || (v as unknown) === 't' || (v as unknown) === 'true';
+
+    if (!toBool(row.pick_inserted)) {
+      if (!row.initial_status) return { ok: false, error: 'no_slot' };
+      if (row.initial_status !== 'LIVE') return { ok: false, error: 'wrong_state' };
+      if (
+        expectedOverall !== null &&
+        Number(row.draft_overall) !== expectedOverall
+      ) return { ok: false, error: 'stale_request' };
+      if (row.slot_team !== params.team) return { ok: false, error: 'wrong_team' };
+      if (toBool(row.player_taken)) return { ok: false, error: 'player_taken' };
+      // Conditions were met but INSERT was silenced by ON CONFLICT — a concurrent
+      // request committed first. Post-check to give the caller the right code.
+      const postCheck = await db.execute(sql`
+        SELECT 1 FROM draft_picks
+        WHERE draft_id = ${params.draftId}::uuid AND player_id = ${params.playerId}
+        LIMIT 1
+      `).catch(() => null);
+      if (postCheck && (postCheck as unknown as { rows?: unknown[] }).rows?.length) {
+        return { ok: false, error: 'player_taken' };
+      }
+      return { ok: false, error: 'stale_request' };
+    }
+
+    return { ok: true, completed: toBool(row.draft_completed) };
+  } catch (err: unknown) {
+    // Catch unique-constraint violations that slip past ON CONFLICT DO NOTHING
+    // (e.g., a PostgreSQL constraint defined with a different name).
+    const errStr = String(err);
+    if (
+      errStr.includes('23505') ||
+      errStr.includes('unique constraint') ||
+      errStr.includes('duplicate key')
+    ) {
+      const postCheck = await db.execute(sql`
+        SELECT 1 FROM draft_picks
+        WHERE draft_id = ${params.draftId}::uuid AND player_id = ${params.playerId}
+        LIMIT 1
+      `).catch(() => null);
+      if (postCheck && (postCheck as unknown as { rows?: unknown[] }).rows?.length) {
+        return { ok: false, error: 'player_taken' };
+      }
+      return { ok: false, error: 'stale_request' };
+    }
+    throw err;
+  }
 }
 
 // Optional per-draft custom player pool (alternative to Sleeper dataset)
@@ -732,16 +996,22 @@ export async function resetDraft(draftId: string) {
   await db.execute(sql`DELETE FROM draft_future_picks WHERE draft_id = ${draftId}::uuid`);
   // Restore all draft slots to their original owners (undo any traded picks)
   await db.execute(sql`UPDATE draft_slots SET team = original_team WHERE draft_id = ${draftId}::uuid AND original_team IS NOT NULL`);
-  // Reset draft to NOT_STARTED with cur_overall = 1, clear any pending animation
+  // Reset draft to NOT_STARTED. Set cur_overall to the lowest slot in the draft
+  // (rather than hardcoding 1, in case the first slot has an unexpected overall number).
   await db.execute(sql`
-    UPDATE drafts 
+    UPDATE drafts
     SET status = 'NOT_STARTED',
-        cur_overall = 1,
+        pause_reason = NULL,
+        cur_overall = COALESCE(
+          (SELECT MIN(overall) FROM draft_slots WHERE draft_id = ${draftId}::uuid), 1
+        ),
         clock_started_at = NULL,
         deadline_ts = NULL,
         started_at = NULL,
         completed_at = NULL,
-        pending_trade_animation = NULL
+        pending_trade_animation = NULL,
+        paused_remaining_secs = NULL,
+        round_end_pause = false
     WHERE id = ${draftId}::uuid
   `);
   return { ok: true };
@@ -807,20 +1077,115 @@ export async function deleteDraft(draftId: string) {
   return { ok: true };
 }
 
-export async function skipPick(draftId: string) {
+// skipPick — Commissioner control. Skips the slot currently on the clock and
+// advances to the next real unpicked slot. A skipped slot is left permanently
+// vacant in draft_picks (may be backfilled only via force_pick).
+//
+// Rules:
+//  • Draft must be LIVE or PAUSED (NOT_STARTED and COMPLETED are rejected).
+//  • A pending pick awaiting admin approval blocks the skip — approve or
+//    reject it first so the approval state is never left dangling.
+//  • The next slot is found by searching draft_slots for the first overall >
+//    cur_overall that has no committed pick (skipping previously-skipped slots
+//    that may have been force-picked since, as well as traded slots).
+//  • At a round boundary the draft pauses (round_end_pause = true) so the
+//    "Next Round" animation plays before the clock starts.
+//  • If the skipped slot was the last available slot the draft completes.
+export async function skipPick(draftId: string): Promise<{
+  ok: boolean;
+  newOverall?: number;
+  completed?: boolean;
+  error?: string;
+}> {
+  await ensureDraftTables();
   const db = getDb();
-  const res = await db.execute(sql`
-    UPDATE drafts 
-    SET cur_overall = cur_overall + 1,
-        status = 'LIVE',
-        clock_started_at = NOW(),
-        deadline_ts = NOW() + (interval '1 second' * clock_seconds),
-        round_end_pause = false
-    WHERE id = ${draftId}::uuid
-    RETURNING cur_overall
+
+  // Read current draft state and current slot's round.
+  const stateRes = await db.execute(sql`
+    SELECT d.status, d.cur_overall, d.clock_seconds, s.round AS cur_round
+    FROM drafts d
+    JOIN draft_slots s ON s.draft_id = d.id AND s.overall = d.cur_overall
+    WHERE d.id = ${draftId}::uuid
+    LIMIT 1
   `);
-  const newOverall = (res as unknown as { rows?: Array<{ cur_overall: number }> }).rows?.[0]?.cur_overall || 1;
-  return { ok: true, newOverall };
+  type StateRow = { status: string; cur_overall: number | string; clock_seconds: number | string; cur_round: number | string };
+  const state = (stateRes as unknown as { rows?: StateRow[] }).rows?.[0];
+  if (!state) return { ok: false, error: 'no_draft' };
+  if (state.status !== 'LIVE' && state.status !== 'PAUSED') {
+    return { ok: false, error: 'invalid_state' };
+  }
+  const curOverall = Number(state.cur_overall);
+  const curRound = Number(state.cur_round);
+  const secs = Number(state.clock_seconds || 60);
+
+  // Block skip while a pending pick is awaiting approval.
+  const pending = await getPendingPick(draftId);
+  if (pending) return { ok: false, error: 'pending_pick_exists' };
+
+  // Find the next unpicked slot AFTER the current slot.
+  const nextRes = await db.execute(sql`
+    SELECT s.overall, s.round
+    FROM draft_slots s
+    WHERE s.draft_id = ${draftId}::uuid
+      AND s.overall > ${curOverall}
+      AND NOT EXISTS (
+        SELECT 1 FROM draft_picks dp
+        WHERE dp.draft_id = s.draft_id AND dp.overall = s.overall
+      )
+    ORDER BY s.overall ASC
+    LIMIT 1
+  `);
+  const next = (nextRes as unknown as { rows?: Array<{ overall: number | string; round: number | string }> }).rows?.[0];
+
+  if (!next) {
+    // Skipped slot was the final slot — complete the draft.
+    await db.execute(sql`
+      UPDATE drafts
+      SET status = 'COMPLETED',
+          pause_reason = NULL,
+          completed_at = now(),
+          clock_started_at = NULL,
+          deadline_ts = NULL,
+          paused_remaining_secs = NULL,
+          round_end_pause = false
+      WHERE id = ${draftId}::uuid
+    `);
+    return { ok: true, completed: true };
+  }
+
+  const nextOverall = Number(next.overall);
+  const nextRound = Number(next.round);
+  const isRoundBoundary = nextRound > curRound;
+
+  if (isRoundBoundary) {
+    // Pause at round boundary so the round-change animation can play.
+    await db.execute(sql`
+      UPDATE drafts
+      SET status = 'PAUSED',
+          pause_reason = 'round_end',
+          cur_overall = ${nextOverall},
+          clock_started_at = NULL,
+          deadline_ts = NULL,
+          paused_remaining_secs = ${secs},
+          round_end_pause = true
+      WHERE id = ${draftId}::uuid
+    `);
+  } else {
+    // Advance within the same round — start the clock immediately.
+    await db.execute(sql`
+      UPDATE drafts
+      SET status = 'LIVE',
+          pause_reason = NULL,
+          cur_overall = ${nextOverall},
+          clock_started_at = now(),
+          deadline_ts = now() + (interval '1 second' * ${secs}),
+          paused_remaining_secs = NULL,
+          round_end_pause = false
+      WHERE id = ${draftId}::uuid
+    `);
+  }
+
+  return { ok: true, newOverall: nextOverall, completed: false };
 }
 
 export async function updateDraftSlot(draftId: string, overall: number, team: string) {
@@ -954,7 +1319,7 @@ export async function getDraftPickTradeHistory(draftId: string): Promise<Array<{
 export async function getDraftOverview(draftId: string): Promise<DraftOverview | null> {
   await ensureDraftTables();
   const db = getDb();
-  const headRes = await db.execute(sql`SELECT id::text AS id, year, rounds, clock_seconds, status, created_at, started_at, completed_at, cur_overall, clock_started_at, deadline_ts, paused_remaining_secs, round_end_pause, event_name, event_logo_url, event_color_1, event_color_2, pending_trade_animation FROM drafts WHERE id = ${draftId}::uuid LIMIT 1`);
+  const headRes = await db.execute(sql`SELECT id::text AS id, year, rounds, clock_seconds, status, created_at, started_at, completed_at, cur_overall, clock_started_at, deadline_ts, paused_remaining_secs, round_end_pause, pause_reason, event_name, event_logo_url, event_color_1, event_color_2, pending_trade_animation FROM drafts WHERE id = ${draftId}::uuid LIMIT 1`);
   const head = (headRes as unknown as { rows?: Array<Record<string, unknown>> }).rows?.[0];
   if (!head) return null;
   const curOverall = Number(head.cur_overall || 1);
@@ -985,6 +1350,7 @@ export async function getDraftOverview(draftId: string): Promise<DraftOverview |
     deadlineTs: head.deadline_ts ? new Date(head.deadline_ts as string).toISOString() : null,
     pausedRemainingSecs: head.paused_remaining_secs != null ? Number(head.paused_remaining_secs) : null,
     roundEndPause: Boolean(head.round_end_pause),
+    pauseReason: (head.pause_reason as DraftOverview['pauseReason']) ?? null,
     eventName: (head.event_name as string | null) ?? null,
     eventLogoUrl: (head.event_logo_url as string | null) ?? null,
     eventColor1: (head.event_color_1 as string | null) ?? null,
@@ -1182,22 +1548,79 @@ export async function deletePlayerVideo(playerId: string): Promise<void> {
 }
 
 // ── Draft Pending Picks ─────────────────────────────────────────────────────
+//
+// submitPendingPick is idempotent: if a pending pick for this slot already
+// exists it returns the existing row rather than replacing it. This prevents
+// a second browser tab or a simultaneous expiry-check from overwriting the
+// first team selection. The partial unique index
+// uq_pending_picks_draft_overall enforces the one-pending-per-slot invariant
+// at the database level.
+//
+// Returns { id, created: true }  when a new row was inserted.
+// Returns { id, created: false } when a matching pending row already existed.
+// Returns null when the request is rejected (wrong state, wrong team, stale slot).
 export async function submitPendingPick(draftId: string, data: {
   overall: number; team: string; playerId: string;
   playerName?: string | null; playerPos?: string | null; playerNfl?: string | null;
-}): Promise<void> {
+}): Promise<{ id: string; created: boolean } | null> {
   await ensureDraftTables();
   const db = getDb();
   const nfl = data.playerNfl != null && String(data.playerNfl).length > 255
     ? String(data.playerNfl).slice(0, 255)
     : (data.playerNfl ?? null);
-  // Clear any old pending for this draft first
-  await db.execute(sql`DELETE FROM draft_pending_picks WHERE draft_id = ${draftId}::uuid AND status = 'pending'`);
-  await db.execute(sql`
-    INSERT INTO draft_pending_picks (draft_id, overall, team, player_id, player_name, player_pos, player_nfl, status)
-    VALUES (${draftId}::uuid, ${data.overall}, ${data.team}, ${data.playerId},
-            ${data.playerName ?? null}, ${data.playerPos ?? null}, ${nfl}, 'pending')
+
+  // Verify the draft cursor, team ownership, and draft state before inserting.
+  const stateRes = await db.execute(sql`
+    SELECT d.status, d.cur_overall, d.round_end_pause, s.team AS slot_team
+    FROM drafts d
+    JOIN draft_slots s ON s.draft_id = d.id AND s.overall = d.cur_overall
+    WHERE d.id = ${draftId}::uuid
+    LIMIT 1
   `);
+  type StateRow = {
+    status: string;
+    cur_overall: number | string;
+    round_end_pause: boolean | number | string;
+    slot_team: string;
+  };
+  const state = (stateRes as unknown as { rows?: StateRow[] }).rows?.[0];
+  if (!state) return null;
+  if (state.status === 'COMPLETED') return null;
+  const toBool = (v: boolean | number | string | null | undefined): boolean =>
+    v === true || v === 1 || (v as unknown) === 't' || (v as unknown) === 'true';
+  if (toBool(state.round_end_pause)) return null;
+  if (Number(state.cur_overall) !== data.overall) return null;
+  if (state.slot_team !== data.team) return null;
+
+  // Atomic insert. The partial unique index on (draft_id, overall) WHERE
+  // status = 'pending' prevents two concurrent requests from each inserting
+  // a pending pick for the same slot.
+  const insertRes = await db.execute(sql`
+    INSERT INTO draft_pending_picks
+      (draft_id, overall, team, player_id, player_name, player_pos, player_nfl, status)
+    VALUES (
+      ${draftId}::uuid, ${data.overall}, ${data.team}, ${data.playerId},
+      ${data.playerName ?? null}, ${data.playerPos ?? null}, ${nfl}, 'pending'
+    )
+    ON CONFLICT DO NOTHING
+    RETURNING id::text AS id
+  `);
+  type InsertRow = { id: string };
+  const inserted = (insertRes as unknown as { rows?: InsertRow[] }).rows?.[0];
+  if (inserted) return { id: inserted.id, created: true };
+
+  // A pending pick for this slot already exists — return it (idempotent).
+  const existingRes = await db.execute(sql`
+    SELECT id::text AS id
+    FROM draft_pending_picks
+    WHERE draft_id = ${draftId}::uuid
+      AND overall  = ${data.overall}
+      AND status   = 'pending'
+    LIMIT 1
+  `);
+  const existing = (existingRes as unknown as { rows?: InsertRow[] }).rows?.[0];
+  if (existing) return { id: existing.id, created: false };
+  return null;
 }
 
 export async function getPendingPick(draftId: string): Promise<{
@@ -1223,22 +1646,65 @@ export async function resolvePendingPick(pendingId: string, status: 'approved' |
   await db.execute(sql`UPDATE draft_pending_picks SET status = ${status} WHERE id = ${pendingId}::uuid`);
 }
 
-export async function startDraft(draftId: string) {
+export async function startDraft(draftId: string): Promise<{ ok: boolean; error?: string }> {
   await ensureDraftTables();
   const db = getDb();
-  const res = await db.execute(sql`
+
+  // Confirm the draft exists and is in NOT_STARTED state.
+  const draftRow = await db.execute(sql`
+    SELECT status, clock_seconds FROM drafts WHERE id = ${draftId}::uuid LIMIT 1
+  `);
+  const draft = (draftRow as unknown as { rows?: Array<{ status: string; clock_seconds: number }> }).rows?.[0];
+  if (!draft) return { ok: false, error: 'no_draft' };
+  if (draft.status !== 'NOT_STARTED') return { ok: false, error: 'already_started' };
+
+  // Refuse if another draft is currently LIVE or PAUSED.
+  const activeRes = await db.execute(sql`
+    SELECT id FROM drafts
+    WHERE status IN ('LIVE', 'PAUSED') AND id <> ${draftId}::uuid
+    LIMIT 1
+  `);
+  if ((activeRes as unknown as { rows?: unknown[] }).rows?.length) {
+    return { ok: false, error: 'another_draft_active' };
+  }
+
+  // Confirm slots exist and at least one team is assigned.
+  const slotsRes = await db.execute(sql`
+    SELECT COUNT(1)::int AS c, COUNT(DISTINCT team)::int AS teams
+    FROM draft_slots WHERE draft_id = ${draftId}::uuid
+  `);
+  const sr = (slotsRes as unknown as { rows?: Array<{ c: number | string; teams: number | string }> }).rows?.[0];
+  const slotCount = sr ? (typeof sr.c === 'number' ? sr.c : Number(sr.c || 0)) : 0;
+  const teamCount = sr ? (typeof sr.teams === 'number' ? sr.teams : Number(sr.teams || 0)) : 0;
+  if (slotCount === 0) return { ok: false, error: 'no_slots' };
+  if (teamCount === 0) return { ok: false, error: 'no_teams' };
+
+  // Find the first unpicked slot.
+  const firstRes = await db.execute(sql`
     SELECT s.overall
     FROM draft_slots s
     WHERE s.draft_id = ${draftId}::uuid
       AND NOT EXISTS (SELECT 1 FROM draft_picks p WHERE p.draft_id = s.draft_id AND p.overall = s.overall)
     ORDER BY s.overall ASC LIMIT 1
   `);
-  const row = (res as unknown as { rows?: Array<{ overall: number }> }).rows?.[0];
-  const first = row ? Number(row.overall) : 1;
-  const r2 = await db.execute(sql`SELECT clock_seconds FROM drafts WHERE id = ${draftId}::uuid LIMIT 1`);
-  const secs = (r2 as unknown as { rows?: Array<{ clock_seconds: number }> }).rows?.[0]?.clock_seconds || 60;
-  await db.execute(sql`UPDATE drafts SET status = 'LIVE', started_at = COALESCE(started_at, now()), cur_overall = ${first}, clock_started_at = now(), deadline_ts = now() + (interval '1 second' * ${secs}) WHERE id = ${draftId}::uuid`);
-  return true;
+  const firstRow = (firstRes as unknown as { rows?: Array<{ overall: number }> }).rows?.[0];
+  const first = firstRow ? Number(firstRow.overall) : 1;
+  const secs = draft.clock_seconds || 60;
+
+  await db.execute(sql`
+    UPDATE drafts
+    SET status = 'LIVE',
+        pause_reason = NULL,
+        started_at = COALESCE(started_at, now()),
+        cur_overall = ${first},
+        clock_started_at = now(),
+        deadline_ts = now() + (interval '1 second' * ${secs}),
+        paused_remaining_secs = NULL,
+        round_end_pause = false,
+        completed_at = NULL
+    WHERE id = ${draftId}::uuid
+  `);
+  return { ok: true };
 }
 
 export async function getDraftPickedPlayerIds(draftId: string): Promise<string[]> {
@@ -1249,10 +1715,18 @@ export async function getDraftPickedPlayerIds(draftId: string): Promise<string[]
   return rows.map((r) => r.player_id).filter(Boolean);
 }
 
+// pause_reason values (stored in the drafts.pause_reason column):
+//   'manual'          — commissioner pressed Pause
+//   'pick_animation'  — admin approved a pick; waiting for client anim_clock_start
+//   'round_end'       — end of round; waiting for commissioner to start next round
+//   'trade_animation' — trade accepted; animation playing before clock resumes
+//   'pending_pick'    — team submitted a pick; waiting for admin approval
+// NULL means the draft is not paused (LIVE / NOT_STARTED / COMPLETED).
+
 /**
  * Pause the draft specifically for a pick animation: saves the FULL configured clock
- * time (not the partial remaining time) so the next team gets a fresh clock when
- * `resumeAfterAnimation` is called once the animation finishes.
+ * time so the next team gets a fresh clock when resumeAfterAnimation is called.
+ * Only transitions from LIVE (idempotent if already animation-paused).
  */
 export async function pauseDraftForAnimation(draftId: string) {
   await ensureDraftTables();
@@ -1260,18 +1734,23 @@ export async function pauseDraftForAnimation(draftId: string) {
   await db.execute(sql`
     UPDATE drafts
     SET status = 'PAUSED',
+        pause_reason = 'pick_animation',
         paused_remaining_secs = clock_seconds,
         clock_started_at = NULL,
         deadline_ts = NULL
-    WHERE id = ${draftId}::uuid AND round_end_pause = false
+    WHERE id = ${draftId}::uuid
+      AND status IN ('LIVE', 'PAUSED')
+      AND (pause_reason IS NULL OR pause_reason = 'pick_animation')
   `);
   return true;
 }
 
 /**
  * Idempotent resume after a pick animation: only starts the clock if the draft is
- * currently in an animation-pause state (PAUSED + round_end_pause = false).
- * Safe to call from multiple clients — the second call is a no-op.
+ * currently paused specifically for an animation (pause_reason = 'pick_animation').
+ * Safe to call from multiple clients simultaneously — the second call is a no-op.
+ *
+ * Also called by checkStaleAnimationPause() as the server-side fallback.
  */
 export async function resumeAfterAnimation(draftId: string): Promise<boolean> {
   await ensureDraftTables();
@@ -1281,40 +1760,93 @@ export async function resumeAfterAnimation(draftId: string): Promise<boolean> {
     FROM drafts
     WHERE id = ${draftId}::uuid
       AND status = 'PAUSED'
-      AND round_end_pause = false
-      AND paused_remaining_secs >= clock_seconds
+      AND pause_reason = 'pick_animation'
     LIMIT 1
   `);
   const row = (r as unknown as { rows?: Array<{ clock_seconds: number; paused_remaining_secs: number | null }> }).rows?.[0];
-  if (!row) return false; // manual pause, round-end pause, or already live — no-op
+  if (!row) return false; // Not in animation-pause — manual, round-end, trade, etc. — no-op
   const secs = (row.paused_remaining_secs != null && row.paused_remaining_secs > 0)
     ? row.paused_remaining_secs
     : (row.clock_seconds || 60);
   await db.execute(sql`
     UPDATE drafts
     SET status = 'LIVE',
+        pause_reason = NULL,
         clock_started_at = now(),
         deadline_ts = now() + (interval '1 second' * ${secs}),
         paused_remaining_secs = NULL
     WHERE id = ${draftId}::uuid
       AND status = 'PAUSED'
-      AND round_end_pause = false
-      AND paused_remaining_secs >= clock_seconds
+      AND pause_reason = 'pick_animation'
   `);
   return true;
+}
+
+/**
+ * Server-side fallback for stale animation pauses. Called on every GET /api/draft
+ * when the draft is PAUSED with pause_reason = 'pick_animation'. If the animation
+ * pause has been held longer than MAX_ANIMATION_PAUSE_SECS (45 s), the clock is
+ * started automatically without waiting for a client anim_clock_start call.
+ *
+ * This protects against:
+ *  - Overlay tab closed before anim_clock_start fired
+ *  - Network failure eating the anim_clock_start request
+ *  - Race where all tabs reload simultaneously during animation
+ */
+const MAX_ANIMATION_PAUSE_SECS = 45;
+
+export async function checkStaleAnimationPause(draftId: string): Promise<boolean> {
+  await ensureDraftTables();
+  const db = getDb();
+  // Auto-resume if the most recent pick's made_at is older than MAX_ANIMATION_PAUSE_SECS.
+  // `interval '1 second' * N` is used so the JS constant becomes a parameterized
+  // integer value in the drizzle sql tag, rather than being interpolated into a
+  // string literal (which the sql tag cannot safely do).
+  const r = await db.execute(sql`
+    SELECT d.id
+    FROM drafts d
+    WHERE d.id = ${draftId}::uuid
+      AND d.status = 'PAUSED'
+      AND d.pause_reason = 'pick_animation'
+      AND (
+        SELECT p.made_at FROM draft_picks p
+        WHERE p.draft_id = d.id
+        ORDER BY p.made_at DESC
+        LIMIT 1
+      ) < now() - (interval '1 second' * ${MAX_ANIMATION_PAUSE_SECS})
+    LIMIT 1
+  `);
+  if (!(r as unknown as { rows?: unknown[] }).rows?.length) return false;
+  return resumeAfterAnimation(draftId);
 }
 
 export async function pauseDraft(draftId: string) {
   await ensureDraftTables();
   const db = getDb();
-  // Save remaining seconds at pause time so resume can restore them
+  // Only pause if currently LIVE — prevents corrupting paused_remaining_secs on double-pause.
   await db.execute(sql`
     UPDATE drafts
     SET status = 'PAUSED',
+        pause_reason = 'pending_pick',
         paused_remaining_secs = GREATEST(0, EXTRACT(EPOCH FROM (deadline_ts - now()))::integer),
         clock_started_at = NULL,
         deadline_ts = NULL
-    WHERE id = ${draftId}::uuid
+    WHERE id = ${draftId}::uuid AND status = 'LIVE'
+  `);
+  return true;
+}
+
+export async function pauseDraftManual(draftId: string) {
+  await ensureDraftTables();
+  const db = getDb();
+  await db.execute(sql`
+    UPDATE drafts
+    SET status = 'PAUSED',
+        pause_reason = 'manual',
+        paused_remaining_secs = GREATEST(0, EXTRACT(EPOCH FROM (deadline_ts - now()))::integer),
+        clock_started_at = NULL,
+        deadline_ts = NULL
+    WHERE id = ${draftId}::uuid AND status = 'LIVE'
   `);
   return true;
 }
@@ -1322,7 +1854,8 @@ export async function pauseDraft(draftId: string) {
 export async function resumeDraft(draftId: string) {
   await ensureDraftTables();
   const db = getDb();
-  // Use saved remaining secs from pause; fall back to full clock if missing
+  // Use saved remaining secs from pause; fall back to full clock if missing.
+  // Only resume if currently PAUSED — prevents accidentally restarting a COMPLETED draft.
   const r = await db.execute(sql`SELECT clock_seconds, paused_remaining_secs FROM drafts WHERE id = ${draftId}::uuid LIMIT 1`);
   const row = (r as unknown as { rows?: Array<{ clock_seconds: number; paused_remaining_secs: number | null }> }).rows?.[0];
   const secs = (row?.paused_remaining_secs != null && row.paused_remaining_secs > 0)
@@ -1331,11 +1864,12 @@ export async function resumeDraft(draftId: string) {
   await db.execute(sql`
     UPDATE drafts
     SET status = 'LIVE',
+        pause_reason = NULL,
         clock_started_at = now(),
         deadline_ts = now() + (interval '1 second' * ${secs}),
         paused_remaining_secs = NULL,
         round_end_pause = false
-    WHERE id = ${draftId}::uuid
+    WHERE id = ${draftId}::uuid AND status = 'PAUSED'
   `);
   return true;
 }
@@ -1364,67 +1898,142 @@ export async function setClockSeconds(draftId: string, seconds: number) {
   return true;
 }
 
-export async function makePick(params: { draftId: string; team: string; playerId: string; playerName?: string | null; playerPos?: string | null; playerNfl?: string | null; madeBy: string }) {
+// makePick delegates to commitPick — the single authoritative commit path.
+export async function makePick(params: {
+  draftId: string; team: string; playerId: string;
+  playerName?: string | null; playerPos?: string | null; playerNfl?: string | null;
+  madeBy: string;
+}) {
+  return commitPick({
+    draftId: params.draftId,
+    team: params.team,
+    playerId: params.playerId,
+    playerName: params.playerName ?? null,
+    playerPos: params.playerPos ?? null,
+    playerNfl: params.playerNfl ?? null,
+    madeBy: params.madeBy,
+  });
+}
+
+// forcePick delegates to commitPick. Accepts an optional expectedOverall so
+// the approve_pick path can verify the pending pick still matches the cursor.
+export async function forcePick(params: {
+  draftId: string; playerId: string; playerName?: string | null;
+  playerPos?: string | null; playerNfl?: string | null;
+  team?: string | null; madeBy: string;
+  expectedOverall?: number | null;
+}) {
   await ensureDraftTables();
   const db = getDb();
-  const picked = await db.execute(sql`SELECT 1 FROM draft_picks WHERE draft_id = ${params.draftId}::uuid AND player_id = ${params.playerId} LIMIT 1`);
-  const already = (picked as unknown as { rows?: Array<Record<string, unknown>> }).rows?.length || 0;
-  if (already > 0) return { ok: false as const, error: 'player_taken' };
-  const slotRes = await db.execute(sql`SELECT s.overall, s.round, s.team, d.status FROM draft_slots s JOIN drafts d ON d.id = s.draft_id WHERE s.draft_id = ${params.draftId}::uuid AND s.overall = d.cur_overall LIMIT 1`);
-  const slot = (slotRes as unknown as { rows?: Array<{ overall: number; round: number; team: string; status: DraftStatus }> }).rows?.[0];
-  if (!slot) return { ok: false as const, error: 'no_slot' };
-  if (slot.status !== 'LIVE') return { ok: false as const, error: 'not_live' };
-  if (slot.team !== params.team) return { ok: false as const, error: 'not_on_clock' };
-  const pickId = randomUUID();
-  await db.execute(sql`
-    INSERT INTO draft_picks (id, draft_id, overall, round, team, player_id, player_name, player_pos, player_nfl, made_by)
-    VALUES (${pickId}::uuid, ${params.draftId}::uuid, ${slot.overall}, ${slot.round}, ${slot.team}, ${params.playerId}, ${params.playerName || null}, ${params.playerPos || null}, ${params.playerNfl || null}, ${params.madeBy})
-  `);
-  const nextRes = await db.execute(sql`
-    SELECT s.overall, s.round FROM draft_slots s
-    WHERE s.draft_id = ${params.draftId}::uuid AND s.overall > ${slot.overall}
-      AND NOT EXISTS (SELECT 1 FROM draft_picks p WHERE p.draft_id = s.draft_id AND p.overall = s.overall)
-    ORDER BY s.overall ASC LIMIT 1
-  `);
-  const nextRow = (nextRes as unknown as { rows?: Array<{ overall: number; round: number }> }).rows?.[0];
-  const next = nextRow?.overall as number | undefined;
-  if (typeof next === 'number') {
-    const clkRes = await db.execute(sql`SELECT clock_seconds FROM drafts WHERE id = ${params.draftId}::uuid LIMIT 1`);
-    const secs = (clkRes as unknown as { rows?: Array<{ clock_seconds: number }> }).rows?.[0]?.clock_seconds || 60;
-    const isEndOfRound = nextRow!.round > slot.round;
-    if (isEndOfRound) {
-      // Pause at round boundary — admin must start next round
-      await db.execute(sql`UPDATE drafts SET cur_overall = ${next}, status = 'PAUSED', round_end_pause = true, paused_remaining_secs = ${secs}, clock_started_at = NULL, deadline_ts = NULL WHERE id = ${params.draftId}::uuid`);
-    } else {
-      await db.execute(sql`UPDATE drafts SET cur_overall = ${next}, clock_started_at = now(), deadline_ts = now() + (interval '1 second' * ${secs}), round_end_pause = false WHERE id = ${params.draftId}::uuid`);
-    }
-  } else {
-    await db.execute(sql`UPDATE drafts SET status = 'COMPLETED', completed_at = now(), cur_overall = ${slot.overall} WHERE id = ${params.draftId}::uuid`);
+  let team = params.team || null;
+  let curOverall: number | null = params.expectedOverall ?? null;
+  if (!team) {
+    const curRes = await db.execute(sql`
+      SELECT d.cur_overall, s.team
+      FROM drafts d
+      JOIN draft_slots s ON s.draft_id = d.id AND s.overall = d.cur_overall
+      WHERE d.id = ${params.draftId}::uuid LIMIT 1
+    `);
+    const cur = (curRes as unknown as { rows?: Array<{ cur_overall: number; team: string }> }).rows?.[0];
+    if (!cur) return { ok: false as const, error: 'no_team' as const };
+    team = cur.team;
+    curOverall = curOverall ?? Number(cur.cur_overall);
   }
-  return { ok: true as const };
+  return commitPick({
+    draftId: params.draftId,
+    team,
+    playerId: params.playerId,
+    playerName: params.playerName ?? null,
+    playerPos: params.playerPos ?? null,
+    playerNfl: params.playerNfl ?? null,
+    madeBy: params.madeBy,
+    expectedOverall: curOverall,
+  });
 }
 
-export async function forcePick(params: { draftId: string; playerId: string; playerName?: string | null; playerPos?: string | null; playerNfl?: string | null; team?: string | null; madeBy: string }) {
+// undoLastPick — reverses all consequences of the last committed pick.
+//
+// A single atomic CTE handles:
+//   • Deleting the pick from draft_picks
+//   • Removing any pending pick at that slot or later (stale after undo)
+//   • Removing the drafted player from draft_roster_snapshots when the row was
+//     added by this draft (acquired_via = 'drafted')
+//   • Updating the draft cursor back to that slot and pausing with a fresh clock
+//
+// Queue restoration is intentionally omitted — there is no reliable record of
+// the player's prior queue position. The commissioner may re-add the player to
+// the team's queue manually if needed.
+//
+// Note on the roster snapshot: only rows with acquired_via = 'drafted' are
+// removed. If the player pre-existed on the Sleeper snapshot (acquired_via =
+// 'sleeper') that row is not affected — it was there before the draft started.
+export async function undoLastPick(draftId: string): Promise<{ ok: boolean; error?: string; overall?: number }> {
   await ensureDraftTables();
   const db = getDb();
-  const curRes = await db.execute(sql`SELECT d.cur_overall, s.team FROM drafts d JOIN draft_slots s ON s.draft_id = d.id AND s.overall = d.cur_overall WHERE d.id = ${params.draftId}::uuid LIMIT 1`);
-  const cur = (curRes as unknown as { rows?: Array<{ cur_overall: number; team: string }> }).rows?.[0];
-  const team = params.team || cur?.team;
-  if (!team) return { ok: false as const, error: 'no_team' };
-  return makePick({ draftId: params.draftId, team, playerId: params.playerId, playerName: params.playerName || null, playerPos: params.playerPos || null, playerNfl: params.playerNfl || null, madeBy: params.madeBy });
-}
 
-export async function undoLastPick(draftId: string) {
-  await ensureDraftTables();
-  const db = getDb();
-  const res = await db.execute(sql`SELECT overall FROM draft_picks WHERE draft_id = ${draftId}::uuid ORDER BY overall DESC LIMIT 1`);
-  const last = (res as unknown as { rows?: Array<{ overall: number }> }).rows?.[0];
-  if (!last) return { ok: false as const, error: 'no_picks' };
-  const overall = Number(last.overall);
-  await db.execute(sql`DELETE FROM draft_picks WHERE draft_id = ${draftId}::uuid AND overall = ${overall}`);
-  // set cur_overall back to this pick and pause clock
-  await db.execute(sql`UPDATE drafts SET status = 'PAUSED', cur_overall = ${overall}, clock_started_at = NULL, deadline_ts = NULL WHERE id = ${draftId}::uuid`);
-  return { ok: true as const };
+  const result = await db.execute(sql`
+    WITH
+      last_pick AS (
+        SELECT id, overall, round, team, player_id
+        FROM draft_picks
+        WHERE draft_id = ${draftId}::uuid
+        ORDER BY overall DESC
+        LIMIT 1
+      ),
+      del_pick AS (
+        DELETE FROM draft_picks
+        WHERE id = (SELECT id FROM last_pick)
+        RETURNING overall, team, player_id
+      ),
+      del_pending AS (
+        DELETE FROM draft_pending_picks
+        WHERE draft_id = ${draftId}::uuid
+          AND status = 'pending'
+          AND overall >= (SELECT overall FROM del_pick)
+        RETURNING id
+      ),
+      del_snapshot AS (
+        DELETE FROM draft_roster_snapshots
+        WHERE draft_id = ${draftId}::uuid
+          AND team      = (SELECT team FROM del_pick)
+          AND player_id = (SELECT player_id FROM del_pick)
+          AND acquired_via = 'drafted'
+        RETURNING player_id
+      ),
+      upd_draft AS (
+        UPDATE drafts
+        SET status              = 'PAUSED',
+            pause_reason        = 'manual',
+            cur_overall         = (SELECT overall FROM del_pick),
+            clock_started_at    = NULL,
+            deadline_ts         = NULL,
+            completed_at        = NULL,
+            paused_remaining_secs = clock_seconds,
+            round_end_pause     = false,
+            pending_trade_animation = NULL
+        WHERE id = ${draftId}::uuid
+          AND EXISTS (SELECT 1 FROM del_pick)
+        RETURNING id
+      )
+    SELECT
+      (SELECT overall    FROM del_pick) AS overall,
+      (SELECT team       FROM del_pick) AS team,
+      (SELECT player_id  FROM del_pick) AS player_id,
+      EXISTS(SELECT 1 FROM upd_draft)   AS updated
+  `);
+
+  type UndoRow = {
+    overall: number | string | null;
+    team: string | null;
+    player_id: string | null;
+    updated: boolean | number | string | null;
+  };
+  const row = (result as unknown as { rows?: UndoRow[] }).rows?.[0];
+  const toBool = (v: boolean | number | string | null | undefined): boolean =>
+    v === true || v === 1 || (v as unknown) === 't' || (v as unknown) === 'true';
+
+  if (!row || !row.overall || !toBool(row.updated)) return { ok: false, error: 'no_picks' };
+  return { ok: true, overall: Number(row.overall) };
 }
 
 export type QueuePlayer = { id: string; name: string; pos: string; nfl: string };
@@ -1455,12 +2064,26 @@ export async function setTeamQueue(draftId: string, team: string, players: Array
   return true;
 }
 
-// Auto-pick: check if clock expired and make pick from queue or highest-ranked available
-// If force=true, bypass clock check and pick immediately
+// checkAndAutoPick — concurrency-safe auto-pick on clock expiry.
+//
+// Multiple simultaneous GET requests (admin panel, overlay, team rooms) all call
+// this function. Safety guarantees:
+//   • The pending-pick partial unique index ensures only ONE pending row can
+//     exist per (draft_id, overall), so concurrent submitPendingPick calls are
+//     idempotent — the second call returns the existing row rather than creating
+//     a duplicate.
+//   • commitPick (force=true path) uses ON CONFLICT DO NOTHING on draft_picks so
+//     only one forced pick lands even if two requests race.
+//   • Both paths re-verify the draft cursor and team ownership immediately before
+//     writing, so a stale request from a previous tick silently does nothing.
+//
+// If force=true: bypass approval and commit the pick immediately via commitPick.
+// If force=false (clock expired): submit a pending pick for admin approval.
 export async function checkAndAutoPick(draftId: string, force = false): Promise<{ picked: boolean; playerId?: string; playerName?: string; error?: string }> {
   await ensureDraftTables();
   const db = getDb();
-  // Check if draft is LIVE and deadline has passed (unless forced)
+
+  // Read draft state including deadline and current slot team.
   const draftRes = await db.execute(sql`
     SELECT d.status, d.deadline_ts, d.cur_overall, s.team
     FROM drafts d
@@ -1471,51 +2094,74 @@ export async function checkAndAutoPick(draftId: string, force = false): Promise<
   const draft = (draftRes as unknown as { rows?: Array<{ status: string; deadline_ts: string | null; cur_overall: number; team: string }> }).rows?.[0];
   if (!draft) return { picked: false, error: 'no_draft' };
   if (draft.status !== 'LIVE') return { picked: false, error: 'draft_not_live' };
-  
-  // Only check clock expiry if not forced
+
   if (!force) {
     if (!draft.deadline_ts) return { picked: false };
     const deadline = new Date(draft.deadline_ts).getTime();
-    if (Date.now() < deadline) return { picked: false }; // clock not expired
+    if (Date.now() < deadline) return { picked: false };
   }
 
   const team = draft.team;
+  const curOverall = Number(draft.cur_overall);
+
+  // Snapshot taken players.
   const takenRes = await db.execute(sql`SELECT player_id FROM draft_picks WHERE draft_id = ${draftId}::uuid`);
   const taken = new Set(((takenRes as unknown as { rows?: Array<{ player_id: string }> }).rows || []).map(r => r.player_id));
 
-  // If there is already a pending pick waiting for admin approval, do not interfere
+  // A pending pick already waiting for admin approval — do not interfere.
   const existingPending = await getPendingPick(draftId);
   if (existingPending) return { picked: false };
 
-  // Try queue first
-  const queueRes = await db.execute(sql`SELECT player_id, player_name, player_pos, player_nfl FROM draft_queues WHERE draft_id = ${draftId}::uuid AND team = ${team} ORDER BY rank ASC`);
-  const queue = ((queueRes as unknown as { rows?: Array<{ player_id: string; player_name?: string; player_pos?: string; player_nfl?: string }> }).rows || []);
+  // ── Try queue first ──────────────────────────────────────────────────────
+  const queueRes = await db.execute(sql`
+    SELECT player_id, player_name, player_pos, player_nfl
+    FROM draft_queues
+    WHERE draft_id = ${draftId}::uuid AND team = ${team}
+    ORDER BY rank ASC
+  `);
+  const queue = (queueRes as unknown as { rows?: Array<{ player_id: string; player_name?: string; player_pos?: string; player_nfl?: string }> }).rows || [];
+
   for (const qp of queue) {
-    if (!taken.has(qp.player_id)) {
-      if (force) {
-        // Admin-forced: bypass approval, pick immediately
-        const pickRes = await forcePick({ draftId, playerId: qp.player_id, playerName: qp.player_name || null, playerPos: qp.player_pos || null, playerNfl: qp.player_nfl || null, team, madeBy: 'auto' });
-        if (pickRes.ok) {
-          await db.execute(sql`DELETE FROM draft_queues WHERE draft_id = ${draftId}::uuid AND team = ${team} AND player_id = ${qp.player_id}`);
-          return { picked: true, playerId: qp.player_id, playerName: qp.player_name || undefined };
-        }
-      } else {
-        // Clock expired: submit as pending pick so admin can approve
-        await submitPendingPick(draftId, {
-          overall: draft.cur_overall,
-          team,
-          playerId: qp.player_id,
-          playerName: qp.player_name || null,
-          playerPos: qp.player_pos || null,
-          playerNfl: qp.player_nfl || null,
-        });
-        await pauseDraft(draftId);
+    if (taken.has(qp.player_id)) continue;
+    if (force) {
+      // Admin-forced: commit immediately via the authoritative commitPick.
+      const pickRes = await commitPick({
+        draftId, team,
+        playerId: qp.player_id,
+        playerName: qp.player_name || null,
+        playerPos: qp.player_pos || null,
+        playerNfl: qp.player_nfl || null,
+        madeBy: 'auto',
+        expectedOverall: curOverall,
+      });
+      if (pickRes.ok) {
+        await db.execute(sql`DELETE FROM draft_queues WHERE draft_id = ${draftId}::uuid AND team = ${team} AND player_id = ${qp.player_id}`);
         return { picked: true, playerId: qp.player_id, playerName: qp.player_name || undefined };
       }
+      // commitPick failed (concurrent commit raced us) — stop, don't try more.
+      return { picked: false, error: 'stale_request' };
+    } else {
+      // Clock expired — submit as pending pick so admin can approve.
+      // submitPendingPick is idempotent: if a concurrent request already
+      // created the pending pick it returns { created: false } and we stop.
+      const pending = await submitPendingPick(draftId, {
+        overall: curOverall,
+        team,
+        playerId: qp.player_id,
+        playerName: qp.player_name || null,
+        playerPos: qp.player_pos || null,
+        playerNfl: qp.player_nfl || null,
+      });
+      if (pending) {
+        if (pending.created) await pauseDraft(draftId);
+        return { picked: true, playerId: qp.player_id, playerName: qp.player_name || undefined };
+      }
+      // State changed between our reads and the submit — abort this tick.
+      return { picked: false };
     }
   }
 
-  // Try custom player pool (sorted by rank)
+  // ── Try custom player pool (sorted by rank) ──────────────────────────────
   await ensureDraftPlayersTable();
   const customRes = await db.execute(sql`
     SELECT player_id, name, pos, nfl FROM draft_players
@@ -1523,20 +2169,45 @@ export async function checkAndAutoPick(draftId: string, force = false): Promise<
     ORDER BY COALESCE(rank, 999999) ASC, name ASC
   `);
   const customPlayers = (customRes as unknown as { rows?: Array<{ player_id: string; name: string; pos?: string | null; nfl?: string | null }> }).rows || [];
+
   for (const p of customPlayers) {
-    if (!taken.has(p.player_id)) {
-      const pickRes = await forcePick({ draftId, playerId: p.player_id, playerName: p.name, playerPos: p.pos || null, playerNfl: p.nfl || null, team, madeBy: 'auto' });
+    if (taken.has(p.player_id)) continue;
+    if (force) {
+      const pickRes = await commitPick({
+        draftId, team,
+        playerId: p.player_id,
+        playerName: p.name,
+        playerPos: p.pos || null,
+        playerNfl: p.nfl || null,
+        madeBy: 'auto',
+        expectedOverall: curOverall,
+      });
       if (pickRes.ok) return { picked: true, playerId: p.player_id, playerName: p.name };
+      return { picked: false, error: 'stale_request' };
+    } else {
+      // Custom pool + clock expired: submit as pending for admin approval.
+      const pending = await submitPendingPick(draftId, {
+        overall: curOverall,
+        team,
+        playerId: p.player_id,
+        playerName: p.name,
+        playerPos: p.pos || null,
+        playerNfl: p.nfl || null,
+      });
+      if (pending) {
+        if (pending.created) await pauseDraft(draftId);
+        return { picked: true, playerId: p.player_id, playerName: p.name };
+      }
+      return { picked: false };
     }
   }
 
-  // No custom pool, skip pick (or could pick random from Sleeper - leaving as skip for now)
-  // Advance clock to next pick without making a selection (skip)
+  // ── No player available — advance the clock to the next slot (skip) ──────
   const clkRes = await db.execute(sql`SELECT clock_seconds FROM drafts WHERE id = ${draftId}::uuid LIMIT 1`);
   const secs = (clkRes as unknown as { rows?: Array<{ clock_seconds: number }> }).rows?.[0]?.clock_seconds || 60;
   const nextRes = await db.execute(sql`
     SELECT s.overall FROM draft_slots s
-    WHERE s.draft_id = ${draftId}::uuid AND s.overall > ${draft.cur_overall}
+    WHERE s.draft_id = ${draftId}::uuid AND s.overall > ${curOverall}
       AND NOT EXISTS (SELECT 1 FROM draft_picks p WHERE p.draft_id = s.draft_id AND p.overall = s.overall)
     ORDER BY s.overall ASC LIMIT 1
   `);

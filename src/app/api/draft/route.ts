@@ -16,9 +16,12 @@ import {
   pauseDraft,
   resumeDraft,
   pauseDraftForAnimation,
+  pauseDraftManual,
   resumeAfterAnimation,
+  checkStaleAnimationPause,
   setClockSeconds,
   resetPickClock,
+  commitPick,
   forcePick,
   undoLastPick,
   getTeamQueue,
@@ -55,9 +58,15 @@ import { isAdminCookieValue } from '@/lib/auth/admin';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-// In-memory presence tracking: team -> last heartbeat timestamp
+// In-memory presence tracking: team -> last heartbeat timestamp.
+//
+// IMPORTANT: This map lives in a single Next.js/Node.js process. On Vercel,
+// serverless functions are not shared across instances, so a team on a different
+// cold instance will NOT appear here. This list is APPROXIMATE and should be
+// displayed with a disclaimer in the UI — do not use it for access control or
+// draft-state decisions.
 const draftPresence = new Map<string, number>();
-const PRESENCE_TIMEOUT_MS = 15000; // 15 seconds - consider offline if no heartbeat
+const PRESENCE_TIMEOUT_MS = 20000; // 20 s — wider window reduces false-offline flips
 
 function getActiveViewers(): string[] {
   const now = Date.now();
@@ -191,6 +200,9 @@ export async function GET(req: NextRequest) {
     if (!draftId) return ok({ draft: null });
     // Check for auto-pick on clock expiry before returning overview
     await checkAndAutoPick(draftId);
+    // Server-side fallback: if a pick-animation pause has been held too long
+    // (overlay tab closed, network glitch), auto-resume the clock.
+    await checkStaleAnimationPause(draftId).catch(() => {});
     const overview = await getDraftOverview(draftId);
     if (!overview) return ok({ draft: null });
     // Compute clock remaining
@@ -240,7 +252,7 @@ export async function GET(req: NextRequest) {
       ...overview,
       eventLogoUrl: sanitizeLogoForResponse(overview.eventLogoUrl),
     };
-    const resp: { draft: DraftOverview; remainingSec: number | null; pendingPick?: typeof pendingPick; available?: Array<{ id: string; name: string; pos: string; nfl: string; college?: string | null }>; usingCustom?: boolean; revision: string; activeViewers: string[] } = { draft: sanitizedOverview, remainingSec, pendingPick: pendingPick ?? undefined, revision, activeViewers: getActiveViewers() };
+    const resp: { draft: DraftOverview; remainingSec: number | null; pendingPick?: typeof pendingPick; available?: Array<{ id: string; name: string; pos: string; nfl: string; college?: string | null }>; usingCustom?: boolean; revision: string; activeViewers: string[]; presenceApproximate: boolean } = { draft: sanitizedOverview, remainingSec, pendingPick: pendingPick ?? undefined, revision, activeViewers: getActiveViewers(), presenceApproximate: true };
     if (includeAvail) {
       const taken = new Set(await getDraftPickedPlayerIds(draftId));
       if (pendingPick?.playerId) taken.add(pendingPick.playerId);
@@ -292,7 +304,7 @@ export async function POST(req: NextRequest) {
     const id = typeof body.id === 'string' ? body.id : '';
 
     // Admin-only actions
-    const adminOnlyActions = ['create', 'delete', 'start', 'pause', 'resume', 'set_clock', 'reset_clock', 'force_pick', 'undo', 'skip_pick', 'approve_pick', 'reject_pick', 'auto_pick', 'reset', 'reset_trades', 'set_draft_order', 'set_draft_slots', 'upload_players', 'clear_players', 'update_branding', 'admin_workspace', 'delete_player_pool', 'apply_player_pool'];
+    const adminOnlyActions = ['create', 'delete', 'start', 'pause', 'resume', 'set_clock', 'reset_clock', 'force_pick', 'undo', 'skip_pick', 'approve_pick', 'reject_pick', 'auto_pick', 'reset', 'reset_trades', 'set_draft_order', 'set_draft_slots', 'update_slot', 'upload_players', 'clear_players', 'update_branding', 'admin_workspace', 'delete_player_pool', 'apply_player_pool'];
     if (adminOnlyActions.includes(action)) {
       if (!isAdmin(req)) return bad('forbidden', 403);
       if (action === 'admin_workspace') {
@@ -417,25 +429,54 @@ export async function POST(req: NextRequest) {
       if (!draftId) return bad('no_draft');
       if (action === 'skip_pick') {
         const result = await skipPick(draftId);
+        if (!result.ok) return bad(result.error || 'failed', 400);
         return ok(result);
       }
       if (action === 'update_slot') {
         const overall = Number(body.overall || 0);
-        const team = typeof body.team === 'string' ? body.team : '';
+        const team = typeof body.team === 'string' ? body.team.trim() : '';
         if (!overall || !team) return bad('overall and team required');
+        // Validate team is a canonical league team name.
+        if (!TEAM_NAMES.includes(team)) return bad('invalid_team', 400);
         const result = await updateDraftSlot(draftId, overall, team);
         if (!result.ok) return bad(result.error || 'failed', 400);
         return ok({ ok: true });
       }
       if (action === 'start') {
-        await startDraft(draftId);
-        // Fire-and-forget roster + future pick snapshots (idempotent — skip if already done)
-        snapshotDraftRosters(draftId).catch(console.error);
-        snapshotDraftFuturePicks(draftId).catch(console.error);
+        const startRes = await startDraft(draftId);
+        if (!startRes.ok) return bad(startRes.error || 'failed', 400);
+        // Await snapshots so trade operations have fresh data. Log but do not block
+        // the start response on snapshot failure — the commissioner can see the error
+        // and retry via the trade panel if needed.
+        const snapResults = await Promise.allSettled([
+          snapshotDraftRosters(draftId),
+          snapshotDraftFuturePicks(draftId),
+        ]);
+        const snapErrors = snapResults
+          .filter((r): r is PromiseRejectedResult => r.status === 'rejected')
+          .map((r) => String(r.reason));
+        if (snapErrors.length) console.error('[draft/start] snapshot failures:', snapErrors);
+        return ok({ ok: true, snapshotErrors: snapErrors.length ? snapErrors : undefined });
+      }
+      if (action === 'pause') {
+        const overview = await getDraftOverview(draftId);
+        if (!overview) return bad('no_draft');
+        if (overview.status !== 'LIVE') return bad('invalid_state', 400);
+        await pauseDraftManual(draftId);
         return ok({ ok: true });
       }
-      if (action === 'pause') { await pauseDraft(draftId); return ok({ ok: true }); }
-      if (action === 'resume') { await resumeDraft(draftId); return ok({ ok: true }); }
+      if (action === 'resume') {
+        const overview = await getDraftOverview(draftId);
+        if (!overview) return bad('no_draft');
+        if (overview.status === 'COMPLETED') return bad('draft_completed', 400);
+        if (overview.status === 'NOT_STARTED') return bad('draft_not_started', 400);
+        if (overview.status !== 'PAUSED') return bad('invalid_state', 400);
+        // Block manual resume while a pending pick awaits approval.
+        const pendingCheck = await getPendingPick(draftId);
+        if (pendingCheck) return bad('pending_pick_exists', 400);
+        await resumeDraft(draftId);
+        return ok({ ok: true });
+      }
       if (action === 'set_clock') {
         const seconds = Number(body.seconds || 60);
         await setClockSeconds(draftId, seconds);
@@ -458,8 +499,8 @@ export async function POST(req: NextRequest) {
       }
       if (action === 'undo') {
         const r = await undoLastPick(draftId);
-        if (!r.ok) return bad(r.error || 'failed');
-        return ok({ ok: true });
+        if (!r.ok) return bad(r.error || 'failed', 400);
+        return ok({ ok: true, overall: r.overall });
       }
       if (action === 'clear_players') {
         await clearDraftPlayers(draftId);
@@ -473,19 +514,31 @@ export async function POST(req: NextRequest) {
       if (action === 'approve_pick') {
         const pending = await getPendingPick(draftId);
         if (!pending) return bad('no_pending_pick');
-        // Resume first so makePick sees LIVE status, then forcePick sets fresh clock for next pick
+        // Resume first so commitPick sees LIVE status.
         await resumeDraft(draftId);
-        const res = await forcePick({ draftId, playerId: pending.playerId, playerName: pending.playerName, playerPos: pending.playerPos, playerNfl: pending.playerNfl, team: pending.team, madeBy: 'admin_approved' });
+        // Use commitPick with expectedOverall so the commit is rejected if the
+        // cursor has moved since the pending pick was created (e.g., admin
+        // approved a different pick first, or a concurrent request advanced it).
+        const res = await commitPick({
+          draftId,
+          playerId: pending.playerId,
+          playerName: pending.playerName,
+          playerPos: pending.playerPos,
+          playerNfl: pending.playerNfl,
+          team: pending.team,
+          madeBy: 'admin_approved',
+          expectedOverall: pending.overall,
+        });
         if (!res.ok) return bad(res.error || 'failed', 400);
         await resolvePendingPick(pending.id, 'approved');
-        // Add drafted player to roster snapshot so they can be traded
+        // Add drafted player to roster snapshot so they can be traded.
         addPlayerToRosterSnapshot(draftId, pending.team, {
           playerId: pending.playerId,
           playerName: pending.playerName,
           playerPos: pending.playerPos,
           playerNfl: null,
         }, 'drafted').catch(() => {});
-        // Clean the approved player from the team's queue (handles offline team clients)
+        // Clean the approved player from the team's queue (handles offline team clients).
         await removePlayerFromQueue(draftId, pending.team, pending.playerId);
         // Freeze clock at full configured time so it only starts once the pick +
         // "Now on the Clock" animations finish (clients call anim_clock_start).
@@ -548,8 +601,12 @@ export async function POST(req: NextRequest) {
       // Check player not already taken
       const takenIds = await getDraftPickedPlayerIds(draftId);
       if (takenIds.includes(playerId)) return bad('player_already_picked');
-      // Submit as pending (awaiting admin approval) and pause the clock
-      await submitPendingPick(draftId, {
+      // Submit as pending (awaiting admin approval).
+      // submitPendingPick is idempotent: returns { created: false } if a pending
+      // pick already exists for this slot (e.g., a duplicate tab submission).
+      // It returns null if the draft state changed between the checks above and
+      // the insert (stale request).
+      const pendingResult = await submitPendingPick(draftId, {
         overall: overview.curOverall,
         team: pickingTeam,
         playerId,
@@ -557,7 +614,11 @@ export async function POST(req: NextRequest) {
         playerPos,
         playerNfl,
       });
-      await pauseDraft(draftId);
+      if (!pendingResult) return bad('pick_not_accepted');
+      // Only pause the clock when this request actually created the pending pick.
+      // If a duplicate submission returned the existing pending, the draft is
+      // already paused — calling pauseDraft again would corrupt paused_remaining_secs.
+      if (pendingResult.created) await pauseDraft(draftId);
       return ok({ ok: true, pending: true });
     }
 
@@ -657,12 +718,16 @@ export async function POST(req: NextRequest) {
         ? (typeof body.team === 'string' ? body.team : 'Admin')
         : ident?.team || null;
       if (team) recordPresence(team);
-      return ok({ ok: true, activeViewers: getActiveViewers() });
+      // presenceApproximate: true signals to clients that this list is best-effort
+      // (single-instance in-memory) and must not be shown as authoritative.
+      return ok({ ok: true, activeViewers: getActiveViewers(), presenceApproximate: true });
     }
 
     return bad('unknown_action');
   } catch (e) {
     console.error('POST /api/draft failed', e);
-    return bad('pick_submit_failed');
+    // Return the action name in the error so client can show a contextual message.
+    const action = (() => { try { return new URL((e as { url?: string })?.url || '').searchParams.get('action'); } catch { return null; } })();
+    return bad(action ? `${action}_failed` : 'server_error', 500);
   }
 }
