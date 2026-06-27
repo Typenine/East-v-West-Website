@@ -33,7 +33,7 @@ beforeAll(async () => {
 });
 
 beforeEach(() => {
-  vi.clearAllMocks();
+  mockExecute.mockReset();
   mockExecute.mockResolvedValue({ rows: [] });
 });
 
@@ -184,9 +184,8 @@ describe('draft state machine rehearsal (mocked DB)', () => {
 
   it('startDraft rejects when slots exist but no teams assigned', async () => {
     mockExecute
-      .mockResolvedValueOnce({ rows: [{ status: 'NOT_STARTED', clock_seconds: 60 }] })
-      .mockResolvedValueOnce({ rows: [] })                       // no other active draft
-      .mockResolvedValueOnce({ rows: [{ c: 48, teams: 0 }] });  // slots but 0 teams
+      .mockResolvedValueOnce({ rows: [{ status: 'NOT_STARTED', clock_seconds: 60 }] }) // 1. draft row
+      .mockResolvedValueOnce({ rows: [{ c: 48, teams: 0 }] });                          // 2. slots but 0 teams
 
     const r = await startDraft(DRAFT_ID);
     expect(r).toEqual({ ok: false, error: 'no_teams' });
@@ -194,11 +193,10 @@ describe('draft state machine rehearsal (mocked DB)', () => {
 
   it('startDraft succeeds for a correctly configured draft', async () => {
     mockExecute
-      .mockResolvedValueOnce({ rows: [{ status: 'NOT_STARTED', clock_seconds: 60 }] })
-      .mockResolvedValueOnce({ rows: [] })                         // no other active
-      .mockResolvedValueOnce({ rows: [{ c: 48, teams: 12 }] })   // 48 slots, 12 teams
-      .mockResolvedValueOnce({ rows: [{ overall: 1 }] })          // first slot
-      .mockResolvedValueOnce({ rows: [] });                        // UPDATE
+      .mockResolvedValueOnce({ rows: [{ status: 'NOT_STARTED', clock_seconds: 60 }] }) // 1. draft row
+      .mockResolvedValueOnce({ rows: [{ c: 48, teams: 12 }] })                          // 2. slot counts
+      .mockResolvedValueOnce({ rows: [{ overall: 1 }] })                                // 3. first slot
+      .mockResolvedValueOnce({ rows: [{ id: DRAFT_ID }] });                             // 4. atomic UPDATE RETURNING id
 
     const r = await startDraft(DRAFT_ID);
     expect(r).toEqual({ ok: true });

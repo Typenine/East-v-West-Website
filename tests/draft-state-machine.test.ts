@@ -28,17 +28,20 @@ beforeAll(async () => {
 });
 
 beforeEach(() => {
-  vi.clearAllMocks();
+  // Use mockReset (not clearAllMocks) to also flush any queued mockResolvedValueOnce
+  // entries that were not consumed by the previous test.
+  mockExecute.mockReset();
   mockExecute.mockResolvedValue({ rows: [] });
 });
 
 // ── Helper ───────────────────────────────────────────────────────────────────
 // With _tablesEnsured = true, startDraft makes exactly these sequential calls:
 //  1. SELECT status, clock_seconds FROM drafts
-//  2. SELECT id FROM drafts WHERE status IN ('LIVE','PAUSED') AND id <> ...
-//  3. SELECT COUNT(1), COUNT(DISTINCT team) FROM draft_slots
-//  4. SELECT s.overall FROM draft_slots ... ORDER BY overall ASC LIMIT 1 (first slot)
-//  5. UPDATE drafts SET status='LIVE' ...
+//  2. SELECT COUNT(1), COUNT(DISTINCT team) FROM draft_slots
+//  3. SELECT s.overall FROM draft_slots ... ORDER BY overall ASC LIMIT 1 (first slot)
+//  4. UPDATE drafts SET status='LIVE' ... WHERE status='NOT_STARTED' AND NOT EXISTS(...) RETURNING id
+//  If 4 returns 0 rows (UPDATE rejected):
+//  5. SELECT status FROM drafts (recheck to distinguish already_started vs another_draft_active)
 
 // ── startDraft tests ─────────────────────────────────────────────────────────
 
@@ -46,10 +49,9 @@ describe('startDraft', () => {
   it('succeeds for a NOT_STARTED draft with slots and teams', async () => {
     mockExecute
       .mockResolvedValueOnce({ rows: [{ status: 'NOT_STARTED', clock_seconds: 60 }] }) // 1. draft row
-      .mockResolvedValueOnce({ rows: [] })                                               // 2. no other active
-      .mockResolvedValueOnce({ rows: [{ c: 36, teams: 12 }] })                          // 3. slot counts
-      .mockResolvedValueOnce({ rows: [{ overall: 1 }] })                                // 4. first slot
-      .mockResolvedValueOnce({ rows: [] });                                              // 5. UPDATE
+      .mockResolvedValueOnce({ rows: [{ c: 36, teams: 12 }] })                          // 2. slot counts
+      .mockResolvedValueOnce({ rows: [{ overall: 1 }] })                                // 3. first slot
+      .mockResolvedValueOnce({ rows: [{ id: 'draft-1' }] });                            // 4. atomic UPDATE RETURNING id
 
     const result = await startDraft('draft-1');
     expect(result).toEqual({ ok: true });
@@ -70,9 +72,14 @@ describe('startDraft', () => {
   });
 
   it('rejects if another draft is currently active', async () => {
+    // The atomic UPDATE returns 0 rows (NOT EXISTS fails); recheck shows status still NOT_STARTED
+    // so the error is 'another_draft_active'.
     mockExecute
-      .mockResolvedValueOnce({ rows: [{ status: 'NOT_STARTED', clock_seconds: 60 }] })
-      .mockResolvedValueOnce({ rows: [{ id: 'other-draft' }] }); // another LIVE draft
+      .mockResolvedValueOnce({ rows: [{ status: 'NOT_STARTED', clock_seconds: 60 }] }) // 1. draft row
+      .mockResolvedValueOnce({ rows: [{ c: 36, teams: 12 }] })                          // 2. slot counts
+      .mockResolvedValueOnce({ rows: [{ overall: 1 }] })                                // 3. first slot
+      .mockResolvedValueOnce({ rows: [] })                                               // 4. UPDATE returns 0 rows
+      .mockResolvedValueOnce({ rows: [{ status: 'NOT_STARTED' }] });                   // 5. recheck
 
     const result = await startDraft('draft-1');
     expect(result).toEqual({ ok: false, error: 'another_draft_active' });
@@ -80,9 +87,8 @@ describe('startDraft', () => {
 
   it('rejects when draft has no slots', async () => {
     mockExecute
-      .mockResolvedValueOnce({ rows: [{ status: 'NOT_STARTED', clock_seconds: 60 }] })
-      .mockResolvedValueOnce({ rows: [] })          // no other active
-      .mockResolvedValueOnce({ rows: [{ c: 0, teams: 0 }] }); // no slots
+      .mockResolvedValueOnce({ rows: [{ status: 'NOT_STARTED', clock_seconds: 60 }] }) // 1. draft row
+      .mockResolvedValueOnce({ rows: [{ c: 0, teams: 0 }] });                          // 2. slot counts (0 slots)
 
     const result = await startDraft('draft-1');
     expect(result).toEqual({ ok: false, error: 'no_slots' });

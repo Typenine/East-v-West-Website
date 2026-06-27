@@ -20,13 +20,25 @@
  */
 
 import { test, expect, request as playwrightRequest } from '@playwright/test';
+import { createHmac } from 'crypto';
 import { TEAM_NAMES } from '../../src/lib/constants/league';
 
 // ── Config ───────────────────────────────────────────────────────────────────
 
 const BASE = process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:3000';
-const ADMIN_SECRET = process.env.ADMIN_SECRET || '';
+// Must match the EVW_ADMIN_SECRET set in .env.local (falls back to default '002023').
+const ADMIN_SECRET = process.env.EVW_ADMIN_SECRET || process.env.ADMIN_SECRET || '002023';
 const ADMIN_COOKIE = `evw_admin=${ADMIN_SECRET}`;
+
+// Generates a signed evw_session cookie identical to the one signSession() produces.
+// AUTH_SECRET must match what the dev/test server uses.
+function makeTeamSessionCookie(team: string): string {
+  const secret = process.env.AUTH_SECRET || 'evw-default-auth-secret-change-me';
+  const payload = { team, sub: team, exp: Date.now() + 86_400_000 };
+  const data = Buffer.from(JSON.stringify(payload)).toString('base64url');
+  const sig = createHmac('sha256', secret).update(data).digest('base64url');
+  return `evw_session=${data}.${sig}`;
+}
 
 // Short test draft: 2 rounds, 2 teams, 4 slots total
 const TEST_TEAMS = ['Belltown Raptors', 'Detroit Dawgs'];
@@ -69,7 +81,11 @@ async function adminGet(ctx: Awaited<ReturnType<typeof playwrightRequest.newCont
 // ── Setup / Teardown ──────────────────────────────────────────────────────────
 
 test.beforeAll(async () => {
-  test.skip(!ADMIN_SECRET, 'ADMIN_SECRET not set — skipping e2e rehearsal');
+  // Allow skipping with either env var name for backwards compatibility.
+  test.skip(
+    !process.env.EVW_ADMIN_SECRET && !process.env.ADMIN_SECRET,
+    'EVW_ADMIN_SECRET not set — skipping e2e rehearsal (set EVW_ADMIN_SECRET to run)'
+  );
 });
 
 test.afterAll(async () => {
@@ -105,8 +121,9 @@ test('48-slot generation for standard East v. West configuration', async () => {
 
 test.describe('full draft rehearsal (4-slot, 2-team)', () => {
   let ctx: Awaited<ReturnType<typeof playwrightRequest.newContext>>;
-  const team1Cookie = `evw_team=Belltown%20Raptors`;
-  const team2Cookie = `evw_team=Detroit%20Dawgs`;
+  // Signed evw_session cookies so the API's requireTeamUser() resolves to the correct team.
+  const team1Cookie = makeTeamSessionCookie('Belltown Raptors');
+  const team2Cookie = makeTeamSessionCookie('Detroit Dawgs');
 
   test.beforeAll(async () => {
     ctx = await playwrightRequest.newContext();
@@ -209,9 +226,9 @@ test.describe('full draft rehearsal (4-slot, 2-team)', () => {
     expect(ovJson.pendingPick.team).toBe('Belltown Raptors');
   });
 
-  test('same player cannot be selected again while pending', async () => {
-    // The player is in draft_pending_picks, so getDraftPickedPlayerIds
-    // should include it. The pick handler also checks alreadyPending.
+  test('duplicate submission of same player returns ok with duplicate:true', async () => {
+    // Re-submitting the exact same player while it is pending must be idempotent.
+    // The new logic: if alreadyPending.playerId === playerId, return ok+duplicate:true.
     const res = await teamPost(ctx, team1Cookie, {
       action: 'pick',
       id: draftId,
@@ -221,8 +238,9 @@ test.describe('full draft rehearsal (4-slot, 2-team)', () => {
       playerNfl: PLAYER_1.nfl,
     });
     const json = await res.json();
-    // Either 'pick_already_pending' or 'player_already_picked'
-    expect(['pick_already_pending', 'player_already_picked', 'not_your_turn']).toContain(json.error);
+    // Exact duplicate — should succeed idempotently (no error)
+    expect(json.ok).toBe(true);
+    expect(json.duplicate).toBe(true);
   });
 
   test('admin approves pick 1 — animation pause starts', async () => {

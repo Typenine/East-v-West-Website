@@ -480,8 +480,29 @@ export async function ensureDraftTables() {
 // Called from ensureDraftTables so constraints are always present before picks.
 async function ensureDraftPickConstraints(): Promise<void> {
   const db = getDb();
-  // Remove duplicate picks before adding constraints.
-  // Keep the pick with the lexicographically-lowest UUID (consistent tiebreak).
+  // Detect and report duplicate picks before removing them.
+  // Silently deleting data can mask real bugs; we log conflicts so they are visible.
+  const dupOverall = await db.execute(sql`
+    SELECT a.draft_id::text, a.overall, COUNT(1) AS cnt
+    FROM draft_picks a
+    GROUP BY a.draft_id, a.overall
+    HAVING COUNT(1) > 1
+  `).catch(() => null);
+  const dupOverallRows = (dupOverall as unknown as { rows?: Array<{ draft_id: string; overall: number; cnt: number }> })?.rows || [];
+  if (dupOverallRows.length > 0) {
+    console.error('[ensureDraftPickConstraints] DUPLICATE SLOTS DETECTED (will keep lowest UUID):', JSON.stringify(dupOverallRows));
+  }
+  const dupPlayer = await db.execute(sql`
+    SELECT a.draft_id::text, a.player_id, COUNT(1) AS cnt
+    FROM draft_picks a
+    GROUP BY a.draft_id, a.player_id
+    HAVING COUNT(1) > 1
+  `).catch(() => null);
+  const dupPlayerRows = (dupPlayer as unknown as { rows?: Array<{ draft_id: string; player_id: string; cnt: number }> })?.rows || [];
+  if (dupPlayerRows.length > 0) {
+    console.error('[ensureDraftPickConstraints] DUPLICATE PLAYERS DETECTED (will keep lowest UUID):', JSON.stringify(dupPlayerRows));
+  }
+  // Remove duplicate picks, keeping the lexicographically-lowest UUID (consistent tiebreak).
   // These deletes are no-ops if the table is clean.
   await db.execute(sql`
     DELETE FROM draft_picks a
@@ -1658,16 +1679,6 @@ export async function startDraft(draftId: string): Promise<{ ok: boolean; error?
   if (!draft) return { ok: false, error: 'no_draft' };
   if (draft.status !== 'NOT_STARTED') return { ok: false, error: 'already_started' };
 
-  // Refuse if another draft is currently LIVE or PAUSED.
-  const activeRes = await db.execute(sql`
-    SELECT id FROM drafts
-    WHERE status IN ('LIVE', 'PAUSED') AND id <> ${draftId}::uuid
-    LIMIT 1
-  `);
-  if ((activeRes as unknown as { rows?: unknown[] }).rows?.length) {
-    return { ok: false, error: 'another_draft_active' };
-  }
-
   // Confirm slots exist and at least one team is assigned.
   const slotsRes = await db.execute(sql`
     SELECT COUNT(1)::int AS c, COUNT(DISTINCT team)::int AS teams
@@ -1691,7 +1702,10 @@ export async function startDraft(draftId: string): Promise<{ ok: boolean; error?
   const first = firstRow ? Number(firstRow.overall) : 1;
   const secs = draft.clock_seconds || 60;
 
-  await db.execute(sql`
+  // Atomically start this draft ONLY if no other draft is LIVE/PAUSED.
+  // Doing the guard and the UPDATE in a single statement prevents a race where
+  // two simultaneous start requests both pass the prior SELECT checks.
+  const startRes = await db.execute(sql`
     UPDATE drafts
     SET status = 'LIVE',
         pause_reason = NULL,
@@ -1703,7 +1717,24 @@ export async function startDraft(draftId: string): Promise<{ ok: boolean; error?
         round_end_pause = false,
         completed_at = NULL
     WHERE id = ${draftId}::uuid
+      AND status = 'NOT_STARTED'
+      AND NOT EXISTS (
+        SELECT 1 FROM drafts d2
+        WHERE d2.status IN ('LIVE', 'PAUSED') AND d2.id <> ${draftId}::uuid
+      )
+    RETURNING id
   `);
+  if (!(startRes as unknown as { rows?: unknown[] }).rows?.length) {
+    // Re-check why the update was rejected.
+    const recheckRes = await db.execute(sql`
+      SELECT status FROM drafts WHERE id = ${draftId}::uuid LIMIT 1
+    `);
+    const recheckRow = (recheckRes as unknown as { rows?: Array<{ status: string }> }).rows?.[0];
+    if (!recheckRow || recheckRow.status !== 'NOT_STARTED') {
+      return { ok: false, error: 'already_started' };
+    }
+    return { ok: false, error: 'another_draft_active' };
+  }
   return { ok: true };
 }
 

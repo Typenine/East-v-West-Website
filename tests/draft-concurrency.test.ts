@@ -29,7 +29,9 @@ beforeAll(async () => {
 });
 
 beforeEach(() => {
-  vi.clearAllMocks();
+  // Use mockReset (not clearAllMocks) to also flush any queued mockResolvedValueOnce
+  // entries that were not consumed by the previous test.
+  mockExecute.mockReset();
   mockExecute.mockResolvedValue({ rows: [] });
 });
 
@@ -104,10 +106,12 @@ describe('simultaneous picks for the same slot', () => {
 describe('simultaneous auto-pick (clock expiry)', () => {
   // checkAndAutoPick call order (after _tablesEnsured):
   //   1. SELECT d.status, d.deadline_ts, d.cur_overall, s.team FROM drafts d JOIN draft_slots s
-  //   2. SELECT COUNT(1) FROM draft_pending_picks (pending check)
-  //   3. SELECT player_id, ... FROM draft_queues (queue lookup)
-  //   4. submitPendingPick CTE → calls db.execute for the pending insert
-  //   5. pauseDraft → UPDATE drafts SET status='PAUSED'
+  //   2. SELECT player_id FROM draft_picks (taken snapshot)
+  //   3. getPendingPick → SELECT from draft_pending_picks WHERE status='pending'
+  //   4. SELECT player_id, ... FROM draft_queues (queue lookup)
+  //   5a. submitPendingPick → state SELECT (JOIN draft_slots)
+  //   5b. submitPendingPick → INSERT ON CONFLICT DO NOTHING RETURNING id
+  //   6. pauseDraft → UPDATE drafts SET status='PAUSED'
 
   const expiredState = {
     status: 'LIVE',
@@ -120,10 +124,10 @@ describe('simultaneous auto-pick (clock expiry)', () => {
     // First caller succeeds in creating the pending pick
     mockExecute
       .mockResolvedValueOnce({ rows: [expiredState] })         // 1. state
-      .mockResolvedValueOnce({ rows: [{ count: 0 }] })         // 2. no pending
-      .mockResolvedValueOnce({ rows: [] })                     // 3. empty queue → no auto-pick from queue
-      .mockResolvedValueOnce({ rows: [] })                     // 4. no custom pool players
-      .mockResolvedValueOnce({ rows: [] });                    // 5. skipPick sub-select (checkAndAutoPick fallback to skip)
+      .mockResolvedValueOnce({ rows: [] })                     // 2. taken snapshot (empty)
+      .mockResolvedValueOnce({ rows: [] })                     // 3. getPendingPick (none)
+      .mockResolvedValueOnce({ rows: [] })                     // 4. empty queue → no auto-pick from queue
+      .mockResolvedValue({ rows: [] });                        // remaining calls (pool / submit state)
 
     const first = await checkAndAutoPick(DRAFT_ID);
     // No queue + no pool → checkAndAutoPick falls through to skip or returns false
@@ -142,25 +146,16 @@ describe('simultaneous auto-pick (clock expiry)', () => {
 
   it('two concurrent clock checks produce at most one auto-pick', async () => {
     // Both callers read the state simultaneously (status=LIVE, expired clock).
-    // The submitPendingPick CTE uses ON CONFLICT DO NOTHING so only one succeeds.
-    // We model this with { created: false } returned for the second caller.
-
-    // Mock for first caller: state→ no pending → queue player → insert pending
-    const pendingRow = {
-      id: 'pending-uuid',
-      overall: 3,
-      team: 'Belltown Raptors',
-      player_id: 'player-1',
-      status: 'pending',
-      submitted_at: new Date(),
-      player_name: null, player_pos: null, player_nfl: null,
-    };
+    // submitPendingPick makes 2 calls: state SELECT + INSERT RETURNING id.
+    // We model the first caller succeeding (INSERT returns a row).
     mockExecute
-      .mockResolvedValueOnce({ rows: [expiredState] })         // state
-      .mockResolvedValueOnce({ rows: [{ count: 0 }] })         // no pending
-      .mockResolvedValueOnce({ rows: [{ player_id: 'player-1', player_name: null, player_pos: null, player_nfl: null, rank: 1 }] }) // queue
-      .mockResolvedValueOnce({ rows: [{ id: 'pending-uuid', overall: 3, team: 'Belltown Raptors', player_id: 'player-1', player_name: null, player_pos: null, player_nfl: null, submitted_at: new Date() }] }) // submitPending insert
-      .mockResolvedValueOnce({ rows: [] });                    // pauseDraft
+      .mockResolvedValueOnce({ rows: [expiredState] })         // 1. checkAndAutoPick state
+      .mockResolvedValueOnce({ rows: [] })                     // 2. taken snapshot (empty)
+      .mockResolvedValueOnce({ rows: [] })                     // 3. getPendingPick (none)
+      .mockResolvedValueOnce({ rows: [{ player_id: 'player-1', player_name: null, player_pos: null, player_nfl: null, rank: 1 }] }) // 4. queue
+      .mockResolvedValueOnce({ rows: [{ status: 'LIVE', cur_overall: 3, round_end_pause: false, slot_team: 'Belltown Raptors' }] }) // 5a. submitPendingPick state
+      .mockResolvedValueOnce({ rows: [{ id: 'pending-uuid' }] }) // 5b. submitPendingPick INSERT
+      .mockResolvedValueOnce({ rows: [] });                    // 6. pauseDraft
 
     const first = await checkAndAutoPick(DRAFT_ID);
     expect(first.picked).toBe(true);
@@ -218,9 +213,11 @@ describe('simultaneous approve_pick requests', () => {
 // ── Two simultaneous anim_clock_start requests ───────────────────────────────
 
 describe('simultaneous anim_clock_start (resumeAfterAnimation)', () => {
-  // resumeAfterAnimation:
-  //   1. SELECT WHERE status='PAUSED' AND pause_reason='pick_animation'
+  // resumeAfterAnimation call order (after _tablesEnsured):
+  //   1. SELECT clock_seconds, paused_remaining_secs WHERE status='PAUSED' AND pause_reason='pick_animation'
+  //   If row found:
   //   2. UPDATE WHERE same condition (double-check prevents double-resume)
+  //   If no row: returns false immediately (no UPDATE call).
 
   it('first caller resumes the draft and returns true', async () => {
     mockExecute
@@ -232,8 +229,9 @@ describe('simultaneous anim_clock_start (resumeAfterAnimation)', () => {
   });
 
   it('second caller finds no matching row (already LIVE) and returns false', async () => {
+    // SELECT returns no row → returns false immediately (no UPDATE call)
     mockExecute
-      .mockResolvedValueOnce({ rows: [] }); // SELECT returns nothing — draft is already LIVE
+      .mockResolvedValueOnce({ rows: [] }); // SELECT finds nothing
 
     const result = await resumeAfterAnimation(DRAFT_ID);
     expect(result).toBe(false);
@@ -241,7 +239,7 @@ describe('simultaneous anim_clock_start (resumeAfterAnimation)', () => {
 
   it('is safe to call many times — always idempotent', async () => {
     for (let i = 0; i < 5; i++) {
-      // Each call sees no matching row after the first
+      // Each call: SELECT returns nothing → returns false (no UPDATE call)
       mockExecute.mockResolvedValueOnce({ rows: [] });
       const result = await resumeAfterAnimation(DRAFT_ID);
       expect(result).toBe(false);
@@ -252,10 +250,11 @@ describe('simultaneous anim_clock_start (resumeAfterAnimation)', () => {
 // ── Two simultaneous submitPendingPick calls ─────────────────────────────────
 
 describe('submitPendingPick idempotency', () => {
-  // submitPendingPick uses ON CONFLICT DO NOTHING.
-  // The CTE returns the inserted or existing row.
-  // Call order (after _tablesEnsured):
-  //   1. Single CTE db.execute → returns { id, overall, team, player_id, ... }
+  // submitPendingPick call order (after _tablesEnsured):
+  //   1. State SELECT (JOIN draft_slots)
+  //   2. INSERT ON CONFLICT DO NOTHING RETURNING id
+  //   If 2 returns 0 rows (conflict):
+  //   3. SELECT existing pending pick
 
   const pendingParams = {
     overall: 5, team: 'Belltown Raptors', playerId: 'player-42',
@@ -263,12 +262,9 @@ describe('submitPendingPick idempotency', () => {
   };
 
   it('first call creates a new pending pick', async () => {
-    mockExecute.mockResolvedValueOnce({
-      rows: [{
-        id: 'new-uuid', overall: 5, team: 'Belltown Raptors', player_id: 'player-42',
-        player_name: 'Test Player', player_pos: 'WR', player_nfl: 'SEA', submitted_at: new Date(),
-      }],
-    });
+    mockExecute
+      .mockResolvedValueOnce({ rows: [{ status: 'LIVE', cur_overall: 5, round_end_pause: false, slot_team: 'Belltown Raptors' }] }) // 1. state SELECT
+      .mockResolvedValueOnce({ rows: [{ id: 'new-uuid' }] }); // 2. INSERT RETURNING id
 
     const result = await submitPendingPick(DRAFT_ID, pendingParams);
     expect(result).not.toBeNull();
@@ -277,15 +273,12 @@ describe('submitPendingPick idempotency', () => {
   });
 
   it('second concurrent call returns the existing pick (no duplicate)', async () => {
-    // ON CONFLICT DO NOTHING: INSERT returns 0 rows, so the CTE falls back to
-    // the existing row. We simulate this with the same UUID returned.
-    mockExecute.mockResolvedValueOnce({
-      rows: [{
-        id: 'new-uuid', overall: 5, team: 'Belltown Raptors', player_id: 'player-42',
-        player_name: 'Test Player', player_pos: 'WR', player_nfl: 'SEA', submitted_at: new Date(),
-        _created: false, // signals conflict path
-      }],
-    });
+    // ON CONFLICT DO NOTHING: INSERT returns 0 rows; function then does a SELECT
+    // for the existing pending pick row and returns { created: false }.
+    mockExecute
+      .mockResolvedValueOnce({ rows: [{ status: 'LIVE', cur_overall: 5, round_end_pause: false, slot_team: 'Belltown Raptors' }] }) // 1. state SELECT
+      .mockResolvedValueOnce({ rows: [] })                                // 2. INSERT → conflict (0 rows)
+      .mockResolvedValueOnce({ rows: [{ id: 'new-uuid' }] });             // 3. SELECT existing
 
     const result = await submitPendingPick(DRAFT_ID, pendingParams);
     // Either { created: true } or { created: false }, but never null and never a second row
@@ -294,7 +287,7 @@ describe('submitPendingPick idempotency', () => {
   });
 
   it('returns null when draft cursor has advanced (stale request)', async () => {
-    // CTE finds no matching slot (cur_overall already moved) → returns empty rows
+    // State SELECT returns no row (draft doesn't exist) → null.
     mockExecute.mockResolvedValueOnce({ rows: [] });
 
     const result = await submitPendingPick(DRAFT_ID, pendingParams);

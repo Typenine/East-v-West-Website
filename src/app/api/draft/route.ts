@@ -471,6 +471,10 @@ export async function POST(req: NextRequest) {
         if (overview.status === 'COMPLETED') return bad('draft_completed', 400);
         if (overview.status === 'NOT_STARTED') return bad('draft_not_started', 400);
         if (overview.status !== 'PAUSED') return bad('invalid_state', 400);
+        // Block manual resume during animation pauses — only anim_clock_start can exit these.
+        if (overview.pauseReason === 'pick_animation' || overview.pauseReason === 'trade_animation') {
+          return bad('animation_in_progress', 409);
+        }
         // Block manual resume while a pending pick awaits approval.
         const pendingCheck = await getPendingPick(draftId);
         if (pendingCheck) return bad('pending_pick_exists', 400);
@@ -512,6 +516,15 @@ export async function POST(req: NextRequest) {
         return ok({ ok: result.picked, ...result });
       }
       if (action === 'approve_pick') {
+        // Block approval during unfinished animations — the pick animation must
+        // finish and anim_clock_start must fire before committing the next pick.
+        const approveOverview = await getDraftOverview(draftId);
+        if (!approveOverview) return bad('no_draft');
+        if (approveOverview.status === 'PAUSED' &&
+            (approveOverview.pauseReason === 'pick_animation' ||
+             approveOverview.pauseReason === 'trade_animation')) {
+          return bad('animation_in_progress', 409);
+        }
         const pending = await getPendingPick(draftId);
         if (!pending) return bad('no_pending_pick');
         // Resume first so commitPick sees LIVE status.
@@ -558,12 +571,24 @@ export async function POST(req: NextRequest) {
     // anim_clock_start — non-admin, idempotent: starts the clock only if the draft is
     // paused for a pick animation (not a round-end pause). Called by clients when their
     // pick + "Now on the Clock" animations have finished playing.
+    //
+    // If a team submitted a pick DURING the animation (early submission), a
+    // pending_pick pause will already be set. In that case we stay paused so the
+    // commissioner can approve without the clock running. We return ok:true so the
+    // client doesn't retry, but the draft remains PAUSED with reason 'pending_pick'.
     if (action === 'anim_clock_start') {
       const adminReq = isAdmin(req);
       const ident = adminReq ? null : await requireTeamUser().catch(() => null);
       if (!ident && !adminReq) return bad('auth_required', 401);
       const animDraftId = id || (await getActiveOrLatestDraftId());
       if (!animDraftId) return bad('no_draft');
+      // Check for an early-submitted pending pick before resuming animation pause.
+      const earlyPending = await getPendingPick(animDraftId);
+      if (earlyPending) {
+        // A pick was submitted during the animation. Keep draft paused as pending_pick
+        // so commissioner can approve it; do NOT start the clock.
+        return ok({ ok: true, pendingPickExists: true });
+      }
       await resumeAfterAnimation(animDraftId);
       return ok({ ok: true });
     }
@@ -585,11 +610,23 @@ export async function POST(req: NextRequest) {
       if (!overview) return bad('no_draft');
       if (overview.status !== 'LIVE' && overview.status !== 'PAUSED') return bad('draft_not_live');
       if (overview.status === 'PAUSED') {
-        // Don't allow a new pick if one is already waiting for admin approval
+        // Check for existing pending pick BEFORE other pause guards.
         const alreadyPending = await getPendingPick(draftId);
-        if (alreadyPending) return bad('pick_already_pending');
+        if (alreadyPending) {
+          // Distinguish: exact same player (duplicate submission) vs different player (conflict).
+          if (alreadyPending.playerId === playerId) {
+            // Exact duplicate — idempotent, return success.
+            return ok({ ok: true, pending: true, duplicate: true });
+          }
+          // Different player already pending — reject as a conflicting submission.
+          return bad('pick_already_pending', 409);
+        }
         // Also block during round-end pause — admin must start the next round first
         if (overview.roundEndPause) return bad('round_end_pause');
+        // Block during animation pauses — team must wait for animation to finish
+        if (overview.pauseReason === 'pick_animation' || overview.pauseReason === 'trade_animation') {
+          return bad('animation_in_progress', 409);
+        }
       }
       // Admin picks on behalf of whoever is on the clock (canonical names so session matches DB team labels)
       const onClockCanon = canonicalizeTeamName(overview.onClockTeam || '');
@@ -615,10 +652,19 @@ export async function POST(req: NextRequest) {
         playerNfl,
       });
       if (!pendingResult) return bad('pick_not_accepted');
+      if (!pendingResult.created) {
+        // ON CONFLICT: another concurrent request already created the pending pick.
+        // Check if it's the same player (duplicate) or a different player (conflict).
+        const racedPending = await getPendingPick(draftId);
+        if (racedPending && racedPending.playerId === playerId) {
+          return ok({ ok: true, pending: true, duplicate: true });
+        }
+        return bad('pick_already_pending', 409);
+      }
       // Only pause the clock when this request actually created the pending pick.
       // If a duplicate submission returned the existing pending, the draft is
       // already paused — calling pauseDraft again would corrupt paused_remaining_secs.
-      if (pendingResult.created) await pauseDraft(draftId);
+      await pauseDraft(draftId);
       return ok({ ok: true, pending: true });
     }
 

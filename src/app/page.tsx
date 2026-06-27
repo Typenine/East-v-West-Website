@@ -12,10 +12,8 @@ import {
   getRosterIdToTeamNameMap,
   buildYearToLeagueMapUnique,
   getLeagueRosters,
-  getAllPlayersCached,
   type SleeperBracketGameWithScore,
   type WeeklyHighByWeekEntry,
-  type SleeperPlayer,
 } from '@/lib/utils/sleeper-api';
 import { getRecapYear } from '@/lib/utils/phase-resolver';
 import { getHomepagePhase } from '@/lib/utils/countdown-resolver';
@@ -214,19 +212,17 @@ export default async function Home({
       bracketNameMap = nameMap as Map<number, string>;
     }
 
-    // Roster data (all phases — needed for LeaguePulse and My Team card)
+    // Roster data (all phases — needed for MyTeamCard and standings)
+    // NOTE: getAllPlayersCached is intentionally NOT called here — the Sleeper
+    // /players/nfl endpoint (~3MB) times out on cold starts and would push the
+    // page well past Vercel's function timeout. positionCounts/playerPositions
+    // degrade gracefully to empty objects; LeaguePulse renders without them.
     try {
-      const [rosters, nameMap, playerMap] = await Promise.all([
+      const [rosters, nameMap] = await Promise.all([
         getLeagueRosters(leagueId).catch(() => []),
         getRosterIdToTeamNameMap(leagueId).catch(() => new Map<number, string>()),
-        getAllPlayersCached(12 * 60 * 60 * 1000).catch(() => ({} as Record<string, SleeperPlayer>)),
       ]);
       const rIdToTeam = new Map<number, string>(nameMap);
-
-      // Build playerPositions lookup (used by LeaguePulse trade matching)
-      for (const [pid, player] of Object.entries(playerMap as Record<string, SleeperPlayer>)) {
-        if (player.position) playerPositions[pid] = player.position;
-      }
 
       // Standings for non-regular-season phases (post_deadline, postseason, offseason)
       if (standings.length === 0) {
@@ -249,20 +245,8 @@ export default async function Home({
 
       for (const roster of rosters) {
         const teamName = rIdToTeam.get(roster.roster_id) || `Roster ${roster.roster_id}`;
-        const counts: Record<string, number> = {};
-
-        // Sleeper: roster.players already contains taxi and reserve members.
-        // Deduplicate before counting to avoid inflating position totals.
         const uniquePids = new Set<string>(roster.players || []);
         for (const pid of [...(roster.taxi || []), ...(roster.reserve || [])]) uniquePids.add(pid);
-
-        const VALID_POSITIONS = new Set(['QB', 'RB', 'WR', 'TE', 'K', 'DEF', 'DST', 'LB', 'DB', 'DL', 'DT', 'CB', 'S', 'DE']);
-        for (const pid of uniquePids) {
-          const player = (playerMap as Record<string, SleeperPlayer>)[pid];
-          const pos = player?.position;
-          if (pos && VALID_POSITIONS.has(pos)) counts[pos] = (counts[pos] ?? 0) + 1;
-        }
-        positionCounts[teamName] = counts;
 
         // Assemble My Team data for signed-in user
         if (authUser && authUser.team === teamName) {

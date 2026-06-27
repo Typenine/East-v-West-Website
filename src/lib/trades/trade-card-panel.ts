@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Broadcast palette shared by trade cards, trade block cards, and the home/
  * transactions "broadcast" panels. Values resolve to theme-aware CSS variables
  * (defined in globals.css) so the cards flip from dark to light with the theme.
