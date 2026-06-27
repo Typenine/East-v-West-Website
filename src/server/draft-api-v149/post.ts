@@ -30,7 +30,7 @@ import {
 export async function handleDraftPost(req: NextRequest) {
   try {
     await ensureDraftSchemaV149();
-    const body = await req.json().catch(() => ({})) as Record<string, any>;
+    const body = await req.json().catch(() => ({})) as Record<string, unknown>;
     const action = typeof body.action === 'string' ? body.action : '';
     const requestedId = typeof body.id === 'string' ? body.id : '';
 
