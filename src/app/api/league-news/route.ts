@@ -33,6 +33,7 @@ import {
   normalizeText,
   type StoryCategory,
 } from '@/lib/news/news-classifier';
+import { getHomepagePhase, type HomepagePhase } from '@/lib/utils/countdown-resolver';
 import {
   escapeRegExp,
   canonicalizeUrl,
@@ -51,6 +52,51 @@ function clamp(n: number, min: number, max: number) {
 }
 
 export type { StoryCategory };
+
+// ── Phase-aware category boosts ───────────────────────────────────────────────
+// Added to base score so phase-relevant story types surface higher in the feed.
+
+const CATEGORY_PHASE_BOOST: Record<HomepagePhase, Partial<Record<StoryCategory, number>>> = {
+  post_championship_pre_draft: {
+    trade:            0.4,
+    nfl_transaction:  0.4,
+    contract:         0.3,
+    retirement:       0.3,
+    trade_rumor:      0.2,
+    injury:           0.1,
+  },
+  post_draft_pre_fa: {
+    nfl_transaction:    0.4,
+    rookie_development: 0.3,
+    trade:              0.3,
+    depth_chart_role:   0.2,
+    contract:           0.2,
+  },
+  fa_open_pre_season: {
+    nfl_transaction:    0.4,
+    depth_chart_role:   0.3,
+    rookie_development: 0.2,
+    trade:              0.2,
+    injury:             0.2,
+  },
+  regular_season: {
+    injury:               0.5,
+    practice_availability: 0.5,
+    performance:          0.3,
+    nfl_transaction:      0.2,
+    depth_chart_role:     0.2,
+  },
+  post_deadline_pre_postseason: {
+    injury:               0.4,
+    practice_availability: 0.4,
+    performance:          0.2,
+  },
+  postseason: {
+    injury:               0.6,
+    practice_availability: 0.6,
+    performance:          0.3,
+  },
+};
 
 // ── Source profile index ─────────────────────────────────────────────────────
 
@@ -210,6 +256,7 @@ export async function GET(req: NextRequest) {
     type ScoredItem = LeagueNewsItem & { score: number };
     const byKey = new Map<string, ScoredItem>();
     const now = Date.now();
+    const phaseBoosts = CATEGORY_PHASE_BOOST[getHomepagePhase(new Date())];
 
     for (const it of allItems) {
       const title = it.title || '';
@@ -285,9 +332,10 @@ export async function GET(req: NextRequest) {
         if (!sp) return false;
         return new RegExp(`\\b${escapeRegExp(`${sp.player.first_name} ${sp.player.last_name}`)}\\b`, 'i').test(title);
       }) ? 0.3 : 0;
-      const score = sourceWeight + recency + bestQuality + headlineBoost;
 
       const category = classifyStory(title, it.description);
+      const categoryBoost = phaseBoosts[category] ?? 0;
+      const score = sourceWeight + recency + bestQuality + headlineBoost + categoryBoost;
       const linkKey = canonicalizeUrl(it.link);
       const titleKey = `t:${normalizeText(it.title || '')}`;
       const key = linkKey || titleKey;
