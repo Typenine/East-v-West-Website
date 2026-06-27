@@ -1,3 +1,6 @@
+export type ProjectionConfidence = 'low' | 'medium' | 'high';
+export type ProjectionPhase = 'preseason' | 'in_season';
+
 export type WeeklyProjectionBaseline = {
   mean: number;
   stddev: number;
@@ -5,6 +8,8 @@ export type WeeklyProjectionBaseline = {
   last3Avg: number;
   decayedMean: number;
 };
+
+export type ProjectedStatLine = Record<string, number>;
 
 export type WeeklyProjectedPlayer = {
   id: string;
@@ -17,6 +22,15 @@ export type WeeklyProjectedPlayer = {
   matchupFactor: number;
   availabilityWeight: number;
   isBye: boolean;
+  confidence: ProjectionConfidence;
+  rangeLow: number;
+  rangeHigh: number;
+  expectedRole: string;
+  workload: string;
+  assumption: string | null;
+  startProbability: number;
+  activeProbability: number;
+  statLine: ProjectedStatLine;
 };
 
 export type WeeklyLineupEntry = {
@@ -24,6 +38,18 @@ export type WeeklyLineupEntry = {
   slotIndex: number;
   player: WeeklyProjectedPlayer | null;
   changed: boolean;
+};
+
+export type ProjectionValidationSummary = {
+  sampleSize: number;
+  meanAbsoluteError: number | null;
+  bias: number | null;
+  byPosition: Record<string, { sampleSize: number; meanAbsoluteError: number; bias: number }>;
+  optimalBeatSubmitted: boolean | null;
+  submittedLineupActual: number | null;
+  optimalLineupActual: number | null;
+  startSitAccuracy: number | null;
+  confidenceRangeCoverage: number | null;
 };
 
 export type LineupOptimizerResponse = {
@@ -38,4 +64,9 @@ export type LineupOptimizerResponse = {
   potentialGain: number | null;
   currentLineup: WeeklyLineupEntry[];
   optimalLineup: WeeklyLineupEntry[];
+  projectedPlayers: WeeklyProjectedPlayer[];
+  modelVersion: string;
+  projectionPhase: ProjectionPhase;
+  confidence: ProjectionConfidence;
+  confidenceNote: string;
 };

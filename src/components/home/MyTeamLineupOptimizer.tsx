@@ -6,8 +6,13 @@ import {
 } from '@/lib/ui/broadcast-styles';
 import type {
   LineupOptimizerResponse,
+  ProjectionConfidence,
   WeeklyLineupEntry,
 } from '@/lib/fantasy/lineup-types';
+
+function confidenceLabel(confidence: ProjectionConfidence): string {
+  return `${confidence.charAt(0).toUpperCase()}${confidence.slice(1)} confidence`;
+}
 
 function LineupPlayerRow({
   entry,
@@ -18,21 +23,12 @@ function LineupPlayerRow({
 }) {
   const highlight = entry.changed
     ? side === 'optimal'
-      ? {
-          background: 'rgba(16,185,129,0.10)',
-          border: '1px solid rgba(16,185,129,0.35)',
-        }
-      : {
-          background: 'rgba(245,158,11,0.10)',
-          border: '1px solid rgba(245,158,11,0.35)',
-        }
-    : {
-        background: PANEL.tint,
-        border: `1px solid ${PANEL.hairline}`,
-      };
+      ? { background: 'rgba(16,185,129,0.10)', border: '1px solid rgba(16,185,129,0.35)' }
+      : { background: 'rgba(245,158,11,0.10)', border: '1px solid rgba(245,158,11,0.35)' }
+    : { background: PANEL.tint, border: `1px solid ${PANEL.hairline}` };
 
   return (
-    <div className="rounded-md p-2 min-h-[58px]" style={highlight}>
+    <div className="rounded-md p-2 min-h-[72px]" style={highlight}>
       <div className="flex items-center justify-between gap-2">
         <span className="text-[9px] uppercase tracking-wide" style={broadcastFaintTextStyle}>
           {entry.slot.replace('_', ' ')}
@@ -47,25 +43,40 @@ function LineupPlayerRow({
         )}
       </div>
       {entry.player ? (
-        <>
-          <div className="text-xs font-bold truncate mt-0.5" style={broadcastBodyTextStyle}>
-            {entry.player.name}
+        <details className="group/player">
+          <summary className="list-none cursor-pointer">
+            <div className="text-xs font-bold truncate mt-0.5" style={broadcastBodyTextStyle}>
+              {entry.player.name}
+            </div>
+            <div className="flex items-center justify-between gap-2 mt-0.5">
+              <span className="text-[9px] truncate" style={broadcastMutedTextStyle}>
+                {entry.player.position}
+                {entry.player.nflTeam ? ` · ${entry.player.nflTeam}` : ''}
+                {entry.player.isBye
+                  ? ' · BYE'
+                  : entry.player.opponent
+                    ? ` · vs ${entry.player.opponent}`
+                    : ''}
+              </span>
+              <span className="text-[10px] font-bold tabular-nums" style={broadcastBodyTextStyle}>
+                {entry.player.projection.toFixed(1)}
+              </span>
+            </div>
+            <div className="flex items-center justify-between gap-2 mt-1">
+              <span className="text-[8px] truncate" style={broadcastFaintTextStyle}>
+                {entry.player.expectedRole}
+              </span>
+              <span className="text-[8px] whitespace-nowrap" style={broadcastFaintTextStyle}>
+                {entry.player.rangeLow.toFixed(1)}–{entry.player.rangeHigh.toFixed(1)}
+              </span>
+            </div>
+          </summary>
+          <div className="mt-2 pt-2 border-t text-[9px] leading-relaxed" style={{ borderColor: PANEL.hairline, ...broadcastMutedTextStyle }}>
+            <div>{entry.player.workload}</div>
+            <div>{confidenceLabel(entry.player.confidence)}</div>
+            {entry.player.assumption && <div className="mt-1">{entry.player.assumption}</div>}
           </div>
-          <div className="flex items-center justify-between gap-2 mt-0.5">
-            <span className="text-[9px] truncate" style={broadcastMutedTextStyle}>
-              {entry.player.position}
-              {entry.player.nflTeam ? ` · ${entry.player.nflTeam}` : ''}
-              {entry.player.isBye
-                ? ' · BYE'
-                : entry.player.opponent
-                  ? ` · vs ${entry.player.opponent}`
-                  : ''}
-            </span>
-            <span className="text-[10px] font-bold tabular-nums" style={broadcastBodyTextStyle}>
-              {entry.player.projection.toFixed(1)}
-            </span>
-          </div>
-        </>
+        </details>
       ) : (
         <div className="text-xs mt-1" style={broadcastMutedTextStyle}>Empty slot</div>
       )}
@@ -84,10 +95,7 @@ export default function MyTeamLineupOptimizer({
 }) {
   if (loading) {
     return (
-      <div
-        className="rounded-xl p-3"
-        style={{ background: PANEL.tintSoft, border: `1px solid ${PANEL.hairline}` }}
-      >
+      <div className="rounded-xl p-3" style={{ background: PANEL.tintSoft, border: `1px solid ${PANEL.hairline}` }}>
         <div className="text-[10px] uppercase tracking-widest font-bold" style={broadcastFaintTextStyle}>
           Weekly lineup projections
         </div>
@@ -107,10 +115,7 @@ export default function MyTeamLineupOptimizer({
 
   if (!hasOptimalLineup) {
     return (
-      <div
-        className="rounded-xl p-3"
-        style={{ background: PANEL.tintSoft, border: `1px solid ${PANEL.hairline}` }}
-      >
+      <div className="rounded-xl p-3" style={{ background: PANEL.tintSoft, border: `1px solid ${PANEL.hairline}` }}>
         <div className="flex items-center justify-between gap-2">
           <div className="text-[10px] uppercase tracking-widest font-bold" style={broadcastFaintTextStyle}>
             Week {lineup.week} lineup projections
@@ -125,14 +130,12 @@ export default function MyTeamLineupOptimizer({
   }
 
   const gain = lineup.potentialGain || 0;
+  const phaseLabel = lineup.projectionPhase === 'preseason' ? 'Preseason estimate' : `Week ${lineup.week} estimate`;
 
   return (
-    <details
-      className="group rounded-xl"
-      style={{ background: PANEL.tintSoft, border: `1px solid ${PANEL.hairline}` }}
-    >
+    <details className="group rounded-xl" style={{ background: PANEL.tintSoft, border: `1px solid ${PANEL.hairline}` }}>
       <summary className="cursor-pointer list-none p-3">
-        <div className="flex items-center justify-between gap-2 mb-2">
+        <div className="flex items-center justify-between gap-2 mb-1">
           <div className="text-[10px] uppercase tracking-widest font-bold" style={broadcastFaintTextStyle}>
             Week {lineup.week} lineup projections
           </div>
@@ -140,36 +143,27 @@ export default function MyTeamLineupOptimizer({
             {hasCurrentLineup ? 'Click to compare lineups' : 'Click to view optimal lineup'}
           </span>
         </div>
+        <div className="text-[9px] mb-2" style={broadcastMutedTextStyle}>
+          {phaseLabel} · {confidenceLabel(lineup.confidence)}
+        </div>
         <div className={hasCurrentLineup ? 'grid grid-cols-2 gap-2' : 'grid grid-cols-1 gap-2'}>
           {hasCurrentLineup && (
-            <div
-              className="rounded-lg px-3 py-2"
-              style={{ background: PANEL.tint, border: `1px solid ${PANEL.hairline}` }}
-            >
-              <div className="text-[9px] uppercase tracking-wide" style={broadcastFaintTextStyle}>
-                Current lineup
-              </div>
+            <div className="rounded-lg px-3 py-2" style={{ background: PANEL.tint, border: `1px solid ${PANEL.hairline}` }}>
+              <div className="text-[9px] uppercase tracking-wide" style={broadcastFaintTextStyle}>Current lineup</div>
               <div className="text-lg font-black tabular-nums mt-0.5" style={broadcastBodyTextStyle}>
                 {lineup.currentTotal?.toFixed(1) ?? '—'}
               </div>
               <div className="text-[10px]" style={broadcastMutedTextStyle}>projected points</div>
             </div>
           )}
-          <div
-            className="rounded-lg px-3 py-2"
-            style={{ background: `${accent}12`, border: `1px solid ${accent}44` }}
-          >
-            <div className="text-[9px] uppercase tracking-wide" style={broadcastFaintTextStyle}>
-              Optimal lineup
-            </div>
+          <div className="rounded-lg px-3 py-2" style={{ background: `${accent}12`, border: `1px solid ${accent}44` }}>
+            <div className="text-[9px] uppercase tracking-wide" style={broadcastFaintTextStyle}>Optimal lineup</div>
             <div className="flex items-end justify-between gap-2 mt-0.5">
               <div className="text-lg font-black tabular-nums" style={{ color: accent }}>
                 {lineup.optimalTotal?.toFixed(1) ?? '—'}
               </div>
               {hasCurrentLineup && gain > 0 && (
-                <span className="text-[10px] font-bold" style={{ color: '#10b981' }}>
-                  +{gain.toFixed(1)}
-                </span>
+                <span className="text-[10px] font-bold" style={{ color: '#10b981' }}>+{gain.toFixed(1)}</span>
               )}
             </div>
             <div className="text-[10px]" style={broadcastMutedTextStyle}>projected points</div>
@@ -183,27 +177,26 @@ export default function MyTeamLineupOptimizer({
       </summary>
 
       <div className="border-t p-3" style={{ borderColor: PANEL.hairline }}>
+        <div className="rounded-lg px-3 py-2 mb-3" style={{ background: PANEL.tint, border: `1px solid ${PANEL.hairline}` }}>
+          <div className="text-[9px] uppercase tracking-wide font-bold" style={broadcastFaintTextStyle}>
+            Projection confidence
+          </div>
+          <div className="text-[10px] mt-1 leading-relaxed" style={broadcastMutedTextStyle}>
+            {lineup.confidenceNote}
+          </div>
+        </div>
         {hasCurrentLineup ? (
           <>
             <div className="grid grid-cols-2 gap-2 mb-2">
-              <div className="text-[10px] uppercase tracking-widest font-bold" style={broadcastFaintTextStyle}>
-                Current lineup
-              </div>
-              <div className="text-[10px] uppercase tracking-widest font-bold" style={{ color: accent }}>
-                Optimal lineup
-              </div>
+              <div className="text-[10px] uppercase tracking-widest font-bold" style={broadcastFaintTextStyle}>Current lineup</div>
+              <div className="text-[10px] uppercase tracking-widest font-bold" style={{ color: accent }}>Optimal lineup</div>
             </div>
             <div className="grid grid-cols-2 gap-2">
               {lineup.currentLineup.map((entry, index) => (
                 <div key={`lineup-pair-${entry.slotIndex}`} className="contents">
                   <LineupPlayerRow entry={entry} side="current" />
                   <LineupPlayerRow
-                    entry={lineup.optimalLineup[index] || {
-                      slot: entry.slot,
-                      slotIndex: entry.slotIndex,
-                      player: null,
-                      changed: false,
-                    }}
+                    entry={lineup.optimalLineup[index] || { slot: entry.slot, slotIndex: entry.slotIndex, player: null, changed: false }}
                     side="optimal"
                   />
                 </div>
@@ -212,23 +205,16 @@ export default function MyTeamLineupOptimizer({
           </>
         ) : (
           <>
-            <div className="text-[10px] uppercase tracking-widest font-bold mb-2" style={{ color: accent }}>
-              Optimal lineup
-            </div>
+            <div className="text-[10px] uppercase tracking-widest font-bold mb-2" style={{ color: accent }}>Optimal lineup</div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               {lineup.optimalLineup.map((entry) => (
-                <LineupPlayerRow
-                  key={`optimal-${entry.slotIndex}`}
-                  entry={{ ...entry, changed: false }}
-                  side="optimal"
-                />
+                <LineupPlayerRow key={`optimal-${entry.slotIndex}`} entry={{ ...entry, changed: false }} side="optimal" />
               ))}
             </div>
           </>
         )}
         <div className="text-[9px] mt-3 leading-relaxed" style={broadcastFaintTextStyle}>
-          Projections use league-scored recent results, current availability, and the player&apos;s
-          Week {lineup.week} opponent. {hasCurrentLineup ? 'Highlighted rows are the players that change.' : 'The optimal lineup can change as roster, injury, depth-chart, and matchup information updates.'}
+          Projections estimate football workload and efficiency, then apply the league&apos;s Sleeper scoring settings. Matchup effects use only same-season opponent data and remain modest. Click a player for role and workload details.
         </div>
       </div>
     </details>

@@ -1,5 +1,5 @@
-import { normalizeName } from "@/lib/constants/team-mapping";
-import { getEspnDepthForTeam, type EspnDepthEntry } from "@/lib/utils/espn-depth";
+import { normalizeName } from '@/lib/constants/team-mapping';
+import { getEspnDepthForTeam, type EspnDepthEntry } from '@/lib/utils/espn-depth';
 import {
   getAllPlayersCached,
   getLeagueMatchups,
@@ -10,9 +10,10 @@ import {
   type SleeperInjury,
   type SleeperMatchup,
   type SleeperPlayer,
-} from "@/lib/utils/sleeper-api";
+} from '@/lib/utils/sleeper-api';
 
 export interface PlayerAvailabilityEntry extends PlayerAvailabilityInfo {
+  /** Probability that the player is active. Role is modeled separately. */
   weight: number;
 }
 
@@ -22,12 +23,12 @@ export interface AvailabilitySnapshotArgs {
   playerIds: string[];
 }
 
-const tierBaseWeight: Record<PlayerAvailabilityTier, number> = {
-  starter: 1,
-  primary_backup: 0.5,
-  rotational: 0.3,
-  inactive: 0,
-  unknown: 0.65,
+const tierActiveProbability: Record<PlayerAvailabilityTier, number> = {
+  starter: 0.98,
+  primary_backup: 0.97,
+  rotational: 0.96,
+  inactive: 0.02,
+  unknown: 0.92,
 };
 
 interface TeamDepthMaps {
@@ -36,9 +37,7 @@ interface TeamDepthMaps {
 
 function buildDepthMaps(entries: EspnDepthEntry[]): TeamDepthMaps {
   const byName = new Map<string, EspnDepthEntry>();
-  for (const entry of entries) {
-    byName.set(entry.normalizedName, entry);
-  }
+  for (const entry of entries) byName.set(entry.normalizedName, entry);
   return { byName };
 }
 
@@ -57,14 +56,13 @@ async function loadEspnDepth(teamCodes: string[]): Promise<Map<string, TeamDepth
 
 async function buildLineupStarts(leagueId: string, uptoWeek: number, targetIds: Set<string>): Promise<Map<string, number>> {
   const counts = new Map<string, number>();
-  const weeks = Array.from({ length: Math.max(0, uptoWeek - 1) }, (_, i) => i + 1);
+  const weeks = Array.from({ length: Math.max(0, uptoWeek - 1) }, (_, index) => index + 1);
   await Promise.all(weeks.map(async (week) => {
     const matchups = await getLeagueMatchups(leagueId, week).catch(() => [] as SleeperMatchup[]);
-    for (const m of matchups) {
-      const starters = Array.isArray(m.starters) ? m.starters : [];
-      for (const pid of starters) {
-        if (!pid || pid === "0" || !targetIds.has(pid)) continue;
-        counts.set(pid, (counts.get(pid) ?? 0) + 1);
+    for (const matchup of matchups) {
+      for (const playerId of Array.isArray(matchup.starters) ? matchup.starters : []) {
+        if (!playerId || playerId === '0' || !targetIds.has(playerId)) continue;
+        counts.set(playerId, (counts.get(playerId) ?? 0) + 1);
       }
     }
   }));
@@ -72,55 +70,48 @@ async function buildLineupStarts(leagueId: string, uptoWeek: number, targetIds: 
 }
 
 function adjustByEspnDepth(entry: PlayerAvailabilityEntry, espn: EspnDepthEntry | undefined) {
-  if (!espn) return;
+  if (!espn || entry.tier === 'inactive') return;
   const { order } = espn;
-  if (order === 1 && entry.tier !== "starter") {
-    entry.tier = "starter";
-    entry.reasons.push("espn-depth-1");
-  } else if (order === 2 && entry.tier === "unknown") {
-    entry.tier = "primary_backup";
-    entry.reasons.push("espn-depth-2");
-  } else if (order && order <= 3 && entry.tier === "unknown") {
-    entry.tier = "rotational";
+  if (order === 1 && entry.tier !== 'starter') {
+    entry.tier = 'starter';
+    entry.reasons.push('espn-depth-1');
+  } else if (order === 2 && entry.tier === 'unknown') {
+    entry.tier = 'primary_backup';
+    entry.reasons.push('espn-depth-2');
+  } else if (order && order <= 3 && entry.tier === 'unknown') {
+    entry.tier = 'rotational';
     entry.reasons.push(`espn-depth-${order}`);
   }
 }
 
-function adjustByLineupStarts(entry: PlayerAvailabilityEntry, starts: number, weeksConsidered: number) {
-  if (weeksConsidered <= 0) return;
-  if (starts === 0 && entry.tier === "starter") {
-    entry.reasons.push("lineup-no-starts");
-    entry.weight *= 0.7;
-    return;
-  }
-  const threshold = Math.max(1, Math.ceil(weeksConsidered * 0.4));
-  if (starts >= threshold && entry.tier !== "starter") {
-    entry.tier = "starter";
-    entry.reasons.push(`lineup-starts-${starts}`);
-  }
+function noteFantasyLineupHistory(entry: PlayerAvailabilityEntry, starts: number, weeksConsidered: number) {
+  if (weeksConsidered <= 0 || starts <= 0) return;
+  // A fantasy start is not evidence that the player starts for his NFL team.
+  // Keep it only as descriptive continuity evidence for downstream explanations.
+  entry.reasons.push(`fantasy-lineup-starts-${starts}`);
 }
 
 function adjustForInjury(entry: PlayerAvailabilityEntry, injury: SleeperInjury | undefined) {
   const status = injury?.status?.toLowerCase();
-  if (!status) return;
-  if (status === "questionable") {
-    entry.weight *= 0.85;
-    entry.reasons.push("injury-Q");
-  } else if (status === "doubtful") {
-    entry.weight *= 0.5;
-    entry.reasons.push("injury-D");
-    if (entry.tier !== "inactive") entry.tier = "rotational";
+  if (status === 'out' || status === 'suspended' || status === 'inactive') {
+    entry.weight = Math.min(entry.weight, 0.01);
+    entry.tier = 'inactive';
+    entry.reasons.push(`injury-${status}`);
+  } else if (status === 'doubtful') {
+    entry.weight = Math.min(entry.weight, 0.22);
+    entry.reasons.push('injury-D');
+  } else if (status === 'questionable') {
+    entry.weight = Math.min(entry.weight, 0.82);
+    entry.reasons.push('injury-Q');
   }
   const practice = injury?.practice_participation?.toLowerCase();
-  if (practice && practice.includes("dnp")) {
-    entry.weight *= 0.75;
-    entry.reasons.push("practice-DNP");
+  if (practice?.includes('dnp')) {
+    entry.weight *= 0.82;
+    entry.reasons.push('practice-DNP');
+  } else if (practice?.includes('limited')) {
+    entry.weight *= 0.94;
+    entry.reasons.push('practice-limited');
   }
-}
-
-function ensureWeightForTier(entry: PlayerAvailabilityEntry) {
-  const base = tierBaseWeight[entry.tier] ?? 0.6;
-  entry.weight = Math.max(0, Math.min(1, entry.weight * base));
 }
 
 export async function buildPlayerAvailabilitySnapshot(args: AvailabilitySnapshotArgs): Promise<Record<string, PlayerAvailabilityEntry>> {
@@ -132,46 +123,37 @@ export async function buildPlayerAvailabilitySnapshot(args: AvailabilitySnapshot
     getSleeperInjuriesCached().catch(() => [] as SleeperInjury[]),
     buildLineupStarts(leagueId, uptoWeek, targetIds),
   ]);
-
-  const injuryMap = new Map(injuries.map((inj) => [inj.player_id, inj]));
-
-  const teamCodes = Array.from(new Set(playerIds.map((pid) => players[pid]?.team?.toUpperCase()).filter(Boolean))) as string[];
+  const injuryMap = new Map(injuries.map((injury) => [injury.player_id, injury]));
+  const teamCodes = Array.from(new Set(
+    playerIds.map((playerId) => players[playerId]?.team?.toUpperCase()).filter(Boolean),
+  )) as string[];
   const espnDepth = await loadEspnDepth(teamCodes);
-
   const result: Record<string, PlayerAvailabilityEntry> = {};
   const weeksConsidered = Math.max(0, uptoWeek - 1);
 
-  for (const pid of playerIds) {
-    const player = players[pid];
-    const injury = injuryMap.get(pid);
+  for (const playerId of playerIds) {
+    const player = players[playerId];
+    const injury = injuryMap.get(playerId);
     const base = resolveAvailabilityFromSleeper(player, injury);
     const entry: PlayerAvailabilityEntry = {
       tier: base.tier,
       reasons: [...base.reasons],
-      weight: 1,
+      weight: tierActiveProbability[base.tier] ?? 0.92,
     };
-
     const teamCode = player?.team?.toUpperCase();
     if (teamCode) {
       const depthMaps = espnDepth.get(teamCode);
       if (depthMaps) {
-        const nameKey = normalizeName(`${player?.first_name || ""} ${player?.last_name || ""}`);
-        const depthEntry = depthMaps.byName.get(nameKey);
-        adjustByEspnDepth(entry, depthEntry);
+        const nameKey = normalizeName(`${player?.first_name || ''} ${player?.last_name || ''}`);
+        adjustByEspnDepth(entry, depthMaps.byName.get(nameKey));
       }
     }
-
-    const starts = lineupStarts.get(pid) ?? 0;
-    adjustByLineupStarts(entry, starts, weeksConsidered);
+    entry.weight = Math.min(entry.weight, tierActiveProbability[entry.tier] ?? 0.92);
+    noteFantasyLineupHistory(entry, lineupStarts.get(playerId) ?? 0, weeksConsidered);
     adjustForInjury(entry, injury);
-    ensureWeightForTier(entry);
-
-    // Clamp to [0,1]
     entry.weight = Math.max(0, Math.min(1, Number(entry.weight.toFixed(3))));
-
     if (entry.reasons.length === 0) entry.reasons.push('no-flags');
-    result[pid] = entry;
+    result[playerId] = entry;
   }
-
   return result;
 }
