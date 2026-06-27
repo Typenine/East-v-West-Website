@@ -73,32 +73,45 @@ function draftCapitalFactor(player: SleeperPlayer | undefined): number {
   return 1;
 }
 
+function roleEvidenceFactor(candidate: PlayerProjectionCandidate, profile: UsageProfile): number {
+  if (candidate.base.expectedRole !== 'Uncertain role') return 1;
+  if (profile.sampleGames >= 6) return 0.75;
+  if (profile.rookie) return 0.50;
+  return 0.18;
+}
+
 export function targetPrior(candidate: PlayerProjectionCandidate, profile: UsageProfile): number {
   const position = candidate.base.position;
-  const starter = candidate.override?.startProbability ?? candidate.base.startProbability;
+  const starter = clamp(candidate.override?.startProbability ?? candidate.base.startProbability, 0, 1);
   const rolePrior = position === 'WR'
-    ? 2.1 + (starter * 5.4)
+    ? 0.25 + (Math.pow(starter, 2.2) * 7.2)
     : position === 'TE'
-      ? 1.4 + (starter * 4.3)
+      ? 0.18 + (Math.pow(starter, 2.2) * 5.7)
       : position === 'RB'
-        ? 0.9 + (starter * 2.9)
+        ? 0.12 + (Math.pow(starter, 2.2) * 3.7)
         : 0;
   const rookieBoost = profile.rookie ? draftCapitalFactor(candidate.player) : 1;
-  return Math.max(0.05, ((profile.recentTargets * profile.historyTrust) + (rolePrior * (1 - profile.historyTrust))) * rookieBoost);
+  const roleEvidence = roleEvidenceFactor(candidate, profile);
+  const historyComponent = profile.recentTargets * profile.historyTrust;
+  const roleComponent = rolePrior * roleEvidence * (1 - profile.historyTrust);
+  return Math.max(0.02, (historyComponent + roleComponent) * rookieBoost);
 }
 
 export function carryPrior(candidate: PlayerProjectionCandidate, profile: UsageProfile): number {
   const position = candidate.base.position;
-  const starter = candidate.override?.startProbability ?? candidate.base.startProbability;
+  const starter = clamp(candidate.override?.startProbability ?? candidate.base.startProbability, 0, 1);
   const rolePrior = position === 'RB'
-    ? 2.5 + (starter * 12.5)
+    ? 0.30 + (Math.pow(starter, 2.2) * 15)
     : position === 'QB'
       ? 0.8 + (Math.min(profile.recentCarries || 3.5, 9) * 0.7)
       : position === 'WR'
-        ? 0.08 + (profile.recentCarries * 0.72)
+        ? 0.05 + (profile.recentCarries * 0.72)
         : 0;
   const rookieBoost = profile.rookie && position === 'RB' ? draftCapitalFactor(candidate.player) : 1;
-  return Math.max(0.02, ((profile.recentCarries * profile.historyTrust) + (rolePrior * (1 - profile.historyTrust))) * rookieBoost);
+  const roleEvidence = position === 'RB' ? roleEvidenceFactor(candidate, profile) : 1;
+  const historyComponent = profile.recentCarries * profile.historyTrust;
+  const roleComponent = rolePrior * roleEvidence * (1 - profile.historyTrust);
+  return Math.max(0.01, (historyComponent + roleComponent) * rookieBoost);
 }
 
 export function passPrior(candidate: PlayerProjectionCandidate, profile: UsageProfile): number {
