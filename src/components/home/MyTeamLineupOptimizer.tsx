@@ -92,7 +92,7 @@ export default function MyTeamLineupOptimizer({
           Weekly lineup projections
         </div>
         <div className="text-xs mt-2" style={broadcastMutedTextStyle}>
-          Calculating the current and optimal legal lineups…
+          Calculating the optimal legal lineup…
         </div>
       </div>
     );
@@ -100,7 +100,12 @@ export default function MyTeamLineupOptimizer({
 
   if (!lineup) return null;
 
-  if (!lineup.available) {
+  const hasOptimalLineup = lineup.optimalTotal != null
+    && lineup.optimalLineup.some((entry) => Boolean(entry.player));
+  const hasCurrentLineup = lineup.currentTotal != null
+    && lineup.currentLineup.some((entry) => Boolean(entry.player));
+
+  if (!hasOptimalLineup) {
     return (
       <div
         className="rounded-xl p-3"
@@ -113,7 +118,7 @@ export default function MyTeamLineupOptimizer({
           <span className="text-[9px]" style={broadcastFaintTextStyle}>{lineup.season}</span>
         </div>
         <div className="text-xs mt-2" style={broadcastMutedTextStyle}>
-          {lineup.reason || 'Weekly lineup data is not available yet.'}
+          {lineup.reason || 'Weekly lineup projections are not available yet.'}
         </div>
       </div>
     );
@@ -132,22 +137,24 @@ export default function MyTeamLineupOptimizer({
             Week {lineup.week} lineup projections
           </div>
           <span className="text-[9px]" style={broadcastFaintTextStyle}>
-            Click to compare lineups
+            {hasCurrentLineup ? 'Click to compare lineups' : 'Click to view optimal lineup'}
           </span>
         </div>
-        <div className="grid grid-cols-2 gap-2">
-          <div
-            className="rounded-lg px-3 py-2"
-            style={{ background: PANEL.tint, border: `1px solid ${PANEL.hairline}` }}
-          >
-            <div className="text-[9px] uppercase tracking-wide" style={broadcastFaintTextStyle}>
-              Current lineup
+        <div className={hasCurrentLineup ? 'grid grid-cols-2 gap-2' : 'grid grid-cols-1 gap-2'}>
+          {hasCurrentLineup && (
+            <div
+              className="rounded-lg px-3 py-2"
+              style={{ background: PANEL.tint, border: `1px solid ${PANEL.hairline}` }}
+            >
+              <div className="text-[9px] uppercase tracking-wide" style={broadcastFaintTextStyle}>
+                Current lineup
+              </div>
+              <div className="text-lg font-black tabular-nums mt-0.5" style={broadcastBodyTextStyle}>
+                {lineup.currentTotal?.toFixed(1) ?? '—'}
+              </div>
+              <div className="text-[10px]" style={broadcastMutedTextStyle}>projected points</div>
             </div>
-            <div className="text-lg font-black tabular-nums mt-0.5" style={broadcastBodyTextStyle}>
-              {lineup.currentTotal?.toFixed(1) ?? '—'}
-            </div>
-            <div className="text-[10px]" style={broadcastMutedTextStyle}>projected points</div>
-          </div>
+          )}
           <div
             className="rounded-lg px-3 py-2"
             style={{ background: `${accent}12`, border: `1px solid ${accent}44` }}
@@ -159,7 +166,7 @@ export default function MyTeamLineupOptimizer({
               <div className="text-lg font-black tabular-nums" style={{ color: accent }}>
                 {lineup.optimalTotal?.toFixed(1) ?? '—'}
               </div>
-              {gain > 0 && (
+              {hasCurrentLineup && gain > 0 && (
                 <span className="text-[10px] font-bold" style={{ color: '#10b981' }}>
                   +{gain.toFixed(1)}
                 </span>
@@ -168,36 +175,60 @@ export default function MyTeamLineupOptimizer({
             <div className="text-[10px]" style={broadcastMutedTextStyle}>projected points</div>
           </div>
         </div>
+        {!hasCurrentLineup && (
+          <div className="text-[10px] mt-2" style={broadcastMutedTextStyle}>
+            Sleeper has not published the Week {lineup.week} lineup yet. The current-lineup comparison will appear automatically when it does.
+          </div>
+        )}
       </summary>
 
       <div className="border-t p-3" style={{ borderColor: PANEL.hairline }}>
-        <div className="grid grid-cols-2 gap-2 mb-2">
-          <div className="text-[10px] uppercase tracking-widest font-bold" style={broadcastFaintTextStyle}>
-            Current lineup
-          </div>
-          <div className="text-[10px] uppercase tracking-widest font-bold" style={{ color: accent }}>
-            Optimal lineup
-          </div>
-        </div>
-        <div className="grid grid-cols-2 gap-2">
-          {lineup.currentLineup.map((entry, index) => (
-            <div key={`lineup-pair-${entry.slotIndex}`} className="contents">
-              <LineupPlayerRow entry={entry} side="current" />
-              <LineupPlayerRow
-                entry={lineup.optimalLineup[index] || {
-                  slot: entry.slot,
-                  slotIndex: entry.slotIndex,
-                  player: null,
-                  changed: false,
-                }}
-                side="optimal"
-              />
+        {hasCurrentLineup ? (
+          <>
+            <div className="grid grid-cols-2 gap-2 mb-2">
+              <div className="text-[10px] uppercase tracking-widest font-bold" style={broadcastFaintTextStyle}>
+                Current lineup
+              </div>
+              <div className="text-[10px] uppercase tracking-widest font-bold" style={{ color: accent }}>
+                Optimal lineup
+              </div>
             </div>
-          ))}
-        </div>
+            <div className="grid grid-cols-2 gap-2">
+              {lineup.currentLineup.map((entry, index) => (
+                <div key={`lineup-pair-${entry.slotIndex}`} className="contents">
+                  <LineupPlayerRow entry={entry} side="current" />
+                  <LineupPlayerRow
+                    entry={lineup.optimalLineup[index] || {
+                      slot: entry.slot,
+                      slotIndex: entry.slotIndex,
+                      player: null,
+                      changed: false,
+                    }}
+                    side="optimal"
+                  />
+                </div>
+              ))}
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="text-[10px] uppercase tracking-widest font-bold mb-2" style={{ color: accent }}>
+              Optimal lineup
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {lineup.optimalLineup.map((entry) => (
+                <LineupPlayerRow
+                  key={`optimal-${entry.slotIndex}`}
+                  entry={{ ...entry, changed: false }}
+                  side="optimal"
+                />
+              ))}
+            </div>
+          </>
+        )}
         <div className="text-[9px] mt-3 leading-relaxed" style={broadcastFaintTextStyle}>
           Projections use league-scored recent results, current availability, and the player&apos;s
-          Week {lineup.week} opponent. Highlighted rows are the players that change.
+          Week {lineup.week} opponent. {hasCurrentLineup ? 'Highlighted rows are the players that change.' : 'The optimal lineup can change as roster, injury, depth-chart, and matchup information updates.'}
         </div>
       </div>
     </details>
