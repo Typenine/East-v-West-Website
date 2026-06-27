@@ -137,13 +137,16 @@ function NewsCard({ item }: { item: NewsItem }) {
         {item.title}
       </a>
       {item.matches.length > 0 && (
-        <div className="text-xs mb-1.5 flex flex-wrap gap-1 items-center" style={broadcastMutedTextStyle}>
-          {item.matches.slice(0, 3).map((m, i) => (
-            <span key={m.playerId}>
-              {m.name}{m.position ? ` (${m.position})` : ''}
-              {i < Math.min(item.matches.length, 3) - 1 ? ', ' : ''}
-            </span>
-          ))}
+        <div className="text-xs mb-1.5 flex flex-wrap gap-x-2 gap-y-0.5 items-center" style={broadcastMutedTextStyle}>
+          {item.matches.slice(0, 3).map((m) => {
+            const context = [m.position, m.nflTeam].filter(Boolean).join(' · ');
+            return (
+              <span key={m.playerId} className="whitespace-nowrap">
+                {m.name}
+                {context && <span style={broadcastFaintTextStyle}> · {context}</span>}
+              </span>
+            );
+          })}
           {item.matches.length > 3 && (
             <span style={broadcastFaintTextStyle}>+{item.matches.length - 3} more</span>
           )}
