@@ -69,19 +69,72 @@ async function buildLineupStarts(leagueId: string, uptoWeek: number, targetIds: 
   return counts;
 }
 
-function adjustByEspnDepth(entry: PlayerAvailabilityEntry, espn: EspnDepthEntry | undefined) {
-  if (!espn || entry.tier === 'inactive') return;
-  const { order } = espn;
-  if (order === 1 && entry.tier !== 'starter') {
-    entry.tier = 'starter';
-    entry.reasons.push('espn-depth-1');
-  } else if (order === 2 && entry.tier === 'unknown') {
-    entry.tier = 'primary_backup';
-    entry.reasons.push('espn-depth-2');
-  } else if (order && order <= 3 && entry.tier === 'unknown') {
-    entry.tier = 'rotational';
-    entry.reasons.push(`espn-depth-${order}`);
+function normalizeDepthPosition(position: string | null | undefined): string {
+  const normalized = String(position || '').trim().toUpperCase();
+  if (normalized === 'QUARTERBACK') return 'QB';
+  if (normalized === 'RUNNING BACK' || normalized === 'HB' || normalized === 'FB') return 'RB';
+  if (normalized === 'WIDE RECEIVER' || normalized === 'LWR' || normalized === 'RWR' || normalized === 'SWR') return 'WR';
+  if (normalized === 'TIGHT END') return 'TE';
+  if (normalized === 'PLACE KICKER' || normalized === 'KICKER' || normalized === 'PK') return 'K';
+  return normalized;
+}
+
+export function classifyDepthChartRole(
+  position: string | null | undefined,
+  order: number | null | undefined,
+): PlayerAvailabilityTier | null {
+  if (!Number.isInteger(order) || !order || order < 1) return null;
+  const normalizedPosition = normalizeDepthPosition(position);
+
+  if (normalizedPosition === 'WR') {
+    // NFL offenses commonly start three receivers. WR2 and the slot/WR3 are
+    // starting offensive roles, not backups to the first listed receiver.
+    return order <= 3 ? 'starter' : 'rotational';
   }
+
+  if (normalizedPosition === 'QB' || normalizedPosition === 'RB' || normalizedPosition === 'TE' || normalizedPosition === 'K') {
+    if (order === 1) return 'starter';
+    if (order === 2) return 'primary_backup';
+    return 'rotational';
+  }
+
+  if (order === 1) return 'starter';
+  if (order === 2) return 'primary_backup';
+  return 'rotational';
+}
+
+function applyDepthRole(
+  entry: PlayerAvailabilityEntry,
+  position: string | null | undefined,
+  order: number | null | undefined,
+  reason: string,
+) {
+  if (entry.tier === 'inactive') return;
+  const tier = classifyDepthChartRole(position, order);
+  if (!tier) return;
+
+  // Sleeper's explicit starter flag is stronger than its numeric ordering.
+  // Otherwise, use the position-aware interpretation of the depth chart.
+  if (!(entry.reasons.includes('sleeper-starting') && tier !== 'starter')) {
+    entry.tier = tier;
+    entry.weight = tierActiveProbability[tier];
+  }
+  if (!entry.reasons.includes(reason)) entry.reasons.push(reason);
+}
+
+function adjustBySleeperDepth(entry: PlayerAvailabilityEntry, player: SleeperPlayer | undefined) {
+  if (!player) return;
+  const order = typeof player.depth_chart_order === 'number' ? player.depth_chart_order : null;
+  if (!order) return;
+  const position = player.depth_chart_position || player.position;
+  const normalizedPosition = normalizeDepthPosition(position) || 'UNKNOWN';
+  applyDepthRole(entry, position, order, `sleeper-depth-${normalizedPosition}-${order}`);
+}
+
+function adjustByEspnDepth(entry: PlayerAvailabilityEntry, espn: EspnDepthEntry | undefined) {
+  if (!espn) return;
+  const position = normalizeDepthPosition(espn.position) || 'UNKNOWN';
+  applyDepthRole(entry, espn.position, espn.order, `espn-depth-${position}-${espn.order}`);
 }
 
 function noteFantasyLineupHistory(entry: PlayerAvailabilityEntry, starts: number, weeksConsidered: number) {
@@ -140,6 +193,7 @@ export async function buildPlayerAvailabilitySnapshot(args: AvailabilitySnapshot
       reasons: [...base.reasons],
       weight: tierActiveProbability[base.tier] ?? 0.92,
     };
+    adjustBySleeperDepth(entry, player);
     const teamCode = player?.team?.toUpperCase();
     if (teamCode) {
       const depthMaps = espnDepth.get(teamCode);
