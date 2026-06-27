@@ -1,10 +1,11 @@
 import { NextResponse } from 'next/server';
 import { requireTeamUser } from '@/lib/server/session';
-import { buildTeamLineupOptimizer } from '@/lib/fantasy/weekly-projections';
+import { buildTeamLineupOptimizerV3 } from '@/lib/fantasy/weekly-projections-next';
 import type { LineupOptimizerResponse } from '@/lib/fantasy/lineup-types';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+export const maxDuration = 60;
 
 const CACHE_TTL_MS = 10 * 60 * 1000;
 const responseCache = new Map<string, { ts: number; data: LineupOptimizerResponse }>();
@@ -23,7 +24,7 @@ export async function GET() {
   }
 
   try {
-    const data = await buildTeamLineupOptimizer(user.team);
+    const data = await buildTeamLineupOptimizerV3(user.team);
     responseCache.set(user.team, { ts: Date.now(), data });
     return NextResponse.json(data, {
       headers: { 'Cache-Control': 'private, max-age=300' },

@@ -31,6 +31,16 @@ export type WeeklyProjectedPlayer = {
   startProbability: number;
   activeProbability: number;
   statLine: ProjectedStatLine;
+  targetShare?: number;
+  carryShare?: number;
+  teamPassAttempts?: number;
+  teamRushAttempts?: number;
+  allocationSource?: 'current-season' | 'blended' | 'preseason-prior' | 'league-prior' | 'manual';
+  overrideApplied?: boolean;
+  workloadUncertainty?: number;
+  calibrationSampleSize?: number;
+  calibrationBias?: number | null;
+  calibrationCoverage?: number | null;
 };
 
 export type WeeklyLineupEntry = {
@@ -44,7 +54,20 @@ export type ProjectionValidationSummary = {
   sampleSize: number;
   meanAbsoluteError: number | null;
   bias: number | null;
-  byPosition: Record<string, { sampleSize: number; meanAbsoluteError: number; bias: number }>;
+  rmse?: number | null;
+  byPosition: Record<string, {
+    sampleSize: number;
+    meanAbsoluteError: number;
+    bias: number;
+    rmse?: number;
+    rangeCoverage?: number;
+  }>;
+  byBucket?: Partial<Record<'low' | 'medium' | 'high', {
+    sampleSize: number;
+    meanAbsoluteError: number;
+    bias: number;
+    rangeCoverage: number;
+  }>>;
   optimalBeatSubmitted: boolean | null;
   submittedLineupActual: number | null;
   optimalLineupActual: number | null;
@@ -69,4 +92,10 @@ export type LineupOptimizerResponse = {
   projectionPhase: ProjectionPhase;
   confidence: ProjectionConfidence;
   confidenceNote: string;
+  teamOpportunityPlans?: Record<string, {
+    passAttempts: number;
+    rushAttempts: number;
+    targetPool: number;
+    source: string;
+  }>;
 };

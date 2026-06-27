@@ -5,6 +5,10 @@
       "schedule": "0 13 * * 1"
     },
     {
+      "path": "/api/projections/snapshot/cron",
+      "schedule": "0 13 * * 4"
+    },
+    {
       "path": "/api/taxi/prune",
       "schedule": "0 3 1 * *"
     }

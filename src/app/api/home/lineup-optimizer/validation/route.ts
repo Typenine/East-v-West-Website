@@ -3,14 +3,13 @@ import { requireTeamUser } from '@/lib/server/session';
 import { getLeagueIdForSeason } from '@/lib/constants/league';
 import { getLeagueMatchups } from '@/lib/utils/sleeper-api';
 import { loadLatestProjectionSnapshot } from '@/lib/fantasy/projection-snapshots';
-import type { ProjectionValidationSummary, WeeklyProjectedPlayer } from '@/lib/fantasy/lineup-types';
+import {
+  buildProjectionValidation,
+  saveProjectionValidation,
+} from '@/lib/fantasy/projection-calibration';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-
-function totalActual(ids: string[], actualByPlayer: Map<string, number>): number {
-  return ids.reduce((sum, id) => sum + (actualByPlayer.get(id) || 0), 0);
-}
 
 export async function GET(request: Request) {
   const user = await requireTeamUser();
@@ -38,45 +37,7 @@ export async function GET(request: Request) {
   if (!actualByPlayer.size) {
     return NextResponse.json({ snapshot, validation: null, reason: 'Actual points are not available yet.' });
   }
-  const projected = snapshot.projectedPlayers || [];
-  const errors = projected
-    .filter((player) => actualByPlayer.has(player.id))
-    .map((player) => ({
-      player,
-      actual: actualByPlayer.get(player.id) || 0,
-      error: player.projection - (actualByPlayer.get(player.id) || 0),
-    }));
-  const byPosition: ProjectionValidationSummary['byPosition'] = {};
-  for (const position of new Set(errors.map((entry) => entry.player.position))) {
-    const rows = errors.filter((entry) => entry.player.position === position);
-    byPosition[position] = {
-      sampleSize: rows.length,
-      meanAbsoluteError: Number((rows.reduce((sum, row) => sum + Math.abs(row.error), 0) / rows.length).toFixed(2)),
-      bias: Number((rows.reduce((sum, row) => sum + row.error, 0) / rows.length).toFixed(2)),
-    };
-  }
-  const currentIds = snapshot.currentLineup.flatMap((entry) => entry.player ? [entry.player.id] : []);
-  const optimalIds = snapshot.optimalLineup.flatMap((entry) => entry.player ? [entry.player.id] : []);
-  const submittedLineupActual = snapshot.available ? totalActual(currentIds, actualByPlayer) : null;
-  const optimalLineupActual = totalActual(optimalIds, actualByPlayer);
-  const recommendations: WeeklyProjectedPlayer[] = snapshot.optimalLineup.flatMap((entry) => entry.changed && entry.player ? [entry.player] : []);
-  const replaced: WeeklyProjectedPlayer[] = snapshot.currentLineup.flatMap((entry) => entry.changed && entry.player ? [entry.player] : []);
-  const paired = Math.min(recommendations.length, replaced.length);
-  let correct = 0;
-  for (let index = 0; index < paired; index += 1) {
-    if ((actualByPlayer.get(recommendations[index].id) || 0) > (actualByPlayer.get(replaced[index].id) || 0)) correct += 1;
-  }
-  const covered = errors.filter((row) => row.actual >= row.player.rangeLow && row.actual <= row.player.rangeHigh).length;
-  const validation: ProjectionValidationSummary = {
-    sampleSize: errors.length,
-    meanAbsoluteError: errors.length ? Number((errors.reduce((sum, row) => sum + Math.abs(row.error), 0) / errors.length).toFixed(2)) : null,
-    bias: errors.length ? Number((errors.reduce((sum, row) => sum + row.error, 0) / errors.length).toFixed(2)) : null,
-    byPosition,
-    optimalBeatSubmitted: submittedLineupActual == null ? null : optimalLineupActual > submittedLineupActual,
-    submittedLineupActual: submittedLineupActual == null ? null : Number(submittedLineupActual.toFixed(2)),
-    optimalLineupActual: Number(optimalLineupActual.toFixed(2)),
-    startSitAccuracy: paired ? Number((correct / paired).toFixed(3)) : null,
-    confidenceRangeCoverage: errors.length ? Number((covered / errors.length).toFixed(3)) : null,
-  };
-  return NextResponse.json({ snapshot, validation });
+  const result = buildProjectionValidation({ response: snapshot, actualByPlayer, source: 'live' });
+  await saveProjectionValidation(result.rows);
+  return NextResponse.json({ snapshot, validation: result.summary });
 }

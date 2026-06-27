@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getNFLState } from '@/lib/utils/sleeper-api';
-import { getLeagueScoredBaselines } from '@/lib/fantasy/weekly-projections';
+import { getLeagueScoredBaselinesV3 } from '@/lib/fantasy/weekly-projections-next';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -35,14 +35,14 @@ export async function GET(req: NextRequest) {
       ? Math.max(0, Math.min(18, requestedThroughWeek))
       : Math.max(0, Number(state.week ?? state.display_week ?? 1) - 1);
 
-    const baselines = await getLeagueScoredBaselines({
+    const baselines = await getLeagueScoredBaselinesV3({
       season,
       throughWeek,
       playerIds: players,
     });
 
     return NextResponse.json(
-      { season, throughWeek, players: players.length, baselines },
+      { season, throughWeek, players: players.length, modelVersion: 'statline-v3.0', baselines },
       { headers: { 'Cache-Control': 'public, max-age=300, stale-while-revalidate=900' } }
     );
   } catch (error) {
