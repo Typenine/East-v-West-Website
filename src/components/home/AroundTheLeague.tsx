@@ -29,6 +29,7 @@ type NewsItem = {
   publishedAt: string | null;
   matches: NewsMatch[];
   category?: string;
+  alsoReportedBy?: string[];
 };
 
 type NewsResponse = { count: number; items: NewsItem[] };
@@ -157,6 +158,9 @@ function NewsCard({ item }: { item: NewsItem }) {
       )}
       <div className="text-[10px]" style={broadcastFaintTextStyle}>
         {item.sourceName}
+        {item.alsoReportedBy && item.alsoReportedBy.length > 0 && (
+          <span> · Also: {item.alsoReportedBy.slice(0, 3).join(', ')}</span>
+        )}
       </div>
     </li>
   );

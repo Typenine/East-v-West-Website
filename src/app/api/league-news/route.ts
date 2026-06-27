@@ -127,6 +127,7 @@ export type LeagueNewsItem = RssItem & {
   matches: LeagueNewsMatch[];
   category: StoryCategory;
   score?: number;
+  alsoReportedBy?: string[];
 };
 
 export type LeagueNewsResponse = {
@@ -253,7 +254,7 @@ export async function GET(req: NextRequest) {
     const allItems = await fetchAllRss();
     const cutoff = Date.now() - sinceHours * 60 * 60 * 1000;
 
-    type ScoredItem = LeagueNewsItem & { score: number };
+    type ScoredItem = LeagueNewsItem & { score: number; alsoReportedBy: string[] };
     const byKey = new Map<string, ScoredItem>();
     const now = Date.now();
     const phaseBoosts = CATEGORY_PHASE_BOOST[getHomepagePhase(new Date())];
@@ -342,7 +343,7 @@ export async function GET(req: NextRequest) {
 
       const prev = byKey.get(key);
       if (!prev) {
-        byKey.set(key, { ...it, matches: [...matches], category, score });
+        byKey.set(key, { ...it, matches: [...matches], category, score, alsoReportedBy: [] });
       } else {
         const mergedMap = new Map<string, LeagueNewsMatch>();
         for (const m of prev.matches) mergedMap.set(m.playerId, m);
@@ -354,9 +355,15 @@ export async function GET(req: NextRequest) {
           return b > a ? it.publishedAt : prev.publishedAt;
         })();
         if (score >= prev.score) {
-          byKey.set(key, { ...it, publishedAt: newerTs, matches: mergedMatches, category, score });
+          const alsoReportedBy = [...new Set([...prev.alsoReportedBy, prev.sourceName])].filter(
+            (s) => s !== it.sourceName,
+          );
+          byKey.set(key, { ...it, publishedAt: newerTs, matches: mergedMatches, category, score, alsoReportedBy });
         } else {
-          byKey.set(key, { ...prev, publishedAt: newerTs, matches: mergedMatches });
+          const alsoReportedBy = [...new Set([...prev.alsoReportedBy, it.sourceName])].filter(
+            (s) => s !== prev.sourceName,
+          );
+          byKey.set(key, { ...prev, publishedAt: newerTs, matches: mergedMatches, alsoReportedBy });
         }
       }
     }
@@ -383,10 +390,11 @@ export async function GET(req: NextRequest) {
           const b = item.publishedAt ? new Date(item.publishedAt).getTime() : 0;
           return b > a ? item.publishedAt : existing.publishedAt;
         })();
-        const winner = item.score >= existing.score ? { ...item } : { ...existing };
-        winner.matches = mergedMatches;
-        winner.publishedAt = newerTs;
-        byTitle.set(tkey, winner);
+        const [winner, loser] = item.score >= existing.score ? [item, existing] : [existing, item];
+        const alsoReportedBy = [...new Set([...winner.alsoReportedBy, ...loser.alsoReportedBy, loser.sourceName])].filter(
+          (s) => s !== winner.sourceName,
+        );
+        byTitle.set(tkey, { ...winner, matches: mergedMatches, publishedAt: newerTs, alsoReportedBy });
       }
     }
 
