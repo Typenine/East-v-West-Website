@@ -41,7 +41,7 @@ function buildOptimizerResponse(args: {
   activePlayerIds: string[];
   projectedPlayers: WeeklyProjectedPlayer[];
   preseason: boolean;
-  plans: Record<string, TeamOpportunityPlan~;
+  plans: Record<string, TeamOpportunityPlan>;
 }): LineupOptimizerResponse {
   const starterSlots = (args.league.roster_positions || []).filter((slot) => slot !== 'BN');
   const projectedById = new Map(args.projectedPlayers.map((player) => [player.id, player] as const));
@@ -132,7 +132,7 @@ async function buildFromCurrentContext(args: {
     scoringSettings: numericScoring(args.context.league.scoring_settings),
     leagueId: args.context.leagueId,
   });
-  const projectedById = new Map((projection.players.map((player) => [player.id, player] as const));
+  const projectedById = new Map(projection.players.map((player) => [player.id, player] as const));
   const responses: LineupOptimizerResponse[] = [];
   for (const roster of selectedRosters) {
     const teamName = args.context.nameMap.get(roster.roster_id);
