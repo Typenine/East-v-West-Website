@@ -41,6 +41,10 @@ import {
   stripSuffixes,
   NICKNAMES,
 } from '@/lib/news/news-matching';
+import {
+  getNewsModerationRules,
+  type NewsModerationRule,
+} from '@/server/db/news-moderation-queries';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -137,6 +141,21 @@ export type LeagueNewsResponse = {
   items: LeagueNewsItem[];
 };
 
+// ── Moderation cache (10-minute TTL) ─────────────────────────────────────────
+
+type ModerationCache = { ts: number; rules: NewsModerationRule[] };
+let moderationCache: ModerationCache | null = null;
+const MODERATION_CACHE_TTL_MS = 10 * 60 * 1000;
+
+async function getModerationRules(): Promise<NewsModerationRule[]> {
+  if (moderationCache && Date.now() - moderationCache.ts < MODERATION_CACHE_TTL_MS) {
+    return moderationCache.rules;
+  }
+  const rules = await getNewsModerationRules().catch(() => []);
+  moderationCache = { ts: Date.now(), rules };
+  return rules;
+}
+
 // ── Roster cache (5-minute TTL to avoid fanout on every request) ─────────────
 
 type RosterCache = {
@@ -196,11 +215,22 @@ export async function GET(req: NextRequest) {
     const hideLowConfidence = searchParams.get('hideLow') !== 'false';
     const teamFilter = searchParams.get('teamFilter') ?? null;
 
-    // Load roster maps and player metadata in parallel
-    const [{ playerToTeam, playerToTeamSlug, allPlayerIds }, playersIndex] = await Promise.all([
+    // Load roster maps, player metadata, and moderation rules in parallel
+    const [{ playerToTeam, playerToTeamSlug, allPlayerIds }, playersIndex, moderationRules] = await Promise.all([
       getLeagueRosterMaps(),
       getAllPlayersCached(12 * 60 * 60 * 1000) as Promise<Record<string, SleeperPlayer>>,
+      getModerationRules(),
     ]);
+
+    // Build moderation lookup structures
+    const hiddenUrls = new Set<string>();
+    const blockedMatches = new Set<string>(); // "playerId:canonicalUrl" or "playerId"
+    const blockedHeadlines: string[] = [];
+    for (const rule of moderationRules) {
+      if (rule.type === 'hide_url') hiddenUrls.add(rule.value);
+      else if (rule.type === 'block_match') blockedMatches.add(rule.value);
+      else if (rule.type === 'block_headline') blockedHeadlines.push(rule.value.toLowerCase());
+    }
 
     // Apply team filter if requested (show only players on that team)
     const activePlayerIds = teamFilter
@@ -341,13 +371,26 @@ export async function GET(req: NextRequest) {
       const titleKey = `t:${normalizeText(it.title || '')}`;
       const key = linkKey || titleKey;
 
+      // Apply moderation rules
+      if (hiddenUrls.has(linkKey ?? '') || hiddenUrls.has(it.link ?? '')) continue;
+      const titleNorm = normalizeText(title);
+      if (blockedHeadlines.some((hl) => titleNorm.includes(hl))) continue;
+      // Filter blocked player matches; skip item if all matches are blocked
+      const filteredMatches = matches.filter((m) => {
+        if (blockedMatches.has(m.playerId)) return false;
+        if (linkKey && blockedMatches.has(`${m.playerId}:${linkKey}`)) return false;
+        return true;
+      });
+      if (filteredMatches.length === 0 && matches.length > 0) continue;
+      const effectiveMatches = filteredMatches.length > 0 ? filteredMatches : matches;
+
       const prev = byKey.get(key);
       if (!prev) {
-        byKey.set(key, { ...it, matches: [...matches], category, score, alsoReportedBy: [] });
+        byKey.set(key, { ...it, matches: [...effectiveMatches], category, score, alsoReportedBy: [] });
       } else {
         const mergedMap = new Map<string, LeagueNewsMatch>();
         for (const m of prev.matches) mergedMap.set(m.playerId, m);
-        for (const m of matches) if (!mergedMap.has(m.playerId)) mergedMap.set(m.playerId, m);
+        for (const m of effectiveMatches) if (!mergedMap.has(m.playerId)) mergedMap.set(m.playerId, m);
         const mergedMatches = Array.from(mergedMap.values());
         const newerTs = (() => {
           const a = prev.publishedAt ? new Date(prev.publishedAt).getTime() : 0;

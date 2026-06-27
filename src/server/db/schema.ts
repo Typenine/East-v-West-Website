@@ -688,3 +688,17 @@ export const discordNotifications = pgTable('discord_notifications', {
   typeKeyIdx: index('discord_notifications_type_key_idx').on(t.notificationType, t.dedupeKey),
 }));
 
+// Lightweight admin-managed rules for hiding or suppressing specific news items.
+// type values:
+//   'hide_url'       — suppress any story whose canonical URL matches value
+//   'block_match'    — suppress a specific player match; value = "playerId:canonicalUrl" or "playerId" (all)
+//   'block_headline' — suppress stories whose normalized title contains value (substring match)
+export const newsModeration = pgTable('news_moderation', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  type: varchar('type', { length: 32 }).notNull(),
+  value: text('value').notNull(),
+  reason: text('reason'),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  createdBy: text('created_by'),
+});
+
