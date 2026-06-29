@@ -1,53 +1,48 @@
-import type { SleeperPlayer } from '@/lib/utils/sleeper-api';
 import type { PlayerProjectionCandidate, UsageProfile } from '@/lib/fantasy/projection-opportunity-types';
+import { buildUsageProfile } from '@/lib/fantasy/projection-usage-profile';
+import { clamp, draftCapitalFactor, finite, roleText, weightedMean } from '@/lib/fantasy/projection-usage-core';
 
-export function clamp(value:number,min:number,max:number):number{return Math.max(min,Math.min(max,value));}
-export function finite(value:unknown):number{const n=Number(value);return Number.isFinite(n)?n:0;}
-export function weightedMean(values:Array<{value:number;weight:number}>,fallback:number):number{const usable=values.filter(v=>Number.isFinite(v.value)&&v.weight>0);const total=usable.reduce((s,v)=>s+v.weight,0);return total?usable.reduce((s,v)=>s+v.value*v.weight,0)/total:fallback;}
-function statTeam(stats:Record<string,number|string|undefined>):string|null{const v=String(stats.team||stats.recent_team||stats.player_team||'').trim().toUpperCase();return v||null;}
+export { buildUsageProfile } from '@/lib/fantasy/projection-usage-profile';
+export { clamp, finite, hasExplicitParticipation, weightedMean } from '@/lib/fantasy/projection-usage-core';
 
-export function buildUsageProfile(candidate:PlayerProjectionCandidate):UsageProfile{
- const ordered=[...candidate.games].sort((a,b)=>(a.season-b.season)||(a.week-b.week));
- const latestSeason=ordered.at(-1)?.season??0; const latestWeek=ordered.filter(g=>g.season===latestSeason).at(-1)?.week??1;
- const samples=ordered.filter(g=>finite(g.stats.rec_tgt)+finite(g.stats.rush_att)+finite(g.stats.pass_att)>0);
- const currentTeam=String(candidate.player?.team||candidate.base.nflTeam||'').toUpperCase()||null;
- const weighted=samples.map(game=>{const age=((latestSeason-game.season)*18)+Math.max(0,latestWeek-game.week);const gameTeam=statTeam(game.stats);const continuity=currentTeam&&gameTeam&&gameTeam!==currentTeam?0.82:1;return{game,weight:Math.exp(-Math.log(2)*age/10)*continuity};});
- const avg=(key:string)=>weightedMean(weighted.map(({game,weight})=>({value:finite(game.stats[key]),weight})),0);
- const latestTeam=[...samples].reverse().map(g=>statTeam(g.stats)).find(Boolean)||null;
- const changedTeams=Boolean(currentTeam&&samples.some(g=>{const t=statTeam(g.stats);return Boolean(t&&t!==currentTeam);}));
- const rookieYear=Number(candidate.player?.rookie_year||0); const projectionSeason=candidate.projectionSeason||new Date().getFullYear();
- const rookie=rookieYear>0?rookieYear===projectionSeason:Number(candidate.player?.years_exp??0)===0;
- return {sampleGames:samples.length,recentTargets:avg('rec_tgt'),recentCarries:avg('rush_att'),recentPassAttempts:avg('pass_att'),latestTeam,changedTeams,rookie,historyTrust:clamp(samples.length/6,0,0.92)};
-}
-function draftCapitalFactor(player:SleeperPlayer|undefined):number{const round=Number((player as (SleeperPlayer&{draft_round?:number|string})|undefined)?.draft_round||0);if(round===1)return 1.35;if(round===2)return 1.18;if(round===3)return 1.08;if(round>=4)return 0.88;return 1;}
-function roleText(candidate:PlayerProjectionCandidate):string{return String(candidate.override?.roleLabel||candidate.base.expectedRole||'').toLowerCase();}
 export function participationFactor(candidate:PlayerProjectionCandidate,profile:UsageProfile):number{
- const role=roleText(candidate); const position=candidate.base.position; const recent=profile.recentTargets+profile.recentCarries+(position==='QB'?profile.recentPassAttempts:0);
- const start=clamp(candidate.override?.startProbability??candidate.base.startProbability,0,1);
- if(position==='QB'){if(start<0.15)return 0.025;if(start>=0.65||(profile.recentPassAttempts>=18&&start>=0.45))return 1;if(start>=0.18)return 0.24;return 0.025;}
- if(profile.sampleGames>=4&&recent>=5) return 1;
- if(/expected starter|featured|lead back|starting receiver|lead tight end|starting quarterback/.test(role)) return 1;
- if(/committee|secondary/.test(role)) return position==='QB'?0.22:0.62;
- if(/primary backup/.test(role)) return position==='QB'?0.12:0.42;
- if(/rotational|slot/.test(role)) return 0.26;
- if(/depth|blocking|change-of-pace|backup quarterback/.test(role)) return 0.08;
- if(profile.sampleGames>=3&&recent>=3) return 0.72;
- if(profile.rookie) return clamp(0.12*draftCapitalFactor(candidate.player),0.08,0.22);
- return 0.025;
+  const role=roleText(candidate);const position=candidate.base.position;const recent=profile.recentOpportunity*profile.roleTrendFactor;
+  const start=clamp(candidate.override?.startProbability??candidate.base.startProbability,0,1);
+  if(position==='QB'){if(start<0.15&&profile.recentPassAttempts<8)return 0.025;if(start>=0.65||(profile.recentPassAttempts>=18&&start>=0.45))return 1;if(start>=0.18)return 0.24;return 0.025;}
+  if(profile.sampleGames>=4&&recent>=5)return 1;
+  if(profile.roleTrend==='expanded'&&profile.roleTrendConfidence>=.6&&recent>=4)return 1;
+  if(/expected starter|featured|lead back|starting receiver|lead tight end/.test(role))return 1;
+  if(/committee|secondary/.test(role))return profile.sampleGames>=2?.82:.48;
+  if(/primary backup/.test(role))return profile.sampleGames>=2?.68:.28;
+  if(/rotational|slot/.test(role))return profile.sampleGames>=2?.44:.16;
+  if(/depth|blocking|change-of-pace|backup quarterback/.test(role))return profile.sampleGames>=2?.2:.04;
+  if(profile.sampleGames>=3&&recent>=3)return .76;
+  if(profile.rookie)return clamp(.12*draftCapitalFactor(candidate.player),.08,.22);
+  return .025;
 }
-function roleEvidenceFactor(candidate:PlayerProjectionCandidate,profile:UsageProfile):number{if(profile.sampleGames>=6)return 1;if(profile.sampleGames>=3)return 0.86;if(candidate.base.expectedRole!=='Uncertain role')return 1;if(profile.rookie)return 0.45;return 0.08;}
+
+function roleEvidenceFactor(candidate:PlayerProjectionCandidate,profile:UsageProfile):number{if(profile.sampleGames>=6)return 1;if(profile.sampleGames>=3)return .86;if(candidate.base.expectedRole!=='Uncertain role')return 1;if(profile.rookie)return .45;return .08;}
+function relevanceMultiplier(profile:UsageProfile):number{return .12+(.88*profile.rosterRelevance);}
+
 export function targetPrior(candidate:PlayerProjectionCandidate,profile:UsageProfile):number{
- const position=candidate.base.position;const starter=clamp(candidate.override?.startProbability??candidate.base.startProbability,0,1);
- const rolePrior=position==='WR'?1.2+(starter*6.8):position==='TE'?0.8+(starter*5.3):position==='RB'?0.6+(starter*3.4):0;
- const baseTargets=finite(candidate.base.statLine?.rec_tgt);const roleEvidence=roleEvidenceFactor(candidate,profile);const history=profile.recentTargets*profile.historyTrust;const base=baseTargets*(0.45+0.35*(1-profile.historyTrust));const role=rolePrior*roleEvidence*(1-profile.historyTrust)*0.55;const rookieBoost=profile.rookie?draftCapitalFactor(candidate.player):1;
- return Math.max(0.001,(history+base+role)*rookieBoost*participationFactor(candidate,profile));
+  const position=candidate.base.position;const start=clamp(candidate.override?.startProbability??candidate.base.startProbability,0,1);
+  const workload=profile.sampleGames?profile.workloadProbability:start;
+  const rolePrior=position==='WR'?1.2+(workload*6.8):position==='TE'?.8+(workload*5.3):position==='RB'?.6+(workload*3.4):0;
+  const baseTargets=finite(candidate.base.statLine?.rec_tgt);const roleEvidence=roleEvidenceFactor(candidate,profile);const history=profile.recentTargets*profile.roleTrendFactor*profile.historyTrust;const base=baseTargets*(.45+.35*(1-profile.historyTrust));const role=rolePrior*roleEvidence*(1-profile.historyTrust)*.55;const rookieBoost=profile.rookie?draftCapitalFactor(candidate.player):1;
+  return Math.max(.0001,(history+base+role)*rookieBoost*participationFactor(candidate,profile)*relevanceMultiplier(profile));
 }
+
 export function carryPrior(candidate:PlayerProjectionCandidate,profile:UsageProfile):number{
- const position=candidate.base.position;const starter=clamp(candidate.override?.startProbability??candidate.base.startProbability,0,1);
- const rolePrior=position==='RB'?2.0+(starter*13.5):position==='QB'?0.8+Math.min(profile.recentCarries||3.5,9)*0.7:position==='WR'?0.03+profile.recentCarries*0.75:0;
- const baseCarries=finite(candidate.base.statLine?.rush_att);const roleEvidence=position==='RB'?roleEvidenceFactor(candidate,profile):1;const history=profile.recentCarries*profile.historyTrust;const base=baseCarries*(0.45+0.35*(1-profile.historyTrust));const role=rolePrior*roleEvidence*(1-profile.historyTrust)*0.55;const rookieBoost=profile.rookie&&position==='RB'?draftCapitalFactor(candidate.player):1;
- return Math.max(0.001,(history+base+role)*rookieBoost*participationFactor(candidate,profile));
+  const position=candidate.base.position;const start=clamp(candidate.override?.startProbability??candidate.base.startProbability,0,1);
+  const workload=profile.sampleGames?profile.workloadProbability:start;
+  const rolePrior=position==='RB'?2+(workload*13.5):position==='QB'?.8+Math.min(profile.recentCarries||3.5,9)*.7:position==='WR'?.03+profile.recentCarries*.75:0;
+  const baseCarries=finite(candidate.base.statLine?.rush_att);const roleEvidence=position==='RB'?roleEvidenceFactor(candidate,profile):1;const history=profile.recentCarries*profile.roleTrendFactor*profile.historyTrust;const base=baseCarries*(.45+.35*(1-profile.historyTrust));const role=rolePrior*roleEvidence*(1-profile.historyTrust)*.55;const rookieBoost=profile.rookie&&position==='RB'?draftCapitalFactor(candidate.player):1;
+  return Math.max(.0001,(history+base+role)*rookieBoost*participationFactor(candidate,profile)*relevanceMultiplier(profile));
 }
+
 export function passPrior(candidate:PlayerProjectionCandidate,profile:UsageProfile):number{
- if(candidate.base.position!=='QB')return 0;const start=clamp(candidate.override?.startProbability??candidate.base.startProbability,0,1);const base=finite(candidate.base.statLine?.pass_att);const role=2+start*32;const blended=(profile.recentPassAttempts*profile.historyTrust)+(base*0.45)+(role*(1-profile.historyTrust)*0.55);return Math.max(0.001,blended*participationFactor(candidate,profile));
+  if(candidate.base.position!=='QB')return 0;const start=clamp(candidate.override?.startProbability??candidate.base.startProbability,0,1);const base=finite(candidate.base.statLine?.pass_att);const workload=profile.sampleGames?profile.workloadProbability:start;const role=2+workload*32;const blended=(profile.recentPassAttempts*profile.roleTrendFactor*profile.historyTrust)+(base*.45)+(role*(1-profile.historyTrust)*.55);return Math.max(.0001,blended*participationFactor(candidate,profile)*relevanceMultiplier(profile));
 }
+
+export function rushTouchdownPrior(candidate:PlayerProjectionCandidate,profile:UsageProfile):number{return Math.max(.0001,carryPrior(candidate,profile)*profile.rushTouchdownFactor);}
+export function receivingTouchdownPrior(candidate:PlayerProjectionCandidate,profile:UsageProfile):number{return Math.max(.0001,targetPrior(candidate,profile)*profile.receivingTouchdownFactor);}

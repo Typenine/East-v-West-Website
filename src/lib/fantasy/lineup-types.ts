@@ -18,6 +18,11 @@ export type ProjectionTrace = {
   fantasyBaselineWeight: number;
   teamOpportunityWeight: number;
   activeProbability: number;
+  workloadProbability?: number;
+  roleTrend?: 'expanded' | 'declining' | 'stable' | 'insufficient';
+  roleTrendFactor?: number;
+  rosterRelevance?: number;
+  dataQuality?: 'normal' | 'degraded';
   adjustments: string[];
 };
 
@@ -40,6 +45,11 @@ export type WeeklyProjectedPlayer = {
   assumption: string | null;
   startProbability: number;
   activeProbability: number;
+  workloadProbability?: number;
+  roleTrend?: 'expanded' | 'declining' | 'stable' | 'insufficient';
+  dataQuality?: 'normal' | 'degraded';
+  dataQualityNotes?: string[];
+  historicalGames?: number;
   statLine: ProjectedStatLine;
   targetShare?: number;
   carryShare?: number;

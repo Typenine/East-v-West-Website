@@ -1,0 +1,24 @@
+import type { ProjectedStatLine } from '@/lib/fantasy/lineup-types';
+import type { ProjectionOverrideRecord } from '@/lib/fantasy/projection-overrides';
+import type { PlayerProjectionCandidate, TeamOpportunityPlan, UsageProfile } from '@/lib/fantasy/projection-opportunity-types';
+import { buildUsageProfile, clamp, finite } from '@/lib/fantasy/projection-usage';
+
+export function score(statLine:ProjectedStatLine,scoring:Record<string,number>,position:string):number{let points=0;for(const[key,m]of Object.entries(scoring)){if(!Number.isFinite(m)||m===0)continue;if(key==='bonus_rec_te'&&position==='TE'){points+=(statLine.rec||0)*m;continue;}if(key==='bonus_rec_wr'&&position==='WR'){points+=(statLine.rec||0)*m;continue;}if(key==='bonus_rec_rb'&&position==='RB'){points+=(statLine.rec||0)*m;continue;}const v=statLine[key];if(Number.isFinite(v))points+=v*m;}return points;}
+export type Allocation={amount:number;share:number;profile:UsageProfile};
+export function allocatePool(args:{candidates:PlayerProjectionCandidate[];pool:number;shareDenominator?:number;eligible:(c:PlayerProjectionCandidate)=>boolean;rawWeight:(c:PlayerProjectionCandidate,p:UsageProfile)=>number;overrideShare?:(o:ProjectionOverrideRecord|undefined)=>number|null}):Map<string,Allocation>{
+ const eligible=args.candidates.filter(args.eligible);const profiles=new Map(eligible.map(c=>[c.id,buildUsageProfile(c)]as const));const fixed=new Map<string,number>();const denominator=Math.max(.001,args.shareDenominator??args.pool);const pool=Math.max(0,args.pool);
+ for(const c of eligible){const overall=args.overrideShare?.(c.override);if(overall!=null&&Number.isFinite(overall)&&pool>0)fixed.set(c.id,clamp((overall*denominator)/pool,0,1));}
+ const fixedTotal=[...fixed.values()].reduce((s,v)=>s+v,0);const scale=fixedTotal>.98?.98/fixedTotal:1;const remaining=Math.max(0,1-fixedTotal*scale);const variable=eligible.filter(c=>!fixed.has(c.id));const raw=new Map<string,number>();
+ for(const c of variable){const p=profiles.get(c.id)!;const active=clamp(c.override?.activeProbability??c.base.activeProbability,0,1);const availability=active<.2?active:.84+(.16*active);raw.set(c.id,Math.max(.000001,args.rawWeight(c,p)*availability));}
+ const total=[...raw.values()].reduce((s,v)=>s+v,0);const out=new Map<string,Allocation>();
+ for(const c of eligible){const p=profiles.get(c.id)!;const relative=fixed.has(c.id)?(fixed.get(c.id)||0)*scale:variable.length?(total>0?remaining*((raw.get(c.id)||0)/total):remaining/variable.length):0;const amount=pool*relative;out.set(c.id,{amount,share:amount/denominator,profile:p});}
+ return out;
+}
+export function mergeAllocations(...maps:Array<Map<string,Allocation>>):Map<string,Allocation>{const merged=new Map<string,Allocation>();for(const map of maps)for(const[id,value]of map)merged.set(id,value);return merged;}
+export function rate(line:ProjectedStatLine,n:string,d:string,fallback:number):number{const den=finite(line[d]);return den>0?finite(line[n])/den:fallback;}
+export function soften(factor:number,weight=.55):number{return 1+((factor-1)*weight);}
+export function refreshBonuses(line:ProjectedStatLine,position:string):void{if(position==='QB'){const y=finite(line.pass_yd);line.bonus_pass_yd_300=clamp((y-250)/100,0,1);line.bonus_pass_yd_400=clamp((y-350)/100,0,1);}if(['QB','RB','WR','TE'].includes(position)){const y=finite(line.rush_yd);line.bonus_rush_yd_100=clamp((y-75)/75,0,1);line.bonus_rush_yd_200=clamp((y-175)/75,0,1);}if(['RB','WR','TE'].includes(position)){const y=finite(line.rec_yd);line.bonus_rec_yd_100=clamp((y-75)/75,0,1);line.bonus_rec_yd_200=clamp((y-175)/75,0,1);}}
+export function roleLabel(c:PlayerProjectionCandidate,t:number,r:number,p:number,profile:UsageProfile):string{if(c.override?.roleLabel)return c.override.roleLabel;const pos=c.base.position;if(pos==='QB')return p>=.72?'Expected starting quarterback':p>=.18?'Potential quarterback rotation':'Backup quarterback';if(pos==='RB')return r>=.45||(r>=.36&&t>=.08)?'Lead back':r>=.24||t>=.09||profile.workloadProbability>=.42?'Committee / meaningful rotation':r>=.1||profile.workloadProbability>=.2?'Change-of-pace / secondary back':'Depth back';if(pos==='WR')return t>=.24?'Featured starting receiver':t>=.15?'Starting receiver':t>=.07?'Slot / rotational receiver':'Depth receiver';if(pos==='TE')return t>=.16?'Lead tight end':t>=.075?'Secondary tight end':'Blocking / depth tight end';return c.base.expectedRole;}
+export function mergeAssumption(...parts:Array<string|null|undefined>):string|null{const v=parts.map(p=>String(p||'').trim()).filter(Boolean);return v.length?Array.from(new Set(v)).join(' '):null;}
+export function expectedTouchdownPools(plan:TeamOpportunityPlan):{passing:number;rushing:number}{return{passing:clamp(plan.passAttempts*.045*plan.passingTouchdownFactor,.75,2.35),rushing:clamp(plan.rushAttempts*.035*plan.rushingTouchdownFactor,.55,1.75)};}
+
