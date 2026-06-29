@@ -3,6 +3,16 @@ import type { PlayerGameSample } from '@/lib/fantasy/projection-model';
 import type { SleeperPlayer } from '@/lib/utils/sleeper-api';
 import type { ProjectionOverrideRecord } from '@/lib/fantasy/projection-overrides';
 
+export type FantasyBaselineSummary = {
+  weightedPoints: number;
+  recentPoints: number;
+  games: number;
+  sameTeamGames: number;
+  anchorWeight: number;
+  established: boolean;
+  changedTeams: boolean;
+};
+
 export type PlayerProjectionCandidate = {
   id: string;
   player: SleeperPlayer | undefined;
@@ -10,6 +20,7 @@ export type PlayerProjectionCandidate = {
   base: WeeklyProjectedPlayer;
   override?: ProjectionOverrideRecord;
   projectionSeason?: number;
+  fantasyBaseline?: FantasyBaselineSummary;
 };
 
 export type TeamOpportunityPlan = {

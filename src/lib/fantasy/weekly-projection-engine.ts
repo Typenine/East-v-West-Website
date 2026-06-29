@@ -4,6 +4,7 @@ import { buildPlayerStatProjection } from '@/lib/fantasy/projection-model';
 import { reconcileTeamOpportunityBudgets, type PlayerProjectionCandidate, type TeamOpportunityPlan } from '@/lib/fantasy/projection-opportunity';
 import { loadApplicableProjectionOverrides, type ProjectionOverrideRecord } from '@/lib/fantasy/projection-overrides';
 import { calibratePlayerRange, loadProjectionCalibration } from '@/lib/fantasy/projection-calibration';
+import { buildFantasyBaseline, eligibleProjection, normalizePreseasonActiveProbability } from '@/lib/fantasy/projection-fantasy-baseline';
 import type { WeeklyProjectedPlayer } from '@/lib/fantasy/lineup-types';
 import {
   PROJECTION_MODEL_VERSION,
@@ -82,7 +83,18 @@ export async function projectWeeklyPlayersV3(args: {
       ? inferHistoricalAvailability(position, games)
       : availability[id] || { tier: 'unknown', weight: 0.92, reasons: ['missing-availability'] };
     const override = overrides.byPlayer.get(id);
-    const playerAvailability = applyOverrideToAvailability(inferred, override);
+    const overriddenAvailability = applyOverrideToAvailability(inferred, override);
+    const playerAvailability = preseason && !historicalMode
+      ? {
+          ...overriddenAvailability,
+          weight: normalizePreseasonActiveProbability({
+            weight: overriddenAvailability.weight,
+            tier: overriddenAvailability.tier,
+            status: String(player?.injury_status || player?.status || ''),
+          }),
+          reasons: [...overriddenAvailability.reasons, 'preseason-active-probability-normalized'],
+        }
+      : overriddenAvailability;
     const teamRows = [
       ...(previousRowsByTeam.get(nflTeam || '') || []),
       ...(currentRowsByTeam.get(nflTeam || '') || []),
@@ -104,9 +116,9 @@ export async function projectWeeklyPlayersV3(args: {
       projectionSeason: season,
       preseason,
       scoring: args.scoringSettings,
-      injuryStatus: historicalMode ? null : String(player?.injury_status || player?.status || '') || null,
+      injuryStatus: historicalMode || preseason ? null : String(player?.injury_status || player?.status || '') || null,
     });
-    const projection = isBye || !nflTeam ? 0 : result.points;
+    const projection = eligibleProjection(result.points, nflTeam, isBye);
     const base: WeeklyProjectedPlayer = {
       id,
       name: playerName(player),
@@ -128,7 +140,13 @@ export async function projectWeeklyPlayersV3(args: {
       activeProbability: Number((override?.activeProbability ?? result.activeProbability).toFixed(3)),
       statLine: isBye ? {} : result.statLine,
     };
-    return { id, player, games, base, override, projectionSeason: season };
+    const fantasyBaseline = buildFantasyBaseline({
+      games,
+      position,
+      scoring: args.scoringSettings,
+      currentTeam: nflTeam,
+    }) || undefined;
+    return { id, player, games, base, override, projectionSeason: season, fantasyBaseline };
   });
 
   const reconciled = reconcileTeamOpportunityBudgets({
@@ -148,4 +166,3 @@ export async function projectWeeklyPlayersV3(args: {
     plans: reconciled.plans,
   };
 }
-

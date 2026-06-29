@@ -1,16 +1,12 @@
 import { normalizeTeamCode } from '@/lib/constants/nfl-teams';
-import {
-  getAllPlayersCached,
-  getNFLWeekStats,
-  type SleeperPlayer,
-} from '@/lib/utils/sleeper-api';
+import { getAllPlayersCached, getNFLWeekStats, type SleeperPlayer } from '@/lib/utils/sleeper-api';
 import type { PlayerAvailabilityEntry } from '@/lib/utils/player-availability';
 import type { NflverseTeamWeek } from '@/lib/fantasy/nflverse-team-stats';
 import type { PlayerGameSample } from '@/lib/fantasy/projection-model';
 import type { ProjectionOverrideRecord } from '@/lib/fantasy/projection-overrides';
 import type { ProjectionConfidence, WeeklyProjectedPlayer } from '@/lib/fantasy/lineup-types';
 
-export const PROJECTION_MODEL_VERSION = 'statline-v3.0';
+export const PROJECTION_MODEL_VERSION = 'statline-v3.1-fantasy-aware';
 const DATA_TTL_MS = 30 * 60 * 1000;
 const SKILL_POSITIONS = new Set(['QB', 'RB', 'WR', 'TE', 'K']);
 

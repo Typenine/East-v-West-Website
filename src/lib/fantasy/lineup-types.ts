@@ -11,6 +11,16 @@ export type WeeklyProjectionBaseline = {
 
 export type ProjectedStatLine = Record<string, number>;
 
+export type ProjectionTrace = {
+  individualModelPoints: number;
+  reconciledStatLinePoints: number;
+  fantasyBaselinePoints: number | null;
+  fantasyBaselineWeight: number;
+  teamOpportunityWeight: number;
+  activeProbability: number;
+  adjustments: string[];
+};
+
 export type WeeklyProjectedPlayer = {
   id: string;
   name: string;
@@ -41,6 +51,7 @@ export type WeeklyProjectedPlayer = {
   calibrationSampleSize?: number;
   calibrationBias?: number | null;
   calibrationCoverage?: number | null;
+  projectionTrace?: ProjectionTrace;
 };
 
 export type WeeklyLineupEntry = {
