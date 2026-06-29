@@ -8,6 +8,7 @@ import type {
   LineupOptimizerResponse,
   ProjectionConfidence,
   WeeklyLineupEntry,
+  WeeklyProjectedPlayer,
 } from '@/lib/fantasy/lineup-types';
 
 function confidenceLabel(confidence: ProjectionConfidence): string {
@@ -84,6 +85,52 @@ function LineupPlayerRow({
   );
 }
 
+function BenchPlayerChip({
+  player,
+  wasCurrentStarter,
+}: {
+  player: WeeklyProjectedPlayer;
+  wasCurrentStarter: boolean;
+}) {
+  return (
+    <details
+      className="group/bench min-w-[142px] max-w-[165px] shrink-0 rounded-md px-2.5 py-2"
+      style={wasCurrentStarter
+        ? { background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.30)' }
+        : { background: PANEL.tint, border: `1px solid ${PANEL.hairline}` }}
+    >
+      <summary className="list-none cursor-pointer">
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-[8px] uppercase tracking-wide truncate" style={broadcastFaintTextStyle}>
+            {player.position}{player.nflTeam ? ` · ${player.nflTeam}` : ''}
+          </span>
+          {wasCurrentStarter && (
+            <span className="text-[8px] uppercase tracking-wide font-bold" style={{ color: '#f59e0b' }}>
+              Moved
+            </span>
+          )}
+        </div>
+        <div className="text-[11px] font-bold truncate mt-1" style={broadcastBodyTextStyle}>
+          {player.name}
+        </div>
+        <div className="flex items-center justify-between gap-2 mt-1">
+          <span className="text-[9px] truncate" style={broadcastMutedTextStyle}>
+            {player.isBye ? 'BYE' : player.opponent ? `vs ${player.opponent}` : player.expectedRole}
+          </span>
+          <span className="text-[11px] font-black tabular-nums" style={broadcastBodyTextStyle}>
+            {player.projection.toFixed(1)}
+          </span>
+        </div>
+      </summary>
+      <div className="mt-2 pt-2 border-t text-[9px] leading-relaxed" style={{ borderColor: PANEL.hairline, ...broadcastMutedTextStyle }}>
+        <div>{player.expectedRole}</div>
+        <div>{player.workload}</div>
+        <div>{player.rangeLow.toFixed(1)}–{player.rangeHigh.toFixed(1)} range</div>
+      </div>
+    </details>
+  );
+}
+
 export default function MyTeamLineupOptimizer({
   lineup,
   loading,
@@ -131,6 +178,15 @@ export default function MyTeamLineupOptimizer({
 
   const gain = lineup.potentialGain || 0;
   const phaseLabel = lineup.projectionPhase === 'preseason' ? 'Preseason estimate' : `Week ${lineup.week} estimate`;
+  const optimalPlayerIds = new Set(
+    lineup.optimalLineup.flatMap((entry) => entry.player ? [entry.player.id] : []),
+  );
+  const currentPlayerIds = new Set(
+    lineup.currentLineup.flatMap((entry) => entry.player ? [entry.player.id] : []),
+  );
+  const benchPlayers = lineup.projectedPlayers
+    .filter((player) => !optimalPlayerIds.has(player.id))
+    .sort((a, b) => (b.projection - a.projection) || a.name.localeCompare(b.name));
 
   return (
     <details className="group rounded-xl" style={{ background: PANEL.tintSoft, border: `1px solid ${PANEL.hairline}` }}>
@@ -212,6 +268,30 @@ export default function MyTeamLineupOptimizer({
               ))}
             </div>
           </>
+        )}
+        {benchPlayers.length > 0 && (
+          <div className="mt-4 pt-3 border-t" style={{ borderColor: PANEL.hairline }}>
+            <div className="flex items-center justify-between gap-2">
+              <div className="text-[10px] uppercase tracking-widest font-bold" style={broadcastFaintTextStyle}>
+                Bench comparison
+              </div>
+              <span className="text-[9px] tabular-nums" style={broadcastFaintTextStyle}>
+                {benchPlayers.length} player{benchPlayers.length === 1 ? '' : 's'}
+              </span>
+            </div>
+            <div className="text-[9px] mt-1" style={broadcastMutedTextStyle}>
+              Every active roster player outside the optimal lineup, highest projection first.
+            </div>
+            <div className="-mx-1 mt-2 flex gap-2 overflow-x-auto px-1 pb-1">
+              {benchPlayers.map((player) => (
+                <BenchPlayerChip
+                  key={`bench-${player.id}`}
+                  player={player}
+                  wasCurrentStarter={currentPlayerIds.has(player.id)}
+                />
+              ))}
+            </div>
+          </div>
         )}
         <div className="text-[9px] mt-3 leading-relaxed" style={broadcastFaintTextStyle}>
           Projections estimate football workload and efficiency, then apply the league&apos;s Sleeper scoring settings. Matchup effects use only same-season opponent data and remain modest. Click a player for role and workload details.

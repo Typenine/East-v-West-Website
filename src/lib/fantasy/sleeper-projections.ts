@@ -282,14 +282,17 @@ export function blendSleeperProjection(args: {
   if (external <= 0.05) return { points: internal, weight: 0, disagreement: null };
 
   const disagreement = Math.abs(internal - external) / Math.max(4, external);
-  let weight = args.preseason
-    ? args.external.source === 'sleeper-season' ? 0.80 : 0.75
-    : args.external.source === 'sleeper-weekly' ? 0.65 : 0.50;
+  let weight: number;
+  if (args.preseason) {
+    weight = 0.95;
+  } else {
+    weight = args.external.source === 'sleeper-weekly' ? 0.65 : 0.50;
+    if (disagreement >= 0.20) weight = Math.max(weight, 0.78);
+    if (args.roleTrend === 'expanded' || args.roleTrend === 'declining') weight -= 0.08;
+  }
 
-  if (disagreement >= 0.20) weight = args.preseason ? 0.90 : Math.max(weight, 0.78);
-  if (args.roleTrend === 'expanded' || args.roleTrend === 'declining') weight -= 0.08;
   if (args.activeProbability < 0.75) weight = Math.min(weight, 0.45);
-  weight = clamp(weight, 0, 0.92);
+  weight = clamp(weight, 0, args.preseason ? 0.95 : 0.92);
 
   const availabilityMultiplier = args.activeProbability < 0.75
     ? clamp(args.activeProbability, 0, 1)

@@ -54,7 +54,7 @@ describe('Sleeper projection supplement', () => {
     expect(projection?.points).toBe(9.7);
   });
 
-  it('lets strong preseason external disagreement correct an implausible internal ordering', () => {
+  it('uses a consistent 95% preseason anchor to correct an implausible internal ordering', () => {
     const evans = blendSleeperProjection({
       internalPoints: 7.3,
       external: {
@@ -67,7 +67,7 @@ describe('Sleeper projection supplement', () => {
       },
       preseason: true,
       activeProbability: 0.98,
-      roleTrend: 'stable',
+      roleTrend: 'expanded',
       manualOverride: false,
     });
     const washington = blendSleeperProjection({
@@ -82,12 +82,12 @@ describe('Sleeper projection supplement', () => {
       },
       preseason: true,
       activeProbability: 0.98,
-      roleTrend: 'stable',
+      roleTrend: 'expanded',
       manualOverride: false,
     });
 
-    expect(evans.weight).toBe(0.9);
-    expect(washington.weight).toBe(0.9);
+    expect(evans.weight).toBe(0.95);
+    expect(washington.weight).toBe(0.95);
     expect(evans.points).toBeGreaterThan(washington.points);
   });
 
