@@ -1,5 +1,6 @@
 export type ProjectionConfidence = 'low' | 'medium' | 'high';
 export type ProjectionPhase = 'preseason' | 'in_season';
+export type ExternalProjectionSource = 'sleeper-weekly' | 'sleeper-season';
 
 export type WeeklyProjectionBaseline = {
   mean: number;
@@ -23,6 +24,10 @@ export type ProjectionTrace = {
   roleTrendFactor?: number;
   rosterRelevance?: number;
   dataQuality?: 'normal' | 'degraded';
+  externalProjectionPoints?: number | null;
+  externalProjectionWeight?: number;
+  externalProjectionSource?: ExternalProjectionSource;
+  externalProjectionDisagreement?: number | null;
   adjustments: string[];
 };
 
@@ -58,6 +63,10 @@ export type WeeklyProjectedPlayer = {
   allocationSource?: 'current-season' | 'blended' | 'preseason-prior' | 'league-prior' | 'manual';
   overrideApplied?: boolean;
   workloadUncertainty?: number;
+  externalProjectionPoints?: number;
+  externalProjectionWeight?: number;
+  externalProjectionSource?: ExternalProjectionSource;
+  externalProjectionDisagreement?: number | null;
   calibrationSampleSize?: number;
   calibrationBias?: number | null;
   calibrationCoverage?: number | null;

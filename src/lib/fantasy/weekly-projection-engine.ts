@@ -5,6 +5,7 @@ import { reconcileTeamOpportunityBudgets, type PlayerProjectionCandidate, type T
 import { loadApplicableProjectionOverrides, type ProjectionOverrideRecord } from '@/lib/fantasy/projection-overrides';
 import { calibratePlayerRange, loadProjectionCalibration } from '@/lib/fantasy/projection-calibration';
 import { buildFantasyBaseline, eligibleProjection, normalizePreseasonActiveProbability } from '@/lib/fantasy/projection-fantasy-baseline';
+import { blendSleeperProjection, loadSleeperExternalProjections } from '@/lib/fantasy/sleeper-projections';
 import type { WeeklyProjectedPlayer } from '@/lib/fantasy/lineup-types';
 import {
   PROJECTION_MODEL_VERSION,
@@ -49,6 +50,20 @@ export async function projectWeeklyPlayersV3(args: {
   const { playerMap, batches, candidateIds } = inputs;
   const gamesByPlayer = new Map(candidateIds.map((id) => [id, gamesForPlayer(batches, id)] as const));
   const preseason = throughWeek === 0 || filterCompletedTeamWeeks(currentRaw, throughWeek).length === 0;
+
+  const externalProjections = historicalMode
+    ? { byPlayer: new Map(), requested: 0, found: 0, coverage: 0, status: 'unavailable' as const }
+    : await loadSleeperExternalProjections({
+        season,
+        week: args.week,
+        playerIds: args.playerIds,
+        positionByPlayer: new Map(args.playerIds.map((id) => [id, normalizedPosition(playerMap[id])])),
+        scoring: args.scoringSettings,
+        preseason,
+      }).catch((error) => {
+        console.warn('[weekly-projection-engine] Sleeper projection supplement unavailable', error);
+        return { byPlayer: new Map(), requested: args.playerIds.length, found: 0, coverage: 0, status: 'unavailable' as const };
+      });
 
   const overrides = !historicalMode && args.saveOverrides !== false
     ? await loadApplicableProjectionOverrides({ season, week: args.week }).catch(() => ({ byPlayer: new Map(), byTeam: new Map() }))
@@ -146,7 +161,15 @@ export async function projectWeeklyPlayersV3(args: {
       scoring: args.scoringSettings,
       currentTeam: nflTeam,
     }) || undefined;
-    return { id, player, games, base, override, projectionSeason: season, fantasyBaseline };
+    return {
+      id,
+      player,
+      games,
+      base,
+      override,
+      projectionSeason: season,
+      fantasyBaseline,
+    };
   });
 
   const reconciled = reconcileTeamOpportunityBudgets({
@@ -157,7 +180,49 @@ export async function projectWeeklyPlayersV3(args: {
     scoring: args.scoringSettings,
     teamOverrides: overrides.byTeam,
   });
-  const calibrated = reconciled.players.map((player) => calibratePlayerRange(player, calibration));
+  const externallyAnchored = reconciled.players.map((player) => {
+    const external = externalProjections.byPlayer.get(player.id);
+    const override = overrides.byPlayer.get(player.id);
+    const blend = blendSleeperProjection({
+      internalPoints: player.projection,
+      external,
+      preseason,
+      activeProbability: player.activeProbability,
+      roleTrend: player.roleTrend,
+      manualOverride: Number.isFinite(override?.projectionPoints),
+    });
+    if (!external || blend.weight <= 0) return player;
+    const sourceLabel = external.source === 'sleeper-season' ? 'season' : 'weekly';
+    const assumption = [
+      player.assumption,
+      `Sleeper's ${sourceLabel} projection is blended as an external anchor.`,
+    ].filter(Boolean).join(' ');
+    return {
+      ...player,
+      projection: Number(blend.points.toFixed(1)),
+      baseline: Number(blend.points.toFixed(1)),
+      assumption,
+      workloadUncertainty: Number(((player.workloadUncertainty || 1) * 0.94).toFixed(3)),
+      externalProjectionPoints: Number(external.points.toFixed(2)),
+      externalProjectionWeight: blend.weight,
+      externalProjectionSource: external.source,
+      externalProjectionDisagreement: blend.disagreement,
+      projectionTrace: player.projectionTrace
+        ? {
+            ...player.projectionTrace,
+            externalProjectionPoints: Number(external.points.toFixed(2)),
+            externalProjectionWeight: blend.weight,
+            externalProjectionSource: external.source,
+            externalProjectionDisagreement: blend.disagreement,
+            adjustments: [
+              ...player.projectionTrace.adjustments,
+              `${external.source}-weight-${blend.weight.toFixed(3)}`,
+            ],
+          }
+        : player.projectionTrace,
+    };
+  });
+  const calibrated = externallyAnchored.map((player) => calibratePlayerRange(player, calibration));
   const requested = new Set(args.playerIds);
   return {
     players: calibrated.filter((player) => requested.has(player.id)),
