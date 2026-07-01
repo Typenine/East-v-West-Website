@@ -346,7 +346,7 @@ export const TEAM_CARD_HTML = `<!DOCTYPE html>
 
     var html=
       '<div class="card-header" style="background:linear-gradient(135deg,'+primary+' 0%,'+secondary+' 100%)">'
-      +'  <img id="team-logo" src="'+esc(logoSrc(name))+'" alt="'+esc(name)+' logo" onerror="this.classList.add(\'hidden\')">'
+      +'  <img id="team-logo" src="'+esc(logoSrc(name))+'" alt="'+esc(name)+' logo" onerror="this.classList.add(\\'hidden\\')">'
       +'  <div class="header-text">'
       +'    <h1 style="color:'+headerTextColor+'">'+esc(name)+'</h1>'
       +'    <div class="subtitle" style="color:'+headerSubColor+'">East v. West Dynasty</div>'
