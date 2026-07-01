@@ -14,8 +14,11 @@ function err(id: string | number | null, code: number, message: string, data?: u
   return NextResponse.json({ jsonrpc: '2.0', id, error: { code, message, ...(data ? { data } : {}) } }, { status: 200 });
 }
 
-function versionToolDescriptor<T extends { _meta?: Record<string, unknown> }>(tool: T): T {
-  const versionedMeta = withVersionedWidgetMeta(tool._meta);
+function versionToolDescriptor(tool: (typeof MCP_TOOLS)[number]) {
+  const rawMeta = '_meta' in tool
+    ? tool._meta as Record<string, unknown>
+    : undefined;
+  const versionedMeta = withVersionedWidgetMeta(rawMeta);
   return versionedMeta ? { ...tool, _meta: versionedMeta } : tool;
 }
 
@@ -29,7 +32,7 @@ export async function handleMcpPost(request: Request, identity: ServerIdentity, 
     protocolVersion: '2025-03-26', capabilities: { tools: {}, resources: {} }, serverInfo: identity,
   });
   if (method === 'notifications/initialized') return new NextResponse(null, { status: 204 });
-  if (method === 'tools/list') return ok(id, { tools: MCP_TOOLS.map(versionToolDescriptor) });
+  if (method === 'tools/list') return ok(id, { tools: MCP_TOOLS.map((tool) => versionToolDescriptor(tool)) });
   if (method === 'resources/list') return ok(id, { resources: WIDGET_ENTRIES.map((w) => w.resource) });
   if (method === 'resources/read') {
     const uri = ((params ?? {}) as { uri?: string }).uri;
