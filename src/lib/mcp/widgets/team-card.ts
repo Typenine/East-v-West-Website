@@ -54,7 +54,7 @@ const BASE_URL = 'https://east-v-west-website.vercel.app';
 const COLOR_MAP_JSON = JSON.stringify(TEAM_COLOR_MAP);
 const LOGO_MAP_JSON = JSON.stringify(LOGO_MAP);
 
-export const TEAM_CARD_WIDGET_URI = 'ui://widget/team-card-v1.html';
+export const TEAM_CARD_WIDGET_URI = 'ui://widget/team-card-v2.html';
 
 export const TEAM_CARD_HTML = `<!DOCTYPE html>
 <html lang="en">
@@ -415,7 +415,7 @@ export const TEAM_CARD_HTML = `<!DOCTYPE html>
   window.addEventListener('message',handleMessage);
 
   // Signal readiness to host frame so it knows the widget is mounted
-  try{ window.parent.postMessage({type:'widget_ready',widget:'team-card-v1'},'*'); }catch(e){}
+  try{ window.parent.postMessage({type:'widget_ready',widget:'team-card-v2'},'*'); }catch(e){}
 
   // Timeout fallback — if no data arrives in 12s show empty state
   setTimeout(function(){
