@@ -113,7 +113,15 @@ export const TEAM_CARD_OUTPUT_SCHEMA = {
           },
         },
       },
-      required: ['name', 'logoUrl', 'rosterId', 'currentRecord', 'allTimeStats', 'championships', 'championshipHistory'],
+      required: [
+        'name',
+        'logoUrl',
+        'rosterId',
+        'currentRecord',
+        'allTimeStats',
+        'championships',
+        'championshipHistory',
+      ],
     },
     roster: {
       type: 'object',
@@ -138,7 +146,10 @@ export const TEAM_CARD_RESOURCE_META = {
   ui: {
     prefersBorder: true,
     domain: TEAM_CARD_BASE_URL,
-    csp: { resourceDomains: [TEAM_CARD_BASE_URL] },
+    csp: {
+      resourceDomains: [TEAM_CARD_BASE_URL],
+    },
   },
   'openai/widgetDescription': 'East v. West Team Card — record, roster, championships, and injury flags.',
 } as const;
+
