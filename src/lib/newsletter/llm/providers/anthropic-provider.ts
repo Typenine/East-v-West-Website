@@ -23,7 +23,7 @@ export function resetAnthropicSessionTokens(): void {
   anthropicSessionTokens.calls = 0;
 }
 
-const DEFAULT_MODEL = 'claude-sonnet-4-6';
+export const DEFAULT_MODEL = 'claude-sonnet-4-6';
 // Extended thinking calls can take 30-60s on top of regular latency
 const DEFAULT_TIMEOUT_MS = 150_000;
 const DEFAULT_MAX_RETRIES = 5;
@@ -31,6 +31,12 @@ const DEFAULT_MAX_RETRIES = 5;
 // Claude Sonnet supports up to 64K output tokens on the paid tier.
 // 16K is our practical ceiling — mock drafts with extended thinking rarely exceed 8K.
 const CLAUDE_MAX_OUTPUT_TOKENS = 16_000;
+
+// Adaptive-thinking models (e.g. claude-sonnet-5) don't take a budget_tokens cap — they
+// decide their own reasoning depth and can spend a large chunk of max_tokens on thinking
+// before writing the answer. Give them more headroom so long sections (mock draft rounds)
+// don't get truncated mid-thinking.
+const CLAUDE_ADAPTIVE_MAX_OUTPUT_TOKENS = 32_000;
 
 // Extended thinking: budget_tokens must be at least 1024 and less than max_tokens.
 // Claude 3.7+ supports interleaved thinking. We require >=1024 before enabling.
@@ -48,8 +54,31 @@ function sleep(ms: number): Promise<void> {
 
 // Newer models (e.g. claude-sonnet-5) reject thinking.type "enabled" with budget_tokens
 // and require thinking.type "adaptive" instead (no budget_tokens — the model self-sizes).
-function usesAdaptiveThinking(model: string): boolean {
+// Exported so other direct Anthropic call sites (e.g. the newsletter edit route) can
+// share this instead of hardcoding a model/thinking-type combination that breaks on upgrade.
+export function usesAdaptiveThinking(model: string): boolean {
   return /sonnet-5/i.test(model);
+}
+
+// Adaptive thinking has no budget_tokens — depth is controlled by the 'effort' param
+// instead (low/medium/high/xhigh/max). Sonnet 5 defaults to 'high', which thinks far
+// more than our old fixed budgets did. Map our existing per-section budget heuristic to
+// an effort level so cost/latency/timeout behavior stays roughly comparable to before.
+export function adaptiveEffortFor(thinkingBudget: number): 'low' | 'medium' | 'high' {
+  if (thinkingBudget <= 2_048) return 'low';
+  if (thinkingBudget <= 4_096) return 'medium';
+  return 'high';
+}
+
+/** Builds the `thinking` (+ `output_config` for adaptive models) params for a Messages.create call. */
+export function buildThinkingParams(model: string, budgetTokens: number): {
+  thinking: { type: 'adaptive' } | { type: 'enabled'; budget_tokens: number };
+  output_config?: { effort: 'low' | 'medium' | 'high' };
+} {
+  if (usesAdaptiveThinking(model)) {
+    return { thinking: { type: 'adaptive' }, output_config: { effort: adaptiveEffortFor(budgetTokens) } };
+  }
+  return { thinking: { type: 'enabled', budget_tokens: budgetTokens } };
 }
 
 export async function generateWithAnthropicProvider(req: ProviderRequest): Promise<string> {
@@ -98,8 +127,11 @@ export async function generateWithAnthropicProvider(req: ProviderRequest): Promi
     try {
       // When thinking is on, temperature must be 1 (API requirement) and
       // max_tokens must accommodate both thinking blocks + text output.
+      const isAdaptive = usesAdaptiveThinking(model);
       const maxTokens = useThinking
-        ? buildThinkingMaxTokens(thinkingBudget, Math.min(req.maxTokens, CLAUDE_MAX_OUTPUT_TOKENS))
+        ? isAdaptive
+          ? Math.min(req.maxTokens + 12_000, CLAUDE_ADAPTIVE_MAX_OUTPUT_TOKENS)
+          : buildThinkingMaxTokens(thinkingBudget, Math.min(req.maxTokens, CLAUDE_MAX_OUTPUT_TOKENS))
         : Math.min(req.maxTokens, CLAUDE_MAX_OUTPUT_TOKENS);
 
       const createParams: Anthropic.MessageCreateParamsNonStreaming = {
@@ -117,13 +149,7 @@ export async function generateWithAnthropicProvider(req: ProviderRequest): Promi
           },
         ],
         messages: [{ role: 'user', content: req.userPrompt }],
-        ...(useThinking
-          ? {
-              thinking: usesAdaptiveThinking(model)
-                ? { type: 'adaptive' as const }
-                : { type: 'enabled' as const, budget_tokens: thinkingBudget },
-            }
-          : {}),
+        ...(useThinking ? buildThinkingParams(model, thinkingBudget) : {}),
       };
 
       const message: Anthropic.Message = await client.messages.create({ ...createParams, stream: false });

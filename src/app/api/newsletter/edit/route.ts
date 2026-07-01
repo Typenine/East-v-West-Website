@@ -23,6 +23,7 @@ import { newsletters } from '@/server/db/schema';
 import { eq, and } from 'drizzle-orm';
 import Anthropic from '@anthropic-ai/sdk';
 import { buildSystemPrompt, type PersonaType } from '@/lib/newsletter/llm/groq';
+import { DEFAULT_MODEL, buildThinkingParams, usesAdaptiveThinking } from '@/lib/newsletter/llm/providers/anthropic-provider';
 import { saveNewsletterSnapshot, listSnapshots, loadSnapshot } from '@/server/db/observability-queries';
 import { renderHtml } from '@/lib/newsletter/template';
 import { getValueAtPath, setValueAtPath } from '@/lib/newsletter/field-path';
@@ -276,19 +277,20 @@ export async function POST(req: NextRequest) {
       ? `<existing_text>\n${currentText}\n</existing_text>\n\n<rewrite_instruction>\n${instruction}\n</rewrite_instruction>\n\nRewrite the text above following the instruction exactly. Output only the rewritten text.`
       : `<existing_text>\n${currentText}\n</existing_text>\n\n<rewrite_instruction>\n${instruction}\n</rewrite_instruction>\n\nRewrite the full text above following the instruction exactly. Preserve voice and length unless told otherwise. Output only the rewritten text.`;
 
+    const editModel = process.env.ANTHROPIC_MODEL || DEFAULT_MODEL;
     const client = new Anthropic({
       apiKey,
       timeout: 90_000,
       defaultHeaders: { 'anthropic-beta': 'interleaved-thinking-2025-05-14' },
     });
     const createParams: Anthropic.MessageCreateParamsNonStreaming = {
-      model: 'claude-sonnet-4-6',
-      max_tokens: 3072,  // thinking budget (1024) + text output (2048)
+      model: editModel,
+      max_tokens: usesAdaptiveThinking(editModel) ? 6144 : 3072,  // adaptive thinking has no fixed budget, give it more headroom
       temperature: 1,    // required when thinking is enabled
       system: systemPrompt,
       messages: [{ role: 'user', content: userMessage }],
       // Light thinking budget — enough to reason through complex trade flows
-      thinking: { type: 'enabled' as const, budget_tokens: 1024 },
+      ...buildThinkingParams(editModel, 1024),
     };
     const message: Anthropic.Message = await client.messages.create({ ...createParams, stream: false }) as unknown as Anthropic.Message;
 
@@ -409,14 +411,15 @@ No markdown fences, no commentary.`;
 
     const sweepUser = `<correction>\n${note}\n</correction>\n\n<newsletter_fields>\n${fieldsBlock}\n</newsletter_fields>\n\nReturn the JSON array of proposed fixes.`;
 
+    const sweepModel = process.env.ANTHROPIC_MODEL || DEFAULT_MODEL;
     const client = new Anthropic({ apiKey, timeout: 120_000 });
     const message = await client.messages.create({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 8192,
+      model: sweepModel,
+      max_tokens: usesAdaptiveThinking(sweepModel) ? 16384 : 8192,  // adaptive thinking has no fixed budget, give it more headroom
       temperature: 1,
       system: sweepSystem,
       messages: [{ role: 'user', content: sweepUser }],
-      thinking: { type: 'enabled', budget_tokens: 2048 },
+      ...buildThinkingParams(sweepModel, 2048),
     });
 
     const rawText = (message.content as Anthropic.ContentBlock[])
