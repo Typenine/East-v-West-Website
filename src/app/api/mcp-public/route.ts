@@ -100,8 +100,9 @@ const PUBLIC_TOOLS = [
   {
     name: 'show_team_card',
     description: 'Renders a visual Team Card UI for one East v. West team. Shows the team logo, current-season record, points for/against, active roster grouped by position, IR and taxi slots, and championship history in a styled visual component. Use this when the user says "show", "display", "view", "pull up", "render", or "open" a team card. Accepts partial names and aliases (e.g. "double", "dt", "cake eaters", "beer", "belltown", "badgers").',
-    annotations: {
+    _meta: {
       'openai/outputTemplate': { uri: TEAM_CARD_WIDGET_URI },
+      ui: { resourceUri: TEAM_CARD_WIDGET_URI },
     },
     inputSchema: {
       type: 'object',

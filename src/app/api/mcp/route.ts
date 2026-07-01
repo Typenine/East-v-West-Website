@@ -96,8 +96,9 @@ const MCP_TOOLS = [
       'Do not use for data-only answers — use get_team_dashboard instead. ' +
       'Accepts partial names and aliases (e.g. "double", "dt", "cake eaters", "beer", "belltown", "badgers"). ' +
       'Examples: "Show Double Trouble\'s team card.", "Display the Belltown Raptors.", "Pull up Belleview Badgers.", "Show me the team card for bop pop.", "Open the Double Trouble dashboard."',
-    annotations: {
+    _meta: {
       'openai/outputTemplate': { uri: TEAM_CARD_WIDGET_URI },
+      ui: { resourceUri: TEAM_CARD_WIDGET_URI },
     },
     inputSchema: {
       type: 'object',
