@@ -46,6 +46,12 @@ function sleep(ms: number): Promise<void> {
   return new Promise(r => setTimeout(r, ms));
 }
 
+// Newer models (e.g. claude-sonnet-5) reject thinking.type "enabled" with budget_tokens
+// and require thinking.type "adaptive" instead (no budget_tokens — the model self-sizes).
+function usesAdaptiveThinking(model: string): boolean {
+  return /sonnet-5/i.test(model);
+}
+
 export async function generateWithAnthropicProvider(req: ProviderRequest): Promise<string> {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) throw new Error('ANTHROPIC_API_KEY not set');
@@ -111,7 +117,13 @@ export async function generateWithAnthropicProvider(req: ProviderRequest): Promi
           },
         ],
         messages: [{ role: 'user', content: req.userPrompt }],
-        ...(useThinking ? { thinking: { type: 'enabled' as const, budget_tokens: thinkingBudget } } : {}),
+        ...(useThinking
+          ? {
+              thinking: usesAdaptiveThinking(model)
+                ? { type: 'adaptive' as const }
+                : { type: 'enabled' as const, budget_tokens: thinkingBudget },
+            }
+          : {}),
       };
 
       const message: Anthropic.Message = await client.messages.create({ ...createParams, stream: false });
