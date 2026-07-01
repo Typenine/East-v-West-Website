@@ -790,6 +790,12 @@ const CLAUDE_THINKING_BUDGET_BY_SECTION: Record<string, number> = {
   'Mock Draft - Round 2': 4000,
   'Draft Grades - Awards': 3000,
   'Draft Preview - Mock Draft': 4000,
+  // Repairs fix mistakes (duplicate picks, invalid players) from the original pass —
+  // they need AT LEAST as much reasoning depth as the pass that made the mistake, or
+  // (under adaptive thinking) a lower effort tier can cause the repair to skip thinking
+  // and repeat the same error.
+  'Mock Draft - Round 1 Repair': 4000,
+  'Mock Draft - Round 2 Repair': 4000,
 };
 
 function getClaudeThinkingBudget(sectionType: string): number {
