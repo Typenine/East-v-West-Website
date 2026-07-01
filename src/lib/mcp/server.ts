@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { WIDGET_ENTRIES } from '@/lib/mcp/widgets/registry';
+import { WIDGET_ENTRIES, withVersionedWidgetMeta } from '@/lib/mcp/widgets/registry';
 import { MCP_TOOLS } from '@/lib/mcp/tool-definitions';
 import { dispatchTool, type ToolInput } from '@/lib/mcp/public-dispatch';
 import { McpError } from '@/lib/mcp/handlers';
@@ -14,6 +14,11 @@ function err(id: string | number | null, code: number, message: string, data?: u
   return NextResponse.json({ jsonrpc: '2.0', id, error: { code, message, ...(data ? { data } : {}) } }, { status: 200 });
 }
 
+function versionToolDescriptor<T extends { _meta?: Record<string, unknown> }>(tool: T): T {
+  const versionedMeta = withVersionedWidgetMeta(tool._meta);
+  return versionedMeta ? { ...tool, _meta: versionedMeta } : tool;
+}
+
 export async function handleMcpPost(request: Request, identity: ServerIdentity, execute: ToolExecutor = dispatchTool) {
   let body: { id?: string | number | null; method?: string; params?: unknown };
   try { body = await request.json(); } catch { return err(null, -32700, 'Parse error: invalid JSON'); }
@@ -24,7 +29,7 @@ export async function handleMcpPost(request: Request, identity: ServerIdentity, 
     protocolVersion: '2025-03-26', capabilities: { tools: {}, resources: {} }, serverInfo: identity,
   });
   if (method === 'notifications/initialized') return new NextResponse(null, { status: 204 });
-  if (method === 'tools/list') return ok(id, { tools: MCP_TOOLS });
+  if (method === 'tools/list') return ok(id, { tools: MCP_TOOLS.map(versionToolDescriptor) });
   if (method === 'resources/list') return ok(id, { resources: WIDGET_ENTRIES.map((w) => w.resource) });
   if (method === 'resources/read') {
     const uri = ((params ?? {}) as { uri?: string }).uri;
@@ -42,13 +47,14 @@ export async function handleMcpPost(request: Request, identity: ServerIdentity, 
     if (!call.name) return err(id, -32602, 'Invalid params: missing tool name');
     try {
       const result = await execute(call.name, call.arguments ?? {});
+      const resultMeta = withVersionedWidgetMeta(result._meta);
       return ok(id, {
         structuredContent: result.structuredContent,
         content: result.markdown
           ? [{ type: 'text', text: result.markdown }]
           : [{ type: 'text', text: JSON.stringify(result.structuredContent) }],
         isError: false,
-        ...(result._meta ? { _meta: result._meta } : {}),
+        ...(resultMeta ? { _meta: resultMeta } : {}),
       });
     } catch (error) {
       if (error instanceof McpError) return ok(id, { content: [{ type: 'text', text: `**Error:** ${error.message}` }], isError: true });

@@ -13,7 +13,22 @@ export type WidgetEntry = {
   resourceMeta: Record<string, unknown>;
 };
 
-export const WIDGET_ENTRIES: WidgetEntry[] = [
+const WIDGET_REVISION = 'styled-v2';
+
+function versionWidgetUri(uri: string): string {
+  return uri.endsWith('.html')
+    ? `${uri.slice(0, -5)}-${WIDGET_REVISION}.html`
+    : `${uri}-${WIDGET_REVISION}`;
+}
+
+function hardenWidgetHtml(html: string): string {
+  return html.replace(
+    /onerror="[^"]*classList\.add\([^"]*\)"/g,
+    'onerror="this.remove()"',
+  );
+}
+
+const RAW_WIDGET_ENTRIES: WidgetEntry[] = [
   { resource: TEAM_CARD_RESOURCE, html: TEAM_CARD_HTML, resourceMeta: TEAM_CARD_RESOURCE_META },
   { resource: TRADE_ANALYZER_RESOURCE, html: TRADE_ANALYZER_HTML, resourceMeta: TRADE_ANALYZER_RESOURCE_META },
   { resource: TEAM_COMPARE_RESOURCE, html: TEAM_COMPARE_HTML, resourceMeta: TEAM_COMPARE_RESOURCE_META },
@@ -23,3 +38,33 @@ export const WIDGET_ENTRIES: WidgetEntry[] = [
   { resource: FRANCHISE_CASE_RESOURCE, html: FRANCHISE_CASE_HTML, resourceMeta: FRANCHISE_CASE_RESOURCE_META },
   { resource: ROSTER_STRENGTH_RESOURCE, html: ROSTER_STRENGTH_HTML, resourceMeta: ROSTER_STRENGTH_RESOURCE_META },
 ];
+
+export const WIDGET_ENTRIES: WidgetEntry[] = RAW_WIDGET_ENTRIES.map((entry) => ({
+  resource: {
+    ...entry.resource,
+    uri: versionWidgetUri(entry.resource.uri),
+  },
+  html: hardenWidgetHtml(entry.html),
+  resourceMeta: entry.resourceMeta,
+}));
+
+export function withVersionedWidgetMeta(meta?: Record<string, unknown>): Record<string, unknown> | undefined {
+  if (!meta) return undefined;
+
+  const outputTemplate = meta['openai/outputTemplate'];
+  if (typeof outputTemplate !== 'string') return meta;
+
+  const versionedUri = versionWidgetUri(outputTemplate);
+  const ui = meta.ui && typeof meta.ui === 'object'
+    ? meta.ui as Record<string, unknown>
+    : {};
+
+  return {
+    ...meta,
+    'openai/outputTemplate': versionedUri,
+    ui: {
+      ...ui,
+      resourceUri: versionedUri,
+    },
+  };
+}
