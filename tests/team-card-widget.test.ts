@@ -270,10 +270,10 @@ describe('MCP route metadata and resources', () => {
       expect(tool.outputSchema).toEqual(TEAM_CARD_OUTPUT_SCHEMA);
     });
 
-    it(`${label} resources/list returns only the v3 team-card URI`, async () => {
+    it(`${label} resources/list includes the v3 team-card resource`, async () => {
       const body = await rpc(post, url, 'resources/list');
-      expect(body.result.resources).toEqual([TEAM_CARD_RESOURCE]);
-      expect(body.result.resources[0].uri).toBe('ui://widget/team-card-v3.html');
+      expect(body.result.resources).toContainEqual(TEAM_CARD_RESOURCE);
+      expect(body.result.resources.map((r: any) => r.uri)).toContain('ui://widget/team-card-v3.html');
     });
 
     it(`${label} resources/read accepts and returns v3 with the exact MIME type and CSP`, async () => {

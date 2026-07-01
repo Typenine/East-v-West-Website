@@ -1,0 +1,2 @@
+export { DRAFT_BOARD_HTML, DRAFT_BOARD_RESOURCE } from './draft-board-html';
+export { DRAFT_BOARD_WIDGET_URI, DRAFT_BOARD_OUTPUT_SCHEMA, DRAFT_BOARD_TOOL_META, DRAFT_BOARD_RESOURCE_META } from './draft-board-contract';

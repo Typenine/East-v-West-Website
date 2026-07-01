@@ -1,4 +1,11 @@
 import { TEAM_CARD_TOOL_META } from '@/lib/mcp/widgets/team-card';
+import { TRADE_ANALYZER_TOOL_META } from '@/lib/mcp/widgets/trade-analyzer';
+import { TEAM_COMPARE_TOOL_META } from '@/lib/mcp/widgets/team-compare';
+import { TRADE_BLOCK_TOOL_META } from '@/lib/mcp/widgets/trade-block';
+import { DRAFT_BOARD_TOOL_META } from '@/lib/mcp/widgets/draft-board';
+import { PICK_BOARD_TOOL_META } from '@/lib/mcp/widgets/pick-board';
+import { FRANCHISE_CASE_TOOL_META } from '@/lib/mcp/widgets/franchise-case';
+import { ROSTER_STRENGTH_TOOL_META } from '@/lib/mcp/widgets/roster-strength';
 import {
   handleGetLeagueInfo,
   handleGetStandings,
@@ -110,7 +117,11 @@ export async function dispatchTool(name: string, input: ToolInput): Promise<Disp
       return { structuredContent: data, markdown: formatTradeHistoryMarkdown(d.trades, teamArg, Math.min(limitArg ?? 8, 8)) };
     }
     case 'get_draft_history':
-      return { structuredContent: await handleGetDrafts({ season: input.season as string | undefined, team: input.team as string | undefined, type: input.type as string | undefined }), markdown: null };
+      return {
+        structuredContent: await handleGetDrafts({ season: input.season as string | undefined, team: input.team as string | undefined, type: input.type as string | undefined }),
+        markdown: null,
+        _meta: DRAFT_BOARD_TOOL_META,
+      };
     case 'get_draft_picks': {
       const teamArg = input.team as string | undefined;
       const data = await handleGetDrafts({ team: teamArg, type: 'future' });
@@ -120,7 +131,7 @@ export async function dispatchTool(name: string, input: ToolInput): Promise<Disp
     case 'get_franchise_summary': {
       const data = await handleGetFranchise({ team: input.team as string | undefined });
       const d = data as { franchises: Parameters<typeof formatFranchiseMarkdown>[0] };
-      return { structuredContent: data, markdown: formatFranchiseMarkdown(d.franchises) };
+      return { structuredContent: data, markdown: formatFranchiseMarkdown(d.franchises), _meta: FRANCHISE_CASE_TOOL_META };
     }
     case 'answer_rule_question': {
       const data = await handleGetRules({ search: input.search as string | undefined, section: input.section as string | undefined });
@@ -145,15 +156,15 @@ export async function dispatchTool(name: string, input: ToolInput): Promise<Disp
     }
     case 'compare_teams': {
       const data = await handleCompareTeams({ team1: input.team1 as string | undefined, team2: input.team2 as string | undefined });
-      return { structuredContent: data, markdown: formatCompareTeamsMarkdown(data) };
+      return { structuredContent: data, markdown: formatCompareTeamsMarkdown(data), _meta: TEAM_COMPARE_TOOL_META };
     }
     case 'get_future_pick_board': {
       const data = await handleGetFuturePickBoard();
-      return { structuredContent: data, markdown: formatFuturePickBoardMarkdown(data) };
+      return { structuredContent: data, markdown: formatFuturePickBoardMarkdown(data), _meta: PICK_BOARD_TOOL_META };
     }
     case 'get_trade_block': {
       const data = await handleGetTradeBlock({ team: input.team as string | undefined });
-      return { structuredContent: data, markdown: formatTradeBlockMarkdown(data) };
+      return { structuredContent: data, markdown: formatTradeBlockMarkdown(data), _meta: TRADE_BLOCK_TOOL_META };
     }
     case 'get_power_rankings': {
       const data = await handleGetPowerRankings();
@@ -161,7 +172,7 @@ export async function dispatchTool(name: string, input: ToolInput): Promise<Disp
     }
     case 'analyze_roster': {
       const data = await handleAnalyzeRoster({ name: input.name as string | undefined });
-      return { structuredContent: data, markdown: formatAnalyzeRosterMarkdown(data) };
+      return { structuredContent: data, markdown: formatAnalyzeRosterMarkdown(data), _meta: ROSTER_STRENGTH_TOOL_META };
     }
     case 'analyze_trade': {
       const data = await handleAnalyzeTrade({
@@ -169,7 +180,7 @@ export async function dispatchTool(name: string, input: ToolInput): Promise<Disp
         side_b: input.side_b as string[],
         source: input.source as 'avg' | 'fc' | 'ktc' | undefined,
       });
-      return { structuredContent: data, markdown: formatAnalyzeTradeMarkdown(data) };
+      return { structuredContent: data, markdown: formatAnalyzeTradeMarkdown(data), _meta: TRADE_ANALYZER_TOOL_META };
     }
     case 'get_player_values': {
       const data = await handleGetPlayerValues({ players: input.players as string[] });

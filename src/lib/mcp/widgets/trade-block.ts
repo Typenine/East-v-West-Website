@@ -1,0 +1,2 @@
+export { TRADE_BLOCK_HTML, TRADE_BLOCK_RESOURCE } from './trade-block-html';
+export { TRADE_BLOCK_WIDGET_URI, TRADE_BLOCK_OUTPUT_SCHEMA, TRADE_BLOCK_TOOL_META, TRADE_BLOCK_RESOURCE_META } from './trade-block-contract';

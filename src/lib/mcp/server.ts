@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { TEAM_CARD_HTML, TEAM_CARD_RESOURCE, TEAM_CARD_RESOURCE_META, TEAM_CARD_WIDGET_URI } from '@/lib/mcp/widgets/team-card';
+import { WIDGET_ENTRIES } from '@/lib/mcp/widgets/registry';
 import { MCP_TOOLS } from '@/lib/mcp/tool-definitions';
 import { dispatchTool, type ToolInput } from '@/lib/mcp/public-dispatch';
 import { McpError } from '@/lib/mcp/handlers';
@@ -25,15 +25,16 @@ export async function handleMcpPost(request: Request, identity: ServerIdentity, 
   });
   if (method === 'notifications/initialized') return new NextResponse(null, { status: 204 });
   if (method === 'tools/list') return ok(id, { tools: MCP_TOOLS });
-  if (method === 'resources/list') return ok(id, { resources: [TEAM_CARD_RESOURCE] });
+  if (method === 'resources/list') return ok(id, { resources: WIDGET_ENTRIES.map((w) => w.resource) });
   if (method === 'resources/read') {
     const uri = ((params ?? {}) as { uri?: string }).uri;
-    if (uri !== TEAM_CARD_WIDGET_URI) return err(id, -32602, `Resource not found: ${uri}`);
+    const entry = WIDGET_ENTRIES.find((w) => w.resource.uri === uri);
+    if (!entry) return err(id, -32602, `Resource not found: ${uri}`);
     return ok(id, { contents: [{
-      uri: TEAM_CARD_WIDGET_URI,
-      mimeType: TEAM_CARD_RESOURCE.mimeType,
-      text: TEAM_CARD_HTML,
-      _meta: TEAM_CARD_RESOURCE_META,
+      uri: entry.resource.uri,
+      mimeType: entry.resource.mimeType,
+      text: entry.html,
+      _meta: entry.resourceMeta,
     }] });
   }
   if (method === 'tools/call') {

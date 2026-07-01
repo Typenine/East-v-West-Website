@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { mcpMeta } from '@/lib/mcp/auth';
 import { handleMcpPost, MCP_TOOLS } from '@/lib/mcp/server';
-import { TEAM_CARD_RESOURCE } from '@/lib/mcp/widgets/team-card';
+import { WIDGET_ENTRIES } from '@/lib/mcp/widgets/registry';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -25,7 +25,7 @@ export async function GET() {
     note: 'All tools are read-only. No database access. Source: Sleeper public API + static league constants.',
     toolCount: MCP_TOOLS.length,
     tools: MCP_TOOLS.map((tool) => tool.name),
-    widgetResources: [TEAM_CARD_RESOURCE.uri],
+    widgetResources: WIDGET_ENTRIES.map((w) => w.resource.uri),
     meta: mcpMeta('health', { dataSource: 'static' }),
   });
 }
