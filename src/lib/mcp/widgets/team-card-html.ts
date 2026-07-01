@@ -1,5 +1,6 @@
 import { TEAM_CARD_WIDGET_URI } from './team-card-contract';
 import { BASE_URL, COLOR_MAP_JSON, LOGO_MAP_JSON } from './team-card-assets';
+import { WIDGET_BASE_STYLE } from './widget-base-style';
 import { TEAM_CARD_STYLE } from './team-card-style';
 
 export const TEAM_CARD_HTML = `<!DOCTYPE html>
@@ -8,10 +9,10 @@ export const TEAM_CARD_HTML = `<!DOCTYPE html>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>East v. West Team Card</title>
-<style>${TEAM_CARD_STYLE}</style>
+<style>${WIDGET_BASE_STYLE}${TEAM_CARD_STYLE}</style>
 </head>
 <body>
-<div id="state-loading">Loading team data\u2026</div>
+<div id="state-loading">Loading team data…</div>
 <div id="state-error" style="display:none"></div>
 <div id="state-empty" style="display:none">No team data available.</div>
 <div id="card"></div>
@@ -23,9 +24,10 @@ export const TEAM_CARD_HTML = `<!DOCTYPE html>
   var hasRendered=false;
 
   function logoSrc(name){var f=LOGO_FILE_MAP[name]||(name+'.png');return BASE+'/assets/teams/East%20v%20West%20Logos/'+encodeURIComponent(f)}
-  function teamColors(name){return COLOR_MAP[name]||{primary:'#3b5b8b',secondary:'#ba1010'}}
-  function isLight(hex){var h=hex.replace('#','');var r=parseInt(h.slice(0,2),16),g=parseInt(h.slice(2,4),16),b=parseInt(h.slice(4,6),16);return(r*299+g*587+b*114)/1000>128}
+  function teamColors(name){return COLOR_MAP[name]||{primary:'#315f9e',secondary:'#b52f45'}}
   function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
+  function trophyIcon(){return'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h10v3h3v3c0 3.31-2.69 6-6 6h-1v3h4v3H7v-3h4v-3h-1c-3.31 0-6-2.69-6-6V6h3V3Zm10 5v4.83A4 4 0 0 0 18 9V8h-1ZM6 8v1a4 4 0 0 0 1 2.65V8H6Z"/></svg>'}
+  function shellHeader(){return'<div class="widget-topline"><div class="league-lockup"><span class="league-mark"><span></span><span></span></span><div><div class="widget-eyebrow">East v. West</div><div class="widget-title">Franchise Team Card</div><div class="widget-subtitle">Live roster, record and franchise history</div></div></div><span class="status-pill"><span class="pulse"></span>Live</span></div>'}
 
   var STATUS_SEVERITY={'Out':1,'IR':1,'PUP-P':1,'NFI-R':1,'Sus':1,'Doubtful':2,'Questionable':3,'Limited':3,'DNP':3};
   function statusDotClass(status){if(!status||status==='Active'||status==='ACT')return null;var sev=STATUS_SEVERITY[status];if(sev===1||sev===2)return's-out';if(sev===3)return's-q';return's-other'}
@@ -45,38 +47,44 @@ export const TEAM_CARD_HTML = `<!DOCTYPE html>
       }).join('');
       return'<div class="pos-group"><span class="pos-label">'+esc(pos)+'</span><div class="player-list">'+chips+'</div></div>';
     }).join('');
-    return'<div class="section"><div class="section-title">'+esc(title)+'</div>'+rows+'</div>';
+    return'<div class="roster-section"><div class="roster-section-title"><strong>'+esc(title)+'</strong><span>'+players.length+' players</span></div>'+rows+'</div>';
   }
 
   function render(data){
     var team=data&&data.team,roster=data&&data.roster,meta=data&&data.meta;
     if(!team){document.getElementById('state-loading').style.display='none';document.getElementById('state-empty').style.display='flex';return}
     var name=team.name||'Unknown',colors=teamColors(name),primary=colors.primary,secondary=colors.secondary;
-    var headerTextColor=isLight(primary)?'#000':'#fff',headerSubColor=isLight(primary)?'rgba(0,0,0,.6)':'rgba(255,255,255,.75)';
     var cr=team.currentRecord||{},season=cr.season||'',wins=cr.wins!=null?cr.wins:'—',losses=cr.losses!=null?cr.losses:'—';
     var ties=cr.ties!=null&&cr.ties>0?' / '+cr.ties+'T':'',pf=cr.pf!=null?Number(cr.pf).toFixed(1):'—',pa=cr.pa!=null?Number(cr.pa).toFixed(1):'—';
-    var at=team.allTimeStats&&team.allTimeStats.regularSeason,atStr=at?(at.wins+'-'+at.losses):null;
+    var at=team.allTimeStats&&team.allTimeStats.regularSeason,atStr=at?(at.wins+'-'+at.losses):'—';
     var champCount=team.championships||0;
     var champHistory=(team.championshipHistory||[]).filter(function(c){return typeof c.finish==='string'&&c.finish.indexOf('1st')===0});
-    var champSection='';
-    if(champCount>0){var badges=champHistory.map(function(c){return'<span class="champ-badge">\uD83C\uDFC6 '+esc(c.year)+'</span>'}).join('');champSection='<div class="section"><div class="section-title">Championships ('+champCount+')</div><div class="champ-list">'+badges+'</div></div>'}
-    var irCount=(roster&&roster.ir&&roster.ir.length)||0,taxiCount=(roster&&roster.taxi&&roster.taxi.length)||0,slotSection='';
-    if(irCount>0||taxiCount>0){var pills='';if(irCount>0)pills+='<span class="slot-pill"><span class="num">'+irCount+'</span><span class="type">IR</span></span>';if(taxiCount>0)pills+='<span class="slot-pill"><span class="num">'+taxiCount+'</span><span class="type">Taxi</span></span>';slotSection='<div class="section"><div class="section-title">Reserve Slots</div><div class="slot-counts">'+pills+'</div></div>'}
-    var activeSection=renderRosterSection('Active Roster ('+(roster&&roster.active?roster.active.length:0)+')',roster&&roster.active?roster.active:[],true);
-    var irSection=renderRosterSection('IR / Reserve ('+irCount+')',roster&&roster.ir?roster.ir:[],true);
-    var taxiSection=renderRosterSection('Taxi Squad ('+taxiCount+')',roster&&roster.taxi?roster.taxi:[],false);
+    var irCount=(roster&&roster.ir&&roster.ir.length)||0,taxiCount=(roster&&roster.taxi&&roster.taxi.length)||0;
+
+    var hero='<div class="team-hero" style="background:linear-gradient(125deg,'+primary+' 0%,'+secondary+' 100%)">'
+      +'<span class="team-logo-frame"><img id="team-logo" src="'+esc(logoSrc(name))+'" alt="'+esc(name)+' logo" onerror="this.classList.add(\'hidden\')"></span>'
+      +'<div class="team-identity"><div class="league-line">East v. West Dynasty</div><h1>'+esc(name)+'</h1><div class="subline">Roster ID '+esc(team.rosterId)+'</div></div>'
+      +'<div class="record-lockup"><div class="record">'+wins+'-'+losses+ties+'</div><div class="season">'+esc(season)+' record</div></div></div>';
+
+    var stats='<div class="stats-grid">'
+      +'<div class="stat-tile"><div class="value">'+pf+'</div><div class="label">Points For</div></div>'
+      +'<div class="stat-tile"><div class="value">'+pa+'</div><div class="label">Points Against</div></div>'
+      +'<div class="stat-tile"><div class="value">'+esc(atStr)+'</div><div class="label">All-Time Record</div></div>'
+      +'<div class="stat-tile"><div class="value">'+champCount+'</div><div class="label">Championship'+(champCount===1?'':'s')+'</div></div></div>';
+
+    var activeSection=renderRosterSection('Active Roster',roster&&roster.active?roster.active:[],true);
+    var irSection=renderRosterSection('IR / Reserve',roster&&roster.ir?roster.ir:[],true);
+    var taxiSection=renderRosterSection('Taxi Squad',roster&&roster.taxi?roster.taxi:[],false);
+    var rosterPanel='<div class="panel roster-panel">'+activeSection+irSection+taxiSection+'</div>';
+
+    var trophyBadges=champHistory.map(function(c){return'<span class="trophy-badge">'+trophyIcon()+esc(c.year)+'</span>'}).join('');
+    if(!trophyBadges)trophyBadges='<span class="empty-note">No championships yet.</span>';
+    var trophyPanel='<div class="panel side-panel"><div class="section-heading"><span class="section-kicker">Trophy Case</span><span class="section-meta">'+champCount+' title'+(champCount===1?'':'s')+'</span></div><div class="trophy-list">'+trophyBadges+'</div></div>';
+    var reservePanel='<div class="panel side-panel"><div class="section-heading"><span class="section-kicker">Reserve Slots</span><span class="section-meta">Current usage</span></div><div class="reserve-grid"><div class="reserve-tile"><div class="num">'+irCount+'</div><div class="type">IR / Reserve</div></div><div class="reserve-tile"><div class="num">'+taxiCount+'</div><div class="type">Taxi Squad</div></div></div></div>';
+
     var fetchedAt=meta&&meta.fetchedAt?new Date(meta.fetchedAt).toLocaleTimeString():'';
-    var freshnessHtml=fetchedAt?'<div class="freshness">Live from Sleeper \u00B7 '+esc(fetchedAt)+'</div>':'';
-    var statsHtml='<div class="stats-row">'
-      +'<div class="stat-box"><div class="val">'+wins+'-'+losses+ties+'</div><div class="lbl">'+esc(season)+' Record</div></div>'
-      +'<div class="stat-box"><div class="val">'+pf+'</div><div class="lbl">Points For</div></div>'
-      +'<div class="stat-box"><div class="val">'+pa+'</div><div class="lbl">Points Against</div></div>'
-      +(atStr?'<div class="stat-box"><div class="val">'+esc(atStr)+'</div><div class="lbl">All-Time</div></div>':'')
-      +(champCount?'<div class="stat-box"><div class="val">\uD83C\uDFC6 '+champCount+'</div><div class="lbl">Title'+(champCount>1?'s':'')+'</div></div>':'')+'</div>';
-    var html='<div class="card-header" style="background:linear-gradient(135deg,'+primary+' 0%,'+secondary+' 100%)">'
-      +'<img id="team-logo" src="'+esc(logoSrc(name))+'" alt="'+esc(name)+' logo" onerror="this.classList.add(\\'hidden\\')">'
-      +'<div class="header-text"><h1 style="color:'+headerTextColor+'">'+esc(name)+'</h1><div class="subtitle" style="color:'+headerSubColor+'">East v. West Dynasty</div></div></div>'
-      +statsHtml+champSection+activeSection+slotSection+irSection+taxiSection+freshnessHtml;
+    var freshness=fetchedAt?'<div class="freshness">Live from Sleeper · '+esc(fetchedAt)+'</div>':'';
+    var html='<div class="widget-shell">'+shellHeader()+hero+'<div class="team-card-body">'+stats+'<div class="team-card-grid">'+rosterPanel+'<div class="side-stack">'+trophyPanel+reservePanel+'</div></div></div>'+freshness+'</div>';
     var card=document.getElementById('card');card.innerHTML=html;card.style.display='block';document.getElementById('state-loading').style.display='none';document.getElementById('state-empty').style.display='none';hasRendered=true;
   }
 

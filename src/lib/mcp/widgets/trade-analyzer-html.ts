@@ -22,44 +22,43 @@ export const TRADE_ANALYZER_HTML = `<!DOCTYPE html>
   function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
   function fmtNum(n){return Math.round(n||0).toLocaleString()}
   function gradeClass(g){if(!g||g==='—')return'grade-none';return'grade-'+g.charAt(0)}
+  function shellHeader(){return'<div class="widget-topline"><div class="league-lockup"><span class="league-mark"><span></span><span></span></span><div><div class="widget-eyebrow">East v. West</div><div class="widget-title">Trade Analyzer</div><div class="widget-subtitle">Dynasty value comparison and deal balance</div></div></div><span class="status-pill"><span class="pulse"></span>Live values</span></div>'}
 
   function renderAssets(assets){
-    if(!assets||!assets.length)return'<div class="asset-row"><span class="asset-meta">No assets</span></div>';
+    if(!assets||!assets.length)return'<div class="asset-row"><div class="asset-meta">No assets</div></div>';
     return assets.map(function(a){
-      var trend=a.trend>100?' ↑':a.trend<-100?' ↓':'';
+      var trend=a.trend>100?'<span class="trend-up">▲</span>':a.trend<-100?'<span class="trend-down">▼</span>':'';
       var posLabel=a.isPick?'PICK':(a.position||'?');
       var meta=esc(posLabel)+(a.nflTeam?' · '+esc(a.nflTeam):'');
-      return'<div class="asset-row"><div><div class="asset-name">'+esc(a.name)+'</div><div class="asset-meta">'+meta+'</div></div><div class="asset-val">'+fmtNum(a.value)+trend+'</div></div>';
+      return'<div class="asset-row"><div><div class="asset-name">'+esc(a.name)+'</div><div class="asset-meta">'+meta+'</div></div><div class="asset-value">'+fmtNum(a.value)+' '+trend+'</div></div>';
     }).join('');
   }
 
-  function renderSide(label,side,barClass,maxVal){
-    var pct=maxVal>0?Math.max(4,Math.round((side.effectiveTotal/maxVal)*100)):0;
-    return'<div class="side"><div class="side-head"><span class="label">'+esc(label)+'</span><span class="grade '+gradeClass(side.grade)+'">'+esc(side.grade)+'</span></div>'
-      +'<div class="value-total">'+fmtNum(side.effectiveTotal)+'</div>'
-      +'<div class="value-sub">Raw '+fmtNum(side.rawTotal)+' · '+esc(side.posSummary||'—')+'</div>'
-      +'<div class="value-bar-track"><div class="value-bar-fill '+barClass+'" style="width:'+pct+'%"></div></div>'
-      +renderAssets(side.assets)+'</div>';
+  function renderSide(label,side,cls){
+    return'<div class="trade-side '+cls+'"><div class="side-summary"><div><div class="side-label">'+esc(label)+'</div><div class="side-total">'+fmtNum(side.effectiveTotal)+'</div><div class="side-sub">Raw '+fmtNum(side.rawTotal)+' · '+esc(side.posSummary||'—')+'</div></div><div class="grade-badge '+gradeClass(side.grade)+'">'+esc(side.grade)+'</div></div><div class="asset-list">'+renderAssets(side.assets)+'</div></div>';
   }
 
   function render(data){
     var analysis=data&&data.analysis,sideA=data&&data.sideA,sideB=data&&data.sideB,unmatched=(data&&data.unmatched)||{},meta=data&&data.meta;
     if(!analysis||!sideA||!sideB){document.getElementById('state-loading').style.display='none';document.getElementById('state-empty').style.display='flex';return}
-    var maxVal=Math.max(sideA.effectiveTotal,sideB.effectiveTotal,1);
-    var winnerText=analysis.winner?'Side '+analysis.winner+' wins by ~'+fmtNum(analysis.diff)+' pts':'Fair trade';
-    var html='<div class="verdict-banner"><div class="verdict">'+esc(analysis.verdict)+'</div><div class="sub">'+esc(winnerText)+'</div></div>'
-      +'<div class="sides">'+renderSide('Side A',sideA,'a',maxVal)+renderSide('Side B',sideB,'b',maxVal)+'</div>';
+    var total=Math.max(1,sideA.effectiveTotal+sideB.effectiveTotal);
+    var marker=Math.max(8,Math.min(92,(sideB.effectiveTotal/total)*100));
+    var winnerText=analysis.winner?'Side '+analysis.winner+' leads by approximately '+fmtNum(analysis.diff)+' value points':'Values are effectively even';
+    var verdict='<div class="verdict-card"><div class="eyebrow">Trade Verdict</div><div class="verdict">'+esc(analysis.verdict)+'</div><div class="sub">'+esc(winnerText)+'</div></div>';
+    var balance='<div class="balance-wrap"><div class="balance-labels"><span>Side A advantage</span><span>Fair range</span><span>Side B advantage</span></div><div class="balance-track"><span class="balance-marker" style="left:'+marker+'%"></span></div></div>';
+    var sides='<div class="trade-sides">'+renderSide('Side A',sideA,'side-a')+renderSide('Side B',sideB,'side-b')+'</div>';
+    var notes='';
     if((analysis.notes&&analysis.notes.length)||analysis.counterHint){
-      var notesHtml='<div class="notes">';
-      (analysis.notes||[]).forEach(function(n){notesHtml+='<div class="note">'+esc(n)+'</div>'});
-      if(analysis.counterHint)notesHtml+='<div class="counter">'+esc(analysis.counterHint)+'</div>';
-      notesHtml+='</div>';
-      html+=notesHtml;
+      notes='<div class="analysis-notes">';
+      (analysis.notes||[]).forEach(function(n){notes+='<div class="note-card">'+esc(n)+'</div>'});
+      if(analysis.counterHint)notes+='<div class="note-card counter-card">Counter idea: '+esc(analysis.counterHint)+'</div>';
+      notes+='</div>';
     }
     var allUnmatched=[].concat(unmatched.sideA||[],unmatched.sideB||[]);
-    if(allUnmatched.length)html+='<div class="unmatched">Could not find values for: '+esc(allUnmatched.join(', '))+'</div>';
+    var missing=allUnmatched.length?'<div class="unmatched">Could not find values for: '+esc(allUnmatched.join(', '))+'</div>':'';
     var fetchedAt=meta&&meta.fetchedAt?new Date(meta.fetchedAt).toLocaleTimeString():'';
-    if(fetchedAt)html+='<div class="freshness">'+esc(meta.valueSources||'')+' · '+esc(fetchedAt)+'</div>';
+    var freshness=fetchedAt?'<div class="freshness">'+esc(meta.valueSources||'')+' · '+esc(fetchedAt)+'</div>':'';
+    var html='<div class="widget-shell">'+shellHeader()+'<div class="trade-body">'+verdict+balance+sides+notes+missing+'</div>'+freshness+'</div>';
     var card=document.getElementById('card');card.innerHTML=html;card.style.display='block';document.getElementById('state-loading').style.display='none';document.getElementById('state-empty').style.display='none';hasRendered=true;
   }
 
