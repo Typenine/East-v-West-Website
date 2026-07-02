@@ -4,6 +4,8 @@ on:
   schedule:
     - cron: '*/5 * * * *'
   workflow_dispatch:
+  issues:
+    types: [reopened]
 
 permissions:
   contents: write
