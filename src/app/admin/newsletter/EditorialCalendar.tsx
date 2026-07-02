@@ -62,12 +62,21 @@ interface Props {
   onGenerateNow: (episodeType: string, season: string, week: string | null) => void;
 }
 
+interface RunnerHeartbeat {
+  lastSeenAt: string;
+  lastResult: string | null;
+}
+
+// The scheduler workflow fires hourly; past this gap the runner is presumed down.
+const RUNNER_STALE_MS = 2 * 60 * 60 * 1000;
+
 export default function EditorialCalendar({ defaultSeason, onGenerateNow }: Props) {
   const [items, setItems] = useState<QueueItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [showArchived, setShowArchived] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [runner, setRunner] = useState<RunnerHeartbeat | null>(null);
 
   // New-item form
   const [formEpisode, setFormEpisode] = useState('regular');
@@ -84,8 +93,8 @@ export default function EditorialCalendar({ defaultSeason, onGenerateNow }: Prop
     if (!opts?.silent) setLoading(true);
     try {
       const res = await fetch('/api/newsletter/queue', { cache: 'no-store', credentials: 'include' });
-      const data = await res.json() as { success?: boolean; items?: QueueItem[]; error?: string };
-      if (data.success && data.items) { setItems(data.items); setError(null); setLastUpdated(new Date()); }
+      const data = await res.json() as { success?: boolean; items?: QueueItem[]; runner?: RunnerHeartbeat | null; error?: string };
+      if (data.success && data.items) { setItems(data.items); setRunner(data.runner ?? null); setError(null); setLastUpdated(new Date()); }
       else if (!opts?.silent) setError(data.error || 'Failed to load queue');
     } catch (e) {
       if (!opts?.silent) setError(e instanceof Error ? e.message : 'Failed to load queue');
@@ -190,8 +199,30 @@ export default function EditorialCalendar({ defaultSeason, onGenerateNow }: Prop
           </div>
         </div>
         <p className="text-xs text-zinc-500 mt-1">
-          Plan episodes by type + generation time. At the scheduled time the runner generates a <strong>draft</strong> — it never autopublishes and never posts Discord. Publish manually when ready.
+          Plan episodes by type + generation time. The scheduled runner (GitHub Actions, hourly) generates due items into <strong>drafts</strong> — it never autopublishes and never posts Discord. Items fire within ~1 hour of their scheduled time. Publish manually when ready.
         </p>
+        {(() => {
+          if (!runner) {
+            return (
+              <p className="text-xs text-amber-400 mt-2">
+                ⚠ No runner heartbeat recorded yet. If queued items aren&apos;t generating, check GitHub → Actions → &quot;Newsletter Scheduler&quot;: the schedule may be disabled (GitHub pauses cron on inactive repos) or the workflow&apos;s DATABASE_URL secret may point at a different database.
+              </p>
+            );
+          }
+          const ageMs = Date.now() - new Date(runner.lastSeenAt).getTime();
+          const ageText = ageMs < 90 * 60 * 1000
+            ? `${Math.max(1, Math.round(ageMs / 60000))}m ago`
+            : `${Math.round(ageMs / 3600000)}h ago`;
+          return ageMs > RUNNER_STALE_MS ? (
+            <p className="text-xs text-red-400 mt-2">
+              ⚠ Runner last checked in {ageText} — queued items will NOT generate until it recovers. Check GitHub → Actions → &quot;Newsletter Scheduler&quot; (disabled schedule or failing runs).
+            </p>
+          ) : (
+            <p className="text-xs text-emerald-500/80 mt-2">
+              ✓ Runner alive — last check-in {ageText}{runner.lastResult ? ` (${runner.lastResult})` : ''}.
+            </p>
+          );
+        })()}
       </CardHeader>
       <CardContent>
         {/* Add form */}

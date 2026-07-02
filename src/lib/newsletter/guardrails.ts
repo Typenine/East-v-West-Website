@@ -113,7 +113,7 @@ const SECTION_WORD_LIMITS: Record<string, number> = {
   FinalWord: 350,
   Blurt: 80,
   'Hot Take': 100,
-  'Trade Grade': 400,
+  'Trade Grade': 700,
   'Matchup Recap': 300,
   WaiversAndFA: 350,
   Spotlight: 400,
@@ -307,6 +307,35 @@ export function guardText(
   opts: { sectionType?: string; logPrefix?: string } = {},
 ): string {
   return checkOutput(text, opts).text;
+}
+
+/**
+ * Deterministically remove sentences that disclose raw trade/market value numbers.
+ * Backstop for sections that receive internal market values as reasoning context:
+ * the prompt forbids quoting them, and this guarantees a slip never publishes.
+ * Returns the text unchanged when nothing matches.
+ */
+export function stripValueDisclosures(
+  text: string,
+  opts: { logPrefix?: string } = {},
+): string {
+  const { logPrefix = '[Guardrails]' } = opts;
+  const hasDisclosure = (s: string) => VALUE_DISCLOSURE_PATTERNS.some(p => p.test(s));
+  if (!hasDisclosure(text)) return text;
+
+  const paragraphs = text.split(/\n\n+/);
+  const cleaned = paragraphs.map(paragraph => {
+    if (!hasDisclosure(paragraph)) return paragraph;
+    const sentences = paragraph.match(/[^.!?]+[.!?]+(?:["')\]]+)?|[^.!?]+$/g) ?? [paragraph];
+    const kept = sentences.filter(s => {
+      if (!hasDisclosure(s)) return true;
+      console.warn(`${logPrefix} stripped raw-value sentence: "${s.trim().slice(0, 100)}"`);
+      return false;
+    });
+    return kept.join('').trim();
+  }).filter(p => p.length > 0);
+
+  return cleaned.join('\n\n');
 }
 
 /**

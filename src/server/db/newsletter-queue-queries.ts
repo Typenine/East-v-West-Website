@@ -8,7 +8,7 @@
 
 import { and, or, eq, lt, lte, asc, desc, inArray } from 'drizzle-orm';
 import { getDb } from './client';
-import { newsletterQueue } from './schema';
+import { newsletterQueue, newsletterRunnerStatus } from './schema';
 
 export type QueueStatus = 'queued' | 'generating' | 'generated' | 'skipped' | 'failed' | 'published' | 'archived';
 
@@ -119,6 +119,34 @@ export async function deleteQueueItem(id: string): Promise<boolean> {
  *    transient failure self-heals on the next run instead of stranding the item);
  *  - 'generating' items left stranded by a crashed run (updatedAt past the stale window).
  */
+// ── Runner heartbeat ──────────────────────────────────────────────────────────
+// Written by the scheduled runner on every pass (even when nothing is due) so the
+// admin UI can distinguish "runner alive, nothing due" from "runner dead".
+
+const RUNNER_STATUS_ID = 'runner';
+
+export async function recordRunnerHeartbeat(lastResult: string): Promise<void> {
+  const db = getDb();
+  await db
+    .insert(newsletterRunnerStatus)
+    .values({ id: RUNNER_STATUS_ID, lastSeenAt: new Date(), lastResult })
+    .onConflictDoUpdate({
+      target: newsletterRunnerStatus.id,
+      set: { lastSeenAt: new Date(), lastResult },
+    });
+}
+
+export async function getRunnerHeartbeat(): Promise<{ lastSeenAt: string; lastResult: string | null } | null> {
+  const db = getDb();
+  const rows = await db
+    .select()
+    .from(newsletterRunnerStatus)
+    .where(eq(newsletterRunnerStatus.id, RUNNER_STATUS_ID))
+    .limit(1);
+  if (!rows.length) return null;
+  return { lastSeenAt: rows[0].lastSeenAt.toISOString(), lastResult: rows[0].lastResult ?? null };
+}
+
 export async function findDueQueueItems(now: Date = new Date()): Promise<QueueItem[]> {
   const db = getDb();
   const staleBefore = new Date(now.getTime() - STALE_GENERATING_MS);

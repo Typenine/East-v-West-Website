@@ -94,6 +94,7 @@ const EPISODE_WEEK_STORAGE = {
   preseason: 900,
   pre_draft: 901,
   post_draft: 902,
+  offseason: 903,
 };
 
 // Sleeper helpers
@@ -208,13 +209,19 @@ function strictFailIfDegraded(result) {
   return false;
 }
 
-// Map an editorial-queue item to a generation target.
+// Map an editorial-queue item to a generation target. The mapping lives in
+// src/lib/newsletter/queue-target.ts (unit-tested); weekly items with a blank
+// week resolve against the live NFL week instead of silently targeting week 0.
 async function queueItemToTarget(item) {
-  const episodeType = item.episodeType || 'regular';
-  const isOffseason = EPISODE_WEEK_STORAGE[episodeType] !== undefined || episodeType === 'offseason';
-  const storageWeek = EPISODE_WEEK_STORAGE[episodeType] ?? (item.week ?? 0);
-  const week = isOffseason ? (item.week ?? 0) : (item.week ?? 0);
-  return { season: item.season, week, episodeType, storageWeek, reason: `queue:${item.id}` };
+  const { resolveQueueTarget } = await import(
+    pathResolve(projectRoot, 'src', 'lib', 'newsletter', 'queue-target.ts')
+  );
+  let currentWeek = 1;
+  try {
+    const state = await getSleeperState();
+    currentWeek = parseInt(state.week, 10) || 1;
+  } catch { /* keep fallback */ }
+  return resolveQueueTarget(item, currentWeek);
 }
 
 /**
@@ -433,11 +440,15 @@ async function processDueQueue(now) {
   const dbHint = (process.env.DATABASE_URL || '').replace(/:\/\/[^@]*@/, '://***@').slice(0, 60);
   console.log(`[Runner] ===== EDITORIAL QUEUE CHECK ===== now=${now.toISOString()} db=${dbHint || '(DATABASE_URL unset!)'}`);
   try {
-    const { findDueQueueItems, updateQueueItem } = await import(
+    const { findDueQueueItems, updateQueueItem, recordRunnerHeartbeat } = await import(
       pathResolve(projectRoot, 'src', 'server', 'db', 'newsletter-queue-queries.ts')
     );
     const due = await findDueQueueItems(now);
     console.log(`[Runner] Editorial queue: ${due.length} due item(s).`);
+    // Heartbeat FIRST — even a "0 due" pass proves the runner is alive and talking
+    // to the right DB. The admin calendar surfaces staleness.
+    await recordRunnerHeartbeat(`${due.length} due item(s) at pass start`).catch((e) =>
+      console.warn('[Runner] Heartbeat write failed (non-fatal):', e?.message ?? e));
     if (!due.length) return 0;
     for (const item of due) {
       // Each attempt bumps the counter so a failing item retries a bounded number of
@@ -454,7 +465,13 @@ async function processDueQueue(now) {
         await updateQueueItem(item.id, { status: 'generating' }).catch(() => {});
         const status = await runTarget(target, { preview: false });
         if (status === 'generated' || status === 'exists') {
-          await updateQueueItem(item.id, { status: 'generated', generatedAt: new Date(), error: null });
+          // 'exists' = a draft was already saved for this slot (e.g. the admin ran
+          // "Generate now" first). Record that on the item so "generated" is never
+          // mistaken for a fresh run that silently produced nothing.
+          const existsNote = status === 'exists'
+            ? { note: [item.note, 'draft already existed — not regenerated'].filter(Boolean).join(' · ') }
+            : {};
+          await updateQueueItem(item.id, { status: 'generated', generatedAt: new Date(), error: null, ...existsNote });
           console.log(`[Runner] Queue item ${item.id} → ${status} (draft saved).`);
         } else {
           await updateQueueItem(item.id, { status: 'failed', error: `runTarget=${status}`, attempts: nextAttempts });

@@ -17,7 +17,7 @@ interface NewsletterMeta {
 }
 
 // Storage weeks used by offseason episodes (mirror of run-newsletter.mjs EPISODE_WEEK_STORAGE).
-const STORAGE_WEEK_TO_TYPE: Record<number, string> = { 900: 'preseason', 901: 'pre_draft', 902: 'post_draft' };
+const STORAGE_WEEK_TO_TYPE: Record<number, string> = { 900: 'preseason', 901: 'pre_draft', 902: 'post_draft', 903: 'offseason' };
 
 const EPISODE_LABELS: Record<string, string> = {
   regular: '📅 Weekly Recap',

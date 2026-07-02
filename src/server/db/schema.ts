@@ -433,6 +433,17 @@ export const newsletterQueue = pgTable('newsletter_queue', {
   statusScheduledIdx: index('newsletter_queue_status_scheduled_idx').on(t.status, t.scheduledFor),
 }));
 
+// Single-row heartbeat written by the scheduled queue runner (GitHub Actions) on
+// every pass. Lets the admin UI show whether the runner is alive — a stale
+// heartbeat means queued items will sit unprocessed (disabled workflow schedule,
+// missing secrets, or a DATABASE_URL pointing at a different DB).
+export const newsletterRunnerStatus = pgTable('newsletter_runner_status', {
+  id: varchar('id', { length: 16 }).primaryKey(), // always 'runner'
+  lastSeenAt: timestamp('last_seen_at', { withTimezone: true }).notNull(),
+  // Compact summary of the last pass, e.g. "processed 2 due item(s)".
+  lastResult: text('last_result'),
+});
+
 // ============ Observability: generation runs, snapshots, MCP call log ============
 
 // One row per newsletter generation run (staged or sync). Durable record of what
