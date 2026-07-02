@@ -46,6 +46,23 @@ export async function GET(request: NextRequest) {
     });
   }
 
+  if (kind === 'job-log-tail') {
+    const jobId = params.get('job');
+    if (!jobId || !/^\d+$/.test(jobId)) return new NextResponse('Not found', { status: 404 });
+    const response = await fetch(`https://api.github.com/repos/${REPO}/actions/jobs/${jobId}/logs`, {
+      headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'east-v-west-patch-diagnostic' },
+      cache: 'no-store',
+      redirect: 'follow',
+    });
+    if (!response.ok) {
+      return NextResponse.json({ error: `GitHub returned ${response.status}`, detail: await response.text() }, { status: 502 });
+    }
+    const text = await response.text();
+    return new NextResponse(text.split('\n').slice(-100).join('\n'), {
+      headers: { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' },
+    });
+  }
+
   if (params.get('key') !== ACCESS_KEY) {
     return new NextResponse('Not found', { status: 404 });
   }
