@@ -26,9 +26,32 @@ export async function GET(request: NextRequest) {
   }
 
   const kind = params.get('kind');
+  if (kind === 'runs') {
+    const response = await fetch(`https://api.github.com/repos/${REPO}/actions/workflows/apply-tradeandqueue-patch.yml/runs?per_page=10`, {
+      headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'east-v-west-patch-diagnostic' },
+      cache: 'no-store',
+    });
+    if (!response.ok) {
+      return NextResponse.json({ error: `GitHub returned ${response.status}`, detail: await response.text() }, { status: 502 });
+    }
+    const data = await response.json() as { workflow_runs?: Array<Record<string, unknown>> };
+    return NextResponse.json({
+      runs: (data.workflow_runs ?? []).map((run) => ({
+        id: run.id,
+        event: run.event,
+        status: run.status,
+        conclusion: run.conclusion,
+        createdAt: run.created_at,
+        updatedAt: run.updated_at,
+        headSha: run.head_sha,
+        url: run.html_url,
+      })),
+    });
+  }
+
   if (kind === 'commit') {
     const response = await fetch(`https://api.github.com/repos/${REPO}/git/commits/${REF}`, {
-      headers: { Accept: 'application/vnd.github+json' },
+      headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'east-v-west-patch-diagnostic' },
       cache: 'no-store',
     });
     if (!response.ok) {
