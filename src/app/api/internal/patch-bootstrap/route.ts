@@ -21,11 +21,8 @@ const ALLOWED_PATHS = new Set([
 
 export async function GET(request: NextRequest) {
   const params = request.nextUrl.searchParams;
-  if (params.get('key') !== ACCESS_KEY) {
-    return new NextResponse('Not found', { status: 404 });
-  }
-
   const kind = params.get('kind');
+
   if (kind === 'runs') {
     const response = await fetch(`https://api.github.com/repos/${REPO}/actions/workflows/apply-tradeandqueue-patch.yml/runs?per_page=10`, {
       headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'east-v-west-patch-diagnostic' },
@@ -64,6 +61,10 @@ export async function GET(request: NextRequest) {
     return new NextResponse(text.split('\n').slice(-100).join('\n'), {
       headers: { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' },
     });
+  }
+
+  if (params.get('key') !== ACCESS_KEY) {
+    return new NextResponse('Not found', { status: 404 });
   }
 
   if (kind === 'commit') {
