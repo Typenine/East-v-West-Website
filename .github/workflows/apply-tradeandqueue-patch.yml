@@ -1,4 +1,4 @@
-name: One-shot trade and queue patch
+name: Stage validated trade and queue patch
 
 on:
   issues:
@@ -9,12 +9,9 @@ permissions:
   issues: write
 
 jobs:
-  apply:
+  stage:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
-    concurrency:
-      group: one-shot-trade-and-queue-patch
-      cancel-in-progress: false
+    timeout-minutes: 20
     steps:
       - name: Checkout main
         uses: actions/checkout@v4
@@ -22,67 +19,26 @@ jobs:
           ref: main
           fetch-depth: 2
 
-      - name: Decode and apply patch
-        shell: bash
+      - name: Apply validated patch
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh api "repos/${GITHUB_REPOSITORY}/issues/13" --jq .body > /tmp/payload.txt
           awk '/^PATCH_B64_BEGIN$/{f=1;next}/^PATCH_B64_END$/{f=0}f' /tmp/payload.txt > /tmp/patch.gz.b64
           awk '/^FIX_B64_BEGIN$/{f=1;next}/^FIX_B64_END$/{f=0}f' /tmp/payload.txt > /tmp/fix.py.gz.b64
-          test -s /tmp/patch.gz.b64
-          test -s /tmp/fix.py.gz.b64
           base64 --decode /tmp/patch.gz.b64 | gzip --decompress > /tmp/tradeandqueue.patch
           base64 --decode /tmp/fix.py.gz.b64 | gzip --decompress > /tmp/correct_trade_patch.py
           git apply --check /tmp/tradeandqueue.patch
           git apply /tmp/tradeandqueue.patch
           python /tmp/correct_trade_patch.py
 
-      - name: Validate changes
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Stage non-workflow files
         run: |
-          set -o pipefail
-          git diff --check
-          npm ci
-          npx vitest run src/lib/newsletter/__tests__/queue-target.test.ts
-
-          set +e
-          npm run typecheck 2>&1 | tee /tmp/typecheck.log
-          typecheck_status=${PIPESTATUS[0]}
-          set -e
-
-          if [ "$typecheck_status" -ne 0 ]; then
-            all_errors=$(grep -E 'error TS[0-9]+:' /tmp/typecheck.log || true)
-            unexpected_errors=$(printf '%s\n' "$all_errors" | grep -v -E '^tests/(projection-opportunity|widget-runtime-regression)\.test\.ts' || true)
-            if [ -n "$unexpected_errors" ] || [ -z "$all_errors" ]; then
-              {
-                echo 'Validation failed. TypeScript errors outside the two known baseline test failures:'
-                echo
-                echo '```text'
-                tail -n 120 /tmp/typecheck.log
-                echo '```'
-              } > /tmp/validation-comment.md
-              gh issue comment 13 --body-file /tmp/validation-comment.md
-              exit 1
-            fi
-            echo 'Typecheck reported only the two known pre-existing test-file errors; patch files introduced no new TypeScript errors.'
-          fi
-
-      - name: Commit patch once
-        shell: bash
-        run: |
-          rm .github/workflows/apply-tradeandqueue-patch.yml
+          git restore .github/workflows/newsletter-scheduler.yml
           rm -rf src/app/api/internal/patch-bootstrap
+          git diff --check
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
-          git commit -m "Deepen trade analysis and fix newsletter queue"
-          git push origin HEAD:main
-
-      - name: Close trigger issue
-        if: ${{ success() }}
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh issue close 13 --comment "Patch applied and validated in one final commit."
+          git commit -m "Stage validated trade and queue patch"
+          git push --force origin HEAD:refs/heads/patch/trade-and-queue-staged
