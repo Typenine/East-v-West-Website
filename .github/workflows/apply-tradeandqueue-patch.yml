@@ -43,11 +43,28 @@ jobs:
 
       - name: Validate changes
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          git diff --check
-          npm ci
-          npx vitest run src/lib/newsletter/__tests__/queue-target.test.ts
-          npm run typecheck
+          set +e
+          {
+            git diff --check
+            npm ci
+            npx vitest run src/lib/newsletter/__tests__/queue-target.test.ts
+            npm run typecheck
+          } 2>&1 | tee /tmp/validation.log
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            {
+              echo 'Validation failed. Tail of the one-shot patch log:'
+              echo
+              echo '```text'
+              tail -n 120 /tmp/validation.log
+              echo '```'
+            } > /tmp/validation-comment.md
+            gh issue comment 13 --body-file /tmp/validation-comment.md
+            exit "$status"
+          fi
 
       - name: Commit patch once
         shell: bash
