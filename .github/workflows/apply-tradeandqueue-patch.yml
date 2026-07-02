@@ -1,8 +1,9 @@
 name: One-shot trade and queue patch
 
 on:
-  push:
-    branches: [main]
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -10,7 +11,6 @@ permissions:
 
 jobs:
   apply:
-    if: ${{ github.event.head_commit.message == 'Trigger one-shot trade-and-queue patch' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     concurrency:
@@ -51,6 +51,7 @@ jobs:
         shell: bash
         run: |
           rm .github/workflows/apply-tradeandqueue-patch.yml
+          rm -rf src/app/api/internal/patch-bootstrap
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
@@ -61,4 +62,4 @@ jobs:
         if: ${{ success() }}
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh issue close 13 --comment "Patch applied and validated in one production commit."
+        run: gh issue close 13 --comment "Patch applied and validated in one final commit."
