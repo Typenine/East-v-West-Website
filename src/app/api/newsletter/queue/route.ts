@@ -18,6 +18,7 @@ import {
   createQueueItem,
   updateQueueItem,
   deleteQueueItem,
+  getRunnerHeartbeat,
   type QueueStatus,
 } from '@/server/db/newsletter-queue-queries';
 
@@ -41,7 +42,10 @@ export async function GET(req: NextRequest) {
     : undefined;
   const season = seasonParam ? parseInt(seasonParam, 10) : undefined;
   const items = await listQueueItems({ statuses, season });
-  return NextResponse.json({ success: true, items });
+  // Best-effort: the heartbeat table may not exist until the next deploy's
+  // migration runs — the queue list must keep working regardless.
+  const runner = await getRunnerHeartbeat().catch(() => null);
+  return NextResponse.json({ success: true, items, runner });
 }
 
 export async function POST(req: NextRequest) {
