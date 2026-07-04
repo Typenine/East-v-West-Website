@@ -21,6 +21,7 @@ import { loadCallbacks, saveCallbacks, buildCallbacksFromIssue } from './memory/
 import { loadRelationship, saveRelationship, updatePredictionLead } from './memory/relationship.js';
 import { loadPlayerMemory, savePlayerMemory, updatePlayerMemory } from './memory/player_memory.js';
 import { genWithLLM } from './ai/llm.js';
+import { resolveCanonicalTeamName } from './ingest/team-names.js';
 
 const OUT_DIR = process.env.OUT_DIR || 'out';
 const LEAGUE_ID = process.env.LEAGUE_ID;
@@ -40,9 +41,12 @@ function pickWeek(state, override) {
 function mapUsersById(users) {
   const map = new Map();
   for (const u of users) {
-    const teamName = (u?.metadata?.team_name || '').trim();
-    const best = teamName || u.display_name || u.username || `User ${u.user_id}`;
-    map.set(u.user_id, best);
+    map.set(u.user_id, resolveCanonicalTeamName({
+      userId: u.user_id,
+      teamName: u?.metadata?.team_name,
+      displayName: u.display_name,
+      username: u.username,
+    }));
   }
   return map;
 }

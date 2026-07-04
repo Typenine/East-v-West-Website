@@ -1,12 +1,12 @@
 // src/newsletter/compose.js
-import { getProfile } from ‘../personality/sliders.js’;
-import { openerFor, makeBlurt } from ‘../personality/variability.js’;
-import { buildLLMRecaps } from ‘./recaps.js’;
-import { analyzeTradeEvent } from ‘../analysis/trade_analyzer.js’;
-import { humanizeTradeWriteups } from ‘./voice.js’;
-import { genWithLLM } from ‘../ai/llm.js’;
+import { getProfile } from '../personality/sliders.js';
+import { openerFor, makeBlurt } from '../personality/variability.js';
+import { buildLLMRecaps } from './recaps.js';
+import { analyzeTradeEvent } from '../analysis/trade_analyzer.js';
+import { humanizeTradeWriteups } from './voice.js';
+import { genWithLLM } from '../ai/llm.js';
 
-function sentence(str) { return String(str || ‘’).replace(/\s+/g, ‘ ‘).trim(); }
+function sentence(str) { return String(str || '').replace(/\s+/g, ' ').trim(); }
 const countBy = (arr, pred) => arr.reduce((n, x) => n + (pred(x) ? 1 : 0), 0);
 
 function buildIntroContext(week, pairs, events) {
@@ -15,26 +15,26 @@ function buildIntroContext(week, pairs, events) {
   const nailbiters = countBy(pairs, p => p.margin <= 5);
   const biggest    = pairs[0] || null;
   const closest    = pairs.reduce((a, b) => (!a || b.margin < a.margin ? b : a), null);
-  const trades     = events.filter(e => e.type === ‘trade’).length;
-  const bigWaivers = events.filter(e => e.type === ‘waiver’ && e.relevance_score >= 70).length;
+  const trades     = events.filter(e => e.type === 'trade').length;
+  const bigWaivers = events.filter(e => e.type === 'waiver' && e.relevance_score >= 70).length;
   return { numGames, blowouts, nailbiters, biggest, closest, trades, bigWaivers, week };
 }
 
 async function buildIntro(week, pairs, events) {
-  const entProfileIntro = await getProfile(‘entertainer’, ‘Intro’);
-  const anaProfileIntro = await getProfile(‘analyst’, ‘Intro’);
+  const entProfileIntro = await getProfile('entertainer', 'Intro');
+  const anaProfileIntro = await getProfile('analyst', 'Intro');
   const { numGames, blowouts, nailbiters, biggest, closest, trades, bigWaivers } = buildIntroContext(week, pairs, events);
 
   const eLines = [];
-  eLines.push(`${openerFor(‘Intro’,’entertainer’, entProfileIntro, week)} ${numGames} games — ${nailbiters} nail-biters, ${blowouts} blowouts.`);
+  eLines.push(`${openerFor('Intro','entertainer', entProfileIntro, week)} ${numGames} games — ${nailbiters} nail-biters, ${blowouts} blowouts.`);
   if (biggest) eLines.push(`Biggest flex: ${biggest.winner.name} +${biggest.margin.toFixed(1)}.`);
   if (closest && closest.matchup_id !== biggest?.matchup_id) eLines.push(`Closest: ${closest.winner.name} +${closest.margin.toFixed(1)}.`);
   if (trades || bigWaivers) eLines.push(`${trades} trades; ${bigWaivers} big-bid waivers.`);
-  const bot1_text = eLines.join(‘ ‘);
+  const bot1_text = eLines.join(' ');
 
   const aLines = [];
-  aLines.push(`${openerFor(‘Intro’,’analyst’, anaProfileIntro, week)} We’ll monitor stability next week.`);
-  const bot2_text = aLines.join(‘ ‘);
+  aLines.push(`${openerFor('Intro','analyst', anaProfileIntro, week)} We'll monitor stability next week.`);
+  const bot2_text = aLines.join(' ');
   return { bot1_text, bot2_text };
 }
 
@@ -45,19 +45,19 @@ async function buildLLMIntro(week, pairs, events, memEntertainer, memAnalyst, re
   const lead = relationship?.dynamic?.entertainer_lead_in_predictions || 0;
   const relNote = lead !== 0
     ? `Season context: Entertainer is ${lead > 0 ? `up ${lead}` : `down ${Math.abs(lead)}`} in prediction record vs the Analyst.`
-    : ‘’;
+    : '';
 
   const context = [
     `Week ${week} summary: ${numGames} games, ${nailbiters} nail-biters, ${blowouts} blowouts.`,
-    biggest  ? `Biggest win: ${biggest.winner.name} by ${biggest.margin.toFixed(1)}.`  : ‘’,
+    biggest  ? `Biggest win: ${biggest.winner.name} by ${biggest.margin.toFixed(1)}.`  : '',
     closest && closest.matchup_id !== biggest?.matchup_id
-               ? `Closest game: ${closest.winner.name} by ${closest.margin.toFixed(1)}.` : ‘’,
-    (trades || bigWaivers) ? `${trades} trades this week; ${bigWaivers} high-priority waiver adds.` : ‘’,
+               ? `Closest game: ${closest.winner.name} by ${closest.margin.toFixed(1)}.` : '',
+    (trades || bigWaivers) ? `${trades} trades this week; ${bigWaivers} high-priority waiver adds.` : '',
     relNote
-  ].filter(Boolean).join(‘ ‘);
+  ].filter(Boolean).join(' ');
 
-  const entSys = `You are the Entertainer, a fantasy football personality. Mood: ${memEntertainer?.summaryMood || ‘Focused’}. Sarcasm 8/10, excitability 9/10, depth 4/10. Write a punchy 2-sentence weekly opener. No raw scores. Reply with only the opener.`;
-  const anaSys = `You are the Analyst, a fantasy football personality. Mood: ${memAnalyst?.summaryMood || ‘Focused’}. Depth 9/10, measured tone. Write a measured 1-2 sentence weekly opener that sets an analytical frame. Reply with only the opener.`;
+  const entSys = `You are the Entertainer, a fantasy football personality. Mood: ${memEntertainer?.summaryMood || 'Focused'}. Sarcasm 8/10, excitability 9/10, depth 4/10. Write a punchy 2-sentence weekly opener. No raw scores. Reply with only the opener.`;
+  const anaSys = `You are the Analyst, a fantasy football personality. Mood: ${memAnalyst?.summaryMood || 'Focused'}. Depth 9/10, measured tone. Write a measured 1-2 sentence weekly opener that sets an analytical frame. Reply with only the opener.`;
 
   const [bot1_text, bot2_text] = await Promise.all([
     genWithLLM(entSys, context, 100).catch(() => null),
@@ -80,9 +80,9 @@ async function buildLLMFinalWord(relationship, week) {
   const lead        = relationship?.dynamic?.entertainer_lead_in_predictions || 0;
   const context = [
     `End of week ${week}.`,
-    lead !== 0 ? `Entertainer is ${lead > 0 ? `up ${lead}` : `down ${Math.abs(lead)}`} in season predictions vs Analyst.` : ‘’,
-    debateCount ? `${debateCount} on-record debate${debateCount > 1 ? ‘s’ : ‘’} so far this season.` : ‘’
-  ].filter(Boolean).join(‘ ‘);
+    lead !== 0 ? `Entertainer is ${lead > 0 ? `up ${lead}` : `down ${Math.abs(lead)}`} in season predictions vs Analyst.` : '',
+    debateCount ? `${debateCount} on-record debate${debateCount > 1 ? 's' : ''} so far this season.` : ''
+  ].filter(Boolean).join(' ');
 
   const entSys = `You are the Entertainer, a fantasy football personality. Sarcasm 8/10, excitability 9/10. Write one punchy closing sentence to end the newsletter. React to the season context. Reply with only the sentence.`;
   const anaSys = `You are the Analyst, a fantasy football personality. Depth 9/10, measured tone. Write one calm, forward-looking closing sentence. Reply with only the sentence.`;

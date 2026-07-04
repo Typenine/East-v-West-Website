@@ -67,6 +67,25 @@ function windowWord(tags = []) {
   if (s.match(/rebuild|retool|future|youth/)) return 'rebuilding team';
   return 'swing-agnostic club';
 }
+function gradeVerdict(grade, persona) {
+  const g = String(grade || '');
+  const tier = g.startsWith('A') ? 'great' : g.startsWith('B') ? 'fine' : g.startsWith('C') ? 'shaky' : 'rough';
+  if (persona === 'entertainer') {
+    return {
+      great: 'That\u2019s a heist — frame this one.',
+      fine: 'Solid business, nothing to riot over.',
+      shaky: 'I\u2019ve seen better swings at the county fair.',
+      rough: 'Somebody call a timeout, this one hurts.'
+    }[tier];
+  }
+  return {
+    great: 'Clear value win on both process and outcome.',
+    fine: 'Defensible process; outcome depends on usage.',
+    shaky: 'The math is tight — needs things to break right.',
+    rough: 'Hard to justify on value; the exit price was too low.'
+  }[tier];
+}
+
 function memoryMood(memTeam) {
   if (!memTeam) return 'neutral';
   const d = (memTeam.trust || 0) - (memTeam.frustration || 0);
@@ -130,7 +149,7 @@ export async function humanizeTradeWriteups(tradeItem, tagsBundle, memEntertaine
   await loadVoices();
   if (!tradeItem || !tradeItem.teams || !tradeItem.analysis) return tradeItem;
 
-  // write paragraphs per team
+  // write paragraphs per team — persona lead-in + full analytical detail from the analyzer
   for (const [team, a] of Object.entries(tradeItem.analysis)) {
     const rec = tradeItem.teams[team] || { gets: [], gives: [] };
     const got = parseItems(rec.gets);
@@ -140,8 +159,21 @@ export async function humanizeTradeWriteups(tradeItem, tagsBundle, memEntertaine
     const mem1 = memEntertainer?.teams?.[team] || null;
     const mem2 = memAnalyst?.teams?.[team] || null;
 
-    a.entertainer_paragraph = lineEntertainer(team, got, gave, tags, mem1) + ` Grade: ${a.grade}.`;
-    a.analyst_paragraph = lineAnalyst(team, got, gave, tags, mem2) + ` Grade: ${a.grade}.`;
+    // Keep the analyzer's detailed breakdowns (talent index, pick value, positional impact)
+    const entertainerDetail = a.entertainer_paragraph || '';
+    const analystDetail = a.analyst_paragraph || '';
+
+    a.entertainer_paragraph = [
+      lineEntertainer(team, got, gave, tags, mem1),
+      entertainerDetail,
+      `${gradeVerdict(a.grade, 'entertainer')} Grade: ${a.grade}.`
+    ].filter(Boolean).join(' ');
+
+    a.analyst_paragraph = [
+      lineAnalyst(team, got, gave, tags, mem2),
+      analystDetail,
+      `${gradeVerdict(a.grade, 'analyst')} Grade: ${a.grade}.`
+    ].filter(Boolean).join(' ');
   }
 
   // add debate line if grades diverge strongly between teams
