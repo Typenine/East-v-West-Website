@@ -128,7 +128,13 @@ function fmtElapsed(s: number) {
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-interface ExistingNewsletter { generatedAt: string; fromCache: boolean }
+interface ExistingNewsletter {
+  id?: string;
+  title?: string | null;
+  status?: 'draft' | 'published';
+  generatedAt: string;
+  fromCache: boolean;
+}
 
 interface GenState {
   phase: 'idle' | 'starting' | 'running' | 'done' | 'failed';
@@ -249,17 +255,25 @@ function AdminNewsletterPageInner() {
     setExisting(null);
     try {
       const wNum = needsWeek ? (parseInt(w) || 0) : 0;
-      const res = await fetch(`/api/newsletter?season=${s}&week=${wNum}&draft=1`, { cache: 'no-store', credentials: 'include' });
+      // Narrow by episode type so multiple saved newsletters in the same week slot
+      // resolve to the one matching the selected config.
+      const res = await fetch(`/api/newsletter?season=${s}&week=${wNum}&draft=1&type=${encodeURIComponent(episodeType)}`, { cache: 'no-store', credentials: 'include' });
       if (res.ok) {
-        const data = await res.json() as { success: boolean; html?: string; generatedAt?: string; fromCache?: boolean };
+        const data = await res.json() as { success: boolean; id?: string; title?: string | null; status?: 'draft' | 'published'; html?: string; generatedAt?: string; fromCache?: boolean };
         if (data.success && data.html) {
-          setExisting({ generatedAt: data.generatedAt ?? '', fromCache: data.fromCache ?? false });
+          setExisting({
+            id: data.id,
+            title: data.title ?? null,
+            status: data.status,
+            generatedAt: data.generatedAt ?? '',
+            fromCache: data.fromCache ?? false,
+          });
         }
       }
     } catch { /* ignore */ } finally {
       setStatusLoading(false);
     }
-  }, [needsWeek]);
+  }, [needsWeek, episodeType]);
 
   // Recheck when config changes (debounced)
   useEffect(() => {
@@ -557,7 +571,9 @@ function AdminNewsletterPageInner() {
         // The newsletter content is already saved as a draft in the DB; publishing
         // flips its status. We pass the (possibly edited) html so any last-minute
         // in-browser edit is reflected.
-        body: JSON.stringify({ season: parseInt(season), week: wNum, sendDiscord, html: editHtml ?? gen.html }),
+        // Target the exact catalog entry when known; publish auto-unpublishes any
+        // other published newsletter for the same slot (replace semantics).
+        body: JSON.stringify({ season: parseInt(season), week: wNum, id: existing?.id, sendDiscord, html: editHtml ?? gen.html }),
       });
       const data = await res.json() as { message?: string; error?: string };
       setPublishResult({ ok: res.ok, message: data.message ?? data.error ?? (res.ok ? 'Published!' : 'Failed') });
@@ -579,7 +595,10 @@ function AdminNewsletterPageInner() {
     // When opening from existing (no generation), populate gen.html from the DB
     if (fromExisting && !gen.html) {
       const wNum = needsWeek ? (parseInt(week) || 0) : 0;
-      fetch(`/api/newsletter?week=${wNum}&season=${season}&draft=1`, { cache: 'no-store', credentials: 'include' })
+      const url = existing?.id
+        ? `/api/newsletter?id=${existing.id}&draft=1`
+        : `/api/newsletter?week=${wNum}&season=${season}&draft=1&type=${encodeURIComponent(episodeType)}`;
+      fetch(url, { cache: 'no-store', credentials: 'include' })
         .then(r => r.json())
         .then((data: { html?: string; newsletter?: { meta?: unknown } }) => {
           if (data.html) {
@@ -605,7 +624,12 @@ function AdminNewsletterPageInner() {
   const handleDelete = async () => {
     const wNum = needsWeek ? (parseInt(week) || 0) : 0;
     try {
-      const res = await fetch(`/api/newsletter?week=${wNum}&season=${season}`, { method: 'DELETE' });
+      // Delete only the loaded catalog entry when its id is known; fall back to
+      // the legacy slot-wide delete otherwise.
+      const url = existing?.id
+        ? `/api/newsletter?id=${existing.id}`
+        : `/api/newsletter?week=${wNum}&season=${season}`;
+      const res = await fetch(url, { method: 'DELETE' });
       if (res.ok) { setExisting(null); setConfirmDelete(false); setGen(INIT_GEN); setSavedReload(k => k + 1); }
     } catch { /* ignore */ }
   };
@@ -781,7 +805,18 @@ function AdminNewsletterPageInner() {
                   <div className="flex items-start gap-2">
                     <span className="text-emerald-400 text-lg leading-none">✓</span>
                     <div>
-                      <div className="text-sm font-medium text-emerald-400">Newsletter exists</div>
+                      <div className="text-sm font-medium text-emerald-400">
+                        {existing.title || 'Newsletter exists'}
+                        {existing.status && (
+                          <span className={`ml-2 inline-flex items-center px-1.5 py-0.5 rounded border text-[10px] font-medium align-middle ${
+                            existing.status === 'published'
+                              ? 'bg-emerald-900/40 text-emerald-300 border-emerald-700'
+                              : 'bg-amber-900/40 text-amber-300 border-amber-600'
+                          }`}>
+                            {existing.status}
+                          </span>
+                        )}
+                      </div>
                       <div className="text-xs text-zinc-400 mt-0.5">
                         {existing.generatedAt
                           ? new Date(existing.generatedAt).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
@@ -1017,6 +1052,7 @@ function AdminNewsletterPageInner() {
           season={season}
           week={week}
           needsWeek={needsWeek}
+          newsletterId={existing?.id ?? null}
           html={editHtml ?? gen.html}
           onHtmlUpdate={html => { setEditHtml(html); setGen(g => ({ ...g, html })); }}
           onClose={closeEditMode}

@@ -5,6 +5,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
 
 interface NewsletterMeta {
+  id: string;
+  title: string | null;
   season: number;
   week: number;
   leagueName: string;
@@ -65,6 +67,11 @@ export default function SavedNewsletters({ season, onSelect, reloadKey }: Props)
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  const [confirmPublish, setConfirmPublish] = useState<string | null>(null);
+  const [publishingId, setPublishingId] = useState<string | null>(null);
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState('');
+  const [renameSaving, setRenameSaving] = useState(false);
 
   const load = useCallback(async (opts?: { silent?: boolean }) => {
     if (!opts?.silent) setLoading(true);
@@ -93,7 +100,7 @@ export default function SavedNewsletters({ season, onSelect, reloadKey }: Props)
   const del = async (item: NewsletterMeta) => {
     setError(null);
     try {
-      const res = await fetch(`/api/newsletter?week=${item.week}&season=${item.season}`, { method: 'DELETE', credentials: 'include' });
+      const res = await fetch(`/api/newsletter?id=${item.id}`, { method: 'DELETE', credentials: 'include' });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
         setError(`Couldn't delete: ${(data as { error?: string }).error ?? `HTTP ${res.status}`}`);
@@ -105,6 +112,59 @@ export default function SavedNewsletters({ season, onSelect, reloadKey }: Props)
     await load();
   };
 
+  // Publish a specific catalog entry. Replace semantics: any other published
+  // newsletter for the same (season, week) is reverted to draft server-side.
+  const publish = async (item: NewsletterMeta, sendDiscord: boolean) => {
+    setError(null);
+    setPublishingId(item.id);
+    try {
+      const res = await fetch('/api/newsletter/publish', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ season: item.season, week: item.week, id: item.id, sendDiscord }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setError(`Couldn't publish: ${(data as { error?: string }).error ?? `HTTP ${res.status}`}`);
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to publish');
+    }
+    setPublishingId(null);
+    setConfirmPublish(null);
+    await load();
+  };
+
+  const startRename = (item: NewsletterMeta) => {
+    setRenamingId(item.id);
+    setRenameValue(item.title ?? '');
+  };
+
+  const saveRename = async (item: NewsletterMeta) => {
+    const title = renameValue.trim();
+    if (!title || title === item.title) { setRenamingId(null); return; }
+    setRenameSaving(true);
+    setError(null);
+    try {
+      const res = await fetch('/api/newsletter', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ id: item.id, title }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setError(`Couldn't rename: ${(data as { error?: string }).error ?? `HTTP ${res.status}`}`);
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to rename');
+    }
+    setRenameSaving(false);
+    setRenamingId(null);
+    await load();
+  };
+
   return (
     <Card className="mt-4">
       <CardHeader>
@@ -112,7 +172,7 @@ export default function SavedNewsletters({ season, onSelect, reloadKey }: Props)
           <CardTitle className="text-base">🗂️ Saved Newsletters — {season}</CardTitle>
           <button onClick={() => load()} className="text-[11px] text-zinc-500 underline hover:text-zinc-300" title="Refresh">↻ refresh</button>
         </div>
-        <p className="text-xs text-zinc-500 mt-1">Every saved newsletter for this season — drafts and published. Tell them apart without opening.</p>
+        <p className="text-xs text-zinc-500 mt-1">Every saved newsletter for this season — drafts and published. Publish any draft at any time; publishing replaces the live newsletter for that week.</p>
       </CardHeader>
       <CardContent>
         {error && <p className="text-xs text-red-400 mb-3">{error}</p>}
@@ -125,9 +185,8 @@ export default function SavedNewsletters({ season, onSelect, reloadKey }: Props)
             {items.map(item => {
               const type = resolveType(item);
               const wk = weekLabel(item);
-              const key = `${item.season}-${item.week}`;
               return (
-                <div key={key} className="flex items-center gap-3 flex-wrap border border-zinc-800 rounded-lg px-3 py-2">
+                <div key={item.id} className="flex items-center gap-3 flex-wrap border border-zinc-800 rounded-lg px-3 py-2">
                   {/* Status */}
                   <span className={`inline-flex items-center px-2 py-0.5 rounded border text-[11px] font-medium ${
                     item.status === 'published'
@@ -136,8 +195,41 @@ export default function SavedNewsletters({ season, onSelect, reloadKey }: Props)
                   }`}>
                     {item.status}
                   </span>
+                  {/* Title (inline-renameable) */}
+                  {renamingId === item.id ? (
+                    <span className="flex items-center gap-1.5">
+                      <input
+                        autoFocus
+                        value={renameValue}
+                        onChange={e => setRenameValue(e.target.value)}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter') saveRename(item);
+                          if (e.key === 'Escape') setRenamingId(null);
+                        }}
+                        maxLength={200}
+                        disabled={renameSaving}
+                        className="bg-zinc-900 border border-zinc-700 rounded px-2 py-0.5 text-sm text-white w-64 focus:outline-none focus:border-zinc-500"
+                      />
+                      <Button variant="ghost" size="sm" className="text-xs text-emerald-400" disabled={renameSaving} onClick={() => saveRename(item)}>
+                        {renameSaving ? '…' : 'Save'}
+                      </Button>
+                      <Button variant="ghost" size="sm" className="text-xs text-zinc-400" disabled={renameSaving} onClick={() => setRenamingId(null)}>Cancel</Button>
+                    </span>
+                  ) : (
+                    <span className="flex items-center gap-1.5 min-w-0">
+                      <span className="text-sm text-white truncate" title={item.title ?? undefined}>
+                        {item.title || `${EPISODE_LABELS[type] ?? type}${wk ? ` — ${wk}` : ''}`}
+                      </span>
+                      <button
+                        onClick={() => startRename(item)}
+                        className="text-[11px] text-zinc-500 hover:text-zinc-300"
+                        title="Rename">
+                        ✏️
+                      </button>
+                    </span>
+                  )}
                   {/* Type + week */}
-                  <span className="text-sm text-white">{EPISODE_LABELS[type] ?? type}</span>
+                  <span className="text-xs text-zinc-400">{EPISODE_LABELS[type] ?? type}</span>
                   {wk && <span className="text-xs font-medium text-zinc-300">{wk}</span>}
                   {/* Times */}
                   <span className="text-xs text-zinc-400" title={`Generated ${item.generatedAt}`}>
@@ -159,13 +251,37 @@ export default function SavedNewsletters({ season, onSelect, reloadKey }: Props)
                       onClick={() => onSelect(String(item.season), item.week, type)}>
                       Open
                     </Button>
-                    {confirmDelete === key ? (
+                    {item.status !== 'published' && (
+                      confirmPublish === item.id ? (
+                        <>
+                          <Button variant="ghost" size="sm" className="text-xs text-emerald-400" disabled={publishingId === item.id}
+                            title="Publish and announce to Discord"
+                            onClick={() => publish(item, true)}>
+                            {publishingId === item.id ? '…' : '+ Discord'}
+                          </Button>
+                          <Button variant="ghost" size="sm" className="text-xs text-emerald-400/70" disabled={publishingId === item.id}
+                            title="Publish without posting to Discord"
+                            onClick={() => publish(item, false)}>
+                            no Discord
+                          </Button>
+                          <Button variant="ghost" size="sm" className="text-xs text-zinc-400" disabled={publishingId === item.id}
+                            onClick={() => setConfirmPublish(null)}>Cancel</Button>
+                        </>
+                      ) : (
+                        <Button variant="ghost" size="sm" className="text-xs text-emerald-400"
+                          title="Publish this newsletter — replaces the currently live one for this week"
+                          onClick={() => setConfirmPublish(item.id)}>
+                          Publish
+                        </Button>
+                      )
+                    )}
+                    {confirmDelete === item.id ? (
                       <>
                         <Button variant="ghost" size="sm" className="text-xs text-zinc-400" onClick={() => setConfirmDelete(null)}>Cancel</Button>
                         <Button variant="ghost" size="sm" className="text-xs text-red-400" onClick={() => del(item)}>Confirm</Button>
                       </>
                     ) : (
-                      <Button variant="ghost" size="sm" className="text-xs text-red-400" onClick={() => setConfirmDelete(key)}>🗑</Button>
+                      <Button variant="ghost" size="sm" className="text-xs text-red-400" onClick={() => setConfirmDelete(item.id)}>🗑</Button>
                     )}
                   </div>
                 </div>

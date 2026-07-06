@@ -3,7 +3,7 @@
  * Handles persistence of bot memory, forecast records, and newsletters
  */
 
-import { eq, and } from 'drizzle-orm';
+import { eq, and, ne, desc, isNull } from 'drizzle-orm';
 import { getDb } from './client';
 import {
   botMemory,
@@ -351,27 +351,88 @@ export interface NewsletterData {
 
 export type NewsletterStatus = 'draft' | 'published';
 
+// Storage weeks used by weekless/offseason episodes (mirror of run-newsletter.mjs).
+const STORAGE_WEEK_TO_TYPE: Record<number, string> = { 900: 'preseason', 901: 'pre_draft', 902: 'post_draft', 903: 'offseason' };
+
+const EPISODE_TITLE_LABELS: Record<string, string> = {
+  regular: 'Weekly Recap',
+  trade_deadline: 'Trade Deadline',
+  playoffs_preview: 'Playoffs Preview',
+  playoffs_round: 'Playoff Round',
+  championship: 'Championship',
+  season_finale: 'Season Finale',
+  pre_draft: 'Pre-Draft',
+  post_draft: 'Post-Draft Grades',
+  preseason: 'Preseason',
+  offseason: 'Offseason',
+};
+
+/**
+ * Auto-generate a human-readable catalog title, e.g.
+ * "2026 Wk 12 — Trade Deadline (Jul 4, 9:45 AM)". Weekless episodes omit the week.
+ */
+export function buildNewsletterTitle(
+  season: number,
+  week: number,
+  episodeType?: string | null,
+  generatedAt: Date = new Date()
+): string {
+  const type = episodeType || STORAGE_WEEK_TO_TYPE[week] || 'regular';
+  const label = EPISODE_TITLE_LABELS[type] ?? type;
+  const isWeekless = Boolean(STORAGE_WEEK_TO_TYPE[week]) || ['pre_draft', 'post_draft', 'preseason', 'offseason'].includes(type);
+  const when = generatedAt.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+  return `${season}${isWeekless ? '' : ` Wk ${week}`} — ${label} (${when})`;
+}
+
 export async function loadNewsletter(
   season: number,
   week: number,
-  opts?: { includeDrafts?: boolean }
-): Promise<NewsletterData | null> {
+  opts?: { includeDrafts?: boolean; episodeType?: string | null }
+): Promise<(NewsletterData & { id: string; title: string | null; status: NewsletterStatus }) | null> {
   const db = getDb();
   // Public callers (default) only ever see published newsletters. Admin callers
-  // pass includeDrafts:true to view/edit drafts.
-  const where = opts?.includeDrafts
-    ? and(eq(newsletters.season, season), eq(newsletters.week, week))
-    : and(eq(newsletters.season, season), eq(newsletters.week, week), eq(newsletters.status, 'published'));
+  // pass includeDrafts:true to view/edit drafts. With multiple saved newsletters
+  // per slot, admins get the most recently generated match (optionally narrowed
+  // by episodeType); the public path is unique because publish enforces at most
+  // one published newsletter per (season, week).
+  const conditions = [eq(newsletters.season, season), eq(newsletters.week, week)];
+  if (!opts?.includeDrafts) conditions.push(eq(newsletters.status, 'published'));
+  if (opts?.episodeType) conditions.push(eq(newsletters.episodeType, opts.episodeType));
   const rows = await db
     .select()
     .from(newsletters)
-    .where(where)
+    .where(and(...conditions))
+    .orderBy(desc(newsletters.generatedAt))
     .limit(1);
 
   if (!rows.length) return null;
 
   const row = rows[0];
   return {
+    id: row.id,
+    title: row.title ?? null,
+    status: (row.status as NewsletterStatus) ?? 'published',
+    newsletter: row.content as NewsletterData['newsletter'],
+    html: row.html,
+    generatedAt: row.generatedAt.toISOString(),
+  };
+}
+
+/** Load a single newsletter by its unique id (admin catalog addressing). */
+export async function loadNewsletterById(
+  id: string
+): Promise<(NewsletterData & { id: string; season: number; week: number; title: string | null; status: NewsletterStatus; episodeType: string | null }) | null> {
+  const db = getDb();
+  const rows = await db.select().from(newsletters).where(eq(newsletters.id, id)).limit(1);
+  if (!rows.length) return null;
+  const row = rows[0];
+  return {
+    id: row.id,
+    season: row.season,
+    week: row.week,
+    title: row.title ?? null,
+    status: (row.status as NewsletterStatus) ?? 'published',
+    episodeType: row.episodeType ?? null,
     newsletter: row.content as NewsletterData['newsletter'],
     html: row.html,
     generatedAt: row.generatedAt.toISOString(),
@@ -384,8 +445,8 @@ export async function saveNewsletter(
   leagueName: string,
   content: NewsletterData['newsletter'],
   html: string,
-  opts?: { status?: NewsletterStatus; episodeType?: string }
-): Promise<void> {
+  opts?: { status?: NewsletterStatus; episodeType?: string; title?: string }
+): Promise<string> {
   const db = getDb();
 
   // IMPORTANT: generation paths must NOT autopublish. Default status is 'draft' so
@@ -393,25 +454,37 @@ export async function saveNewsletter(
   // exclusively via publishNewsletter() (the explicit admin publish action).
   const status: NewsletterStatus = opts?.status ?? 'draft';
 
-  // Delete existing newsletter for this week (if regenerating). Regeneration
-  // intentionally resets to the supplied status (draft by default) — a regenerated
-  // newsletter is never auto-published.
+  // Regeneration replaces only the existing DRAFT of the same episode type for
+  // this slot. Published newsletters and drafts of other episode types are never
+  // clobbered — multiple saved newsletters can coexist as a catalog.
+  const typeCond = opts?.episodeType
+    ? eq(newsletters.episodeType, opts.episodeType)
+    : isNull(newsletters.episodeType);
   await db
     .delete(newsletters)
-    .where(and(eq(newsletters.season, season), eq(newsletters.week, week)));
+    .where(and(
+      eq(newsletters.season, season),
+      eq(newsletters.week, week),
+      eq(newsletters.status, 'draft'),
+      typeCond,
+    ));
 
-  // Insert new newsletter
-  await db.insert(newsletters).values({
+  const generatedAt = new Date();
+  const inserted = await db.insert(newsletters).values({
     season,
     week,
     leagueName,
+    title: opts?.title ?? buildNewsletterTitle(season, week, opts?.episodeType, generatedAt),
     content,
     html,
     status,
     episodeType: opts?.episodeType,
+    generatedAt,
     publishedAt: status === 'published' ? new Date() : null,
     updatedAt: new Date(),
-  });
+  }).returning({ id: newsletters.id });
+
+  return inserted[0]?.id ?? '';
 }
 
 /**
@@ -422,31 +495,74 @@ export async function saveNewsletter(
 export async function publishNewsletter(
   season: number,
   week: number,
-  opts?: { html?: string }
+  opts?: { html?: string; id?: string }
 ): Promise<{ found: boolean; alreadyPublished: boolean }> {
   const db = getDb();
+
+  // Resolve the target row: by id when given (catalog publish), otherwise the
+  // most recently generated newsletter for the slot (legacy behavior).
   const rows = await db
-    .select({ status: newsletters.status, publishedAt: newsletters.publishedAt })
+    .select({ id: newsletters.id, season: newsletters.season, week: newsletters.week, status: newsletters.status, publishedAt: newsletters.publishedAt })
     .from(newsletters)
-    .where(and(eq(newsletters.season, season), eq(newsletters.week, week)))
+    .where(opts?.id
+      ? eq(newsletters.id, opts.id)
+      : and(eq(newsletters.season, season), eq(newsletters.week, week)))
+    .orderBy(desc(newsletters.generatedAt))
     .limit(1);
 
   if (!rows.length) return { found: false, alreadyPublished: false };
+  const target = rows[0];
 
-  const alreadyPublished = rows[0].status === 'published';
+  const alreadyPublished = target.status === 'published';
+
+  // "Replace" semantics: the public page shows exactly one newsletter per slot,
+  // so publishing this one reverts any other published newsletter for the same
+  // (season, week) back to draft. It stays in the catalog and can be re-published.
+  await db
+    .update(newsletters)
+    .set({ status: 'draft', updatedAt: new Date() })
+    .where(and(
+      eq(newsletters.season, target.season),
+      eq(newsletters.week, target.week),
+      eq(newsletters.status, 'published'),
+      ne(newsletters.id, target.id),
+    ));
 
   await db
     .update(newsletters)
     .set({
       status: 'published',
       // Preserve the original publish time on re-publish.
-      publishedAt: rows[0].publishedAt ?? new Date(),
+      publishedAt: target.publishedAt ?? new Date(),
       updatedAt: new Date(),
       ...(opts?.html ? { html: opts.html } : {}),
     })
-    .where(and(eq(newsletters.season, season), eq(newsletters.week, week)));
+    .where(eq(newsletters.id, target.id));
 
   return { found: true, alreadyPublished };
+}
+
+/** Rename a saved newsletter in the catalog. */
+export async function renameNewsletter(id: string, title: string): Promise<boolean> {
+  const db = getDb();
+  const trimmed = title.trim().slice(0, 200);
+  if (!trimmed) return false;
+  const updated = await db
+    .update(newsletters)
+    .set({ title: trimmed, updatedAt: new Date() })
+    .where(eq(newsletters.id, id))
+    .returning({ id: newsletters.id });
+  return updated.length > 0;
+}
+
+/** Delete a single newsletter by id (catalog delete — leaves other saved rows alone). */
+export async function deleteNewsletterById(id: string): Promise<boolean> {
+  const db = getDb();
+  const deleted = await db
+    .delete(newsletters)
+    .where(eq(newsletters.id, id))
+    .returning({ id: newsletters.id });
+  return deleted.length > 0;
 }
 
 /** Record that the published newsletter was announced to Discord. */
@@ -455,7 +571,7 @@ export async function markNewsletterDiscordPosted(season: number, week: number):
   await db
     .update(newsletters)
     .set({ discordPostedAt: new Date() })
-    .where(and(eq(newsletters.season, season), eq(newsletters.week, week)))
+    .where(and(eq(newsletters.season, season), eq(newsletters.week, week), eq(newsletters.status, 'published')))
     .catch(() => {});
 }
 
@@ -502,6 +618,8 @@ export async function listNewsletterWeeks(
 }
 
 export interface NewsletterMeta {
+  id: string;
+  title: string | null;
   season: number;
   week: number;
   leagueName: string;
@@ -528,6 +646,8 @@ export async function listNewslettersMeta(
     : and(eq(newsletters.season, season), eq(newsletters.status, 'published'));
   const rows = await db
     .select({
+      id: newsletters.id,
+      title: newsletters.title,
       season: newsletters.season,
       week: newsletters.week,
       leagueName: newsletters.leagueName,
@@ -543,6 +663,9 @@ export async function listNewslettersMeta(
 
   return rows
     .map(r => ({
+      id: r.id,
+      // Legacy rows saved before the title column existed get a computed fallback.
+      title: r.title ?? buildNewsletterTitle(r.season, r.week, r.episodeType, r.generatedAt),
       season: r.season,
       week: r.week,
       leagueName: r.leagueName,

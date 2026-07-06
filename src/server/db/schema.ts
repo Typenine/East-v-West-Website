@@ -381,6 +381,9 @@ export const newsletters = pgTable('newsletters', {
   season: integer('season').notNull(),
   week: integer('week').notNull(),
   leagueName: varchar('league_name', { length: 255 }).notNull(),
+  // Human-readable title so admins can tell saved newsletters apart in the catalog.
+  // Auto-generated on save (season/week/type/date) and renameable from the admin UI.
+  title: varchar('title', { length: 200 }),
   // Full newsletter JSON structure
   content: jsonb('content').$type<{
     meta: { leagueName: string; week: number; date: string; season: number };

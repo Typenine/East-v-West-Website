@@ -20,7 +20,7 @@ import { cookies } from 'next/headers';
 import { isAdminCookieValue } from '@/lib/auth/admin';
 import { getDb } from '@/server/db/client';
 import { newsletters } from '@/server/db/schema';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, desc } from 'drizzle-orm';
 import Anthropic from '@anthropic-ai/sdk';
 import { buildSystemPrompt, type PersonaType } from '@/lib/newsletter/llm/groq';
 import { DEFAULT_MODEL, buildThinkingParams, usesAdaptiveThinking } from '@/lib/newsletter/llm/providers/anthropic-provider';
@@ -75,12 +75,17 @@ async function requireAdmin(): Promise<boolean> {
   return isAdminCookieValue(cookieStore.get('evw_admin')?.value);
 }
 
-async function loadNewsletterRow(season: number, week: number) {
+async function loadNewsletterRow(season: number, week: number, id?: string) {
   const db = getDb();
+  // Preferred: address the exact catalog entry by id. Fallback (legacy callers):
+  // the most recently generated newsletter for the (season, week) slot.
   const rows = await db
     .select()
     .from(newsletters)
-    .where(and(eq(newsletters.season, season), eq(newsletters.week, week)))
+    .where(id
+      ? eq(newsletters.id, id)
+      : and(eq(newsletters.season, season), eq(newsletters.week, week)))
+    .orderBy(desc(newsletters.generatedAt))
     .limit(1);
   return rows[0] ?? null;
 }
@@ -100,6 +105,8 @@ export async function POST(req: NextRequest) {
   const action = body.action as string;
   const season = Number(body.season);
   const week = Number(body.week);
+  // Optional exact catalog target — disambiguates when multiple newsletters share a week slot.
+  const newsletterId = typeof body.id === 'string' && body.id ? body.id : undefined;
 
   if (!action || !season || week === undefined) {
     return NextResponse.json({ error: 'Missing required fields: action, season, week' }, { status: 400 });
@@ -112,7 +119,7 @@ export async function POST(req: NextRequest) {
     const text = String(body.text ?? '');
     const botField = BOT_FIELD_MAP[bot] ?? 'bot1_text';
 
-    const row = await loadNewsletterRow(season, week);
+    const row = await loadNewsletterRow(season, week, newsletterId);
     if (!row) return NextResponse.json({ error: 'Newsletter not found' }, { status: 404 });
 
     const content = row.content as Newsletter;
@@ -164,7 +171,7 @@ export async function POST(req: NextRequest) {
     await db
       .update(newsletters)
       .set({ content: contentWithHistory as typeof newsletters.$inferInsert['content'] })
-      .where(and(eq(newsletters.season, season), eq(newsletters.week, week)));
+      .where(eq(newsletters.id, row.id));
 
     console.log(`[Edit] save_section s${season}w${week} idx=${sectionIndex} bot=${bot}${body.viaAiRewrite ? ' (ai rewrite)' : ''}`);
     return NextResponse.json({ success: true });
@@ -186,7 +193,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Snapshot not found for this newsletter' }, { status: 404 });
     }
 
-    const row = await loadNewsletterRow(season, week);
+    const row = await loadNewsletterRow(season, week, newsletterId);
     if (!row) return NextResponse.json({ error: 'Newsletter not found' }, { status: 404 });
 
     // Snapshot the CURRENT state first so a restore is itself reversible
@@ -205,7 +212,7 @@ export async function POST(req: NextRequest) {
         content: snapshot.content as typeof newsletters.$inferInsert['content'],
         ...(snapshot.html ? { html: snapshot.html } : {}),
       })
-      .where(and(eq(newsletters.season, season), eq(newsletters.week, week)));
+      .where(eq(newsletters.id, row.id));
 
     console.log(`[Edit] restore_snapshot s${season}w${week} ← ${snapshotId}`);
     return NextResponse.json({ success: true, restoredFrom: snapshotId, message: 'Newsletter restored. Current state was snapshotted first.' });
@@ -227,7 +234,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'ANTHROPIC_API_KEY not configured' }, { status: 503 });
     }
 
-    const row = await loadNewsletterRow(season, week);
+    const row = await loadNewsletterRow(season, week, newsletterId);
     if (!row) return NextResponse.json({ error: 'Newsletter not found' }, { status: 404 });
 
     const content = row.content as Newsletter;
@@ -308,7 +315,7 @@ export async function POST(req: NextRequest) {
 
   // ── finalize ────────────────────────────────────────────────────────────────
   if (action === 'finalize') {
-    const row = await loadNewsletterRow(season, week);
+    const row = await loadNewsletterRow(season, week, newsletterId);
     if (!row) return NextResponse.json({ error: 'Newsletter not found' }, { status: 404 });
 
     const content = row.content as Newsletter & { _publishHistory?: Array<{ at: string; htmlLength: number }>; _generationMeta?: { runId?: string } };
@@ -347,7 +354,7 @@ export async function POST(req: NextRequest) {
     await db
       .update(newsletters)
       .set({ html, content: content as typeof newsletters.$inferInsert['content'] })
-      .where(and(eq(newsletters.season, season), eq(newsletters.week, week)));
+      .where(eq(newsletters.id, row.id));
 
     console.log(`[Edit] finalize s${season}w${week} — HTML re-rendered (${html.length} chars)`);
     return NextResponse.json({ success: true, html, publishHistory: content._publishHistory });
@@ -371,7 +378,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'ANTHROPIC_API_KEY not configured' }, { status: 503 });
     }
 
-    const row = await loadNewsletterRow(season, week);
+    const row = await loadNewsletterRow(season, week, newsletterId);
     if (!row) return NextResponse.json({ error: 'Newsletter not found' }, { status: 404 });
     const content = row.content as Newsletter;
 

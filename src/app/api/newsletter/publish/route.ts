@@ -5,7 +5,10 @@
  * are saved as drafts (status:'draft'); this endpoint flips an existing draft to
  * 'published' (the explicit admin action) and, by default, announces it to Discord.
  *
- * Body: { season, week, sendDiscord?: boolean (default true), resendDiscord?: boolean, html? }
+ * Body: { season, week, id?, sendDiscord?: boolean (default true), resendDiscord?: boolean, html? }
+ *  - id                       → publish this specific catalog entry (preferred); any other
+ *                               published newsletter for the same (season, week) is reverted
+ *                               to draft so the public page shows exactly one per slot
  *  - sendDiscord:false        → publish WITHOUT posting Discord
  *  - resendDiscord:true       → bypass the dedupe and re-post (explicit resend)
  *  - html                     → optional override of stored HTML (e.g. last-minute edit)
@@ -35,14 +38,14 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  let body: { season: number; week: number; sendDiscord?: boolean; resendDiscord?: boolean; html?: string };
+  let body: { season: number; week: number; id?: string; sendDiscord?: boolean; resendDiscord?: boolean; html?: string };
   try {
     body = await req.json();
   } catch {
     return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
   }
 
-  const { season, week, html } = body;
+  const { season, week, id, html } = body;
   // Discord defaults ON (opt-out): the primary Publish action announces; callers
   // pass sendDiscord:false for "Publish without Discord".
   const sendDiscord = body.sendDiscord !== false;
@@ -57,7 +60,7 @@ export async function POST(req: NextRequest) {
 
   try {
     // ── Flip the existing draft → published. Never overwrites content/sections. ──
-    const { found, alreadyPublished } = await publishNewsletter(seasonNum, weekNum, { html });
+    const { found, alreadyPublished } = await publishNewsletter(seasonNum, weekNum, { html, id });
     if (!found) {
       return NextResponse.json({
         error: `No newsletter found for Season ${seasonNum} Week ${weekNum}. Generate it first.`,

@@ -145,6 +145,8 @@ export interface EditModePanelProps {
   season: string;
   week: string;
   needsWeek: boolean;
+  /** Exact catalog entry being edited — disambiguates when multiple newsletters share a week slot. */
+  newsletterId?: string | null;
   html: string | null;               // current rendered HTML (updates after finalize)
   onHtmlUpdate: (html: string) => void;
   onClose: () => void;
@@ -228,11 +230,12 @@ function lengthBudgetColor(original: string, current: string): string | null {
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export default function EditModePanel({
-  season, week, needsWeek, html, onHtmlUpdate, onClose, onPublish, publishing, finalizeResult, setFinalizeResult,
+  season, week, needsWeek, newsletterId, html, onHtmlUpdate, onClose, onPublish, publishing, finalizeResult, setFinalizeResult,
 }: EditModePanelProps) {
 
   const wNum = needsWeek ? (parseInt(week) || 0) : 0;
   const seasonNum = parseInt(season);
+  const nlId = newsletterId ?? undefined;
 
   // ── State ──────────────────────────────────────────────────────────────────
 
@@ -361,7 +364,7 @@ export default function EditModePanel({
       try {
         const res = await fetch('/api/newsletter/edit', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'save_section', season: seasonNum, week: wNum, sectionIndex: idx, bot, fieldPath: fp, text }),
+          body: JSON.stringify({ action: 'save_section', id: nlId, season: seasonNum, week: wNum, sectionIndex: idx, bot, fieldPath: fp, text }),
         });
         const data = await res.json() as { success?: boolean };
         if (res.ok && data.success) {
@@ -373,7 +376,7 @@ export default function EditModePanel({
         }
       } catch { /* silent — user can manually save */ }
     }, 2000);
-  }, [seasonNum, wNum]);
+  }, [seasonNum, wNum, nlId]);
 
   // ── Changed fields for summary / diff ─────────────────────────────────────
 
@@ -407,7 +410,7 @@ export default function EditModePanel({
     try {
       const res = await fetch('/api/newsletter/edit', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'save_section', season: seasonNum, week: wNum, sectionIndex: idx, bot, fieldPath: fp, text: st.manualText }),
+        body: JSON.stringify({ action: 'save_section', id: nlId, season: seasonNum, week: wNum, sectionIndex: idx, bot, fieldPath: fp, text: st.manualText }),
       });
       const data = await res.json() as { success?: boolean; error?: string };
       if (!res.ok || !data.success) throw new Error(data.error ?? 'Save failed');
@@ -436,7 +439,7 @@ export default function EditModePanel({
       const res = await fetch('/api/newsletter/edit', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          action: 'ai_rewrite', season: seasonNum, week: wNum, sectionIndex: idx, bot, fieldPath: fp,
+          action: 'ai_rewrite', id: nlId, season: seasonNum, week: wNum, sectionIndex: idx, bot, fieldPath: fp,
           instruction: st.aiInstruction,
           // #5: inject raw section data so Claude has full context (scores, teams, etc.)
           sectionContext: sec?.data ?? null,
@@ -458,7 +461,7 @@ export default function EditModePanel({
     try {
       const res = await fetch('/api/newsletter/edit', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'save_section', season: seasonNum, week: wNum, sectionIndex: idx, bot, fieldPath: fp, text: st.aiPreview }),
+        body: JSON.stringify({ action: 'save_section', id: nlId, season: seasonNum, week: wNum, sectionIndex: idx, bot, fieldPath: fp, text: st.aiPreview }),
       });
       const data = await res.json() as { success?: boolean; error?: string };
       if (!res.ok || !data.success) throw new Error(data.error ?? 'Accept failed');
@@ -485,7 +488,7 @@ export default function EditModePanel({
     try {
       const res = await fetch('/api/newsletter/edit', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'consistency_sweep', season: seasonNum, week: wNum, note: sweepNote }),
+        body: JSON.stringify({ action: 'consistency_sweep', id: nlId, season: seasonNum, week: wNum, note: sweepNote }),
       });
       const data = await res.json() as { success?: boolean; proposals?: Array<Omit<SweepProposal, 'status'>>; error?: string };
       if (!res.ok || !data.success) throw new Error(data.error ?? 'Consistency check failed');
@@ -509,7 +512,7 @@ export default function EditModePanel({
       const res = await fetch('/api/newsletter/edit', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          action: 'save_section', season: seasonNum, week: wNum,
+          action: 'save_section', id: nlId, season: seasonNum, week: wNum,
           sectionIndex: proposal.sectionIndex, bot, fieldPath: proposal.fieldPath,
           text: proposal.after, viaAiRewrite: true,
         }),
@@ -575,7 +578,7 @@ export default function EditModePanel({
     try {
       const res = await fetch('/api/newsletter/edit', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'ai_rewrite', season: seasonNum, week: wNum, sectionIndex: idx, bot, fieldPath: fp, selectedText, instruction }),
+        body: JSON.stringify({ action: 'ai_rewrite', id: nlId, season: seasonNum, week: wNum, sectionIndex: idx, bot, fieldPath: fp, selectedText, instruction }),
       });
       const data = await res.json() as { success?: boolean; preview?: string; error?: string };
       if (!res.ok || !data.success) throw new Error(data.error ?? 'Rewrite failed');
@@ -610,7 +613,7 @@ export default function EditModePanel({
     try {
       const res = await fetch('/api/newsletter/edit', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'finalize', season: seasonNum, week: wNum }),
+        body: JSON.stringify({ action: 'finalize', id: nlId, season: seasonNum, week: wNum }),
       });
       const data = await res.json() as { success?: boolean; html?: string; error?: string; publishHistory?: Array<{ at: string; htmlLength: number }> };
       if (!res.ok || !data.success) throw new Error(data.error ?? 'Finalize failed');

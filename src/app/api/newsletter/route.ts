@@ -733,12 +733,36 @@ export async function GET(request: NextRequest) {
   const seasonParam = searchParams.get('season');
   const listParam = searchParams.get('list');
   const progressParam = searchParams.get('progress');
+  const idParam = searchParams.get('id');
+  const typeParam = searchParams.get('type');
 
   // Drafts are only ever exposed to authenticated admins that explicitly ask for
   // them (?draft=1). Public visitors always get published newsletters only.
   const includeDrafts = searchParams.get('draft') === '1' && (await isAdmin(request));
 
   try {
+    // Direct catalog fetch by id (admin drafts require the includeDrafts gate above;
+    // published rows are public either way).
+    if (idParam) {
+      const { loadNewsletterById } = await import('@/server/db/newsletter-queries');
+      const byId = await loadNewsletterById(idParam);
+      if (!byId || (byId.status !== 'published' && !includeDrafts)) {
+        return NextResponse.json({ success: false, error: 'Newsletter not found' }, { status: 404 });
+      }
+      return NextResponse.json({
+        success: true,
+        id: byId.id,
+        title: byId.title,
+        status: byId.status,
+        season: byId.season,
+        week: byId.week,
+        episodeType: byId.episodeType,
+        newsletter: byId.newsletter,
+        html: byId.html,
+        generatedAt: byId.generatedAt,
+        fromCache: true,
+      });
+    }
     // Get current NFL state
     const state = await getSleeperState();
     const season = seasonParam || state.season;
@@ -776,12 +800,16 @@ export async function GET(request: NextRequest) {
 
     const week = weekParam ? parseInt(weekParam, 10) : state.week;
 
-    // Load from database
-    const stored = await loadNewsletter(seasonNum, week, { includeDrafts });
+    // Load from database. Admin callers may narrow by episode type so multiple
+    // saved newsletters in the same week slot resolve to the intended one.
+    const stored = await loadNewsletter(seasonNum, week, { includeDrafts, episodeType: includeDrafts ? typeParam : null });
 
     if (stored) {
       return NextResponse.json({
         success: true,
+        id: stored.id,
+        title: stored.title,
+        status: stored.status,
         newsletter: stored.newsletter,
         html: stored.html,
         generatedAt: stored.generatedAt,
@@ -2066,11 +2094,31 @@ export async function DELETE(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const weekParam = searchParams.get('week');
   const seasonParam = searchParams.get('season');
+  const idParam = searchParams.get('id');
+
+  // Preferred: delete a single catalog entry by id.
+  if (idParam) {
+    try {
+      const { deleteNewsletterById } = await import('@/server/db/newsletter-queries');
+      const deleted = await deleteNewsletterById(idParam);
+      if (!deleted) {
+        return NextResponse.json({ success: false, error: 'Newsletter not found' }, { status: 404 });
+      }
+      return NextResponse.json({ success: true, message: 'Deleted newsletter' });
+    } catch (error) {
+      console.error('Newsletter delete error:', error);
+      return NextResponse.json({
+        success: false,
+        error: 'Failed to delete newsletter',
+        details: error instanceof Error ? error.message : 'Unknown error',
+      }, { status: 500 });
+    }
+  }
 
   if (!weekParam || !seasonParam) {
     return NextResponse.json({
       success: false,
-      error: 'Both week and season parameters are required',
+      error: 'id, or both week and season parameters, are required',
     }, { status: 400 });
   }
 
@@ -2088,6 +2136,41 @@ export async function DELETE(request: NextRequest) {
     return NextResponse.json({
       success: false,
       error: 'Failed to delete newsletter',
+      details: error instanceof Error ? error.message : 'Unknown error',
+    }, { status: 500 });
+  }
+}
+
+// ============ PATCH: Admin can rename a saved newsletter ============
+
+export async function PATCH(request: NextRequest) {
+  if (!(await isAdmin(request))) {
+    return NextResponse.json({ error: 'Admin access required' }, { status: 403 });
+  }
+
+  let body: { id?: string; title?: string };
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
+  }
+
+  if (!body.id || typeof body.title !== 'string' || !body.title.trim()) {
+    return NextResponse.json({ error: 'Both id and a non-empty title are required' }, { status: 400 });
+  }
+
+  try {
+    const { renameNewsletter } = await import('@/server/db/newsletter-queries');
+    const renamed = await renameNewsletter(body.id, body.title);
+    if (!renamed) {
+      return NextResponse.json({ success: false, error: 'Newsletter not found' }, { status: 404 });
+    }
+    return NextResponse.json({ success: true, title: body.title.trim().slice(0, 200) });
+  } catch (error) {
+    console.error('Newsletter rename error:', error);
+    return NextResponse.json({
+      success: false,
+      error: 'Failed to rename newsletter',
       details: error instanceof Error ? error.message : 'Unknown error',
     }, { status: 500 });
   }
