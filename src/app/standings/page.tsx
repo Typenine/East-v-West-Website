@@ -1,20 +1,28 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import Image from 'next/image';
 import { getTeamsData, TeamData, getCurrentStreaksForLeague } from '@/lib/utils/sleeper-api';
-import { LEAGUE_IDS } from '@/lib/constants/league';
-import { getTeamLogoPath, getTeamColorStyle } from '@/lib/utils/team-utils';
+import { getLeagueIdForSeason } from '@/lib/constants/league';
 import LoadingState from '@/components/ui/loading-state';
 import ErrorState from '@/components/ui/error-state';
-import { Card, CardContent } from '@/components/ui/Card';
 import SectionHeader from '@/components/ui/SectionHeader';
-import Label from '@/components/ui/Label';
-import { Select } from '@/components/ui/Select';
-import { Button } from '@/components/ui/Button';
+import { Chip } from '@/components/ui/Chip';
+import {
+  BroadcastPanel,
+  BroadcastTeamLogo,
+  PANEL,
+  teamAccent,
+  broadcastFaintTextStyle,
+  broadcastMutedTextStyle,
+  broadcastBodyTextStyle,
+} from '@/components/ui/BroadcastPanel';
 
 type SortKey = 'wins' | 'losses' | 'ties' | 'fpts' | 'fptsAgainst';
 type SortDirection = 'asc' | 'desc';
+
+const SEASON_OPTIONS = ['2025', '2024', '2023'];
+
+const thClass = 'px-4 py-3 text-left text-[10px] font-bold uppercase tracking-[0.18em] sm:px-5';
 
 export default function StandingsPage() {
   const [teams, setTeams] = useState<TeamData[]>([]);
@@ -31,9 +39,9 @@ export default function StandingsPage() {
     try {
       setLoading(true);
       // Get the league ID for the selected year
-      let leagueId = LEAGUE_IDS.CURRENT;
-      if (selectedYear !== '2025') {
-        leagueId = LEAGUE_IDS.PREVIOUS[selectedYear as keyof typeof LEAGUE_IDS.PREVIOUS];
+      const leagueId = getLeagueIdForSeason(selectedYear);
+      if (!leagueId) {
+        throw new Error(`No league ID found for season ${selectedYear}`);
       }
       const [teamsData, streakMap] = await Promise.all([
         getTeamsData(leagueId),
@@ -92,226 +100,148 @@ export default function StandingsPage() {
     seed: index + 1
   }));
   
+  const seasonTabs = (
+    <div className="mt-4 flex gap-2" role="tablist" aria-orientation="horizontal">
+      {SEASON_OPTIONS.map((year) => (
+        <Chip
+          key={year}
+          role="tab"
+          aria-selected={selectedYear === year}
+          selected={selectedYear === year}
+          variant="accent"
+          onClick={() => setSelectedYear(year)}
+        >
+          {year}
+        </Chip>
+      ))}
+    </div>
+  );
+
   if (loading) {
     return (
       <div className="container mx-auto px-4 py-8">
-        <SectionHeader 
-          title="Standings"
-          actions={(
-            <div className="flex items-center gap-2">
-              <Label htmlFor="year-select">Season</Label>
-              <Select
-                id="year-select"
-                size="sm"
-                value={selectedYear}
-                onChange={(e) => setSelectedYear(e.target.value)}
-                fullWidth={false}
-              >
-                <option value="2025">2025</option>
-                <option value="2024">2024</option>
-                <option value="2023">2023</option>
-              </Select>
-            </div>
-          )}
-        />
-        <LoadingState message="Loading standings..." />
+        <SectionHeader title="Standings" subtitle="Season records, scoring, and streaks across the league" />
+        {seasonTabs}
+        <div className="mt-5">
+          <LoadingState message="Loading standings..." />
+        </div>
       </div>
     );
   }
-  
+
   if (error) {
     return (
       <div className="container mx-auto px-4 py-8">
-        <SectionHeader 
-          title="Standings"
-          actions={(
-            <div className="flex items-center gap-2">
-              <Label htmlFor="year-select">Season</Label>
-              <Select
-                id="year-select"
-                size="sm"
-                value={selectedYear}
-                onChange={(e) => setSelectedYear(e.target.value)}
-                fullWidth={false}
-              >
-                <option value="2025">2025</option>
-                <option value="2024">2024</option>
-                <option value="2023">2023</option>
-              </Select>
-            </div>
-          )}
-        />
-        <ErrorState message={error} retry={fetchStandings} homeLink />
+        <SectionHeader title="Standings" subtitle="Season records, scoring, and streaks across the league" />
+        {seasonTabs}
+        <div className="mt-5">
+          <ErrorState message={error} retry={fetchStandings} homeLink />
+        </div>
       </div>
     );
   }
-  
+
+  const sortHeader = (key: SortKey, label: string) => {
+    const active = sortConfig.key === key;
+    return (
+      <button
+        type="button"
+        onClick={() => handleSort(key)}
+        className="inline-flex items-center gap-1 transition-colors hover:text-[var(--panel-text)]"
+        style={active ? broadcastBodyTextStyle : broadcastFaintTextStyle}
+      >
+        {label}
+        {active && (
+          <span aria-hidden="true">{sortConfig.direction === 'desc' ? '▼' : '▲'}</span>
+        )}
+      </button>
+    );
+  };
+
+  const sortAriaSort = (key: SortKey): 'ascending' | 'descending' | 'none' =>
+    sortConfig.key === key ? (sortConfig.direction === 'desc' ? 'descending' : 'ascending') : 'none';
+
   return (
     <div className="container mx-auto px-4 py-8">
-      <SectionHeader 
-        title="Standings"
-        actions={(
-          <div className="flex items-center gap-2">
-            <Label htmlFor="year-select">Season</Label>
-            <Select
-              id="year-select"
-              size="sm"
-              value={selectedYear}
-              onChange={(e) => setSelectedYear(e.target.value)}
-              fullWidth={false}
-            >
-              <option value="2025">2025</option>
-              <option value="2024">2024</option>
-              <option value="2023">2023</option>
-            </Select>
-          </div>
-        )}
-      />
-      
-      <Card className="overflow-x-auto">
-        <CardContent className="p-0">
-          <table className="min-w-full divide-y divide-[var(--border)]">
-            <thead className="bg-[var(--surface)]">
-            <tr>
-              <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-[var(--muted)] uppercase tracking-wider">
-                Seed
-              </th>
-              <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-[var(--muted)] uppercase tracking-wider">
-                Team
-              </th>
-              <th 
-                scope="col" 
-                className="px-6 py-3 text-left text-xs font-medium text-[var(--muted)] uppercase tracking-wider"
-                aria-sort={sortConfig.key === 'wins' ? (sortConfig.direction === 'desc' ? 'descending' : 'ascending') : 'none'}
-              >
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="px-1"
-                  onClick={() => handleSort('wins')}
-                  aria-label={`Sort by record ${sortConfig.key === 'wins' && sortConfig.direction === 'desc' ? 'ascending' : 'descending'}`}
-                >
-                  Record
-                  {sortConfig.key === 'wins' && (
-                    <span className="ml-1" aria-hidden="true">{sortConfig.direction === 'desc' ? '▼' : '▲'}</span>
-                  )}
-                </Button>
-              </th>
-              <th 
-                scope="col" 
-                className="px-6 py-3 text-left text-xs font-medium text-[var(--muted)] uppercase tracking-wider"
-                aria-sort={sortConfig.key === 'fpts' ? (sortConfig.direction === 'desc' ? 'descending' : 'ascending') : 'none'}
-              >
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="px-1"
-                  onClick={() => handleSort('fpts')}
-                >
-                  PF
-                  {sortConfig.key === 'fpts' && (
-                    <span className="ml-1" aria-hidden="true">{sortConfig.direction === 'desc' ? '▼' : '▲'}</span>
-                  )}
-                </Button>
-              </th>
-              <th 
-                scope="col" 
-                className="px-6 py-3 text-left text-xs font-medium text-[var(--muted)] uppercase tracking-wider"
-                aria-sort={sortConfig.key === 'fptsAgainst' ? (sortConfig.direction === 'desc' ? 'descending' : 'ascending') : 'none'}
-              >
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="px-1"
-                  onClick={() => handleSort('fptsAgainst')}
-                >
-                  PA
-                  {sortConfig.key === 'fptsAgainst' && (
-                    <span className="ml-1" aria-hidden="true">{sortConfig.direction === 'desc' ? '▼' : '▲'}</span>
-                  )}
-                </Button>
-              </th>
-              <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-[var(--muted)] uppercase tracking-wider">
-                Streak
-              </th>
-            </tr>
-          </thead>
-          <tbody className="bg-transparent divide-y divide-[var(--border)]">
-            {teamsWithSeeds.map((team) => (
-              <tr 
-                key={team.rosterId}
-                className="cursor-pointer"
-                role="link"
-                tabIndex={0}
-                onClick={() => (window.location.href = `/teams/${team.rosterId}?year=${selectedYear}`)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault();
-                    window.location.href = `/teams/${team.rosterId}?year=${selectedYear}`;
-                  }
-                }}
-                style={{ borderLeft: `4px solid ${getTeamColorStyle(team.teamName).backgroundColor}` }}
-              >
-                <td className="px-6 py-4 whitespace-nowrap">
-                  <div className="text-sm text-[var(--text)]">{team.seed}</div>
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap">
-                  <div className="flex items-center">
-                    <div 
-                      className="w-8 h-8 rounded-full flex items-center justify-center mr-3 overflow-hidden" 
-                      style={getTeamColorStyle(team.teamName)}
+      <SectionHeader title="Standings" subtitle="Season records, scoring, and streaks across the league" />
+      {seasonTabs}
+
+      <div className="mt-5">
+        <BroadcastPanel title="Standings" meta={selectedYear} bodyClassName="!p-0">
+          <div className="overflow-x-auto">
+            <table className="min-w-full">
+              <thead>
+                <tr style={{ background: PANEL.headerBg, borderBottom: `1px solid ${PANEL.hairline}` }}>
+                  <th scope="col" className={thClass} style={broadcastFaintTextStyle}>
+                    Seed
+                  </th>
+                  <th scope="col" className={thClass} style={broadcastFaintTextStyle}>
+                    Team
+                  </th>
+                  <th scope="col" className={thClass} aria-sort={sortAriaSort('wins')}>
+                    {sortHeader('wins', 'Record')}
+                  </th>
+                  <th scope="col" className={thClass} aria-sort={sortAriaSort('fpts')}>
+                    {sortHeader('fpts', 'PF')}
+                  </th>
+                  <th scope="col" className={thClass} aria-sort={sortAriaSort('fptsAgainst')}>
+                    {sortHeader('fptsAgainst', 'PA')}
+                  </th>
+                  <th scope="col" className={thClass} style={broadcastFaintTextStyle}>
+                    Streak
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {teamsWithSeeds.map((team) => {
+                  const accent = teamAccent(team.teamName);
+                  const streak = streaks[team.rosterId];
+                  return (
+                    <tr
+                      key={team.rosterId}
+                      role="link"
+                      tabIndex={0}
+                      className="cursor-pointer transition-colors hover:bg-white/[0.03]"
+                      style={{ borderBottom: `1px solid ${PANEL.hairline}`, borderLeft: `3px solid ${accent}` }}
+                      onClick={() => (window.location.href = `/teams/${team.rosterId}?year=${selectedYear}`)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          window.location.href = `/teams/${team.rosterId}?year=${selectedYear}`;
+                        }
+                      }}
                     >
-                      <Image
-                        src={getTeamLogoPath(team.teamName)}
-                        alt={team.teamName}
-                        width={24}
-                        height={24}
-                        className="object-contain"
-                        onError={(e) => {
-                          const target = e.target as HTMLImageElement;
-                          target.style.display = 'none';
-                          const parent = target.parentElement;
-                          if (parent) {
-                            const fallback = document.createElement('div');
-                            fallback.className = 'flex items-center justify-center h-full w-full';
-                            fallback.innerHTML = `<span class="text-xs font-bold">${team.teamName.charAt(0)}</span>`;
-                            parent.appendChild(fallback);
-                          }
-                        }}
-                      />
-                    </div>
-                    <div className="text-sm font-medium" style={{ color: (team.teamName === 'Double Trouble' || team.teamName === 'BeerNeverBrokeMyHeart') ? getTeamColorStyle(team.teamName, 'tertiary').backgroundColor : getTeamColorStyle(team.teamName).backgroundColor }}>
-                      {team.teamName}
-                    </div>
-                  </div>
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap">
-                  <div className="text-sm text-[var(--text)]">
-                    {team.wins}-{team.losses}{team.ties > 0 ? `-${team.ties}` : ''}
-                  </div>
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap">
-                  <div className="text-sm text-[var(--text)]">{team.fpts.toFixed(2)}</div>
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap">
-                  <div className="text-sm text-[var(--text)]">{team.fptsAgainst.toFixed(2)}</div>
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap">
-                  <div className="text-sm text-[var(--text)]">
-                    {/* We would calculate streak here from weekly results */}
-                    {/* For now, just show a placeholder */}
-                    {(() => {
-                      const st = streaks[team.rosterId];
-                      return st && st.type && st.length > 0 ? `${st.type}${st.length}` : '-';
-                    })()}
-                  </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        </CardContent>
-      </Card>
+                      <td className="whitespace-nowrap px-4 py-3 text-sm font-semibold tabular-nums sm:px-5" style={broadcastMutedTextStyle}>
+                        {team.seed}
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-3 sm:px-5">
+                        <div className="flex items-center gap-3">
+                          <BroadcastTeamLogo team={team.teamName} accent={accent} size="sm" />
+                          <span className="truncate text-sm font-bold" style={broadcastBodyTextStyle}>
+                            {team.teamName}
+                          </span>
+                        </div>
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-3 text-sm font-semibold tabular-nums sm:px-5" style={broadcastBodyTextStyle}>
+                        {team.wins}-{team.losses}{team.ties > 0 ? `-${team.ties}` : ''}
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-3 text-sm tabular-nums sm:px-5" style={broadcastBodyTextStyle}>
+                        {team.fpts.toFixed(2)}
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-3 text-sm tabular-nums sm:px-5" style={broadcastMutedTextStyle}>
+                        {team.fptsAgainst.toFixed(2)}
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-3 text-sm font-semibold sm:px-5" style={broadcastMutedTextStyle}>
+                        {streak && streak.type && streak.length > 0 ? `${streak.type}${streak.length}` : '—'}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </BroadcastPanel>
+      </div>
     </div>
   );
 }
