@@ -2843,8 +2843,9 @@ Output EXACTLY this format for each team (use triple-equals delimiters):
 
 ===TEAM: [Exact Team Name]===
 GRADE: [A+ to F]
-[Your 2-3 sentence analysis of this team's side: what they got, what they gave up, and your take]
+[2-3 substantial paragraphs of analysis, separated by a blank line]
 
+Each team's analysis must be 2-3 real paragraphs (3-5 sentences each), not a single blurb: (1) the headline verdict and why, (2) a breakdown of the specific assets they gave up and received — value, age curve, roster fit, (3) what it means for their draft-capital position and outlook.
 If no offseason trades are described in the context, output exactly: NO_TRADES
 Do NOT invent trades. Only grade teams for trades actually in the context.${persona === 'analyst' ? '\nFocus on analytical value: assets received vs. given, short-term vs. long-term implications, draft capital impact.' : '\nFocus on personality and bold opinion: who won, who got fleeced, who made a power move.'}`;
 
@@ -2854,7 +2855,7 @@ Do NOT invent trades. Only grade teams for trades actually in the context.${pers
       sectionType: 'Offseason Trade Party Grades',
       context: context + (entPersonality ? `\n${entPersonality}` : ''),
       constraints: partyGradeConstraint('entertainer'),
-      maxTokens: 700,
+      maxTokens: 2400,
       episodeType: 'pre_draft',
     }),
     generateSection({
@@ -2862,7 +2863,7 @@ Do NOT invent trades. Only grade teams for trades actually in the context.${pers
       sectionType: 'Offseason Trade Party Grades',
       context: context + (anaPersonality ? `\n${anaPersonality}` : ''),
       constraints: partyGradeConstraint('analyst'),
-      maxTokens: 700,
+      maxTokens: 2400,
       episodeType: 'pre_draft',
     }),
   ]);

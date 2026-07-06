@@ -1400,7 +1400,9 @@ async function genPreDraftTrades(input: StepInput): Promise<TradeItem[]> {
   const context = `${leagueKnowledge}\n\n---\n\nPRE-DRAFT TRADE ANALYSIS — ${season}\nReview trades since late ${season - 1} (post-championship offseason through the present).\n${tradeFactsBlock ? `\n${tradeFactsBlock}\n` : ''}${enhancedContext}\n\nCRITICAL: Only mention trades EXPLICITLY listed above. Do NOT invent trades.${tradeFactsBlock ? ' The OFFSEASON TRADE FACTS block is authoritative for who sent and received every asset.' : ''}`;
 
   const partyGradeConstraint = (p: 'entertainer' | 'analyst') =>
-    `Grade each team involved in offseason trades separately.\nFormat EXACTLY:\n===TEAM: [Exact Team Name]===\nGRADE: [A+ to F]\n[2-3 sentence analysis]\n\nIf no trades exist, output exactly: NO_TRADES\n` +
+    `Grade each team involved in offseason trades separately.\nFormat EXACTLY:\n===TEAM: [Exact Team Name]===\nGRADE: [A+ to F]\n[2-3 substantial paragraphs of analysis, separated by a blank line]\n\n` +
+    `Each team's analysis must be 2-3 real paragraphs (3-5 sentences each), not a single blurb: (1) the headline verdict and why, (2) a breakdown of the specific assets they gave up and received — value, age curve, roster fit, (3) what it means for their draft-capital position and outlook. ` +
+    `If no trades exist, output exactly: NO_TRADES\n` +
     `⚠️ ATTRIBUTION: Before writing any "traded away / landed / sent / got" claim, check the team's "received" and "sent" lines in OFFSEASON TRADE FACTS. In a 3-team trade each asset has exactly ONE sender — "(from X)" on an asset names that sender; do not credit or blame any other team for it.\n` +
     `${p === 'analyst' ? 'Focus on analytical value and draft capital impact.' : 'Focus on bold opinion: who won, who got fleeced.'}`;
 
@@ -1431,7 +1433,7 @@ async function genPreDraftTrades(input: StepInput): Promise<TradeItem[]> {
     const gradesCtx = context + (extraContext ? `\n\n${extraContext}` : '');
     const first = await generateSection({
       persona, sectionType: 'Offseason Trade Party Grades', context: gradesCtx,
-      constraints: partyGradeConstraint(persona), maxTokens: 700, episodeType: 'pre_draft',
+      constraints: partyGradeConstraint(persona), maxTokens: 2400, episodeType: 'pre_draft',
     });
     let chosen = first;
     let flagged = lintAllBlocks(parseBlocks(first));
@@ -1445,7 +1447,7 @@ async function genPreDraftTrades(input: StepInput): Promise<TradeItem[]> {
       ].join('\n');
       const second = await generateSection({
         persona, sectionType: 'Offseason Trade Party Grades', context: gradesCtx,
-        constraints: partyGradeConstraint(persona) + '\n\n' + correction, maxTokens: 700, episodeType: 'pre_draft',
+        constraints: partyGradeConstraint(persona) + '\n\n' + correction, maxTokens: 2400, episodeType: 'pre_draft',
       }).catch(() => first);
       const flaggedSecond = lintAllBlocks(parseBlocks(second));
       if (flaggedSecond.flatMap(f => f.violations).length <= allViolations.length) {
