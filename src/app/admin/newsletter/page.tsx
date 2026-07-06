@@ -762,7 +762,7 @@ function AdminNewsletterPageInner() {
                     <label className="flex items-center gap-2 text-sm cursor-pointer">
                       <input type="checkbox" checked={forceRegenerate}
                         onChange={e => setForceRegenerate(e.target.checked)} className="rounded" />
-                      <span>Force overwrite existing newsletter</span>
+                      <span>Generate a new draft even if one already exists</span>
                     </label>
                   </div>
                 )}

@@ -3,7 +3,7 @@
  * Handles persistence of bot memory, forecast records, and newsletters
  */
 
-import { eq, and, ne, desc, isNull } from 'drizzle-orm';
+import { eq, and, ne, desc } from 'drizzle-orm';
 import { getDb } from './client';
 import {
   botMemory,
@@ -454,21 +454,9 @@ export async function saveNewsletter(
   // exclusively via publishNewsletter() (the explicit admin publish action).
   const status: NewsletterStatus = opts?.status ?? 'draft';
 
-  // Regeneration replaces only the existing DRAFT of the same episode type for
-  // this slot. Published newsletters and drafts of other episode types are never
-  // clobbered — multiple saved newsletters can coexist as a catalog.
-  const typeCond = opts?.episodeType
-    ? eq(newsletters.episodeType, opts.episodeType)
-    : isNull(newsletters.episodeType);
-  await db
-    .delete(newsletters)
-    .where(and(
-      eq(newsletters.season, season),
-      eq(newsletters.week, week),
-      eq(newsletters.status, 'draft'),
-      typeCond,
-    ));
-
+  // Every generation creates a new catalog entry. We never delete existing
+  // drafts automatically — that would break the catalog / multiple-drafts goal.
+  // Old drafts can be deleted explicitly from the Saved Newsletters panel.
   const generatedAt = new Date();
   const inserted = await db.insert(newsletters).values({
     season,
