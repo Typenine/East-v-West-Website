@@ -12,6 +12,7 @@ import {
   ensureDraftSchemaV149,
   finishTradeAnimationV149,
   getPendingPickV149,
+  repairGhostPendingPickPauseV149,
   submitPendingPickV149,
 } from '@/server/draft-v149';
 import { canonicalizeTeamName } from '@/lib/server/user-identity';
@@ -63,6 +64,10 @@ export async function handleDraftPost(req: NextRequest) {
       if (!admin && !identity) return bad('auth_required', 401);
       const draftId = requestedId || (await getActiveOrLatestDraftId());
       if (!draftId) return bad('no_draft');
+      const repaired = await repairGhostPendingPickPauseV149(draftId);
+      if (repaired.repaired) {
+        console.warn('[draft-v149] repaired ghost pending-pick pause before pick submit', { draftId });
+      }
       const overview = await getDraftOverview(draftId);
       if (!overview) return bad('no_draft');
       const playerId = String(body.playerId || '').trim();
