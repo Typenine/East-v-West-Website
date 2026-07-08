@@ -5,6 +5,7 @@ import {
   checkStalePickAnimationV149,
   ensureDraftSchemaV149,
   getPendingPickV149,
+  repairGhostPendingPickPauseV149,
 } from '@/server/draft-v149';
 import { getAllPlayersCached } from '@/lib/utils/sleeper-api';
 import {
@@ -42,6 +43,13 @@ export async function handleDraftGet(req: NextRequest) {
     await checkStalePickAnimationV149(draftId).catch((error) => {
       console.error('[draft-v149] stale animation fallback failed', error);
     });
+    const ghostRepair = await repairGhostPendingPickPauseV149(draftId).catch((error) => {
+      console.error('[draft-v149] ghost pending-pick repair failed', error);
+      return { repaired: false };
+    });
+    if (ghostRepair.repaired) {
+      console.warn('[draft-v149] repaired ghost pending-pick pause during draft load', { draftId });
+    }
 
     const overview = await getDraftOverview(draftId);
     if (!overview) return ok({ draft: null });
