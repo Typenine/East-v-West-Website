@@ -36,6 +36,7 @@ import {
   finishTradeAnimationV149,
   getPendingPickV149,
   rejectPendingPickV149,
+  repairGhostPendingPickPauseV149,
   safeSkipPickV149,
   safeUpdateSlotV149,
   type DraftPlayerInput,
@@ -57,8 +58,16 @@ export const ADMIN_ACTIONS = new Set([
   'force_pick', 'undo', 'skip_pick', 'approve_pick', 'reject_pick', 'auto_pick',
   'reset', 'reset_trades', 'set_draft_order', 'set_draft_slots', 'update_slot',
   'upload_players', 'clear_players', 'update_branding', 'admin_workspace',
-  'delete_player_pool', 'apply_player_pool',
+  'delete_player_pool', 'apply_player_pool', 'repair_state',
 ]);
+
+async function repairGhostPendingIfNeeded(draftId: string) {
+  const repaired = await repairGhostPendingPickPauseV149(draftId);
+  if (repaired.repaired) {
+    console.warn('[draft-v149] repaired ghost pending-pick pause', { draftId });
+  }
+  return repaired;
+}
 
 export async function handleAdminDraftAction(
   req: NextRequest,
@@ -149,6 +158,10 @@ export async function handleAdminDraftAction(
   const draftId = requestedId || (await getActiveOrLatestDraftId());
   if (!draftId) return bad('no_draft');
 
+  if (action === 'repair_state') {
+    const repaired = await repairGhostPendingIfNeeded(draftId);
+    return ok({ ok: true, ...repaired, draft: await getDraftOverview(draftId) });
+  }
   if (action === 'delete') {
     await deleteDraft(draftId);
     return ok({ ok: true });
@@ -210,7 +223,12 @@ export async function handleAdminDraftAction(
     return ok({ ok: true });
   }
   if (action === 'resume') {
-    const overview = await getDraftOverview(draftId);
+    let overview = await getDraftOverview(draftId);
+    if (!overview || overview.status !== 'PAUSED') return bad('invalid_state');
+    if (overview.pauseReason === 'pending_pick') {
+      const repaired = await repairGhostPendingIfNeeded(draftId);
+      if (repaired.repaired) overview = await getDraftOverview(draftId);
+    }
     if (!overview || overview.status !== 'PAUSED') return bad('invalid_state');
     if (overview.pauseReason !== 'manual' && overview.pauseReason !== 'round_end') {
       return bad(overview.pauseReason === 'pending_pick' ? 'pending_pick_exists' : 'animation_in_progress', 409);
@@ -226,6 +244,7 @@ export async function handleAdminDraftAction(
   if (action === 'reset_clock') {
     const overview = await getDraftOverview(draftId);
     if (!overview) return bad('no_draft');
+    if (overview.pauseReason === 'pending_pick') await repairGhostPendingIfNeeded(draftId);
     if (overview.pauseReason === 'pick_animation') {
       const result = await advanceAfterPickAnimationV149(draftId);
       return result.ok ? ok({ ok: true, transition: result }) : bad(result.error, 409);
@@ -238,12 +257,14 @@ export async function handleAdminDraftAction(
     return ok({ ok: true });
   }
   if (action === 'skip_pick') {
+    await repairGhostPendingIfNeeded(draftId);
     const overview = await getDraftOverview(draftId);
     const allowManual = overview?.status === 'PAUSED' && overview.pauseReason === 'manual';
     const result = await safeSkipPickV149(draftId, allowManual);
     return result.ok ? ok(result) : bad(result.error, 409);
   }
   if (action === 'force_pick') {
+    await repairGhostPendingIfNeeded(draftId);
     if (await getPendingPickV149(draftId)) return bad('pending_pick_exists', 409);
     const overview = await getDraftOverview(draftId);
     if (!overview) return bad('no_draft');
@@ -272,12 +293,16 @@ export async function handleAdminDraftAction(
     return ok({ ok: true, warnings: warnings.length ? warnings : undefined });
   }
   if (action === 'auto_pick') {
+    await repairGhostPendingIfNeeded(draftId);
     const result = await autoPickCurrent(draftId, true);
     return ok({ ok: result.picked, ...result });
   }
   if (action === 'approve_pick') {
     const pending = await getPendingPickV149(draftId);
-    if (!pending) return bad('no_pending_pick');
+    if (!pending) {
+      const repaired = await repairGhostPendingIfNeeded(draftId);
+      return repaired.repaired ? ok({ ok: true, repaired: true }) : bad('no_pending_pick');
+    }
     const overview = await getDraftOverview(draftId);
     if (!overview) return bad('no_draft');
     if (
@@ -310,7 +335,10 @@ export async function handleAdminDraftAction(
   }
   if (action === 'reject_pick') {
     const pending = await getPendingPickV149(draftId);
-    if (!pending) return bad('no_pending_pick');
+    if (!pending) {
+      const repaired = await repairGhostPendingIfNeeded(draftId);
+      return repaired.repaired ? ok({ ok: true, repaired: true }) : bad('no_pending_pick');
+    }
     await rejectPendingPickV149(pending);
     return ok({ ok: true });
   }
