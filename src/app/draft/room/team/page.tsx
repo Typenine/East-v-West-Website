@@ -1697,7 +1697,7 @@ export default function DraftRoomPage() {
               fetch('/api/draft', {
                 method: 'POST',
                 headers: { 'content-type': 'application/json' },
-                body: JSON.stringify({ action: 'resume' }),
+                body: JSON.stringify({ action: 'trade_anim_complete', id: draft.id }),
               }).catch(() => {});
             }
             // Trigger "Now on the Clock" animation if the on-clock team changed due to a traded pick

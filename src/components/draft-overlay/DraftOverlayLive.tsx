@@ -885,7 +885,7 @@ const DraftOverlayLive = forwardRef<DraftInfoBarTickerHandle, DraftOverlayLivePr
               fetch('/api/draft', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ action: 'resume' }),
+                body: JSON.stringify({ action: 'trade_anim_complete', id: draft?.id }),
               }).catch(() => {});
             }
             // Clear animation trigger in DB

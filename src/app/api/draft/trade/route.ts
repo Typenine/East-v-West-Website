@@ -13,7 +13,7 @@ import {
   clearTradeAnimation,
   getRosterSnapshot,
   getFuturePicks,
-  pauseDraft,
+  pauseDraftForTradeAnimation,
   type TradeAssetType,
 } from '@/server/db/queries.fixed';
 import { requireTeamUser } from '@/lib/server/session';
@@ -258,7 +258,7 @@ export async function POST(req: NextRequest) {
     const triggerPickAnimation = !!tradedPickAsset;
     const newClockTeam = tradedPickAsset?.toTeam ?? null;
     // Pause draft clock for the duration of the animation
-    await pauseDraft(draftId);
+    await pauseDraftForTradeAnimation(draftId);
     const approved = await approveDraftTrade(tradeId, {
       resumeAfterAnimation: wasLive,
       triggerPickAnimation,

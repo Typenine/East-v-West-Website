@@ -1867,6 +1867,29 @@ export async function pauseDraft(draftId: string) {
   return true;
 }
 
+/**
+ * Pause the draft clock while a trade approval animation plays. Uses pause_reason
+ * 'trade_animation' (distinct from 'pending_pick', which the v149 pick-submission
+ * workflow reserves for an actual row in draft_pending_picks). Only transitions
+ * from LIVE — if the draft was already PAUSED (e.g. manually) this is a no-op, so
+ * the original pause_reason is preserved and the clock will not auto-resume once
+ * the trade animation finishes (see finishTradeAnimationV149).
+ */
+export async function pauseDraftForTradeAnimation(draftId: string) {
+  await ensureDraftTables();
+  const db = getDb();
+  await db.execute(sql`
+    UPDATE drafts
+    SET status = 'PAUSED',
+        pause_reason = 'trade_animation',
+        paused_remaining_secs = GREATEST(0, EXTRACT(EPOCH FROM (deadline_ts - now()))::integer),
+        clock_started_at = NULL,
+        deadline_ts = NULL
+    WHERE id = ${draftId}::uuid AND status = 'LIVE'
+  `);
+  return true;
+}
+
 export async function pauseDraftManual(draftId: string) {
   await ensureDraftTables();
   const db = getDb();
