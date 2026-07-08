@@ -41,6 +41,8 @@ export type CommitForAnimationResult =
         | 'stale_request';
     };
 
+export type GhostPendingRepairResult = { repaired: boolean };
+
 let schemaPromise: Promise<void> | null = null;
 
 export function rowsOf<T>(result: unknown): T[] {
@@ -190,6 +192,56 @@ export async function getPendingPickV149(draftId: string): Promise<PendingPickRo
     originPauseReason: row.origin_pause_reason || null,
     originRemainingSecs: row.origin_remaining_secs == null ? null : Number(row.origin_remaining_secs),
   };
+}
+
+/**
+ * Repairs a ghost pending-pick pause: the draft says it is paused for a pending
+ * pick, but there is no current pending pick row matching the draft cursor.
+ * This can strand admin controls in conflicting states. The repair converts the
+ * pause to a normal manual pause and rejects stale pending rows from old slots.
+ */
+export async function repairGhostPendingPickPauseV149(
+  draftId: string,
+): Promise<GhostPendingRepairResult> {
+  const db = getDb();
+  const result = await db.execute(sql`
+    WITH state AS (
+      SELECT id, cur_overall
+      FROM drafts
+      WHERE id = ${draftId}::uuid
+        AND status = 'PAUSED'
+        AND pause_reason = 'pending_pick'
+      FOR UPDATE
+    ), current_pending AS (
+      SELECT pp.id
+      FROM draft_pending_picks pp
+      JOIN state ON state.id = pp.draft_id
+      WHERE pp.status = 'pending'
+        AND pp.overall = state.cur_overall
+      LIMIT 1
+    ), stale_pending AS (
+      UPDATE draft_pending_picks pp
+      SET status = 'rejected'
+      FROM state
+      WHERE pp.draft_id = state.id
+        AND pp.status = 'pending'
+        AND pp.overall <> state.cur_overall
+      RETURNING pp.id
+    ), repaired AS (
+      UPDATE drafts d
+      SET pause_reason = 'manual',
+          paused_remaining_secs = COALESCE(d.paused_remaining_secs, d.clock_seconds, 60),
+          clock_started_at = NULL,
+          deadline_ts = NULL
+      FROM state
+      WHERE d.id = state.id
+        AND NOT EXISTS (SELECT 1 FROM current_pending)
+      RETURNING d.id
+    )
+    SELECT EXISTS(SELECT 1 FROM repaired) AS repaired
+  `);
+  const row = rowsOf<{ repaired: boolean | string | number }>(result)[0];
+  return { repaired: bool(row?.repaired) };
 }
 
 export async function submitPendingPickV149(params: {
