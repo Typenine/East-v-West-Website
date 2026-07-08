@@ -13,8 +13,6 @@ const C = {
   text: '#E9EDF5',
   textMuted: '#9AA5B1',
   textDim: '#7f8995',
-  unavailable: '#9AA5B1',
-  unavailableBg: 'rgba(154, 165, 177, 0.08)',
   unlikely: '#d4a839',
   unlikelyBg: 'rgba(212, 168, 57, 0.10)',
   noFit: '#e89a98',
@@ -120,6 +118,28 @@ function calculatePositionNeeds(roster: Array<{ pos: string }>) {
   }).sort((a, b) => b.need - a.need);
 }
 
+function norm(value: string | null | undefined) {
+  return String(value || '').trim().toLowerCase();
+}
+
+function normalizeDefenseName(value: string | null | undefined) {
+  return norm(value)
+    .replace(/\b(d\/st|dst|defense|def)\b/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function defenseAliases(p: BoardPlayer) {
+  const team = norm(p.team);
+  return new Set([norm(p.id), team, `def-${team}`, `dst-${team}`, normalizeDefenseName(p.name)].filter(Boolean));
+}
+
+function defenseMatches(p: BoardPlayer, ap: AvailPlayer) {
+  if (p.pos !== 'DEF' || ap.pos.toUpperCase() !== 'DEF') return false;
+  const aliases = defenseAliases(p);
+  return aliases.has(norm(ap.id)) || aliases.has(norm(ap.nfl)) || aliases.has(normalizeDefenseName(ap.name));
+}
+
 export default function TeamProspectDraftboardCompact({
   availablePlayers,
   draftedPlayerIds,
@@ -143,13 +163,12 @@ export default function TeamProspectDraftboardCompact({
   const [rankEditVal, setRankEditVal] = useState('');
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const availableIdSet = useMemo(() => new Set(availablePlayers.map(p => String(p.id))), [availablePlayers]);
   const availableNameMap = useMemo(() => {
     const map = new Map<string, AvailPlayer>();
-    availablePlayers.forEach(p => map.set(p.name.toLowerCase(), p));
+    availablePlayers.forEach(p => map.set(norm(p.name), p));
     return map;
   }, [availablePlayers]);
-  const normalizedDraftedIds = useMemo(() => new Set(Array.from(draftedPlayerIds).map(String)), [draftedPlayerIds]);
+  const normalizedDraftedIds = useMemo(() => new Set(Array.from(draftedPlayerIds).map(id => norm(String(id)))), [draftedPlayerIds]);
 
   useEffect(() => {
     (async () => {
@@ -189,13 +208,24 @@ export default function TeamProspectDraftboardCompact({
   }, [players, customTiers, tierBreaks, loading]);
 
   const isPlayerDrafted = useCallback((p: BoardPlayer) => {
-    return normalizedDraftedIds.has(String(p.id));
+    if (normalizedDraftedIds.has(norm(p.id))) return true;
+    if (p.pos === 'DEF') {
+      for (const alias of defenseAliases(p)) {
+        if (normalizedDraftedIds.has(alias)) return true;
+      }
+    }
+    return false;
   }, [normalizedDraftedIds]);
 
   const findAvailablePlayer = useCallback((p: BoardPlayer): AvailPlayer | null => {
-    const byId = availablePlayers.find(ap => String(ap.id) === String(p.id));
+    const byId = availablePlayers.find(ap => norm(ap.id) === norm(p.id));
     if (byId) return byId;
-    return availableNameMap.get(p.name.toLowerCase()) || null;
+    const byName = availableNameMap.get(norm(p.name));
+    if (byName) return byName;
+    if (p.pos === 'DEF') {
+      return availablePlayers.find(ap => defenseMatches(p, ap)) || null;
+    }
+    return null;
   }, [availablePlayers, availableNameMap]);
 
   const toggleFlag = (id: string, flag: 'target' | 'unlikely' | 'noFit') => {
@@ -305,10 +335,9 @@ export default function TeamProspectDraftboardCompact({
           const isExpanded = expandedId === p.id;
           const rankIdx = players.findIndex(pl => pl.id === p.id);
           const rank = rankIdx + 1;
-          const muted = !isDrafted && !isAvail;
 
           return (
-            <div key={p.id} style={{ background: isDrafted ? `${C.bg}88` : muted ? C.unavailableBg : flagColors.bg, border: `1px solid ${isDrafted ? C.border : muted ? `${C.unavailable}33` : flagColors.border}`, borderRadius: '4px', opacity: isDrafted ? 0.55 : 1, position: 'relative' }}>
+            <div key={p.id} style={{ background: isDrafted ? `${C.bg}88` : flagColors.bg, border: `1px solid ${isDrafted ? C.border : flagColors.border}`, borderRadius: '4px', opacity: isDrafted ? 0.55 : 1, position: 'relative' }}>
               {isDrafted && (
                 <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', fontSize: '9px', letterSpacing: '2px', color: C.textDim, fontWeight: 700, background: `${C.bg}cc`, padding: '2px 8px', borderRadius: '3px', zIndex: 2, pointerEvents: 'none' }}>
                   DRAFTED
@@ -338,11 +367,10 @@ export default function TeamProspectDraftboardCompact({
                 <div onClick={() => setExpandedId(prev => prev === p.id ? null : p.id)} style={{ flex: 1, cursor: 'pointer', minWidth: 0 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
                     <span style={{ display: 'inline-block', padding: '2px 6px', borderRadius: '3px', fontSize: '10px', fontWeight: 700, color: 'white', background: POS_COLORS[p.pos] || '#666', opacity: isDrafted ? 0.6 : 1 }}>{p.pos}</span>
-                    <span style={{ fontSize: '13px', fontWeight: 600, color: muted ? C.unavailable : flagColors.color, textDecoration: isDrafted ? 'line-through' : 'none' }}>{p.name}</span>
+                    <span style={{ fontSize: '13px', fontWeight: 600, color: flagColors.color, textDecoration: isDrafted ? 'line-through' : 'none' }}>{p.name}</span>
                     {p.id === bestAvailId && <span style={{ fontSize: '9px', fontWeight: 700, color: C.accent, background: `${C.accent}1a`, padding: '1px 5px', borderRadius: '3px', border: `1px solid ${C.accent}44`, letterSpacing: '0.5px', whiteSpace: 'nowrap' }}>★ TOP</span>}
                     <span style={{ fontSize: '11px', color: C.textMuted }}>{p.team}</span>
                     {posRankMap[p.id] && <span style={{ fontSize: '10px', color: C.textDim }}>· {p.pos}{posRankMap[p.id]}</span>}
-                    {!isDrafted && !isAvail && <span style={{ fontSize: '9px', color: C.unavailable, background: `${C.unavailable}18`, padding: '1px 5px', borderRadius: '3px' }}>Not in visible pool</span>}
                   </div>
                 </div>
 
