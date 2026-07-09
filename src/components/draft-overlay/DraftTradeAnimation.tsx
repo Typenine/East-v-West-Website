@@ -33,21 +33,27 @@ const TRADE_ALERT_LEAD_IN_MS = 1250;
 const TRADE_ALERT_AUDIO_SOURCES = [
   '/assets/teams/audio/ESPN bottom line ticker sound.mp3',
   '/assets/teams/audio/ESPN%20bottom%20line%20ticker%20sound.mp3',
+  '/assets/teams/audio/ESPN Bottom Line Ticker Sound.mp3',
+  '/assets/teams/audio/ESPN%20Bottom%20Line%20Ticker%20Sound.mp3',
   '/assets/teams/audio/espn-bottom-line-ticker-sound.mp3',
   '/assets/teams/audio/espn_bottom_line_ticker_sound.mp3',
+  '/assets/teams/audio/ESPN bottom line ticker sound.MP3',
+  '/assets/teams/audio/ESPN bottom line ticker sound.mp3.mp3',
   '/assets/teams/audio/ESPN bottom line ticker sound.m4a',
   '/assets/teams/audio/espn-bottom-line-ticker-sound.m4a',
   '/assets/teams/audio/ESPN bottom line ticker sound.wav',
   '/assets/teams/audio/espn-bottom-line-ticker-sound.wav',
+  '/assets/teams/audio/ESPN bottom line ticker sound.ogg',
+  '/assets/teams/audio/espn-bottom-line-ticker-sound.ogg',
   '/audio/ESPN bottom line ticker sound.mp3',
   '/audio/espn-bottom-line-ticker-sound.mp3',
 ];
 
-function audioTypeFor(src: string) {
-  if (src.endsWith('.wav')) return 'audio/wav';
-  if (src.endsWith('.m4a')) return 'audio/mp4';
-  return 'audio/mpeg';
-}
+type TradeAudioWindow = Window & {
+  __tradeAlertAudioAt?: number;
+  __evwTradeAudioCtx?: AudioContext;
+  __evwTradeAudioUnlocked?: boolean;
+};
 
 function shouldPlayTradeAlertLeadIn() {
   if (typeof window === 'undefined') return false;
@@ -55,29 +61,94 @@ function shouldPlayTradeAlertLeadIn() {
   return path.startsWith('/draft/overlay') || path.startsWith('/draft/room/team') || path.startsWith('/admin/draft');
 }
 
-function playTradeAlertSound() {
+function getTradeAudioContext() {
+  if (typeof window === 'undefined') return null;
+  const w = window as TradeAudioWindow;
+  const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+  if (!AudioCtx) return null;
+  if (!w.__evwTradeAudioCtx) w.__evwTradeAudioCtx = new AudioCtx();
+  return w.__evwTradeAudioCtx;
+}
+
+function playSyntheticTickerSound() {
+  const ctx = getTradeAudioContext();
+  if (!ctx) return;
+
+  try {
+    void ctx.resume();
+    const now = ctx.currentTime + 0.02;
+    const master = ctx.createGain();
+    master.gain.setValueAtTime(0.0001, now);
+    master.gain.exponentialRampToValueAtTime(0.32, now + 0.03);
+    master.gain.exponentialRampToValueAtTime(0.0001, now + 0.95);
+    master.connect(ctx.destination);
+
+    [880, 1175, 1568, 1175].forEach((freq, idx) => {
+      const start = now + idx * 0.16;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = idx % 2 === 0 ? 'square' : 'triangle';
+      osc.frequency.setValueAtTime(freq, start);
+      gain.gain.setValueAtTime(0.0001, start);
+      gain.gain.exponentialRampToValueAtTime(0.55, start + 0.012);
+      gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.13);
+      osc.connect(gain);
+      gain.connect(master);
+      osc.start(start);
+      osc.stop(start + 0.14);
+    });
+  } catch {
+    // If the browser blocks Web Audio too, the visual trade alert still runs.
+  }
+}
+
+async function canLoadAudio(src: string) {
+  return new Promise<boolean>((resolve) => {
+    const audio = new Audio();
+    let settled = false;
+    const done = (ok: boolean) => {
+      if (settled) return;
+      settled = true;
+      audio.removeAttribute('src');
+      audio.load();
+      resolve(ok);
+    };
+    audio.preload = 'auto';
+    audio.addEventListener('canplaythrough', () => done(true), { once: true });
+    audio.addEventListener('canplay', () => done(true), { once: true });
+    audio.addEventListener('error', () => done(false), { once: true });
+    window.setTimeout(() => done(false), 900);
+    audio.src = src;
+    audio.load();
+  });
+}
+
+async function playTradeAlertSound() {
   if (typeof window === 'undefined') return;
-  const w = window as Window & { __tradeAlertAudioAt?: number };
+  const w = window as TradeAudioWindow;
   if (w.__tradeAlertAudioAt && Date.now() - w.__tradeAlertAudioAt < 2500) return;
   w.__tradeAlertAudioAt = Date.now();
 
-  try {
-    const audio = document.createElement('audio');
-    audio.preload = 'auto';
-    audio.volume = 1;
-    for (const src of TRADE_ALERT_AUDIO_SOURCES) {
-      const source = document.createElement('source');
-      source.src = src;
-      source.type = audioTypeFor(src);
-      audio.appendChild(source);
+  for (const src of TRADE_ALERT_AUDIO_SOURCES) {
+    try {
+      const loadable = await canLoadAudio(src);
+      if (!loadable) continue;
+      const audio = new Audio(src);
+      audio.preload = 'auto';
+      audio.volume = 1;
+      await audio.play();
+      window.setTimeout(() => {
+        audio.pause();
+        audio.removeAttribute('src');
+        audio.load();
+      }, 10_000);
+      return;
+    } catch {
+      // Try the next source, then synthesize a fallback below.
     }
-    const cleanup = () => audio.remove();
-    audio.addEventListener('ended', cleanup, { once: true });
-    window.setTimeout(cleanup, 10_000);
-    audio.play().catch(() => {});
-  } catch {
-    // Browser autoplay rules can block this until the overlay has been interacted with.
   }
+
+  playSyntheticTickerSound();
 }
 
 function AcquiredAsset({ asset, ec1, picksPerRound = 12 }: { asset: TradeAnimAsset; ec1: string; picksPerRound?: number }) {
@@ -147,7 +218,7 @@ export default function DraftTradeAnimation({ teams, assets, eventLogoUrl, event
       setLeadInDone(true);
       return;
     }
-    playTradeAlertSound();
+    void playTradeAlertSound();
     const timer = window.setTimeout(() => setLeadInDone(true), TRADE_ALERT_LEAD_IN_MS);
     return () => window.clearTimeout(timer);
   }, []);
