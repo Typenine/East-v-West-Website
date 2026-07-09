@@ -51,7 +51,8 @@ function audioTypeFor(src: string) {
 
 function shouldPlayTradeAlertLeadIn() {
   if (typeof window === 'undefined') return false;
-  return window.location.pathname.startsWith('/draft/overlay');
+  const path = window.location.pathname;
+  return path.startsWith('/draft/overlay') || path.startsWith('/draft/room/team') || path.startsWith('/admin/draft');
 }
 
 function playTradeAlertSound() {
