@@ -2,7 +2,7 @@
 
 /* eslint-disable @next/next/no-img-element */
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { gsap } from 'gsap';
 import { getTeamLogoPath } from '@/lib/utils/team-utils';
 import { getTeamColors } from '@/lib/constants/team-colors';
@@ -29,9 +29,57 @@ interface DraftTradeAnimationProps {
 }
 
 const POS_COLORS: Record<string, string> = { QB:'#ef4444', RB:'#22c55e', WR:'#3b82f6', TE:'#f97316', K:'#a855f7', DEF:'#6b7280' };
+const TRADE_ALERT_LEAD_IN_MS = 1250;
+const TRADE_ALERT_AUDIO_SOURCES = [
+  '/assets/teams/audio/ESPN bottom line ticker sound.mp3',
+  '/assets/teams/audio/ESPN%20bottom%20line%20ticker%20sound.mp3',
+  '/assets/teams/audio/espn-bottom-line-ticker-sound.mp3',
+  '/assets/teams/audio/espn_bottom_line_ticker_sound.mp3',
+  '/assets/teams/audio/ESPN bottom line ticker sound.m4a',
+  '/assets/teams/audio/espn-bottom-line-ticker-sound.m4a',
+  '/assets/teams/audio/ESPN bottom line ticker sound.wav',
+  '/assets/teams/audio/espn-bottom-line-ticker-sound.wav',
+  '/audio/ESPN bottom line ticker sound.mp3',
+  '/audio/espn-bottom-line-ticker-sound.mp3',
+];
+
+function audioTypeFor(src: string) {
+  if (src.endsWith('.wav')) return 'audio/wav';
+  if (src.endsWith('.m4a')) return 'audio/mp4';
+  return 'audio/mpeg';
+}
+
+function shouldPlayTradeAlertLeadIn() {
+  if (typeof window === 'undefined') return false;
+  return window.location.pathname.startsWith('/draft/overlay');
+}
+
+function playTradeAlertSound() {
+  if (typeof window === 'undefined') return;
+  const w = window as Window & { __tradeAlertAudioAt?: number };
+  if (w.__tradeAlertAudioAt && Date.now() - w.__tradeAlertAudioAt < 2500) return;
+  w.__tradeAlertAudioAt = Date.now();
+
+  try {
+    const audio = document.createElement('audio');
+    audio.preload = 'auto';
+    audio.volume = 1;
+    for (const src of TRADE_ALERT_AUDIO_SOURCES) {
+      const source = document.createElement('source');
+      source.src = src;
+      source.type = audioTypeFor(src);
+      audio.appendChild(source);
+    }
+    const cleanup = () => audio.remove();
+    audio.addEventListener('ended', cleanup, { once: true });
+    window.setTimeout(cleanup, 10_000);
+    audio.play().catch(() => {});
+  } catch {
+    // Browser autoplay rules can block this until the overlay has been interacted with.
+  }
+}
 
 function AcquiredAsset({ asset, ec1, picksPerRound = 12 }: { asset: TradeAnimAsset; ec1: string; picksPerRound?: number }) {
-  const fromColors = getTeamColors(asset.fromTeam);
   const fromLogo = getTeamLogoPath(asset.fromTeam);
 
   const pickInRound = asset.pickOverall != null
@@ -53,7 +101,7 @@ function AcquiredAsset({ asset, ec1, picksPerRound = 12 }: { asset: TradeAnimAss
       background: 'rgba(0,0,0,0.65)',
       border: '1px solid rgba(255,255,255,0.18)',
     }}>
-      {/* Position badge or pick icon — large enough to read at TV distance */}
+      {/* Position badge or pick icon, large enough to read at TV distance */}
       {asset.assetType === 'player' && asset.playerPos ? (
         <span className="font-black px-4 py-2 rounded-xl flex-shrink-0 text-white"
           style={{ background: POS_COLORS[asset.playerPos] || '#555', fontSize: 'clamp(1.2rem,2.2vw,1.8rem)', minWidth: '68px', textAlign: 'center', lineHeight: 1.3, boxShadow: '0 2px 8px rgba(0,0,0,0.6)' }}>
@@ -86,10 +134,25 @@ export default function DraftTradeAnimation({ teams, assets, eventLogoUrl, event
   const containerRef = useRef<HTMLDivElement>(null);
   const timelineRef = useRef<gsap.core.Timeline | null>(null);
   const onCompleteRef = useRef(onComplete);
+  const useAudioLeadInRef = useRef(false);
+  const [leadInDone, setLeadInDone] = useState(false);
   onCompleteRef.current = onComplete;
   const ec1 = eventColor1 || '#a4c810';
 
   useEffect(() => {
+    const useAudioLeadIn = shouldPlayTradeAlertLeadIn();
+    useAudioLeadInRef.current = useAudioLeadIn;
+    if (!useAudioLeadIn) {
+      setLeadInDone(true);
+      return;
+    }
+    playTradeAlertSound();
+    const timer = window.setTimeout(() => setLeadInDone(true), TRADE_ALERT_LEAD_IN_MS);
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    if (!leadInDone) return;
     if (timelineRef.current) return;
     const container = containerRef.current;
     if (!container) return;
@@ -150,7 +213,7 @@ export default function DraftTradeAnimation({ teams, assets, eventLogoUrl, event
 
     return () => { timelineRef.current?.kill(); timelineRef.current = null; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [leadInDone]);
 
   const c1 = getTeamColors(teams[0] || '');
   const c2 = getTeamColors(teams[teams.length - 1] || '');
@@ -167,154 +230,160 @@ export default function DraftTradeAnimation({ teams, assets, eventLogoUrl, event
       className="fixed inset-0 pointer-events-none overflow-hidden"
       style={{ zIndex: 9999, backgroundColor: '#080810' }}
     >
+      {!leadInDone && useAudioLeadInRef.current && (
+        <div className="absolute inset-0 bg-[#080810]" aria-hidden />
+      )}
 
-      {/* ── PHASE 0: Event Logo ─────────────────────────────────────────── */}
-      <div className="gtrade-logo absolute inset-0 flex items-center justify-center" style={{ willChange: 'opacity, visibility' }}>
-        <div className="absolute inset-0" style={{ background: `radial-gradient(ellipse at 50% 50%, ${ec1}22 0%, #080810 70%)` }} />
-        {eventLogoUrl ? (
-          <img src={eventLogoUrl} alt="" className="relative z-10 object-contain"
-            style={{ width: 'clamp(120px, 20vw, 200px)', height: 'clamp(120px, 20vw, 200px)' }} />
-        ) : (
-          <div className="relative z-10 font-black uppercase" style={{ fontSize: 'clamp(5rem, 12vw, 10rem)', color: ec1, letterSpacing: '0.1em' }}>
-            TRADE
-          </div>
-        )}
-      </div>
-
-      {/* ── PHASE 1: TRADE ALERT ────────────────────────────────────────── */}
-      <div className="gtrade-alert absolute inset-0 flex flex-col items-center justify-center gap-6" style={{ willChange: 'opacity, visibility' }}>
-        <div className="absolute inset-0" style={{ background: `radial-gradient(ellipse at 50% 45%, ${ec1}30 0%, #080810 60%)` }} />
-        <div className="relative z-10 flex flex-col items-center gap-6">
-          {eventLogoUrl && (
-            <img src={eventLogoUrl} alt="" className="object-contain opacity-90"
-              style={{ width: 'clamp(50px, 7vw, 70px)', height: 'clamp(50px, 7vw, 70px)' }} />
-          )}
-          <div
-            className="gtrade-alert-text font-black text-center uppercase leading-none"
-            style={{
-              fontSize: 'clamp(5rem, 13vw, 11rem)',
-              color: ec1,
-              textShadow: `0 0 80px ${ec1}77, 0 4px 20px rgba(0,0,0,0.9)`,
-              WebkitTextStroke: `2px ${ec1}99`,
-              letterSpacing: '0.08em',
-              willChange: 'transform, opacity',
-            }}
-          >
-            TRADE<br />ALERT
-          </div>
-          <div
-            className="gtrade-alert-line rounded-full"
-            style={{ width: 'clamp(200px, 30vw, 360px)', height: '3px', background: `linear-gradient(90deg, transparent, ${ec1}, transparent)`, willChange: 'transform' }}
-          />
-        </div>
-      </div>
-
-      {/* ── PHASE 2: Teams Split Screen ─────────────────────────────────── */}
-      <div className="gtrade-teams absolute inset-0 overflow-hidden" style={{ willChange: 'opacity, visibility' }}>
-        {teams.map((t, idx) => {
-          const tc = getTeamColors(t);
-          const tLogo = getTeamLogoPath(t);
-          const panelWidth = `${100 / teams.length}%`;
-          const panelLeft = `${(idx / teams.length) * 100}%`;
-          const angle = idx % 2 === 0 ? 160 : 200;
-          return (
-            <div key={t}
-              className="gtrade-team-panel absolute inset-y-0 flex flex-col items-center justify-center gap-6 overflow-hidden"
-              style={{
-                width: panelWidth, left: panelLeft,
-                background: `linear-gradient(${angle}deg, ${tc.primary}ff 0%, ${tc.secondary}dd 100%)`,
-                willChange: 'transform',
-                borderRight: idx < teams.length - 1 ? `2px solid rgba(0,0,0,0.4)` : 'none',
-              }}
-            >
-              <div className="absolute inset-0 opacity-10 flex items-center justify-center">
-                <img src={tLogo} alt="" className="object-contain" style={{ width: '90%', height: '90%' }} />
+      {leadInDone && (
+        <>
+          {/* ── PHASE 0: Event Logo ─────────────────────────────────────────── */}
+          <div className="gtrade-logo absolute inset-0 flex items-center justify-center" style={{ willChange: 'opacity, visibility' }}>
+            <div className="absolute inset-0" style={{ background: `radial-gradient(ellipse at 50% 50%, ${ec1}22 0%, #080810 70%)` }} />
+            {eventLogoUrl ? (
+              <img src={eventLogoUrl} alt="" className="relative z-10 object-contain"
+                style={{ width: 'clamp(120px, 20vw, 200px)', height: 'clamp(120px, 20vw, 200px)' }} />
+            ) : (
+              <div className="relative z-10 font-black uppercase" style={{ fontSize: 'clamp(5rem, 12vw, 10rem)', color: ec1, letterSpacing: '0.1em' }}>
+                TRADE
               </div>
-              <img src={tLogo} alt={t} className="relative z-10 object-contain drop-shadow-2xl"
-                style={{ width: 'clamp(80px, 12vw, 180px)', height: 'clamp(80px, 12vw, 180px)' }} />
-              <div className="relative z-10 font-black text-white text-center uppercase leading-tight px-4"
-                style={{ fontSize: 'clamp(1.5rem, 3.5vw, 3.2rem)', textShadow: '0 2px 8px rgba(0,0,0,1), 0 4px 24px rgba(0,0,0,0.9)', letterSpacing: '0.04em', WebkitTextStroke: '1px rgba(0,0,0,0.5)', paintOrder: 'stroke fill' }}>
-                {t}
-              </div>
-            </div>
-          );
-        })}
-        {/* Center icon — only for 2-team trades */}
-        {teams.length === 2 && (
-          <div className="gtrade-icon absolute inset-0 flex items-center justify-center" style={{ zIndex: 10, willChange: 'transform, opacity' }}>
-            <div className="flex items-center justify-center rounded-full font-black"
-              style={{
-                width: 'clamp(60px, 8vw, 90px)', height: 'clamp(60px, 8vw, 90px)',
-                background: '#080810', border: `4px solid ${ec1}`,
-                color: ec1, fontSize: 'clamp(1.4rem, 3vw, 2.2rem)',
-                boxShadow: `0 0 40px ${ec1}88`,
-              }}>
-              ⟷
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* ── PHASE 3: Trade Details ─ Split-panel ACQUIRES view ─────────────── */}
-      <div className="gtrade-details absolute inset-0 overflow-hidden" style={{ willChange: 'opacity, visibility' }}>
-        <div className="gtrade-card absolute inset-0 flex flex-col" style={{ willChange: 'transform, opacity' }}>
-
-          {/* Top bar */}
-          <div className="flex items-center justify-center gap-4 flex-shrink-0 px-6 py-4"
-            style={{ background: topBarGradient, borderBottom: `3px solid ${ec1}` }}>
-            {eventLogoUrl && (
-              <img src={eventLogoUrl} alt="" className="object-contain flex-shrink-0"
-                style={{ width: 'clamp(28px,4vw,44px)', height: 'clamp(28px,4vw,44px)' }} />
             )}
-            <span className="font-black uppercase text-white tracking-widest"
-              style={{ fontSize: 'clamp(1rem,2.5vw,1.6rem)', textShadow: '0 2px 12px rgba(0,0,0,0.7)' }}>TRADE COMPLETE</span>
           </div>
 
-          {/* Team rows — stacked vertically, each full screen width */}
-          <div className="flex-1 flex flex-col overflow-hidden">
+          {/* ── PHASE 1: TRADE ALERT ────────────────────────────────────────── */}
+          <div className="gtrade-alert absolute inset-0 flex flex-col items-center justify-center gap-6" style={{ willChange: 'opacity, visibility' }}>
+            <div className="absolute inset-0" style={{ background: `radial-gradient(ellipse at 50% 45%, ${ec1}30 0%, #080810 60%)` }} />
+            <div className="relative z-10 flex flex-col items-center gap-6">
+              {eventLogoUrl && (
+                <img src={eventLogoUrl} alt="" className="object-contain opacity-90"
+                  style={{ width: 'clamp(50px, 7vw, 70px)', height: 'clamp(50px, 7vw, 70px)' }} />
+              )}
+              <div
+                className="gtrade-alert-text font-black text-center uppercase leading-none"
+                style={{
+                  fontSize: 'clamp(5rem, 13vw, 11rem)',
+                  color: ec1,
+                  textShadow: `0 0 80px ${ec1}77, 0 4px 20px rgba(0,0,0,0.9)`,
+                  WebkitTextStroke: `2px ${ec1}99`,
+                  letterSpacing: '0.08em',
+                  willChange: 'transform, opacity',
+                }}
+              >
+                TRADE<br />ALERT
+              </div>
+              <div
+                className="gtrade-alert-line rounded-full"
+                style={{ width: 'clamp(200px, 30vw, 360px)', height: '3px', background: `linear-gradient(90deg, transparent, ${ec1}, transparent)`, willChange: 'transform' }}
+              />
+            </div>
+          </div>
+
+          {/* ── PHASE 2: Teams Split Screen ─────────────────────────────────── */}
+          <div className="gtrade-teams absolute inset-0 overflow-hidden" style={{ willChange: 'opacity, visibility' }}>
             {teams.map((t, idx) => {
               const tc = getTeamColors(t);
               const tLogo = getTeamLogoPath(t);
-              const acquired = assets.filter(a => a.toTeam === t);
+              const panelWidth = `${100 / teams.length}%`;
+              const panelLeft = `${idx * (100 / teams.length)}%`;
+              const angle = idx % 2 === 0 ? 135 : 225;
               return (
-                <div key={t} className="flex-1 flex flex-col overflow-hidden relative"
+                <div key={t}
+                  className="gtrade-team-panel absolute inset-y-0 flex flex-col items-center justify-center gap-6 overflow-hidden"
                   style={{
-                    background: `linear-gradient(135deg, ${tc.primary}44 0%, ${tc.primary}18 55%, rgba(8,8,16,0.92) 100%)`,
-                    borderTop: idx > 0 ? `2px solid ${ec1}33` : 'none',
+                    width: panelWidth, left: panelLeft,
+                    background: `linear-gradient(${angle}deg, ${tc.primary}ff 0%, ${tc.secondary}dd 100%)`,
+                    willChange: 'transform',
+                    borderRight: idx < teams.length - 1 ? `2px solid rgba(0,0,0,0.4)` : 'none',
                   }}
                 >
-                  {/* Faint watermark — right-anchored so it doesn't compete with text */}
-                  <div className="absolute inset-0 flex items-center justify-end pointer-events-none" style={{ opacity: 0.07 }}>
-                    <img src={tLogo} alt="" className="object-contain" style={{ width: '40%', height: '90%' }} />
+                  <div className="absolute inset-0 opacity-10 flex items-center justify-center">
+                    <img src={tLogo} alt="" className="object-contain" style={{ width: '90%', height: '90%' }} />
                   </div>
-                  {/* Section header — compact left-border strip */}
-                  <div className="relative z-10 flex items-center gap-4 px-8 py-3 flex-shrink-0"
-                    style={{ borderLeft: `6px solid ${tc.primary}` }}>
-                    <img src={tLogo} alt={t} className="object-contain flex-shrink-0"
-                      style={{ width: 'clamp(44px,5vw,68px)', height: 'clamp(44px,5vw,68px)' }} />
-                    <div>
-                      <div className="font-black text-white uppercase leading-none"
-                        style={{ fontSize: 'clamp(1.3rem,2.8vw,2.2rem)', letterSpacing: '0.05em', textShadow: '0 2px 10px rgba(0,0,0,1), 0 4px 20px rgba(0,0,0,0.8)', WebkitTextStroke: '0.5px rgba(0,0,0,0.5)', paintOrder: 'stroke fill' }}>{t}</div>
-                      <div className="font-black uppercase tracking-widest mt-0.5"
-                        style={{ color: tc.primary, fontSize: 'clamp(0.7rem,1.1vw,0.9rem)' }}>ACQUIRES</div>
-                    </div>
-                  </div>
-                  {/* Assets — full width, vertically centered in remaining space */}
-                  <div className="relative z-10 flex-1 flex flex-col justify-center gap-2.5 px-8 pb-4">
-                    {acquired.length === 0 ? (
-                      <div className="text-white/25 text-xl font-semibold">— nothing —</div>
-                    ) : (
-                      acquired.map((a, i) => <AcquiredAsset key={i} asset={a} ec1={ec1} picksPerRound={picksPerRound} />)
-                    )}
+                  <img src={tLogo} alt={t} className="relative z-10 object-contain drop-shadow-2xl"
+                    style={{ width: 'clamp(80px, 12vw, 180px)', height: 'clamp(80px, 12vw, 180px)' }} />
+                  <div className="relative z-10 font-black text-white text-center uppercase leading-tight px-4"
+                    style={{ fontSize: 'clamp(1.5rem, 3.5vw, 3.2rem)', textShadow: '0 2px 8px rgba(0,0,0,1), 0 4px 24px rgba(0,0,0,0.9)', letterSpacing: '0.04em', WebkitTextStroke: '1px rgba(0,0,0,0.5)', paintOrder: 'stroke fill' }}>
+                    {t}
                   </div>
                 </div>
               );
             })}
+            {/* Center icon, only for 2-team trades */}
+            {teams.length === 2 && (
+              <div className="gtrade-icon absolute inset-0 flex items-center justify-center" style={{ zIndex: 10, willChange: 'transform, opacity' }}>
+                <div className="flex items-center justify-center rounded-full font-black"
+                  style={{
+                    width: 'clamp(60px, 8vw, 90px)', height: 'clamp(60px, 8vw, 90px)',
+                    background: '#080810', border: `4px solid ${ec1}`,
+                    color: ec1, fontSize: 'clamp(1.4rem, 3vw, 2.2rem)',
+                    boxShadow: `0 0 40px ${ec1}88`,
+                  }}>
+                  ⟷
+                </div>
+              </div>
+            )}
           </div>
 
-        </div>
-      </div>
+          {/* ── PHASE 3: Trade Details, split-panel ACQUIRES view ─────────────── */}
+          <div className="gtrade-details absolute inset-0 overflow-hidden" style={{ willChange: 'opacity, visibility' }}>
+            <div className="gtrade-card absolute inset-0 flex flex-col" style={{ willChange: 'transform, opacity' }}>
 
+              {/* Top bar */}
+              <div className="flex items-center justify-center gap-4 flex-shrink-0 px-6 py-4"
+                style={{ background: topBarGradient, borderBottom: `3px solid ${ec1}` }}>
+                {eventLogoUrl && (
+                  <img src={eventLogoUrl} alt="" className="object-contain flex-shrink-0"
+                    style={{ width: 'clamp(28px,4vw,44px)', height: 'clamp(28px,4vw,44px)' }} />
+                )}
+                <span className="font-black uppercase text-white tracking-widest"
+                  style={{ fontSize: 'clamp(1rem,2.5vw,1.6rem)', textShadow: '0 2px 12px rgba(0,0,0,0.7)' }}>TRADE COMPLETE</span>
+              </div>
+
+              {/* Team rows, stacked vertically, each full screen width */}
+              <div className="flex-1 flex flex-col overflow-hidden">
+                {teams.map((t, idx) => {
+                  const tc = getTeamColors(t);
+                  const tLogo = getTeamLogoPath(t);
+                  const acquired = assets.filter(a => a.toTeam === t);
+                  return (
+                    <div key={t} className="flex-1 flex flex-col overflow-hidden relative"
+                      style={{
+                        background: `linear-gradient(135deg, ${tc.primary}44 0%, ${tc.primary}18 55%, rgba(8,8,16,0.92) 100%)`,
+                        borderTop: idx > 0 ? `2px solid ${ec1}33` : 'none',
+                      }}
+                    >
+                      {/* Faint watermark, right-anchored so it does not compete with text */}
+                      <div className="absolute inset-0 flex items-center justify-end pointer-events-none" style={{ opacity: 0.07 }}>
+                        <img src={tLogo} alt="" className="object-contain" style={{ width: '40%', height: '90%' }} />
+                      </div>
+                      {/* Section header, compact left-border strip */}
+                      <div className="relative z-10 flex items-center gap-4 px-8 py-3 flex-shrink-0"
+                        style={{ borderLeft: `6px solid ${tc.primary}` }}>
+                        <img src={tLogo} alt={t} className="object-contain flex-shrink-0"
+                          style={{ width: 'clamp(44px,5vw,68px)', height: 'clamp(44px,5vw,68px)' }} />
+                        <div>
+                          <div className="font-black text-white uppercase leading-none"
+                            style={{ fontSize: 'clamp(1.3rem,2.8vw,2.2rem)', letterSpacing: '0.05em', textShadow: '0 2px 10px rgba(0,0,0,1), 0 4px 20px rgba(0,0,0,0.8)', WebkitTextStroke: '0.5px rgba(0,0,0,0.5)', paintOrder: 'stroke fill' }}>{t}</div>
+                          <div className="font-black uppercase tracking-widest mt-0.5"
+                            style={{ color: tc.primary, fontSize: 'clamp(0.7rem,1.1vw,0.9rem)' }}>ACQUIRES</div>
+                        </div>
+                      </div>
+                      {/* Assets, full width, vertically centered in remaining space */}
+                      <div className="relative z-10 flex-1 flex flex-col justify-center gap-2.5 px-8 pb-4">
+                        {acquired.length === 0 ? (
+                          <div className="text-white/25 text-xl font-semibold">— nothing —</div>
+                        ) : (
+                          acquired.map((a, i) => <AcquiredAsset key={i} asset={a} ec1={ec1} picksPerRound={picksPerRound} />)
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }
