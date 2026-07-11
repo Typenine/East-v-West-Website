@@ -20,6 +20,7 @@ import EndOfRoundAnimation from '@/components/draft-overlay/EndOfRoundAnimation'
 import StartOfRoundAnimation from '@/components/draft-overlay/StartOfRoundAnimation';
 import {
   draftPicksPerRound,
+  draftTradeAnimationKey,
   DRAFT_ANIM_CLOCK_PHASE_MAX_MS,
   DRAFT_ANIM_PICK_PHASE_MAX_MS,
 } from '@/components/draft-overlay/draft-display-utils';
@@ -64,6 +65,7 @@ type DraftOverview = {
   allSlots?: DraftSlot[];
   roundEndPause?: boolean | null;
   pendingTradeAnimation?: {
+    tradeId?: string | null;
     teams: string[];
     assets: TradeAnimAsset[];
     resumeAfterAnimation?: boolean;
@@ -101,6 +103,7 @@ export default function DraftRoomPage() {
   const [adminTeamOverride, setAdminTeamOverride] = useState<string>('');
   const [rosterPosFilter, setRosterPosFilter] = useState<string>('ALL');
   const [tradeAnimData, setTradeAnimData] = useState<{
+    tradeId?: string | null;
     teams: string[];
     assets: TradeAnimAsset[];
     resumeAfterAnimation?: boolean;
@@ -259,7 +262,7 @@ export default function DraftRoomPage() {
       // If a new pick was approved (curOverall advanced), silently refresh available players
       // Detect pending trade animation
       if (newDraft?.pendingTradeAnimation) {
-        const animKey = JSON.stringify(newDraft.pendingTradeAnimation.teams) + (newDraft.pendingTradeAnimation.assets?.length ?? 0);
+        const animKey = draftTradeAnimationKey(newDraft.pendingTradeAnimation);
         if (tradeAnimSeenIdRef.current !== animKey) {
           tradeAnimSeenIdRef.current = animKey;
           preTradeClockTeamRef.current = newDraft.onClockTeam ?? null;

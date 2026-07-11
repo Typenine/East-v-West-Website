@@ -235,7 +235,7 @@ export type DraftOverview = {
   eventLogoUrl?: string | null;
   eventColor1?: string | null;
   eventColor2?: string | null;
-  pendingTradeAnimation?: { teams: string[]; assets: TradeAsset[] } | null;
+  pendingTradeAnimation?: { tradeId?: string | null; startedAt?: string | null; teams: string[]; assets: TradeAsset[]; resumeAfterAnimation?: boolean; triggerPickAnimation?: boolean; newClockTeam?: string | null } | null;
   recentPicks: Array<{ overall: number; round: number; team: string; playerId: string; playerName?: string | null; playerPos?: string | null; playerNfl?: string | null; madeAt: string }>;
   allPicks: Array<{ overall: number; round: number; team: string; playerId: string; playerName?: string | null; playerPos?: string | null; playerNfl?: string | null; madeAt: string }>;
   upcoming: Array<{ overall: number; round: number; team: string }>;
@@ -3534,6 +3534,8 @@ export async function approveDraftTrade(
   await updateTradeStatus(tradeId, 'approved');
   // Set pending animation trigger for overlay
   const animPayload = JSON.stringify({
+    tradeId: trade.id,
+    startedAt: new Date().toISOString(),
     teams: trade.teams,
     assets: trade.assets.map(a => ({
       fromTeam: a.fromTeam, toTeam: a.toTeam, assetType: a.assetType,

@@ -13,6 +13,21 @@ type DraftLike = {
   rounds?: number | null;
 } | null | undefined;
 
+type TradeAnimationLike = {
+  tradeId?: string | null;
+  teams?: readonly string[] | null;
+  assets?: readonly unknown[] | null;
+};
+
+/**
+ * New events use the immutable trade ID. The legacy fallback lets a trade that
+ * was already pending during deployment continue to render safely.
+ */
+export function draftTradeAnimationKey(animation: TradeAnimationLike): string {
+  if (animation.tradeId) return `trade:${animation.tradeId}`;
+  return `legacy:${JSON.stringify(animation.teams || [])}:${animation.assets?.length || 0}`;
+}
+
 /** Matches draft room: slots ÷ configured rounds, default 12-team league shape when unknown. */
 export function draftPicksPerRound(draft: DraftLike): number {
   const n = draft?.allSlots?.length ?? 0;

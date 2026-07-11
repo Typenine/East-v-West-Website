@@ -1,9 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { isAdminCookieValue } from '@/lib/auth/admin';
+import { canAccessDraftRoom } from '@/lib/draft/access';
 import { canonicalizeTeamName } from '@/lib/server/user-identity';
-
-// Teams allowed to access draft room (for testing)
-const DRAFT_ALLOWED_TEAMS = ['Belleview Badgers', 'Mt. Lebanon Cake Eaters', 'Bimg Bamg Boomg'];
 
 // Paths that require a session cookie
 const PROTECTED_PREFIXES = ['/trade-block', '/vote', '/api/trade-block', '/api/votes'];
@@ -43,7 +41,8 @@ export async function middleware(req: NextRequest) {
   const sessionToken = req.cookies.get('evw_session')?.value || '';
   const userTeam = await getTeamFromSession(sessionToken);
 
-  // Draft room/overlay: only admin or allowed teams (must be signed in)
+  // Draft room/overlay: early testers first, then every canonical team after
+  // the scheduled league-wide opening at 5 PM ET on July 17, 2026.
   const isDraftRoomPath = pathname === '/draft/room' || pathname.startsWith('/draft/room/') || pathname === '/draft/overlay';
   if (isDraftRoomPath) {
     if (isAdmin) return NextResponse.next();
@@ -52,7 +51,7 @@ export async function middleware(req: NextRequest) {
       url.searchParams.set('next', pathname + (search || ''));
       return NextResponse.redirect(url);
     }
-    if (userTeam && DRAFT_ALLOWED_TEAMS.includes(userTeam)) return NextResponse.next();
+    if (canAccessDraftRoom(userTeam)) return NextResponse.next();
     // Not authorized - redirect to home (not login, since they need to be a specific team)
     return NextResponse.redirect(new URL('/', req.url));
   }
@@ -89,4 +88,3 @@ export const config = {
     '/admin/draft',
   ],
 };
-

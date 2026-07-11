@@ -3,6 +3,7 @@ import { getActiveOrLatestDraftId, getDraftOverview } from '@/server/db/queries'
 import type { DraftOverview } from '@/server/db/queries';
 import {
   checkStalePickAnimationV149,
+  checkStaleTradeAnimationV149,
   ensureDraftSchemaV149,
   getPendingPickV149,
   repairGhostPendingPickPauseV149,
@@ -42,6 +43,9 @@ export async function handleDraftGet(req: NextRequest) {
     await autoPickCurrent(draftId, false);
     await checkStalePickAnimationV149(draftId).catch((error) => {
       console.error('[draft-v149] stale animation fallback failed', error);
+    });
+    await checkStaleTradeAnimationV149(draftId).catch((error) => {
+      console.error('[draft-v149] stale trade animation fallback failed', error);
     });
     const ghostRepair = await repairGhostPendingPickPauseV149(draftId).catch((error) => {
       console.error('[draft-v149] ghost pending-pick repair failed', error);

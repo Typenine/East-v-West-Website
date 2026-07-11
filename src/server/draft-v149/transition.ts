@@ -285,6 +285,30 @@ export async function finishTradeAnimationV149(draftId: string): Promise<boolean
   return rowsOf(result).length > 0;
 }
 
+/**
+ * A trade animation normally runs for about 37 seconds. If every open client
+ * misses or fails to complete the event, release the pause after 75 seconds so
+ * the draft cannot remain stranded indefinitely.
+ */
+export async function checkStaleTradeAnimationV149(
+  draftId: string,
+  maxSeconds = 75,
+): Promise<boolean> {
+  const db = getDb();
+  const result = await db.execute(sql`
+    SELECT id
+    FROM drafts
+    WHERE id = ${draftId}::uuid
+      AND status = 'PAUSED'
+      AND pause_reason = 'trade_animation'
+      AND (pending_trade_animation->>'startedAt')::timestamptz
+            < now() - (interval '1 second' * ${maxSeconds})
+    LIMIT 1
+  `);
+  if (!rowsOf(result).length) return false;
+  return finishTradeAnimationV149(draftId);
+}
+
 export async function checkStalePickAnimationV149(
   draftId: string,
   maxSeconds = 45,

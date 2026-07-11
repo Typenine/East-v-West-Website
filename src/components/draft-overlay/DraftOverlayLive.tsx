@@ -19,6 +19,7 @@ import EndOfRoundAnimation from './EndOfRoundAnimation';
 import StartOfRoundAnimation from './StartOfRoundAnimation';
 import {
   draftPicksPerRound,
+  draftTradeAnimationKey,
   DRAFT_ANIM_CLOCK_PHASE_MAX_MS,
   DRAFT_ANIM_PICK_PHASE_MAX_MS,
 } from './draft-display-utils';
@@ -101,7 +102,7 @@ const DraftOverlayLive = forwardRef<DraftInfoBarTickerHandle, DraftOverlayLivePr
   type AnimPhase = 'pick' | 'video' | 'clock' | null;
   const [animPhase, setAnimPhase] = useState<AnimPhase>(null);
   // Trade animation state (independent of pick animation pipeline)
-  const [tradeAnimData, setTradeAnimData] = useState<{ teams: string[]; assets: TradeAnimAsset[]; resumeAfterAnimation?: boolean } | null>(null);
+  const [tradeAnimData, setTradeAnimData] = useState<{ tradeId?: string | null; teams: string[]; assets: TradeAnimAsset[]; resumeAfterAnimation?: boolean } | null>(null);
   const tradeAnimSeenIdRef = useRef<string | null>(null);
   const [videoExiting, setVideoExiting] = useState(false);
   const animDataRef = useRef<{
@@ -148,10 +149,10 @@ const DraftOverlayLive = forwardRef<DraftInfoBarTickerHandle, DraftOverlayLivePr
   // Detect pending trade animation from DB trigger
   useEffect(() => {
     if (!pendingTradeAnimation) return;
-    const animKey = JSON.stringify(pendingTradeAnimation.teams) + pendingTradeAnimation.assets.length;
+    const animKey = draftTradeAnimationKey(pendingTradeAnimation);
     if (tradeAnimSeenIdRef.current === animKey) return;
     tradeAnimSeenIdRef.current = animKey;
-    setTradeAnimData(pendingTradeAnimation as { teams: string[]; assets: TradeAnimAsset[] });
+    setTradeAnimData(pendingTradeAnimation as { tradeId?: string | null; teams: string[]; assets: TradeAnimAsset[] });
   }, [pendingTradeAnimation]);
 
   // Load player media (videos + images) on mount

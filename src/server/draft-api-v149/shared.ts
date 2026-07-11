@@ -183,7 +183,7 @@ export async function availablePlayers(
 
 export function revision(overview: DraftOverview, pending: PendingPickRow | null): string {
   const trade = overview.pendingTradeAnimation
-    ? `${overview.pendingTradeAnimation.teams.join('|')}:${overview.pendingTradeAnimation.assets.length}`
+    ? overview.pendingTradeAnimation.tradeId || `${overview.pendingTradeAnimation.teams.join('|')}:${overview.pendingTradeAnimation.assets.length}`
     : '';
   return [
     overview.id,

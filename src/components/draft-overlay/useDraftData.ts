@@ -45,7 +45,7 @@ interface DraftOverview {
   eventLogoUrl?: string | null;
   eventColor1?: string | null;
   eventColor2?: string | null;
-  pendingTradeAnimation?: { teams: string[]; assets: Array<{ fromTeam: string; toTeam: string; assetType: string; playerName?: string | null; playerPos?: string | null; pickOverall?: number | null; pickYear?: number | null; pickRound?: number | null; pickOriginalTeam?: string | null }>; resumeAfterAnimation?: boolean; triggerPickAnimation?: boolean; newClockTeam?: string | null } | null;
+  pendingTradeAnimation?: { tradeId?: string | null; startedAt?: string | null; teams: string[]; assets: Array<{ fromTeam: string; toTeam: string; assetType: string; playerName?: string | null; playerPos?: string | null; pickOverall?: number | null; pickYear?: number | null; pickRound?: number | null; pickOriginalTeam?: string | null }>; resumeAfterAnimation?: boolean; triggerPickAnimation?: boolean; newClockTeam?: string | null } | null;
   roundEndPause?: boolean | null;
   recentPicks: DraftPick[];
   allPicks?: DraftPick[];
