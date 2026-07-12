@@ -1,6 +1,6 @@
 'use client';
 
-import type { ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import SectionHeader from '@/components/ui/SectionHeader';
 import { BroadcastPanel } from '@/components/ui/BroadcastPanel';
@@ -21,6 +21,16 @@ const POS_LABELS: Record<string, string> = {
 };
 
 // ── Trade Market ─────────────────────────────────────────────────────────────
+
+const MATCHES_PER_PAGE = 4;
+const MAX_ROTATING_MATCHES = 20;
+const MATCH_ROTATION_MS = 7000;
+
+type MarketMatch = {
+  buyer: string;
+  seller: string;
+  position: string;
+};
 
 type TradeMarketSummaryProps = {
   rows: TeamRow[];
@@ -48,44 +58,92 @@ function TradeMarketSummary({ rows, playerPositions }: TradeMarketSummaryProps) 
     .sort((a, b) => b[1] - a[1])
     .slice(0, 3);
 
-  // Rule-based market matches: team A wants position P, team B has a player/pick at P listed.
-  // Players on the trade block are matched to their position via playerPositions.
-  const matches: Array<{ buyer: string; seller: string; position: string }> = [];
-  for (const buyer of rows) {
-    const wants = buyer.tradeWants?.positions ?? [];
-    if (wants.length === 0) continue;
-    for (const seller of rows) {
-      if (seller.team === buyer.team) continue;
-      for (const want of wants) {
-        if (matches.length >= 4) break;
-        const wantLower = want.toLowerCase();
+  // Build every valid market match, then interleave buyers so one team cannot
+  // occupy the entire visible page. The rotating shortlist stays compact while
+  // still giving every team with a match a turn before repeat buyers appear.
+  const matches = useMemo(() => {
+    const matchesByBuyer = new Map<string, MarketMatch[]>();
 
-        // Check if seller has a pick matching the wanted round
-        const isPickWant = wantLower === '1st' || wantLower === '2nd' || wantLower === '3rd';
-        if (isPickWant) {
-          const wantedRound = parseInt(want[0], 10);
-          const hasPick = seller.tradeBlock.some(
-            (a) => a.type === 'pick' && (a as { round: number }).round === wantedRound
-          );
-          if (hasPick && !matches.some((m) => m.buyer === buyer.team && m.seller === seller.team)) {
-            matches.push({ buyer: buyer.team, seller: seller.team, position: `${want}-round pick` });
+    for (const buyer of rows) {
+      const wants = buyer.tradeWants?.positions ?? [];
+      if (wants.length === 0) continue;
+
+      const buyerMatches: MarketMatch[] = [];
+      for (const seller of rows) {
+        if (seller.team === buyer.team) continue;
+
+        for (const want of wants) {
+          const wantLower = want.toLowerCase();
+          const isPickWant = wantLower === '1st' || wantLower === '2nd' || wantLower === '3rd';
+
+          if (isPickWant) {
+            const wantedRound = parseInt(want[0], 10);
+            const hasPick = seller.tradeBlock.some(
+              (a) => a.type === 'pick' && (a as { round: number }).round === wantedRound
+            );
+            const position = `${want}-round pick`;
+            if (hasPick && !buyerMatches.some((m) => m.seller === seller.team && m.position === position)) {
+              buyerMatches.push({ buyer: buyer.team, seller: seller.team, position });
+            }
+            continue;
           }
-          continue;
-        }
 
-        // Check if seller has a player at the wanted position
-        const wantUpper = want.toUpperCase();
-        const hasPlayer = seller.tradeBlock.some((a) => {
-          if (a.type !== 'player') return false;
-          const pos = playerPositions[(a as { playerId: string }).playerId];
-          return pos?.toUpperCase() === wantUpper;
-        });
-        if (hasPlayer && !matches.some((m) => m.buyer === buyer.team && m.seller === seller.team && m.position === wantUpper)) {
-          matches.push({ buyer: buyer.team, seller: seller.team, position: wantUpper });
+          const wantUpper = want.toUpperCase();
+          const hasPlayer = seller.tradeBlock.some((a) => {
+            if (a.type !== 'player') return false;
+            const pos = playerPositions[(a as { playerId: string }).playerId];
+            return pos?.toUpperCase() === wantUpper;
+          });
+          if (hasPlayer && !buyerMatches.some((m) => m.seller === seller.team && m.position === wantUpper)) {
+            buyerMatches.push({ buyer: buyer.team, seller: seller.team, position: wantUpper });
+          }
         }
       }
+
+      if (buyerMatches.length > 0) matchesByBuyer.set(buyer.team, buyerMatches);
     }
-  }
+
+    const balancedMatches: MarketMatch[] = [];
+    let matchIndex = 0;
+    let addedMatch = true;
+    while (addedMatch && balancedMatches.length < MAX_ROTATING_MATCHES) {
+      addedMatch = false;
+      for (const buyer of rows) {
+        const match = matchesByBuyer.get(buyer.team)?.[matchIndex];
+        if (!match) continue;
+        balancedMatches.push(match);
+        addedMatch = true;
+        if (balancedMatches.length >= MAX_ROTATING_MATCHES) break;
+      }
+      matchIndex++;
+    }
+
+    return balancedMatches;
+  }, [rows, playerPositions]);
+
+  const matchPages = useMemo(() => {
+    const pages: MarketMatch[][] = [];
+    for (let i = 0; i < matches.length; i += MATCHES_PER_PAGE) {
+      pages.push(matches.slice(i, i + MATCHES_PER_PAGE));
+    }
+    return pages;
+  }, [matches]);
+
+  const [matchPage, setMatchPage] = useState(0);
+
+  useEffect(() => {
+    if (matchPages.length <= 1) return;
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+
+    const interval = window.setInterval(() => {
+      setMatchPage((page) => (page + 1) % matchPages.length);
+    }, MATCH_ROTATION_MS);
+
+    return () => window.clearInterval(interval);
+  }, [matchPages.length]);
+
+  const activeMatchPage = matchPages.length > 0 ? matchPage % matchPages.length : 0;
+  const visibleMatches = matchPages[activeMatchPage] ?? [];
 
   // Recently updated blocks (last 7 days)
   const recent = [...activeBlocks]
@@ -136,14 +194,21 @@ function TradeMarketSummary({ rows, playerPositions }: TradeMarketSummaryProps) 
           </div>
         )}
 
-        {matches.length > 0 && (
+        {visibleMatches.length > 0 && (
           <div>
-            <div className="text-[10px] font-bold uppercase tracking-[0.18em] mb-1.5" style={broadcastFaintTextStyle}>
-              Potential matches
+            <div className="flex items-center justify-between mb-1.5">
+              <div className="text-[10px] font-bold uppercase tracking-[0.18em]" style={broadcastFaintTextStyle}>
+                Potential matches
+              </div>
+              {matchPages.length > 1 && (
+                <div className="text-[10px] tabular-nums" style={broadcastFaintTextStyle}>
+                  {activeMatchPage + 1}/{matchPages.length}
+                </div>
+              )}
             </div>
-            <ul className="space-y-1">
-              {matches.map((m, i) => (
-                <li key={i} className="text-xs" style={broadcastMutedTextStyle}>
+            <ul className="space-y-1" aria-live="polite">
+              {visibleMatches.map((m) => (
+                <li key={`${m.buyer}-${m.seller}-${m.position}`} className="text-xs" style={broadcastMutedTextStyle}>
                   <span className="font-semibold" style={broadcastBodyTextStyle}>{m.buyer}</span>
                   {' '}wants {POS_LABELS[m.position] ?? m.position} ·{' '}
                   <span className="font-semibold" style={broadcastBodyTextStyle}>{m.seller}</span>
@@ -151,6 +216,24 @@ function TradeMarketSummary({ rows, playerPositions }: TradeMarketSummaryProps) 
                 </li>
               ))}
             </ul>
+            {matchPages.length > 1 && (
+              <div className="flex gap-1.5 mt-2" aria-label="Potential match pages">
+                {matchPages.map((_, index) => (
+                  <button
+                    key={index}
+                    type="button"
+                    onClick={() => setMatchPage(index)}
+                    aria-label={`Show potential matches page ${index + 1}`}
+                    aria-current={index === activeMatchPage ? 'page' : undefined}
+                    className="h-1.5 rounded-full transition-all"
+                    style={{
+                      width: index === activeMatchPage ? '1rem' : '0.375rem',
+                      background: index === activeMatchPage ? PANEL.text : PANEL.faint,
+                    }}
+                  />
+                ))}
+              </div>
+            )}
           </div>
         )}
 
