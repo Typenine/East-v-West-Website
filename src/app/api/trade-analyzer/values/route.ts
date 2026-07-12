@@ -38,7 +38,7 @@ export type { TradeValue };
 // --- Cache ---
 
 interface ValueSources { fantasyCalc: boolean; keepTradeCut: boolean; fcCount: number; ktcCount: number; ktcMatched: number; ktcMatchRate: number }
-let cache: { ts: number; data: Record<string, TradeValue>; sources: ValueSources } | null = null; // bump to bust: v6
+let cache: { ts: number; data: Record<string, TradeValue>; sources: ValueSources } | null = null; // bump to bust: v7
 const CACHE_TTL = 6 * 60 * 60 * 1000; // 6 hours
 
 // --- Fetchers ---
@@ -163,6 +163,7 @@ function normalizeName(name: string): string {
 
 const PICK_ROUNDS = [1, 2, 3, 4];
 const PICK_TIERS = ['Early', 'Mid', 'Late'] as const;
+type PickTier = typeof PICK_TIERS[number];
 
 const ORDINAL: Record<number, string> = { 1: '1st', 2: '2nd', 3: '3rd', 4: '4th' };
 
@@ -182,7 +183,8 @@ function isPick(name: string): boolean {
     || /^\d{4}\s+pick/i.test(lower);
 }
 
-/** Map a raw pick name from FC/KTC to a standardized key. */
+/** Map a tier-specific raw pick name from FC/KTC to a standardized key.
+ * Generic round picks such as "2027 1st" deliberately return null. */
 function pickKey(name: string): string | null {
   const lower = name.toLowerCase().trim();
 
@@ -201,11 +203,10 @@ function pickKey(name: string): string | null {
   }
   if (!round) return null;
 
-  // Extract tier
-  let tier = 'Mid';
-  if (/early/i.test(lower)) tier = 'Early';
-  else if (/late/i.test(lower)) tier = 'Late';
-  else if (/mid/i.test(lower)) tier = 'Mid';
+  // Require an explicit tier. Generic FC round values are handled separately.
+  const tierMatch = lower.match(/\b(early|mid|late)\b/i);
+  if (!tierMatch) return null;
+  const tier = `${tierMatch[1][0].toUpperCase()}${tierMatch[1].slice(1).toLowerCase()}`;
 
   return standardPickKey(year, round, tier);
 }
@@ -224,8 +225,24 @@ function parseNumberedPick(name: string): { year: string; round: number; slot: n
   return { year, round, slot };
 }
 
+/** Parse a generic FantasyCalc pick like "2027 1st" or "2027 Round 1".
+ * These are round-level baselines, not Mid-tier picks. */
+function parseGenericRoundPick(name: string): { year: string; round: number } | null {
+  if (parseNumberedPick(name) || /\b(early|mid|late)\b/i.test(name)) return null;
+
+  const yearMatch = name.match(/(\d{4})/);
+  if (!yearMatch) return null;
+
+  const ordinalMatch = name.match(/\b(\d)\s*(st|nd|rd|th)\b/i);
+  const roundWordMatch = name.match(/\bround\s*(\d)\b/i);
+  const round = ordinalMatch ? parseInt(ordinalMatch[1]) : roundWordMatch ? parseInt(roundWordMatch[1]) : null;
+  if (!round || round < 1 || round > 4) return null;
+
+  return { year: yearMatch[1], round };
+}
+
 // Slot ranges per tier in a 12-team league
-const TIER_SLOTS: Record<string, [number, number]> = {
+const TIER_SLOTS: Record<PickTier, [number, number]> = {
   Early: [1, 4],
   Mid: [5, 8],
   Late: [9, 12],
@@ -238,25 +255,70 @@ function numberedPickKey(year: string, round: number, slot: number): string {
 
 /** Map a numbered pick slot (1-12) to its tier. KTC only prices picks by tier, so a numbered
  *  slot pick ("2026 1.06") borrows the KTC value of its tier ("2026 Mid 1st"). */
-function slotToTier(slot: number): string {
-  for (const [tier, [min, max]] of Object.entries(TIER_SLOTS)) {
+function slotToTier(slot: number): PickTier {
+  for (const tier of PICK_TIERS) {
+    const [min, max] = TIER_SLOTS[tier];
     if (slot >= min && slot <= max) return tier;
   }
   return 'Late';
 }
 
+function averageTierSlots(slotData: { slot: number; value: number }[], tier: PickTier): number | null {
+  const [minSlot, maxSlot] = TIER_SLOTS[tier];
+  const tierPicks = slotData.filter((p) => p.slot >= minSlot && p.slot <= maxSlot);
+  return tierPicks.length > 0
+    ? Math.round(tierPicks.reduce((sum, p) => sum + p.value, 0) / tierPicks.length)
+    : null;
+}
+
+/** Build one FantasyCalc tier curve per round from the newest complete set of numbered picks.
+ * Generic future-round values closely track the Mid tier, so Early/Late values use the same
+ * relative curve as the newest 1.01-1.12 data rather than being left null. */
+function buildFantasyCalcTierProfiles(
+  numberedPicks: Map<string, { slot: number; value: number }[]>,
+): Map<number, Record<PickTier, number>> {
+  const profiles = new Map<number, Record<PickTier, number>>();
+
+  for (const round of PICK_ROUNDS) {
+    const candidates = Array.from(numberedPicks.entries())
+      .map(([key, slots]) => {
+        const match = key.match(/^(\d{4})_(\d)$/);
+        return match ? { year: parseInt(match[1]), round: parseInt(match[2]), slots } : null;
+      })
+      .filter((candidate): candidate is { year: number; round: number; slots: { slot: number; value: number }[] } =>
+        candidate !== null && candidate.round === round)
+      .sort((a, b) => b.year - a.year);
+
+    for (const candidate of candidates) {
+      const early = averageTierSlots(candidate.slots, 'Early');
+      const mid = averageTierSlots(candidate.slots, 'Mid');
+      const late = averageTierSlots(candidate.slots, 'Late');
+      if (early === null || mid === null || late === null || mid <= 0) continue;
+
+      profiles.set(round, {
+        Early: early / mid,
+        Mid: 1,
+        Late: late / mid,
+      });
+      break;
+    }
+  }
+
+  return profiles;
+}
+
 /** After merging source data, ensure we have a complete set of standard picks.
- *  numberedPicks: map from "YYYY_R" → list of { slot, value } from real numbered FC picks (e.g. 1.01–1.12).
- *  ktcByPickKey: standardized-key → KTC value for KTC's "YYYY Early/Mid/Late Nth" rookie picks.
- *  Tier values blend FC (numbered-slot average) and KTC where both exist, falling back to
- *  whichever source is present, and finally to hardcoded defaults with a future-year discount. */
+ *  Numbered FC picks are averaged into Early (1-4), Mid (5-8), and Late (9-12).
+ *  When a future year only has a generic FC round value, the newest numbered-pick curve
+ *  projects Early and Late values around that round-level Mid baseline. */
 function ensureStandardPicks(
   result: Record<string, TradeValue>,
   numberedPicks: Map<string, { slot: number; value: number }[]>,
+  genericRoundPicks: Map<string, number>,
   ktcByPickKey: Map<string, number>,
 ): void {
   // Default pick values used only when no source data exists at all
-  const defaultRoundValues: Record<number, Record<string, number>> = {
+  const defaultRoundValues: Record<number, Record<PickTier, number>> = {
     1: { Early: 7800, Mid: 7000, Late: 5500 },
     2: { Early: 4200, Mid: 3500, Late: 2800 },
     3: { Early: 2200, Mid: 1800, Late: 1400 },
@@ -264,6 +326,7 @@ function ensureStandardPicks(
   };
   const currentYear = new Date().getFullYear();
   const PICK_YEARS = Array.from({ length: 5 }, (_, i) => String(currentYear + i));
+  const tierProfiles = buildFantasyCalcTierProfiles(numberedPicks);
 
   let rank = Object.keys(result).length + 1;
 
@@ -273,29 +336,19 @@ function ensureStandardPicks(
 
     for (const round of PICK_ROUNDS) {
       const slotData = numberedPicks.get(`${year}_${round}`) ?? [];
+      const genericFcValue = genericRoundPicks.get(`${year}_${round}`) ?? null;
+      const profile = tierProfiles.get(round);
 
       for (const tier of PICK_TIERS) {
         const key = standardPickKey(year, round, tier);
+        const existing = result[key];
         const ktcVal = ktcByPickKey.get(key) ?? null;
-
-        // Pick already came from FC: backfill its KTC value if FC didn't match one by key.
-        if (result[key]) {
-          result[key].name = standardPickName(year, round, tier);
-          if (ktcVal !== null && result[key].ktcValue === null) {
-            result[key].ktcValue = ktcVal;
-            result[key].value = result[key].fcValue !== null
-              ? Math.round((result[key].fcValue + ktcVal) / 2)
-              : ktcVal;
-          }
-          continue;
-        }
-
-        // No FC entry for this key — derive an FC value from numbered slot picks if any.
-        const [minSlot, maxSlot] = TIER_SLOTS[tier];
-        const tierPicks = slotData.filter((p) => p.slot >= minSlot && p.slot <= maxSlot);
-        const fcDerived = tierPicks.length > 0
-          ? Math.round(tierPicks.reduce((s, p) => s + p.value, 0) / tierPicks.length)
+        const directFcValue = averageTierSlots(slotData, tier);
+        const projectedFcValue = genericFcValue !== null
+          ? Math.round(genericFcValue * (profile?.[tier]
+            ?? (defaultRoundValues[round][tier] / defaultRoundValues[round].Mid)))
           : null;
+        const fcDerived = directFcValue ?? existing?.fcValue ?? projectedFcValue;
 
         let value: number;
         if (fcDerived !== null && ktcVal !== null) value = Math.round((fcDerived + ktcVal) / 2);
@@ -311,10 +364,23 @@ function ensureStandardPicks(
           value,
           fcValue: fcDerived,
           ktcValue: ktcVal,
-          rank: rank++,
-          trend: 0,
+          rank: existing?.rank ?? rank++,
+          trend: existing?.trend ?? 0,
           isPick: true,
         };
+      }
+
+      // Never expose an inverted tier order even if an upstream source briefly publishes bad data.
+      const early = result[standardPickKey(year, round, 'Early')];
+      const mid = result[standardPickKey(year, round, 'Mid')];
+      const late = result[standardPickKey(year, round, 'Late')];
+      if (early.value < mid.value) {
+        console.warn(`[trade-analyzer] Corrected inverted ${year} ${ORDINAL[round]} values: Early ${early.value} < Mid ${mid.value}`);
+        early.value = mid.value;
+      }
+      if (late.value > mid.value) {
+        console.warn(`[trade-analyzer] Corrected inverted ${year} ${ORDINAL[round]} values: Late ${late.value} > Mid ${mid.value}`);
+        late.value = mid.value;
       }
     }
   }
@@ -350,8 +416,9 @@ function mergeValues(fc: FantasyCalcPlayer[], ktc: KTCPlayer[]): { values: Recor
     }
   }
 
-  // Collect numbered picks (e.g. "2026 1.08") grouped by "YYYY_R" for tier averaging
+  // Collect numbered picks for tier averaging and generic future rounds for tier projection.
   const numberedPicks = new Map<string, { slot: number; value: number }[]>();
+  const genericRoundPicks = new Map<string, number>();
 
   let playerCount = 0;
   let ktcMatched = 0;
@@ -361,17 +428,28 @@ function mergeValues(fc: FantasyCalcPlayer[], ktc: KTCPlayer[]): { values: Recor
     const p = fc[i];
     const name = p.player.name || '';
     const pick = isPick(name);
-    // numbered must be computed before key so slot picks get a stable deterministic key
     const numbered = pick ? parseNumberedPick(name) : null;
+    const genericRound = pick && !numbered ? parseGenericRoundPick(name) : null;
+    const tierPickKey = pick && !numbered && !genericRound ? pickKey(name) : null;
+    const fcVal = p.value; // raw FC value, 0-10000 scale
+
+    // A generic value such as "2027 1st" is a round baseline, not a Mid-tier asset.
+    if (genericRound) {
+      genericRoundPicks.set(`${genericRound.year}_${genericRound.round}`, fcVal);
+      continue;
+    }
+
+    // Ignore unrecognized pick labels instead of leaking them into the selector as fc_pick_* rows.
+    if (pick && !numbered && !tierPickKey) continue;
+
     const key = pick
-      ? (numbered ? numberedPickKey(numbered.year, numbered.round, numbered.slot) : (pickKey(name) || `fc_pick_${i}`))
+      ? (numbered ? numberedPickKey(numbered.year, numbered.round, numbered.slot) : tierPickKey!)
       : (p.player.sleeperId || `fc_${p.player.id}`);
 
     // Resolve the KTC value for this FC entry:
     //  - players: by normalized name
     //  - numbered slot picks: exact KTC slot value, else fall back to the tier's KTC value
-    //  - tier picks: by standardized tier key
-    const fcVal = p.value; // raw FC value, 0-10000 scale
+    //  - explicit tier picks: by standardized tier key
     let ktcVal: number | null;
     if (!pick) {
       ktcVal = ktcByName.get(normalizeName(name)) ?? null;
@@ -380,8 +458,7 @@ function mergeValues(fc: FantasyCalcPlayer[], ktc: KTCPlayer[]): { values: Recor
         ?? ktcByPickKey.get(standardPickKey(numbered.year, numbered.round, slotToTier(numbered.slot)))
         ?? null;
     } else {
-      const pk = pickKey(name);
-      ktcVal = pk ? (ktcByPickKey.get(pk) ?? null) : null;
+      ktcVal = ktcByPickKey.get(tierPickKey!) ?? null;
     }
     const avgValue = ktcVal !== null ? Math.round((fcVal + ktcVal) / 2) : fcVal;
 
@@ -404,7 +481,7 @@ function mergeValues(fc: FantasyCalcPlayer[], ktc: KTCPlayer[]): { values: Recor
       isPick: pick,
     };
 
-    // If this is a numbered pick (R.SS format), collect its pure FC value for tier averaging
+    // If this is a numbered pick (R.SS format), collect its pure FC value for tier averaging.
     if (numbered) {
       const mapKey = `${numbered.year}_${numbered.round}`;
       if (!numberedPicks.has(mapKey)) numberedPicks.set(mapKey, []);
@@ -412,8 +489,8 @@ function mergeValues(fc: FantasyCalcPlayer[], ktc: KTCPlayer[]): { values: Recor
     }
   }
 
-  // Ensure a complete set of standardized picks, blending FC slot data and KTC pick values
-  ensureStandardPicks(result, numberedPicks, ktcByPickKey);
+  // Ensure a complete set of standardized picks with consistent FC treatment for every tier.
+  ensureStandardPicks(result, numberedPicks, genericRoundPicks, ktcByPickKey);
 
   return { values: result, stats: { playerCount, ktcMatched } };
 }
