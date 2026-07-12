@@ -18,8 +18,12 @@ import RoundRecapOverlay from './RoundRecapOverlay';
 import EndOfRoundAnimation from './EndOfRoundAnimation';
 import StartOfRoundAnimation from './StartOfRoundAnimation';
 import {
+  DRAFT_ANIMATION_CLOCK_START_ACTION,
   draftPicksPerRound,
+  draftPickAnimationDecision,
+  draftPickAnimationIdentity,
   draftTradeAnimationKey,
+  type DraftPickAnimationIdentity,
   DRAFT_ANIM_CLOCK_PHASE_MAX_MS,
   DRAFT_ANIM_PICK_PHASE_MAX_MS,
 } from './draft-display-utils';
@@ -118,7 +122,7 @@ const DraftOverlayLive = forwardRef<DraftInfoBarTickerHandle, DraftOverlayLivePr
   // Player media: playerId → { videoUrl, hasImage } (ref only; no re-render needed)
   const playerVideosRef = useRef<Record<string, { videoUrl: string | null; hasImage: boolean }>>({});
   const clockRef = useRef<HTMLDivElement>(null);
-  const lastAnimatedPickRef = useRef<number | null>(null);
+  const lastAnimatedPickRef = useRef<DraftPickAnimationIdentity | null>(null);
   const animInitializedRef = useRef(false);
   const clockPhaseFinishedRef = useRef(false);
   /** After on-the-clock intro ends (→ idle), drive 1s hold + pulse + team-primary digits until first tick below full. */
@@ -224,7 +228,7 @@ const DraftOverlayLive = forwardRef<DraftInfoBarTickerHandle, DraftOverlayLivePr
       await fetch('/api/draft', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ action: 'reset_clock' }),
+        body: JSON.stringify({ action: DRAFT_ANIMATION_CLOCK_START_ACTION }),
       });
       await refetch();
     } catch {
@@ -283,7 +287,7 @@ const DraftOverlayLive = forwardRef<DraftInfoBarTickerHandle, DraftOverlayLivePr
     return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
   };
 
-  // Trigger animation sequence on new pick — driven by lastPick?.overall only (stable number)
+  // Trigger animation sequence on a new pick event, including a replacement after undo.
   useEffect(() => {
     if (!lastPick) {
       // No picks yet (or draft was reset). Only mark initialized once real data has loaded
@@ -297,11 +301,13 @@ const DraftOverlayLive = forwardRef<DraftInfoBarTickerHandle, DraftOverlayLivePr
     if (!animInitializedRef.current) {
       // First time we see picks after load — picks already existed, skip them
       animInitializedRef.current = true;
-      lastAnimatedPickRef.current = lastPick.overall;
+      lastAnimatedPickRef.current = draftPickAnimationIdentity(lastPick);
       return;
     }
-    if (lastPick.overall <= (lastAnimatedPickRef.current ?? -1)) return;
-    lastAnimatedPickRef.current = lastPick.overall;
+    const nextIdentity = draftPickAnimationIdentity(lastPick);
+    const decision = draftPickAnimationDecision(lastAnimatedPickRef.current, nextIdentity);
+    lastAnimatedPickRef.current = nextIdentity;
+    if (decision !== 'animate') return;
     // If this tab was hidden when the event happened, don't replay it on return.
     if (document.hidden) return;
 
@@ -361,12 +367,12 @@ const DraftOverlayLive = forwardRef<DraftInfoBarTickerHandle, DraftOverlayLivePr
       }
     })();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lastPick?.overall, draft?.allSlots, draft?.rounds]);
+  }, [lastPick?.overall, lastPick?.madeAt, lastPick?.playerId, draft?.allSlots, draft?.rounds]);
 
   const roundNumber = Math.floor(currentPickIndex / picksPerRound) + 1;
   const pickInRound = (currentPickIndex % picksPerRound) + 1;
   const fullClockSec = draft?.clockSeconds ?? 600;
-  /** During on-the-clock intro, hold HUD at full allotment; real countdown starts after intro + reset_clock. */
+  /** During on-the-clock intro, hold HUD at full allotment; countdown starts after the shared animation transition. */
   const displayRemainingSec =
     animPhase === 'clock' && draft?.status === 'LIVE' ? fullClockSec : localRemainingSec;
 

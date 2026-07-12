@@ -19,7 +19,7 @@
  * full 12-team × 4-round East v. West configuration.
  */
 
-import { test, expect, request as playwrightRequest } from '@playwright/test';
+import { test, expect, request as playwrightRequest } from 'playwright/test';
 import { createHmac } from 'crypto';
 import { TEAM_NAMES } from '../../src/lib/constants/league';
 

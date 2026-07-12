@@ -19,8 +19,13 @@ import { DEFAULT_PLAYERS } from '@/components/draft/prospect-board-data';
 import EndOfRoundAnimation from '@/components/draft-overlay/EndOfRoundAnimation';
 import StartOfRoundAnimation from '@/components/draft-overlay/StartOfRoundAnimation';
 import {
+  DRAFT_ANIMATION_CLOCK_START_ACTION,
   draftPicksPerRound,
+  draftPickAnimationDecision,
+  draftPickAnimationIdentity,
   draftTradeAnimationKey,
+  shouldInstantSubmitTopQueue,
+  type DraftPickAnimationIdentity,
   DRAFT_ANIM_CLOCK_PHASE_MAX_MS,
   DRAFT_ANIM_PICK_PHASE_MAX_MS,
 } from '@/components/draft-overlay/draft-display-utils';
@@ -153,7 +158,7 @@ export default function DraftRoomPage() {
     round: number; pickInRound: number; videoUrl: string | null; imageUrl: string | null;
   } | null>(null);
   const animPlayerVideosRef = useRef<Record<string, { videoUrl: string | null; hasImage: boolean }>>({});
-  const animLastPickRef = useRef<number | null>(null);
+  const animLastPickRef = useRef<DraftPickAnimationIdentity | null>(null);
   const animInitRef = useRef(false);
   const animDismissingRef = useRef(false);
   const animPhaseRef = useRef(animPhase);
@@ -169,7 +174,9 @@ export default function DraftRoomPage() {
 
   const prevPendingRef = useRef<PendingPick>(null);
   const beepPlayedRef = useRef(false);
-  const autoPickFiredRef = useRef(false);
+  const instantSubmitOverallRef = useRef<number | null>(null);
+  const instantSubmitInFlightRef = useRef(false);
+  const [instantSubmitRetry, setInstantSubmitRetry] = useState(0);
   const queueRef = useRef<QueueItem[]>([]);
   const submitPickRef = useRef<(player: Avail) => Promise<void>>(async () => {});
   const myTeamRef = useRef<string | null>(null);
@@ -341,7 +348,7 @@ export default function DraftRoomPage() {
       await fetch('/api/draft', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ action: 'anim_clock_start' }),
+        body: JSON.stringify({ action: DRAFT_ANIMATION_CLOCK_START_ACTION }),
       });
     } catch { /* ignore */ }
     try {
@@ -382,14 +389,15 @@ export default function DraftRoomPage() {
     await syncQueue(nq);
   };
 
-  // Load auto-pick pref from localStorage — scoped per team so each team has its own setting
+  // Load instant-submit preference from localStorage, scoped to the authenticated team.
   useEffect(() => {
-    if (!myTeam) { setAutoPickEnabled(false); return; }
+    const authenticatedTeam = me?.claims?.team;
+    if (!authenticatedTeam) { setAutoPickEnabled(false); return; }
     try {
-      const stored = localStorage.getItem(`evw_draft_autopick_${myTeam}`);
+      const stored = localStorage.getItem(`evw_draft_autopick_${authenticatedTeam}`);
       setAutoPickEnabled(stored === 'true');
     } catch {}
-  }, [myTeam]);
+  }, [me?.claims?.team]);
 
   // Fetch prospect board ranks once on mount — used in Pick tab to sort and annotate players.
   // Builds two lookup maps (by prospect board ID and by lowercase name) for robust matching.
@@ -528,37 +536,72 @@ export default function DraftRoomPage() {
     return () => clearInterval(interval);
   }, [remainingSec, lastFetchTime, isMyTurn, playBeep, draft?.status, animPhase]);
 
-  // Auto-pick when clock expires — silently tries queue players in order, no alert on failure
+  // Native instant submit. Expiration autopick remains server-owned and still
+  // falls back to the best available player when the queue is empty.
   useEffect(() => {
-    const isMyPickPendingNow = pickStatus === 'pending' || (pendingPick?.team === myTeam);
-    if (!isMyTurn || !autoPickEnabled || submitting || isMyPickPendingNow || animPhase === 'clock' || animPhase === 'pick') {
-      autoPickFiredRef.current = false;
+    const authenticatedTeam = me?.claims?.team || null;
+    const overall = draft?.curOverall ?? null;
+    const isMyPickPendingNow = pickStatus === 'pending' || pendingPick?.team === authenticatedTeam;
+
+    if (authenticatedTeam !== onClock) {
+      instantSubmitOverallRef.current = null;
+      instantSubmitInFlightRef.current = false;
+    }
+
+    if (!shouldInstantSubmitTopQueue({
+      enabled: autoPickEnabled,
+      authenticatedTeam,
+      onClockTeam: onClock,
+      draftStatus: draft?.status,
+      overall,
+      queueLength: queue.length,
+      hasPendingPick: isMyPickPendingNow,
+      submitting: submitting || instantSubmitInFlightRef.current,
+      attemptedOverall: instantSubmitOverallRef.current,
+    })) {
       return;
     }
-    if (localRemaining !== null && localRemaining <= 0 && !autoPickFiredRef.current && queueRef.current.length > 0) {
-      autoPickFiredRef.current = true;
-      // Try queue players in order until one succeeds (skip already-drafted players silently)
-      (async () => {
-        for (const qp of queueRef.current) {
-          try {
-            const res = await fetch('/api/draft', {
-              method: 'POST',
-              headers: { 'content-type': 'application/json' },
-              body: JSON.stringify({ action: 'pick', playerId: qp.id, playerName: qp.name, playerPos: qp.pos, playerNfl: qp.nfl }),
-            });
-            const j = await res.json();
-            if (res.ok && !j?.error) {
-              setPickStatus('pending');
-              setSubmittedPlayer(qp);
-              break;
-            }
-            if (j?.error === 'player_already_picked') continue;
-            break; // other errors — stop trying
-          } catch { break; }
+
+    instantSubmitOverallRef.current = overall;
+    instantSubmitInFlightRef.current = true;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    let cancelled = false;
+
+    void (async () => {
+      let submitted = false;
+      for (const qp of queueRef.current) {
+        try {
+          const res = await fetch('/api/draft', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ action: 'pick', playerId: qp.id, playerName: qp.name, playerPos: qp.pos, playerNfl: qp.nfl }),
+          });
+          const j = await res.json();
+          if (res.ok && !j?.error) {
+            setPickStatus('pending');
+            setSubmittedPlayer(qp);
+            submitted = true;
+            break;
+          }
+          if (j?.error === 'player_already_picked') continue;
+          break;
+        } catch {
+          break;
         }
-      })();
-    }
-  }, [localRemaining, isMyTurn, autoPickEnabled, submitting, pickStatus, pendingPick, myTeam, animPhase]);
+      }
+
+      instantSubmitInFlightRef.current = false;
+      if (!submitted && !cancelled && instantSubmitOverallRef.current === overall) {
+        instantSubmitOverallRef.current = null;
+        retryTimer = setTimeout(() => setInstantSubmitRetry((value) => value + 1), 1500);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      if (retryTimer) clearTimeout(retryTimer);
+    };
+  }, [autoPickEnabled, draft?.curOverall, draft?.status, instantSubmitRetry, me?.claims?.team, onClock, pendingPick, pickStatus, queue, submitting]);
 
   // Load player media for animations
   useEffect(() => {
@@ -579,8 +622,14 @@ export default function DraftRoomPage() {
 
   // Animation trigger — mirrors DraftOverlayLive
   // recentPicks is ordered ASC (oldest first); .at(-1) gives the newest pick
+  const latestPickForAnimation = draft?.recentPicks?.length
+    ? draft.recentPicks[draft.recentPicks.length - 1]
+    : null;
+  const latestPickAnimationKey = latestPickForAnimation
+    ? draftPickAnimationIdentity(latestPickForAnimation).key
+    : null;
   useEffect(() => {
-    const lastPick = draft?.recentPicks?.length ? draft.recentPicks[draft.recentPicks.length - 1] : null;
+    const lastPick = latestPickForAnimation;
     if (!lastPick) {
       // Only set initialized once draft data has actually loaded — same guard as DraftOverlayLive
       if (!animInitRef.current && draft !== null) animInitRef.current = true;
@@ -589,11 +638,13 @@ export default function DraftRoomPage() {
     }
     if (!animInitRef.current) {
       animInitRef.current = true;
-      animLastPickRef.current = lastPick.overall;
+      animLastPickRef.current = draftPickAnimationIdentity(lastPick);
       return;
     }
-    if (lastPick.overall <= (animLastPickRef.current ?? -1)) return;
-    animLastPickRef.current = lastPick.overall;
+    const nextIdentity = draftPickAnimationIdentity(lastPick);
+    const decision = draftPickAnimationDecision(animLastPickRef.current, nextIdentity);
+    animLastPickRef.current = nextIdentity;
+    if (decision !== 'animate') return;
     // If this tab was hidden when the event happened, don't replay it on return.
     if (document.hidden) return;
 
@@ -653,7 +704,7 @@ export default function DraftRoomPage() {
       }
     })();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [draft?.recentPicks?.[draft?.recentPicks?.length - 1]?.overall]);
+  }, [latestPickAnimationKey]);
 
   // Tab visibility — skip stale animation phases and repoll when tab becomes visible
   useEffect(() => {
@@ -691,7 +742,7 @@ export default function DraftRoomPage() {
         fetch('/api/draft', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ action: 'anim_clock_start' }),
+          body: JSON.stringify({ action: DRAFT_ANIMATION_CLOCK_START_ACTION }),
         }).catch(() => {});
       }
     }, 15000);
@@ -1384,24 +1435,31 @@ export default function DraftRoomPage() {
                       <div className="text-xs font-bold text-[var(--muted)] uppercase tracking-wide">
                         My queue {queue.length > 0 && <span className="text-[var(--foreground)]">({queue.length})</span>}
                       </div>
-                      <label className="flex items-center gap-2 cursor-pointer select-none">
-                        <span className="text-xs text-[var(--muted)]">Instant auto-pick</span>
-                        <div
+                      <div className="flex items-center gap-2 select-none">
+                        <span className="text-xs text-[var(--muted)]">Instant submit</span>
+                        <button
+                          type="button"
+                          aria-pressed={autoPickEnabled}
+                          aria-label="Toggle instant submit"
+                          disabled={!me?.claims?.team}
                           className={`relative w-9 h-5 rounded-full transition-colors ${autoPickEnabled ? 'bg-emerald-500' : 'bg-zinc-400 dark:bg-zinc-600'}`}
                           onClick={() => {
                             const next = !autoPickEnabled;
                             setAutoPickEnabled(next);
-                            try { localStorage.setItem(`evw_draft_autopick_${myTeam || 'default'}`, String(next)); } catch {}
+                            const authenticatedTeam = me?.claims?.team;
+                            if (authenticatedTeam) {
+                              try { localStorage.setItem(`evw_draft_autopick_${authenticatedTeam}`, String(next)); } catch {}
+                            }
                           }}
                         >
                           <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${autoPickEnabled ? 'translate-x-4' : 'translate-x-0.5'}`} />
-                        </div>
-                      </label>
+                        </button>
+                      </div>
                     </div>
                     <div className="px-3 py-1.5 text-xs text-[var(--muted)] border-b border-[var(--border)]">
                       {autoPickEnabled
-                        ? <span className="font-medium text-emerald-700 dark:text-emerald-400">Instant — top queued player submitted when time expires</span>
-                        : <span>Top queued player is sent to admin when time expires (within ~3s)</span>}
+                        ? <span className="font-medium text-emerald-700 dark:text-emerald-400">Top queued player submits immediately when you are on the clock.</span>
+                        : <span>Standard autopick: your top queued player submits when the clock expires. If your queue is empty, the best available player is used.</span>}
                     </div>
                     {queue.length === 0 ? (
                       <div className="px-3 py-3 text-xs text-[var(--muted)]">Queue is empty — use <span className="font-semibold text-[var(--foreground)]">Queue</span> on the Pick tab.</div>

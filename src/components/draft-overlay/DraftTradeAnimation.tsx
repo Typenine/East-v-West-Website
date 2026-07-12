@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from 'react';
 import { gsap } from 'gsap';
 import { getTeamLogoPath } from '@/lib/utils/team-utils';
 import { getTeamColors } from '@/lib/constants/team-colors';
+import { DRAFT_TRADE_ALERT_AUDIO_SRC } from '@/components/draft-overlay/draft-display-utils';
 
 export type TradeAnimAsset = {
   fromTeam: string;
@@ -30,24 +31,6 @@ interface DraftTradeAnimationProps {
 
 const POS_COLORS: Record<string, string> = { QB:'#ef4444', RB:'#22c55e', WR:'#3b82f6', TE:'#f97316', K:'#a855f7', DEF:'#6b7280' };
 const TRADE_ALERT_LEAD_IN_MS = 1250;
-const TRADE_ALERT_AUDIO_SOURCES = [
-  '/assets/teams/audio/ESPN bottom line ticker sound.mp3',
-  '/assets/teams/audio/ESPN%20bottom%20line%20ticker%20sound.mp3',
-  '/assets/teams/audio/ESPN Bottom Line Ticker Sound.mp3',
-  '/assets/teams/audio/ESPN%20Bottom%20Line%20Ticker%20Sound.mp3',
-  '/assets/teams/audio/espn-bottom-line-ticker-sound.mp3',
-  '/assets/teams/audio/espn_bottom_line_ticker_sound.mp3',
-  '/assets/teams/audio/ESPN bottom line ticker sound.MP3',
-  '/assets/teams/audio/ESPN bottom line ticker sound.mp3.mp3',
-  '/assets/teams/audio/ESPN bottom line ticker sound.m4a',
-  '/assets/teams/audio/espn-bottom-line-ticker-sound.m4a',
-  '/assets/teams/audio/ESPN bottom line ticker sound.wav',
-  '/assets/teams/audio/espn-bottom-line-ticker-sound.wav',
-  '/assets/teams/audio/ESPN bottom line ticker sound.ogg',
-  '/assets/teams/audio/espn-bottom-line-ticker-sound.ogg',
-  '/audio/ESPN bottom line ticker sound.mp3',
-  '/audio/espn-bottom-line-ticker-sound.mp3',
-];
 
 type TradeAudioWindow = Window & {
   __tradeAlertAudioAt?: number;
@@ -102,50 +85,25 @@ function playSyntheticTickerSound() {
   }
 }
 
-async function canLoadAudio(src: string) {
-  return new Promise<boolean>((resolve) => {
-    const audio = new Audio();
-    let settled = false;
-    const done = (ok: boolean) => {
-      if (settled) return;
-      settled = true;
-      audio.removeAttribute('src');
-      audio.load();
-      resolve(ok);
-    };
-    audio.preload = 'auto';
-    audio.addEventListener('canplaythrough', () => done(true), { once: true });
-    audio.addEventListener('canplay', () => done(true), { once: true });
-    audio.addEventListener('error', () => done(false), { once: true });
-    window.setTimeout(() => done(false), 900);
-    audio.src = src;
-    audio.load();
-  });
-}
-
 async function playTradeAlertSound() {
   if (typeof window === 'undefined') return;
   const w = window as TradeAudioWindow;
   if (w.__tradeAlertAudioAt && Date.now() - w.__tradeAlertAudioAt < 2500) return;
   w.__tradeAlertAudioAt = Date.now();
 
-  for (const src of TRADE_ALERT_AUDIO_SOURCES) {
-    try {
-      const loadable = await canLoadAudio(src);
-      if (!loadable) continue;
-      const audio = new Audio(src);
-      audio.preload = 'auto';
-      audio.volume = 1;
-      await audio.play();
-      window.setTimeout(() => {
-        audio.pause();
-        audio.removeAttribute('src');
-        audio.load();
-      }, 10_000);
-      return;
-    } catch {
-      // Try the next source, then synthesize a fallback below.
-    }
+  try {
+    const audio = new Audio(DRAFT_TRADE_ALERT_AUDIO_SRC);
+    audio.preload = 'auto';
+    audio.volume = 1;
+    await audio.play();
+    window.setTimeout(() => {
+      audio.pause();
+      audio.removeAttribute('src');
+      audio.load();
+    }, 10_000);
+    return;
+  } catch {
+    // Autoplay can still be blocked on a display with no prior user gesture.
   }
 
   playSyntheticTickerSound();
