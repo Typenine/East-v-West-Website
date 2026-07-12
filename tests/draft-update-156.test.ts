@@ -19,6 +19,7 @@ describe('draft update 156 regressions', () => {
 
     expect(existsSync(publicPath)).toBe(true);
     expect(animationSource).toContain('new Audio(DRAFT_TRADE_ALERT_AUDIO_SRC)');
+    expect(animationSource).toContain('const TRADE_ALERT_LEAD_IN_MS = 3000;');
     expect(animationSource).not.toContain('TRADE_ALERT_AUDIO_SOURCES');
   });
 

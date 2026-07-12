@@ -30,7 +30,7 @@ interface DraftTradeAnimationProps {
 }
 
 const POS_COLORS: Record<string, string> = { QB:'#ef4444', RB:'#22c55e', WR:'#3b82f6', TE:'#f97316', K:'#a855f7', DEF:'#6b7280' };
-const TRADE_ALERT_LEAD_IN_MS = 1250;
+const TRADE_ALERT_LEAD_IN_MS = 3000;
 
 type TradeAudioWindow = Window & {
   __tradeAlertAudioAt?: number;
