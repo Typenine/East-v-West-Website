@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
 
@@ -18,8 +18,20 @@ interface NewsletterMeta {
   updatedAt: string | null;
 }
 
-// Storage weeks used by offseason episodes (mirror of run-newsletter.mjs EPISODE_WEEK_STORAGE).
-const STORAGE_WEEK_TO_TYPE: Record<number, string> = { 900: 'preseason', 901: 'pre_draft', 902: 'post_draft', 903: 'offseason' };
+interface WebhookHealth {
+  configured: boolean;
+  reachable: boolean;
+  status: number | null;
+  error: string | null;
+  message: string;
+}
+
+const STORAGE_WEEK_TO_TYPE: Record<number, string> = {
+  900: 'preseason',
+  901: 'pre_draft',
+  902: 'post_draft',
+  903: 'offseason',
+};
 
 const EPISODE_LABELS: Record<string, string> = {
   regular: '📅 Weekly Recap',
@@ -34,13 +46,11 @@ const EPISODE_LABELS: Record<string, string> = {
   offseason: '💤 Offseason',
 };
 
-// Resolve a display type even for old rows that predate the episode_type column.
 function resolveType(item: NewsletterMeta): string {
   if (item.episodeType) return item.episodeType;
   return STORAGE_WEEK_TO_TYPE[item.week] ?? 'regular';
 }
 
-// A real NFL week number only applies to in-season episodes (week < 900).
 function weekLabel(item: NewsletterMeta): string | null {
   const type = resolveType(item);
   if (STORAGE_WEEK_TO_TYPE[item.week] || ['pre_draft', 'post_draft', 'preseason', 'offseason'].includes(type)) return null;
@@ -49,16 +59,14 @@ function weekLabel(item: NewsletterMeta): string | null {
 
 function fmt(iso: string | null): string {
   if (!iso) return '—';
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '—';
-  return d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return '—';
+  return date.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
 interface Props {
   season: string;
-  /** Load a saved newsletter into the generator config (season / week / episodeType). */
   onSelect: (season: string, week: number, episodeType: string) => void;
-  /** Bump to force a reload (e.g. after the parent generates/publishes/deletes). */
   reloadKey?: number;
 }
 
@@ -66,6 +74,7 @@ export default function SavedNewsletters({ season, onSelect, reloadKey }: Props)
   const [items, setItems] = useState<NewsletterMeta[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [webhook, setWebhook] = useState<WebhookHealth | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [confirmPublish, setConfirmPublish] = useState<string | null>(null);
   const [publishingId, setPublishingId] = useState<string | null>(null);
@@ -76,23 +85,53 @@ export default function SavedNewsletters({ season, onSelect, reloadKey }: Props)
   const load = useCallback(async (opts?: { silent?: boolean }) => {
     if (!opts?.silent) setLoading(true);
     try {
-      const res = await fetch(`/api/newsletter?list=true&season=${season}&draft=1`, { cache: 'no-store', credentials: 'include' });
+      const res = await fetch(`/api/newsletter?list=true&season=${season}&draft=1`, {
+        cache: 'no-store',
+        credentials: 'include',
+      });
       const data = await res.json() as { items?: NewsletterMeta[]; error?: string };
-      if (Array.isArray(data.items)) { setItems(data.items); setError(null); }
-      else if (!opts?.silent) setError(data.error || 'Failed to load newsletters');
-    } catch (e) {
-      if (!opts?.silent) setError(e instanceof Error ? e.message : 'Failed to load newsletters');
+      if (Array.isArray(data.items)) {
+        setItems(data.items);
+        if (!opts?.silent) setError(null);
+      } else if (!opts?.silent) {
+        setError(data.error || 'Failed to load newsletters');
+      }
+    } catch (err) {
+      if (!opts?.silent) setError(err instanceof Error ? err.message : 'Failed to load newsletters');
     } finally {
       if (!opts?.silent) setLoading(false);
     }
   }, [season]);
 
-  useEffect(() => { load(); }, [load, reloadKey]);
-  // Light auto-refresh so newly generated/published newsletters appear without a reload.
+  const loadWebhookHealth = useCallback(async () => {
+    try {
+      const res = await fetch('/api/newsletter/publish', {
+        cache: 'no-store',
+        credentials: 'include',
+      });
+      const data = await res.json() as WebhookHealth;
+      if (res.ok) setWebhook(data);
+      else setWebhook({ configured: false, reachable: false, status: res.status, error: data.message, message: data.message || 'Unable to verify webhook' });
+    } catch (err) {
+      setWebhook({
+        configured: false,
+        reachable: false,
+        status: null,
+        error: err instanceof Error ? err.message : String(err),
+        message: 'Unable to verify newsletter Discord webhook.',
+      });
+    }
+  }, []);
+
+  useEffect(() => {
+    void load();
+    void loadWebhookHealth();
+  }, [load, loadWebhookHealth, reloadKey]);
+
   useEffect(() => {
     const id = setInterval(() => {
       if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
-      load({ silent: true });
+      void load({ silent: true });
     }, 20000);
     return () => clearInterval(id);
   }, [load]);
@@ -105,16 +144,14 @@ export default function SavedNewsletters({ season, onSelect, reloadKey }: Props)
         const data = await res.json().catch(() => ({}));
         setError(`Couldn't delete: ${(data as { error?: string }).error ?? `HTTP ${res.status}`}`);
       }
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to delete');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to delete');
     }
     setConfirmDelete(null);
     await load();
   };
 
-  // Publish a specific catalog entry. Replace semantics: any other published
-  // newsletter for the same (season, week) is reverted to draft server-side.
-  const publish = async (item: NewsletterMeta, sendDiscord: boolean) => {
+  const publish = async (item: NewsletterMeta, sendDiscord: boolean, resendDiscord = false) => {
     setError(null);
     setPublishingId(item.id);
     try {
@@ -122,18 +159,24 @@ export default function SavedNewsletters({ season, onSelect, reloadKey }: Props)
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ season: item.season, week: item.week, id: item.id, sendDiscord }),
+        body: JSON.stringify({
+          season: item.season,
+          week: item.week,
+          id: item.id,
+          sendDiscord,
+          resendDiscord,
+        }),
       });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        setError(`Couldn't publish: ${(data as { error?: string }).error ?? `HTTP ${res.status}`}`);
+      const data = await res.json().catch(() => ({})) as { success?: boolean; error?: string; message?: string };
+      if (!res.ok || data.success === false) {
+        setError(data.error || data.message || `Couldn't publish: HTTP ${res.status}`);
       }
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to publish');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to publish');
     }
     setPublishingId(null);
     setConfirmPublish(null);
-    await load();
+    await Promise.all([load(), loadWebhookHealth()]);
   };
 
   const startRename = (item: NewsletterMeta) => {
@@ -143,7 +186,11 @@ export default function SavedNewsletters({ season, onSelect, reloadKey }: Props)
 
   const saveRename = async (item: NewsletterMeta) => {
     const title = renameValue.trim();
-    if (!title || title === item.title) { setRenamingId(null); return; }
+    if (!title || title === item.title) {
+      setRenamingId(null);
+      return;
+    }
+
     setRenameSaving(true);
     setError(null);
     try {
@@ -157,8 +204,8 @@ export default function SavedNewsletters({ season, onSelect, reloadKey }: Props)
         const data = await res.json().catch(() => ({}));
         setError(`Couldn't rename: ${(data as { error?: string }).error ?? `HTTP ${res.status}`}`);
       }
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to rename');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to rename');
     }
     setRenameSaving(false);
     setRenamingId(null);
@@ -168,11 +215,33 @@ export default function SavedNewsletters({ season, onSelect, reloadKey }: Props)
   return (
     <Card className="mt-4">
       <CardHeader>
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-3 flex-wrap">
           <CardTitle className="text-base">🗂️ Saved Newsletters — {season}</CardTitle>
-          <button onClick={() => load()} className="text-[11px] text-zinc-500 underline hover:text-zinc-300" title="Refresh">↻ refresh</button>
+          <div className="flex items-center gap-3">
+            {webhook && (
+              <span
+                className={`text-[11px] px-2 py-1 rounded border ${
+                  webhook.configured && webhook.reachable
+                    ? 'bg-emerald-900/40 text-emerald-300 border-emerald-700'
+                    : 'bg-red-900/40 text-red-300 border-red-700'
+                }`}
+                title={webhook.message}
+              >
+                Discord {webhook.configured && webhook.reachable ? '✓ ready' : '✕ not ready'}
+              </span>
+            )}
+            <button
+              onClick={() => { void load(); void loadWebhookHealth(); }}
+              className="text-[11px] text-zinc-500 underline hover:text-zinc-300"
+              title="Refresh"
+            >
+              ↻ refresh
+            </button>
+          </div>
         </div>
-        <p className="text-xs text-zinc-500 mt-1">Every saved newsletter for this season — drafts and published. Publish any draft at any time; publishing replaces the live newsletter for that week.</p>
+        <p className="text-xs text-zinc-500 mt-1">
+          Every saved newsletter for this season. Publishing one issue makes that exact catalog entry public. Discord status is verified without sending a message.
+        </p>
       </CardHeader>
       <CardContent>
         {error && <p className="text-xs text-red-400 mb-3">{error}</p>}
@@ -185,9 +254,9 @@ export default function SavedNewsletters({ season, onSelect, reloadKey }: Props)
             {items.map(item => {
               const type = resolveType(item);
               const wk = weekLabel(item);
+              const isPublishing = publishingId === item.id;
               return (
                 <div key={item.id} className="flex items-center gap-3 flex-wrap border border-zinc-800 rounded-lg px-3 py-2">
-                  {/* Status */}
                   <span className={`inline-flex items-center px-2 py-0.5 rounded border text-[11px] font-medium ${
                     item.status === 'published'
                       ? 'bg-emerald-900/40 text-emerald-300 border-emerald-700'
@@ -195,90 +264,119 @@ export default function SavedNewsletters({ season, onSelect, reloadKey }: Props)
                   }`}>
                     {item.status}
                   </span>
-                  {/* Title (inline-renameable) */}
+
                   {renamingId === item.id ? (
                     <span className="flex items-center gap-1.5">
                       <input
                         autoFocus
                         value={renameValue}
-                        onChange={e => setRenameValue(e.target.value)}
-                        onKeyDown={e => {
-                          if (e.key === 'Enter') saveRename(item);
-                          if (e.key === 'Escape') setRenamingId(null);
+                        onChange={event => setRenameValue(event.target.value)}
+                        onKeyDown={event => {
+                          if (event.key === 'Enter') void saveRename(item);
+                          if (event.key === 'Escape') setRenamingId(null);
                         }}
                         maxLength={200}
                         disabled={renameSaving}
                         className="bg-zinc-900 border border-zinc-700 rounded px-2 py-0.5 text-sm text-white w-64 focus:outline-none focus:border-zinc-500"
                       />
-                      <Button variant="ghost" size="sm" className="text-xs text-emerald-400" disabled={renameSaving} onClick={() => saveRename(item)}>
+                      <Button variant="ghost" size="sm" className="text-xs text-emerald-400" disabled={renameSaving} onClick={() => void saveRename(item)}>
                         {renameSaving ? '…' : 'Save'}
                       </Button>
-                      <Button variant="ghost" size="sm" className="text-xs text-zinc-400" disabled={renameSaving} onClick={() => setRenamingId(null)}>Cancel</Button>
+                      <Button variant="ghost" size="sm" className="text-xs text-zinc-400" disabled={renameSaving} onClick={() => setRenamingId(null)}>
+                        Cancel
+                      </Button>
                     </span>
                   ) : (
                     <span className="flex items-center gap-1.5 min-w-0">
                       <span className="text-sm text-white truncate" title={item.title ?? undefined}>
                         {item.title || `${EPISODE_LABELS[type] ?? type}${wk ? ` — ${wk}` : ''}`}
                       </span>
-                      <button
-                        onClick={() => startRename(item)}
-                        className="text-[11px] text-zinc-500 hover:text-zinc-300"
-                        title="Rename">
+                      <button onClick={() => startRename(item)} className="text-[11px] text-zinc-500 hover:text-zinc-300" title="Rename">
                         ✏️
                       </button>
                     </span>
                   )}
-                  {/* Type + week */}
+
                   <span className="text-xs text-zinc-400">{EPISODE_LABELS[type] ?? type}</span>
                   {wk && <span className="text-xs font-medium text-zinc-300">{wk}</span>}
-                  {/* Times */}
-                  <span className="text-xs text-zinc-400" title={`Generated ${item.generatedAt}`}>
-                    gen {fmt(item.generatedAt)}
-                  </span>
+                  <span className="text-xs text-zinc-400" title={`Generated ${item.generatedAt}`}>gen {fmt(item.generatedAt)}</span>
                   {item.status === 'published' && (
-                    <span className="text-xs text-emerald-400/80" title={`Published ${item.publishedAt}`}>
-                      pub {fmt(item.publishedAt)}
-                    </span>
+                    <span className="text-xs text-emerald-400/80" title={`Published ${item.publishedAt}`}>pub {fmt(item.publishedAt)}</span>
                   )}
-                  {/* Discord */}
                   <span className="text-xs" title={item.discordPostedAt ? `Discord sent ${item.discordPostedAt}` : 'Not posted to Discord'}>
-                    {item.discordPostedAt ? <span className="text-indigo-300">💬 sent</span> : <span className="text-zinc-600">💬 —</span>}
+                    {item.discordPostedAt
+                      ? <span className="text-indigo-300">💬 sent</span>
+                      : <span className="text-zinc-600">💬 —</span>}
                   </span>
 
                   <div className="ml-auto flex items-center gap-1.5">
-                    <Button variant="secondary" size="sm" className="text-xs"
-                      title="Load into the generator above (edit / regenerate / publish)"
-                      onClick={() => onSelect(String(item.season), item.week, type)}>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      className="text-xs"
+                      title="Load into the generator above"
+                      onClick={() => onSelect(String(item.season), item.week, type)}
+                    >
                       Open
                     </Button>
+
+                    {item.status === 'published' && !item.discordPostedAt && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="text-xs text-indigo-300"
+                        disabled={isPublishing}
+                        title="Send the missing Discord announcement. Existing dedupe records prevent accidental duplicates."
+                        onClick={() => void publish(item, true)}
+                      >
+                        {isPublishing ? 'Checking…' : 'Retry Discord'}
+                      </Button>
+                    )}
+
                     {item.status !== 'published' && (
                       confirmPublish === item.id ? (
                         <>
-                          <Button variant="ghost" size="sm" className="text-xs text-emerald-400" disabled={publishingId === item.id}
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-xs text-emerald-400"
+                            disabled={isPublishing}
                             title="Publish and announce to Discord"
-                            onClick={() => publish(item, true)}>
-                            {publishingId === item.id ? '…' : '+ Discord'}
+                            onClick={() => void publish(item, true)}
+                          >
+                            {isPublishing ? '…' : '+ Discord'}
                           </Button>
-                          <Button variant="ghost" size="sm" className="text-xs text-emerald-400/70" disabled={publishingId === item.id}
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-xs text-emerald-400/70"
+                            disabled={isPublishing}
                             title="Publish without posting to Discord"
-                            onClick={() => publish(item, false)}>
+                            onClick={() => void publish(item, false)}
+                          >
                             no Discord
                           </Button>
-                          <Button variant="ghost" size="sm" className="text-xs text-zinc-400" disabled={publishingId === item.id}
-                            onClick={() => setConfirmPublish(null)}>Cancel</Button>
+                          <Button variant="ghost" size="sm" className="text-xs text-zinc-400" disabled={isPublishing} onClick={() => setConfirmPublish(null)}>
+                            Cancel
+                          </Button>
                         </>
                       ) : (
-                        <Button variant="ghost" size="sm" className="text-xs text-emerald-400"
-                          title="Publish this newsletter — replaces the currently live one for this week"
-                          onClick={() => setConfirmPublish(item.id)}>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="text-xs text-emerald-400"
+                          title="Publish this exact newsletter"
+                          onClick={() => setConfirmPublish(item.id)}
+                        >
                           Publish
                         </Button>
                       )
                     )}
+
                     {confirmDelete === item.id ? (
                       <>
                         <Button variant="ghost" size="sm" className="text-xs text-zinc-400" onClick={() => setConfirmDelete(null)}>Cancel</Button>
-                        <Button variant="ghost" size="sm" className="text-xs text-red-400" onClick={() => del(item)}>Confirm</Button>
+                        <Button variant="ghost" size="sm" className="text-xs text-red-400" onClick={() => void del(item)}>Confirm</Button>
                       </>
                     ) : (
                       <Button variant="ghost" size="sm" className="text-xs text-red-400" onClick={() => setConfirmDelete(item.id)}>🗑</Button>

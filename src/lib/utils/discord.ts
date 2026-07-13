@@ -1,6 +1,6 @@
 /**
  * Discord Webhook Utilities
- * Shared helpers for posting to Discord with proper rate limiting and error handling
+ * Shared helpers for posting to Discord with proper rate limiting and error handling.
  */
 
 export interface DiscordEmbed {
@@ -22,15 +22,58 @@ export interface DiscordWebhookPayload {
   allowed_mentions?: { parse: string[] };
 }
 
+export interface DiscordWebhookHealth {
+  configured: boolean;
+  reachable: boolean;
+  status?: number;
+  error?: string;
+}
+
 /**
- * Post to a Discord webhook with rate limit handling
- * Returns true if successful, false otherwise
+ * Check that a Discord webhook exists and is reachable without posting a message.
+ * Discord supports GET on webhook URLs, so this is safe for surprise announcements.
  */
+export async function verifyDiscordWebhook(webhookUrl?: string): Promise<DiscordWebhookHealth> {
+  if (!webhookUrl) {
+    return { configured: false, reachable: false, error: 'Webhook is not configured' };
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 8000);
+
+  try {
+    const res = await fetch(webhookUrl, {
+      method: 'GET',
+      cache: 'no-store',
+      signal: controller.signal,
+    });
+
+    if (!res.ok) {
+      return {
+        configured: true,
+        reachable: false,
+        status: res.status,
+        error: `Discord returned HTTP ${res.status}`,
+      };
+    }
+
+    return { configured: true, reachable: true, status: res.status };
+  } catch (err) {
+    return {
+      configured: true,
+      reachable: false,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+/** Post to a Discord webhook with one rate-limit retry. */
 export async function postToDiscordWebhook(
   webhookUrl: string,
   payload: DiscordWebhookPayload
 ): Promise<{ success: boolean; error?: string }> {
-  // Always include allowed_mentions: { parse: [] } for safety
   const safePayload: DiscordWebhookPayload = {
     ...payload,
     allowed_mentions: { parse: [] },
@@ -44,7 +87,6 @@ export async function postToDiscordWebhook(
     });
 
     if (res.status === 429) {
-      // Rate limited - wait and retry once
       const data = await res.json().catch(() => ({}));
       const retryAfter = (data as { retry_after?: number }).retry_after || 5;
       console.log(`[Discord] Rate limited, waiting ${retryAfter}s...`);
@@ -57,7 +99,8 @@ export async function postToDiscordWebhook(
       });
 
       if (!retry.ok) {
-        return { success: false, error: `Retry failed: ${retry.status}` };
+        const text = await retry.text().catch(() => '');
+        return { success: false, error: `Retry failed: HTTP ${retry.status}: ${text.slice(0, 200)}` };
       }
       return { success: true };
     }
@@ -69,52 +112,82 @@ export async function postToDiscordWebhook(
 
     return { success: true };
   } catch (err) {
-    return { success: false, error: String(err) };
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
   }
 }
 
-/**
- * Build a newsletter published embed
- */
+const NEWSLETTER_CONTENTS: Record<string, string[]> = {
+  pre_draft: ['Draft outlook', 'Two-round mock drafts', 'Team needs', 'Pre-draft trade analysis'],
+  post_draft: ['Team-by-team draft grades', 'Best values', 'Biggest reaches', 'Final draft verdict'],
+  preseason: ['Preseason power rankings', 'Season preview', 'Contenders and sleepers', 'Predictions'],
+  offseason: ['League news', 'Trades and roster moves', 'Team outlooks', 'What comes next'],
+  trade_deadline: ['Trade grades', 'Deadline winners and losers', 'Power rankings', 'Playoff outlook'],
+  playoffs_preview: ['Playoff matchups', 'Title odds', 'Key players', 'Predictions'],
+  playoffs_round: ['Playoff recaps', 'Turning points', 'Updated title outlook', 'Next-round predictions'],
+  championship: ['Championship recap', 'Season-defining moments', 'Final awards', 'Champion reaction'],
+  season_finale: ['Season recap', 'Awards', 'Final power rankings', 'Offseason outlook'],
+  regular: ['Matchup recaps', 'Power rankings', 'Trade analysis', 'Next-week predictions'],
+};
+
+const NEWSLETTER_LABELS: Record<string, string> = {
+  pre_draft: 'Pre-Draft Newsletter',
+  post_draft: 'Post-Draft Grades',
+  preseason: 'Preseason Preview',
+  offseason: 'Offseason Update',
+  trade_deadline: 'Trade Deadline Newsletter',
+  playoffs_preview: 'Playoffs Preview',
+  playoffs_round: 'Playoff Newsletter',
+  championship: 'Championship Newsletter',
+  season_finale: 'Season Finale',
+  regular: 'Weekly Newsletter',
+};
+
+/** Build an episode-aware newsletter announcement embed. */
 export function buildNewsletterEmbed(options: {
   season: number;
   week: number;
   siteUrl: string;
+  episodeType?: string | null;
+  title?: string | null;
   highlights?: string[];
 }): DiscordEmbed {
-  const { season, week, siteUrl, highlights } = options;
+  const { season, week, episodeType = 'regular', title, highlights } = options;
+  const normalizedType = episodeType || 'regular';
+  const siteUrl = options.siteUrl.replace(/\/$/, '');
+  const newsletterUrl = `${siteUrl}/newsletter`;
+  const isWeekless = ['pre_draft', 'post_draft', 'preseason', 'offseason'].includes(normalizedType);
+  const label = NEWSLETTER_LABELS[normalizedType] ?? 'Newsletter';
+  const contents = NEWSLETTER_CONTENTS[normalizedType] ?? NEWSLETTER_CONTENTS.regular;
 
   const description = highlights && highlights.length > 0
-    ? highlights.map(h => `• ${h}`).join('\n')
-    : 'Check out the latest matchup recaps, power rankings, and predictions!';
+    ? highlights.map(highlight => `• ${highlight}`).join('\n')
+    : `The latest East v. West ${label.toLowerCase()} is live.`;
 
   return {
-    title: `📰 Weekly Newsletter – Week ${week}`,
+    title: `📰 ${isWeekless ? `${season} ${label}` : `${label} – Week ${week}`}`,
     description,
-    url: `${siteUrl}/newsletter`,
-    color: 0xbe161e, // League red color
+    url: newsletterUrl,
+    color: 0xbe161e,
     fields: [
       {
         name: '📊 What\'s Inside',
-        value: '• Matchup Recaps\n• Power Rankings\n• Trade Analysis\n• Next Week Predictions',
+        value: contents.map(item => `• ${item}`).join('\n'),
         inline: true,
       },
       {
         name: '🔗 Read Now',
-        value: `[View Newsletter](${siteUrl}/newsletter)`,
+        value: `[View Newsletter](${newsletterUrl})`,
         inline: true,
       },
     ],
     timestamp: new Date().toISOString(),
     footer: {
-      text: `Season ${season} • East v. West`,
+      text: title ? `${title} • East v. West` : `Season ${season} • East v. West`,
     },
   };
 }
 
-/**
- * Build a trade notification embed
- */
+/** Build a trade notification embed. */
 export function buildTradeEmbed(options: {
   isComplete: boolean;
   teams: Array<{ name: string; gets: string[]; gives: string[] }>;
@@ -123,22 +196,13 @@ export function buildTradeEmbed(options: {
   timestamp?: Date;
 }): DiscordEmbed {
   const { isComplete, teams, week, siteUrl, timestamp } = options;
-
   const fields: DiscordEmbed['fields'] = [];
+
   for (const team of teams) {
     const gets = team.gets.length > 0 ? team.gets.join('\n') : 'Nothing';
     const gives = team.gives.length > 0 ? team.gives.join('\n') : 'Nothing';
-    fields.push({
-      name: `📥 ${team.name} receives`,
-      value: gets,
-      inline: true,
-    });
-    fields.push({
-      name: `📤 ${team.name} sends`,
-      value: gives,
-      inline: true,
-    });
-    // Spacer for layout
+    fields.push({ name: `📥 ${team.name} receives`, value: gets, inline: true });
+    fields.push({ name: `📤 ${team.name} sends`, value: gives, inline: true });
     fields.push({ name: '\u200B', value: '\u200B', inline: true });
   }
 
@@ -148,9 +212,7 @@ export function buildTradeEmbed(options: {
     color: isComplete ? 0x00ff00 : 0xffaa00,
     fields,
     timestamp: (timestamp || new Date()).toISOString(),
-    footer: {
-      text: `Week ${week} • View all trades`,
-    },
-    url: `${siteUrl}/transactions`,
+    footer: { text: `Week ${week} • View all trades` },
+    url: `${siteUrl.replace(/\/$/, '')}/transactions`,
   };
 }
