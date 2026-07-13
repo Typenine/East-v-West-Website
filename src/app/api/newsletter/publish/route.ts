@@ -8,7 +8,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
-import { and, eq } from 'drizzle-orm';
+import { and, desc, eq } from 'drizzle-orm';
 import { isAdminCookieValue } from '@/lib/auth/admin';
 import {
   loadNewsletter,
@@ -89,10 +89,27 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    // Resolve the exact target before changing anything. New callers send an id.
-    // The fallback keeps older admin clients functional and selects the newest row
-    // in the requested slot.
+    const db = getDb();
+
+    // Resolve the exact target before changing anything. Catalog actions send an id.
+    // Direct post-generation publishing sends the rendered HTML, so match that exact
+    // saved draft before falling back to the newest row in the slot.
     let target = body.id ? await loadNewsletterById(body.id) : null;
+
+    if (!target && body.html) {
+      const exactRows = await db
+        .select({ id: newsletters.id })
+        .from(newsletters)
+        .where(and(
+          eq(newsletters.season, seasonNum),
+          eq(newsletters.week, requestedWeek),
+          eq(newsletters.html, body.html),
+        ))
+        .orderBy(desc(newsletters.generatedAt))
+        .limit(1);
+      if (exactRows[0]?.id) target = await loadNewsletterById(exactRows[0].id);
+    }
+
     if (!target) {
       const fallback = await loadNewsletter(seasonNum, requestedWeek, { includeDrafts: true });
       if (fallback) target = await loadNewsletterById(fallback.id);
@@ -110,7 +127,6 @@ export async function POST(req: NextRequest) {
 
     const episodeType = target.episodeType || 'regular';
     const publicWeek = EPISODE_WEEK_STORAGE[episodeType] ?? target.week;
-    const db = getDb();
 
     // Manual weekless generation historically used week 0. Move that exact row to
     // its permanent public/archive slot before publishing so pre-draft, post-draft,
