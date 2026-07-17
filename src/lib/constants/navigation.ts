@@ -72,7 +72,7 @@ export const USER_NAV_CONFIG: UserNavItem[] = [
         group: 'Other Drafts',
       },
       {
-        id: 'draft.room',
+        id: 'draft.live-room',
         label: 'Draft Room',
         href: '/draft/room',
         description: 'Live clock, picks, and queue',
