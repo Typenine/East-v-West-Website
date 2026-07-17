@@ -41,8 +41,7 @@ export async function middleware(req: NextRequest) {
   const sessionToken = req.cookies.get('evw_session')?.value || '';
   const userTeam = await getTeamFromSession(sessionToken);
 
-  // Draft room/overlay: early testers first, then every canonical team after
-  // the scheduled league-wide opening at 5 PM ET on July 17, 2026.
+  // Draft room/overlay: available to admins and every authenticated canonical league team.
   const isDraftRoomPath = pathname === '/draft/room' || pathname.startsWith('/draft/room/') || pathname === '/draft/overlay';
   if (isDraftRoomPath) {
     if (isAdmin) return NextResponse.next();
@@ -52,7 +51,7 @@ export async function middleware(req: NextRequest) {
       return NextResponse.redirect(url);
     }
     if (canAccessDraftRoom(userTeam)) return NextResponse.next();
-    // Not authorized - redirect to home (not login, since they need to be a specific team)
+    // Invalid or non-league team session.
     return NextResponse.redirect(new URL('/', req.url));
   }
 
