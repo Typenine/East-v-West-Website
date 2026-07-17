@@ -78,11 +78,18 @@ const ALIASES: Record<string, string> = {
   'bamg':                      'Bimg Bamg Boomg',
   'boomg':                     'Bimg Bamg Boomg',
 
-  // Minshew's Maniacs
-  "minshew's maniacs":         "Minshew's Maniacs",
-  'minshews maniacs':          "Minshew's Maniacs",
-  'minshew':                   "Minshew's Maniacs",
-  'maniacs':                   "Minshew's Maniacs",
+  // Cascade Marauders and prior franchise names
+  'cascade marauders':         'Cascade Marauders',
+  'cascade':                   'Cascade Marauders',
+  'marauders':                 'Cascade Marauders',
+  "gardner's ghost":          'Cascade Marauders',
+  'gardners ghost':            'Cascade Marauders',
+  'gardner':                   'Cascade Marauders',
+  'ghost':                     'Cascade Marauders',
+  "minshew's maniacs":        'Cascade Marauders',
+  'minshews maniacs':          'Cascade Marauders',
+  'minshew':                   'Cascade Marauders',
+  'maniacs':                   'Cascade Marauders',
 };
 
 export interface TeamMatch {

@@ -35,7 +35,7 @@ export const TEAM_NAMES = [
   'BeerNeverBrokeMyHeart',
   'Detroit Dawgs',
   'bop pop',
-  'Minshew\'s Maniacs',
+  'Cascade Marauders',
   'Red Pandas',
   'The Lone Ginger',
   'Bimg Bamg Boomg'

@@ -75,7 +75,9 @@ export const getTeamLogoPath = (teamName: string): string => {
   const logoMap: Record<string, string> = {
     'Belleview Badgers': 'Belleview Badgers Primary Logo-transparent.png',
     'Belltown Raptors': 'Belltown Raptors logo.png',
-    'Minshew\'s Maniacs': 'Minshew\'s Maniacs Logo.png',
+    'Cascade Marauders': 'Cascade Marauders Logo.png',
+    "Gardner's Ghost": 'Cascade Marauders Logo.png',
+    "Minshew's Maniacs": 'Cascade Marauders Logo.png',
     'Double Trouble': 'Double Trouble logo22.png',
     'Mt. Lebanon Cake Eaters': 'Cake Eaters Logo Final Version (1)-transparent.png',
     'The Lone Ginger': 'Lone Ginger Logo-transparent.png',

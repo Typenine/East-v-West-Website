@@ -25,7 +25,7 @@ export const TEAM_COLORS: Record<string, TeamColors> = {
     secondary: '#ba0c2f',
     tertiary: '#8a8d8f'
   },
-  'Minshew\'s Maniacs': {
+  'Cascade Marauders': {
     primary: '#A60F2D',
     secondary: '#4D4D4D',
   },

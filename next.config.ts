@@ -75,6 +75,16 @@ const nextConfig: NextConfig = {
         permanent: true,
       },
       {
+        source: '/teams/cascade-marauders',
+        destination: '/teams/9',
+        permanent: true,
+      },
+      {
+        source: '/teams/gardners-ghost',
+        destination: '/teams/9',
+        permanent: true,
+      },
+      {
         source: '/teams/minshew-s-maniacs',
         destination: '/teams/9',
         permanent: true,
