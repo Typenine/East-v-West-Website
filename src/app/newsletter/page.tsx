@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import SectionHeader from '@/components/ui/SectionHeader';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
@@ -58,6 +58,180 @@ const EPISODE_LABELS: Record<string, string> = {
   offseason: 'Offseason Update',
 };
 
+const RESPONSIVE_NEWSLETTER_CSS = `
+  html {
+    background: #ffffff !important;
+    color-scheme: light;
+    overflow-x: hidden;
+  }
+
+  body {
+    width: 100% !important;
+    max-width: 100% !important;
+    overflow-x: hidden !important;
+    background: #ffffff !important;
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
+
+  body > div[style*="max-width:1080px"] {
+    width: 100% !important;
+    max-width: 1080px !important;
+    min-height: 0 !important;
+    padding: 48px clamp(32px, 7vw, 80px) !important;
+  }
+
+  img {
+    max-width: 100% !important;
+  }
+
+  p,
+  h1,
+  h2,
+  h3,
+  div,
+  span {
+    min-width: 0;
+    overflow-wrap: break-word;
+  }
+
+  [style*="display:flex"],
+  [style*="display:grid"] {
+    min-width: 0;
+  }
+
+  @media (max-width: 760px) {
+    body {
+      font-size: 16px !important;
+      line-height: 1.65 !important;
+    }
+
+    body > div[style*="max-width:1080px"] {
+      max-width: none !important;
+      padding: 12px !important;
+    }
+
+    header {
+      margin-bottom: 34px !important;
+      border-radius: 5px !important;
+    }
+
+    header > div:nth-child(2) {
+      padding: 24px 18px 22px !important;
+    }
+
+    header [style*="justify-content:space-between"],
+    [style*="display:flex"][style*="justify-content:space-between"] {
+      flex-wrap: wrap !important;
+      gap: 10px !important;
+    }
+
+    header [style*="gap:28px"] {
+      align-items: flex-start !important;
+      gap: 12px !important;
+    }
+
+    header h1 {
+      font-size: clamp(30px, 10vw, 38px) !important;
+      line-height: 1.08 !important;
+      letter-spacing: -0.5px !important;
+    }
+
+    header img[style*="width:96px"] {
+      display: none !important;
+    }
+
+    header [style*="letter-spacing:3px"] {
+      letter-spacing: 1.5px !important;
+    }
+
+    article {
+      margin-bottom: 44px !important;
+    }
+
+    article + article {
+      padding-top: 0 !important;
+    }
+
+    article > div[style*="margin:80px"] {
+      margin: 42px 0 22px !important;
+    }
+
+    article > div[style*="margin:80px"] > div:nth-child(2) {
+      padding: 20px 16px !important;
+      gap: 12px !important;
+    }
+
+    h2[style*="font-size:30px"] {
+      font-size: 23px !important;
+      line-height: 1.15 !important;
+    }
+
+    [style*="grid-template-columns:1fr 1fr"] {
+      grid-template-columns: minmax(0, 1fr) !important;
+    }
+
+    [style*="border-right:1px solid"] {
+      border-right: 0 !important;
+      border-bottom: 1px solid #e5e7eb !important;
+    }
+
+    [style*="padding:32px 40px"],
+    [style*="padding:28px 40px"],
+    [style*="padding:28px 36px"],
+    [style*="padding:28px 32px"] {
+      padding: 20px 16px !important;
+    }
+
+    [style*="padding:24px 28px"],
+    [style*="padding:22px 28px"] {
+      padding: 18px 14px !important;
+    }
+
+    [style*="padding:18px 28px 0"] {
+      padding: 16px 14px 0 !important;
+    }
+
+    [style*="padding:18px 22px"],
+    [style*="padding:16px 20px"] {
+      padding: 17px 14px !important;
+    }
+
+    [style*="padding:14px 22px"] {
+      padding: 12px 14px !important;
+      gap: 8px !important;
+      flex-wrap: wrap !important;
+    }
+
+    [style*="display:flex"][style*="gap:8px"],
+    [style*="display:flex"][style*="gap:10px"],
+    [style*="display:flex"][style*="gap:14px"] {
+      flex-wrap: wrap !important;
+    }
+
+    [style*="margin-left:auto"] {
+      margin-left: 0 !important;
+    }
+
+    [style*="white-space:nowrap"] {
+      white-space: normal !important;
+    }
+
+    [style*="min-width:48px"] {
+      min-width: 0 !important;
+    }
+
+    p {
+      font-size: 16px !important;
+      line-height: 1.65 !important;
+    }
+
+    footer {
+      margin-top: 42px !important;
+    }
+  }
+`;
+
 function resolveType(item: NewsletterMeta): string {
   if (item.episodeType) return item.episodeType;
   if (item.week === 900) return 'preseason';
@@ -86,6 +260,96 @@ function sortByPublished(a: NewsletterMeta, b: NewsletterMeta): number {
   const aTime = new Date(a.publishedAt || a.generatedAt).getTime();
   const bTime = new Date(b.publishedAt || b.generatedAt).getTime();
   return bTime - aTime;
+}
+
+function buildResponsiveNewsletterDocument(html: string): string {
+  const styleTag = `<style id="evw-responsive-newsletter">${RESPONSIVE_NEWSLETTER_CSS}</style>`;
+
+  if (/<\/head>/i.test(html)) {
+    return html.replace(/<\/head>/i, `${styleTag}</head>`);
+  }
+
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />${styleTag}</head><body>${html}</body></html>`;
+}
+
+function NewsletterFrame({ html, title }: { html: string; title: string }) {
+  const iframeRef = useRef<HTMLIFrameElement>(null);
+  const observerRef = useRef<ResizeObserver | null>(null);
+  const imageCleanupRef = useRef<Array<() => void>>([]);
+  const [height, setHeight] = useState(900);
+
+  const srcDoc = useMemo(() => buildResponsiveNewsletterDocument(html), [html]);
+
+  const clearObservers = useCallback(() => {
+    observerRef.current?.disconnect();
+    observerRef.current = null;
+    imageCleanupRef.current.forEach(cleanup => cleanup());
+    imageCleanupRef.current = [];
+  }, []);
+
+  const resizeFrame = useCallback(() => {
+    const document = iframeRef.current?.contentDocument;
+    if (!document) return;
+
+    const bodyHeight = document.body?.scrollHeight ?? 0;
+    const documentHeight = document.documentElement?.scrollHeight ?? 0;
+    const nextHeight = Math.max(480, bodyHeight, documentHeight);
+    setHeight(current => Math.abs(current - nextHeight) > 1 ? nextHeight : current);
+  }, []);
+
+  const handleLoad = useCallback(() => {
+    clearObservers();
+
+    const document = iframeRef.current?.contentDocument;
+    if (!document) return;
+
+    resizeFrame();
+    window.requestAnimationFrame(resizeFrame);
+    window.setTimeout(resizeFrame, 150);
+    window.setTimeout(resizeFrame, 600);
+
+    if (typeof ResizeObserver !== 'undefined') {
+      const observer = new ResizeObserver(resizeFrame);
+      if (document.documentElement) observer.observe(document.documentElement);
+      if (document.body) observer.observe(document.body);
+      observerRef.current = observer;
+    }
+
+    imageCleanupRef.current = Array.from(document.images).map(image => {
+      const handleImageLoad = () => resizeFrame();
+      image.addEventListener('load', handleImageLoad);
+      image.addEventListener('error', handleImageLoad);
+      return () => {
+        image.removeEventListener('load', handleImageLoad);
+        image.removeEventListener('error', handleImageLoad);
+      };
+    });
+
+    void document.fonts?.ready.then(resizeFrame).catch(() => {});
+  }, [clearObservers, resizeFrame]);
+
+  useEffect(() => {
+    setHeight(900);
+  }, [srcDoc]);
+
+  useEffect(() => {
+    window.addEventListener('resize', resizeFrame);
+    return () => window.removeEventListener('resize', resizeFrame);
+  }, [resizeFrame]);
+
+  useEffect(() => clearObservers, [clearObservers]);
+
+  return (
+    <iframe
+      ref={iframeRef}
+      title={title}
+      srcDoc={srcDoc}
+      sandbox="allow-same-origin"
+      onLoad={handleLoad}
+      className="block w-full border-0 bg-white"
+      style={{ height: `${height}px` }}
+    />
+  );
 }
 
 export default function NewsletterPage() {
@@ -182,11 +446,11 @@ export default function NewsletterPage() {
   }, [selectedId]);
 
   return (
-    <div className="container mx-auto px-4 py-8">
+    <div className="container mx-auto px-2 py-8 sm:px-4">
       <SectionHeader title="League Newsletter" />
 
       {isOffseason && issues.length > 0 && (
-        <div className="max-w-4xl mx-auto mb-4">
+        <div className="max-w-6xl mx-auto mb-4">
           <div className="p-3 bg-amber-900/30 border border-amber-600 rounded-lg text-center">
             <span className="text-amber-300 font-medium">Offseason edition</span>
             <span className="text-amber-200 ml-2">Special issues and the full archive remain available below.</span>
@@ -194,8 +458,8 @@ export default function NewsletterPage() {
         </div>
       )}
 
-      <div className="max-w-4xl mx-auto">
-        <Card>
+      <div className="max-w-6xl mx-auto">
+        <Card className="overflow-hidden">
           <CardHeader>
             <div className="flex items-start justify-between gap-4 flex-wrap">
               <div>
@@ -213,30 +477,29 @@ export default function NewsletterPage() {
               )}
             </div>
           </CardHeader>
-          <CardContent>
+          <CardContent className="p-0">
             {loading || issueLoading ? (
-              <div className="text-center py-12">
+              <div className="text-center py-12 px-4">
                 <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-[var(--primary)]" />
                 <p className="mt-4 text-[var(--muted)]">Loading...</p>
               </div>
             ) : error ? (
-              <div className="text-center py-12">
+              <div className="text-center py-12 px-4">
                 <p className="text-[var(--danger)]">{error}</p>
               </div>
             ) : newsletterData ? (
               <div>
-                <div className="mb-4 text-sm text-[var(--muted)] flex items-center justify-between gap-3 flex-wrap">
+                <div className="px-4 py-3 text-sm text-[var(--muted)] flex items-center justify-between gap-3 flex-wrap border-b border-[var(--border)]">
                   <span>{newsletterData.newsletter.meta.leagueName} • Season {newsletterData.newsletter.meta.season}</span>
                   <span>Generated {new Date(newsletterData.generatedAt).toLocaleString()}</span>
                 </div>
-                <div
-                  className="newsletter-content"
-                  dangerouslySetInnerHTML={{ __html: newsletterData.html }}
-                  style={{ background: 'transparent' }}
+                <NewsletterFrame
+                  html={newsletterData.html}
+                  title={selectedMeta ? issueTitle(selectedMeta) : 'East v. West Newsletter'}
                 />
               </div>
             ) : (
-              <div className="text-center py-12">
+              <div className="text-center py-12 px-4">
                 <div className="text-6xl mb-4">📰</div>
                 <p className="text-lg font-medium mb-2">No published newsletter yet</p>
                 <p className="text-[var(--muted)]">
