@@ -1,0 +1,13 @@
+/* Mobile navigation must remain usable on short phone viewports and when
+   multiple accordion sections are expanded. The 4rem subtraction matches the
+   fixed 64px navbar header. */
+@media (max-width: 767px) {
+  #mobile-menu {
+    max-height: calc(100dvh - 4rem);
+    overflow-y: auto;
+    overscroll-behavior-y: contain;
+    -webkit-overflow-scrolling: touch;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    scrollbar-gutter: stable;
+  }
+}
