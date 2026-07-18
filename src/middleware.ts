@@ -1,68 +1,27 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { isAdminCookieValue } from '@/lib/auth/admin';
-import { canAccessDraftRoom } from '@/lib/draft/access';
-import { canonicalizeTeamName } from '@/lib/server/user-identity';
 
-// Paths that require a session cookie
+// Paths that require a team session cookie.
 const PROTECTED_PREFIXES = ['/trade-block', '/vote', '/api/trade-block', '/api/votes'];
-
-function base64urlDecode(str: string): string {
-  let b64 = str.replace(/-/g, '+').replace(/_/g, '/');
-  while (b64.length % 4 !== 0) b64 += '=';
-  return atob(b64);
-}
-
-async function getTeamFromSession(token: string): Promise<string | null> {
-  if (!token) return null;
-  const parts = token.split('.');
-  if (parts.length !== 2) return null;
-  const [data, sig] = parts;
-  const secret = process.env.AUTH_SECRET || 'evw-default-auth-secret-change-me';
-  const encoder = new TextEncoder();
-  const key = await crypto.subtle.importKey('raw', encoder.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
-  const signature = await crypto.subtle.sign('HMAC', key, encoder.encode(data));
-  const sigBytes = new Uint8Array(signature);
-  let sigStr = '';
-  for (let i = 0; i < sigBytes.length; i++) sigStr += String.fromCharCode(sigBytes[i]);
-  const expectedSig = btoa(sigStr).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-  if (sig !== expectedSig) return null;
-  try {
-    const json = JSON.parse(base64urlDecode(data));
-    if (typeof json.exp === 'number' && Date.now() > json.exp) return null;
-    return typeof json.team === 'string' ? canonicalizeTeamName(json.team) : null;
-  } catch {
-    return null;
-  }
-}
 
 export async function middleware(req: NextRequest) {
   const { pathname, search } = req.nextUrl;
   const isAdmin = isAdminCookieValue(req.cookies.get('evw_admin')?.value);
   const sessionToken = req.cookies.get('evw_session')?.value || '';
-  const userTeam = await getTeamFromSession(sessionToken);
 
-  // Draft room/overlay: available to admins and every authenticated canonical league team.
-  const isDraftRoomPath = pathname === '/draft/room' || pathname.startsWith('/draft/room/') || pathname === '/draft/overlay';
-  if (isDraftRoomPath) {
-    if (isAdmin) return NextResponse.next();
-    if (!sessionToken) {
-      const url = new URL('/login', req.url);
-      url.searchParams.set('next', pathname + (search || ''));
-      return NextResponse.redirect(url);
-    }
-    if (canAccessDraftRoom(userTeam)) return NextResponse.next();
-    // Invalid or non-league team session.
-    return NextResponse.redirect(new URL('/', req.url));
-  }
+  // The public Draft Room and presentation overlay are intentionally not gated here.
+  // Draft API handlers still require a valid team session for picks, private queues,
+  // trades, and other team-specific or mutating actions.
 
-  // Admin draft page: admin only
+  // Admin draft page: admin only.
   if (pathname === '/admin/draft') {
     if (isAdmin) return NextResponse.next();
     return NextResponse.redirect(new URL('/', req.url));
   }
 
-  // Other protected paths: require session (admins may manage polls via API without a team session)
-  const isProtected = PROTECTED_PREFIXES.some(p => pathname === p || pathname.startsWith(p + '/'));
+  // Other protected paths require a team session. Admins may manage polls via API
+  // without assuming a team identity.
+  const isProtected = PROTECTED_PREFIXES.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
   const isVotesApi = pathname === '/api/votes' || pathname.startsWith('/api/votes/');
   if (isProtected && !sessionToken) {
     if (isAdmin && isVotesApi) return NextResponse.next();
@@ -81,9 +40,6 @@ export const config = {
     '/api/trade-block/:path*',
     '/api/votes',
     '/api/votes/:path*',
-    '/draft/room',
-    '/draft/room/:path*',
-    '/draft/overlay',
     '/admin/draft',
   ],
 };
