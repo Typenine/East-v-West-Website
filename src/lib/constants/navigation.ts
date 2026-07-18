@@ -52,6 +52,13 @@ export const USER_NAV_CONFIG: UserNavItem[] = [
     label: 'Draft',
     children: [
       {
+        id: 'draft.live-room',
+        label: 'Draft Room',
+        href: '/draft/room',
+        description: 'Live clock, picks, and queue',
+        group: 'Live',
+      },
+      {
         id: 'draft.next',
         label: 'Next Draft Hub',
         href: '/draft?view=next',
@@ -70,13 +77,6 @@ export const USER_NAV_CONFIG: UserNavItem[] = [
         label: 'Prospect Draftboards',
         href: '/draft?view=team-prospect-draftboard',
         group: 'Other Drafts',
-      },
-      {
-        id: 'draft.live-room',
-        label: 'Draft Room',
-        href: '/draft/room',
-        description: 'Live clock, picks, and queue',
-        group: 'Live',
       },
     ],
   },
