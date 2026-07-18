@@ -451,7 +451,7 @@ const DraftOverlayLive = forwardRef<DraftInfoBarTickerHandle, DraftOverlayLivePr
   const teamColors = currentTeam?.colors || ['#333', '#555', null];
   const teamLogo = currentTeam ? getTeamLogoPath(currentTeam.name) : null;
   const nextTeamsForClock = (draft?.upcoming || [])
-    .filter((u) => u.team && u.team !== currentTeam?.name)
+    .filter((u) => u.team && u.overall > (draft?.curOverall ?? 0))
     .slice(0, 2)
     .map((u) => ({ name: u.team, logoPath: getTeamLogoPath(u.team) }));
 
