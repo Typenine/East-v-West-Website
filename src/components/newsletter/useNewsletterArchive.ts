@@ -91,19 +91,21 @@ export function useNewsletterArchive() {
         const params = new URLSearchParams(window.location.search);
         const requestedId = params.get('issue') || params.get('id');
         const requestedTitle = params.get('title')?.trim().toLowerCase() || null;
-        const requestedSeason = Number(params.get('season'));
-        const requestedWeek = Number(params.get('week'));
+        const seasonParam = params.get('season');
+        const weekParam = params.get('week');
+        const requestedSeason = seasonParam ? Number(seasonParam) : null;
+        const requestedWeek = weekParam ? Number(weekParam) : null;
         const requestedType = params.get('type');
         const linkedIssue = published.find(item => {
           if (requestedId) return item.id === requestedId;
-          if (Number.isFinite(requestedSeason) && item.season !== requestedSeason) return false;
-          if (Number.isFinite(requestedWeek) && item.week !== requestedWeek) return false;
+          if (requestedSeason !== null && Number.isFinite(requestedSeason) && item.season !== requestedSeason) return false;
+          if (requestedWeek !== null && Number.isFinite(requestedWeek) && item.week !== requestedWeek) return false;
           if (requestedType && resolveNewsletterType(item) !== requestedType) return false;
           if (requestedTitle && item.title?.trim().toLowerCase() !== requestedTitle) return false;
-          return Boolean(requestedTitle || requestedType || Number.isFinite(requestedWeek));
+          return Boolean(requestedTitle || requestedType || (requestedWeek !== null && Number.isFinite(requestedWeek)));
         });
         const initialId = linkedIssue?.id ?? published[0]?.id ?? null;
-        const hasDirectSelector = Boolean(requestedId || requestedTitle || requestedType || Number.isFinite(requestedWeek));
+        const hasDirectSelector = Boolean(requestedId || requestedTitle || requestedType || (requestedWeek !== null && Number.isFinite(requestedWeek)));
 
         if (!cancelled) {
           setCurrentSeason(season);
@@ -139,6 +141,10 @@ export function useNewsletterArchive() {
   const setIssueInUrl = useCallback((id: string | null) => {
     const url = new URL(window.location.href);
     url.searchParams.delete('id');
+    url.searchParams.delete('season');
+    url.searchParams.delete('week');
+    url.searchParams.delete('type');
+    url.searchParams.delete('title');
     if (id) url.searchParams.set('issue', id);
     else url.searchParams.delete('issue');
     window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
