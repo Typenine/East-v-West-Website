@@ -1,0 +1,54 @@
+name: Newsletter Update 5 Save Barrier
+
+on:
+  push:
+    branches:
+      - newsletter-editor-update-5-20260720
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: newsletter-editor-update-5-20260720
+      - name: Wait for active saves before final actions
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('src/app/admin/newsletter/EditorialWorkspace.tsx')
+          text = path.read_text()
+          old = """    if (!resolvedId) return false;
+              if (saveRunningRef.current) return false;
+              if (queueRef.current.size === 0) {
+          """.replace('              ', '')
+          new = """    if (!resolvedId) return false;
+              if (saveRunningRef.current) {
+                const deadline = Date.now() + 20_000;
+                while (saveRunningRef.current && Date.now() < deadline) {
+                  await new Promise(resolve => setTimeout(resolve, 100));
+                }
+                if (saveRunningRef.current) {
+                  setSaveStatus('error');
+                  setSaveError('The current save did not finish. Retry before continuing.');
+                  return false;
+                }
+              }
+              if (queueRef.current.size === 0) {
+          """.replace('              ', '')
+          if old not in text:
+              raise SystemExit('Missing flushSave opening')
+          path.write_text(text.replace(old, new, 1))
+          PY
+      - name: Remove one-time workflow and commit
+        run: |
+          rm .github/workflows/newsletter-update5-save-barrier.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/app/admin/newsletter/EditorialWorkspace.tsx .github/workflows/newsletter-update5-save-barrier.yml
+          git commit -m "Newsletter System Update 5: serialize final editor actions"
+          git push origin HEAD:newsletter-editor-update-5-20260720
