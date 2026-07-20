@@ -1,17 +1,14 @@
-/**
- * Enumerates the editable text fields of each newsletter section.
- *
- * Shared by the Edit Mode UI (to render textareas) and the edit API's
- * consistency sweep (to build the digest of all current text). Pure module —
- * no React, no I/O.
- */
-
 import { joinFieldPath } from './field-path';
+
+export type EditableFieldKind = 'textarea' | 'text' | 'number' | 'select' | 'boolean' | 'string-list';
 
 export interface EditableFieldDef {
   fieldPath: string;
   label: string;
-  bot: 'entertainer' | 'analyst';
+  bot: 'entertainer' | 'analyst' | 'neutral';
+  kind: EditableFieldKind;
+  options?: Array<{ value: string; label: string }>;
+  rows?: number;
 }
 
 export interface EditableSection {
@@ -20,55 +17,133 @@ export interface EditableSection {
   data?: any;
 }
 
-export function getEditableFields(sec: EditableSection): EditableFieldDef[] {
-  const fields: EditableFieldDef[] = [];
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const d = sec.data as any;
-  if (!d) return fields;
+const GRADE_OPTIONS = ['A+', 'A', 'A-', 'B+', 'B', 'B-', 'C+', 'C', 'C-', 'D+', 'D', 'D-', 'F'];
+const CONFIDENCE_OPTIONS = ['high', 'medium', 'low'];
+const TREND_OPTIONS = ['up', 'down', 'steady'];
+
+function personaForKey(key: string, inherited: EditableFieldDef['bot'] = 'neutral'): EditableFieldDef['bot'] {
+  const value = key.toLowerCase();
+  if (value.includes('mason') || value.includes('bot1') || value.includes('entertainer')) return 'entertainer';
+  if (value.includes('westy') || value.includes('bot2') || value.includes('analyst')) return 'analyst';
+  return inherited;
+}
+
+function titleCase(value: string): string {
+  return value
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/\b\w/g, char => char.toUpperCase());
+}
+
+function fieldKind(key: string, value: unknown): Pick<EditableFieldDef, 'kind' | 'options' | 'rows'> {
+  const lower = key.toLowerCase();
+  if (typeof value === 'boolean') return { kind: 'boolean' };
+  if (typeof value === 'number') return { kind: 'number' };
+  if (Array.isArray(value) && value.every(item => typeof item === 'string')) return { kind: 'string-list', rows: 3 };
+  if (/grade$/.test(lower) && typeof value === 'string') {
+    return { kind: 'select', options: GRADE_OPTIONS.map(option => ({ value: option, label: option })) };
+  }
+  if (lower.includes('confidence') && typeof value === 'string') {
+    return { kind: 'select', options: CONFIDENCE_OPTIONS.map(option => ({ value: option, label: titleCase(option) })) };
+  }
+  if (lower === 'trend' && typeof value === 'string') {
+    return { kind: 'select', options: TREND_OPTIONS.map(option => ({ value: option, label: titleCase(option) })) };
+  }
+  if (lower === 'outcome' && typeof value === 'string') {
+    return { kind: 'select', options: ['correct', 'wrong'].map(option => ({ value: option, label: titleCase(option) })) };
+  }
+  if (typeof value === 'string' && (value.length > 100 || /text|analysis|commentary|paragraph|reason|take|reaction|summary|intro|preview|argument|thought|scenario|stakes|breakdown|hype|narrative|verdict|followup/i.test(key))) {
+    return { kind: 'textarea', rows: value.length > 400 ? 8 : 5 };
+  }
+  return { kind: 'text' };
+}
+
+function addField(
+  fields: EditableFieldDef[],
+  seen: Set<string>,
+  path: Array<string | number>,
+  label: string,
+  value: unknown,
+  bot: EditableFieldDef['bot'] = 'neutral',
+): void {
+  const fieldPath = joinFieldPath(path);
+  if (seen.has(fieldPath)) return;
+  seen.add(fieldPath);
+  fields.push({ fieldPath, label, bot, ...fieldKind(String(path[path.length - 1] ?? ''), value) });
+}
+
+function addKnownFields(sec: EditableSection, fields: EditableFieldDef[], seen: Set<string>): void {
+  const d = sec.data;
+  if (d == null) return;
+
+  const add = (path: Array<string | number>, label: string, bot: EditableFieldDef['bot'] = 'neutral') => {
+    let value: unknown = d;
+    for (const segment of path) {
+      if (value == null || typeof value !== 'object') return;
+      value = (value as Record<string | number, unknown>)[segment];
+    }
+    if (value !== undefined && (typeof value !== 'object' || Array.isArray(value))) addField(fields, seen, path, label, value, bot);
+  };
 
   switch (sec.type) {
     case 'Intro':
-      fields.push({ fieldPath: 'bot1_text', label: '🎙️ Mason', bot: 'entertainer' });
-      fields.push({ fieldPath: 'bot2_text', label: '📊 Westy', bot: 'analyst' });
+      add(['bot1_text'], 'Mason', 'entertainer');
+      add(['bot2_text'], 'Westy', 'analyst');
       break;
     case 'FinalWord':
     case 'SpotlightTeam':
     case 'Blurt':
-      fields.push({ fieldPath: 'bot1', label: '🎙️ Mason', bot: 'entertainer' });
-      fields.push({ fieldPath: 'bot2', label: '📊 Westy', bot: 'analyst' });
+      add(['team'], 'Spotlight Team');
+      add(['bot1'], 'Mason', 'entertainer');
+      add(['bot2'], 'Westy', 'analyst');
       break;
-    case 'MockDraft':
-      if (d.mason_intro) fields.push({ fieldPath: 'mason_intro', label: '🎙️ Mason Intro', bot: 'entertainer' });
-      if (d.westy_intro) fields.push({ fieldPath: 'westy_intro', label: '📊 Westy Intro', bot: 'analyst' });
+    case 'PowerRankings':
+      add(['bot1_intro'], 'Mason Introduction', 'entertainer');
+      add(['bot2_intro'], 'Westy Introduction', 'analyst');
+      if (Array.isArray(d.rankings)) {
+        d.rankings.forEach((ranking: Record<string, unknown>, index: number) => {
+          const team = String(ranking.team ?? `Team ${index + 1}`);
+          add(['rankings', index, 'rank'], `${team} — Rank`);
+          add(['rankings', index, 'team'], `${team} — Team`);
+          add(['rankings', index, 'record'], `${team} — Record`);
+          add(['rankings', index, 'pointsFor'], `${team} — Points For`);
+          add(['rankings', index, 'trend'], `${team} — Trend`);
+          add(['rankings', index, 'trendAmount'], `${team} — Trend Amount`);
+          add(['rankings', index, 'bot1_blurb'], `${team} — Mason`, 'entertainer');
+          add(['rankings', index, 'bot2_blurb'], `${team} — Westy`, 'analyst');
+        });
+      }
+      break;
+    case 'Forecast':
+      add(['bot1_matchup_of_the_week'], 'Mason Matchup of the Week', 'entertainer');
+      add(['bot2_matchup_of_the_week'], 'Westy Matchup of the Week', 'analyst');
+      add(['bot1_bold_player'], 'Mason Bold Player', 'entertainer');
+      add(['bot2_bold_player'], 'Westy Bold Player', 'analyst');
       if (Array.isArray(d.picks)) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (d.picks as Array<any>).forEach((pick: Record<string, unknown>, i: number) => {
-          const lbl = `Pick ${(pick.overall as number) ?? i + 1}`;
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          if ((pick.mason as any)?.analysis !== undefined)
-            fields.push({ fieldPath: `picks.${i}.mason.analysis`, label: `🎙️ ${lbl} — Mason`, bot: 'entertainer' });
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          if ((pick.westy as any)?.analysis !== undefined)
-            fields.push({ fieldPath: `picks.${i}.westy.analysis`, label: `📊 ${lbl} — Westy`, bot: 'analyst' });
+        d.picks.forEach((pick: Record<string, unknown>, index: number) => {
+          const matchup = `${pick.team1 ?? 'Team 1'} vs ${pick.team2 ?? 'Team 2'}`;
+          for (const key of ['team1', 'team2', 'bot1_pick', 'bot2_pick', 'confidence_bot1', 'confidence_bot2', 'est_bot1', 'est_bot2', 'note_bot1', 'note_bot2', 'upset_bot1', 'upset_bot2']) {
+            const bot = personaForKey(key);
+            add(['picks', index, key], `${matchup} — ${titleCase(key)}`, bot);
+          }
         });
       }
       break;
     case 'Trades':
       if (Array.isArray(d)) {
-        (d as Array<Record<string, unknown>>).forEach((trade, i) => {
-          // Use team names from the `teams` map if available, else fall back to context
-          const teamsMap = trade.teams as Record<string, unknown> | null | undefined;
-          const teamNames = teamsMap ? Object.keys(teamsMap).join(' / ') : null;
-          const tLabel = `Trade ${i + 1}${teamNames ? ` — ${teamNames}` : trade.context ? ` — ${String(trade.context).slice(0, 40)}` : ''}`;
-          const analysis = trade.analysis as Record<string, Record<string, string>> | undefined;
+        d.forEach((trade: Record<string, unknown>, tradeIndex: number) => {
+          const teams = trade.teams && typeof trade.teams === 'object' ? Object.keys(trade.teams as Record<string, unknown>) : [];
+          const tradeLabel = teams.length ? teams.join(' / ') : `Trade ${tradeIndex + 1}`;
+          add([tradeIndex, 'context'], `${tradeLabel} — Context`);
+          add([tradeIndex, 'debate_line'], `${tradeLabel} — Debate Line`);
+          const analysis = trade.analysis as Record<string, Record<string, unknown>> | undefined;
           if (analysis) {
-            // Team names can contain dots ("Mt. Lebanon Cake Eaters") — joinFieldPath
-            // switches to JSON-array encoding so the segment survives intact.
-            Object.entries(analysis).forEach(([teamKey, ta]) => {
-              if (ta.entertainer_paragraph !== undefined)
-                fields.push({ fieldPath: joinFieldPath([i, 'analysis', teamKey, 'entertainer_paragraph']), label: `🎙️ ${tLabel} [${teamKey}]`, bot: 'entertainer' });
-              if (ta.analyst_paragraph !== undefined)
-                fields.push({ fieldPath: joinFieldPath([i, 'analysis', teamKey, 'analyst_paragraph']), label: `📊 ${tLabel} [${teamKey}]`, bot: 'analyst' });
+            Object.entries(analysis).forEach(([team, result]) => {
+              for (const key of ['entertainer_grade', 'analyst_grade', 'grade', 'deltaText', 'entertainer_paragraph', 'analyst_paragraph']) {
+                if (result[key] !== undefined) add([tradeIndex, 'analysis', team, key], `${tradeLabel} — ${team} — ${titleCase(key)}`, personaForKey(key));
+              }
             });
           }
         });
@@ -76,21 +151,14 @@ export function getEditableFields(sec: EditableSection): EditableFieldDef[] {
       break;
     case 'MatchupRecaps':
       if (Array.isArray(d)) {
-        (d as Array<Record<string, unknown>>).forEach((recap, i) => {
-          const rLabel = `Recap ${i + 1}${recap.winner ? ` — ${recap.winner} vs ${recap.loser}` : ''}`;
-          if (recap.bot1 !== undefined)
-            fields.push({ fieldPath: `${i}.bot1`, label: `🎙️ ${rLabel} — Mason`, bot: 'entertainer' });
-          if (recap.bot2 !== undefined)
-            fields.push({ fieldPath: `${i}.bot2`, label: `📊 ${rLabel} — Westy`, bot: 'analyst' });
-          // Dialogue exchanges
+        d.forEach((recap: Record<string, unknown>, index: number) => {
+          const matchup = `${recap.winner ?? 'Winner'} vs ${recap.loser ?? 'Loser'}`;
+          for (const key of ['winner', 'loser', 'winner_score', 'loser_score', 'bracketLabel', 'bot1', 'bot2']) {
+            if (recap[key] !== undefined) add([index, key], `${matchup} — ${titleCase(key)}`, personaForKey(key));
+          }
           if (Array.isArray(recap.dialogue)) {
-            (recap.dialogue as Array<Record<string, unknown>>).forEach((ex, j) => {
-              const spk = ex.speaker === 'entertainer' ? '🎙️ Mason' : '📊 Westy';
-              fields.push({
-                fieldPath: `${i}.dialogue.${j}.text`,
-                label: `${spk} (Recap ${i + 1} exchange ${j + 1})`,
-                bot: ex.speaker === 'entertainer' ? 'entertainer' : 'analyst',
-              });
+            recap.dialogue.forEach((exchange: Record<string, unknown>, exchangeIndex: number) => {
+              add([index, 'dialogue', exchangeIndex, 'text'], `${matchup} — Exchange ${exchangeIndex + 1}`, exchange.speaker === 'analyst' ? 'analyst' : 'entertainer');
             });
           }
         });
@@ -98,73 +166,111 @@ export function getEditableFields(sec: EditableSection): EditableFieldDef[] {
       break;
     case 'WaiversAndFA':
       if (Array.isArray(d)) {
-        (d as Array<Record<string, unknown>>).forEach((item, i) => {
-          const wLabel = `Waiver ${i + 1}${item.player ? ` — ${item.player}` : ''}`;
-          if (item.bot1 !== undefined)
-            fields.push({ fieldPath: `${i}.bot1`, label: `🎙️ ${wLabel} — Mason`, bot: 'entertainer' });
-          if (item.bot2 !== undefined)
-            fields.push({ fieldPath: `${i}.bot2`, label: `📊 ${wLabel} — Westy`, bot: 'analyst' });
+        d.forEach((item: Record<string, unknown>, index: number) => {
+          const label = String(item.player ?? `Waiver ${index + 1}`);
+          for (const key of ['player', 'team', 'faab_spent', 'coverage_level', 'reasons', 'bot1', 'bot2']) {
+            if (item[key] !== undefined) add([index, key], `${label} — ${titleCase(key)}`, personaForKey(key));
+          }
         });
       }
       break;
     case 'DraftGrades':
-      if (Array.isArray(d?.grades)) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (d.grades as Array<any>).forEach((g: Record<string, unknown>, i: number) => {
-          const gLabel = `${g.team ?? `Team ${i + 1}`} (${g.grade ?? '?'})`;
-          if (g.bot1_analysis !== undefined)
-            fields.push({ fieldPath: `grades.${i}.bot1_analysis`, label: `🎙️ ${gLabel} — Mason`, bot: 'entertainer' });
-          if (g.bot2_analysis !== undefined)
-            fields.push({ fieldPath: `grades.${i}.bot2_analysis`, label: `📊 ${gLabel} — Westy`, bot: 'analyst' });
+      if (Array.isArray(d.grades)) {
+        d.grades.forEach((grade: Record<string, unknown>, index: number) => {
+          const label = String(grade.team ?? `Team ${index + 1}`);
+          for (const key of ['team', 'grade', 'bot1_analysis', 'bot2_analysis']) {
+            if (grade[key] !== undefined) add(['grades', index, key], `${label} — ${titleCase(key)}`, personaForKey(key));
+          }
         });
-        if (d.bot1_summary !== undefined) fields.push({ fieldPath: 'bot1_summary', label: '🎙️ Mason Summary', bot: 'entertainer' });
-        if (d.bot2_summary !== undefined) fields.push({ fieldPath: 'bot2_summary', label: '📊 Westy Summary', bot: 'analyst' });
+      }
+      add(['bot1_summary'], 'Mason Summary', 'entertainer');
+      add(['bot2_summary'], 'Westy Summary', 'analyst');
+      break;
+    case 'MockDraft':
+      add(['mason_intro'], 'Mason Introduction', 'entertainer');
+      add(['westy_intro'], 'Westy Introduction', 'analyst');
+      if (Array.isArray(d.picks)) {
+        d.picks.forEach((pick: Record<string, unknown>, index: number) => {
+          const label = `Pick ${pick.overall ?? index + 1}`;
+          add(['picks', index, 'player'], `${label} — Player`);
+          add(['picks', index, 'team'], `${label} — Team`);
+          add(['picks', index, 'mason', 'analysis'], `${label} — Mason`, 'entertainer');
+          add(['picks', index, 'westy', 'analysis'], `${label} — Westy`, 'analyst');
+        });
       }
       break;
-    default: {
-      const keyMap: Array<[string, string, 'entertainer' | 'analyst']> = [
-        ['bot1_text', '🎙️ Mason', 'entertainer'], ['bot2_text', '📊 Westy', 'analyst'],
-        ['bot1', '🎙️ Mason', 'entertainer'], ['bot2', '📊 Westy', 'analyst'],
-        ['mason_intro', '🎙️ Mason Intro', 'entertainer'], ['westy_intro', '📊 Westy Intro', 'analyst'],
-        ['bot1_summary', '🎙️ Mason Summary', 'entertainer'], ['bot2_summary', '📊 Westy Summary', 'analyst'],
-        ['bot1_analysis', '🎙️ Mason Analysis', 'entertainer'], ['bot2_analysis', '📊 Westy Analysis', 'analyst'],
-        ['bot1_preview', '🎙️ Mason Preview', 'entertainer'], ['bot2_preview', '📊 Westy Preview', 'analyst'],
-        ['bot1_coronation', '🎙️ Mason', 'entertainer'], ['bot2_coronation', '📊 Westy', 'analyst'],
-        ['bot1_finalThoughts', '🎙️ Mason Final Thoughts', 'entertainer'], ['bot2_finalThoughts', '📊 Westy Final Thoughts', 'analyst'],
-        ['entertainer_commentary', '🎙️ Mason Commentary', 'entertainer'], ['analyst_commentary', '📊 Westy Commentary', 'analyst'],
-      ];
-      for (const [key, label, bot] of keyMap) {
-        if (typeof d[key] === 'string' && d[key]) fields.push({ fieldPath: key, label, bot });
-      }
+    case 'ClancyInsert':
+      add(['label'], 'Clancy Label');
+      add(['text'], 'Clancy Text');
+      add(['teams'], 'Teams Referenced');
       break;
-    }
+    default:
+      break;
   }
+}
+
+const SKIP_KEYS = new Set([
+  'id', 'event_id', 'matchup_id', 'trade_id', 'saved_at', 'generatedAt', 'generated_at', 'createdAt', 'created_at',
+  'publishedAt', 'published_at', 'updatedAt', 'updated_at', 'url', 'playerId', 'player_id', 'runId', 'run_id',
+]);
+
+function walkFallback(
+  value: unknown,
+  path: Array<string | number>,
+  labels: string[],
+  fields: EditableFieldDef[],
+  seen: Set<string>,
+  inheritedBot: EditableFieldDef['bot'] = 'neutral',
+  depth = 0,
+): void {
+  if (depth > 7 || value == null) return;
+  const lastKey = String(path[path.length - 1] ?? '');
+  const bot = personaForKey(lastKey, inheritedBot);
+
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean' || (Array.isArray(value) && value.every(item => typeof item === 'string'))) {
+    if (!SKIP_KEYS.has(lastKey) && !lastKey.startsWith('_')) {
+      addField(fields, seen, path, labels.join(' — '), value, bot);
+    }
+    return;
+  }
+
+  if (Array.isArray(value)) {
+    value.forEach((entry, index) => {
+      const itemLabel = typeof entry === 'object' && entry !== null
+        ? String((entry as Record<string, unknown>).team ?? (entry as Record<string, unknown>).player ?? (entry as Record<string, unknown>).subject ?? `Item ${index + 1}`)
+        : `Item ${index + 1}`;
+      walkFallback(entry, [...path, index], [...labels, itemLabel], fields, seen, bot, depth + 1);
+    });
+    return;
+  }
+
+  if (typeof value === 'object') {
+    Object.entries(value as Record<string, unknown>).forEach(([key, child]) => {
+      if (SKIP_KEYS.has(key) || key.startsWith('_')) return;
+      walkFallback(child, [...path, key], [...labels, titleCase(key)], fields, seen, personaForKey(key, bot), depth + 1);
+    });
+  }
+}
+
+export function getEditableFields(sec: EditableSection): EditableFieldDef[] {
+  const fields: EditableFieldDef[] = [];
+  const seen = new Set<string>();
+  if (sec.data == null) return fields;
+  addKnownFields(sec, fields, seen);
+  walkFallback(sec.data, [], [titleCase(sec.type)], fields, seen);
   return fields;
 }
 
-/**
- * Trade grade fields (letter grades) for the consistency sweep — grades are
- * not free-text fields in the editor, but a factual correction to a trade
- * write-up can invalidate them, so the sweep may propose new values.
- */
 export function getTradeGradeFields(sec: EditableSection): Array<{ fieldPath: string; label: string; current: string }> {
-  const out: Array<{ fieldPath: string; label: string; current: string }> = [];
-  if (sec.type !== 'Trades' || !Array.isArray(sec.data)) return out;
-  (sec.data as Array<Record<string, unknown>>).forEach((trade, i) => {
-    const analysis = trade.analysis as Record<string, Record<string, string>> | undefined;
-    if (!analysis) return;
-    Object.entries(analysis).forEach(([teamKey, ta]) => {
-      for (const gradeKey of ['entertainer_grade', 'analyst_grade'] as const) {
-        const v = ta[gradeKey];
-        if (typeof v === 'string' && /^[A-F][+-]?$/i.test(v.trim())) {
-          out.push({
-            fieldPath: joinFieldPath([i, 'analysis', teamKey, gradeKey]),
-            label: `Trade ${i + 1} [${teamKey}] ${gradeKey === 'entertainer_grade' ? 'Mason' : 'Westy'} grade`,
-            current: v,
-          });
-        }
+  return getEditableFields(sec)
+    .filter(field => field.kind === 'select' && field.options?.some(option => option.value === 'A+'))
+    .map(field => {
+      const segments = field.fieldPath.startsWith('[') ? JSON.parse(field.fieldPath) as Array<string | number> : field.fieldPath.split('.');
+      let value: unknown = sec.data;
+      for (const segment of segments) {
+        if (value == null || typeof value !== 'object') break;
+        value = (value as Record<string | number, unknown>)[segment];
       }
+      return { fieldPath: field.fieldPath, label: field.label, current: String(value ?? '') };
     });
-  });
-  return out;
 }
