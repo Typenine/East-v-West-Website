@@ -24,6 +24,13 @@ def main() -> None:
     code_lines = [line[len(YAML_INDENT):] if line.startswith(YAML_INDENT) else line for line in lines[start:end]]
     code = '\n'.join(code_lines) + '\n'
 
+    # Normalize minor source wording that changed after the patch payload was
+    # prepared but does not affect the target code structure.
+    code = code.replace(
+        '// Seed the player name cache so derive.ts can resolve player IDs',
+        '// Seed the player name cache so derive.ts can resolve IDs',
+    )
+
     print('[post-draft-readiness] Applying staged post-draft source updates...')
     namespace = {'__name__': '__main__', '__file__': str(PATCH_SOURCE)}
     exec(compile(code, str(PATCH_SOURCE), 'exec'), namespace, namespace)
