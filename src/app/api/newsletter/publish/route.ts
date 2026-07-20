@@ -10,11 +10,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { and, desc, eq } from 'drizzle-orm';
 import { isAdminCookieValue } from '@/lib/auth/admin';
-import {
-  loadNewsletter,
-  loadNewsletterById,
-  publishNewsletter,
-} from '@/server/db/newsletter-queries';
+import { loadNewsletter, loadNewsletterById, publishNewsletter } from '@/server/db/newsletter-queries';
 import {
   buildNewsletterEmbed,
   buildNewsletterUrl,
@@ -36,19 +32,11 @@ async function isAdmin(): Promise<boolean> {
 }
 
 function resolvePublicSiteUrl(req: NextRequest): string {
-  const configured = normalizeSiteUrl(
-    process.env.NEXT_PUBLIC_SITE_URL
-      || process.env.SITE_URL
-      || 'https://east-v-west.com',
-  );
+  const configured = normalizeSiteUrl(process.env.NEXT_PUBLIC_SITE_URL || process.env.SITE_URL || 'https://east-v-west.com');
   const forwardedHost = req.headers.get('x-forwarded-host') || req.headers.get('host');
   const forwardedProto = req.headers.get('x-forwarded-proto') || 'https';
-  const requestOrigin = normalizeSiteUrl(
-    forwardedHost ? `${forwardedProto}://${forwardedHost}` : req.nextUrl.origin,
-  );
-  return requestOrigin.endsWith('.vercel.app') || requestOrigin.includes('localhost')
-    ? configured
-    : requestOrigin;
+  const requestOrigin = normalizeSiteUrl(forwardedHost ? `${forwardedProto}://${forwardedHost}` : req.nextUrl.origin);
+  return requestOrigin.endsWith('.vercel.app') || requestOrigin.includes('localhost') ? configured : requestOrigin;
 }
 
 async function sleep(ms: number): Promise<void> {
@@ -72,6 +60,53 @@ async function postDiscordWithRetry(
     }
   }
   return { success: false, error: lastError };
+}
+
+function pendingKey(newsletterId: string): string {
+  return `newsletter-pending:${newsletterId}`;
+}
+
+async function clearPendingRetry(newsletterId: string): Promise<void> {
+  const db = getDb();
+  await db.delete(discordNotifications).where(and(
+    eq(discordNotifications.notificationType, 'newsletter_published'),
+    eq(discordNotifications.dedupeKey, pendingKey(newsletterId)),
+  )).catch(() => {});
+}
+
+async function markPendingRetry(input: {
+  newsletterId: string;
+  season: number;
+  week: number;
+  episodeType: string;
+  publicUrl: string;
+  error: string;
+}): Promise<void> {
+  const db = getDb();
+  const key = pendingKey(input.newsletterId);
+  const existing = await db.select({ id: discordNotifications.id })
+    .from(discordNotifications)
+    .where(and(
+      eq(discordNotifications.notificationType, 'newsletter_published'),
+      eq(discordNotifications.dedupeKey, key),
+    ))
+    .limit(1)
+    .catch(() => []);
+  if (existing.length > 0) return;
+  await db.insert(discordNotifications).values({
+    notificationType: 'newsletter_published',
+    dedupeKey: key,
+    meta: {
+      state: 'pending_retry',
+      newsletterId: input.newsletterId,
+      season: input.season,
+      week: input.week,
+      episodeType: input.episodeType,
+      publicUrl: input.publicUrl,
+      error: input.error,
+      queuedAt: new Date().toISOString(),
+    },
+  }).catch(() => {});
 }
 
 /** Verify the production newsletter webhook without posting anything. */
@@ -98,6 +133,7 @@ type PublishBody = {
   id?: string;
   sendDiscord?: boolean;
   resendDiscord?: boolean;
+  /** Legacy identity fallback only. Exact-ID publishing always uses stored finalized HTML. */
   html?: string;
 };
 
@@ -123,17 +159,14 @@ export async function POST(req: NextRequest) {
     const db = getDb();
     let target = body.id ? await loadNewsletterById(body.id) : null;
 
+    // Legacy callers may not know the immutable ID. Their HTML may identify the
+    // row, but it is never trusted as the content to publish.
     if (!target && body.html) {
-      const exactRows = await db
-        .select({ id: newsletters.id })
-        .from(newsletters)
-        .where(and(
-          eq(newsletters.season, seasonNum),
-          eq(newsletters.week, requestedWeek),
-          eq(newsletters.html, body.html),
-        ))
-        .orderBy(desc(newsletters.generatedAt))
-        .limit(1);
+      const exactRows = await db.select({ id: newsletters.id }).from(newsletters).where(and(
+        eq(newsletters.season, seasonNum),
+        eq(newsletters.week, requestedWeek),
+        eq(newsletters.html, body.html),
+      )).orderBy(desc(newsletters.generatedAt)).limit(1);
       if (exactRows[0]?.id) target = await loadNewsletterById(exactRows[0].id);
     }
 
@@ -151,16 +184,13 @@ export async function POST(req: NextRequest) {
     const episodeType = target.episodeType || 'regular';
     const publicWeek = EPISODE_WEEK_STORAGE[episodeType] ?? target.week;
     if (target.week !== publicWeek) {
-      await db.update(newsletters)
-        .set({ week: publicWeek, updatedAt: new Date() })
-        .where(eq(newsletters.id, target.id));
+      await db.update(newsletters).set({ week: publicWeek, updatedAt: new Date() }).where(eq(newsletters.id, target.id));
       target = { ...target, week: publicWeek };
     }
 
-    const { found, alreadyPublished } = await publishNewsletter(target.season, target.week, {
-      id: target.id,
-      html: body.html,
-    });
+    // The editor has already saved and finalized the exact row. Reading its HTML
+    // from the database prevents a stale React closure from overwriting that work.
+    const { found, alreadyPublished } = await publishNewsletter(target.season, target.week, { id: target.id });
     if (!found) return NextResponse.json({ error: 'Newsletter disappeared before it could be published.' }, { status: 409 });
 
     console.log(`[Publish] ${target.id} published. episode=${episodeType} sendDiscord=${sendDiscord}`);
@@ -171,29 +201,25 @@ export async function POST(req: NextRequest) {
     const siteUrl = resolvePublicSiteUrl(req);
     const publicUrl = buildNewsletterUrl(siteUrl, target.id);
 
-    if (sendDiscord) {
+    if (!sendDiscord) {
+      // An intentional skip must never be picked up by the scheduled recovery job.
+      await clearPendingRetry(target.id);
+    } else {
       const webhookUrl = process.env.DISCORD_NEWSLETTER_WEBHOOK_URL;
       if (!webhookUrl) {
         discordStatus = 'not_configured';
         discordSkippedReason = 'DISCORD_NEWSLETTER_WEBHOOK_URL is not configured';
+        await markPendingRetry({ newsletterId: target.id, season: target.season, week: target.week, episodeType, publicUrl, error: discordSkippedReason });
       } else {
         const dedupeKey = `newsletter:${target.id}`;
-        const existing = resendDiscord
-          ? []
-          : await db.select()
-              .from(discordNotifications)
-              .where(and(
-                eq(discordNotifications.notificationType, 'newsletter_published'),
-                eq(discordNotifications.dedupeKey, dedupeKey),
-              ))
-              .limit(1)
-              .catch(() => []);
+        const existing = resendDiscord ? [] : await db.select().from(discordNotifications).where(and(
+          eq(discordNotifications.notificationType, 'newsletter_published'),
+          eq(discordNotifications.dedupeKey, dedupeKey),
+        )).limit(1).catch(() => []);
 
         if (existing.length > 0) {
-          await db.update(newsletters)
-            .set({ discordPostedAt: new Date(), updatedAt: new Date() })
-            .where(eq(newsletters.id, target.id))
-            .catch(() => {});
+          await db.update(newsletters).set({ discordPostedAt: existing[0].postedAt, updatedAt: new Date() }).where(eq(newsletters.id, target.id)).catch(() => {});
+          await clearPendingRetry(target.id);
           discordStatus = 'already_posted';
           discordSkippedReason = 'already posted (dedupe)';
         } else {
@@ -207,26 +233,21 @@ export async function POST(req: NextRequest) {
           });
           const result = await postDiscordWithRetry(webhookUrl, { embeds: [embed] });
           if (result.success) {
+            const postedAt = new Date();
             await db.insert(discordNotifications).values({
               notificationType: 'newsletter_published',
               dedupeKey,
-              meta: {
-                newsletterId: target.id,
-                season: target.season,
-                week: target.week,
-                episodeType,
-                publicUrl,
-              },
+              postedAt,
+              meta: { newsletterId: target.id, season: target.season, week: target.week, episodeType, publicUrl },
             }).catch(() => {});
-            await db.update(newsletters)
-              .set({ discordPostedAt: new Date(), updatedAt: new Date() })
-              .where(eq(newsletters.id, target.id))
-              .catch(() => {});
+            await db.update(newsletters).set({ discordPostedAt: postedAt, updatedAt: postedAt }).where(eq(newsletters.id, target.id)).catch(() => {});
+            await clearPendingRetry(target.id);
             discordPosted = true;
             discordStatus = 'posted';
           } else {
             discordStatus = 'pending_retry';
             discordSkippedReason = `Discord announcement pending retry: ${result.error ?? 'unknown error'}`;
+            await markPendingRetry({ newsletterId: target.id, season: target.season, week: target.week, episodeType, publicUrl, error: discordSkippedReason });
             console.warn(`[Publish] ${target.id} is public, Discord pending retry: ${discordSkippedReason}`);
           }
         }
@@ -244,7 +265,7 @@ export async function POST(req: NextRequest) {
         ? 'Newsletter published successfully. Discord had already been announced, so no duplicate was sent.'
         : discordStatus === 'posted'
           ? 'Newsletter published successfully and announced to Discord.'
-          : 'Newsletter published successfully. The Discord announcement is pending and can be retried without republishing.';
+          : 'Newsletter published successfully. The Discord announcement is pending and will be retried automatically.';
 
     return NextResponse.json({
       success: true,
