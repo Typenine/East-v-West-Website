@@ -2,7 +2,7 @@
   "crons": [
     {
       "path": "/api/newsletter/discord-retry",
-      "schedule": "0 * * * *"
+      "schedule": "0 12 * * *"
     },
     {
       "path": "/api/lineups/snapshot/cron",
