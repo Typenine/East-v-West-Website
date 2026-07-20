@@ -406,7 +406,17 @@ export default function EditorialWorkspace({
 
   const flushSave = useCallback(async (): Promise<boolean> => {
     if (!resolvedId) return false;
-    if (saveRunningRef.current) return false;
+    if (saveRunningRef.current) {
+      const deadline = Date.now() + 20_000;
+      while (saveRunningRef.current && Date.now() < deadline) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+      if (saveRunningRef.current) {
+        setSaveStatus('error');
+        setSaveError('The current save did not finish. Retry before continuing.');
+        return false;
+      }
+    }
     if (queueRef.current.size === 0) {
       setSaveStatus('saved');
       return true;
