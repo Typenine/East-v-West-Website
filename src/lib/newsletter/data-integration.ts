@@ -214,7 +214,7 @@ export async function fetchComprehensiveLeagueData(): Promise<ComprehensiveLeagu
     franchises,
     weeklyHighTally,
     splitRecords,
-    topScoringWeeks: allScoringWeeks.slice(0, 50),
+    allScoringWeeks,
     h2hData,
     allTrades,
   ] = await Promise.all([
@@ -312,7 +312,7 @@ export async function fetchComprehensiveLeagueData(): Promise<ComprehensiveLeagu
       longestLosingStreak: recordBook?.longestLosingStreak || null,
     },
     h2h: h2hData,
-    topScoringWeeks,
+    topScoringWeeks: allScoringWeeks.slice(0, 50),
     weeklyHighLeaders: weeklyHighTally,
     allTrades,
     fetchedAt: new Date().toISOString(),
