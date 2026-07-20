@@ -418,6 +418,7 @@ export default function EditorialWorkspace({
     setSaveStatus('saving');
     setSaveError(null);
 
+    let completed = false;
     try {
       const response = await fetch('/api/newsletter/editor', {
         method: 'POST',
@@ -468,6 +469,7 @@ export default function EditorialWorkspace({
       });
       persistBrowserDraft();
       setSaveStatus(queueRef.current.size > 0 ? 'dirty' : 'saved');
+      completed = true;
       return true;
     } catch (error) {
       batch.forEach(([key, edit]) => { if (!queueRef.current.has(key)) queueRef.current.set(key, edit); });
@@ -477,7 +479,7 @@ export default function EditorialWorkspace({
       return false;
     } finally {
       saveRunningRef.current = false;
-      if (queueRef.current.size > 0) {
+      if (completed && queueRef.current.size > 0) {
         if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
         saveTimerRef.current = setTimeout(() => { void flushSave(); }, 250);
       }
