@@ -158,6 +158,47 @@ export interface ComprehensiveLeagueData {
   fetchedAt: string;
 }
 
+interface TeamStreakProfile {
+  longestWinStreak: number;
+  longestLosingStreak: number;
+  currentStreak: { type: 'W' | 'L'; count: number } | null;
+}
+
+function calculateTeamStreaks(weeks: TopScoringWeekEntry[]): TeamStreakProfile {
+  const chronological = [...weeks].sort((a, b) => {
+    const seasonDelta = Number(a.year) - Number(b.year);
+    return seasonDelta !== 0 ? seasonDelta : a.week - b.week;
+  });
+  let currentType: 'W' | 'L' | null = null;
+  let currentCount = 0;
+  let longestWinStreak = 0;
+  let longestLosingStreak = 0;
+
+  for (const game of chronological) {
+    const result: 'W' | 'L' | 'T' = game.points > game.opponentPoints
+      ? 'W'
+      : game.points < game.opponentPoints ? 'L' : 'T';
+    if (result === 'T') {
+      currentType = null;
+      currentCount = 0;
+      continue;
+    }
+    if (currentType === result) currentCount += 1;
+    else {
+      currentType = result;
+      currentCount = 1;
+    }
+    if (result === 'W') longestWinStreak = Math.max(longestWinStreak, currentCount);
+    else longestLosingStreak = Math.max(longestLosingStreak, currentCount);
+  }
+
+  return {
+    longestWinStreak,
+    longestLosingStreak,
+    currentStreak: currentType ? { type: currentType, count: currentCount } : null,
+  };
+}
+
 // ============ Data Fetching ============
 
 /**
@@ -173,7 +214,7 @@ export async function fetchComprehensiveLeagueData(): Promise<ComprehensiveLeagu
     franchises,
     weeklyHighTally,
     splitRecords,
-    topScoringWeeks,
+    topScoringWeeks: allScoringWeeks.slice(0, 50),
     h2hData,
     allTrades,
   ] = await Promise.all([
@@ -181,12 +222,12 @@ export async function fetchComprehensiveLeagueData(): Promise<ComprehensiveLeagu
     getFranchisesAllTime().catch(e => { console.warn('Failed to fetch franchises:', e); return [] as FranchiseSummary[]; }),
     getWeeklyHighScoreTallyAcrossSeasons().catch(e => { console.warn('Failed to fetch weekly highs:', e); return {} as Record<string, number>; }),
     getSplitRecordsAllTime().catch(e => { console.warn('Failed to fetch split records:', e); return {} as Record<string, { teamName: string; regular: SplitRecord; playoffs: SplitRecord; toilet: SplitRecord }>; }),
-    getTopScoringWeeksAllTime({ category: 'all', top: 50 }).catch(e => { console.warn('Failed to fetch top weeks:', e); return [] as TopScoringWeekEntry[]; }),
+    getTopScoringWeeksAllTime({ category: 'all', top: 2000 }).catch(e => { console.warn('Failed to fetch scoring history:', e); return [] as TopScoringWeekEntry[]; }),
     getHeadToHeadAllTime().catch(e => { console.warn('Failed to fetch H2H:', e); return { teams: [], matrix: {}, neverBeaten: [] } as H2HResult; }),
     fetchTradesAllTime().catch(e => { console.warn('Failed to fetch trades:', e); return [] as Trade[]; }),
   ]);
 
-  console.log(`[DataIntegration] Fetched: ${franchises.length} franchises, ${allTrades.length} trades, ${topScoringWeeks.length} top weeks`);
+  console.log(`[DataIntegration] Fetched: ${franchises.length} franchises, ${allTrades.length} trades, ${allScoringWeeks.length} scored team-weeks`);
 
   // Build team profiles
   const teams: Record<string, TeamProfile> = {};
@@ -210,9 +251,10 @@ export async function fetchComprehensiveLeagueData(): Promise<ComprehensiveLeagu
       .map(([year]) => parseInt(year));
     
     // Find highest/lowest single week for this team
-    const teamTopWeeks = topScoringWeeks.filter(w => w.teamName === teamName);
-    const highestWeek = teamTopWeeks.length > 0 ? teamTopWeeks[0] : null;
-    const lowestWeek = teamTopWeeks.length > 0 ? teamTopWeeks[teamTopWeeks.length - 1] : null;
+    const teamWeeks = allScoringWeeks.filter(w => w.teamName === teamName);
+    const highestWeek = teamWeeks.reduce<TopScoringWeekEntry | null>((best, entry) => !best || entry.points > best.points ? entry : best, null);
+    const lowestWeek = teamWeeks.reduce<TopScoringWeekEntry | null>((best, entry) => !best || entry.points < best.points ? entry : best, null);
+    const streaks = calculateTeamStreaks(teamWeeks);
     
     teams[teamName] = {
       name: teamName,
@@ -250,9 +292,9 @@ export async function fetchComprehensiveLeagueData(): Promise<ComprehensiveLeagu
       avgPointsPerGame: franchise?.avgPF || 0,
       highestSingleWeek: highestWeek ? { points: highestWeek.points, week: highestWeek.week, season: parseInt(highestWeek.year) } : null,
       lowestSingleWeek: lowestWeek ? { points: lowestWeek.points, week: lowestWeek.week, season: parseInt(lowestWeek.year) } : null,
-      longestWinStreak: 0, // Would need to calculate from matchup history
-      longestLosingStreak: 0,
-      currentStreak: null,
+      longestWinStreak: streaks.longestWinStreak,
+      longestLosingStreak: streaks.longestLosingStreak,
+      currentStreak: streaks.currentStreak,
       totalTrades: teamTrades.length,
       recentTrades: teamTrades.slice(0, 5),
     };

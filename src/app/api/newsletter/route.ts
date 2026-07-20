@@ -58,6 +58,7 @@ import { buildPickOwnershipContext, enrichDerivedTradePickLabels, buildLeagueRos
 import { getHeadToHeadAllTime } from '@/lib/utils/headtohead';
 import { fetchTradesAllTime } from '@/lib/utils/trades';
 import { buildOffseasonTradeFacts, buildOffseasonTradesContextBlock, type OffseasonTradeFact } from '@/lib/newsletter/offseason-trades';
+import { getNflByeTeams } from '@/lib/newsletter/nfl-byes';
 import type { BotSettingsRow } from '@/server/db/personality-queries';
 // NOTE: Discord/DB-write imports were removed — generation no longer posts to Discord
 // or writes published rows. The Discord announcement lives in /api/newsletter/publish.
@@ -143,24 +144,6 @@ async function getExtendedRosters(leagueId: string): Promise<ExtendedRoster[]> {
   return fetchJson(`${SLEEPER_API}/league/${leagueId}/rosters`);
 }
 
-// NFL bye weeks by week number (2025 season - update annually)
-const NFL_BYE_WEEKS: Record<number, string[]> = {
-  5: ['DET', 'LAC'],
-  6: ['KC', 'LAR', 'MIA', 'MIN'],
-  7: ['CHI', 'DAL'],
-  8: [],
-  9: ['CLE', 'GB', 'LV', 'SEA'],
-  10: ['ARI', 'CAR', 'NYG', 'TB'],
-  11: ['ATL', 'IND', 'NE', 'NO'],
-  12: ['BAL', 'CIN', 'JAX', 'NYJ'],
-  13: ['BUF', 'PIT', 'SF', 'WAS'],
-  14: ['DEN', 'HOU', 'PHI', 'TEN'],
-};
-
-function getByeTeamsForWeek(week: number): string[] {
-  return NFL_BYE_WEEKS[week] || [];
-}
-
 function toBotBrainOverride(settings: BotSettingsRow): BotBrainOverride {
   const override: BotBrainOverride = {};
 
@@ -234,7 +217,7 @@ async function buildEnhancedContextFull(
       return { name, wins, losses, pointsFor: fpts };
     });
 
-    const byeTeams = getByeTeamsForWeek(week);
+    const byeTeams = await getNflByeTeams(season, week);
 
     // ============ IMPROVEMENT 2: H2H Data Integration ============
     let h2hContext: { notableH2H: string[] } = { notableH2H: [] };
