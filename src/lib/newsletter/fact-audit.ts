@@ -1,17 +1,9 @@
 /**
- * Fact-Audit Pass
+ * Newsletter fact audit.
  *
- * Post-generation LLM pass that extracts factual claims from a staged
- * newsletter (scores, records, projections, transactions) and classifies
- * each by risk so a human can spot-check the high-risk ones before publish.
- *
- * Uses Gemini Flash (2.5, falling back to 2.0) — cheap, fast, and a
- * different model family than the one that wrote the content, which makes
- * it less likely to rubber-stamp its own hallucinations.
- *
- * Advisory-only by design: never blocks publish, never edits content.
- * The result is stored on the generation run (generation_runs.fact_audit)
- * and surfaced in the admin editor.
+ * The model extracts claims, while verification is deterministic against the
+ * frozen run context and the newsletter section's structured source fields.
+ * This avoids a second model merely grading the prose produced by the first.
  */
 
 import { generateWithGeminiProvider } from './llm/providers/gemini-provider';
@@ -20,146 +12,275 @@ import { extractText } from './coverage-report';
 
 export type ClaimType = 'score' | 'record' | 'projection' | 'stat' | 'transaction' | 'other';
 export type ClaimRisk = 'high' | 'medium' | 'low';
+export type VerificationStatus = 'supported' | 'contradicted' | 'unverified' | 'not_applicable';
 
 export interface FactClaim {
-  /** Section type the claim came from (e.g. "recaps", "powerRankings") */
   section: string;
-  /** The claim text, quoted or closely paraphrased from the newsletter */
   claim: string;
   type: ClaimType;
   risk: ClaimRisk;
-  /** Why the auditor flagged this risk level */
   reason: string;
+  verification: VerificationStatus;
+  evidence?: string;
+  unsupportedNumbers?: string[];
+  unsupportedEntities?: string[];
 }
 
 export interface FactAuditResult {
   claims: FactClaim[];
   highRiskCount: number;
   mediumRiskCount: number;
+  supportedCount: number;
+  contradictedCount: number;
+  unverifiedCount: number;
+  blockingContradictions: FactClaim[];
   sectionsAudited: number;
   model: string;
   generatedAt: string;
-  /** Set when the audit itself failed — claims will be empty */
+  referenceChars: number;
   error?: string;
 }
 
-// Keep the prompt within Gemini Flash's comfortable context and our token budget.
+export interface FactAuditOptions {
+  /** Frozen generation context captured at job start. */
+  referenceText?: string;
+}
+
 const MAX_SECTION_CHARS = 6_000;
 const MAX_TOTAL_CHARS = 40_000;
+const MAX_REFERENCE_CHARS = 80_000;
 
-const AUDIT_SYSTEM_PROMPT = `You are a meticulous fact-checking assistant for a fantasy football newsletter.
-Your job is to EXTRACT and CLASSIFY factual claims — not to verify them against external data.
+const AUDIT_SYSTEM_PROMPT = `You extract factual claims from a fantasy football newsletter.
+Do not verify them. Verification will be performed by deterministic code against the frozen source packet.
 
-For each verifiable factual claim in the newsletter, output:
-- "section": the section name it appears in (given in the input headers)
-- "claim": the claim, quoted or closely paraphrased (max 200 chars)
-- "type": one of "score" (game/matchup scores), "record" (W-L records, standings), "projection" (predicted outcomes/points), "stat" (player stats, points scored), "transaction" (trades, waivers, draft picks), "other"
-- "risk": one of:
-    "high"   — specific numbers or named outcomes that would embarrass the newsletter if wrong (exact scores, exact records, specific stat lines, trade details)
-    "medium" — directional or rounded claims (roughly correct numbers, "top-3", "winless streak")
-    "low"    — opinion-adjacent or trivially safe claims
-- "reason": one short sentence on why you assigned that risk
+For each verifiable claim output:
+- section
+- claim (max 200 characters)
+- type: score, record, projection, stat, transaction, or other
+- risk: high for exact scores/records/stats/trade details; medium for rounded/ranked/directional facts; low for safe context
+- reason: why the claim is fact-sensitive
 
 Skip pure opinion, jokes, and predictions clearly framed as speculation.
-Output ONLY a JSON array of claim objects. No markdown fences, no commentary. If there are no claims, output [].`;
+Output ONLY a JSON array. No markdown.`;
 
-/** Strip markdown fences and find the outermost JSON array. */
-function parseClaimsJson(raw: string): FactClaim[] {
+const COMMENTARY_KEYS = new Set([
+  'bot1', 'bot2', 'bot1_text', 'bot2_text', 'entertainer', 'analyst',
+  'entertainer_paragraph', 'analyst_paragraph', 'commentary', 'analysis',
+  'dialogue', 'take', 'reasoning', 'raw', 'text', 'summary', 'note_bot1', 'note_bot2',
+]);
+
+function parseClaimsJson(raw: string): Array<Omit<FactClaim, 'verification' | 'evidence'>> {
   let text = raw.trim();
   const fenceMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/);
   if (fenceMatch) text = fenceMatch[1].trim();
-
   const start = text.indexOf('[');
   const end = text.lastIndexOf(']');
   if (start === -1 || end === -1 || end <= start) return [];
 
   const parsed = JSON.parse(text.slice(start, end + 1)) as unknown;
   if (!Array.isArray(parsed)) return [];
-
   const validTypes = new Set<string>(['score', 'record', 'projection', 'stat', 'transaction', 'other']);
   const validRisks = new Set<string>(['high', 'medium', 'low']);
-
   return parsed
-    .filter((c): c is Record<string, unknown> => c != null && typeof c === 'object')
-    .map((c) => ({
-      section: String(c.section ?? 'unknown').slice(0, 128),
-      claim: String(c.claim ?? '').slice(0, 300),
-      type: (validTypes.has(String(c.type)) ? String(c.type) : 'other') as ClaimType,
-      risk: (validRisks.has(String(c.risk)) ? String(c.risk) : 'medium') as ClaimRisk,
-      reason: String(c.reason ?? '').slice(0, 300),
+    .filter((value): value is Record<string, unknown> => value != null && typeof value === 'object')
+    .map(value => ({
+      section: String(value.section ?? 'unknown').slice(0, 128),
+      claim: String(value.claim ?? '').slice(0, 300),
+      type: (validTypes.has(String(value.type)) ? String(value.type) : 'other') as ClaimType,
+      risk: (validRisks.has(String(value.risk)) ? String(value.risk) : 'medium') as ClaimRisk,
+      reason: String(value.reason ?? '').slice(0, 300),
     }))
-    .filter((c) => c.claim.length > 0);
+    .filter(value => value.claim.length > 0);
 }
 
-/**
- * Run the fact-audit over assembled newsletter sections.
- * Never throws — failures come back as a result with `error` set.
- */
+function collectStructuredFacts(value: unknown, path = '', depth = 0): string[] {
+  if (depth > 8 || value == null) return [];
+  if (typeof value === 'number' || typeof value === 'boolean') return [`${path}: ${String(value)}`];
+  if (typeof value === 'string') {
+    if (!value.trim() || value.length > 800) return [];
+    return [`${path}: ${value.trim()}`];
+  }
+  if (Array.isArray(value)) {
+    return value.flatMap((entry, index) => collectStructuredFacts(entry, `${path}[${index}]`, depth + 1));
+  }
+  if (typeof value === 'object') {
+    return Object.entries(value as Record<string, unknown>)
+      .filter(([key]) => !key.startsWith('_') && !COMMENTARY_KEYS.has(key))
+      .flatMap(([key, child]) => collectStructuredFacts(child, path ? `${path}.${key}` : key, depth + 1));
+  }
+  return [];
+}
+
+function normalize(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[’‘]/g, "'")
+    .replace(/[^a-z0-9.'\s-]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function numberVariants(token: string): string[] {
+  const parsed = Number(token.replace(/,/g, ''));
+  if (!Number.isFinite(parsed)) return [token];
+  const variants = new Set<string>([token, String(parsed)]);
+  variants.add(parsed.toFixed(1));
+  if (Number.isInteger(parsed)) variants.add(`${parsed}.0`);
+  return [...variants];
+}
+
+function extractNumbers(claim: string): string[] {
+  return [...new Set(claim.match(/\b\d{1,4}(?:,\d{3})*(?:\.\d+)?\b/g) ?? [])];
+}
+
+function extractEntities(claim: string): string[] {
+  const stop = new Set(['Week', 'Season', 'The', 'This', 'That', 'Mason', 'Westy', 'East', 'West', 'Fantasy']);
+  const matches = claim.match(/\b[A-Z][A-Za-z'’-]+(?:\s+[A-Z][A-Za-z'’-]+){0,4}\b/g) ?? [];
+  return [...new Set(matches.map(value => value.trim()).filter(value => value.length >= 4 && !stop.has(value)))];
+}
+
+function findEvidence(reference: string, needles: string[]): string | undefined {
+  const normalizedReference = normalize(reference);
+  for (const needle of needles) {
+    const normalizedNeedle = normalize(needle);
+    const idx = normalizedReference.indexOf(normalizedNeedle);
+    if (idx < 0) continue;
+    const rawIdx = Math.max(0, Math.min(reference.length - 1, Math.round(idx / Math.max(1, normalizedReference.length) * reference.length)));
+    return reference.slice(Math.max(0, rawIdx - 120), Math.min(reference.length, rawIdx + 260)).replace(/\s+/g, ' ').trim();
+  }
+  return undefined;
+}
+
+function verifyClaim(
+  claim: Omit<FactClaim, 'verification' | 'evidence'>,
+  reference: string,
+): FactClaim {
+  if (claim.type === 'projection') {
+    return { ...claim, verification: 'not_applicable', evidence: 'Prediction/projection, not an assertion of an already completed fact.' };
+  }
+
+  const referenceNorm = normalize(reference);
+  const numbers = extractNumbers(claim.claim);
+  const unsupportedNumbers = numbers.filter(number =>
+    !numberVariants(number).some(variant => referenceNorm.includes(normalize(variant)))
+  );
+
+  const entities = extractEntities(claim.claim);
+  const unsupportedEntities = entities.filter(entity => !referenceNorm.includes(normalize(entity)));
+  const supportedNumbers = numbers.length - unsupportedNumbers.length;
+  const supportedEntities = entities.length - unsupportedEntities.length;
+
+  let verification: VerificationStatus;
+  // Missing support is not the same as a contradiction. The source packet can be
+  // incomplete, especially after a manual editorial correction. Reserve
+  // `contradicted` for a future direct same-entity/same-field comparison.
+  if (numbers.length > 0 && supportedNumbers === numbers.length && (entities.length === 0 || supportedEntities > 0)) {
+    verification = 'supported';
+  } else if (numbers.length === 0 && entities.length > 0 && supportedEntities === entities.length) {
+    verification = 'supported';
+  } else if (unsupportedNumbers.length === 0 && unsupportedEntities.length === 0) {
+    verification = 'supported';
+  } else {
+    verification = 'unverified';
+  }
+
+  const evidenceNeedles = [
+    ...numbers.flatMap(numberVariants),
+    ...entities,
+  ];
+  return {
+    ...claim,
+    verification,
+    evidence: findEvidence(reference, evidenceNeedles),
+    ...(unsupportedNumbers.length > 0 ? { unsupportedNumbers } : {}),
+    ...(unsupportedEntities.length > 0 ? { unsupportedEntities } : {}),
+  };
+}
+
 export async function runFactAudit(
   sections: Array<{ type: string; data: unknown }>,
+  options: FactAuditOptions = {},
 ): Promise<FactAuditResult> {
   const generatedAt = new Date().toISOString();
-
-  // Assemble one prompt with per-section headers so a single Gemini call covers everything.
-  const parts: string[] = [];
+  const promptParts: string[] = [];
+  const structuredParts: string[] = [];
   let total = 0;
   let sectionsAudited = 0;
-  for (const s of sections) {
-    const text = extractText(s.data).join('\n').slice(0, MAX_SECTION_CHARS);
-    if (!text.trim()) continue;
-    if (total + text.length > MAX_TOTAL_CHARS) break;
-    parts.push(`=== SECTION: ${s.type} ===\n${text}`);
-    total += text.length;
-    sectionsAudited++;
+
+  for (const section of sections) {
+    const text = extractText(section.data).join('\n').slice(0, MAX_SECTION_CHARS);
+    if (text.trim() && total + text.length <= MAX_TOTAL_CHARS) {
+      promptParts.push(`=== SECTION: ${section.type} ===\n${text}`);
+      total += text.length;
+      sectionsAudited++;
+    }
+    const structured = collectStructuredFacts(section.data, section.type).join('\n');
+    if (structured) structuredParts.push(structured);
   }
 
-  if (parts.length === 0) {
-    return { claims: [], highRiskCount: 0, mediumRiskCount: 0, sectionsAudited: 0, model: 'none', generatedAt };
+  const reference = [options.referenceText ?? '', ...structuredParts]
+    .filter(Boolean)
+    .join('\n\n')
+    .slice(0, MAX_REFERENCE_CHARS);
+
+  if (promptParts.length === 0) {
+    return {
+      claims: [], highRiskCount: 0, mediumRiskCount: 0, supportedCount: 0,
+      contradictedCount: 0, unverifiedCount: 0, blockingContradictions: [],
+      sectionsAudited: 0, model: 'none', generatedAt, referenceChars: reference.length,
+    };
   }
 
-  const req = {
+  const request = {
     systemPrompt: AUDIT_SYSTEM_PROMPT,
-    userPrompt: `Audit the following newsletter sections:\n\n${parts.join('\n\n')}`,
+    userPrompt: `Extract factual claims from these newsletter sections:\n\n${promptParts.join('\n\n')}`,
     temperature: 0.1,
     maxTokens: 8_000,
     thinkingBudget: 0,
     sectionName: 'fact-audit',
   };
 
-  let raw: string | null = null;
+  let raw: string;
   let model = 'gemini-2.5-flash';
   try {
-    raw = await generateWithGeminiProvider(req);
-  } catch (err25) {
-    console.warn('[FactAudit] gemini-2.5 failed, trying 2.0:', err25 instanceof Error ? err25.message : String(err25));
+    raw = await generateWithGeminiProvider(request);
+  } catch (error25) {
+    console.warn('[FactAudit] Gemini 2.5 failed, trying 2.0:', error25 instanceof Error ? error25.message : String(error25));
     try {
-      raw = await generateWithGemini20Provider(req);
+      raw = await generateWithGemini20Provider(request);
       model = 'gemini-2.0-flash';
-    } catch (err20) {
-      const msg = err20 instanceof Error ? err20.message : String(err20);
-      return { claims: [], highRiskCount: 0, mediumRiskCount: 0, sectionsAudited, model: 'none', generatedAt, error: msg };
+    } catch (error20) {
+      const message = error20 instanceof Error ? error20.message : String(error20);
+      return {
+        claims: [], highRiskCount: 0, mediumRiskCount: 0, supportedCount: 0,
+        contradictedCount: 0, unverifiedCount: 0, blockingContradictions: [],
+        sectionsAudited, model: 'none', generatedAt, referenceChars: reference.length, error: message,
+      };
     }
   }
 
   try {
-    const claims = parseClaimsJson(raw);
+    const claims = parseClaimsJson(raw).map(claim => verifyClaim(claim, reference));
+    const blockingContradictions = claims.filter(claim => claim.risk === 'high' && claim.verification === 'contradicted');
     return {
       claims,
-      highRiskCount: claims.filter((c) => c.risk === 'high').length,
-      mediumRiskCount: claims.filter((c) => c.risk === 'medium').length,
+      highRiskCount: claims.filter(claim => claim.risk === 'high').length,
+      mediumRiskCount: claims.filter(claim => claim.risk === 'medium').length,
+      supportedCount: claims.filter(claim => claim.verification === 'supported').length,
+      contradictedCount: claims.filter(claim => claim.verification === 'contradicted').length,
+      unverifiedCount: claims.filter(claim => claim.verification === 'unverified').length,
+      blockingContradictions,
       sectionsAudited,
       model,
       generatedAt,
+      referenceChars: reference.length,
     };
-  } catch (err) {
+  } catch (error) {
     return {
-      claims: [],
-      highRiskCount: 0,
-      mediumRiskCount: 0,
-      sectionsAudited,
-      model,
-      generatedAt,
-      error: `Failed to parse audit response: ${err instanceof Error ? err.message : String(err)}`,
+      claims: [], highRiskCount: 0, mediumRiskCount: 0, supportedCount: 0,
+      contradictedCount: 0, unverifiedCount: 0, blockingContradictions: [],
+      sectionsAudited, model, generatedAt, referenceChars: reference.length,
+      error: `Failed to parse or verify audit response: ${error instanceof Error ? error.message : String(error)}`,
     };
   }
 }

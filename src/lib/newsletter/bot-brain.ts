@@ -270,40 +270,68 @@ export function getBotBrain(bot: BotName): BotBrain {
   };
 }
 
+function performanceDiscipline(bot: BotName): string[] {
+  const shared = [
+    'Use the shared episode brief, prior-section summary, and current evidence as one continuous editorial record. Do not contradict an earlier section unless new evidence requires it; when your view changes, say what changed.',
+    'Distinguish VERIFIED FACT, REPORTED NEWS, and INFERENCE. Never turn a headline into an unstated snap count, target share, role, projection, or certainty.',
+    'Specificity is mandatory: name the relevant team/player and identify the concrete score, transaction, injury, ranking, roster fact, or dated report supporting the conclusion.',
+    'A team-name mention in a score list is not analysis. When assigned to analyze a team, explain what happened, why it happened, and what it changes.',
+  ];
+
+  if (bot === 'entertainer') {
+    return [
+      ...shared,
+      'Mason discipline: narrative comes after evidence. Do not crown the highest-scoring winner as the main story automatically; consider upset value, stakes, performance versus expectation, lineup decisions, and what changed going forward.',
+      'Mason can make a bold call, but label it as a prediction and give the factual trigger behind it. Energy cannot substitute for analysis.',
+    ];
+  }
+
+  return [
+    ...shared,
+    'Westy discipline: analytical language is not evidence. If usage, projections, matchup data, or depth-chart detail is absent, state the limitation and reason only from what is supplied.',
+    'Westy should quantify when real numbers are present, distinguish signal from small-sample noise, and avoid generic phrases such as “monitor usage” unless the context actually contains usage evidence.',
+  ];
+}
+
 /**
- * Returns a compact system-prompt addition describing any admin-applied overrides
- * for this bot — verbal tics, openers, closers, role refinements.
- * Returns '' when no overrides are active (typical for hardcoded-default runs).
- * Called by groq.ts::generateSection() to wire Phase 3 admin settings into LLM calls.
+ * Returns a compact prompt-ready addition with permanent performance discipline
+ * plus any admin-applied voice overrides. The performance block is always active,
+ * including when no admin overrides have been configured.
  */
 export function getBotBrainOverrideContext(bot: BotName): string {
   const override = _botOverrides.get(bot);
-  if (!override) return '';
-
   const base = BRAINS[bot];
-  const lines: string[] = [];
+  const lines: string[] = [
+    '\n\nPERFORMANCE DISCIPLINE (always follow):',
+    ...performanceDiscipline(bot).map(rule => `- ${rule}`),
+  ];
 
-  if (override.displayName && override.displayName !== base.displayName) {
-    lines.push(`Your display name: ${override.displayName}`);
-  }
-  if (override.role && override.role !== base.role) {
-    lines.push(`Role refinement: ${override.role}`);
-  }
-  const newTics = (override.verbalTics ?? []).filter(t => !base.verbalTics.includes(t));
-  if (newTics.length > 0) {
-    lines.push(`Additional verbal tics to weave in naturally: ${newTics.join(', ')}`);
-  }
-  const newOpeners = (override.openers ?? []).filter(o => !base.openers.includes(o));
-  if (newOpeners.length > 0) {
-    lines.push(`Additional section openers: ${newOpeners.join(', ')}`);
-  }
-  const newClosers = (override.closers ?? []).filter(c => !base.closers.includes(c));
-  if (newClosers.length > 0) {
-    lines.push(`Additional verdict phrases: ${newClosers.join(', ')}`);
+  if (override) {
+    const overrideLines: string[] = [];
+    if (override.displayName && override.displayName !== base.displayName) {
+      overrideLines.push(`Your display name: ${override.displayName}`);
+    }
+    if (override.role && override.role !== base.role) {
+      overrideLines.push(`Role refinement: ${override.role}`);
+    }
+    const newTics = (override.verbalTics ?? []).filter(t => !base.verbalTics.includes(t));
+    if (newTics.length > 0) {
+      overrideLines.push(`Additional verbal tics to weave in naturally: ${newTics.join(', ')}`);
+    }
+    const newOpeners = (override.openers ?? []).filter(o => !base.openers.includes(o));
+    if (newOpeners.length > 0) {
+      overrideLines.push(`Additional section openers: ${newOpeners.join(', ')}`);
+    }
+    const newClosers = (override.closers ?? []).filter(c => !base.closers.includes(c));
+    if (newClosers.length > 0) {
+      overrideLines.push(`Additional verdict phrases: ${newClosers.join(', ')}`);
+    }
+    if (overrideLines.length > 0) {
+      lines.push('\nVOICE OVERRIDES (configured by league admin — follow these):', ...overrideLines);
+    }
   }
 
-  if (lines.length === 0) return '';
-  return `\n\nVOICE OVERRIDES (configured by league admin — follow these):\n${lines.join('\n')}`;
+  return lines.join('\n');
 }
 
 /**

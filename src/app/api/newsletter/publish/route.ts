@@ -1,9 +1,9 @@
 /**
  * Newsletter Publish Endpoint
  *
- * The only place a newsletter becomes publicly visible. Generation always saves a
- * draft. Publishing targets one exact catalog row, makes it public, and normally
- * announces it to Discord.
+ * Publishing and announcing are separate recoverable states. A Discord outage no
+ * longer makes a successful public publish look like a failed publish; the exact
+ * issue remains eligible for a resend without being republished or duplicated.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -13,7 +13,6 @@ import { isAdminCookieValue } from '@/lib/auth/admin';
 import {
   loadNewsletter,
   loadNewsletterById,
-  markNewsletterDiscordPosted,
   publishNewsletter,
 } from '@/server/db/newsletter-queries';
 import {
@@ -47,23 +46,37 @@ function resolvePublicSiteUrl(req: NextRequest): string {
   const requestOrigin = normalizeSiteUrl(
     forwardedHost ? `${forwardedProto}://${forwardedHost}` : req.nextUrl.origin,
   );
-
-  // Custom production domains are the most reliable source of truth. Vercel preview
-  // and branch domains should continue to point announcements at the configured site.
   return requestOrigin.endsWith('.vercel.app') || requestOrigin.includes('localhost')
     ? configured
     : requestOrigin;
 }
 
-/**
- * Verify the production newsletter webhook without posting anything.
- * The admin catalog uses this for a launch-readiness status indicator.
- */
-export async function GET() {
-  if (!(await isAdmin())) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+async function sleep(ms: number): Promise<void> {
+  await new Promise(resolve => setTimeout(resolve, ms));
+}
 
+async function postDiscordWithRetry(
+  webhookUrl: string,
+  payload: Parameters<typeof postToDiscordWebhook>[1],
+): Promise<{ success: boolean; error?: string }> {
+  const waits = [0, 1_000, 3_000];
+  let lastError = 'unknown error';
+  for (let attempt = 0; attempt < waits.length; attempt++) {
+    if (waits[attempt] > 0) await sleep(waits[attempt]);
+    try {
+      const result = await postToDiscordWebhook(webhookUrl, payload);
+      if (result.success) return { success: true };
+      lastError = result.error ?? `attempt ${attempt + 1} failed`;
+    } catch (error) {
+      lastError = error instanceof Error ? error.message : String(error);
+    }
+  }
+  return { success: false, error: lastError };
+}
+
+/** Verify the production newsletter webhook without posting anything. */
+export async function GET() {
+  if (!(await isAdmin())) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   const health = await verifyDiscordWebhook(process.env.DISCORD_NEWSLETTER_WEBHOOK_URL);
   return NextResponse.json({
     success: health.configured && health.reachable,
@@ -89,9 +102,7 @@ type PublishBody = {
 };
 
 export async function POST(req: NextRequest) {
-  if (!(await isAdmin())) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  if (!(await isAdmin())) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   let body: PublishBody;
   try {
@@ -104,17 +115,12 @@ export async function POST(req: NextRequest) {
   const requestedWeek = Number(body.week);
   const sendDiscord = body.sendDiscord !== false;
   const resendDiscord = body.resendDiscord === true;
-
   if (!Number.isFinite(seasonNum) || !Number.isFinite(requestedWeek)) {
     return NextResponse.json({ error: 'Missing or invalid required fields: season, week' }, { status: 400 });
   }
 
   try {
     const db = getDb();
-
-    // Resolve the exact target before changing anything. Catalog actions send an id.
-    // Direct post-generation publishing sends the rendered HTML, so match that exact
-    // saved draft before falling back to the newest row in the slot.
     let target = body.id ? await loadNewsletterById(body.id) : null;
 
     if (!target && body.html) {
@@ -135,26 +141,17 @@ export async function POST(req: NextRequest) {
       const fallback = await loadNewsletter(seasonNum, requestedWeek, { includeDrafts: true });
       if (fallback) target = await loadNewsletterById(fallback.id);
     }
-
     if (!target) {
-      return NextResponse.json({
-        error: `No newsletter found for Season ${seasonNum} Week ${requestedWeek}. Generate it first.`,
-      }, { status: 404 });
+      return NextResponse.json({ error: `No newsletter found for Season ${seasonNum} Week ${requestedWeek}. Generate it first.` }, { status: 404 });
     }
-
     if (target.season !== seasonNum) {
       return NextResponse.json({ error: 'Newsletter id does not belong to the requested season.' }, { status: 400 });
     }
 
     const episodeType = target.episodeType || 'regular';
     const publicWeek = EPISODE_WEEK_STORAGE[episodeType] ?? target.week;
-
-    // Manual weekless generation historically used week 0. Move that exact row to
-    // its permanent public/archive slot before publishing so pre-draft, post-draft,
-    // preseason, and offseason issues never collide.
     if (target.week !== publicWeek) {
-      await db
-        .update(newsletters)
+      await db.update(newsletters)
         .set({ week: publicWeek, updatedAt: new Date() })
         .where(eq(newsletters.id, target.id));
       target = { ...target, week: publicWeek };
@@ -164,118 +161,90 @@ export async function POST(req: NextRequest) {
       id: target.id,
       html: body.html,
     });
-
-    if (!found) {
-      return NextResponse.json({ error: 'Newsletter disappeared before it could be published.' }, { status: 409 });
-    }
+    if (!found) return NextResponse.json({ error: 'Newsletter disappeared before it could be published.' }, { status: 409 });
 
     console.log(`[Publish] ${target.id} published. episode=${episodeType} sendDiscord=${sendDiscord}`);
 
     let discordPosted = false;
-    let discordSatisfied = !sendDiscord;
-    let discordStatus: 'skipped' | 'posted' | 'already_posted' | 'not_configured' | 'failed' = sendDiscord ? 'failed' : 'skipped';
+    let discordStatus: 'skipped' | 'posted' | 'already_posted' | 'not_configured' | 'pending_retry' = sendDiscord ? 'pending_retry' : 'skipped';
     let discordSkippedReason: string | null = sendDiscord ? null : 'sendDiscord=false';
     const siteUrl = resolvePublicSiteUrl(req);
     const publicUrl = buildNewsletterUrl(siteUrl, target.id);
 
     if (sendDiscord) {
       const webhookUrl = process.env.DISCORD_NEWSLETTER_WEBHOOK_URL;
-
       if (!webhookUrl) {
         discordStatus = 'not_configured';
         discordSkippedReason = 'DISCORD_NEWSLETTER_WEBHOOK_URL is not configured';
       } else {
-        try {
-          // Dedupe by immutable newsletter id, not season-week. Weekless editions can
-          // therefore be announced independently and republishing the same issue stays safe.
-          const dedupeKey = `newsletter:${target.id}`;
-          const existing = resendDiscord
-            ? []
-            : await db
-                .select()
-                .from(discordNotifications)
-                .where(and(
-                  eq(discordNotifications.notificationType, 'newsletter_published'),
-                  eq(discordNotifications.dedupeKey, dedupeKey),
-                ))
-                .limit(1)
-                .catch(() => []);
+        const dedupeKey = `newsletter:${target.id}`;
+        const existing = resendDiscord
+          ? []
+          : await db.select()
+              .from(discordNotifications)
+              .where(and(
+                eq(discordNotifications.notificationType, 'newsletter_published'),
+                eq(discordNotifications.dedupeKey, dedupeKey),
+              ))
+              .limit(1)
+              .catch(() => []);
 
-          if (existing.length > 0) {
-            // Repair the newsletter row if the webhook succeeded previously but its
-            // timestamp write failed. Do not send a duplicate message.
-            await markNewsletterDiscordPosted(target.season, target.week);
-            discordStatus = 'already_posted';
-            discordSatisfied = true;
-            discordSkippedReason = 'already posted (dedupe)';
+        if (existing.length > 0) {
+          await db.update(newsletters)
+            .set({ discordPostedAt: new Date(), updatedAt: new Date() })
+            .where(eq(newsletters.id, target.id))
+            .catch(() => {});
+          discordStatus = 'already_posted';
+          discordSkippedReason = 'already posted (dedupe)';
+        } else {
+          const embed = buildNewsletterEmbed({
+            season: target.season,
+            week: target.week,
+            siteUrl,
+            newsletterId: target.id,
+            episodeType,
+            title: target.title,
+          });
+          const result = await postDiscordWithRetry(webhookUrl, { embeds: [embed] });
+          if (result.success) {
+            await db.insert(discordNotifications).values({
+              notificationType: 'newsletter_published',
+              dedupeKey,
+              meta: {
+                newsletterId: target.id,
+                season: target.season,
+                week: target.week,
+                episodeType,
+                publicUrl,
+              },
+            }).catch(() => {});
+            await db.update(newsletters)
+              .set({ discordPostedAt: new Date(), updatedAt: new Date() })
+              .where(eq(newsletters.id, target.id))
+              .catch(() => {});
+            discordPosted = true;
+            discordStatus = 'posted';
           } else {
-            const embed = buildNewsletterEmbed({
-              season: target.season,
-              week: target.week,
-              siteUrl,
-              newsletterId: target.id,
-              episodeType,
-              title: target.title,
-            });
-            const result = await postToDiscordWebhook(webhookUrl, { embeds: [embed] });
-
-            if (result.success) {
-              await db.insert(discordNotifications).values({
-                notificationType: 'newsletter_published',
-                dedupeKey,
-                meta: {
-                  newsletterId: target.id,
-                  season: target.season,
-                  week: target.week,
-                  episodeType,
-                  publicUrl,
-                },
-              }).catch(() => {});
-              await markNewsletterDiscordPosted(target.season, target.week);
-              discordPosted = true;
-              discordSatisfied = true;
-              discordStatus = 'posted';
-            } else {
-              discordStatus = 'failed';
-              discordSkippedReason = `Discord post failed: ${result.error ?? 'unknown error'}`;
-            }
+            discordStatus = 'pending_retry';
+            discordSkippedReason = `Discord announcement pending retry: ${result.error ?? 'unknown error'}`;
+            console.warn(`[Publish] ${target.id} is public, Discord pending retry: ${discordSkippedReason}`);
           }
-        } catch (discordError) {
-          discordStatus = 'failed';
-          discordSkippedReason = `Discord notification error: ${discordError instanceof Error ? discordError.message : String(discordError)}`;
-          console.warn('[Publish] Discord notification failed:', discordError);
         }
       }
     }
 
-    // Editorial-memory updates must never change the publish result.
     await updateBotMemoryFromPublish(target.season, target.week).catch(error => {
       console.warn('[Publish] Bot memory update failed (non-fatal):', error);
     });
 
-    if (sendDiscord && !discordSatisfied) {
-      const error = `Newsletter is public, but Discord was not sent: ${discordSkippedReason ?? 'unknown error'}.`;
-      return NextResponse.json({
-        success: false,
-        published: true,
-        alreadyPublished,
-        newsletterId: target.id,
-        publicUrl,
-        episodeType,
-        week: target.week,
-        discordPosted,
-        discordStatus,
-        discordSkippedReason,
-        error,
-        message: error,
-      }, { status: discordStatus === 'not_configured' ? 503 : 502 });
-    }
-
+    const announcementPending = sendDiscord && (discordStatus === 'pending_retry' || discordStatus === 'not_configured');
     const message = !sendDiscord
       ? 'Newsletter published successfully. Discord was intentionally skipped.'
       : discordStatus === 'already_posted'
         ? 'Newsletter published successfully. Discord had already been announced, so no duplicate was sent.'
-        : 'Newsletter published successfully and announced to Discord.';
+        : discordStatus === 'posted'
+          ? 'Newsletter published successfully and announced to Discord.'
+          : 'Newsletter published successfully. The Discord announcement is pending and can be retried without republishing.';
 
     return NextResponse.json({
       success: true,
@@ -288,10 +257,12 @@ export async function POST(req: NextRequest) {
       discordPosted,
       discordStatus,
       discordSkippedReason,
+      announcementPending,
+      retryAvailable: announcementPending,
       message,
-    });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+    }, { status: announcementPending ? 202 : 200 });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
     console.error('[Publish] Failed to publish newsletter:', message);
     return NextResponse.json({ error: `Failed to publish: ${message}` }, { status: 500 });
   }

@@ -85,7 +85,6 @@ export {
   trackDisagreement,
   resolveDisagreement,
   detectBreakouts,
-  buildEnhancedContextString,
   // Types
   type H2HMatchupHistory,
   type TradeContext,
@@ -96,6 +95,7 @@ export {
   type PreviousPrediction,
   type EnhancedContextData,
 } from './enhanced-context';
+export { buildEnhancedContextString } from './enhanced-context-runtime';
 
 // Generator
 export { generateNewsletter, type GenerateNewsletterInput, type GenerateNewsletterResult } from './generator';
@@ -128,7 +128,6 @@ export {
   buildMatchupH2HContext,
   // Current week context (standings, streaks, transactions, playoff implications)
   fetchCurrentWeekContext,
-  buildCurrentStandingsContext,
   buildTransactionsContext,
   getLeagueRulesContext,
   // Additional data source context builders
@@ -139,9 +138,7 @@ export {
   buildRosterNewsContext,
   buildDefenseStrengthContext,
   buildPlayerGameLogsContext,
-  // External API integration (ESPN, Sleeper trending, etc.)
-  fetchAllExternalData,
-  buildExternalDataContext,
+  // External API primitives (the combined bundle/context are wrapped below)
   loadDynastyRankings,
   buildDynastyOverviewContext,
   buildDynastyLookup,
@@ -162,3 +159,12 @@ export {
   type ExternalInjuryReport,
   type TrendingPlayer,
 } from './data-integration';
+
+// Roster-aware free RSS + ESPN/Sleeper external-data adapter.
+export {
+  fetchAllExternalData,
+  buildExternalDataContext,
+  buildCurrentStandingsContext,
+  type NewsletterExternalDataBundle,
+  type NewsletterLiveNewsItem,
+} from './live-external-data';

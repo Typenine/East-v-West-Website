@@ -1,16 +1,10 @@
 /**
  * Newsletter Fact-Audit API
  *
- * POST /api/newsletter/fact-audit
- *   Body: { season, week, runId? }
- *   Runs the Gemini fact-audit over the staged newsletter for (season, week),
- *   stores the result on the generation run (runId if given, else the latest
- *   run for that week), and returns the audit.
- *
- * GET /api/newsletter/fact-audit?season=2026&week=12
- *   Returns the stored audit from the latest run for that week (or null).
- *
- * Admin-only. Advisory-only — never blocks or modifies the newsletter.
+ * Extracts claims with Gemini, then deterministically verifies them against the
+ * frozen generation context and structured newsletter fields. Advisory to the
+ * editor: manual edits remain publishable because the league admin is the final
+ * factual authority.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -18,9 +12,9 @@ import { cookies } from 'next/headers';
 import { isAdminCookieValue } from '@/lib/auth/admin';
 import { getDb } from '@/server/db/client';
 import { newsletters } from '@/server/db/schema';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, desc } from 'drizzle-orm';
 import { runFactAudit } from '@/lib/newsletter/fact-audit';
-import { saveFactAudit, getLatestRunForWeek } from '@/server/db/observability-queries';
+import { saveFactAudit, getLatestRunForWeek, getRunWithSections } from '@/server/db/observability-queries';
 import type { Newsletter } from '@/lib/newsletter/types';
 
 export const runtime = 'nodejs';
@@ -33,11 +27,9 @@ async function requireAdmin(): Promise<boolean> {
 }
 
 export async function POST(req: NextRequest) {
-  if (!(await requireAdmin())) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  if (!(await requireAdmin())) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  let body: { season?: number; week?: number; runId?: string };
+  let body: { season?: number; week?: number; runId?: string; id?: string };
   try {
     body = await req.json();
   } catch {
@@ -46,7 +38,7 @@ export async function POST(req: NextRequest) {
 
   const season = Number(body.season);
   const week = Number(body.week);
-  if (!season || week === undefined || Number.isNaN(week)) {
+  if (!season || body.week === undefined || Number.isNaN(week)) {
     return NextResponse.json({ error: 'Missing required fields: season, week' }, { status: 400 });
   }
 
@@ -54,46 +46,39 @@ export async function POST(req: NextRequest) {
   const rows = await db
     .select()
     .from(newsletters)
-    .where(and(eq(newsletters.season, season), eq(newsletters.week, week)))
+    .where(body.id
+      ? eq(newsletters.id, body.id)
+      : and(eq(newsletters.season, season), eq(newsletters.week, week)))
+    .orderBy(desc(newsletters.generatedAt))
     .limit(1);
   const row = rows[0];
-  if (!row) {
-    return NextResponse.json({ error: 'Newsletter not found' }, { status: 404 });
-  }
+  if (!row) return NextResponse.json({ error: 'Newsletter not found' }, { status: 404 });
 
   const content = row.content as Newsletter;
   const sections = Array.isArray(content?.sections) ? content.sections : [];
+  const latestRun = body.runId ? null : await getLatestRunForWeek(season, week).catch(() => null);
+  const runId = body.runId ?? latestRun?.runId ?? null;
+  const selectedRun = body.runId
+    ? (await getRunWithSections(body.runId).catch(() => null))?.run ?? null
+    : latestRun;
+  const contextPacket = selectedRun?.contextPacket as { enhancedContext?: string } | null | undefined;
 
-  const audit = await runFactAudit(sections);
+  const audit = await runFactAudit(sections, {
+    referenceText: contextPacket?.enhancedContext ?? '',
+  });
 
-  // Attach to the run so the diagnostics page and editor can find it later.
-  let attachedRunId: string | null = body.runId ?? null;
-  if (!attachedRunId) {
-    const latest = await getLatestRunForWeek(season, week).catch(() => null);
-    attachedRunId = latest?.runId ?? null;
-  }
-  if (attachedRunId) {
-    await saveFactAudit(attachedRunId, audit as unknown as Record<string, unknown>);
-  }
-
-  return NextResponse.json({ audit, runId: attachedRunId });
+  if (runId) await saveFactAudit(runId, audit as unknown as Record<string, unknown>);
+  return NextResponse.json({ audit, runId, newsletterId: row.id });
 }
 
 export async function GET(req: NextRequest) {
-  if (!(await requireAdmin())) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
-
+  if (!(await requireAdmin())) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   const { searchParams } = new URL(req.url);
   const season = Number(searchParams.get('season'));
   const week = Number(searchParams.get('week'));
   if (!season || Number.isNaN(week)) {
     return NextResponse.json({ error: 'Missing query params: season, week' }, { status: 400 });
   }
-
   const latest = await getLatestRunForWeek(season, week).catch(() => null);
-  return NextResponse.json({
-    audit: latest?.factAudit ?? null,
-    runId: latest?.runId ?? null,
-  });
+  return NextResponse.json({ audit: latest?.factAudit ?? null, runId: latest?.runId ?? null });
 }
