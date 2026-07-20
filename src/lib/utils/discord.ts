@@ -29,6 +29,52 @@ export interface DiscordWebhookHealth {
   error?: string;
 }
 
+const CANONICAL_SITE_URL = 'https://east-v-west.com';
+
+/** Normalize production URL configuration before it is placed in a Discord embed. */
+export function normalizeSiteUrl(siteUrl?: string): string {
+  const value = siteUrl?.trim();
+  if (!value) return CANONICAL_SITE_URL;
+
+  const hasProtocol = /^https?:\/\//i.test(value);
+  const isLocal = /^(localhost|127\.0\.0\.1)(:\d+)?(?:\/|$)/i.test(value);
+  const candidate = hasProtocol ? value : `${isLocal ? 'http' : 'https'}://${value}`;
+
+  try {
+    return new URL(candidate).origin;
+  } catch {
+    return CANONICAL_SITE_URL;
+  }
+}
+
+type NewsletterLinkSelector = {
+  newsletterId?: string;
+  season?: number;
+  week?: number;
+  episodeType?: string | null;
+  title?: string | null;
+};
+
+/** Build a stable link to one published issue. */
+export function buildNewsletterUrl(
+  siteUrl: string,
+  selector?: string | NewsletterLinkSelector,
+): string {
+  const url = new URL('/newsletter', normalizeSiteUrl(siteUrl));
+  const options = typeof selector === 'string' ? { newsletterId: selector } : selector;
+
+  if (options?.newsletterId) {
+    url.searchParams.set('issue', options.newsletterId);
+  } else if (options) {
+    if (Number.isFinite(options.season)) url.searchParams.set('season', String(options.season));
+    if (Number.isFinite(options.week)) url.searchParams.set('week', String(options.week));
+    if (options.episodeType) url.searchParams.set('type', options.episodeType);
+    if (options.title?.trim()) url.searchParams.set('title', options.title.trim());
+  }
+
+  return url.toString();
+}
+
 /**
  * Check that a Discord webhook exists and is reachable without posting a message.
  * Discord supports GET on webhook URLs, so this is safe for surprise announcements.
@@ -72,7 +118,7 @@ export async function verifyDiscordWebhook(webhookUrl?: string): Promise<Discord
 /** Post to a Discord webhook with one rate-limit retry. */
 export async function postToDiscordWebhook(
   webhookUrl: string,
-  payload: DiscordWebhookPayload
+  payload: DiscordWebhookPayload,
 ): Promise<{ success: boolean; error?: string }> {
   const safePayload: DiscordWebhookPayload = {
     ...payload,
@@ -147,24 +193,32 @@ export function buildNewsletterEmbed(options: {
   season: number;
   week: number;
   siteUrl: string;
+  newsletterId?: string;
   episodeType?: string | null;
   title?: string | null;
   highlights?: string[];
 }): DiscordEmbed {
-  const { season, week, episodeType = 'regular', title, highlights } = options;
+  const { season, week, newsletterId, episodeType = 'regular', title, highlights } = options;
   const normalizedType = episodeType || 'regular';
-  const siteUrl = options.siteUrl.replace(/\/$/, '');
-  const newsletterUrl = `${siteUrl}/newsletter`;
+  const newsletterUrl = buildNewsletterUrl(options.siteUrl, {
+    newsletterId,
+    season,
+    week,
+    episodeType: normalizedType,
+    title,
+  });
   const isWeekless = ['pre_draft', 'post_draft', 'preseason', 'offseason'].includes(normalizedType);
   const label = NEWSLETTER_LABELS[normalizedType] ?? 'Newsletter';
   const contents = NEWSLETTER_CONTENTS[normalizedType] ?? NEWSLETTER_CONTENTS.regular;
+  const fallbackTitle = isWeekless ? `${season} ${label}` : `${label}: Week ${week}`;
+  const issueTitle = title?.trim() || fallbackTitle;
 
   const description = highlights && highlights.length > 0
     ? highlights.map(highlight => `• ${highlight}`).join('\n')
-    : `The latest East v. West ${label.toLowerCase()} is live.`;
+    : 'A new East v. West issue is live and ready to read.';
 
   return {
-    title: `📰 ${isWeekless ? `${season} ${label}` : `${label} – Week ${week}`}`,
+    title: `📰 ${issueTitle}`,
     description,
     url: newsletterUrl,
     color: 0xbe161e,
@@ -175,14 +229,14 @@ export function buildNewsletterEmbed(options: {
         inline: true,
       },
       {
-        name: '🔗 Read Now',
-        value: `[View Newsletter](${newsletterUrl})`,
+        name: '🔗 Read This Issue',
+        value: `[Open ${issueTitle}](${newsletterUrl})`,
         inline: true,
       },
     ],
     timestamp: new Date().toISOString(),
     footer: {
-      text: title ? `${title} • East v. West` : `Season ${season} • East v. West`,
+      text: `Season ${season} • East v. West`,
     },
   };
 }
@@ -213,6 +267,6 @@ export function buildTradeEmbed(options: {
     fields,
     timestamp: (timestamp || new Date()).toISOString(),
     footer: { text: `Week ${week} • View all trades` },
-    url: `${siteUrl.replace(/\/$/, '')}/transactions`,
+    url: `${normalizeSiteUrl(siteUrl)}/transactions`,
   };
 }

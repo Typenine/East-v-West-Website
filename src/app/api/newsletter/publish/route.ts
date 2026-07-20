@@ -18,6 +18,8 @@ import {
 } from '@/server/db/newsletter-queries';
 import {
   buildNewsletterEmbed,
+  buildNewsletterUrl,
+  normalizeSiteUrl,
   postToDiscordWebhook,
   verifyDiscordWebhook,
 } from '@/lib/utils/discord';
@@ -32,6 +34,25 @@ export const dynamic = 'force-dynamic';
 async function isAdmin(): Promise<boolean> {
   const cookieStore = await cookies();
   return isAdminCookieValue(cookieStore.get('evw_admin')?.value);
+}
+
+function resolvePublicSiteUrl(req: NextRequest): string {
+  const configured = normalizeSiteUrl(
+    process.env.NEXT_PUBLIC_SITE_URL
+      || process.env.SITE_URL
+      || 'https://east-v-west.com',
+  );
+  const forwardedHost = req.headers.get('x-forwarded-host') || req.headers.get('host');
+  const forwardedProto = req.headers.get('x-forwarded-proto') || 'https';
+  const requestOrigin = normalizeSiteUrl(
+    forwardedHost ? `${forwardedProto}://${forwardedHost}` : req.nextUrl.origin,
+  );
+
+  // Custom production domains are the most reliable source of truth. Vercel preview
+  // and branch domains should continue to point announcements at the configured site.
+  return requestOrigin.endsWith('.vercel.app') || requestOrigin.includes('localhost')
+    ? configured
+    : requestOrigin;
 }
 
 /**
@@ -154,10 +175,11 @@ export async function POST(req: NextRequest) {
     let discordSatisfied = !sendDiscord;
     let discordStatus: 'skipped' | 'posted' | 'already_posted' | 'not_configured' | 'failed' = sendDiscord ? 'failed' : 'skipped';
     let discordSkippedReason: string | null = sendDiscord ? null : 'sendDiscord=false';
+    const siteUrl = resolvePublicSiteUrl(req);
+    const publicUrl = buildNewsletterUrl(siteUrl, target.id);
 
     if (sendDiscord) {
       const webhookUrl = process.env.DISCORD_NEWSLETTER_WEBHOOK_URL;
-      const siteUrl = process.env.SITE_URL || 'https://east-v-west.com';
 
       if (!webhookUrl) {
         discordStatus = 'not_configured';
@@ -191,6 +213,7 @@ export async function POST(req: NextRequest) {
               season: target.season,
               week: target.week,
               siteUrl,
+              newsletterId: target.id,
               episodeType,
               title: target.title,
             });
@@ -205,6 +228,7 @@ export async function POST(req: NextRequest) {
                   season: target.season,
                   week: target.week,
                   episodeType,
+                  publicUrl,
                 },
               }).catch(() => {});
               await markNewsletterDiscordPosted(target.season, target.week);
@@ -236,6 +260,7 @@ export async function POST(req: NextRequest) {
         published: true,
         alreadyPublished,
         newsletterId: target.id,
+        publicUrl,
         episodeType,
         week: target.week,
         discordPosted,
@@ -257,6 +282,7 @@ export async function POST(req: NextRequest) {
       published: true,
       alreadyPublished,
       newsletterId: target.id,
+      publicUrl,
       episodeType,
       week: target.week,
       discordPosted,
