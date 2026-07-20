@@ -1,0 +1,68 @@
+name: Newsletter Update 5 Wire Current Byes
+
+on:
+  push:
+    branches:
+      - newsletter-editor-update-5-20260720
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: newsletter-editor-update-5-20260720
+          fetch-depth: 0
+      - name: Replace stale bye table with current schedule lookup
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('src/app/api/newsletter/route.ts')
+          text = path.read_text()
+          import_anchor = "import type { BotSettingsRow } from '@/server/db/personality-queries';"
+          if "@/lib/newsletter/nfl-byes" not in text:
+              text = text.replace(import_anchor, import_anchor + "\nimport { getNflByeTeams } from '@/lib/newsletter/nfl-byes';", 1)
+
+          old_table = """// NFL bye weeks by week number (2025 season - update annually)
+const NFL_BYE_WEEKS: Record<number, string[]> = {
+  5: ['DET', 'LAC'],
+  6: ['KC', 'LAR', 'MIA', 'MIN'],
+  7: ['CHI', 'DAL'],
+  8: [],
+  9: ['CLE', 'GB', 'LV', 'SEA'],
+  10: ['ARI', 'CAR', 'NYG', 'TB'],
+  11: ['ATL', 'IND', 'NE', 'NO'],
+  12: ['BAL', 'CIN', 'JAX', 'NYJ'],
+  13: ['BUF', 'PIT', 'SF', 'WAS'],
+  14: ['DEN', 'HOU', 'PHI', 'TEN'],
+};
+
+function getByeTeamsForWeek(week: number): string[] {
+  return NFL_BYE_WEEKS[week] || [];
+}
+
+"""
+          if old_table not in text:
+              raise SystemExit('Stale bye table was not found')
+          text = text.replace(old_table, '', 1)
+
+          old_call = '    const byeTeams = getByeTeamsForWeek(week);'
+          new_call = '    const byeTeams = await getNflByeTeams(season, week);'
+          if old_call not in text:
+              raise SystemExit('Legacy bye call was not found')
+          text = text.replace(old_call, new_call, 1)
+          path.write_text(text)
+          PY
+      - name: Remove one-time workflow and commit
+        run: |
+          rm .github/workflows/newsletter-update5-wire-byes.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/app/api/newsletter/route.ts .github/workflows/newsletter-update5-wire-byes.yml
+          git commit -m "Newsletter System Update 5: use current NFL bye schedule"
+          git push origin HEAD:newsletter-editor-update-5-20260720
