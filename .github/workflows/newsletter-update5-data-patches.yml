@@ -1,0 +1,140 @@
+name: Newsletter Update 5 Data Patches
+
+on:
+  push:
+    branches:
+      - newsletter-editor-update-5-20260720
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: newsletter-editor-update-5-20260720
+          fetch-depth: 0
+      - name: Replace stale bye data and historical placeholders
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          route = Path('src/app/api/newsletter/route.ts')
+          text = route.read_text()
+          import_anchor = "import { buildOffseasonTradeFacts, buildOffseasonTradesContextBlock, type OffseasonTradeFact } from '@/lib/newsletter/offseason-trades';\n"
+          import_line = "import { getNflByeTeams } from '@/lib/newsletter/nfl-byes';\n"
+          if import_line not in text:
+              if import_anchor not in text:
+                  raise SystemExit('Missing newsletter route import anchor')
+              text = text.replace(import_anchor, import_anchor + import_line, 1)
+
+          old_byes = """// NFL bye weeks by week number (2025 season - update annually)
+          const NFL_BYE_WEEKS: Record<number, string[]> = {
+            5: ['DET', 'LAC'],
+            6: ['KC', 'LAR', 'MIA', 'MIN'],
+            7: ['CHI', 'DAL'],
+            8: [],
+            9: ['CLE', 'GB', 'LV', 'SEA'],
+            10: ['ARI', 'CAR', 'NYG', 'TB'],
+            11: ['ATL', 'IND', 'NE', 'NO'],
+            12: ['BAL', 'CIN', 'JAX', 'NYJ'],
+            13: ['BUF', 'PIT', 'SF', 'WAS'],
+            14: ['DEN', 'HOU', 'PHI', 'TEN'],
+          };
+
+          function getByeTeamsForWeek(week: number): string[] {
+            return NFL_BYE_WEEKS[week] || [];
+          }
+
+          """.replace('          ', '')
+          if old_byes not in text:
+              raise SystemExit('Missing stale bye-week block')
+          text = text.replace(old_byes, '', 1)
+          old_call = '    const byeTeams = getByeTeamsForWeek(week);'
+          new_call = '    const byeTeams = await getNflByeTeams(season, week);'
+          if old_call not in text:
+              raise SystemExit('Missing bye-week call')
+          text = text.replace(old_call, new_call, 1)
+          route.write_text(text)
+
+          data = Path('src/lib/newsletter/data-integration.ts')
+          text = data.read_text()
+
+          marker = '// ============ Data Fetching ============'
+          helper = """interface TeamStreakProfile {
+            longestWinStreak: number;
+            longestLosingStreak: number;
+            currentStreak: { type: 'W' | 'L'; count: number } | null;
+          }
+
+          function calculateTeamStreaks(weeks: TopScoringWeekEntry[]): TeamStreakProfile {
+            const chronological = [...weeks].sort((a, b) => {
+              const seasonDelta = Number(a.year) - Number(b.year);
+              return seasonDelta !== 0 ? seasonDelta : a.week - b.week;
+            });
+            let currentType: 'W' | 'L' | null = null;
+            let currentCount = 0;
+            let longestWinStreak = 0;
+            let longestLosingStreak = 0;
+
+            for (const game of chronological) {
+              const result: 'W' | 'L' | 'T' = game.points > game.opponentPoints
+                ? 'W'
+                : game.points < game.opponentPoints ? 'L' : 'T';
+              if (result === 'T') {
+                currentType = null;
+                currentCount = 0;
+                continue;
+              }
+              if (currentType === result) currentCount += 1;
+              else {
+                currentType = result;
+                currentCount = 1;
+              }
+              if (result === 'W') longestWinStreak = Math.max(longestWinStreak, currentCount);
+              else longestLosingStreak = Math.max(longestLosingStreak, currentCount);
+            }
+
+            return {
+              longestWinStreak,
+              longestLosingStreak,
+              currentStreak: currentType ? { type: currentType, count: currentCount } : null,
+            };
+          }
+
+          """.replace('          ', '')
+          if helper not in text:
+              if marker not in text:
+                  raise SystemExit('Missing data-integration insertion marker')
+              text = text.replace(marker, helper + marker, 1)
+
+          replacements = {
+            '    topScoringWeeks,\n': '    allScoringWeeks,\n',
+            "    getTopScoringWeeksAllTime({ category: 'all', top: 50 }).catch(e => { console.warn('Failed to fetch top weeks:', e); return [] as TopScoringWeekEntry[]; }),":
+            "    getTopScoringWeeksAllTime({ category: 'all', top: 2000 }).catch(e => { console.warn('Failed to fetch scoring history:', e); return [] as TopScoringWeekEntry[]; }),",
+            '  console.log(`[DataIntegration] Fetched: ${franchises.length} franchises, ${allTrades.length} trades, ${topScoringWeeks.length} top weeks`);':
+            '  console.log(`[DataIntegration] Fetched: ${franchises.length} franchises, ${allTrades.length} trades, ${allScoringWeeks.length} scored team-weeks`);',
+            '    const teamTopWeeks = topScoringWeeks.filter(w => w.teamName === teamName);\n    const highestWeek = teamTopWeeks.length > 0 ? teamTopWeeks[0] : null;\n    const lowestWeek = teamTopWeeks.length > 0 ? teamTopWeeks[teamTopWeeks.length - 1] : null;':
+            "    const teamWeeks = allScoringWeeks.filter(w => w.teamName === teamName);\n    const highestWeek = teamWeeks.reduce<TopScoringWeekEntry | null>((best, entry) => !best || entry.points > best.points ? entry : best, null);\n    const lowestWeek = teamWeeks.reduce<TopScoringWeekEntry | null>((best, entry) => !best || entry.points < best.points ? entry : best, null);\n    const streaks = calculateTeamStreaks(teamWeeks);",
+            '      longestWinStreak: 0, // Would need to calculate from matchup history\n      longestLosingStreak: 0,\n      currentStreak: null,':
+            '      longestWinStreak: streaks.longestWinStreak,\n      longestLosingStreak: streaks.longestLosingStreak,\n      currentStreak: streaks.currentStreak,',
+            '    topScoringWeeks,\n': '    topScoringWeeks: allScoringWeeks.slice(0, 50),\n',
+          }
+          for old, new in replacements.items():
+              count = text.count(old)
+              if count == 0:
+                  raise SystemExit(f'Missing data-integration text: {old[:100]}')
+              text = text.replace(old, new, 1)
+          data.write_text(text)
+          PY
+      - name: Remove one-time workflow and commit
+        run: |
+          rm .github/workflows/newsletter-update5-data-patches.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/app/api/newsletter/route.ts src/lib/newsletter/data-integration.ts .github/workflows/newsletter-update5-data-patches.yml
+          git commit -m "Newsletter System Update 5: complete current data context"
+          git push origin HEAD:newsletter-editor-update-5-20260720
