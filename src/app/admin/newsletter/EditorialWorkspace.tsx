@@ -217,8 +217,8 @@ function renderDiff(before: string, after: string) {
       : <span key={index} className="bg-emerald-900/50 text-emerald-200">{part.text}</span>);
 }
 
-function claimKey(claim: FactAuditClaim, index: number): string {
-  return `${claim.section}:${index}:${claim.claim}`.slice(0, 500);
+function claimKey(claim: FactAuditClaim, _index: number): string {
+  return `${claim.section}:${claim.type}:${claim.claim}`.slice(0, 500);
 }
 
 function runMetaForSection(type: string, runSections: RunSectionMeta[]): RunSectionMeta[] {
@@ -477,12 +477,12 @@ export default function EditorialWorkspace({
       return false;
     } finally {
       saveRunningRef.current = false;
-      if (queueRef.current.size > 0 && saveStatus !== 'conflict') {
+      if (queueRef.current.size > 0) {
         if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
         saveTimerRef.current = setTimeout(() => { void flushSave(); }, 250);
       }
     }
-  }, [onHtmlUpdate, persistBrowserDraft, resolvedId, saveStatus]);
+  }, [onHtmlUpdate, persistBrowserDraft, resolvedId]);
 
   const scheduleEdit = useCallback((sectionIndex: number, field: EditableFieldDef, value: unknown, editType: PendingEdit['editType'] = 'manual', recordUndo = true) => {
     const key = fieldKey(sectionIndex, field.fieldPath);
@@ -562,8 +562,8 @@ export default function EditorialWorkspace({
       const anchor = target?.closest('[data-section], [id^="section-"], [class*="section-"]') as HTMLElement | null;
       if (!anchor) return;
       const raw = anchor.dataset.section
-        ?? anchor.id.replace(/^section-/, '')
-        ?? [...anchor.classList].find(name => name.startsWith('section-'))?.replace(/^section-/, '');
+        || anchor.id.replace(/^section-/, '')
+        || [...anchor.classList].find(name => name.startsWith('section-'))?.replace(/^section-/, '');
       if (!raw) return;
       const index = sectionsRef.current.findIndex(section => section.type.toLowerCase() === raw.toLowerCase());
       if (index >= 0) {
