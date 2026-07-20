@@ -31,6 +31,22 @@ def main() -> None:
         '// Seed the player name cache so derive.ts can resolve IDs',
     )
 
+    # The payload's Python triple-quoted string evaluates these escape sequences
+    # as actual line breaks. Normalize the source template literal to the same
+    # representation before the exact replacement runs.
+    compose_path = Path('src/lib/newsletter/compose-step.ts')
+    compose_text = compose_path.read_text(encoding='utf-8')
+    escaped_westy = '  const westyCtx = `${cfg.ctx}\\n\\n---\\nMason Reed just closed the show with:\\n"${bot1}"\\n\\nNow give your final word.`;'
+    multiline_westy = '''  const westyCtx = `${cfg.ctx}
+
+---
+Mason Reed just closed the show with:
+"${bot1}"
+
+Now give your final word.`;'''
+    if escaped_westy in compose_text:
+        compose_path.write_text(compose_text.replace(escaped_westy, multiline_westy, 1), encoding='utf-8')
+
     print('[post-draft-readiness] Applying staged post-draft source updates...')
     namespace = {'__name__': '__main__', '__file__': str(PATCH_SOURCE)}
     exec(compile(code, str(PATCH_SOURCE), 'exec'), namespace, namespace)
