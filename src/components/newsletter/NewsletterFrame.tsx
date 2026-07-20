@@ -11,6 +11,21 @@ import {
 } from 'react';
 import type { NewsletterFrameHandle, OutlineItem } from './types';
 
+type JsPdfRuntime = {
+  internal: { pageSize: { getWidth: () => number; getHeight: () => number } };
+  addPage: () => void;
+  addImage: (...args: unknown[]) => void;
+  getNumberOfPages: () => number;
+  setPage: (page: number) => void;
+  setDrawColor: (...args: number[]) => void;
+  line: (...args: number[]) => void;
+  setFont: (...args: string[]) => void;
+  setFontSize: (size: number) => void;
+  setTextColor: (...args: number[]) => void;
+  text: (...args: unknown[]) => void;
+  save: (fileName: string) => void;
+};
+
 function buildNewsletterDocument(html: string): string {
   const stylesheet = '<link rel="stylesheet" href="/newsletter-reader.css" /><link rel="stylesheet" href="/newsletter-reader-mobile.css" />';
   if (/<\/head>/i.test(html)) return html.replace(/<\/head>/i, `${stylesheet}</head>`);
@@ -31,7 +46,7 @@ async function downloadDocumentAsPdf(frameDocument: Document, fileName: string, 
   const nodes = Array.from(root.children).filter((node): node is HTMLElement => node.nodeType === 1) as HTMLElement[];
   const captureNodes = nodes.length > 0 ? nodes : [root];
 
-  const pdf = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'letter', compress: true });
+  const pdf = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'letter', compress: true }) as unknown as JsPdfRuntime;
   const pageWidth = pdf.internal.pageSize.getWidth();
   const pageHeight = pdf.internal.pageSize.getHeight();
   const marginX = 30;
