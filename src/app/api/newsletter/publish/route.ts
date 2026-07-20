@@ -133,6 +133,7 @@ type PublishBody = {
   id?: string;
   sendDiscord?: boolean;
   resendDiscord?: boolean;
+  /** Legacy identity fallback only. Exact-ID publishing always uses stored finalized HTML. */
   html?: string;
 };
 
@@ -158,6 +159,8 @@ export async function POST(req: NextRequest) {
     const db = getDb();
     let target = body.id ? await loadNewsletterById(body.id) : null;
 
+    // Legacy callers may not know the immutable ID. Their HTML may identify the
+    // row, but it is never trusted as the content to publish.
     if (!target && body.html) {
       const exactRows = await db.select({ id: newsletters.id }).from(newsletters).where(and(
         eq(newsletters.season, seasonNum),
@@ -185,7 +188,9 @@ export async function POST(req: NextRequest) {
       target = { ...target, week: publicWeek };
     }
 
-    const { found, alreadyPublished } = await publishNewsletter(target.season, target.week, { id: target.id, html: body.html });
+    // The editor has already saved and finalized the exact row. Reading its HTML
+    // from the database prevents a stale React closure from overwriting that work.
+    const { found, alreadyPublished } = await publishNewsletter(target.season, target.week, { id: target.id });
     if (!found) return NextResponse.json({ error: 'Newsletter disappeared before it could be published.' }, { status: 409 });
 
     console.log(`[Publish] ${target.id} published. episode=${episodeType} sendDiscord=${sendDiscord}`);
