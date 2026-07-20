@@ -105,7 +105,7 @@ export function useNewsletterArchive() {
           if (requestedTitle && item.title?.trim().toLowerCase() !== requestedTitle) return false;
           return Boolean(requestedTitle || requestedType || (requestedWeek !== null && Number.isFinite(requestedWeek)));
         });
-        const initialId = linkedIssue?.id ?? published[0]?.id ?? null;
+        const initialId = linkedIssue?.id ?? null;
         const hasDirectSelector = Boolean(requestedId || requestedTitle || requestedType || (requestedWeek !== null && Number.isFinite(requestedWeek)));
 
         if (!cancelled) {
