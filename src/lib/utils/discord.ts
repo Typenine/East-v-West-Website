@@ -47,10 +47,31 @@ export function normalizeSiteUrl(siteUrl?: string): string {
   }
 }
 
-/** Build a stable link to one exact published issue. */
-export function buildNewsletterUrl(siteUrl: string, newsletterId?: string): string {
+type NewsletterLinkSelector = {
+  newsletterId?: string;
+  season?: number;
+  week?: number;
+  episodeType?: string | null;
+  title?: string | null;
+};
+
+/** Build a stable link to one published issue. */
+export function buildNewsletterUrl(
+  siteUrl: string,
+  selector?: string | NewsletterLinkSelector,
+): string {
   const url = new URL('/newsletter', normalizeSiteUrl(siteUrl));
-  if (newsletterId) url.searchParams.set('issue', newsletterId);
+  const options = typeof selector === 'string' ? { newsletterId: selector } : selector;
+
+  if (options?.newsletterId) {
+    url.searchParams.set('issue', options.newsletterId);
+  } else if (options) {
+    if (Number.isFinite(options.season)) url.searchParams.set('season', String(options.season));
+    if (Number.isFinite(options.week)) url.searchParams.set('week', String(options.week));
+    if (options.episodeType) url.searchParams.set('type', options.episodeType);
+    if (options.title?.trim()) url.searchParams.set('title', options.title.trim());
+  }
+
   return url.toString();
 }
 
@@ -179,7 +200,13 @@ export function buildNewsletterEmbed(options: {
 }): DiscordEmbed {
   const { season, week, newsletterId, episodeType = 'regular', title, highlights } = options;
   const normalizedType = episodeType || 'regular';
-  const newsletterUrl = buildNewsletterUrl(options.siteUrl, newsletterId);
+  const newsletterUrl = buildNewsletterUrl(options.siteUrl, {
+    newsletterId,
+    season,
+    week,
+    episodeType: normalizedType,
+    title,
+  });
   const isWeekless = ['pre_draft', 'post_draft', 'preseason', 'offseason'].includes(normalizedType);
   const label = NEWSLETTER_LABELS[normalizedType] ?? 'Newsletter';
   const contents = NEWSLETTER_CONTENTS[normalizedType] ?? NEWSLETTER_CONTENTS.regular;
