@@ -76,11 +76,14 @@ export function useNewsletterArchive() {
       setLoading(true);
       setCatalogError(null);
       try {
+        const params = new URLSearchParams(window.location.search);
+        const seasonParam = params.get('season');
+        const linkedSeason = seasonParam && Number.isFinite(Number(seasonParam)) ? seasonParam : null;
         const stateRes = await fetch('https://api.sleeper.app/v1/state/nfl', { cache: 'no-store' });
         const state = stateRes.ok
           ? await stateRes.json() as NFLState
           : { season: '2026', week: 0, season_type: 'off' };
-        const season = state.season || '2026';
+        const season = linkedSeason || state.season || '2026';
         const listRes = await fetch(`/api/newsletter?list=true&season=${season}`, { cache: 'no-store' });
         const listData = await listRes.json() as { items?: NewsletterMeta[]; error?: string };
         if (!listRes.ok) throw new Error(listData.error || 'Failed to load newsletter archive');
@@ -88,10 +91,8 @@ export function useNewsletterArchive() {
         const published = (listData.items ?? [])
           .filter(item => item.status === 'published')
           .sort(sortByPublished);
-        const params = new URLSearchParams(window.location.search);
         const requestedId = params.get('issue') || params.get('id');
         const requestedTitle = params.get('title')?.trim().toLowerCase() || null;
-        const seasonParam = params.get('season');
         const weekParam = params.get('week');
         const requestedSeason = seasonParam ? Number(seasonParam) : null;
         const requestedWeek = weekParam ? Number(weekParam) : null;
@@ -145,10 +146,14 @@ export function useNewsletterArchive() {
     url.searchParams.delete('week');
     url.searchParams.delete('type');
     url.searchParams.delete('title');
-    if (id) url.searchParams.set('issue', id);
-    else url.searchParams.delete('issue');
+    if (id) {
+      url.searchParams.set('issue', id);
+      url.searchParams.set('season', currentSeason);
+    } else {
+      url.searchParams.delete('issue');
+    }
     window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
-  }, []);
+  }, [currentSeason]);
 
   const toggleIssue = useCallback((id: string) => {
     setOpenIds(current => {
