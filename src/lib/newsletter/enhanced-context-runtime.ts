@@ -57,7 +57,8 @@ function memoryDisagreements(memories: Array<BotMemory | null>): { active: BotDi
   const active: BotDisagreement[] = [];
   const resolved: BotDisagreement[] = [];
   for (const memory of memories) {
-    const feud = memory?.partnerDynamics?.activeFeud;
+    if (!memory) continue;
+    const feud = memory.partnerDynamics?.activeFeud;
     if (feud && !active.some(item => item.topic === feud.topic)) {
       active.push({
         week: feud.startedWeek,
@@ -67,7 +68,7 @@ function memoryDisagreements(memories: Array<BotMemory | null>): { active: BotDi
         resolved: false,
       });
     }
-    for (const interaction of memory?.partnerDynamics?.recentInteractions?.slice(-8) ?? []) {
+    for (const interaction of memory.partnerDynamics?.recentInteractions?.slice(-8) ?? []) {
       if (!interaction.whoWasRight) continue;
       const winner = interaction.whoWasRight === 'both' || interaction.whoWasRight === 'neither'
         ? 'push'
