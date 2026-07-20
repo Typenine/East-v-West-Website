@@ -18,6 +18,7 @@ function buildNewsletterDocument(html: string): string {
 }
 
 async function downloadDocumentAsPdf(frameDocument: Document, fileName: string, documentTitle: string): Promise<void> {
+  void documentTitle;
   const [{ toPng }, { jsPDF }] = await Promise.all([
     import('html-to-image'),
     import('jspdf'),
@@ -31,13 +32,6 @@ async function downloadDocumentAsPdf(frameDocument: Document, fileName: string, 
   const captureNodes = nodes.length > 0 ? nodes : [root];
 
   const pdf = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'letter', compress: true });
-  pdf.setProperties({
-    title: documentTitle,
-    subject: 'East v. West league newsletter',
-    author: 'East v. West Fantasy Football League',
-    creator: 'East v. West Newsletter System',
-  });
-
   const pageWidth = pdf.internal.pageSize.getWidth();
   const pageHeight = pdf.internal.pageSize.getHeight();
   const marginX = 30;
