@@ -12,6 +12,7 @@ import {
   displayIssueTitle,
   fileSafeTitle,
   releaseDateKey,
+  resolveNewsletterType,
   sortByPublished,
 } from './utils';
 
@@ -89,16 +90,27 @@ export function useNewsletterArchive() {
           .sort(sortByPublished);
         const params = new URLSearchParams(window.location.search);
         const requestedId = params.get('issue') || params.get('id');
-        const initialId = requestedId && published.some(item => item.id === requestedId)
-          ? requestedId
-          : published[0]?.id ?? null;
+        const requestedTitle = params.get('title')?.trim().toLowerCase() || null;
+        const requestedSeason = Number(params.get('season'));
+        const requestedWeek = Number(params.get('week'));
+        const requestedType = params.get('type');
+        const linkedIssue = published.find(item => {
+          if (requestedId) return item.id === requestedId;
+          if (Number.isFinite(requestedSeason) && item.season !== requestedSeason) return false;
+          if (Number.isFinite(requestedWeek) && item.week !== requestedWeek) return false;
+          if (requestedType && resolveNewsletterType(item) !== requestedType) return false;
+          if (requestedTitle && item.title?.trim().toLowerCase() !== requestedTitle) return false;
+          return Boolean(requestedTitle || requestedType || Number.isFinite(requestedWeek));
+        });
+        const initialId = linkedIssue?.id ?? published[0]?.id ?? null;
+        const hasDirectSelector = Boolean(requestedId || requestedTitle || requestedType || Number.isFinite(requestedWeek));
 
         if (!cancelled) {
           setCurrentSeason(season);
           setSeasonType(state.season_type || 'off');
           setIssues(published);
           setOpenIds(initialId ? new Set([initialId]) : new Set());
-          if (initialId && requestedId) {
+          if (initialId && hasDirectSelector) {
             window.setTimeout(() => {
               document.getElementById(`newsletter-${initialId}`)?.scrollIntoView({ block: 'start' });
             }, 100);
