@@ -18,7 +18,7 @@ function buildNewsletterDocument(html: string): string {
 }
 
 async function downloadDocumentAsPdf(frameDocument: Document, fileName: string, documentTitle: string): Promise<void> {
-  const [{ toCanvas }, { jsPDF }] = await Promise.all([
+  const [{ toPng }, { jsPDF }] = await Promise.all([
     import('html-to-image'),
     import('jspdf'),
   ]);
@@ -56,11 +56,23 @@ async function downloadDocumentAsPdf(frameDocument: Document, fileName: string, 
   for (const node of captureNodes) {
     let canvas: HTMLCanvasElement;
     try {
-      canvas = await toCanvas(node, {
+      const imageUrl = await toPng(node, {
         backgroundColor: '#ffffff',
         cacheBust: true,
         pixelRatio: 1.45,
       });
+      const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+        const nextImage = new Image();
+        nextImage.onload = () => resolve(nextImage);
+        nextImage.onerror = () => reject(new Error('Unable to decode a newsletter PDF image.'));
+        nextImage.src = imageUrl;
+      });
+      canvas = window.document.createElement('canvas');
+      canvas.width = image.naturalWidth || image.width;
+      canvas.height = image.naturalHeight || image.height;
+      const imageContext = canvas.getContext('2d');
+      if (!imageContext) throw new Error('Unable to prepare a newsletter PDF image.');
+      imageContext.drawImage(image, 0, 0);
     } catch (error) {
       console.warn('[Newsletter PDF] Could not render one newsletter block:', error);
       continue;
