@@ -89,26 +89,31 @@ const DATA_EXPORTS = [
     label: 'Rosters & teams',
     description: 'Team rosters, player details, ownership, and season-by-season league membership.',
     href: '/api/export/rosters',
+    featured: false,
   },
   {
     label: 'Rules & settings',
     description: 'League rules, scoring, roster settings, and other competition settings.',
     href: '/api/export/rules',
+    featured: false,
   },
   {
     label: 'Drafts & picks',
     description: 'Historical drafts, selections, and current future-pick ownership.',
     href: '/api/export/drafts',
+    featured: false,
   },
   {
     label: 'History & records',
     description: 'League history, standings, matchup results, champions, and records.',
     href: '/api/export/history',
+    featured: false,
   },
   {
     label: 'Trades & transactions',
     description: 'Trade history and league transaction data across available seasons.',
     href: '/api/export/trades',
+    featured: false,
   },
 ] as const;
 
