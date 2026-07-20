@@ -65,11 +65,7 @@ async function downloadDocumentAsPdf(frameDocument: Document, fileName: string, 
   for (const node of captureNodes) {
     let canvas: HTMLCanvasElement;
     try {
-      const imageUrl = await toPng(node, {
-        backgroundColor: '#ffffff',
-        cacheBust: true,
-        pixelRatio: 1.45,
-      });
+      const imageUrl = await toPng(node, { backgroundColor: '#ffffff' });
       const image = await new Promise<HTMLImageElement>((resolve, reject) => {
         const nextImage = new Image();
         nextImage.onload = () => resolve(nextImage);
