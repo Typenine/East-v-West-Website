@@ -146,6 +146,28 @@ export const getTeamColorStyle = (
 };
 
 /**
+ * Picks a readable text color (black or white) for a background spanning one or
+ * more colors (e.g. a two-color gradient). Uses the average perceived luminance
+ * of all provided colors so gradients between two light colors (e.g. 'bop pop'
+ * or 'Elemental Heroes') don't force unreadable white text.
+ * @param colors Hex color strings (e.g. ['#fedb35', '#f88618'])
+ * @returns '#000000' or '#ffffff'
+ */
+export const getReadableTextForColors = (colors: string[]): string => {
+  const luminanceOf = (color: string): number => {
+    const hex = color.replace('#', '');
+    const r = parseInt(hex.substr(0, 2), 16);
+    const g = parseInt(hex.substr(2, 2), 16);
+    const b = parseInt(hex.substr(4, 2), 16);
+    return (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  };
+  const valid = colors.filter((c) => /^#[0-9a-fA-F]{6}$/.test(c));
+  if (valid.length === 0) return '#ffffff';
+  const avgLuminance = valid.reduce((sum, c) => sum + luminanceOf(c), 0) / valid.length;
+  return avgLuminance > 0.55 ? '#000000' : '#ffffff';
+};
+
+/**
  * Canonical name resolution helpers
  */
 

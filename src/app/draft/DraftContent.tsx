@@ -267,6 +267,11 @@ export default function DraftContent() {
               label: 'Next Draft',
               content: (
                 <div className="space-y-6">
+                  <div className="text-center">
+                    <h2 className="text-2xl sm:text-3xl font-bold tracking-tight bg-gradient-to-r from-[#be161e] to-[#bf9944] bg-clip-text text-transparent">
+                      2027 West: Denver
+                    </h2>
+                  </div>
                   <CountdownTimer
                     targetDate={IMPORTANT_DATES.NEXT_LEAGUE_YEAR_DRAFT}
                     title="Countdown to Draft Day"
@@ -808,7 +813,7 @@ function TeamHopChip({ team }: { team: string }) {
 
 function DraftOrderView() {
   const [refreshNonce, setRefreshNonce] = useState(0);
-  const [orderSeason, setOrderSeason] = useState<number>(Number(CURRENT_SEASON));
+  const [orderSeason, setOrderSeason] = useState<number>(Number(CURRENT_SEASON) + 1);
   const [tradeModal, setTradeModal] = useState<DraftOrderTradeModal | null>(null);
   const [data, setData] = useState<{
     season: number;
@@ -866,8 +871,8 @@ function DraftOrderView() {
             onChange={(e) => setOrderSeason(Number(e.target.value))}
             className="w-[150px]"
           >
-            <option value={CURRENT_SEASON}>{CURRENT_SEASON} Draft</option>
             <option value={String(Number(CURRENT_SEASON) + 1)}>{Number(CURRENT_SEASON) + 1} Draft</option>
+            <option value={CURRENT_SEASON}>{CURRENT_SEASON} Draft</option>
           </Select>
         </div>
         <Button

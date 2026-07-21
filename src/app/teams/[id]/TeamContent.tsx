@@ -21,8 +21,8 @@ import {
   TeamTopWeek,
   getLeague,
 } from '@/lib/utils/sleeper-api';
-import { LEAGUE_IDS, getLeagueIdForSeason } from '@/lib/constants/league';
-import { getTeamLogoPath, getTeamColorStyle, getTeamColors, resolveCanonicalTeamName } from '@/lib/utils/team-utils';
+import { LEAGUE_IDS, CURRENT_SEASON, getLeagueIdForSeason } from '@/lib/constants/league';
+import { getTeamLogoPath, getTeamColorStyle, getTeamColors, resolveCanonicalTeamName, getReadableTextForColors } from '@/lib/utils/team-utils';
 import LoadingState from '@/components/ui/loading-state';
 import ErrorState from '@/components/ui/error-state';
 import SectionHeader from '@/components/ui/SectionHeader';
@@ -129,7 +129,7 @@ export default function TeamContent() {
   const params = useParams();
   const searchParams = useSearchParams();
   const rosterId = parseInt(params.id as string);
-  const yearParam = searchParams.get('year') || '2025';
+  const yearParam = searchParams.get('year') || CURRENT_SEASON;
   
   const [team, setTeam] = useState<TeamData | null>(null);
   // Convenient name and color styles for this team
@@ -137,6 +137,7 @@ export default function TeamContent() {
   const teamColors = useMemo(() => getTeamColors(teamName), [teamName]);
   const secondaryStyle = useMemo(() => getTeamColorStyle(teamName, 'secondary'), [teamName]);
   const tertiaryStyle = useMemo(() => getTeamColorStyle(teamName, 'tertiary'), [teamName]);
+  const gradientTextColor = useMemo(() => getReadableTextForColors([teamColors.primary, teamColors.secondary]), [teamColors]);
   const [weeklyResults, setWeeklyResults] = useState<Array<{
     week: number;
     points: number;
@@ -993,6 +994,7 @@ export default function TeamContent() {
               onChange={(e) => handleYearChange(e.target.value)}
               className="w-[12rem]"
             >
+              <option value={CURRENT_SEASON}>{CURRENT_SEASON} Season</option>
               <option value="2025">2025 Season</option>
               <option value="2024">2024 Season</option>
               <option value="2023">2023 Season</option>
@@ -1394,6 +1396,7 @@ export default function TeamContent() {
                     <div>
                       <Label htmlFor="snap-year">Season</Label>
                       <Select id="snap-year" value={snapYear} onChange={(e) => setSnapYear(e.target.value)}>
+                        <option value={CURRENT_SEASON}>{CURRENT_SEASON}</option>
                         <option value="2025">2025</option>
                         <option value="2024">2024</option>
                         <option value="2023">2023</option>
@@ -1537,8 +1540,8 @@ export default function TeamContent() {
               {(draftAssetsLoading || (draftAssets && (draftAssets.rosterPlayers.length > 0 || draftAssets.currentPicks.length > 0 || draftAssets.futurePicks.length > 0))) && (
                 <Card style={{ borderTop: `4px solid ${teamColors.primary}`, marginBottom: '1rem' }}>
                   <CardHeader>
-                    <div className="rounded-md" style={{ backgroundImage: `linear-gradient(90deg, ${teamColors.primary} 0%, ${teamColors.secondary} 100%)`, color: '#ffffff', padding: '0.35rem 0.6rem' }}>
-                      <CardTitle>Draft Day Assets</CardTitle>
+                    <div className="rounded-md" style={{ backgroundImage: `linear-gradient(90deg, ${teamColors.primary} 0%, ${teamColors.secondary} 100%)`, color: gradientTextColor, padding: '0.35rem 0.6rem' }}>
+                      <CardTitle style={{ color: gradientTextColor }}>Draft Day Assets</CardTitle>
                     </div>
                   </CardHeader>
                   <CardContent>
@@ -1622,11 +1625,11 @@ export default function TeamContent() {
                     className="rounded-md"
                     style={{
                       backgroundImage: `linear-gradient(90deg, ${teamColors.primary} 0%, ${teamColors.secondary} 100%)`,
-                      color: '#ffffff',
+                      color: gradientTextColor,
                       padding: '0.35rem 0.6rem',
                     }}
                   >
-                    <CardTitle>Current Roster</CardTitle>
+                    <CardTitle style={{ color: gradientTextColor }}>Current Roster</CardTitle>
                   </div>
                 </CardHeader>
                 <CardContent>
@@ -1671,7 +1674,7 @@ export default function TeamContent() {
                           {sortedGroups.map(({ group, ids }) => (
                             [
                               (
-                                <Tr key={`hdr-${group}`} className="bg-[color-mix(in_srgb,var(--danger)_12%,transparent)]" style={{ borderLeft: `3px solid ${teamColors.primary}` }}>
+                                <Tr key={`hdr-${group}`} style={{ backgroundColor: `color-mix(in srgb, ${teamColors.primary} 14%, transparent)`, borderLeft: `3px solid ${teamColors.primary}` }}>
                                   <Td colSpan={6} className="text-xs font-semibold text-[var(--muted)] uppercase">
                                     {group}
                                   </Td>
@@ -1682,7 +1685,7 @@ export default function TeamContent() {
                                 if (!player) return null;
                                 const s = playerSeasonStats[playerId];
                                 return (
-                                  <Tr key={playerId} style={{ borderLeft: `3px solid ${teamColors.primary}` }}>
+                                  <Tr key={playerId} style={{ backgroundColor: `color-mix(in srgb, ${teamColors.primary} 5%, transparent)`, borderLeft: `3px solid ${teamColors.primary}` }}>
                                     <Td>
                                       <button
                                         type="button"
@@ -2233,6 +2236,7 @@ export default function TeamContent() {
                       onChange={(e) => setModalYear(e.target.value)}
                       className="w-[8.5rem]"
                     >
+                      <option value={CURRENT_SEASON}>{CURRENT_SEASON}</option>
                       <option value="2025">2025</option>
                       <option value="2024">2024</option>
                       <option value="2023">2023</option>
