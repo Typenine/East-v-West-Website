@@ -1,17 +1,34 @@
 from __future__ import annotations
 
+import runpy
 from pathlib import Path
 
 STAMP = Path('.post-draft-readiness-applied')
 PATCH_SOURCE = Path('scripts/post-draft-readiness-patch.txt')
+DOSSIER_PATCH = Path('scripts/apply-post-draft-dossier.py')
 START_LINE = "          python - <<'PY'"
 END_LINE = "          PY"
 YAML_INDENT = ' ' * 10
 
 
+def run_dossier_patch() -> None:
+    if DOSSIER_PATCH.exists():
+        runpy.run_path(str(DOSSIER_PATCH), run_name='__main__')
+
+    # The dossier profile packet is assembled once and never reassigned. Keep the
+    # generated route compliant with the repository's blocking prefer-const rule.
+    route_path = Path('src/app/api/newsletter/route.ts')
+    if route_path.exists():
+        route_text = route_path.read_text(encoding='utf-8')
+        old = 'let postDraftTeamProfiles'
+        if old in route_text:
+            route_path.write_text(route_text.replace(old, 'const postDraftTeamProfiles', 1), encoding='utf-8')
+
+
 def main() -> None:
     if STAMP.exists():
         print('[post-draft-readiness] Source patch already applied in this workspace.')
+        run_dossier_patch()
         return
 
     lines = PATCH_SOURCE.read_text(encoding='utf-8').splitlines()
@@ -107,6 +124,7 @@ Now give your final word.`;'''
 
     STAMP.write_text('applied\n', encoding='utf-8')
     print('[post-draft-readiness] Source updates applied.')
+    run_dossier_patch()
 
 
 if __name__ == '__main__':
