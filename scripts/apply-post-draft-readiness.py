@@ -98,24 +98,36 @@ def apply_post_draft_rank_scope_fix() -> None:
 - Defenses are eligible draft assets in this league. Keep them in the eligible pool and evaluate their selection cost without pretending they have the same positional upside as rookies.
 '''
         if rank_rules.strip() not in dossier_text:
-            if rule_anchor not in dossier_text:
-                raise RuntimeError('Post-draft rank fix could not find the dossier writing-rules anchor')
-            dossier_text = dossier_text.replace(rule_anchor, rank_rules + rule_anchor, 1)
+            if rule_anchor in dossier_text:
+                dossier_text = dossier_text.replace(rule_anchor, rank_rules + rule_anchor, 1)
+            else:
+                rules_index = dossier_text.find('WRITING RULES')
+                if rules_index < 0:
+                    raise RuntimeError('Post-draft rank fix could not locate the WRITING RULES section')
+                insert_at = dossier_text.find('\n', rules_index)
+                if insert_at < 0:
+                    raise RuntimeError('Post-draft rank fix found WRITING RULES without a body')
+                dossier_text = dossier_text[:insert_at + 1] + rank_rules + dossier_text[insert_at + 1:]
         dossier_path.write_text(dossier_text, encoding='utf-8')
 
     compose_path = Path('src/lib/newsletter/compose-step.ts')
     if compose_path.exists():
         compose_text = compose_path.read_text(encoding='utf-8')
-        dynasty_declaration = '  const dynastyRankByName = new Map((dynastyRankings ?? []).map(player => [normalize(player.name), player.rank]));\n'
-        if dynasty_declaration in compose_text:
-            compose_text = compose_text.replace(dynasty_declaration, '', 1)
+        compose_text = re.sub(
+            r"(?m)^\s*const\s+dynastyRankByName\s*=.*?;\n",
+            '',
+            compose_text,
+            count=1,
+        )
 
-        old_award_rank = '    rank: rookieRankByName.get(normalize(pick.playerName)) ?? dynastyRankByName.get(normalize(pick.playerName)) ?? null,'
-        new_award_rank = '    rank: rookieRankByName.get(normalize(pick.playerName)) ?? null,'
-        if old_award_rank in compose_text:
-            compose_text = compose_text.replace(old_award_rank, new_award_rank, 1)
-        elif new_award_rank not in compose_text:
-            raise RuntimeError('Post-draft rank fix could not find the award rank fallback')
+        compose_text = re.sub(
+            r"(?m)^(?P<indent>\s*)rank:\s*rookieRankByName\.get\(normalize\(pick\.playerName\)\)\s*\?\?\s*dynastyRankByName\.get\(normalize\(pick\.playerName\)\)\s*\?\?\s*null,\s*$",
+            r"\g<indent>rank: rookieRankByName.get(normalize(pick.playerName)) ?? null,",
+            compose_text,
+            count=1,
+        )
+        if 'dynastyRankByName.get(normalize(pick.playerName))' in compose_text:
+            raise RuntimeError('Post-draft rank fix could not remove the overall-dynasty award fallback')
 
         compose_text = compose_text.replace(
             'CURRENT ROOKIE/DYNASTY RANK EVIDENCE:',
@@ -135,7 +147,13 @@ def apply_post_draft_rank_scope_fix() -> None:
         if rubric_anchor in compose_text:
             compose_text = compose_text.replace(rubric_anchor, rubric_replacement, 1)
         elif rubric_replacement not in compose_text:
-            raise RuntimeError('Post-draft rank fix could not find the team-grade rubric anchor')
+            generic_anchor = 'Apply the same rubric to every franchise.'
+            if generic_anchor in compose_text:
+                compose_text = compose_text.replace(
+                    generic_anchor,
+                    generic_anchor + ' VALUE must compare selection number only to the eligible rookie/DEF pool rank and actual alternatives still available, never to overall dynasty rank.',
+                    1,
+                )
         compose_path.write_text(compose_text, encoding='utf-8')
 
     test_path = Path('src/lib/newsletter/__tests__/post-draft-readiness.test.ts')
