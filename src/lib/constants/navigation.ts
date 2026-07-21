@@ -18,7 +18,7 @@ export const HISTORY_TAB_IDS = [
   'records',
 ] as const;
 
-export const DRAFT_VIEW_IDS = ['next', '2027', 'past', 'team-prospect-draftboard'] as const;
+export const DRAFT_VIEW_IDS = ['next', '2028', 'past', 'team-prospect-draftboard'] as const;
 export const DRAFT_NEXT_TAB_IDS = ['airbnb', 'travel', 'order'] as const;
 
 export const USER_NAV_CONFIG: UserNavItem[] = [
@@ -63,14 +63,14 @@ export const USER_NAV_CONFIG: UserNavItem[] = [
         label: 'Next Draft Hub',
         href: '/draft?view=next',
         description: 'Travel, lodging, and draft order',
-        group: '2026 Draft',
+        group: '2027 Draft',
         children: [
           { id: 'draft.next.airbnb', label: 'Airbnb Info', href: '/draft?view=next&next=airbnb' },
           { id: 'draft.next.travel', label: 'Flights & Arrivals', href: '/draft?view=next&next=travel' },
           { id: 'draft.next.order', label: 'Draft Order', href: '/draft?view=next&next=order' },
         ],
       },
-      { id: 'draft.2027', label: '2027 Draft', href: '/draft?view=2027', group: 'Other Drafts' },
+      { id: 'draft.2028', label: '2028 Draft', href: '/draft?view=2028', group: 'Other Drafts' },
       { id: 'draft.past', label: 'Previous Drafts', href: '/draft?view=past', group: 'Other Drafts' },
       {
         id: 'draft.team-prospect-draftboard',

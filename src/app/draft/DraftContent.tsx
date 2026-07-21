@@ -60,7 +60,7 @@ export default function DraftContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const years = useMemo(
-    () => [...Object.keys(LEAGUE_IDS.PREVIOUS)].sort((a, b) => parseInt(b, 10) - parseInt(a, 10)),
+    () => [CURRENT_SEASON, ...Object.keys(LEAGUE_IDS.PREVIOUS)].sort((a, b) => parseInt(b, 10) - parseInt(a, 10)),
     [],
   );
   const [selectedYear, setSelectedYear] = useState(() => years[0] ?? '2025');
@@ -75,7 +75,7 @@ export default function DraftContent() {
 
   const outerTabParam = searchParams?.get('view') || '';
   const nextTabParam = searchParams?.get('next') || '';
-  const activeOuterTab = outerTabParam === 'next' || outerTabParam === '2027' || outerTabParam === 'past' || outerTabParam === 'team-prospect-draftboard'
+  const activeOuterTab = outerTabParam === 'next' || outerTabParam === '2028' || outerTabParam === 'past' || outerTabParam === 'team-prospect-draftboard'
     ? outerTabParam
     : 'next';
   const activeNextTab = nextTabParam === 'airbnb' || nextTabParam === 'travel' || nextTabParam === 'order' ? nextTabParam : 'airbnb';
@@ -95,59 +95,6 @@ export default function DraftContent() {
   }, []);
 
   // Removed local classNames helper – primitives use tokenized styles
-
-  // Download an ICS calendar file for the trip and draft
-  const handleAddToCalendar = () => {
-    try {
-      const formatICSDate = (d: Date) => d.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
-      // Trip window (Thursday 3 PM ET -> Sunday 11 AM ET)
-      const tripStart = new Date('2026-07-16T15:00:00-04:00');
-      const tripEnd = new Date('2026-07-19T11:00:00-04:00');
-      // Draft event (using league constant for start time)
-      const draftStart = IMPORTANT_DATES.NEXT_DRAFT;
-      const draftEnd = new Date(draftStart.getTime() + 2 * 60 * 60 * 1000); // 2 hours
-
-      const now = new Date();
-      const ics = [
-        'BEGIN:VCALENDAR',
-        'VERSION:2.0',
-        'PRODID:-//East v. West//Draft Trip//EN',
-        'CALSCALE:GREGORIAN',
-        'METHOD:PUBLISH',
-        'BEGIN:VEVENT',
-        `UID:evw-trip-2026@eastvwest`,
-        `DTSTAMP:${formatICSDate(now)}`,
-        `DTSTART:${formatICSDate(tripStart)}`,
-        `DTEND:${formatICSDate(tripEnd)}`,
-        'SUMMARY:East v. West Draft Trip',
-        'LOCATION:Somerset, Pennsylvania, United States',
-        'DESCRIPTION:Airbnb: https://www.airbnb.com/rooms/21559127',
-        'END:VEVENT',
-        'BEGIN:VEVENT',
-        `UID:evw-draft-2026@eastvwest`,
-        `DTSTAMP:${formatICSDate(now)}`,
-        `DTSTART:${formatICSDate(draftStart)}`,
-        `DTEND:${formatICSDate(draftEnd)}`,
-        'SUMMARY:East v. West Rookie Draft',
-        'DESCRIPTION:Draft starts at 1:00 PM ET',
-        'END:VEVENT',
-        'END:VCALENDAR',
-      ].join('\r\n');
-
-      const blob = new Blob([ics], { type: 'text/calendar;charset=utf-8' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'evw-draft-trip-2026.ics';
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
-    } catch (e) {
-      console.error('Failed to create calendar file', e);
-      alert('Could not generate calendar file.');
-    }
-  };
 
   function TravelSubtab({ trip }: { trip: string }) {
     return <DraftTravelSubtab trip={trip} />;
@@ -321,7 +268,7 @@ export default function DraftContent() {
               content: (
                 <div className="space-y-6">
                   <CountdownTimer
-                    targetDate={IMPORTANT_DATES.NEXT_DRAFT}
+                    targetDate={IMPORTANT_DATES.NEXT_LEAGUE_YEAR_DRAFT}
                     title="Countdown to Draft Day"
                     className="mb-2"
                   />
@@ -336,169 +283,7 @@ export default function DraftContent() {
                           <div className="space-y-4">
                             <Card>
                               <CardHeader>
-                                <CardTitle>Next Draft: July 18, 2026</CardTitle>
-                              </CardHeader>
-                              <CardContent>
-                                <div className="grid gap-4">
-                                  <Card className="evw-surface">
-                                    <CardHeader>
-                                      <CardTitle>Airbnb Information</CardTitle>
-                                    </CardHeader>
-                                    <CardContent>
-                                      <div className="space-y-4">
-                                        <div>
-                                          <h4 className="font-semibold text-[var(--text)]">Listing</h4>
-                                          <p className="font-medium">Not Your Typical Mountain Cabin - Must See Photos</p>
-                                          <a
-                                            href="https://www.airbnb.com/rooms/21559127?viralityEntryPoint=1&s=76&source_impression_id=p3_1751382164_P3PAwIqHxrQ87fn9"
-                                            target="_blank"
-                                            rel="noopener noreferrer"
-                                            className="text-[var(--accent-strong)] hover:underline"
-                                            aria-label="View Airbnb listing in a new tab"
-                                          >
-                                            View on Airbnb
-                                          </a>
-                                        </div>
-                                        <div>
-                                          <h4 className="font-semibold text-[var(--text)]">Location</h4>
-                                          <p>Somerset, Pennsylvania, United States</p>
-                                        </div>
-                                        <div>
-                                          <h4 className="font-semibold text-[var(--text)]">Dates</h4>
-                                          <p>July 16-19, 2026 (Thursday-Sunday)</p>
-                                        </div>
-                                        <div>
-                                          <h4 className="font-semibold text-[var(--text)]">Notes</h4>
-                                          <ul className="list-disc pl-5">
-                                            <li>Check-in: 3:00 PM Thursday</li>
-                                            <li>Check-out: 11:00 AM Sunday</li>
-                                            <li>Draft starts at 1:00 PM ET on Saturday</li>
-                                            <li>Linens provided for all beds — please bring your own shower towels.</li>
-                                          </ul>
-                                        </div>
-
-                                        <div className="mt-2 pt-4 border-t border-[var(--border)]">
-                                          <h4 className="font-semibold text-[var(--text)] mb-2">Amenities</h4>
-                                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                            <div className="rounded-lg border border-[var(--border)] p-4">
-                                              <h5 className="font-semibold mb-2 flex items-center gap-2"><HomeIcon className="h-4 w-4 text-[var(--muted)]" aria-hidden="true" />Kitchen</h5>
-                                              <ul className="list-disc pl-5 space-y-1 text-sm">
-                                                <li>Space where guests can cook their own meals</li>
-                                                <li>Refrigerator</li>
-                                                <li>Microwave</li>
-                                                <li>Cooking basics (pots and pans, oil, salt and pepper)</li>
-                                                <li>Dishes and silverware (bowls, chopsticks, plates, cups, etc.)</li>
-                                                <li>Mini fridge</li>
-                                                <li>Freezer</li>
-                                                <li>Dishwasher</li>
-                                                <li>Stove & Oven</li>
-                                                <li>Coffee makers (regular + Keurig)</li>
-                                                <li>Wine glasses</li>
-                                                <li>Toaster</li>
-                                                <li>Baking sheet</li>
-                                                <li>Blender</li>
-                                                <li>Barbecue utensils (grill tools, skewers, etc.)</li>
-                                                <li>Dining table</li>
-                                              </ul>
-                                            </div>
-                                            <div className="rounded-lg border border-[var(--border)] p-4">
-                                              <h5 className="font-semibold mb-2 flex items-center gap-2"><TvIcon className="h-4 w-4 text-[var(--muted)]" aria-hidden="true" />Entertainment</h5>
-                                              <ul className="list-disc pl-5 space-y-1 text-sm">
-                                                <li>98&quot; Hi‑Def TV</li>
-                                                <li>Full bar area with mini fridge</li>
-                                                <li>Full-size arcade games</li>
-                                                <li>Dart board</li>
-                                                <li>Bubble hockey game</li>
-                                              </ul>
-                                            </div>
-                                            <div className="rounded-lg border border-[var(--border)] p-4">
-                                              <h5 className="font-semibold mb-2 flex items-center gap-2"><FireIcon className="h-4 w-4 text-[var(--muted)]" aria-hidden="true" />Outdoor</h5>
-                                              <ul className="list-disc pl-5 space-y-1 text-sm">
-                                                <li>Fire pit</li>
-                                                <li>Outdoor furniture</li>
-                                                <li>Outdoor dining area</li>
-                                                <li>BBQ grill</li>
-                                                <li>Plenty of parking</li>
-                                              </ul>
-                                            </div>
-                                            <div className="rounded-lg border border-[var(--border)] p-4">
-                                              <h5 className="font-semibold mb-2 flex items-center gap-2"><MoonIcon className="h-4 w-4 text-[var(--muted)]" aria-hidden="true" />Sleeping Arrangements</h5>
-                                              <ul className="list-disc pl-5 space-y-1 text-sm">
-                                                <li>5 bedrooms total</li>
-                                                <li>2 queen beds</li>
-                                                <li>1 king bed</li>
-                                                <li>2 bunk beds</li>
-                                                <li>1 sofa bed</li>
-                                                <li>2 single beds</li>
-                                              </ul>
-                                            </div>
-                                            <div className="rounded-lg border border-[var(--border)] p-4">
-                                              <h5 className="font-semibold mb-2 flex items-center gap-2"><HomeIcon className="h-4 w-4 text-[var(--muted)]" aria-hidden="true" />Comfort & Utilities</h5>
-                                              <ul className="list-disc pl-5 space-y-1 text-sm">
-                                                <li>Washer &amp; dryer</li>
-                                                <li>Geothermal A/C</li>
-                                                <li>Wood fireplace &amp; geothermal heating</li>
-                                              </ul>
-                                            </div>
-                                            <div className="rounded-lg border border-[var(--border)] p-4 md:col-span-2">
-                                              <h5 className="font-semibold mb-2 flex items-center gap-2"><BookOpenIcon className="h-4 w-4 text-[var(--muted)]" aria-hidden="true" />Loft</h5>
-                                              <p className="text-sm">
-                                                The upstairs loft area includes a library with many books and a large shuffleboard game.
-                                              </p>
-                                            </div>
-                                          </div>
-                                        </div>
-                                        <div>
-                                          <Button onClick={handleAddToCalendar} variant="primary">Add to Calendar (.ics)</Button>
-                                        </div>
-                                      </div>
-                                    </CardContent>
-                                  </Card>
-                                </div>
-                              </CardContent>
-                            </Card>
-                          </div>
-                        ),
-                      },
-                      {
-                        id: 'travel',
-                        label: 'Flights / Arrivals',
-                        content: (
-                          <TravelSubtab trip="2026" />
-                        ),
-                      },
-                      {
-                        id: 'order',
-                        label: 'Draft Order',
-                        content: (
-                          <DraftOrderView />
-                        ),
-                      },
-                    ]}
-                  />
-                </div>
-              ),
-            },
-            {
-              id: '2027',
-              label: '2027 Draft',
-              content: (
-                <div className="space-y-6">
-                  <CountdownTimer
-                    targetDate={new Date('2027-07-10T13:00:00-04:00')}
-                    title="Countdown to Draft Day"
-                    className="mb-2"
-                  />
-                  <Tabs
-                    tabs={[
-                      {
-                        id: 'airbnb-2027',
-                        label: 'Airbnb Info',
-                        content: (
-                          <div className="space-y-4">
-                            <Card>
-                              <CardHeader>
-                                <CardTitle>2027 Draft: July 10, 2027</CardTitle>
+                                <CardTitle>Next Draft: July 10, 2027</CardTitle>
                               </CardHeader>
                               <CardContent>
                                 <div className="grid gap-4">
@@ -615,14 +400,45 @@ export default function DraftContent() {
                         ),
                       },
                       {
-                        id: 'travel-2027',
+                        id: 'travel',
                         label: 'Flights / Arrivals',
                         content: (
                           <TravelSubtab trip="2027" />
                         ),
                       },
+                      {
+                        id: 'order',
+                        label: 'Draft Order',
+                        content: (
+                          <DraftOrderView />
+                        ),
+                      },
                     ]}
                   />
+                </div>
+              ),
+            },
+            {
+              id: '2028',
+              label: '2028 Draft',
+              content: (
+                <div className="space-y-6">
+                  <EmptyState
+                    title="2028 Draft Details Coming Soon"
+                    message="Location and dates have not been finalized yet."
+                  />
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>Location: Down to Three Finalists</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <ul className="list-disc pl-5 space-y-1 text-[var(--text)]">
+                        <li>Milwaukee, Wisconsin</li>
+                        <li>Western New York</li>
+                        <li>Tennessee</li>
+                      </ul>
+                    </CardContent>
+                  </Card>
                 </div>
               ),
             },
