@@ -27,6 +27,10 @@ def main() -> None:
         '// Seed the player name cache so derive.ts can resolve player IDs',
         '// Seed the player name cache so derive.ts can resolve IDs',
     )
+    code = code.replace(
+        "Path('.github/workflows/post-draft-readiness-patch.yml').unlink()",
+        'pass  # legacy one-time workflow cleanup; payload is now stored under scripts/',
+    )
 
     compose_path = Path('src/lib/newsletter/compose-step.ts')
     compose_text = compose_path.read_text(encoding='utf-8')
