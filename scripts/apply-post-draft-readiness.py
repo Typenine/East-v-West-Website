@@ -6,9 +6,15 @@ from pathlib import Path
 STAMP = Path('.post-draft-readiness-applied')
 PATCH_SOURCE = Path('scripts/post-draft-readiness-patch.txt')
 DOSSIER_PATCH = Path('scripts/apply-post-draft-dossier.py')
+PORTABILITY_PATCH = Path('scripts/apply-newsletter-portability.py')
 START_LINE = "          python - <<'PY'"
 END_LINE = "          PY"
 YAML_INDENT = ' ' * 10
+
+
+def run_portability_patch() -> None:
+    if PORTABILITY_PATCH.exists():
+        runpy.run_path(str(PORTABILITY_PATCH), run_name='__main__')
 
 
 def run_dossier_patch() -> None:
@@ -23,6 +29,8 @@ def run_dossier_patch() -> None:
         old = 'let postDraftTeamProfiles'
         if old in route_text:
             route_path.write_text(route_text.replace(old, 'const postDraftTeamProfiles', 1), encoding='utf-8')
+
+    run_portability_patch()
 
 
 def main() -> None:
