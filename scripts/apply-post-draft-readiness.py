@@ -50,6 +50,34 @@ Now give your final word.`;'''
     print('[post-draft-readiness] Applying staged post-draft source updates...')
     namespace = {'__name__': '__main__', '__file__': str(PATCH_SOURCE)}
     exec(compile(code, str(PATCH_SOURCE), 'exec'), namespace, namespace)
+
+    # Final deterministic cleanup on the transformed TypeScript.
+    compose_text = compose_path.read_text(encoding='utf-8')
+
+    # Only awardsRaw is reassigned after the initial parallel generation.
+    destructure = '  let [bot1_summary, bot2_summary, awardsRaw] = await Promise.all(['
+    if destructure in compose_text:
+        start_idx = compose_text.index(destructure)
+        compose_text = compose_text.replace(
+            destructure,
+            '  const [bot1_summary, bot2_summary, initialAwardsRaw] = await Promise.all([',
+            1,
+        )
+        close_idx = compose_text.index('  ]);', start_idx) + len('  ]);')
+        compose_text = compose_text[:close_idx] + '\n  let awardsRaw = initialAwardsRaw;' + compose_text[close_idx:]
+
+    # Keep the optional trade section explicitly labeled for the selected draft
+    # episode after filtering to the draft-week window.
+    old_trade_heading = '''PRE-DRAFT TRADE ANALYSIS — ${season}
+Review trades since late ${season - 1} (post-championship offseason through the present).'''
+    new_trade_heading = '''${analysisLabel} — ${season}
+${isPostDraft
+  ? 'Review completed trades from the seven days before through two days after the rookie draft. Focus on pick movement, trade-ups, trade-downs, and how the deals changed team hauls.'
+  : 'Review offseason trades from the post-championship period through the present.'}'''
+    if old_trade_heading in compose_text:
+        compose_text = compose_text.replace(old_trade_heading, new_trade_heading, 1)
+
+    compose_path.write_text(compose_text, encoding='utf-8')
     STAMP.write_text('applied\n', encoding='utf-8')
     print('[post-draft-readiness] Source updates applied.')
 
