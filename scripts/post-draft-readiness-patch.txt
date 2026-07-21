@@ -1,0 +1,954 @@
+name: Apply post-draft readiness patch
+
+on:
+  push:
+    branches:
+      - newsletter-system-update-7-post-draft-readiness
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-test:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: newsletter-system-update-7-post-draft-readiness
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Apply source changes
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path: str, old: str, new: str) -> None:
+              p = Path(path)
+              text = p.read_text()
+              count = text.count(old)
+              if count != 1:
+                  raise RuntimeError(f'{path}: expected one match, found {count}\n--- old ---\n{old[:800]}')
+              p.write_text(text.replace(old, new, 1))
+
+          def replace_between(path: str, start_marker: str, end_marker: str, new_block: str) -> None:
+              p = Path(path)
+              text = p.read_text()
+              start = text.index(start_marker)
+              end = text.index(end_marker, start)
+              p.write_text(text[:start] + new_block + text[end:])
+
+          # ------------------------------------------------------------------
+          # Sleeper ingest: resolve roster IDs to canonical team names once,
+          # before draft data reaches validation or any generation step.
+          # ------------------------------------------------------------------
+          replace_once(
+              'src/lib/newsletter/sleeper-ingest.ts',
+              """  // Seed the player name cache so derive.ts can resolve player IDs
+  setPlayerNameCache(allPlayers);
+
+  // Build the set of player IDs that are on any roster in this league
+""",
+              """  // Seed the player name cache so derive.ts can resolve player IDs
+  setPlayerNameCache(allPlayers);
+
+  // Resolve Sleeper's RosterId:N draft placeholders to the same canonical team
+  // names used everywhere else in the newsletter. Doing this in the ingest layer
+  // keeps staged and synchronous generation on one source of truth.
+  const userNameById = new Map<string, string>();
+  for (const user of users) {
+    userNameById.set(
+      user.user_id,
+      user.metadata?.team_name || user.display_name || user.username || `User ${user.user_id}`,
+    );
+  }
+  const rosterTeamById = new Map<number, string>();
+  for (const roster of rosters) {
+    rosterTeamById.set(roster.roster_id, userNameById.get(roster.owner_id) || `Roster ${roster.roster_id}`);
+  }
+  const resolvedDraftData = draftData
+    ? {
+        ...draftData,
+        draftOrder: draftData.draftOrder.map(entry => {
+          const match = entry.match(/^RosterId:(\\d+)$/);
+          return match ? (rosterTeamById.get(Number(match[1])) || entry) : entry;
+        }),
+        picks: draftData.picks.map(pick => ({
+          ...pick,
+          teamName: rosterTeamById.get(pick.roster_id) || pick.teamName || `Roster ${pick.roster_id}`,
+        })),
+      }
+    : null;
+
+  // Build the set of player IDs that are on any roster in this league
+""",
+          )
+          replace_once(
+              'src/lib/newsletter/sleeper-ingest.ts',
+              """    injuries: filteredInjuries,
+    draftData,
+  };
+""",
+              """    injuries: filteredInjuries,
+    draftData: resolvedDraftData,
+  };
+""",
+          )
+
+          # ------------------------------------------------------------------
+          # Pre-generation validation: post-draft episodes cannot start until
+          # Sleeper has a complete, mapped, plausible draft result.
+          # ------------------------------------------------------------------
+          replace_once(
+              'src/lib/newsletter/validation-gate.ts',
+              """  /** Derived matchup pairs (post-buildDerived) */
+  matchupPairs: Array<unknown>;
+  /** Optional expected team count (league constant). Checked when provided. */
+""",
+              """  /** Derived matchup pairs (post-buildDerived) */
+  matchupPairs: Array<unknown>;
+  /** Completed Sleeper draft data required by post_draft episodes. */
+  draftData?: {
+    status?: string | null;
+    totalRounds?: number | null;
+    totalTeams?: number | null;
+    picks?: Array<{
+      pick_no?: number | null;
+      playerName?: string | null;
+      position?: string | null;
+      teamName?: string | null;
+    }>;
+  } | null;
+  /** Optional expected team count (league constant). Checked when provided. */
+""",
+          )
+          replace_once(
+              'src/lib/newsletter/validation-gate.ts',
+              """  const { season, week, episodeType, users, rosters, matchups, matchupPairs, expectedTeamCount } = input;
+""",
+              """  const { season, week, episodeType, users, rosters, matchups, matchupPairs, draftData, expectedTeamCount } = input;
+""",
+          )
+          replace_once(
+              'src/lib/newsletter/validation-gate.ts',
+              """  // ── Matchup data (only for episodes that need it) ──
+""",
+              """  // ── Completed draft data (post-draft only) ──
+  if (episodeType === 'post_draft') {
+    if (!draftData) {
+      errors.push('Post-draft generation requires a Sleeper draft. Upload or log the rookie draft in Sleeper, then try again.');
+    } else {
+      const status = String(draftData.status ?? '').toLowerCase();
+      const picks = Array.isArray(draftData.picks) ? draftData.picks : [];
+      if (status !== 'complete') {
+        errors.push(`Post-draft generation requires draft status "complete"; Sleeper currently reports "${status || 'unknown'}".`);
+      }
+      if (picks.length === 0) {
+        errors.push('Sleeper returned no draft picks for the completed rookie draft.');
+      }
+
+      const unresolvedTeams = picks.filter(p => !p.teamName || /^RosterId:\\d+$/i.test(p.teamName) || /^Roster \\d+$/i.test(p.teamName));
+      if (unresolvedTeams.length > 0) {
+        errors.push(`${unresolvedTeams.length} draft pick(s) could not be mapped to a canonical league team.`);
+      }
+
+      const unresolvedPlayers = picks.filter(p => !p.playerName || /^Player \\S+$/i.test(p.playerName) || !p.position || p.position === 'UNK');
+      if (unresolvedPlayers.length > 0) {
+        errors.push(`${unresolvedPlayers.length} draft pick(s) are missing a recognized player name or position.`);
+      }
+
+      const numbered = picks.map(p => p.pick_no).filter((n): n is number => typeof n === 'number' && Number.isFinite(n));
+      const duplicateNumbers = numbered.filter((n, index) => numbered.indexOf(n) !== index);
+      if (duplicateNumbers.length > 0) {
+        errors.push(`Sleeper draft results contain duplicate overall pick number(s): ${[...new Set(duplicateNumbers)].join(', ')}.`);
+      }
+
+      const expectedPicks = Number(draftData.totalRounds ?? 0) * Number(draftData.totalTeams ?? 0);
+      if (expectedPicks > 0 && picks.length !== expectedPicks) {
+        const completionRate = picks.length / expectedPicks;
+        const message = `Sleeper returned ${picks.length}/${expectedPicks} expected draft picks.`;
+        if (completionRate < 0.9) errors.push(`${message} The result appears incomplete.`);
+        else warnings.push(`${message} Verify skipped or missing selections before publishing.`);
+      }
+    }
+  }
+
+  // ── Matchup data (only for episodes that need it) ──
+""",
+          )
+
+          # ------------------------------------------------------------------
+          # Staged job setup: pass draft data into the gate, use a post-draft
+          # historical context label, and load live dynasty rankings for grades.
+          # ------------------------------------------------------------------
+          replace_once(
+              'src/app/api/newsletter/route.ts',
+              """async function buildPreseasonHistoricalContext(
+  currentSeason: number,
+  users: Array<{ user_id: string; display_name?: string; username?: string; metadata?: { team_name?: string } }>
+): Promise<{ text: string; offseasonTrades: OffseasonTradeFact[] }> {
+  let offseasonTradeFacts: OffseasonTradeFact[] = [];
+""",
+              """async function buildPreseasonHistoricalContext(
+  currentSeason: number,
+  users: Array<{ user_id: string; display_name?: string; username?: string; metadata?: { team_name?: string } }>,
+  episodeType: string = 'preseason',
+): Promise<{ text: string; offseasonTrades: OffseasonTradeFact[] }> {
+  const isPostDraft = episodeType === 'post_draft';
+  let offseasonTradeFacts: OffseasonTradeFact[] = [];
+""",
+          )
+          replace_once(
+              'src/app/api/newsletter/route.ts',
+              """    let historicalContext = `
+=== HISTORICAL LEAGUE DATA (FOR PRESEASON ${currentSeason} PREVIEW) ===
+
+IMPORTANT: This is a PRESEASON preview. The ${currentSeason} season has NOT started yet.
+Base all analysis on PREVIOUS seasons' performance, NOT current season data.
+
+`;
+""",
+              """    let historicalContext = isPostDraft
+      ? `
+=== HISTORICAL LEAGUE DATA (FOR ${currentSeason} POST-DRAFT REVIEW) ===
+
+IMPORTANT: The ${currentSeason} rookie draft is complete, but the fantasy season has not started.
+Use the completed Sleeper draft results as the source of truth for picks. Use previous seasons only for franchise context.
+
+`
+      : `
+=== HISTORICAL LEAGUE DATA (FOR PRESEASON ${currentSeason} PREVIEW) ===
+
+IMPORTANT: This is a PRESEASON preview. The ${currentSeason} season has NOT started yet.
+Base all analysis on PREVIOUS seasons' performance, NOT current season data.
+
+`;
+""",
+          )
+          replace_once(
+              'src/app/api/newsletter/route.ts',
+              """    historicalContext += `
+--- PRESEASON ANALYSIS GUIDELINES ---
+When creating the preseason preview:
+1. Reference HISTORICAL performance (all-time records, championships, playoff appearances)
+2. Consider offseason moves and trades
+3. Evaluate roster strength based on player acquisitions
+4. Make predictions for the UPCOMING ${currentSeason} season
+5. DO NOT reference any ${currentSeason} season games or matchups (they haven't happened)
+6. DO NOT say "Week X" - this is a preseason preview, not a weekly recap
+`;
+""",
+              """    historicalContext += isPostDraft
+      ? `
+--- POST-DRAFT ANALYSIS GUIDELINES ---
+When reviewing the completed rookie draft:
+1. Treat Sleeper's completed pick list as authoritative
+2. Evaluate value against current dynasty rankings without quoting raw calculator values
+3. Evaluate roster fit only from the live roster context
+4. Separate draft-week trades from the picks themselves
+5. Do not invent selections, trades, needs, or player roles
+6. Do not use weekly-recap framing or say "Week X"
+`
+      : `
+--- PRESEASON ANALYSIS GUIDELINES ---
+When creating the preseason preview:
+1. Reference HISTORICAL performance (all-time records, championships, playoff appearances)
+2. Consider offseason moves and trades
+3. Evaluate roster strength based on player acquisitions
+4. Make predictions for the UPCOMING ${currentSeason} season
+5. DO NOT reference any ${currentSeason} season games or matchups (they haven't happened)
+6. DO NOT say "Week X" - this is a preseason preview, not a weekly recap
+`;
+""",
+          )
+          replace_once(
+              'src/app/api/newsletter/route.ts',
+              """      text: `PRESEASON PREVIEW for ${currentSeason} season. Base analysis on historical performance.`,
+""",
+              """      text: isPostDraft
+        ? `POST-DRAFT REVIEW for the completed ${currentSeason} rookie draft. Use Sleeper picks as the source of truth.`
+        : `PRESEASON PREVIEW for ${currentSeason} season. Base analysis on historical performance.`,
+""",
+          )
+          replace_once(
+              'src/app/api/newsletter/route.ts',
+              """        matchupPairs: derived.matchup_pairs ?? [],
+      });
+""",
+              """        matchupPairs: derived.matchup_pairs ?? [],
+        draftData,
+        expectedTeamCount: 12,
+      });
+""",
+          )
+          replace_once(
+              'src/app/api/newsletter/route.ts',
+              """      const { text: histCtx, offseasonTrades } = await buildPreseasonHistoricalContext(seasonNum, users);
+""",
+              """      const { text: histCtx, offseasonTrades } = await buildPreseasonHistoricalContext(seasonNum, users, episodeType);
+""",
+          )
+          replace_once(
+              'src/app/api/newsletter/route.ts',
+              """      // pickOwnership was already loaded above (before context building) — reuse it
+      const pickOwnershipStr = pickOwnership?.contextBlock ?? '';
+
+      enhancedContextString = [preTeamNameBlock, currentQbStatusStr, rulesStr, comprehensiveStr, `${histCtx}${pickOwnershipStr ? '\\n\\n' + pickOwnershipStr : ''}`]
+""",
+              """      // pickOwnership was already loaded above (before context building) — reuse it
+      const pickOwnershipStr = pickOwnership?.contextBlock ?? '';
+      if (episodeType === 'post_draft') {
+        stagedDynastyRankings = await loadDynastyRankings().catch(() => [] as DynastyRankingsEntry[]);
+        if (stagedDynastyRankings.length === 0) {
+          stagedJobWarnings.push('Post-draft value context: dynasty rankings were unavailable. Review every reach/steal claim before publishing.');
+        }
+      }
+      const dynastyOverviewStr = stagedDynastyRankings.length > 0
+        ? buildDynastyOverviewContext(stagedDynastyRankings)
+        : '';
+
+      enhancedContextString = [preTeamNameBlock, currentQbStatusStr, dynastyOverviewStr, rulesStr, comprehensiveStr, `${histCtx}${pickOwnershipStr ? '\\n\\n' + pickOwnershipStr : ''}`]
+""",
+          )
+
+          # ------------------------------------------------------------------
+          # Compose steps: dedicated post-draft intro, draft-week trades,
+          # grounded team grades, validated awards, and draft-aware closing.
+          # ------------------------------------------------------------------
+          replace_once(
+              'src/lib/newsletter/compose-step.ts',
+              """import type { LeagueDraftData } from './sleeper-ingest';
+""",
+              """import type { LeagueDraftData } from './sleeper-ingest';
+import { IMPORTANT_DATES } from '@/lib/constants/league';
+""",
+          )
+          replace_once(
+              'src/lib/newsletter/compose-step.ts',
+              """  if (episodeType === 'post_draft') {
+    const count = Array.isArray(draftTeamsOrCount)
+      ? draftTeamsOrCount.length
+      : (typeof draftTeamsOrCount === 'number' ? draftTeamsOrCount : 12);
+    for (let i = 0; i < count; i++) steps.push(`DraftGrade_${i}`);
+""",
+              """  if (episodeType === 'post_draft') {
+    const count = Array.isArray(draftTeamsOrCount)
+      ? draftTeamsOrCount.length
+      : (typeof draftTeamsOrCount === 'number' ? draftTeamsOrCount : 12);
+    steps.push('PostDraftTrades');
+    for (let i = 0; i < count; i++) steps.push(`DraftGrade_${i}`);
+""",
+          )
+
+          post_intro = r'''  if (episodeType === 'post_draft') {
+    const { picksContext, picksByTeam } = buildDraftPicksContext(input.draftData);
+    const totalPicks = Array.from(picksByTeam.values()).reduce((sum, picks) => sum + picks.length, 0);
+    const teamsWithPicks = picksByTeam.size;
+    const context = `${leagueKnowledge}\n\n---\n\nEPISODE TYPE: POST-DRAFT REVIEW — ${season} ROOKIE DRAFT\n\n` +
+      `The draft is complete: ${totalPicks} selections by ${teamsWithPicks} teams with recorded picks.\n\n` +
+      `COMPLETED DRAFT RESULTS — SOURCE OF TRUTH:\n${picksContext}\n\n` +
+      `${enhancedContext.slice(0, 2500)}`;
+
+    const rawBot1 = await generateSection({
+      persona: 'entertainer',
+      sectionType: 'Post-Draft Review Intro',
+      context,
+      constraints: `Write 2-3 short paragraphs opening the completed rookie-draft review. Lead with the biggest real storyline from the pick list. Name 2-3 specific selections and explain why they changed your view of those teams. End by challenging Westy on one reach, steal, or team haul. Do not use weekly-recap framing. FACTUAL RULE: only mention picks explicitly listed in COMPLETED DRAFT RESULTS.`,
+      maxTokens: 650,
+      episodeType: 'post_draft',
+      validate: t => t.length >= 200,
+    });
+    const bot1_text = guardText(rawBot1, { sectionType: 'Post-Draft Review Intro', logPrefix: '[step:Intro:post-draft:entertainer]' });
+
+    const rawBot2 = await generateSection({
+      persona: 'analyst',
+      sectionType: 'Post-Draft Review Intro',
+      context: `${context}\n\n---\nMason Reed just opened with:\n"${bot1_text}"\n\nRespond directly to him.`,
+      constraints: `Write 2-3 short paragraphs. Respond to Mason rather than restarting the episode. Confirm or challenge his central claim using the actual selection order, current dynasty ranking context, and roster evidence provided. Name at least two specific picks. Do not invent needs, rankings, or selections, and do not use weekly-recap framing.`,
+      maxTokens: 650,
+      episodeType: 'post_draft',
+      validate: t => t.length >= 200,
+    });
+    const bot2_text = guardText(rawBot2, { sectionType: 'Post-Draft Review Intro', logPrefix: '[step:Intro:post-draft:analyst]' });
+    return { bot1_text, bot2_text };
+  }
+
+'''
+          replace_once(
+              'src/lib/newsletter/compose-step.ts',
+              """    return { bot1_text, bot2_text };
+  }
+
+  const numGames = pairs.length;
+""",
+              """    return { bot1_text, bot2_text };
+  }
+
+""" + post_intro + """  const numGames = pairs.length;
+""",
+          )
+
+          replace_once(
+              'src/lib/newsletter/compose-step.ts',
+              """  const { week, episodeType, enhancedContext, priorSectionSummary } = input;
+  const leagueKnowledge = buildStaticLeagueContext();
+""",
+              """  const { week, episodeType, enhancedContext, priorSectionSummary, draftData } = input;
+  const leagueKnowledge = buildStaticLeagueContext();
+  const postDraftPicksContext = episodeType === 'post_draft'
+    ? buildDraftPicksContext(draftData).picksContext
+    : '';
+""",
+          )
+          replace_once(
+              'src/lib/newsletter/compose-step.ts',
+              """    post_draft: {
+      ctx: 'The rookie draft is complete. Sign off with final thoughts.',
+""",
+              """    post_draft: {
+      ctx: `The rookie draft is complete. Sign off using the actual results below.\n\n${postDraftPicksContext}`,
+""",
+          )
+          replace_once(
+              'src/lib/newsletter/compose-step.ts',
+              """  const westyCtx = `${cfg.ctx}\n\n---\nMason Reed just closed the show with:\n"${bot1}"\n\nNow give your final word.`;
+""",
+              """  const westyCtx = `${cfg.ctx}${priorCtxBlock}\n\n---\nMason Reed just closed the show with:\n"${bot1}"\n\nNow give your final word.`;
+""",
+          )
+
+          # Generalize the existing attribution-safe trade analysis for the
+          # optional draft-week trade section.
+          p = Path('src/lib/newsletter/compose-step.ts')
+          text = p.read_text()
+          start = text.index('async function genPreDraftTrades')
+          end = text.index('/** Parse ===TEAM:', start)
+          block = text[start:end]
+          block = block.replace(
+              "const { season, enhancedContext, offseasonTrades } = input;",
+              """const { season, enhancedContext, offseasonTrades, episodeType } = input;
+  const isPostDraft = episodeType === 'post_draft';
+  const draftDate = IMPORTANT_DATES.NEXT_DRAFT.getTime();
+  const draftWindowStart = draftDate - (7 * 24 * 60 * 60 * 1000);
+  const draftWindowEnd = draftDate + (2 * 24 * 60 * 60 * 1000);
+  const effectiveTrades = isPostDraft
+    ? (offseasonTrades ?? []).filter(trade => {
+        const timestamp = new Date(trade.date).getTime();
+        return Number.isFinite(timestamp) && timestamp >= draftWindowStart && timestamp <= draftWindowEnd;
+      })
+    : offseasonTrades;
+  if (isPostDraft && (!effectiveTrades || effectiveTrades.length === 0)) return [];
+  const tradeScope = isPostDraft ? 'draft-week trades' : 'offseason trades';
+  const analysisLabel = isPostDraft ? 'POST-DRAFT TRADE ANALYSIS' : 'PRE-DRAFT TRADE ANALYSIS';
+  const llmEpisodeType = isPostDraft ? 'post_draft' : 'pre_draft';""",
+          )
+          block = block.replace('offseasonTrades && offseasonTrades.length > 0', 'effectiveTrades && effectiveTrades.length > 0')
+          block = block.replace('buildOffseasonTradesContextBlock(offseasonTrades, season)', 'buildOffseasonTradesContextBlock(effectiveTrades, season)')
+          block = block.replace("PRE-DRAFT TRADE ANALYSIS — ${season}\nReview trades since late ${season - 1} (post-championship offseason through the present).", "${analysisLabel} — ${season}\n${isPostDraft ? 'Review completed trades from the seven days before through two days after the rookie draft. Focus on pick movement, trade-ups, trade-downs, and how the deals changed team hauls.' : `Review trades since late ${season - 1} (post-championship offseason through the present).`}")
+          block = block.replace('Grade each team involved in offseason trades separately.', 'Grade each team involved in ${tradeScope} separately.')
+          block = block.replace('if (!offseasonTrades?.length)', 'if (!effectiveTrades?.length)')
+          block = block.replace('for (const t of offseasonTrades)', 'for (const t of effectiveTrades)')
+          block = block.replace("episodeType: 'pre_draft'", 'episodeType: llmEpisodeType')
+          block = block.replace("sectionType: 'Offseason Trade Party Grades'", "sectionType: isPostDraft ? 'Draft-Week Trade Party Grades' : 'Offseason Trade Party Grades'")
+          block = block.replace("sectionType: 'Offseason Trade Analysis'", "sectionType: isPostDraft ? 'Draft-Week Trade Analysis' : 'Offseason Trade Analysis'")
+          block = block.replace(
+              "return assemblePreDraftTradeItems({ season, masonOverview, westyOverview, masonGradesRaw, westyGradesRaw });",
+              """const items = assemblePreDraftTradeItems({ season, masonOverview, westyOverview, masonGradesRaw, westyGradesRaw });
+  return isPostDraft
+    ? items.map(item => ({
+        ...item,
+        event_id: `draft-week-trades-${season}`,
+        reasons: [`${season} draft-week trade activity`],
+        context: `${season} Draft-Week Trades`,
+      }))
+    : items;""",
+          )
+          p.write_text(text[:start] + block + text[end:])
+
+          replace_once(
+              'src/lib/newsletter/compose-step.ts',
+              """    // Pre-draft sections
+    if (sectionName === 'PreDraftTrades') return { ok: true, sectionName, data: await genPreDraftTrades(input) };
+""",
+              """    // Draft trade sections
+    if (sectionName === 'PreDraftTrades' || sectionName === 'PostDraftTrades') {
+      return { ok: true, sectionName, data: await genPreDraftTrades(input) };
+    }
+""",
+          )
+          replace_once(
+              'src/lib/newsletter/compose-step.ts',
+              """  // Trades — collect all Trade_N in order OR pre-draft trades
+  const preDraftTrades = get<TradeItem[]>('PreDraftTrades');
+  if (preDraftTrades && preDraftTrades.length > 0) {
+    sections.push({ type: 'Trades', data: preDraftTrades });
+""",
+              """  // Trades — collect all Trade_N in order OR draft-special trades
+  const draftSpecialTrades = get<TradeItem[]>('PostDraftTrades') ?? get<TradeItem[]>('PreDraftTrades');
+  if (draftSpecialTrades && draftSpecialTrades.length > 0) {
+    sections.push({ type: 'Trades', data: draftSpecialTrades });
+""",
+          )
+
+          # Replace the team-grade generator with a roster- and ranking-grounded version.
+          grade_function = r'''/** Generate grade for a single team (one DraftGrade_N step). */
+async function genDraftGradeTeam(
+  input: StepInput,
+  teamIndex: number,
+): Promise<DraftGradesSection['grades'][0] | null> {
+  const { draftData, draftTeams, season, enhancedContext, rosterContext, dynastyRankings } = input;
+  const { picksContext, picksByTeam } = buildDraftPicksContext(draftData);
+
+  const orderedTeams = draftTeams ?? Array.from(picksByTeam.keys());
+  const team = orderedTeams[teamIndex];
+  if (!team) return null;
+
+  const teamPicks = picksByTeam.get(team) ?? [];
+  const noPicks = teamPicks.length === 0;
+  if (noPicks) {
+    console.log(`[ComposeStep] post_draft no-pick team at index ${teamIndex}: "${team}" — generating N/A grade`);
+  }
+
+  const normalize = (value: string) => value.toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, ' ').trim();
+  const rankByName = new Map((dynastyRankings ?? []).map(player => [normalize(player.name), player.rank]));
+  const rankedPickLines = [...teamPicks]
+    .sort((a, b) => a.pick_no - b.pick_no)
+    .map(pick => {
+      const rank = rankByName.get(normalize(pick.playerName));
+      return `- Overall pick ${pick.pick_no} (Round ${pick.round}): ${pick.playerName} — ${pick.position}, ${pick.nflTeam || 'NFL team unavailable'}; current dynasty rank ${rank ? `#${rank}` : 'unavailable'}`;
+    });
+
+  const teamRosterBlock = (() => {
+    if (!rosterContext) return 'Live roster context unavailable — do not make roster-need claims.';
+    const marker = `${team} [SL:`;
+    const start = rosterContext.toLowerCase().indexOf(marker.toLowerCase());
+    if (start < 0) return `Live roster block for ${team} was not found — do not make roster-need claims.`;
+    const tail = rosterContext.slice(start);
+    const next = tail.slice(1).search(/\n\n[^\n]+\s+\[SL:/);
+    return next >= 0 ? tail.slice(0, next + 1).trim() : tail.trim();
+  })();
+
+  const leagueKnowledge = buildStaticLeagueContext();
+  const context = `${leagueKnowledge}
+
+---
+
+POST-DRAFT GRADES — ${season} ROOKIE DRAFT
+
+FULL COMPLETED DRAFT RESULTS:
+${picksContext}
+
+TEAM BEING GRADED: ${team}
+
+THEIR PICKS WITH CURRENT VALUE CONTEXT:
+${rankedPickLines.join('\n') || 'No picks on record — this team made no selections.'}
+
+LIVE ROSTER FOR ${team} — SOURCE OF TRUTH FOR NEED/FIT CLAIMS:
+${teamRosterBlock}
+
+ADDITIONAL LEAGUE CONTEXT:
+${enhancedContext.slice(0, 2500)}`;
+
+  const sharedRules = `FACTUAL RULES: Only reference selections listed for ${team}. Only call a pick a reach or steal when the current dynasty-rank line supports it. Only claim a roster need or surplus when the LIVE ROSTER block supports it. Do not quote raw calculator values.`;
+  const [bot1_analysis, bot2_analysis] = noPicks
+    ? await Promise.all([
+        generateSection({ persona: 'entertainer', sectionType: `Draft Grade - ${team}`, context, constraints: `${team} made NO PICKS. Start exactly "N/A —" and write 2-3 sentences on the choice to sit out this class, grounded in the live roster. ${sharedRules}`, maxTokens: 300, episodeType: 'post_draft' }),
+        generateSection({ persona: 'analyst', sectionType: `Draft Grade - ${team}`, context, constraints: `${team} made NO PICKS. Start exactly "N/A —" and write 2-3 analytical sentences on the dynasty implications of sitting out the class, grounded in the live roster. ${sharedRules}`, maxTokens: 300, episodeType: 'post_draft' }),
+      ])
+    : await Promise.all([
+        generateSection({ persona: 'entertainer', sectionType: `Draft Grade - ${team}`, context, constraints: `Start with one letter grade from A+ to F. Then write 3-4 substantial sentences covering the best pick, any reach, roster fit, and what this haul means for the team's window. Be decisive but evidence-based. ${sharedRules}`, maxTokens: 450, episodeType: 'post_draft' }),
+        generateSection({ persona: 'analyst', sectionType: `Draft Grade - ${team}`, context, constraints: `Start with one letter grade from A+ to F. Then write 3-4 analytical sentences covering value versus current dynasty rank, live roster construction, positional allocation, and timeline impact. ${sharedRules}`, maxTokens: 450, episodeType: 'post_draft' }),
+      ]);
+
+  return {
+    team,
+    picks: teamPicks.map(p => ({ round: p.round, pick: p.pick_no, player: p.playerName, position: p.position })),
+    grade: noPicks ? 'N/A' : extractLetterGrade(bot1_analysis + bot2_analysis),
+    bot1_analysis,
+    bot2_analysis,
+  };
+}
+
+'''
+          replace_between(
+              'src/lib/newsletter/compose-step.ts',
+              '/** Generate grade for a single team (one DraftGrade_N step). */',
+              '/** Generate overall summaries and best/worst/steal awards (DraftGrades_Summary step). */',
+              grade_function,
+          )
+
+          summary_function = r'''/** Generate overall summaries and best/worst/steal awards (DraftGrades_Summary step). */
+async function genDraftGradesSummary(input: StepInput): Promise<Pick<DraftGradesSection, 'bestPick' | 'worstPick' | 'stealOfTheDraft' | 'bot1_summary' | 'bot2_summary'>> {
+  const { draftData, season, enhancedContext, dynastyRankings } = input;
+  const { picksContext } = buildDraftPicksContext(draftData);
+  const allPicks = draftData?.picks ?? [];
+  const normalize = (value: string) => value.toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, ' ').trim();
+  const rankByName = new Map((dynastyRankings ?? []).map(player => [normalize(player.name), player.rank]));
+  const rankedPicks = allPicks.map(pick => ({
+    pick,
+    rank: rankByName.get(normalize(pick.playerName)) ?? null,
+  }));
+  const rankingContext = rankedPicks
+    .map(({ pick, rank }) => `${pick.teamName}: overall ${pick.pick_no} — ${pick.playerName} (${pick.position}, ${pick.nflTeam || 'NFL'}), dynasty rank ${rank ? `#${rank}` : 'unavailable'}`)
+    .join('\n');
+  const allowedPairs = allPicks.map(pick => `${pick.teamName} | ${pick.playerName}`).join('\n');
+
+  const leagueKnowledge = buildStaticLeagueContext();
+  const context = `${leagueKnowledge}
+
+---
+
+POST-DRAFT GRADES — ${season} ROOKIE DRAFT
+
+COMPLETED DRAFT RESULTS:
+${picksContext}
+
+PICK VALUE REFERENCE — CURRENT DYNASTY RANKS:
+${rankingContext || 'Dynasty rankings unavailable; do not make unsupported value claims.'}
+
+VALID TEAM/PLAYER PAIRS FOR AWARDS:
+${allowedPairs}
+
+${enhancedContext.slice(0, 2500)}`;
+
+  let [bot1_summary, bot2_summary, awardsRaw] = await Promise.all([
+    generateSection({ persona: 'entertainer', sectionType: 'Draft Grades - Overall Summary', context, constraints: 'Write 3-4 paragraphs on the biggest winners, the most surprising team strategy, your favorite real selection, and one bold two-year take. Use only listed picks and current ranking evidence.', maxTokens: 700, episodeType: 'post_draft' }),
+    generateSection({ persona: 'analyst', sectionType: 'Draft Grades - Overall Summary', context, constraints: 'Write 3-4 analytical paragraphs on class depth, value capture, positional strategy, and which real team hauls changed dynasty trajectories. Use only listed picks and current ranking evidence.', maxTokens: 700, episodeType: 'post_draft' }),
+    generateSection({ persona: 'analyst', sectionType: 'Draft Grades - Awards', context, constraints: 'Choose three awards using ONLY an exact team/player pair from VALID TEAM/PLAYER PAIRS. Format exactly:\nBEST PICK: TeamName - PlayerName - reason\nWORST PICK: TeamName - PlayerName - reason\nSTEAL OF THE DRAFT: TeamName - PlayerName - reason', maxTokens: 450, episodeType: 'post_draft' }),
+  ]);
+
+  type DraftAward = { team: string; player: string; reason: string };
+  const parseAward = (text: string, keyword: string): DraftAward => {
+    const line = text.split('\n').find(value => value.toUpperCase().includes(keyword)) || '';
+    const withoutLabel = line.replace(/^\s*\d*\.?\s*(?:BEST PICK|WORST PICK|STEAL OF THE DRAFT)\s*:\s*/i, '');
+    const match = withoutLabel.match(/^([^-]+?)\s*-\s*([^-]+?)\s*-\s*(.+)$/);
+    return match
+      ? { team: match[1].trim(), player: match[2].trim(), reason: match[3].trim() }
+      : { team: '', player: '', reason: '' };
+  };
+
+  const resolveAward = (award: DraftAward): DraftAward | null => {
+    const actual = allPicks.find(pick =>
+      normalize(pick.teamName || '') === normalize(award.team) &&
+      normalize(pick.playerName) === normalize(award.player)
+    );
+    return actual
+      ? { team: actual.teamName || award.team, player: actual.playerName, reason: award.reason }
+      : null;
+  };
+
+  const parseAll = (raw: string) => ({
+    bestPick: resolveAward(parseAward(raw, 'BEST PICK')),
+    worstPick: resolveAward(parseAward(raw, 'WORST PICK')),
+    stealOfTheDraft: resolveAward(parseAward(raw, 'STEAL OF THE DRAFT')),
+  });
+
+  let parsed = parseAll(awardsRaw);
+  if (!parsed.bestPick || !parsed.worstPick || !parsed.stealOfTheDraft) {
+    const retry = await generateSection({
+      persona: 'analyst',
+      sectionType: 'Draft Grades - Awards Repair',
+      context,
+      constraints: `Your prior awards used an invalid team/player pairing. Choose ONLY from the exact VALID TEAM/PLAYER PAIRS list. Copy both names exactly. Format exactly:\nBEST PICK: TeamName - PlayerName - reason\nWORST PICK: TeamName - PlayerName - reason\nSTEAL OF THE DRAFT: TeamName - PlayerName - reason`,
+      maxTokens: 450,
+      episodeType: 'post_draft',
+    }).catch(() => awardsRaw);
+    awardsRaw = retry;
+    parsed = parseAll(awardsRaw);
+  }
+
+  const rankedOnly = rankedPicks.filter((entry): entry is typeof entry & { rank: number } => typeof entry.rank === 'number');
+  const deterministicFallback = (kind: 'best' | 'worst' | 'steal'): DraftAward => {
+    if (rankedOnly.length === 0) {
+      throw new Error(`Draft awards could not be validated and no dynasty rankings were available for deterministic ${kind} fallback.`);
+    }
+    const sorted = [...rankedOnly].sort((a, b) => {
+      if (kind === 'best') return a.rank - b.rank || a.pick.pick_no - b.pick.pick_no;
+      if (kind === 'steal') return (b.pick.pick_no - b.rank) - (a.pick.pick_no - a.rank);
+      return (b.rank - b.pick.pick_no) - (a.rank - a.pick.pick_no);
+    });
+    const chosen = sorted[0];
+    const team = chosen.pick.teamName || `Roster ${chosen.pick.roster_id}`;
+    const reason = kind === 'best'
+      ? `The highest-ranked drafted rookie in the completed results (current dynasty rank #${chosen.rank}).`
+      : kind === 'steal'
+        ? `Selected at overall pick ${chosen.pick.pick_no} despite a current dynasty rank of #${chosen.rank}.`
+        : `Selected at overall pick ${chosen.pick.pick_no} with a current dynasty rank of #${chosen.rank}, the largest verified reach in the results.`;
+    return { team, player: chosen.pick.playerName, reason };
+  };
+
+  return {
+    bot1_summary,
+    bot2_summary,
+    bestPick: parsed.bestPick ?? deterministicFallback('best'),
+    worstPick: parsed.worstPick ?? deterministicFallback('worst'),
+    stealOfTheDraft: parsed.stealOfTheDraft ?? deterministicFallback('steal'),
+  };
+}
+
+'''
+          replace_between(
+              'src/lib/newsletter/compose-step.ts',
+              '/** Generate overall summaries and best/worst/steal awards (DraftGrades_Summary step). */',
+              '// ============ Forecast ============',
+              summary_function,
+          )
+
+          replace_once(
+              'src/lib/newsletter/compose-step.ts',
+              """  if (episodeType === 'post_draft') {
+    const grades = newsletter.sections.find(s => s.type === 'DraftGrades');
+    if (!grades) {
+      missing.push('DraftGrades');
+    } else {
+      const teamCount = (grades.data as DraftGradesSection).grades.length;
+      const expected = expectedTeamCount ?? LEAGUE_IDENTITY.format.teamCount;
+      if (teamCount < expected) {
+        // Blocking: all 12 teams must have a grade entry (no-pick teams get N/A grade)
+        missing.push(`DraftGrades requires all ${expected} team grades — only ${teamCount} present`);
+      }
+    }
+  }
+""",
+              """  if (episodeType === 'post_draft') {
+    const grades = newsletter.sections.find(s => s.type === 'DraftGrades');
+    if (!grades) {
+      missing.push('DraftGrades');
+    } else {
+      const data = grades.data as DraftGradesSection;
+      const teamCount = data.grades.length;
+      const expected = expectedTeamCount ?? LEAGUE_IDENTITY.format.teamCount;
+      if (teamCount < expected) {
+        missing.push(`DraftGrades requires all ${expected} team grades — only ${teamCount} present`);
+      }
+      const normalizedTeams = data.grades.map(g => g.team.toLowerCase().trim());
+      const duplicateTeams = normalizedTeams.filter((team, index) => normalizedTeams.indexOf(team) !== index);
+      if (duplicateTeams.length > 0) missing.push(`DraftGrades contains duplicate team entries: ${[...new Set(duplicateTeams)].join(', ')}`);
+      for (const grade of data.grades) {
+        if (grade.picks.length > 0 && grade.grade === 'N/A') missing.push(`${grade.team} has recorded picks but received an N/A grade`);
+        if (grade.picks.length === 0 && grade.grade !== 'N/A') issues.push(`${grade.team} has no recorded picks but grade is ${grade.grade}`);
+      }
+      const actualPairs = new Set(data.grades.flatMap(grade => grade.picks.map(pick => `${grade.team.toLowerCase().trim()}|${pick.player.toLowerCase().trim()}`)));
+      for (const [label, award] of [
+        ['Best Pick', data.bestPick],
+        ['Worst Pick', data.worstPick],
+        ['Steal of the Draft', data.stealOfTheDraft],
+      ] as const) {
+        const key = `${award.team.toLowerCase().trim()}|${award.player.toLowerCase().trim()}`;
+        if (!actualPairs.has(key)) missing.push(`${label} does not match a real team/player pairing from the completed draft: ${award.team} — ${award.player}`);
+      }
+    }
+  }
+""",
+          )
+
+          # Draft results and awards become part of the closing context.
+          replace_once(
+              'src/app/api/newsletter/generate-step/route.ts',
+              """  return parts.join('\\n');
+}
+""",
+              """  const draftGradeSteps = completedSteps.filter(s => /^DraftGrade_\\d+$/.test(s));
+  if (draftGradeSteps.length > 0) {
+    const gradeLines = draftGradeSteps.map(step => {
+      const grade = sectionOutputs[step] as { team?: string; grade?: string; picks?: Array<{ player?: string; pick?: number }> } | null;
+      if (!grade?.team) return null;
+      const picks = (grade.picks ?? []).map(pick => `${pick.pick ?? '?'} ${pick.player ?? 'unknown'}`).join(', ');
+      return `${grade.team}: ${grade.grade ?? '?'}${picks ? ` (${picks})` : ' (no picks)'}`;
+    }).filter((line): line is string => Boolean(line));
+    if (gradeLines.length > 0) parts.push(`Draft grades: ${gradeLines.join('; ')}`);
+  }
+
+  const draftSummary = sectionOutputs['DraftGrades_Summary'] as {
+    bestPick?: { team?: string; player?: string };
+    worstPick?: { team?: string; player?: string };
+    stealOfTheDraft?: { team?: string; player?: string };
+  } | null;
+  if (draftSummary) {
+    const awards = [
+      draftSummary.bestPick?.team && draftSummary.bestPick.player ? `Best pick: ${draftSummary.bestPick.team} — ${draftSummary.bestPick.player}` : '',
+      draftSummary.stealOfTheDraft?.team && draftSummary.stealOfTheDraft.player ? `Steal: ${draftSummary.stealOfTheDraft.team} — ${draftSummary.stealOfTheDraft.player}` : '',
+      draftSummary.worstPick?.team && draftSummary.worstPick.player ? `Worst pick: ${draftSummary.worstPick.team} — ${draftSummary.worstPick.player}` : '',
+    ].filter(Boolean);
+    if (awards.length > 0) parts.push(`Draft awards: ${awards.join('; ')}`);
+  }
+
+  const draftTrades = sectionOutputs['PostDraftTrades'] as Array<{ context?: string; analysis?: Record<string, unknown> }> | null;
+  if (draftTrades && draftTrades.length > 0) parts.push(`Draft-week trade section completed: ${draftTrades[0]?.context ?? 'yes'}`);
+
+  return parts.join('\\n');
+}
+""",
+          )
+
+          # Admin progress labels and estimates.
+          replace_once(
+              'src/app/admin/newsletter/page.tsx',
+              """    SocialSummary: 'Social', PreDraftTrades: 'Trades', DraftGrades_Summary: 'Grade Summary',
+""",
+              """    SocialSummary: 'Social', PreDraftTrades: 'Trades', PostDraftTrades: 'Draft Trades', DraftGrades_Summary: 'Grade Summary',
+""",
+          )
+          replace_once(
+              'src/app/admin/newsletter/page.tsx',
+              """  PreDraftTrades: 45,
+""",
+              """  PreDraftTrades: 45,
+  PostDraftTrades: 60,
+""",
+          )
+          replace_once(
+              'src/app/admin/newsletter/page.tsx',
+              """  if (episodeType === 'post_draft') {
+    for (let i = 0; i < 12; i++) steps.push(`DraftGrade_${i}`);
+""",
+              """  if (episodeType === 'post_draft') {
+    steps.push('PostDraftTrades');
+    for (let i = 0; i < 12; i++) steps.push(`DraftGrade_${i}`);
+""",
+          )
+
+          # Documentation update.
+          replace_once(
+              'PIPELINES.md',
+              """(`PowerRankings`, `MockDraft`, `DraftGrades`, …). The step list comes from
+""",
+              """(`PowerRankings`, `MockDraft`, `PostDraftTrades`, `DraftGrades`, …). The step list comes from
+""",
+          )
+
+          # Focused regression tests.
+          Path('src/lib/newsletter/__tests__/post-draft-readiness.test.ts').write_text(r'''import { describe, expect, it } from 'vitest';
+import { validateGenerationInputs } from '../validation-gate';
+import { getGenerationSteps, getRequiredSteps, validateNewsletterSections } from '../compose-step';
+import type { Newsletter } from '../types';
+
+const baseGate = {
+  season: 2026,
+  week: 0,
+  episodeType: 'post_draft',
+  users: [{}, {}],
+  rosters: [{ players: ['a'] }, { players: ['b'] }],
+  matchups: [],
+  matchupPairs: [],
+  expectedTeamCount: 2,
+};
+
+const completeDraft = {
+  status: 'complete',
+  totalRounds: 1,
+  totalTeams: 2,
+  picks: [
+    { pick_no: 1, playerName: 'Rookie One', position: 'QB', teamName: 'Team One' },
+    { pick_no: 2, playerName: 'Rookie Two', position: 'WR', teamName: 'Team Two' },
+  ],
+};
+
+describe('post-draft generation gate', () => {
+  it('blocks until Sleeper draft data exists', () => {
+    const result = validateGenerationInputs({ ...baseGate, draftData: null });
+    expect(result.ok).toBe(false);
+    expect(result.errors.join(' ')).toContain('requires a Sleeper draft');
+  });
+
+  it('blocks an unfinished draft', () => {
+    const result = validateGenerationInputs({ ...baseGate, draftData: { ...completeDraft, status: 'drafting' } });
+    expect(result.ok).toBe(false);
+    expect(result.errors.join(' ')).toContain('status "complete"');
+  });
+
+  it('blocks unresolved roster placeholders', () => {
+    const result = validateGenerationInputs({
+      ...baseGate,
+      draftData: { ...completeDraft, picks: [{ ...completeDraft.picks[0], teamName: 'RosterId:1' }, completeDraft.picks[1]] },
+    });
+    expect(result.ok).toBe(false);
+    expect(result.errors.join(' ')).toContain('canonical league team');
+  });
+
+  it('accepts a complete, mapped draft', () => {
+    const result = validateGenerationInputs({ ...baseGate, draftData: completeDraft });
+    expect(result.ok).toBe(true);
+  });
+});
+
+describe('post-draft staged steps', () => {
+  it('includes optional draft-week trades and requires every team grade', () => {
+    const steps = getGenerationSteps('post_draft', 0, 0, ['Team One', 'Team Two']);
+    const required = getRequiredSteps('post_draft', 0, 0, ['Team One', 'Team Two']);
+    expect(steps).toEqual([
+      'Intro', 'PostDraftTrades', 'DraftGrade_0', 'DraftGrade_1',
+      'DraftGrades_Summary', 'ClancyInsert', 'FinalWord',
+    ]);
+    expect(required).toContain('DraftGrade_0');
+    expect(required).toContain('DraftGrade_1');
+    expect(required).toContain('DraftGrades_Summary');
+    expect(required).not.toContain('PostDraftTrades');
+  });
+});
+
+describe('post-draft final validation', () => {
+  const newsletter: Newsletter = {
+    meta: { leagueName: 'Test', week: 0, season: 2026, date: '7/20/2026', episodeType: 'post_draft' },
+    sections: [
+      { type: 'Intro', data: { bot1_text: 'Intro', bot2_text: 'Reply' } },
+      {
+        type: 'DraftGrades',
+        data: {
+          grades: [
+            { team: 'Team One', picks: [{ round: 1, pick: 1, player: 'Rookie One', position: 'QB' }], grade: 'A', bot1_analysis: 'A', bot2_analysis: 'A' },
+            { team: 'Team Two', picks: [{ round: 1, pick: 2, player: 'Rookie Two', position: 'WR' }], grade: 'B', bot1_analysis: 'B', bot2_analysis: 'B' },
+          ],
+          bestPick: { team: 'Team One', player: 'Rookie One', reason: 'Value' },
+          worstPick: { team: 'Team Two', player: 'Rookie Two', reason: 'Reach' },
+          stealOfTheDraft: { team: 'Team One', player: 'Rookie One', reason: 'Value' },
+          bot1_summary: 'Summary',
+          bot2_summary: 'Summary',
+        },
+      },
+      { type: 'FinalWord', data: { bot1: 'Close', bot2: 'Close' } },
+    ],
+  };
+
+  it('passes when awards match real completed picks', () => {
+    expect(validateNewsletterSections(newsletter, 'post_draft', 0, 2).passed).toBe(true);
+  });
+
+  it('blocks a hallucinated award pairing', () => {
+    const copy = structuredClone(newsletter);
+    const grades = copy.sections.find(section => section.type === 'DraftGrades');
+    if (grades?.type === 'DraftGrades') grades.data.bestPick.player = 'Not Drafted';
+    const result = validateNewsletterSections(copy, 'post_draft', 0, 2);
+    expect(result.passed).toBe(false);
+    expect(result.missing.join(' ')).toContain('does not match a real team/player pairing');
+  });
+});
+''')
+
+          Path('.github/workflows/post-draft-readiness-patch.yml').unlink()
+          PY
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Run post-draft tests
+        run: npx vitest run src/lib/newsletter/__tests__/post-draft-readiness.test.ts src/lib/newsletter/__tests__/queue-target.test.ts
+
+      - name: Commit tested patch
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Newsletter System Update 7: post-draft readiness"
+          git push origin HEAD:newsletter-system-update-7-post-draft-readiness
