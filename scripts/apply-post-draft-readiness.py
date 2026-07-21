@@ -17,9 +17,116 @@ def run_portability_patch() -> None:
         runpy.run_path(str(PORTABILITY_PATCH), run_name='__main__')
 
 
+def apply_post_draft_rank_scope_fix() -> None:
+    """Keep rookie-draft value on the eligible rookie/DEF scale.
+
+    The dossier needs both an eligible-pool rank and an overall dynasty rank, but
+    they are not interchangeable. Overall dynasty rank is useful context after a
+    player is selected; it must never be subtracted from a rookie pick number or
+    used to score reaches/steals in a 48-player rookie-and-defense draft.
+    """
+    route_path = Path('src/app/api/newsletter/route.ts')
+    if route_path.exists():
+        route_text = route_path.read_text(encoding='utf-8')
+        old_declaration = (
+            '          const currentRankByName = new Map(stagedDynastyRankings.map(player => '
+            '[normalizeProspectName(player.name), player.rank]));'
+        )
+        new_declaration = '''          // Normalize the exact eligible draft pool (rookies + defenses) to a
+          // 1..N board. Overall dynasty rank remains a separate context field and
+          // is never used as the rookie-draft value scale.
+          const eligiblePool = [...players].sort((a, b) =>
+            (a.rank ?? 9999) - (b.rank ?? 9999) || a.name.localeCompare(b.name),
+          );
+          const eligibleRankByName = new Map(
+            eligiblePool.map((player, index) => [normalizeProspectName(player.name), index + 1]),
+          );'''
+        if old_declaration in route_text:
+            route_text = route_text.replace(old_declaration, new_declaration, 1)
+        elif 'const eligibleRankByName = new Map(' not in route_text:
+            raise RuntimeError('Post-draft rank fix could not find the overall-rank declaration in route.ts')
+
+        old_rank = '              rank: currentRankByName.get(normalizeProspectName(player.name)) ?? player.rank ?? null,'
+        new_rank = '              rank: eligibleRankByName.get(normalizeProspectName(player.name)) ?? null,'
+        if old_rank in route_text:
+            route_text = route_text.replace(old_rank, new_rank, 1)
+        elif new_rank not in route_text:
+            raise RuntimeError('Post-draft rank fix could not find the prospect rank assignment in route.ts')
+        route_path.write_text(route_text, encoding='utf-8')
+
+    dossier_path = Path('src/lib/newsletter/post-draft-dossier.ts')
+    if dossier_path.exists():
+        dossier_text = dossier_path.read_text(encoding='utf-8')
+        dossier_text = dossier_text.replace(
+            '  Rookie-board rank:',
+            '  Eligible rookie/DEF pool rank:',
+        )
+        rule_anchor = '- Explain what the franchise acquired, what it surrendered, how the capital moved, and whether that cost changes the grade.'
+        rank_rules = '''- Grade draft value only against the eligible rookie/DEF pool rank and the players actually available at that selection.
+- Never compare or subtract current overall dynasty rank directly against rookie pick number; those are different scales.
+- Overall dynasty rank may support long-term asset context, but it cannot by itself create a reach, steal, or low value score.
+- Defenses are eligible draft assets in this league. Keep them in the eligible pool and evaluate their selection cost without pretending they have the same positional upside as rookies.
+'''
+        if rank_rules.strip() not in dossier_text:
+            if rule_anchor not in dossier_text:
+                raise RuntimeError('Post-draft rank fix could not find the dossier writing-rules anchor')
+            dossier_text = dossier_text.replace(rule_anchor, rank_rules + rule_anchor, 1)
+        dossier_path.write_text(dossier_text, encoding='utf-8')
+
+    compose_path = Path('src/lib/newsletter/compose-step.ts')
+    if compose_path.exists():
+        compose_text = compose_path.read_text(encoding='utf-8')
+        dynasty_declaration = '  const dynastyRankByName = new Map((dynastyRankings ?? []).map(player => [normalize(player.name), player.rank]));\n'
+        if dynasty_declaration in compose_text:
+            compose_text = compose_text.replace(dynasty_declaration, '', 1)
+
+        old_award_rank = '    rank: rookieRankByName.get(normalize(pick.playerName)) ?? dynastyRankByName.get(normalize(pick.playerName)) ?? null,'
+        new_award_rank = '    rank: rookieRankByName.get(normalize(pick.playerName)) ?? null,'
+        if old_award_rank in compose_text:
+            compose_text = compose_text.replace(old_award_rank, new_award_rank, 1)
+        elif new_award_rank not in compose_text:
+            raise RuntimeError('Post-draft rank fix could not find the award rank fallback')
+
+        compose_text = compose_text.replace(
+            'CURRENT ROOKIE/DYNASTY RANK EVIDENCE:',
+            'ELIGIBLE ROOKIE/DEF POOL RANK EVIDENCE (draft-value scale):',
+        )
+        compose_text = compose_text.replace('evidence rank ${rank ? `#${rank}` : \'unavailable\'}', 'eligible-pool rank ${rank ? `#${rank}` : \'unavailable\'}')
+        compose_text = compose_text.replace('evidence rank #${chosen.rank}', 'eligible-pool rank #${chosen.rank}')
+        compose_text = compose_text.replace('an evidence rank of #${chosen.rank}', 'an eligible-pool rank of #${chosen.rank}')
+        compose_text = compose_text.replace('selection slot and evidence rank', 'selection slot and eligible-pool rank')
+
+        rubric_anchor = 'Apply the same rubric to every franchise. HOW THEY GOT HERE must explain the actual transaction path and net cost.'
+        rubric_replacement = (
+            'Apply the same rubric to every franchise. VALUE must compare selection number only to the eligible '
+            'rookie/DEF pool rank and actual alternatives still available, never to overall dynasty rank. HOW THEY '
+            'GOT HERE must explain the actual transaction path and net cost.'
+        )
+        if rubric_anchor in compose_text:
+            compose_text = compose_text.replace(rubric_anchor, rubric_replacement, 1)
+        elif rubric_replacement not in compose_text:
+            raise RuntimeError('Post-draft rank fix could not find the team-grade rubric anchor')
+        compose_path.write_text(compose_text, encoding='utf-8')
+
+    test_path = Path('src/lib/newsletter/__tests__/post-draft-readiness.test.ts')
+    if test_path.exists():
+        test_text = test_path.read_text(encoding='utf-8')
+        import_line = "import { readFileSync as readRankScopeFile } from 'node:fs';\n"
+        if import_line not in test_text:
+            test_text = import_line + test_text
+        marker = "describe('post-draft eligible-pool rank scope'"
+        if marker not in test_text:
+            test_text += '''\n\ndescribe('post-draft eligible-pool rank scope', () => {\n  it('does not use overall dynasty rank as rookie-draft value rank', () => {\n    const route = readRankScopeFile('src/app/api/newsletter/route.ts', 'utf8');\n    const compose = readRankScopeFile('src/lib/newsletter/compose-step.ts', 'utf8');\n    const dossier = readRankScopeFile('src/lib/newsletter/post-draft-dossier.ts', 'utf8');\n\n    expect(route).toContain('eligibleRankByName');\n    expect(route).not.toContain('currentRankByName.get(normalizeProspectName(player.name))');\n    expect(compose).not.toContain('dynastyRankByName.get(normalize(pick.playerName))');\n    expect(dossier).toContain('Eligible rookie/DEF pool rank');\n    expect(dossier).toContain('Never compare or subtract current overall dynasty rank directly against rookie pick number');\n  });\n});\n'''
+        test_path.write_text(test_text, encoding='utf-8')
+
+    print('[post-draft-rank-scope] Eligible rookie/DEF ranking separated from overall dynasty rank.')
+
+
 def run_dossier_patch() -> None:
     if DOSSIER_PATCH.exists():
         runpy.run_path(str(DOSSIER_PATCH), run_name='__main__')
+
+    apply_post_draft_rank_scope_fix()
 
     # The dossier profile packet is assembled once and never reassigned. Keep the
     # generated route compliant with the repository's blocking prefer-const rule.
