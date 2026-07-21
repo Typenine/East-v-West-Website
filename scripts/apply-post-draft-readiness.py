@@ -19,40 +19,56 @@ def run_portability_patch() -> None:
 
 
 def apply_post_draft_rank_scope_fix() -> None:
-    """Keep rookie-draft value on the eligible rookie/DEF scale."""
+    """Keep rookie-draft value on the exact eligible rookie/DEF pool scale."""
     route_path = Path('src/app/api/newsletter/route.ts')
     if route_path.exists():
         route_text = route_path.read_text(encoding='utf-8')
-        route_text = re.sub(
+
+        # Find the POST-DRAFT mapper specifically. route.ts also has a separate
+        # pre-draft prospectPool mapper, so the first global occurrence is wrong.
+        post_log = route_text.find('post_draft research pool loaded')
+        if post_log < 0:
+            raise RuntimeError('Post-draft rank fix could not locate the post-draft research log')
+        map_start = route_text.rfind('prospectPool = players.map', 0, post_log)
+        if map_start < 0:
+            raise RuntimeError('Post-draft rank fix could not locate the post-draft prospectPool mapper')
+        line_start = route_text.rfind('\n', 0, map_start) + 1
+        indent = route_text[line_start:map_start]
+        if indent.strip():
+            raise RuntimeError('Post-draft prospectPool mapper indentation could not be determined')
+
+        # Remove a post-draft-only overall-rank map if the generated payload has one.
+        region_start = max(0, route_text.rfind("if (episodeType === 'post_draft')", 0, map_start))
+        prefix = route_text[region_start:map_start]
+        prefix = re.sub(
             r"\n\s*const\s+current(?:Dynasty)?RankByName\s*=\s*new Map\([\s\S]{0,600}?\);\n",
             "\n",
-            route_text,
+            prefix,
             count=1,
         )
+        route_text = route_text[:region_start] + prefix + route_text[map_start:]
+        map_start = route_text.rfind('prospectPool = players.map', 0, route_text.find('post_draft research pool loaded'))
+        line_start = route_text.rfind('\n', 0, map_start) + 1
+        indent = route_text[line_start:map_start]
 
-        map_match = re.search(r"(?m)^(?P<indent>\s*)prospectPool\s*=\s*players\.map\(", route_text)
-        if not map_match:
-            raise RuntimeError('Post-draft rank fix could not locate the prospectPool map in route.ts')
+        declaration = (
+            f"{indent}// Normalize the exact eligible draft pool (rookies + defenses) to a 1..N board.\n"
+            f"{indent}// Overall dynasty rank remains separate context and never drives rookie-pick value.\n"
+            f"{indent}const normalizeEligibleName = (name: string): string =>\n"
+            f"{indent}  name.toLowerCase().replace(/[^a-z0-9\\s]/g, '').replace(/\\s+/g, ' ').trim();\n"
+            f"{indent}const eligiblePool = [...players].sort((a, b) =>\n"
+            f"{indent}  (a.rank ?? 9999) - (b.rank ?? 9999) || a.name.localeCompare(b.name),\n"
+            f"{indent});\n"
+            f"{indent}const eligibleRankByName = new Map(\n"
+            f"{indent}  eligiblePool.map((player, index) => [normalizeEligibleName(player.name), index + 1]),\n"
+            f"{indent});\n"
+        )
+        if 'const eligibleRankByName = new Map(' not in route_text[region_start:map_start]:
+            route_text = route_text[:line_start] + declaration + route_text[line_start:]
+            map_start += len(declaration)
 
-        if 'const eligibleRankByName = new Map(' not in route_text:
-            indent = map_match.group('indent')
-            declaration = (
-                f"{indent}// Normalize the exact eligible draft pool (rookies + defenses) to a 1..N board.\n"
-                f"{indent}// Overall dynasty rank remains separate context and never drives rookie-pick value.\n"
-                f"{indent}const normalizeEligibleName = (name: string): string =>\n"
-                f"{indent}  name.toLowerCase().replace(/[^a-z0-9\\s]/g, '').replace(/\\s+/g, ' ').trim();\n"
-                f"{indent}const eligiblePool = [...players].sort((a, b) =>\n"
-                f"{indent}  (a.rank ?? 9999) - (b.rank ?? 9999) || a.name.localeCompare(b.name),\n"
-                f"{indent});\n"
-                f"{indent}const eligibleRankByName = new Map(\n"
-                f"{indent}  eligiblePool.map((player, index) => [normalizeEligibleName(player.name), index + 1]),\n"
-                f"{indent});\n"
-            )
-            route_text = route_text[:map_match.start()] + declaration + route_text[map_match.start():]
-
-        map_start = route_text.index('prospectPool = players.map', map_match.start())
-        log_marker = route_text.find('post_draft research pool loaded', map_start)
-        map_end = log_marker if log_marker >= 0 else min(len(route_text), map_start + 8000)
+        post_log = route_text.find('post_draft research pool loaded', map_start)
+        map_end = post_log if post_log >= 0 else min(len(route_text), map_start + 8000)
         block = route_text[map_start:map_end]
         block_lines = block.splitlines(keepends=True)
         replaced_rank = False
@@ -78,8 +94,13 @@ def apply_post_draft_rank_scope_fix() -> None:
                 replaced_rank = True
                 break
         if not replaced_rank and 'rank: eligibleRankByName.get(normalizeEligibleName(player.name)) ?? null,' not in block:
-            raise RuntimeError('Post-draft rank fix could not locate the rank field in the prospectPool mapper')
+            raise RuntimeError('Post-draft rank fix could not locate the rank field in the post-draft mapper')
         route_text = route_text[:map_start] + ''.join(block_lines) + route_text[map_end:]
+
+        # Scope assertion: declarations must be before and near the post-draft mapper.
+        eligible_pos = route_text.rfind('const eligibleRankByName = new Map(', 0, map_start)
+        if eligible_pos < region_start or map_start - eligible_pos > 2000:
+            raise RuntimeError('Eligible-pool ranking variables are not scoped to the post-draft mapper')
         route_path.write_text(route_text, encoding='utf-8')
 
     compose_path = Path('src/lib/newsletter/compose-step.ts')
@@ -119,7 +140,7 @@ def apply_post_draft_rank_scope_fix() -> None:
             test_text = import_line + test_text
         marker = "describe('post-draft eligible-pool rank scope'"
         if marker not in test_text:
-            test_text += '''\n\ndescribe('post-draft eligible-pool rank scope', () => {\n  it('does not use overall dynasty rank as rookie-draft value rank', () => {\n    const route = readRankScopeFile('src/app/api/newsletter/route.ts', 'utf8');\n    const compose = readRankScopeFile('src/lib/newsletter/compose-step.ts', 'utf8');\n    expect(route).toContain('eligibleRankByName');\n    expect(route).toContain('normalizeEligibleName');\n    expect(route).not.toContain('currentRankByName.get(normalizeProspectName(player.name))');\n    expect(compose).not.toContain('dynastyRankByName.get(normalize(pick.playerName))');\n  });\n});\n'''
+            test_text += '''\n\ndescribe('post-draft eligible-pool rank scope', () => {\n  it('scopes the eligible ranking to the post-draft mapper', () => {\n    const route = readRankScopeFile('src/app/api/newsletter/route.ts', 'utf8');\n    const compose = readRankScopeFile('src/lib/newsletter/compose-step.ts', 'utf8');\n    const log = route.indexOf('post_draft research pool loaded');\n    const mapper = route.lastIndexOf('prospectPool = players.map', log);\n    const eligible = route.lastIndexOf('const eligibleRankByName = new Map(', mapper);\n    expect(eligible).toBeGreaterThan(0);\n    expect(mapper - eligible).toBeLessThan(2000);\n    expect(route.slice(mapper, log)).toContain('eligibleRankByName.get(normalizeEligibleName(player.name))');\n    expect(compose).not.toContain('dynastyRankByName.get(normalize(pick.playerName))');\n  });\n});\n'''
         test_path.write_text(test_text, encoding='utf-8')
 
     print('[post-draft-rank-scope] Eligible rookie/DEF ranking separated from overall dynasty rank.')
