@@ -1,1043 +1,671 @@
-'use client';
-
-import { useState, useEffect, useCallback, useMemo } from 'react';
 import Image from 'next/image';
+import { unstable_cache } from 'next/cache';
 import SectionHeader from '@/components/ui/SectionHeader';
-import { Card, CardContent, CardHeader } from '@/components/ui/Card';
-import Button from '@/components/ui/Button';
-import { TEAM_NAMES } from '@/lib/constants/league';
-import { getTeamLogoPath, getTeamColors } from '@/lib/utils/team-utils';
-import { validateBallot } from '@/lib/rivalry/ballot';
-import { isBeforeDeadline, deadlineLabel } from '@/lib/rivalry/deadline';
-import type { RivalryCycle, RivalryPair } from '@/lib/rivalry/types';
+import { CURRENT_SEASON, LEAGUE_IDS } from '@/lib/constants/league';
+import { getTeamColors, getTeamLogoPath, resolveCanonicalTeamName } from '@/lib/utils/team-utils';
+import { getLatestCycle, getPairsForCycle } from '@/server/db/rivalry-queries';
+import type { RivalryPair } from '@/lib/rivalry/types';
 
-// ─── rulebook excerpts ────────────────────────────────────────────────────────
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
 
-const RULEBOOK = [
+type SleeperRoster = {
+  roster_id: number;
+  owner_id: string;
+  metadata?: Record<string, string | null | undefined> | null;
+};
+
+type SleeperUser = {
+  user_id: string;
+  display_name?: string | null;
+  username?: string | null;
+  metadata?: Record<string, string | null | undefined> | null;
+};
+
+type SleeperMatchup = {
+  matchup_id?: number | null;
+  roster_id: number;
+  points?: number | null;
+  custom_points?: number | null;
+};
+
+type RivalryGame = {
+  season: string;
+  week: number;
+  teamAPoints: number;
+  teamBPoints: number;
+  completed: boolean;
+  rivalryWeek: boolean;
+  winner: string | null;
+  margin: number;
+  combined: number;
+};
+
+type RivalryStats = {
+  pair: RivalryPair;
+  games: RivalryGame[];
+  upcoming: RivalryGame[];
+  teamAWins: number;
+  teamBWins: number;
+  ties: number;
+  teamAPoints: number;
+  teamBPoints: number;
+  rivalryWeekAWins: number;
+  rivalryWeekBWins: number;
+  rivalryWeekTies: number;
+  averageMargin: number;
+  largestWin: RivalryGame | null;
+  closestGame: RivalryGame | null;
+  highestCombined: RivalryGame | null;
+  latestMeeting: RivalryGame | null;
+  streakTeam: string | null;
+  streakLength: number;
+};
+
+type RivalryHubData = {
+  rivalries: RivalryStats[];
+  generatedAt: string;
+  partial: boolean;
+};
+
+const RIVALRY_WEEKS = new Set([3, 14]);
+
+const FALLBACK_PAIRS: RivalryPair[] = [
   {
-    section: '4.6(c)',
-    heading: 'Rivalry Week',
-    text: 'The League will designate two (2) weeks of the Regular Season as "Rivalry Week." During Rivalry Week, each team will play its assigned Rival.',
+    cycleId: 'permanent-rivalries',
+    teamAId: 'BeerNeverBrokeMyHeart',
+    teamBId: 'Cascade Marauders',
+    teamAScoreForB: 0,
+    teamBScoreForA: 0,
+    combinedScore: 0,
+    isBloodFeud: false,
+    status: 'active',
   },
   {
-    section: '4.6(d)',
-    heading: 'Rival Determination: Rivalry Strength Budget System',
-    text: '',
+    cycleId: 'permanent-rivalries',
+    teamAId: 'Bimg Bamg Boomg',
+    teamBId: 'bop pop',
+    teamAScoreForB: 0,
+    teamBScoreForA: 0,
+    combinedScore: 0,
+    isBloodFeud: false,
+    status: 'active',
   },
   {
-    section: '4.6(d)(2)',
-    heading: 'Scores; Budget',
-    text: 'Each team must assign each of the other eleven (11) teams a unique whole-number score from 1–100 ("Rivalry Strength Scores"). No number may be used more than once. The total of all Rivalry Strength Scores must equal 550. Each other team must receive at least one (1) point.',
+    cycleId: 'permanent-rivalries',
+    teamAId: 'Double Trouble',
+    teamBId: 'Elemental Heroes',
+    teamAScoreForB: 0,
+    teamBScoreForA: 0,
+    combinedScore: 0,
+    isBloodFeud: false,
+    status: 'active',
   },
   {
-    section: '4.6(d)(3)',
-    heading: 'Blood Feuds',
-    text: 'If two teams assign each other a score of 100, that matchup is automatically locked as a "Blood Feud." Blood Feuds cannot be overridden. Once locked, those teams are removed from further pairing.',
+    cycleId: 'permanent-rivalries',
+    teamAId: 'Belleview Badgers',
+    teamBId: 'Belltown Raptors',
+    teamAScoreForB: 0,
+    teamBScoreForA: 0,
+    combinedScore: 0,
+    isBloodFeud: false,
+    status: 'active',
   },
   {
-    section: '4.6(d)(4)',
-    heading: 'Pairing Method',
-    text: 'For every remaining pair of teams A and B, the "Combined Rivalry Strength" equals (A\'s score for B) + (B\'s score for A). All remaining possible pairings are ranked from highest to lowest Combined Rivalry Strength. Starting at the highest Combined Rivalry Strength, teams are paired off and removed from further pairing until every team has exactly one Rival.',
+    cycleId: 'permanent-rivalries',
+    teamAId: 'Red Pandas',
+    teamBId: 'The Lone Ginger',
+    teamAScoreForB: 0,
+    teamBScoreForA: 0,
+    combinedScore: 0,
+    isBloodFeud: false,
+    status: 'active',
+  },
+  {
+    cycleId: 'permanent-rivalries',
+    teamAId: 'Detroit Dawgs',
+    teamBId: 'Mt. Lebanon Cake Eaters',
+    teamAScoreForB: 0,
+    teamBScoreForA: 0,
+    combinedScore: 0,
+    isBloodFeud: false,
+    status: 'active',
   },
 ];
 
-// ─── types ───────────────────────────────────────────────────────────────────
-
-type AuthState = {
-  authenticated: boolean;
-  isAdmin: boolean;
-  claims?: { team?: string };
-};
-
-type TeamStatus = {
-  teamId: string;
-  submitted: boolean;
-  submittedAt: string | null;
-  reopened: boolean;
-};
-
-type ScoreEntry = { targetTeamId: string; score: number };
-
-type StatusData = {
-  cycle: RivalryCycle | null;
-  submittedCount: number;
-  totalTeams: number;
-  teams: TeamStatus[];
-  mySubmission: { submittedAt: string; scores: ScoreEntry[] } | null;
-  adminSubmissions?: Array<{ teamId: string; scores: ScoreEntry[] }> | null;
-};
-
-// ─── helpers ─────────────────────────────────────────────────────────────────
-
-function fmtDate(iso: string | null | undefined) {
-  if (!iso) return '—';
-  return new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+function pairKey(a: string, b: string): string {
+  return [a, b].sort((left, right) => left.localeCompare(right)).join('::');
 }
 
-function TeamLogo({ teamName, size = 48 }: { teamName: string; size?: number }) {
-  const colors = getTeamColors(teamName);
-  return (
-    <div
-      className="rounded-lg flex items-center justify-center shrink-0"
-      style={{ width: size, height: size, background: colors.primary }}
-    >
-      <Image
-        src={getTeamLogoPath(teamName)}
-        alt={teamName}
-        width={size}
-        height={size}
-        className="object-contain"
-        style={{ maxWidth: size * 0.85, maxHeight: size * 0.85 }}
-      />
-    </div>
-  );
+const PAIR_ORDER = new Map(FALLBACK_PAIRS.map((pair, index) => [pairKey(pair.teamAId, pair.teamBId), index]));
+
+function orientPair(pair: RivalryPair): RivalryPair {
+  const fallback = FALLBACK_PAIRS.find((item) => pairKey(item.teamAId, item.teamBId) === pairKey(pair.teamAId, pair.teamBId));
+  if (!fallback || pair.teamAId === fallback.teamAId) return pair;
+  return {
+    ...pair,
+    teamAId: pair.teamBId,
+    teamBId: pair.teamAId,
+    teamAScoreForB: Number(pair.teamBScoreForA || 0),
+    teamBScoreForA: Number(pair.teamAScoreForB || 0),
+  };
 }
 
-// ─── sub-components ──────────────────────────────────────────────────────────
-
-function RulebookSection() {
-  return (
-    <div className="mb-8 space-y-3">
-      <p className="text-sm font-semibold text-[var(--muted)] uppercase tracking-widest mb-3">Rulebook</p>
-      {RULEBOOK.map((r) => (
-        <div key={r.section} className="rounded-[var(--radius-card)] border border-[var(--border)] p-4 bg-[var(--surface)]">
-          <div className="flex items-baseline gap-2 mb-1">
-            <span className="text-xs font-mono font-bold px-1.5 py-0.5 rounded" style={{ background: 'var(--accent)', color: '#fff' }}>
-              {r.section}
-            </span>
-            <span className="text-sm font-semibold text-[var(--text)]">{r.heading}</span>
-          </div>
-          {r.text && <p className="text-sm text-[var(--muted)] leading-relaxed">{r.text}</p>}
-        </div>
-      ))}
-    </div>
-  );
+async function sleeperJson<T>(path: string, revalidate = 900): Promise<T> {
+  const response = await fetch(`https://api.sleeper.app/v1${path}`, {
+    next: { revalidate },
+    signal: AbortSignal.timeout(9000),
+  });
+  if (!response.ok) throw new Error(`Sleeper request failed: ${path} (${response.status})`);
+  return response.json() as Promise<T>;
 }
 
-// ─── budget tracker (sticky) ─────────────────────────────────────────────────
-
-function BudgetTracker({ validation }: { validation: ReturnType<typeof validateBallot> }) {
-  const { total, teamsScored, teamsRemaining, uniqueCount, duplicateMap, invalidIds, budgetError, impossibleBudget } = validation;
-  const BUDGET = 550;
-  const OTHERS = 11;
-  const pct = Math.min(100, (total / BUDGET) * 100);
-  const over = total > BUDGET;
-  const exact = total === BUDGET;
-  const barColor = over ? 'var(--danger)' : exact ? '#22c55e' : 'var(--accent)';
-  const dupCount = Object.keys(duplicateMap).length;
-
-  return (
-    <div
-      className="sticky top-0 z-20 rounded-b-xl border border-[var(--border)] shadow-lg px-4 py-3"
-      style={{ background: 'var(--surface)', borderTop: 'none' }}
-    >
-      <div className="w-full rounded-full overflow-hidden mb-2" style={{ height: 6, background: 'var(--border)' }}>
-        <div
-          className="h-full rounded-full transition-all duration-200"
-          style={{ width: `${pct}%`, background: barColor }}
-        />
-      </div>
-
-      <div className="flex flex-wrap gap-x-5 gap-y-1 items-center">
-        <span className="text-sm font-semibold" style={{ color: over ? 'var(--danger)' : exact ? '#22c55e' : 'var(--text)' }}>
-          {total} / {BUDGET} pts
-          {budgetError && <span className="ml-1 font-normal text-xs">({budgetError})</span>}
-        </span>
-
-        <span className="text-sm text-[var(--muted)]">
-          <span className="text-[var(--text)] font-medium">{teamsScored}</span>/{OTHERS} teams scored
-          {teamsRemaining > 0 && <span> · {teamsRemaining} left</span>}
-        </span>
-
-        <span className="text-sm text-[var(--muted)]">
-          <span className="text-[var(--text)] font-medium">{uniqueCount}</span>/{teamsScored || OTHERS} unique
-          {dupCount > 0 && (
-            <span className="ml-1 text-xs font-medium" style={{ color: 'var(--danger)' }}>
-              · {dupCount} dup{dupCount !== 1 ? 's' : ''}
-            </span>
-          )}
-          {invalidIds.length > 0 && (
-            <span className="ml-1 text-xs font-medium" style={{ color: 'var(--danger)' }}>
-              · {invalidIds.length} invalid
-            </span>
-          )}
-        </span>
-
-        {impossibleBudget && (
-          <span className="text-xs font-medium px-2 py-0.5 rounded-full" style={{ background: '#7c3aed22', color: '#a78bfa' }}>
-            ⚠ Budget unreachable with remaining slots
-          </span>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// ─── team score card ──────────────────────────────────────────────────────────
-
-function TeamScoreCard({
-  teamName, score, onChange, duplicateOf, isInvalid, isBloodFeud,
-}: {
-  teamName: string;
-  score: string;
-  onChange: (v: string) => void;
-  duplicateOf: string[];
-  isInvalid: boolean;
-  isBloodFeud: boolean;
-}) {
-  const colors = getTeamColors(teamName);
-  const hasError = isInvalid || duplicateOf.length > 0;
-
-  return (
-    <div
-      className="relative rounded-[var(--radius-card)] border overflow-hidden transition-shadow"
-      style={{
-        borderColor: hasError ? 'var(--danger)' : isBloodFeud ? '#f59e0b' : 'var(--border)',
-        background: 'var(--surface)',
-        boxShadow: isBloodFeud ? '0 0 0 1px #f59e0b33' : undefined,
-      }}
-    >
-      <div style={{ height: 4, background: colors.primary }} />
-      <div className="p-3 flex items-center gap-3">
-        <TeamLogo teamName={teamName} size={44} />
-        <div className="flex-1 min-w-0">
-          <p className="text-sm font-semibold text-[var(--text)] leading-tight truncate">{teamName}</p>
-          {isBloodFeud && duplicateOf.length === 0 && (
-            <p className="text-xs mt-0.5" style={{ color: '#f59e0b' }}>
-              🔥 Blood Feud if they also give you 100
-            </p>
-          )}
-          {duplicateOf.length > 0 && (
-            <p className="text-xs mt-0.5" style={{ color: 'var(--danger)' }}>
-              {isBloodFeud ? '⚠ Duplicate 100 — ' : 'Same score as '}{duplicateOf.join(', ')}
-            </p>
-          )}
-          {isInvalid && (
-            <p className="text-xs mt-0.5" style={{ color: 'var(--danger)' }}>
-              Must be 1–100
-            </p>
-          )}
-        </div>
-        <input
-          type="number"
-          min={1}
-          max={100}
-          step={1}
-          value={score}
-          onChange={(e) => onChange(e.target.value)}
-          placeholder="—"
-          className="w-16 text-center rounded-lg text-sm font-bold py-2 px-1 border transition-colors focus:outline-none focus:border-[var(--accent)]"
-          style={{
-            background: 'var(--surface-strong, var(--bg))',
-            color: 'var(--text)',
-            borderColor: hasError ? 'var(--danger)' : isBloodFeud ? '#f59e0b' : 'var(--border)',
-          }}
-          aria-label={`Score for ${teamName}`}
-          aria-invalid={hasError}
-        />
-      </div>
-    </div>
-  );
-}
-
-// ─── submission form ──────────────────────────────────────────────────────────
-
-function SubmissionForm({
-  myTeam,
-  initialDraft,
-  isEdit,
-  onSubmitSuccess,
-  onCancelEdit,
-}: {
-  myTeam: string;
-  initialDraft?: Record<string, string>;
-  isEdit?: boolean;
-  onSubmitSuccess: () => void;
-  onCancelEdit?: () => void;
-}) {
-  const otherTeams = useMemo(() => TEAM_NAMES.filter((t) => t !== myTeam), [myTeam]);
-  const [draft, setDraft] = useState<Record<string, string>>(() =>
-    initialDraft ?? Object.fromEntries(otherTeams.map((t) => [t, ''])),
-  );
-  const [showReview, setShowReview] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
-  const [submitError, setSubmitError] = useState<string | null>(null);
-
-  const validation = useMemo(() => validateBallot(draft, otherTeams), [draft, otherTeams]);
-
-  const updateScore = useCallback((teamId: string, val: string) => {
-    setDraft((prev) => ({ ...prev, [teamId]: val }));
-  }, []);
-
-  const handleSubmit = useCallback(async () => {
-    if (!validation.isValid) return;
-    setSubmitting(true);
-    setSubmitError(null);
-    try {
-      const scores = otherTeams.map((t) => ({ targetTeamId: t, score: Number(draft[t]) }));
-      const res = await fetch('/api/rivalries/submit', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ scores }),
-      });
-      const data = await res.json() as { ok?: boolean; error?: string };
-      if (!res.ok || !data.ok) {
-        setSubmitError(data.error ?? 'Submission failed. Try again.');
-      } else {
-        onSubmitSuccess();
+async function getPermanentPairs(): Promise<RivalryPair[]> {
+  try {
+    const cycle = await getLatestCycle();
+    if (cycle) {
+      const stored = await getPairsForCycle(cycle.id);
+      const active = stored.filter((pair) => pair.status === 'active' || pair.status === 'proposed');
+      if (active.length === 6) {
+        return active
+          .map((pair) => orientPair({
+            ...pair,
+            teamAScoreForB: Number(pair.teamAScoreForB || 0),
+            teamBScoreForA: Number(pair.teamBScoreForA || 0),
+            combinedScore: Number(pair.combinedScore || 0),
+          }))
+          .sort((a, b) => (PAIR_ORDER.get(pairKey(a.teamAId, a.teamBId)) ?? 99) - (PAIR_ORDER.get(pairKey(b.teamAId, b.teamBId)) ?? 99));
       }
-    } catch {
-      setSubmitError('Network error. Check your connection.');
-    } finally {
-      setSubmitting(false);
     }
-  }, [validation.isValid, draft, otherTeams, onSubmitSuccess]);
+  } catch (error) {
+    console.error('[rivalries] Unable to read stored permanent pairings', error);
+  }
+  return FALLBACK_PAIRS;
+}
 
-  const reviewList = useMemo(() => {
-    if (!validation.isValid) return [];
-    return otherTeams
-      .map((t) => ({ teamId: t, score: Number(draft[t]) }))
-      .sort((a, b) => b.score - a.score);
-  }, [validation.isValid, draft, otherTeams]);
+function pointsFor(matchup: SleeperMatchup): number {
+  const value = matchup.custom_points ?? matchup.points ?? 0;
+  return Number.isFinite(Number(value)) ? Number(value) : 0;
+}
 
-  if (showReview && validation.isValid) {
-    return (
-      <div className="max-w-xl mx-auto">
-        <div className="mb-4">
-          <button
-            onClick={() => setShowReview(false)}
-            className="text-sm font-medium underline underline-offset-2 transition-opacity hover:opacity-70"
-            style={{ color: 'var(--accent)' }}
-          >
-            ← Back to edit
-          </button>
-        </div>
-        <Card>
-          <CardHeader>
-            <p className="font-semibold text-[var(--text)]">
-              {isEdit ? 'Review Your Updated Rivalry Scores' : 'Review Your Rivalry Scores'}
-            </p>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-2 mb-4">
-              {reviewList.map(({ teamId, score }) => (
-                <div key={teamId} className="flex items-center gap-3">
-                  <TeamLogo teamName={teamId} size={32} />
-                  <span className="flex-1 text-sm text-[var(--text)] truncate">{teamId}</span>
-                  <span
-                    className="text-sm font-bold px-2 py-0.5 rounded-full"
-                    style={{
-                      background: score === 100 ? '#f59e0b22' : 'var(--surface-strong, var(--border))',
-                      color: score === 100 ? '#f59e0b' : 'var(--text)',
-                    }}
-                  >
-                    {score}{score === 100 && ' 🔥'}
-                  </span>
-                </div>
-              ))}
-            </div>
-            <div className="text-xs text-[var(--muted)] flex gap-4 mb-4 pb-4 border-b border-[var(--border)]">
-              <span>Total: <strong className="text-[var(--text)]">550 / 550</strong></span>
-              <span>Duplicates: <strong className="text-[var(--text)]">0</strong></span>
-              <span>Invalid: <strong className="text-[var(--text)]">0</strong></span>
-            </div>
-            <p className="text-xs text-[var(--muted)] mb-4">
-              {isEdit
-                ? 'This will replace your previous submission. You can edit again before the deadline.'
-                : 'Once submitted, your rankings are locked unless you edit before the deadline or commissioners reopen your submission.'}
-            </p>
-            {submitError && (
-              <p className="text-sm mb-3" style={{ color: 'var(--danger)' }}>{submitError}</p>
-            )}
-            <Button variant="primary" fullWidth disabled={submitting} onClick={handleSubmit}>
-              {submitting ? 'Submitting…' : isEdit ? 'Update Rivalry Scores' : 'Submit Rivalry Scores'}
-            </Button>
-          </CardContent>
-        </Card>
-      </div>
-    );
+function emptyStats(pair: RivalryPair): RivalryStats {
+  return {
+    pair,
+    games: [],
+    upcoming: [],
+    teamAWins: 0,
+    teamBWins: 0,
+    ties: 0,
+    teamAPoints: 0,
+    teamBPoints: 0,
+    rivalryWeekAWins: 0,
+    rivalryWeekBWins: 0,
+    rivalryWeekTies: 0,
+    averageMargin: 0,
+    largestWin: null,
+    closestGame: null,
+    highestCombined: null,
+    latestMeeting: null,
+    streakTeam: null,
+    streakLength: 0,
+  };
+}
+
+function calculateStats(pair: RivalryPair, allGames: RivalryGame[]): RivalryStats {
+  const completed = allGames
+    .filter((game) => game.completed)
+    .sort((a, b) => Number(a.season) - Number(b.season) || a.week - b.week);
+  const upcoming = allGames
+    .filter((game) => !game.completed)
+    .sort((a, b) => Number(a.season) - Number(b.season) || a.week - b.week);
+
+  const stats = emptyStats(pair);
+  stats.games = [...completed].reverse();
+  stats.upcoming = upcoming;
+
+  for (const game of completed) {
+    stats.teamAPoints += game.teamAPoints;
+    stats.teamBPoints += game.teamBPoints;
+    if (game.winner === pair.teamAId) stats.teamAWins += 1;
+    else if (game.winner === pair.teamBId) stats.teamBWins += 1;
+    else stats.ties += 1;
+
+    if (game.rivalryWeek) {
+      if (game.winner === pair.teamAId) stats.rivalryWeekAWins += 1;
+      else if (game.winner === pair.teamBId) stats.rivalryWeekBWins += 1;
+      else stats.rivalryWeekTies += 1;
+    }
+
+    if (!stats.largestWin || game.margin > stats.largestWin.margin) stats.largestWin = game;
+    if (!stats.closestGame || game.margin < stats.closestGame.margin) stats.closestGame = game;
+    if (!stats.highestCombined || game.combined > stats.highestCombined.combined) stats.highestCombined = game;
   }
 
+  stats.latestMeeting = completed.length ? completed[completed.length - 1] : null;
+  stats.averageMargin = completed.length
+    ? completed.reduce((sum, game) => sum + game.margin, 0) / completed.length
+    : 0;
+
+  const newest = [...completed].reverse();
+  const firstWinner = newest[0]?.winner ?? null;
+  if (firstWinner) {
+    stats.streakTeam = firstWinner;
+    for (const game of newest) {
+      if (game.winner !== firstWinner) break;
+      stats.streakLength += 1;
+    }
+  }
+
+  return stats;
+}
+
+async function loadRivalryHub(): Promise<RivalryHubData> {
+  const pairs = await getPermanentPairs();
+  const pairMap = new Map(pairs.map((pair) => [pairKey(pair.teamAId, pair.teamBId), pair]));
+  const gamesByPair = new Map(pairs.map((pair) => [pairKey(pair.teamAId, pair.teamBId), [] as RivalryGame[]]));
+  let partial = false;
+
+  let nflSeason = CURRENT_SEASON;
+  let nflWeek = 0;
+  try {
+    const state = await sleeperJson<{ season?: string; week?: number; display_week?: number }>('/state/nfl', 300);
+    nflSeason = String(state.season || CURRENT_SEASON);
+    nflWeek = Number(state.week ?? state.display_week ?? 0);
+  } catch {
+    partial = true;
+  }
+
+  const configured: Array<[string, string]> = [
+    ...Object.entries(LEAGUE_IDS.PREVIOUS),
+    [CURRENT_SEASON, LEAGUE_IDS.CURRENT],
+  ];
+  const seenLeagueIds = new Set<string>();
+  const seasons = configured
+    .filter(([, leagueId]) => {
+      if (!leagueId || seenLeagueIds.has(leagueId)) return false;
+      seenLeagueIds.add(leagueId);
+      return true;
+    })
+    .sort((a, b) => Number(a[0]) - Number(b[0]));
+
+  for (const [season, leagueId] of seasons) {
+    try {
+      const weekRequests = Array.from({ length: 17 }, (_, index) =>
+        sleeperJson<SleeperMatchup[]>(`/league/${leagueId}/matchups/${index + 1}`),
+      );
+      const [rosters, users, ...weeks] = await Promise.all([
+        sleeperJson<SleeperRoster[]>(`/league/${leagueId}/rosters`, 3600),
+        sleeperJson<SleeperUser[]>(`/league/${leagueId}/users`, 3600),
+        ...weekRequests,
+      ]);
+
+      const usersById = new Map(users.map((user) => [user.user_id, user]));
+      const teamByRoster = new Map<number, string>();
+      for (const roster of rosters) {
+        const user = usersById.get(roster.owner_id);
+        teamByRoster.set(roster.roster_id, resolveCanonicalTeamName({
+          ownerId: roster.owner_id,
+          rosterTeamName: roster.metadata?.team_name ?? roster.metadata?.team_name_update,
+          userDisplayName: user?.display_name,
+          username: user?.username,
+        }));
+      }
+
+      weeks.forEach((matchups, weekIndex) => {
+        const week = weekIndex + 1;
+        const grouped = new Map<number, SleeperMatchup[]>();
+        for (const matchup of matchups) {
+          if (typeof matchup.matchup_id !== 'number') continue;
+          const rows = grouped.get(matchup.matchup_id) ?? [];
+          rows.push(matchup);
+          grouped.set(matchup.matchup_id, rows);
+        }
+
+        for (const rows of grouped.values()) {
+          if (rows.length < 2) continue;
+          const [left, right] = rows;
+          const leftTeam = teamByRoster.get(left.roster_id);
+          const rightTeam = teamByRoster.get(right.roster_id);
+          if (!leftTeam || !rightTeam || leftTeam === 'Unknown Team' || rightTeam === 'Unknown Team') continue;
+
+          const key = pairKey(leftTeam, rightTeam);
+          const pair = pairMap.get(key);
+          if (!pair) continue;
+
+          const leftPoints = pointsFor(left);
+          const rightPoints = pointsFor(right);
+          const aOnLeft = leftTeam === pair.teamAId;
+          const teamAPoints = aOnLeft ? leftPoints : rightPoints;
+          const teamBPoints = aOnLeft ? rightPoints : leftPoints;
+          const hasScoring = teamAPoints !== 0 || teamBPoints !== 0;
+          const seasonIsPast = Number(season) < Number(nflSeason);
+          const weekIsPast = Number(season) === Number(nflSeason) && nflWeek > 0 && week < nflWeek;
+          const completed = hasScoring && (seasonIsPast || weekIsPast);
+          const winner = completed
+            ? teamAPoints > teamBPoints
+              ? pair.teamAId
+              : teamBPoints > teamAPoints
+                ? pair.teamBId
+                : null
+            : null;
+
+          gamesByPair.get(key)?.push({
+            season,
+            week,
+            teamAPoints,
+            teamBPoints,
+            completed,
+            rivalryWeek: RIVALRY_WEEKS.has(week),
+            winner,
+            margin: Math.abs(teamAPoints - teamBPoints),
+            combined: teamAPoints + teamBPoints,
+          });
+        }
+      });
+    } catch (error) {
+      partial = true;
+      console.error(`[rivalries] Unable to load ${season} matchup history`, error);
+    }
+  }
+
+  return {
+    rivalries: pairs.map((pair) => calculateStats(pair, gamesByPair.get(pairKey(pair.teamAId, pair.teamBId)) ?? [])),
+    generatedAt: new Date().toISOString(),
+    partial,
+  };
+}
+
+const getRivalryHub = unstable_cache(loadRivalryHub, ['permanent-rivalry-hub-v1'], { revalidate: 900 });
+
+function formatPoints(value: number): string {
+  return value.toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+}
+
+function recordLabel(aWins: number, bWins: number, ties: number): string {
+  return ties > 0 ? `${aWins}-${bWins}-${ties}` : `${aWins}-${bWins}`;
+}
+
+function gameLabel(game: RivalryGame | null, pair: RivalryPair): string {
+  if (!game) return 'No completed meetings';
+  const winner = game.winner ?? 'Tie';
+  return `${winner} · ${formatPoints(game.teamAPoints)}–${formatPoints(game.teamBPoints)} · ${game.season} W${game.week}`;
+}
+
+function TeamSide({ team, wins, points, align }: { team: string; wins: number; points: number; align: 'left' | 'right' }) {
+  const colors = getTeamColors(team);
   return (
-    <div>
-      <BudgetTracker validation={validation} />
-
-      <div className="mt-4 mb-6">
-        {isEdit && onCancelEdit && (
-          <button
-            onClick={onCancelEdit}
-            className="text-sm font-medium underline underline-offset-2 mb-3 block transition-opacity hover:opacity-70"
-            style={{ color: 'var(--accent)' }}
-          >
-            ← Cancel edit
-          </button>
-        )}
-        <h3 className="text-lg font-semibold text-[var(--text)] mb-1">
-          {isEdit ? 'Edit Your Rivalry Strength Scores' : 'Assign Your Rivalry Strength Scores'}
-        </h3>
-        <p className="text-sm text-[var(--muted)] leading-relaxed">
-          Give each other team a unique whole-number score from 1–100. Higher scores mean you want that team as your rival more.
-          Your scores must total exactly <strong className="text-[var(--text)]">550</strong>.
-          No duplicate scores. Every team must receive at least 1 point.
-        </p>
-        <p className="text-xs mt-1" style={{ color: 'var(--muted)' }}>
-          Submissions lock on <strong className="text-[var(--text)]">{deadlineLabel()}</strong>.
-        </p>
+    <div className={`flex min-w-0 flex-1 items-center gap-3 ${align === 'right' ? 'flex-row-reverse text-right' : ''}`}>
+      <div
+        className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-2xl shadow-lg sm:h-20 sm:w-20"
+        style={{ background: colors.primary, boxShadow: `0 10px 24px ${colors.primary}35, inset 0 0 0 1px rgba(255,255,255,.12)` }}
+      >
+        <Image src={getTeamLogoPath(team)} alt={`${team} logo`} width={72} height={72} className="h-[86%] w-[86%] object-contain" />
       </div>
+      <div className="min-w-0">
+        <h2 className="text-base font-black leading-tight text-[var(--text)] sm:text-xl">{team}</h2>
+        <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-[var(--muted)]" style={{ justifyContent: align === 'right' ? 'flex-end' : 'flex-start' }}>
+          <span><strong className="text-[var(--text)]">{wins}</strong> series wins</span>
+          <span>{formatPoints(points)} points</span>
+        </div>
+        <div className="mt-2 h-1 w-16 rounded-full" style={{ background: colors.secondary || colors.primary, marginLeft: align === 'right' ? 'auto' : undefined }} />
+      </div>
+    </div>
+  );
+}
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 mb-6">
-        {otherTeams.map((team) => (
-          <TeamScoreCard
-            key={team}
-            teamName={team}
-            score={draft[team] ?? ''}
-            onChange={(v) => updateScore(team, v)}
-            duplicateOf={(validation.duplicateMap[team] ?? []).filter((d) => d !== team)}
-            isInvalid={validation.invalidIds.includes(team)}
-            isBloodFeud={validation.bloodFeuds.includes(team)}
+function StatTile({ label, value, detail }: { label: string; value: string; detail?: string }) {
+  return (
+    <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)]/70 p-3">
+      <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--muted)]">{label}</div>
+      <div className="mt-1 text-lg font-black text-[var(--text)]">{value}</div>
+      {detail ? <div className="mt-0.5 text-xs text-[var(--muted)]">{detail}</div> : null}
+    </div>
+  );
+}
+
+function RivalryCard({ rivalry, index }: { rivalry: RivalryStats; index: number }) {
+  const { pair } = rivalry;
+  const aColors = getTeamColors(pair.teamAId);
+  const bColors = getTeamColors(pair.teamBId);
+  const meetings = rivalry.teamAWins + rivalry.teamBWins + rivalry.ties;
+  const seriesLeader = rivalry.teamAWins === rivalry.teamBWins
+    ? 'Series tied'
+    : rivalry.teamAWins > rivalry.teamBWins
+      ? `${pair.teamAId} leads`
+      : `${pair.teamBId} leads`;
+  const rivalryMeetings = rivalry.rivalryWeekAWins + rivalry.rivalryWeekBWins + rivalry.rivalryWeekTies;
+  const streak = rivalry.streakTeam
+    ? `${rivalry.streakTeam} ${rivalry.streakLength}`
+    : meetings > 0
+      ? 'No active streak'
+      : 'Series begins in 2026';
+
+  return (
+    <article
+      id={`rivalry-${index + 1}`}
+      className="scroll-mt-24 overflow-hidden rounded-2xl border border-[var(--border)] shadow-xl"
+      style={{ background: `linear-gradient(108deg, ${aColors.primary}20 0%, ${aColors.primary}0d 42%, #101827 42%, #101827 58%, ${bColors.primary}0d 58%, ${bColors.primary}20 100%)` }}
+    >
+      <div className="h-1" style={{ background: `linear-gradient(90deg, ${aColors.primary}, ${aColors.secondary || aColors.primary} 43%, ${bColors.secondary || bColors.primary} 57%, ${bColors.primary})` }} />
+      <div className="px-4 pb-4 pt-3 sm:px-6 sm:pb-6">
+        <div className="mb-4 flex items-center justify-between gap-3">
+          <div className="text-[10px] font-extrabold uppercase tracking-[0.2em] text-[var(--muted)]">Matchup {index + 1}</div>
+          <div className="flex items-center gap-2">
+            {pair.isBloodFeud ? (
+              <span className="rounded-full border border-amber-400/50 bg-amber-400/10 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-amber-300">Blood Feud</span>
+            ) : null}
+            <span className="rounded-full border border-[var(--border)] bg-black/15 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-[var(--muted)]">Permanent</span>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3 sm:gap-6">
+          <TeamSide team={pair.teamAId} wins={rivalry.teamAWins} points={rivalry.teamAPoints} align="left" />
+          <div className="shrink-0 text-center">
+            <div className="flex h-12 w-12 items-center justify-center rounded-full border border-amber-400/70 bg-black/35 text-sm font-black text-white shadow-lg sm:h-14 sm:w-14">VS</div>
+            <div className="mt-2 text-[10px] font-bold uppercase tracking-wider text-[var(--muted)]">{meetings} meetings</div>
+          </div>
+          <TeamSide team={pair.teamBId} wins={rivalry.teamBWins} points={rivalry.teamBPoints} align="right" />
+        </div>
+
+        <div className="mt-5 grid grid-cols-2 gap-2 lg:grid-cols-4">
+          <StatTile label="All-time series" value={recordLabel(rivalry.teamAWins, rivalry.teamBWins, rivalry.ties)} detail={seriesLeader} />
+          <StatTile label="Weeks 3 & 14" value={rivalryMeetings ? recordLabel(rivalry.rivalryWeekAWins, rivalry.rivalryWeekBWins, rivalry.rivalryWeekTies) : '—'} detail={rivalryMeetings ? `${rivalryMeetings} games in rivalry-week slots` : 'No completed games yet'} />
+          <StatTile label="Current streak" value={streak} detail={rivalry.latestMeeting ? `Last met ${rivalry.latestMeeting.season} W${rivalry.latestMeeting.week}` : undefined} />
+          <StatTile label="Average margin" value={meetings ? formatPoints(rivalry.averageMargin) : '—'} detail="Points per completed meeting" />
+        </div>
+
+        <details className="group mt-4 rounded-xl border border-[var(--border)] bg-black/15">
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 text-sm font-bold text-[var(--text)]">
+            <span>View full rivalry dossier</span>
+            <span className="text-xs text-[var(--muted)] transition-transform group-open:rotate-180">▼</span>
+          </summary>
+          <div className="border-t border-[var(--border)] px-4 py-4 sm:px-5">
+            <div className="grid gap-4 lg:grid-cols-[0.9fr_1.1fr]">
+              <section>
+                <div className="text-[10px] font-black uppercase tracking-[0.2em] text-[var(--muted)]">How the rivalry was formed</div>
+                <div className="mt-2 rounded-xl border border-[var(--border)] bg-[var(--surface)]/70 p-4">
+                  {pair.combinedScore > 0 ? (
+                    <>
+                      <div className="flex items-center justify-between gap-3 text-sm">
+                        <span className="text-[var(--muted)]">{pair.teamAId} assigned</span>
+                        <strong className="text-[var(--text)]">{pair.teamAScoreForB}</strong>
+                      </div>
+                      <div className="mt-2 flex items-center justify-between gap-3 text-sm">
+                        <span className="text-[var(--muted)]">{pair.teamBId} assigned</span>
+                        <strong className="text-[var(--text)]">{pair.teamBScoreForA}</strong>
+                      </div>
+                      <div className="mt-3 border-t border-[var(--border)] pt-3 text-center">
+                        <div className="text-3xl font-black text-[var(--text)]">{pair.combinedScore}</div>
+                        <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--muted)]">Combined rivalry strength</div>
+                      </div>
+                    </>
+                  ) : (
+                    <p className="text-sm leading-relaxed text-[var(--muted)]">This permanent pairing was established through the league’s Rivalry Strength process.</p>
+                  )}
+                </div>
+              </section>
+
+              <section>
+                <div className="text-[10px] font-black uppercase tracking-[0.2em] text-[var(--muted)]">Series benchmarks</div>
+                <div className="mt-2 grid gap-2 sm:grid-cols-3">
+                  <StatTile label="Closest finish" value={rivalry.closestGame ? formatPoints(rivalry.closestGame.margin) : '—'} detail={gameLabel(rivalry.closestGame, pair)} />
+                  <StatTile label="Largest win" value={rivalry.largestWin ? formatPoints(rivalry.largestWin.margin) : '—'} detail={gameLabel(rivalry.largestWin, pair)} />
+                  <StatTile label="Highest combined" value={rivalry.highestCombined ? formatPoints(rivalry.highestCombined.combined) : '—'} detail={gameLabel(rivalry.highestCombined, pair)} />
+                </div>
+              </section>
+            </div>
+
+            {rivalry.upcoming.length > 0 ? (
+              <section className="mt-5">
+                <div className="text-[10px] font-black uppercase tracking-[0.2em] text-[var(--muted)]">Next chapters</div>
+                <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                  {rivalry.upcoming.map((game) => (
+                    <div key={`${game.season}-${game.week}`} className="rounded-xl border border-[var(--border)] bg-[var(--surface)]/70 px-4 py-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <strong className="text-sm text-[var(--text)]">{game.season} · Week {game.week}</strong>
+                        {game.rivalryWeek ? <span className="rounded-full bg-amber-400/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-amber-300">Rivalry Week</span> : null}
+                      </div>
+                      <div className="mt-1 text-xs text-[var(--muted)]">Scheduled matchup</div>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            ) : null}
+
+            <section className="mt-5">
+              <div className="flex items-end justify-between gap-3">
+                <div>
+                  <div className="text-[10px] font-black uppercase tracking-[0.2em] text-[var(--muted)]">Complete matchup history</div>
+                  <div className="mt-1 text-xs text-[var(--muted)]">All recorded Sleeper meetings, newest first.</div>
+                </div>
+                <div className="text-xs font-semibold text-[var(--text)]">{meetings} games</div>
+              </div>
+              {rivalry.games.length > 0 ? (
+                <div className="mt-3 overflow-x-auto rounded-xl border border-[var(--border)]">
+                  <table className="w-full min-w-[650px] text-left text-sm">
+                    <thead className="bg-black/20 text-[10px] uppercase tracking-[0.16em] text-[var(--muted)]">
+                      <tr>
+                        <th className="px-3 py-2.5">Season</th>
+                        <th className="px-3 py-2.5">Week</th>
+                        <th className="px-3 py-2.5">{pair.teamAId}</th>
+                        <th className="px-3 py-2.5">{pair.teamBId}</th>
+                        <th className="px-3 py-2.5">Result</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {rivalry.games.map((game) => (
+                        <tr key={`${game.season}-${game.week}`} className="border-t border-[var(--border)] bg-[var(--surface)]/50">
+                          <td className="px-3 py-2.5 font-semibold text-[var(--text)]">{game.season}</td>
+                          <td className="px-3 py-2.5 text-[var(--muted)]">
+                            <span>Week {game.week}</span>
+                            {game.rivalryWeek ? <span className="ml-2 rounded bg-amber-400/10 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-amber-300">Rivalry</span> : null}
+                          </td>
+                          <td className="px-3 py-2.5 font-semibold text-[var(--text)]">{formatPoints(game.teamAPoints)}</td>
+                          <td className="px-3 py-2.5 font-semibold text-[var(--text)]">{formatPoints(game.teamBPoints)}</td>
+                          <td className="px-3 py-2.5 text-[var(--muted)]">{game.winner ? `${game.winner} by ${formatPoints(game.margin)}` : 'Tie'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div className="mt-3 rounded-xl border border-dashed border-[var(--border)] px-4 py-6 text-center text-sm text-[var(--muted)]">No completed meetings are available yet.</div>
+              )}
+            </section>
+          </div>
+        </details>
+      </div>
+    </article>
+  );
+}
+
+export default async function RivalriesPage() {
+  const hub = await getRivalryHub();
+  const allGames = hub.rivalries.flatMap((rivalry) => rivalry.games);
+  const closestSeries = [...hub.rivalries]
+    .filter((rivalry) => rivalry.games.length > 0)
+    .sort((a, b) => Math.abs(a.teamAWins - a.teamBWins) - Math.abs(b.teamAWins - b.teamBWins) || b.games.length - a.games.length)[0];
+  const mostMeetings = [...hub.rivalries].sort((a, b) => b.games.length - a.games.length)[0];
+  const highestScoring = [...allGames].sort((a, b) => b.combined - a.combined)[0];
+  const largestMargin = [...allGames].sort((a, b) => b.margin - a.margin)[0];
+
+  const pairForGame = (game: RivalryGame | undefined) => hub.rivalries.find((rivalry) => rivalry.games.includes(game as RivalryGame));
+  const highestPair = pairForGame(highestScoring);
+  const marginPair = pairForGame(largestMargin);
+
+  return (
+    <main className="container mx-auto px-4 py-8" data-rivalry-hub="permanent">
+      <SectionHeader
+        title="Rivalries"
+        subtitle="Permanent matchups, all-time series history, and the next chapter of Rivalry Week."
+      />
+
+      <section className="mb-8 overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--surface)] shadow-xl">
+        <div className="h-1 bg-gradient-to-r from-sky-500 via-amber-400 to-rose-500" />
+        <div className="grid gap-4 p-5 sm:grid-cols-2 lg:grid-cols-4 sm:p-6">
+          <StatTile label="Permanent rivalries" value="6" detail="Every team has one locked rival" />
+          <StatTile label="Rivalry weeks" value="3 & 14" detail="Two regular-season meetings" />
+          <StatTile label="League teams" value="12" detail="Six head-to-head pairings" />
+          <StatTile label="Rivalries established" value="2026" detail="Set by the Rivalry Strength process" />
+        </div>
+      </section>
+
+      {hub.partial ? (
+        <div className="mb-6 rounded-xl border border-amber-400/40 bg-amber-400/10 px-4 py-3 text-sm text-amber-100">
+          Some historical Sleeper data could not be loaded. The permanent pairings remain available, and the page will retry automatically after the cache refreshes.
+        </div>
+      ) : null}
+
+      <section className="mb-8">
+        <div className="mb-3 text-[10px] font-black uppercase tracking-[0.22em] text-[var(--muted)]">League rivalry snapshot</div>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <StatTile
+            label="Closest series"
+            value={closestSeries ? recordLabel(closestSeries.teamAWins, closestSeries.teamBWins, closestSeries.ties) : '—'}
+            detail={closestSeries ? `${closestSeries.pair.teamAId} vs. ${closestSeries.pair.teamBId}` : 'No completed meetings'}
           />
+          <StatTile
+            label="Most meetings"
+            value={mostMeetings?.games.length ? String(mostMeetings.games.length) : '—'}
+            detail={mostMeetings?.games.length ? `${mostMeetings.pair.teamAId} vs. ${mostMeetings.pair.teamBId}` : 'No completed meetings'}
+          />
+          <StatTile
+            label="Highest-scoring meeting"
+            value={highestScoring ? formatPoints(highestScoring.combined) : '—'}
+            detail={highestScoring && highestPair ? `${highestPair.pair.teamAId} vs. ${highestPair.pair.teamBId} · ${highestScoring.season} W${highestScoring.week}` : 'No completed meetings'}
+          />
+          <StatTile
+            label="Largest margin"
+            value={largestMargin ? formatPoints(largestMargin.margin) : '—'}
+            detail={largestMargin && marginPair ? `${marginPair.pair.teamAId} vs. ${marginPair.pair.teamBId} · ${largestMargin.season} W${largestMargin.week}` : 'No completed meetings'}
+          />
+        </div>
+      </section>
+
+      <nav className="mb-6 flex gap-2 overflow-x-auto pb-2" aria-label="Jump to a rivalry">
+        {hub.rivalries.map((rivalry, index) => (
+          <a
+            key={pairKey(rivalry.pair.teamAId, rivalry.pair.teamBId)}
+            href={`#rivalry-${index + 1}`}
+            className="shrink-0 rounded-full border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-xs font-semibold text-[var(--muted)] transition hover:text-[var(--text)]"
+          >
+            Matchup {index + 1}
+          </a>
+        ))}
+      </nav>
+
+      <div className="space-y-6">
+        {hub.rivalries.map((rivalry, index) => (
+          <RivalryCard key={pairKey(rivalry.pair.teamAId, rivalry.pair.teamBId)} rivalry={rivalry} index={index} />
         ))}
       </div>
 
-      <div className="flex justify-end">
-        <Button variant="primary" size="lg" disabled={!validation.isValid} onClick={() => setShowReview(true)}>
-          Review Rivalry Scores →
-        </Button>
-      </div>
-      {!validation.isValid && (
-        <p className="text-xs text-right mt-1" style={{ color: 'var(--muted)' }}>
-          Fix all errors above before you can review.
+      <section className="mt-8 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-5 sm:p-6">
+        <div className="text-[10px] font-black uppercase tracking-[0.22em] text-[var(--muted)]">How Rivalry Week works</div>
+        <p className="mt-2 max-w-4xl text-sm leading-relaxed text-[var(--muted)]">
+          These pairings are permanent. Each team plays its assigned rival in Weeks 3 and 14 of the regular season. The pairings were established through the league’s Rivalry Strength system, including mutual scores and automatic Blood Feuds where applicable. Historical records above include every completed Sleeper matchup between the paired franchises; the Weeks 3 and 14 split isolates games played in the league’s rivalry-week slots.
         </p>
-      )}
-    </div>
-  );
-}
-
-// ─── submitted view ───────────────────────────────────────────────────────────
-
-function SubmittedView({
-  mySubmission,
-  submittedCount,
-  totalTeams,
-  cycleOpen,
-  onEdit,
-}: {
-  mySubmission: { submittedAt: string; scores: ScoreEntry[] };
-  submittedCount: number;
-  totalTeams: number;
-  cycleOpen: boolean;
-  onEdit: () => void;
-}) {
-  const sorted = [...mySubmission.scores].sort((a, b) => b.score - a.score);
-  const canEdit = cycleOpen && isBeforeDeadline();
-
-  return (
-    <div className="max-w-xl mx-auto">
-      <div className="rounded-xl border border-[var(--border)] p-5 mb-6 text-center" style={{ background: 'var(--surface)' }}>
-        <p className="text-2xl font-bold text-[var(--text)] mb-1">Your Rivalry Scores Have Been Submitted</p>
-        <p className="text-sm text-[var(--muted)]">Submitted {fmtDate(mySubmission.submittedAt)}</p>
-        <div className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium border" style={{ borderColor: 'var(--border)' }}>
-          <span className="font-bold text-[var(--text)]">{submittedCount}</span>
-          <span className="text-[var(--muted)]">of {totalTeams} teams submitted</span>
-        </div>
-        {canEdit && (
-          <div className="mt-4">
-            <Button variant="secondary" size="sm" onClick={onEdit}>
-              Edit My Submission
-            </Button>
-            <p className="text-xs mt-1.5" style={{ color: 'var(--muted)' }}>
-              Edits close on {deadlineLabel()}.
-            </p>
-          </div>
-        )}
-        {cycleOpen && !canEdit && (
-          <p className="text-xs mt-3" style={{ color: 'var(--muted)' }}>
-            The submission deadline has passed. Your ballot is locked.
-          </p>
-        )}
-      </div>
-
-      <Card>
-        <CardHeader>
-          <p className="font-semibold text-[var(--text)]">Your Submitted Scores</p>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-2">
-            {sorted.map(({ targetTeamId, score }) => (
-              <div key={targetTeamId} className="flex items-center gap-3">
-                <TeamLogo teamName={targetTeamId} size={36} />
-                <span className="flex-1 text-sm text-[var(--text)] truncate">{targetTeamId}</span>
-                <span
-                  className="text-sm font-bold px-2.5 py-1 rounded-full"
-                  style={{
-                    background: score === 100 ? '#f59e0b22' : 'var(--surface-strong, var(--border))',
-                    color: score === 100 ? '#f59e0b' : 'var(--text)',
-                  }}
-                >
-                  {score}{score === 100 && ' 🔥'}
-                </span>
-              </div>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
-    </div>
-  );
-}
-
-// ─── published view ───────────────────────────────────────────────────────────
-
-function PairCard({ pair }: { pair: RivalryPair }) {
-  const aColors = getTeamColors(pair.teamAId);
-  const bColors = getTeamColors(pair.teamBId);
-  return (
-    <div
-      className="rounded-[var(--radius-card)] border overflow-hidden"
-      style={{
-        borderColor: pair.isBloodFeud ? '#f59e0b' : 'var(--border)',
-        boxShadow: pair.isBloodFeud ? '0 0 0 1px #f59e0b55' : undefined,
-        background: 'var(--surface)',
-      }}
-    >
-      {pair.isBloodFeud && (
-        <div className="text-center py-1.5 text-xs font-bold tracking-widest" style={{ background: '#f59e0b', color: '#000' }}>
-          🔥 BLOOD FEUD 🔥
-        </div>
-      )}
-      <div className="p-4 flex items-center gap-3">
-        <div className="flex-1 flex flex-col items-center text-center gap-1.5">
-          <div className="rounded-xl p-2" style={{ background: aColors.primary }}>
-            <Image src={getTeamLogoPath(pair.teamAId)} alt={pair.teamAId} width={52} height={52} className="object-contain" />
-          </div>
-          <p className="text-xs font-semibold text-[var(--text)] leading-tight">{pair.teamAId}</p>
-          <p className="text-xs text-[var(--muted)]">gave <strong className="text-[var(--text)]">{pair.teamAScoreForB}</strong></p>
-        </div>
-        <div className="text-center shrink-0">
-          <p className="text-xs text-[var(--muted)] font-medium">vs</p>
-          <p className="text-lg font-black text-[var(--text)]">{pair.combinedScore}</p>
-          <p className="text-xs text-[var(--muted)]">combined</p>
-        </div>
-        <div className="flex-1 flex flex-col items-center text-center gap-1.5">
-          <div className="rounded-xl p-2" style={{ background: bColors.primary }}>
-            <Image src={getTeamLogoPath(pair.teamBId)} alt={pair.teamBId} width={52} height={52} className="object-contain" />
-          </div>
-          <p className="text-xs font-semibold text-[var(--text)] leading-tight">{pair.teamBId}</p>
-          <p className="text-xs text-[var(--muted)]">gave <strong className="text-[var(--text)]">{pair.teamBScoreForA}</strong></p>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function PublishedView({ pairs }: { pairs: RivalryPair[] }) {
-  return (
-    <div>
-      <div className="rounded-xl border border-[var(--border)] p-5 text-center mb-8" style={{ background: 'var(--surface)' }}>
-        <p className="text-2xl font-bold text-[var(--text)] mb-1">Rivalries Are Locked</p>
-        <p className="text-sm text-[var(--muted)]">
-          These are permanent rivalries. Each team will face its rival during Rivalry Week.
-        </p>
-      </div>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
-        {pairs.map((pair) => <PairCard key={`${pair.teamAId}|${pair.teamBId}`} pair={pair} />)}
-      </div>
-      <RulebookSection />
-    </div>
-  );
-}
-
-// ─── admin panel ──────────────────────────────────────────────────────────────
-
-function downloadRivalryCSV(adminSubmissions: Array<{ teamId: string; scores: ScoreEntry[] }>) {
-  const q = (v: string | number) => `"${String(v).replace(/"/g, '""')}"`;
-  const subMap = new Map(adminSubmissions.map((s) => [s.teamId, s.scores]));
-  const lines: string[] = [];
-
-  // Section 1: score matrix — rows = submitter, columns = target team
-  lines.push(q('RIVALRY SCORE MATRIX'));
-  lines.push('');
-  lines.push([q('Submitter'), ...TEAM_NAMES.map(q), q('Total')].join(','));
-  for (const submitter of TEAM_NAMES) {
-    const scores = subMap.get(submitter);
-    const cells = TEAM_NAMES.map((target) => {
-      if (target === submitter) return q('-');
-      if (!scores) return q('not submitted');
-      const entry = scores.find((s) => s.targetTeamId === target);
-      return entry !== undefined ? String(entry.score) : q('');
-    });
-    const total = scores ? scores.reduce((s, e) => s + e.score, 0) : '';
-    lines.push([q(submitter), ...cells, String(total)].join(','));
-  }
-
-  // Section 2: all pair combined scores, sorted desc (mirrors greedy algorithm input)
-  lines.push('');
-  lines.push('');
-  lines.push(q('ALL PAIR COMBINED SCORES (sorted desc — greedy algorithm order)'));
-  lines.push('');
-  lines.push([q('Team A'), q('Team B'), q('A to B'), q('B to A'), q('Combined'), q('Blood Feud')].join(','));
-
-  type PairRow = { a: string; b: string; aToB: number | null; bToA: number | null; combined: number; bf: boolean };
-  const pairRows: PairRow[] = [];
-  for (let i = 0; i < TEAM_NAMES.length; i++) {
-    for (let j = i + 1; j < TEAM_NAMES.length; j++) {
-      const a = TEAM_NAMES[i], b = TEAM_NAMES[j];
-      const aToB = subMap.get(a)?.find((s) => s.targetTeamId === b)?.score ?? null;
-      const bToA = subMap.get(b)?.find((s) => s.targetTeamId === a)?.score ?? null;
-      pairRows.push({ a, b, aToB, bToA, combined: (aToB ?? 0) + (bToA ?? 0), bf: aToB === 100 && bToA === 100 });
-    }
-  }
-  pairRows.sort((x, y) => {
-    if (y.combined !== x.combined) return y.combined - x.combined;
-    return Math.max(y.aToB ?? 0, y.bToA ?? 0) - Math.max(x.aToB ?? 0, x.bToA ?? 0);
-  });
-  for (const row of pairRows) {
-    lines.push([
-      q(row.a), q(row.b),
-      row.aToB !== null ? String(row.aToB) : q('?'),
-      row.bToA !== null ? String(row.bToA) : q('?'),
-      String(row.combined),
-      q(row.bf ? 'YES (Blood Feud)' : 'No'),
-    ].join(','));
-  }
-
-  // UTF-8 BOM so Excel opens with correct encoding
-  const csv = '﻿' + lines.join('\r\n');
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `rivalry-ballots-${new Date().toISOString().slice(0, 10)}.csv`;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
-}
-
-function AdminAllBallots({ adminSubmissions }: { adminSubmissions: Array<{ teamId: string; scores: ScoreEntry[] }> }) {
-  const [open, setOpen] = useState(false);
-  const [selectedTeam, setSelectedTeam] = useState<string | null>(null);
-
-  const subMap = useMemo(() =>
-    new Map(adminSubmissions.map((s) => [s.teamId, [...s.scores].sort((a, b) => b.score - a.score)])),
-    [adminSubmissions],
-  );
-
-  const current = selectedTeam ? subMap.get(selectedTeam) ?? [] : [];
-
-  return (
-    <div className="mt-5">
-      <div className="flex items-center justify-between mb-3">
-        <button
-          onClick={() => setOpen((p) => !p)}
-          className="flex items-center gap-2 text-sm font-semibold text-[var(--text)]"
-        >
-          <span
-            className="inline-block w-4 h-4 rounded border flex items-center justify-center text-xs"
-            style={{ borderColor: 'var(--border)' }}
-          >
-            {open ? '−' : '+'}
-          </span>
-          View All Submitted Ballots ({adminSubmissions.length})
-        </button>
-        {adminSubmissions.length > 0 && (
-          <button
-            onClick={() => downloadRivalryCSV(adminSubmissions)}
-            className="text-xs px-2.5 py-1 rounded font-medium border transition-opacity hover:opacity-75"
-            style={{ borderColor: 'var(--border)', color: 'var(--muted)' }}
-          >
-            Download CSV
-          </button>
-        )}
-      </div>
-
-      {open && (
-        <div className="rounded-[var(--radius-card)] border border-[var(--border)]" style={{ background: 'var(--surface)' }}>
-          {/* Team picker */}
-          <div className="flex flex-wrap gap-1.5 p-3 border-b border-[var(--border)]">
-            {TEAM_NAMES.map((t) => {
-              const hasSub = subMap.has(t);
-              const isSelected = selectedTeam === t;
-              return (
-                <button
-                  key={t}
-                  disabled={!hasSub}
-                  onClick={() => setSelectedTeam(isSelected ? null : t)}
-                  className="text-xs px-2 py-1 rounded-full font-medium transition-all disabled:opacity-30 disabled:cursor-not-allowed"
-                  style={{
-                    background: isSelected ? 'var(--accent)' : 'var(--border)',
-                    color: isSelected ? '#fff' : 'var(--text)',
-                  }}
-                >
-                  {t}
-                </button>
-              );
-            })}
-          </div>
-
-          {/* Scores panel */}
-          {selectedTeam && current.length > 0 && (
-            <div className="p-3">
-              <p className="text-xs font-semibold text-[var(--muted)] uppercase tracking-widest mb-2">
-                {selectedTeam} — Submitted Ballot
-              </p>
-              <div className="space-y-1.5">
-                {current.map(({ targetTeamId, score }) => (
-                  <div key={targetTeamId} className="flex items-center gap-2">
-                    <TeamLogo teamName={targetTeamId} size={24} />
-                    <span className="flex-1 text-xs text-[var(--text)] truncate">{targetTeamId}</span>
-                    <span
-                      className="text-xs font-bold px-2 py-0.5 rounded-full"
-                      style={{
-                        background: score === 100 ? '#f59e0b22' : 'var(--border)',
-                        color: score === 100 ? '#f59e0b' : 'var(--text)',
-                      }}
-                    >
-                      {score}{score === 100 && ' 🔥'}
-                    </span>
-                  </div>
-                ))}
-              </div>
-              <p className="text-xs text-[var(--muted)] mt-2">
-                Total: <strong className="text-[var(--text)]">
-                  {current.reduce((s, e) => s + e.score, 0)}
-                </strong>
-              </p>
-            </div>
-          )}
-
-          {!selectedTeam && (
-            <p className="p-3 text-xs text-[var(--muted)]">Select a team above to view their ballot.</p>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function AdminPanel({
-  cycle,
-  teams,
-  submittedCount,
-  totalTeams,
-  proposedPairs,
-  adminSubmissions,
-  onRefresh,
-}: {
-  cycle: RivalryCycle | null;
-  teams: TeamStatus[];
-  submittedCount: number;
-  totalTeams: number;
-  proposedPairs?: RivalryPair[];
-  adminSubmissions?: Array<{ teamId: string; scores: ScoreEntry[] }> | null;
-  onRefresh: () => void;
-}) {
-  const [working, setWorking] = useState(false);
-  const [msg, setMsg] = useState<{ text: string; ok: boolean } | null>(null);
-
-  const act = useCallback(async (action: string, teamId?: string) => {
-    setWorking(true);
-    setMsg(null);
-    try {
-      const res = await fetch('/api/rivalries/admin', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ action, ...(teamId ? { teamId } : {}) }),
-      });
-      const data = await res.json() as { ok?: boolean; error?: string };
-      if (res.ok && data.ok) {
-        setMsg({ text: `Done: ${action}.`, ok: true });
-        onRefresh();
-      } else {
-        setMsg({ text: data.error ?? 'Action failed.', ok: false });
-      }
-    } catch {
-      setMsg({ text: 'Network error.', ok: false });
-    } finally {
-      setWorking(false);
-    }
-  }, [onRefresh]);
-
-  const status = cycle?.status ?? 'not_started';
-
-  return (
-    <div className="mt-10 pt-8 border-t border-[var(--border)]">
-      <div className="flex items-center gap-2 mb-4">
-        <span className="text-xs font-bold uppercase tracking-widest px-2 py-0.5 rounded" style={{ background: 'var(--danger)', color: '#fff' }}>
-          Commissioner Only
-        </span>
-        <p className="text-sm font-semibold text-[var(--text)]">Rivalry Administration</p>
-      </div>
-
-      {/* Status bar */}
-      <div className="mb-4 flex flex-wrap items-center gap-3">
-        <span className="text-sm text-[var(--muted)]">
-          Cycle: <strong className="text-[var(--text)]">{status}</strong>
-        </span>
-        <span className="text-sm text-[var(--muted)]">
-          Submissions: <strong className="text-[var(--text)]">{submittedCount} / {totalTeams}</strong>
-        </span>
-        {cycle?.openedAt && <span className="text-xs text-[var(--muted)]">Opened {fmtDate(cycle.openedAt)}</span>}
-        {cycle?.closedAt && <span className="text-xs text-[var(--muted)]">Closed {fmtDate(cycle.closedAt)}</span>}
-        {cycle?.publishedAt && <span className="text-xs text-[var(--muted)]">Published {fmtDate(cycle.publishedAt)}</span>}
-      </div>
-
-      {/* Action buttons */}
-      <div className="flex flex-wrap gap-2 mb-5">
-        {status !== 'published' && (
-          <Button
-            variant="secondary"
-            size="sm"
-            disabled={working || submittedCount < totalTeams}
-            onClick={() => act('calculate')}
-          >
-            {submittedCount < totalTeams
-              ? `Calculate Pairings (${totalTeams - submittedCount} of ${totalTeams} submitted)`
-              : 'Calculate Pairings'}
-          </Button>
-        )}
-        {status === 'calculated' && (
-          <Button variant="primary" size="sm" disabled={working} onClick={() => act('publish')}>
-            Publish Rivalries — Reveal to League
-          </Button>
-        )}
-      </div>
-
-      {/* Proposed pairings preview — visible only to admin before publish */}
-      {status === 'calculated' && proposedPairs && proposedPairs.length > 0 && (
-        <div className="mb-5 rounded-[var(--radius-card)] border p-4" style={{ borderColor: 'var(--border)', background: 'var(--surface)' }}>
-          <p className="text-sm font-semibold text-[var(--text)] mb-1">Proposed Pairings</p>
-          <p className="text-xs text-[var(--muted)] mb-3">
-            These are not visible to other managers yet. Hit &quot;Publish&quot; above to reveal them to the league.
-          </p>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {proposedPairs.map((pair) => <PairCard key={`${pair.teamAId}|${pair.teamBId}`} pair={pair} />)}
-          </div>
-        </div>
-      )}
-
-      {msg && (
-        <p className="text-sm mb-4 px-3 py-2 rounded-lg border" style={{
-          color: msg.ok ? '#22c55e' : 'var(--danger)',
-          borderColor: msg.ok ? '#22c55e44' : 'var(--danger)',
-          background: msg.ok ? '#22c55e11' : 'var(--danger)11',
-        }}>
-          {msg.text}
-        </p>
-      )}
-
-      {/* Submission status table */}
-      <Card>
-        <CardHeader>
-          <p className="font-semibold text-[var(--text)] text-sm">Submission Status</p>
-        </CardHeader>
-        <CardContent className="p-0">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-[var(--border)]">
-                  <th className="px-4 py-2.5 text-left font-semibold text-[var(--muted)] text-xs uppercase tracking-wider">Team</th>
-                  <th className="px-4 py-2.5 text-left font-semibold text-[var(--muted)] text-xs uppercase tracking-wider">Status</th>
-                  <th className="px-4 py-2.5 text-left font-semibold text-[var(--muted)] text-xs uppercase tracking-wider">Submitted</th>
-                  <th className="px-4 py-2.5 text-left font-semibold text-[var(--muted)] text-xs uppercase tracking-wider">Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {teams.map((t) => (
-                  <tr key={t.teamId} className="border-b border-[var(--border)] last:border-0">
-                    <td className="px-4 py-2.5">
-                      <div className="flex items-center gap-2">
-                        <TeamLogo teamName={t.teamId} size={28} />
-                        <span className="text-[var(--text)] font-medium text-xs">{t.teamId}</span>
-                      </div>
-                    </td>
-                    <td className="px-4 py-2.5">
-                      {t.reopened ? (
-                        <span className="text-xs px-1.5 py-0.5 rounded-full font-medium" style={{ background: '#f59e0b22', color: '#f59e0b' }}>Reopened</span>
-                      ) : t.submitted ? (
-                        <span className="text-xs px-1.5 py-0.5 rounded-full font-medium" style={{ background: '#22c55e22', color: '#22c55e' }}>Submitted</span>
-                      ) : (
-                        <span className="text-xs px-1.5 py-0.5 rounded-full font-medium" style={{ background: 'var(--border)', color: 'var(--muted)' }}>Pending</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-2.5 text-xs text-[var(--muted)]">
-                      {t.submittedAt ? fmtDate(t.submittedAt) : '—'}
-                    </td>
-                    <td className="px-4 py-2.5">
-                      {status === 'open' && t.submitted && !t.reopened && (
-                        <button
-                          disabled={working}
-                          onClick={() => act('reopen-submission', t.teamId)}
-                          className="text-xs underline underline-offset-2 transition-opacity hover:opacity-70 disabled:opacity-40"
-                          style={{ color: 'var(--accent)' }}
-                        >
-                          Reopen
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* All submitted ballots (collapsible, always visible to admin) */}
-      {adminSubmissions && adminSubmissions.length > 0 && (
-        <AdminAllBallots adminSubmissions={adminSubmissions} />
-      )}
-    </div>
-  );
-}
-
-// ─── main page ────────────────────────────────────────────────────────────────
-
-export default function RivalriesPage() {
-  const [auth, setAuth] = useState<AuthState | null>(null);
-  const [statusData, setStatusData] = useState<StatusData | null>(null);
-  const [pairs, setPairs] = useState<RivalryPair[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [editing, setEditing] = useState(false);
-
-  const fetchAll = useCallback(async () => {
-    try {
-      const [authRes, statusRes] = await Promise.all([
-        fetch('/api/auth/me').then((r) => r.json() as Promise<AuthState>),
-        fetch('/api/rivalries/status').then((r) => r.json() as Promise<StatusData>),
-      ]);
-      setAuth(authRes);
-      setStatusData(statusRes);
-
-      const cs = statusRes.cycle?.status;
-      if (cs === 'published' || cs === 'calculated') {
-        const pairRes = await fetch('/api/rivalries/pairings').then((r) =>
-          r.ok ? (r.json() as Promise<{ pairs?: RivalryPair[] }>) : { pairs: [] },
-        );
-        setPairs((pairRes as { pairs?: RivalryPair[] }).pairs ?? []);
-      }
-    } catch {
-      // silently fail
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => { fetchAll(); }, [fetchAll]);
-
-  if (loading) {
-    return (
-      <div className="container mx-auto px-4 py-8">
-        <SectionHeader title="Rivalry Selection" />
-        <div className="text-center py-16 text-[var(--muted)]">Loading…</div>
-      </div>
-    );
-  }
-
-  const cycle = statusData?.cycle ?? null;
-  const myTeam = auth?.claims?.team ?? null;
-  const isAdmin = auth?.isAdmin ?? false;
-  const status = cycle?.status ?? 'not_started';
-  const teams = statusData?.teams ?? [];
-  const submittedCount = statusData?.submittedCount ?? 0;
-  const totalTeams = statusData?.totalTeams ?? 12;
-  const mySubmission = statusData?.mySubmission ?? null;
-  const adminSubmissions = statusData?.adminSubmissions ?? null;
-  const isPublished = status === 'published';
-  // Pairings are calculated but not yet revealed to the league
-  const awaitingReveal = status === 'calculated';
-
-  const initialEditDraft: Record<string, string> | undefined = mySubmission
-    ? Object.fromEntries(mySubmission.scores.map((s) => [s.targetTeamId, String(s.score)]))
-    : undefined;
-
-  const adminPanel = isAdmin ? (
-    <AdminPanel
-      cycle={cycle}
-      teams={teams}
-      submittedCount={submittedCount}
-      totalTeams={totalTeams}
-      proposedPairs={pairs.length > 0 ? pairs : undefined}
-      adminSubmissions={adminSubmissions}
-      onRefresh={fetchAll}
-    />
-  ) : null;
-
-  return (
-    <div className="container mx-auto px-4 py-8">
-      <SectionHeader
-        title="Rivalry Selection"
-        subtitle="Permanent rivalry pairings — determined once, locked forever."
-      />
-
-      {/* ── Published: show results to everyone ── */}
-      {isPublished && (
-        <>
-          <PublishedView pairs={pairs} />
-          {adminPanel}
-        </>
-      )}
-
-      {/* ── Pre-publish: submission flow ── */}
-      {!isPublished && (
-        <>
-          {/* Not logged in */}
-          {!auth?.authenticated && (
-            <div className="max-w-2xl mx-auto">
-              <div className="rounded-xl border border-[var(--border)] p-6 text-center mb-8" style={{ background: 'var(--surface)' }}>
-                <p className="text-lg font-semibold text-[var(--text)] mb-1">Submit Your Rivalry Scores</p>
-                <p className="text-sm text-[var(--muted)] mb-4">
-                  Log in with your team PIN to assign your Rivalry Strength Scores.
-                  You can edit your ballot any time before <strong>{deadlineLabel()}</strong>.
-                </p>
-                <Button variant="primary" onClick={() => { window.location.href = '/login'; }}>
-                  Log In to Submit
-                </Button>
-              </div>
-              <RulebookSection />
-            </div>
-          )}
-
-          {/* Logged in: show form or submitted view */}
-          {auth?.authenticated && myTeam && (
-            <>
-              {/* Awaiting reveal notice (above the ballot, not instead of it) */}
-              {awaitingReveal && (
-                <div
-                  className="max-w-xl mx-auto mb-6 rounded-xl border p-4 text-center text-sm"
-                  style={{ background: 'var(--surface)', borderColor: 'var(--border)' }}
-                >
-                  <p className="font-semibold text-[var(--text)] mb-0.5">Pairings are being finalized</p>
-                  <p className="text-[var(--muted)]">Commissioners are reviewing the results. The reveal is coming soon.</p>
-                </div>
-              )}
-
-              {/* Form — first-time submit or editing */}
-              {(!mySubmission || editing) && (
-                <SubmissionForm
-                  myTeam={myTeam}
-                  initialDraft={editing ? initialEditDraft : undefined}
-                  isEdit={editing}
-                  onSubmitSuccess={() => { setEditing(false); fetchAll(); }}
-                  onCancelEdit={editing ? () => setEditing(false) : undefined}
-                />
-              )}
-
-              {/* Submitted view */}
-              {mySubmission && !editing && (
-                <SubmittedView
-                  mySubmission={mySubmission}
-                  submittedCount={submittedCount}
-                  totalTeams={totalTeams}
-                  cycleOpen={!awaitingReveal}
-                  onEdit={() => setEditing(true)}
-                />
-              )}
-            </>
-          )}
-
-          {adminPanel}
-        </>
-      )}
-    </div>
+      </section>
+    </main>
   );
 }
