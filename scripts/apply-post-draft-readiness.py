@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import runpy
 from pathlib import Path
 
@@ -28,30 +29,59 @@ def apply_post_draft_rank_scope_fix() -> None:
     route_path = Path('src/app/api/newsletter/route.ts')
     if route_path.exists():
         route_text = route_path.read_text(encoding='utf-8')
-        old_declaration = (
-            '          const currentRankByName = new Map(stagedDynastyRankings.map(player => '
-            '[normalizeProspectName(player.name), player.rank]));'
-        )
-        new_declaration = '''          // Normalize the exact eligible draft pool (rookies + defenses) to a
-          // 1..N board. Overall dynasty rank remains a separate context field and
-          // is never used as the rookie-draft value scale.
-          const eligiblePool = [...players].sort((a, b) =>
-            (a.rank ?? 9999) - (b.rank ?? 9999) || a.name.localeCompare(b.name),
-          );
-          const eligibleRankByName = new Map(
-            eligiblePool.map((player, index) => [normalizeProspectName(player.name), index + 1]),
-          );'''
-        if old_declaration in route_text:
-            route_text = route_text.replace(old_declaration, new_declaration, 1)
-        elif 'const eligibleRankByName = new Map(' not in route_text:
-            raise RuntimeError('Post-draft rank fix could not find the overall-rank declaration in route.ts')
 
-        old_rank = '              rank: currentRankByName.get(normalizeProspectName(player.name)) ?? player.rank ?? null,'
-        new_rank = '              rank: eligibleRankByName.get(normalizeProspectName(player.name)) ?? null,'
-        if old_rank in route_text:
-            route_text = route_text.replace(old_rank, new_rank, 1)
-        elif new_rank not in route_text:
-            raise RuntimeError('Post-draft rank fix could not find the prospect rank assignment in route.ts')
+        # Remove whichever overall-dynasty rank lookup shape the generated source
+        # currently uses. The payload has changed formatting over time, so this is
+        # intentionally structural rather than tied to one exact line.
+        route_text = re.sub(
+            r"\n\s*const\s+current(?:Dynasty)?RankByName\s*=\s*new Map\([\s\S]{0,600}?\);\n",
+            "\n",
+            route_text,
+            count=1,
+        )
+
+        map_match = re.search(
+            r"(?m)^(?P<indent>\s*)prospectPool\s*=\s*players\.map\(",
+            route_text,
+        )
+        if not map_match:
+            raise RuntimeError('Post-draft rank fix could not locate the prospectPool map in route.ts')
+
+        if 'const eligibleRankByName = new Map(' not in route_text:
+            indent = map_match.group('indent')
+            declaration = (
+                f"{indent}// Normalize the exact eligible draft pool (rookies + defenses) to a 1..N board.\n"
+                f"{indent}// Overall dynasty rank remains separate context and never drives rookie-pick value.\n"
+                f"{indent}const eligiblePool = [...players].sort((a, b) =>\n"
+                f"{indent}  (a.rank ?? 9999) - (b.rank ?? 9999) || a.name.localeCompare(b.name),\n"
+                f"{indent});\n"
+                f"{indent}const eligibleRankByName = new Map(\n"
+                f"{indent}  eligiblePool.map((player, index) => [normalizeProspectName(player.name), index + 1]),\n"
+                f"{indent});\n"
+            )
+            route_text = route_text[:map_match.start()] + declaration + route_text[map_match.start():]
+
+        # Replace the rank field only inside the post-draft prospectPool mapper.
+        map_start = route_text.index('prospectPool = players.map', map_match.start())
+        log_marker = route_text.find('post_draft research pool loaded', map_start)
+        map_end = log_marker if log_marker >= 0 else min(len(route_text), map_start + 8000)
+        block = route_text[map_start:map_end]
+        block_lines = block.splitlines(keepends=True)
+        replaced_rank = False
+        for index, line in enumerate(block_lines):
+            if 'rank:' not in line:
+                continue
+            if 'currentRank' in line or 'currentDynastyRank' in line or 'player.rank' in line:
+                whitespace = line[:len(line) - len(line.lstrip())]
+                newline = '\n' if line.endswith('\n') else ''
+                block_lines[index] = (
+                    f"{whitespace}rank: eligibleRankByName.get(normalizeProspectName(player.name)) ?? null,{newline}"
+                )
+                replaced_rank = True
+                break
+        if not replaced_rank and 'rank: eligibleRankByName.get(normalizeProspectName(player.name)) ?? null,' not in block:
+            raise RuntimeError('Post-draft rank fix could not locate the rank field in the prospectPool mapper')
+        route_text = route_text[:map_start] + ''.join(block_lines) + route_text[map_end:]
         route_path.write_text(route_text, encoding='utf-8')
 
     dossier_path = Path('src/lib/newsletter/post-draft-dossier.ts')
