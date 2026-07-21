@@ -30,9 +30,6 @@ def apply_post_draft_rank_scope_fix() -> None:
     if route_path.exists():
         route_text = route_path.read_text(encoding='utf-8')
 
-        # Remove whichever overall-dynasty rank lookup shape the generated source
-        # currently uses. The payload has changed formatting over time, so this is
-        # intentionally structural rather than tied to one exact line.
         route_text = re.sub(
             r"\n\s*const\s+current(?:Dynasty)?RankByName\s*=\s*new Map\([\s\S]{0,600}?\);\n",
             "\n",
@@ -61,7 +58,6 @@ def apply_post_draft_rank_scope_fix() -> None:
             )
             route_text = route_text[:map_match.start()] + declaration + route_text[map_match.start():]
 
-        # Replace the rank field only inside the post-draft prospectPool mapper.
         map_start = route_text.index('prospectPool = players.map', map_match.start())
         log_marker = route_text.find('post_draft research pool loaded', map_start)
         map_end = log_marker if log_marker >= 0 else min(len(route_text), map_start + 8000)
@@ -72,22 +68,27 @@ def apply_post_draft_rank_scope_fix() -> None:
             if 'rank:' not in line:
                 continue
             if 'currentRank' in line or 'currentDynastyRank' in line or 'player.rank' in line:
-                whitespace = line[:len(line) - len(line.lstrip())]
-                newline = '\n' if line.endswith('\n') else ''
-                block_lines[index] = (
-                    f"{whitespace}rank: eligibleRankByName.get(normalizeProspectName(player.name)) ?? null,{newline}"
-                )
+                rank_start = line.index('rank:')
+                value_start = line.find('value:', rank_start)
+                if value_start >= 0:
+                    block_lines[index] = (
+                        line[:rank_start]
+                        + 'rank: eligibleRankByName.get(normalizeProspectName(player.name)) ?? null, '
+                        + line[value_start:]
+                    )
+                else:
+                    block_lines[index] = re.sub(
+                        r'rank:\s*.*?,',
+                        'rank: eligibleRankByName.get(normalizeProspectName(player.name)) ?? null,',
+                        line,
+                        count=1,
+                    )
                 replaced_rank = True
                 break
         if not replaced_rank and 'rank: eligibleRankByName.get(normalizeProspectName(player.name)) ?? null,' not in block:
             raise RuntimeError('Post-draft rank fix could not locate the rank field in the prospectPool mapper')
         route_text = route_text[:map_start] + ''.join(block_lines) + route_text[map_end:]
         route_path.write_text(route_text, encoding='utf-8')
-
-    # The generated dossier already presents a distinct rookie-board rank and
-    # overall dynasty rank. The route correction above changes the former to the
-    # exact eligible pool; grading constraints below prevent the latter from being
-    # used as a pick-value scale. No copy-level source match is required here.
 
     compose_path = Path('src/lib/newsletter/compose-step.ts')
     if compose_path.exists():
@@ -98,7 +99,6 @@ def apply_post_draft_rank_scope_fix() -> None:
             compose_text,
             count=1,
         )
-
         compose_text = re.sub(
             r"(?m)^(?P<indent>\s*)rank:\s*rookieRankByName\.get\(normalize\(pick\.playerName\)\)\s*\?\?\s*dynastyRankByName\.get\(normalize\(pick\.playerName\)\)\s*\?\?\s*null,\s*$",
             r"\g<indent>rank: rookieRankByName.get(normalize(pick.playerName)) ?? null,",
@@ -155,8 +155,6 @@ def run_dossier_patch() -> None:
 
     apply_post_draft_rank_scope_fix()
 
-    # The dossier profile packet is assembled once and never reassigned. Keep the
-    # generated route compliant with the repository's blocking prefer-const rule.
     route_path = Path('src/app/api/newsletter/route.ts')
     if route_path.exists():
         route_text = route_path.read_text(encoding='utf-8')
@@ -176,9 +174,6 @@ def main() -> None:
     lines = PATCH_SOURCE.read_text(encoding='utf-8').splitlines()
     start = lines.index(START_LINE) + 1
     end = lines.index(END_LINE, start)
-
-    # The patch payload retains its original indentation so embedded multiline
-    # replacements remain exact. Remove only the ten-space wrapper indentation.
     code_lines = [line[len(YAML_INDENT):] if line.startswith(YAML_INDENT) else line for line in lines[start:end]]
     code = '\n'.join(code_lines) + '\n'
 
@@ -247,8 +242,6 @@ Now give your final word.`;'''
         ingest_text = ingest_text.replace(old_user_map, new_user_map, 1)
     ingest_path.write_text(ingest_text, encoding='utf-8')
 
-    # The branch began before the latest homepage typing fix. This is a no-op on
-    # current main and only lets the preview validate against the older branch tree.
     around_path = Path('src/components/home/AroundTheLeague.tsx')
     around_text = around_path.read_text(encoding='utf-8')
     for href in [
