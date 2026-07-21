@@ -78,6 +78,25 @@ ${isPostDraft
         compose_text = compose_text.replace(old_trade_heading, new_trade_heading, 1)
 
     compose_path.write_text(compose_text, encoding='utf-8')
+
+    # This branch began before the current-main homepage typing fix. Add the
+    # explicit false values only when building that older shape; on current main
+    # these replacements are already present and therefore do nothing.
+    around_path = Path('src/components/home/AroundTheLeague.tsx')
+    around_text = around_path.read_text(encoding='utf-8')
+    for href in [
+        '/api/export/rosters',
+        '/api/export/rules',
+        '/api/export/drafts',
+        '/api/export/history',
+        '/api/export/trades',
+    ]:
+        old = f"    href: '{href}',\n  }},"
+        new = f"    href: '{href}',\n    featured: false,\n  }},"
+        if old in around_text:
+            around_text = around_text.replace(old, new, 1)
+    around_path.write_text(around_text, encoding='utf-8')
+
     STAMP.write_text('applied\n', encoding='utf-8')
     print('[post-draft-readiness] Source updates applied.')
 
