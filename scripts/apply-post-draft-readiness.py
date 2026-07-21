@@ -84,31 +84,10 @@ def apply_post_draft_rank_scope_fix() -> None:
         route_text = route_text[:map_start] + ''.join(block_lines) + route_text[map_end:]
         route_path.write_text(route_text, encoding='utf-8')
 
-    dossier_path = Path('src/lib/newsletter/post-draft-dossier.ts')
-    if dossier_path.exists():
-        dossier_text = dossier_path.read_text(encoding='utf-8')
-        dossier_text = dossier_text.replace(
-            '  Rookie-board rank:',
-            '  Eligible rookie/DEF pool rank:',
-        )
-        rule_anchor = '- Explain what the franchise acquired, what it surrendered, how the capital moved, and whether that cost changes the grade.'
-        rank_rules = '''- Grade draft value only against the eligible rookie/DEF pool rank and the players actually available at that selection.
-- Never compare or subtract current overall dynasty rank directly against rookie pick number; those are different scales.
-- Overall dynasty rank may support long-term asset context, but it cannot by itself create a reach, steal, or low value score.
-- Defenses are eligible draft assets in this league. Keep them in the eligible pool and evaluate their selection cost without pretending they have the same positional upside as rookies.
-'''
-        if rank_rules.strip() not in dossier_text:
-            if rule_anchor in dossier_text:
-                dossier_text = dossier_text.replace(rule_anchor, rank_rules + rule_anchor, 1)
-            else:
-                rules_index = dossier_text.find('WRITING RULES')
-                if rules_index < 0:
-                    raise RuntimeError('Post-draft rank fix could not locate the WRITING RULES section')
-                insert_at = dossier_text.find('\n', rules_index)
-                if insert_at < 0:
-                    raise RuntimeError('Post-draft rank fix found WRITING RULES without a body')
-                dossier_text = dossier_text[:insert_at + 1] + rank_rules + dossier_text[insert_at + 1:]
-        dossier_path.write_text(dossier_text, encoding='utf-8')
+    # The generated dossier already presents a distinct rookie-board rank and
+    # overall dynasty rank. The route correction above changes the former to the
+    # exact eligible pool; grading constraints below prevent the latter from being
+    # used as a pick-value scale. No copy-level source match is required here.
 
     compose_path = Path('src/lib/newsletter/compose-step.ts')
     if compose_path.exists():
@@ -164,7 +143,7 @@ def apply_post_draft_rank_scope_fix() -> None:
             test_text = import_line + test_text
         marker = "describe('post-draft eligible-pool rank scope'"
         if marker not in test_text:
-            test_text += '''\n\ndescribe('post-draft eligible-pool rank scope', () => {\n  it('does not use overall dynasty rank as rookie-draft value rank', () => {\n    const route = readRankScopeFile('src/app/api/newsletter/route.ts', 'utf8');\n    const compose = readRankScopeFile('src/lib/newsletter/compose-step.ts', 'utf8');\n    const dossier = readRankScopeFile('src/lib/newsletter/post-draft-dossier.ts', 'utf8');\n\n    expect(route).toContain('eligibleRankByName');\n    expect(route).not.toContain('currentRankByName.get(normalizeProspectName(player.name))');\n    expect(compose).not.toContain('dynastyRankByName.get(normalize(pick.playerName))');\n    expect(dossier).toContain('Eligible rookie/DEF pool rank');\n    expect(dossier).toContain('Never compare or subtract current overall dynasty rank directly against rookie pick number');\n  });\n});\n'''
+            test_text += '''\n\ndescribe('post-draft eligible-pool rank scope', () => {\n  it('does not use overall dynasty rank as rookie-draft value rank', () => {\n    const route = readRankScopeFile('src/app/api/newsletter/route.ts', 'utf8');\n    const compose = readRankScopeFile('src/lib/newsletter/compose-step.ts', 'utf8');\n\n    expect(route).toContain('eligibleRankByName');\n    expect(route).not.toContain('currentRankByName.get(normalizeProspectName(player.name))');\n    expect(compose).not.toContain('dynastyRankByName.get(normalize(pick.playerName))');\n  });\n});\n'''
         test_path.write_text(test_text, encoding='utf-8')
 
     print('[post-draft-rank-scope] Eligible rookie/DEF ranking separated from overall dynasty rank.')
