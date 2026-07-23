@@ -17,6 +17,8 @@ import DraftOverlayLive, {
 import { getTeamLogoPath } from '@/lib/utils/team-utils';
 import { getTeamColors } from '@/lib/constants/team-colors';
 
+const LEAGUE_LOGO_PATH = `/assets/teams/East%20v%20West%20Logos/${encodeURIComponent('Official East v. West Logo.png')}`;
+
 type DraftOverview = {
   id: string;
   year: number;
@@ -484,6 +486,91 @@ export default function AdminDraftPage() {
   const [brandingForm, setBrandingForm] = useState({ eventName: '', eventColor1: '#a4c810', eventColor2: '#ffffff', eventLogoUrl: '' });
   const [brandingLogoPreview, setBrandingLogoPreview] = useState<string | null>(null);
   const [savingBranding, setSavingBranding] = useState(false);
+  type BrandingTemplate = { id: string; label: string; eventName: string | null; eventLogoUrl: string | null; eventColor1: string | null; eventColor2: string | null; updatedAt: string };
+  const [brandingTemplates, setBrandingTemplates] = useState<BrandingTemplate[]>([]);
+  const [newTemplateLabel, setNewTemplateLabel] = useState('');
+  const [savingTemplate, setSavingTemplate] = useState(false);
+  const [deletingTemplateId, setDeletingTemplateId] = useState<string | null>(null);
+  const [showLogoBrowser, setShowLogoBrowser] = useState(false);
+  const [draftLogoFiles, setDraftLogoFiles] = useState<string[]>([]);
+
+  async function loadBrandingTemplates() {
+    try {
+      const res = await fetch('/api/draft', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ action: 'list_branding_templates' }),
+      });
+      if (!res.ok) return;
+      const j = await res.json();
+      setBrandingTemplates(Array.isArray(j.templates) ? j.templates : []);
+    } catch { /* ignore */ }
+  }
+
+  async function loadDraftLogoFiles() {
+    try {
+      const res = await fetch('/api/draft/logo-files', { cache: 'no-store' });
+      if (!res.ok) return;
+      const j = await res.json();
+      setDraftLogoFiles(Array.isArray(j.paths) ? j.paths : []);
+    } catch { /* ignore */ }
+  }
+
+  function applyBrandingTemplate(t: BrandingTemplate) {
+    setBrandingForm({
+      eventName: t.eventName ?? '',
+      eventColor1: t.eventColor1 ?? '#a4c810',
+      eventColor2: t.eventColor2 ?? '#ffffff',
+      eventLogoUrl: t.eventLogoUrl ?? '',
+    });
+    setBrandingLogoPreview(t.eventLogoUrl || null);
+  }
+
+  async function saveAsBrandingTemplate() {
+    const label = newTemplateLabel.trim();
+    if (!label) return;
+    setSavingTemplate(true);
+    try {
+      const res = await fetch('/api/draft', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          action: 'save_branding_template',
+          label,
+          eventName: brandingForm.eventName || null,
+          eventLogoUrl: brandingForm.eventLogoUrl || null,
+          eventColor1: brandingForm.eventColor1 || null,
+          eventColor2: brandingForm.eventColor2 || null,
+        }),
+      });
+      const j = await res.json();
+      if (!res.ok || j?.error) throw new Error(j?.error || 'failed');
+      setBrandingTemplates(Array.isArray(j.templates) ? j.templates : []);
+      setNewTemplateLabel('');
+    } catch (e) {
+      alert((e as Error).message || 'Save template failed');
+    } finally {
+      setSavingTemplate(false);
+    }
+  }
+
+  async function deleteBrandingTemplateById(id: string) {
+    setDeletingTemplateId(id);
+    try {
+      const res = await fetch('/api/draft', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ action: 'delete_branding_template', templateId: id }),
+      });
+      const j = await res.json();
+      if (!res.ok || j?.error) throw new Error(j?.error || 'failed');
+      setBrandingTemplates(Array.isArray(j.templates) ? j.templates : []);
+    } catch (e) {
+      alert((e as Error).message || 'Delete failed');
+    } finally {
+      setDeletingTemplateId(null);
+    }
+  }
   type PoolSummary = { id: string; label: string; playerCount: number; updatedAt: string };
   const [playerPoolsList, setPlayerPoolsList] = useState<PoolSummary[]>([]);
   const [selectedPoolId, setSelectedPoolId] = useState('');
@@ -585,6 +672,12 @@ export default function AdminDraftPage() {
     void loadAdminWorkspace();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAdmin, draft?.id]);
+
+  useEffect(() => {
+    if (!isAdmin || activeTab !== 'branding') return;
+    void loadBrandingTemplates();
+    void loadDraftLogoFiles();
+  }, [isAdmin, activeTab]);
 
   useEffect(() => {
     if (!isAdmin || draft) return;
@@ -1245,7 +1338,63 @@ export default function AdminDraftPage() {
       {/* Branding Tab — event look + pick animations (player headshots / videos) */}
       {activeTab === 'branding' && isAdmin && (
         <div className="space-y-10">
-          <div className="max-w-xl space-y-6">
+          <div className="max-w-3xl space-y-6">
+            <Card>
+              <CardHeader><CardTitle>Branding Templates</CardTitle></CardHeader>
+              <CardContent className="space-y-4">
+                <p className="text-[var(--muted)] text-sm">Save the form below as a named template, then load it instantly next time (e.g. one per host city or theme).</p>
+                {brandingTemplates.length > 0 && (
+                  <div className="flex flex-wrap gap-2">
+                    {brandingTemplates.map(t => (
+                      <div
+                        key={t.id}
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => applyBrandingTemplate(t)}
+                        className="group relative flex items-center gap-2 rounded-lg border border-zinc-600 bg-zinc-800/60 hover:bg-zinc-800 hover:border-zinc-500 pl-2 pr-7 py-1.5 cursor-pointer transition-colors"
+                      >
+                        <div className="w-7 h-7 rounded overflow-hidden bg-zinc-950 border border-zinc-700 flex items-center justify-center flex-shrink-0">
+                          {t.eventLogoUrl ? (
+                            <img src={t.eventLogoUrl} alt="" className="w-full h-full object-contain p-0.5" />
+                          ) : (
+                            <span className="text-[10px] text-zinc-600">—</span>
+                          )}
+                        </div>
+                        <div className="flex flex-col leading-tight">
+                          <span className="text-sm font-semibold text-white">{t.label}</span>
+                          <div className="flex gap-1 mt-0.5">
+                            <span className="w-2.5 h-2.5 rounded-full border border-white/20" style={{ background: t.eventColor1 || '#666' }} />
+                            <span className="w-2.5 h-2.5 rounded-full border border-white/20" style={{ background: t.eventColor2 || '#666' }} />
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          title="Delete template"
+                          disabled={deletingTemplateId === t.id}
+                          className="absolute right-1.5 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-red-400 text-xs opacity-0 group-hover:opacity-100 transition-opacity disabled:opacity-50"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (confirm(`Delete template "${t.label}"?`)) void deleteBrandingTemplateById(t.id);
+                          }}
+                        >✕</button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <div className="flex gap-2">
+                  <Input
+                    placeholder="Template name (e.g. Pittsburgh 2026)"
+                    value={newTemplateLabel}
+                    onChange={e => setNewTemplateLabel(e.target.value)}
+                    className="flex-1"
+                  />
+                  <Button variant="ghost" disabled={savingTemplate || !newTemplateLabel.trim()} onClick={saveAsBrandingTemplate}>
+                    {savingTemplate ? 'Saving…' : '💾 Save as Template'}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+
             <Card>
               <CardHeader><CardTitle>Event Branding</CardTitle></CardHeader>
               <CardContent className="space-y-5">
@@ -1277,6 +1426,15 @@ export default function AdminDraftPage() {
                         }}
                       />
                       <p className="text-xs text-zinc-500 mt-1">Use a project path (e.g. <span className="font-mono text-zinc-400">/draft-logos/2026-draft-logo.png</span>) or an <span className="font-mono text-zinc-400">https://</span> URL. <span className="text-amber-300">data:</span> URLs are blocked.</p>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="mt-2"
+                        onClick={() => setShowLogoBrowser(v => !v)}
+                      >
+                        {showLogoBrowser ? '▲ Hide logo picker' : '🖼️ Choose from project logos'}
+                      </Button>
                     </div>
                     {(brandingLogoPreview || brandingForm.eventLogoUrl) && (
                       <div className="w-20 h-20 rounded-lg overflow-hidden border border-zinc-600 bg-zinc-900 flex items-center justify-center flex-shrink-0">
@@ -1288,6 +1446,51 @@ export default function AdminDraftPage() {
                       </div>
                     )}
                   </div>
+
+                  {showLogoBrowser && (
+                    <div className="mt-3 rounded-lg border border-zinc-700 bg-zinc-900/60 p-3 space-y-4 max-h-80 overflow-y-auto">
+                      <div>
+                        <p className="text-xs font-semibold text-zinc-400 mb-2 uppercase tracking-wide">League &amp; Team Logos</p>
+                        <div className="grid grid-cols-6 sm:grid-cols-8 gap-2">
+                          {[{ path: LEAGUE_LOGO_PATH, label: 'League Logo' }, ...TEAM_NAMES.map(t => ({ path: getTeamLogoPath(t), label: t }))].map(item => (
+                            <button
+                              key={item.path}
+                              type="button"
+                              title={item.label}
+                              onClick={() => {
+                                setBrandingForm(f => ({ ...f, eventLogoUrl: item.path }));
+                                setBrandingLogoPreview(item.path);
+                              }}
+                              className={`aspect-square rounded-md border-2 overflow-hidden bg-zinc-950 flex items-center justify-center transition-colors ${brandingForm.eventLogoUrl === item.path ? 'border-[#bf9944]' : 'border-zinc-700 hover:border-zinc-500'}`}
+                            >
+                              <img src={item.path} alt={item.label} className="w-full h-full object-contain p-1" />
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      {draftLogoFiles.length > 0 && (
+                        <div>
+                          <p className="text-xs font-semibold text-zinc-400 mb-2 uppercase tracking-wide">Files in `public/draft-logos/`</p>
+                          <div className="grid grid-cols-6 sm:grid-cols-8 gap-2">
+                            {draftLogoFiles.map(p => (
+                              <button
+                                key={p}
+                                type="button"
+                                title={p}
+                                onClick={() => {
+                                  setBrandingForm(f => ({ ...f, eventLogoUrl: p }));
+                                  setBrandingLogoPreview(p);
+                                }}
+                                className={`aspect-square rounded-md border-2 overflow-hidden bg-zinc-950 flex items-center justify-center transition-colors ${brandingForm.eventLogoUrl === p ? 'border-[#bf9944]' : 'border-zinc-700 hover:border-zinc-500'}`}
+                              >
+                                <img src={p} alt="" className="w-full h-full object-contain p-1" />
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 {/* Colors */}

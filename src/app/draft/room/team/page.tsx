@@ -2,7 +2,7 @@
 
 /* eslint-disable @next/next/no-img-element */
 
-import { useEffect, useState, useRef, useCallback } from 'react';
+import { useEffect, useLayoutEffect, useState, useRef, useCallback } from 'react';
 import Input from '@/components/ui/Input';
 import Button from '@/components/ui/Button';
 import { getTeamLogoPath } from '@/lib/utils/team-utils';
@@ -146,8 +146,6 @@ export default function DraftRoomPage() {
   // Ref-based guard: avoids stale-closure issues with state checks inside effects
   const endRoundAnimFiredRef = useRef(false);
   const startAnimFiredThisRoundRef = useRef(false);
-  // True only when the admin clicked "Start Round" in the recap — resume fires after animation
-  const pendingResumeRef = useRef(false);
   const prevRoundEndPauseRef = useRef<boolean | null | undefined>(undefined);
 
   // Animation phase state — mirrors DraftOverlayLive (display only, no admin controls)
@@ -628,7 +626,12 @@ export default function DraftRoomPage() {
   const latestPickAnimationKey = latestPickForAnimation
     ? draftPickAnimationIdentity(latestPickForAnimation).key
     : null;
-  useEffect(() => {
+  // Synchronous pre-paint ref for the async effect below.
+  const pendingAnimateRef = useRef<NonNullable<typeof latestPickForAnimation>>(null);
+
+  // Mask the incoming pick's grid cell BEFORE the browser paints the player's name.
+  // Runs synchronously with the same render that reveals lastPick and updates the grid.
+  useLayoutEffect(() => {
     const lastPick = latestPickForAnimation;
     if (!lastPick) {
       // Only set initialized once draft data has actually loaded — same guard as DraftOverlayLive
@@ -647,6 +650,31 @@ export default function DraftRoomPage() {
     if (decision !== 'animate') return;
     // If this tab was hidden when the event happened, don't replay it on return.
     if (document.hidden) return;
+
+    pendingGridAnimRef.current = { idx: lastPick.overall - 1, team: lastPick.team };
+    // Inject pre-mask synchronously, before paint, so the cell stays blank for the full
+    // animation duration. React re-renders will replace managed children but can't remove
+    // this appended node.
+    const pmIdx = lastPick.overall - 1;
+    const pmCell = document.querySelector(`[data-grid-idx="${pmIdx}"]`) as HTMLElement | null;
+    if (pmCell && !pmCell.querySelector('.gsap-pick-premask')) {
+      const pm = document.createElement('div');
+      pm.className = 'gsap-pick-premask';
+      pm.style.cssText = 'position:absolute;inset:0;background:#0d0d12;z-index:9;pointer-events:none;';
+      pmCell.appendChild(pm);
+    }
+
+    pendingAnimateRef.current = lastPick;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [latestPickAnimationKey]);
+
+  // Load pick-reveal data (video/image/audio) and kick off the animation sequence. Runs after
+  // the layout effect above has already masked the grid cell, so this async work (which can
+  // take one or more network round-trips) never risks exposing the player's name early.
+  useEffect(() => {
+    const lastPick = pendingAnimateRef.current;
+    if (!lastPick) return;
+    pendingAnimateRef.current = null;
 
     void (async () => {
       try {
@@ -679,19 +707,7 @@ export default function DraftRoomPage() {
       animStartTimeRef.current = Date.now();
       setPickAnimCollege(undefined);
       setAnimPhase('pick');
-      pendingGridAnimRef.current = { idx: lastPick.overall - 1, team: lastPick.team };
-      // Inject pre-mask immediately so the cell stays blank for the full animation duration.
-      // React re-renders will replace managed children but can't remove this appended node.
-      const pmIdx = lastPick.overall - 1;
-      requestAnimationFrame(() => {
-        const pmCell = document.querySelector(`[data-grid-idx="${pmIdx}"]`) as HTMLElement | null;
-        if (pmCell && !pmCell.querySelector('.gsap-pick-premask')) {
-          const pm = document.createElement('div');
-          pm.className = 'gsap-pick-premask';
-          pm.style.cssText = 'position:absolute;inset:0;background:#0d0d12;z-index:9;pointer-events:none;';
-          pmCell.appendChild(pm);
-        }
-      });
+
       const pid = lastPick.playerId;
       if (usingCustomPoolRef.current) {
         const fromList = avail.find(a => a.id === pid);
@@ -747,7 +763,6 @@ export default function DraftRoomPage() {
       }
     }, 15000);
     return () => clearTimeout(t);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draft?.status, draft?.roundEndPause, pendingPick]);
 
   // Grid cell wipe animation — executes after pick + clock phases complete
@@ -891,7 +906,6 @@ export default function DraftRoomPage() {
       endRoundAnimFiredRef.current = false;
       setEndRoundAnimState('idle');
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draft?.roundEndPause]);
 
   // End-of-round trigger: when pick animations finish AND roundEndPause is active,
@@ -904,7 +918,6 @@ export default function DraftRoomPage() {
     if (endRoundAnimFiredRef.current) return; // already triggered this round-end
     endRoundAnimFiredRef.current = true;
     setEndRoundAnimState('waiting');
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [animPhase, draft?.roundEndPause, tradeAnimData]);
 
   // 10-second delay then play

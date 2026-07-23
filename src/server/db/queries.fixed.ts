@@ -467,6 +467,18 @@ export async function ensureDraftTables() {
     )
   `).catch(() => {});
   await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_draft_player_pool_rows_pool ON draft_player_pool_rows(pool_id)`).catch(() => {});
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS draft_branding_templates (
+      id uuid PRIMARY KEY,
+      label varchar(255) NOT NULL,
+      event_name varchar(255),
+      event_logo_url text,
+      event_color_1 varchar(16),
+      event_color_2 varchar(16),
+      created_at timestamp NOT NULL DEFAULT now(),
+      updated_at timestamp NOT NULL DEFAULT now()
+    )
+  `).catch(() => {});
   await db.execute(sql`INSERT INTO draft_workspace (id) VALUES ('default') ON CONFLICT (id) DO NOTHING`).catch(() => {});
   // Migrations for existing tables (idempotent, errors silenced)
   await db.execute(sql`ALTER TABLE drafts ADD COLUMN IF NOT EXISTS pending_trade_animation jsonb NULL`).catch(() => {});
@@ -854,6 +866,71 @@ export async function getDraftWorkspace(): Promise<DraftWorkspaceRow | null> {
     eventColor2: (row.event_color_2 as string) || null,
     defaultPlayerPoolId: row.default_player_pool_id ? String(row.default_player_pool_id) : null,
   };
+}
+
+// ── Draft branding templates (named, reusable presets) ────────────────────
+
+export type DraftBrandingTemplate = {
+  id: string;
+  label: string;
+  eventName: string | null;
+  eventLogoUrl: string | null;
+  eventColor1: string | null;
+  eventColor2: string | null;
+  updatedAt: string;
+};
+
+export async function listBrandingTemplates(): Promise<DraftBrandingTemplate[]> {
+  await ensureDraftTables();
+  const db = getDb();
+  const res = await db.execute(sql`
+    SELECT id::text AS id, label, event_name, event_logo_url, event_color_1, event_color_2, updated_at
+    FROM draft_branding_templates ORDER BY updated_at DESC
+  `);
+  const rows = (res as unknown as { rows?: Array<Record<string, unknown>> }).rows || [];
+  return rows.map((r) => ({
+    id: String(r.id),
+    label: String(r.label),
+    eventName: (r.event_name as string) ?? null,
+    eventLogoUrl: (r.event_logo_url as string) ?? null,
+    eventColor1: (r.event_color_1 as string) ?? null,
+    eventColor2: (r.event_color_2 as string) ?? null,
+    updatedAt: String(r.updated_at),
+  }));
+}
+
+export async function saveBrandingTemplate(params: {
+  id?: string | null;
+  label: string;
+  eventName?: string | null;
+  eventLogoUrl?: string | null;
+  eventColor1?: string | null;
+  eventColor2?: string | null;
+}): Promise<string> {
+  await ensureDraftTables();
+  const db = getDb();
+  const id = params.id || randomUUID();
+  await db.execute(sql`
+    INSERT INTO draft_branding_templates (id, label, event_name, event_logo_url, event_color_1, event_color_2, updated_at)
+    VALUES (
+      ${id}::uuid, ${params.label}, ${params.eventName ?? null}, ${params.eventLogoUrl ?? null},
+      ${params.eventColor1 ?? null}, ${params.eventColor2 ?? null}, now()
+    )
+    ON CONFLICT (id) DO UPDATE SET
+      label = EXCLUDED.label,
+      event_name = EXCLUDED.event_name,
+      event_logo_url = EXCLUDED.event_logo_url,
+      event_color_1 = EXCLUDED.event_color_1,
+      event_color_2 = EXCLUDED.event_color_2,
+      updated_at = now()
+  `);
+  return id;
+}
+
+export async function deleteBrandingTemplate(id: string): Promise<void> {
+  await ensureDraftTables();
+  const db = getDb();
+  await db.execute(sql`DELETE FROM draft_branding_templates WHERE id = ${id}::uuid`);
 }
 
 export async function setDraftWorkspaceDefaultPool(poolId: string | null): Promise<void> {

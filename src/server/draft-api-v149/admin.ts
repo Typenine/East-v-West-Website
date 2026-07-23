@@ -6,11 +6,13 @@ import {
   countDraftPlayers,
   createDraftWithOrder,
   createPlayerPool,
+  deleteBrandingTemplate,
   deleteDraft,
   deletePlayerPool,
   getActiveOrLatestDraftId,
   getDraftOverview,
   getDraftWorkspace,
+  listBrandingTemplates,
   listPlayerPools,
   pauseDraftManual,
   replacePlayerPoolRows,
@@ -18,6 +20,7 @@ import {
   resetDraftTrades,
   resetPickClock,
   resumeDraft,
+  saveBrandingTemplate,
   saveDraftWorkspaceBranding,
   seedDraftFromWorkspace,
   setClockSeconds,
@@ -59,6 +62,7 @@ export const ADMIN_ACTIONS = new Set([
   'reset', 'reset_trades', 'set_draft_order', 'set_draft_slots', 'update_slot',
   'upload_players', 'clear_players', 'update_branding', 'admin_workspace',
   'delete_player_pool', 'apply_player_pool', 'repair_state',
+  'list_branding_templates', 'save_branding_template', 'delete_branding_template',
 ]);
 
 async function repairGhostPendingIfNeeded(draftId: string) {
@@ -125,6 +129,31 @@ export async function handleAdminDraftAction(
     if (requestedId) await updateDraftBranding(requestedId, branding);
     else await saveDraftWorkspaceBranding(branding);
     return ok({ ok: true });
+  }
+  if (action === 'list_branding_templates') {
+    return ok({ templates: await listBrandingTemplates() });
+  }
+  if (action === 'save_branding_template') {
+    const label = typeof body.label === 'string' ? body.label.trim() : '';
+    if (!label) return bad('label required');
+    const eventLogoUrl = typeof body.eventLogoUrl === 'string' ? body.eventLogoUrl : null;
+    if (isDataUrl(eventLogoUrl)) return bad('base64_logos_disabled');
+    const templateId = typeof body.templateId === 'string' && body.templateId.trim() ? body.templateId.trim() : undefined;
+    const id = await saveBrandingTemplate({
+      id: templateId,
+      label,
+      eventName: typeof body.eventName === 'string' ? body.eventName : null,
+      eventLogoUrl,
+      eventColor1: typeof body.eventColor1 === 'string' ? body.eventColor1 : null,
+      eventColor2: typeof body.eventColor2 === 'string' ? body.eventColor2 : null,
+    });
+    return ok({ ok: true, id, templates: await listBrandingTemplates() });
+  }
+  if (action === 'delete_branding_template') {
+    const templateId = typeof body.templateId === 'string' ? body.templateId.trim() : '';
+    if (!templateId) return bad('templateId required');
+    await deleteBrandingTemplate(templateId);
+    return ok({ ok: true, templates: await listBrandingTemplates() });
   }
   if (action === 'apply_player_pool') {
     const poolId = typeof body.poolId === 'string' ? body.poolId.trim() : '';

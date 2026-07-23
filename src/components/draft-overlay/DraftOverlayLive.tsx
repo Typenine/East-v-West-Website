@@ -2,7 +2,7 @@
 
 /* eslint-disable @next/next/no-img-element -- Using <img> for GSAP animations and dynamic team logos that need direct DOM access */
 
-import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react';
+import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState } from 'react';
 import { gsap } from 'gsap';
 import { useDraftData } from './useDraftData';
 import { getTeamLogoPath } from '@/lib/utils/team-utils';
@@ -287,8 +287,17 @@ const DraftOverlayLive = forwardRef<DraftInfoBarTickerHandle, DraftOverlayLivePr
     return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
   };
 
-  // Trigger animation sequence on a new pick event, including a replacement after undo.
-  useEffect(() => {
+  // Ref: set synchronously (pre-paint) by the layout effect below, consumed by the async
+  // effect that follows. Holds the pick that should be animated, or null.
+  const pendingAnimateRef = useRef<NonNullable<typeof lastPick> | null>(null);
+
+  // Mask the incoming pick's grid cell BEFORE the browser paints the player's name.
+  // useLayoutEffect runs synchronously right after the DOM is updated but before the
+  // browser paints — unlike useEffect, which fires after paint. Since `draftGrid` and
+  // `lastPick` update together in the same render, doing the masking here (instead of
+  // in the async pick-loading effect below, which used to inject it after an awaited
+  // network fetch) guarantees the real name is never visible even for a single frame.
+  useLayoutEffect(() => {
     if (!lastPick) {
       // No picks yet (or draft was reset). Only mark initialized once real data has loaded
       // (draft !== null). Without this guard, the flag fires before the first fetch completes
@@ -311,6 +320,31 @@ const DraftOverlayLive = forwardRef<DraftInfoBarTickerHandle, DraftOverlayLivePr
     // If this tab was hidden when the event happened, don't replay it on return.
     if (document.hidden) return;
 
+    const gridIdx = lastPick.overall - 1;
+    if (gridIdx >= 0 && gridIdx < draftGrid.length) pendingGridAnimRef.current = { idx: gridIdx, team: lastPick.team };
+    // Inject pre-mask synchronously, before paint, so the cell stays blank for the full
+    // animation duration. React re-renders will replace managed children but can't remove
+    // this appended node.
+    const pmCell = document.querySelector(`[data-grid-idx="${gridIdx}"]`) as HTMLElement | null;
+    if (pmCell && !pmCell.querySelector('.gsap-pick-premask')) {
+      const pm = document.createElement('div');
+      pm.className = 'gsap-pick-premask';
+      pm.style.cssText = 'position:absolute;inset:0;background:#18181b;z-index:9;pointer-events:none;';
+      pmCell.appendChild(pm);
+    }
+
+    pendingAnimateRef.current = lastPick;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lastPick?.overall, lastPick?.madeAt, lastPick?.playerId, draft?.allSlots, draft?.rounds]);
+
+  // Load pick-reveal data (video/image/audio) and kick off the animation sequence. Runs after
+  // the layout effect above has already masked the grid cell, so this async work (which can
+  // take one or more network round-trips) never risks exposing the player's name early.
+  useEffect(() => {
+    const pick = pendingAnimateRef.current;
+    if (!pick) return;
+    pendingAnimateRef.current = null;
+
     void (async () => {
       try {
         const res = await fetch('/api/draft/player-videos', { cache: 'no-store' });
@@ -326,14 +360,14 @@ const DraftOverlayLive = forwardRef<DraftInfoBarTickerHandle, DraftOverlayLivePr
 
       const ppr = draftPicksPerRound(draft);
       animDataRef.current = {
-        pick: lastPick,
+        pick,
         nextTeamName: nextTeamsRef.current[0]?.name || draft?.onClockTeam || null,
-        overall: lastPick.overall,
-        round: lastPick.round,
-        pickInRound: ((lastPick.overall - 1) % ppr) + 1,
-        videoUrl: playerVideosRef.current[lastPick.playerId]?.videoUrl || null,
-        imageUrl: playerVideosRef.current[lastPick.playerId]?.hasImage
-          ? `/api/draft/player-image?playerId=${encodeURIComponent(lastPick.playerId)}`
+        overall: pick.overall,
+        round: pick.round,
+        pickInRound: ((pick.overall - 1) % ppr) + 1,
+        videoUrl: playerVideosRef.current[pick.playerId]?.videoUrl || null,
+        imageUrl: playerVideosRef.current[pick.playerId]?.hasImage
+          ? `/api/draft/player-image?playerId=${encodeURIComponent(pick.playerId)}`
           : null,
       };
       setPickAnimCollege(undefined);
@@ -344,22 +378,8 @@ const DraftOverlayLive = forwardRef<DraftInfoBarTickerHandle, DraftOverlayLivePr
       animStartTimeRef.current = Date.now();
       setAnimPhase('pick');
 
-      const gridIdx = lastPick.overall - 1;
-      if (gridIdx >= 0 && gridIdx < draftGrid.length) pendingGridAnimRef.current = { idx: gridIdx, team: lastPick.team };
-      // Inject pre-mask immediately so the cell stays blank for the full animation duration.
-      // React re-renders will replace managed children but can't remove this appended node.
-      requestAnimationFrame(() => {
-        const pmCell = document.querySelector(`[data-grid-idx="${gridIdx}"]`) as HTMLElement | null;
-        if (pmCell && !pmCell.querySelector('.gsap-pick-premask')) {
-          const pm = document.createElement('div');
-          pm.className = 'gsap-pick-premask';
-          pm.style.cssText = 'position:absolute;inset:0;background:#18181b;z-index:9;pointer-events:none;';
-          pmCell.appendChild(pm);
-        }
-      });
-
       if (!usingCustom) {
-        const playerId = lastPick.playerId;
+        const playerId = pick.playerId;
         fetch(`/api/draft?action=player_info&playerId=${encodeURIComponent(playerId)}`, { cache: 'no-store' })
           .then(r => r.json())
           .then(data => { if (data.college) setPickAnimCollege(data.college); })
@@ -475,19 +495,16 @@ const DraftOverlayLive = forwardRef<DraftInfoBarTickerHandle, DraftOverlayLivePr
     if (prev === undefined) return; // first load — skip
     if (curr && prev === false) pendingEndOfRoundRef.current = true;
     if (!curr) pendingEndOfRoundRef.current = false; // round started again, cancel any pending
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draft?.roundEndPause, draft?.id]);
 
   // Effect 2: Show EndOfRoundAnimation once animations finish and a round-end is pending.
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     if (!pendingEndOfRoundRef.current) return;
     if (animPhase !== null) return;
     if (tradeAnimData) return;
     if (!completedRound) return;
     pendingEndOfRoundRef.current = false;
     setEndOfRoundAnimRound(completedRound);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [animPhase, tradeAnimData, completedRound]);
 
   // Round recap: show after all animations (including end-of-round and start-of-round) complete
@@ -550,13 +567,14 @@ const DraftOverlayLive = forwardRef<DraftInfoBarTickerHandle, DraftOverlayLivePr
           {/* Pick Rows */}
           {Array.from({ length: 12 }, (_, pickIdx) => (
             <React.Fragment key={pickIdx}>
-              {/* Pick number */}
+              {/* Pick number — tinted with the on-clock team's primary color */}
               <div
                 className={`text-center text-sm font-bold flex items-center justify-center transition-all duration-300 ${
                   currentPickIndex % 12 === pickIdx
-                    ? 'text-yellow-400 bg-yellow-400/20 animate-pulse'
+                    ? 'animate-pulse'
                     : 'text-zinc-500 bg-zinc-900/80'
                 }`}
+                style={currentPickIndex % 12 === pickIdx ? { color: teamColors[0], background: `${teamColors[0]}26` } : undefined}
               >
                 {pickIdx + 1}
               </div>
@@ -576,13 +594,14 @@ const DraftOverlayLive = forwardRef<DraftInfoBarTickerHandle, DraftOverlayLivePr
                     data-grid-idx={gridIdx}
                     className={`relative px-1 py-1 flex flex-row items-center overflow-hidden ${
                       isCurrentPick
-                        ? 'ring-2 ring-yellow-400 bg-yellow-400/20'
+                        ? ''
                         : isPicked
                         ? 'bg-zinc-700'
                         : 'bg-zinc-800'
                     }`}
                     style={{
                       borderLeft: isPicked && gridItem?.position ? `3px solid ${positionColors[gridItem.position] || '#666'}` : undefined,
+                      ...(isCurrentPick ? { boxShadow: `inset 0 0 0 2px ${teamColors[0]}`, background: `${teamColors[0]}22` } : {}),
                     }}
                   >
                     {/* Team logo on LEFT side - ALWAYS visible */}
@@ -732,7 +751,7 @@ const DraftOverlayLive = forwardRef<DraftInfoBarTickerHandle, DraftOverlayLivePr
           <div className="flex flex-col items-center justify-center gap-2 p-2">
             <div
               className="w-24 h-24 bg-zinc-700 rounded overflow-hidden border-2 shrink-0"
-              style={{ borderColor: eventColor1, boxShadow: eventGlow }}
+              style={{ borderColor: teamColors[0], boxShadow: `0 0 10px ${teamColors[0]}66` }}
             >
               {teamLogo && <img src={teamLogo} alt={currentTeam?.name || ''} className="w-full h-full object-contain" />}
             </div>
