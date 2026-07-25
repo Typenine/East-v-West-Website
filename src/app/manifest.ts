@@ -1,6 +1,6 @@
 import type { MetadataRoute } from 'next';
 
-const APP_ICON_URL = '/pwa/east-v-west-logo.png?v=20260725-2';
+const APP_ICON_URL = '/pwa/east-v-west-logo.png?v=20260725-3';
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
@@ -20,12 +20,6 @@ export default function manifest(): MetadataRoute.Manifest {
         sizes: '500x500',
         type: 'image/png',
         purpose: 'any',
-      },
-      {
-        src: APP_ICON_URL,
-        sizes: '500x500',
-        type: 'image/png',
-        purpose: 'maskable',
       },
     ],
   };

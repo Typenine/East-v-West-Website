@@ -1,7 +1,7 @@
-const CACHE_VERSION = 'evw-pwa-2026-07-25-v2';
+const CACHE_VERSION = 'evw-pwa-2026-07-25-v3';
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const OFFLINE_URL = '/offline';
-const APP_ICON_URL = '/pwa/east-v-west-logo.png?v=20260725-2';
+const APP_ICON_URL = '/pwa/east-v-west-logo.png?v=20260725-3';
 const PRECACHE_URLS = [OFFLINE_URL, '/manifest.webmanifest', APP_ICON_URL];
 
 self.addEventListener('install', (event) => {

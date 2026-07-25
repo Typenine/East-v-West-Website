@@ -12,7 +12,7 @@ import DraftSystemUpdate150ClientPatch from "@/components/draft/DraftSystemUpdat
 import PwaInstallPrompt from "@/components/pwa/PwaInstallPrompt";
 import PwaRegistration from "@/components/pwa/PwaRegistration";
 
-const APP_ICON_URL = "/pwa/east-v-west-logo.png?v=20260725-2";
+const APP_ICON_URL = "/pwa/east-v-west-logo.png?v=20260725-3";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
