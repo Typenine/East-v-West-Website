@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">East v. West</title>
+  <desc id="desc">Red and blue East v. West fantasy football app icon</desc>
+  <defs>
+    <linearGradient id="background" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#111c32"/>
+      <stop offset="1" stop-color="#050914"/>
+    </linearGradient>
+    <linearGradient id="split" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#c92c43"/>
+      <stop offset="0.5" stop-color="#8f1f37"/>
+      <stop offset="0.5" stop-color="#2159b5"/>
+      <stop offset="1" stop-color="#173f86"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="14" stdDeviation="14" flood-color="#000000" flood-opacity="0.42"/>
+    </filter>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#background)"/>
+  <rect x="48" y="48" width="416" height="416" rx="92" fill="url(#split)"/>
+  <path d="M256 62v388" stroke="#ffffff" stroke-opacity="0.25" stroke-width="5"/>
+  <g filter="url(#shadow)">
+    <path d="M256 94c73 0 132 59 132 132 0 97-56 164-132 201-76-37-132-104-132-201 0-73 59-132 132-132z" fill="#07111f" stroke="#ffffff" stroke-width="10"/>
+    <path d="M188 224c18-42 64-73 116-70 42 3 74 27 86 55-18 42-64 73-116 70-42-3-74-27-86-55z" fill="#ffffff" transform="rotate(-14 289 217)"/>
+    <path d="M245 190l83 42M262 180l-9 19M282 190l-9 19M302 200l-9 19" fill="none" stroke="#07111f" stroke-linecap="round" stroke-width="10" transform="rotate(-14 289 217)"/>
+  </g>
+  <text x="256" y="135" fill="#ffffff" font-family="Arial, Helvetica, sans-serif" font-size="44" font-weight="900" letter-spacing="6" text-anchor="middle">EAST</text>
+  <text x="256" y="408" fill="#ffffff" font-family="Arial, Helvetica, sans-serif" font-size="44" font-weight="900" letter-spacing="6" text-anchor="middle">WEST</text>
+  <text x="256" y="348" fill="#ffffff" fill-opacity="0.92" font-family="Arial, Helvetica, sans-serif" font-size="34" font-weight="800" text-anchor="middle">FANTASY FOOTBALL</text>
+</svg>
