@@ -112,9 +112,9 @@ export default function MobileAppNav() {
 
   const homeActive = pathname === '/';
   const leagueActive = LEAGUE_PATHS.some((prefix) => pathMatches(pathname, prefix));
-  const teamsActive = pathMatches(pathname, '/teams');
+  const transactionsActive = pathMatches(pathname, '/transactions');
   const draftActive = pathMatches(pathname, '/draft');
-  const primaryActive = homeActive || leagueActive || teamsActive || draftActive;
+  const primaryActive = homeActive || leagueActive || transactionsActive || draftActive;
   const moreActive = menuOpen || !primaryActive;
 
   return (
@@ -158,19 +158,19 @@ export default function MobileAppNav() {
         </AppNavItem>
 
         <AppNavItem
-          href="/teams"
-          active={teamsActive}
+          href="/transactions"
+          active={transactionsActive}
           onClick={closeMenu}
           icon={
             <NavIcon>
-              <circle cx="9" cy="8" r="3" />
-              <path d="M3.5 20a5.5 5.5 0 0 1 11 0" />
-              <circle cx="17" cy="9" r="2.5" />
-              <path d="M15.5 14.5A4.5 4.5 0 0 1 21 19" />
+              <path d="M4 7h13" />
+              <path d="m14 4 3 3-3 3" />
+              <path d="M20 17H7" />
+              <path d="m10 14-3 3 3 3" />
             </NavIcon>
           }
         >
-          Teams
+          Transactions
         </AppNavItem>
 
         <AppNavItem
