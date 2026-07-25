@@ -1,5 +1,7 @@
 import type { MetadataRoute } from 'next';
 
+const APP_ICON_URL = '/pwa/east-v-west-logo.png?v=20260725-2';
+
 export default function manifest(): MetadataRoute.Manifest {
   return {
     name: 'East v. West Fantasy Football',
@@ -14,22 +16,16 @@ export default function manifest(): MetadataRoute.Manifest {
     categories: ['sports', 'entertainment'],
     icons: [
       {
-        src: '/pwa/icon.svg',
-        sizes: 'any',
-        type: 'image/svg+xml',
-        purpose: 'any',
-      },
-      {
-        src: '/pwa/icon-maskable.svg',
-        sizes: 'any',
-        type: 'image/svg+xml',
-        purpose: 'maskable',
-      },
-      {
-        src: '/assets/teams/East%20v%20West%20Logos/Official%20East%20v.%20West%20Logo.png',
+        src: APP_ICON_URL,
         sizes: '500x500',
         type: 'image/png',
         purpose: 'any',
+      },
+      {
+        src: APP_ICON_URL,
+        sizes: '500x500',
+        type: 'image/png',
+        purpose: 'maskable',
       },
     ],
   };

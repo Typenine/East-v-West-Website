@@ -1,13 +1,52 @@
 /* Mobile navigation must remain usable on short phone viewports and when
-   multiple accordion sections are expanded. The 4rem subtraction matches the
-   fixed 64px navbar header. */
+   multiple accordion sections are expanded. The bottom subtraction reserves
+   room for the native-style app navigation and the phone safe area. */
 @media (max-width: 767px) {
+  body {
+    overflow-x: hidden;
+  }
+
+  main {
+    min-width: 0;
+  }
+
+  #mobile-menu-button {
+    display: none !important;
+  }
+
   #mobile-menu {
-    max-height: calc(100dvh - 4rem);
+    max-height: calc(100dvh - 8.75rem - env(safe-area-inset-bottom, 0px));
     overflow-y: auto;
     overscroll-behavior-y: contain;
     -webkit-overflow-scrolling: touch;
-    padding-bottom: env(safe-area-inset-bottom, 0px);
+    padding-bottom: 0.75rem;
     scrollbar-gutter: stable;
+    box-shadow: 0 18px 36px rgb(0 0 0 / 0.22);
+  }
+
+  footer[aria-label="Site footer"] {
+    display: none;
+  }
+
+  aside[aria-label="Install East v. West app"] {
+    bottom: calc(5.5rem + env(safe-area-inset-bottom, 0px)) !important;
+  }
+
+  .overflow-x-auto {
+    overscroll-behavior-x: contain;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+  }
+
+  a,
+  button {
+    -webkit-tap-highlight-color: transparent;
+  }
+}
+
+@media (display-mode: standalone) and (max-width: 767px) {
+  html,
+  body {
+    min-height: 100dvh;
   }
 }

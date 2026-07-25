@@ -7,9 +7,12 @@ import { Suspense } from "react";
 
 import Navbar from "@/components/layout/navbar";
 import Footer from "@/components/layout/footer";
+import MobileAppNav from "@/components/layout/MobileAppNav";
 import DraftSystemUpdate150ClientPatch from "@/components/draft/DraftSystemUpdate150ClientPatch";
 import PwaInstallPrompt from "@/components/pwa/PwaInstallPrompt";
 import PwaRegistration from "@/components/pwa/PwaRegistration";
+
+const APP_ICON_URL = "/pwa/east-v-west-logo.png?v=20260725-2";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -35,10 +38,16 @@ export const metadata: Metadata = {
     telephone: false,
   },
   icons: {
-    icon: [{ url: "/pwa/icon.svg", type: "image/svg+xml" }],
+    icon: [
+      {
+        url: APP_ICON_URL,
+        sizes: "500x500",
+        type: "image/png",
+      },
+    ],
     apple: [
       {
-        url: "/assets/teams/East%20v%20West%20Logos/Official%20East%20v.%20West%20Logo.png",
+        url: APP_ICON_URL,
         sizes: "500x500",
         type: "image/png",
       },
@@ -85,10 +94,11 @@ export default function RootLayout({
         <Suspense fallback={null}>
           <Navbar />
         </Suspense>
-        <main className="flex-grow">
+        <main className="min-w-0 flex-grow pb-24 md:pb-0">
           {children}
         </main>
         <Footer />
+        <MobileAppNav />
         <DraftSystemUpdate150ClientPatch />
         <PwaInstallPrompt />
         <PwaRegistration />
