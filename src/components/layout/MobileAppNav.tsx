@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useState, type ReactNode } from 'react';
 import { USER_NAV_CONFIG, type UserNavItem } from '@/lib/constants/navigation';
 
@@ -22,7 +22,20 @@ type AppNavButtonProps = {
   onClick: () => void;
 };
 
-type SectionKey = 'league' | 'transactions';
+type SectionKey = 'league' | 'transactions' | 'more';
+
+type MoreSheetProps = {
+  authLoading: boolean;
+  historyItems: UserNavItem[];
+  isAdmin: boolean;
+  mediaItems: UserNavItem[];
+  onAdminLogout: () => void;
+  onClose: () => void;
+  onLogout: () => void;
+  pathname: string;
+  sessionTeam: string | null;
+  suggestionsItem?: UserNavItem;
+};
 
 const HIDDEN_PATHS = ['/admin', '/login', '/offline', '/draft/overlay', '/draft/room'];
 
@@ -44,8 +57,26 @@ const LEAGUE_ITEMS: UserNavItem[] = leagueConfigItems.some((item) => item.href =
     );
 
 const TRANSACTION_ITEMS = USER_NAV_CONFIG.find((item) => item.id === 'transactions')?.children ?? [];
+const HISTORY_ITEMS = USER_NAV_CONFIG.find((item) => item.id === 'history')?.children ?? [];
+const MEDIA_ITEMS = USER_NAV_CONFIG.find((item) => item.id === 'media')?.children ?? [];
+const SUGGESTIONS_ITEM = USER_NAV_CONFIG.find((item) => item.id === 'suggestions');
+
 const LEAGUE_PATHS = LEAGUE_ITEMS.flatMap((item) => (item.href ? [item.href.split('?')[0]] : []));
 const TRANSACTION_PATHS = TRANSACTION_ITEMS.flatMap((item) => (item.href ? [item.href.split('?')[0]] : []));
+const MORE_PATHS = [
+  ...HISTORY_ITEMS,
+  ...MEDIA_ITEMS,
+  ...(SUGGESTIONS_ITEM ? [SUGGESTIONS_ITEM] : []),
+].flatMap((item) => (item.href ? [item.href.split('?')[0]] : []));
+
+const ADMIN_ITEMS: UserNavItem[] = [
+  { id: 'admin.newsletter', label: 'Newsletter Admin', href: '/admin/newsletter' },
+  { id: 'admin.trades', label: 'Trades Admin', href: '/admin/trades' },
+  { id: 'admin.suggestions', label: 'Suggestions Admin', href: '/admin/suggestions' },
+  { id: 'admin.votes', label: 'Votes Admin', href: '/admin/votes' },
+  { id: 'admin.taxi', label: 'Taxi Admin', href: '/admin/taxi' },
+  { id: 'admin.users', label: 'Users Admin', href: '/admin/users' },
+];
 
 function pathMatches(pathname: string, prefix: string): boolean {
   return pathname === prefix || pathname.startsWith(`${prefix}/`);
@@ -105,15 +136,15 @@ function NavIcon({ children }: { children: ReactNode }) {
   );
 }
 
-function SectionSheet({
-  items,
+function SheetFrame({
+  children,
+  id,
   onClose,
-  section,
   title,
 }: {
-  items: UserNavItem[];
+  children: ReactNode;
+  id: string;
   onClose: () => void;
-  section: SectionKey;
   title: string;
 }) {
   return (
@@ -126,14 +157,14 @@ function SectionSheet({
         style={{ bottom: 'calc(4.5rem + env(safe-area-inset-bottom, 0px))' }}
       />
       <section
-        id={`mobile-${section}-menu`}
+        id={id}
         role="dialog"
         aria-modal="true"
         aria-label={`${title} navigation`}
-        className="fixed left-3 right-3 z-[75] mx-auto max-h-[calc(100dvh-8.5rem)] max-w-lg overflow-y-auto rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-3 shadow-2xl md:hidden"
+        className="fixed left-3 right-3 z-[75] mx-auto max-h-[calc(100dvh-8.5rem)] max-w-lg overflow-y-auto overscroll-contain rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-3 shadow-2xl md:hidden"
         style={{ bottom: 'calc(5.25rem + env(safe-area-inset-bottom, 0px))' }}
       >
-        <div className="flex items-center justify-between gap-3 px-1 pb-2">
+        <div className="sticky top-0 z-10 flex items-center justify-between gap-3 border-b border-[var(--border)] bg-[var(--surface)] px-1 pb-2">
           <div>
             <p className="text-xs font-bold uppercase tracking-[0.16em] text-[var(--muted)]">Navigate</p>
             <h2 className="text-lg font-bold text-[var(--text)]">{title}</h2>
@@ -147,76 +178,230 @@ function SectionSheet({
             ×
           </button>
         </div>
-
-        <div className="grid gap-2">
-          {items.map((item) => {
-            if (!item.href) return null;
-            return (
-              <Link
-                key={item.id}
-                href={item.href}
-                onClick={onClose}
-                className="flex min-h-14 items-center justify-between gap-3 rounded-xl border border-[var(--border)] bg-[var(--surface-strong)] px-4 py-3 text-left transition active:scale-[0.99] active:bg-accent-soft"
-              >
-                <span className="min-w-0">
-                  <span className="block text-sm font-bold text-[var(--text)]">{item.label}</span>
-                  {item.description ? (
-                    <span className="mt-0.5 block text-xs leading-5 text-[var(--muted)]">{item.description}</span>
-                  ) : null}
-                </span>
-                <NavIcon>
-                  <path d="m9 18 6-6-6-6" />
-                </NavIcon>
-              </Link>
-            );
-          })}
-        </div>
+        {children}
       </section>
     </>
   );
 }
 
-function getMobileMenuButton(): HTMLButtonElement | null {
-  const button = document.getElementById('mobile-menu-button');
-  return button instanceof HTMLButtonElement ? button : null;
+function MenuLink({ item, onClose }: { item: UserNavItem; onClose: () => void }) {
+  if (!item.href) return null;
+
+  return (
+    <Link
+      href={item.href}
+      onClick={onClose}
+      className="flex min-h-14 items-center justify-between gap-3 rounded-xl border border-[var(--border)] bg-[var(--surface-strong)] px-4 py-3 text-left transition active:scale-[0.99] active:bg-accent-soft"
+    >
+      <span className="min-w-0">
+        <span className="block text-sm font-bold text-[var(--text)]">{item.label}</span>
+        {item.description ? (
+          <span className="mt-0.5 block text-xs leading-5 text-[var(--muted)]">{item.description}</span>
+        ) : null}
+      </span>
+      <NavIcon>
+        <path d="m9 18 6-6-6-6" />
+      </NavIcon>
+    </Link>
+  );
+}
+
+function SectionSheet({
+  items,
+  onClose,
+  section,
+  title,
+}: {
+  items: UserNavItem[];
+  onClose: () => void;
+  section: Exclude<SectionKey, 'more'>;
+  title: string;
+}) {
+  return (
+    <SheetFrame id={`mobile-${section}-menu`} onClose={onClose} title={title}>
+      <div className="grid gap-2 pt-3">
+        {items.map((item) => (
+          <MenuLink key={item.id} item={item} onClose={onClose} />
+        ))}
+      </div>
+    </SheetFrame>
+  );
+}
+
+function MoreGroup({
+  items,
+  label,
+  onClose,
+}: {
+  items: UserNavItem[];
+  label: string;
+  onClose: () => void;
+}) {
+  return (
+    <div>
+      <h3 className="mb-2 px-1 text-xs font-bold uppercase tracking-[0.14em] text-[var(--muted)]">{label}</h3>
+      <div className="grid grid-cols-2 gap-2">
+        {items.map((item) => {
+          if (!item.href) return null;
+          return (
+            <Link
+              key={item.id}
+              href={item.href}
+              onClick={onClose}
+              className="flex min-h-16 items-center justify-between gap-2 rounded-xl border border-[var(--border)] bg-[var(--surface-strong)] px-3 py-3 text-sm font-bold text-[var(--text)] transition active:scale-[0.99] active:bg-accent-soft"
+            >
+              <span>{item.label}</span>
+              <NavIcon>
+                <path d="m9 18 6-6-6-6" />
+              </NavIcon>
+            </Link>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function MoreSheet({
+  authLoading,
+  historyItems,
+  isAdmin,
+  mediaItems,
+  onAdminLogout,
+  onClose,
+  onLogout,
+  pathname,
+  sessionTeam,
+  suggestionsItem,
+}: MoreSheetProps) {
+  return (
+    <SheetFrame id="mobile-more-menu" onClose={onClose} title="More">
+      <div className="space-y-5 pt-3">
+        <MoreGroup label="History" items={historyItems} onClose={onClose} />
+        <MoreGroup label="Media" items={mediaItems} onClose={onClose} />
+
+        {suggestionsItem ? (
+          <div>
+            <h3 className="mb-2 px-1 text-xs font-bold uppercase tracking-[0.14em] text-[var(--muted)]">League Input</h3>
+            <MenuLink item={suggestionsItem} onClose={onClose} />
+          </div>
+        ) : null}
+
+        {isAdmin ? (
+          <div>
+            <h3 className="mb-2 px-1 text-xs font-bold uppercase tracking-[0.14em] text-[var(--muted)]">Admin Tools</h3>
+            <div className="grid grid-cols-2 gap-2">
+              {ADMIN_ITEMS.map((item) => (
+                <MenuLink key={item.id} item={item} onClose={onClose} />
+              ))}
+            </div>
+            <button
+              type="button"
+              onClick={onAdminLogout}
+              className="mt-2 min-h-12 w-full rounded-xl border border-[var(--border)] px-4 py-3 text-sm font-semibold text-[var(--muted)] active:bg-[var(--surface-strong)]"
+            >
+              Admin Logout
+            </button>
+          </div>
+        ) : null}
+
+        <div>
+          <h3 className="mb-2 px-1 text-xs font-bold uppercase tracking-[0.14em] text-[var(--muted)]">Account</h3>
+          <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-strong)] p-4">
+            {authLoading ? (
+              <p className="text-sm text-[var(--muted)]">Checking account…</p>
+            ) : sessionTeam ? (
+              <div className="space-y-3">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">Signed in as</p>
+                  <p className="mt-1 text-sm font-bold text-[var(--text)]">{sessionTeam}</p>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <Link
+                    href={`/login?next=${encodeURIComponent(pathname)}`}
+                    onClick={onClose}
+                    className="flex min-h-11 items-center justify-center rounded-lg border border-[var(--border)] px-3 text-center text-sm font-semibold text-[var(--text)] active:bg-[var(--surface)]"
+                  >
+                    Switch Team
+                  </Link>
+                  <button
+                    type="button"
+                    onClick={onLogout}
+                    className="min-h-11 rounded-lg border border-[var(--border)] px-3 text-sm font-semibold text-[var(--text)] active:bg-[var(--surface)]"
+                  >
+                    Logout
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <Link
+                href={`/login?next=${encodeURIComponent(pathname)}`}
+                onClick={onClose}
+                className="flex min-h-12 items-center justify-center rounded-xl bg-accent px-4 text-sm font-bold text-white"
+              >
+                Log In
+              </Link>
+            )}
+          </div>
+        </div>
+      </div>
+    </SheetFrame>
+  );
 }
 
 export default function MobileAppNav() {
   const pathname = usePathname();
-  const [menuOpen, setMenuOpen] = useState(false);
+  const router = useRouter();
   const [activeSection, setActiveSection] = useState<SectionKey | null>(null);
+  const [sessionTeam, setSessionTeam] = useState<string | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [isAdmin, setIsAdmin] = useState(false);
 
   useEffect(() => {
-    let frame = 0;
-    let observer: MutationObserver | null = null;
+    let mounted = true;
 
-    const attach = () => {
-      const button = getMobileMenuButton();
-      if (!button) {
-        frame = window.requestAnimationFrame(attach);
-        return;
+    const loadSession = async () => {
+      setAuthLoading(true);
+      try {
+        const [authResponse, adminResponse] = await Promise.all([
+          fetch('/api/auth/me', { cache: 'no-store' }),
+          fetch('/api/admin-login', { credentials: 'include', cache: 'no-store' }),
+        ]);
+
+        if (!mounted) return;
+
+        if (authResponse.ok) {
+          const authJson = await authResponse.json();
+          setSessionTeam((authJson?.claims?.team as string) || null);
+        } else {
+          setSessionTeam(null);
+        }
+
+        if (adminResponse.ok) {
+          const adminJson = await adminResponse.json();
+          setIsAdmin(Boolean(adminJson?.isAdmin));
+        } else {
+          setIsAdmin(false);
+        }
+      } catch {
+        if (mounted) {
+          setSessionTeam(null);
+          setIsAdmin(false);
+        }
+      } finally {
+        if (mounted) setAuthLoading(false);
       }
-
-      const sync = () => setMenuOpen(button.getAttribute('aria-expanded') === 'true');
-      sync();
-      observer = new MutationObserver(sync);
-      observer.observe(button, { attributes: true, attributeFilter: ['aria-expanded'] });
     };
 
-    attach();
+    void loadSession();
 
     return () => {
-      if (frame) window.cancelAnimationFrame(frame);
-      observer?.disconnect();
+      mounted = false;
     };
-  }, []);
+  }, [pathname]);
 
   useEffect(() => {
     setActiveSection(null);
-    const button = getMobileMenuButton();
-    if (button?.getAttribute('aria-expanded') === 'true') {
-      button.click();
-    }
   }, [pathname]);
 
   useEffect(() => {
@@ -236,26 +421,32 @@ export default function MobileAppNav() {
     };
   }, [activeSection]);
 
-  const closeMoreMenu = () => {
-    const button = getMobileMenuButton();
-    if (button?.getAttribute('aria-expanded') === 'true') {
-      button.click();
-    }
-  };
-
   const closeAllMenus = () => {
     setActiveSection(null);
-    closeMoreMenu();
   };
 
   const toggleSection = (section: SectionKey) => {
-    closeMoreMenu();
     setActiveSection((current) => (current === section ? null : section));
   };
 
-  const toggleMoreMenu = () => {
-    setActiveSection(null);
-    getMobileMenuButton()?.click();
+  const handleLogout = async () => {
+    try {
+      await fetch('/api/auth/logout', { method: 'POST' });
+    } finally {
+      setSessionTeam(null);
+      setActiveSection(null);
+      router.refresh();
+    }
+  };
+
+  const handleAdminLogout = async () => {
+    try {
+      await fetch('/api/admin-login', { method: 'DELETE' });
+    } finally {
+      setIsAdmin(false);
+      setActiveSection(null);
+      router.refresh();
+    }
   };
 
   if (HIDDEN_PATHS.some((prefix) => pathMatches(pathname, prefix))) {
@@ -266,8 +457,9 @@ export default function MobileAppNav() {
   const leagueActive = LEAGUE_PATHS.some((prefix) => pathMatches(pathname, prefix));
   const transactionsActive = TRANSACTION_PATHS.some((prefix) => pathMatches(pathname, prefix));
   const draftActive = pathMatches(pathname, '/draft');
+  const moreRouteActive = MORE_PATHS.some((prefix) => pathMatches(pathname, prefix));
   const primaryActive = homeActive || leagueActive || transactionsActive || draftActive;
-  const moreActive = menuOpen || (!primaryActive && !activeSection);
+  const moreActive = activeSection === 'more' || moreRouteActive || (!primaryActive && activeSection === null);
 
   return (
     <>
@@ -286,6 +478,21 @@ export default function MobileAppNav() {
           title="Transactions"
           items={TRANSACTION_ITEMS}
           onClose={() => setActiveSection(null)}
+        />
+      ) : null}
+
+      {activeSection === 'more' ? (
+        <MoreSheet
+          authLoading={authLoading}
+          historyItems={HISTORY_ITEMS}
+          isAdmin={isAdmin}
+          mediaItems={MEDIA_ITEMS}
+          onAdminLogout={handleAdminLogout}
+          onClose={() => setActiveSection(null)}
+          onLogout={handleLogout}
+          pathname={pathname}
+          sessionTeam={sessionTeam}
+          suggestionsItem={SUGGESTIONS_ITEM}
         />
       ) : null}
 
@@ -361,22 +568,21 @@ export default function MobileAppNav() {
             Draft
           </AppNavItem>
 
-          <button
-            type="button"
-            onClick={toggleMoreMenu}
-            aria-expanded={menuOpen}
-            aria-controls="mobile-menu"
-            className={navItemClasses(moreActive)}
-          >
-            <span className="flex h-6 w-8 items-center justify-center">
+          <AppNavButton
+            active={moreActive}
+            expanded={activeSection === 'more'}
+            controls="mobile-more-menu"
+            onClick={() => toggleSection('more')}
+            icon={
               <NavIcon>
                 <circle cx="5" cy="12" r="1" fill="currentColor" stroke="none" />
                 <circle cx="12" cy="12" r="1" fill="currentColor" stroke="none" />
                 <circle cx="19" cy="12" r="1" fill="currentColor" stroke="none" />
               </NavIcon>
-            </span>
-            <span>More</span>
-          </button>
+            }
+          >
+            More
+          </AppNavButton>
         </div>
       </nav>
     </>
