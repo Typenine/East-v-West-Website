@@ -32,6 +32,13 @@
     bottom: calc(5.5rem + env(safe-area-inset-bottom, 0px)) !important;
   }
 
+  /* The trade analyzer's balancing suggestions are a fixed strip at the
+     bottom of its page. Keep that strip above the app navigation instead of
+     allowing the navigation to cover it. */
+  main > div.fixed.bottom-0.left-0.right-0.z-40.border-t {
+    bottom: calc(4.5rem + env(safe-area-inset-bottom, 0px)) !important;
+  }
+
   .overflow-x-auto {
     overscroll-behavior-x: contain;
     -webkit-overflow-scrolling: touch;
