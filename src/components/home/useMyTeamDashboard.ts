@@ -126,9 +126,10 @@ export function useMyTeamDashboard(data: MyTeamData, phase: HomepagePhase) {
     return map;
   }, [dashboard]);
 
-  const activeBlock = tradeBlock.filter(
-    (asset) => asset.type === 'player' || asset.type === 'pick' || asset.type === 'faab'
-  );
+  const activeBlock = tradeBlock.filter((asset) => {
+    if (asset.type === 'player') return playerLookup.has(asset.playerId);
+    return asset.type === 'pick' || asset.type === 'faab';
+  });
   const featuredAssets = activeBlock.slice(0, 3);
   const wantedPositions = tradeWants?.positions ?? [];
   const tradeLabelsLoading = featuredAssets.some(
