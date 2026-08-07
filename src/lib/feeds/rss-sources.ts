@@ -64,13 +64,6 @@ export const RSS_SOURCES: RssSource[] = [
     weight: 1.05,
   },
   {
-    id: 'nfl-com',
-    name: 'NFL.com News',
-    url: 'https://www.nfl.com/news/rss.xml',
-    profile: 'official_news',
-    weight: 1.3,
-  },
-  {
     id: 'espn-nfl',
     name: 'ESPN NFL',
     url: 'https://www.espn.com/espn/rss/nfl/news',
@@ -97,20 +90,6 @@ export const RSS_SOURCES: RssSource[] = [
     url: 'https://sports.yahoo.com/nfl/rss.xml',
     profile: 'major_news',
     weight: 1.0,
-  },
-  {
-    id: 'si-nfl',
-    name: 'Sports Illustrated NFL',
-    url: 'https://www.si.com/nfl/.rss/full',
-    profile: 'broad_news',
-    weight: 1.0,
-  },
-  {
-    id: 'usatoday-touchdownwire',
-    name: 'USA Today Touchdown Wire',
-    url: 'https://touchdownwire.usatoday.com/feed/',
-    profile: 'broad_news',
-    weight: 0.95,
   },
   {
     id: 'the33rdteam',
