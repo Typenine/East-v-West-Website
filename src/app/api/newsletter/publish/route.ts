@@ -19,6 +19,7 @@ import {
   verifyDiscordWebhook,
 } from '@/lib/utils/discord';
 import { updateBotMemoryFromPublish } from '@/lib/newsletter/publish-memory';
+import { recordPublishedTakeLedger } from '@/lib/newsletter/published-take-ledger';
 import { EPISODE_WEEK_STORAGE } from '@/lib/newsletter/queue-target';
 import { getDb } from '@/server/db/client';
 import { discordNotifications, newsletters } from '@/server/db/schema';
@@ -254,8 +255,16 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // Existing memory evolution still runs for the normal structured pipeline.
     await updateBotMemoryFromPublish(target.season, target.week).catch(error => {
       console.warn('[Publish] Bot memory update failed (non-fatal):', error);
+    });
+
+    // Exact-ID take ledger is the authoritative published-opinion checkpoint.
+    // It also handles externally uploaded PDFs because their upload step extracts
+    // attributable Mason/Westy continuity into the stored newsletter section.
+    await recordPublishedTakeLedger(target.id).catch(error => {
+      console.warn('[Publish] Published take ledger update failed (non-fatal):', error);
     });
 
     const announcementPending = sendDiscord && (discordStatus === 'pending_retry' || discordStatus === 'not_configured');
