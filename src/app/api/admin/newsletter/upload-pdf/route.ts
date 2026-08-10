@@ -3,6 +3,7 @@ import { NextRequest } from 'next/server';
 import { eq } from 'drizzle-orm';
 import { isAdminCookieValue } from '@/lib/auth/admin';
 import { EPISODE_WEEK_STORAGE } from '@/lib/newsletter/queue-target';
+import { extractUploadedPdfContinuity } from '@/lib/newsletter/uploaded-pdf-continuity';
 import { getDb } from '@/server/db/client';
 import { saveNewsletter } from '@/server/db/newsletter-queries';
 import { newsletters } from '@/server/db/schema';
@@ -10,7 +11,7 @@ import { putObjectBytes } from '@/server/storage/r2';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-export const maxDuration = 120;
+export const maxDuration = 300;
 
 const MAX_PDF_BYTES = 25 * 1024 * 1024;
 const WEEKLESS_TYPES = new Set(['pre_draft', 'post_draft', 'preseason', 'offseason', 'special']);
@@ -172,6 +173,14 @@ export async function POST(req: NextRequest) {
   try {
     await putObjectBytes({ key, body: bytes, contentType: 'application/pdf' });
 
+    // Read the actual uploaded issue now, while the bytes are in hand. This makes
+    // external PDFs first-class continuity sources instead of opaque file links.
+    // Extraction failure is non-fatal: the PDF can still be uploaded/published.
+    const continuity = await extractUploadedPdfContinuity(bytes, title).catch(error => {
+      console.warn('[newsletter/upload-pdf] continuity extraction failed:', error instanceof Error ? error.message : String(error));
+      return null;
+    });
+
     const content = {
       meta: {
         leagueName: 'East v. West',
@@ -188,6 +197,18 @@ export async function POST(req: NextRequest) {
           issueDate,
           size: fileValue.size,
           source: 'admin-upload',
+          // These names intentionally match the normal newsletter schema so the
+          // existing publish-memory walker can consume uploaded issues unchanged.
+          bot1_text: continuity?.masonText ?? '',
+          bot2_text: continuity?.westyText ?? '',
+          players: (continuity?.playerNames ?? []).map(playerName => ({ playerName })),
+          continuityExtraction: {
+            status: continuity ? 'extracted' : 'unavailable',
+            model: continuity?.model ?? null,
+            confidence: continuity?.confidence ?? null,
+            notes: continuity?.notes ?? [],
+            extractedAt: new Date().toISOString(),
+          },
         },
       }],
     };
@@ -214,7 +235,10 @@ export async function POST(req: NextRequest) {
       week: storageWeek,
       episodeType,
       status: 'draft',
-      message: 'PDF uploaded as a draft. Publish it from Saved Newsletters when ready.',
+      continuityExtracted: Boolean(continuity),
+      message: continuity
+        ? 'PDF uploaded as a draft and Mason/Westy continuity was extracted. Publish it from Saved Newsletters when ready.'
+        : 'PDF uploaded as a draft. Continuity extraction was unavailable, but the issue can still be published normally.',
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
