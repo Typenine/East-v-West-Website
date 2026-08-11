@@ -536,8 +536,8 @@ export default function TeamContent() {
           const pids = new Set<string>([...Object.keys(debugLeaguePerSeason), ...Object.keys(debugCardPerSeason)]);
           pids.forEach((pid) => {
             const nm = nameById[pid] || pid;
-            const seasonsList = Array.from(new Set([...
-              Object.keys(debugLeaguePerSeason[pid] || {}), ...Object.keys(debugCardPerSeason[pid] || {})
+            const seasonsList = Array.from(new Set([
+              ...Object.keys(debugLeaguePerSeason[pid] || {}), ...Object.keys(debugCardPerSeason[pid] || {})
             ])).sort();
             const rows = seasonsList.map((s) => ({
               player: nm,
@@ -1290,7 +1290,7 @@ export default function TeamContent() {
                   ) : taxi ? (
                     <div className="space-y-4">
                       {(() => {
-                        const LIMIT_SLOTS = 3; const LIMIT_QB = 1;
+                        const LIMIT_SLOTS = 4; const LIMIT_QB = 1;
                         const hasOverSlots = taxi.violations.some(v => v.code === 'too_many_on_taxi');
                         const hasOverQb = taxi.violations.some(v => v.code === 'too_many_qbs');
                         return (
