@@ -26,6 +26,7 @@ export async function PUT(req: NextRequest) {
   const allowedPickYears = new Set(assets.picks.map((p) => p.year));
 
   const filtered: TradeAsset[] = [];
+  const seenAssetKeys = new Set<string>();
   const isPlayer = (x: unknown): x is { type: 'player'; playerId: string } => !!x && typeof x === 'object' && (x as Record<string, unknown>).type === 'player' && typeof (x as Record<string, unknown>).playerId === 'string';
   const isPick = (x: unknown): x is { type: 'pick'; year: number; round: number; originalTeam?: string } => {
     if (!x || typeof x !== 'object') return false;
@@ -37,23 +38,41 @@ export async function PUT(req: NextRequest) {
   for (const it of items.slice(0, 200)) {
     if (isPlayer(it)) {
       const pid = it.playerId;
-      if (pid && assets.players.includes(pid)) filtered.push({ type: 'player', playerId: pid });
+      const key = `player:${pid}`;
+      if (pid && assets.players.includes(pid) && !seenAssetKeys.has(key)) {
+        seenAssetKeys.add(key);
+        filtered.push({ type: 'player', playerId: pid });
+      }
     } else if (isPick(it)) {
       const yr = it.year;
       const rd = it.round;
       // Allow picks for years the team actually owns (current + next two years)
       if (Number.isFinite(yr) && allowedPickYears.has(yr) && Number.isFinite(rd) && rd >= 1 && rd <= 10) {
-        const reqOrig = typeof (it as { originalTeam?: string }).originalTeam === 'string' ? (it as { originalTeam?: string }).originalTeam : undefined;
-        let owned = reqOrig
-          ? assets.picks.find((p) => p.year === yr && p.round === rd && p.originalTeam === reqOrig)
+        const reqOrig = typeof (it as { originalTeam?: string }).originalTeam === 'string'
+          ? (it as { originalTeam: string }).originalTeam
           : undefined;
-        if (!owned) owned = assets.picks.find((p) => p.year === yr && p.round === rd);
-        if (owned) filtered.push({ type: 'pick', year: yr, round: rd, originalTeam: owned.originalTeam });
+
+        // Preserve pick identity. If an original team is present, the exact pick must still be owned.
+        // Only legacy entries without an origin may fall back to another owned pick in the same year/round.
+        const owned = reqOrig
+          ? assets.picks.find((p) => p.year === yr && p.round === rd && p.originalTeam === reqOrig)
+          : assets.picks.find((p) => p.year === yr && p.round === rd);
+
+        if (owned) {
+          const key = `pick:${yr}:${rd}:${owned.originalTeam}`;
+          if (!seenAssetKeys.has(key)) {
+            seenAssetKeys.add(key);
+            filtered.push({ type: 'pick', year: yr, round: rd, originalTeam: owned.originalTeam });
+          }
+        }
       }
     } else if (isFaab(it)) {
+      const key = 'faab';
+      if (seenAssetKeys.has(key)) continue;
       const amtRaw = (it as Record<string, unknown>).amount;
       const amt = typeof amtRaw === 'number' ? amtRaw : assets.faab;
       const safe = Math.max(0, Math.min(assets.faab, Number.isFinite(amt) ? amt : 0));
+      seenAssetKeys.add(key);
       filtered.push({ type: 'faab', amount: safe });
     }
   }
