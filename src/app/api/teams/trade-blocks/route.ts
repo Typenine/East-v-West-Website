@@ -21,7 +21,6 @@ export async function GET() {
         try {
           const assets = teamAssetsFromContext(team, tradeCtx);
           const playerSet = new Set<string>(assets.players);
-          const ownedYearRound = new Set<string>(assets.picks.map((p) => `${p.year}-${p.round}`));
           const filtered: TradeAsset[] = [];
           for (const a of tradeBlock) {
             if (a && typeof a === 'object') {
@@ -31,15 +30,17 @@ export async function GET() {
                 const y = (a as { year?: number }).year;
                 const r = (a as { round?: number }).round;
                 if (!(Number.isFinite(y) && Number.isFinite(r))) continue;
-                // Must own some pick with this year+round (origin may vary)
-                const yrKey = `${y}-${r}`;
-                if (!ownedYearRound.has(yrKey)) continue;
-                // Prefer an exact origin match if provided; otherwise fall back to any owned pick of this year+round
-                const reqOrig = (a as { originalTeam?: string }).originalTeam;
-                let match = reqOrig
-                  ? assets.picks.find((p) => p.year === y && p.round === r && p.originalTeam === reqOrig)
+
+                const reqOrig = typeof (a as { originalTeam?: string }).originalTeam === 'string'
+                  ? (a as { originalTeam: string }).originalTeam
                   : undefined;
-                if (!match) match = assets.picks.find((p) => p.year === y && p.round === r);
+
+                // If the saved block names an original team, that exact pick must still be owned.
+                // Do not silently replace a traded-away pick with another pick from the same year/round.
+                const match = reqOrig
+                  ? assets.picks.find((p) => p.year === y && p.round === r && p.originalTeam === reqOrig)
+                  : assets.picks.find((p) => p.year === y && p.round === r);
+
                 if (match) {
                   filtered.push({ type: 'pick', year: y as number, round: r as number, originalTeam: match.originalTeam } as TradeAsset);
                 }
