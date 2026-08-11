@@ -22,10 +22,17 @@ export async function GET() {
           const assets = teamAssetsFromContext(team, tradeCtx);
           const playerSet = new Set<string>(assets.players);
           const filtered: TradeAsset[] = [];
+          const seenAssetKeys = new Set<string>();
+
           for (const a of tradeBlock) {
             if (a && typeof a === 'object') {
               if ((a as TradeAsset).type === 'player' && typeof (a as { playerId?: string }).playerId === 'string') {
-                if (playerSet.has((a as { playerId: string }).playerId)) filtered.push(a);
+                const playerId = (a as { playerId: string }).playerId;
+                const key = `player:${playerId}`;
+                if (playerSet.has(playerId) && !seenAssetKeys.has(key)) {
+                  seenAssetKeys.add(key);
+                  filtered.push(a);
+                }
               } else if ((a as TradeAsset).type === 'pick') {
                 const y = (a as { year?: number }).year;
                 const r = (a as { round?: number }).round;
@@ -42,11 +49,18 @@ export async function GET() {
                   : assets.picks.find((p) => p.year === y && p.round === r);
 
                 if (match) {
-                  filtered.push({ type: 'pick', year: y as number, round: r as number, originalTeam: match.originalTeam } as TradeAsset);
+                  const key = `pick:${y}:${r}:${match.originalTeam}`;
+                  if (!seenAssetKeys.has(key)) {
+                    seenAssetKeys.add(key);
+                    filtered.push({ type: 'pick', year: y as number, round: r as number, originalTeam: match.originalTeam } as TradeAsset);
+                  }
                 }
               } else if ((a as TradeAsset).type === 'faab') {
+                const key = 'faab';
+                if (seenAssetKeys.has(key)) continue;
                 const amt = Number((a as { amount?: number }).amount ?? assets.faab);
                 const safe = Math.max(0, Math.min(assets.faab, Number.isFinite(amt) ? amt : 0));
+                seenAssetKeys.add(key);
                 filtered.push({ type: 'faab', amount: safe } as TradeAsset);
               }
             }
