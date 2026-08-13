@@ -47,8 +47,15 @@ function lookingForValue(report: TradeBlockReportResult): string | null {
   return parts.length > 0 ? parts.join('\n') : null;
 }
 
+function publicSiteRoot(baseUrl: string): string {
+  const configured = process.env.NEXT_PUBLIC_SITE_URL || process.env.SITE_URL;
+  if (configured) return normalizeSiteUrl(configured);
+  if (baseUrl.includes('vercel.app') || baseUrl.includes('eastvswest.win')) return normalizeSiteUrl();
+  return normalizeSiteUrl(baseUrl);
+}
+
 export function tradeBlockTeamUrl(baseUrl: string, teamName: string): string {
-  const root = normalizeSiteUrl(baseUrl);
+  const root = publicSiteRoot(baseUrl);
   return `${root}/trades/block?team=${encodeURIComponent(teamName)}`;
 }
 
@@ -57,7 +64,7 @@ export function tradeBlockTeamElementId(teamName: string): string {
 }
 
 export function absoluteAssetUrl(baseUrl: string, path: string): string {
-  const root = normalizeSiteUrl(baseUrl);
+  const root = publicSiteRoot(baseUrl);
   return `${root}${path.startsWith('/') ? path : `/${path}`}`;
 }
 
