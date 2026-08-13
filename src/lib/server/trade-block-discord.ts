@@ -3,7 +3,8 @@ import { normalizeSiteUrl, type DiscordEmbed } from '@/lib/utils/discord';
 import type { TradeBlockReportResult } from '@/lib/server/trade-block-narrative';
 
 const DISCORD_FIELD_MAX = 1024;
-const MAX_ASSET_LINES = 5;
+const DISCORD_ASSET_FIELD_TARGET = 900;
+const MAX_REMOVED_LINES = 5;
 const MAX_NARRATIVE_CHANGES = 4;
 
 function truncateField(text: string, max = DISCORD_FIELD_MAX): string {
@@ -11,12 +12,35 @@ function truncateField(text: string, max = DISCORD_FIELD_MAX): string {
   return `${text.slice(0, max - 1)}…`;
 }
 
-function bulletList(items: string[], maxItems = MAX_ASSET_LINES): string {
+function cappedBulletList(items: string[], maxItems: number): string {
   if (items.length === 0) return '—';
   const visible = items.slice(0, maxItems).map((item) => `• ${item}`);
   const remaining = items.length - visible.length;
-  if (remaining > 0) visible.push(`• +${remaining} more on the full trade block`);
+  if (remaining > 0) visible.push(`• +${remaining} more removed`);
   return visible.join('\n');
+}
+
+function allAssetBulletFields(items: string[]): string[] {
+  if (items.length === 0) return [];
+
+  const chunks: string[] = [];
+  let current = '';
+
+  for (const item of items) {
+    const line = `• ${item}`;
+    const candidate = current ? `${current}\n${line}` : line;
+
+    if (candidate.length <= DISCORD_ASSET_FIELD_TARGET) {
+      current = candidate;
+      continue;
+    }
+
+    if (current) chunks.push(current);
+    current = truncateField(line, DISCORD_ASSET_FIELD_TARGET);
+  }
+
+  if (current) chunks.push(current);
+  return chunks;
 }
 
 function summarizeLargeUpdate(report: TradeBlockReportResult): string {
@@ -28,7 +52,7 @@ function summarizeLargeUpdate(report: TradeBlockReportResult): string {
     return `${report.teamName} updated its trade preferences.`;
   }
 
-  return `League sources: ${report.teamName} made a trade-block update with ${parts.join(' and ')}. The full list is linked below.`;
+  return `League sources: ${report.teamName} made a trade-block update with ${parts.join(' and ')}. The full trade block is linked below.`;
 }
 
 function lookingForValue(report: TradeBlockReportResult): string | null {
@@ -77,10 +101,11 @@ export function buildTradeBlockDiscordEmbed(
 
   const fields: NonNullable<DiscordEmbed['fields']> = [];
 
-  if (report.added.length > 0) {
+  const addedFields = allAssetBulletFields(report.added);
+  for (let i = 0; i < addedFields.length; i++) {
     fields.push({
-      name: `📤 Added (${report.added.length})`,
-      value: truncateField(bulletList(report.added)),
+      name: i === 0 ? `📤 Added (${report.added.length})` : '📤 Added (continued)',
+      value: addedFields[i],
       inline: false,
     });
   }
@@ -88,7 +113,7 @@ export function buildTradeBlockDiscordEmbed(
   if (report.removed.length > 0) {
     fields.push({
       name: `📥 Removed (${report.removed.length})`,
-      value: truncateField(bulletList(report.removed)),
+      value: truncateField(cappedBulletList(report.removed, MAX_REMOVED_LINES)),
       inline: false,
     });
   }
@@ -106,14 +131,6 @@ export function buildTradeBlockDiscordEmbed(
     fields.push({
       name: '💵 FAAB',
       value: report.faabLabel,
-      inline: true,
-    });
-  }
-
-  if (report.contactLabel) {
-    fields.push({
-      name: '📞 Contact',
-      value: report.contactLabel,
       inline: true,
     });
   }
