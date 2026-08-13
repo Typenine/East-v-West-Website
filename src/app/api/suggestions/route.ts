@@ -2,6 +2,7 @@ import { promises as fs } from 'fs';
 import path from 'path';
 import { sendEmail } from '@/lib/utils/email';
 import { getKV } from '@/lib/server/kv';
+import { normalizeSiteUrl, postToDiscordWebhook } from '@/lib/utils/discord';
 import {
   listSuggestions as dbListSuggestions,
   createSuggestion as dbCreateSuggestion,
@@ -29,8 +30,8 @@ export type Suggestion = {
   title?: string;
   content: string;
   category?: string;
-  createdAt: string; // ISO string
-  ballotAddedAt?: string; // ISO string - when it reached ballot threshold
+  createdAt: string;
+  ballotAddedAt?: string;
   status?: 'draft' | 'open' | 'accepted' | 'rejected';
   resolvedAt?: string;
   sponsorTeam?: string;
@@ -43,75 +44,63 @@ export type Suggestion = {
 };
 
 const DATA_PATH = path.join(process.cwd(), 'data', 'suggestions.json');
-const NOTIFY_EMAIL = process.env.SUGGESTIONS_NOTIFY_EMAIL || 'patrickmmcnulty62@gmail.com';
+const NOTIFY_EMAIL = process.env.SUGGESTIONS_NOTIFY_EMAIL || '';
 const DISCORD_WEBHOOK_URL = process.env.DISCORD_SUGGESTIONS_WEBHOOK_URL;
 const SITE_URL = process.env.SITE_URL;
+const DISCORD_DETAILS_MAX = 900;
 
-// Track posted suggestion IDs to prevent duplicates (in-memory, resets on restart)
 const postedToDiscord = new Set<string>();
+
+function truncateDiscordText(text: string, max = DISCORD_DETAILS_MAX): string {
+  const clean = text.trim();
+  if (clean.length <= max) return clean;
+  return `${clean.slice(0, max - 1).trimEnd()}…`;
+}
 
 async function postToDiscord(suggestion: Suggestion, teamName?: string): Promise<void> {
   if (!DISCORD_WEBHOOK_URL) return;
-  if (postedToDiscord.has(suggestion.id)) return; // idempotent
-  postedToDiscord.add(suggestion.id);
+  if (postedToDiscord.has(suggestion.id)) return;
 
-  // Build stable detail URL (not an anchor)
-  const base = (SITE_URL || '').replace(/\/$/, '');
-  const link = suggestion.id && base ? `${base}/suggestions/${suggestion.id}` : undefined;
+  const base = normalizeSiteUrl(
+    process.env.NEXT_PUBLIC_SITE_URL || SITE_URL || process.env.VERCEL_URL,
+  );
+  const link = `${base}/suggestions/${encodeURIComponent(suggestion.id)}`;
+  const embedTitle = truncateDiscordText(
+    suggestion.title ? `📋 ${suggestion.title}` : '📋 New Suggestion',
+    250,
+  );
 
-  // Title for embed
-  const embedTitle = suggestion.title
-    ? `📋 ${suggestion.title}`
-    : '📋 New Suggestion';
+  const meta: string[] = [];
+  if (suggestion.category) meta.push(`**Category:** ${suggestion.category}`);
+  if (teamName) meta.push(`**Proposed by:** ${teamName}`);
 
-  // Build compact description: category only (no long content dump)
-  let description = '';
-  if (suggestion.category) description += `**Category:** ${suggestion.category}\n`;
-  if (teamName) description += `**Proposed by:** ${teamName}\n`;
-  // Add link inside embed description for visibility
-  if (link) description += `\n🔗 **[View Suggestion](${link})**`;
-
+  const details = truncateDiscordText(suggestion.content) || 'No details provided.';
   const embed = {
     title: embedTitle,
-    description,
+    description: meta.length > 0 ? meta.join('\n') : undefined,
     url: link,
-    color: 0x3b82f6, // blue
+    color: 0x3b82f6,
+    fields: [
+      {
+        name: '📝 Details',
+        value: details,
+        inline: false,
+      },
+      {
+        name: '🔗 View suggestion',
+        value: `[Open the full suggestion on East v. West](${link})`,
+        inline: false,
+      },
+    ],
     timestamp: suggestion.createdAt,
+    footer: { text: 'East v. West · Suggestions' },
   };
 
-  // Plain text link at top level for maximum visibility
-  const plainContent = link
-    ? `📋 **New Suggestion${suggestion.title ? `: ${suggestion.title}` : ''}**\n${link}`
-    : undefined;
-
-  const payload = {
-    content: plainContent,
-    embeds: [embed],
-    allowed_mentions: { parse: [] },
-  };
-
-  const doPost = async (): Promise<Response> => {
-    return fetch(DISCORD_WEBHOOK_URL!, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-  };
-
-  try {
-    let res = await doPost();
-    // Handle rate limit with one retry
-    if (res.status === 429) {
-      const retryAfter = res.headers.get('Retry-After');
-      const delayMs = retryAfter ? parseFloat(retryAfter) * 1000 : 1000;
-      await new Promise((r) => setTimeout(r, Math.min(delayMs, 5000)));
-      res = await doPost();
-    }
-    if (!res.ok) {
-      console.warn('[suggestions] Discord webhook failed', res.status, await res.text().catch(() => ''));
-    }
-  } catch (e) {
-    console.warn('[suggestions] Discord webhook error', e);
+  const result = await postToDiscordWebhook(DISCORD_WEBHOOK_URL, { embeds: [embed] });
+  if (result.success) {
+    postedToDiscord.add(suggestion.id);
+  } else {
+    console.warn('[suggestions] Discord webhook failed', result.error);
   }
 }
 
@@ -166,7 +155,6 @@ async function readSuggestionsLocalAll(): Promise<Suggestion[]> {
 }
 
 export async function GET() {
-  // legacy params ignored
   try {
     const rows = await dbListSuggestions();
     if (Array.isArray(rows) && rows.length > 0) {
@@ -179,63 +167,54 @@ export async function GET() {
         status: (r.status as Suggestion['status']) || 'open',
         resolvedAt: r.resolvedAt ? new Date(r.resolvedAt).toISOString() : undefined,
       } as Suggestion));
-      // Overlay sponsors from DB column if present
       try {
         const dbMap = await getSuggestionSponsorsMap();
         if (dbMap && Object.keys(dbMap).length > 0) {
           items = items.map((it) => ({ ...it, sponsorTeam: dbMap[it.id] || it.sponsorTeam }));
         }
       } catch {}
-      // Overlay titles from DB column if present
       try {
         const tmap = await getSuggestionTitlesMap();
         if (tmap && Object.keys(tmap).length > 0) {
           items = items.map((it) => ({ ...it, title: tmap[it.id] || it.title }));
         }
       } catch {}
-      // Overlay proposers from DB column if present
       try {
         const pmap = await getSuggestionProposersMap();
         if (pmap && Object.keys(pmap).length > 0) {
           items = items.map((it) => ({ ...it, proposerTeam: pmap[it.id] || it.proposerTeam }));
         }
       } catch {}
-      // Overlay vague flags
       try {
         const vmap = await getSuggestionVagueMap();
         if (vmap && Object.keys(vmap).length > 0) {
           items = items.map((it) => ({ ...it, vague: vmap[it.id] ?? it.vague }));
         }
       } catch {}
-      // Overlay endorsements array
       try {
         const emap = await getSuggestionEndorsementsMap();
         if (emap && Object.keys(emap).length > 0) {
           items = items.map((it) => ({ ...it, endorsers: emap[it.id] || it.endorsers }));
         }
       } catch {}
-      // Overlay voteTag map
       try {
         const tmap = await getSuggestionVoteTagsMap();
         if (tmap && Object.keys(tmap).length > 0) {
           items = items.map((it) => ({ ...it, voteTag: (tmap as Record<string, 'voted_on' | 'vote_passed' | 'vote_failed'>)[it.id] || it.voteTag }));
         }
       } catch {}
-      // Overlay group info
       try {
         const gmap = await getSuggestionGroupsMap();
         if (gmap && Object.keys(gmap).length > 0) {
           items = items.map((it) => ({ ...it, groupId: (gmap[it.id]?.groupId) || it.groupId, groupPos: (gmap[it.id]?.groupPos) || it.groupPos }));
         }
       } catch {}
-      // Overlay ballot added timestamps
       try {
         const bmap = await getSuggestionBallotAddedAtMap();
         if (bmap && Object.keys(bmap).length > 0) {
           items = items.map((it) => ({ ...it, ballotAddedAt: bmap[it.id] || it.ballotAddedAt }));
         }
       } catch {}
-      // Overlay sponsor teams from KV map if present
       try {
         const kv = await getKV();
         if (kv) {
@@ -246,7 +225,6 @@ export async function GET() {
           }
         }
       } catch {}
-      // Fallback: overlay sponsorTeam from local suggestions if KV not populated
       try {
         const local = await readSuggestionsLocalAll();
         const smap: Record<string, string | undefined> = {};
@@ -295,13 +273,11 @@ export async function POST(request: Request) {
     type NewItemBody = { content?: string; category?: string; title?: string; rules?: { title?: string; proposal?: string; issue?: string; fix?: string; conclusion?: string } };
     const itemsBodyRaw: NewItemBody[] | null = Array.isArray(body.items) ? (body.items as NewItemBody[]) : null;
 
-    // Multi-item path (grouped submission)
     if (itemsBodyRaw && itemsBodyRaw.length > 0) {
       type NewItem = { content?: string; category?: string; title?: string; endorse?: boolean; rules?: { title?: string; proposal?: string; issue?: string; fix?: string; conclusion?: string; reference?: { title?: string; code?: string }; effective?: string } };
       const itemsParsed: Array<{ content: string; category?: string; title?: string; endorse?: boolean }> = [];
       const itemsRulesMeta: Array<{ ruleLine?: string; effectiveLine?: string; title?: string }> = [];
 
-      // For Rules category, require login
       const hasRulesItem = (itemsBodyRaw as NewItem[]).some((r) => (r.category || '').toLowerCase() === 'rules');
       let rulesIdentTeam: string | undefined;
       if (hasRulesItem) {
@@ -319,7 +295,6 @@ export async function POST(request: Request) {
         if (!cat) {
           return Response.json({ error: 'Category is required for each suggestion.' }, { status: 400 });
         }
-        // If Rules with prompts
         if (cat && cat.toLowerCase() === 'rules' && raw.rules) {
           const ruleTitle = String(raw.rules.title || '').trim();
           if (!ruleTitle) {
@@ -346,7 +321,6 @@ export async function POST(request: Request) {
         } else {
           const text = String(raw.content || '').trim();
           const itemTitle = String(raw.title || '').trim();
-          // Title is required for all new suggestions
           if (!itemTitle) return Response.json({ error: 'Title is required for each suggestion.' }, { status: 400 });
           if (!text || text.length < 3) return Response.json({ error: 'Each item must be at least 3 characters.' }, { status: 400 });
           if (text.length > 5000) return Response.json({ error: 'Item too long (max 5000 chars).' }, { status: 400 });
@@ -356,7 +330,6 @@ export async function POST(request: Request) {
       }
       if (itemsParsed.length === 0) return Response.json({ error: 'No valid items' }, { status: 400 });
 
-      // basic IP rate-limit 10/min
       try {
         const ip = (request.headers.get('x-forwarded-for') || '').split(',')[0].trim() || 'unknown';
         const kv = await getKV();
@@ -368,7 +341,6 @@ export async function POST(request: Request) {
         }
       } catch {}
 
-      // Determine identity once for endorsing items
       let identTeam: string | undefined;
       if ((itemsParsed || []).some((i) => i.endorse)) {
         try {
@@ -381,7 +353,6 @@ export async function POST(request: Request) {
       const created: Suggestion[] = [];
       for (let i = 0; i < itemsParsed.length; i++) {
         const ipt = itemsParsed[i];
-        // DB row
         const s: Suggestion = {
           id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
           title: ipt.title,
@@ -396,28 +367,22 @@ export async function POST(request: Request) {
             s.createdAt = new Date(row.createdAt).toISOString();
           }
         } catch {}
-        // Persist title if provided
         try { if (s.id && (ipt.title || '').trim()) { await setSuggestionTitle(s.id, ipt.title!.trim()); } } catch {}
-        // Persist proposer for Rules items if logged-in Rules submitter exists
         try {
           if (s.id && (ipt.category || '').toLowerCase() === 'rules' && rulesIdentTeam) {
             await setSuggestionProposer(s.id, rulesIdentTeam);
             s.proposerTeam = rulesIdentTeam;
           }
         } catch {}
-        // Persist proposer/sponsor and endorsement
-        // Prevent self-endorsement for Rules submissions at creation time
         const isRulesItem = (ipt.category || '').toLowerCase() === 'rules';
         const endorseThis = Boolean(itemsParsed[i]?.endorse) && Boolean(identTeam) && !isRulesItem;
         try { if (endorseThis && s.id) await setSuggestionSponsor(s.id, identTeam!); } catch {}
         try { if (endorseThis && s.id) await setSuggestionProposer(s.id, identTeam!); } catch {}
         try { if (endorseThis && s.id) await addSuggestionEndorsement(s.id, identTeam!); } catch {}
-        // Group assignment
         try { if (s.id) await setSuggestionGroup(s.id, groupId, i + 1); s.groupId = groupId; s.groupPos = i + 1; } catch {}
         created.push(s);
       }
 
-      // Try to persist a local/log copy (best-effort) and KV sponsor cache
       try {
         const arr = await readSuggestions();
         for (const s of created) arr.push(s);
@@ -439,29 +404,28 @@ export async function POST(request: Request) {
         }
       } catch {}
 
-      // Notify email
-      try {
-        const lines = created.map((s, idx) => `#${idx + 1}${s.category ? ` [${s.category}]` : ''}: ${s.content.slice(0, 240)}${s.content.length > 240 ? '…' : ''}`).join('\n\n');
-        await sendEmail({
-          to: NOTIFY_EMAIL,
-          subject: `New suggestions (${created.length})`,
-          text: `A new suggestion group was submitted at ${created[0]?.createdAt}. Items: ${created.length}.\n\n${lines}`,
-          html: `<p>A new suggestion group was submitted at <strong>${created[0]?.createdAt}</strong>. Items: <strong>${created.length}</strong>.</p>`
-            + created.map((s, idx) => `<p><strong>#${idx + 1}${s.category ? ` [${s.category}]` : ''}</strong></p><pre style="white-space:pre-wrap;word-wrap:break-word;font-family:ui-monospace,Menlo,Monaco,Consolas,monospace">${s.content.replace(/</g,'&lt;')}</pre>`).join('')
-        });
-      } catch (e) {
-        console.warn('[suggestions] notify email failed', e);
+      if (NOTIFY_EMAIL) {
+        try {
+          const lines = created.map((s, idx) => `#${idx + 1}${s.category ? ` [${s.category}]` : ''}: ${s.content.slice(0, 240)}${s.content.length > 240 ? '…' : ''}`).join('\n\n');
+          await sendEmail({
+            to: NOTIFY_EMAIL,
+            subject: `New suggestions (${created.length})`,
+            text: `A new suggestion group was submitted at ${created[0]?.createdAt}. Items: ${created.length}.\n\n${lines}`,
+            html: `<p>A new suggestion group was submitted at <strong>${created[0]?.createdAt}</strong>. Items: <strong>${created.length}</strong>.</p>`
+              + created.map((s, idx) => `<p><strong>#${idx + 1}${s.category ? ` [${s.category}]` : ''}</strong></p><pre style="white-space:pre-wrap;word-wrap:break-word;font-family:ui-monospace,Menlo,Monaco,Consolas,monospace">${s.content.replace(/</g,'&lt;')}</pre>`).join('')
+          });
+        } catch (e) {
+          console.warn('[suggestions] notify email failed', e);
+        }
       }
 
-      // Discord webhook (best-effort, non-blocking)
       for (const s of created) {
-        postToDiscord(s, identTeam).catch(() => {});
+        postToDiscord(s, s.proposerTeam || identTeam || rulesIdentTeam).catch(() => {});
       }
 
       return Response.json({ ok: true, groupId, items: created }, { status: 201 });
     }
 
-    // Single-item legacy path
     if (!category || !category.trim()) {
       return Response.json({ error: 'Category is required.' }, { status: 400 });
     }
@@ -472,7 +436,6 @@ export async function POST(request: Request) {
       return Response.json({ error: 'Content too long (max 5000 chars).' }, { status: 400 });
     }
 
-    // basic IP rate-limit 10/min
     try {
       const ip = (request.headers.get('x-forwarded-for') || '').split(',')[0].trim() || 'unknown';
       const kv = await getKV();
@@ -491,7 +454,6 @@ export async function POST(request: Request) {
       category: category && category.length > 0 ? category : undefined,
       createdAt: now,
     };
-    // If endorsing and authenticated, attach sponsorTeam via KV map
     let sponsorTeam: string | undefined;
     let proposerTeam: string | undefined;
     if (endorse) {
@@ -499,11 +461,10 @@ export async function POST(request: Request) {
         const ident = await requireTeamUser();
         if (ident && ident.team) {
           sponsorTeam = ident.team;
-          proposerTeam = ident.team; // reveal proposer only when they opt-in by endorsing
+          proposerTeam = ident.team;
         }
       } catch {}
     }
-    // DB first
     try {
       const row = await dbCreateSuggestion({ userId: null, text: item.content, category: item.category || null });
       if (row && row.id) {
@@ -511,29 +472,23 @@ export async function POST(request: Request) {
         item.createdAt = new Date(row.createdAt).toISOString();
       }
     } catch {}
-    // No title supported on single-item legacy path currently
 
     try {
       const items = await readSuggestions();
-      // persist sponsorTeam too when present
       if (sponsorTeam) item.sponsorTeam = sponsorTeam;
       if (proposerTeam) item.proposerTeam = proposerTeam;
       items.push(item);
       await writeSuggestions(items);
     } catch {}
-    // Persist sponsor in DB (authoritative)
     try {
       if (sponsorTeam && item.id) await setSuggestionSponsor(item.id, sponsorTeam);
     } catch {}
-    // Persist proposer in DB (authoritative)
     try {
       if (proposerTeam && item.id) await setSuggestionProposer(item.id, proposerTeam);
     } catch {}
-    // Add endorsement record for endorsing team
     try {
       if (sponsorTeam && item.id) await addSuggestionEndorsement(item.id, sponsorTeam);
     } catch {}
-    // Record sponsor team in KV map (best-effort caching)
     try {
       if (sponsorTeam) {
         const kv = await getKV();
@@ -546,20 +501,21 @@ export async function POST(request: Request) {
         }
       }
     } catch {}
-    // Fire notification email (best-effort)
-    try {
-      await sendEmail({
-        to: NOTIFY_EMAIL,
-        subject: `New suggestion${item.category ? ` (${item.category})` : ''}`,
-        text: `A new suggestion was submitted at ${item.createdAt}.\n\nCategory: ${item.category || 'N/A'}\n\n${item.content}`,
-        html: `<p>A new suggestion was submitted at <strong>${item.createdAt}</strong>.</p><p><strong>Category:</strong> ${item.category || 'N/A'}</p><pre style="white-space:pre-wrap;word-wrap:break-word;font-family:ui-monospace,Menlo,Monaco,Consolas,monospace">${item.content.replace(/</g,'&lt;')}</pre>`
-      });
-    } catch (e) {
-      console.warn('[suggestions] notify email failed', e);
+
+    if (NOTIFY_EMAIL) {
+      try {
+        await sendEmail({
+          to: NOTIFY_EMAIL,
+          subject: `New suggestion${item.category ? ` (${item.category})` : ''}`,
+          text: `A new suggestion was submitted at ${item.createdAt}.\n\nCategory: ${item.category || 'N/A'}\n\n${item.content}`,
+          html: `<p>A new suggestion was submitted at <strong>${item.createdAt}</strong>.</p><p><strong>Category:</strong> ${item.category || 'N/A'}</p><pre style="white-space:pre-wrap;word-wrap:break-word;font-family:ui-monospace,Menlo,Monaco,Consolas,monospace">${item.content.replace(/</g,'&lt;')}</pre>`
+        });
+      } catch (e) {
+        console.warn('[suggestions] notify email failed', e);
+      }
     }
 
-    // Discord webhook (best-effort, non-blocking)
-    postToDiscord(item, sponsorTeam).catch(() => {});
+    postToDiscord(item, proposerTeam || sponsorTeam).catch(() => {});
 
     return Response.json(item, { status: 201 });
   } catch (e: unknown) {
