@@ -483,138 +483,89 @@ const TEMPLATES = {
     "According to sources, the {team} are looking for {positions} help and {picks} to come back.",
     "Per league insiders, the {team} want to acquire {positions} and also land {picks}.",
     "I'm told the {team} are hoping to get {positions} in return alongside {picks}.",
-    "League sources say the {team} are targeting both {positions} and {picks}. Per sources, they want immediate help plus future assets.",
-  ],
-  marketContext: [
-    "Notably, {count} {plural} currently {verb} {asset}.",
-    "Worth noting: {count} {plural} {verb} {asset}.",
+    "League sources say the {team} are targeting both {positions} and {picks}. Per sources, they want immediate help plus future capital.",
   ],
   headliner: [
-    "The team also has {headliners} on the block.",
-    "Also available: {headliners}.",
-    "The team's other notable assets include {headliners}.",
-    "Among the other names on the block: {headliners}.",
-    "The team is also listening on {headliners}.",
+    "Other notable asset{plural} currently available: {headliners}.",
+    "Also on the market: {headliners}.",
+    "The block also includes {headliners}.",
+    "Among the other names available {verb} {headliners}.",
+  ],
+  marketContext: [
+    "Around the league, {count} {plural} {verb} {asset}.",
+    "There's a market for it: {count} {plural} {verb} {asset}.",
+    "Worth noting, {count} {plural} {verb} {asset} right now.",
   ],
 };
 
-const VERBS_ADD = [
-  'have made available',
-  'have put on the block',
-  'are making available',
-  'are listening on',
-];
-
-const VERBS_REMOVE = [
-  'are pulling back on',
-  'are no longer shopping',
-  'have taken off the block',
-  'are keeping',
-  'have decided to hold onto',
-  'are reluctant to move',
-  'have shut down talks on',
-  'are no longer entertaining offers for',
-  'have removed from availability',
-  'are standing pat on',
-  'have closed the door on moving',
-  'are backing off talks for',
-  'have pulled from trade discussions',
-  'are now holding onto',
-  'have decided against dealing',
-  'are no longer willing to part with',
-  'have ended discussions on',
-  'are keeping off the market',
-];
-
-const VERBS_PICK_ADD = [
-  'are making available',
-  'are open to moving',
-  'are willing to part with',
-  'have added to the block',
-  'are shopping',
-  'are listening on',
-  'have put in play',
-  'are fielding calls on',
-  'are open to dealing',
-  'have signaled willingness to move',
-  'are entertaining offers for',
-  'are willing to discuss',
-];
-
-const VERBS_PICK_REMOVE = [
-  'are pulling back on',
-  'are keeping',
-  'are no longer shopping',
-  'have taken off the table',
-  'are holding onto',
-  'have shut down talks on',
-  'are no longer willing to move',
-  'have removed from availability',
-];
-
 const OPENERS = [
-  'Breaking news:',
-  'Latest intel:',
-  'Just in:',
-  'Hearing this morning:',
-  'Developing story:',
-  'Per my sources:',
-  'League update:',
-  'Trade block news:',
-  'Sources across the league tell me:',
-  'Getting word that:',
-  'Multiple sources confirm:',
-  'The latest from around the league:',
-  'Big news:',
-  'Important development:',
+  'Breaking:',
+  'The latest:',
+  'Trade market update:',
+  'From around the league:',
 ];
 
 const CLOSERS = [
-  'More to come as this develops.',
-  'Situation remains fluid.',
-  'Will monitor closely.',
-  'Stay tuned for updates.',
-  'Expect more movement soon.',
-  'Things are heating up.',
-  'Worth watching closely.',
-  'Developing situation.',
-  'This could get interesting.',
-  'Keep an eye on this.',
-  'More details to follow.',
+  'More to come as talks develop.',
+  'The market will determine how aggressive they get.',
+  'Expect conversations to continue.',
+  'This is one to watch as the market develops.',
 ];
 
 const TRANSITIONS = [
-  'Meanwhile,',
-  'Additionally,',
-  'In other news,',
-  'On another front,',
-  'Separately,',
-  'Also worth noting:',
-  'At the same time,',
-  'On a related note,',
+  'On the draft-capital side,',
+  'As for picks,',
+  'There is also movement on the pick front:',
+];
+
+const VERBS_ADD = [
+  'have made available',
+  'are listening on',
+  'are open to moving',
+  'have put on the trade block',
+  'are shopping',
+];
+
+const VERBS_REMOVE = [
+  'have pulled off the block',
+  'are no longer shopping',
+  'have taken off the market',
+  'are holding onto',
+];
+
+const VERBS_PICK_ADD = [
+  'are willing to move',
+  'have made available',
+  'are listening on',
+  'are open to dealing',
+];
+
+const VERBS_PICK_REMOVE = [
+  'are no longer moving',
+  'have pulled off the block',
+  'are holding onto',
+  'have taken off the market',
 ];
 
 function formatList(items: string[]): string {
-  if (items.length === 0) return '';
-  if (items.length === 1) return items[0];
+  if (items.length <= 1) return items[0] || '';
   if (items.length === 2) return `${items[0]} and ${items[1]}`;
-  return items.slice(0, -1).join(', ') + ' and ' + items[items.length - 1];
+  return `${items.slice(0, -1).join(', ')}, and ${items[items.length - 1]}`;
 }
 
 function formatPickTags(tags: string[]): string[] {
-  return tags.map(tag => {
+  return tags.map((tag) => {
     const upper = tag.toUpperCase();
-    if (upper === '1ST') return '1st round picks';
-    if (upper === '2ND') return '2nd round picks';
-    if (upper === '3RD') return '3rd round picks';
-    return `${tag} round picks`;
+    if (upper === '1ST') return '1st-round picks';
+    if (upper === '2ND') return '2nd-round picks';
+    if (upper === '3RD') return '3rd-round picks';
+    return tag;
   });
 }
 
 export async function getLeagueMarketContext(): Promise<LeagueMarketContext> {
-  const { listAllUserDocs } = await import('@/server/db/queries');
-  const allDocs = await listAllUserDocs().catch(() => []);
-  
+  const { listAllUserDocs } = await import('@/server/db/queries.fixed');
+  const allDocs = await listAllUserDocs();
   const teamsSeekingPositions: Record<string, number> = {};
   const teamsSeekingPickRounds: Record<string, number> = {};
   
@@ -989,5 +940,5 @@ export function getTradeBlockBaseUrl(): string | null {
   const siteUrl = process.env.NEXT_PUBLIC_SITE_URL?.trim();
   if (siteUrl) return siteUrl.replace(/\/$/, '');
   if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`;
-  return 'https://eastvswest.win';
+  return 'https://east-v-west.com';
 }
