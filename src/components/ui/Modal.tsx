@@ -80,7 +80,7 @@ export function Modal({
   return (
     <div className="fixed inset-0 z-50">
       <div
-        className="fixed inset-0 bg-black/50"
+        className="fixed inset-0 bg-black/60 backdrop-blur-[2px]"
         aria-hidden="true"
         onClick={onClose}
       />
@@ -92,13 +92,24 @@ export function Modal({
             aria-modal="true"
             aria-labelledby={title ? titleIdRef.current : undefined}
             tabIndex={-1}
-            className={`evw-surface border border-[var(--border)] rounded-[var(--radius-card)] shadow-[var(--shadow-soft)] w-full ${SIZE_CLASSES[size]} outline-none`}
+            className={`overflow-hidden rounded-2xl w-full ${SIZE_CLASSES[size]} outline-none`}
+            style={{
+              background: 'var(--panel-card)',
+              boxShadow: 'inset 0 0 0 1px var(--panel-border), var(--panel-shadow)',
+            }}
             onClick={(e) => e.stopPropagation()}
           >
+            <div className="h-[3px] w-full" style={{ background: 'var(--accent)' }} aria-hidden="true" />
             {(title || showClose) && (
-              <div className="px-4 py-3 border-b border-[var(--border)] flex items-center justify-between gap-3">
+              <div
+                className="px-4 py-3 sm:px-6 flex items-center justify-between gap-3"
+                style={{ background: 'var(--panel-header-bg)', borderBottom: '1px solid var(--panel-hairline)' }}
+              >
                 {title ? (
-                  <h3 id={titleIdRef.current} className="text-base font-semibold text-[var(--text)]">
+                  <h3
+                    id={titleIdRef.current}
+                    className="text-xs font-extrabold uppercase tracking-[0.2em] text-[var(--panel-text)]"
+                  >
                     {title}
                   </h3>
                 ) : <span />}
@@ -107,14 +118,14 @@ export function Modal({
                     type="button"
                     aria-label="Close"
                     onClick={onClose}
-                    className="text-[var(--muted)] hover:text-[var(--text)] px-2 py-1 rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-strong, #0b5f98)]"
+                    className="text-[var(--panel-muted)] hover:text-[var(--panel-text)] hover:bg-[var(--panel-tint-soft)] px-2 py-1 rounded transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
                   >
                     ×
                   </button>
                 )}
               </div>
             )}
-            <div className="p-4">{children}</div>
+            <div className="p-4 sm:p-6">{children}</div>
           </div>
         </div>
       </div>

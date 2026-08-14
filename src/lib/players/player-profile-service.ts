@@ -29,6 +29,7 @@ import {
 } from '@/lib/utils/sleeper-api';
 import { CURRENT_SEASON, LEAGUE_IDS, getLeagueIdForSeason } from '@/lib/constants/league';
 import { resolveCanonicalTeamName } from '@/lib/utils/team-utils';
+import { getKV } from '@/lib/server/kv';
 import { buildFranchiseCareers, buildSeasonHistory, buildWeeklyHistory, type SeasonWeeklyPlayerPoints } from './player-history';
 import type {
   PlayerCurrentStatus,
@@ -66,18 +67,74 @@ interface SeasonContext {
  * Per-season data needed to build ANY player's profile is identical (weekly matchup
  * attribution, teams, draft picks, transactions) — only the per-player filtering differs.
  * We cache it here, keyed by season, so viewing many different player profiles back-to-back
- * doesn't repeat the same ~20 season-wide Sleeper fetches for every single player.
+ * — even entirely different players — doesn't repeat the same ~20 season-wide Sleeper
+ * fetches for every single profile view.
+ *
+ * Two layers:
+ *  - In-memory (this process only): near-instant, but wiped on cold start and not shared
+ *    across serverless instances.
+ *  - KV (shared, persistent): survives cold starts and is shared by every instance, so the
+ *    first profile view of the day pays for the season-wide fetch and every other profile
+ *    view — of any player — reads the cached copy instead of hitting Sleeper again.
+ * The current season is refreshed daily since scores/trades change during the week; past
+ * seasons are final and cached far longer since they can't change.
  */
-const SEASON_CONTEXT_TTL_MS = 5 * 60 * 1000;
-const seasonContextCache = new Map<string, { ts: number; data: SeasonContext | null }>();
+const SEASON_CONTEXT_MEMORY_TTL_MS = 5 * 60 * 1000;
+const CURRENT_SEASON_KV_TTL_MS = 24 * 60 * 60 * 1000; // 1 day — this season's data still moves.
+const PAST_SEASON_KV_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days — finished seasons are static.
+const SEASON_CONTEXT_KV_VERSION = 'v1';
+
+const seasonContextMemoryCache = new Map<string, { ts: number; data: SeasonContext | null }>();
+
+function seasonContextKvKey(season: string): string {
+  return `player-profile:season-context:${SEASON_CONTEXT_KV_VERSION}:${season}`;
+}
+
+function seasonContextKvTtlMs(season: string): number {
+  return season === CURRENT_SEASON ? CURRENT_SEASON_KV_TTL_MS : PAST_SEASON_KV_TTL_MS;
+}
+
+async function readSeasonContextFromKv(season: string): Promise<{ ts: number; data: SeasonContext | null } | null> {
+  try {
+    const kv = await getKV();
+    if (!kv) return null;
+    const raw = await kv.get(seasonContextKvKey(season));
+    if (!raw || typeof raw !== 'string') return null;
+    const parsed = JSON.parse(raw) as { ts: number; data: SeasonContext | null };
+    if (Date.now() - parsed.ts >= seasonContextKvTtlMs(season)) return null;
+    return parsed;
+  } catch {
+    return null; // KV is a best-effort accelerator — fall through to a live fetch on any failure.
+  }
+}
+
+async function writeSeasonContextToKv(season: string, entry: { ts: number; data: SeasonContext | null }): Promise<void> {
+  try {
+    const kv = await getKV();
+    if (!kv) return;
+    const key = seasonContextKvKey(season);
+    await kv.set(key, JSON.stringify(entry));
+    if (kv.expire) await kv.expire(key, Math.ceil(seasonContextKvTtlMs(season) / 1000));
+  } catch {
+    /* best-effort persistent cache — in-memory cache and live fetch still work without it */
+  }
+}
 
 async function loadSeasonContext(season: string): Promise<SeasonContext | null> {
-  const cached = seasonContextCache.get(season);
-  if (cached && Date.now() - cached.ts < SEASON_CONTEXT_TTL_MS) return cached.data;
+  const memCached = seasonContextMemoryCache.get(season);
+  if (memCached && Date.now() - memCached.ts < SEASON_CONTEXT_MEMORY_TTL_MS) return memCached.data;
+
+  const kvCached = await readSeasonContextFromKv(season);
+  if (kvCached) {
+    seasonContextMemoryCache.set(season, kvCached);
+    return kvCached.data;
+  }
 
   const leagueId = getLeagueIdForSeason(season);
   if (!leagueId) {
-    seasonContextCache.set(season, { ts: Date.now(), data: null });
+    const entry = { ts: Date.now(), data: null };
+    seasonContextMemoryCache.set(season, entry);
+    await writeSeasonContextToKv(season, entry);
     return null;
   }
 
@@ -99,7 +156,9 @@ async function loadSeasonContext(season: string): Promise<SeasonContext | null> 
   const draftPicks = draftPicksBySeason.flat();
 
   const data: SeasonContext = { season, leagueId, teams, weeklyAttribution, nflTotals, draftPicks, transactions };
-  seasonContextCache.set(season, { ts: Date.now(), data });
+  const entry = { ts: Date.now(), data };
+  seasonContextMemoryCache.set(season, entry);
+  await writeSeasonContextToKv(season, entry);
   return data;
 }
 
