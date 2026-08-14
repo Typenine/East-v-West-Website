@@ -5,6 +5,7 @@ import Image from 'next/image';
 import { getTeamLogoPath } from '@/lib/utils/team-utils';
 import { LEAGUE_IDS } from '@/lib/constants/league';
 import { normalizeTeamCode } from '@/lib/constants/nfl-teams';
+import PlayerLink from '@/components/players/PlayerLink';
 
 export type PlayerBasic = {
   id: string;
@@ -220,7 +221,9 @@ export default function PlayerDrawer({ open, onClose, player, season, week, curr
             <Image src={getTeamLogoPath(player.team || '')} alt={player.team || ''} width={32} height={32} className="object-contain" />
           </div>
           <div className="min-w-0">
-            <div className="font-semibold truncate">{player.name}</div>
+            <div className="font-semibold truncate">
+              <PlayerLink playerId={player.id}>{player.name}</PlayerLink>
+            </div>
             <div className="text-xs text-[var(--muted)]">{player.pos || '—'} • {player.team || 'FA'}</div>
           </div>
           <button className="ml-auto text-sm px-3 py-1 rounded-md border border-[var(--border)] hover:bg-black/10" onClick={onClose}>Close</button>

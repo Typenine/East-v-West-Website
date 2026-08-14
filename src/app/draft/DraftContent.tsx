@@ -10,6 +10,7 @@ import LoadingState from '@/components/ui/loading-state';
 import ErrorState from '@/components/ui/error-state';
 import { getLeagueDrafts, getDraftPicks, getTeamsData, getAllPlayers, SleeperPlayer } from '@/lib/utils/sleeper-api';
 import SectionHeader from '@/components/ui/SectionHeader';
+import PlayerLink from '@/components/players/PlayerLink';
 import { Tabs } from '@/components/ui/Tabs';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import Label from '@/components/ui/Label';
@@ -28,7 +29,7 @@ import DraftTravelSubtab from '@/components/draft/DraftTravelSubtab';
 // Draft data types
 type TeamHaul = {
   team: string;
-  picks: { round: number; pick: number; player: string; price?: number }[];
+  picks: { round: number; pick: number; player: string; playerId?: string; price?: number }[];
 };
 
 type LinearPick = {
@@ -37,6 +38,7 @@ type LinearPick = {
   pick: number; // pick within round
   team: string;
   player: string;
+  playerId?: string;
   price?: number;
   pos?: string;
 };
@@ -185,7 +187,7 @@ export default function DraftContent() {
         const rounds = picks.reduce((max, p) => Math.max(max, p.round), 0);
         const picksInRound1 = picks.filter(p => p.round === 1).length || teams.length;
 
-        const byTeam = new Map<number, { round: number; pick: number; player: string; price?: number }[]>();
+        const byTeam = new Map<number, { round: number; pick: number; player: string; playerId?: string; price?: number }[]>();
         const rosterIdToTeam = new Map<number, string>(teams.map(t => [t.rosterId, t.teamName]));
         const linearPicks: LinearPick[] = [];
         for (const p of picks) {
@@ -201,14 +203,14 @@ export default function DraftContent() {
           const rootAmountRaw = anyPick?.amount ?? anyPick?.price;
           const rootAmount = typeof rootAmountRaw === 'string' ? Number(rootAmountRaw) : (typeof rootAmountRaw === 'number' ? rootAmountRaw : undefined);
           const price = Number.isFinite(metaAmount) ? (metaAmount as number) : (Number.isFinite(rootAmount) ? (rootAmount as number) : undefined);
-          arr.push({ round: p.round, pick: p.draft_slot, player: name, price });
+          arr.push({ round: p.round, pick: p.draft_slot, player: name, playerId: p.player_id, price });
           byTeam.set(p.roster_id, arr);
 
           const teamName = rosterIdToTeam.get(p.roster_id) || 'Unknown Team';
           const overall = (typeof p.pick_no === 'number' && Number.isFinite(p.pick_no))
             ? (p.pick_no as number)
             : ((p.round - 1) * picksInRound1 + p.draft_slot);
-          linearPicks.push({ pick_no: overall, round: p.round, pick: p.draft_slot, team: teamName, player: name, price, pos: player?.position });
+          linearPicks.push({ pick_no: overall, round: p.round, pick: p.draft_slot, team: teamName, player: name, playerId: p.player_id, price, pos: player?.position });
         }
 
         const team_hauls: TeamHaul[] = [];
@@ -532,7 +534,13 @@ export default function DraftContent() {
                                       <ul className="space-y-1">
                                         {teamHaul.picks.map((pick, pickIndex) => (
                                           <li key={pickIndex} className="text-sm">
-                                            {`Round ${pick.round}, Pick ${pick.pick}: ${pick.player}${selectedYear === '2023' && draftsByYear[selectedYear]?.isAuction && pick.price != null ? ` — $${pick.price}` : ''}`}
+                                            {`Round ${pick.round}, Pick ${pick.pick}: `}
+                                            {pick.playerId ? (
+                                              <PlayerLink playerId={pick.playerId}>{pick.player}</PlayerLink>
+                                            ) : (
+                                              pick.player
+                                            )}
+                                            {selectedYear === '2023' && draftsByYear[selectedYear]?.isAuction && pick.price != null ? ` — $${pick.price}` : ''}
                                           </li>
                                         ))}
                                       </ul>
@@ -602,7 +610,9 @@ export default function DraftContent() {
                                                       <span className="text-sm whitespace-nowrap opacity-90 font-semibold">{`Pick ${p.pick_no} • Rd ${p.round}, Pk ${p.pick}`}</span>
                                                     </div>
                                                     <div className="text-sm truncate">
-                                                      <span className="truncate inline-block max-w-full align-middle">{p.player}</span>
+                                                      <span className="truncate inline-block max-w-full align-middle">
+                                                        {p.playerId ? <PlayerLink playerId={p.playerId}>{p.player}</PlayerLink> : p.player}
+                                                      </span>
                                                       {p.pos && (
                                                         <span
                                                           className="ml-2 align-middle px-1.5 py-0.5 rounded text-[10px]"

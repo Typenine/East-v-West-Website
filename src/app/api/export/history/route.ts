@@ -20,6 +20,7 @@ import {
   type TeamData,
   type SleeperBracketGameWithScore,
   buildYearToLeagueMapUnique,
+  buildSeasonPlayerWeeklyAttribution,
 } from '@/lib/utils/sleeper-api';
 import { getHeadToHeadAllTime } from '@/lib/utils/headtohead';
 
@@ -147,19 +148,9 @@ export async function GET() {
 
       const logs: MatchupLogEntry[] = [];
 
-      // Player weekly stats for this season; weeks are 1-based keys as strings
-      const seasonPlayerWeekly: Record<string, Record<string, PlayerWeeklyStat>> = {};
-
       allWeekMatchups.forEach((weekMatchups, idx) => {
         const week = idx + 1;
         if (!weekMatchups || weekMatchups.length === 0) return;
-
-        const weekKey = String(week);
-        let statsForWeek = seasonPlayerWeekly[weekKey];
-        if (!statsForWeek) {
-          statsForWeek = {};
-          seasonPlayerWeekly[weekKey] = statsForWeek;
-        }
 
         const byId = new Map<number, SleeperMatchup[]>();
         for (const m of weekMatchups) {
@@ -186,30 +177,26 @@ export async function GET() {
             awayPoints: aPts,
           });
         }
-
-        // Accumulate per-player weekly fantasy points from players_points
-        for (const m of weekMatchups) {
-          const pointsMap = (m.players_points || {}) as Record<string, number>;
-          const rosterId = m.roster_id;
-          const teamName = rosterIdToName.get(rosterId) ?? `Roster ${rosterId}`;
-          for (const [pid, raw] of Object.entries(pointsMap)) {
-            const pts = Number(raw);
-            if (!Number.isFinite(pts)) continue;
-            const existing = statsForWeek[pid];
-            if (existing) {
-              existing.points = Number((existing.points + pts).toFixed(4));
-            } else {
-              statsForWeek[pid] = {
-                points: pts,
-                team: teamName,
-                rosterId,
-              };
-            }
-          }
-        }
       });
 
       matchupLogsBySeason[season] = logs;
+
+      // Player weekly stats for this season, keyed by week then player id. Reuses the
+      // same weekly players_points attribution as the player profile service so both
+      // consume identical numbers.
+      const weeklyAttribution = await buildSeasonPlayerWeeklyAttribution(leagueId, 17, optsCached);
+      const seasonPlayerWeekly: Record<string, Record<string, PlayerWeeklyStat>> = {};
+      for (const [weekKey, statsForWeek] of Object.entries(weeklyAttribution)) {
+        const out: Record<string, PlayerWeeklyStat> = {};
+        for (const [pid, stat] of Object.entries(statsForWeek)) {
+          out[pid] = {
+            points: Number(stat.points.toFixed(4)),
+            team: rosterIdToName.get(stat.rosterId) ?? `Roster ${stat.rosterId}`,
+            rosterId: stat.rosterId,
+          };
+        }
+        seasonPlayerWeekly[weekKey] = out;
+      }
 
       playerWeeklyStats[season] = seasonPlayerWeekly;
 

@@ -6,6 +6,10 @@ import {
 } from '@/components/ui/BroadcastPanel';
 import { PANEL, teamAccent } from '@/lib/ui/broadcast-styles';
 import { formatTransactionDate, transactionTypeLabel } from '@/components/transactions/transaction-format';
+import PlayerLink from '@/components/players/PlayerLink';
+
+/** Trade draft-pick assets are represented with a synthetic `pick-...` id, not a real Sleeper player id. */
+const isRealPlayerId = (playerId: string) => !!playerId && !playerId.startsWith('pick-');
 
 export default function TransactionCard({ txn }: { txn: LeagueTransaction }) {
   const accentTeam = txn.type === 'trade' ? txn.teamsInvolved[0] || txn.team : txn.team;
@@ -99,7 +103,11 @@ export default function TransactionCard({ txn }: { txn: LeagueTransaction }) {
                   </BroadcastAccentBadge>
                   <div className="min-w-0 flex-1">
                     <div className="text-sm font-semibold leading-5" style={{ color: PANEL.text }}>
-                      {player.name ?? player.playerId}
+                      {isRealPlayerId(player.playerId) ? (
+                        <PlayerLink playerId={player.playerId}>{player.name ?? player.playerId}</PlayerLink>
+                      ) : (
+                        player.name ?? player.playerId
+                      )}
                       {player.nflTeam ? (
                         <span className="ml-1.5 text-xs font-medium" style={{ color: PANEL.faint }}>
                           {player.nflTeam}
@@ -127,7 +135,11 @@ export default function TransactionCard({ txn }: { txn: LeagueTransaction }) {
                   </BroadcastAccentBadge>
                   <div className="min-w-0 flex-1">
                     <div className="text-sm font-medium leading-5" style={{ color: PANEL.muted }}>
-                      {player.name ?? player.playerId}
+                      {isRealPlayerId(player.playerId) ? (
+                        <PlayerLink playerId={player.playerId}>{player.name ?? player.playerId}</PlayerLink>
+                      ) : (
+                        player.name ?? player.playerId
+                      )}
                       {player.nflTeam ? (
                         <span className="ml-1.5 text-xs" style={{ color: PANEL.faint }}>
                           {player.nflTeam}

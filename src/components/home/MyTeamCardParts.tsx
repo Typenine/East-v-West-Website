@@ -9,6 +9,7 @@ import type {
   TeamDashboardPlayer,
   TeamDashboardSeverity,
 } from '@/lib/home/team-dashboard-types';
+import PlayerLink from '@/components/players/PlayerLink';
 
 export const TEAM_STATUS_META: Record<
   TeamDashboardSeverity,
@@ -188,7 +189,7 @@ export function TeamPlayerTile({
       </div>
       <div className="min-w-0 flex-1">
         <div className="text-xs font-bold truncate" style={broadcastBodyTextStyle}>
-          {player.name}
+          <PlayerLink playerId={player.id}>{player.name}</PlayerLink>
         </div>
         <div className="text-[10px] truncate" style={broadcastFaintTextStyle}>
           {player.position}

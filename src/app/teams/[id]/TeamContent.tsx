@@ -34,6 +34,7 @@ import Modal from '@/components/ui/Modal';
 import Button from '@/components/ui/Button';
 import Chip from '@/components/ui/Chip';
 import StatCard from '@/components/ui/StatCard';
+import PlayerLink from '@/components/players/PlayerLink';
 
 // Position grouping order for roster sections
 const POSITION_GROUP_ORDER = ['QB', 'RB', 'WR', 'TE', 'K', 'DEF/DST', 'DL', 'LB', 'DB', 'Other'] as const;
@@ -1331,7 +1332,9 @@ export default function TeamContent() {
                               {taxi.current.taxi.map((p) => (
                                 <Tr key={p.playerId} style={{ borderLeft: `3px solid ${teamColors.primary}` }}>
                                   <Td>
-                                    <div className="text-sm text-[var(--text)]">{p.name || p.playerId}</div>
+                                    <div className="text-sm text-[var(--text)]">
+                                      <PlayerLink playerId={p.playerId}>{p.name || p.playerId}</PlayerLink>
+                                    </div>
                                   </Td>
                                   <Td>
                                     <div className="text-sm text-[var(--muted)]">{p.position || '—'}</div>
@@ -1575,7 +1578,9 @@ export default function TeamContent() {
                               }).map(p => (
                                 <div key={p.playerId} className="flex items-center gap-2 text-sm py-1 border-b border-[var(--border)]" style={{ borderLeft: `3px solid ${teamColors.primary}`, paddingLeft: '0.5rem' }}>
                                   {p.playerPos && <span className="text-[10px] font-black px-1.5 py-0.5 rounded text-white" style={{ background: {QB:'#ef4444',RB:'#22c55e',WR:'#3b82f6',TE:'#f97316',K:'#a855f7'}[p.playerPos] || '#555' }}>{p.playerPos}</span>}
-                                  <span className="font-medium">{p.playerName || p.playerId}</span>
+                                  <span className="font-medium">
+                                    <PlayerLink playerId={p.playerId}>{p.playerName || p.playerId}</PlayerLink>
+                                  </span>
                                   {p.playerNfl && <span className="text-[var(--muted)] text-xs">{p.playerNfl}</span>}
                                   {p.acquiredVia === 'trade' && <span className="ml-auto text-xs text-sky-500 font-bold">via trade</span>}
                                   {p.acquiredVia === 'drafted' && <span className="ml-auto text-xs text-emerald-500 font-bold">drafted</span>}
@@ -2052,7 +2057,12 @@ export default function TeamContent() {
                   <Modal
                     open={playerModalOpen}
                     onClose={closePlayerModal}
-                    title={playerModal ? `${playerModal.name} — Weekly Points` : 'Weekly Points'}
+                    title={playerModal ? (
+                      <>
+                        <PlayerLink playerId={playerModal.playerId}>{playerModal.name}</PlayerLink>
+                        {' — Weekly Points'}
+                      </>
+                    ) : 'Weekly Points'}
                   >
                     <div className="flex flex-col gap-3">
                       <div className="flex items-end gap-3">
@@ -2174,7 +2184,8 @@ export default function TeamContent() {
           onClose={() => setSelectedPlayerId(null)}
           title={(() => {
             const p = players[selectedPlayerId!];
-            return p ? `${p.first_name} ${p.last_name}` : 'Player Details';
+            const name = p ? `${p.first_name} ${p.last_name}` : 'Player Details';
+            return <PlayerLink playerId={selectedPlayerId!}>{name}</PlayerLink>;
           })()}
         >
           {(() => {

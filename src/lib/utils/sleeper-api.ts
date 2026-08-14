@@ -2475,6 +2475,58 @@ async function computeSeasonTotalsFromLeagueMatchups(
 }
 
 /**
+ * Per-player, per-week East v. West attribution derived from Sleeper matchup
+ * `players_points`. This is the single source of truth for "which roster actually
+ * scored this player's points in this week" — shared by the history export
+ * (`/api/export/history`) and the player profile service so both consume identical
+ * weekly fantasy-point attribution instead of maintaining separate copies.
+ */
+export interface PlayerWeekAttribution {
+  points: number;
+  rosterId: number;
+  /** True if the player appeared in this roster's players[] for the week. */
+  rostered: boolean;
+  /** True if the player was in this roster's starters[] for the week. */
+  started: boolean;
+}
+
+export async function buildSeasonPlayerWeeklyAttribution(
+  leagueId: string,
+  endWeek: number = 17,
+  options?: SleeperFetchOptions
+): Promise<Record<string, Record<string, PlayerWeekAttribution>>> {
+  const maxWeek = Math.max(1, Math.min(18, Math.floor(endWeek)));
+  const weeks = Array.from({ length: maxWeek }, (_, i) => i + 1);
+  const allWeekMatchups = await Promise.all(
+    weeks.map((w) => getLeagueMatchups(leagueId, w, options).catch(() => [] as SleeperMatchup[]))
+  );
+  const result: Record<string, Record<string, PlayerWeekAttribution>> = {};
+  allWeekMatchups.forEach((weekMatchups, idx) => {
+    const week = idx + 1;
+    if (!weekMatchups || weekMatchups.length === 0) return;
+    const statsForWeek: Record<string, PlayerWeekAttribution> = {};
+    for (const m of weekMatchups) {
+      const pointsMap = (m.players_points || {}) as Record<string, number>;
+      const rosterId = m.roster_id;
+      const starters = new Set(m.starters || []);
+      const rosteredIds = new Set(m.players || []);
+      for (const [pid, raw] of Object.entries(pointsMap)) {
+        const pts = Number(raw);
+        if (!Number.isFinite(pts)) continue;
+        statsForWeek[pid] = {
+          points: pts,
+          rosterId,
+          rostered: rosteredIds.has(pid) || rosteredIds.size === 0,
+          started: starters.has(pid),
+        };
+      }
+    }
+    result[String(week)] = statsForWeek;
+  });
+  return result;
+}
+
+/**
  * Aggregate custom-scored totals across weeks 1..endWeek for a season and league.
  */
 export async function computeSeasonTotalsCustomScoring(
