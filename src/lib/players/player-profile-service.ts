@@ -21,6 +21,7 @@ import {
   getLeagueTransactionsAllWeeks,
   computeSeasonTotalsCustomScoringFromStats,
   getNFLSeasonStats,
+  getNFLState,
   buildSeasonPlayerWeeklyAttribution,
   type SleeperPlayer,
   type SleeperDraftPick,
@@ -82,7 +83,7 @@ interface SeasonContext {
 const SEASON_CONTEXT_MEMORY_TTL_MS = 5 * 60 * 1000;
 const CURRENT_SEASON_KV_TTL_MS = 15 * 60 * 1000; // 15 minutes — current-season data moves frequently.
 const PAST_SEASON_KV_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days — finished seasons are static.
-const SEASON_CONTEXT_KV_VERSION = 'v1';
+const SEASON_CONTEXT_KV_VERSION = 'v2';
 
 const seasonContextMemoryCache = new Map<string, { ts: number; data: SeasonContext | null }>();
 
@@ -120,6 +121,32 @@ async function writeSeasonContextToKv(season: string, entry: { ts: number; data:
   }
 }
 
+/**
+ * Historical seasons are final, so all 17 East v. West scoring weeks are eligible.
+ * The live season is different: Sleeper pre-populates future matchup lineups, which
+ * must not count as rostered weeks or starts before those fantasy weeks exist.
+ */
+async function attributionEndWeekForSeason(season: string): Promise<number> {
+  if (season !== CURRENT_SEASON) return 17;
+
+  try {
+    const state = await getNFLState();
+    if (String(state.season ?? '') !== season) return 0;
+
+    const seasonType = String(state.season_type ?? '').toLowerCase();
+    if (seasonType.startsWith('post')) return 17;
+    if (!seasonType.startsWith('regular')) return 0;
+
+    const week = Number(state.week ?? 0);
+    if (!Number.isFinite(week)) return 0;
+    return Math.max(0, Math.min(17, Math.floor(week)));
+  } catch {
+    // Fail closed for the live season. Returning 17 here would recreate the exact
+    // future-week inflation this guard exists to prevent when NFL state is unavailable.
+    return 0;
+  }
+}
+
 async function loadSeasonContext(season: string): Promise<SeasonContext | null> {
   const memCached = seasonContextMemoryCache.get(season);
   if (memCached && Date.now() - memCached.ts < SEASON_CONTEXT_MEMORY_TTL_MS) return memCached.data;
@@ -138,16 +165,31 @@ async function loadSeasonContext(season: string): Promise<SeasonContext | null> 
     return null;
   }
 
+  const attributionEndWeek = await attributionEndWeekForSeason(season);
+  const weeklyAttributionPromise = attributionEndWeek > 0
+    ? buildSeasonPlayerWeeklyAttribution(leagueId, attributionEndWeek).catch(
+        () => ({} as SeasonContext['weeklyAttribution']),
+      )
+    : Promise.resolve({} as SeasonContext['weeklyAttribution']);
+
   const [teams, weeklyAttribution, nflTotals, drafts, transactions] = await Promise.all([
     getTeamsData(leagueId).catch(() => [] as TeamData[]),
-    buildSeasonPlayerWeeklyAttribution(leagueId, 17).catch(
-      () => ({} as SeasonContext['weeklyAttribution']),
-    ),
+    weeklyAttributionPromise,
     // NFL regular season (Weeks 1-18) under league scoring — ownership-independent.
     computeSeasonTotalsCustomScoringFromStats(season, leagueId, 18).catch(() => ({} as Record<string, number>)),
     getLeagueDrafts(leagueId).catch(() => []),
     getLeagueTransactionsAllWeeks(leagueId).catch(() => [] as SleeperTransaction[]),
   ]);
+
+  // Sleeper can advance its NFL state to the next regular-season week before any
+  // games in that week have started. Do not count that staged lineup as a rostered
+  // week/start until at least one player has actually scored in the league that week.
+  if (season === CURRENT_SEASON && attributionEndWeek > 0) {
+    const currentWeek = weeklyAttribution[String(attributionEndWeek)];
+    if (currentWeek && !Object.values(currentWeek).some((row) => Math.abs(Number(row.points) || 0) > 0)) {
+      delete weeklyAttribution[String(attributionEndWeek)];
+    }
+  }
 
   const draftsThisSeason = drafts.filter((d) => d.season === season);
   const draftPicksBySeason = await Promise.all(
