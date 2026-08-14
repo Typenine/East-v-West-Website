@@ -170,7 +170,9 @@ function FullDraftBoard({ data, selectedYear }: { data: DraftYearData; selectedY
                             </div>
                             <div className="min-w-0 flex-1">
                               <div className="flex min-w-0 items-center gap-1.5">
-                                <span className="truncate text-sm font-semibold text-[var(--text)]">{pick.player}</span>
+                                <span className="truncate text-sm font-semibold text-[var(--text)]">
+                                  {pick.playerId ? <PlayerLink playerId={pick.playerId}>{pick.player}</PlayerLink> : pick.player}
+                                </span>
                                 {pick.pos ? (
                                   <span className="shrink-0 rounded bg-black/15 px-1 py-0.5 text-[9px] font-bold text-[var(--muted)]">{pick.pos}</span>
                                 ) : null}
@@ -208,7 +210,25 @@ function FullDraftBoard({ data, selectedYear }: { data: DraftYearData; selectedY
   console.log('[previous-draft-board] Added the full historical draft board view.');
 }
 
+function applyPreviousDraftBoardPlayerLinkPatch(): void {
+  const targetPath = resolve(process.cwd(), 'src/app/draft/DraftContent.tsx');
+  const original = readFileSync(targetPath, 'utf8');
+  const usesCRLF = original.includes('\r\n');
+  let source = usesCRLF ? original.replace(/\r\n/g, '\n') : original;
+
+  const plainPlayerName = '<span className="truncate text-sm font-semibold text-[var(--text)]">{pick.player}</span>';
+  if (!source.includes(plainPlayerName)) return;
+
+  const linkedPlayerName = String.raw`<span className="truncate text-sm font-semibold text-[var(--text)]">
+                                  {pick.playerId ? <PlayerLink playerId={pick.playerId}>{pick.player}</PlayerLink> : pick.player}
+                                </span>`;
+  source = replacePreviousDraftSourceOnce(source, plainPlayerName, linkedPlayerName, 'full board player link');
+  writeFileSync(targetPath, usesCRLF ? source.replace(/\n/g, '\r\n') : source, 'utf8');
+  console.log('[previous-draft-board] Linked full-board player names to canonical profiles.');
+}
+
 applyPreviousDraftBoardPatch();
+applyPreviousDraftBoardPlayerLinkPatch();
 
 const nextConfig: NextConfig = {
   async redirects() {

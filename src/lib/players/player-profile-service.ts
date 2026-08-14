@@ -74,13 +74,13 @@ interface SeasonContext {
  *  - In-memory (this process only): near-instant, but wiped on cold start and not shared
  *    across serverless instances.
  *  - KV (shared, persistent): survives cold starts and is shared by every instance, so the
- *    first profile view of the day pays for the season-wide fetch and every other profile
+ *    first profile view after expiry pays for the season-wide fetch and every other profile
  *    view — of any player — reads the cached copy instead of hitting Sleeper again.
- * The current season is refreshed daily since scores/trades change during the week; past
- * seasons are final and cached far longer since they can't change.
+ * The current season is refreshed every 15 minutes so scores, trades, and roster changes
+ * do not stay stale through a game day; past seasons are final and cached far longer.
  */
 const SEASON_CONTEXT_MEMORY_TTL_MS = 5 * 60 * 1000;
-const CURRENT_SEASON_KV_TTL_MS = 24 * 60 * 60 * 1000; // 1 day — this season's data still moves.
+const CURRENT_SEASON_KV_TTL_MS = 15 * 60 * 1000; // 15 minutes — current-season data moves frequently.
 const PAST_SEASON_KV_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days — finished seasons are static.
 const SEASON_CONTEXT_KV_VERSION = 'v1';
 

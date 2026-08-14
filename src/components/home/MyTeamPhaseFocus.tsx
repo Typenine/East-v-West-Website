@@ -1,3 +1,4 @@
+import PlayerLink from '@/components/players/PlayerLink';
 import {
   broadcastBodyTextStyle,
   broadcastMutedTextStyle,
@@ -103,7 +104,12 @@ export default function MyTeamPhaseFocus({
               </div>
               <div className="text-[11px] mt-1" style={broadcastMutedTextStyle}>
                 {dashboard?.roster.rookies.length
-                  ? dashboard.roster.rookies.map((player) => player.name).join(', ')
+                  ? dashboard.roster.rookies.map((player, index) => (
+                      <span key={player.id}>
+                        {index > 0 ? ', ' : ''}
+                        <PlayerLink playerId={player.id}>{player.name}</PlayerLink>
+                      </span>
+                    ))
                   : 'No rookie metadata available yet.'}
               </div>
             </div>

@@ -1,9 +1,9 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import Image from 'next/image';
+import Link from 'next/link';
 import { getTeamLogoPath } from '@/lib/utils/team-utils';
-import { LEAGUE_IDS } from '@/lib/constants/league';
 import { normalizeTeamCode } from '@/lib/constants/nfl-teams';
 import PlayerLink from '@/components/players/PlayerLink';
 
@@ -154,58 +154,7 @@ interface PlayerDrawerProps {
   statuses: Record<string, TeamStatus | undefined>;
 }
 
-type PlayerInfo = {
-  injury_status?: string;
-  injury_body_part?: string;
-  injury_start_date?: string | number;
-  status?: string;
-  age?: number;
-  height?: string;
-  weight?: string;
-};
-
-export default function PlayerDrawer({ open, onClose, player, season, week, currentWeek, statsLive, pointsMap, statuses }: PlayerDrawerProps) {
-  const [info, setInfo] = useState<PlayerInfo | null>(null);
-  const [logSeason, setLogSeason] = useState<string>(season);
-  const [logs, setLogs] = useState<Array<{ week: number; ptsPPR: number }>>([]);
-  const [loadingLogs, setLoadingLogs] = useState(false);
-
-  useEffect(() => {
-    if (!open || !player) return;
-    const pid = player.id;
-    let cancelled = false;
-    async function loadInfo() {
-      try {
-        const r = await fetch(`/api/player-info?id=${pid}`, { cache: 'no-store' });
-        if (!r.ok) return;
-        const j = (await r.json()) as PlayerInfo;
-        if (!cancelled) setInfo(j);
-      } catch {}
-    }
-    loadInfo();
-    return () => { cancelled = true; };
-  }, [open, player]);
-
-  useEffect(() => {
-    if (!open || !player) return;
-    const pid = player.id;
-    let cancelled = false;
-    async function loadLogs() {
-      try {
-        setLoadingLogs(true);
-        const r = await fetch(`/api/player-logs?playerId=${pid}&season=${encodeURIComponent(logSeason)}`, { cache: 'no-store' });
-        if (!r.ok) return;
-        const j = await r.json();
-        const arr = (j?.logs || []) as Array<{ week: number; ptsPPR: number }>;
-        if (!cancelled) setLogs(arr);
-      } finally {
-        if (!cancelled) setLoadingLogs(false);
-      }
-    }
-    loadLogs();
-    return () => { cancelled = true; };
-  }, [open, player, logSeason]);
-
+export default function PlayerDrawer({ open, onClose, player, season, statsLive, pointsMap, statuses }: PlayerDrawerProps) {
   const st = player ? (statsLive[player.id] || {}) : {};
   const thisWeekPts = player ? Number(pointsMap[player.id] ?? 0) : 0;
   const status = useMemo(() => statusLabelFor(player?.team, statuses), [player?.team, statuses]);
@@ -216,7 +165,8 @@ export default function PlayerDrawer({ open, onClose, player, season, week, curr
     <div className="fixed inset-0 z-50" data-season={season}>
       <div className="absolute inset-0 bg-black/60" onClick={onClose} />
       <div className="absolute right-0 top-0 h-full w-full sm:w-[420px] evw-surface border-l border-[var(--border)] p-4 overflow-y-auto">
-        <div className="flex items-center gap-3 mb-3">
+        <div className="text-[10px] uppercase tracking-[0.18em] font-bold text-[var(--muted)] mb-3">Live matchup view</div>
+        <div className="flex items-center gap-3 mb-4">
           <div className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center overflow-hidden">
             <Image src={getTeamLogoPath(player.team || '')} alt={player.team || ''} width={32} height={32} className="object-contain" />
           </div>
@@ -229,9 +179,9 @@ export default function PlayerDrawer({ open, onClose, player, season, week, curr
           <button className="ml-auto text-sm px-3 py-1 rounded-md border border-[var(--border)] hover:bg-black/10" onClick={onClose}>Close</button>
         </div>
 
-        <div className="mb-4">
+        <div className="mb-4 rounded-lg border border-[var(--border)] p-3">
           <div className="text-xs text-[var(--muted)] mb-1">This week</div>
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-3">
             <div className="text-sm">{status.label}</div>
             <div className="font-bold tabular-nums">{thisWeekPts.toFixed(2)}</div>
           </div>
@@ -240,49 +190,16 @@ export default function PlayerDrawer({ open, onClose, player, season, week, curr
           )}
         </div>
 
-        {!!info && (
-          <div className="mb-4">
-            <div className="text-xs text-[var(--muted)] mb-1">Injury / Status</div>
-            <div className="text-sm">
-              {info.injury_status ? (
-                <div>
-                  <div>{info.injury_status}{info.injury_body_part ? ` • ${info.injury_body_part}` : ''}</div>
-                  {info.injury_start_date ? (
-                    <div className="text-xs text-[var(--muted)]">Since {new Date(info.injury_start_date as string | number).toLocaleDateString()}</div>
-                  ) : null}
-                </div>
-              ) : (
-                <div>—</div>
-              )}
-            </div>
+        <div className="rounded-lg border border-[var(--border)] p-3">
+          <div className="text-xs text-[var(--muted)] leading-relaxed">
+            This drawer is limited to live matchup context. Career totals, East v. West franchise history, NFL production, draft history, and transactions are kept in the canonical player profile.
           </div>
-        )}
-
-        <div className="mb-4">
-          <div className="flex items-center justify-between mb-1">
-            <div className="text-xs text-[var(--muted)]">Game log</div>
-            <select
-              className="text-xs evw-surface border border-[var(--border)] rounded px-2 py-1"
-              value={logSeason}
-              onChange={(e) => setLogSeason(e.target.value)}
-            >
-              {Array.from(new Set([season, ...Object.keys(LEAGUE_IDS.PREVIOUS || {})])).map((yr) => (
-                <option key={yr} value={yr}>{yr}</option>
-              ))}
-            </select>
-          </div>
-          {loadingLogs ? (
-            <div className="text-xs text-[var(--muted)]">Loading…</div>
-          ) : (
-            <ul className="text-sm grid grid-cols-2 gap-x-4 gap-y-1">
-              {logs.map((r) => (
-                <li key={r.week} className="flex items-center justify-between">
-                  <span>Week {r.week}</span>
-                  <span className="font-semibold tabular-nums">{Number(r.ptsPPR || 0).toFixed(2)}</span>
-                </li>
-              ))}
-            </ul>
-          )}
+          <Link
+            href={`/players/${encodeURIComponent(player.id)}`}
+            className="mt-3 inline-block text-sm font-semibold text-[var(--accent)] hover:underline underline-offset-2"
+          >
+            Open full player profile
+          </Link>
         </div>
       </div>
     </div>

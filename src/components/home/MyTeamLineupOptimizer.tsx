@@ -1,3 +1,4 @@
+import PlayerLink from '@/components/players/PlayerLink';
 import {
   broadcastBodyTextStyle,
   broadcastMutedTextStyle,
@@ -47,7 +48,7 @@ function LineupPlayerRow({
         <details className="group/player">
           <summary className="list-none cursor-pointer">
             <div className="text-xs font-bold truncate mt-0.5" style={broadcastBodyTextStyle}>
-              {entry.player.name}
+              <PlayerLink playerId={entry.player.id}>{entry.player.name}</PlayerLink>
             </div>
             <div className="flex items-center justify-between gap-2 mt-0.5">
               <span className="text-[9px] truncate" style={broadcastMutedTextStyle}>
@@ -111,7 +112,7 @@ function BenchPlayerChip({
           )}
         </div>
         <div className="text-[11px] font-bold truncate mt-1" style={broadcastBodyTextStyle}>
-          {player.name}
+          <PlayerLink playerId={player.id}>{player.name}</PlayerLink>
         </div>
         <div className="flex items-center justify-between gap-2 mt-1">
           <span className="text-[9px] truncate" style={broadcastMutedTextStyle}>
@@ -294,7 +295,7 @@ export default function MyTeamLineupOptimizer({
           </div>
         )}
         <div className="text-[9px] mt-3 leading-relaxed" style={broadcastFaintTextStyle}>
-          Projections estimate football workload and efficiency, then apply the league&apos;s Sleeper scoring settings. Matchup effects use only same-season opponent data and remain modest. Click a player for role and workload details.
+          Projections estimate football workload and efficiency, then apply the league&apos;s Sleeper scoring settings. Matchup effects use only same-season opponent data and remain modest. Click a player name for the player profile; click elsewhere on the card for role and workload details.
         </div>
       </div>
     </details>
