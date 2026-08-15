@@ -66,6 +66,7 @@ export async function getFranchisePlayerHistory(franchiseId: string): Promise<Ha
   if (cached && Date.now() - cached.ts < HISTORY_CACHE_TTL_MS) return cached.data;
 
   const allPlayers = await getAllPlayersCached();
+  const franchiseName = getFranchiseNameForId(franchiseId);
   const seasonNames = [CURRENT_SEASON, ...Object.keys(LEAGUE_IDS.PREVIOUS || {})]
     .filter((value, index, array) => array.indexOf(value) === index)
     .sort((a, b) => a.localeCompare(b));
@@ -138,28 +139,54 @@ export async function getFranchisePlayerHistory(franchiseId: string): Promise<Ha
     if (existing) existing.currentlyOnFranchise = true;
   }
 
-  const result: HallOfFameCandidate[] = Array.from(aggregates.values())
-    .map((aggregate) => {
-      const meta = allPlayers[aggregate.playerId];
-      const playerName = meta
-        ? `${meta.first_name || ''} ${meta.last_name || ''}`.trim() || aggregate.playerId
-        : aggregate.playerId;
-      return {
-        playerId: aggregate.playerId,
-        playerName,
-        position: meta?.position || null,
-        nflTeam: meta?.team || null,
-        headshotUrl: `https://sleepercdn.com/content/nfl/players/${aggregate.playerId}.jpg`,
-        seasons: Array.from(aggregate.seasons).sort(),
-        firstSeason: aggregate.firstSeason,
-        lastSeason: aggregate.lastSeason,
-        totalPoints: Number(aggregate.totalPoints.toFixed(2)),
-        rosteredWeeks: aggregate.rosteredWeeks,
-        starts: aggregate.starts,
-        currentlyOnFranchise: aggregate.currentlyOnFranchise,
-      };
-    })
-    .sort((a, b) => b.totalPoints - a.totalPoints || b.starts - a.starts || a.playerName.localeCompare(b.playerName));
+  const aggregatedResult: HallOfFameCandidate[] = Array.from(aggregates.values()).map((aggregate) => {
+    const meta = allPlayers[aggregate.playerId];
+    const playerName = meta
+      ? `${meta.first_name || ''} ${meta.last_name || ''}`.trim() || aggregate.playerId
+      : aggregate.playerId;
+    return {
+      playerId: aggregate.playerId,
+      playerName,
+      position: meta?.position || null,
+      nflTeam: meta?.team || null,
+      headshotUrl: `https://sleepercdn.com/content/nfl/players/${aggregate.playerId}.jpg`,
+      seasons: Array.from(aggregate.seasons).sort(),
+      firstSeason: aggregate.firstSeason,
+      lastSeason: aggregate.lastSeason,
+      totalPoints: Number(aggregate.totalPoints.toFixed(2)),
+      rosteredWeeks: aggregate.rosteredWeeks,
+      starts: aggregate.starts,
+      currentlyOnFranchise: aggregate.currentlyOnFranchise,
+    };
+  });
+
+  // Hall induction stats must use the same canonical franchise slice as the player profile.
+  // This prevents a player's overall EVW career total from leaking into a specific team's
+  // induction screen when that player has played for more than one franchise.
+  const result: HallOfFameCandidate[] = [];
+  for (const candidate of aggregatedResult) {
+    const profile = await getPlayerProfile(candidate.playerId).catch(() => null);
+    const franchiseCareer = profile?.evwCareer.franchises.find(
+      (career) => canonicalizeTeamName(career.franchiseName) === canonicalizeTeamName(franchiseName),
+    );
+
+    if (!franchiseCareer) {
+      result.push(candidate);
+      continue;
+    }
+
+    result.push({
+      ...candidate,
+      seasons: [...franchiseCareer.seasons].sort(),
+      firstSeason: franchiseCareer.firstSeason,
+      lastSeason: franchiseCareer.lastSeason,
+      totalPoints: Number(franchiseCareer.totalPoints.toFixed(2)),
+      rosteredWeeks: franchiseCareer.rosteredWeeks,
+      starts: franchiseCareer.starts,
+    });
+  }
+
+  result.sort((a, b) => b.totalPoints - a.totalPoints || b.starts - a.starts || a.playerName.localeCompare(b.playerName));
 
   franchiseHistoryCache.set(franchiseId, { ts: Date.now(), data: result });
   return result;
