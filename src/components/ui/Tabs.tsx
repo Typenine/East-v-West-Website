@@ -51,7 +51,8 @@ export function Tabs({
       <div
         role="tablist"
         aria-orientation="horizontal"
-        className="flex gap-2 mb-3"
+        className="flex gap-2 mb-3 overflow-x-auto [&::-webkit-scrollbar]:hidden"
+        style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
       >
         {tabs.map((t) => (
           <Chip
@@ -63,6 +64,7 @@ export function Tabs({
             selected={active === t.id}
             variant="accent"
             size="md"
+            className="shrink-0 whitespace-nowrap"
             onClick={() => setActive(t.id)}
           >
             {t.label}

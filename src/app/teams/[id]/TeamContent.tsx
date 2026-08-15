@@ -14,7 +14,6 @@ import {
   getTeamH2HRecordsAllTimeByOwner,
   computeSeasonTotalsCustomScoringFromStats,
   getNFLSeasonStats,
-  SleeperNFLSeasonPlayerStats,
   buildSeasonRosterFromMatchups,
   getLeagueMatchups,
   getTopScoringWeeksByOwner,
@@ -30,7 +29,6 @@ import Card, { CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Table, THead, TBody, Th, Td, Tr } from '@/components/ui/Table';
 import { Select } from '@/components/ui/Select';
 import Label from '@/components/ui/Label';
-import Modal from '@/components/ui/Modal';
 import Button from '@/components/ui/Button';
 import Chip from '@/components/ui/Chip';
 import StatCard from '@/components/ui/StatCard';
@@ -189,13 +187,6 @@ export default function TeamContent() {
   const toggleGroup = (playerId: string) => {
     setCollapsedGroups((prev) => ({ ...prev, [playerId]: !prev[playerId] }));
   };
-  // Player detail modal state and season stats cache
-  const [selectedPlayerId, setSelectedPlayerId] = useState<string | null>(null);
-  const [seasonStats, setSeasonStats] = useState<Record<string, SleeperNFLSeasonPlayerStats>>({});
-  // Player modal per-season state/caches
-  const [modalYear, setModalYear] = useState<string>(selectedYear);
-  const [modalFantasyCache, setModalFantasyCache] = useState<Record<string, { totalPPR: number; gp: number; ppg: number }>>({});
-  const [modalRealCache, setModalRealCache] = useState<Record<string, SleeperNFLSeasonPlayerStats | null>>({});
   // Records: career leaders and best single-season leaders by position (Top 5)
   type LeaderRow = { playerId: string; name: string; position: string; season?: string; total: number; ppg?: number };
   const POSITIONS = useMemo(() => ['QB','RB','WR','TE','K','DEF/DST'] as const, []);
@@ -308,93 +299,9 @@ export default function TeamContent() {
     }
   }, [snapYear, loadSnapshot]);
 
-  // Player Weekly Points Modal state
-  type WeeklyRow = { week: number; points: number; rostered: boolean; started: boolean };
-  const [playerModalOpen, setPlayerModalOpen] = useState(false);
-  const [playerModal, setPlayerModal] = useState<{ playerId: string; name: string } | null>(null);
-  const [modalSeason, setModalSeason] = useState<string>('');
-  const [modalSeasons, setModalSeasons] = useState<string[]>([]);
-  const [modalWeeks, setModalWeeks] = useState<WeeklyRow[]>([]);
-  const [modalLoading, setModalLoading] = useState(false);
-  const [modalError, setModalError] = useState<string | null>(null);
-
   // Top scoring weeks (Top 5 highest/lowest) across all seasons for this franchise
   const [topHighWeeks, setTopHighWeeks] = useState<TeamTopWeek[]>([]);
   const [topLowWeeks, setTopLowWeeks] = useState<TeamTopWeek[]>([]);
-
-  const buildModalSeasons = useCallback(() => {
-    const prevYears = Object.keys(LEAGUE_IDS.PREVIOUS || {});
-    const seasons = Array.from(new Set([String(selectedYear), ...prevYears])).sort((a,b) => b.localeCompare(a));
-    return seasons;
-  }, [selectedYear]);
-
-  const openPlayerModal = useCallback((playerId: string, name: string) => {
-    const seasons = buildModalSeasons();
-    setModalSeasons(seasons);
-    setModalSeason(seasons[0] || String(selectedYear));
-    setPlayerModal({ playerId, name });
-    setPlayerModalOpen(true);
-  }, [buildModalSeasons, selectedYear]);
-
-  const closePlayerModal = useCallback(() => {
-    setPlayerModalOpen(false);
-    setPlayerModal(null);
-    setModalWeeks([]);
-    setModalError(null);
-  }, []);
-
-  const loadPlayerWeekly = useCallback(async (season: string, playerId: string) => {
-    try {
-      setModalLoading(true);
-      setModalError(null);
-      const leagueId = getLeagueIdForSeason(season);
-      if (!leagueId) {
-        setModalWeeks([]);
-        setModalError('No league for this season');
-        return;
-      }
-      // Find this franchise in that season
-      const teams = await getTeamsData(leagueId);
-      const canonicalName = resolveCanonicalTeamName({ ownerId: team?.ownerId });
-      const seasonTeam = teams.find(t => t.teamName === canonicalName) || teams.find(t => t.ownerId === team?.ownerId);
-      if (!seasonTeam) {
-        setModalWeeks([]);
-        setModalError('Team not found for this season');
-        return;
-      }
-      const rosterId = seasonTeam.rosterId;
-      const weeks = Array.from({ length: 17 }, (_, i) => i + 1);
-      const weekly = await Promise.all(weeks.map((w) => getLeagueMatchups(leagueId, w).catch(() => [] as Array<{ roster_id?: number; players_points?: Record<string, number>; players?: string[]; starters?: string[] }>)));
-      const rows: WeeklyRow[] = [];
-      for (let i = 0; i < weeks.length; i++) {
-        const w = weeks[i];
-        const matchups = (weekly[i] || []) as Array<{ roster_id?: number; players_points?: Record<string, number>; players?: string[]; starters?: string[] }>;
-        const m = matchups.find(mm => mm.roster_id === rosterId);
-        if (!m) {
-          rows.push({ week: w, points: 0, rostered: false, started: false });
-          continue;
-        }
-        const playersArr = (m.players || []) as string[];
-        const startersArr = (m.starters || []) as string[];
-        const rostered = playersArr.includes(playerId) || startersArr.includes(playerId);
-        const started = startersArr.includes(playerId);
-        const pts = Number((m.players_points || {})[playerId] || 0);
-        rows.push({ week: w, points: Number(pts.toFixed(2)), rostered, started });
-      }
-      setModalWeeks(rows);
-    } catch {
-      setModalWeeks([]);
-      setModalError('Failed to load weekly points');
-    } finally {
-      setModalLoading(false);
-    }
-  }, [team?.ownerId]);
-
-  // Load weeks whenever modal season or player changes
-  useEffect(() => {
-    if (!playerModalOpen || !playerModal || !modalSeason) return;
-    loadPlayerWeekly(modalSeason, playerModal.playerId);
-  }, [playerModalOpen, playerModal, modalSeason, loadPlayerWeekly]);
 
   // Populate Records: multi-season aggregation with roster reconstruction (only when Records tab is open)
   useEffect(() => {
@@ -635,74 +542,6 @@ export default function TeamContent() {
     return groups.map((g) => ({ group: g, ids: byGroup[g] }));
   }, [team?.players, players, playerSeasonStats, sortBy, sortDir]);
 
-  // Lazy-load season real-life stats when opening a player's modal (fetch once per season)
-  useEffect(() => {
-    if (!selectedPlayerId) return;
-    if (seasonStats && seasonStats[selectedPlayerId]) return;
-    (async () => {
-      try {
-        const stats = await getNFLSeasonStats(selectedYear);
-        setSeasonStats(stats);
-      } catch {
-        /* ignore */
-      }
-    })();
-  }, [selectedPlayerId, selectedYear, seasonStats]);
-
-  // Clear cached season stats when the selected season changes
-  useEffect(() => {
-    setSeasonStats({});
-  }, [selectedYear]);
-  
-  // Initialize modalYear and reset per-player caches when opening modal or switching page season
-  useEffect(() => {
-    if (!selectedPlayerId) return;
-    setModalYear(String(selectedYear));
-    setModalFantasyCache({});
-    setModalRealCache({});
-  }, [selectedPlayerId, selectedYear]);
-
-  // Lazy fetch fantasy totals for selected player and modalYear using league custom scoring (exact parity)
-  useEffect(() => {
-    if (!selectedPlayerId) return;
-    const season = String(modalYear);
-    if (modalFantasyCache[season]) return;
-    (async () => {
-      try {
-        const leagueForSeason = getLeagueIdForSeason(season);
-        if (!leagueForSeason) {
-          setModalFantasyCache((prev) => ({ ...prev, [season]: { totalPPR: 0, gp: 0, ppg: 0 } }));
-          return;
-        }
-        const totals = await computeSeasonTotalsCustomScoringFromStats(season, leagueForSeason, 18);
-        const total = Number(totals[selectedPlayerId] || 0);
-        setModalFantasyCache((prev) => ({
-          ...prev,
-          [season]: { totalPPR: total, gp: 0, ppg: 0 },
-        }));
-      } catch {
-        /* ignore */
-      }
-    })();
-  }, [selectedPlayerId, modalYear, modalFantasyCache]);
-
-  // Lazy fetch real-life stats for selected player and modalYear
-  useEffect(() => {
-    if (!selectedPlayerId) return;
-    const season = String(modalYear);
-    if (Object.prototype.hasOwnProperty.call(modalRealCache, season)) return;
-    (async () => {
-      try {
-        const stats = await getNFLSeasonStats(season);
-        setModalRealCache((prev) => ({
-          ...prev,
-          [season]: stats[selectedPlayerId] || null,
-        }));
-      } catch {
-        /* ignore */
-      }
-    })();
-  }, [selectedPlayerId, modalYear, modalRealCache]);
   
   useEffect(() => {
     async function fetchTeamData() {
@@ -802,10 +641,9 @@ export default function TeamContent() {
       .finally(() => setDraftAssetsLoading(false));
   }, [teamName]);
 
-  // Fetch roster-based news when News is open, or on-demand for player modal.
+  // Fetch roster-based news when News tab is open.
   useEffect(() => {
-    const shouldFetchFromModal = !!selectedPlayerId && news.length === 0 && !newsLoading;
-    if (mainTab !== 'news' && !shouldFetchFromModal) return;
+    if (mainTab !== 'news') return;
     const load = async () => {
       if (!team || !team.players || team.players.length === 0) return;
       try {
@@ -825,7 +663,7 @@ export default function TeamContent() {
       }
     };
     load();
-  }, [team, newsWindowHours, mainTab, selectedPlayerId, news.length, newsLoading]);
+  }, [team, newsWindowHours, mainTab]);
   
   // Group news by matched player for better readability
   const newsGrouped = useMemo(() => {
@@ -1692,14 +1530,13 @@ export default function TeamContent() {
                                 return (
                                   <Tr key={playerId} style={{ backgroundColor: `color-mix(in srgb, ${teamColors.primary} 5%, transparent)`, borderLeft: `3px solid ${teamColors.primary}` }}>
                                     <Td>
-                                      <button
-                                        type="button"
-                                        className="text-sm font-medium hover:underline"
+                                      <PlayerLink
+                                        playerId={playerId}
+                                        className="text-sm font-medium"
                                         style={{ color: teamColors.secondary }}
-                                        onClick={() => setSelectedPlayerId(playerId)}
                                       >
                                         {player.first_name} {player.last_name}
-                                      </button>
+                                      </PlayerLink>
                                     </Td>
                                     <Td>
                                       <div className="text-sm text-[var(--muted)]">{player.position}</div>
@@ -1976,14 +1813,13 @@ export default function TeamContent() {
                                       <Tr key={`${pos}-${row.playerId}`} style={{ borderLeft: `3px solid ${teamColors.primary}` }}>
                                         <Td>{idx + 1}</Td>
                                         <Td>
-                                          <button
-                                            type="button"
-                                            className="hover:underline font-medium"
+                                          <PlayerLink
+                                            playerId={row.playerId}
+                                            className="font-medium"
                                             style={{ color: teamColors.secondary }}
-                                            onClick={() => openPlayerModal(row.playerId, row.name)}
                                           >
                                             {row.name}
-                                          </button>
+                                          </PlayerLink>
                                         </Td>
                                         <Td className="text-right">{row.total.toFixed(2)}</Td>
                                       </Tr>
@@ -2029,14 +1865,13 @@ export default function TeamContent() {
                                       <Tr key={`${pos}-${row.playerId}`} style={{ borderLeft: `3px solid ${teamColors.primary}` }}>
                                         <Td>{idx + 1}</Td>
                                         <Td>
-                                          <button
-                                            type="button"
-                                            className="hover:underline font-medium"
+                                          <PlayerLink
+                                            playerId={row.playerId}
+                                            className="font-medium"
                                             style={{ color: teamColors.secondary }}
-                                            onClick={() => openPlayerModal(row.playerId, row.name)}
                                           >
                                             {row.name}
-                                          </button>
+                                          </PlayerLink>
                                         </Td>
                                         <Td>{row.season}</Td>
                                         <Td className="text-right">{row.total.toFixed(2)}</Td>
@@ -2052,78 +1887,6 @@ export default function TeamContent() {
                     )}
                   </div>
                   {/* TODO: Highest Scoring Game by Position (Top 5) requires weekly player logs; will wire via player-logs API. */}
-
-                  {/* Player Weekly Points Modal */}
-                  <Modal
-                    open={playerModalOpen}
-                    onClose={closePlayerModal}
-                    title={playerModal ? (
-                      <>
-                        <PlayerLink playerId={playerModal.playerId}>{playerModal.name}</PlayerLink>
-                        {' — Weekly Points'}
-                      </>
-                    ) : 'Weekly Points'}
-                  >
-                    <div className="flex flex-col gap-3">
-                      <div className="flex items-end gap-3">
-                        <div>
-                          <Label>Season</Label>
-                          <select
-                            className="evw-input"
-                            value={modalSeason}
-                            onChange={(e) => setModalSeason(e.target.value)}
-                          >
-                            {modalSeasons.map((s) => (
-                              <option key={s} value={s}>{s}</option>
-                            ))}
-                          </select>
-                        </div>
-                        <div className="text-sm text-[var(--muted)]">
-                          League Scoring (Half‑PPR) • Weeks 1–17 + playoffs • Team-attributed (rostered weeks)
-                        </div>
-                      </div>
-
-                      {modalLoading ? (
-                        <div className="py-6"><LoadingState message="Loading weekly points..." /></div>
-                      ) : modalError ? (
-                        <ErrorState message={modalError} />
-                      ) : (
-                        <div className="overflow-x-auto">
-                          <Table>
-                            <THead>
-                              <Tr>
-                                <Th>Week</Th>
-                                <Th>Rostered</Th>
-                                <Th>Started</Th>
-                                <Th className="text-right">Points</Th>
-                              </Tr>
-                            </THead>
-                            <TBody>
-                              {modalWeeks.map((w) => (
-                                <Tr key={w.week}>
-                                  <Td>
-                                    <div className="flex items-center gap-2">
-                                      <span>Week {w.week}</span>
-                                      {w.week >= 15 && <span className="text-xs evw-chip">Playoffs</span>}
-                                    </div>
-                                  </Td>
-                                  <Td>{w.rostered ? 'Yes' : 'No'}</Td>
-                                  <Td>{w.started ? 'Yes' : 'No'}</Td>
-                                  <Td className="text-right">{w.points.toFixed(2)}</Td>
-                                </Tr>
-                              ))}
-                              <Tr>
-                                <Td colSpan={3}><strong>Total</strong></Td>
-                                <Td className="text-right font-semibold">
-                                  {modalWeeks.reduce((sum, r) => sum + r.points, 0).toFixed(2)}
-                                </Td>
-                              </Tr>
-                            </TBody>
-                          </Table>
-                        </div>
-                      )}
-                    </div>
-                  </Modal>
                 </CardContent>
               </Card>
             ),
@@ -2177,140 +1940,6 @@ export default function TeamContent() {
         ]}
       />
       </div>
-      {/* Player Details Modal */}
-      {selectedPlayerId && (
-        <Modal
-          open={!!selectedPlayerId}
-          onClose={() => setSelectedPlayerId(null)}
-          title={(() => {
-            const p = players[selectedPlayerId!];
-            const name = p ? `${p.first_name} ${p.last_name}` : 'Player Details';
-            return <PlayerLink playerId={selectedPlayerId!}>{name}</PlayerLink>;
-          })()}
-        >
-          {(() => {
-            const p = players[selectedPlayerId!];
-            const s = (modalFantasyCache[modalYear] ?? playerSeasonStats[selectedPlayerId!]) || { totalPPR: 0, gp: 0, ppg: 0 };
-            const nfl = (modalRealCache[modalYear] ?? seasonStats[selectedPlayerId!]);
-            const group = newsGrouped.find((g) => g.playerId === selectedPlayerId);
-            const meta = p ? `${p.position || ''}${p.team ? ` • ${p.team}` : ''}` : '';
-
-            const labelMap: Record<string, string> = {
-              pass_yd: 'Pass Yds',
-              pass_att: 'Pass Att',
-              pass_cmp: 'Pass Cmp',
-              pass_td: 'Pass TDs',
-              pass_int: 'INT',
-              rush_att: 'Rush Att',
-              rush_yd: 'Rush Yds',
-              rush_td: 'Rush TDs',
-              rec: 'Receptions',
-              tgt: 'Targets',
-              rec_yd: 'Rec Yds',
-              rec_td: 'Rec TDs',
-              fumbles_lost: 'Fumbles Lost',
-              sack: 'Sacks',
-              int: 'INT (DEF)',
-              def_td: 'Def TDs',
-              pts_allowed: 'Pts Allowed',
-              xpm: 'XPM',
-              xpa: 'XPA',
-              fgm: 'FGM',
-              fga: 'FGA',
-            };
-            const candidateKeys = [
-              'pass_yd','pass_att','pass_cmp','pass_td','pass_int','rush_att','rush_yd','rush_td','rec','tgt','rec_yd','rec_td','fumbles_lost','sack','int','def_td','pts_allowed','xpm','xpa','fgm','fga'
-            ];
-            const realStats: Array<{ key: string; label: string; value: number }> = [];
-            if (nfl) {
-              for (const k of candidateKeys) {
-                const v = (nfl as Record<string, number | undefined>)[k];
-                if (typeof v === 'number' && Number.isFinite(v) && Math.abs(v) > 0) {
-                  realStats.push({ key: k, label: labelMap[k] || k, value: v });
-                }
-              }
-            }
-            // Keep at most 8 most notable stats by value
-            realStats.sort((a, b) => Math.abs(b.value) - Math.abs(a.value));
-            const topReal = realStats.slice(0, 8);
-
-            return (
-              <div className="space-y-4" style={tabsAccentVars}>
-                <div className="flex items-center justify-between">
-                  {meta ? <div className="text-sm text-[var(--muted)]">{meta}</div> : <span />}
-                  <div className="flex items-center gap-2">
-                    <Label htmlFor="player-season" className="text-xs text-[var(--muted)]">Season</Label>
-                    <Select
-                      id="player-season"
-                      size="sm"
-                      value={modalYear}
-                      onChange={(e) => setModalYear(e.target.value)}
-                      className="w-[8.5rem]"
-                    >
-                      <option value={CURRENT_SEASON}>{CURRENT_SEASON}</option>
-                      <option value="2025">2025</option>
-                      <option value="2024">2024</option>
-                      <option value="2023">2023</option>
-                    </Select>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="evw-subtle rounded-lg p-3 border border-[var(--border)]">
-                    <div className="text-xs font-semibold text-[var(--muted)] mb-1">Fantasy (PPR)</div>
-                    {(() => {
-                      const gp = (nfl?.gp ?? nfl?.gms_active ?? 0) || 0;
-                      const total = Number(s.totalPPR || 0);
-                      const ppg = gp > 0 ? total / gp : 0;
-                      return (
-                        <>
-                          <div className="text-sm">G: <span className="font-medium">{gp}</span></div>
-                          <div className="text-sm">Total: <span className="font-medium">{total.toFixed(2)}</span></div>
-                          <div className="text-sm">PPG: <span className="font-medium">{ppg.toFixed(2)}</span></div>
-                        </>
-                      );
-                    })()}
-                  </div>
-                  <div className="evw-subtle rounded-lg p-3 border border-[var(--border)]">
-                    <div className="text-xs font-semibold text-[var(--muted)] mb-1">Real-life</div>
-                    <div className="text-sm">Games: <span className="font-medium">{(nfl?.gp ?? nfl?.gms_active ?? 0) || 0}</span></div>
-                    {topReal.length > 0 ? (
-                      <ul className="mt-1 space-y-0.5 text-sm">
-                        {topReal.map((rs) => (
-                          <li key={rs.key} className="flex justify-between"><span>{rs.label}</span><span className="font-medium">{rs.value}</span></li>
-                        ))}
-                      </ul>
-                    ) : (
-                      <div className="text-sm text-[var(--muted)]">No stat details available.</div>
-                    )}
-                  </div>
-                </div>
-
-                <div className="evw-subtle rounded-lg p-3 border border-[var(--border)]" style={{ borderTop: '3px solid var(--danger)', borderLeft: '3px solid var(--tertiary)' }}>
-                  <div className="text-xs font-semibold text-[var(--muted)] mb-2">Latest News</div>
-                  {group && group.items && group.items.length > 0 ? (
-                    <ul className="space-y-1.5">
-                      {group.items.slice(0, 5).map((it, idx) => (
-                        <li key={`${selectedPlayerId}-news-${idx}`} className="text-sm flex items-start gap-2 rounded px-2 py-1 hover:bg-[color-mix(in_srgb,var(--accent)_6%,transparent)]">
-                          <span aria-hidden={true} className="mt-1 inline-block w-1.5 h-1.5 rounded-full" style={{ backgroundColor: 'var(--quaternary)' }} />
-                          <div>
-                            <a href={it.link} target="_blank" rel="noopener noreferrer" className="text-[var(--accent)] hover:underline underline-offset-2 font-medium">
-                              {it.title}
-                            </a>
-                            <div className="text-xs text-[var(--muted)]">{it.sourceName}{it.publishedAt ? ` • ${new Date(it.publishedAt).toLocaleString()}` : ''}</div>
-                          </div>
-                        </li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <div className="text-sm text-[var(--muted)]">No recent articles.</div>
-                  )}
-                </div>
-              </div>
-            );
-          })()}
-        </Modal>
-      )}
     </div>
   );
 }
