@@ -1,6 +1,12 @@
 import { NextRequest } from 'next/server';
 import { getHallOfFameActor, canManageFranchise } from '@/lib/hall-of-fame/auth';
-import { getFranchisePlayerHistory, getHallOfFameIndex } from '@/lib/hall-of-fame/service';
+import {
+  getFranchiseNameForId,
+  getFranchisePlayerHistory,
+  getHallOfFameIndex,
+} from '@/lib/hall-of-fame/service';
+import type { HallOfFameCandidate } from '@/lib/hall-of-fame/types';
+import { normalizeSiteUrl, postToDiscordWebhook } from '@/lib/utils/discord';
 import {
   getHallOfFameEntryById,
   softRemoveHallOfFameEntry,
@@ -10,6 +16,9 @@ import {
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+
+// Reuse the league's non-trade-block Discord webhook (the same webhook used by Suggestions).
+const HALL_OF_FAME_DISCORD_WEBHOOK_URL = process.env.DISCORD_SUGGESTIONS_WEBHOOK_URL;
 
 function parseInductionYear(value: unknown): number | null {
   const year = Number(value);
@@ -22,6 +31,80 @@ function parseBio(value: unknown): string | null {
   const bio = value.trim();
   if (bio.length < 20 || bio.length > 2000) return null;
   return bio;
+}
+
+function truncateDiscordText(text: string, max = 900): string {
+  const clean = text.trim();
+  if (clean.length <= max) return clean;
+  return `${clean.slice(0, max - 1).trimEnd()}…`;
+}
+
+function candidateTenure(candidate: HallOfFameCandidate): string {
+  if (!candidate.firstSeason && !candidate.lastSeason) return 'League history on file';
+  if (candidate.firstSeason === candidate.lastSeason) {
+    return candidate.firstSeason || candidate.lastSeason || 'League history on file';
+  }
+  return `${candidate.firstSeason ?? '?'}–${candidate.lastSeason ?? '?'}`;
+}
+
+async function postHallOfFameInductionToDiscord(options: {
+  franchiseId: string;
+  candidate: HallOfFameCandidate;
+  inductionYear: number;
+  bio: string;
+}): Promise<void> {
+  if (!HALL_OF_FAME_DISCORD_WEBHOOK_URL) return;
+
+  const franchiseName = getFranchiseNameForId(options.franchiseId);
+  const base = normalizeSiteUrl(
+    process.env.NEXT_PUBLIC_SITE_URL || process.env.SITE_URL || process.env.VERCEL_URL,
+  );
+  const hallUrl = `${base}/hall-of-fame?franchise=${encodeURIComponent(options.franchiseId)}`;
+  const profileUrl = `${base}/players/${encodeURIComponent(options.candidate.playerId)}`;
+  const seasons = options.candidate.seasons.length;
+  const playerMeta = [options.candidate.position, options.candidate.nflTeam].filter(Boolean).join(' · ');
+
+  const embed = {
+    title: `🏛️ ${options.candidate.playerName} enters the ${franchiseName} Hall of Fame`,
+    description: `The **${franchiseName}** have inducted **${options.candidate.playerName}** into their Team Hall of Fame as a member of the Class of ${options.inductionYear}.`,
+    url: hallUrl,
+    color: 0xd4af37,
+    fields: [
+      {
+        name: '🏆 Franchise Career',
+        value: `${options.candidate.totalPoints.toFixed(1)} points • ${options.candidate.starts} starts • ${seasons} season${seasons === 1 ? '' : 's'}`,
+        inline: false,
+      },
+      {
+        name: '📅 Tenure',
+        value: candidateTenure(options.candidate),
+        inline: true,
+      },
+      {
+        name: '🏈 Player',
+        value: playerMeta || 'East v. West player',
+        inline: true,
+      },
+      {
+        name: '📝 Hall Biography',
+        value: truncateDiscordText(options.bio),
+        inline: false,
+      },
+      {
+        name: '🔗 View Hall of Fame',
+        value: `[Open the ${franchiseName} Hall of Fame](${hallUrl}) • [Player profile](${profileUrl})`,
+        inline: false,
+      },
+    ],
+    thumbnail: options.candidate.headshotUrl ? { url: options.candidate.headshotUrl } : undefined,
+    timestamp: new Date().toISOString(),
+    footer: { text: `East v. West · Team Hall of Fame · Class of ${options.inductionYear}` },
+  };
+
+  const result = await postToDiscordWebhook(HALL_OF_FAME_DISCORD_WEBHOOK_URL, { embeds: [embed] });
+  if (!result.success) {
+    console.warn('[hall-of-fame] Discord webhook failed', result.error);
+  }
 }
 
 export async function GET() {
@@ -61,6 +144,18 @@ export async function POST(req: NextRequest) {
     createdBy: actor.isAdmin ? 'commissioner' : actor.teamName ?? franchiseId,
   });
   if (!entry) return Response.json({ error: 'Could not save Hall of Fame induction.' }, { status: 500 });
+
+  // Discord is a notification side effect only. A webhook outage must never undo or block
+  // a valid Hall of Fame induction that has already been saved.
+  await postHallOfFameInductionToDiscord({
+    franchiseId,
+    candidate,
+    inductionYear,
+    bio,
+  }).catch((error) => {
+    console.warn('[hall-of-fame] Discord notification error', error);
+  });
+
   return Response.json({ ok: true, id: entry.id });
 }
 
