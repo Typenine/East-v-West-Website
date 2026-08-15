@@ -28,6 +28,7 @@ export const USER_NAV_CONFIG: UserNavItem[] = [
     label: 'League',
     children: [
       { id: 'league.teams', label: 'Teams', href: '/teams' },
+      { id: 'league.hall-of-fame', label: 'Team Hall of Fame', href: '/hall-of-fame', description: 'Franchise legends and induction classes' },
       { id: 'league.rosters', label: 'Rosters', href: '/rosters', description: 'Every team roster in one view' },
       { id: 'league.standings', label: 'Standings', href: '/standings' },
       { id: 'league.rules', label: 'Rules', href: '/rules' },
