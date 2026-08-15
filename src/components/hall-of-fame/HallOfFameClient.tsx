@@ -4,6 +4,7 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import PlayerLink from '@/components/players/PlayerLink';
+import PlayerQuickViewModal from '@/components/players/PlayerQuickViewModal';
 import { CURRENT_SEASON } from '@/lib/constants/league';
 import {
   getReadableTextForColors,
@@ -26,6 +27,7 @@ type AuthState = {
 type EditorState =
   | { mode: 'induct'; franchise: HallOfFameFranchise }
   | { mode: 'edit'; franchise: HallOfFameFranchise; entry: HallOfFameEntryPublic };
+type ProfilePreview = { playerId: string; name: string };
 
 function tenure(entry: HallOfFameEntryPublic): string {
   const { firstSeason, lastSeason } = entry.career;
@@ -153,6 +155,7 @@ export default function HallOfFameClient() {
   const [inductionYear, setInductionYear] = useState(Number(CURRENT_SEASON));
   const [saving, setSaving] = useState(false);
   const [editorError, setEditorError] = useState<string | null>(null);
+  const [profilePreview, setProfilePreview] = useState<ProfilePreview | null>(null);
 
   const loadIndex = useCallback(async () => {
     const response = await fetch('/api/hall-of-fame', { cache: 'no-store' });
@@ -262,6 +265,7 @@ export default function HallOfFameClient() {
     if (saving) return;
     setEditor(null);
     setEditorError(null);
+    setProfilePreview(null);
   }, [saving]);
 
   const filteredCandidates = useMemo(() => {
@@ -308,6 +312,7 @@ export default function HallOfFameClient() {
       if (!response.ok) throw new Error(typeof json.error === 'string' ? json.error : 'Could not save Hall of Fame entry.');
       await loadIndex();
       setEditor(null);
+      setProfilePreview(null);
     } catch (err) {
       setEditorError(err instanceof Error ? err.message : 'Could not save Hall of Fame entry.');
     } finally {
@@ -572,8 +577,17 @@ export default function HallOfFameClient() {
               )}
 
               {editor.mode === 'induct' && selectedCandidate ? (
-                <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-strong)] p-4 text-sm text-[var(--text)]">
-                  <span className="font-black">Selected:</span> {selectedCandidate.playerName} · {candidateTenure(selectedCandidate)} · {selectedCandidate.totalPoints.toFixed(1)} total production while rostered · {selectedCandidate.starts} start{selectedCandidate.starts === 1 ? '' : 's'}
+                <div className="flex flex-col gap-3 rounded-xl border border-[var(--border)] bg-[var(--surface-strong)] p-4 text-sm text-[var(--text)] sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <span className="font-black">Selected:</span> {selectedCandidate.playerName} · {candidateTenure(selectedCandidate)} · {selectedCandidate.totalPoints.toFixed(1)} total production while rostered · {selectedCandidate.starts} start{selectedCandidate.starts === 1 ? '' : 's'}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setProfilePreview({ playerId: selectedCandidate.playerId, name: selectedCandidate.playerName })}
+                    className="shrink-0 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-xs font-black text-[var(--text)] hover:bg-[var(--surface-strong)]"
+                  >
+                    View player profile
+                  </button>
                 </div>
               ) : null}
 
@@ -620,6 +634,17 @@ export default function HallOfFameClient() {
               </div>
             </div>
           </div>
+        </div>
+      ) : null}
+
+      {profilePreview ? (
+        <div className="relative z-[100]">
+          <PlayerQuickViewModal
+            open
+            onClose={() => setProfilePreview(null)}
+            playerId={profilePreview.playerId}
+            name={profilePreview.name}
+          />
         </div>
       ) : null}
     </div>
