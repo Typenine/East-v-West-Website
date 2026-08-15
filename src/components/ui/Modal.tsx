@@ -2,6 +2,13 @@
 
 import { ReactNode, useEffect, useRef } from "react";
 
+const SIZE_CLASSES = {
+  md: "max-w-md",
+  lg: "max-w-lg",
+  xl: "max-w-3xl",
+  "2xl": "max-w-5xl",
+} as const;
+
 export function Modal({
   open,
   onClose,
@@ -9,6 +16,7 @@ export function Modal({
   children,
   showClose = true,
   autoFocusPanel = true,
+  size = "lg",
 }: {
   open: boolean;
   onClose: () => void;
@@ -16,6 +24,7 @@ export function Modal({
   children: ReactNode;
   showClose?: boolean;
   autoFocusPanel?: boolean;
+  size?: keyof typeof SIZE_CLASSES;
 }) {
   const panelRef = useRef<HTMLDivElement | null>(null);
   const titleIdRef = useRef<string>(`modal-title-${Math.random().toString(36).slice(2)}`);
@@ -83,7 +92,7 @@ export function Modal({
             aria-modal="true"
             aria-labelledby={title ? titleIdRef.current : undefined}
             tabIndex={-1}
-            className="evw-surface border border-[var(--border)] rounded-[var(--radius-card)] shadow-[var(--shadow-soft)] w-full max-w-lg outline-none"
+            className={`evw-surface border border-[var(--border)] rounded-[var(--radius-card)] shadow-[var(--shadow-soft)] w-full ${SIZE_CLASSES[size]} outline-none`}
             onClick={(e) => e.stopPropagation()}
           >
             {(title || showClose) && (

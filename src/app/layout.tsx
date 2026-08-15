@@ -11,6 +11,7 @@ import MobileAppNav from "@/components/layout/MobileAppNav";
 import DraftSystemUpdate150ClientPatch from "@/components/draft/DraftSystemUpdate150ClientPatch";
 import PwaInstallPrompt from "@/components/pwa/PwaInstallPrompt";
 import PwaRegistration from "@/components/pwa/PwaRegistration";
+import PlayerModalProvider from "@/components/players/PlayerModalProvider";
 
 const APP_ICON_URL = "/pwa/east-v-west-logo.png?v=20260725-3";
 
@@ -91,17 +92,19 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased flex flex-col min-h-screen`}
       >
-        <Suspense fallback={null}>
-          <Navbar />
-        </Suspense>
-        <main className="min-w-0 flex-grow pb-24 md:pb-0">
-          {children}
-        </main>
-        <Footer />
-        <MobileAppNav />
-        <DraftSystemUpdate150ClientPatch />
-        <PwaInstallPrompt />
-        <PwaRegistration />
+        <PlayerModalProvider>
+          <Suspense fallback={null}>
+            <Navbar />
+          </Suspense>
+          <main className="min-w-0 flex-grow pb-24 md:pb-0">
+            {children}
+          </main>
+          <Footer />
+          <MobileAppNav />
+          <DraftSystemUpdate150ClientPatch />
+          <PwaInstallPrompt />
+          <PwaRegistration />
+        </PlayerModalProvider>
         <Analytics />
       </body>
     </html>
