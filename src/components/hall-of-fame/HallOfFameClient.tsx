@@ -87,8 +87,9 @@ function HallEntryCard({
             <div className="mt-2 text-xs font-semibold text-[var(--muted)]">{entry.franchiseName} · {tenure(entry)}</div>
             <div className="mt-3 grid grid-cols-3 gap-2">
               <div className="rounded-lg bg-[var(--surface-strong)] px-2 py-2">
-                <div className="text-[9px] font-bold uppercase tracking-wider text-[var(--muted)]">Points</div>
+                <div className="text-[9px] font-bold uppercase tracking-wider text-[var(--muted)]">Total Production</div>
                 <div className="mt-0.5 font-black tabular-nums text-[var(--text)]">{entry.career.totalPoints.toFixed(1)}</div>
+                <div className="text-[9px] font-semibold text-[var(--muted)]">while rostered</div>
               </div>
               <div className="rounded-lg bg-[var(--surface-strong)] px-2 py-2">
                 <div className="text-[9px] font-bold uppercase tracking-wider text-[var(--muted)]">Starts</div>
@@ -554,9 +555,9 @@ export default function HallOfFameClient() {
                             <div className="truncate font-black text-[var(--text)]">{candidate.playerName}</div>
                             <div className="mt-0.5 text-xs text-[var(--muted)]">{[candidate.position, candidate.nflTeam].filter(Boolean).join(' · ') || 'Player'} · {candidateTenure(candidate)}</div>
                           </div>
-                          <div className="text-right text-xs text-[var(--muted)]">
-                            <div className="font-black text-[var(--text)]">{candidate.totalPoints.toFixed(1)} pts</div>
-                            <div>{candidate.starts} starts</div>
+                          <div className="max-w-[150px] text-right text-xs text-[var(--muted)] sm:max-w-[220px]">
+                            <div className="font-black leading-4 text-[var(--text)]">{candidate.totalPoints.toFixed(1)} total production while rostered</div>
+                            <div className="mt-1">{candidate.starts} start{candidate.starts === 1 ? '' : 's'}</div>
                           </div>
                         </button>
                       );
@@ -572,7 +573,7 @@ export default function HallOfFameClient() {
 
               {editor.mode === 'induct' && selectedCandidate ? (
                 <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-strong)] p-4 text-sm text-[var(--text)]">
-                  <span className="font-black">Selected:</span> {selectedCandidate.playerName} · {candidateTenure(selectedCandidate)} · {selectedCandidate.totalPoints.toFixed(1)} franchise points · {selectedCandidate.starts} starts
+                  <span className="font-black">Selected:</span> {selectedCandidate.playerName} · {candidateTenure(selectedCandidate)} · {selectedCandidate.totalPoints.toFixed(1)} total production while rostered · {selectedCandidate.starts} start{selectedCandidate.starts === 1 ? '' : 's'}
                 </div>
               ) : null}
 
