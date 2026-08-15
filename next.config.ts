@@ -14,11 +14,17 @@ function replacePreviousDraftSourceOnce(source: string, oldValue: string, newVal
 
 function applyPreviousDraftBoardPatch(): void {
   const targetPath = resolve(process.cwd(), 'src/app/draft/DraftContent.tsx');
-  let source = readFileSync(targetPath, 'utf8');
+  const original = readFileSync(targetPath, 'utf8');
 
-  if (source.includes(PREVIOUS_DRAFT_BOARD_MARKER)) {
+  if (original.includes(PREVIOUS_DRAFT_BOARD_MARKER)) {
     return;
   }
+
+  // Template literals normalize CRLF to LF per the ECMAScript spec (even with
+  // String.raw), so multi-line templates below never match CRLF source text.
+  // Normalize to LF for matching, then restore CRLF on write if the file used it.
+  const usesCRLF = original.includes('\r\n');
+  let source = usesCRLF ? original.replace(/\r\n/g, '\n') : original;
 
   source = replacePreviousDraftSourceOnce(
     source,
@@ -198,7 +204,7 @@ function FullDraftBoard({ data, selectedYear }: { data: DraftYearData; selectedY
     'board component',
   );
 
-  writeFileSync(targetPath, source, 'utf8');
+  writeFileSync(targetPath, usesCRLF ? source.replace(/\n/g, '\r\n') : source, 'utf8');
   console.log('[previous-draft-board] Added the full historical draft board view.');
 }
 

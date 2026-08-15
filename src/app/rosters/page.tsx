@@ -10,6 +10,7 @@ import SectionHeader from '@/components/ui/SectionHeader';
 import { LEAGUE_IDS } from '@/lib/constants/league';
 import { getAllPlayers, getTeamsData, type SleeperPlayer, type TeamData } from '@/lib/utils/sleeper-api';
 import { getTeamColorStyle, getTeamLogoPath } from '@/lib/utils/team-utils';
+import PlayerLink from '@/components/players/PlayerLink';
 
 const POSITION_GROUP_ORDER = ['QB', 'RB', 'WR', 'TE', 'K', 'DEF/DST', 'Other'] as const;
 type PositionGroup = (typeof POSITION_GROUP_ORDER)[number];
@@ -308,7 +309,7 @@ export default function RostersPage() {
                                     className="flex items-center justify-between gap-2 rounded-md px-1.5 py-1 text-sm hover:bg-[var(--surface-strong)]"
                                   >
                                     <span className="min-w-0 truncate font-medium text-[var(--text)]">
-                                      {playerName(playerId, players)}
+                                      <PlayerLink playerId={playerId}>{playerName(playerId, players)}</PlayerLink>
                                     </span>
                                     <span className="shrink-0 text-[11px] font-semibold text-[var(--muted)]">
                                       {player?.team || 'FA'}

@@ -72,7 +72,7 @@ export default function DraftContent() {
   const [draftsByYear, setDraftsByYear] = useState<Record<string, DraftYearData | null>>({});
   const playersRef = useRef<Record<string, SleeperPlayer> | null>(null);
   const loadedYearsRef = useRef<Set<string>>(new Set());
-  const [draftView, setDraftView] = useState<'teams' | 'linear'>('teams');
+  const [draftView, setDraftView] = useState<'teams' | 'linear' | 'board'>('teams');
   const [isAdmin, setIsAdmin] = useState(false);
 
   const outerTabParam = searchParams?.get('view') || '';
@@ -497,9 +497,9 @@ export default function DraftContent() {
                           </div>
                         </div>
                         <div>
-                          <div className="flex items-center justify-between mb-3">
+                          <div className="flex flex-col gap-3 mb-3 sm:flex-row sm:items-center sm:justify-between">
                             <h3 className="text-base font-semibold text-[var(--text)]">
-                              {draftView === 'teams' ? 'Team Hauls' : 'Linear Picks'}
+                              {draftView === 'teams' ? 'Team Hauls' : draftView === 'linear' ? 'Linear Picks' : 'Full Draft Board'}
                             </h3>
                             <div className="inline-flex rounded-md border border-[var(--border)] overflow-hidden">
                               <Button
@@ -517,6 +517,14 @@ export default function DraftContent() {
                                 onClick={() => setDraftView('linear')}
                               >
                                 Linear
+                              </Button>
+                              <Button
+                                variant={draftView === 'board' ? 'primary' : 'ghost'}
+                                size="sm"
+                                className="px-3"
+                                onClick={() => setDraftView('board')}
+                              >
+                                Full Board
                               </Button>
                             </div>
                           </div>
@@ -549,7 +557,7 @@ export default function DraftContent() {
                                 );
                               })}
                             </div>
-                          ) : (
+                          ) : draftView === 'linear' ? (
                             <Card className="overflow-x-auto">
                               <CardContent>
                                 {(() => {
@@ -651,6 +659,11 @@ export default function DraftContent() {
                                 })()}
                               </CardContent>
                             </Card>
+                          ) : (
+                            <FullDraftBoard
+                              data={draftsByYear[selectedYear] as DraftYearData}
+                              selectedYear={selectedYear}
+                            />
                           )}
                         </div>
                       </div>
@@ -712,6 +725,100 @@ export default function DraftContent() {
         )}
       </div>
     </div>
+  );
+}
+
+
+function FullDraftBoard({ data, selectedYear }: { data: DraftYearData; selectedYear: string }) {
+  const roundNumbers = Array.from(new Set(data.linear_picks.map((pick) => pick.round))).sort((a, b) => a - b);
+  const rounds = roundNumbers.length > 0
+    ? roundNumbers
+    : Array.from({ length: data.rounds }, (_, index) => index + 1);
+  const columnMinWidth = 255;
+  const boardMinWidth = Math.max(rounds.length * columnMinWidth + Math.max(0, rounds.length - 1) * 12, columnMinWidth);
+
+  return (
+    <Card data-previous-draft-board="full">
+      <CardContent>
+        <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <div className="text-sm font-semibold text-[var(--text)]">{selectedYear} draft board</div>
+            <p className="mt-1 text-xs text-[var(--muted)]">All rounds are shown side by side. Scroll horizontally on smaller screens.</p>
+          </div>
+          <div className="text-xs font-semibold text-[var(--muted)]">{data.linear_picks.length} selections</div>
+        </div>
+        <div className="overflow-x-auto pb-2">
+          <div
+            className="grid gap-3"
+            style={{
+              minWidth: String(boardMinWidth) + 'px',
+              gridTemplateColumns: 'repeat(' + rounds.length + ', minmax(' + columnMinWidth + 'px, 1fr))',
+            }}
+          >
+            {rounds.map((round) => {
+              const picks = data.linear_picks
+                .filter((pick) => pick.round === round)
+                .sort((a, b) => a.pick - b.pick);
+              return (
+                <section key={round} aria-label={'Round ' + round} className="overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)]/45">
+                  <div className="flex items-center justify-between border-b border-[var(--border)] bg-black/15 px-3 py-2">
+                    <h4 className="text-sm font-bold text-[var(--text)]">Round {round}</h4>
+                    <span className="text-[10px] font-semibold uppercase tracking-wide text-[var(--muted)]">{picks.length} picks</span>
+                  </div>
+                  <ol className="divide-y divide-[var(--border)]">
+                    {picks.map((pick) => {
+                      const colors = getTeamColors(pick.team);
+                      const logoStyle = getTeamColorStyle(pick.team, 'primary');
+                      const tint = /^#[0-9a-f]{6}$/i.test(colors.primary) ? colors.primary + '14' : undefined;
+                      const priceEnabled = selectedYear === '2023' && data.isAuction && pick.price != null;
+                      return (
+                        <li
+                          key={pick.pick_no}
+                          className="min-h-[76px] px-2.5 py-2"
+                          style={{
+                            borderLeft: '3px solid ' + (colors.secondary || colors.primary),
+                            backgroundColor: tint,
+                          }}
+                        >
+                          <div className="flex items-center justify-between gap-2 text-[10px] font-bold uppercase tracking-wide text-[var(--muted)]">
+                            <span>{round + '.' + String(pick.pick).padStart(2, '0')}</span>
+                            <span>{'#' + pick.pick_no}</span>
+                          </div>
+                          <div className="mt-1.5 flex min-w-0 items-center gap-2">
+                            <div className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full" style={logoStyle}>
+                              <Image
+                                src={getTeamLogoPath(pick.team)}
+                                alt={pick.team + ' logo'}
+                                width={24}
+                                height={24}
+                                className="object-contain"
+                                onError={(event) => { (event.target as HTMLImageElement).style.display = 'none'; }}
+                              />
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <div className="flex min-w-0 items-center gap-1.5">
+                                <span className="truncate text-sm font-semibold text-[var(--text)]">{pick.player}</span>
+                                {pick.pos ? (
+                                  <span className="shrink-0 rounded bg-black/15 px-1 py-0.5 text-[9px] font-bold text-[var(--muted)]">{pick.pos}</span>
+                                ) : null}
+                              </div>
+                              <div className="mt-0.5 truncate text-[10px] text-[var(--muted)]">{pick.team}</div>
+                            </div>
+                            {priceEnabled ? (
+                              <span className="shrink-0 rounded-full bg-black/15 px-1.5 py-0.5 text-[10px] font-bold text-[var(--text)]">{'$' + pick.price}</span>
+                            ) : null}
+                          </div>
+                        </li>
+                      );
+                    })}
+                  </ol>
+                </section>
+              );
+            })}
+          </div>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
