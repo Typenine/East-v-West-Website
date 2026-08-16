@@ -42,10 +42,21 @@ export const USER_NAV_CONFIG: UserNavItem[] = [
     children: [
       { id: 'history.champions', label: 'Champions', href: '/history?tab=champions', group: 'Playoffs' },
       { id: 'history.brackets', label: 'Brackets', href: '/history?tab=brackets', group: 'Playoffs' },
-      { id: 'history.leaderboards', label: 'Leaderboards', href: '/history?tab=leaderboards', group: 'Stats & Records' },
-      { id: 'history.weekly-highs', label: 'Weekly Highs', href: '/history?tab=weekly-highs', group: 'Stats & Records' },
-      { id: 'history.franchises', label: 'Franchises', href: '/history?tab=franchises', group: 'Stats & Records' },
-      { id: 'history.records', label: 'Records', href: '/history?tab=records', group: 'Stats & Records' },
+      {
+        id: 'history.stats',
+        label: 'Stats',
+        href: '/history/stats',
+        description: 'League Football Reference-style statistical archive',
+        group: 'Stats & Records',
+        children: [
+          { id: 'history.stats.players', label: 'Players', href: '/history/stats?tab=players' },
+          { id: 'history.stats.franchises', label: 'Franchises', href: '/history/stats?tab=franchises' },
+          { id: 'history.stats.seasons', label: 'Seasons', href: '/history/stats?tab=seasons' },
+          { id: 'history.stats.games', label: 'Games', href: '/history/stats?tab=games' },
+          { id: 'history.stats.records', label: 'Records', href: '/history/stats?tab=records' },
+          { id: 'history.stats.explorer', label: 'Explorer', href: '/history/stats?tab=explorer' },
+        ],
+      },
     ],
   },
   {
