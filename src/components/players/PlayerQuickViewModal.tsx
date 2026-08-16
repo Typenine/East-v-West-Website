@@ -6,6 +6,7 @@ import Modal from "@/components/ui/Modal";
 import Tabs from "@/components/ui/Tabs";
 import LoadingState from "@/components/ui/loading-state";
 import ErrorState from "@/components/ui/error-state";
+import PlayerGameLogSection from "@/components/players/PlayerGameLogSection";
 import {
   PlayerHeaderSection,
   PlayerOverviewSection,
@@ -74,6 +75,7 @@ export default function PlayerQuickViewModal({ open, onClose, playerId, name }: 
               { id: "overview", label: "Overview", content: <PlayerOverviewSection profile={profile} /> },
               { id: "nfl", label: "NFL Production", content: <PlayerNFLProductionSection profile={profile} /> },
               { id: "evw", label: "EVW Career", content: <PlayerEVWCareerSection profile={profile} /> },
+              { id: "game-log", label: "Game Log", content: <PlayerGameLogSection profile={profile} /> },
               { id: "seasons", label: "Season History", content: <PlayerSeasonHistorySection profile={profile} /> },
               { id: "transactions", label: "Transactions", content: <PlayerTransactionsSection profile={profile} /> },
             ]}

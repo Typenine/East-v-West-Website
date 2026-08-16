@@ -3,14 +3,14 @@
 import { useSearchParams } from 'next/navigation';
 import type { LeagueStatsDataset } from '@/lib/stats/types';
 import StatsReferenceClient from './StatsReferenceClient';
-import StatsRecordsView from './StatsRecordsView';
+import StatsRecordsViewV2 from './StatsRecordsViewV2';
 
 export default function StatsReferenceRouter({ dataset }: { dataset: LeagueStatsDataset }) {
   const searchParams = useSearchParams();
   const tab = searchParams.get('tab') || 'overview';
 
   if (tab === 'records') {
-    return <StatsRecordsView dataset={dataset} />;
+    return <StatsRecordsViewV2 dataset={dataset} />;
   }
 
   return <StatsReferenceClient dataset={dataset} />;
