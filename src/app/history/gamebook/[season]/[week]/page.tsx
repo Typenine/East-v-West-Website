@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { getLeagueStatsDatasetV2 } from '@/lib/stats/league-stats-v2';
+import { getLeagueStatsDatasetV3 } from '@/lib/stats/league-stats-v3';
 import { buildWeeklyGamebook, franchiseHistoryId } from '@/lib/history/league-history';
 import { getReadableTextForColors, getTeamColors } from '@/lib/utils/team-utils';
 import type { StatsFranchiseRow, StatsGameRow } from '@/lib/stats/types';
@@ -16,9 +16,9 @@ function fmt(value: number, digits = 1): string {
 
 function gameTypeLabel(type: StatsGameRow['gameType']): string {
   if (type === 'regular') return 'Regular Season';
-  if (type === 'playoffs') return 'Championship Bracket';
-  if (type === 'toilet') return 'Toilet Bracket';
-  return 'Postseason';
+  if (type === 'playoffs') return 'Championship Playoffs';
+  if (type === 'toilet') return 'Toilet Bowl';
+  return 'Postseason Placement';
 }
 
 function Stat({ label, value, note }: { label: string; value: React.ReactNode; note?: string }) {
@@ -50,7 +50,7 @@ export default async function WeeklyGamebookPage({ params }: { params: Promise<P
   const { season, week: rawWeek } = await params;
   const week = Number(rawWeek);
   if (!Number.isInteger(week) || week < 1) notFound();
-  const dataset = await getLeagueStatsDatasetV2();
+  const dataset = await getLeagueStatsDatasetV3();
   const book = buildWeeklyGamebook(dataset, season, week);
   if (!book) notFound();
 

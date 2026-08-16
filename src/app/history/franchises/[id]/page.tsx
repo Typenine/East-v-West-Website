@@ -2,9 +2,10 @@ import type { Metadata } from 'next';
 import Image from 'next/image';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { getLeagueStatsDatasetV2 } from '@/lib/stats/league-stats-v2';
+import { getLeagueStatsDatasetV3 } from '@/lib/stats/league-stats-v3';
 import { buildFranchiseHistory, findFranchiseByHistoryId, franchiseHistoryId } from '@/lib/history/league-history';
 import { getReadableTextForColors, getTeamColors, getTeamLogoPath } from '@/lib/utils/team-utils';
+import type { StatsGameRow } from '@/lib/stats/types';
 
 export const dynamic = 'force-dynamic';
 
@@ -25,8 +26,25 @@ function record(w: number, l: number, t: number): string {
 function gameType(type: string): string {
   if (type === 'regular') return 'Regular';
   if (type === 'playoffs') return 'Playoffs';
-  if (type === 'toilet') return 'Toilet';
+  if (type === 'toilet') return 'Toilet Bowl';
   return 'Postseason';
+}
+
+function splitRecord(games: StatsGameRow[], teamName: string) {
+  let wins = 0;
+  let losses = 0;
+  let ties = 0;
+  let pointsFor = 0;
+  let pointsAgainst = 0;
+  for (const game of games) {
+    const isA = game.teamA === teamName;
+    pointsFor += isA ? game.scoreA : game.scoreB;
+    pointsAgainst += isA ? game.scoreB : game.scoreA;
+    if (game.tie) ties += 1;
+    else if (game.winner === teamName) wins += 1;
+    else losses += 1;
+  }
+  return { wins, losses, ties, pointsFor, pointsAgainst };
 }
 
 function Section({ id, title, subtitle, children }: { id: string; title: string; subtitle?: string; children: React.ReactNode }) {
@@ -51,20 +69,22 @@ function Table({ children }: { children: React.ReactNode }) {
 
 export async function generateMetadata({ params }: { params: Promise<PageParams> }): Promise<Metadata> {
   const { id } = await params;
-  const dataset = await getLeagueStatsDatasetV2();
+  const dataset = await getLeagueStatsDatasetV3();
   const franchise = findFranchiseByHistoryId(dataset, id);
   return { title: franchise ? `${franchise.teamName} History — East v. West` : 'Franchise Not Found — East v. West' };
 }
 
 export default async function FranchiseHistoryPage({ params }: { params: Promise<PageParams> }) {
   const { id } = await params;
-  const dataset = await getLeagueStatsDatasetV2();
+  const dataset = await getLeagueStatsDatasetV3();
   const franchise = findFranchiseByHistoryId(dataset, id);
   if (!franchise) notFound();
   const history = buildFranchiseHistory(dataset, franchise);
   const colors = getTeamColors(franchise.teamName);
   const headerText = getReadableTextForColors([colors.primary, colors.secondary]);
   const regularGames = franchise.regularWins + franchise.regularLosses + franchise.regularTies;
+  const toiletGames = dataset.games.filter((game) => game.gameType === 'toilet' && (game.teamA === franchise.teamName || game.teamB === franchise.teamName));
+  const toilet = splitRecord(toiletGames, franchise.teamName);
 
   return (
     <main className="container mx-auto max-w-[1500px] px-4 py-8">
@@ -88,26 +108,31 @@ export default async function FranchiseHistoryPage({ params }: { params: Promise
       </div>
 
       <div className="mt-8 space-y-10">
-        <Section id="overview" title="Franchise Overview" subtitle="All-time regular-season and championship-bracket performance.">
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-6">
+        <Section id="overview" title="Franchise Overview" subtitle="Regular season, championship playoffs and Toilet Bowl are tracked separately.">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
             <Stat label="Regular Record" value={record(franchise.regularWins, franchise.regularLosses, franchise.regularTies)} note={pct(franchise.regularWinPct)} />
             <Stat label="Points For" value={fmt(franchise.regularPointsFor)} note={`${fmt(franchise.avgScore)} per game`} />
             <Stat label="Points Against" value={fmt(franchise.regularPointsAgainst)} />
-            <Stat label="Playoff Record" value={record(franchise.playoffWins, franchise.playoffLosses, franchise.playoffTies)} />
+            <Stat label="Playoff Record" value={record(franchise.playoffWins, franchise.playoffLosses, franchise.playoffTies)} note="Championship path only" />
+            <Stat label="Toilet Bowl" value={record(toilet.wins, toilet.losses, toilet.ties)} note={toiletGames.length ? `${fmt(toilet.pointsFor)} PF` : 'No games'} />
             <Stat label="Championships" value={franchise.titles} note={history.championshipYears.join(', ') || 'None'} />
             <Stat label="Title Games" value={franchise.championshipAppearances} note={history.runnerUpYears.length ? `Runner-up: ${history.runnerUpYears.join(', ')}` : undefined} />
           </div>
         </Section>
 
-        <Section id="seasons" title="Season History" subtitle="Regular-season record, scoring, playoff record and final league finish by year.">
-          <Table><thead><tr><Th>Season</Th><Th>Regular</Th><Th className="text-right">Win %</Th><Th className="text-right">PF</Th><Th className="text-right">PA</Th><Th className="text-right">Avg</Th><Th>Playoffs</Th><Th>Finish</Th></tr></thead><tbody>{history.seasons.map((row) => <tr key={row.regular.season}><Td className="font-bold">{row.regular.season}</Td><Td>{record(row.regular.wins, row.regular.losses, row.regular.ties)}</Td><Td className="text-right">{pct(row.regular.winPct)}</Td><Td className="text-right tabular-nums">{fmt(row.regular.pointsFor)}</Td><Td className="text-right tabular-nums">{fmt(row.regular.pointsAgainst)}</Td><Td className="text-right tabular-nums">{fmt(row.regular.avgScore)}</Td><Td>{record(row.playoffWins, row.playoffLosses, row.playoffTies)}</Td><Td className="font-semibold">{row.finish || '—'}</Td></tr>)}</tbody></Table>
+        <Section id="seasons" title="Season History" subtitle="Regular-season, championship-playoff and Toilet Bowl records are separated by year.">
+          <Table><thead><tr><Th>Season</Th><Th>Regular</Th><Th className="text-right">Win %</Th><Th className="text-right">PF</Th><Th className="text-right">PA</Th><Th className="text-right">Avg</Th><Th>Playoffs</Th><Th>Toilet Bowl</Th><Th>Finish</Th></tr></thead><tbody>{history.seasons.map((row) => {
+            const seasonToiletGames = dataset.games.filter((game) => game.season === row.regular.season && game.gameType === 'toilet' && (game.teamA === franchise.teamName || game.teamB === franchise.teamName));
+            const seasonToilet = splitRecord(seasonToiletGames, franchise.teamName);
+            return <tr key={row.regular.season}><Td className="font-bold">{row.regular.season}</Td><Td>{record(row.regular.wins, row.regular.losses, row.regular.ties)}</Td><Td className="text-right">{pct(row.regular.winPct)}</Td><Td className="text-right tabular-nums">{fmt(row.regular.pointsFor)}</Td><Td className="text-right tabular-nums">{fmt(row.regular.pointsAgainst)}</Td><Td className="text-right tabular-nums">{fmt(row.regular.avgScore)}</Td><Td>{record(row.playoffWins, row.playoffLosses, row.playoffTies)}</Td><Td>{seasonToiletGames.length ? record(seasonToilet.wins, seasonToilet.losses, seasonToilet.ties) : '—'}</Td><Td className="font-semibold">{row.finish || '—'}</Td></tr>;
+          })}</tbody></Table>
         </Section>
 
         <Section id="players" title="Franchise Player Leaders" subtitle="EVW points are attributed only to weeks the player was rostered by this franchise.">
           <Table><thead><tr><Th>Rk</Th><Th>Player</Th><Th>Pos</Th><Th>Seasons</Th><Th className="text-right">Wks</Th><Th className="text-right">Starts</Th><Th className="text-right">Pts</Th><Th className="text-right">Pts/Wk</Th></tr></thead><tbody>{history.players.slice(0, 100).map((row, index) => <tr key={row.playerId}><Td>{index + 1}</Td><Td><Link href={`/players/${row.playerId}`} className="font-bold text-[var(--accent)] hover:underline">{row.name}</Link></Td><Td>{row.position}</Td><Td>{row.seasons.join(', ') || '—'}</Td><Td className="text-right">{row.rosteredWeeks}</Td><Td className="text-right">{row.starts}</Td><Td className="text-right font-bold tabular-nums">{fmt(row.points)}</Td><Td className="text-right tabular-nums">{row.rosteredWeeks ? fmt(row.points / row.rosteredWeeks) : '—'}</Td></tr>)}</tbody></Table>
         </Section>
 
-        <Section id="games" title="Game Archive" subtitle="Every regular-season and postseason matchup in the statistical archive.">
+        <Section id="games" title="Game Archive" subtitle="Regular season, championship playoffs, Toilet Bowl and placement games are labeled separately.">
           <Table><thead><tr><Th>Season</Th><Th>Week</Th><Th>Type</Th><Th>Result</Th><Th>Opponent</Th><Th className="text-right">PF</Th><Th className="text-right">PA</Th><Th className="text-right">Margin</Th><Th>Gamebook</Th></tr></thead><tbody>{history.games.map((game) => <tr key={game.id}><Td>{game.season}</Td><Td>{game.week}</Td><Td>{gameType(game.gameType)}</Td><Td className={game.result === 'W' ? 'font-black' : ''}>{game.result}</Td><Td>{game.opponent}</Td><Td className="text-right tabular-nums">{fmt(game.pointsFor, 2)}</Td><Td className="text-right tabular-nums">{fmt(game.pointsAgainst, 2)}</Td><Td className="text-right tabular-nums">{fmt(game.margin, 2)}</Td><Td><Link href={`/history/gamebook/${game.season}/${game.week}`} className="font-semibold text-[var(--accent)] hover:underline">Week {game.week} →</Link></Td></tr>)}</tbody></Table>
         </Section>
 

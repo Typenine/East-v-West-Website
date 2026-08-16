@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import Image from 'next/image';
 import Link from 'next/link';
-import { getLeagueStatsDatasetV2 } from '@/lib/stats/league-stats-v2';
+import { getLeagueStatsDatasetV3 } from '@/lib/stats/league-stats-v3';
 import { describeFranchiseRecord, franchiseHistoryId } from '@/lib/history/league-history';
 import { getReadableTextForColors, getTeamColors, getTeamLogoPath } from '@/lib/utils/team-utils';
 
@@ -13,7 +13,7 @@ export const metadata: Metadata = {
 };
 
 export default async function FranchiseHistoryIndexPage() {
-  const dataset = await getLeagueStatsDatasetV2();
+  const dataset = await getLeagueStatsDatasetV3();
   const franchises = [...dataset.franchises].sort((a, b) => b.titles - a.titles || b.regularWins - a.regularWins || a.teamName.localeCompare(b.teamName));
 
   return (

@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { getLeagueStatsDatasetV2 } from '@/lib/stats/league-stats-v2';
+import { getLeagueStatsDatasetV3 } from '@/lib/stats/league-stats-v3';
 import { buildLeagueMilestones } from '@/lib/history/league-history';
 import MilestonesClient from './MilestonesClient';
 
@@ -12,7 +12,7 @@ export const metadata: Metadata = {
 };
 
 export default async function LeagueMilestonesPage() {
-  const dataset = await getLeagueStatsDatasetV2();
+  const dataset = await getLeagueStatsDatasetV3();
   const milestones = buildLeagueMilestones(dataset);
 
   return (
@@ -21,7 +21,7 @@ export default async function LeagueMilestonesPage() {
       <div className="mt-2 border-b-4 border-[var(--accent)] pb-4">
         <div className="text-xs font-black uppercase tracking-[0.22em] text-[var(--muted)]">Living League History</div>
         <h1 className="mt-1 text-3xl font-black tracking-tight sm:text-4xl">League Milestones</h1>
-        <p className="mt-2 max-w-4xl text-sm text-[var(--muted)]">Automatically detected career point thresholds, franchise win milestones, playoff milestones, league scoring records and championships. New milestones appear as the statistical archive grows.</p>
+        <p className="mt-2 max-w-4xl text-sm text-[var(--muted)]">Automatically detected career point thresholds, franchise wins, championship-playoff milestones, league scoring records and championships. Toilet Bowl results are tracked separately and never increase playoff milestones.</p>
       </div>
       <div className="mt-7"><MilestonesClient milestones={milestones} franchises={dataset.franchises} /></div>
     </main>

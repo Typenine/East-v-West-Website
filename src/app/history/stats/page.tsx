@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import { getLeagueStatsDatasetV2 } from '@/lib/stats/league-stats-v2';
+import { getLeagueStatsDatasetV3 } from '@/lib/stats/league-stats-v3';
 import StatsReferenceRouter from './StatsReferenceRouter';
 
 export const dynamic = 'force-dynamic';
@@ -10,6 +10,6 @@ export const metadata: Metadata = {
 };
 
 export default async function LeagueStatsPage() {
-  const dataset = await getLeagueStatsDatasetV2();
+  const dataset = await getLeagueStatsDatasetV3();
   return <StatsReferenceRouter dataset={dataset} />;
 }
