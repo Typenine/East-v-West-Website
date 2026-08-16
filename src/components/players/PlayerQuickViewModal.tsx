@@ -81,6 +81,7 @@ export default function PlayerQuickViewModal({ open, onClose, playerId, name }: 
           <div className="pt-2 border-t border-[var(--border)]">
             <Link
               href={`/players/${encodeURIComponent(profile.identity.playerId)}`}
+              data-player-profile-full="true"
               className="text-sm text-[var(--accent)] hover:underline underline-offset-2"
             >
               View full profile →
