@@ -164,9 +164,6 @@ function weekHasScoring(matchups: SleeperMatchup[]): boolean {
 
 function historicalWeekLooksComplete(matchups: SleeperMatchup[], expectedRosters: number): boolean {
   if (matchups.length < expectedRosters) return false;
-  // Completed historical matchup payloads should contain player point maps for every roster.
-  // Requiring at least one player entry per roster catches the partial payload that produced
-  // the original three-player reference page without imposing assumptions about roster size.
   return matchups.every((matchup) => Object.keys(matchup.players_points || {}).length > 0);
 }
 
@@ -214,8 +211,6 @@ async function fetchSeasonWeeks(
   const weeks = Array.from({ length: endWeek }, (_, index) => index + 1);
   const result: SleeperMatchup[][] = [];
 
-  // Small batches retain most of the speed of parallel fetching without throwing 17 requests
-  // at Sleeper simultaneously on the first cold historical build.
   for (let start = 0; start < weeks.length; start += FETCH_BATCH_SIZE) {
     const batchWeeks = weeks.slice(start, start + FETCH_BATCH_SIZE);
     const batch = await Promise.all(
@@ -347,8 +342,6 @@ async function buildSeasonSnapshot(
   const playerGames: StatsPlayerGameRow[] = [];
   const weeklyMatchups = await fetchSeasonWeeks(leagueId, season, endWeek, expectedRosters);
 
-  // Sleeper can stage the current week's lineups before any NFL scoring exists. Ignore that
-  // final staged week exactly as the canonical player-profile service does.
   if (season === CURRENT_SEASON && weeklyMatchups.length > 0 && !weekHasScoring(weeklyMatchups[weeklyMatchups.length - 1])) {
     weeklyMatchups.pop();
   }
@@ -364,10 +357,6 @@ async function buildSeasonSnapshot(
       const rosteredIds = new Set<string>(matchup.players || []);
       const starters = new Set<string>(matchup.starters || []);
 
-      // Match the canonical player-profile attribution semantics: Sleeper's players_points
-      // map is the scoring source, while players[] determines whether the week counts as
-      // rostered. Historical payloads sometimes omit players[], so an empty roster list falls
-      // back to treating point-map entries as rostered.
       for (const [playerId, rawPoints] of Object.entries(pointsMap)) {
         if (!playerId) continue;
         const points = Number(rawPoints);
@@ -898,9 +887,6 @@ export async function getLeagueStatsDatasetV2(): Promise<LeagueStatsDataset> {
   const snapshots: SeasonStatsSnapshot[] = [];
   const missingSeasons: string[] = [];
 
-  // Historical season calls are intentionally sequential at the season level. Each season
-  // internally uses small week batches, and successful completed seasons then live in shared
-  // cache for 30 days.
   for (const season of configuredSeasons) {
     const snapshot = await loadSeasonSnapshot(season, currentNamesByRoster);
     if (snapshot) snapshots.push(snapshot);
@@ -915,8 +901,7 @@ export async function getLeagueStatsDatasetV2(): Promise<LeagueStatsDataset> {
   const champions = normalizedChampions();
   const franchises = aggregateFranchises(seasonTeams, games, champions);
   const playerGames = [...allPlayerGames]
-    .sort((a, b) => b.points - a.points || b.season.localeCompare(a.season) || a.name.localeCompare(b.name))
-    .slice(0, 500);
+    .sort((a, b) => b.points - a.points || b.season.localeCompare(a.season) || a.name.localeCompare(b.name));
   const records = buildRecordBook(players, playerSeasons, playerGames, franchises, seasonTeams, games);
   const latestSeasonWithGames = [...snapshots]
     .filter((snapshot) => snapshot.games.length > 0)

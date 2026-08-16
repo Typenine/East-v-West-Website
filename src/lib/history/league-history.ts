@@ -17,8 +17,6 @@ export interface AllEvwSelection {
   name: string;
   position: string;
   points: number;
-  starts: number;
-  rosteredWeeks: number;
   franchises: string[];
 }
 
@@ -116,8 +114,6 @@ function regularPlayerRows(dataset: LeagueStatsDataset, season: string) {
     name: string;
     position: string;
     points: number;
-    starts: number;
-    rosteredWeeks: number;
     franchises: Map<string, number>;
   }>();
 
@@ -128,13 +124,9 @@ function regularPlayerRows(dataset: LeagueStatsDataset, season: string) {
       name: row.name,
       position: row.position,
       points: 0,
-      starts: 0,
-      rosteredWeeks: 0,
       franchises: new Map<string, number>(),
     };
     current.points += row.points;
-    current.rosteredWeeks += 1;
-    if (row.started) current.starts += 1;
     current.franchises.set(row.franchiseName, (current.franchises.get(row.franchiseName) || 0) + row.points);
     byPlayer.set(row.playerId, current);
   }
@@ -146,7 +138,7 @@ function regularPlayerRows(dataset: LeagueStatsDataset, season: string) {
         .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
         .map(([teamName]) => teamName),
     }))
-    .sort((a, b) => b.points - a.points || b.starts - a.starts || a.name.localeCompare(b.name));
+    .sort((a, b) => b.points - a.points || a.name.localeCompare(b.name));
 }
 
 function selectAllEvwTeam(
@@ -164,8 +156,6 @@ function selectAllEvwTeam(
       name: row.name,
       position: row.position,
       points: row.points,
-      starts: row.starts,
-      rosteredWeeks: row.rosteredWeeks,
       franchises: row.franchises,
     });
   };

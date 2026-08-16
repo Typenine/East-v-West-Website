@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { getLeagueStatsDatasetV2 } from '@/lib/stats/league-stats-v2';
+import { getLeagueStatsDatasetV3 } from '@/lib/stats/league-stats-v3';
 import { buildAllEvwTeams, franchiseHistoryId } from '@/lib/history/league-history';
 import { getReadableTextForColors, getTeamColors } from '@/lib/utils/team-utils';
 
@@ -24,7 +24,7 @@ function Td({ children, className = '' }: { children: React.ReactNode; className
 }
 
 export default async function AllEvwPage() {
-  const dataset = await getLeagueStatsDatasetV2();
+  const dataset = await getLeagueStatsDatasetV3();
   const seasons = buildAllEvwTeams(dataset);
   const franchiseByName = new Map(dataset.franchises.map((row) => [row.teamName, row] as const));
 
@@ -34,7 +34,7 @@ export default async function AllEvwPage() {
       <div className="mt-2 border-b-4 border-[var(--accent)] pb-4">
         <div className="text-xs font-black uppercase tracking-[0.22em] text-[var(--muted)]">Annual Honors</div>
         <h1 className="mt-1 text-3xl font-black tracking-tight sm:text-4xl">All-East v. West Teams</h1>
-        <p className="mt-2 max-w-4xl text-sm text-[var(--muted)]">First and second teams are selected statistically from regular-season EVW scoring. Production is credited only to the franchise that rostered the player that week. Each player can occupy one slot per season.</p>
+        <p className="mt-2 max-w-4xl text-sm text-[var(--muted)]">First and second teams are selected strictly from complete regular-season EVW point totals. Production is credited only to the franchise that rostered the player that week. Each player can occupy one slot per season.</p>
       </div>
 
       <div className="mt-4 flex gap-2 overflow-x-auto pb-2">
@@ -54,7 +54,7 @@ export default async function AllEvwPage() {
                   <h3 className="mb-2 text-base font-black uppercase tracking-wide">{label}</h3>
                   <div className="overflow-x-auto rounded-lg border border-[var(--border)] bg-[var(--surface)]">
                     <table className="w-full">
-                      <thead><tr><Th>Slot</Th><Th>Player</Th><Th>Pos</Th><Th>Franchise</Th><Th className="text-right">Pts</Th><Th className="text-right">Starts</Th></tr></thead>
+                      <thead><tr><Th>Slot</Th><Th>Player</Th><Th>Pos</Th><Th>Franchise</Th><Th className="text-right">Regular-Season Pts</Th></tr></thead>
                       <tbody>{rows.map((row) => {
                         const primaryFranchise = row.franchises[0];
                         const franchise = primaryFranchise ? franchiseByName.get(primaryFranchise) : null;
@@ -68,7 +68,6 @@ export default async function AllEvwPage() {
                               {primaryFranchise ? franchise ? <Link href={`/history/franchises/${franchiseHistoryId(franchise)}`} className="inline-flex rounded px-2 py-1 text-xs font-bold hover:opacity-90" style={{ background: colors?.primary || 'var(--accent)', color: colors ? getReadableTextForColors([colors.primary, colors.secondary]) : '#fff' }}>{row.franchises.join(' / ')}</Link> : <span>{row.franchises.join(' / ')}</span> : '—'}
                             </Td>
                             <Td className="text-right font-black tabular-nums">{fmt(row.points)}</Td>
-                            <Td className="text-right tabular-nums">{row.starts}</Td>
                           </tr>
                         );
                       })}</tbody>
@@ -82,7 +81,7 @@ export default async function AllEvwPage() {
       </div>
 
       <div className="mt-10 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 text-xs text-[var(--muted)]">
-        Selection note: All-EVW is an automatically generated statistical honor, separate from any future owner-voted league awards. FLEX is RB/WR/TE; SF is QB/RB/WR/TE. Postseason and toilet-bracket scoring are excluded.
+        Selection note: All-EVW is an automatically generated statistical honor based only on complete regular-season EVW points. Starts are not part of the selection formula. FLEX is RB/WR/TE; SF is QB/RB/WR/TE. Playoff, Toilet Bowl and other postseason scoring are excluded.
       </div>
     </main>
   );
