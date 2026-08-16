@@ -26,14 +26,7 @@ const TABS = [
 
 type TabId = (typeof TABS)[number]['id'];
 type DisplayRecord = StatsRecordEntry & { coHolders?: string[] };
-
-type FranchiseNumericField =
-  | 'regularWins'
-  | 'regularWinPct'
-  | 'regularPointsFor'
-  | 'playoffWins'
-  | 'titles'
-  | 'championshipAppearances';
+type FranchiseNumericField = 'regularWins' | 'regularWinPct' | 'regularPointsFor' | 'playoffWins' | 'titles' | 'championshipAppearances';
 
 const FRANCHISE_RECORD_FIELDS: Record<string, FranchiseNumericField> = {
   'franchise-wins': 'regularWins',
@@ -45,10 +38,15 @@ const FRANCHISE_RECORD_FIELDS: Record<string, FranchiseNumericField> = {
 };
 
 function fmt(value: number, digits = 1): string {
-  return Number(value || 0).toLocaleString(undefined, {
-    minimumFractionDigits: digits,
-    maximumFractionDigits: digits,
-  });
+  return Number(value || 0).toLocaleString(undefined, { minimumFractionDigits: digits, maximumFractionDigits: digits });
+}
+
+function pct(value: number): string {
+  return `${(Number(value || 0) * 100).toFixed(1)}%`;
+}
+
+function recordString(wins: number, losses: number, ties: number): string {
+  return ties > 0 ? `${wins}-${losses}-${ties}` : `${wins}-${losses}`;
 }
 
 function hexToRgba(hex: string, alpha: number): string {
@@ -61,19 +59,11 @@ function hexToRgba(hex: string, alpha: number): string {
 }
 
 function HeaderCell({ children, className = '' }: { children: React.ReactNode; className?: string }) {
-  return (
-    <th className={`whitespace-nowrap border-b border-[var(--border)] bg-[var(--surface-strong)] px-3 py-2 text-left text-xs font-bold uppercase tracking-wide text-[var(--muted)] ${className}`}>
-      {children}
-    </th>
-  );
+  return <th className={`whitespace-nowrap border-b border-[var(--border)] bg-[var(--surface-strong)] px-3 py-2 text-left text-xs font-bold uppercase tracking-wide text-[var(--muted)] ${className}`}>{children}</th>;
 }
 
 function Cell({ children, className = '' }: { children: React.ReactNode; className?: string }) {
-  return (
-    <td className={`whitespace-nowrap border-b border-[var(--border)] px-3 py-2 align-middle text-sm text-[var(--text)] ${className}`}>
-      {children}
-    </td>
-  );
+  return <td className={`whitespace-nowrap border-b border-[var(--border)] px-3 py-2 align-middle text-sm text-[var(--text)] ${className}`}>{children}</td>;
 }
 
 function TableWrap({ children }: { children: React.ReactNode }) {
@@ -96,15 +86,7 @@ function PlayerLink({ playerId, name }: { playerId: string; name: string }) {
   return <Link href={`/players/${playerId}`} className="font-semibold text-[var(--accent)] hover:underline">{name}</Link>;
 }
 
-function TeamPill({
-  teamName,
-  franchises,
-  onOpen,
-}: {
-  teamName: string;
-  franchises: StatsFranchiseRow[];
-  onOpen: (franchise: StatsFranchiseRow) => void;
-}) {
+function TeamPill({ teamName, franchises, onOpen }: { teamName: string; franchises: StatsFranchiseRow[]; onOpen: (franchise: StatsFranchiseRow) => void }) {
   const colors = getTeamColors(teamName);
   const textColor = getReadableTextForColors([colors.primary, colors.secondary]);
   const franchise = franchises.find((row) => row.teamName === teamName);
@@ -113,42 +95,25 @@ function TeamPill({
     color: textColor,
     borderColor: hexToRgba(colors.secondary || colors.primary, 0.7),
   };
-  const className = "inline-flex items-center rounded-md border px-2.5 py-1 text-sm font-bold shadow-sm";
-
-  if (franchise) {
-    return <button type="button" className={className} style={style} onClick={() => onOpen(franchise)}>{teamName}</button>;
-  }
+  const className = 'inline-flex items-center rounded-md border px-2.5 py-1 text-sm font-bold shadow-sm';
+  if (franchise) return <button type="button" className={className} style={style} onClick={() => onOpen(franchise)}>{teamName}</button>;
   return <span className={className} style={style}>{teamName}</span>;
 }
 
-function RecordGrid({
-  records,
-  franchises,
-  onOpenFranchise,
-}: {
-  records: DisplayRecord[];
-  franchises: StatsFranchiseRow[];
-  onOpenFranchise: (franchise: StatsFranchiseRow) => void;
-}) {
+function RecordGrid({ records, franchises, onOpenFranchise }: { records: DisplayRecord[]; franchises: StatsFranchiseRow[]; onOpenFranchise: (franchise: StatsFranchiseRow) => void }) {
   return (
     <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
       {records.map((record) => {
-        const teamNames = record.coHolders?.length
-          ? record.coHolders
-          : record.teamName
-            ? [record.teamName]
-            : [];
+        const teamNames = record.coHolders?.length ? record.coHolders : record.teamName ? [record.teamName] : [];
         const primaryColors = teamNames.map((name) => getTeamColors(name).primary);
         const stripe = primaryColors.length > 1
           ? `linear-gradient(90deg, ${primaryColors.map((color, index) => `${color} ${(index / primaryColors.length) * 100}%, ${color} ${((index + 1) / primaryColors.length) * 100}%`).join(', ')})`
           : primaryColors[0] || 'var(--accent)';
         const firstColors = teamNames[0] ? getTeamColors(teamNames[0]) : null;
-        const cardStyle = firstColors
-          ? {
-              borderColor: hexToRgba(firstColors.primary, 0.7),
-              background: `linear-gradient(135deg, ${hexToRgba(firstColors.primary, 0.15)} 0%, var(--surface) 44%, ${hexToRgba(firstColors.secondary || firstColors.primary, 0.09)} 100%)`,
-            }
-          : undefined;
+        const cardStyle = firstColors ? {
+          borderColor: hexToRgba(firstColors.primary, 0.7),
+          background: `linear-gradient(135deg, ${hexToRgba(firstColors.primary, 0.15)} 0%, var(--surface) 44%, ${hexToRgba(firstColors.secondary || firstColors.primary, 0.09)} 100%)`,
+        } : undefined;
 
         return (
           <div key={record.id} className="overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)]" style={cardStyle}>
@@ -156,25 +121,15 @@ function RecordGrid({
             <div className="p-4">
               <div className="text-xs font-bold uppercase tracking-wide text-[var(--muted)]">{record.label}</div>
               <div className="mt-2 text-2xl font-black tabular-nums text-[var(--text)]">{record.valueDisplay}</div>
-
               {record.playerId ? (
                 <div className="mt-1"><PlayerLink playerId={record.playerId} name={record.holder} /></div>
               ) : teamNames.length ? (
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {teamNames.map((teamName) => (
-                    <TeamPill key={teamName} teamName={teamName} franchises={franchises} onOpen={onOpenFranchise} />
-                  ))}
-                </div>
+                <div className="mt-2 flex flex-wrap gap-2">{teamNames.map((teamName) => <TeamPill key={teamName} teamName={teamName} franchises={franchises} onOpen={onOpenFranchise} />)}</div>
               ) : (
                 <div className="mt-1 font-semibold text-[var(--text)]">{record.holder}</div>
               )}
-
               {(record.season || record.week || record.opponent) ? (
-                <div className="mt-2 text-xs text-[var(--muted)]">
-                  {[record.season, record.week ? `Week ${record.week}` : null, record.opponent ? `vs. ${record.opponent}` : null]
-                    .filter(Boolean)
-                    .join(' · ')}
-                </div>
+                <div className="mt-2 text-xs text-[var(--muted)]">{[record.season, record.week ? `Week ${record.week}` : null, record.opponent ? `vs. ${record.opponent}` : null].filter(Boolean).join(' · ')}</div>
               ) : null}
             </div>
           </div>
@@ -184,40 +139,44 @@ function RecordGrid({
   );
 }
 
-type ThresholdRow = {
-  playerId: string;
-  name: string;
-  position: string;
-  value: number;
-};
+type ThresholdRow = { playerId: string; name: string; position: string; value: number; note?: string };
+type FranchiseThresholdRow = { teamName: string; value: number; note?: string };
 
-function Leaderboard({
-  title,
-  rows,
-  valueLabel,
-  formatValue = (value) => fmt(value),
-}: {
-  title: string;
-  rows: ThresholdRow[];
-  valueLabel: string;
-  formatValue?: (value: number) => string;
-}) {
+function Leaderboard({ title, rows, valueLabel, formatValue = (value) => fmt(value) }: { title: string; rows: ThresholdRow[]; valueLabel: string; formatValue?: (value: number) => string }) {
   return (
     <div>
       <h3 className="mb-2 font-bold text-[var(--text)]">{title}</h3>
       <TableWrap>
         <table className="w-full">
           <thead><tr><HeaderCell>Rk</HeaderCell><HeaderCell>Player</HeaderCell><HeaderCell>Pos</HeaderCell><HeaderCell className="text-right">{valueLabel}</HeaderCell></tr></thead>
-          <tbody>
-            {rows.slice(0, 10).map((row, index) => (
-              <tr key={`${title}-${row.playerId}`}>
-                <Cell>{index + 1}</Cell>
-                <Cell><PlayerLink playerId={row.playerId} name={row.name} /></Cell>
-                <Cell>{row.position}</Cell>
-                <Cell className="text-right font-semibold tabular-nums">{formatValue(row.value)}</Cell>
-              </tr>
-            ))}
-          </tbody>
+          <tbody>{rows.slice(0, 10).map((row, index) => (
+            <tr key={`${title}-${row.playerId}-${row.note || ''}`}>
+              <Cell>{index + 1}</Cell>
+              <Cell><PlayerLink playerId={row.playerId} name={row.name} />{row.note ? <div className="text-xs text-[var(--muted)]">{row.note}</div> : null}</Cell>
+              <Cell>{row.position}</Cell>
+              <Cell className="text-right font-semibold tabular-nums">{formatValue(row.value)}</Cell>
+            </tr>
+          ))}</tbody>
+        </table>
+      </TableWrap>
+    </div>
+  );
+}
+
+function FranchiseLeaderboard({ title, rows, valueLabel, franchises, onOpen, formatValue = (value) => fmt(value) }: { title: string; rows: FranchiseThresholdRow[]; valueLabel: string; franchises: StatsFranchiseRow[]; onOpen: (franchise: StatsFranchiseRow) => void; formatValue?: (value: number) => string }) {
+  return (
+    <div>
+      <h3 className="mb-2 font-bold text-[var(--text)]">{title}</h3>
+      <TableWrap>
+        <table className="w-full">
+          <thead><tr><HeaderCell>Rk</HeaderCell><HeaderCell>Franchise</HeaderCell><HeaderCell className="text-right">{valueLabel}</HeaderCell></tr></thead>
+          <tbody>{rows.slice(0, 10).map((row, index) => (
+            <tr key={`${title}-${row.teamName}`}>
+              <Cell>{index + 1}</Cell>
+              <Cell><TeamPill teamName={row.teamName} franchises={franchises} onOpen={onOpen} />{row.note ? <div className="mt-1 text-xs text-[var(--muted)]">{row.note}</div> : null}</Cell>
+              <Cell className="text-right font-semibold tabular-nums">{formatValue(row.value)}</Cell>
+            </tr>
+          ))}</tbody>
         </table>
       </TableWrap>
     </div>
@@ -225,10 +184,18 @@ function Leaderboard({
 }
 
 function emptyRow(colSpan: number, message = 'No qualifying players found.') {
+  return <tr><td colSpan={colSpan} className="px-3 py-6 text-center text-sm text-[var(--muted)]">{message}</td></tr>;
+}
+
+function PositionFilter({ positions, value, onChange }: { positions: string[]; value: string; onChange: (value: string) => void }) {
   return (
-    <tr>
-      <td colSpan={colSpan} className="px-3 py-6 text-center text-sm text-[var(--muted)]">{message}</td>
-    </tr>
+    <div className="mb-3 flex flex-wrap gap-2">
+      {['ALL', ...positions].map((position) => (
+        <button key={position} type="button" onClick={() => onChange(position)} className={`rounded-md border px-3 py-1.5 text-xs font-bold ${value === position ? 'border-[var(--accent)] bg-accent-soft text-accent' : 'border-[var(--border)] text-[var(--muted)] hover:text-[var(--text)]'}`}>
+          {position === 'ALL' ? 'All' : position}
+        </button>
+      ))}
+    </div>
   );
 }
 
@@ -240,54 +207,32 @@ export default function StatsRecordsViewV2({ dataset }: { dataset: LeagueStatsDa
 
   const positions = useMemo(() => {
     const order = ['QB', 'RB', 'WR', 'TE', 'K', 'DEF'];
-    const available = new Set(
-      [...dataset.players, ...dataset.playerSeasons, ...dataset.playerGames]
-        .map((row) => row.position)
-        .filter(Boolean),
-    );
-    return [
-      ...order.filter((position) => available.has(position)),
-      ...Array.from(available).filter((position) => !order.includes(position)).sort(),
-    ];
+    const available = new Set([...dataset.players, ...dataset.playerSeasons, ...dataset.playerGames].map((row) => row.position).filter(Boolean));
+    return [...order.filter((position) => available.has(position)), ...Array.from(available).filter((position) => !order.includes(position)).sort()];
   }, [dataset.playerGames, dataset.playerSeasons, dataset.players]);
 
-  const franchiseRecords = useMemo<DisplayRecord[]>(() => {
-    return dataset.records.franchise.map((record) => {
-      const field = FRANCHISE_RECORD_FIELDS[record.id];
-      if (!field) return record;
+  const franchiseRecords = useMemo<DisplayRecord[]>(() => dataset.records.franchise.map((record) => {
+    const field = FRANCHISE_RECORD_FIELDS[record.id];
+    if (!field) return record;
+    const coHolders = dataset.franchises
+      .filter((franchise) => Math.abs(Number(franchise[field]) - Number(record.value)) < 0.000001)
+      .map((franchise) => franchise.teamName)
+      .sort((a, b) => a.localeCompare(b));
+    if (coHolders.length <= 1) return { ...record, coHolders };
+    return { ...record, holder: coHolders.join(' / '), teamName: null, coHolders };
+  }), [dataset.franchises, dataset.records.franchise]);
 
-      const coHolders = dataset.franchises
-        .filter((franchise) => Math.abs(Number(franchise[field]) - Number(record.value)) < 0.000001)
-        .map((franchise) => franchise.teamName)
-        .sort((a, b) => a.localeCompare(b));
+  const filteredRecordCareers = useMemo(() => [...dataset.players]
+    .filter((row) => recordPosition === 'ALL' || row.position === recordPosition)
+    .sort((a, b) => b.points - a.points || a.name.localeCompare(b.name)), [dataset.players, recordPosition]);
 
-      if (coHolders.length <= 1) return { ...record, coHolders };
-      return {
-        ...record,
-        holder: coHolders.join(' / '),
-        teamName: null,
-        coHolders,
-      };
-    });
-  }, [dataset.franchises, dataset.records.franchise]);
+  const filteredRecordSeasons = useMemo(() => [...dataset.playerSeasons]
+    .filter((row) => recordPosition === 'ALL' || row.position === recordPosition)
+    .sort((a, b) => b.points - a.points || a.name.localeCompare(b.name)), [dataset.playerSeasons, recordPosition]);
 
-  const filteredRecordCareers = useMemo(() => {
-    return [...dataset.players]
-      .filter((row) => recordPosition === 'ALL' || row.position === recordPosition)
-      .sort((a, b) => b.points - a.points || a.name.localeCompare(b.name));
-  }, [dataset.players, recordPosition]);
-
-  const filteredRecordSeasons = useMemo(() => {
-    return [...dataset.playerSeasons]
-      .filter((row) => recordPosition === 'ALL' || row.position === recordPosition)
-      .sort((a, b) => b.points - a.points || a.name.localeCompare(b.name));
-  }, [dataset.playerSeasons, recordPosition]);
-
-  const filteredRecordGames = useMemo(() => {
-    return [...dataset.playerGames]
-      .filter((row) => recordPosition === 'ALL' || row.position === recordPosition)
-      .sort((a, b) => b.points - a.points || a.name.localeCompare(b.name));
-  }, [dataset.playerGames, recordPosition]);
+  const filteredRecordGames = useMemo(() => [...dataset.playerGames]
+    .filter((row) => recordPosition === 'ALL' || row.position === recordPosition)
+    .sort((a, b) => b.points - a.points || a.name.localeCompare(b.name)), [dataset.playerGames, recordPosition]);
 
   const deepLeaderboards = useMemo(() => {
     const playerById = new Map(dataset.players.map((row) => [row.playerId, row] as const));
@@ -300,31 +245,107 @@ export default function StatsRecordsViewV2({ dataset }: { dataset: LeagueStatsDa
       threshold.set(game.playerId, current);
     }
 
-    const fromCareer = (selector: (row: StatsPlayerCareerRow) => number, filter?: (row: StatsPlayerCareerRow) => boolean): ThresholdRow[] =>
-      dataset.players
-        .filter((row) => !filter || filter(row))
-        .map((row) => ({ playerId: row.playerId, name: row.name, position: row.position, value: selector(row) }))
-        .sort((a, b) => b.value - a.value || a.name.localeCompare(b.name));
+    const fromCareer = (selector: (row: StatsPlayerCareerRow) => number, filter?: (row: StatsPlayerCareerRow) => boolean): ThresholdRow[] => dataset.players
+      .filter((row) => !filter || filter(row))
+      .map((row) => ({ playerId: row.playerId, name: row.name, position: row.position, value: selector(row) }))
+      .sort((a, b) => b.value - a.value || a.name.localeCompare(b.name));
 
-    const fromThreshold = (key: 'games20' | 'games30' | 'games40'): ThresholdRow[] =>
-      Array.from(threshold.entries())
-        .map(([playerId, counts]) => {
-          const player = playerById.get(playerId);
-          return player ? { playerId, name: player.name, position: player.position, value: counts[key] } : null;
-        })
-        .filter((row): row is ThresholdRow => Boolean(row))
-        .filter((row) => row.value > 0)
-        .sort((a, b) => b.value - a.value || a.name.localeCompare(b.name));
+    const fromThreshold = (key: 'games20' | 'games30' | 'games40'): ThresholdRow[] => Array.from(threshold.entries())
+      .map(([playerId, counts]) => {
+        const player = playerById.get(playerId);
+        return player ? { playerId, name: player.name, position: player.position, value: counts[key] } : null;
+      })
+      .filter((row): row is ThresholdRow => Boolean(row))
+      .filter((row) => row.value > 0)
+      .sort((a, b) => b.value - a.value || a.name.localeCompare(b.name));
+
+    const isDefense = (row: StatsPlayerCareerRow) => ['DEF', 'DST', 'D/ST'].includes(String(row.position || '').toUpperCase());
 
     return {
       starts: fromCareer((row) => row.starts),
       ppg: fromCareer((row) => row.ppg, (row) => row.rosteredWeeks >= 10),
       franchises: fromCareer((row) => row.franchises.length),
+      franchisesNoDefenses: fromCareer((row) => row.franchises.length, (row) => !isDefense(row)),
       games20: fromThreshold('games20'),
       games30: fromThreshold('games30'),
       games40: fromThreshold('games40'),
     };
   }, [dataset.playerGames, dataset.players]);
+
+  const playoffStats = useMemo(() => {
+    const playoffGames = dataset.games.filter((game) => game.gameType === 'playoffs');
+    const playoffTeamWeekKeys = new Set<string>();
+    for (const game of playoffGames) {
+      playoffTeamWeekKeys.add(`${game.season}|${game.week}|${game.teamA}`);
+      playoffTeamWeekKeys.add(`${game.season}|${game.week}|${game.teamB}`);
+    }
+
+    const playoffPlayerGames = dataset.playerGames.filter((row) => playoffTeamWeekKeys.has(`${row.season}|${row.week}|${row.franchiseName}`));
+    const careerMap = new Map<string, { playerId: string; name: string; position: string; points: number }>();
+    const seasonMap = new Map<string, { playerId: string; name: string; position: string; season: string; points: number }>();
+
+    for (const row of playoffPlayerGames) {
+      const career = careerMap.get(row.playerId) || { playerId: row.playerId, name: row.name, position: row.position, points: 0 };
+      career.points += row.points;
+      careerMap.set(row.playerId, career);
+
+      const key = `${row.season}|${row.playerId}`;
+      const season = seasonMap.get(key) || { playerId: row.playerId, name: row.name, position: row.position, season: row.season, points: 0 };
+      season.points += row.points;
+      seasonMap.set(key, season);
+    }
+
+    const positionMatch = (position: string) => recordPosition === 'ALL' || position === recordPosition;
+    const playerCareer: ThresholdRow[] = Array.from(careerMap.values())
+      .filter((row) => positionMatch(row.position))
+      .map((row) => ({ playerId: row.playerId, name: row.name, position: row.position, value: Number(row.points.toFixed(2)) }))
+      .sort((a, b) => b.value - a.value || a.name.localeCompare(b.name));
+
+    const playerSeason: ThresholdRow[] = Array.from(seasonMap.values())
+      .filter((row) => positionMatch(row.position))
+      .map((row) => ({ playerId: row.playerId, name: row.name, position: row.position, value: Number(row.points.toFixed(2)), note: row.season }))
+      .sort((a, b) => b.value - a.value || String(b.note).localeCompare(String(a.note)) || a.name.localeCompare(b.name));
+
+    const playerGame: ThresholdRow[] = playoffPlayerGames
+      .filter((row) => positionMatch(row.position))
+      .map((row) => ({ playerId: row.playerId, name: row.name, position: row.position, value: row.points, note: `${row.season} W${row.week} · ${row.franchiseName}` }))
+      .sort((a, b) => b.value - a.value || a.name.localeCompare(b.name));
+
+    type TeamPlayoff = { teamName: string; games: number; wins: number; losses: number; ties: number; pf: number; pa: number };
+    const teamMap = new Map<string, TeamPlayoff>();
+    const ensureTeam = (teamName: string): TeamPlayoff => {
+      const existing = teamMap.get(teamName);
+      if (existing) return existing;
+      const created = { teamName, games: 0, wins: 0, losses: 0, ties: 0, pf: 0, pa: 0 };
+      teamMap.set(teamName, created);
+      return created;
+    };
+
+    for (const game of playoffGames) {
+      const a = ensureTeam(game.teamA);
+      const b = ensureTeam(game.teamB);
+      a.games += 1; b.games += 1;
+      a.pf += game.scoreA; a.pa += game.scoreB;
+      b.pf += game.scoreB; b.pa += game.scoreA;
+      if (game.tie) { a.ties += 1; b.ties += 1; }
+      else if (game.winner === game.teamA) { a.wins += 1; b.losses += 1; }
+      else if (game.winner === game.teamB) { b.wins += 1; a.losses += 1; }
+    }
+
+    const teams = Array.from(teamMap.values());
+    const teamWins: FranchiseThresholdRow[] = teams
+      .map((row) => ({ teamName: row.teamName, value: row.wins, note: recordString(row.wins, row.losses, row.ties) }))
+      .sort((a, b) => b.value - a.value || a.teamName.localeCompare(b.teamName));
+    const teamPct: FranchiseThresholdRow[] = teams
+      .filter((row) => row.games >= 2)
+      .map((row) => ({ teamName: row.teamName, value: row.games ? (row.wins + row.ties * 0.5) / row.games : 0, note: recordString(row.wins, row.losses, row.ties) }))
+      .sort((a, b) => b.value - a.value || a.teamName.localeCompare(b.teamName));
+    const teamPoints: FranchiseThresholdRow[] = teams
+      .map((row) => ({ teamName: row.teamName, value: Number(row.pf.toFixed(2)), note: `${row.games} playoff game${row.games === 1 ? '' : 's'}` }))
+      .sort((a, b) => b.value - a.value || a.teamName.localeCompare(b.teamName));
+
+    return { playerCareer, playerSeason, playerGame, teamWins, teamPct, teamPoints };
+  }, [dataset.games, dataset.playerGames, recordPosition]);
 
   const playerGameProgression = useMemo(() => {
     const rows = [...dataset.playerGames]
@@ -332,12 +353,7 @@ export default function StatsRecordsViewV2({ dataset }: { dataset: LeagueStatsDa
       .sort((a, b) => a.season.localeCompare(b.season) || a.week - b.week || a.id.localeCompare(b.id));
     const progression: StatsPlayerGameRow[] = [];
     let record = -Infinity;
-    for (const row of rows) {
-      if (row.points > record) {
-        record = row.points;
-        progression.push(row);
-      }
-    }
+    for (const row of rows) if (row.points > record) { record = row.points; progression.push(row); }
     return progression;
   }, [dataset.playerGames, recordPosition]);
 
@@ -349,7 +365,6 @@ export default function StatsRecordsViewV2({ dataset }: { dataset: LeagueStatsDa
       group.push(row);
       bySeason.set(row.season, group);
     }
-
     const result: { season: string; holders: StatsPlayerSeasonRow[]; points: number }[] = [];
     let record = -Infinity;
     for (const season of Array.from(bySeason.keys()).sort()) {
@@ -357,11 +372,7 @@ export default function StatsRecordsViewV2({ dataset }: { dataset: LeagueStatsDa
       const max = Math.max(...group.map((row) => row.points));
       if (max > record) {
         record = max;
-        result.push({
-          season,
-          points: max,
-          holders: group.filter((row) => Math.abs(row.points - max) < 0.000001).sort((a, b) => a.name.localeCompare(b.name)),
-        });
+        result.push({ season, points: max, holders: group.filter((row) => Math.abs(row.points - max) < 0.000001).sort((a, b) => a.name.localeCompare(b.name)) });
       }
     }
     return result;
@@ -376,49 +387,28 @@ export default function StatsRecordsViewV2({ dataset }: { dataset: LeagueStatsDa
       .sort((a, b) => a.season.localeCompare(b.season) || a.week - b.week || a.id.localeCompare(b.id));
     const progression: typeof rows = [];
     let record = -Infinity;
-    for (const row of rows) {
-      if (row.points > record) {
-        record = row.points;
-        progression.push(row);
-      }
-    }
+    for (const row of rows) if (row.points > record) { record = row.points; progression.push(row); }
     return progression;
   }, [dataset.games]);
 
   const setTab = (tab: TabId) => {
     const params = new URLSearchParams(searchParams.toString());
-    if (tab === 'overview') params.delete('tab');
-    else params.set('tab', tab);
+    if (tab === 'overview') params.delete('tab'); else params.set('tab', tab);
     const query = params.toString();
     router.replace(query ? `/history/stats?${query}` : '/history/stats', { scroll: false });
   };
 
   return (
     <div className="container mx-auto max-w-[1500px] px-4 py-8">
-      <div className="mb-2 text-sm text-[var(--muted)]">
-        <Link href="/history" className="hover:text-[var(--text)] hover:underline">History</Link> / Stats
-      </div>
-
+      <div className="mb-2 text-sm text-[var(--muted)]"><Link href="/history" className="hover:text-[var(--text)] hover:underline">History</Link> / Stats</div>
       <div className="border-b-4 border-[var(--accent)] pb-4">
         <div className="text-xs font-black uppercase tracking-[0.22em] text-[var(--muted)]">East v. West Reference</div>
         <h1 className="mt-1 text-3xl font-black tracking-tight text-[var(--text)] sm:text-4xl">League Statistics</h1>
-        <p className="mt-2 max-w-3xl text-sm text-[var(--muted)]">
-          Complete East v. West player, franchise, season, game and record-book statistics
-          {dataset.latestSeasonWithGames ? ` through the ${dataset.latestSeasonWithGames} season` : ''}.
-        </p>
+        <p className="mt-2 max-w-3xl text-sm text-[var(--muted)]">Complete East v. West player, franchise, season, game and record-book statistics{dataset.latestSeasonWithGames ? ` through the ${dataset.latestSeasonWithGames} season` : ''}.</p>
       </div>
 
       <nav className="mt-4 flex gap-1 overflow-x-auto border-b border-[var(--border)]" aria-label="Statistics sections">
-        {TABS.map((tab) => (
-          <button
-            key={tab.id}
-            type="button"
-            onClick={() => setTab(tab.id)}
-            className={`whitespace-nowrap border-b-2 px-4 py-3 text-sm font-bold transition-colors ${tab.id === 'records' ? 'border-[var(--accent)] text-[var(--text)]' : 'border-transparent text-[var(--muted)] hover:text-[var(--text)]'}`}
-          >
-            {tab.label}
-          </button>
-        ))}
+        {TABS.map((tab) => <button key={tab.id} type="button" onClick={() => setTab(tab.id)} className={`whitespace-nowrap border-b-2 px-4 py-3 text-sm font-bold transition-colors ${tab.id === 'records' ? 'border-[var(--accent)] text-[var(--text)]' : 'border-transparent text-[var(--muted)] hover:text-[var(--text)]'}`}>{tab.label}</button>)}
       </nav>
 
       <div className="mt-7 space-y-10">
@@ -426,160 +416,47 @@ export default function StatsRecordsViewV2({ dataset }: { dataset: LeagueStatsDa
           <RecordGrid records={franchiseRecords} franchises={dataset.franchises} onOpenFranchise={setSelectedFranchise} />
         </ReferenceSection>
 
-        <ReferenceSection title="Game Records">
-          <RecordGrid records={dataset.records.games} franchises={dataset.franchises} onOpenFranchise={setSelectedFranchise} />
-        </ReferenceSection>
+        <ReferenceSection title="Game Records"><RecordGrid records={dataset.records.games} franchises={dataset.franchises} onOpenFranchise={setSelectedFranchise} /></ReferenceSection>
+        <ReferenceSection title="Season Records"><RecordGrid records={dataset.records.seasons} franchises={dataset.franchises} onOpenFranchise={setSelectedFranchise} /></ReferenceSection>
 
-        <ReferenceSection title="Season Records">
-          <RecordGrid records={dataset.records.seasons} franchises={dataset.franchises} onOpenFranchise={setSelectedFranchise} />
-        </ReferenceSection>
-
-        <ReferenceSection
-          title="Advanced Player Leaderboards"
-          subtitle="Reference-style top-10 lists beyond raw career points. Career PPG requires at least 10 rostered weeks."
-        >
+        <ReferenceSection title="Advanced Player Leaderboards" subtitle="Reference-style top-10 lists beyond raw career points. Career PPG requires at least 10 rostered weeks.">
           <div className="grid gap-7 xl:grid-cols-3">
             <Leaderboard title="Career Starts" rows={deepLeaderboards.starts} valueLabel="Starts" formatValue={(value) => String(value)} />
             <Leaderboard title="Career PPG" rows={deepLeaderboards.ppg} valueLabel="PPG" />
             <Leaderboard title="Most Franchises Played For" rows={deepLeaderboards.franchises} valueLabel="Teams" formatValue={(value) => String(value)} />
+            <Leaderboard title="Most Franchises Played For (No DEF)" rows={deepLeaderboards.franchisesNoDefenses} valueLabel="Teams" formatValue={(value) => String(value)} />
             <Leaderboard title="20+ Point Games" rows={deepLeaderboards.games20} valueLabel="Games" formatValue={(value) => String(value)} />
             <Leaderboard title="30+ Point Games" rows={deepLeaderboards.games30} valueLabel="Games" formatValue={(value) => String(value)} />
             <Leaderboard title="40+ Point Games" rows={deepLeaderboards.games40} valueLabel="Games" formatValue={(value) => String(value)} />
           </div>
         </ReferenceSection>
 
-        <ReferenceSection title="Player Record Book" subtitle="Filter the full career, single-season and single-game datasets by position.">
-          <div className="mb-3 flex flex-wrap gap-2">
-            {['ALL', ...positions].map((position) => (
-              <button
-                key={position}
-                type="button"
-                onClick={() => setRecordPosition(position)}
-                className={`rounded-md border px-3 py-1.5 text-xs font-bold ${recordPosition === position ? 'border-[var(--accent)] bg-accent-soft text-accent' : 'border-[var(--border)] text-[var(--muted)] hover:text-[var(--text)]'}`}
-              >
-                {position === 'ALL' ? 'All' : position}
-              </button>
-            ))}
-          </div>
-
+        <ReferenceSection title="Playoff Record Book" subtitle="Championship-bracket games only. Toilet-bracket and other postseason games are excluded. Player tables use the position filter below; playoff win percentage requires at least two games.">
+          <PositionFilter positions={positions} value={recordPosition} onChange={setRecordPosition} />
           <div className="grid gap-8 xl:grid-cols-3">
-            <div>
-              <h3 className="mb-2 font-bold">Career Points</h3>
-              <TableWrap>
-                <table className="w-full">
-                  <thead><tr><HeaderCell>Rk</HeaderCell><HeaderCell>Player</HeaderCell><HeaderCell className="text-right">Pts</HeaderCell></tr></thead>
-                  <tbody>
-                    {filteredRecordCareers.length
-                      ? filteredRecordCareers.slice(0, 25).map((row, index) => (
-                          <tr key={row.playerId}><Cell>{index + 1}</Cell><Cell><PlayerLink playerId={row.playerId} name={row.name} /></Cell><Cell className="text-right font-semibold tabular-nums">{fmt(row.points)}</Cell></tr>
-                        ))
-                      : emptyRow(3)}
-                  </tbody>
-                </table>
-              </TableWrap>
-            </div>
-
-            <div>
-              <h3 className="mb-2 font-bold">Single-Season Points</h3>
-              <TableWrap>
-                <table className="w-full">
-                  <thead><tr><HeaderCell>Rk</HeaderCell><HeaderCell>Player</HeaderCell><HeaderCell>Year</HeaderCell><HeaderCell className="text-right">Pts</HeaderCell></tr></thead>
-                  <tbody>
-                    {filteredRecordSeasons.length
-                      ? filteredRecordSeasons.slice(0, 25).map((row, index) => (
-                          <tr key={`${row.season}-${row.playerId}`}><Cell>{index + 1}</Cell><Cell><PlayerLink playerId={row.playerId} name={row.name} /></Cell><Cell>{row.season}</Cell><Cell className="text-right font-semibold tabular-nums">{fmt(row.points)}</Cell></tr>
-                        ))
-                      : emptyRow(4)}
-                  </tbody>
-                </table>
-              </TableWrap>
-            </div>
-
-            <div>
-              <h3 className="mb-2 font-bold">Single-Game Points</h3>
-              <TableWrap>
-                <table className="w-full">
-                  <thead><tr><HeaderCell>Rk</HeaderCell><HeaderCell>Player</HeaderCell><HeaderCell>Game</HeaderCell><HeaderCell className="text-right">Pts</HeaderCell></tr></thead>
-                  <tbody>
-                    {filteredRecordGames.length
-                      ? filteredRecordGames.slice(0, 25).map((row, index) => (
-                          <tr key={row.id}><Cell>{index + 1}</Cell><Cell><PlayerLink playerId={row.playerId} name={row.name} /></Cell><Cell>{row.season} W{row.week}</Cell><Cell className="text-right font-semibold tabular-nums">{fmt(row.points)}</Cell></tr>
-                        ))
-                      : emptyRow(4)}
-                  </tbody>
-                </table>
-              </TableWrap>
-            </div>
+            <Leaderboard title="Career Playoff Points" rows={playoffStats.playerCareer} valueLabel="Pts" />
+            <Leaderboard title="Single-Season Playoff Points" rows={playoffStats.playerSeason} valueLabel="Pts" />
+            <Leaderboard title="Single-Game Playoff Points" rows={playoffStats.playerGame} valueLabel="Pts" />
+            <FranchiseLeaderboard title="Playoff Wins" rows={playoffStats.teamWins} valueLabel="Wins" franchises={dataset.franchises} onOpen={setSelectedFranchise} formatValue={(value) => String(value)} />
+            <FranchiseLeaderboard title="Playoff Win %" rows={playoffStats.teamPct} valueLabel="Pct" franchises={dataset.franchises} onOpen={setSelectedFranchise} formatValue={pct} />
+            <FranchiseLeaderboard title="Playoff Points For" rows={playoffStats.teamPoints} valueLabel="PF" franchises={dataset.franchises} onOpen={setSelectedFranchise} />
           </div>
         </ReferenceSection>
 
-        <ReferenceSection
-          title="Record Progression"
-          subtitle="Shows each point at which the standing league record was surpassed, oldest to newest. Position filter applies to player records."
-        >
+        <ReferenceSection title="Player Record Book" subtitle="Filter the full career, single-season and single-game datasets by position.">
+          <PositionFilter positions={positions} value={recordPosition} onChange={setRecordPosition} />
           <div className="grid gap-8 xl:grid-cols-3">
-            <div>
-              <h3 className="mb-2 font-bold">Single-Game Player Record</h3>
-              <TableWrap>
-                <table className="w-full">
-                  <thead><tr><HeaderCell>Season</HeaderCell><HeaderCell>Player</HeaderCell><HeaderCell>Game</HeaderCell><HeaderCell className="text-right">Record</HeaderCell></tr></thead>
-                  <tbody>
-                    {playerGameProgression.length
-                      ? playerGameProgression.map((row) => (
-                          <tr key={`game-prog-${row.id}`}><Cell>{row.season}</Cell><Cell><PlayerLink playerId={row.playerId} name={row.name} /></Cell><Cell>W{row.week}</Cell><Cell className="text-right font-semibold tabular-nums">{fmt(row.points)}</Cell></tr>
-                        ))
-                      : emptyRow(4, 'No player-game progression available.')}
-                  </tbody>
-                </table>
-              </TableWrap>
-            </div>
+            <div><h3 className="mb-2 font-bold">Career Points</h3><TableWrap><table className="w-full"><thead><tr><HeaderCell>Rk</HeaderCell><HeaderCell>Player</HeaderCell><HeaderCell className="text-right">Pts</HeaderCell></tr></thead><tbody>{filteredRecordCareers.length ? filteredRecordCareers.slice(0, 25).map((row, index) => <tr key={row.playerId}><Cell>{index + 1}</Cell><Cell><PlayerLink playerId={row.playerId} name={row.name} /></Cell><Cell className="text-right font-semibold tabular-nums">{fmt(row.points)}</Cell></tr>) : emptyRow(3)}</tbody></table></TableWrap></div>
+            <div><h3 className="mb-2 font-bold">Single-Season Points</h3><TableWrap><table className="w-full"><thead><tr><HeaderCell>Rk</HeaderCell><HeaderCell>Player</HeaderCell><HeaderCell>Year</HeaderCell><HeaderCell className="text-right">Pts</HeaderCell></tr></thead><tbody>{filteredRecordSeasons.length ? filteredRecordSeasons.slice(0, 25).map((row, index) => <tr key={`${row.season}-${row.playerId}`}><Cell>{index + 1}</Cell><Cell><PlayerLink playerId={row.playerId} name={row.name} /></Cell><Cell>{row.season}</Cell><Cell className="text-right font-semibold tabular-nums">{fmt(row.points)}</Cell></tr>) : emptyRow(4)}</tbody></table></TableWrap></div>
+            <div><h3 className="mb-2 font-bold">Single-Game Points</h3><TableWrap><table className="w-full"><thead><tr><HeaderCell>Rk</HeaderCell><HeaderCell>Player</HeaderCell><HeaderCell>Game</HeaderCell><HeaderCell className="text-right">Pts</HeaderCell></tr></thead><tbody>{filteredRecordGames.length ? filteredRecordGames.slice(0, 25).map((row, index) => <tr key={row.id}><Cell>{index + 1}</Cell><Cell><PlayerLink playerId={row.playerId} name={row.name} /></Cell><Cell>{row.season} W{row.week}</Cell><Cell className="text-right font-semibold tabular-nums">{fmt(row.points)}</Cell></tr>) : emptyRow(4)}</tbody></table></TableWrap></div>
+          </div>
+        </ReferenceSection>
 
-            <div>
-              <h3 className="mb-2 font-bold">Single-Season Player Record</h3>
-              <TableWrap>
-                <table className="w-full">
-                  <thead><tr><HeaderCell>Season</HeaderCell><HeaderCell>Holder</HeaderCell><HeaderCell className="text-right">Record</HeaderCell></tr></thead>
-                  <tbody>
-                    {playerSeasonProgression.length
-                      ? playerSeasonProgression.map((row) => (
-                          <tr key={`season-prog-${row.season}`}>
-                            <Cell>{row.season}</Cell>
-                            <Cell>
-                              <div className="flex flex-wrap gap-x-2 gap-y-1">
-                                {row.holders.map((holder) => <PlayerLink key={holder.playerId} playerId={holder.playerId} name={holder.name} />)}
-                              </div>
-                            </Cell>
-                            <Cell className="text-right font-semibold tabular-nums">{fmt(row.points)}</Cell>
-                          </tr>
-                        ))
-                      : emptyRow(3, 'No player-season progression available.')}
-                  </tbody>
-                </table>
-              </TableWrap>
-            </div>
-
-            <div>
-              <h3 className="mb-2 font-bold">Team Single-Game Record</h3>
-              <TableWrap>
-                <table className="w-full">
-                  <thead><tr><HeaderCell>Season</HeaderCell><HeaderCell>Team</HeaderCell><HeaderCell>Game</HeaderCell><HeaderCell className="text-right">Record</HeaderCell></tr></thead>
-                  <tbody>
-                    {teamScoreProgression.length
-                      ? teamScoreProgression.map((row) => (
-                          <tr key={`team-prog-${row.id}`}>
-                            <Cell>{row.season}</Cell>
-                            <Cell>
-                              <TeamPill teamName={row.team} franchises={dataset.franchises} onOpen={setSelectedFranchise} />
-                            </Cell>
-                            <Cell>W{row.week} vs. {row.opponent}</Cell>
-                            <Cell className="text-right font-semibold tabular-nums">{fmt(row.points, 2)}</Cell>
-                          </tr>
-                        ))
-                      : emptyRow(4, 'No team-score progression available.')}
-                  </tbody>
-                </table>
-              </TableWrap>
-            </div>
+        <ReferenceSection title="Record Progression" subtitle="Shows each point at which the standing league record was surpassed, oldest to newest. Position filter applies to player records.">
+          <div className="grid gap-8 xl:grid-cols-3">
+            <div><h3 className="mb-2 font-bold">Single-Game Player Record</h3><TableWrap><table className="w-full"><thead><tr><HeaderCell>Season</HeaderCell><HeaderCell>Player</HeaderCell><HeaderCell>Game</HeaderCell><HeaderCell className="text-right">Record</HeaderCell></tr></thead><tbody>{playerGameProgression.length ? playerGameProgression.map((row) => <tr key={`game-prog-${row.id}`}><Cell>{row.season}</Cell><Cell><PlayerLink playerId={row.playerId} name={row.name} /></Cell><Cell>W{row.week}</Cell><Cell className="text-right font-semibold tabular-nums">{fmt(row.points)}</Cell></tr>) : emptyRow(4, 'No player-game progression available.')}</tbody></table></TableWrap></div>
+            <div><h3 className="mb-2 font-bold">Single-Season Player Record</h3><TableWrap><table className="w-full"><thead><tr><HeaderCell>Season</HeaderCell><HeaderCell>Holder</HeaderCell><HeaderCell className="text-right">Record</HeaderCell></tr></thead><tbody>{playerSeasonProgression.length ? playerSeasonProgression.map((row) => <tr key={`season-prog-${row.season}`}><Cell>{row.season}</Cell><Cell><div className="flex flex-wrap gap-x-2 gap-y-1">{row.holders.map((holder) => <PlayerLink key={holder.playerId} playerId={holder.playerId} name={holder.name} />)}</div></Cell><Cell className="text-right font-semibold tabular-nums">{fmt(row.points)}</Cell></tr>) : emptyRow(3, 'No player-season progression available.')}</tbody></table></TableWrap></div>
+            <div><h3 className="mb-2 font-bold">Team Single-Game Record</h3><TableWrap><table className="w-full"><thead><tr><HeaderCell>Season</HeaderCell><HeaderCell>Team</HeaderCell><HeaderCell>Game</HeaderCell><HeaderCell className="text-right">Record</HeaderCell></tr></thead><tbody>{teamScoreProgression.length ? teamScoreProgression.map((row) => <tr key={`team-prog-${row.id}`}><Cell>{row.season}</Cell><Cell><TeamPill teamName={row.team} franchises={dataset.franchises} onOpen={setSelectedFranchise} /></Cell><Cell>W{row.week} vs. {row.opponent}</Cell><Cell className="text-right font-semibold tabular-nums">{fmt(row.points, 2)}</Cell></tr>) : emptyRow(4, 'No team-score progression available.')}</tbody></table></TableWrap></div>
           </div>
         </ReferenceSection>
       </div>
@@ -589,12 +466,7 @@ export default function StatsRecordsViewV2({ dataset }: { dataset: LeagueStatsDa
         <ul className="mt-2 list-disc space-y-1 pl-5">{dataset.coverageNotes.map((note) => <li key={note}>{note}</li>)}</ul>
       </div>
 
-      <FranchiseStatsModal
-        dataset={dataset}
-        franchise={selectedFranchise}
-        open={Boolean(selectedFranchise)}
-        onClose={() => setSelectedFranchise(null)}
-      />
+      <FranchiseStatsModal dataset={dataset} franchise={selectedFranchise} open={Boolean(selectedFranchise)} onClose={() => setSelectedFranchise(null)} />
     </div>
   );
 }
