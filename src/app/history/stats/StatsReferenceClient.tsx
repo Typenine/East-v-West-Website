@@ -3,14 +3,13 @@
 import Link from 'next/link';
 import { useMemo, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
+import FranchiseStatsModal from './FranchiseStatsModal';
+import WeeklyScorebook from './WeeklyScorebook';
+import AdvancedStatsExplorer from './AdvancedStatsExplorer';
 import type {
   LeagueStatsDataset,
   StatsFranchiseRow,
   StatsGameRow,
-  StatsPlayerCareerRow,
-  StatsPlayerSeasonRow,
-  StatsRecordEntry,
-  StatsSeasonTeamRow,
 } from '@/lib/stats/types';
 
 const TABS = [
@@ -26,7 +25,6 @@ const TABS = [
 type TabId = (typeof TABS)[number]['id'];
 type PlayerSort = 'points' | 'starts' | 'ppg' | 'bestSeasonPoints' | 'bestGamePoints' | 'name';
 type FranchiseSort = 'regularWins' | 'regularWinPct' | 'regularPointsFor' | 'avgScore' | 'playoffWins' | 'titles';
-
 type SortDirection = 'asc' | 'desc';
 
 function fmt(value: number, digits = 2): string {
@@ -73,36 +71,15 @@ function HeaderCell({ children, className = '' }: { children: React.ReactNode; c
   return <th className={`whitespace-nowrap border-b border-[var(--border)] bg-[var(--surface-strong)] px-3 py-2 text-left text-xs font-bold uppercase tracking-wide text-[var(--muted)] ${className}`}>{children}</th>;
 }
 
-function Cell({
-  children,
-  className = '',
-  title,
-}: {
-  children: React.ReactNode;
-  className?: string;
-  title?: string;
-}) {
+function Cell({ children, className = '', title }: { children: React.ReactNode; className?: string; title?: string }) {
   return <td title={title} className={`whitespace-nowrap border-b border-[var(--border)] px-3 py-2 align-middle text-sm text-[var(--text)] ${className}`}>{children}</td>;
 }
 
-function SortHeader({
-  label,
-  active,
-  direction,
-  onClick,
-  align = 'right',
-}: {
-  label: string;
-  active: boolean;
-  direction: SortDirection;
-  onClick: () => void;
-  align?: 'left' | 'right';
-}) {
+function SortHeader({ label, active, direction, onClick, align = 'right' }: { label: string; active: boolean; direction: SortDirection; onClick: () => void; align?: 'left' | 'right' }) {
   return (
     <HeaderCell className={align === 'right' ? 'text-right' : ''}>
       <button type="button" onClick={onClick} className="inline-flex items-center gap-1 hover:text-[var(--text)]">
-        {label}
-        {active ? <span aria-hidden="true">{direction === 'desc' ? '↓' : '↑'}</span> : null}
+        {label}{active ? <span aria-hidden="true">{direction === 'desc' ? '↓' : '↑'}</span> : null}
       </button>
     </HeaderCell>
   );
@@ -112,28 +89,14 @@ function PlayerLink({ playerId, name }: { playerId: string; name: string }) {
   return <Link href={`/players/${playerId}`} className="font-semibold text-[var(--accent)] hover:underline">{name}</Link>;
 }
 
-function FranchiseLink({ franchise }: { franchise: StatsFranchiseRow }) {
-  if (franchise.currentRosterId == null) return <span className="font-semibold">{franchise.teamName}</span>;
-  return <Link href={`/teams/${franchise.currentRosterId}`} className="font-semibold text-[var(--accent)] hover:underline">{franchise.teamName}</Link>;
+function FranchiseButton({ franchise, onOpen }: { franchise: StatsFranchiseRow; onOpen: (franchise: StatsFranchiseRow) => void }) {
+  return <button type="button" onClick={() => onOpen(franchise)} className="text-left font-semibold text-[var(--accent)] hover:underline">{franchise.teamName}</button>;
 }
 
-function RecordGrid({ records }: { records: StatsRecordEntry[] }) {
-  return (
-    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-      {records.map((record) => (
-        <div key={record.id} className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4">
-          <div className="text-xs font-bold uppercase tracking-wide text-[var(--muted)]">{record.label}</div>
-          <div className="mt-2 text-2xl font-black tabular-nums text-[var(--text)]">{record.valueDisplay}</div>
-          <div className="mt-1 font-semibold text-[var(--text)]">{record.playerId ? <PlayerLink playerId={record.playerId} name={record.holder} /> : record.holder}</div>
-          {(record.season || record.week || record.opponent) ? (
-            <div className="mt-1 text-xs text-[var(--muted)]">
-              {[record.season, record.week ? `Week ${record.week}` : null, record.opponent ? `vs. ${record.opponent}` : null].filter(Boolean).join(' · ')}
-            </div>
-          ) : null}
-        </div>
-      ))}
-    </div>
-  );
+function NamedFranchiseButton({ name, franchises, onOpen }: { name: string; franchises: StatsFranchiseRow[]; onOpen: (franchise: StatsFranchiseRow) => void }) {
+  const franchise = franchises.find((row) => row.teamName === name);
+  if (!franchise) return <span className="font-semibold">{name}</span>;
+  return <FranchiseButton franchise={franchise} onOpen={onOpen} />;
 }
 
 export default function StatsReferenceClient({ dataset }: { dataset: LeagueStatsDataset }) {
@@ -142,35 +105,20 @@ export default function StatsReferenceClient({ dataset }: { dataset: LeagueStats
   const requestedTab = searchParams.get('tab') || 'overview';
   const activeTab: TabId = TABS.some((tab) => tab.id === requestedTab) ? requestedTab as TabId : 'overview';
 
+  const [selectedFranchise, setSelectedFranchise] = useState<StatsFranchiseRow | null>(null);
   const [playerSearch, setPlayerSearch] = useState('');
   const [playerPosition, setPlayerPosition] = useState('ALL');
   const [playerFranchise, setPlayerFranchise] = useState('ALL');
   const [playerSort, setPlayerSort] = useState<PlayerSort>('points');
   const [playerDirection, setPlayerDirection] = useState<SortDirection>('desc');
-
   const [franchiseSort, setFranchiseSort] = useState<FranchiseSort>('regularWins');
   const [franchiseDirection, setFranchiseDirection] = useState<SortDirection>('desc');
-
   const defaultSeason = dataset.latestSeasonWithGames || dataset.seasons[0] || '';
   const [season, setSeason] = useState(defaultSeason);
   const [seasonPosition, setSeasonPosition] = useState('ALL');
-
   const [gameSeason, setGameSeason] = useState('ALL');
   const [gameTeam, setGameTeam] = useState('ALL');
   const [gameType, setGameType] = useState('ALL');
-
-  const [recordPosition, setRecordPosition] = useState('ALL');
-
-  const [explorerMode, setExplorerMode] = useState<'players' | 'games'>('players');
-  const [explorerPosition, setExplorerPosition] = useState('ALL');
-  const [explorerFranchise, setExplorerFranchise] = useState('ALL');
-  const [explorerMinPoints, setExplorerMinPoints] = useState('0');
-  const [explorerMinWeeks, setExplorerMinWeeks] = useState('0');
-  const [explorerPlayerSort, setExplorerPlayerSort] = useState<PlayerSort>('points');
-  const [explorerGameSeason, setExplorerGameSeason] = useState('ALL');
-  const [explorerGameTeam, setExplorerGameTeam] = useState('ALL');
-  const [explorerGameType, setExplorerGameType] = useState('ALL');
-  const [explorerMinCombined, setExplorerMinCombined] = useState('0');
 
   const positions = useMemo(() => {
     const order = ['QB', 'RB', 'WR', 'TE', 'K', 'DEF'];
@@ -243,44 +191,10 @@ export default function StatsReferenceClient({ dataset }: { dataset: LeagueStats
     return true;
   }), [dataset.games, gameSeason, gameTeam, gameType]);
 
-  const explorerPlayers = useMemo(() => {
-    const minPoints = Number(explorerMinPoints) || 0;
-    const minWeeks = Number(explorerMinWeeks) || 0;
-    return dataset.players
-      .filter((row) => {
-        if (explorerPosition !== 'ALL' && row.position !== explorerPosition) return false;
-        if (explorerFranchise !== 'ALL' && !row.franchises.some((split) => split.teamName === explorerFranchise)) return false;
-        if (row.points < minPoints || row.rosteredWeeks < minWeeks) return false;
-        return true;
-      })
-      .sort((a, b) => {
-        if (explorerPlayerSort === 'name') return a.name.localeCompare(b.name);
-        return Number(b[explorerPlayerSort] ?? 0) - Number(a[explorerPlayerSort] ?? 0) || a.name.localeCompare(b.name);
-      })
-      .slice(0, 100);
-  }, [dataset.players, explorerFranchise, explorerMinPoints, explorerMinWeeks, explorerPlayerSort, explorerPosition]);
-
-  const explorerGames = useMemo(() => {
-    const minCombined = Number(explorerMinCombined) || 0;
-    return dataset.games
-      .filter((row) => {
-        if (explorerGameSeason !== 'ALL' && row.season !== explorerGameSeason) return false;
-        if (explorerGameTeam !== 'ALL' && row.teamA !== explorerGameTeam && row.teamB !== explorerGameTeam) return false;
-        if (explorerGameType !== 'ALL' && row.gameType !== explorerGameType) return false;
-        return row.combined >= minCombined;
-      })
-      .sort((a, b) => b.combined - a.combined || b.margin - a.margin)
-      .slice(0, 100);
-  }, [dataset.games, explorerGameSeason, explorerGameTeam, explorerGameType, explorerMinCombined]);
-
-  const latestSeasonRows = dataset.playerSeasons
+  const latestSeasonRows = useMemo(() => dataset.playerSeasons
     .filter((row) => row.season === dataset.latestSeasonWithGames)
     .sort((a, b) => b.points - a.points)
-    .slice(0, 10);
-
-  const filteredRecordCareers = dataset.records.playerCareer.filter((row) => recordPosition === 'ALL' || row.position === recordPosition);
-  const filteredRecordSeasons = dataset.records.playerSeason.filter((row) => recordPosition === 'ALL' || row.position === recordPosition);
-  const filteredRecordGames = dataset.records.playerGame.filter((row) => recordPosition === 'ALL' || row.position === recordPosition);
+    .slice(0, 10), [dataset.latestSeasonWithGames, dataset.playerSeasons]);
 
   return (
     <div className="container mx-auto max-w-[1500px] px-4 py-8">
@@ -293,12 +207,7 @@ export default function StatsReferenceClient({ dataset }: { dataset: LeagueStats
 
       <nav className="mt-4 flex gap-1 overflow-x-auto border-b border-[var(--border)]" aria-label="Statistics sections">
         {TABS.map((tab) => (
-          <button
-            key={tab.id}
-            type="button"
-            onClick={() => setTab(tab.id)}
-            className={`whitespace-nowrap border-b-2 px-4 py-3 text-sm font-bold transition-colors ${activeTab === tab.id ? 'border-[var(--accent)] text-[var(--text)]' : 'border-transparent text-[var(--muted)] hover:text-[var(--text)]'}`}
-          >
+          <button key={tab.id} type="button" onClick={() => setTab(tab.id)} className={`whitespace-nowrap border-b-2 px-4 py-3 text-sm font-bold transition-colors ${activeTab === tab.id ? 'border-[var(--accent)] text-[var(--text)]' : 'border-transparent text-[var(--muted)] hover:text-[var(--text)]'}`}>
             {tab.label}
           </button>
         ))}
@@ -307,15 +216,15 @@ export default function StatsReferenceClient({ dataset }: { dataset: LeagueStats
       <div className="mt-7 space-y-8">
         {activeTab === 'overview' ? (
           <>
-            <ReferenceSection title="Reference Index" subtitle="Start with a database or jump directly into the record book.">
+            <ReferenceSection title="Reference Index" subtitle="Start with a database or jump directly into a deeper reference tool.">
               <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
                 {[
-                  ['players', 'Player Index', 'Career, season and franchise-attributed player statistics'],
-                  ['franchises', 'Franchise Index', 'All-time records, scoring, playoffs and championships'],
-                  ['seasons', 'Season Index', 'Year-by-year standings, leaders and season summaries'],
-                  ['games', 'Game Index', 'Every scored matchup with filters for season and franchise'],
-                  ['records', 'Record Book', 'League, franchise, player, season and game records'],
-                  ['explorer', 'Stats Explorer', 'Build custom player and game leaderboards'],
+                  ['players', 'Player Index', 'Career, season, game-log and franchise-attributed player statistics'],
+                  ['franchises', 'Franchise Index', 'All-time records plus drill-down franchise reference profiles'],
+                  ['seasons', 'Season Index', 'Year-by-year standings, leaders and weekly scorebooks'],
+                  ['games', 'Game Index', 'Every scored matchup with season and franchise filters'],
+                  ['records', 'Record Book', 'Ranked records, milestone leaderboards and record progression'],
+                  ['explorer', 'Stats Explorer', 'Build custom career, player-season and game queries'],
                 ].map(([id, title, description]) => (
                   <button key={id} type="button" onClick={() => setTab(id as TabId)} className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 text-left hover:bg-[var(--surface-strong)]">
                     <div className="font-bold text-[var(--accent)]">{title}</div>
@@ -328,19 +237,15 @@ export default function StatsReferenceClient({ dataset }: { dataset: LeagueStats
             <div className="grid gap-8 xl:grid-cols-2">
               <ReferenceSection title="All-Time Player Leaders" subtitle="East v. West points scored while rostered by a league franchise.">
                 <TableWrap>
-                  <table className="w-full">
-                    <thead><tr><HeaderCell>Rk</HeaderCell><HeaderCell>Player</HeaderCell><HeaderCell>Pos</HeaderCell><HeaderCell className="text-right">Pts</HeaderCell><HeaderCell className="text-right">Starts</HeaderCell></tr></thead>
-                    <tbody>{dataset.players.slice(0, 10).map((row, index) => <tr key={row.playerId}><Cell>{index + 1}</Cell><Cell><PlayerLink playerId={row.playerId} name={row.name} /></Cell><Cell>{row.position}</Cell><Cell className="text-right font-semibold tabular-nums">{fmt(row.points, 1)}</Cell><Cell className="text-right tabular-nums">{row.starts}</Cell></tr>)}</tbody>
-                  </table>
+                  <table className="w-full"><thead><tr><HeaderCell>Rk</HeaderCell><HeaderCell>Player</HeaderCell><HeaderCell>Pos</HeaderCell><HeaderCell className="text-right">Pts</HeaderCell><HeaderCell className="text-right">Starts</HeaderCell></tr></thead>
+                    <tbody>{dataset.players.slice(0, 10).map((row, index) => <tr key={row.playerId}><Cell>{index + 1}</Cell><Cell><PlayerLink playerId={row.playerId} name={row.name} /></Cell><Cell>{row.position}</Cell><Cell className="text-right font-semibold tabular-nums">{fmt(row.points, 1)}</Cell><Cell className="text-right tabular-nums">{row.starts}</Cell></tr>)}</tbody></table>
                 </TableWrap>
               </ReferenceSection>
 
-              <ReferenceSection title="All-Time Franchise Leaders" subtitle="Regular-season franchise totals; playoff records are tracked separately.">
+              <ReferenceSection title="All-Time Franchise Leaders" subtitle="Click a franchise for its statistical reference profile.">
                 <TableWrap>
-                  <table className="w-full">
-                    <thead><tr><HeaderCell>Rk</HeaderCell><HeaderCell>Franchise</HeaderCell><HeaderCell className="text-right">W</HeaderCell><HeaderCell className="text-right">Pct</HeaderCell><HeaderCell className="text-right">PF</HeaderCell><HeaderCell className="text-right">Titles</HeaderCell></tr></thead>
-                    <tbody>{dataset.franchises.slice(0, 10).map((row, index) => <tr key={row.teamName}><Cell>{index + 1}</Cell><Cell><FranchiseLink franchise={row} /></Cell><Cell className="text-right tabular-nums">{row.regularWins}</Cell><Cell className="text-right tabular-nums">{pct(row.regularWinPct)}</Cell><Cell className="text-right tabular-nums">{fmt(row.regularPointsFor, 1)}</Cell><Cell className="text-right tabular-nums">{row.titles}</Cell></tr>)}</tbody>
-                  </table>
+                  <table className="w-full"><thead><tr><HeaderCell>Rk</HeaderCell><HeaderCell>Franchise</HeaderCell><HeaderCell className="text-right">W</HeaderCell><HeaderCell className="text-right">Pct</HeaderCell><HeaderCell className="text-right">PF</HeaderCell><HeaderCell className="text-right">Titles</HeaderCell></tr></thead>
+                    <tbody>{dataset.franchises.slice(0, 10).map((row, index) => <tr key={row.teamName}><Cell>{index + 1}</Cell><Cell><FranchiseButton franchise={row} onOpen={setSelectedFranchise} /></Cell><Cell className="text-right tabular-nums">{row.regularWins}</Cell><Cell className="text-right tabular-nums">{pct(row.regularWinPct)}</Cell><Cell className="text-right tabular-nums">{fmt(row.regularPointsFor, 1)}</Cell><Cell className="text-right tabular-nums">{row.titles}</Cell></tr>)}</tbody></table>
                 </TableWrap>
               </ReferenceSection>
             </div>
@@ -348,22 +253,16 @@ export default function StatsReferenceClient({ dataset }: { dataset: LeagueStats
             {dataset.latestSeasonWithGames ? (
               <ReferenceSection title={`${dataset.latestSeasonWithGames} Player Leaders`} subtitle="Most recent season with completed East v. West scoring.">
                 <TableWrap>
-                  <table className="w-full">
-                    <thead><tr><HeaderCell>Rk</HeaderCell><HeaderCell>Player</HeaderCell><HeaderCell>Pos</HeaderCell><HeaderCell>Franchise</HeaderCell><HeaderCell className="text-right">Pts</HeaderCell><HeaderCell className="text-right">PPG</HeaderCell></tr></thead>
-                    <tbody>{latestSeasonRows.map((row, index) => <tr key={`${row.season}-${row.playerId}`}><Cell>{index + 1}</Cell><Cell><PlayerLink playerId={row.playerId} name={row.name} /></Cell><Cell>{row.position}</Cell><Cell>{row.franchises.map((split) => split.teamName).join(' / ')}</Cell><Cell className="text-right font-semibold tabular-nums">{fmt(row.points, 1)}</Cell><Cell className="text-right tabular-nums">{fmt(row.ppg, 1)}</Cell></tr>)}</tbody>
-                  </table>
+                  <table className="w-full"><thead><tr><HeaderCell>Rk</HeaderCell><HeaderCell>Player</HeaderCell><HeaderCell>Pos</HeaderCell><HeaderCell>Franchise</HeaderCell><HeaderCell className="text-right">Pts</HeaderCell><HeaderCell className="text-right">PPG</HeaderCell></tr></thead>
+                    <tbody>{latestSeasonRows.map((row, index) => <tr key={`${row.season}-${row.playerId}`}><Cell>{index + 1}</Cell><Cell><PlayerLink playerId={row.playerId} name={row.name} /></Cell><Cell>{row.position}</Cell><Cell>{row.franchises.map((split) => split.teamName).join(' / ')}</Cell><Cell className="text-right font-semibold tabular-nums">{fmt(row.points, 1)}</Cell><Cell className="text-right tabular-nums">{fmt(row.ppg, 1)}</Cell></tr>)}</tbody></table>
                 </TableWrap>
               </ReferenceSection>
             ) : null}
-
-            <ReferenceSection title="Record Book Highlights">
-              <RecordGrid records={[...dataset.records.franchise.slice(0, 2), ...dataset.records.games.slice(0, 2), ...dataset.records.seasons.slice(0, 2)]} />
-            </ReferenceSection>
           </>
         ) : null}
 
         {activeTab === 'players' ? (
-          <ReferenceSection title="Player Index" subtitle={`${filteredPlayers.length.toLocaleString()} players in the current result set. Click any player for the full East v. West profile.`}>
+          <ReferenceSection title="Player Index" subtitle={`${filteredPlayers.length.toLocaleString()} players in the current result set. Normal player clicks open the profile modal, which now includes a weekly EVW game log.`}>
             <div className="grid gap-3 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 md:grid-cols-4">
               <label className="text-xs font-bold uppercase tracking-wide text-[var(--muted)]">Search<input value={playerSearch} onChange={(event) => setPlayerSearch(event.target.value)} placeholder="Player or team" className="mt-1 w-full rounded-md border border-[var(--border)] bg-[var(--surface-strong)] px-3 py-2 text-sm font-normal normal-case tracking-normal text-[var(--text)]" /></label>
               <label className="text-xs font-bold uppercase tracking-wide text-[var(--muted)]">Position<select value={playerPosition} onChange={(event) => setPlayerPosition(event.target.value)} className="mt-1 w-full rounded-md border border-[var(--border)] bg-[var(--surface-strong)] px-3 py-2 text-sm font-normal normal-case tracking-normal text-[var(--text)]"><option value="ALL">All Positions</option>{positions.map((position) => <option key={position} value={position}>{position}</option>)}</select></label>
@@ -380,11 +279,11 @@ export default function StatsReferenceClient({ dataset }: { dataset: LeagueStats
         ) : null}
 
         {activeTab === 'franchises' ? (
-          <ReferenceSection title="Franchise Index" subtitle="All-time regular-season, playoff and championship statistics by canonical East v. West franchise.">
+          <ReferenceSection title="Franchise Index" subtitle="All-time regular-season, playoff and championship statistics. Click any franchise for seasons, players, games, head-to-head and team records.">
             <TableWrap>
               <table className="w-full">
                 <thead><tr><HeaderCell>Franchise</HeaderCell><HeaderCell>Years</HeaderCell><HeaderCell>Record</HeaderCell><SortHeader label="Win %" active={franchiseSort === 'regularWinPct'} direction={franchiseDirection} onClick={() => toggleFranchiseSort('regularWinPct')} /><SortHeader label="Wins" active={franchiseSort === 'regularWins'} direction={franchiseDirection} onClick={() => toggleFranchiseSort('regularWins')} /><SortHeader label="PF" active={franchiseSort === 'regularPointsFor'} direction={franchiseDirection} onClick={() => toggleFranchiseSort('regularPointsFor')} /><HeaderCell className="text-right">PA</HeaderCell><SortHeader label="Avg" active={franchiseSort === 'avgScore'} direction={franchiseDirection} onClick={() => toggleFranchiseSort('avgScore')} /><HeaderCell>Playoff</HeaderCell><SortHeader label="PO W" active={franchiseSort === 'playoffWins'} direction={franchiseDirection} onClick={() => toggleFranchiseSort('playoffWins')} /><SortHeader label="Titles" active={franchiseSort === 'titles'} direction={franchiseDirection} onClick={() => toggleFranchiseSort('titles')} /><HeaderCell className="text-right">Apps</HeaderCell><HeaderCell>Best Season</HeaderCell></tr></thead>
-                <tbody>{sortedFranchises.map((row) => <tr key={row.teamName}><Cell><FranchiseLink franchise={row} /></Cell><Cell>{yearRange(row.firstSeason, row.lastSeason)}</Cell><Cell>{recordString(row.regularWins, row.regularLosses, row.regularTies)}</Cell><Cell className="text-right tabular-nums">{pct(row.regularWinPct)}</Cell><Cell className="text-right tabular-nums">{row.regularWins}</Cell><Cell className="text-right tabular-nums">{fmt(row.regularPointsFor, 1)}</Cell><Cell className="text-right tabular-nums">{fmt(row.regularPointsAgainst, 1)}</Cell><Cell className="text-right tabular-nums">{fmt(row.avgScore, 1)}</Cell><Cell>{recordString(row.playoffWins, row.playoffLosses, row.playoffTies)}</Cell><Cell className="text-right tabular-nums">{row.playoffWins}</Cell><Cell className="text-right font-semibold tabular-nums">{row.titles}</Cell><Cell className="text-right tabular-nums">{row.championshipAppearances}</Cell><Cell>{row.bestSeason ? `${row.bestSeason} (${row.bestSeasonWins}-${row.bestSeasonLosses})` : '—'}</Cell></tr>)}</tbody>
+                <tbody>{sortedFranchises.map((row) => <tr key={row.teamName}><Cell><FranchiseButton franchise={row} onOpen={setSelectedFranchise} /></Cell><Cell>{yearRange(row.firstSeason, row.lastSeason)}</Cell><Cell>{recordString(row.regularWins, row.regularLosses, row.regularTies)}</Cell><Cell className="text-right tabular-nums">{pct(row.regularWinPct)}</Cell><Cell className="text-right tabular-nums">{row.regularWins}</Cell><Cell className="text-right tabular-nums">{fmt(row.regularPointsFor, 1)}</Cell><Cell className="text-right tabular-nums">{fmt(row.regularPointsAgainst, 1)}</Cell><Cell className="text-right tabular-nums">{fmt(row.avgScore, 1)}</Cell><Cell>{recordString(row.playoffWins, row.playoffLosses, row.playoffTies)}</Cell><Cell className="text-right tabular-nums">{row.playoffWins}</Cell><Cell className="text-right font-semibold tabular-nums">{row.titles}</Cell><Cell className="text-right tabular-nums">{row.championshipAppearances}</Cell><Cell>{row.bestSeason ? `${row.bestSeason} (${row.bestSeasonWins}-${row.bestSeasonLosses})` : '—'}</Cell></tr>)}</tbody>
               </table>
             </TableWrap>
           </ReferenceSection>
@@ -392,7 +291,7 @@ export default function StatsReferenceClient({ dataset }: { dataset: LeagueStats
 
         {activeTab === 'seasons' ? (
           <>
-            <ReferenceSection title="Season Index" subtitle="Choose a year for its standings, player leaders and game summaries.">
+            <ReferenceSection title="Season Index" subtitle="Choose a year for its standings, player leaders, game summary and weekly scorebook.">
               <div className="flex flex-wrap items-center gap-3 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4">
                 <label className="text-xs font-bold uppercase tracking-wide text-[var(--muted)]">Season<select value={season} onChange={(event) => setSeason(event.target.value)} className="ml-2 rounded-md border border-[var(--border)] bg-[var(--surface-strong)] px-3 py-2 text-sm font-normal normal-case tracking-normal text-[var(--text)]">{dataset.seasons.map((value) => <option key={value} value={value}>{value}</option>)}</select></label>
                 {dataset.champions[season] ? <div className="text-sm text-[var(--muted)]"><span className="font-semibold text-[var(--text)]">Champion:</span> {dataset.champions[season].champion}</div> : null}
@@ -400,10 +299,10 @@ export default function StatsReferenceClient({ dataset }: { dataset: LeagueStats
             </ReferenceSection>
 
             <ReferenceSection title={`${season} Standings`} subtitle="Regular-season results only.">
-              <TableWrap><table className="w-full"><thead><tr><HeaderCell>Rk</HeaderCell><HeaderCell>Franchise</HeaderCell><HeaderCell>W</HeaderCell><HeaderCell>L</HeaderCell><HeaderCell>T</HeaderCell><HeaderCell className="text-right">Pct</HeaderCell><HeaderCell className="text-right">PF</HeaderCell><HeaderCell className="text-right">PA</HeaderCell><HeaderCell className="text-right">Avg</HeaderCell></tr></thead><tbody>{seasonTeams.map((row, index) => <tr key={`${row.season}-${row.teamName}`}><Cell>{index + 1}</Cell><Cell className="font-semibold">{row.teamName}</Cell><Cell>{row.wins}</Cell><Cell>{row.losses}</Cell><Cell>{row.ties}</Cell><Cell className="text-right">{pct(row.winPct)}</Cell><Cell className="text-right tabular-nums">{fmt(row.pointsFor, 1)}</Cell><Cell className="text-right tabular-nums">{fmt(row.pointsAgainst, 1)}</Cell><Cell className="text-right tabular-nums">{fmt(row.avgScore, 1)}</Cell></tr>)}</tbody></table></TableWrap>
+              <TableWrap><table className="w-full"><thead><tr><HeaderCell>Rk</HeaderCell><HeaderCell>Franchise</HeaderCell><HeaderCell>W</HeaderCell><HeaderCell>L</HeaderCell><HeaderCell>T</HeaderCell><HeaderCell className="text-right">Pct</HeaderCell><HeaderCell className="text-right">PF</HeaderCell><HeaderCell className="text-right">PA</HeaderCell><HeaderCell className="text-right">Avg</HeaderCell></tr></thead><tbody>{seasonTeams.map((row, index) => <tr key={`${row.season}-${row.teamName}`}><Cell>{index + 1}</Cell><Cell><NamedFranchiseButton name={row.teamName} franchises={dataset.franchises} onOpen={setSelectedFranchise} /></Cell><Cell>{row.wins}</Cell><Cell>{row.losses}</Cell><Cell>{row.ties}</Cell><Cell className="text-right">{pct(row.winPct)}</Cell><Cell className="text-right tabular-nums">{fmt(row.pointsFor, 1)}</Cell><Cell className="text-right tabular-nums">{fmt(row.pointsAgainst, 1)}</Cell><Cell className="text-right tabular-nums">{fmt(row.avgScore, 1)}</Cell></tr>)}</tbody></table></TableWrap>
             </ReferenceSection>
 
-            <ReferenceSection title={`${season} Player Leaders`}>
+            <ReferenceSection title={`${season} Player Leaders`} subtitle="Sortable season production remains available in Explorer; this table is the quick top-100 reference.">
               <div className="mb-3 flex flex-wrap gap-2">{['ALL', ...positions].map((position) => <button key={position} type="button" onClick={() => setSeasonPosition(position)} className={`rounded-md border px-3 py-1.5 text-xs font-bold ${seasonPosition === position ? 'border-[var(--accent)] bg-accent-soft text-accent' : 'border-[var(--border)] text-[var(--muted)] hover:text-[var(--text)]'}`}>{position === 'ALL' ? 'All' : position}</button>)}</div>
               <TableWrap><table className="w-full"><thead><tr><HeaderCell>Rk</HeaderCell><HeaderCell>Player</HeaderCell><HeaderCell>Pos</HeaderCell><HeaderCell>Franchise</HeaderCell><HeaderCell className="text-right">Wks</HeaderCell><HeaderCell className="text-right">Starts</HeaderCell><HeaderCell className="text-right">Pts</HeaderCell><HeaderCell className="text-right">PPG</HeaderCell><HeaderCell className="text-right">Best Game</HeaderCell></tr></thead><tbody>{seasonPlayers.slice(0, 100).map((row, index) => <tr key={`${row.season}-${row.playerId}`}><Cell>{index + 1}</Cell><Cell><PlayerLink playerId={row.playerId} name={row.name} /></Cell><Cell>{row.position}</Cell><Cell>{row.franchises.map((split) => split.teamName).join(' / ')}</Cell><Cell className="text-right">{row.rosteredWeeks}</Cell><Cell className="text-right">{row.starts}</Cell><Cell className="text-right font-semibold tabular-nums">{fmt(row.points, 1)}</Cell><Cell className="text-right tabular-nums">{fmt(row.ppg, 1)}</Cell><Cell className="text-right tabular-nums">{row.bestGamePoints == null ? '—' : `${fmt(row.bestGamePoints, 1)} W${row.bestGameWeek}`}</Cell></tr>)}</tbody></table></TableWrap>
             </ReferenceSection>
@@ -425,6 +324,10 @@ export default function StatsReferenceClient({ dataset }: { dataset: LeagueStats
                 })()}
               </div>
             </ReferenceSection>
+
+            <ReferenceSection title={`${season} Weekly Scorebook`} subtitle="Choose any scored week for matchup results, league scoring context and player leaders by position.">
+              <WeeklyScorebook dataset={dataset} season={season} />
+            </ReferenceSection>
           </>
         ) : null}
 
@@ -435,47 +338,13 @@ export default function StatsReferenceClient({ dataset }: { dataset: LeagueStats
               <label className="text-xs font-bold uppercase tracking-wide text-[var(--muted)]">Franchise<select value={gameTeam} onChange={(event) => setGameTeam(event.target.value)} className="mt-1 w-full rounded-md border border-[var(--border)] bg-[var(--surface-strong)] px-3 py-2 text-sm font-normal normal-case tracking-normal text-[var(--text)]"><option value="ALL">All Franchises</option>{franchiseNames.map((name) => <option key={name} value={name}>{name}</option>)}</select></label>
               <label className="text-xs font-bold uppercase tracking-wide text-[var(--muted)]">Game Type<select value={gameType} onChange={(event) => setGameType(event.target.value)} className="mt-1 w-full rounded-md border border-[var(--border)] bg-[var(--surface-strong)] px-3 py-2 text-sm font-normal normal-case tracking-normal text-[var(--text)]"><option value="ALL">All Games</option><option value="regular">Regular Season</option><option value="playoffs">Playoffs</option><option value="toilet">Toilet Bracket</option><option value="postseason">Other Postseason</option></select></label>
             </div>
-            <TableWrap><table className="w-full"><thead><tr><HeaderCell>Season</HeaderCell><HeaderCell>Week</HeaderCell><HeaderCell>Type</HeaderCell><HeaderCell>Team</HeaderCell><HeaderCell className="text-right">Score</HeaderCell><HeaderCell>Opponent</HeaderCell><HeaderCell className="text-right">Score</HeaderCell><HeaderCell className="text-right">Margin</HeaderCell><HeaderCell className="text-right">Combined</HeaderCell></tr></thead><tbody>{filteredGames.map((game) => { const aWon = game.winner === game.teamA; const bWon = game.winner === game.teamB; return <tr key={game.id}><Cell>{game.season}</Cell><Cell>{game.week}</Cell><Cell>{gameTypeLabel(game.gameType)}</Cell><Cell className={aWon ? 'font-bold' : ''}>{game.teamA}</Cell><Cell className={`text-right tabular-nums ${aWon ? 'font-bold' : ''}`}>{fmt(game.scoreA, 2)}</Cell><Cell className={bWon ? 'font-bold' : ''}>{game.teamB}</Cell><Cell className={`text-right tabular-nums ${bWon ? 'font-bold' : ''}`}>{fmt(game.scoreB, 2)}</Cell><Cell className="text-right tabular-nums">{fmt(game.margin, 2)}</Cell><Cell className="text-right tabular-nums">{fmt(game.combined, 2)}</Cell></tr>; })}</tbody></table></TableWrap>
+            <TableWrap><table className="w-full"><thead><tr><HeaderCell>Season</HeaderCell><HeaderCell>Week</HeaderCell><HeaderCell>Type</HeaderCell><HeaderCell>Team</HeaderCell><HeaderCell className="text-right">Score</HeaderCell><HeaderCell>Opponent</HeaderCell><HeaderCell className="text-right">Score</HeaderCell><HeaderCell className="text-right">Margin</HeaderCell><HeaderCell className="text-right">Combined</HeaderCell></tr></thead><tbody>{filteredGames.map((game) => { const aWon = game.winner === game.teamA; const bWon = game.winner === game.teamB; return <tr key={game.id}><Cell>{game.season}</Cell><Cell>{game.week}</Cell><Cell>{gameTypeLabel(game.gameType)}</Cell><Cell className={aWon ? 'font-bold' : ''}><NamedFranchiseButton name={game.teamA} franchises={dataset.franchises} onOpen={setSelectedFranchise} /></Cell><Cell className={`text-right tabular-nums ${aWon ? 'font-bold' : ''}`}>{fmt(game.scoreA, 2)}</Cell><Cell className={bWon ? 'font-bold' : ''}><NamedFranchiseButton name={game.teamB} franchises={dataset.franchises} onOpen={setSelectedFranchise} /></Cell><Cell className={`text-right tabular-nums ${bWon ? 'font-bold' : ''}`}>{fmt(game.scoreB, 2)}</Cell><Cell className="text-right tabular-nums">{fmt(game.margin, 2)}</Cell><Cell className="text-right tabular-nums">{fmt(game.combined, 2)}</Cell></tr>; })}</tbody></table></TableWrap>
           </ReferenceSection>
         ) : null}
 
-        {activeTab === 'records' ? (
-          <>
-            <ReferenceSection title="Franchise Records"><RecordGrid records={dataset.records.franchise} /></ReferenceSection>
-            <ReferenceSection title="Game Records"><RecordGrid records={dataset.records.games} /></ReferenceSection>
-            <ReferenceSection title="Season Records"><RecordGrid records={dataset.records.seasons} /></ReferenceSection>
-            <ReferenceSection title="Player Record Book" subtitle="Filter the career, single-season and single-game leaderboards by position.">
-              <div className="mb-3 flex flex-wrap gap-2">{['ALL', ...positions].map((position) => <button key={position} type="button" onClick={() => setRecordPosition(position)} className={`rounded-md border px-3 py-1.5 text-xs font-bold ${recordPosition === position ? 'border-[var(--accent)] bg-accent-soft text-accent' : 'border-[var(--border)] text-[var(--muted)] hover:text-[var(--text)]'}`}>{position === 'ALL' ? 'All' : position}</button>)}</div>
-              <div className="grid gap-8 xl:grid-cols-3">
-                <div><h3 className="mb-2 font-bold">Career Points</h3><TableWrap><table className="w-full"><thead><tr><HeaderCell>Rk</HeaderCell><HeaderCell>Player</HeaderCell><HeaderCell className="text-right">Pts</HeaderCell></tr></thead><tbody>{filteredRecordCareers.slice(0, 25).map((row, index) => <tr key={row.playerId}><Cell>{index + 1}</Cell><Cell><PlayerLink playerId={row.playerId} name={row.name} /></Cell><Cell className="text-right font-semibold tabular-nums">{fmt(row.points, 1)}</Cell></tr>)}</tbody></table></TableWrap></div>
-                <div><h3 className="mb-2 font-bold">Single-Season Points</h3><TableWrap><table className="w-full"><thead><tr><HeaderCell>Rk</HeaderCell><HeaderCell>Player</HeaderCell><HeaderCell>Year</HeaderCell><HeaderCell className="text-right">Pts</HeaderCell></tr></thead><tbody>{filteredRecordSeasons.slice(0, 25).map((row, index) => <tr key={`${row.season}-${row.playerId}`}><Cell>{index + 1}</Cell><Cell><PlayerLink playerId={row.playerId} name={row.name} /></Cell><Cell>{row.season}</Cell><Cell className="text-right font-semibold tabular-nums">{fmt(row.points, 1)}</Cell></tr>)}</tbody></table></TableWrap></div>
-                <div><h3 className="mb-2 font-bold">Single-Game Points</h3><TableWrap><table className="w-full"><thead><tr><HeaderCell>Rk</HeaderCell><HeaderCell>Player</HeaderCell><HeaderCell>Game</HeaderCell><HeaderCell className="text-right">Pts</HeaderCell></tr></thead><tbody>{filteredRecordGames.slice(0, 25).map((row, index) => <tr key={row.id}><Cell>{index + 1}</Cell><Cell><PlayerLink playerId={row.playerId} name={row.name} /></Cell><Cell>{row.season} W{row.week}</Cell><Cell className="text-right font-semibold tabular-nums">{fmt(row.points, 1)}</Cell></tr>)}</tbody></table></TableWrap></div>
-              </div>
-            </ReferenceSection>
-          </>
-        ) : null}
-
         {activeTab === 'explorer' ? (
-          <ReferenceSection title="Stats Explorer" subtitle="A lightweight East v. West query builder for the questions that do not fit a fixed leaderboard.">
-            <div className="mb-4 flex gap-2"><button type="button" onClick={() => setExplorerMode('players')} className={`rounded-md border px-4 py-2 text-sm font-bold ${explorerMode === 'players' ? 'border-[var(--accent)] bg-accent-soft text-accent' : 'border-[var(--border)] text-[var(--muted)]'}`}>Player Career Finder</button><button type="button" onClick={() => setExplorerMode('games')} className={`rounded-md border px-4 py-2 text-sm font-bold ${explorerMode === 'games' ? 'border-[var(--accent)] bg-accent-soft text-accent' : 'border-[var(--border)] text-[var(--muted)]'}`}>Game Finder</button></div>
-            {explorerMode === 'players' ? <>
-              <div className="grid gap-3 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 md:grid-cols-5">
-                <label className="text-xs font-bold uppercase tracking-wide text-[var(--muted)]">Position<select value={explorerPosition} onChange={(event) => setExplorerPosition(event.target.value)} className="mt-1 w-full rounded-md border border-[var(--border)] bg-[var(--surface-strong)] px-2 py-2 text-sm font-normal normal-case tracking-normal text-[var(--text)]"><option value="ALL">All</option>{positions.map((position) => <option key={position} value={position}>{position}</option>)}</select></label>
-                <label className="text-xs font-bold uppercase tracking-wide text-[var(--muted)]">Franchise<select value={explorerFranchise} onChange={(event) => setExplorerFranchise(event.target.value)} className="mt-1 w-full rounded-md border border-[var(--border)] bg-[var(--surface-strong)] px-2 py-2 text-sm font-normal normal-case tracking-normal text-[var(--text)]"><option value="ALL">All</option>{franchiseNames.map((name) => <option key={name} value={name}>{name}</option>)}</select></label>
-                <label className="text-xs font-bold uppercase tracking-wide text-[var(--muted)]">Min Points<input type="number" value={explorerMinPoints} onChange={(event) => setExplorerMinPoints(event.target.value)} className="mt-1 w-full rounded-md border border-[var(--border)] bg-[var(--surface-strong)] px-2 py-2 text-sm font-normal normal-case tracking-normal text-[var(--text)]" /></label>
-                <label className="text-xs font-bold uppercase tracking-wide text-[var(--muted)]">Min Weeks<input type="number" value={explorerMinWeeks} onChange={(event) => setExplorerMinWeeks(event.target.value)} className="mt-1 w-full rounded-md border border-[var(--border)] bg-[var(--surface-strong)] px-2 py-2 text-sm font-normal normal-case tracking-normal text-[var(--text)]" /></label>
-                <label className="text-xs font-bold uppercase tracking-wide text-[var(--muted)]">Sort By<select value={explorerPlayerSort} onChange={(event) => setExplorerPlayerSort(event.target.value as PlayerSort)} className="mt-1 w-full rounded-md border border-[var(--border)] bg-[var(--surface-strong)] px-2 py-2 text-sm font-normal normal-case tracking-normal text-[var(--text)]"><option value="points">Career Points</option><option value="starts">Starts</option><option value="ppg">PPG</option><option value="bestSeasonPoints">Best Season</option><option value="bestGamePoints">Best Game</option></select></label>
-              </div>
-              <TableWrap><table className="w-full"><thead><tr><HeaderCell>Rk</HeaderCell><HeaderCell>Player</HeaderCell><HeaderCell>Pos</HeaderCell><HeaderCell>Years</HeaderCell><HeaderCell className="text-right">Wks</HeaderCell><HeaderCell className="text-right">Starts</HeaderCell><HeaderCell className="text-right">Pts</HeaderCell><HeaderCell className="text-right">PPG</HeaderCell><HeaderCell className="text-right">Best Season</HeaderCell><HeaderCell className="text-right">Best Game</HeaderCell></tr></thead><tbody>{explorerPlayers.map((row, index) => <tr key={row.playerId}><Cell>{index + 1}</Cell><Cell><PlayerLink playerId={row.playerId} name={row.name} /></Cell><Cell>{row.position}</Cell><Cell>{yearRange(row.firstSeason, row.lastSeason)}</Cell><Cell className="text-right">{row.rosteredWeeks}</Cell><Cell className="text-right">{row.starts}</Cell><Cell className="text-right font-semibold">{fmt(row.points, 1)}</Cell><Cell className="text-right">{fmt(row.ppg, 1)}</Cell><Cell className="text-right">{row.bestSeasonPoints == null ? '—' : fmt(row.bestSeasonPoints, 1)}</Cell><Cell className="text-right">{row.bestGamePoints == null ? '—' : fmt(row.bestGamePoints, 1)}</Cell></tr>)}</tbody></table></TableWrap>
-            </> : <>
-              <div className="grid gap-3 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 md:grid-cols-4">
-                <label className="text-xs font-bold uppercase tracking-wide text-[var(--muted)]">Season<select value={explorerGameSeason} onChange={(event) => setExplorerGameSeason(event.target.value)} className="mt-1 w-full rounded-md border border-[var(--border)] bg-[var(--surface-strong)] px-2 py-2 text-sm font-normal normal-case tracking-normal text-[var(--text)]"><option value="ALL">All</option>{dataset.seasons.map((value) => <option key={value} value={value}>{value}</option>)}</select></label>
-                <label className="text-xs font-bold uppercase tracking-wide text-[var(--muted)]">Franchise<select value={explorerGameTeam} onChange={(event) => setExplorerGameTeam(event.target.value)} className="mt-1 w-full rounded-md border border-[var(--border)] bg-[var(--surface-strong)] px-2 py-2 text-sm font-normal normal-case tracking-normal text-[var(--text)]"><option value="ALL">All</option>{franchiseNames.map((name) => <option key={name} value={name}>{name}</option>)}</select></label>
-                <label className="text-xs font-bold uppercase tracking-wide text-[var(--muted)]">Type<select value={explorerGameType} onChange={(event) => setExplorerGameType(event.target.value)} className="mt-1 w-full rounded-md border border-[var(--border)] bg-[var(--surface-strong)] px-2 py-2 text-sm font-normal normal-case tracking-normal text-[var(--text)]"><option value="ALL">All</option><option value="regular">Regular</option><option value="playoffs">Playoffs</option><option value="toilet">Toilet</option><option value="postseason">Other Postseason</option></select></label>
-                <label className="text-xs font-bold uppercase tracking-wide text-[var(--muted)]">Min Combined<input type="number" value={explorerMinCombined} onChange={(event) => setExplorerMinCombined(event.target.value)} className="mt-1 w-full rounded-md border border-[var(--border)] bg-[var(--surface-strong)] px-2 py-2 text-sm font-normal normal-case tracking-normal text-[var(--text)]" /></label>
-              </div>
-              <TableWrap><table className="w-full"><thead><tr><HeaderCell>Rk</HeaderCell><HeaderCell>Season</HeaderCell><HeaderCell>Week</HeaderCell><HeaderCell>Type</HeaderCell><HeaderCell>Winner</HeaderCell><HeaderCell>Loser</HeaderCell><HeaderCell className="text-right">Margin</HeaderCell><HeaderCell className="text-right">Combined</HeaderCell></tr></thead><tbody>{explorerGames.map((row, index) => <tr key={row.id}><Cell>{index + 1}</Cell><Cell>{row.season}</Cell><Cell>{row.week}</Cell><Cell>{gameTypeLabel(row.gameType)}</Cell><Cell className="font-semibold">{row.winner || 'Tie'}</Cell><Cell>{row.loser || 'Tie'}</Cell><Cell className="text-right">{fmt(row.margin, 2)}</Cell><Cell className="text-right font-semibold">{fmt(row.combined, 2)}</Cell></tr>)}</tbody></table></TableWrap>
-            </>}
+          <ReferenceSection title="Stats Explorer 2.0" subtitle="Query career, player-season and matchup history with multi-field filters instead of relying on fixed leaderboards.">
+            <AdvancedStatsExplorer dataset={dataset} />
           </ReferenceSection>
         ) : null}
       </div>
@@ -484,6 +353,8 @@ export default function StatsReferenceClient({ dataset }: { dataset: LeagueStats
         <div>Generated {new Date(dataset.generatedAt).toLocaleString()}.</div>
         <ul className="mt-2 list-disc space-y-1 pl-5">{dataset.coverageNotes.map((note) => <li key={note}>{note}</li>)}</ul>
       </div>
+
+      <FranchiseStatsModal dataset={dataset} franchise={selectedFranchise} open={Boolean(selectedFranchise)} onClose={() => setSelectedFranchise(null)} />
     </div>
   );
 }
