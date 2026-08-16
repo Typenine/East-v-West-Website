@@ -65,13 +65,16 @@ export default function WeeklyScorebook({ dataset, season }: { dataset: LeagueSt
 
   return (
     <div className="space-y-5">
-      <div className="flex flex-wrap items-center gap-3 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4">
-        <label className="text-xs font-bold uppercase tracking-wide text-[var(--muted)]">Week
-          <select value={week} onChange={(event) => setWeek(Number(event.target.value))} className="ml-2 rounded-md border border-[var(--border)] bg-[var(--surface-strong)] px-3 py-2 text-sm font-normal normal-case tracking-normal text-[var(--text)]">
-            {weeks.map((value) => <option key={value} value={value}>Week {value}</option>)}
-          </select>
-        </label>
-        <div className="text-sm text-[var(--muted)]">{weekGames.length} matchup{weekGames.length === 1 ? '' : 's'} · {weekPlayers.length} players with scoring entries</div>
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4">
+        <div className="flex flex-wrap items-center gap-3">
+          <label className="text-xs font-bold uppercase tracking-wide text-[var(--muted)]">Week
+            <select value={week} onChange={(event) => setWeek(Number(event.target.value))} className="ml-2 rounded-md border border-[var(--border)] bg-[var(--surface-strong)] px-3 py-2 text-sm font-normal normal-case tracking-normal text-[var(--text)]">
+              {weeks.map((value) => <option key={value} value={value}>Week {value}</option>)}
+            </select>
+          </label>
+          <div className="text-sm text-[var(--muted)]">{weekGames.length} matchup{weekGames.length === 1 ? '' : 's'} · {weekPlayers.length} players with scoring entries</div>
+        </div>
+        <Link href={`/history/gamebook/${season}/${week}`} className="rounded-md border border-[var(--accent)] px-3 py-2 text-sm font-black text-[var(--accent)] hover:bg-accent-soft">Open full Week {week} gamebook →</Link>
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">

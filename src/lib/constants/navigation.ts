@@ -42,6 +42,10 @@ export const USER_NAV_CONFIG: UserNavItem[] = [
     children: [
       { id: 'history.champions', label: 'Champions', href: '/history?tab=champions', group: 'Playoffs' },
       { id: 'history.brackets', label: 'Brackets', href: '/history?tab=brackets', group: 'Playoffs' },
+      { id: 'history.franchise-history', label: 'Franchise History', href: '/history/franchises', description: 'Permanent franchise reference pages', group: 'League Archive' },
+      { id: 'history.all-evw', label: 'All-EVW Teams', href: '/history/all-evw', description: 'Annual first and second teams', group: 'League Archive' },
+      { id: 'history.gamebooks', label: 'Weekly Gamebooks', href: '/history/gamebook', description: 'Week-by-week matchup and scoring archive', group: 'League Archive' },
+      { id: 'history.milestones', label: 'Milestones', href: '/history/milestones', description: 'Career, franchise and record milestones', group: 'League Archive' },
       {
         id: 'history.stats',
         label: 'Stats',
