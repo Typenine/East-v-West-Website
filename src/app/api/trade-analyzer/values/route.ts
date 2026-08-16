@@ -38,7 +38,7 @@ export type { TradeValue };
 // --- Cache ---
 
 interface ValueSources { fantasyCalc: boolean; keepTradeCut: boolean; fcCount: number; ktcCount: number; ktcMatched: number; ktcMatchRate: number }
-let cache: { ts: number; data: Record<string, TradeValue>; sources: ValueSources } | null = null; // bump to bust: v7
+let cache: { ts: number; data: Record<string, TradeValue>; sources: ValueSources } | null = null; // bump to bust: v8
 const CACHE_TTL = 6 * 60 * 60 * 1000; // 6 hours
 
 // --- Fetchers ---
@@ -167,12 +167,26 @@ type PickTier = typeof PICK_TIERS[number];
 
 const ORDINAL: Record<number, string> = { 1: '1st', 2: '2nd', 3: '3rd', 4: '4th' };
 
+// The 2026 East v. West rookie draft is complete, so 2026 picks are spent assets.
+// Advance this after each future league draft completes.
+const FIRST_TRADABLE_PICK_YEAR = 2027;
+
+function extractPickYear(name: string): string | null {
+  return name.match(/\b(\d{4})\b/)?.[1] ?? null;
+}
+
+function isTradablePickName(name: string): boolean {
+  const year = extractPickYear(name);
+  return year === null || parseInt(year, 10) >= FIRST_TRADABLE_PICK_YEAR;
+}
+
 function standardPickKey(year: string, round: number, tier: string): string {
   return `PICK_${year}_${round}_${tier.toUpperCase()}`;
 }
 
 function standardPickName(year: string, round: number, tier: string): string {
-  return `${year} ${tier} ${ORDINAL[round] || `${round}th`}`;
+  // The short-year suffix survives the suggestion strip's compact label formatting.
+  return `${year} ${tier} ${ORDINAL[round] || `${round}th`} · '${year.slice(-2)}`;
 }
 
 function isPick(name: string): boolean {
@@ -325,7 +339,8 @@ function ensureStandardPicks(
     4: { Early: 1000, Mid: 700, Late: 400 },
   };
   const currentYear = new Date().getFullYear();
-  const PICK_YEARS = Array.from({ length: 5 }, (_, i) => String(currentYear + i));
+  const firstPickYear = Math.max(currentYear, FIRST_TRADABLE_PICK_YEAR);
+  const PICK_YEARS = Array.from({ length: 5 }, (_, i) => String(firstPickYear + i));
   const tierProfiles = buildFantasyCalcTierProfiles(numberedPicks);
 
   let rank = Object.keys(result).length + 1;
@@ -403,6 +418,7 @@ function mergeValues(fc: FantasyCalcPlayer[], ktc: KTCPlayer[]): { values: Recor
   const ktcBySlot = new Map<string, number>(); // "YYYY_R_SS" → value
   for (const p of ktc) {
     if (isPick(p.playerName)) {
+      if (!isTradablePickName(p.playerName)) continue;
       const num = parseNumberedPick(p.playerName);
       if (num) {
         const slotKey = `${num.year}_${num.round}_${num.slot}`;
@@ -428,6 +444,7 @@ function mergeValues(fc: FantasyCalcPlayer[], ktc: KTCPlayer[]): { values: Recor
     const p = fc[i];
     const name = p.player.name || '';
     const pick = isPick(name);
+    if (pick && !isTradablePickName(name)) continue;
     const numbered = pick ? parseNumberedPick(name) : null;
     const genericRound = pick && !numbered ? parseGenericRoundPick(name) : null;
     const tierPickKey = pick && !numbered && !genericRound ? pickKey(name) : null;
@@ -491,6 +508,11 @@ function mergeValues(fc: FantasyCalcPlayer[], ktc: KTCPlayer[]): { values: Recor
 
   // Ensure a complete set of standardized picks with consistent FC treatment for every tier.
   ensureStandardPicks(result, numberedPicks, genericRoundPicks, ktcByPickKey);
+
+  // Final safety net: spent draft picks should never leak into the analyzer from an upstream source.
+  for (const [key, value] of Object.entries(result)) {
+    if (value.isPick && !isTradablePickName(value.name)) delete result[key];
+  }
 
   return { values: result, stats: { playerCount, ktcMatched } };
 }
