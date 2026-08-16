@@ -1,19 +1,9 @@
 import { getPlayerProfile } from '@/lib/players/player-profile-service';
 import { getLeagueStatsDatasetV3 } from '@/lib/stats/league-stats-v3';
 import { buildAllEvwTeams } from '@/lib/history/league-history';
+import { getLeagueIdForSeason } from '@/lib/constants/league';
+import { getSeasonAwardsUsingLeagueScoring, type SeasonAwards } from '@/lib/utils/sleeper-api';
 import type { PlayerHonor, PlayerProfileWithHonors } from '@/lib/types/player-honors';
-
-export interface RecordedAnnualPlayerAward {
-  season: string;
-  playerId: string;
-  kind: 'mvp' | 'rookie_of_year';
-}
-
-/**
- * Official annual player awards belong here. Keep this explicit rather than inferring
- * historical MVP or Rookie of the Year winners from scoring totals.
- */
-export const RECORDED_ANNUAL_PLAYER_AWARDS: readonly RecordedAnnualPlayerAward[] = [];
 
 const HONORS_CACHE_TTL_MS = 5 * 60 * 1000;
 let honorsIndexCache: { ts: number; data: Map<string, PlayerHonor[]> } | null = null;
@@ -35,14 +25,25 @@ function honorSort(a: PlayerHonor, b: PlayerHonor): number {
   return rank[a.kind] - rank[b.kind] || a.label.localeCompare(b.label);
 }
 
+async function loadSeasonAwards(season: string, regularSeasonEndWeek: number): Promise<SeasonAwards | null> {
+  const leagueId = getLeagueIdForSeason(season);
+  if (!leagueId || regularSeasonEndWeek <= 0) return null;
+  try {
+    return await getSeasonAwardsUsingLeagueScoring(season, leagueId, regularSeasonEndWeek);
+  } catch {
+    return null;
+  }
+}
+
 async function buildHonorsIndex(): Promise<Map<string, PlayerHonor[]>> {
   const cached = honorsIndexCache;
   if (cached && Date.now() - cached.ts < HONORS_CACHE_TTL_MS) return cached.data;
 
   const index = new Map<string, PlayerHonor[]>();
   const dataset = await getLeagueStatsDatasetV3();
+  const allEvwSeasons = buildAllEvwTeams(dataset);
 
-  for (const season of buildAllEvwTeams(dataset)) {
+  for (const season of allEvwSeasons) {
     for (const row of season.firstTeam) {
       addHonor(index, row.playerId, {
         id: `${season.season}:all-evw-first:${row.playerId}`,
@@ -67,14 +68,45 @@ async function buildHonorsIndex(): Promise<Map<string, PlayerHonor[]>> {
     }
   }
 
-  for (const award of RECORDED_ANNUAL_PLAYER_AWARDS) {
-    addHonor(index, award.playerId, {
-      id: `${award.season}:${award.kind}:${award.playerId}`,
-      season: award.season,
-      kind: award.kind,
-      label: award.kind === 'mvp' ? 'East v. West MVP' : 'East v. West Rookie of the Year',
-      source: 'official',
-    });
+  // Reuse the league's existing historical MVP/ROY calculation instead of maintaining
+  // a second manual awards list. The end week is taken from the corrected Stats dataset,
+  // so postseason scoring never leaks into a regular-season annual award.
+  const awardSeasons = dataset.seasons
+    .map((season) => ({
+      season,
+      endWeek: Math.max(
+        0,
+        ...dataset.games
+          .filter((game) => game.season === season && game.gameType === 'regular')
+          .map((game) => game.week),
+      ),
+    }))
+    .filter((row) => row.endWeek > 0);
+
+  const seasonAwards = await Promise.all(
+    awardSeasons.map((row) => loadSeasonAwards(row.season, row.endWeek)),
+  );
+
+  for (const awards of seasonAwards) {
+    if (!awards) continue;
+    for (const winner of awards.mvp) {
+      addHonor(index, winner.playerId, {
+        id: `${awards.season}:mvp:${winner.playerId}`,
+        season: awards.season,
+        kind: 'mvp',
+        label: 'East v. West MVP',
+        source: 'statistical',
+      });
+    }
+    for (const winner of awards.roy) {
+      addHonor(index, winner.playerId, {
+        id: `${awards.season}:rookie-of-year:${winner.playerId}`,
+        season: awards.season,
+        kind: 'rookie_of_year',
+        label: 'East v. West Rookie of the Year',
+        source: 'statistical',
+      });
+    }
   }
 
   for (const rows of index.values()) rows.sort(honorSort);
