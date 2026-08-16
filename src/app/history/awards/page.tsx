@@ -172,7 +172,7 @@ export default async function AwardsPage() {
       <div className="border-b-4 border-[var(--accent)] pb-4">
         <div className="text-xs font-black uppercase tracking-[0.22em] text-[var(--muted)]">League Archive</div>
         <h1 className="mt-1 text-3xl font-black tracking-tight text-[var(--text)] sm:text-4xl">Awards & Scoring Highs</h1>
-        <p className="mt-2 max-w-4xl text-sm text-[var(--muted)]">The league's annual MVP and Rookie of the Year archive, weekly scoring leaders, and highest single-team scoring weeks. Playoffs and Toilet Bowl games remain separate statistical categories.</p>
+        <p className="mt-2 max-w-4xl text-sm text-[var(--muted)]">The league&apos;s annual MVP and Rookie of the Year archive, weekly scoring leaders, and highest single-team scoring weeks. Playoffs and Toilet Bowl games remain separate statistical categories.</p>
       </div>
 
       <section className="mt-8">
@@ -196,7 +196,7 @@ export default async function AwardsPage() {
 
       <section className="mt-10">
         <h2 className="text-2xl font-black text-[var(--text)]">Weekly High Score Leaders</h2>
-        <p className="mt-1 text-sm text-[var(--muted)]">Number of regular-season weeks each franchise finished as the league's highest scorer. Tied weekly highs credit each tied franchise.</p>
+        <p className="mt-1 text-sm text-[var(--muted)]">Number of regular-season weeks each franchise finished as the league&apos;s highest scorer. Tied weekly highs credit each tied franchise.</p>
         <div className="mt-4 overflow-x-auto rounded-lg border border-[var(--border)] bg-[var(--surface)]">
           <table className="w-full">
             <thead><tr className="bg-[var(--surface-strong)] text-left text-xs uppercase tracking-wide text-[var(--muted)]"><th className="px-3 py-2">Rk</th><th className="px-3 py-2">Franchise</th><th className="px-3 py-2 text-right">Weekly Highs</th></tr></thead>
