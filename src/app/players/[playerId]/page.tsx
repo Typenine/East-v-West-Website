@@ -1,8 +1,17 @@
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { getPlayerProfile } from '@/lib/players/player-profile-service';
+import { getPlayerProfileWithHonors } from '@/lib/players/player-honors';
 import { getPlayerHallOfFameHonors } from '@/lib/hall-of-fame/service';
-import PlayerProfileSections from '@/components/players/PlayerProfileSections';
+import {
+  PlayerHeaderSection,
+  PlayerOverviewSection,
+  PlayerNFLProductionSection,
+  PlayerEVWCareerSection,
+  PlayerSeasonHistorySection,
+  PlayerTransactionsSection,
+} from '@/components/players/PlayerProfileSections';
+import PlayerHonorsSection from '@/components/players/PlayerHonorsSection';
 import PlayerHallOfFameBadges from '@/components/hall-of-fame/PlayerHallOfFameBadges';
 
 // Server-rendered on demand — the underlying Sleeper fetch helpers already cache
@@ -21,7 +30,7 @@ export async function generateMetadata({ params }: { params: Promise<PageParams>
 export default async function PlayerProfilePage({ params }: { params: Promise<PageParams> }) {
   const { playerId } = await params;
   const [profile, hallOfFameHonors] = await Promise.all([
-    getPlayerProfile(playerId),
+    getPlayerProfileWithHonors(playerId),
     getPlayerHallOfFameHonors(playerId),
   ]);
   if (!profile) notFound();
@@ -29,7 +38,13 @@ export default async function PlayerProfilePage({ params }: { params: Promise<Pa
   return (
     <div className="container mx-auto px-4 py-8 space-y-8">
       <PlayerHallOfFameBadges honors={hallOfFameHonors} />
-      <PlayerProfileSections profile={profile} />
+      <PlayerHeaderSection profile={profile} />
+      <PlayerOverviewSection profile={profile} />
+      <PlayerHonorsSection honors={profile.honors} />
+      <PlayerNFLProductionSection profile={profile} />
+      <PlayerEVWCareerSection profile={profile} />
+      <PlayerSeasonHistorySection profile={profile} />
+      <PlayerTransactionsSection profile={profile} />
       <p className="text-xs text-[var(--muted)]">
         Player ID: {playerId} · Data available for seasons: {profile.dataCoverage.seasonsAvailable.join(', ') || 'none'}
       </p>

@@ -7,6 +7,7 @@ import Tabs from "@/components/ui/Tabs";
 import LoadingState from "@/components/ui/loading-state";
 import ErrorState from "@/components/ui/error-state";
 import PlayerGameLogSection from "@/components/players/PlayerGameLogSection";
+import PlayerHonorsSection from "@/components/players/PlayerHonorsSection";
 import {
   PlayerHeaderSection,
   PlayerOverviewSection,
@@ -15,7 +16,7 @@ import {
   PlayerSeasonHistorySection,
   PlayerTransactionsSection,
 } from "@/components/players/PlayerProfileSections";
-import type { PlayerProfile } from "@/lib/types/player";
+import type { PlayerProfileWithHonors } from "@/lib/types/player-honors";
 
 export interface PlayerQuickViewModalProps {
   open: boolean;
@@ -27,12 +28,12 @@ export interface PlayerQuickViewModalProps {
 }
 
 /**
- * Site-wide quick-view modal for a player's profile. Fetches the same `PlayerProfile` shape
- * the canonical /players/[playerId] page renders server-side, and reuses the exact same
- * presentational sections (`PlayerProfileSections`) split across tabs instead of stacked.
+ * Site-wide quick-view modal for a player's profile. Fetches the same profile shape
+ * the canonical /players/[playerId] page renders server-side and reuses its sections
+ * across tabs instead of stacking them vertically.
  */
 export default function PlayerQuickViewModal({ open, onClose, playerId, name }: PlayerQuickViewModalProps) {
-  const [profile, setProfile] = useState<PlayerProfile | null>(null);
+  const [profile, setProfile] = useState<PlayerProfileWithHonors | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -46,7 +47,7 @@ export default function PlayerQuickViewModal({ open, onClose, playerId, name }: 
       try {
         const res = await fetch(`/api/players/${encodeURIComponent(playerId)}`, { cache: "no-store" });
         if (!res.ok) throw new Error(res.status === 404 ? "Player not found" : "Failed to load player");
-        const data = (await res.json()) as PlayerProfile;
+        const data = (await res.json()) as PlayerProfileWithHonors;
         if (!cancelled) setProfile(data);
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : "Failed to load player");
@@ -73,6 +74,9 @@ export default function PlayerQuickViewModal({ open, onClose, playerId, name }: 
             lazyMode="mount-once"
             tabs={[
               { id: "overview", label: "Overview", content: <PlayerOverviewSection profile={profile} /> },
+              ...(profile.honors.length > 0
+                ? [{ id: "honors", label: "Honors", content: <PlayerHonorsSection honors={profile.honors} /> }]
+                : []),
               { id: "nfl", label: "NFL Production", content: <PlayerNFLProductionSection profile={profile} /> },
               { id: "evw", label: "EVW Career", content: <PlayerEVWCareerSection profile={profile} /> },
               { id: "game-log", label: "Game Log", content: <PlayerGameLogSection profile={profile} /> },
