@@ -72,8 +72,10 @@ export default function PlayerModalProvider({ children }: { children: React.Reac
       openPlayer(id, anchor.textContent?.trim() || undefined);
     };
 
-    document.addEventListener("click", handlePlayerLinkClick);
-    return () => document.removeEventListener("click", handlePlayerLinkClick);
+    // Capture before Next.js Link's client-side navigation handler. This makes the modal
+    // primary even for older/direct links that do not use the shared PlayerLink component.
+    document.addEventListener("click", handlePlayerLinkClick, true);
+    return () => document.removeEventListener("click", handlePlayerLinkClick, true);
   }, [openPlayer]);
 
   const value = useMemo<PlayerModalContextValue>(() => ({ openPlayer }), [openPlayer]);
