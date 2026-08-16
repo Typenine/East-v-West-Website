@@ -5,16 +5,7 @@ import { useMemo, useState } from 'react';
 import type { LeagueStatsDataset, StatsGameType } from '@/lib/stats/types';
 import { getReadableTextForColors, getTeamColors } from '@/lib/utils/team-utils';
 
-const TABS = [
-  { id: 'overview', label: 'Overview', href: '/history/stats' },
-  { id: 'players', label: 'Players', href: '/history/stats?tab=players' },
-  { id: 'franchises', label: 'Franchises', href: '/history/stats?tab=franchises' },
-  { id: 'seasons', label: 'Seasons', href: '/history/stats?tab=seasons' },
-  { id: 'games', label: 'Games', href: '/history/stats?tab=games' },
-  { id: 'postseason', label: 'Postseason', href: '/history/stats?tab=postseason' },
-  { id: 'records', label: 'Records', href: '/history/stats?tab=records' },
-  { id: 'explorer', label: 'Explorer', href: '/history/stats?tab=explorer' },
-] as const;
+type PostseasonCategory = Extract<StatsGameType, 'playoffs' | 'toilet'>;
 
 type PlayerRow = {
   playerId: string;
@@ -29,17 +20,28 @@ type TeamRow = {
   wins: number;
   losses: number;
   ties: number;
-  pf: number;
-  pa: number;
   games: number;
+  pointsFor: number;
+  pointsAgainst: number;
 };
 
 type CategoryStats = {
-  playerCareer: PlayerRow[];
-  playerSeason: PlayerRow[];
-  playerGame: PlayerRow[];
   teams: TeamRow[];
+  career: PlayerRow[];
+  seasons: PlayerRow[];
+  games: PlayerRow[];
 };
+
+const STATS_TABS = [
+  ['Overview', '/history/stats'],
+  ['Players', '/history/stats?tab=players'],
+  ['Franchises', '/history/stats?tab=franchises'],
+  ['Seasons', '/history/stats?tab=seasons'],
+  ['Games', '/history/stats?tab=games'],
+  ['Postseason', '/history/stats?tab=postseason'],
+  ['Records', '/history/stats?tab=records'],
+  ['Explorer', '/history/stats?tab=explorer'],
+] as const;
 
 function fmt(value: number, digits = 1): string {
   return Number(value || 0).toLocaleString(undefined, {
@@ -48,13 +50,13 @@ function fmt(value: number, digits = 1): string {
   });
 }
 
-function pct(row: TeamRow): string {
-  if (!row.games) return '‚Äî';
-  return `${(((row.wins + row.ties * 0.5) / row.games) * 100).toFixed(1)}%`;
-}
-
 function record(row: TeamRow): string {
   return row.ties ? `${row.wins}-${row.losses}-${row.ties}` : `${row.wins}-${row.losses}`;
+}
+
+function winPct(row: TeamRow): string {
+  if (!row.games) return '-';
+  return `${(((row.wins + row.ties * 0.5) / row.games) * 100).toFixed(1)}%`;
 }
 
 function TableWrap({ children }: { children: React.ReactNode }) {
@@ -67,6 +69,79 @@ function Th({ children, className = '' }: { children: React.ReactNode; className
 
 function Td({ children, className = '' }: { children: React.ReactNode; className?: string }) {
   return <td className={`whitespace-nowrap border-b border-[var(--border)] px-3 py-2 text-sm text-[var(--text)] ${className}`}>{children}</td>;
+}
+
+function buildCategory(dataset: LeagueStatsDataset, category: PostseasonCategory, position: string): CategoryStats {
+  const games = dataset.games.filter((game) => game.gameType === category);
+  const teamWeeks = new Set<string>();
+  const teams = new Map<string, TeamRow>();
+
+  const ensureTeam = (teamName: string) => {
+    const existing = teams.get(teamName);
+    if (existing) return existing;
+    const created: TeamRow = { teamName, wins: 0, losses: 0, ties: 0, games: 0, pointsFor: 0, pointsAgainst: 0 };
+    teams.set(teamName, created);
+    return created;
+  };
+
+  for (const game of games) {
+    teamWeeks.add(`${game.season}|${game.week}|${game.teamA}`);
+    teamWeeks.add(`${game.season}|${game.week}|${game.teamB}`);
+    const a = ensureTeam(game.teamA);
+    const b = ensureTeam(game.teamB);
+    a.games += 1;
+    b.games += 1;
+    a.pointsFor += game.scoreA;
+    a.pointsAgainst += game.scoreB;
+    b.pointsFor += game.scoreB;
+    b.pointsAgainst += game.scoreA;
+    if (game.tie) {
+      a.ties += 1;
+      b.ties += 1;
+    } else if (game.winner === game.teamA) {
+      a.wins += 1;
+      b.losses += 1;
+    } else if (game.winner === game.teamB) {
+      b.wins += 1;
+      a.losses += 1;
+    }
+  }
+
+  const playerGames = dataset.playerGames.filter((row) =>
+    teamWeeks.has(`${row.season}|${row.week}|${row.franchiseName}`) &&
+    (position === 'ALL' || row.position === position)
+  );
+
+  const career = new Map<string, PlayerRow>();
+  const seasons = new Map<string, PlayerRow>();
+  for (const row of playerGames) {
+    const careerRow = career.get(row.playerId) || {
+      playerId: row.playerId,
+      name: row.name,
+      position: row.position,
+      points: 0,
+    };
+    careerRow.points += row.points;
+    career.set(row.playerId, careerRow);
+
+    const seasonKey = `${row.season}|${row.playerId}`;
+    const seasonRow = seasons.get(seasonKey) || {
+      playerId: row.playerId,
+      name: row.name,
+      position: row.position,
+      points: 0,
+      note: row.season,
+    };
+    seasonRow.points += row.points;
+    seasons.set(seasonKey, seasonRow);
+  }
+
+  return {
+    teams: Array.from(teams.values()).sort((a, b) => b.wins - a.wins || ((b.wins + b.ties * 0.5) / Math.max(1, b.games)) - ((a.wins + a.ties * 0.5) / Math.max(1, a.games)) || b.pointsFor - a.pointsFor || a.teamName.localeCompare(b.teamName)),
+    career: Array.from(career.values()).map((row) => ({ ...row, points: Number(row.points.toFixed(2)) })).sort((a, b) => b.points - a.points || a.name.localeCompare(b.name)),
+    seasons: Array.from(seasons.values()).map((row) => ({ ...row, points: Number(row.points.toFixed(2)) })).sort((a, b) => b.points - a.points || String(b.note).localeCompare(String(a.note)) || a.name.localeCompare(b.name)),
+    games: playerGames.map((row) => ({ playerId: row.playerId, name: row.name, position: row.position, points: row.points, note: `${row.season} W${row.week} - ${row.franchiseName}` })).sort((a, b) => b.points - a.points || a.name.localeCompare(b.name)),
+  };
 }
 
 function PlayerTable({ title, rows }: { title: string; rows: PlayerRow[] }) {
@@ -82,7 +157,7 @@ function PlayerTable({ title, rows }: { title: string; rows: PlayerRow[] }) {
                 <Td>{index + 1}</Td>
                 <Td><Link href={`/players/${row.playerId}`} className="font-bold text-[var(--accent)] hover:underline">{row.name}</Link></Td>
                 <Td>{row.position}</Td>
-                <Td className="text-[var(--muted)]">{row.note || '‚Äî'}</Td>
+                <Td className="text-[var(--muted)]">{row.note || '-'}</Td>
                 <Td className="text-right font-black tabular-nums">{fmt(row.points)}</Td>
               </tr>
             ))}
@@ -94,112 +169,44 @@ function PlayerTable({ title, rows }: { title: string; rows: PlayerRow[] }) {
   );
 }
 
-function FranchiseTable({ rows }: { rows: TeamRow[] }) {
-  return (
-    <div>
-      <h3 className="mb-2 font-black text-[var(--text)]">Franchise Records</h3>
-      <TableWrap>
-        <table className="w-full">
-          <thead><tr><Th>Rk</Th><Th>Franchise</Th><Th>Record</Th><Th className="text-right">Win %</Th><Th className="text-right">PF</Th><Th className="text-right">PA</Th></tr></thead>
-          <tbody>
-            {rows.map((row, index) => {
-              const colors = getTeamColors(row.teamName);
-              const text = getReadableTextForColors([colors.primary, colors.secondary]);
-              return (
-                <tr key={row.teamName}>
-                  <Td>{index + 1}</Td>
-                  <Td><span className="inline-flex rounded-md px-2.5 py-1 font-bold" style={{ background: `linear-gradient(135deg, ${colors.primary}, ${colors.secondary || colors.primary})`, color: text }}>{row.teamName}</span></Td>
-                  <Td className="font-bold">{record(row)}</Td>
-                  <Td className="text-right tabular-nums">{pct(row)}</Td>
-                  <Td className="text-right tabular-nums">{fmt(row.pf)}</Td>
-                  <Td className="text-right tabular-nums">{fmt(row.pa)}</Td>
-                </tr>
-              );
-            })}
-            {!rows.length ? <tr><td colSpan={6} className="px-3 py-6 text-center text-sm text-[var(--muted)]">No games are available for this category.</td></tr> : null}
-          </tbody>
-        </table>
-      </TableWrap>
-    </div>
-  );
-}
-
-function buildCategory(dataset: LeagueStatsDataset, gameType: Extract<StatsGameType, 'playoffs' | 'toilet'>, position: string): CategoryStats {
-  const games = dataset.games.filter((game) => game.gameType === gameType);
-  const teamWeeks = new Set<string>();
-  for (const game of games) {
-    teamWeeks.add(`${game.season}|${game.week}|${game.teamA}`);
-    teamWeeks.add(`${game.season}|${game.week}|${game.teamB}`);
-  }
-
-  const playerGames = dataset.playerGames.filter((row) =>
-    teamWeeks.has(`${row.season}|${row.week}|${row.franchiseName}`) &&
-    (position === 'ALL' || row.position === position)
-  );
-
-  const career = new Map<string, PlayerRow[];
-  const seasons = new Map<string, PlayerRow>();
-  for (const row of playerGames) {
-    const careerRow = career.get(row.playerId) || { playerId: row.playerId, name: row.name, position: row.position, points: 0 };
-    careerRow.points += row.points;
-    career.set(row.playerId, careerRow);
-
-    const seasonKey = `${row.season}|${row.playerId}`;
-    const seasonRow = seasons.get(seasonKey) || { playerId: row.playerId, name: row.name, position: row.position, points: 0, note: row.season };
-    seasonRow.points += row.points;
-    seasons.set(seasonKey, seasonRow);
-  }
-
-  const teamMap = new Map<string, TeamRow>();
-  const ensureTeam = (teamName: string) => {
-    const existing = teamMap.get(teamName);
-    if (existing) return existing;
-    const created: TeamRow = { teamName, wins: 0, losses: 0, ties: 0, pf: 0, pa: 0, games: 0 };
-    teamMap.set(teamName, created);
-    return created;
-  };
-
-  for (const game of games) {
-    const a = ensureTeam(game.teamA);
-    const b = ensureTeam(game.teamB);
-    a.games += 1;
-    b.games += 1;
-    a.pf += game.scoreA;
-    a.pa += game.scoreB;
-    b.pf += game.scoreB;
-    b.pa += game.scoreA;
-    if (game.tie) {
-      a.ties += 1;
-      b.ties += 1;
-    } else if (game.winner === game.teamA) {
-      a.wins += 1;
-      b.losses += 1;
-    } else if (game.winner === game.teamB) {
-      b.wins += 1;
-      a.losses += 1;
-    }
-  }
-
-  return {
-    playerCareer: Array.from(career.values()).map((row) => ({ ...row, points: Number(row.points.toFixed(2)) })).sort((a, b) => b.points - a.points || a.name.localeCompare(b.name)),
-    playerSeason: Array.from(seasons.values()).map((row) => ({ ...row, points: Number(row.points.toFixed(2)) })).sort((a, b) => b.points - a.points || String(b.note).localeCompare(String(a.note)) || a.name.localeCompare(b.name)),
-    playerGame: playerGames.map((row) => ({ playerId: row.playerId, name: row.name, position: row.position, points: row.points, note: `${row.season} W${row.week} ¬∑ ${row.franchiseName}` })).sort((a, b) => b.points - a.points || a.name.localeCompare(b.name)),
-    teams: Array.from(teamMap.values()).sort((a, b) => b.wins - a.wins || ((b.wins + b.ties * 0.5) / Math.max(1, b.games)) - ((a.wins + a.ties * 0.5) / Math.max(1, a.games)) || b.pf - a.pf || a.teamName.localeCompare(b.teamName)),
-  };
-}
-
 function CategorySection({ title, subtitle, stats }: { title: string; subtitle: string; stats: CategoryStats }) {
   return (
-    <section className="space-y-5">
+    <section className="space-y-6">
       <div className="border-b border-[var(--border)] pb-2">
         <h2 className="text-2xl font-black text-[var(--text)]">{title}</h2>
-        <p className="mt-1 max-w-4xl text-sm text-[var(--muted)]">{subtitle}</p>
+        <p className="mt-1 text-sm text-[var(--muted)]">{subtitle}</p>
       </div>
-      <FranchiseTable rows={stats.teams} />
+
+      <div>
+        <h3 className="mb-2 font-black text-[var(--text)]">Franchise Records</h3>
+        <TableWrap>
+          <table className="w-full">
+            <thead><tr><Th>Rk</Th><Th>Franchise</Th><Th>Record</Th><Th className="text-right">Win %</Th><Th className="text-right">PF</Th><Th className="text-right">PA</Th></tr></thead>
+            <tbody>
+              {stats.teams.map((row, index) => {
+                const colors = getTeamColors(row.teamName);
+                const text = getReadableTextForColors([colors.primary, colors.secondary]);
+                return (
+                  <tr key={row.teamName}>
+                    <Td>{index + 1}</Td>
+                    <Td><span className="inline-flex rounded px-2 py-1 text-xs font-black" style={{ background: `linear-gradient(135deg, ${colors.primary}, ${colors.secondary || colors.primary})`, color: text }}>{row.teamName}</span></Td>
+                    <Td className="font-bold">{record(row)}</Td>
+                    <Td className="text-right tabular-nums">{winPct(row)}</Td>
+                    <Td className="text-right tabular-nums">{fmt(row.pointsFor)}</Td>
+                    <Td className="text-right tabular-nums">{fmt(row.pointsAgainst)}</Td>
+                  </tr>
+                );
+              })}
+              {!stats.teams.length ? <tr><td colSpan={6} className="px-3 py-6 text-center text-sm text-[var(--muted)]">No games are available for this category.</td></tr> : null}
+            </tbody>
+          </table>
+        </TableWrap>
+      </div>
+
       <div className="grid gap-7 xl:grid-cols-3">
-        <PlayerTable title="Career Points" rows={stats.playerCareer} />
-        <PlayerTable title="Single-Season Points" rows={stats.playerSeason} />
-        <PlayerTable title="Single-Game Points" rows={stats.playerGame} />
+        <PlayerTable title="Career Points" rows={stats.career} />
+        <PlayerTable title="Single-Season Points" rows={stats.seasons} />
+        <PlayerTable title="Single-Game Points" rows={stats.games} />
       </div>
     </section>
   );
@@ -208,9 +215,9 @@ function CategorySection({ title, subtitle, stats }: { title: string; subtitle: 
 export default function StatsPostseasonView({ dataset }: { dataset: LeagueStatsDataset }) {
   const [position, setPosition] = useState('ALL');
   const positions = useMemo(() => {
-    const order = ['QB', 'RB', 'WR', 'TE', 'K', 'DEF'];
+    const preferred = ['QB', 'RB', 'WR', 'TE', 'K', 'DEF'];
     const available = new Set(dataset.playerGames.map((row) => row.position).filter(Boolean));
-    return [...order.filter((value) => available.has(value)), ...Array.from(available).filter((value) => !order.includes(value)).sort()];
+    return [...preferred.filter((value) => available.has(value)), ...Array.from(available).filter((value) => !preferred.includes(value)).sort()];
   }, [dataset.playerGames]);
 
   const playoffs = useMemo(() => buildCategory(dataset, 'playoffs', position), [dataset, position]);
@@ -221,18 +228,22 @@ export default function StatsPostseasonView({ dataset }: { dataset: LeagueStatsD
       <div className="mb-2 text-sm text-[var(--muted)]"><Link href="/history" className="hover:underline">History</Link> / Stats / Postseason</div>
       <div className="border-b-4 border-[var(--accent)] pb-4">
         <div className="text-xs font-black uppercase tracking-[0.22em] text-[var(--muted)]">East v. West Reference</div>
-        <h1 className="mt-1 text-3xl font-black tracking-tight text-[var(--text)] sm:text-4xl">Postseason Statistics</h1>
-        <p className="mt-2 max-w-4xl text-sm text-[var(--muted)]">Championship playoffs and the Toilet Bowl are tracked as separate competitions. Placement games after championship-bracket elimination are excluded from both records.</p>
+        <h1 className="mt-1 text-3xl font-black tracking-tight sm:text-4xl">Postseason Statistics</h1>
+        <p className="mt-2 max-w-4xl text-sm text-[var(--muted)]">Championship playoffs and the Toilet Bowl are separate competitions. Placement games after championship-bracket elimination are excluded from both sets of records.</p>
       </div>
 
       <nav className="mt-4 flex gap-1 overflow-x-auto border-b border-[var(--border)]" aria-label="Statistics sections">
-        {TABS.map((tab) => <Link key={tab.id} href={tab.href} className={`whitespace-nowrap border-b-2 px-4 py-3 text-sm font-bold transition-colors ${tab.id === 'postseason' ? 'border-[var(--accent)] text-[var(--text)]' : 'border-transparent text-[var(--muted)] hover:text-[var(--text)]'}`}>{tab.label}</Link.)}
+        {STATS_TABS.map(([label, href]) => <Link key={label} href={href} className={`whitespace-nowrap border-b-2 px-4 py-3 text-sm font-bold ${label === 'Postseason' ? 'border-[var(--accent)] text-[var(--text)]' : 'border-transparent text-[var(--muted)] hover:text-[var(--text)]'}`}>{label}</Link>)}
       </nav>
 
-      <div className="mt-6 flex flex-wrap gap-2">
-        {['ALL', ...positions].map(ò[YJHOàù]€àŸ^O^›ò[Y_H\OHòù]€àà€ê€X⁄œ^ 
-HOàŸ]‹⁄][€äò[YJ_H€\‹”ò[YO^ÿõ›[ôY[Yõ‹ô\àL»KLKçH^^»õ€ùXõ€	‹‹⁄][€àOOHò[YH»	ÿõ‹ô\ãV›ò\äKXXÿŸ[ù
-WHôÀXXÿŸ[ù\€Ÿù^XXÿŸ[ù	»à	ÿõ‹ô\ãV›ò\äKXõ‹ô\äWH^V›ò\äK[]]Y
-WH›ô\éù^V›ò\äK]^
-WIﬂXOû›ò[YHOOH	–S	»»	–[‹⁄][€ú…»àò[Y_Oÿù]€èä_BàŸ]èÇÇà]à€\‹”ò[YOHõ]N‹XŸK^KLLàèÇàÿ]Y€‹ûTŸX›[€à]OHê⁄[\[€ú⁄\^[Ÿôú»à›Xù]OHì€õHÿ[Y\»€àH⁄[\[€ú⁄\]€›[ù\ôKàö\ú›\õ›[ô‹‹Ÿ\ÀŸ[ZYö[ò[»[ôH⁄[\[€ú⁄\€›[ù»]\àXŸ[Y[ùÿ[Y\»»õ›à⁄[]õ›€ÿ[Y\»\ôH€€\][HŸ\\ò]Kàà›]œ^‹^[ŸôúﬂHœÇàÿ]Y€‹ûTŸX›[€à]OHï⁄[]õ›€à›Xù]OHì€õHÿ[Y\»úõ€H€Y\\â‹»‹Ÿ\ú»úòX⁄Ÿ]€›[ù\ôKà⁄[]õ›€⁄[ú»[ô‹‹Ÿ\»ô]ô\àYôôX›^[ŸôàôX€‹ôÀ^[Ÿôà⁄[à\òŸ[ùYŸH‹à^[Ÿôà^Y\àÿ€‹ö[ôÀàà›]œ^›⁄[]HœÇàŸ]èÇà€XZ[èÇà
-N¬üB
+      <div className="mt-5 flex flex-wrap gap-2">
+        {['ALL', ...positions].map((value) => <button key={value} type="button" onClick={() => setPosition(value)} className={`rounded-md border px-3 py-1.5 text-xs font-bold ${position === value ? 'border-[var(--accent)] bg-accent-soft text-accent' : 'border-[var(--border)] text-[var(--muted)] hover:text-[var(--text)]'}`}>{value === 'ALL' ? 'All Positions' : value}</button>)}
+      </div>
+
+      <div className="mt-9 space-y-14">
+        <CategorySection title="Championship Playoffs" subtitle="Only games on the path to the East v. West championship count here. A team eliminated in the first round receives a playoff loss and no later placement-game wins." stats={playoffs} />
+        <CategorySection title="Toilet Bowl" subtitle="Only Sleeper losers-bracket games count here. Toilet Bowl wins, losses, points and player scoring never affect championship-playoff records." stats={toilet} />
+      </div>
+    </main>
+  );
+}
