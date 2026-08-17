@@ -1,0 +1,266 @@
+.history-mobile-scope {
+  min-width: 0;
+  overflow-x: clip;
+}
+
+.history-mobile-scope main,
+.history-mobile-scope section,
+.history-mobile-scope article,
+.history-mobile-scope div {
+  min-width: 0;
+}
+
+.history-mobile-scope .overflow-x-auto {
+  max-width: 100%;
+  overscroll-behavior-inline: contain;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+}
+
+@media (max-width: 640px) {
+  .history-mobile-scope main.container,
+  .history-mobile-scope > .container {
+    padding: 1rem 0.75rem 2rem !important;
+  }
+
+  .history-mobile-scope h1 {
+    font-size: clamp(1.65rem, 8vw, 2rem) !important;
+    line-height: 1.08 !important;
+    overflow-wrap: anywhere;
+  }
+
+  .history-mobile-scope h2 {
+    font-size: clamp(1.2rem, 6vw, 1.5rem) !important;
+    line-height: 1.15;
+    overflow-wrap: anywhere;
+  }
+
+  .history-mobile-scope h3,
+  .history-mobile-scope p,
+  .history-mobile-scope a,
+  .history-mobile-scope button,
+  .history-mobile-scope td,
+  .history-mobile-scope th {
+    overflow-wrap: anywhere;
+  }
+
+  .history-mobile-scope section {
+    scroll-margin-top: 8rem !important;
+  }
+
+  .history-mobile-scope nav[aria-label="Statistics sections"],
+  .history-mobile-scope nav[aria-label="Franchise history sections"] {
+    position: sticky;
+    top: 4rem;
+    z-index: 30;
+    margin-left: -0.75rem;
+    margin-right: -0.75rem;
+    padding-left: 0.75rem;
+    padding-right: 0.75rem;
+    background: var(--surface);
+    box-shadow: 0 1px 0 var(--border);
+    scroll-snap-type: x proximity;
+  }
+
+  .history-mobile-scope nav[aria-label="Statistics sections"] > *,
+  .history-mobile-scope nav[aria-label="Franchise history sections"] > * {
+    min-height: 44px;
+    scroll-snap-align: start;
+  }
+
+  .history-mobile-scope input,
+  .history-mobile-scope select,
+  .history-mobile-scope textarea {
+    min-height: 44px;
+    max-width: 100%;
+    font-size: 16px;
+  }
+
+  .history-mobile-scope details > summary {
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+  }
+
+  .history-mobile-scope .overflow-x-auto {
+    margin-inline: -0.125rem;
+    border-radius: 0.625rem;
+  }
+
+  .history-mobile-scope table {
+    width: max-content;
+    min-width: 100%;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .history-mobile-scope th,
+  .history-mobile-scope td {
+    padding: 0.55rem 0.6rem !important;
+    font-size: 0.76rem !important;
+    line-height: 1.25;
+  }
+
+  .history-mobile-scope thead th:first-child,
+  .history-mobile-scope tbody td:first-child {
+    position: sticky;
+    left: 0;
+    z-index: 2;
+    box-shadow: 1px 0 0 var(--border);
+  }
+
+  .history-mobile-scope thead th:first-child {
+    z-index: 3;
+    background: var(--surface-strong) !important;
+  }
+
+  .history-mobile-scope tbody td:first-child {
+    background: var(--surface) !important;
+  }
+
+  /* All-EVW: keep the annual teams readable without sideways scrolling. */
+  .history-mobile-scope main:has(section[id^="season-"]) table {
+    width: 100%;
+    min-width: 0;
+    table-layout: fixed;
+  }
+
+  .history-mobile-scope main:has(section[id^="season-"]) th,
+  .history-mobile-scope main:has(section[id^="season-"]) td {
+    white-space: normal !important;
+  }
+
+  .history-mobile-scope main:has(section[id^="season-"]) th:nth-child(3),
+  .history-mobile-scope main:has(section[id^="season-"]) td:nth-child(3) {
+    display: none;
+  }
+
+  .history-mobile-scope main:has(section[id^="season-"]) th:nth-child(1),
+  .history-mobile-scope main:has(section[id^="season-"]) td:nth-child(1) {
+    width: 3rem;
+  }
+
+  .history-mobile-scope main:has(section[id^="season-"]) th:nth-child(2),
+  .history-mobile-scope main:has(section[id^="season-"]) td:nth-child(2) {
+    width: 31%;
+  }
+
+  .history-mobile-scope main:has(section[id^="season-"]) th:nth-child(4),
+  .history-mobile-scope main:has(section[id^="season-"]) td:nth-child(4) {
+    width: 37%;
+  }
+
+  .history-mobile-scope main:has(section[id^="season-"]) th:nth-child(5),
+  .history-mobile-scope main:has(section[id^="season-"]) td:nth-child(5) {
+    width: 5.2rem;
+  }
+
+  .history-mobile-scope main:has(section[id^="season-"]) td:nth-child(4) a,
+  .history-mobile-scope main:has(section[id^="season-"]) td:nth-child(4) span {
+    white-space: normal !important;
+    line-height: 1.15;
+  }
+
+  /* Franchise history: two-up overview cards and trimmed reference tables on phones. */
+  .history-mobile-scope main:has(nav[aria-label="Franchise history sections"]) #overview > div:last-child {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+
+  .history-mobile-scope main:has(nav[aria-label="Franchise history sections"]) #overview > div:last-child > div {
+    padding: 0.75rem !important;
+  }
+
+  .history-mobile-scope main:has(nav[aria-label="Franchise history sections"]) #overview > div:last-child > div > div:nth-child(2) {
+    font-size: 1.35rem !important;
+  }
+
+  .history-mobile-scope main:has(nav[aria-label="Franchise history sections"]) #seasons th:nth-child(3),
+  .history-mobile-scope main:has(nav[aria-label="Franchise history sections"]) #seasons td:nth-child(3),
+  .history-mobile-scope main:has(nav[aria-label="Franchise history sections"]) #seasons th:nth-child(5),
+  .history-mobile-scope main:has(nav[aria-label="Franchise history sections"]) #seasons td:nth-child(5),
+  .history-mobile-scope main:has(nav[aria-label="Franchise history sections"]) #seasons th:nth-child(6),
+  .history-mobile-scope main:has(nav[aria-label="Franchise history sections"]) #seasons td:nth-child(6) {
+    display: none;
+  }
+
+  .history-mobile-scope main:has(nav[aria-label="Franchise history sections"]) #players th:nth-child(4),
+  .history-mobile-scope main:has(nav[aria-label="Franchise history sections"]) #players td:nth-child(4),
+  .history-mobile-scope main:has(nav[aria-label="Franchise history sections"]) #players th:nth-child(5),
+  .history-mobile-scope main:has(nav[aria-label="Franchise history sections"]) #players td:nth-child(5),
+  .history-mobile-scope main:has(nav[aria-label="Franchise history sections"]) #players th:nth-child(6),
+  .history-mobile-scope main:has(nav[aria-label="Franchise history sections"]) #players td:nth-child(6),
+  .history-mobile-scope main:has(nav[aria-label="Franchise history sections"]) #players th:nth-child(8),
+  .history-mobile-scope main:has(nav[aria-label="Franchise history sections"]) #players td:nth-child(8) {
+    display: none;
+  }
+
+  .history-mobile-scope main:has(nav[aria-label="Franchise history sections"]) #games th:nth-child(6),
+  .history-mobile-scope main:has(nav[aria-label="Franchise history sections"]) #games td:nth-child(6),
+  .history-mobile-scope main:has(nav[aria-label="Franchise history sections"]) #games th:nth-child(7),
+  .history-mobile-scope main:has(nav[aria-label="Franchise history sections"]) #games td:nth-child(7),
+  .history-mobile-scope main:has(nav[aria-label="Franchise history sections"]) #games th:nth-child(8),
+  .history-mobile-scope main:has(nav[aria-label="Franchise history sections"]) #games td:nth-child(8) {
+    display: none;
+  }
+
+  .history-mobile-scope main:has(nav[aria-label="Franchise history sections"]) #honors th:nth-child(5),
+  .history-mobile-scope main:has(nav[aria-label="Franchise history sections"]) #honors td:nth-child(5) {
+    display: none;
+  }
+
+  /* Stats center: keep controls comfortable and data tables contained. */
+  .history-mobile-scope main:has(nav[aria-label="Statistics sections"]) .grid.rounded-lg.border {
+    padding: 0.75rem !important;
+  }
+
+  .history-mobile-scope main:has(nav[aria-label="Statistics sections"]) .overflow-x-auto table {
+    max-width: none;
+  }
+
+  .history-mobile-scope main:has(nav[aria-label="Statistics sections"]) .flex.items-center.justify-between.gap-3 {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .history-mobile-scope main:has(nav[aria-label="Statistics sections"]) .flex.items-center.justify-between.gap-3 label,
+  .history-mobile-scope main:has(nav[aria-label="Statistics sections"]) .flex.items-center.justify-between.gap-3 select {
+    width: 100% !important;
+    margin-left: 0 !important;
+    margin-top: 0.25rem !important;
+  }
+
+  /* Awards/highs: compact dense score tables while preserving all fields via local scroll. */
+  .history-mobile-scope main:has(details) details {
+    overflow: hidden;
+  }
+
+  .history-mobile-scope main:has(details) details .overflow-x-auto {
+    border-radius: 0;
+  }
+
+  /* Prevent wide badges and long franchise names from widening the page. */
+  .history-mobile-scope td a,
+  .history-mobile-scope td span {
+    max-width: 12rem;
+  }
+}
+
+@media (max-width: 420px) {
+  .history-mobile-scope main:has(section[id^="season-"]) th,
+  .history-mobile-scope main:has(section[id^="season-"]) td {
+    padding-inline: 0.42rem !important;
+    font-size: 0.71rem !important;
+  }
+
+  .history-mobile-scope main:has(section[id^="season-"]) th:nth-child(4),
+  .history-mobile-scope main:has(section[id^="season-"]) td:nth-child(4) {
+    width: 34%;
+  }
+
+  .history-mobile-scope main:has(nav[aria-label="Franchise history sections"]) #overview > div:last-child > div {
+    padding: 0.65rem !important;
+  }
+
+  .history-mobile-scope main:has(nav[aria-label="Franchise history sections"]) #overview > div:last-child > div > div:nth-child(2) {
+    font-size: 1.15rem !important;
+  }
+}
