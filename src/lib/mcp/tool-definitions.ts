@@ -13,7 +13,12 @@ const objectInput = (properties: Record<string, Property> = {}, required: string
 });
 const stringProp = (description: string) => ({ type: 'string', description });
 const numberProp = (description: string) => ({ type: 'number', description });
+const booleanProp = (description: string) => ({ type: 'boolean', description });
+const enumProp = (description: string, values: string[]) => ({ type: 'string', description, enum: values });
 const tool = (name: string, description: string, inputSchema = objectInput()) => ({ name, description, inputSchema });
+
+const GAME_TYPE_VALUES = ['all', 'regular', 'playoffs', 'toilet', 'postseason'];
+const PLAYER_POSITION_VALUES = ['QB', 'RB', 'WR', 'TE', 'K', 'DEF'];
 
 export const MCP_TOOLS = [
   tool('get_league_info', 'Returns East v. West league rules, scoring, roster settings, payouts, dates, and champions.'),
@@ -25,8 +30,8 @@ export const MCP_TOOLS = [
     outputSchema: TEAM_CARD_OUTPUT_SCHEMA,
   },
   tool('get_current_roster', 'Returns current rosters for all teams or one team.', objectInput({ team: stringProp('Optional team filter.') })),
-  tool('search_players', 'Searches Sleeper players by name.', objectInput({ name: stringProp('Player name.'), limit: numberProp('Maximum results, up to 20.') }, ['name'])),
-  tool('get_player_info', 'Returns one player profile and fantasy owner.', objectInput({ id: stringProp('Sleeper player ID.') }, ['id'])),
+  tool('search_players', 'Searches the current Sleeper player directory by name. For historical EVW statistics and league-career filters, use search_evw_players.', objectInput({ name: stringProp('Player name.'), limit: numberProp('Maximum results, up to 20.') }, ['name'])),
+  tool('get_player_info', 'Returns one current Sleeper player profile and fantasy owner. For the complete EVW career, honors, transactions, game log, and postseason splits, use get_evw_player.', objectInput({ id: stringProp('Sleeper player ID.') }, ['id'])),
   tool('get_current_matchups', 'Returns current fantasy matchups and scores.', objectInput({ week: numberProp('Optional NFL week.') })),
   tool('get_recent_transactions', 'Returns recent waiver and free-agent moves.', objectInput({ limit: numberProp('Maximum results.'), team: stringProp('Optional team filter.'), season: stringProp('Optional season.') })),
   tool('get_trade_history', 'Returns trade history with players and picks.', objectInput({ team: stringProp('Optional team filter.'), season: stringProp('Optional season.'), limit: numberProp('Maximum trades.') })),
@@ -37,7 +42,7 @@ export const MCP_TOOLS = [
   },
   tool('get_draft_picks', 'Returns future draft-pick ownership.', objectInput({ team: stringProp('Optional team filter.') })),
   {
-    ...tool('get_franchise_summary', 'Returns all-time franchise records and championships. Renders a visual trophy-case ranking.', objectInput({ team: stringProp('Optional team filter.') })),
+    ...tool('get_franchise_summary', 'Returns all-time franchise records and championships. Renders a visual trophy-case ranking. For the full statistical franchise archive, use get_franchise_history.', objectInput({ team: stringProp('Optional team filter.') })),
     _meta: FRANCHISE_CASE_TOOL_META,
     outputSchema: FRANCHISE_CASE_OUTPUT_SCHEMA,
   },
@@ -77,4 +82,60 @@ export const MCP_TOOLS = [
     outputSchema: TRADE_ANALYZER_OUTPUT_SCHEMA,
   },
   tool('get_player_values', 'Returns dynasty values for named players or picks.', objectInput({ players: { type: 'array', items: { type: 'string' } } }, ['players'])),
+
+  tool('get_league_data_model', 'Returns the authoritative East v. West statistical semantics and coverage model. Use this when interpreting EVW points, franchise identity, Playoffs vs Toilet Bowl, All-EVW honors, or postseason categories.'),
+  tool('get_evw_player', 'Returns the complete canonical East v. West player profile: current roster status, EVW career and season history, ownership-attributed weekly game log, transactions, draft history, All-EVW/MVP/ROY honors, and separate regular-season, Playoff, Toilet Bowl, and other-postseason statistical splits.', objectInput({ id: stringProp('Sleeper player ID.') }, ['id'])),
+  tool('search_evw_players', 'Searches historical East v. West player careers with league-stat filters. EVW points are ownership-attributed. Use this instead of search_players for career, franchise, season, or awards questions.', objectInput({
+    query: stringProp('Optional partial player name.'),
+    position: enumProp('Optional position.', PLAYER_POSITION_VALUES),
+    franchise: stringProp('Optional current or historical franchise name/alias.'),
+    season: stringProp('Optional season the player must have appeared in.'),
+    min_points: numberProp('Minimum career EVW points.'),
+    min_starts: numberProp('Minimum EVW starts.'),
+    min_weeks: numberProp('Minimum rostered EVW weeks.'),
+    award: enumProp('Optional honor filter.', ['all_evw_first', 'all_evw_second', 'mvp', 'rookie_of_year']),
+    exclude_defenses: booleanProp('Exclude DEF/DST rows.'),
+    limit: numberProp('Maximum results, 1-100.'),
+  })),
+  tool('get_franchise_history', 'Returns one canonical franchise reference archive with regular-season history, separate Playoff/Toilet Bowl/other-postseason records, championships, season results, player leaders, records, All-EVW selections, milestones, and optionally historical games.', objectInput({
+    team: stringProp('Canonical franchise name, historical alias, or franchise history ID.'),
+    include_games: booleanProp('Include historical game rows. Defaults false.'),
+    limit: numberProp('Maximum milestone/game rows, 1-100.'),
+  }, ['team'])),
+  tool('get_league_records', 'Returns ranked East v. West record lists using the canonical Stats dataset. Can isolate regular season, championship Playoffs, Toilet Bowl, or other postseason and can return chronological record progression.', objectInput({
+    category: enumProp('Record category.', ['all', 'player_career', 'player_season', 'player_game', 'team_game', 'franchise']),
+    position: enumProp('Optional player position filter.', PLAYER_POSITION_VALUES),
+    game_type: enumProp('Statistical game category. Playoffs and Toilet Bowl are always separate.', GAME_TYPE_VALUES),
+    exclude_defenses: booleanProp('Exclude DEF/DST from player lists.'),
+    include_progression: booleanProp('Include chronological single-game, single-season, and team-game record progressions.'),
+    limit: numberProp('Maximum ranked rows per category, 1-100.'),
+  })),
+  tool('get_season_archive', 'Returns a complete East v. West season reference snapshot: standings, player leaders, championship result, All-EVW teams, MVP/ROY, weekly highs, separate regular/Playoff/Toilet Bowl/other-postseason games, and milestones. Draft history remains available through get_draft_history.', objectInput({
+    season: stringProp('Season year, for example 2025.'),
+    leader_limit: numberProp('Maximum player leaders, 1-100.'),
+  }, ['season'])),
+  tool('get_week_gamebook', 'Returns one historical East v. West weekly gamebook with every matchup, scores, highest/lowest team score, average score, closest game, biggest result, overall and positional player leaders, and milestones. Game rows retain regular/Playoff/Toilet Bowl/other-postseason classification.', objectInput({ season: stringProp('Season year.'), week: numberProp('Fantasy week number.') }, ['season', 'week'])),
+  tool('get_league_awards', 'Returns the East v. West awards and scoring-high archive: MVP, Rookie of the Year, First/Second Team All-EVW, regular-season weekly highs, and highest-scoring franchise weeks split into regular season, Playoffs, Toilet Bowl, and other postseason.', objectInput({ season: stringProp('Optional season filter.'), limit: numberProp('Maximum scoring-high rows per category, 1-100.') })),
+  tool('query_stats', 'Structured East v. West Stats Explorer. Query player careers, player seasons, player games, or franchise games with bounded filters and sorting. Use this for questions such as WR seasons over 200 points, a franchise losing while scoring 140+, or top Playoff player games.', objectInput({
+    entity: enumProp('Dataset to query.', ['player_career', 'player_season', 'player_games', 'games']),
+    query: stringProp('Optional partial player name for player entities.'),
+    position: enumProp('Optional player position.', PLAYER_POSITION_VALUES),
+    franchise: stringProp('Optional franchise filter. For games, this is the team perspective.'),
+    season: stringProp('Exact season for games.'),
+    season_from: stringProp('Earliest season for player queries.'),
+    season_to: stringProp('Latest season for player queries.'),
+    min_points: numberProp('Minimum points. For games this is the selected team score.'),
+    max_points: numberProp('Maximum player points.'),
+    min_starts: numberProp('Minimum starts for player career/season queries.'),
+    min_weeks: numberProp('Minimum rostered weeks for player career/season queries.'),
+    min_ppg: numberProp('Minimum PPG for player career/season queries.'),
+    game_type: enumProp('Game category for game/player-game queries.', GAME_TYPE_VALUES),
+    opponent: stringProp('Opponent filter for games.'),
+    result: enumProp('Result filter for games.', ['W', 'L', 'T']),
+    max_margin: numberProp('Maximum game margin.'),
+    exclude_defenses: booleanProp('Exclude DEF/DST rows.'),
+    sort: enumProp('Sort field. Supported fields depend on entity.', ['points', 'ppg', 'starts', 'weeks', 'best_game', 'best_season', 'franchises', 'score', 'margin', 'combined']),
+    order: enumProp('Sort direction.', ['desc', 'asc']),
+    limit: numberProp('Maximum results, 1-100.'),
+  }, ['entity'])),
 ] as const;

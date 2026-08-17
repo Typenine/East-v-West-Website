@@ -50,6 +50,17 @@ import {
   formatAnalyzeRosterMarkdown,
   McpError,
 } from '@/lib/mcp/handlers';
+import {
+  handleGetLeagueDataModelV2,
+  handleGetEvwPlayerV2,
+  handleSearchEvwPlayersV2,
+  handleGetFranchiseHistoryV2,
+  handleGetLeagueRecordsV2,
+  handleGetSeasonArchiveV2,
+  handleGetWeekGamebookV2,
+  handleGetLeagueAwardsV2,
+  handleQueryStatsV2,
+} from '@/lib/mcp/v2-handlers';
 
 export type ToolInput = Record<string, unknown>;
 export type DispatchResult = { structuredContent: unknown; markdown: string | null; _meta?: Record<string, unknown> };
@@ -67,26 +78,17 @@ export async function dispatchTool(name: string, input: ToolInput): Promise<Disp
     case 'get_team_dashboard': {
       const data = await handleGetTeam({ name: input.name as string | undefined });
       const md = formatTeamMarkdown(data as Parameters<typeof formatTeamMarkdown>[0]);
-      return {
-        structuredContent: data,
-        markdown: md,
-        _meta: TEAM_CARD_TOOL_META,
-      };
+      return { structuredContent: data, markdown: md, _meta: TEAM_CARD_TOOL_META };
     }
     case 'show_team_card': {
       const data = await handleGetTeam({ name: input.name as string | undefined });
       const md = formatTeamMarkdown(data as Parameters<typeof formatTeamMarkdown>[0]);
-      return {
-        structuredContent: data,
-        markdown: md,
-        _meta: TEAM_CARD_TOOL_META,
-      };
+      return { structuredContent: data, markdown: md, _meta: TEAM_CARD_TOOL_META };
     }
     case 'get_current_matchups': {
       const data = await handleGetMatchups({ week: input.week as number | undefined });
       const d = data as { week: number; matchups: Parameters<typeof formatMatchupsMarkdown>[0]; meta: { nflSeason?: string } };
-      const md = formatMatchupsMarkdown(d.matchups, d.week, d.meta?.nflSeason ?? String(new Date().getFullYear()));
-      return { structuredContent: data, markdown: md };
+      return { structuredContent: data, markdown: formatMatchupsMarkdown(d.matchups, d.week, d.meta?.nflSeason ?? String(new Date().getFullYear())) };
     }
     case 'get_league_info':
       return { structuredContent: await handleGetLeagueInfo(), markdown: null };
@@ -95,11 +97,9 @@ export async function dispatchTool(name: string, input: ToolInput): Promise<Disp
       const md = formatRosterMarkdown(data as Parameters<typeof formatRosterMarkdown>[0]);
       return {
         structuredContent: data,
-        markdown: md ?? (
-          (data as { rosters: unknown[] }).rosters.length > 1
-            ? `*Showing all ${(data as { rosters: unknown[] }).rosters.length} team rosters as JSON. Use \`team\` param to get a formatted card for one team.*\n\n${JSON.stringify(data)}`
-            : JSON.stringify(data)
-        ),
+        markdown: md ?? ((data as { rosters: unknown[] }).rosters.length > 1
+          ? `*Showing all ${(data as { rosters: unknown[] }).rosters.length} team rosters as JSON. Use \`team\` param to get a formatted card for one team.*\n\n${JSON.stringify(data)}`
+          : JSON.stringify(data)),
       };
     }
     case 'search_players':
@@ -112,16 +112,11 @@ export async function dispatchTool(name: string, input: ToolInput): Promise<Disp
       const teamArg = input.team as string | undefined;
       const limitArg = input.limit as number | undefined;
       const data = await handleGetTrades({ team: teamArg, season: input.season as string | undefined, limit: limitArg });
-      type TradeResult = { trades: Parameters<typeof formatTradeHistoryMarkdown>[0] };
-      const d = data as TradeResult;
+      const d = data as { trades: Parameters<typeof formatTradeHistoryMarkdown>[0] };
       return { structuredContent: data, markdown: formatTradeHistoryMarkdown(d.trades, teamArg, Math.min(limitArg ?? 8, 8)) };
     }
     case 'get_draft_history':
-      return {
-        structuredContent: await handleGetDrafts({ season: input.season as string | undefined, team: input.team as string | undefined, type: input.type as string | undefined }),
-        markdown: null,
-        _meta: DRAFT_BOARD_TOOL_META,
-      };
+      return { structuredContent: await handleGetDrafts({ season: input.season as string | undefined, team: input.team as string | undefined, type: input.type as string | undefined }), markdown: null, _meta: DRAFT_BOARD_TOOL_META };
     case 'get_draft_picks': {
       const teamArg = input.team as string | undefined;
       const data = await handleGetDrafts({ team: teamArg, type: 'future' });
@@ -139,8 +134,7 @@ export async function dispatchTool(name: string, input: ToolInput): Promise<Disp
     }
     case 'get_weekly_content_context': {
       const data = await handleGetWeeklyContext();
-      const d = data as Parameters<typeof formatWeeklyContextMarkdown>[0];
-      return { structuredContent: data, markdown: formatWeeklyContextMarkdown(d) };
+      return { structuredContent: data, markdown: formatWeeklyContextMarkdown(data as Parameters<typeof formatWeeklyContextMarkdown>[0]) };
     }
     case 'get_commissioner_ops_context': {
       const data = await handleGetCommissionerOps();
@@ -175,19 +169,32 @@ export async function dispatchTool(name: string, input: ToolInput): Promise<Disp
       return { structuredContent: data, markdown: formatAnalyzeRosterMarkdown(data), _meta: ROSTER_STRENGTH_TOOL_META };
     }
     case 'analyze_trade': {
-      const data = await handleAnalyzeTrade({
-        side_a: input.side_a as string[],
-        side_b: input.side_b as string[],
-        source: input.source as 'avg' | 'fc' | 'ktc' | undefined,
-      });
+      const data = await handleAnalyzeTrade({ side_a: input.side_a as string[], side_b: input.side_b as string[], source: input.source as 'avg' | 'fc' | 'ktc' | undefined });
       return { structuredContent: data, markdown: formatAnalyzeTradeMarkdown(data), _meta: TRADE_ANALYZER_TOOL_META };
     }
     case 'get_player_values': {
       const data = await handleGetPlayerValues({ players: input.players as string[] });
       return { structuredContent: data, markdown: formatPlayerValuesMarkdown(data) };
     }
+    case 'get_league_data_model':
+      return { structuredContent: await handleGetLeagueDataModelV2(), markdown: null };
+    case 'get_evw_player':
+      return { structuredContent: await handleGetEvwPlayerV2(input), markdown: null };
+    case 'search_evw_players':
+      return { structuredContent: await handleSearchEvwPlayersV2(input), markdown: null };
+    case 'get_franchise_history':
+      return { structuredContent: await handleGetFranchiseHistoryV2(input), markdown: null };
+    case 'get_league_records':
+      return { structuredContent: await handleGetLeagueRecordsV2(input), markdown: null };
+    case 'get_season_archive':
+      return { structuredContent: await handleGetSeasonArchiveV2(input), markdown: null };
+    case 'get_week_gamebook':
+      return { structuredContent: await handleGetWeekGamebookV2(input), markdown: null };
+    case 'get_league_awards':
+      return { structuredContent: await handleGetLeagueAwardsV2(input), markdown: null };
+    case 'query_stats':
+      return { structuredContent: await handleQueryStatsV2(input), markdown: null };
     default:
       throw new McpError('method_not_found', `Unknown tool: ${name}`);
   }
 }
-
