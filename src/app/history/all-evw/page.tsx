@@ -1,3 +1,4 @@
+import type { CSSProperties } from 'react';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { getLeagueStatsDatasetV3 } from '@/lib/stats/league-stats-v3';
@@ -11,16 +12,24 @@ export const metadata: Metadata = {
   description: 'Annual first-team and second-team All-East v. West selections based on regular-season league scoring.',
 };
 
+const COLUMN_WIDTHS = {
+  slot: '9%',
+  player: '24%',
+  position: '8%',
+  franchise: '41%',
+  points: '18%',
+} as const;
+
 function fmt(value: number): string {
   return Number(value || 0).toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 });
 }
 
-function Th({ children, className = '' }: { children: React.ReactNode; className?: string }) {
-  return <th className={`whitespace-nowrap border-b border-[var(--border)] bg-[var(--surface-strong)] px-3 py-2 text-left text-xs font-black uppercase tracking-wide text-[var(--muted)] ${className}`}>{children}</th>;
+function Th({ children, className = '', style }: { children: React.ReactNode; className?: string; style?: CSSProperties }) {
+  return <th style={style} className={`border-b border-[var(--border)] bg-[var(--surface-strong)] px-3 py-2 text-left text-xs font-black uppercase tracking-wide text-[var(--muted)] ${className}`}>{children}</th>;
 }
 
-function Td({ children, className = '' }: { children: React.ReactNode; className?: string }) {
-  return <td className={`whitespace-nowrap border-b border-[var(--border)] px-3 py-2 text-sm ${className}`}>{children}</td>;
+function Td({ children, className = '', style }: { children: React.ReactNode; className?: string; style?: CSSProperties }) {
+  return <td style={style} className={`border-b border-[var(--border)] px-3 py-2 text-sm ${className}`}>{children}</td>;
 }
 
 export default async function AllEvwPage() {
@@ -50,24 +59,37 @@ export default async function AllEvwPage() {
             </div>
             <div className="grid gap-6 xl:grid-cols-2">
               {([['First Team', season.firstTeam], ['Second Team', season.secondTeam]] as const).map(([label, rows]) => (
-                <div key={label}>
+                <div key={label} className="min-w-0">
                   <h3 className="mb-2 text-base font-black uppercase tracking-wide">{label}</h3>
-                  <div className="overflow-x-auto rounded-lg border border-[var(--border)] bg-[var(--surface)]">
-                    <table className="w-full">
-                      <thead><tr><Th>Slot</Th><Th>Player</Th><Th>Pos</Th><Th>Franchise</Th><Th className="text-right">Regular-Season Pts</Th></tr></thead>
+                  <div className="all-evw-table-wrap overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)]">
+                    <table className="all-evw-team-table w-full table-fixed">
+                      <colgroup>
+                        <col style={{ width: COLUMN_WIDTHS.slot }} />
+                        <col style={{ width: COLUMN_WIDTHS.player }} />
+                        <col style={{ width: COLUMN_WIDTHS.position }} />
+                        <col style={{ width: COLUMN_WIDTHS.franchise }} />
+                        <col style={{ width: COLUMN_WIDTHS.points }} />
+                      </colgroup>
+                      <thead><tr>
+                        <Th style={{ width: COLUMN_WIDTHS.slot }}>Slot</Th>
+                        <Th style={{ width: COLUMN_WIDTHS.player }}>Player</Th>
+                        <Th style={{ width: COLUMN_WIDTHS.position, display: 'table-cell' }}>Pos</Th>
+                        <Th style={{ width: COLUMN_WIDTHS.franchise }}>Franchise</Th>
+                        <Th className="text-right" style={{ width: COLUMN_WIDTHS.points }}>Reg. Pts</Th>
+                      </tr></thead>
                       <tbody>{rows.map((row) => {
                         const primaryFranchise = row.franchises[0];
                         const franchise = primaryFranchise ? franchiseByName.get(primaryFranchise) : null;
                         const colors = primaryFranchise ? getTeamColors(primaryFranchise) : null;
                         return (
                           <tr key={`${label}-${row.slot}-${row.playerId}`}>
-                            <Td className="font-black">{row.slot}</Td>
-                            <Td><Link href={`/players/${row.playerId}`} className="font-black text-[var(--accent)] hover:underline">{row.name}</Link></Td>
-                            <Td>{row.position}</Td>
-                            <Td>
-                              {primaryFranchise ? franchise ? <Link href={`/history/franchises/${franchiseHistoryId(franchise)}`} className="inline-flex rounded px-2 py-1 text-xs font-bold hover:opacity-90" style={{ background: colors?.primary || 'var(--accent)', color: colors ? getReadableTextForColors([colors.primary, colors.secondary]) : '#fff' }}>{row.franchises.join(' / ')}</Link> : <span>{row.franchises.join(' / ')}</span> : '—'}
+                            <Td className="font-black" style={{ width: COLUMN_WIDTHS.slot }}>{row.slot}</Td>
+                            <Td style={{ width: COLUMN_WIDTHS.player }}><Link href={`/players/${row.playerId}`} className="font-black text-[var(--accent)] hover:underline">{row.name}</Link></Td>
+                            <Td style={{ width: COLUMN_WIDTHS.position, display: 'table-cell' }}>{row.position}</Td>
+                            <Td className="min-w-0" style={{ width: COLUMN_WIDTHS.franchise }}>
+                              {primaryFranchise ? franchise ? <Link href={`/history/franchises/${franchiseHistoryId(franchise)}`} className="inline-block max-w-full whitespace-normal break-words rounded px-2 py-1 text-xs font-bold leading-tight hover:opacity-90" style={{ background: colors?.primary || 'var(--accent)', color: colors ? getReadableTextForColors([colors.primary, colors.secondary]) : '#fff', overflowWrap: 'anywhere' }}>{row.franchises.join(' / ')}</Link> : <span className="whitespace-normal break-words" style={{ overflowWrap: 'anywhere' }}>{row.franchises.join(' / ')}</span> : '—'}
                             </Td>
-                            <Td className="text-right font-black tabular-nums">{fmt(row.points)}</Td>
+                            <Td className="text-right font-black tabular-nums" style={{ width: COLUMN_WIDTHS.points }}>{fmt(row.points)}</Td>
                           </tr>
                         );
                       })}</tbody>
