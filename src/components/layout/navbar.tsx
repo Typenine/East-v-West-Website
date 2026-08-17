@@ -152,9 +152,6 @@ function NavMenuLeafLink({
       className={dropdownItemClass(active, emphasize)}
     >
       <span className={cn('text-sm leading-snug', active ? 'font-semibold' : 'font-medium')}>{item.label}</span>
-      {item.description ? (
-        <span className="mt-0.5 block text-xs leading-snug text-[var(--muted)]">{item.description}</span>
-      ) : null}
     </Link>
   );
 }
@@ -202,6 +199,54 @@ function NavMenuBranch({
   );
 }
 
+function NavGroupBlock({
+  group,
+  bestChild,
+  pathname,
+  searchParams,
+  onNavigate,
+}: {
+  group: NavGroup;
+  bestChild: { id: string; score: number } | null;
+  pathname: string;
+  searchParams: URLSearchParams;
+  onNavigate?: () => void;
+}) {
+  return (
+    <div>
+      {group.label ? <NavMenuSectionLabel>{group.label}</NavMenuSectionLabel> : null}
+      <div className="space-y-0.5">
+        {group.items.map((child) => {
+          const branchActive = isChildBranchActive(child, bestChild, pathname, searchParams);
+          const hasGrandChildren = Boolean(child.children && child.children.length > 0);
+          const emphasize = child.id === 'draft.room';
+          if (hasGrandChildren) {
+            return (
+              <NavMenuBranch
+                key={child.id}
+                item={child}
+                active={branchActive}
+                pathname={pathname}
+                searchParams={searchParams}
+                onNavigate={onNavigate}
+              />
+            );
+          }
+          return (
+            <NavMenuLeafLink
+              key={child.id}
+              item={child}
+              active={branchActive}
+              onNavigate={onNavigate}
+              emphasize={emphasize}
+            />
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function NavDropdownGroups({
   parentId,
   items,
@@ -219,44 +264,30 @@ function NavDropdownGroups({
 }) {
   const bestChild = findBestActive(items, pathname, searchParams);
   const groups = groupNavItems(items);
-  const twoColumn = layout === 'desktop' && parentId === 'history' && groups.length > 1;
+
+  if (layout === 'desktop' && parentId === 'history') {
+    const playoff = groups.find((group) => group.label === 'Playoffs');
+    const archive = groups.find((group) => group.label === 'League Archive');
+    const stats = groups.find((group) => group.label === 'Stats & Records');
+    const leftovers = groups.filter((group) => !['Playoffs', 'League Archive', 'Stats & Records'].includes(group.label || ''));
+    return (
+      <div className="grid grid-cols-2 gap-x-4">
+        <div className="space-y-3">
+          {playoff ? <NavGroupBlock group={playoff} bestChild={bestChild} pathname={pathname} searchParams={searchParams} onNavigate={onNavigate} /> : null}
+          {stats ? <NavGroupBlock group={stats} bestChild={bestChild} pathname={pathname} searchParams={searchParams} onNavigate={onNavigate} /> : null}
+          {leftovers.map((group) => <NavGroupBlock key={group.label || 'ungrouped'} group={group} bestChild={bestChild} pathname={pathname} searchParams={searchParams} onNavigate={onNavigate} />)}
+        </div>
+        <div>
+          {archive ? <NavGroupBlock group={archive} bestChild={bestChild} pathname={pathname} searchParams={searchParams} onNavigate={onNavigate} /> : null}
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className={cn(twoColumn ? 'grid grid-cols-2 gap-x-3 gap-y-1' : 'space-y-1')}>
+    <div className="space-y-1">
       {groups.map((group) => (
-        <div key={group.label || `${parentId}-ungrouped`}>
-          {group.label ? <NavMenuSectionLabel>{group.label}</NavMenuSectionLabel> : null}
-          <div className="space-y-0.5">
-            {group.items.map((child) => {
-              const branchActive = isChildBranchActive(child, bestChild, pathname, searchParams);
-              const hasGrandChildren = Boolean(child.children && child.children.length > 0);
-              const emphasize = child.id === 'draft.room';
-
-              if (hasGrandChildren) {
-                return (
-                  <NavMenuBranch
-                    key={child.id}
-                    item={child}
-                    active={branchActive}
-                    pathname={pathname}
-                    searchParams={searchParams}
-                    onNavigate={onNavigate}
-                  />
-                );
-              }
-
-              return (
-                <NavMenuLeafLink
-                  key={child.id}
-                  item={child}
-                  active={branchActive}
-                  onNavigate={onNavigate}
-                  emphasize={emphasize}
-                />
-              );
-            })}
-          </div>
-        </div>
+        <NavGroupBlock key={group.label || `${parentId}-ungrouped`} group={group} bestChild={bestChild} pathname={pathname} searchParams={searchParams} onNavigate={onNavigate} />
       ))}
     </div>
   );
@@ -312,7 +343,6 @@ export default function Navbar() {
   const filteredNavConfig = useMemo(() => {
     const canSeeDraftRoom = isAdmin || (sessionTeam && DRAFT_ROOM_ALLOWED_TEAMS.includes(sessionTeam));
     if (canSeeDraftRoom) return USER_NAV_CONFIG;
-    // Filter out draft.room from the draft children
     return USER_NAV_CONFIG.map(item => {
       if (item.id === 'draft' && item.children) {
         return { ...item, children: item.children.filter(child => child.id !== 'draft.room') };
@@ -373,12 +403,9 @@ export default function Navbar() {
       e.preventDefault();
       window.scrollTo({ top: 0, behavior: 'smooth' });
     }
-    // Off home: let the native href="/" navigate — do not preventDefault or router.push.
   }, [pathname, closeDesktopMenu]);
 
   useEffect(() => () => cancelDesktopMenuClose(), [cancelDesktopMenuClose]);
-
-  // Removed special homepage click-to-admin; admin sign-in now lives on /login
 
   const submitAdmin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -393,7 +420,6 @@ export default function Navbar() {
       if (!r.ok) throw new Error('Invalid PIN');
       setAdminOpen(false);
       setPin('');
-      // Stay on current page; admin mode enabled via cookie
     } catch (err) {
       setAdminError(err instanceof Error ? err.message : 'Login failed');
     } finally {
@@ -438,17 +464,14 @@ export default function Navbar() {
     return () => cancelAnimationFrame(id);
   }, [adminOpen]);
 
-  // Apply team-themed colors (gradient/buttons) when signed in
   useEffect(() => {
     try {
       const root = document.documentElement;
       if (sessionTeam) {
         const colors = getTeamColors(sessionTeam);
-        // Map brand tokens to team colors
         root.style.setProperty('--danger', colors.primary);
         root.style.setProperty('--gold', colors.secondary || colors.primary);
       } else {
-        // Revert to league defaults defined in globals.css
         root.style.removeProperty('--danger');
         root.style.removeProperty('--gold');
       }
@@ -458,15 +481,9 @@ export default function Navbar() {
   useEffect(() => {
     const onDocClick = (e: MouseEvent) => {
       const target = e.target as Node;
-      if (target instanceof Element && target.closest('[data-nav-home]')) {
-        return;
-      }
-      if (accountMenuRef.current && !accountMenuRef.current.contains(target)) {
-        setAccountMenuOpen(false);
-      }
-      if (desktopMenuRef.current && !desktopMenuRef.current.contains(target)) {
-        closeDesktopMenu();
-      }
+      if (target instanceof Element && target.closest('[data-nav-home]')) return;
+      if (accountMenuRef.current && !accountMenuRef.current.contains(target)) setAccountMenuOpen(false);
+      if (desktopMenuRef.current && !desktopMenuRef.current.contains(target)) closeDesktopMenu();
     };
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
@@ -474,7 +491,6 @@ export default function Navbar() {
         setAccountMenuOpen(false);
       }
     };
-    // Use click (not mousedown) so link navigation isn't cancelled by a re-render mid-click.
     document.addEventListener('click', onDocClick);
     document.addEventListener('keydown', onKeyDown);
     return () => {
@@ -484,9 +500,7 @@ export default function Navbar() {
   }, [closeDesktopMenu]);
 
   const handleLogout = async () => {
-    try {
-      await fetch('/api/auth/logout', { method: 'POST' });
-    } catch {}
+    try { await fetch('/api/auth/logout', { method: 'POST' }); } catch {}
     setSessionTeam(null);
     router.push(pathname === '/login' ? '/' : pathname);
   };
@@ -494,7 +508,6 @@ export default function Navbar() {
   const handleAdminLogout = async () => {
     try { await fetch('/api/admin-login', { method: 'DELETE' }); } catch {}
     setIsAdmin(false);
-    // keep user on page
   };
 
   return (
@@ -505,103 +518,28 @@ export default function Navbar() {
         <div className="flex h-16 items-center justify-between">
           <div className="flex min-w-0 items-center gap-8">
             <div className="relative z-[60] shrink-0">
-              <Link
-                href="/"
-                data-nav-home
-                onClick={goHome}
-                className="text-lg font-bold tracking-tight text-[var(--text)] transition-colors hover:text-accent sm:text-xl"
-              >
-                East v. West
-              </Link>
+              <Link href="/" data-nav-home onClick={goHome} className="text-lg font-bold tracking-tight text-[var(--text)] transition-colors hover:text-accent sm:text-xl">East v. West</Link>
             </div>
             <div className="hidden md:block">
-              <div
-                className="flex items-center gap-0.5"
-                ref={desktopMenuRef}
-                onMouseEnter={cancelDesktopMenuClose}
-                onMouseLeave={() => {
-                  if (desktopMenuOpen) scheduleCloseDesktopMenu(desktopMenuOpen);
-                }}
-              >
+              <div className="flex items-center gap-0.5" ref={desktopMenuRef} onMouseEnter={cancelDesktopMenuClose} onMouseLeave={() => { if (desktopMenuOpen) scheduleCloseDesktopMenu(desktopMenuOpen); }}>
                 {filteredNavConfig.map((item) => {
                   const itemActive = isNavItemActive(item, pathname, currentQuery);
                   const hasChildren = Boolean(item.children && item.children.length > 0);
                   const menuOpen = desktopMenuOpen === item.id;
                   const isSuggestions = item.id === 'suggestions';
-
                   if (!hasChildren && item.href) {
                     if (item.id === 'home') {
-                      return (
-                        <Link
-                          key={item.id}
-                          href="/"
-                          data-nav-home
-                          aria-current={isHrefActive(pathname, currentQuery, item.href) ? 'page' : undefined}
-                          className={navLinkClass(itemActive)}
-                          onClick={goHome}
-                        >
-                          {item.label}
-                        </Link>
-                      );
+                      return <Link key={item.id} href="/" data-nav-home aria-current={isHrefActive(pathname, currentQuery, item.href) ? 'page' : undefined} className={navLinkClass(itemActive)} onClick={goHome}>{item.label}</Link>;
                     }
-                    return (
-                      <Link
-                        key={item.id}
-                        href={item.href}
-                        aria-current={isHrefActive(pathname, currentQuery, item.href) ? 'page' : undefined}
-                        className={cn(
-                          navLinkClass(itemActive),
-                          isSuggestions && !itemActive && 'text-accent hover:text-accent',
-                        )}
-                        onClick={() => closeDesktopMenu()}
-                      >
-                        {item.label}
-                      </Link>
-                    );
+                    return <Link key={item.id} href={item.href} aria-current={isHrefActive(pathname, currentQuery, item.href) ? 'page' : undefined} className={cn(navLinkClass(itemActive), isSuggestions && !itemActive && 'text-accent hover:text-accent')} onClick={() => closeDesktopMenu()}>{item.label}</Link>;
                   }
-
                   return (
-                    <div
-                      key={item.id}
-                      className="relative"
-                      onMouseEnter={() => openDesktopMenu(item.id)}
-                      onMouseLeave={() => scheduleCloseDesktopMenu(item.id)}
-                    >
-                      <button
-                        type="button"
-                        className={navTriggerClass(itemActive, menuOpen)}
-                        aria-haspopup="menu"
-                        aria-expanded={menuOpen}
-                        aria-controls={`desktop-menu-${item.id}`}
-                        onClick={() => toggleDesktopMenu(item.id)}
-                        onFocus={() => openDesktopMenu(item.id)}
-                      >
-                        {item.label}
-                        <ChevronDownIcon open={menuOpen} />
-                      </button>
-
-                      {/* pt-3 bridges the gap between trigger and panel so hover is not lost */}
+                    <div key={item.id} className="relative" onMouseEnter={() => openDesktopMenu(item.id)} onMouseLeave={() => scheduleCloseDesktopMenu(item.id)}>
+                      <button type="button" className={navTriggerClass(itemActive, menuOpen)} aria-haspopup="menu" aria-expanded={menuOpen} aria-controls={`desktop-menu-${item.id}`} onClick={() => toggleDesktopMenu(item.id)} onFocus={() => openDesktopMenu(item.id)}>{item.label}<ChevronDownIcon open={menuOpen} /></button>
                       {menuOpen ? (
-                        <div
-                          id={`desktop-menu-${item.id}`}
-                          className="absolute left-0 top-full z-50 min-w-full pt-3"
-                          onMouseEnter={() => openDesktopMenu(item.id)}
-                        >
-                          <div
-                            className={cn(
-                              dropdownPanelClass,
-                              item.id === 'history' ? 'w-[22rem]' : item.id === 'draft' ? 'w-[16.5rem]' : 'w-[14.5rem]',
-                            )}
-                            role="menu"
-                          >
-                            <NavDropdownGroups
-                              parentId={item.id}
-                              items={item.children || []}
-                              pathname={pathname}
-                              searchParams={currentQuery}
-                              onNavigate={closeDesktopMenu}
-                              layout="desktop"
-                            />
+                        <div id={`desktop-menu-${item.id}`} className="absolute left-0 top-full z-50 min-w-full pt-3" onMouseEnter={() => openDesktopMenu(item.id)}>
+                          <div className={cn(dropdownPanelClass, 'max-h-[calc(100vh-5.5rem)] overflow-y-auto', item.id === 'history' ? 'w-[26rem]' : item.id === 'draft' ? 'w-[16.5rem]' : 'w-[14.5rem]')} role="menu">
+                            <NavDropdownGroups parentId={item.id} items={item.children || []} pathname={pathname} searchParams={currentQuery} onNavigate={closeDesktopMenu} layout="desktop" />
                           </div>
                         </div>
                       ) : null}
@@ -616,374 +554,67 @@ export default function Navbar() {
             <div className="hidden md:flex items-center gap-2">
               {sessionTeam || isAdmin ? (
                 <div className="relative" ref={accountMenuRef}>
-                  <button
-                    aria-label="Account menu"
-                    className="rounded-full overflow-hidden border border-[var(--border)] w-8 h-8"
-                    style={sessionTeam ? { borderColor: getTeamColors(sessionTeam).secondary, borderWidth: 2 } : undefined}
-                    onClick={() => setAccountMenuOpen((v) => !v)}
-                    title={sessionTeam || (isAdmin ? 'Admin' : '')}
-                    aria-expanded={accountMenuOpen}
-                  >
-                    {sessionTeam ? (
-                      <Image src={getTeamLogoPath(sessionTeam)} alt={sessionTeam} width={32} height={32} />
-                    ) : (
-                      <Image src="/assets/teams/East v West Logos/Official East v. West Logo.png" alt="Admin" width={32} height={32} />
-                    )}
+                  <button aria-label="Account menu" className="rounded-full overflow-hidden border border-[var(--border)] w-8 h-8" style={sessionTeam ? { borderColor: getTeamColors(sessionTeam).secondary, borderWidth: 2 } : undefined} onClick={() => setAccountMenuOpen((v) => !v)} title={sessionTeam || (isAdmin ? 'Admin' : '')} aria-expanded={accountMenuOpen}>
+                    {sessionTeam ? <Image src={getTeamLogoPath(sessionTeam)} alt={sessionTeam} width={32} height={32} /> : <Image src="/assets/teams/East v West Logos/Official East v. West Logo.png" alt="Admin" width={32} height={32} />}
                   </button>
                   {accountMenuOpen && (
                     <div className={cn(dropdownPanelClass, 'absolute right-0 mt-2 w-48')}>
-                      {isAdmin && (
-                        <>
-                          <button
-                            className={dropdownItemClass(false)}
-                            onClick={() => { setAccountMenuOpen(false); router.push('/admin/newsletter'); }}
-                          >
-                            Admin: Newsletter
-                          </button>
-                          <button
-                            className={dropdownItemClass(false)}
-                            onClick={() => { setAccountMenuOpen(false); router.push('/admin/trades'); }}
-                          >
-                            Admin: Trades
-                          </button>
-                          <button
-                            className={dropdownItemClass(false)}
-                            onClick={() => { setAccountMenuOpen(false); router.push('/admin/suggestions'); }}
-                          >
-                            Admin: Suggestions
-                          </button>
-                          <button
-                            className={dropdownItemClass(false)}
-                            onClick={() => { setAccountMenuOpen(false); router.push('/admin/votes'); }}
-                          >
-                            Admin: Votes
-                          </button>
-                          <button
-                            className={dropdownItemClass(false)}
-                            onClick={() => { setAccountMenuOpen(false); router.push('/admin/taxi'); }}
-                          >
-                            Admin: Taxi
-                          </button>
-                          <button
-                            className={dropdownItemClass(false)}
-                            onClick={() => { setAccountMenuOpen(false); router.push('/admin/users'); }}
-                          >
-                            Admin: Users
-                          </button>
-                          <button
-                            className={dropdownItemClass(false)}
-                            onClick={() => { setAccountMenuOpen(false); handleAdminLogout(); }}
-                          >
-                            Admin Logout
-                          </button>
-                          <div className="my-1 border-t border-[var(--border)]" />
-                        </>
-                      )}
-                      {sessionTeam && (
-                        <>
-                          <button
-                            className={dropdownItemClass(false)}
-                            onClick={() => { setAccountMenuOpen(false); setChangeOpen(true); }}
-                          >
-                            Change PIN
-                          </button>
-                          <button
-                            className={dropdownItemClass(false)}
-                            onClick={() => { setAccountMenuOpen(false); handleLogout(); }}
-                            disabled={authLoading}
-                          >
-                            Logout
-                          </button>
-                        </>
-                      )}
+                      {isAdmin && <><button className={dropdownItemClass(false)} onClick={() => { setAccountMenuOpen(false); router.push('/admin/newsletter'); }}>Admin: Newsletter</button><button className={dropdownItemClass(false)} onClick={() => { setAccountMenuOpen(false); router.push('/admin/trades'); }}>Admin: Trades</button><button className={dropdownItemClass(false)} onClick={() => { setAccountMenuOpen(false); router.push('/admin/suggestions'); }}>Admin: Suggestions</button><button className={dropdownItemClass(false)} onClick={() => { setAccountMenuOpen(false); router.push('/admin/votes'); }}>Admin: Votes</button><button className={dropdownItemClass(false)} onClick={() => { setAccountMenuOpen(false); router.push('/admin/taxi'); }}>Admin: Taxi</button><button className={dropdownItemClass(false)} onClick={() => { setAccountMenuOpen(false); router.push('/admin/users'); }}>Admin: Users</button><button className={dropdownItemClass(false)} onClick={() => { setAccountMenuOpen(false); handleAdminLogout(); }}>Admin Logout</button><div className="my-1 border-t border-[var(--border)]" /></>}
+                      {sessionTeam && <><button className={dropdownItemClass(false)} onClick={() => { setAccountMenuOpen(false); setChangeOpen(true); }}>Change PIN</button><button className={dropdownItemClass(false)} onClick={() => { setAccountMenuOpen(false); handleLogout(); }} disabled={authLoading}>Logout</button></>}
                     </div>
                   )}
                 </div>
-              ) : (
-                <LinkButton href={`/login?next=${encodeURIComponent(pathname)}`} variant="ghost" size="sm">Log In</LinkButton>
-              )}
+              ) : <LinkButton href={`/login?next=${encodeURIComponent(pathname)}`} variant="ghost" size="sm">Log In</LinkButton>}
             </div>
             <div className="md:hidden">
-              <Button
-                id="mobile-menu-button"
-                type="button"
-                variant="ghost"
-                size="sm"
-                aria-controls="mobile-menu"
-                aria-expanded={mobileMenuOpen}
-                aria-label="Toggle main menu"
-                onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-              >
-                {/* Icon when menu is closed */}
-                <svg
-                  className={`${mobileMenuOpen ? 'hidden' : 'block'} h-6 w-6`}
-                  xmlns="http://www.w3.org/2000/svg"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                  aria-hidden="true"
-                >
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h16" />
-                </svg>
-                {/* Icon when menu is open */}
-                <svg
-                  className={`${mobileMenuOpen ? 'block' : 'hidden'} h-6 w-6`}
-                  xmlns="http://www.w3.org/2000/svg"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                  aria-hidden="true"
-                >
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
-                </svg>
+              <Button id="mobile-menu-button" type="button" variant="ghost" size="sm" aria-controls="mobile-menu" aria-expanded={mobileMenuOpen} aria-label="Toggle main menu" onClick={() => setMobileMenuOpen(!mobileMenuOpen)}>
+                <svg className={`${mobileMenuOpen ? 'hidden' : 'block'} h-6 w-6`} xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h16" /></svg>
+                <svg className={`${mobileMenuOpen ? 'block' : 'hidden'} h-6 w-6`} xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
               </Button>
             </div>
           </div>
         </div>
       </div>
-
-      {/* Mobile menu, show/hide based on menu state */}
-      <div
-        className={cn('relative z-40 border-t border-[var(--border)] md:hidden', mobileMenuOpen ? 'block' : 'hidden')}
-        id="mobile-menu"
-        aria-labelledby="mobile-menu-button"
-      >
-        <div className="space-y-2 px-3 py-3">
+      <div className={cn('relative z-40 border-t border-[var(--border)] md:hidden', mobileMenuOpen ? 'block' : 'hidden')} id="mobile-menu" aria-labelledby="mobile-menu-button">
+        <div className="max-h-[calc(100vh-4rem)] space-y-2 overflow-y-auto px-3 py-3">
           <div className="pb-3 mb-1 border-b border-[var(--border)]">
             {sessionTeam || isAdmin ? (
               <div className="flex items-center gap-3">
-                <button
-                  aria-label="Account menu"
-                  className="rounded-full overflow-hidden border border-[var(--border)] w-10 h-10 shrink-0"
-                  style={sessionTeam ? { borderColor: getTeamColors(sessionTeam).secondary, borderWidth: 2 } : undefined}
-                  onClick={() => {
-                    setMobileMenuOpen(false);
-                    if (sessionTeam) setChangeOpen(true);
-                  }}
-                  title={sessionTeam || (isAdmin ? 'Admin' : '')}
-                >
-                  {sessionTeam ? (
-                    <Image src={getTeamLogoPath(sessionTeam)} alt={sessionTeam} width={40} height={40} />
-                  ) : (
-                    <Image src="/assets/teams/East v West Logos/Official East v. West Logo.png" alt="Admin" width={40} height={40} />
-                  )}
+                <button aria-label="Account menu" className="rounded-full overflow-hidden border border-[var(--border)] w-10 h-10 shrink-0" style={sessionTeam ? { borderColor: getTeamColors(sessionTeam).secondary, borderWidth: 2 } : undefined} onClick={() => { setMobileMenuOpen(false); if (sessionTeam) setChangeOpen(true); }} title={sessionTeam || (isAdmin ? 'Admin' : '')}>
+                  {sessionTeam ? <Image src={getTeamLogoPath(sessionTeam)} alt={sessionTeam} width={40} height={40} /> : <Image src="/assets/teams/East v West Logos/Official East v. West Logo.png" alt="Admin" width={40} height={40} />}
                 </button>
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-semibold text-[var(--text)] truncate">
-                    {sessionTeam || (isAdmin ? 'Admin' : 'Account')}
-                  </p>
-                  {sessionTeam ? (
-                    <button
-                      type="button"
-                      className="text-xs text-[var(--muted)] hover:text-[var(--text)] underline-offset-2 hover:underline"
-                      onClick={() => {
-                        setMobileMenuOpen(false);
-                        setChangeOpen(true);
-                      }}
-                    >
-                      Change PIN
-                    </button>
-                  ) : null}
-                </div>
-                <div className="flex shrink-0 items-center gap-1">
-                  {sessionTeam ? (
-                    <Button size="sm" variant="ghost" onClick={() => { setMobileMenuOpen(false); handleLogout(); }}>Logout</Button>
-                  ) : null}
-                  {isAdmin ? (
-                    <Button size="sm" variant="ghost" onClick={() => { setMobileMenuOpen(false); handleAdminLogout(); }}>Admin Logout</Button>
-                  ) : null}
-                </div>
+                <div className="min-w-0 flex-1"><p className="text-sm font-semibold text-[var(--text)] truncate">{sessionTeam || (isAdmin ? 'Admin' : 'Account')}</p>{sessionTeam ? <button type="button" className="text-xs text-[var(--muted)] hover:text-[var(--text)] underline-offset-2 hover:underline" onClick={() => { setMobileMenuOpen(false); setChangeOpen(true); }}>Change PIN</button> : null}</div>
+                <div className="flex shrink-0 items-center gap-1">{sessionTeam ? <Button size="sm" variant="ghost" onClick={() => { setMobileMenuOpen(false); handleLogout(); }}>Logout</Button> : null}{isAdmin ? <Button size="sm" variant="ghost" onClick={() => { setMobileMenuOpen(false); handleAdminLogout(); }}>Admin Logout</Button> : null}</div>
               </div>
-            ) : (
-              <LinkButton
-                href={`/login?next=${encodeURIComponent(pathname)}`}
-                variant="primary"
-                size="lg"
-                fullWidth
-                className="min-h-[48px] justify-center"
-                onClick={() => setMobileMenuOpen(false)}
-              >
-                Log In
-              </LinkButton>
-            )}
+            ) : <LinkButton href={`/login?next=${encodeURIComponent(pathname)}`} variant="primary" size="lg" fullWidth className="min-h-[48px] justify-center" onClick={() => setMobileMenuOpen(false)}>Log In</LinkButton>}
           </div>
-
           {filteredNavConfig.map((item) => {
             const itemActive = isNavItemActive(item, pathname, currentQuery);
             const hasChildren = Boolean(item.children && item.children.length > 0);
             const isSuggestions = item.id === 'suggestions';
-
             if (!hasChildren && item.href) {
-              if (item.id === 'home') {
-                return (
-                  <Link
-                    key={item.id}
-                    href="/"
-                    data-nav-home
-                    aria-current={isHrefActive(pathname, currentQuery, item.href) ? 'page' : undefined}
-                    className={cn(navLinkClass(itemActive), 'block w-full text-left')}
-                    onClick={goHome}
-                  >
-                    {item.label}
-                  </Link>
-                );
-              }
-              return (
-                <Link
-                  key={item.id}
-                  href={item.href}
-                  aria-current={isHrefActive(pathname, currentQuery, item.href) ? 'page' : undefined}
-                  className={cn(
-                    navLinkClass(itemActive),
-                    'block w-full text-left',
-                    isSuggestions && !itemActive && 'text-accent hover:text-accent',
-                  )}
-                  onClick={closeMobile}
-                >
-                  {item.label}
-                </Link>
-              );
+              if (item.id === 'home') return <Link key={item.id} href="/" data-nav-home aria-current={isHrefActive(pathname, currentQuery, item.href) ? 'page' : undefined} className={cn(navLinkClass(itemActive), 'block w-full text-left')} onClick={goHome}>{item.label}</Link>;
+              return <Link key={item.id} href={item.href} aria-current={isHrefActive(pathname, currentQuery, item.href) ? 'page' : undefined} className={cn(navLinkClass(itemActive), 'block w-full text-left', isSuggestions && !itemActive && 'text-accent hover:text-accent')} onClick={closeMobile}>{item.label}</Link>;
             }
-
             const expanded = Boolean(mobileExpanded[item.id]);
             return (
               <div key={item.id} className="overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface-strong)]/40">
-                <button
-                  type="button"
-                  className={cn(
-                    'flex w-full items-center justify-between px-4 py-3 text-left text-sm font-semibold transition-colors',
-                    itemActive ? 'text-[var(--text)]' : 'text-[var(--muted)]',
-                  )}
-                  onClick={() => toggleMobileSection(item.id)}
-                  aria-expanded={expanded}
-                >
-                  <span>{item.label}</span>
-                  <ChevronDownIcon open={expanded} />
-                </button>
-
-                {expanded && (
-                  <div className="border-t border-[var(--border)] px-2 py-2">
-                    <NavDropdownGroups
-                      parentId={item.id}
-                      items={item.children || []}
-                      pathname={pathname}
-                      searchParams={currentQuery}
-                      onNavigate={closeMobile}
-                      layout="mobile"
-                    />
-                  </div>
-                )}
+                <button type="button" className={cn('flex w-full items-center justify-between px-4 py-3 text-left text-sm font-semibold transition-colors', itemActive ? 'text-[var(--text)]' : 'text-[var(--muted)]')} onClick={() => toggleMobileSection(item.id)} aria-expanded={expanded}><span>{item.label}</span><ChevronDownIcon open={expanded} /></button>
+                {expanded && <div className="border-t border-[var(--border)] px-2 py-2"><NavDropdownGroups parentId={item.id} items={item.children || []} pathname={pathname} searchParams={currentQuery} onNavigate={closeMobile} layout="mobile" /></div>}
               </div>
             );
           })}
         </div>
       </div>
     </nav>
-    {/* Admin Login Modal */}
     <Modal open={adminOpen} onClose={() => setAdminOpen(false)} title="Admin Login" autoFocusPanel={false}>
-      <form onSubmit={submitAdmin} noValidate className="space-y-3">
-        <div>
-          <Label htmlFor="admin-pin">Enter PIN</Label>
-          <input
-            ref={adminPinRef}
-            id="admin-pin"
-            type="password"
-            inputMode="numeric"
-            autoComplete="one-time-code"
-            className="w-full evw-surface border border-[var(--border)] rounded px-3 py-2"
-            placeholder="PIN"
-            maxLength={6}
-            value={pin}
-            onChange={(e) => setPin(e.target.value.replace(/[^0-9]/g, '').slice(0, 6))}
-          />
-        </div>
-        {adminError && <div className="text-red-500 text-sm">{adminError}</div>}
-        <div className="flex items-center gap-2 justify-end">
-          <Button type="button" variant="secondary" onClick={() => setAdminOpen(false)}>Cancel</Button>
-          <Button type="submit" disabled={adminLoading || !pin}>Enter Admin</Button>
-        </div>
-      </form>
+      <form onSubmit={submitAdmin} noValidate className="space-y-3"><div><Label htmlFor="admin-pin">Enter PIN</Label><input ref={adminPinRef} id="admin-pin" type="password" inputMode="numeric" autoComplete="one-time-code" className="w-full evw-surface border border-[var(--border)] rounded px-3 py-2" placeholder="PIN" maxLength={6} value={pin} onChange={(e) => setPin(e.target.value.replace(/[^0-9]/g, '').slice(0, 6))} /></div>{adminError && <div className="text-red-500 text-sm">{adminError}</div>}<div className="flex items-center gap-2 justify-end"><Button type="button" variant="secondary" onClick={() => setAdminOpen(false)}>Cancel</Button><Button type="submit" disabled={adminLoading || !pin}>Enter Admin</Button></div></form>
     </Modal>
-
-    {/* Change PIN Modal */}
     <Modal open={changeOpen} onClose={() => setChangeOpen(false)} title="Change PIN" autoFocusPanel={false}>
-      <form
-        onSubmit={async (e) => {
-          e.preventDefault();
-          setChangeMsg(null);
-          setChangeLoading(true);
-          try {
-            const r = await fetch('/api/auth/change-pin', {
-              method: 'POST',
-              headers: { 'content-type': 'application/json' },
-              body: JSON.stringify({ currentPin, newPin }),
-            });
-            if (!r.ok) {
-              const j = await r.json().catch(() => ({}));
-              throw new Error(j?.error || 'Failed to change PIN');
-            }
-            setChangeMsg('PIN updated. Please sign in again.');
-          } catch (err) {
-            setChangeMsg(err instanceof Error ? err.message : 'Failed to change PIN');
-          } finally {
-            setChangeLoading(false);
-          }
-        }}
-        noValidate
-        autoComplete="off"
-        className="space-y-3"
-      >
-        <div>
-          <Label htmlFor="cur-pin">Current PIN</Label>
-          <input
-            id="cur-pin"
-            type="tel"
-            inputMode="numeric"
-            autoComplete="off"
-            name="current-pin"
-            spellCheck={false}
-            autoCorrect="off"
-            autoCapitalize="off"
-            data-lpignore="true"
-            data-1p-ignore="true"
-            data-bwignore="true"
-            pattern="[0-9]*"
-            className="w-full evw-surface border border-[var(--border)] rounded px-3 py-2"
-            placeholder="Current PIN"
-            maxLength={12}
-            ref={currentPinRef}
-            value={currentPin}
-            onChange={(e) => setCurrentPin(e.target.value.replace(/[^0-9]/g, '').slice(0, 12))}
-          />
-        </div>
-        <div>
-          <Label htmlFor="new-pin">New PIN</Label>
-          <input
-            id="new-pin"
-            type="tel"
-            inputMode="numeric"
-            autoComplete="off"
-            name="new-pin"
-            spellCheck={false}
-            autoCorrect="off"
-            autoCapitalize="off"
-            data-lpignore="true"
-            data-1p-ignore="true"
-            data-bwignore="true"
-            pattern="[0-9]*"
-            className="w-full evw-surface border border-[var(--border)] rounded px-3 py-2"
-            placeholder="New PIN (4–12 digits)"
-            maxLength={12}
-            ref={newPinRef}
-            value={newPin}
-            onChange={(e) => setNewPin(e.target.value.replace(/[^0-9]/g, '').slice(0, 12))}
-          />
-        </div>
-        {changeMsg && <div className="text-sm" role="status">{changeMsg}</div>}
-        <div className="flex items-center gap-2 justify-end">
-          <Button type="button" variant="secondary" onClick={() => setChangeOpen(false)}>Close</Button>
-          <Button type="submit" disabled={changeLoading || !currentPin || !newPin}>Update PIN</Button>
-        </div>
+      <form onSubmit={async (e) => { e.preventDefault(); setChangeMsg(null); setChangeLoading(true); try { const r = await fetch('/api/auth/change-pin', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ currentPin, newPin }) }); if (!r.ok) { const j = await r.json().catch(() => ({})); throw new Error(j?.error || 'Failed to change PIN'); } setChangeMsg('PIN updated. Please sign in again.'); } catch (err) { setChangeMsg(err instanceof Error ? err.message : 'Failed to change PIN'); } finally { setChangeLoading(false); }} noValidate autoComplete="off" className="space-y-3">
+        <div><Label htmlFor="cur-pin">Current PIN</Label><input id="cur-pin" type="tel" inputMode="numeric" autoComplete="off" name="current-pin" spellCheck={false} autoCorrect="off" autoCapitalize="off" data-lpignore="true" data-1p-ignore="true" data-bwignore="true" pattern="[0-9]*" className="w-full evw-surface border border-[var(--border)] rounded px-3 py-2" placeholder="Current PIN" maxLength={12} ref={currentPinRef} value={currentPin} onChange={(e) => setCurrentPin(e.target.value.replace(/[^0-9]/g, '').slice(0, 12))} /></div>
+        <div><Label htmlFor="new-pin">New PIN</Label><input id="new-pin" type="tel" inputMode="numeric" autoComplete="off" name="new-pin" spellCheck={false} autoCorrect="off" autoCapitalize="off" data-lpignore="true" data-1p-ignore="true" data-bwignore="true" pattern="[0-9]*" className="w-full evw-surface border border-[var(--border)] rounded px-3 py-2" placeholder="New PIN (4–12 digits)" maxLength={12} ref={newPinRef} value={newPin} onChange={(e) => setNewPin(e.target.value.replace(/[^0-9]/g, '').slice(0, 12))} /></div>
+        {changeMsg && <div className="text-sm" role="status">{changeMsg}</div>}<div className="flex items-center gap-2 justify-end"><Button type="button" variant="secondary" onClick={() => setChangeOpen(false)}>Close</Button><Button type="submit" disabled={changeLoading || !currentPin || !newPin}>Update PIN</Button></div>
       </form>
     </Modal>
     </>
