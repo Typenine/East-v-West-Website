@@ -98,7 +98,7 @@ export async function handleGetTransactionIntelligence(input: ResearchInput) {
   };
 }
 
-function rivalryPerspective(game: StatsGameRow, team: string) {
+function rivalryPerspective(game: StatsGameRow, team: string): { points: number; opponentPoints: number; result: 'W' | 'L' | 'T' } {
   const isA = game.teamA === team;
   const points = isA ? game.scoreA : game.scoreB;
   const opponentPoints = isA ? game.scoreB : game.scoreA;
