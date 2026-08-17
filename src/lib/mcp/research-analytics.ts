@@ -132,7 +132,7 @@ export async function handleQueryStatsResearch(input: ResearchInput) {
   const metric = inputText(input.metric) || 'points';
   const aggregate = inputText(input.aggregate) || 'sum';
   const rows = researchRows(dataset, entity, input);
-  let groups = aggregateRows(rows, groupBy, metric);
+  const groups = aggregateRows(rows, groupBy, metric);
   const value = (row: ReturnType<typeof aggregateRows>[number]) => Number((row as unknown as JsonRecord)[aggregate] ?? row.sum);
   groups.sort((a, b) => value(b) - value(a) || a.group.localeCompare(b.group));
   const totalGroups = groups.length;
