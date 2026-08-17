@@ -339,7 +339,7 @@ export default function Navbar() {
   const newPinRef = useRef<HTMLInputElement | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
 
-  // Filter nav config to hide Draft Room for users without access
+  // Filter nav config to hide Draft Room link for users without access
   const filteredNavConfig = useMemo(() => {
     const canSeeDraftRoom = isAdmin || (sessionTeam && DRAFT_ROOM_ALLOWED_TEAMS.includes(sessionTeam));
     if (canSeeDraftRoom) return USER_NAV_CONFIG;
