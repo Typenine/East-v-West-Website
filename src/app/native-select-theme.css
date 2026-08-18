@@ -1,0 +1,48 @@
+/*
+ * Native <select> menus are rendered by the browser/OS rather than by our
+ * normal card/dropdown surfaces. Keep their popup palette in sync with the
+ * site theme so option text always has sufficient contrast.
+ */
+select {
+  color: var(--text);
+  color-scheme: dark;
+}
+
+select option,
+select optgroup {
+  background-color: #111727;
+  color: #E9EDF5;
+}
+
+select option:disabled {
+  color: #9AA5B1;
+}
+
+html[data-theme="dark"] select {
+  color-scheme: dark;
+}
+
+html[data-theme="dark"] select option,
+html[data-theme="dark"] select optgroup {
+  background-color: #111727;
+  color: #E9EDF5;
+}
+
+html[data-theme="dark"] select option:disabled {
+  color: #9AA5B1;
+}
+
+html[data-theme="light"] select {
+  color: #0B1020;
+  color-scheme: light;
+}
+
+html[data-theme="light"] select option,
+html[data-theme="light"] select optgroup {
+  background-color: #ffffff;
+  color: #0B1020;
+}
+
+html[data-theme="light"] select option:disabled {
+  color: #667085;
+}
