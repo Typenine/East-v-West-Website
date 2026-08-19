@@ -38,7 +38,7 @@ export type { TradeValue };
 // --- Cache ---
 
 interface ValueSources { fantasyCalc: boolean; keepTradeCut: boolean; fcCount: number; ktcCount: number; ktcMatched: number; ktcMatchRate: number }
-let cache: { ts: number; data: Record<string, TradeValue>; sources: ValueSources } | null = null; // bump to bust: v8
+let cache: { ts: number; data: Record<string, TradeValue>; sources: ValueSources } | null = null; // bump to bust: v9
 const CACHE_TTL = 6 * 60 * 60 * 1000; // 6 hours
 
 // --- Fetchers ---
@@ -401,6 +401,66 @@ function ensureStandardPicks(
   }
 }
 
+/**
+ * Add exact slot scenarios for the next tradeable draft year.
+ * These are hypothetical analyzer assets, not claims about actual draft order.
+ * Each four-pick tier is spread around its live Early/Mid/Late anchor while preserving
+ * a descending 1.01 -> 1.12 curve and keeping the tier average at the source value.
+ */
+function ensureHypotheticalNumberedPicks(result: Record<string, TradeValue>): void {
+  const year = String(Math.max(new Date().getFullYear(), FIRST_TRADABLE_PICK_YEAR));
+  const offsets = [0.30, 0.10, -0.10, -0.30];
+  let rank = Math.max(0, ...Object.values(result).map((v) => v.rank || 0)) + 1;
+
+  const exactSlotValue = (earlyRaw: number, midRaw: number, lateRaw: number, slot: number): number => {
+    const early = Math.max(earlyRaw, midRaw);
+    const mid = midRaw;
+    const late = Math.min(lateRaw, midRaw);
+    const earlyGap = Math.max(0, early - mid);
+    const lateGap = Math.max(0, mid - late);
+
+    if (slot <= 4) return Math.round(early + earlyGap * offsets[slot - 1]);
+    if (slot <= 8) {
+      const spread = Math.min(earlyGap, lateGap) || Math.max(earlyGap, lateGap);
+      return Math.round(mid + spread * offsets[slot - 5]);
+    }
+    return Math.round(late + lateGap * offsets[slot - 9]);
+  };
+
+  for (const round of PICK_ROUNDS) {
+    const early = result[standardPickKey(year, round, 'Early')];
+    const mid = result[standardPickKey(year, round, 'Mid')];
+    const late = result[standardPickKey(year, round, 'Late')];
+    if (!early || !mid || !late) continue;
+
+    for (let slot = 1; slot <= 12; slot++) {
+      const key = numberedPickKey(year, round, slot);
+      if (result[key]) continue;
+
+      const value = exactSlotValue(early.value, mid.value, late.value, slot);
+      const fcValue = early.fcValue !== null && mid.fcValue !== null && late.fcValue !== null
+        ? exactSlotValue(early.fcValue, mid.fcValue, late.fcValue, slot)
+        : null;
+      const ktcValue = early.ktcValue !== null && mid.ktcValue !== null && late.ktcValue !== null
+        ? exactSlotValue(early.ktcValue, mid.ktcValue, late.ktcValue, slot)
+        : null;
+
+      result[key] = {
+        name: `${year} ${round}.${String(slot).padStart(2, '0')}`,
+        sleeperId: key,
+        position: 'PICK',
+        team: '',
+        value,
+        fcValue,
+        ktcValue,
+        rank: rank++,
+        trend: 0,
+        isPick: true,
+      };
+    }
+  }
+}
+
 // --- Merge logic ---
 
 interface MergeStats { playerCount: number; ktcMatched: number }
@@ -506,8 +566,10 @@ function mergeValues(fc: FantasyCalcPlayer[], ktc: KTCPlayer[]): { values: Recor
     }
   }
 
-  // Ensure a complete set of standardized picks with consistent FC treatment for every tier.
+  // Ensure a complete set of standardized picks with consistent FC treatment for every tier,
+  // then restore exact-slot hypotheticals for the next draft year.
   ensureStandardPicks(result, numberedPicks, genericRoundPicks, ktcByPickKey);
+  ensureHypotheticalNumberedPicks(result);
 
   // Final safety net: spent draft picks should never leak into the analyzer from an upstream source.
   for (const [key, value] of Object.entries(result)) {
