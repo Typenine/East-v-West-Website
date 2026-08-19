@@ -591,17 +591,9 @@ function PickSelector({ values, excluded, onSelect }: { values: TradeValue[]; ex
     const numbered = allPicks.filter((v) => pickSlot(v.sleeperId) !== null);
     const tier = allPicks.filter((v) => isTierPickId(v.sleeperId));
 
-    // Prefer numbered slot picks (1.01, 1.02, …); use tier picks only when no slots exist for that year/round.
-    const numberedYearRounds = new Set(
-      numbered.map((p) => `${p.name.match(/^(\d{4})/)?.[1] ?? 'Other'}_${pickRound(p.sleeperId)}`),
-    );
-    const picksToShow = [
-      ...numbered,
-      ...tier.filter((p) => {
-        const year = p.name.match(/^(\d{4})/)?.[1] ?? 'Other';
-        return !numberedYearRounds.has(`${year}_${pickRound(p.sleeperId)}`);
-      }),
-    ];
+    // Keep both hypothetical levels available. Within each round, show broad
+    // Early/Mid/Late estimates first, followed by exact slot scenarios 1.01–1.12.
+    const picksToShow = [...tier, ...numbered];
 
     const byYear = new Map<string, Map<number, TradeValue[]>>();
     for (const p of picksToShow) {
@@ -618,12 +610,18 @@ function PickSelector({ values, excluded, onSelect }: { values: TradeValue[]; ex
       const rounds: PickRoundGroup[] = [];
       for (const round of Array.from(byRound.keys()).sort((a, b) => a - b)) {
         const picks = byRound.get(round)!.sort((a, b) => {
+          const tierA = isTierPickId(a.sleeperId);
+          const tierB = isTierPickId(b.sleeperId);
+          if (tierA && tierB) return pickTierRank(a.sleeperId) - pickTierRank(b.sleeperId) || b.value - a.value;
+          if (tierA) return -1;
+          if (tierB) return 1;
+
           const slotA = pickSlot(a.sleeperId);
           const slotB = pickSlot(b.sleeperId);
           if (slotA !== null && slotB !== null) return slotA - slotB;
           if (slotA !== null) return -1;
           if (slotB !== null) return 1;
-          return pickTierRank(a.sleeperId) - pickTierRank(b.sleeperId) || b.value - a.value;
+          return b.value - a.value;
         });
         rounds.push({ round, label: ROUND_LABEL[round] ?? `Round ${round}`, picks });
       }
@@ -655,9 +653,16 @@ function PickSelector({ values, excluded, onSelect }: { values: TradeValue[]; ex
               </div>
               {rg.picks.map((v) => {
                 const slot = pickSlot(v.sleeperId);
+                const tierMatch = v.sleeperId.match(/_(EARLY|MID|LATE)$/);
+                const tierName = tierMatch
+                  ? `${tierMatch[1][0]}${tierMatch[1].slice(1).toLowerCase()}`
+                  : null;
+                const roundOrdinal = rg.label.replace(/\s+Round$/, '');
                 const label = slot !== null
-                  ? `${rg.round}.${String(slot).padStart(2, '0')}`
-                  : v.name.replace(/^\d{4}\s*/, '');
+                  ? `${g.year} ${rg.round}.${String(slot).padStart(2, '0')}`
+                  : tierName
+                    ? `${g.year} ${tierName} ${roundOrdinal}`
+                    : v.name;
                 return (
                 <AnalyzerDropdownItem key={v.sleeperId} onClick={() => { onSelect(assetFromValue(v, true)); setOpen(false); }}>
                   <div className="flex items-center justify-between gap-3">
