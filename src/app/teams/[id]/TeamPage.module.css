@@ -1,0 +1,36 @@
+/* Team pages intentionally use franchise colors, but those colors need to stay
+ * readable against both the light and dark site themes. The team page sets
+ * --danger to the franchise primary and --gold to the franchise secondary. */
+
+.teamPage :global(a[href^="/players/"]) {
+  color: color-mix(in srgb, var(--gold) 58%, var(--text)) !important;
+  font-weight: 600;
+}
+
+.teamPage :global(a[href^="/players/"]:hover) {
+  color: color-mix(in srgb, var(--gold) 42%, var(--text)) !important;
+}
+
+/* Strong team identity without putting muted gray text directly on a saturated
+ * franchise color. Mixing the team colors into the theme surface keeps the
+ * header readable in either theme. */
+.teamPage :global(thead) {
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--danger) 26%, var(--surface)),
+    color-mix(in srgb, var(--gold) 22%, var(--surface))
+  ) !important;
+}
+
+.teamPage :global(thead th),
+.teamPage :global(thead th button) {
+  color: var(--text) !important;
+  font-weight: 700;
+}
+
+/* Position-section labels such as QB/RB/WR should never inherit a low-contrast
+ * muted color from the shared table component. */
+.teamPage :global(tbody td[colspan]) {
+  color: var(--text) !important;
+  font-weight: 700;
+}
