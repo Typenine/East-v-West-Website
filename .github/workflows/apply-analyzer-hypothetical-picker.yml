@@ -1,0 +1,57 @@
+name: Show both numbered and tier hypothetical picks
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/apply-analyzer-hypothetical-picker.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch-main:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Keep exact slots and tier projections together
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path("src/app/trades/analyzer/page.tsx")
+          text = path.read_text()
+          old = '''    // Prefer numbered slot picks (1.01, 1.02, …); use tier picks only when no slots exist for that year/round.
+    const numberedYearRounds = new Set(
+      numbered.map((p) => `${p.name.match(/^(\\d{4})/)?.[1] ?? 'Other'}_${pickRound(p.sleeperId)}`),
+    );
+    const picksToShow = [
+      ...numbered,
+      ...tier.filter((p) => {
+        const year = p.name.match(/^(\\d{4})/)?.[1] ?? 'Other';
+        return !numberedYearRounds.has(`${year}_${pickRound(p.sleeperId)}`);
+      }),
+    ];
+'''
+          new = '''    // This is a hypothetical trade analyzer, so keep both levels of precision available:
+    // exact scenarios (3.05) and broader projections (Mid 3rd).
+    const picksToShow = [...numbered, ...tier];
+'''
+          if old not in text:
+              raise SystemExit("Expected pick selector block not found")
+          path.write_text(text.replace(old, new, 1))
+
+      - name: Commit change to main
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "src/app/trades/analyzer/page.tsx"
+          git diff --cached --check
+          git commit -m "Show exact and tier hypothetical picks together"
+          git push origin HEAD:main
