@@ -1,0 +1,181 @@
+name: Restore hypothetical numbered draft picks
+
+on:
+  push:
+    branches:
+      - bot/restore-hypothetical-picks
+
+permissions:
+  contents: write
+
+jobs:
+  patch-main:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Restore hypothetical numbered picks
+        shell: python
+        run: |
+          from pathlib import Path
+
+          def replace_once(text: str, old: str, new: str, label: str) -> str:
+              if old not in text:
+                  raise SystemExit(f"Missing expected block: {label}")
+              return text.replace(old, new, 1)
+
+          route = Path("src/app/api/trade-analyzer/values/route.ts")
+          text = route.read_text()
+
+          text = replace_once(
+              text,
+              "let cache: { ts: number; data: Record<string, TradeValue>; sources: ValueSources } | null = null; // bump to bust: v8",
+              "let cache: { ts: number; data: Record<string, TradeValue>; sources: ValueSources } | null = null; // bump to bust: v9",
+              "trade analyzer cache version",
+          )
+
+          old_fc = '''    const name = p.player.name || '';
+    const pick = isPick(name);
+    if (pick && !isTradablePickName(name)) continue;
+    const numbered = pick ? parseNumberedPick(name) : null;
+    const genericRound = pick && !numbered ? parseGenericRoundPick(name) : null;
+    const tierPickKey = pick && !numbered && !genericRound ? pickKey(name) : null;
+    const fcVal = p.value; // raw FC value, 0-10000 scale
+'''
+          new_fc = '''    const name = p.player.name || '';
+    const pick = isPick(name);
+    const numbered = pick ? parseNumberedPick(name) : null;
+    const fcVal = p.value; // raw FC value, 0-10000 scale
+
+    // Spent numbered picks are not tradeable assets, but their slot-by-slot curve is still
+    // useful for pricing hypothetical slots in the next draft (1.01, 3.05, etc.).
+    if (pick && !isTradablePickName(name)) {
+      if (numbered) {
+        const mapKey = `${numbered.year}_${numbered.round}`;
+        if (!numberedPicks.has(mapKey)) numberedPicks.set(mapKey, []);
+        numberedPicks.get(mapKey)!.push({ slot: numbered.slot, value: fcVal });
+      }
+      continue;
+    }
+
+    const genericRound = pick && !numbered ? parseGenericRoundPick(name) : null;
+    const tierPickKey = pick && !numbered && !genericRound ? pickKey(name) : null;
+'''
+          text = replace_once(text, old_fc, new_fc, "collect spent numbered pick curve")
+
+          marker = '''}
+
+// --- Merge logic ---
+'''
+          helper = '''}
+
+/** Add exact-slot hypotheticals for the next tradeable rookie draft.
+ *  The draft order does not need to be known: these are scenario assets for the analyzer.
+ *  We anchor each Early/Mid/Late tier to the live future-pick value, then borrow the
+ *  latest available numbered-pick curve to distinguish 1.01 from 1.04, 3.05 from 3.08, etc. */
+function ensureHypotheticalNumberedPicks(
+  result: Record<string, TradeValue>,
+  numberedPicks: Map<string, { slot: number; value: number }[]>,
+): void {
+  const year = String(Math.max(new Date().getFullYear(), FIRST_TRADABLE_PICK_YEAR));
+  let rank = Math.max(0, ...Object.values(result).map((v) => v.rank || 0)) + 1;
+  const fallbackWithinTier = [1.09, 1.03, 0.98, 0.90];
+
+  for (const round of PICK_ROUNDS) {
+    const candidates = Array.from(numberedPicks.entries())
+      .map(([key, slots]) => {
+        const match = key.match(/^(\\d{4})_(\\d)$/);
+        return match ? { year: parseInt(match[1]), round: parseInt(match[2]), slots } : null;
+      })
+      .filter((candidate): candidate is { year: number; round: number; slots: { slot: number; value: number }[] } =>
+        candidate !== null && candidate.round === round)
+      .sort((a, b) => b.year - a.year);
+
+    const reference = (candidates.find((candidate) => candidate.slots.length >= 8) ?? candidates[0])?.slots ?? [];
+
+    for (let slot = 1; slot <= 12; slot++) {
+      const key = numberedPickKey(year, round, slot);
+      if (result[key]) continue;
+
+      const tier = slotToTier(slot);
+      const tierAsset = result[standardPickKey(year, round, tier)];
+      if (!tierAsset) continue;
+
+      const sourceTierAverage = averageTierSlots(reference, tier);
+      const sourceSlot = reference.find((p) => p.slot === slot);
+      const multiplier = sourceTierAverage !== null && sourceTierAverage > 0 && sourceSlot
+        ? sourceSlot.value / sourceTierAverage
+        : fallbackWithinTier[(slot - 1) % 4];
+
+      const fcValue = tierAsset.fcValue !== null
+        ? Math.round(tierAsset.fcValue * multiplier)
+        : null;
+      const ktcValue = tierAsset.ktcValue !== null
+        ? Math.round(tierAsset.ktcValue * multiplier)
+        : null;
+      const value = fcValue !== null && ktcValue !== null
+        ? Math.round((fcValue + ktcValue) / 2)
+        : fcValue ?? ktcValue ?? Math.round(tierAsset.value * multiplier);
+
+      result[key] = {
+        name: `${year} ${round}.${String(slot).padStart(2, '0')}`,
+        sleeperId: key,
+        position: 'PICK',
+        team: '',
+        value,
+        fcValue,
+        ktcValue,
+        rank: rank++,
+        trend: 0,
+        isPick: true,
+      };
+    }
+  }
+}
+
+// --- Merge logic ---
+'''
+          text = replace_once(text, marker, helper, "hypothetical numbered pick helper")
+
+          text = replace_once(
+              text,
+              "  // Ensure a complete set of standardized picks with consistent FC treatment for every tier.\n  ensureStandardPicks(result, numberedPicks, genericRoundPicks, ktcByPickKey);\n",
+              "  // Ensure a complete set of standardized tiers, then add exact-slot hypotheticals for the next draft.\n  ensureStandardPicks(result, numberedPicks, genericRoundPicks, ktcByPickKey);\n  ensureHypotheticalNumberedPicks(result, numberedPicks);\n",
+              "generate hypothetical numbered picks",
+          )
+
+          route.write_text(text)
+
+          page = Path("src/app/trades/analyzer/page.tsx")
+          text = page.read_text()
+          old_picker = '''    // Prefer numbered slot picks (1.01, 1.02, …); use tier picks only when no slots exist for that year/round.
+    const numberedYearRounds = new Set(
+      numbered.map((p) => `${p.name.match(/^(\\d{4})/)?.[1] ?? 'Other'}_${pickRound(p.sleeperId)}`),
+    );
+    const picksToShow = [
+      ...numbered,
+      ...tier.filter((p) => {
+        const year = p.name.match(/^(\\d{4})/)?.[1] ?? 'Other';
+        return !numberedYearRounds.has(`${year}_${pickRound(p.sleeperId)}`);
+      }),
+    ];
+'''
+          new_picker = '''    // This is a hypothetical trade analyzer, so keep both levels of precision available:
+    // exact scenarios (3.05) and broader projections (Mid 3rd).
+    const picksToShow = [...numbered, ...tier];
+'''
+          text = replace_once(text, old_picker, new_picker, "show numbered and tier picks together")
+          page.write_text(text)
+
+      - name: Commit change to main
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "src/app/api/trade-analyzer/values/route.ts" "src/app/trades/analyzer/page.tsx"
+          git diff --cached --check
+          git commit -m "Restore hypothetical numbered picks in trade analyzer"
+          git push origin HEAD:main
