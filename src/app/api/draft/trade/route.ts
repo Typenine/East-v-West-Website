@@ -11,15 +11,13 @@ import {
   updateTradeStatus,
   approveDraftTrade,
   clearTradeAnimation,
-  getRosterSnapshot,
   getFuturePicks,
   pauseDraftForTradeAnimation,
   type TradeAssetType,
 } from '@/server/db/queries.fixed';
 import { requireTeamUser } from '@/lib/server/session';
-import { snapshotDraftRosters, snapshotDraftFuturePicks, snapshotTeamRosterIfMissing } from '@/server/draft-snapshot';
 import { isAdminCookieValue } from '@/lib/auth/admin';
-import { getAllPlayersCached } from '@/lib/utils/sleeper-api';
+import { getTeamAssets } from '@/lib/server/trade-assets';
 
 function isAdmin(req: NextRequest): boolean {
   try {
@@ -44,54 +42,30 @@ export async function GET(req: NextRequest) {
   const action = url.searchParams.get('action') || 'get_team';
   const draftIdParam = url.searchParams.get('draftId') || '';
 
-  const draftId = draftIdParam || (await getActiveOrLatestDraftId().catch(() => null)) || '';
-  if (!draftId) return bad('no active draft', 404);
-
-  // get_assets — returns roster snapshot + current picks + future picks for a team
+  // Team-page draft assets should reflect the league's live Sleeper pick ownership,
+  // not the frozen snapshot from the most recently completed in-site draft.
   if (action === 'get_assets') {
     const team = url.searchParams.get('team') || '';
     if (!team) return bad('team required');
-    // Ensure snapshot is populated (idempotent — no-op if already done)
-    await Promise.all([
-      snapshotDraftRosters(draftId).catch(() => {}),
-      snapshotDraftFuturePicks(draftId).catch(() => {}),
-    ]);
-    const [futurePicksRaw, overview] = await Promise.all([
-      getFuturePicks(draftId, team),
-      getDraftOverview(draftId),
-    ]);
-    // Only show future picks from years strictly after the current draft year.
-    // Picks for the current year are already in draft_slots (current picks), and
-    // picks from past years are stale and no longer tradeable.
-    const draftYear = overview?.year ?? null;
-    const futurePicks = draftYear != null
-      ? futurePicksRaw.filter(fp => fp.year > draftYear)
-      : futurePicksRaw;
-    let rosterPlayers = await getRosterSnapshot(draftId, team);
-    // If this team was missed in the global snapshot (name-map gap), fill it now
-    if (rosterPlayers.length === 0) {
-      await snapshotTeamRosterIfMissing(draftId, team).catch(() => {});
-      rosterPlayers = await getRosterSnapshot(draftId, team);
-    }
-    // Resolve any snapshot rows whose name is still the raw Sleeper ID (can happen
-    // when getAllPlayersCached didn't include that player at snapshot time).
-    const needsResolution = rosterPlayers.some(p => !p.playerName || p.playerName === p.playerId);
-    if (needsResolution) {
-      const sleeperPlayers = await getAllPlayersCached().catch(() => ({} as Record<string, { first_name?: string; last_name?: string; position?: string; team?: string }>));
-      rosterPlayers = rosterPlayers.map(p => {
-        if (p.playerName && p.playerName !== p.playerId) return p;
-        const sp = sleeperPlayers[p.playerId];
-        if (!sp) return p;
-        const name = [sp.first_name, sp.last_name].filter(Boolean).join(' ') || p.playerId;
-        return { ...p, playerName: name, playerPos: p.playerPos || sp.position || null, playerNfl: p.playerNfl || sp.team || null };
-      });
-    }
-    // Current draft picks owned by this team (not yet made)
-    const allSlots = overview?.allSlots || [];
-    const allPicksMade = new Set((overview?.allPicks || []).map(p => p.overall));
-    const currentPicks = allSlots.filter(s => s.team === team && !allPicksMade.has(s.overall));
-    return ok({ rosterPlayers, futurePicks, currentPicks });
+
+    const assets = await getTeamAssets(team);
+    const futurePicks = [...assets.picks]
+      .sort((a, b) => a.year - b.year || a.round - b.round || a.originalTeam.localeCompare(b.originalTeam))
+      .map((pick) => ({
+        id: `${pick.year}-${pick.round}-${pick.originalTeam}`,
+        ownerTeam: team,
+        originalTeam: pick.originalTeam,
+        year: pick.year,
+        round: pick.round,
+      }));
+
+    // The draft has already happened, so the team page should not keep showing
+    // frozen draft-day roster snapshots or already-spent current-draft selections.
+    return ok({ rosterPlayers: [], futurePicks, currentPicks: [] });
   }
+
+  const draftId = draftIdParam || (await getActiveOrLatestDraftId().catch(() => null)) || '';
+  if (!draftId) return bad('no active draft', 404);
 
   // get_admin_pending — admin only
   if (action === 'get_admin_pending') {
