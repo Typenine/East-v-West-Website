@@ -1,17 +1,17 @@
 name: Apply trade analyzer pick sort
 
 on:
-  push:
+  pull_request_target:
+    types: [opened, reopened, synchronize]
     branches:
       - main
-    paths:
-      - .github/.trade-pick-sort-trigger
 
 permissions:
   contents: write
 
 jobs:
   patch-main:
+    if: github.event.pull_request.head.ref == 'bot/trade-pick-sort-pr'
     runs-on: ubuntu-latest
     steps:
       - name: Check out main
