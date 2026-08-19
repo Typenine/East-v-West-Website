@@ -196,6 +196,14 @@ export default function TeamContent() {
   const [careerLeaders, setCareerLeaders] = useState<Record<PosKey | 'ALL', LeaderRow[]>>(emptyCareer);
   const [seasonLeaders, setSeasonLeaders] = useState<Record<PosKey, LeaderRow[]>>(emptySeason);
   const [recordsLoading, setRecordsLoading] = useState(false);
+  const initialLeaderVisible: Record<PosKey, number> = { QB: 5, RB: 5, WR: 5, TE: 5, K: 5, 'DEF/DST': 5 };
+  const [careerVisible, setCareerVisible] = useState<Record<PosKey, number>>({ ...initialLeaderVisible });
+  const [seasonVisible, setSeasonVisible] = useState<Record<PosKey, number>>({ ...initialLeaderVisible });
+
+  useEffect(() => {
+    setCareerVisible({ ...initialLeaderVisible });
+    setSeasonVisible({ ...initialLeaderVisible });
+  }, [team?.ownerId, selectedYear]);
 
   // Taxi validator state (new)
   type TaxiViolation = { code: 'too_many_on_taxi' | 'too_many_qbs' | 'invalid_intake' | 'boomerang_active_player' | 'roster_inconsistent'; detail?: string; players?: string[] };
@@ -414,7 +422,7 @@ export default function TeamContent() {
           }
         }
 
-        // Build Top 5 tables by position
+        // Build ranked tables by position. The UI reveals them five at a time.
         const byPosCareer: Record<PosKey | 'ALL', LeaderRow[]> = { 'QB': [], 'RB': [], 'WR': [], 'TE': [], 'K': [], 'DEF/DST': [], 'ALL': [] };
         Object.entries(careerTotals).forEach(([pid, v]) => {
           const row: LeaderRow = { playerId: pid, name: v.name, position: v.pos, total: v.total };
@@ -423,7 +431,6 @@ export default function TeamContent() {
         });
         (Object.keys(byPosCareer) as Array<keyof typeof byPosCareer>).forEach((k) => {
           byPosCareer[k].sort((a,b) => b.total - a.total);
-          byPosCareer[k] = byPosCareer[k].slice(0,5);
         });
 
         const byPosSeason: Record<PosKey, LeaderRow[]> = { 'QB': [], 'RB': [], 'WR': [], 'TE': [], 'K': [], 'DEF/DST': [] };
@@ -433,7 +440,6 @@ export default function TeamContent() {
         });
         (Object.keys(byPosSeason) as Array<keyof typeof byPosSeason>).forEach((k) => {
           byPosSeason[k].sort((a,b) => b.total - a.total);
-          byPosSeason[k] = byPosSeason[k].slice(0,5);
         });
 
         setCareerLeaders(byPosCareer);
@@ -1809,7 +1815,7 @@ export default function TeamContent() {
                                     </Tr>
                                   </THead>
                                   <TBody>
-                                    {(careerLeaders[pos] || []).map((row, idx) => (
+                                    {(careerLeaders[pos] || []).slice(0, careerVisible[pos]).map((row, idx) => (
                                       <Tr key={`${pos}-${row.playerId}`} style={{ borderLeft: `3px solid ${teamColors.primary}` }}>
                                         <Td>{idx + 1}</Td>
                                         <Td>
@@ -1827,6 +1833,18 @@ export default function TeamContent() {
                                   </TBody>
                                 </Table>
                               </div>
+                              {(careerLeaders[pos] || []).length > careerVisible[pos] && (
+                                <div className="mt-3 flex justify-center">
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => setCareerVisible((prev) => ({ ...prev, [pos]: prev[pos] + 5 }))}
+                                  >
+                                    Show 5 more
+                                  </Button>
+                                </div>
+                              )}
                             </CardContent>
                           </Card>
                         ))}
@@ -1834,7 +1852,7 @@ export default function TeamContent() {
                     )}
                   </div>
 
-                  {/* Best Single-Season Totals (Top 5) */}
+                  {/* Best Single-Season Totals */}
                   <div className="mt-8">
                     <SectionHeader
                       title="Best Single-Season Totals"
@@ -1861,7 +1879,7 @@ export default function TeamContent() {
                                     </Tr>
                                   </THead>
                                   <TBody>
-                                    {(seasonLeaders[pos] || []).map((row, idx) => (
+                                    {(seasonLeaders[pos] || []).slice(0, seasonVisible[pos]).map((row, idx) => (
                                       <Tr key={`${pos}-${row.playerId}`} style={{ borderLeft: `3px solid ${teamColors.primary}` }}>
                                         <Td>{idx + 1}</Td>
                                         <Td>
@@ -1880,6 +1898,18 @@ export default function TeamContent() {
                                   </TBody>
                                 </Table>
                               </div>
+                              {(seasonLeaders[pos] || []).length > seasonVisible[pos] && (
+                                <div className="mt-3 flex justify-center">
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => setSeasonVisible((prev) => ({ ...prev, [pos]: prev[pos] + 5 }))}
+                                  >
+                                    Show 5 more
+                                  </Button>
+                                </div>
+                              )}
                             </CardContent>
                           </Card>
                         ))}
