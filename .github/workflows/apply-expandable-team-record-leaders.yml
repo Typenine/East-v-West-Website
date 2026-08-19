@@ -1,0 +1,133 @@
+name: Apply expandable team record leaders
+
+on:
+  push:
+    branches:
+      - bot/expand-team-record-leaders
+
+permissions:
+  contents: write
+
+jobs:
+  patch-main:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Patch team record leader tables
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path("src/app/teams/[id]/TeamContent.tsx")
+          text = path.read_text()
+
+          def replace_once(old: str, new: str, label: str):
+              global text
+              if old not in text:
+                  raise SystemExit(f"Missing expected block: {label}")
+              text = text.replace(old, new, 1)
+
+          replace_once(
+              "  const [recordsLoading, setRecordsLoading] = useState(false);\n",
+              "  const [recordsLoading, setRecordsLoading] = useState(false);\n"
+              "  const initialLeaderVisible: Record<PosKey, number> = { QB: 5, RB: 5, WR: 5, TE: 5, K: 5, 'DEF/DST': 5 };\n"
+              "  const [careerVisible, setCareerVisible] = useState<Record<PosKey, number>>({ ...initialLeaderVisible });\n"
+              "  const [seasonVisible, setSeasonVisible] = useState<Record<PosKey, number>>({ ...initialLeaderVisible });\n\n"
+              "  useEffect(() => {\n"
+              "    setCareerVisible({ ...initialLeaderVisible });\n"
+              "    setSeasonVisible({ ...initialLeaderVisible });\n"
+              "  }, [team?.ownerId, selectedYear]);\n",
+              "leader visibility state",
+          )
+
+          replace_once(
+              "        // Build Top 5 tables by position\n",
+              "        // Build ranked tables by position. The UI reveals them five at a time.\n",
+              "career table comment",
+          )
+          replace_once(
+              "          byPosCareer[k] = byPosCareer[k].slice(0,5);\n",
+              "",
+              "career top-five truncation",
+          )
+          replace_once(
+              "          byPosSeason[k] = byPosSeason[k].slice(0,5);\n",
+              "",
+              "season top-five truncation",
+          )
+
+          replace_once(
+              "                                    {(careerLeaders[pos] || []).map((row, idx) => (\n",
+              "                                    {(careerLeaders[pos] || []).slice(0, careerVisible[pos]).map((row, idx) => (\n",
+              "career visible slice",
+          )
+          replace_once(
+              "                              </div>\n                            </CardContent>\n                          </Card>\n                        ))}\n                      </div>\n                    )}\n                  </div>\n\n                  {/* Best Single-Season Totals (Top 5) */}",
+              "                              </div>\n"
+              "                              {(careerLeaders[pos] || []).length > careerVisible[pos] && (\n"
+              "                                <div className=\"mt-3 flex justify-center\">\n"
+              "                                  <Button\n"
+              "                                    type=\"button\"\n"
+              "                                    variant=\"ghost\"\n"
+              "                                    size=\"sm\"\n"
+              "                                    onClick={() => setCareerVisible((prev) => ({ ...prev, [pos]: prev[pos] + 5 }))}\n"
+              "                                  >\n"
+              "                                    Show 5 more\n"
+              "                                  </Button>\n"
+              "                                </div>\n"
+              "                              )}\n"
+              "                            </CardContent>\n"
+              "                          </Card>\n"
+              "                        ))}\n"
+              "                      </div>\n"
+              "                    )}\n"
+              "                  </div>\n\n"
+              "                  {/* Best Single-Season Totals */}",
+              "career show-more button",
+          )
+
+          replace_once(
+              "                                    {(seasonLeaders[pos] || []).map((row, idx) => (\n",
+              "                                    {(seasonLeaders[pos] || []).slice(0, seasonVisible[pos]).map((row, idx) => (\n",
+              "season visible slice",
+          )
+          replace_once(
+              "                              </div>\n                            </CardContent>\n                          </Card>\n                        ))}\n                      </div>\n                    )}\n                  </div>\n                  {/* TODO: Highest Scoring Game by Position (Top 5) requires weekly player logs; will wire via player-logs API. */}",
+              "                              </div>\n"
+              "                              {(seasonLeaders[pos] || []).length > seasonVisible[pos] && (\n"
+              "                                <div className=\"mt-3 flex justify-center\">\n"
+              "                                  <Button\n"
+              "                                    type=\"button\"\n"
+              "                                    variant=\"ghost\"\n"
+              "                                    size=\"sm\"\n"
+              "                                    onClick={() => setSeasonVisible((prev) => ({ ...prev, [pos]: prev[pos] + 5 }))}\n"
+              "                                  >\n"
+              "                                    Show 5 more\n"
+              "                                  </Button>\n"
+              "                                </div>\n"
+              "                              )}\n"
+              "                            </CardContent>\n"
+              "                          </Card>\n"
+              "                        ))}\n"
+              "                      </div>\n"
+              "                    )}\n"
+              "                  </div>\n"
+              "                  {/* TODO: Highest Scoring Game by Position (Top 5) requires weekly player logs; will wire via player-logs API. */}",
+              "season show-more button",
+          )
+
+          path.write_text(text)
+
+      - name: Commit change to main
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "src/app/teams/[id]/TeamContent.tsx"
+          git diff --cached --check
+          git commit -m "Add show-more controls to team record leaders"
+          git push origin HEAD:main
