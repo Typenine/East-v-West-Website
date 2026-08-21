@@ -15,13 +15,18 @@ export const dynamic = 'force-dynamic';
 export const maxDuration = 120;
 
 function resolveSiteUrl(req: NextRequest): string {
-  const configured = process.env.NEXT_PUBLIC_SITE_URL || process.env.SITE_URL || 'https://east-v-west.com';
   const forwardedHost = req.headers.get('x-forwarded-host') || req.headers.get('host');
   const forwardedProto = req.headers.get('x-forwarded-proto') || 'https';
   const requestOrigin = normalizeSiteUrl(forwardedHost ? `${forwardedProto}://${forwardedHost}` : req.nextUrl.origin);
-  return requestOrigin.endsWith('.vercel.app') || requestOrigin.includes('localhost')
-    ? normalizeSiteUrl(configured)
-    : requestOrigin;
+
+  if (!requestOrigin.endsWith('.vercel.app') && !requestOrigin.includes('localhost') && !requestOrigin.includes('127.0.0.1')) {
+    return requestOrigin;
+  }
+
+  const productionHost = process.env.VERCEL_PROJECT_PRODUCTION_URL?.trim();
+  if (productionHost) return normalizeSiteUrl(`https://${productionHost}`);
+
+  return 'https://east-v-west-website.vercel.app';
 }
 
 async function postWithRetry(webhookUrl: string, payload: Parameters<typeof postToDiscordWebhook>[1]) {
