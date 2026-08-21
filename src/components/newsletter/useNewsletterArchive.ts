@@ -180,16 +180,30 @@ export function useNewsletterArchive() {
   }, [issues, setIssueInUrl]);
 
   const downloadPdf = useCallback(async (issue: NewsletterMeta) => {
-    const frame = frameRefs.current[issue.id];
-    if (!frame) return;
+    const loadedIssue = issueData[issue.id];
+    const isUploadedPdf = loadedIssue?.newsletter.sections.some(section => section.type === 'UploadedPdf');
+    const title = displayIssueTitle(issue);
+
     setPdfIssueId(issue.id);
     setIssueErrors(current => {
       const next = { ...current };
       delete next[issue.id];
       return next;
     });
+
     try {
-      const title = displayIssueTitle(issue);
+      if (isUploadedPdf) {
+        const anchor = document.createElement('a');
+        anchor.href = `/api/newsletter/pdf?id=${encodeURIComponent(issue.id)}&download=1`;
+        anchor.download = `${fileSafeTitle(title)}.pdf`;
+        document.body.appendChild(anchor);
+        anchor.click();
+        anchor.remove();
+        return;
+      }
+
+      const frame = frameRefs.current[issue.id];
+      if (!frame) throw new Error('Newsletter is not ready for PDF export.');
       await frame.downloadPdf(`${fileSafeTitle(title)}.pdf`, title);
     } catch (error) {
       setIssueErrors(current => ({
@@ -199,7 +213,7 @@ export function useNewsletterArchive() {
     } finally {
       setPdfIssueId(null);
     }
-  }, []);
+  }, [issueData]);
 
   const setOutline = useCallback((id: string, items: OutlineItem[]) => {
     setOutlines(current => ({ ...current, [id]: items }));
