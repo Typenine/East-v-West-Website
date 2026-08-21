@@ -1,6 +1,6 @@
-import EditorialWorkspace from '../../EditorialWorkspace';
+import NewsletterEditorRouter from './NewsletterEditorRouter';
 
 export default async function NewsletterEditorPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  return <EditorialWorkspace newsletterId={id} />;
+  return <NewsletterEditorRouter newsletterId={id} />;
 }
