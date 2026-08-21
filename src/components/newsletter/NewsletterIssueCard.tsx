@@ -16,6 +16,11 @@ import {
   formatPublishedTime,
 } from './utils';
 
+type UploadedPdfData = {
+  description?: string;
+  issueDate?: string;
+};
+
 export default function NewsletterIssueCard({
   issue,
   groupIndex,
@@ -49,6 +54,10 @@ export default function NewsletterIssueCard({
 }) {
   const title = displayIssueTitle(issue);
   const frameRef = useRef<NewsletterFrameHandle | null>(null);
+  const uploadedSection = data?.newsletter.sections.find(section => section.type === 'UploadedPdf');
+  const uploadedPdf = (uploadedSection?.data ?? null) as UploadedPdfData | null;
+  const isUploadedPdf = Boolean(uploadedSection);
+  const inlinePdfUrl = `/api/newsletter/pdf?id=${encodeURIComponent(issue.id)}`;
 
   return (
     <article id={`newsletter-${issue.id}`} className={`scroll-mt-24 overflow-hidden rounded-3xl border bg-[var(--surface)] shadow-sm transition ${isOpen ? 'border-[#0b5f98]/55 shadow-lg' : 'border-[var(--border)] hover:border-[#0b5f98]/35'}`}>
@@ -75,17 +84,24 @@ export default function NewsletterIssueCard({
           <div className="sticky top-0 z-10 border-b border-[var(--border)] bg-[var(--surface)] px-3 py-3 sm:px-5">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="min-w-0 flex-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-                <div className="flex w-max min-w-full items-center gap-2">
-                  <span className="shrink-0 text-[10px] font-black uppercase tracking-[0.18em] text-[var(--muted)]">Jump to</span>
-                  {outline.length > 0 ? outline.map(item => (
-                    <button key={`${issue.id}-${item.index}`} type="button" onClick={() => frameRef.current?.scrollToSection(item.index)} className="max-w-[220px] shrink-0 truncate rounded-full border border-[var(--border)] bg-[var(--background)] px-3 py-1.5 text-xs font-bold text-[var(--text)] hover:border-[#0b5f98]/60 hover:text-[#3b93cb]" title={item.label}>
-                      {item.index + 1}. {item.label}
-                    </button>
-                  )) : <span className="text-xs text-[var(--muted)]">Contents load with the issue.</span>}
-                </div>
+                {isUploadedPdf ? (
+                  <div className="flex items-center gap-2 text-xs font-bold text-[var(--muted)]">
+                    <span className="rounded-full border border-[var(--border)] bg-[var(--background)] px-3 py-1.5">Original PDF edition</span>
+                    <a href={inlinePdfUrl} target="_blank" rel="noopener noreferrer" className="rounded-full border border-[var(--border)] bg-[var(--background)] px-3 py-1.5 text-[#3b93cb] hover:border-[#0b5f98]/60">Open in new tab</a>
+                  </div>
+                ) : (
+                  <div className="flex w-max min-w-full items-center gap-2">
+                    <span className="shrink-0 text-[10px] font-black uppercase tracking-[0.18em] text-[var(--muted)]">Jump to</span>
+                    {outline.length > 0 ? outline.map(item => (
+                      <button key={`${issue.id}-${item.index}`} type="button" onClick={() => frameRef.current?.scrollToSection(item.index)} className="max-w-[220px] shrink-0 truncate rounded-full border border-[var(--border)] bg-[var(--background)] px-3 py-1.5 text-xs font-bold text-[var(--text)] hover:border-[#0b5f98]/60 hover:text-[#3b93cb]" title={item.label}>
+                        {item.index + 1}. {item.label}
+                      </button>
+                    )) : <span className="text-xs text-[var(--muted)]">Contents load with the issue.</span>}
+                  </div>
+                )}
               </div>
               <button type="button" onClick={onDownload} disabled={!data || loading || pdfLoading} className="shrink-0 rounded-xl bg-[linear-gradient(135deg,#be161e,#9f1219)] px-3.5 py-2 text-xs font-black text-white shadow-sm hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50 sm:text-sm">
-                {pdfLoading ? 'Building PDF...' : 'Download PDF'}
+                {pdfLoading ? 'Preparing PDF...' : isUploadedPdf ? 'Download original PDF' : 'Download PDF'}
               </button>
             </div>
           </div>
@@ -100,7 +116,25 @@ export default function NewsletterIssueCard({
           ) : data ? (
             <div>
               {error && <div className="border-b border-red-500/25 bg-red-500/10 px-4 py-2 text-center text-xs font-semibold text-red-400">{error}</div>}
-              <NewsletterFrame ref={handle => { frameRef.current = handle; onFrame(handle); }} html={data.html} title={title} onOutline={onOutline} />
+              {isUploadedPdf ? (
+                <div className="bg-[#d9dde3]">
+                  {uploadedPdf?.description?.trim() && (
+                    <div className="border-b border-[var(--border)] bg-[var(--surface)] px-5 py-4 text-sm leading-6 text-[var(--muted)] sm:px-7">
+                      {uploadedPdf.description.trim()}
+                    </div>
+                  )}
+                  <iframe
+                    src={inlinePdfUrl}
+                    title={`${title} PDF`}
+                    className="block h-[82vh] min-h-[760px] w-full border-0 bg-[#d9dde3]"
+                  />
+                  <div className="border-t border-[var(--border)] bg-[var(--surface)] px-5 py-3 text-xs text-[var(--muted)] sm:hidden">
+                    If your browser does not display PDFs inline, use “Open in new tab” above.
+                  </div>
+                </div>
+              ) : (
+                <NewsletterFrame ref={handle => { frameRef.current = handle; onFrame(handle); }} html={data.html} title={title} onOutline={onOutline} />
+              )}
             </div>
           ) : null}
         </div>
