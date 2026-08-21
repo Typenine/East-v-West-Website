@@ -9,7 +9,6 @@ export const maxDuration = 120;
 
 type UploadedPdfData = {
   key?: string;
-  fileName?: string;
 };
 
 function safeDownloadName(value: string): string {
@@ -43,8 +42,7 @@ export async function GET(req: NextRequest) {
     if (!upstream.ok) throw new Error(`storage returned ${upstream.status}`);
     const body = await upstream.arrayBuffer();
     const download = req.nextUrl.searchParams.get('download') === '1';
-    const fallbackName = `${item.title || 'east-v-west-newsletter'}.pdf`;
-    const fileName = safeDownloadName(data?.fileName || fallbackName);
+    const fileName = safeDownloadName(`${item.title || 'east-v-west-newsletter'}.pdf`);
     return new Response(body, {
       status: 200,
       headers: {
