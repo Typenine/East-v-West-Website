@@ -63,9 +63,11 @@ def main() -> None:
     )
 
     archive_hook = Path('src/components/newsletter/useNewsletterArchive.ts')
-    replace_once(
-        archive_hook,
-        '''  const downloadPdf = useCallback(async (issue: NewsletterMeta) => {
+    archive_text = archive_hook.read_text(encoding='utf-8')
+    if 'const loadedIssue = issueData[issue.id];' not in archive_text:
+        replace_once(
+            archive_hook,
+            '''  const downloadPdf = useCallback(async (issue: NewsletterMeta) => {
     const frame = frameRefs.current[issue.id];
     if (!frame) return;
     setPdfIssueId(issue.id);
@@ -86,7 +88,7 @@ def main() -> None:
       setPdfIssueId(null);
     }
   }, []);''',
-        '''  const downloadPdf = useCallback(async (issue: NewsletterMeta) => {
+            '''  const downloadPdf = useCallback(async (issue: NewsletterMeta) => {
     const data = issueData[issue.id];
     const hasUploadedPdf = data?.newsletter.sections.some(section => section.type === 'UploadedPdf') ?? false;
     if (hasUploadedPdf) {
@@ -114,7 +116,7 @@ def main() -> None:
       setPdfIssueId(null);
     }
   }, [issueData]);''',
-    )
+        )
 
     archive_utils = Path('src/components/newsletter/utils.ts')
     replace_once(
