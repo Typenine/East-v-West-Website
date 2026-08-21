@@ -33,11 +33,21 @@ async function isAdmin(): Promise<boolean> {
 }
 
 function resolvePublicSiteUrl(req: NextRequest): string {
-  const configured = normalizeSiteUrl(process.env.NEXT_PUBLIC_SITE_URL || process.env.SITE_URL || 'https://east-v-west.com');
   const forwardedHost = req.headers.get('x-forwarded-host') || req.headers.get('host');
   const forwardedProto = req.headers.get('x-forwarded-proto') || 'https';
   const requestOrigin = normalizeSiteUrl(forwardedHost ? `${forwardedProto}://${forwardedHost}` : req.nextUrl.origin);
-  return requestOrigin.endsWith('.vercel.app') || requestOrigin.includes('localhost') ? configured : requestOrigin;
+
+  // If the publish request arrived through a real custom domain, preserve it.
+  // When publishing from a Vercel hostname, use Vercel's stable production URL
+  // instead of the old east-v-west.com fallback, whose DNS is not currently live.
+  if (!requestOrigin.endsWith('.vercel.app') && !requestOrigin.includes('localhost') && !requestOrigin.includes('127.0.0.1')) {
+    return requestOrigin;
+  }
+
+  const productionHost = process.env.VERCEL_PROJECT_PRODUCTION_URL?.trim();
+  if (productionHost) return normalizeSiteUrl(`https://${productionHost}`);
+
+  return 'https://east-v-west-website.vercel.app';
 }
 
 async function sleep(ms: number): Promise<void> {
