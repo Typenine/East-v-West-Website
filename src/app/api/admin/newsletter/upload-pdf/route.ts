@@ -108,7 +108,7 @@ function renderLanding(input: {
       <div class="hero-inner">
         <p class="eyebrow">East v. West · ${escapeHtml(input.episodeType.replace(/_/g, ' '))}</p>
         <h1>${escapeHtml(input.title)}</h1>
-        <div class="meta"><span>${escapeHtml(input.issueDate)}</span><span>${escapeHtml(input.fileName)}</span></div>
+        <div class="meta"><span>${escapeHtml(input.issueDate)}</span></div>
         ${description}
         <div class="actions">
           <a class="button primary" href="${downloadUrl}">Download original PDF</a>
