@@ -114,13 +114,13 @@ export default function SavedNewsletters({ season, onSelect, reloadKey }: Props)
     return () => clearInterval(timer);
   }, [load]);
 
-  const publish = async (item: NewsletterMeta, sendDiscord: boolean) => {
+  const publish = async (item: NewsletterMeta, sendDiscord: boolean, resendDiscord = false) => {
     setBusyId(item.id);
     setError(null);
     try {
       const response = await fetch('/api/newsletter/publish', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
-        body: JSON.stringify({ id: item.id, season: item.season, week: item.week, sendDiscord }),
+        body: JSON.stringify({ id: item.id, season: item.season, week: item.week, sendDiscord, resendDiscord }),
       });
       const data = await response.json() as { success?: boolean; error?: string; message?: string };
       if (!response.ok || data.success === false) throw new Error(data.error ?? data.message ?? 'Publish failed');
@@ -222,7 +222,17 @@ export default function SavedNewsletters({ season, onSelect, reloadKey }: Props)
                     <div className="flex flex-wrap items-center justify-end gap-1.5">
                       <Link href={`/admin/newsletter/editor/${item.id}`}><Button variant="primary" size="sm">Edit</Button></Link>
                       <Button variant="secondary" size="sm" title="Load the season, week, and episode type into the generator above" onClick={() => onSelect(String(item.season), item.week, type)}>Open Generator</Button>
-                      {item.status === 'published' && !item.discordPostedAt && <Button variant="ghost" size="sm" disabled={busy} onClick={() => void publish(item, true)}>Retry Discord</Button>}
+                      {item.status === 'published' && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          disabled={busy}
+                          title={item.discordPostedAt ? 'Send a fresh Discord announcement for this issue' : 'Retry the Discord announcement'}
+                          onClick={() => void publish(item, true, Boolean(item.discordPostedAt))}
+                        >
+                          {item.discordPostedAt ? 'Resend Discord' : 'Retry Discord'}
+                        </Button>
+                      )}
                       {item.status !== 'published' && (confirmPublish === item.id ? (
                         <>
                           <Button variant="ghost" size="sm" disabled={busy} className="text-emerald-400" onClick={() => void publish(item, true)}>Publish + Discord</Button>
