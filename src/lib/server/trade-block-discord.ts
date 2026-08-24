@@ -6,6 +6,7 @@ const DISCORD_FIELD_MAX = 1024;
 const DISCORD_ASSET_FIELD_TARGET = 900;
 const MAX_REMOVED_LINES = 5;
 const MAX_NARRATIVE_CHANGES = 4;
+const TRADE_BLOCK_PUBLIC_ROOT = 'https://east-v-west-website.vercel.app';
 
 function truncateField(text: string, max = DISCORD_FIELD_MAX): string {
   if (text.length <= max) return text;
@@ -77,11 +78,10 @@ function publicSiteRoot(baseUrl: string): string {
     return normalizedBase;
   }
 
-  // Discord messages are external and long-lived. Use Vercel's stable production
-  // hostname instead of a preview URL or a custom domain whose DNS may not be live.
-  const productionHost = process.env.VERCEL_PROJECT_PRODUCTION_URL?.trim();
-  if (productionHost) return normalizeSiteUrl(`https://${productionHost}`);
-  return 'https://east-v-west-website.vercel.app';
+  // Discord links must stay externally reachable even when the custom domain DNS is broken.
+  // Do not trust NEXT_PUBLIC_SITE_URL or VERCEL_PROJECT_PRODUCTION_URL here because either
+  // may resolve to the custom east-v-west.com domain.
+  return TRADE_BLOCK_PUBLIC_ROOT;
 }
 
 export function tradeBlockTeamUrl(baseUrl: string, teamName: string): string {
