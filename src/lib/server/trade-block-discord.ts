@@ -77,9 +77,11 @@ function publicSiteRoot(baseUrl: string): string {
     return normalizedBase;
   }
 
-  // Discord messages are external and long-lived. Always point production embeds at
-  // the stable public domain rather than a preview URL or stale environment variable.
-  return 'https://east-v-west.com';
+  // Discord messages are external and long-lived. Use Vercel's stable production
+  // hostname instead of a preview URL or a custom domain whose DNS may not be live.
+  const productionHost = process.env.VERCEL_PROJECT_PRODUCTION_URL?.trim();
+  if (productionHost) return normalizeSiteUrl(`https://${productionHost}`);
+  return 'https://east-v-west-website.vercel.app';
 }
 
 export function tradeBlockTeamUrl(baseUrl: string, teamName: string): string {
