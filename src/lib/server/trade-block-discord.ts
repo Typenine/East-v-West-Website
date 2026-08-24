@@ -72,10 +72,14 @@ function lookingForValue(report: TradeBlockReportResult): string | null {
 }
 
 function publicSiteRoot(baseUrl: string): string {
-  const configured = process.env.NEXT_PUBLIC_SITE_URL || process.env.SITE_URL;
-  if (configured) return normalizeSiteUrl(configured);
-  if (baseUrl.includes('vercel.app') || baseUrl.includes('eastvswest.win')) return normalizeSiteUrl();
-  return normalizeSiteUrl(baseUrl);
+  const normalizedBase = normalizeSiteUrl(baseUrl);
+  if (normalizedBase.includes('localhost') || normalizedBase.includes('127.0.0.1')) {
+    return normalizedBase;
+  }
+
+  // Discord messages are external and long-lived. Always point production embeds at
+  // the stable public domain rather than a preview URL or stale environment variable.
+  return 'https://east-v-west.com';
 }
 
 export function tradeBlockTeamUrl(baseUrl: string, teamName: string): string {
