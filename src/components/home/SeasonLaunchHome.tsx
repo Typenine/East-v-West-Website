@@ -1,4 +1,4 @@
-import { CHAMPIONS, LEAGUE_IDS, TEAM_NAMES } from '@/lib/constants/league';
+import { LEAGUE_IDS, TEAM_NAMES } from '@/lib/constants/league';
 import {
   buildYearToLeagueMapUnique,
   getLeagueMatchups,
@@ -7,7 +7,7 @@ import {
   getRosterIdToTeamNameMap,
   getTeamsData,
 } from '@/lib/utils/sleeper-api';
-import { getRecapYear } from '@/lib/utils/phase-resolver';
+import { getHomepagePhase } from '@/lib/utils/countdown-resolver';
 import { selectCalendar } from '@/lib/constants/league-calendar';
 import { requireTeamUser } from '@/lib/server/session';
 import { getUserIdForTeam } from '@/lib/server/user-identity';
@@ -17,9 +17,9 @@ import type { TeamRow } from '@/types/trade-block';
 import type { MyTeamData } from '@/components/home/MyTeamCard';
 import type { StandingsTeam } from '@/components/home/PlayoffRacePanel';
 import SeasonWeekHeader from '@/components/home/SeasonWeekHeader';
+import HomepageCountdowns from '@/components/home/HomepageCountdowns';
 import TaxiBanner, { type TaxiFlags } from '@/components/taxi/TaxiBanner';
 import MyTeamCard from '@/components/home/MyTeamCard';
-import LeagueOverviewCard from '@/components/home/LeagueOverviewCard';
 import SeasonMatchups, { type SeasonHomeMatchup } from '@/components/home/SeasonMatchups';
 import InSeasonStandings from '@/components/home/InSeasonStandings';
 import PlayoffRacePanel from '@/components/home/PlayoffRacePanel';
@@ -38,8 +38,8 @@ export default async function SeasonLaunchHome({
 }) {
   const now = new Date();
   const calendar = selectCalendar(now);
-  const isPostDeadline = now.getTime() >= calendar.tradeDeadline.getTime();
-  const presentationPhase = isPostDeadline ? 'post_deadline_pre_postseason' : 'regular_season';
+  const presentationPhase = getHomepagePhase(now);
+  const isPostDeadline = presentationPhase === 'post_deadline_pre_postseason';
   const authUser = await requireTeamUser().catch(() => null);
 
   const sp = (await (searchParams ?? Promise.resolve({}))) as Record<string, string | string[] | undefined>;
@@ -174,8 +174,6 @@ export default async function SeasonLaunchHome({
   }
 
   const h2h = await getHeadToHeadAllTime().catch(() => ({ teams: [], matrix: {}, neverBeaten: [] }));
-  const recapYear = String(getRecapYear());
-  const defendingChampion = CHAMPIONS[recapYear as keyof typeof CHAMPIONS]?.champion || undefined;
   const emptyTaxi: TaxiFlags = { generatedAt: now.toISOString(), actual: [], potential: [] };
 
   return (
@@ -205,19 +203,15 @@ export default async function SeasonLaunchHome({
       <div className="container relative z-10 mx-auto px-4 py-6 sm:px-5 sm:py-8">
         <SeasonWeekHeader week={selectedWeek} matchupCount={matchups.length} />
 
+        <HomepageCountdowns />
+
         <TaxiBanner initial={emptyTaxi} />
 
-        <section className="mb-10 sm:mb-12">
-          {myTeamData ? (
+        {myTeamData && (
+          <section className="mb-10 sm:mb-12">
             <MyTeamCard data={myTeamData} phase={presentationPhase} />
-          ) : (
-            <LeagueOverviewCard
-              phase={presentationPhase}
-              recapYear={recapYear}
-              defendingChampion={defendingChampion}
-            />
-          )}
-        </section>
+          </section>
+        )}
 
         <SeasonMatchups selectedWeek={selectedWeek} maxWeeks={MAX_REGULAR_WEEKS} matchups={matchups} />
 
