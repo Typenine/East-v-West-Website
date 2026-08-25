@@ -6,7 +6,7 @@ import type { PlayerGameSample } from '@/lib/fantasy/projection-model';
 import type { ProjectionOverrideRecord } from '@/lib/fantasy/projection-overrides';
 import type { ProjectionConfidence, WeeklyProjectedPlayer } from '@/lib/fantasy/lineup-types';
 
-export const PROJECTION_MODEL_VERSION = 'statline-v3.4-free-context';
+export const PROJECTION_MODEL_VERSION: string = 'statline-v3.4-free-context';
 const DATA_TTL_MS = 30 * 60 * 1000;
 const SKILL_POSITIONS = new Set(['QB', 'RB', 'WR', 'TE', 'K']);
 
