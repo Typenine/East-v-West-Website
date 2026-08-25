@@ -6,13 +6,20 @@ import type { PlayerGameSample } from '@/lib/fantasy/projection-model';
 import type { ProjectionOverrideRecord } from '@/lib/fantasy/projection-overrides';
 import type { ProjectionConfidence, WeeklyProjectedPlayer } from '@/lib/fantasy/lineup-types';
 
-export const PROJECTION_MODEL_VERSION = 'statline-v3.3-sleeper-combined';
+export const PROJECTION_MODEL_VERSION = 'statline-v3.4-free-context';
 const DATA_TTL_MS = 30 * 60 * 1000;
 const SKILL_POSITIONS = new Set(['QB', 'RB', 'WR', 'TE', 'K']);
+
+export type ProjectionMarketContext = {
+  spread: number | null;
+  total: number;
+  impliedPoints: number;
+};
 
 export type ProjectionScheduleWeek = {
   opponents: Record<string, string>;
   kickoffByTeam: Record<string, string>;
+  marketByTeam: Record<string, ProjectionMarketContext>;
   earliestKickoff: string | null;
   hasGames: boolean;
   seasonValidated: boolean;
@@ -58,6 +65,41 @@ function statTeam(stats: Record<string, number | string | undefined>): string | 
   return normalizeTeamCode(String(stats.team || stats.recent_team || stats.player_team || '')) || null;
 }
 
+function parseMarketContext(args: {
+  home: string;
+  away: string;
+  overUnder: unknown;
+  details: unknown;
+}): Record<string, ProjectionMarketContext> {
+  const total = Number(args.overUnder);
+  if (!Number.isFinite(total) || total < 20 || total > 80) return {};
+  const details = String(args.details || '').toUpperCase();
+  const match = details.match(/([A-Z]{2,3})\s+(-?\d+(?:\.\d+)?)/);
+  let homeSpread: number | null = null;
+  if (match) {
+    const listedTeam = normalizeTeamCode(match[1]);
+    const listedSpread = Number(match[2]);
+    if (Number.isFinite(listedSpread)) {
+      if (listedTeam === args.home) homeSpread = listedSpread;
+      else if (listedTeam === args.away) homeSpread = -listedSpread;
+    }
+  }
+  const homeImplied = homeSpread == null ? total / 2 : (total / 2) - (homeSpread / 2);
+  const awayImplied = total - homeImplied;
+  return {
+    [args.home]: {
+      spread: homeSpread,
+      total: Number(total.toFixed(1)),
+      impliedPoints: Number(homeImplied.toFixed(2)),
+    },
+    [args.away]: {
+      spread: homeSpread == null ? null : Number((-homeSpread).toFixed(2)),
+      total: Number(total.toFixed(1)),
+      impliedPoints: Number(awayImplied.toFixed(2)),
+    },
+  };
+}
+
 export function resolveTeamForSamples(player: SleeperPlayer | undefined, games: PlayerGameSample[], historicalMode: boolean): string | null {
   if (historicalMode) {
     const sampleTeam = [...games]
@@ -79,7 +121,9 @@ export async function loadScheduleWeek(season: string, week: number): Promise<Pr
     `https://site.web.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard?${common}`,
   ];
   type Competitor = { homeAway?: 'home' | 'away'; team?: { abbreviation?: string } };
-  type Event = { date?: string; season?: { year?: number }; competitions?: Array<{ date?: string; competitors?: Competitor[] }> };
+  type Odds = { overUnder?: number; details?: string };
+  type Competition = { date?: string; competitors?: Competitor[]; odds?: Odds[] };
+  type Event = { date?: string; season?: { year?: number }; competitions?: Competition[] };
   for (const url of urls) {
     try {
       const response = await fetch(url, {
@@ -90,6 +134,7 @@ export async function loadScheduleWeek(season: string, week: number): Promise<Pr
       const payload = await response.json() as { events?: Event[]; season?: { year?: number } };
       const opponents: Record<string, string> = {};
       const kickoffByTeam: Record<string, string> = {};
+      const marketByTeam: Record<string, ProjectionMarketContext> = {};
       const kickoffs: string[] = [];
       let seasonValidated = false;
       for (const event of payload.events || []) {
@@ -104,6 +149,15 @@ export async function loadScheduleWeek(season: string, week: number): Promise<Pr
         if (!home || !away) continue;
         opponents[home] = away;
         opponents[away] = home;
+        const odds = competition?.odds?.[0];
+        if (odds) {
+          Object.assign(marketByTeam, parseMarketContext({
+            home,
+            away,
+            overUnder: odds.overUnder,
+            details: odds.details,
+          }));
+        }
         if (kickoff) {
           kickoffByTeam[home] = kickoff;
           kickoffByTeam[away] = kickoff;
@@ -113,6 +167,7 @@ export async function loadScheduleWeek(season: string, week: number): Promise<Pr
       const data: ProjectionScheduleWeek = {
         opponents,
         kickoffByTeam,
+        marketByTeam,
         earliestKickoff: kickoffs.length ? kickoffs.sort((a, b) => Date.parse(a) - Date.parse(b))[0] : null,
         hasGames: Object.keys(opponents).length > 0,
         seasonValidated,
@@ -121,7 +176,7 @@ export async function loadScheduleWeek(season: string, week: number): Promise<Pr
       return data;
     } catch {}
   }
-  return { opponents: {}, kickoffByTeam: {}, earliestKickoff: null, hasGames: false, seasonValidated: false };
+  return { opponents: {}, kickoffByTeam: {}, marketByTeam: {}, earliestKickoff: null, hasGames: false, seasonValidated: false };
 }
 
 export async function loadStatsBatches(season: number, throughWeek: number): Promise<StatsBatch[]> {
