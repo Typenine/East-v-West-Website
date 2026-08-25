@@ -109,9 +109,23 @@ export default async function SeasonLaunchHome({
       modelVersion: PROJECTION_MODEL_VERSION,
     }).catch(() => []);
 
-    if (selectedWeek === currentWeek && projectionSnapshots.length < Math.min(12, rosters.length)) {
-      const generated = await buildLeagueProjectionSnapshotsV3().catch(() => []);
-      if (generated.length) projectionSnapshots = generated;
+    const shouldGenerateSelectedWeek = beforeKickoff ? selectedWeek === 1 : selectedWeek === currentWeek;
+    if (shouldGenerateSelectedWeek && projectionSnapshots.length < Math.min(12, rosters.length)) {
+      const generated = await buildLeagueProjectionSnapshotsV3({
+        season: seasonYear,
+        week: selectedWeek,
+        saveSnapshots: true,
+      }).catch(() => []);
+      if (generated.length) {
+        projectionSnapshots = generated.map((snapshot) => {
+          const hasCurrentLineup = (snapshot.currentLineup || []).some((entry) => Boolean(entry.player));
+          return {
+            ...snapshot,
+            currentTotal: snapshot.currentTotal ?? snapshot.optimalTotal,
+            currentLineup: hasCurrentLineup ? snapshot.currentLineup : snapshot.optimalLineup,
+          };
+        });
+      }
     }
 
     const projectionByTeam = new Map(
