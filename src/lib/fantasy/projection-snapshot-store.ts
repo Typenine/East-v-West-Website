@@ -5,6 +5,19 @@ function databaseUrl(): string | null {
   return process.env.DATABASE_URL || process.env.POSTGRES_URL || process.env.POSTGRES_PRISMA_URL || null;
 }
 
+function withDisplayFallback(payload: LineupOptimizerResponse): LineupOptimizerResponse {
+  const hasCurrentLineup = (payload.currentLineup || []).some((entry) => Boolean(entry.player));
+  const hasCurrentTotal = payload.currentTotal !== null && payload.currentTotal !== undefined;
+
+  if (hasCurrentLineup && hasCurrentTotal) return payload;
+
+  return {
+    ...payload,
+    currentTotal: hasCurrentTotal ? payload.currentTotal : payload.optimalTotal,
+    currentLineup: hasCurrentLineup ? payload.currentLineup : payload.optimalLineup,
+  };
+}
+
 export async function loadProjectionSnapshotsForWeek(args: {
   season: number;
   week: number;
@@ -23,7 +36,7 @@ export async function loadProjectionSnapshotsForWeek(args: {
         AND (${version}::text IS NULL OR model_version = ${version})
       ORDER BY team, generated_at DESC
     ` as Array<{ payload: LineupOptimizerResponse }>;
-    return rows.map((row) => row.payload).filter(Boolean);
+    return rows.map((row) => row.payload).filter(Boolean).map(withDisplayFallback);
   } catch (error) {
     console.warn("[projection-snapshots] unable to load weekly snapshots", error);
     return [];
