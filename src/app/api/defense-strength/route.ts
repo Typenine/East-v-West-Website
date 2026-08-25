@@ -21,10 +21,14 @@ export async function GET(req: NextRequest) {
       : Math.max(0, Number(state.week ?? state.display_week ?? 1) - 1);
 
     const positionFactors = await getLeagueDefenseFactors({ season, throughWeek });
+
+    // The matchup screen now receives V3 player projections, and V3 already
+    // includes the player's opponent adjustment. RosterColumn and
+    // WinProbability are older live-game consumers that also request this
+    // endpoint and would otherwise apply defense a second time. Keep the
+    // position-level data available for diagnostics/future features, but give
+    // the legacy aggregate multiplier a neutral value by returning no overrides.
     const factors: Record<string, number> = {};
-    for (const [team, values] of Object.entries(positionFactors) as Array<[string, Record<string, number>]>) {
-      factors[team] = values.ALL ?? 1;
-    }
 
     return NextResponse.json(
       { season, uptoWeek: throughWeek, factors, positionFactors },
