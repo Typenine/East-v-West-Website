@@ -171,14 +171,18 @@ export async function buildTeamLineupOptimizerV3(teamName: string): Promise<Line
   return response;
 }
 
-export async function buildLeagueProjectionSnapshotsV3(): Promise<LineupOptimizerResponse[]> {
+export async function buildLeagueProjectionSnapshotsV3(args?: {
+  season?: string;
+  week?: number;
+  saveSnapshots?: boolean;
+}): Promise<LineupOptimizerResponse[]> {
   const [context, state] = await Promise.all([
     loadTradeBlockLeagueContext(),
     getNFLState().catch(() => ({ week: 1, display_week: 1, season: String(new Date().getFullYear()) })),
   ]);
-  const season = String(context.league?.season || state.season || new Date().getFullYear());
-  const week = clamp(Number(state.week ?? state.display_week ?? 1), 1, 18);
-  return buildFromCurrentContext({ context, season, week, saveSnapshots: true });
+  const season = String(args?.season || context.league?.season || state.season || new Date().getFullYear());
+  const week = clamp(Number(args?.week ?? state.week ?? state.display_week ?? 1), 1, 18);
+  return buildFromCurrentContext({ context, season, week, saveSnapshots: args?.saveSnapshots ?? true });
 }
 
 export async function buildHistoricalLeagueWeekV3(args: {
