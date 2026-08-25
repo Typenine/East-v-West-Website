@@ -1,14 +1,52 @@
-import { getLeagueIdForSeason } from '@/lib/constants/league';
-import { getLeagueMatchups, getNFLState } from '@/lib/utils/sleeper-api';
+import { getLeagueIdForSeason } from "@/lib/constants/league";
+import { getLeagueMatchups, getNFLState } from "@/lib/utils/sleeper-api";
 import {
   buildLeagueProjectionSnapshotsV3,
   PROJECTION_MODEL_VERSION,
-} from '@/lib/fantasy/weekly-projections-next';
-import { loadProjectionSnapshotsForWeek } from '@/lib/fantasy/projection-snapshot-store';
+} from "@/lib/fantasy/weekly-projections-next";
+import { loadAllProjectionSnapshotsForWeek } from "@/lib/fantasy/projection-snapshot-store";
 import {
   buildProjectionValidation,
   saveProjectionValidation,
-} from '@/lib/fantasy/projection-calibration';
+} from "@/lib/fantasy/projection-calibration";
+import { loadScheduleWeek } from "@/lib/fantasy/weekly-projection-data";
+import type { LineupOptimizerResponse, WeeklyProjectedPlayer } from "@/lib/fantasy/lineup-types";
+
+type SelectedPregameProjection = {
+  response: LineupOptimizerResponse;
+  player: WeeklyProjectedPlayer;
+  generatedAt: string;
+};
+
+function selectLatestPregameProjections(
+  snapshots: LineupOptimizerResponse[],
+  kickoffByTeam: Record<string, string>,
+): Map<string, SelectedPregameProjection> {
+  const selected = new Map<string, SelectedPregameProjection>();
+
+  for (const response of snapshots) {
+    const generatedMs = Date.parse(response.generatedAt);
+    if (!Number.isFinite(generatedMs)) continue;
+
+    for (const player of response.projectedPlayers || []) {
+      const kickoffIso = player.nflTeam ? kickoffByTeam[player.nflTeam] : undefined;
+      const kickoffMs = kickoffIso ? Date.parse(kickoffIso) : NaN;
+      if (Number.isFinite(kickoffMs) && generatedMs >= kickoffMs) continue;
+
+      const key = `${response.teamName}:${player.id}`;
+      const existing = selected.get(key);
+      if (!existing || Date.parse(existing.generatedAt) < generatedMs) {
+        selected.set(key, {
+          response,
+          player,
+          generatedAt: response.generatedAt,
+        });
+      }
+    }
+  }
+
+  return selected;
+}
 
 export async function runProjectionSnapshotJob() {
   const state = await getNFLState();
@@ -22,11 +60,18 @@ export async function runProjectionSnapshotJob() {
     if (leagueId) {
       const validationRows = [];
       const firstWeek = Math.max(1, currentWeek - 3);
+
       for (let week = firstWeek; week < currentWeek; week += 1) {
-        const [snapshots, matchups] = await Promise.all([
-          loadProjectionSnapshotsForWeek({ season, week, modelVersion: PROJECTION_MODEL_VERSION }),
+        const [snapshots, matchups, schedule] = await Promise.all([
+          loadAllProjectionSnapshotsForWeek({
+            season,
+            week,
+            modelVersion: PROJECTION_MODEL_VERSION,
+          }),
           getLeagueMatchups(leagueId, week).catch(() => []),
+          loadScheduleWeek(String(season), week),
         ]);
+
         const actualByPlayer = new Map<string, number>();
         for (const matchup of matchups) {
           for (const [id, points] of Object.entries(matchup.players_points || {})) {
@@ -34,13 +79,35 @@ export async function runProjectionSnapshotJob() {
             if (Number.isFinite(value)) actualByPlayer.set(id, value);
           }
         }
-        for (const snapshot of snapshots) {
-          const validation = buildProjectionValidation({ response: snapshot, actualByPlayer, source: 'live' });
+
+        const selected = selectLatestPregameProjections(snapshots, schedule.kickoffByTeam);
+        const teams = new Set<string>();
+
+        for (const item of selected.values()) {
+          if (!actualByPlayer.has(item.player.id)) continue;
+          teams.add(item.response.teamName);
+
+          const responseForPlayer: LineupOptimizerResponse = {
+            ...item.response,
+            generatedAt: item.generatedAt,
+            projectedPlayers: [item.player],
+            currentLineup: [],
+            optimalLineup: [],
+            available: false,
+          };
+
+          const validation = buildProjectionValidation({
+            response: responseForPlayer,
+            actualByPlayer,
+            source: "live",
+          });
           validationRows.push(...validation.rows);
           validatedRows += validation.rows.length;
-          validatedTeams += 1;
         }
+
+        validatedTeams += teams.size;
       }
+
       await saveProjectionValidation(validationRows);
     }
   }

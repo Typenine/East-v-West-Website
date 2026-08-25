@@ -10,7 +10,7 @@
     },
     {
       "path": "/api/projections/snapshot/cron",
-      "schedule": "0 13 * * 4"
+      "schedule": "0 13 * * 0,1,4"
     },
     {
       "path": "/api/taxi/prune",

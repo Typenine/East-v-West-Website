@@ -1,5 +1,5 @@
-import { neon } from '@neondatabase/serverless';
-import type { LineupOptimizerResponse } from '@/lib/fantasy/lineup-types';
+import { neon } from "@neondatabase/serverless";
+import type { LineupOptimizerResponse } from "@/lib/fantasy/lineup-types";
 
 function databaseUrl(): string | null {
   return process.env.DATABASE_URL || process.env.POSTGRES_URL || process.env.POSTGRES_PRISMA_URL || null;
@@ -25,7 +25,32 @@ export async function loadProjectionSnapshotsForWeek(args: {
     ` as Array<{ payload: LineupOptimizerResponse }>;
     return rows.map((row) => row.payload).filter(Boolean);
   } catch (error) {
-    console.warn('[projection-snapshots] unable to load weekly snapshots', error);
+    console.warn("[projection-snapshots] unable to load weekly snapshots", error);
+    return [];
+  }
+}
+
+export async function loadAllProjectionSnapshotsForWeek(args: {
+  season: number;
+  week: number;
+  modelVersion?: string;
+}): Promise<LineupOptimizerResponse[]> {
+  const url = databaseUrl();
+  if (!url) return [];
+  try {
+    const sql = neon(url);
+    const version = args.modelVersion || null;
+    const rows = await sql`
+      SELECT payload
+      FROM weekly_projection_snapshots
+      WHERE season = ${args.season}
+        AND week = ${args.week}
+        AND (${version}::text IS NULL OR model_version = ${version})
+      ORDER BY generated_at ASC
+    ` as Array<{ payload: LineupOptimizerResponse }>;
+    return rows.map((row) => row.payload).filter(Boolean);
+  } catch (error) {
+    console.warn("[projection-snapshots] unable to load validation snapshots", error);
     return [];
   }
 }

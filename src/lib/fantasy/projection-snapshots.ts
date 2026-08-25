@@ -1,5 +1,6 @@
-import { neon } from '@neondatabase/serverless';
-import type { LineupOptimizerResponse } from '@/lib/fantasy/lineup-types';
+import { neon } from "@neondatabase/serverless";
+import type { LineupOptimizerResponse } from "@/lib/fantasy/lineup-types";
+import { loadScheduleWeek } from "@/lib/fantasy/weekly-projection-data";
 
 function databaseUrl(): string | null {
   return process.env.DATABASE_URL || process.env.POSTGRES_URL || process.env.POSTGRES_PRISMA_URL || null;
@@ -9,8 +10,26 @@ export async function savePregameProjectionSnapshot(args: {
   response: LineupOptimizerResponse;
   earliestKickoff: string | null;
 }): Promise<void> {
-  const kickoffMs = args.earliestKickoff ? Date.parse(args.earliestKickoff) : NaN;
-  if (Number.isFinite(kickoffMs) && Date.now() >= kickoffMs) return;
+  const now = Date.now();
+  const schedule = await loadScheduleWeek(args.response.season, args.response.week).catch(() => null);
+  const futureKickoffs = (args.response.projectedPlayers || [])
+    .flatMap((player) => {
+      const kickoff = player.nflTeam && schedule?.kickoffByTeam
+        ? schedule.kickoffByTeam[player.nflTeam]
+        : null;
+      const kickoffMs = kickoff ? Date.parse(kickoff) : NaN;
+      return Number.isFinite(kickoffMs) && kickoffMs > now ? [kickoffMs] : [];
+    });
+
+  if (schedule?.hasGames && schedule.seasonValidated && futureKickoffs.length === 0) return;
+
+  const fallbackKickoffMs = args.earliestKickoff ? Date.parse(args.earliestKickoff) : NaN;
+  if (!schedule && Number.isFinite(fallbackKickoffMs) && now >= fallbackKickoffMs) return;
+
+  const nextKickoff = futureKickoffs.length
+    ? new Date(Math.min(...futureKickoffs)).toISOString()
+    : args.earliestKickoff;
+
   const url = databaseUrl();
   if (!url) return;
   try {
@@ -24,14 +43,14 @@ export async function savePregameProjectionSnapshot(args: {
         ${Number(args.response.season)}, ${args.response.week}, ${args.response.teamName},
         ${args.response.modelVersion}, ${args.response.projectionPhase}, ${snapshotDate}::date,
         ${args.response.generatedAt}::timestamptz,
-        ${args.earliestKickoff}::timestamptz,
+        ${nextKickoff}::timestamptz,
         ${JSON.stringify(args.response)}::jsonb
       )
       ON CONFLICT (season, week, team, model_version, phase, snapshot_date)
       DO NOTHING
     `;
   } catch (error) {
-    console.warn('[weekly-projections] unable to save pregame snapshot', error);
+    console.warn("[weekly-projections] unable to save pregame snapshot", error);
   }
 }
 
@@ -55,7 +74,7 @@ export async function loadLatestProjectionSnapshot(args: {
     ` as Array<{ payload: LineupOptimizerResponse }>;
     return rows[0]?.payload || null;
   } catch (error) {
-    console.warn('[weekly-projections] unable to load projection snapshot', error);
+    console.warn("[weekly-projections] unable to load projection snapshot", error);
     return null;
   }
 }
