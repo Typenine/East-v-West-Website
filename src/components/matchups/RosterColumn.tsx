@@ -13,7 +13,7 @@ export type PlayerRow = {
   id: string;
   name: string;
   pos?: string;
-  team?: string; // NFL team code (Sleeper style)
+  team?: string;
   pts: number;
 };
 
@@ -50,6 +50,7 @@ type ScoreboardPayload = {
 type BaselinesPayload = {
   season: string;
   players: number;
+  modelVersion?: string;
   baselines: Record<string, { mean: number; stddev: number; games: number; last3Avg: number; decayedMean: number }>;
 };
 
@@ -63,9 +64,8 @@ function formatKickoff(dateIso?: string) {
   } catch {
     return "";
   }
-} // Added closing brace here
+}
 
-// Helpers for projections
 function parseClockToMinutes(clock?: string): number {
   if (!clock) return 0;
   const m = /^(\d{1,2}):(\d{2})/.exec(clock);
@@ -116,7 +116,6 @@ function contextMultiplier(pos?: string, teamCode?: string, statuses?: Record<st
 }
 
 const POS_DEFAULT_MEAN: Record<string, number> = { QB: 18, RB: 13, WR: 13, TE: 8, K: 8, DEF: 8 };
-
 
 function statusLabelFor(team: string | undefined, statuses: Record<string, TeamStatus | undefined>): {
   label: string;
@@ -257,7 +256,7 @@ export default function RosterColumn({
   availability,
 }: {
   title: string;
-  colorTeam: string; // team name for color styling
+  colorTeam: string;
   week: number;
   season: string;
   currentWeek: number;
@@ -284,7 +283,6 @@ export default function RosterColumn({
   const [flashOn, setFlashOn] = useState<Record<string, boolean>>({});
   const flashTimersRef = useRef<Record<string, number>>({});
   const [baselinesMap, setBaselinesMap] = useState<Record<string, { mean: number; stddev: number; games: number; last3Avg: number; decayedMean: number }>>({});
-  const [defFactors, setDefFactors] = useState<Record<string, number>>({});
 
   useEffect(() => {
     const ids = [...starters, ...bench].map(p => p.id);
@@ -298,25 +296,18 @@ export default function RosterColumn({
     setDeltaMap(next);
   }, [pointsMap, starters, bench]);
 
-  // Trigger a brief flash when a player's points change
   useEffect(() => {
     const ids = [...starters, ...bench].map(p => p.id);
     for (const id of ids) {
       const d = deltaMap[id] || 0;
       if (d !== 0) {
-        // Clear any existing timer
-        if (flashTimersRef.current[id]) {
-          window.clearTimeout(flashTimersRef.current[id]);
-        }
+        if (flashTimersRef.current[id]) window.clearTimeout(flashTimersRef.current[id]);
         setFlashOn((prev) => ({ ...prev, [id]: true }));
         flashTimersRef.current[id] = window.setTimeout(() => {
           setFlashOn((prev) => ({ ...prev, [id]: false }));
         }, 1200);
       }
     }
-    return () => {
-      // nothing to clean here; timers are cleared on re-trigger and unmount
-    };
   }, [deltaMap, starters, bench]);
 
   useEffect(() => {
@@ -324,7 +315,7 @@ export default function RosterColumn({
     async function load() {
       try {
         setError(null);
-        const res = await fetch(`/api/nfl-scoreboard?week=${week}&season=${encodeURIComponent(season)}` , { cache: "no-store" });
+        const res = await fetch(`/api/nfl-scoreboard?week=${week}&season=${encodeURIComponent(season)}`, { cache: "no-store" });
         if (!res.ok) throw new Error("scoreboard fetch failed");
         const data = (await res.json()) as ScoreboardPayload;
         if (!cancelled) setBoard(data);
@@ -340,7 +331,6 @@ export default function RosterColumn({
     };
   }, [week, season]);
 
-  // Poll week stats so totals update during games
   useEffect(() => {
     let cancelled = false;
     async function loadStats() {
@@ -350,11 +340,8 @@ export default function RosterColumn({
         const j = await res.json();
         const next = (j?.stats ?? {}) as Record<string, Partial<Record<string, number>>>;
         if (!cancelled) setStatsLive(next);
-      } catch {
-        // ignore
-      }
+      } catch {}
     }
-    // seed from initial
     setStatsLive(stats || {});
     loadStats();
     statsTimer.current = window.setInterval(loadStats, 30000);
@@ -364,7 +351,6 @@ export default function RosterColumn({
     };
   }, [season, week, stats]);
 
-  // Poll Sleeper matchup points for live deltas (and optional live points display)
   useEffect(() => {
     let cancelled = false;
     async function loadPoints() {
@@ -374,9 +360,7 @@ export default function RosterColumn({
         const j = await r.json();
         const pm = (j?.playerPoints || {}) as Record<string, number>;
         if (!cancelled) setPointsMap(pm);
-      } catch {
-        // ignore
-      }
+      } catch {}
     }
     loadPoints();
     pointsTimer.current = window.setInterval(loadPoints, 30000);
@@ -386,48 +370,26 @@ export default function RosterColumn({
     };
   }, [week]);
 
-  // Fetch baselines for starters + bench to support per-player projections
   useEffect(() => {
     let cancelled = false;
     const ids = Array.from(new Set([...starters, ...bench].map((p) => p.id)));
     if (ids.length === 0) return;
     async function load() {
       try {
-        const url = `/api/player-baselines?season=${encodeURIComponent(season)}&players=${ids.join(',')}`;
-        const r = await fetch(url, { cache: 'force-cache' });
+        const url = `/api/player-baselines?season=${encodeURIComponent(season)}&players=${ids.join(',')}&v=statline-v3.4-free-context`;
+        const r = await fetch(url, { cache: 'no-store' });
         if (!r.ok) return;
         const j = (await r.json()) as BaselinesPayload;
         if (!cancelled) setBaselinesMap(j.baselines || {});
-      } catch {
-        // ignore
-      }
+      } catch {}
     }
     load();
     return () => { cancelled = true; };
   }, [season, starters, bench]);
 
-  // Fetch defensive strength factors (opponent adjustment)
-  useEffect(() => {
-    let cancelled = false;
-    async function loadDef() {
-      try {
-        const upto = Math.max(1, Math.min(17, week - 1));
-        const r = await fetch(`/api/defense-strength?season=${encodeURIComponent(season)}&uptoWeek=${upto}`, { cache: 'force-cache' });
-        if (!r.ok) return;
-        const j = await r.json() as { factors?: Record<string, number> };
-        if (!cancelled) setDefFactors(j.factors || {});
-      } catch {
-        // ignore
-      }
-    }
-    loadDef();
-    return () => { cancelled = true; };
-  }, [season, week]);
-
   const statuses = useMemo(() => board?.teamStatuses ?? {}, [board?.teamStatuses]);
   const isPastWeek = useMemo(() => Number.isFinite(currentWeek) && week < currentWeek, [week, currentWeek]);
 
-  // Roster chips
   const chips = useMemo(() => {
     let ytp = 0, ip = 0, fin = 0;
     const hasStatuses = statuses && Object.keys(statuses).length > 0;
@@ -440,7 +402,6 @@ export default function RosterColumn({
         else if (s.state === "post") fin++;
         else ytp++;
       } else {
-        // No live board entry: assume scheduled for current/future weeks, final for past weeks
         if (isPastWeek) fin++; else ytp++;
       }
     }
@@ -451,10 +412,8 @@ export default function RosterColumn({
   const posTotals = useMemo(() => sumByPositionOrdered(starters), [starters]);
   const benchTotal = useMemo(() => bench.reduce((sum, b) => sum + (b.pts || 0), 0), [bench]);
   const teamDelta = useMemo(() => starters.reduce((acc, p) => acc + (deltaMap[p.id] || 0), 0), [deltaMap, starters]);
-
   const teamStyle = getTeamColorStyle(colorTeam);
 
-  // Starter status counts for quick filter buttons
   const starterCounts = useMemo(() => {
     let ytp = 0, ip = 0, fin = 0;
     for (const s of starters) {
@@ -476,7 +435,6 @@ export default function RosterColumn({
     });
   }, [filter, starters, statuses, isPastWeek]);
 
-  // Projected totals per player (final = current points + expected remaining)
   const projTotals = useMemo(() => {
     const map: Record<string, number> = {};
     const starterSet = new Set(starters.map((p) => p.id));
@@ -492,28 +450,21 @@ export default function RosterColumn({
       const isStarter = starterSet.has(s.id);
       const hasHistory = games > 0;
       let shouldProject = isStarter || hasHistory || hasLiveActivity || curPts > 0;
-      // Depth chart guard: suppress projections for backup QBs with no history/snaps
-      if (!isStarter && pos === 'QB' && !hasLiveActivity && curPts === 0 && !hasHistory) {
-        shouldProject = false;
-      }
+      if (!isStarter && pos === 'QB' && !hasLiveActivity && curPts === 0 && !hasHistory) shouldProject = false;
 
       const availabilityWeightRaw = availability?.[s.id]?.weight;
       const availabilityWeight = Number.isFinite(availabilityWeightRaw) ? Math.max(0, Math.min(1, availabilityWeightRaw as number)) : 1;
       if (availabilityWeight === 0) shouldProject = false;
 
-      const recent = (b?.decayedMean ?? 0) > 0 ? b!.decayedMean : ((b?.last3Avg ?? 0) > 0 ? b!.last3Avg : (b?.mean ?? basePos));
-      const recencyWeight = (b?.decayedMean ?? 0) > 0 ? 0.7 : ((b?.last3Avg ?? 0) > 0 ? 0.6 : 0);
-      const recencyMean = (recencyWeight * recent) + ((1 - recencyWeight) * (b?.mean ?? basePos));
-      const alpha = Math.max(0, Math.min(1, games / 6));
-      const fullMean = (alpha * recencyMean) + ((1 - alpha) * basePos);
-
+      // The API now supplies the V3 full-game projection as the authoritative baseline.
+      // Do not shrink it back toward generic positional defaults or re-apply matchup strength.
+      const fullMean = b && Number.isFinite(b.mean) && b.mean > 0 ? b.mean : basePos;
       const frac = shouldProject ? fractionRemainingForTeam(s.team, statuses, isPastWeek) : 0;
       const teamCode = normalizeTeamCode(s.team);
-      const oppCode = teamCode ? (statuses[teamCode]?.opponent || '') : '';
-      const defMul = oppCode ? (defFactors[oppCode.toUpperCase()] ?? 1) : 1;
       const ctx = shouldProject ? contextMultiplier(pos, s.team, statuses) : 1;
 
-      let touches = 0; let expectedTouches = 0;
+      let touches = 0;
+      let expectedTouches = 0;
       if (shouldProject && teamCode && statuses[teamCode]?.state === 'in') {
         const fracElapsed = 1 - frac;
         if (pos === 'QB') {
@@ -523,24 +474,23 @@ export default function RosterColumn({
           touches = (st['rush_att'] ?? 0) + (st['targets'] ?? 0);
           expectedTouches = 18 * fracElapsed;
         } else if (pos === 'WR') {
-          touches = (st['targets'] ?? 0);
+          touches = st['targets'] ?? 0;
           expectedTouches = 8 * fracElapsed;
         } else if (pos === 'TE') {
-          touches = (st['targets'] ?? 0);
+          touches = st['targets'] ?? 0;
           expectedTouches = 6 * fracElapsed;
         }
       }
-      const usageRatio = expectedTouches > 0 ? (touches / expectedTouches) : 1;
+      const usageRatio = expectedTouches > 0 ? touches / expectedTouches : 1;
       const usageMul = Math.max(0.85, Math.min(1.15, usageRatio));
 
-      const expectedRem = shouldProject ? (fullMean * frac * ctx * defMul * usageMul * availabilityWeight) : 0;
+      const expectedRem = shouldProject ? (fullMean * frac * ctx * usageMul * availabilityWeight) : 0;
       const total = curPts + expectedRem;
       map[s.id] = Number.isFinite(total) ? total : curPts;
     }
     return map;
-  }, [starters, bench, baselinesMap, statuses, isPastWeek, pointsMap, defFactors, statsLive, availability]);
+  }, [starters, bench, baselinesMap, statuses, isPastWeek, pointsMap, statsLive, availability]);
 
-  // Team total projected (final) using starters only (sum of per-player projections)
   const projTeamTotal = useMemo(() => {
     let sum = 0;
     for (const s of starters) {
@@ -553,9 +503,7 @@ export default function RosterColumn({
 
   return (
     <Card>
-      <CardHeader className="sticky top-0 z-20 backdrop-blur supports-[backdrop-filter]:bg-[color-mix(in_srgb,var(--surface)_85%,transparent)]"
-        style={teamStyle}
-      >
+      <CardHeader className="sticky top-0 z-20 backdrop-blur supports-[backdrop-filter]:bg-[color-mix(in_srgb,var(--surface)_85%,transparent)]" style={teamStyle}>
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center overflow-hidden">
             <Image src={getTeamLogoPath(colorTeam)} alt={colorTeam} width={28} height={28} className="object-contain" />
@@ -568,32 +516,22 @@ export default function RosterColumn({
             </div>
             <div className="flex items-center gap-2">
               <button type="button" onClick={() => setShowDelta(v => !v)} className="text-xs px-2 py-0.5 rounded-md border border-[var(--border)] hover:bg-black/10">Δ {showDelta ? 'ON' : 'OFF'}</button>
-              {showDelta && (
-                <div className={`text-sm font-semibold ${teamDelta > 0 ? 'text-green-200' : teamDelta < 0 ? 'text-red-200' : 'text-white/80'}`}>{teamDelta > 0 ? `+${teamDelta.toFixed(2)}` : teamDelta.toFixed(2)}</div>
-              )}
+              {showDelta && <div className={`text-sm font-semibold ${teamDelta > 0 ? 'text-green-200' : teamDelta < 0 ? 'text-red-200' : 'text-white/80'}`}>{teamDelta > 0 ? `+${teamDelta.toFixed(2)}` : teamDelta.toFixed(2)}</div>}
             </div>
           </div>
         </div>
-        {/* Roster chips */}
         <div className="mt-2 flex flex-wrap gap-2 text-xs">
-          {posTotals.map(([pos, val]) => (
-            <span key={pos} className="px-2 py-0.5 rounded-full bg-black/10 text-white/90">{pos} {val.toFixed(1)}</span>
-          ))}
+          {posTotals.map(([pos, val]) => <span key={pos} className="px-2 py-0.5 rounded-full bg-black/10 text-white/90">{pos} {val.toFixed(1)}</span>)}
           <span className="px-2 py-0.5 rounded-full bg-black/10 text-white/90">Bench {benchTotal.toFixed(1)}</span>
           <span className="px-2 py-0.5 rounded-full bg-black/20 text-white">Players remaining: {chips.playersRemaining}</span>
           <span className="px-2 py-0.5 rounded-full bg-black/15 text-white/90">FIN {chips.fin}</span>
         </div>
-        {headerExtras ? (
-          <div className="mt-2">
-            {headerExtras}
-          </div>
-        ) : null}
+        {headerExtras ? <div className="mt-2">{headerExtras}</div> : null}
         {error ? <div className="mt-1 text-xs">{error}</div> : null}
       </CardHeader>
 
       <CardContent>
         <h3 className="text-sm font-semibold mb-2">Starters</h3>
-        {/* Quick filters */}
         <div className="mb-3 flex flex-wrap gap-2" role="tablist" aria-label="Filter starters by status">
           <button type="button" className={`px-2 py-1 rounded-md text-xs border ${filter === 'ALL' ? 'bg-[var(--accent)] text-white border-[var(--accent)]' : 'evw-surface text-[var(--text)] border-[var(--border)]'}`} aria-pressed={filter === 'ALL'} onClick={() => setFilter('ALL')}>All ({starterCounts.all})</button>
           <button type="button" className={`px-2 py-1 rounded-md text-xs border ${filter === 'IP' ? 'bg-[var(--accent)] text-white border-[var(--accent)]' : 'evw-surface text-[var(--text)] border-[var(--border)]'}`} aria-pressed={filter === 'IP'} onClick={() => setFilter('IP')}>IP ({starterCounts.ip})</button>
@@ -604,9 +542,7 @@ export default function RosterColumn({
           {(startersFiltered.length > 0 ? startersFiltered : starters).map((s) => {
             const { label, bucket, possession } = (() => {
               const res = statusLabelFor(s.team, statuses);
-              if (res.bucket === 'NA') {
-                return isPastWeek ? { label: 'Final', bucket: 'FIN' as const, possession: false } : { label: 'Scheduled', bucket: 'YTP' as const, possession: false };
-              }
+              if (res.bucket === 'NA') return isPastWeek ? { label: 'Final', bucket: 'FIN' as const, possession: false } : { label: 'Scheduled', bucket: 'YTP' as const, possession: false };
               return res;
             })();
             const dotCls = possession ? "bg-[var(--accent)]" : "bg-[var(--muted)]";
@@ -623,17 +559,9 @@ export default function RosterColumn({
                 <div className="min-w-0">
                   <div className="font-medium truncate flex items-center gap-2">
                     <span className="text-xs text-[var(--muted)] w-8 inline-block">{s.pos || "—"}</span>
-                    <button
-                      type="button"
-                      className="truncate text-left hover:underline"
-                      onClick={() => { setDrawerPlayer(s); setDrawerOpen(true); }}
-                    >
-                      {s.name}
-                    </button>
+                    <button type="button" className="truncate text-left hover:underline" onClick={() => { setDrawerPlayer(s); setDrawerOpen(true); }}>{s.name}</button>
                   </div>
-                  {formatted && (
-                    <div className="text-xs text-[var(--muted)]">{formatted}</div>
-                  )}
+                  {formatted && <div className="text-xs text-[var(--muted)]">{formatted}</div>}
                   <div className={`text-xs ${bucketColor} flex items-center gap-2`}>
                     <span className={`inline-block w-2 h-2 rounded-full ${dotCls}`} aria-hidden />
                     <span>{label}</span>
@@ -643,9 +571,7 @@ export default function RosterColumn({
                 </div>
                 <div className="text-right">
                   <div className="font-bold tabular-nums text-base">{curPts.toFixed(2)}</div>
-                  {showDelta && (
-                    <div className={`text-xs tabular-nums ${d > 0 ? 'text-green-600' : d < 0 ? 'text-red-600' : 'text-[var(--muted)]'}`}>{d > 0 ? `+${d.toFixed(2)}` : d.toFixed(2)}</div>
-                  )}
+                  {showDelta && <div className={`text-xs tabular-nums ${d > 0 ? 'text-green-600' : d < 0 ? 'text-red-600' : 'text-[var(--muted)]'}`}>{d > 0 ? `+${d.toFixed(2)}` : d.toFixed(2)}</div>}
                   <div className="text-[0.75rem] text-[var(--text)] font-medium">(Proj {((projTotals[s.id] ?? curPts)).toFixed(1)})</div>
                 </div>
               </li>
@@ -671,17 +597,9 @@ export default function RosterColumn({
                 <div className="min-w-0">
                   <div className="font-medium truncate flex items-center gap-2">
                     <span className="text-xs text-[var(--muted)] w-8 inline-block">{s.pos || "—"}</span>
-                    <button
-                      type="button"
-                      className="truncate text-left hover:underline"
-                      onClick={() => { setDrawerPlayer(s); setDrawerOpen(true); }}
-                    >
-                      {s.name}
-                    </button>
+                    <button type="button" className="truncate text-left hover:underline" onClick={() => { setDrawerPlayer(s); setDrawerOpen(true); }}>{s.name}</button>
                   </div>
-                  {formatted && (
-                    <div className="text-xs text-[var(--muted)]">{formatted}</div>
-                  )}
+                  {formatted && <div className="text-xs text-[var(--muted)]">{formatted}</div>}
                   <div className={`text-xs ${bucketColor} flex items-center gap-2`}>
                     <span className={`inline-block w-2 h-2 rounded-full ${dotCls}`} aria-hidden />
                     <span>{label}</span>
@@ -691,9 +609,7 @@ export default function RosterColumn({
                 </div>
                 <div className="text-right">
                   <div className="font-bold tabular-nums text-base">{curPts.toFixed(2)}</div>
-                  {showDelta && (
-                    <div className={`text-xs tabular-nums ${d > 0 ? 'text-green-600' : d < 0 ? 'text-red-600' : 'text-[var(--muted)]'}`}>{d > 0 ? `+${d.toFixed(2)}` : d.toFixed(2)}</div>
-                  )}
+                  {showDelta && <div className={`text-xs tabular-nums ${d > 0 ? 'text-green-600' : d < 0 ? 'text-red-600' : 'text-[var(--muted)]'}`}>{d > 0 ? `+${d.toFixed(2)}` : d.toFixed(2)}</div>}
                   <div className="text-[0.75rem] text-[var(--text)] font-medium">(Proj {((projTotals[s.id] ?? curPts)).toFixed(1)})</div>
                 </div>
               </li>
@@ -701,7 +617,6 @@ export default function RosterColumn({
           }) : <li className="text-sm text-[var(--muted)]">No bench players listed.</li>}
         </ul>
       </CardContent>
-      {/* Player Drawer for details */}
       <PlayerDrawer
         open={drawerOpen}
         onClose={() => setDrawerOpen(false)}
