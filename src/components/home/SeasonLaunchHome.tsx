@@ -51,7 +51,7 @@ export default async function SeasonLaunchHome({
   let leagueId = LEAGUE_IDS.CURRENT;
   let selectedWeek = 1;
   let standings: StandingsTeam[] = [];
-  let matchups: SeasonHomeMatchup[] = [];
+  const matchups: SeasonHomeMatchup[] = [];
   let myTeamData: MyTeamData | null = null;
   let tradeRows: TeamRow[] = [];
 
