@@ -2,6 +2,7 @@ import Link from 'next/link';
 import SectionHeader from '@/components/ui/SectionHeader';
 import PlayoffScenarioLab, { type PlayoffLabGame, type PlayoffLabTeam } from '@/components/standings/PlayoffScenarioLab';
 import { CURRENT_SEASON, LEAGUE_IDS } from '@/lib/constants/league';
+import { buildLeagueProjectionSnapshotsV3 } from '@/lib/fantasy/weekly-projections-next';
 import {
   getLeague,
   getLeagueMatchups,
@@ -37,9 +38,22 @@ export default async function PlayoffLabPage() {
   const regularSeasonEnd = clamp(playoffStartWeek - 1, 1, 17);
   const currentWeek = clamp(Number((nflState as { week?: number }).week ?? 1), 1, regularSeasonEnd);
 
-  const historyWeeks = Array.from({ length: Math.max(0, currentWeek - 1) }, (_, index) => index + 1);
-  const history = await Promise.all(
-    historyWeeks.map((week) => getLeagueMatchups(leagueId, week).catch(() => [] as SleeperMatchup[])),
+  const [history, currentProjections] = await Promise.all([
+    Promise.all(
+      Array.from({ length: Math.max(0, currentWeek - 1) }, (_, index) => index + 1)
+        .map((week) => getLeagueMatchups(leagueId, week).catch(() => [] as SleeperMatchup[])),
+    ),
+    buildLeagueProjectionSnapshotsV3({
+      season: CURRENT_SEASON,
+      week: currentWeek,
+      saveSnapshots: false,
+    }).catch(() => []),
+  ]);
+
+  const projectionByTeam = new Map(
+    currentProjections
+      .filter((projection) => Number.isFinite(projection.optimalTotal ?? NaN))
+      .map((projection) => [projection.teamName, Number(projection.optimalTotal)] as const),
   );
 
   const weeklyScores = new Map<number, number[]>();
@@ -56,7 +70,11 @@ export default async function PlayoffLabPage() {
   const teams: PlayoffLabTeam[] = teamsData.map((team) => {
     const scores = weeklyScores.get(team.rosterId) || [];
     const gamesPlayed = Math.max(0, team.wins + team.losses + team.ties);
-    const ppg = gamesPlayed > 0 ? team.fpts / gamesPlayed : 125;
+    const actualPpg = gamesPlayed > 0 ? team.fpts / gamesPlayed : null;
+    const projectedPpg = projectionByTeam.get(team.teamName) ?? null;
+    const ppg = actualPpg !== null && projectedPpg !== null
+      ? (actualPpg * 0.7) + (projectedPpg * 0.3)
+      : actualPpg ?? projectedPpg ?? 125;
     const mean = scores.length ? scores.reduce((sum, value) => sum + value, 0) / scores.length : ppg;
     const variance = scores.length > 1
       ? scores.reduce((sum, value) => sum + Math.pow(value - mean, 2), 0) / scores.length
@@ -70,7 +88,7 @@ export default async function PlayoffLabPage() {
       ties: team.ties,
       pointsFor: team.fpts,
       gamesPlayed,
-      ppg: Number((ppg || 125).toFixed(2)),
+      ppg: Number(ppg.toFixed(2)),
       scoreStdDev: Math.max(10, Math.min(35, Math.sqrt(variance) || 18)),
     };
   });
