@@ -1,6 +1,8 @@
 "use client";
 
+import Link from "next/link";
 import { ReactNode, useEffect, useMemo, useState } from "react";
+import { usePathname } from "next/navigation";
 import { Chip } from "@/components/ui/Chip";
 
 export type Tab = { id: string; label: string; content: ReactNode };
@@ -22,6 +24,9 @@ export function Tabs({
   lazyPanels?: boolean;
   lazyMode?: "unmount-inactive" | "mount-once";
 }) {
+  const pathname = usePathname();
+  const teamPageMatch = pathname?.match(/^\/teams\/(\d+)$/);
+  const teamHealthHref = teamPageMatch ? `/teams/${teamPageMatch[1]}/health` : null;
   const fallbackId = useMemo(() => tabs[0]?.id, [tabs]);
   const [internalActive, setInternalActive] = useState(initialId ?? fallbackId);
   const [visited, setVisited] = useState<Record<string, boolean>>(() => {
@@ -70,6 +75,13 @@ export function Tabs({
             {t.label}
           </Chip>
         ))}
+        {teamHealthHref && (
+          <Link href={teamHealthHref} className="shrink-0 whitespace-nowrap">
+            <Chip variant="accent" size="md" className="cursor-pointer whitespace-nowrap">
+              Health
+            </Chip>
+          </Link>
+        )}
       </div>
       <div>
         {tabs.map((t) => (
