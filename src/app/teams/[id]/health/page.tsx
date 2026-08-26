@@ -21,6 +21,7 @@ type LoosePlayer = SleeperPlayer & {
   injury_status?: string | null;
   status?: string | null;
   bye_week?: number | string | null;
+  practice_participation?: string | null;
 };
 
 type LooseInjury = SleeperInjury & {
@@ -47,6 +48,10 @@ function normalizedStatus(player: LoosePlayer | undefined, injury: LooseInjury |
   const raw = String(injury?.status || player?.injury_status || player?.status || '').trim();
   if (!raw || raw.toLowerCase() === 'active') return 'Healthy';
   return raw;
+}
+
+function normalizedPractice(player: LoosePlayer | undefined, injury: LooseInjury | undefined) {
+  return String(injury?.practice_participation || player?.practice_participation || '').trim();
 }
 
 function severityFor(status: string, practice: string, onReserve: boolean, availabilityPct: number) {
@@ -90,7 +95,7 @@ function HealthTable({ rows }: { rows: HealthRow[] }) {
               <td className="px-3 py-3">
                 <span className={`inline-flex rounded-full border px-2 py-1 text-[11px] font-bold ${statusClasses(row.severity)}`}>{row.status}</span>
               </td>
-              <td className="px-3 py-3 text-xs text-[var(--muted)]">{row.practice || '—'}</td>
+              <td className="px-3 py-3 text-xs text-[var(--muted)]">{row.practice || 'No official report'}</td>
               <td className="px-3 py-3 font-bold tabular-nums">{row.availabilityPct}%</td>
               <td className="px-3 py-3 text-xs text-[var(--muted)]">{row.onReserve ? 'Reserve' : row.onTaxi ? 'Taxi' : 'Active'}</td>
               <td className="px-3 py-3 text-xs text-[var(--muted)]">{row.byeWeek ?? '—'}</td>
@@ -112,7 +117,7 @@ export default async function TeamHealthPage({ params }: { params: Promise<{ id:
     getAllPlayersCached().catch(() => ({} as Record<string, SleeperPlayer>)),
     getSleeperInjuriesCached().catch(() => [] as SleeperInjury[]),
     getRosterIdToTeamNameMap(leagueId).catch(() => new Map<number, string>()),
-    getNFLState().catch(() => ({ week: 1 } as { week?: number })),
+    getNFLState().catch(() => ({ week: 1, season_type: 'regular' } as { week?: number; season_type?: string })),
   ]);
 
   const roster = rosters.find((entry) => entry.roster_id === rosterId);
@@ -128,7 +133,10 @@ export default async function TeamHealthPage({ params }: { params: Promise<{ id:
   const playerIds = Array.from(new Set((roster.players || []).filter(Boolean)));
   const reserve = new Set((roster.reserve || []).filter(Boolean));
   const taxi = new Set((roster.taxi || []).filter(Boolean));
-  const currentWeek = Math.max(1, Number((nflState as { week?: number }).week ?? 1));
+  const state = nflState as { week?: number; season_type?: string };
+  const seasonType = String(state.season_type || '').toLowerCase();
+  const isPreseason = seasonType === 'pre' || seasonType === 'preseason';
+  const currentWeek = isPreseason ? 1 : Math.max(1, Number(state.week ?? 1));
   const availability = await buildPlayerAvailabilitySnapshot({ leagueId, uptoWeek: currentWeek, playerIds });
   const injuryMap = new Map((injuries as LooseInjury[]).map((injury) => [injury.player_id, injury]));
 
@@ -137,7 +145,7 @@ export default async function TeamHealthPage({ params }: { params: Promise<{ id:
     const injury = injuryMap.get(playerId);
     const entry = availability[playerId];
     const status = normalizedStatus(player, injury);
-    const practice = String(injury?.practice_participation || '').trim();
+    const practice = normalizedPractice(player, injury);
     const availabilityPct = Math.round((entry?.weight ?? 0.92) * 100);
     const rawBye = player?.bye_week;
     const byeWeek = rawBye === null || rawBye === undefined || rawBye === '' ? null : Number(rawBye);
@@ -165,6 +173,7 @@ export default async function TeamHealthPage({ params }: { params: Promise<{ id:
   const outCount = rows.filter((row) => row.severity >= 4).length;
   const questionableCount = rows.filter((row) => row.severity === 2 || row.severity === 3).length;
   const practiceCount = rows.filter((row) => /limited|dnp|did not practice/i.test(row.practice)).length;
+  const reportsAvailable = rows.filter((row) => row.practice).length;
   const teamName = nameMap.get(rosterId) || `Roster ${rosterId}`;
 
   return (
@@ -184,6 +193,19 @@ export default async function TeamHealthPage({ params }: { params: Promise<{ id:
         <Card><CardContent className="pt-5"><div className="text-2xl font-black">{practiceCount}</div><div className="text-xs text-[var(--muted)]">Practice limitations</div></CardContent></Card>
       </div>
 
+      <Card className="mt-5">
+        <CardContent className="pt-5">
+          <div className="text-sm font-bold">Practice report coverage</div>
+          <p className="mt-1 text-xs leading-relaxed text-[var(--muted)]">
+            {isPreseason
+              ? 'Preseason: official regular-season practice participation reports have not started yet, so most players will show “No official report.” Once teams begin publishing official weekly injury reports, Sleeper practice data will populate here automatically.'
+              : reportsAvailable > 0
+                ? `${reportsAvailable} player${reportsAvailable === 1 ? '' : 's'} on this roster currently have official practice participation data. “No official report” means Sleeper has not published a participation designation for that player yet.`
+                : 'No official practice participation has been published for this roster yet. NFL practice participation is generally reported during the regular-season injury-report cycle, not continuously every day.'}
+          </p>
+        </CardContent>
+      </Card>
+
       <div className="mt-5 space-y-5">
         <Card>
           <CardHeader><CardTitle>Needs Attention</CardTitle></CardHeader>
@@ -201,7 +223,7 @@ export default async function TeamHealthPage({ params }: { params: Promise<{ id:
       </div>
 
       <div className="mt-3 text-xs text-[var(--muted)]">
-        Updated from free live sources: Sleeper roster/player injury and practice metadata, with ESPN depth-chart context through the existing East v. West availability model. Week {currentWeek}.
+        Updated from free live sources: Sleeper roster/player injury and practice metadata, with ESPN depth-chart context through the existing East v. West availability model.
       </div>
     </div>
   );
