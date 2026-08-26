@@ -4,6 +4,8 @@ import { BroadcastPanel } from '@/components/ui/BroadcastPanel';
 import { broadcastBodyTextStyle, broadcastMutedTextStyle, PANEL } from '@/lib/ui/broadcast-styles';
 import type { StandingsTeam } from '@/components/home/PlayoffRacePanel';
 
+const PLAYOFF_TEAMS = 7;
+
 export default function InSeasonStandings({ standings }: { standings: StandingsTeam[] }) {
   const rows = [...standings].sort((a, b) => a.seed - b.seed);
   const hasGames = rows.some((team) => team.wins + team.losses > 0);
@@ -19,7 +21,7 @@ export default function InSeasonStandings({ standings }: { standings: StandingsT
           </Link>
         }
       />
-      <BroadcastPanel accent="#2563eb" title="League table" meta={hasGames ? 'Top 6 make the playoffs' : 'Preseason'}>
+      <BroadcastPanel accent="#2563eb" title="League table" meta="Top 7 make the playoffs">
         <div className="overflow-x-auto">
           <table className="w-full min-w-[560px] text-sm">
             <thead>
@@ -35,14 +37,15 @@ export default function InSeasonStandings({ standings }: { standings: StandingsT
               {rows.map((team, index) => {
                 const games = team.wins + team.losses;
                 const avg = games > 0 ? team.fpts / games : 0;
-                const playoffLine = hasGames && index === 5;
+                const firstOutsidePlayoffs = index === PLAYOFF_TEAMS;
                 return (
                   <tr
                     key={team.rosterId}
                     className="border-t"
                     style={{
-                      borderColor: playoffLine ? '#2563eb' : PANEL.hairline,
-                      background: hasGames && team.seed <= 6 ? 'rgba(37,99,235,0.045)' : 'transparent',
+                      borderColor: firstOutsidePlayoffs ? '#2563eb' : PANEL.hairline,
+                      borderTopWidth: firstOutsidePlayoffs ? 2 : 1,
+                      background: team.seed <= PLAYOFF_TEAMS ? 'rgba(37,99,235,0.045)' : 'transparent',
                     }}
                   >
                     <td className="px-3 py-3 font-black tabular-nums" style={broadcastMutedTextStyle}>{team.seed}</td>
@@ -55,6 +58,10 @@ export default function InSeasonStandings({ standings }: { standings: StandingsT
               })}
             </tbody>
           </table>
+        </div>
+        <div className="mt-2 flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.12em]" style={broadcastMutedTextStyle}>
+          <span className="h-0.5 w-8 bg-[#2563eb]" aria-hidden="true" />
+          Playoff cutoff after 7th
         </div>
       </BroadcastPanel>
     </section>
