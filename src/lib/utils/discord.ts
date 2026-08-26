@@ -30,6 +30,7 @@ export interface DiscordWebhookHealth {
 }
 
 const CANONICAL_SITE_URL = 'https://east-v-west.com';
+const PUBLIC_VERCEL_SITE_URL = 'https://east-v-west-website.vercel.app';
 
 /** Normalize production URL configuration before it is placed in a Discord embed. */
 export function normalizeSiteUrl(siteUrl?: string): string {
@@ -41,7 +42,17 @@ export function normalizeSiteUrl(siteUrl?: string): string {
   const candidate = hasProtocol ? value : `${isLocal ? 'http' : 'https'}://${value}`;
 
   try {
-    return new URL(candidate).origin;
+    const parsed = new URL(candidate);
+    const hostname = parsed.hostname.toLowerCase();
+
+    // VERCEL_URL and branch/preview aliases can point at deployments protected by
+    // Vercel Authentication. Discord links must always use the public production
+    // alias instead of sending league members to a Vercel sign-in screen.
+    if (hostname.endsWith('.vercel.app') && hostname !== 'east-v-west-website.vercel.app') {
+      return PUBLIC_VERCEL_SITE_URL;
+    }
+
+    return parsed.origin;
   } catch {
     return CANONICAL_SITE_URL;
   }
