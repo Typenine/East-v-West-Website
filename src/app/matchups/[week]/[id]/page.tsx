@@ -14,6 +14,7 @@ import {
 } from '@/lib/utils/sleeper-api';
 import RosterColumn, { type PlayerRow } from '@/components/matchups/RosterColumn';
 import WinProbability from '@/components/matchups/WinProbability';
+import OpponentScoutingReport from '@/components/matchups/OpponentScoutingReport';
 import { buildPlayerAvailabilitySnapshot } from '@/lib/utils/player-availability';
 
 export const dynamic = 'force-dynamic';
@@ -37,7 +38,6 @@ export default async function MatchupDetailPage({ params }: { params?: Promise<R
   const leagueId = LEAGUE_IDS.CURRENT;
 
   try {
-    // Fetch everything we need
     const [matchups, nameMap, players, state] = await Promise.all([
       getLeagueMatchups(leagueId, week).catch(() => [] as SleeperMatchup[]),
       getRosterIdToTeamNameMap(leagueId).catch(() => new Map<number, string>()),
@@ -45,7 +45,6 @@ export default async function MatchupDetailPage({ params }: { params?: Promise<R
       getNFLState().catch(() => ({ season: String(new Date().getFullYear()) } as { season: string })),
     ]);
 
-    // Group by matchup_id
     const byId = new Map<number, SleeperMatchup[]>();
     for (const m of matchups) {
       const arr = byId.get(m.matchup_id) || [];
@@ -76,14 +75,12 @@ export default async function MatchupDetailPage({ params }: { params?: Promise<R
       );
     }
 
-    // Normalize two sides
-    const [a, b] = pair; // two rosters
+    const [a, b] = pair;
     const aName = nameMap.get(a.roster_id) ?? `Roster ${a.roster_id}`;
     const bName = nameMap.get(b.roster_id) ?? `Roster ${b.roster_id}`;
     const aPts = (a.custom_points ?? a.points ?? 0);
     const bPts = (b.custom_points ?? b.points ?? 0);
 
-    // Helpers to build rows
     function buildRowsFromIds(ids: string[], m: SleeperMatchup): PlayerRow[] {
       const pp = (m.players_points || {}) as Record<string, number>;
       const out: PlayerRow[] = [];
@@ -119,7 +116,6 @@ export default async function MatchupDetailPage({ params }: { params?: Promise<R
     const aBench = buildBenchRows(a);
     const bBench = buildBenchRows(b);
 
-    // Fetch weekly stats for this season/week for stat lines beneath player names
     const season = (state as { season?: string }).season || String(new Date().getFullYear());
     const currentWeek = Number((state as { week?: number }).week ?? week);
     let weekStats: Record<string, Partial<Record<string, number>>> = {};
@@ -156,8 +152,6 @@ export default async function MatchupDetailPage({ params }: { params?: Promise<R
               )
           }
         />
-
-        {/* Inline WP bars moved under each team header */}
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
           <RosterColumn
@@ -220,7 +214,14 @@ export default async function MatchupDetailPage({ params }: { params?: Promise<R
           />
         </div>
 
-        {/* Other matchups in this week */}
+        <OpponentScoutingReport
+          leagueId={leagueId}
+          week={week}
+          left={{ name: bName, rosterId: b.roster_id, starters: bStarters.map((player) => player.id) }}
+          right={{ name: aName, rosterId: a.roster_id, starters: aStarters.map((player) => player.id) }}
+          availability={availability}
+        />
+
         {Array.from(byId.entries()).filter(([mid]) => mid !== matchupId).length > 0 && (
           <div className="mb-8">
             <h3 className="text-sm font-semibold mb-2">Other matchups</h3>
