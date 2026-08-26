@@ -76,10 +76,13 @@ export function Tabs({
           </Chip>
         ))}
         {teamHealthHref && (
-          <Link href={teamHealthHref} className="shrink-0 whitespace-nowrap">
-            <Chip variant="accent" size="md" className="cursor-pointer whitespace-nowrap">
-              Health
-            </Chip>
+          <Link
+            href={teamHealthHref}
+            role="tab"
+            aria-selected="false"
+            className="inline-flex shrink-0 items-center rounded-full border px-3 py-1.5 text-sm whitespace-nowrap pill pill-hover text-[var(--muted)] transition-colors"
+          >
+            Health
           </Link>
         )}
       </div>
