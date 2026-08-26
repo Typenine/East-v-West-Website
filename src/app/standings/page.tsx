@@ -1,8 +1,9 @@
 'use client';
 
+import Link from 'next/link';
 import { useState, useEffect, useCallback } from 'react';
 import { getTeamsData, TeamData, getCurrentStreaksForLeague } from '@/lib/utils/sleeper-api';
-import { getLeagueIdForSeason } from '@/lib/constants/league';
+import { CURRENT_SEASON, getLeagueIdForSeason } from '@/lib/constants/league';
 import LoadingState from '@/components/ui/loading-state';
 import ErrorState from '@/components/ui/error-state';
 import SectionHeader from '@/components/ui/SectionHeader';
@@ -20,7 +21,7 @@ import {
 type SortKey = 'wins' | 'losses' | 'ties' | 'fpts' | 'fptsAgainst';
 type SortDirection = 'asc' | 'desc';
 
-const SEASON_OPTIONS = ['2025', '2024', '2023'];
+const SEASON_OPTIONS = [CURRENT_SEASON, '2025', '2024', '2023'];
 
 const thClass = 'px-4 py-3 text-left text-[10px] font-bold uppercase tracking-[0.18em] sm:px-5';
 
@@ -28,7 +29,7 @@ export default function StandingsPage() {
   const [teams, setTeams] = useState<TeamData[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [selectedYear, setSelectedYear] = useState('2025');
+  const [selectedYear, setSelectedYear] = useState(CURRENT_SEASON);
   const [streaks, setStreaks] = useState<Record<number, { type: 'W' | 'L' | 'T' | null; length: number }>>({});
   const [sortConfig, setSortConfig] = useState<{ key: SortKey; direction: SortDirection }>({
     key: 'wins',
@@ -38,7 +39,6 @@ export default function StandingsPage() {
   const fetchStandings = useCallback(async () => {
     try {
       setLoading(true);
-      // Get the league ID for the selected year
       const leagueId = getLeagueIdForSeason(selectedYear);
       if (!leagueId) {
         throw new Error(`No league ID found for season ${selectedYear}`);
@@ -64,44 +64,33 @@ export default function StandingsPage() {
   
   const handleSort = (key: SortKey) => {
     let direction: SortDirection = 'desc';
-    
     if (sortConfig.key === key && sortConfig.direction === 'desc') {
       direction = 'asc';
     }
-    
     setSortConfig({ key, direction });
   };
   
   const sortedTeams = [...teams].sort((a, b) => {
-    // First sort by the selected key
     if (a[sortConfig.key] > b[sortConfig.key]) {
       return sortConfig.direction === 'asc' ? 1 : -1;
     }
     if (a[sortConfig.key] < b[sortConfig.key]) {
       return sortConfig.direction === 'asc' ? -1 : 1;
     }
-    
-    // If tied on primary sort, use points for as tiebreaker
     if (sortConfig.key !== 'fpts') {
-      if (a.fpts > b.fpts) {
-        return -1;
-      }
-      if (a.fpts < b.fpts) {
-        return 1;
-      }
+      if (a.fpts > b.fpts) return -1;
+      if (a.fpts < b.fpts) return 1;
     }
-    
     return 0;
   });
   
-  // Assign seeds to sorted teams
   const teamsWithSeeds = sortedTeams.map((team, index) => ({
     ...team,
     seed: index + 1
   }));
   
   const seasonTabs = (
-    <div className="mt-4 flex gap-2" role="tablist" aria-orientation="horizontal">
+    <div className="mt-4 flex flex-wrap items-center gap-2" role="tablist" aria-orientation="horizontal">
       {SEASON_OPTIONS.map((year) => (
         <Chip
           key={year}
@@ -114,6 +103,14 @@ export default function StandingsPage() {
           {year}
         </Chip>
       ))}
+      {selectedYear === CURRENT_SEASON && (
+        <Link
+          href="/standings/playoff-lab"
+          className="ml-0 rounded-full border border-[var(--accent)] px-3 py-1.5 text-xs font-bold text-[var(--accent)] transition hover:bg-[color-mix(in_srgb,var(--accent)_10%,transparent)] sm:ml-2"
+        >
+          Playoff Scenario Lab
+        </Link>
+      )}
     </div>
   );
 
@@ -172,24 +169,12 @@ export default function StandingsPage() {
             <table className="min-w-full">
               <thead>
                 <tr style={{ background: PANEL.headerBg, borderBottom: `1px solid ${PANEL.hairline}` }}>
-                  <th scope="col" className={thClass} style={broadcastFaintTextStyle}>
-                    Seed
-                  </th>
-                  <th scope="col" className={thClass} style={broadcastFaintTextStyle}>
-                    Team
-                  </th>
-                  <th scope="col" className={thClass} aria-sort={sortAriaSort('wins')}>
-                    {sortHeader('wins', 'Record')}
-                  </th>
-                  <th scope="col" className={thClass} aria-sort={sortAriaSort('fpts')}>
-                    {sortHeader('fpts', 'PF')}
-                  </th>
-                  <th scope="col" className={thClass} aria-sort={sortAriaSort('fptsAgainst')}>
-                    {sortHeader('fptsAgainst', 'PA')}
-                  </th>
-                  <th scope="col" className={thClass} style={broadcastFaintTextStyle}>
-                    Streak
-                  </th>
+                  <th scope="col" className={thClass} style={broadcastFaintTextStyle}>Seed</th>
+                  <th scope="col" className={thClass} style={broadcastFaintTextStyle}>Team</th>
+                  <th scope="col" className={thClass} aria-sort={sortAriaSort('wins')}>{sortHeader('wins', 'Record')}</th>
+                  <th scope="col" className={thClass} aria-sort={sortAriaSort('fpts')}>{sortHeader('fpts', 'PF')}</th>
+                  <th scope="col" className={thClass} aria-sort={sortAriaSort('fptsAgainst')}>{sortHeader('fptsAgainst', 'PA')}</th>
+                  <th scope="col" className={thClass} style={broadcastFaintTextStyle}>Streak</th>
                 </tr>
               </thead>
               <tbody>
@@ -211,26 +196,18 @@ export default function StandingsPage() {
                         }
                       }}
                     >
-                      <td className="whitespace-nowrap px-4 py-3 text-sm font-semibold tabular-nums sm:px-5" style={broadcastMutedTextStyle}>
-                        {team.seed}
-                      </td>
+                      <td className="whitespace-nowrap px-4 py-3 text-sm font-semibold tabular-nums sm:px-5" style={broadcastMutedTextStyle}>{team.seed}</td>
                       <td className="whitespace-nowrap px-4 py-3 sm:px-5">
                         <div className="flex items-center gap-3">
                           <BroadcastTeamLogo team={team.teamName} accent={accent} size="sm" />
-                          <span className="truncate text-sm font-bold" style={broadcastBodyTextStyle}>
-                            {team.teamName}
-                          </span>
+                          <span className="truncate text-sm font-bold" style={broadcastBodyTextStyle}>{team.teamName}</span>
                         </div>
                       </td>
                       <td className="whitespace-nowrap px-4 py-3 text-sm font-semibold tabular-nums sm:px-5" style={broadcastBodyTextStyle}>
                         {team.wins}-{team.losses}{team.ties > 0 ? `-${team.ties}` : ''}
                       </td>
-                      <td className="whitespace-nowrap px-4 py-3 text-sm tabular-nums sm:px-5" style={broadcastBodyTextStyle}>
-                        {team.fpts.toFixed(2)}
-                      </td>
-                      <td className="whitespace-nowrap px-4 py-3 text-sm tabular-nums sm:px-5" style={broadcastMutedTextStyle}>
-                        {team.fptsAgainst.toFixed(2)}
-                      </td>
+                      <td className="whitespace-nowrap px-4 py-3 text-sm tabular-nums sm:px-5" style={broadcastBodyTextStyle}>{team.fpts.toFixed(2)}</td>
+                      <td className="whitespace-nowrap px-4 py-3 text-sm tabular-nums sm:px-5" style={broadcastMutedTextStyle}>{team.fptsAgainst.toFixed(2)}</td>
                       <td className="whitespace-nowrap px-4 py-3 text-sm font-semibold sm:px-5" style={broadcastMutedTextStyle}>
                         {streak && streak.type && streak.length > 0 ? `${streak.type}${streak.length}` : '—'}
                       </td>
