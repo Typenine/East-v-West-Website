@@ -6,7 +6,6 @@ import { buildLeagueProjectionSnapshotsV3 } from '@/lib/fantasy/weekly-projectio
 import {
   getLeague,
   getLeagueMatchups,
-  getNFLState,
   getRosterIdToTeamNameMap,
   getTeamsData,
   type SleeperMatchup,
@@ -21,10 +20,9 @@ function clamp(value: number, min: number, max: number) {
 
 export default async function PlayoffLabPage() {
   const leagueId = LEAGUE_IDS.CURRENT;
-  const [teamsData, league, nflState, nameMap] = await Promise.all([
+  const [teamsData, league, nameMap] = await Promise.all([
     getTeamsData(leagueId),
     getLeague(leagueId).catch(() => null),
-    getNFLState().catch(() => ({ week: 1 } as { week?: number })),
     getRosterIdToTeamNameMap(leagueId).catch(() => new Map<number, string>()),
   ]);
 
@@ -33,21 +31,34 @@ export default async function PlayoffLabPage() {
     playoff_week_start?: number;
     playoff_start_week?: number;
   };
-  const playoffTeams = Math.max(2, Number(settings.playoff_teams ?? 6));
+  const playoffTeams = Math.max(2, Number(settings.playoff_teams ?? 7));
   const playoffStartWeek = Number(settings.playoff_week_start ?? settings.playoff_start_week ?? 15);
   const regularSeasonEnd = clamp(playoffStartWeek - 1, 1, 17);
-  const currentWeek = clamp(Number((nflState as { week?: number }).week ?? 1), 1, regularSeasonEnd);
+
+  // Do not use Sleeper's NFL-state week here. During preseason that number is the
+  // preseason week (for example, Week 3), not East v. West's fantasy week. The
+  // standings themselves tell us how many fantasy weeks have actually completed.
+  const completedWeeks = teamsData.length
+    ? clamp(
+        Math.min(...teamsData.map((team) => Math.max(0, team.wins + team.losses + team.ties))),
+        0,
+        regularSeasonEnd,
+      )
+    : 0;
+  const scenarioStartWeek = Math.min(regularSeasonEnd + 1, completedWeeks + 1);
 
   const [history, currentProjections] = await Promise.all([
     Promise.all(
-      Array.from({ length: Math.max(0, currentWeek - 1) }, (_, index) => index + 1)
+      Array.from({ length: completedWeeks }, (_, index) => index + 1)
         .map((week) => getLeagueMatchups(leagueId, week).catch(() => [] as SleeperMatchup[])),
     ),
-    buildLeagueProjectionSnapshotsV3({
-      season: CURRENT_SEASON,
-      week: currentWeek,
-      saveSnapshots: false,
-    }).catch(() => []),
+    scenarioStartWeek <= regularSeasonEnd
+      ? buildLeagueProjectionSnapshotsV3({
+          season: CURRENT_SEASON,
+          week: scenarioStartWeek,
+          saveSnapshots: false,
+        }).catch(() => [])
+      : Promise.resolve([]),
   ]);
 
   const projectionByTeam = new Map(
@@ -93,7 +104,9 @@ export default async function PlayoffLabPage() {
     };
   });
 
-  const remainingWeeks = Array.from({ length: regularSeasonEnd - currentWeek + 1 }, (_, index) => currentWeek + index);
+  const remainingWeeks = scenarioStartWeek <= regularSeasonEnd
+    ? Array.from({ length: regularSeasonEnd - scenarioStartWeek + 1 }, (_, index) => scenarioStartWeek + index)
+    : [];
   const remaining = await Promise.all(
     remainingWeeks.map(async (week) => ({
       week,
@@ -139,8 +152,9 @@ export default async function PlayoffLabPage() {
           teams={teams}
           games={games}
           playoffTeams={playoffTeams}
-          currentWeek={currentWeek}
+          scenarioStartWeek={scenarioStartWeek}
           regularSeasonEnd={regularSeasonEnd}
+          completedWeeks={completedWeeks}
         />
       </div>
     </div>
