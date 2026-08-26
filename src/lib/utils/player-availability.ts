@@ -23,6 +23,10 @@ export interface AvailabilitySnapshotArgs {
   playerIds: string[];
 }
 
+type SleeperPlayerWithPractice = SleeperPlayer & {
+  practice_participation?: string | null;
+};
+
 const tierActiveProbability: Record<PlayerAvailabilityTier, number> = {
   starter: 0.98,
   primary_backup: 0.97,
@@ -144,7 +148,11 @@ function noteFantasyLineupHistory(entry: PlayerAvailabilityEntry, starts: number
   entry.reasons.push(`fantasy-lineup-starts-${starts}`);
 }
 
-function adjustForInjury(entry: PlayerAvailabilityEntry, injury: SleeperInjury | undefined) {
+function adjustForInjury(
+  entry: PlayerAvailabilityEntry,
+  injury: SleeperInjury | undefined,
+  playerPractice?: string | null,
+) {
   const status = injury?.status?.toLowerCase();
   if (status === 'out' || status === 'suspended' || status === 'inactive') {
     entry.weight = Math.min(entry.weight, 0.01);
@@ -157,11 +165,15 @@ function adjustForInjury(entry: PlayerAvailabilityEntry, injury: SleeperInjury |
     entry.weight = Math.min(entry.weight, 0.82);
     entry.reasons.push('injury-Q');
   }
-  const practice = injury?.practice_participation?.toLowerCase();
-  if (practice?.includes('dnp')) {
+
+  // Sleeper documents practice_participation on the main player map. Some
+  // injury-feed entries also carry it, so use either source rather than
+  // depending on the injury list alone.
+  const practice = String(injury?.practice_participation || playerPractice || '').toLowerCase();
+  if (practice.includes('dnp') || practice.includes('did not practice')) {
     entry.weight *= 0.82;
     entry.reasons.push('practice-DNP');
-  } else if (practice?.includes('limited')) {
+  } else if (practice.includes('limited')) {
     entry.weight *= 0.94;
     entry.reasons.push('practice-limited');
   }
@@ -185,7 +197,7 @@ export async function buildPlayerAvailabilitySnapshot(args: AvailabilitySnapshot
   const weeksConsidered = Math.max(0, uptoWeek - 1);
 
   for (const playerId of playerIds) {
-    const player = players[playerId];
+    const player = players[playerId] as SleeperPlayerWithPractice | undefined;
     const injury = injuryMap.get(playerId);
     const base = resolveAvailabilityFromSleeper(player, injury);
     const entry: PlayerAvailabilityEntry = {
@@ -204,7 +216,7 @@ export async function buildPlayerAvailabilitySnapshot(args: AvailabilitySnapshot
     }
     entry.weight = Math.min(entry.weight, tierActiveProbability[entry.tier] ?? 0.92);
     noteFantasyLineupHistory(entry, lineupStarts.get(playerId) ?? 0, weeksConsidered);
-    adjustForInjury(entry, injury);
+    adjustForInjury(entry, injury, player?.practice_participation);
     entry.weight = Math.max(0, Math.min(1, Number(entry.weight.toFixed(3))));
     if (entry.reasons.length === 0) entry.reasons.push('no-flags');
     result[playerId] = entry;
