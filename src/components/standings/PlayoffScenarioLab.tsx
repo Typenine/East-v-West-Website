@@ -28,8 +28,9 @@ type Props = {
   teams: PlayoffLabTeam[];
   games: PlayoffLabGame[];
   playoffTeams: number;
-  currentWeek: number;
+  scenarioStartWeek: number;
   regularSeasonEnd: number;
+  completedWeeks: number;
 };
 
 type SimulationRow = PlayoffLabTeam & {
@@ -138,14 +139,24 @@ function simulate(
     .sort((a, b) => b.playoffPct - a.playoffPct || (a.avgSeed ?? 99) - (b.avgSeed ?? 99));
 }
 
-export default function PlayoffScenarioLab({ teams, games, playoffTeams, currentWeek, regularSeasonEnd }: Props) {
+export default function PlayoffScenarioLab({ teams, games, playoffTeams, scenarioStartWeek, regularSeasonEnd, completedWeeks }: Props) {
   const [picks, setPicks] = useState<Record<string, number | null>>({});
   const results = useMemo(() => simulate(teams, games, picks, playoffTeams), [teams, games, picks, playoffTeams]);
   const selectedCount = Object.values(picks).filter((value) => value !== null && value !== undefined).length;
   const weeks = useMemo(() => Array.from(new Set(games.map((game) => game.week))).sort((a, b) => a - b), [games]);
+  const firstWeek = weeks[0] ?? scenarioStartWeek;
+  const [openWeeks, setOpenWeeks] = useState<Record<number, boolean>>(() => ({ [firstWeek]: true }));
 
   const choose = (gameId: string, rosterId: number | null) => {
     setPicks((current) => ({ ...current, [gameId]: rosterId }));
+  };
+
+  const toggleWeek = (week: number) => {
+    setOpenWeeks((current) => ({ ...current, [week]: !current[week] }));
+  };
+
+  const setAllWeeks = (open: boolean) => {
+    setOpenWeeks(Object.fromEntries(weeks.map((week) => [week, open])));
   };
 
   return (
@@ -181,10 +192,27 @@ export default function PlayoffScenarioLab({ teams, games, playoffTeams, current
       <Card>
         <CardHeader>
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <CardTitle>Scenario Lab</CardTitle>
-            <button type="button" onClick={() => setPicks({})} className="rounded-md border border-[var(--border)] px-3 py-1.5 text-xs font-semibold hover:bg-white/5">
-              Reset scenarios
-            </button>
+            <div>
+              <CardTitle>Scenario Lab</CardTitle>
+              <div className="mt-1 text-xs text-[var(--muted)]">
+                {completedWeeks > 0 ? `${completedWeeks} completed week${completedWeeks === 1 ? '' : 's'} already baked into the odds.` : 'Preseason baseline. Week 1 is the first scenario week.'}
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {weeks.length > 1 && (
+                <>
+                  <button type="button" onClick={() => setAllWeeks(true)} className="rounded-md border border-[var(--border)] px-3 py-1.5 text-xs font-semibold hover:bg-white/5">
+                    Expand all
+                  </button>
+                  <button type="button" onClick={() => setAllWeeks(false)} className="rounded-md border border-[var(--border)] px-3 py-1.5 text-xs font-semibold hover:bg-white/5">
+                    Collapse all
+                  </button>
+                </>
+              )}
+              <button type="button" onClick={() => setPicks({})} className="rounded-md border border-[var(--border)] px-3 py-1.5 text-xs font-semibold hover:bg-white/5">
+                Reset scenarios
+              </button>
+            </div>
           </div>
         </CardHeader>
         <CardContent>
@@ -192,54 +220,74 @@ export default function PlayoffScenarioLab({ teams, games, playoffTeams, current
             Pick winners for any remaining games. Unselected games are simulated from each team&apos;s current scoring profile. {selectedCount} result{selectedCount === 1 ? '' : 's'} locked.
           </p>
           {weeks.length === 0 ? (
-            <p className="text-sm text-[var(--muted)]">No remaining regular-season matchups are available yet.</p>
+            <p className="text-sm text-[var(--muted)]">No remaining regular-season matchups are available.</p>
           ) : (
-            <div className="space-y-5">
-              {weeks.map((week) => (
-                <section key={week}>
-                  <h3 className="mb-2 text-xs font-black uppercase tracking-[0.16em] text-[var(--muted)]">Week {week}</h3>
-                  <div className="grid gap-2 lg:grid-cols-2">
-                    {games.filter((game) => game.week === week).map((game) => {
-                      const selected = picks[game.id] ?? null;
-                      return (
-                        <div key={game.id} className="rounded-xl border border-[var(--border)] p-3">
-                          <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
-                            <button
-                              type="button"
-                              onClick={() => choose(game.id, game.aRosterId)}
-                              className="rounded-lg px-3 py-2 text-left text-xs font-bold transition"
-                              style={selected === game.aRosterId ? { background: 'var(--accent)', color: '#fff' } : { background: 'var(--surface-strong)' }}
-                            >
-                              {game.aTeam}
-                            </button>
-                            <span className="text-[10px] font-black text-[var(--muted)]">VS</span>
-                            <button
-                              type="button"
-                              onClick={() => choose(game.id, game.bRosterId)}
-                              className="rounded-lg px-3 py-2 text-right text-xs font-bold transition"
-                              style={selected === game.bRosterId ? { background: 'var(--accent)', color: '#fff' } : { background: 'var(--surface-strong)' }}
-                            >
-                              {game.bTeam}
-                            </button>
-                          </div>
-                          {selected !== null && (
-                            <button type="button" onClick={() => choose(game.id, null)} className="mt-2 text-[11px] text-[var(--muted)] hover:text-[var(--text)]">
-                              Return to simulation
-                            </button>
-                          )}
+            <div className="space-y-3">
+              {weeks.map((week) => {
+                const weekGames = games.filter((game) => game.week === week);
+                const lockedInWeek = weekGames.filter((game) => picks[game.id] !== null && picks[game.id] !== undefined).length;
+                const open = Boolean(openWeeks[week]);
+                return (
+                  <section key={week} className="overflow-hidden rounded-xl border border-[var(--border)]">
+                    <button
+                      type="button"
+                      onClick={() => toggleWeek(week)}
+                      aria-expanded={open}
+                      className="flex w-full items-center justify-between gap-3 bg-[var(--surface-strong)] px-4 py-3 text-left transition hover:bg-white/[0.04]"
+                    >
+                      <div>
+                        <div className="text-xs font-black uppercase tracking-[0.16em]">Week {week}</div>
+                        <div className="mt-0.5 text-[11px] text-[var(--muted)]">
+                          {weekGames.length} matchup{weekGames.length === 1 ? '' : 's'}{lockedInWeek ? ` · ${lockedInWeek} locked` : ''}
                         </div>
-                      );
-                    })}
-                  </div>
-                </section>
-              ))}
+                      </div>
+                      <span className="text-lg font-bold text-[var(--muted)]" aria-hidden="true">{open ? '−' : '+'}</span>
+                    </button>
+                    {open && (
+                      <div className="grid gap-2 border-t border-[var(--border)] p-3 lg:grid-cols-2">
+                        {weekGames.map((game) => {
+                          const selected = picks[game.id] ?? null;
+                          return (
+                            <div key={game.id} className="rounded-xl border border-[var(--border)] p-3">
+                              <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => choose(game.id, game.aRosterId)}
+                                  className="rounded-lg px-3 py-2 text-left text-xs font-bold transition"
+                                  style={selected === game.aRosterId ? { background: 'var(--accent)', color: '#fff' } : { background: 'var(--surface-strong)' }}
+                                >
+                                  {game.aTeam}
+                                </button>
+                                <span className="text-[10px] font-black text-[var(--muted)]">VS</span>
+                                <button
+                                  type="button"
+                                  onClick={() => choose(game.id, game.bRosterId)}
+                                  className="rounded-lg px-3 py-2 text-right text-xs font-bold transition"
+                                  style={selected === game.bRosterId ? { background: 'var(--accent)', color: '#fff' } : { background: 'var(--surface-strong)' }}
+                                >
+                                  {game.bTeam}
+                                </button>
+                              </div>
+                              {selected !== null && (
+                                <button type="button" onClick={() => choose(game.id, null)} className="mt-2 text-[11px] text-[var(--muted)] hover:text-[var(--text)]">
+                                  Return to simulation
+                                </button>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </section>
+                );
+              })}
             </div>
           )}
         </CardContent>
       </Card>
 
       <div className="text-xs text-[var(--muted)]">
-        Current data: Sleeper. Scenario probabilities: East v. West simulation using current record and scoring distributions. Regular season Weeks {currentWeek}-{regularSeasonEnd}; {playoffTeams} playoff spots.
+        Current data: Sleeper. Completed East v. West results are baked into each team&apos;s live record, points for, and scoring profile, so odds update as results are recorded. Only Weeks {scenarioStartWeek <= regularSeasonEnd ? `${scenarioStartWeek}-${regularSeasonEnd}` : 'complete'} are simulated; {playoffTeams} playoff spots.
       </div>
     </div>
   );
